@@ -234,12 +234,15 @@ class AirtableClient:
         self,
         record_id: str,
         image_url: str,
+        drive_url: Optional[str] = None,
     ) -> dict:
         """Update an image record with the generated image."""
         updates = {
             "Image": [{"url": image_url}],
             "Status": "Done",
         }
+        if drive_url:
+            updates["Drive Image URL"] = drive_url
         record = self.images_table.update(record_id, updates)
         return {"id": record["id"], **record["fields"]}
 

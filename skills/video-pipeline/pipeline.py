@@ -523,13 +523,15 @@ class VideoPipeline:
                 # Download image
                 image_content = await self.image_client.download_image(image_urls[0])
                 
-                # Upload to Google Drive
+                # Upload to Google Drive and get permanent URL
                 filename = f"Scene_{str(scene).zfill(2)}_{str(index).zfill(2)}.png"
-                self.google.upload_image(image_content, filename, self.project_folder_id)
+                drive_file = self.google.upload_image(image_content, filename, self.project_folder_id)
+                drive_url = self.google.make_file_public(drive_file["id"])
                 
-                # Update Airtable
-                self.airtable.update_image_record(img_record["id"], image_urls[0])
+                # Update Airtable with both temp Kie.ai URL and permanent Drive URL
+                self.airtable.update_image_record(img_record["id"], image_urls[0], drive_url=drive_url)
                 image_count += 1
+                print(f"      ✅ Uploaded to Drive: {drive_url}")
         
         self.slack.notify_images_done()
         print(f"    ✅ Generated {image_count} images")
@@ -606,12 +608,20 @@ class VideoPipeline:
         for i, img_record in enumerate(pending_videos, 1):
             scene = img_record.get("Scene", 0)
             index = img_record.get("Image Index", 0)
-            image_url_list = img_record.get("Image", [])
-            image_url = image_url_list[0].get("url") if image_url_list else None
+            
+            # Use permanent Drive URL instead of expiring Airtable attachment
+            drive_url = img_record.get("Drive Image URL")
+            if not drive_url:
+                # Fallback to attachment URL if Drive URL missing (legacy records)
+                image_url_list = img_record.get("Image", [])
+                drive_url = image_url_list[0].get("url") if image_url_list else None
+            
             motion_prompt = img_record.get("Video Prompt")
             
-            if not image_url or not motion_prompt:
+            if not drive_url or not motion_prompt:
                 continue
+            
+            image_url = drive_url  # Use Drive URL for generation
                 
             print(f"    [{i}/{total}] Generating video for scene {scene}, image {index}...")
             print(f"      Motion: {motion_prompt}")
