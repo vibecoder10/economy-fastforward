@@ -1,0 +1,1421 @@
+{
+  "name": "Script Bot",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "@n8n/n8n-nodes-langchain.toolThink",
+      "typeVersion": 1.1,
+      "position": [
+        944,
+        496
+      ],
+      "id": "64449984-30ee-4c3e-8525-513a6ac6da0c",
+      "name": "Think1"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "claude-opus-4-5-20251101",
+          "mode": "list",
+          "cachedResultName": "Claude Opus 4.5"
+        },
+        "options": {
+          "thinking": false
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.3,
+      "position": [
+        672,
+        464
+      ],
+      "id": "ce3d1b0e-9c76-443e-8c43-ded38c85049d",
+      "name": "Anthropic Chat Model",
+      "credentials": {
+        "anthropicApi": {
+          "id": "cUdiv3ckrD14oRe5",
+          "name": "Anthropic account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "create",
+        "base": {
+          "__rl": true,
+          "value": "appCIcC58YSTwK3CE",
+          "mode": "list",
+          "cachedResultName": "v0 | Hyperconsistent Storymaker",
+          "cachedResultUrl": "https://airtable.com/appCIcC58YSTwK3CE"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tbluGSepeZNgb0NxG",
+          "mode": "list",
+          "cachedResultName": "Script",
+          "cachedResultUrl": "https://airtable.com/appCIcC58YSTwK3CE/tbluGSepeZNgb0NxG"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "scene": "={{ $('Reach Back for Data').all()[$runIndex].json.scene_number }}",
+            "Scene text": "={{ $json.output }}",
+            "Title": "={{ $('Create a document').first().json.name }}",
+            "Voice ID": "G17SuINrv2H9FC6nvetn",
+            "Script Status": "[\"Create\"]"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "ID",
+              "displayName": "ID",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Voice ID",
+              "displayName": "Voice ID",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Script Status",
+              "displayName": "Script Status",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "array",
+              "options": [
+                {
+                  "name": "Create",
+                  "value": "Create"
+                },
+                {
+                  "name": "Finished",
+                  "value": "Finished"
+                }
+              ],
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Title",
+              "displayName": "Title",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "scene",
+              "displayName": "scene",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Scene text",
+              "displayName": "Scene text",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Voice Status",
+              "displayName": "Voice Status",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "Create",
+                  "value": "Create"
+                },
+                {
+                  "name": "Done",
+                  "value": "Done"
+                }
+              ],
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Voice Over",
+              "displayName": "Voice Over",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "array",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Dive Folder",
+              "displayName": "Dive Folder",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        2208,
+        800
+      ],
+      "id": "146d1ded-bf80-4fb6-a285-98b67cf129eb",
+      "name": "Create a record",
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "kakenJ630RUmzctO",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "folder",
+        "name": "={{ $('Get Ideas').item.json['Video Title'] }}",
+        "driveId": {
+          "__rl": true,
+          "value": "My Drive",
+          "mode": "list",
+          "cachedResultName": "My Drive",
+          "cachedResultUrl": "https://drive.google.com/drive/my-drive"
+        },
+        "folderId": {
+          "__rl": true,
+          "value": "1zqsSvdyLWTRIt-Ri8VQELbYHhJihn6YD",
+          "mode": "list",
+          "cachedResultName": "Economy Fastforward",
+          "cachedResultUrl": "https://drive.google.com/drive/folders/1zqsSvdyLWTRIt-Ri8VQELbYHhJihn6YD"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        1120,
+        368
+      ],
+      "id": "21cba8b5-9f33-43a2-85e3-7f8f335d1394",
+      "name": "Create folder",
+      "executeOnce": true,
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "gsA1Zf6hWFLfdLJi",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "folderId": "={{ $('Create folder').item.json.id }}",
+        "title": "={{ $json.name }}"
+      },
+      "type": "n8n-nodes-base.googleDocs",
+      "typeVersion": 2,
+      "position": [
+        1360,
+        368
+      ],
+      "id": "6026ae39-972e-4276-923c-c6378df85f6f",
+      "name": "Create a document",
+      "credentials": {
+        "googleDocsOAuth2Api": {
+          "id": "McOcpWinjl6kWMqa",
+          "name": "Google Docs account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentURL": "={{ $('Reach Back for Data').first().json.google_doc_id }}",
+        "actionsUi": {
+          "actionFields": [
+            {
+              "action": "insert",
+              "text": "={{ $json.fields['Scene text'] }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.googleDocs",
+      "typeVersion": 2,
+      "position": [
+        2384,
+        800
+      ],
+      "id": "099dbcd7-bdaf-4e6e-ae71-8f641524839d",
+      "name": "Update a document",
+      "credentials": {
+        "googleDocsOAuth2Api": {
+          "id": "McOcpWinjl6kWMqa",
+          "name": "Google Docs account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "C0A9U1X8NSW",
+          "mode": "list",
+          "cachedResultName": "production-agent"
+        },
+        "text": "=✅ Script is Done!\n\n📄 View your script: https://docs.google.com/document/d/{{ $('Create a document').first().json.id }}/edit\n\nLets now make the Voice Over 🗣️\n\nJust send back \"voice\" and well begin!\n\n",
+        "otherOptions": {}
+      },
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.4,
+      "position": [
+        2464,
+        352
+      ],
+      "id": "76238399-d1fc-4e6b-9062-5260802e21b6",
+      "name": "Send a message1",
+      "webhookId": "2701fc69-8bf7-4bd7-b9f1-682ce50e3291",
+      "executeOnce": true,
+      "credentials": {
+        "slackApi": {
+          "id": "4wSkVAZkvJ6E4ZlP",
+          "name": "Slack account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "C0A9U1X8NSW",
+          "mode": "list",
+          "cachedResultName": "production-agent"
+        },
+        "text": "Starting to Make the script 🏁 ! ",
+        "otherOptions": {}
+      },
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.4,
+      "position": [
+        304,
+        368
+      ],
+      "id": "4c9d755c-e596-4a93-8191-8cc9ad31ee53",
+      "name": "Send a message7",
+      "webhookId": "2701fc69-8bf7-4bd7-b9f1-682ce50e3291",
+      "credentials": {
+        "slackApi": {
+          "id": "4wSkVAZkvJ6E4ZlP",
+          "name": "Slack account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "search",
+        "base": {
+          "__rl": true,
+          "value": "appCIcC58YSTwK3CE",
+          "mode": "list",
+          "cachedResultName": "v0 | Hyperconsistent Storymaker",
+          "cachedResultUrl": "https://airtable.com/appCIcC58YSTwK3CE"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tblrAsJglokZSkC8m",
+          "mode": "list",
+          "cachedResultName": "Ideas",
+          "cachedResultUrl": "https://airtable.com/appCIcC58YSTwK3CE/tblrAsJglokZSkC8m"
+        },
+        "filterByFormula": "{Status} = \"Ready For Scripting\"",
+        "returnAll": false,
+        "limit": 1,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        480,
+        368
+      ],
+      "id": "a1f8f472-458e-4c3d-b1b5-01fc2b852580",
+      "name": "Get Ideas",
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "kakenJ630RUmzctO",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Create a 20-scene Beat Sheet for a documentary video titled: \"{{ $json[\"Video Title\"] }}\".\n\nCONTEXT:\nHere is the core Narrative DNA (Past/Present/Future):\nPast Context: {{ $json[\"Past Context\"] }}\nPresent Parallel: {{ $json[\"Present Parallel\"] }}\nFuture Prediction: {{ $json[\"Future Prediction\"] }}\n\nHere is the REQUIRED Opening Hook (Use this for Scene 1):\n\"{{ $json[\"Hook Script\"] }}\"\n\nHere is the Writer Guidance/Tone:\n\"{{ $json[\"Writer Guidance\"] }}\"",
+        "options": {
+          "systemMessage": "You are a Master Storyteller and Narrative Architect.\n\nYour task is to create a 20-scene Beat Sheet for documentary videos.\n\nINSTRUCTIONS:\nCreate an outline for exactly 20 scenes following this narrative arc:\n1. INTRO (Scenes 1-4): Introduce the hook, the stakes, and the main question.\n2. BUILD-UP (Scenes 5-16): Escalate tension. Reveal the Past Context and Modern Shift. Show cause-and-effect.\n3. CONCLUSION (Scenes 17-20): Resolve the conflict with the Future Prediction. Echo the intro hook.\n\nCONSTRAINTS:\n- Do NOT write the full script yet.\n- Each beat should be a 1-sentence summary of what happens in that scene.\n- Output raw JSON only. No markdown formatting.\n\nREQUIRED OUTPUT FORMAT:\nYou must return a JSON object with this exact structure:\n{\n  \"script_outline\": [\n    { \"scene_number\": 1, \"beat\": \"Description of scene 1...\" },\n    { \"scene_number\": 2, \"beat\": \"Description of scene 2...\" }\n    // ... continues to 20\n  ]\n}"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3,
+      "position": [
+        720,
+        304
+      ],
+      "id": "9e80edcd-519f-46a5-8da5-f6dd242d936d",
+      "name": "Script Architect (Beat Sheet)"
+    },
+    {
+      "parameters": {
+        "jsCode": "// 1. REACH BACK to get the raw data from the Architect\n// Make sure this name matches your node exactly!\nconst architectNodeName = 'Script Architect (Beat Sheet)';\nconst architectData = $(architectNodeName).first().json;\n\nlet outline = [];\n\n// 2. INTELLIGENT PARSING (The Fix)\n// We check multiple places where the AI might have hidden the data\nlet rawContent = architectData.output || architectData.content || architectData.message?.content || architectData;\n\n// If it's a string (which your screenshot shows it is), we must clean and parse it\nif (typeof rawContent === 'string') {\n  // Remove any Markdown code blocks (```json ... ```) just in case\n  const cleanContent = rawContent.replace(/```json/g, '').replace(/```/g, '').trim();\n  \n  try {\n    const parsed = JSON.parse(cleanContent);\n    // Now we look for the array inside the parsed object\n    outline = parsed.script_outline || parsed.outline || parsed; \n  } catch (e) {\n    // If parsing fails, output the error so we can see it\n    return [{ json: { error: \"JSON Parse Failed\", raw: rawContent } }];\n  }\n} else if (typeof rawContent === 'object') {\n  // If it was already an object (rare but possible)\n  outline = rawContent.script_outline || rawContent;\n}\n\n// Safety check: Ensure we actually have an array\nif (!Array.isArray(outline)) {\n   return [{ json: { error: \"Data found, but it is not an array\", data: outline } }];\n}\n\n// 3. GET THE DOC ID from the immediate input\nconst googleDocId = $input.first().json.id;\n\n// 4. MERGE THEM\nreturn outline.map(scene => {\n  return {\n    json: {\n      scene_number: scene.scene_number,\n      scene_beat: scene.beat, \n      google_doc_id: googleDocId\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1584,
+        368
+      ],
+      "id": "c09b79c7-4d3c-4788-a720-8a70ed34e26f",
+      "name": "Reach Back for Data"
+    },
+    {
+      "parameters": {},
+      "type": "@n8n/n8n-nodes-langchain.toolThink",
+      "typeVersion": 1.1,
+      "position": [
+        2032,
+        976
+      ],
+      "id": "a3048df0-ca5e-4210-b8e1-fe35f7b69132",
+      "name": "Think"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "claude-opus-4-5-20251101",
+          "mode": "list",
+          "cachedResultName": "Claude Opus 4.5"
+        },
+        "options": {
+          "thinking": false
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.3,
+      "position": [
+        1888,
+        944
+      ],
+      "id": "cb8dc5e5-a0f8-4945-8c11-ce23e556c3d6",
+      "name": "Anthropic Chat Model4",
+      "credentials": {
+        "anthropicApi": {
+          "id": "cUdiv3ckrD14oRe5",
+          "name": "Anthropic account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Write the spoken narration for SCENE {{ $json.scene_number }} ONLY.\n\nCONTEXT:\nVideo Title: \"{{ $('Get Ideas').item.json['Video Title'] }}\"\nCurrent Scene Goal: \"{{ $json.scene_beat }}\"",
+        "options": {
+          "systemMessage": "You are the Voiceover Scriptwriter for a high-retention YouTube documentary.\n\nSTYLE GUIDE:\n- LENGTH: Strictly 180-200 words.\n- TONE: Urgent, authoritative, clear.\n- FORMAT: Spoken word only. No \"Scene 1\" labels. No \"Camera pans\".\n- CONTINUITY: If this is Scene 1, start with a hook. If it is Scene 20, conclude the thought.\n\nINSTRUCTION:\nWrite the script for the scene provided. Return ONLY the narration text."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3,
+      "position": [
+        1888,
+        800
+      ],
+      "id": "c3802228-b63e-493e-80ff-599bed3ce2be",
+      "name": "Writer Bot"
+    },
+    {
+      "parameters": {
+        "options": {
+          "reset": false
+        }
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1808,
+        368
+      ],
+      "id": "7df6d53a-f08c-4922-8f2c-62bcad7845ef",
+      "name": "Loop Over Items"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        2560,
+        800
+      ],
+      "id": "46410f87-560f-4539-bee5-c2541379f614",
+      "name": "Wait",
+      "webhookId": "94e489d7-6e3b-469a-84d5-83044cf6ff11"
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        16,
+        368
+      ],
+      "id": "0e8ed731-d30e-49a7-a347-c54201a0a538",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "base": {
+          "__rl": true,
+          "value": "appCIcC58YSTwK3CE",
+          "mode": "list",
+          "cachedResultName": "v0 | Hyperconsistent Storymaker",
+          "cachedResultUrl": "https://airtable.com/appCIcC58YSTwK3CE"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tblrAsJglokZSkC8m",
+          "mode": "list",
+          "cachedResultName": "Ideas",
+          "cachedResultUrl": "https://airtable.com/appCIcC58YSTwK3CE/tblrAsJglokZSkC8m"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $('Get Ideas').item.json.id }}",
+            "Status": "Ready For Scripting"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": false
+            },
+            {
+              "id": "Video Title",
+              "displayName": "Video Title",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Thumbnail",
+              "displayName": "Thumbnail",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "array",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Status",
+              "displayName": "Status",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "Idea Logged",
+                  "value": "Idea Logged"
+                },
+                {
+                  "name": "Ready For Scripting",
+                  "value": "Ready For Scripting"
+                },
+                {
+                  "name": "Ready For Visuals",
+                  "value": "Ready For Visuals"
+                },
+                {
+                  "name": "Done",
+                  "value": "Done"
+                }
+              ],
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Hook Script",
+              "displayName": "Hook Script",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Thumbnail Prompt",
+              "displayName": "Thumbnail Prompt",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Past Context",
+              "displayName": "Past Context",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Present Parallel",
+              "displayName": "Present Parallel",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Future Prediction",
+              "displayName": "Future Prediction",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Writer Guidance",
+              "displayName": "Writer Guidance",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Original DNA",
+              "displayName": "Original DNA",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Generated Ideas",
+              "displayName": "Generated Ideas",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Summary",
+              "displayName": "Summary",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Competitor Channel copy",
+              "displayName": "Competitor Channel copy",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Original Video Title",
+              "displayName": "Original Video Title",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Video URL",
+              "displayName": "Video URL",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "View Count",
+              "displayName": "View Count",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Thumbnail URL",
+              "displayName": "Thumbnail URL",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Published Date",
+              "displayName": "Published Date",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Days Old",
+              "displayName": "Days Old",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Full Analysis",
+              "displayName": "Full Analysis",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Scraped Date",
+              "displayName": "Scraped Date",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Slack Message TS",
+              "displayName": "Slack Message TS",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        2176,
+        368
+      ],
+      "id": "fdb77d93-a118-49c7-ab8f-31b8d8e45fd5",
+      "name": "Update record",
+      "executeOnce": true,
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "kakenJ630RUmzctO",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    }
+  ],
+  "pinData": {
+    "When Executed by Another Workflow": [
+      {
+        "json": {
+          "query": "start"
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      }
+    ],
+    "Create folder": [
+      {
+        "json": {
+          "kind": "drive#file",
+          "id": "1nhm7UQeO3rogqhnEc5iAzSClmVtaZq47",
+          "name": "Why AI's \"Fake Bubble\" Will Make You RICH: The Contrarian Playbook",
+          "mimeType": "application/vnd.google-apps.folder"
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      }
+    ],
+    "Create a document": [
+      {
+        "json": {
+          "kind": "drive#file",
+          "id": "12JrWoWPejNc9GTuejMhTZxGXbOP3sly0rXRMelatRrI",
+          "name": "Why AI's \"Fake Bubble\" Will Make You RICH: The Contrarian Playbook",
+          "mimeType": "application/vnd.google-apps.document"
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      }
+    ],
+    "Script Architect (Beat Sheet)": [
+      {
+        "json": {
+          "output": "{\"script_outline\":[{\"scene_number\":1,\"beat\":\"Open with the hook: Everyone's screaming 'AI bubble' just like they did with Amazon, Google, and Tesla—but the greatest fortunes were made by those who distinguished financial bubbles from technological revolutions, and the 'circular financing' critics mock is actually genius capital allocation.\"},{\"scene_number\":2,\"beat\":\"Establish the stakes: retail investors are being scared away from generational wealth by the same fear-mongering that kept people out of Amazon at $5 and Tesla at $25, while institutional money quietly accumulates positions.\"},{\"scene_number\":3,\"beat\":\"Present the skeptic's case fairly: lay out the 'smoking gun' accusations—circular financing between tech giants, customers becoming investors, aggressive depreciation schedules—making the fraud narrative sound plausible.\"},{\"scene_number\":4,\"beat\":\"Pose the central question: What if these 'red flags' aren't signs of a scam but rather the fingerprints of sophisticated ecosystem building during an unprecedented technological transition?\"},{\"scene_number\":5,\"beat\":\"Flashback to the 2000 dot-com crash: critics pointed to Amazon's negative cash flow and circular vendor financing deals as proof of fraud, while Webvan and Pets.com became shorthand for dismissing ALL internet commerce.\"},{\"scene_number\":6,\"beat\":\"Forensic deep-dive into Amazon's 'unsustainable' accusations: the same financial structures critics called 'accounting tricks' were actually infrastructure investments that became the foundation of a $1.7 trillion empire.\"},{\"scene_number\":7,\"beat\":\"Zoom out further to the railroad bubble of the 1840s: initial investors went bankrupt, critics declared the technology a scam, yet those 'failed' investments built the infrastructure for industrial civilization.\"},{\"scene_number\":8,\"beat\":\"Reveal the pattern: every transformative technology creates a 'bubble' that destroys early speculators while rewarding those who understand the difference between overvalued companies and undervalued revolutions.\"},{\"scene_number\":9,\"beat\":\"Pivot to the modern shift: introduce today's 'circular financing' not as financial engineering but as sophisticated ecosystem building—a rational response to unprecedented change requiring new analytical frameworks.\"},{\"scene_number\":10,\"beat\":\"Forensic breakdown of Microsoft's $13B OpenAI investment: this isn't circular financing fraud—it's securing strategic position in a platform shift, with compute credits creating mutual dependency that ensures alignment through the transition.\"},{\"scene_number\":11,\"beat\":\"Decode the Anthropic-AWS credit deal: Amazon's $4B investment exchanged for AWS compute commitments isn't money laundering—it's locking in the next generation of enterprise AI while guaranteeing infrastructure utilization.\"},{\"scene_number\":12,\"beat\":\"Explain NVIDIA's customer-investor dynamic: when your customers become your investors, critics cry 'fraud,' but the reality is aligned incentives creating a vertically integrated supply chain with shared upside.\"},{\"scene_number\":13,\"beat\":\"The depreciation math revelation: walk through the concrete numbers—a $50B data center depreciated over 10 years equals $5B/year expense, but if replacement is needed in 2 years, that's a hidden $25B liability critics are right to flag.\"},{\"scene_number\":14,\"beat\":\"The contrarian reframe: this depreciation arbitrage isn't accounting fraud—it reflects legitimate uncertainty about asset lifecycles during technological transitions, and companies betting on longer useful lives may be proven right.\"},{\"scene_number\":15,\"beat\":\"Balance sheet forensics: identify which cloud providers are most exposed by examining CapEx-to-depreciation ratios, deferred revenue quality, and customer concentration metrics that reveal the truth behind the headlines.\"},{\"scene_number\":16,\"beat\":\"The enabler thesis crystallizes: the real money isn't in AI companies themselves but in the infrastructure layer—the picks-and-shovels plays that profit regardless of which AI models ultimately win.\"},{\"scene_number\":17,\"beat\":\"Future prediction begins: in 36 months, today's skepticism will look as foolish as dismissing cloud computing in 2008 or smartphones in 2009, as the 'circular investments' forge a vertically integrated AI value chain.\"},{\"scene_number\":18,\"beat\":\"The numbers that matter: this emerging value chain will generate $500B+ in annual revenue, and early believers who bought during 'bubble panic' will see 300-500% returns while skeptics write post-mortems on their missed opportunity.\"},{\"scene_number\":19,\"beat\":\"The contrarian playbook revealed: specific actionable intelligence on which balance sheet metrics to monitor, which enablers have the strongest positions, and how to identify accumulation patterns institutions use.\"},{\"scene_number\":20,\"beat\":\"Echo the opening and close the loop: the real scam isn't the technology or the 'circular financing'—it's the fear-mongering that keeps ordinary investors sidelined while institutions accumulate the assets that will define the next decade of wealth creation.\"}]}"
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      }
+    ],
+    "Reach Back for Data": [
+      {
+        "json": {
+          "scene_number": 1,
+          "scene_beat": "Open with the hook: Everyone's screaming 'AI bubble' just like they did with Amazon, Google, and Tesla—but the greatest fortunes were made by those who distinguished financial bubbles from technological revolutions, and the 'circular financing' critics mock is actually genius capital allocation.",
+          "google_doc_id": "12JrWoWPejNc9GTuejMhTZxGXbOP3sly0rXRMelatRrI"
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      },
+      {
+        "json": {
+          "scene_number": 2,
+          "scene_beat": "Establish the stakes: retail investors are being scared away from generational wealth by the same fear-mongering that kept people out of Amazon at $5 and Tesla at $25, while institutional money quietly accumulates positions.",
+          "google_doc_id": "12JrWoWPejNc9GTuejMhTZxGXbOP3sly0rXRMelatRrI"
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      },
+      {
+        "json": {
+          "scene_number": 3,
+          "scene_beat": "Present the skeptic's case fairly: lay out the 'smoking gun' accusations—circular financing between tech giants, customers becoming investors, aggressive depreciation schedules—making the fraud narrative sound plausible.",
+          "google_doc_id": "12JrWoWPejNc9GTuejMhTZxGXbOP3sly0rXRMelatRrI"
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      },
+      {
+        "json": {
+          "scene_number": 4,
+          "scene_beat": "Pose the central question: What if these 'red flags' aren't signs of a scam but rather the fingerprints of sophisticated ecosystem building during an unprecedented technological transition?",
+          "google_doc_id": "12JrWoWPejNc9GTuejMhTZxGXbOP3sly0rXRMelatRrI"
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      },
+      {
+        "json": {
+          "scene_number": 5,
+          "scene_beat": "Flashback to the 2000 dot-com crash: critics pointed to Amazon's negative cash flow and circular vendor financing deals as proof of fraud, while Webvan and Pets.com became shorthand for dismissing ALL internet commerce.",
+          "google_doc_id": "12JrWoWPejNc9GTuejMhTZxGXbOP3sly0rXRMelatRrI"
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      },
+      {
+        "json": {
+          "scene_number": 6,
+          "scene_beat": "Forensic deep-dive into Amazon's 'unsustainable' accusations: the same financial structures critics called 'accounting tricks' were actually infrastructure investments that became the foundation of a $1.7 trillion empire.",
+          "google_doc_id": "12JrWoWPejNc9GTuejMhTZxGXbOP3sly0rXRMelatRrI"
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      },
+      {
+        "json": {
+          "scene_number": 7,
+          "scene_beat": "Zoom out further to the railroad bubble of the 1840s: initial investors went bankrupt, critics declared the technology a scam, yet those 'failed' investments built the infrastructure for industrial civilization.",
+          "google_doc_id": "12JrWoWPejNc9GTuejMhTZxGXbOP3sly0rXRMelatRrI"
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      },
+      {
+        "json": {
+          "scene_number": 8,
+          "scene_beat": "Reveal the pattern: every transformative technology creates a 'bubble' that destroys early speculators while rewarding those who understand the difference between overvalued companies and undervalued revolutions.",
+          "google_doc_id": "12JrWoWPejNc9GTuejMhTZxGXbOP3sly0rXRMelatRrI"
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      },
+      {
+        "json": {
+          "scene_number": 9,
+          "scene_beat": "Pivot to the modern shift: introduce today's 'circular financing' not as financial engineering but as sophisticated ecosystem building—a rational response to unprecedented change requiring new analytical frameworks.",
+          "google_doc_id": "12JrWoWPejNc9GTuejMhTZxGXbOP3sly0rXRMelatRrI"
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      },
+      {
+        "json": {
+          "scene_number": 10,
+          "scene_beat": "Forensic breakdown of Microsoft's $13B OpenAI investment: this isn't circular financing fraud—it's securing strategic position in a platform shift, with compute credits creating mutual dependency that ensures alignment through the transition.",
+          "google_doc_id": "12JrWoWPejNc9GTuejMhTZxGXbOP3sly0rXRMelatRrI"
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      },
+      {
+        "json": {
+          "scene_number": 11,
+          "scene_beat": "Decode the Anthropic-AWS credit deal: Amazon's $4B investment exchanged for AWS compute commitments isn't money laundering—it's locking in the next generation of enterprise AI while guaranteeing infrastructure utilization.",
+          "google_doc_id": "12JrWoWPejNc9GTuejMhTZxGXbOP3sly0rXRMelatRrI"
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      },
+      {
+        "json": {
+          "scene_number": 12,
+          "scene_beat": "Explain NVIDIA's customer-investor dynamic: when your customers become your investors, critics cry 'fraud,' but the reality is aligned incentives creating a vertically integrated supply chain with shared upside.",
+          "google_doc_id": "12JrWoWPejNc9GTuejMhTZxGXbOP3sly0rXRMelatRrI"
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      },
+      {
+        "json": {
+          "scene_number": 13,
+          "scene_beat": "The depreciation math revelation: walk through the concrete numbers—a $50B data center depreciated over 10 years equals $5B/year expense, but if replacement is needed in 2 years, that's a hidden $25B liability critics are right to flag.",
+          "google_doc_id": "12JrWoWPejNc9GTuejMhTZxGXbOP3sly0rXRMelatRrI"
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      },
+      {
+        "json": {
+          "scene_number": 14,
+          "scene_beat": "The contrarian reframe: this depreciation arbitrage isn't accounting fraud—it reflects legitimate uncertainty about asset lifecycles during technological transitions, and companies betting on longer useful lives may be proven right.",
+          "google_doc_id": "12JrWoWPejNc9GTuejMhTZxGXbOP3sly0rXRMelatRrI"
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      },
+      {
+        "json": {
+          "scene_number": 15,
+          "scene_beat": "Balance sheet forensics: identify which cloud providers are most exposed by examining CapEx-to-depreciation ratios, deferred revenue quality, and customer concentration metrics that reveal the truth behind the headlines.",
+          "google_doc_id": "12JrWoWPejNc9GTuejMhTZxGXbOP3sly0rXRMelatRrI"
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      },
+      {
+        "json": {
+          "scene_number": 16,
+          "scene_beat": "The enabler thesis crystallizes: the real money isn't in AI companies themselves but in the infrastructure layer—the picks-and-shovels plays that profit regardless of which AI models ultimately win.",
+          "google_doc_id": "12JrWoWPejNc9GTuejMhTZxGXbOP3sly0rXRMelatRrI"
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      },
+      {
+        "json": {
+          "scene_number": 17,
+          "scene_beat": "Future prediction begins: in 36 months, today's skepticism will look as foolish as dismissing cloud computing in 2008 or smartphones in 2009, as the 'circular investments' forge a vertically integrated AI value chain.",
+          "google_doc_id": "12JrWoWPejNc9GTuejMhTZxGXbOP3sly0rXRMelatRrI"
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      },
+      {
+        "json": {
+          "scene_number": 18,
+          "scene_beat": "The numbers that matter: this emerging value chain will generate $500B+ in annual revenue, and early believers who bought during 'bubble panic' will see 300-500% returns while skeptics write post-mortems on their missed opportunity.",
+          "google_doc_id": "12JrWoWPejNc9GTuejMhTZxGXbOP3sly0rXRMelatRrI"
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      },
+      {
+        "json": {
+          "scene_number": 19,
+          "scene_beat": "The contrarian playbook revealed: specific actionable intelligence on which balance sheet metrics to monitor, which enablers have the strongest positions, and how to identify accumulation patterns institutions use.",
+          "google_doc_id": "12JrWoWPejNc9GTuejMhTZxGXbOP3sly0rXRMelatRrI"
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      },
+      {
+        "json": {
+          "scene_number": 20,
+          "scene_beat": "Echo the opening and close the loop: the real scam isn't the technology or the 'circular financing'—it's the fear-mongering that keeps ordinary investors sidelined while institutions accumulate the assets that will define the next decade of wealth creation.",
+          "google_doc_id": "12JrWoWPejNc9GTuejMhTZxGXbOP3sly0rXRMelatRrI"
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      }
+    ],
+    "Create a record": [
+      {
+        "json": {
+          "id": "recR3iVu3t9uVVZiZ",
+          "createdTime": "2026-01-27T15:19:22.000Z",
+          "fields": {
+            "Title": "Why AI's \"Fake Bubble\" Will Make You RICH: The Contrarian Playbook",
+            "scene": 1,
+            "Scene text": "Everyone's screaming AI bubble. You've heard it a thousand times. The valuations don't make sense. The hype is unsustainable. It's going to crash.\n\nSound familiar?\n\nIn nineteen ninety-nine, they said the same thing about a little online bookstore called Amazon. In two thousand eight, analysts laughed at the idea that a search engine company was worth more than General Motors. And in twenty twenty, Wall Street mocked anyone foolish enough to believe Tesla could compete with a century of automotive dominance.\n\nThose skeptics aren't laughing anymore.\n\nHere's what most people miss: the greatest fortunes in history weren't made by those who avoided bubbles. They were made by those who could tell the difference between a financial bubble and a technological revolution.\n\nAnd right now, the loudest voices are pointing at something they call \"circular financing\" in the AI industry—big tech companies buying from each other, investing in startups that turn around and purchase their cloud services. They call it fake growth. A house of cards.\n\nBut what if they're wrong? What if what critics mock as circular is actually one of the most sophisticated capital allocation strategies ever deployed?\n\nLet's break down what's really happening.",
+            "Script Status": [
+              "Create"
+            ],
+            "Voice ID": "G17SuINrv2H9FC6nvetn"
+          }
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      }
+    ],
+    "Update a document": [
+      {
+        "json": {
+          "documentId": "12JrWoWPejNc9GTuejMhTZxGXbOP3sly0rXRMelatRrI"
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      }
+    ],
+    "Writer Bot": [
+      {
+        "json": {
+          "output": "Everyone's screaming AI bubble. You've heard it a thousand times. The valuations don't make sense. The hype is unsustainable. It's going to crash.\n\nSound familiar?\n\nIn nineteen ninety-nine, they said the same thing about a little online bookstore called Amazon. In two thousand eight, analysts laughed at the idea that a search engine company was worth more than General Motors. And in twenty twenty, Wall Street mocked anyone foolish enough to believe Tesla could compete with a century of automotive dominance.\n\nThose skeptics aren't laughing anymore.\n\nHere's what most people miss: the greatest fortunes in history weren't made by those who avoided bubbles. They were made by those who could tell the difference between a financial bubble and a technological revolution.\n\nAnd right now, the loudest voices are pointing at something they call \"circular financing\" in the AI industry—big tech companies buying from each other, investing in startups that turn around and purchase their cloud services. They call it fake growth. A house of cards.\n\nBut what if they're wrong? What if what critics mock as circular is actually one of the most sophisticated capital allocation strategies ever deployed?\n\nLet's break down what's really happening."
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      }
+    ],
+    "Wait": [
+      {
+        "json": {
+          "documentId": "12JrWoWPejNc9GTuejMhTZxGXbOP3sly0rXRMelatRrI"
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      }
+    ],
+    "Send a message7": [
+      {
+        "json": {
+          "ok": true,
+          "channel": "C0A9U1X8NSW",
+          "message": {
+            "user": "U0A8ZS1J1RD",
+            "type": "message",
+            "ts": "1769526733.619229",
+            "bot_id": "B0A98U13JN7",
+            "app_id": "A0A9BS7HNLD",
+            "text": "Starting to Make the script :checkered_flag: ! \n_Automated with this <https://ryguy92.app.n8n.cloud/workflow/V9ly8VyGB6nCf8mX?utm_source=n8n-internal&amp;utm_medium=powered_by&amp;utm_campaign=n8n-nodes-base.slack_747d48093dd1c9d7f37ddb21ddd6aed0a10f79f752a6a85c87ebd116dd406794|n8n workflow>_",
+            "team": "T061PMBUT7D",
+            "bot_profile": {
+              "id": "B0A98U13JN7",
+              "app_id": "A0A9BS7HNLD",
+              "user_id": "U0A8ZS1J1RD",
+              "name": "n8n",
+              "icons": {
+                "image_36": "https://a.slack-edge.com/80588/img/plugins/app/bot_36.png",
+                "image_48": "https://a.slack-edge.com/80588/img/plugins/app/bot_48.png",
+                "image_72": "https://a.slack-edge.com/80588/img/plugins/app/service_72.png"
+              },
+              "deleted": false,
+              "updated": 1768750138,
+              "team_id": "T061PMBUT7D"
+            },
+            "blocks": [
+              {
+                "type": "rich_text",
+                "block_id": "krKE",
+                "elements": [
+                  {
+                    "type": "rich_text_section",
+                    "elements": [
+                      {
+                        "type": "text",
+                        "text": "Starting to Make the script "
+                      },
+                      {
+                        "type": "emoji",
+                        "name": "checkered_flag",
+                        "unicode": "1f3c1"
+                      },
+                      {
+                        "type": "text",
+                        "text": " ! \n"
+                      },
+                      {
+                        "type": "text",
+                        "text": "Automated with this ",
+                        "style": {
+                          "italic": true
+                        }
+                      },
+                      {
+                        "type": "link",
+                        "url": "https://ryguy92.app.n8n.cloud/workflow/V9ly8VyGB6nCf8mX?utm_source=n8n-internal&amp;utm_medium=powered_by&amp;utm_campaign=n8n-nodes-base.slack_747d48093dd1c9d7f37ddb21ddd6aed0a10f79f752a6a85c87ebd116dd406794",
+                        "text": "n8n workflow",
+                        "style": {
+                          "italic": true
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          "message_timestamp": "1769526733.619229"
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      }
+    ]
+  },
+  "connections": {
+    "Think1": {
+      "ai_tool": [
+        [
+          {
+            "node": "Script Architect (Beat Sheet)",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anthropic Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Script Architect (Beat Sheet)",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create a record": {
+      "main": [
+        [
+          {
+            "node": "Update a document",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create folder": {
+      "main": [
+        [
+          {
+            "node": "Create a document",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create a document": {
+      "main": [
+        [
+          {
+            "node": "Reach Back for Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update a document": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send a message7": {
+      "main": [
+        [
+          {
+            "node": "Get Ideas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Ideas": {
+      "main": [
+        [
+          {
+            "node": "Script Architect (Beat Sheet)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Script Architect (Beat Sheet)": {
+      "main": [
+        [
+          {
+            "node": "Create folder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reach Back for Data": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Think": {
+      "ai_tool": [
+        [
+          {
+            "node": "Writer Bot",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anthropic Chat Model4": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Writer Bot",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Writer Bot": {
+      "main": [
+        [
+          {
+            "node": "Create a record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [
+          {
+            "node": "Update record",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Writer Bot",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Send a message7",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send a message1": {
+      "main": [
+        []
+      ]
+    },
+    "Update record": {
+      "main": [
+        [
+          {
+            "node": "Send a message1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "42d2ad04-e6d5-4f3a-ba42-604237a6946b",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "747d48093dd1c9d7f37ddb21ddd6aed0a10f79f752a6a85c87ebd116dd406794"
+  },
+  "id": "V9ly8VyGB6nCf8mX",
+  "tags": []
+}

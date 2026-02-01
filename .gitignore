@@ -1,0 +1,47 @@
+# Dependencies
+node_modules/
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Build outputs
+dist/
+out/
+build/
+*.mp4
+*.webm
+
+# Cache
+.cache/
+npm-cache/
+.npm/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Remotion
+.remotion/
+
+# Large media files (keep in Google Drive)
+*.mp3
+*.wav
+*.png
+*.jpg
+*.jpeg
+
+# Bot JSON exports (contain API responses)
+# Uncomment if you want to include these
+# *.json

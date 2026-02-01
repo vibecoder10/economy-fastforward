@@ -1,0 +1,811 @@
+{
+  "name": "Idea Bot",
+  "nodes": [
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "541b5dae-168e-4b86-b8b4-4294d58037b7",
+              "name": "link ",
+              "value": "={{ $json.query }}",
+              "type": "string"
+            },
+            {
+              "id": "c14dbaef-0070-4712-a59a-1b8d9535fa76",
+              "name": "",
+              "value": "",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -1392,
+        64
+      ],
+      "id": "afaead15-884a-4313-8230-231f4a554e87",
+      "name": "Edit Fields"
+    },
+    {
+      "parameters": {
+        "resource": "video",
+        "operation": "analyze",
+        "modelId": {
+          "__rl": true,
+          "value": "models/gemini-2.5-flash",
+          "mode": "list",
+          "cachedResultName": "models/gemini-2.5-flash"
+        },
+        "text": "=You are an expert Media Analyst and Economic Deconstructor for 'Economy Fast-Forward'. Your role is to reverse-engineer this YouTube video to understand exactly why it works, so we can use its structure for a futuristic pivot.\n\nAnalyze the provided video (audio and visual) and output your analysis ONLY as valid JSON. Do not include markdown formatting (like ```json), code blocks, or conversational text.\n\nSTRUCTURE YOUR RESPONSE EXACTLY AS FOLLOWS:\n\n{\n  \"meta_data\": {\n    \"title\": \"Exact title of the video\",\n    \"duration\": \"Duration in minutes:seconds\",\n    \"view_count_estimate\": \"High/Medium/Low based on production value\"\n  },\n  \"narrative_dna\": {\n    \"summary\": \"A concise 3-sentence summary of the video's content.\",\n    \"core_mechanism\": \"The specific economic or historical force driving the conflict (e.g., 'Fiat Currency Devaluation', 'Supply Chain Fragility', 'Labor Automation'). This is critical.\",\n    \"the_villain\": \"Who or what is the antagonist? (e.g., The Fed, Corporate Greed, A specific law).\",\n    \"the_solution\": \"What solution or protection does the video suggest?\"\n  },\n  \"style_analysis\": {\n    \"tone\": \"3 adjectives describing the vibe (e.g., 'Forensic', 'Alarming', 'Speculative').\",\n    \"pacing\": \"Description of the rhythm (e.g., 'Fast cuts with high information density' or 'Slow, dramatic storytelling').\",\n    \"hook_strategy\": {\n      \"intro_hook\": \"How did they capture attention in the first 30 seconds?\",\n      \"outro_hook\": \"What was the final call to action or emotional lingering thought?\"\n    }\n  },\n  \"visual_style_generator\": \"Create a high-fidelity image prompt description of this video's aesthetic, designed for a pro image model. Use this structure: 'A [Adjective] [Subject] captured in [Lighting Style]. The scene features [Key Element 1] and [Key Element 2]. The atmosphere is [Mood]. Rendered in [Camera/Lens Style] with [Color Palette] color grading. No text, no charts.'\",\n  \"audience_profile\": {\n    \"target_avatar\": \"Who is watching this? (e.g., 'Crypto-anxious millennials', 'Retirees protecting wealth').\",\n    \"emotional_trigger\": \"What primary emotion is this video leveraging? (e.g., Fear of Missing Out, Anger at the System, Hope for Technology).\"\n  }\n}",
+        "videoUrls": "={{ $json['link '] }}",
+        "simplify": false,
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
+      "typeVersion": 1,
+      "position": [
+        -1104,
+        64
+      ],
+      "id": "66b96afe-41f3-4a75-be96-dcd8326fdc96",
+      "name": "Analyze video",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "k665yMr8SwPsqYmM",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "base": {
+          "__rl": true,
+          "value": "appCIcC58YSTwK3CE",
+          "mode": "list",
+          "cachedResultName": "v0 | Hyperconsistent Storymaker",
+          "cachedResultUrl": "https://airtable.com/appCIcC58YSTwK3CE"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tblrAsJglokZSkC8m",
+          "mode": "list",
+          "cachedResultName": "Ideas",
+          "cachedResultUrl": "https://airtable.com/appCIcC58YSTwK3CE/tblrAsJglokZSkC8m"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Status": "Idea Logged",
+            "Video Title": "={{ $json.viral_title }}",
+            "Hook Script": "={{ $json.hook_script }}",
+            "Past Context": "={{ $json.narrative_logic.past_context }}",
+            "Present Parallel": "={{ $json.narrative_logic.present_parallel }}",
+            "Future Prediction": "={{ $json.narrative_logic.future_prediction }}",
+            "Thumbnail Prompt": "={{ $json.thumbnail_visual }}",
+            "Writer Guidance": "={{ $('Markdown Sanitizer').item.json.option_1.writer_guidance }}",
+            "Original DNA": "={{ JSON.stringify($('Edit Fields2').item.json[\"Video Data\"]) }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true
+            },
+            {
+              "id": "Generated Ideas",
+              "displayName": "Generated Ideas",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Thumbnail",
+              "displayName": "Thumbnail",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "array",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Video Title",
+              "displayName": "Video Title",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Status",
+              "displayName": "Status",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "Idea Logged",
+                  "value": "Idea Logged"
+                },
+                {
+                  "name": "Ready For Scripting",
+                  "value": "Ready For Scripting"
+                },
+                {
+                  "name": "Ready For Visuals",
+                  "value": "Ready For Visuals"
+                },
+                {
+                  "name": "Done",
+                  "value": "Done"
+                }
+              ],
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Hook Script",
+              "displayName": "Hook Script",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Thumbnail Prompt",
+              "displayName": "Thumbnail Prompt",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Past Context",
+              "displayName": "Past Context",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Present Parallel",
+              "displayName": "Present Parallel",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Future Prediction",
+              "displayName": "Future Prediction",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Writer Guidance",
+              "displayName": "Writer Guidance",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Original DNA",
+              "displayName": "Original DNA",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Summary",
+              "displayName": "Summary",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Competitor Channel copy",
+              "displayName": "Competitor Channel copy",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Original Video Title",
+              "displayName": "Original Video Title",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Video URL",
+              "displayName": "Video URL",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "View Count",
+              "displayName": "View Count",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Thumbnail URL",
+              "displayName": "Thumbnail URL",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Published Date",
+              "displayName": "Published Date",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Days Old",
+              "displayName": "Days Old",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Full Analysis",
+              "displayName": "Full Analysis",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Scraped Date",
+              "displayName": "Scraped Date",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Slack Message TS",
+              "displayName": "Slack Message TS",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        1024,
+        64
+      ],
+      "id": "de2f3119-d7b4-4ca4-bd15-ff32c3052b1b",
+      "name": "Create or update a record",
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "kakenJ630RUmzctO",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "claude-sonnet-4-5-20250929",
+          "cachedResultName": "Claude Sonnet 4.5"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.3,
+      "position": [
+        -336,
+        288
+      ],
+      "id": "10e416b8-24dd-45b3-a129-e37d42f66e0a",
+      "name": "Anthropic Chat Model3",
+      "credentials": {
+        "anthropicApi": {
+          "id": "cUdiv3ckrD14oRe5",
+          "name": "Anthropic account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.data['Pick a Video Idea!'] }}",
+                    "rightValue": true,
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "equals"
+                    },
+                    "id": "cac5f070-d790-4e2c-a2cb-bb9a2199a9bc"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "4c894126-93e4-493c-bb2f-74dfdc5a2171",
+                    "leftValue": "={{ $json.data['Pick a Video Idea!'].includes('reject') }}",
+                    "rightValue": true,
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        576,
+        64
+      ],
+      "id": "40a9315f-7ebd-4f6f-8e86-3e3a53eb63b7",
+      "name": "Switch1"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "fc966d04-43e2-4cdc-bc79-5060f23d1497",
+              "name": "Video Data",
+              "value": "={{ JSON.parse($json.candidates[0].content.parts[0].text.replace(/```json/g, '').replace(/```/g, '')) }}",
+              "type": "object"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -688,
+        64
+      ],
+      "id": "03f87ee1-229a-4196-b37d-aa4df2e6ce35",
+      "name": "Edit Fields2"
+    },
+    {
+      "parameters": {
+        "jsCode": "// 1. Get content\nconst rawContent = $input.first().json.message?.content || $input.first().json.content || $input.first().json.output;\n\nif (!rawContent) return { json: { error: \"No content\" } };\n\n// 2. Clean Markdown\nlet cleanContent = rawContent.replace(/```json/g, '').replace(/```/g, '').trim();\n\n// 3. Parse and Return Options\ntry {\n  let parsedData = JSON.parse(cleanContent);\n  \n  // SELF-HEALING LOGIC:\n  // If the AI output a single object with no \"concepts\" key, wrap it.\n  if (!parsedData.concepts && parsedData.viral_title) {\n     parsedData = { concepts: [parsedData] };\n  } \n  // If the AI output an array directly (without the \"concepts\" key), fix it.\n  else if (Array.isArray(parsedData)) {\n     parsedData = { concepts: parsedData };\n  }\n\n  // Now process strictly\n  if (parsedData.concepts && Array.isArray(parsedData.concepts)) {\n    return {\n      json: {\n        option_1: parsedData.concepts[0] || null,\n        option_2: parsedData.concepts[1] || null, // Will be null if AI only sent 1\n        option_3: parsedData.concepts[2] || null,\n        full_data: parsedData\n      }\n    };\n  } else {\n    return { json: { error: \"Structure Invalid\", raw: parsedData } };\n  }\n\n} catch (error) {\n  return { json: { error: \"Parse Failed\", raw: rawContent } };\n}"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "15f67e99-8727-427a-b31f-9300b49b1d18",
+      "name": "Markdown Sanitizer"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.slackAction === \"reject\" ? \"The user REJECTED the previous ideas. Generate 3 BRAND NEW concepts. Return them in this JSON format: { \\\"concepts\\\": [ { \\\"viral_title\\\": \\\"...\\\" }, { \\\"viral_title\\\": \\\"...\\\" }, { \\\"viral_title\\\": \\\"...\\\" } ] }\" : \"Analyze this video DNA: \" + JSON.stringify($json[\"Video Data\"].narrative_dna) + \". \\n\\nCRITICAL TASK: You must generate exactly 3 DISTINCT video concepts. Return them as a JSON Array inside a concepts key. Do not just return one idea.\" }}\n\n... \"audience_profile\": { ... }, \"writer_guidance\": \"A short paragraph of advice for the scriptwriter on how to adapt this style.\", ...",
+        "options": {
+          "systemMessage": "=You are the Executive Producer for 'Economy Fast-Forward'. Your objective is to transform the input into exactly 3 DISTINCT video concepts.\n\nINSTRUCTIONS:\n1. Analyze the input. Is it raw video DNA or a rejection?\n2. Generate 3 distinct futuristic scenarios:\n   - Concept 1: The Direct Sequel (Closely related)\n   - Concept 2: The Contrarian Pivot (Opposite view)\n   - Concept 3: The Black Swan (High risk/reward)\n3. Follow the \"Abstraction -> Substitution -> Projection\" logic for every idea.\n\nCRITICAL OUTPUT RULES:\n- You must output valid JSON only.\n- Do NOT output a single object. You must output an ARRAY of 3 objects inside a \"concepts\" key.\n- No markdown formatting.\n\nREQUIRED JSON STRUCTURE:\n{\n  \"concepts\": [\n    {\n      \"viral_title\": \"Title 1\",\n      \"thumbnail_visual\": \"Visual 1\",\n      \"hook_script\": \"Hook 1\",\n      \"narrative_logic\": {\n        \"past_context\": \"...\",\n        \"present_parallel\": \"...\",\n        \"future_prediction\": \"...\"\n      }\n    },\n    { \"viral_title\": \"Title 2\", ... },\n    { \"viral_title\": \"Title 3\", ... }\n  ]\n}"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3,
+      "position": [
+        -352,
+        64
+      ],
+      "id": "31d931ee-69d7-47e2-8681-f1c46f64bfbd",
+      "name": "Idea Bot 3.0"
+    },
+    {
+      "parameters": {
+        "operation": "sendAndWait",
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "C0A9U1X8NSW",
+          "mode": "list",
+          "cachedResultName": "production-agent"
+        },
+        "message": "=Model Video: {{ $('Edit Fields2').item.json['Video Data'].meta_data.title }}\n\nSummary:{{ $('Edit Fields2').item.json['Video Data'].narrative_dna.summary }}\n\n",
+        "responseType": "customForm",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Pick a Video Idea!",
+              "fieldType": "checkbox",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "=// FOR OPTION 1\n\"🎬 TITLE: {{ $json.option_1.viral_title }}\n\"🪝 HOOK: {{ $json.option_1.hook_script }}"
+                  },
+                  {
+                    "option": "=// FOR OPTION 2\n\"🎬 TITLE: {{ $json.option_2.viral_title }}\n\"🪝 HOOK: {{ $json.option_2.hook_script }}\n\n"
+                  },
+                  {
+                    "option": "=// FOR OPTION 3\n\"🎬 TITLE: {{ $json.option_3.viral_title }}\n\"🪝 HOOK: {{ $json.option_3.hook_script }}\n"
+                  },
+                  {
+                    "option": "reject"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.4,
+      "position": [
+        288,
+        0
+      ],
+      "id": "301a85fc-2535-4bfd-8935-d84288c3b344",
+      "name": "Send the ideas for decision",
+      "webhookId": "b55cf480-ae88-4957-96e2-ba0036d18e01",
+      "credentials": {
+        "slackApi": {
+          "id": "4wSkVAZkvJ6E4ZlP",
+          "name": "Slack account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// 1. Get the array of selections from the 'Wait for Decision' form\n// Note: We use .some() in the switch, but here we grab the actual array\nconst selections = $input.first().json.data['Pick a Video Idea!'];\n\n// 2. Filter to only get the actual ideas (ignore 'reject' if accidentally checked)\n// We filter for strings that contain \"TITLE:\" or \"Idea:\" depending on your label format\nconst validSelections = selections.filter(item => item.includes('TITLE:') || item.includes('Idea:'));\n\n// 3. RETRIEVE DATA: Look back at the 'Markdown Sanitizer' node to find the full source objects\n// CRITICAL: Ensure 'Markdown Sanitizer' matches the exact name of your node\nconst originalData = $('Markdown Sanitizer').first().json;\n\nreturn validSelections.map(selection => {\n  let matchedOption = {};\n\n  // Check which option the user's selection text matches\n  if (selection.includes(originalData.option_1.viral_title)) {\n    matchedOption = originalData.option_1;\n  } else if (selection.includes(originalData.option_2.viral_title)) {\n    matchedOption = originalData.option_2;\n  } else if (selection.includes(originalData.option_3.viral_title)) {\n    matchedOption = originalData.option_3;\n  }\n\n  // 4. Return the FULL data package for the next steps (DB & Scripting)\n  return {\n    json: {\n      viral_title: matchedOption.viral_title,\n      hook_script: matchedOption.hook_script,\n      narrative_logic: matchedOption.narrative_logic, // <--- The important part\n      thumbnail_visual: matchedOption.thumbnail_visual,\n      script_writer_guidance: matchedOption.script_writer_guidance\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        800,
+        64
+      ],
+      "id": "ce21cd6f-b8a9-45dc-a153-67476f297116",
+      "name": "Idea Splitter and Retriever"
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -1808,
+        64
+      ],
+      "id": "f21a4f85-b6c8-4874-b36d-78cf10160d29",
+      "name": "When Executed by Another Workflow",
+      "alwaysOutputData": false
+    },
+    {
+      "parameters": {
+        "listId": "6966684046870032dd1a8d65",
+        "name": "={{ $json.fields['Video Title'] }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.trello",
+      "typeVersion": 1,
+      "position": [
+        1296,
+        64
+      ],
+      "id": "ebabc654-14a7-4dfb-b01a-d94de9a7f14a",
+      "name": "Create a card",
+      "credentials": {
+        "trelloApi": {
+          "id": "mBiOZpz96CZXdcve",
+          "name": "Trello account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "C0A9U1X8NSW",
+          "mode": "list",
+          "cachedResultName": "production-agent"
+        },
+        "text": "Idea is Logged!",
+        "otherOptions": {}
+      },
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.4,
+      "position": [
+        1568,
+        64
+      ],
+      "id": "343508fd-a34f-4f58-ae26-3d04ea391494",
+      "name": "Send a message",
+      "webhookId": "00de7f29-6c51-433b-a69e-9c791e51b04f",
+      "credentials": {
+        "slackApi": {
+          "id": "4wSkVAZkvJ6E4ZlP",
+          "name": "Slack account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "Analyze video",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyze video": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create or update a record": {
+      "main": [
+        [
+          {
+            "node": "Create a card",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anthropic Chat Model3": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Idea Bot 3.0",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch1": {
+      "main": [
+        [
+          {
+            "node": "Idea Splitter and Retriever",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Idea Bot 3.0",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields2": {
+      "main": [
+        [
+          {
+            "node": "Idea Bot 3.0",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Markdown Sanitizer": {
+      "main": [
+        [
+          {
+            "node": "Send the ideas for decision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Idea Bot 3.0": {
+      "main": [
+        [
+          {
+            "node": "Markdown Sanitizer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send the ideas for decision": {
+      "main": [
+        [
+          {
+            "node": "Switch1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Idea Splitter and Retriever": {
+      "main": [
+        [
+          {
+            "node": "Create or update a record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create a card": {
+      "main": [
+        [
+          {
+            "node": "Send a message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "7cb1e0e2-b773-40a3-945a-8fa04f0ce67c",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "747d48093dd1c9d7f37ddb21ddd6aed0a10f79f752a6a85c87ebd116dd406794"
+  },
+  "id": "PiKdCBc92IW4dF6y",
+  "tags": []
+}
