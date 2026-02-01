@@ -203,7 +203,7 @@ class ImageClient:
         self,
         task_id: str,
         max_attempts: int = 30,
-        poll_interval: float = 5.0,
+        poll_interval: float = 2.0,
     ) -> Optional[list[str]]:
         """Poll for image generation completion.
         
@@ -271,8 +271,8 @@ class ImageClient:
         if not task_id:
             return None
         
-        # Wait 30 seconds before first poll (as in n8n workflow)
-        await asyncio.sleep(30)
+        # Wait 5 seconds before first poll (Kie API typically returns in ~10s)
+        await asyncio.sleep(5)
         
         return await self.poll_for_completion(task_id)
 

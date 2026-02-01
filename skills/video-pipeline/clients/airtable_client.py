@@ -189,6 +189,47 @@ class AirtableClient:
         record = self.images_table.create(fields)
         return {"id": record["id"], **record["fields"]}
     
+    def create_sentence_image_record(
+        self,
+        scene_number: int,
+        sentence_index: int,
+        sentence_text: str,
+        duration_seconds: float,
+        image_prompt: str,
+        video_title: str,
+        aspect_ratio: str = "16:9",
+    ) -> dict:
+        """Create a sentence-aligned image prompt record.
+        
+        This is the new sentence-level format that includes timing data.
+        
+        Args:
+            scene_number: The scene number
+            sentence_index: Position within scene (1-based)
+            sentence_text: The specific sentence this image illustrates
+            duration_seconds: How long this image should display
+            image_prompt: The image generation prompt
+            video_title: Title of the video
+            aspect_ratio: Image aspect ratio
+            
+        Returns:
+            Created record dict
+        """
+        fields = {
+            "Scene": scene_number,
+            "Image Index": sentence_index,  # Use sentence_index as image_index
+            "Image Prompt": image_prompt,
+            "Video Title": video_title,
+            "Aspect Ratio": aspect_ratio,
+            "Status": "Pending",
+            # New sentence-level fields (create these columns in Airtable)
+            "Sentence Text": sentence_text,
+            "Duration (s)": duration_seconds,
+            "Sentence Index": sentence_index,
+        }
+        record = self.images_table.create(fields)
+        return {"id": record["id"], **record["fields"]}
+    
     def update_image_record(
         self,
         record_id: str,

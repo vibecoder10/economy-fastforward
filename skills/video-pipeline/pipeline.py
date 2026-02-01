@@ -38,6 +38,9 @@ from clients.image_client import ImageClient
 class VideoPipeline:
     """Orchestrates the full video production pipeline based on Airtable status."""
     
+    # Image generation mode: "sentence" (new, aligned) or "scene" (old, 6 per scene)
+    IMAGE_MODE = os.getenv("IMAGE_MODE", "sentence")
+    
     # Valid statuses in workflow order
     STATUS_IDEA_LOGGED = "Idea Logged"
     STATUS_READY_SCRIPTING = "Ready For Scripting"
@@ -418,9 +421,14 @@ class VideoPipeline:
         }
     
     async def _run_image_prompt_bot(self) -> dict:
-        """Generate image prompts for all scenes (internal method)."""
+        """Generate image prompts for all scenes (internal method).
+        
+        Supports two modes:
+        - "sentence": New sentence-aligned prompts (1 per sentence, with timing)
+        - "scene": Old mode (6 prompts per scene, no timing alignment)
+        """
         self.slack.notify_image_prompts_start()
-        print(f"\n  🌉 IMAGE PROMPT BOT: Generating prompts...")
+        print(f"\n  🌉 IMAGE PROMPT BOT: Generating prompts (mode: {self.IMAGE_MODE})...")
         
         # Get scripts for this video
         scripts = self.airtable.get_scripts_by_title(self.video_title)
@@ -434,6 +442,7 @@ class VideoPipeline:
         existing_scenes = set(img.get("Scene") for img in existing_images)
         
         prompt_count = 0
+        
         for script in scripts:
             scene_number = script.get("scene", 0)
             
@@ -446,22 +455,44 @@ class VideoPipeline:
             
             print(f"    Generating prompts for scene {scene_number}...")
             
-            # Generate 6 image prompts
-            prompts = await self.anthropic.generate_image_prompts(
-                scene_number=scene_number,
-                scene_text=scene_text,
-                video_title=self.video_title,
-            )
-            
-            # Save each prompt to Airtable
-            for i, prompt in enumerate(prompts, 1):
-                self.airtable.create_image_prompt_record(
+            if self.IMAGE_MODE == "sentence":
+                # NEW: Sentence-aligned mode
+                sentence_prompts = await self.anthropic.generate_sentence_level_prompts(
                     scene_number=scene_number,
-                    image_index=i,
-                    image_prompt=prompt,
+                    scene_text=scene_text,
                     video_title=self.video_title,
                 )
-                prompt_count += 1
+                
+                # Save each sentence-aligned prompt to Airtable
+                for sp in sentence_prompts:
+                    self.airtable.create_sentence_image_record(
+                        scene_number=scene_number,
+                        sentence_index=sp["sentence_index"],
+                        sentence_text=sp["sentence_text"],
+                        duration_seconds=sp["duration_seconds"],
+                        image_prompt=sp["image_prompt"],
+                        video_title=self.video_title,
+                    )
+                    prompt_count += 1
+                    
+                print(f"      → {len(sentence_prompts)} sentence-aligned prompts")
+            else:
+                # OLD: Scene-level mode (6 prompts per scene)
+                prompts = await self.anthropic.generate_image_prompts(
+                    scene_number=scene_number,
+                    scene_text=scene_text,
+                    video_title=self.video_title,
+                )
+                
+                # Save each prompt to Airtable
+                for i, prompt in enumerate(prompts, 1):
+                    self.airtable.create_image_prompt_record(
+                        scene_number=scene_number,
+                        image_index=i,
+                        image_prompt=prompt,
+                        video_title=self.video_title,
+                    )
+                    prompt_count += 1
         
         self.slack.notify_image_prompts_done()
         print(f"    ✅ Created {prompt_count} image prompts")

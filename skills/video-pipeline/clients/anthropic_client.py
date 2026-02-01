@@ -277,6 +277,132 @@ CRITICAL TASK: You must generate exactly 3 DISTINCT video concepts. Return them 
         else:
             return [data]
 
+    async def generate_sentence_image_prompt(
+        self,
+        sentence_text: str,
+        sentence_index: int,
+        total_sentences: int,
+        scene_number: int,
+        video_title: str,
+        previous_prompt: str = "",
+    ) -> str:
+        """Generate a single image prompt for a specific sentence.
+        
+        This creates visually coherent, sentence-aligned image prompts.
+        
+        Args:
+            sentence_text: The specific sentence to illustrate
+            sentence_index: Position in scene (1-based)
+            total_sentences: Total sentences in scene
+            scene_number: The scene number
+            video_title: Title of the video
+            previous_prompt: The previous image prompt (for visual continuity)
+            
+        Returns:
+            A single image prompt string
+        """
+        system_prompt = """You are an expert image prompt creator for a faceless YouTube channel.
+
+STRICT STYLE GUIDELINES:
+The style is "Cinematic Lofi Digital".
+Your output MUST start with "Atmospheric lo-fi 2D digital illustration, 16:9."
+
+VISUAL ANCHOR PROTOCOL:
+Frame using one of these "Anchor Settings":
+* Anchor A: "The Digital Void" – Abstract concepts in dark space.
+* Anchor B: "The Urban Exterior" – Futuristic cityscapes at twilight.
+* Anchor C: "The Data Landscape" – Physical representations of data in deserts.
+* Anchor D: "The Macro Lens" – Symbolic objects in close-up.
+
+REQUIRED PROMPT STRUCTURE:
+"Atmospheric lo-fi 2D digital illustration, 16:9. Anchor [Letter]: [Anchor Name]. [Primary Visual Description]. [Secondary Details]. Text '[TEXT]' appears in [Color/Style]. The [Concept Name] visualization. Hand-drawn [elements], soft painterly [contrast], [Color A] versus [Color B], cinematic [mood]."
+
+IMPORTANT:
+- This prompt illustrates ONE SPECIFIC SENTENCE
+- The visual must directly represent what the sentence is saying
+- Maintain visual continuity with the previous image if provided
+- Do not use double quotes inside the prompt, use single quotes
+
+OUTPUT: Return ONLY the prompt string, no JSON, no explanation."""
+
+        continuity_note = ""
+        if previous_prompt:
+            continuity_note = f"\n\nPREVIOUS IMAGE (maintain visual continuity):\n{previous_prompt[:200]}..."
+
+        prompt = f"""Create ONE image prompt for this specific sentence:
+
+VIDEO: {video_title}
+SCENE: {scene_number}
+POSITION: Sentence {sentence_index} of {total_sentences}
+
+SENTENCE TO ILLUSTRATE:
+"{sentence_text}"
+{continuity_note}
+
+Generate a single prompt that visually represents THIS EXACT SENTENCE."""
+
+        response = await self.generate(
+            prompt=prompt,
+            system_prompt=system_prompt,
+            model="claude-sonnet-4-5-20250929",
+            max_tokens=500,
+        )
+        
+        return response.strip()
+
+    async def generate_sentence_level_prompts(
+        self,
+        scene_number: int,
+        scene_text: str,
+        video_title: str,
+    ) -> list[dict]:
+        """Generate image prompts aligned to sentences in the scene.
+        
+        This is the new sentence-level alternative to generate_image_prompts().
+        
+        Args:
+            scene_number: The scene number
+            scene_text: Full scene narration text
+            video_title: Title of the video
+            
+        Returns:
+            List of dicts with:
+                - sentence_index: int
+                - sentence_text: str
+                - duration_seconds: float
+                - image_prompt: str
+        """
+        from clients.sentence_utils import analyze_scene_for_images
+        
+        # Analyze the scene into sentences
+        sentences = analyze_scene_for_images(scene_text)
+        
+        results = []
+        previous_prompt = ""
+        
+        for sentence_data in sentences:
+            # Generate prompt for this sentence
+            prompt = await self.generate_sentence_image_prompt(
+                sentence_text=sentence_data["sentence_text"],
+                sentence_index=sentence_data["sentence_index"],
+                total_sentences=len(sentences),
+                scene_number=scene_number,
+                video_title=video_title,
+                previous_prompt=previous_prompt,
+            )
+            
+            results.append({
+                "sentence_index": sentence_data["sentence_index"],
+                "sentence_text": sentence_data["sentence_text"],
+                "duration_seconds": sentence_data["duration_seconds"],
+                "cumulative_start": sentence_data["cumulative_start"],
+                "image_prompt": prompt,
+            })
+            
+            previous_prompt = prompt
+        
+        return results
+
     async def generate_video_prompt(self, image_prompt: str) -> str:
         """Generate a concise motion prompt based on the image description.
         
