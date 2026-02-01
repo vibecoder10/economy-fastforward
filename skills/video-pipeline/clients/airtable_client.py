@@ -243,7 +243,7 @@ class AirtableClient:
         }
         if drive_url:
             updates["Drive Image URL"] = drive_url
-        record = self.images_table.update(record_id, updates)
+        record = self.images_table.update(record_id, updates, typecast=True)
         return {"id": record["id"], **record["fields"]}
 
     def update_image_video_url(
