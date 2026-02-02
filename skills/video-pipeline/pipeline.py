@@ -472,6 +472,7 @@ class VideoPipeline:
                         duration_seconds=sp["duration_seconds"],
                         image_prompt=sp["image_prompt"],
                         video_title=self.video_title,
+                        cumulative_start=sp.get("cumulative_start", 0.0),
                     )
                     prompt_count += 1
                     
@@ -565,8 +566,14 @@ class VideoPipeline:
                 print(f"    ⚠️ No Image Prompt found for Scene {scene}, skipping.")
                 continue
 
+            # Get sentence text for better motion alignment
+            sentence_text = img_record.get("Sentence Text", "")
+
             print(f"    Generating motion prompt for Scene {scene}...")
-            motion_prompt = await self.anthropic.generate_video_prompt(image_prompt)
+            motion_prompt = await self.anthropic.generate_video_prompt(
+                image_prompt=image_prompt,
+                sentence_text=sentence_text,
+            )
             
             self.airtable.update_image_video_prompt(img_record["id"], motion_prompt)
             prompt_count += 1

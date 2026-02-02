@@ -403,29 +403,43 @@ Generate a single prompt that visually represents THIS EXACT SENTENCE."""
         
         return results
 
-    async def generate_video_prompt(self, image_prompt: str) -> str:
-        """Generate a concise motion prompt based on the image description.
-        
+    async def generate_video_prompt(
+        self,
+        image_prompt: str,
+        sentence_text: str = "",
+    ) -> str:
+        """Generate a concise motion prompt based on the image and narration.
+
         Args:
             image_prompt: The prompt used to generate the static image.
-            
+            sentence_text: The narration being spoken during this image (for alignment).
+
         Returns:
             A short motion prompt (e.g., "slow zoom on the red smoke, dust particles floating").
         """
-        system_prompt = """You are an expert motion prompt engineer for AI video generation (Seed Dance / Kling).
-Your task is to take a detailed IMAGE PROMPT and convert it into a CONCISE (max 15 words) MOTION PROMPT.
+        system_prompt = """You are an expert motion prompt engineer for AI video generation (Seed Dance / Kling / Grok Imagine).
+Your task is to create a CONCISE (max 15 words) MOTION PROMPT that:
+1. Animates the key visual elements in the image
+2. ALIGNS with the emotional tone and content of what's being narrated
 
 GUIDELINES:
-1. Identify the key visual elements in the prompt (e.g. "rain", "smoke", "crowd", "light").
-2. Assign subtle, cinematic movement to them.
-3. Add camera movement (Slow zoom, Pan).
-4. Do NOT describe the scene from scratch. Focus on MOVING what is already there.
+1. Read both the IMAGE PROMPT and the NARRATION TEXT.
+2. Identify key visual elements (e.g. "rain", "smoke", "crowd", "light", "text").
+3. Choose motion that MATCHES the narration mood (tension = slow zoom in, revelation = camera pan, etc.)
+4. Add subtle cinematic movement - don't overanimate.
+5. Do NOT describe the scene from scratch. Focus on MOVING what is already there.
 
-Example Input: "Atmospheric lo-fi... Anchor A: Digital Void. A glowing red pill crumbling into dust... darker background."
-Example Output: "Slow zoom on crumbling pill, dust particles floating upwards, cinematic lighting."
+Example:
+- Image: "Digital void with crumbling red pill..."
+- Narration: "The answer should terrify every investor..."
+- Motion: "Slow dramatic zoom on crumbling pill, dust particles floating upwards, ominous lighting shift."
 """
-        
-        prompt = f"Image Prompt: {image_prompt}\n\nGenerate motion prompt:"
+
+        narration_context = ""
+        if sentence_text:
+            narration_context = f"\n\nNarration being spoken: \"{sentence_text}\""
+
+        prompt = f"Image Prompt: {image_prompt}{narration_context}\n\nGenerate motion prompt:"
         
         # Use a faster model for simple prompts
         response = await self.generate(

@@ -197,12 +197,13 @@ class AirtableClient:
         duration_seconds: float,
         image_prompt: str,
         video_title: str,
+        cumulative_start: float = 0.0,
         aspect_ratio: str = "16:9",
     ) -> dict:
         """Create a sentence-aligned image prompt record.
-        
+
         This is the new sentence-level format that includes timing data.
-        
+
         Args:
             scene_number: The scene number
             sentence_index: Position within scene (1-based)
@@ -210,8 +211,9 @@ class AirtableClient:
             duration_seconds: How long this image should display
             image_prompt: The image generation prompt
             video_title: Title of the video
+            cumulative_start: Start time within scene (seconds) for video stitching
             aspect_ratio: Image aspect ratio
-            
+
         Returns:
             Created record dict
         """
@@ -222,10 +224,11 @@ class AirtableClient:
             "Video Title": video_title,
             "Aspect Ratio": aspect_ratio,
             "Status": "Pending",
-            # New sentence-level fields (create these columns in Airtable)
+            # Sentence-level fields for dynamic image alignment
             "Sentence Text": sentence_text,
             "Duration (s)": duration_seconds,
             "Sentence Index": sentence_index,
+            "Start Time (s)": cumulative_start,  # For video stitching
         }
         record = self.images_table.create(fields)
         return {"id": record["id"], **record["fields"]}
