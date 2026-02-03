@@ -435,10 +435,12 @@ class VideoPipeline:
     async def _run_image_prompt_bot(self) -> dict:
         """Generate image prompts for all scenes (internal method).
 
-        Supports three modes:
-        - "semantic": Smart segmentation by visual concept (max 10s per segment)
-        - "sentence": One image per sentence (deprecated)
-        - "scene": Old mode (6 prompts per scene, deprecated)
+        Uses GLOBAL BUDGET approach:
+        1. Calculate total video duration across ALL scenes
+        2. Allocate 1-3 image prompts per scene based on duration
+        3. Each scene gets exactly its budget (no more)
+
+        Target: ~1-2 prompts per scene for a typical 70s scene.
         """
         self.slack.notify_image_prompts_start()
         print(f"\n  🌉 IMAGE PROMPT BOT: Generating prompts (mode: {self.IMAGE_MODE})...")
@@ -454,6 +456,38 @@ class VideoPipeline:
         existing_images = self.airtable.get_all_images_for_video(self.video_title)
         existing_scenes = set(img.get("Scene") for img in existing_images)
 
+        # ── STEP 1: Calculate per-scene budgets ──
+        # Gather all voice durations first for global budget allocation
+        scene_durations = {}
+        for script in scripts:
+            scene_number = script.get("scene", 0)
+            voice_dur = self.airtable.get_script_voice_duration(
+                self.video_title, scene_number
+            )
+            # Fallback: estimate from word count (~173 wpm)
+            if not voice_dur:
+                word_count = len(script.get("Scene text", "").split())
+                voice_dur = (word_count / 173) * 60
+            scene_durations[scene_number] = voice_dur
+
+        total_duration = sum(scene_durations.values())
+        total_scenes = len(scripts)
+
+        # Budget per scene: 1-3 images based on scene duration
+        # < 40s = 1 image, 40-90s = 2 images, > 90s = 3 images
+        scene_budgets = {}
+        for scene_num, dur in scene_durations.items():
+            if dur < 40:
+                scene_budgets[scene_num] = 1
+            elif dur <= 90:
+                scene_budgets[scene_num] = 2
+            else:
+                scene_budgets[scene_num] = 3
+
+        global_budget = sum(scene_budgets.values())
+        print(f"    📊 Video: {total_scenes} scenes, {total_duration:.0f}s total")
+        print(f"    📊 Global budget: {global_budget} images ({global_budget/total_scenes:.1f} avg/scene)")
+
         prompt_count = 0
 
         for script in scripts:
@@ -465,27 +499,19 @@ class VideoPipeline:
                 continue
 
             scene_text = script.get("Scene text", "")
+            scene_dur = scene_durations.get(scene_number, 70.0)
+            budget = scene_budgets.get(scene_number, 2)
 
-            print(f"    Generating prompts for scene {scene_number}...")
+            print(f"    Scene {scene_number} ({scene_dur:.0f}s) → budget: {budget} images")
 
             if self.IMAGE_MODE == "semantic":
-                # Get actual voice duration for this scene (if available)
-                voice_duration = self.airtable.get_script_voice_duration(
-                    self.video_title, scene_number
-                )
-                if voice_duration:
-                    print(f"      Using actual voice duration: {voice_duration:.1f}s")
-
-                # SMART: Semantic segmentation by visual concept
-                # Each segment: 6-10 seconds, max 10 segments per scene
+                # SMART: Semantic segmentation with strict budget
                 segments = await self.anthropic.generate_semantic_segments(
                     scene_number=scene_number,
                     scene_text=scene_text,
                     video_title=self.video_title,
-                    max_segment_duration=10.0,
-                    min_segment_duration=6.0,
-                    max_segments_per_scene=10,
-                    actual_scene_duration=voice_duration,
+                    target_segments=budget,
+                    actual_scene_duration=scene_dur,
                 )
 
                 # Save each segment to Airtable
@@ -502,7 +528,7 @@ class VideoPipeline:
                     )
                     prompt_count += 1
 
-                print(f"      → {len(segments)} visual concepts (6-10s each, max 10)")
+                print(f"      → {len(segments)} visual segments created")
 
             elif self.IMAGE_MODE == "sentence":
                 # DEPRECATED: Sentence-aligned mode (1 per sentence)
@@ -543,10 +569,10 @@ class VideoPipeline:
                         video_title=self.video_title,
                     )
                     prompt_count += 1
-        
+
         self.slack.notify_image_prompts_done()
-        print(f"    ✅ Created {prompt_count} image prompts")
-        
+        print(f"    ✅ Created {prompt_count} total image prompts (was targeting {global_budget})")
+
         return {"prompt_count": prompt_count}
     
     async def _run_image_bot(self) -> dict:
@@ -586,8 +612,6 @@ class VideoPipeline:
         self.slack.notify_images_done()
         print(f"    ✅ Generated {image_count} images")
         
-        return {"image_count": image_count}
-
         return {"image_count": image_count}
 
     async def run_video_script_bot(self) -> dict:
