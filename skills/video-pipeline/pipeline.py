@@ -39,12 +39,6 @@ from clients.image_client import ImageClient
 class VideoPipeline:
     """Orchestrates the full video production pipeline based on Airtable status."""
     
-    # Image generation mode:
-    # - "semantic": Smart segmentation by visual concept (max 10s per segment for AI video)
-    # - "sentence": One image per sentence (deprecated)
-    # - "scene": Old mode with hardcoded 6 images per scene (deprecated)
-    IMAGE_MODE = os.getenv("IMAGE_MODE", "semantic")
-    
     # Valid statuses in workflow order
     STATUS_IDEA_LOGGED = "Idea Logged"
     STATUS_READY_SCRIPTING = "Ready For Scripting"
@@ -467,13 +461,16 @@ class VideoPipeline:
     async def _run_image_prompt_bot(self) -> dict:
         """Generate image prompts for all scenes (internal method).
 
-        Uses DURATION-BASED BUDGET approach:
+        SINGLE CODE PATH — semantic segmentation only.
         - Each image is displayed for 6-10 seconds
-        - A 70s scene → min 7 images (70/10), max 11 images (70/6)
+        - A 70s scene -> min 7 images (70/10), max 11 images (70/6)
         - Claude analyzes scene text for visual concepts within that range
+        - Every record gets full fields: Sentence Text, Duration, Visual Concept
         """
+        import math
+
         self.slack.notify_image_prompts_start()
-        print(f"\n  🌉 IMAGE PROMPT BOT: Generating prompts (mode: {self.IMAGE_MODE})...")
+        print(f"\n  🌉 IMAGE PROMPT BOT: Generating prompts...")
 
         # Get scripts for this video
         scripts = self.airtable.get_scripts_by_title(self.video_title)
@@ -485,8 +482,6 @@ class VideoPipeline:
         # Get existing image prompts to avoid duplicates
         existing_images = self.airtable.get_all_images_for_video(self.video_title)
         existing_scenes = set(img.get("Scene") for img in existing_images)
-
-        import math
 
         # ── STEP 1: Calculate per-scene budgets ──
         # Each image is on screen for 6-10 seconds
@@ -511,7 +506,7 @@ class VideoPipeline:
         for scene_num, dur in scene_durations.items():
             min_images = max(1, math.ceil(dur / 10))   # At most 10s per image
             max_images = max(1, math.floor(dur / 6))    # At least 6s per image
-            # Target the midpoint — let Claude decide within range
+            # Target the midpoint
             target = round((min_images + max_images) / 2)
             scene_budgets[scene_num] = {
                 "min": min_images,
@@ -534,81 +529,55 @@ class VideoPipeline:
                 continue
 
             scene_text = script.get("Scene text", "")
+            if not scene_text.strip():
+                print(f"    Scene {scene_number}: empty text, skipping.")
+                continue
+
             scene_dur = scene_durations.get(scene_number, 70.0)
             budget = scene_budgets.get(scene_number, {"min": 7, "max": 11, "target": 9})
 
             print(f"    Scene {scene_number} ({scene_dur:.0f}s) → {budget['min']}-{budget['max']} images (target {budget['target']})")
 
-            if self.IMAGE_MODE == "semantic":
-                # SMART: Semantic segmentation — concept-based within budget range
-                segments = await self.anthropic.generate_semantic_segments(
+            # Generate semantic segments — this is the ONLY code path
+            segments = await self.anthropic.generate_semantic_segments(
+                scene_number=scene_number,
+                scene_text=scene_text,
+                video_title=self.video_title,
+                min_segments=budget["min"],
+                max_segments=budget["max"],
+                target_segments=budget["target"],
+                actual_scene_duration=scene_dur,
+            )
+
+            # VALIDATE: hard cap — never exceed max budget
+            if len(segments) > budget["max"]:
+                print(f"      ⚠️ Got {len(segments)} segments, truncating to {budget['max']}")
+                segments = segments[:budget["max"]]
+
+            # VALIDATE: each segment must have required fields
+            for seg in segments:
+                if not seg.get("segment_text"):
+                    print(f"      ⚠️ Segment {seg.get('segment_index')} missing text, using scene text slice")
+                if not seg.get("image_prompt"):
+                    print(f"      ⚠️ Segment {seg.get('segment_index')} missing prompt, skipping")
+                    continue
+
+                self.airtable.create_segment_image_record(
                     scene_number=scene_number,
-                    scene_text=scene_text,
+                    segment_index=seg["segment_index"],
+                    segment_text=seg.get("segment_text", scene_text),
+                    duration_seconds=seg.get("duration_seconds", 8.0),
+                    image_prompt=seg["image_prompt"],
                     video_title=self.video_title,
-                    min_segments=budget["min"],
-                    max_segments=budget["max"],
-                    target_segments=budget["target"],
-                    actual_scene_duration=scene_dur,
+                    visual_concept=seg.get("visual_concept", ""),
+                    cumulative_start=seg.get("cumulative_start", 0.0),
                 )
+                prompt_count += 1
 
-                # Save each segment to Airtable
-                for seg in segments:
-                    self.airtable.create_segment_image_record(
-                        scene_number=scene_number,
-                        segment_index=seg["segment_index"],
-                        segment_text=seg["segment_text"],
-                        duration_seconds=seg["duration_seconds"],
-                        image_prompt=seg["image_prompt"],
-                        video_title=self.video_title,
-                        visual_concept=seg.get("visual_concept", ""),
-                        cumulative_start=seg.get("cumulative_start", 0.0),
-                    )
-                    prompt_count += 1
-
-                print(f"      → {len(segments)} visual segments created")
-
-            elif self.IMAGE_MODE == "sentence":
-                # DEPRECATED: Sentence-aligned mode (1 per sentence)
-                sentence_prompts = await self.anthropic.generate_sentence_level_prompts(
-                    scene_number=scene_number,
-                    scene_text=scene_text,
-                    video_title=self.video_title,
-                )
-
-                # Save each sentence-aligned prompt to Airtable
-                for sp in sentence_prompts:
-                    self.airtable.create_sentence_image_record(
-                        scene_number=scene_number,
-                        sentence_index=sp["sentence_index"],
-                        sentence_text=sp["sentence_text"],
-                        duration_seconds=sp["duration_seconds"],
-                        image_prompt=sp["image_prompt"],
-                        video_title=self.video_title,
-                        cumulative_start=sp.get("cumulative_start", 0.0),
-                    )
-                    prompt_count += 1
-
-                print(f"      → {len(sentence_prompts)} sentence-aligned prompts")
-            else:
-                # DEPRECATED: Scene-level mode (6 prompts per scene)
-                prompts = await self.anthropic.generate_image_prompts(
-                    scene_number=scene_number,
-                    scene_text=scene_text,
-                    video_title=self.video_title,
-                )
-
-                # Save each prompt to Airtable
-                for i, prompt in enumerate(prompts, 1):
-                    self.airtable.create_image_prompt_record(
-                        scene_number=scene_number,
-                        image_index=i,
-                        image_prompt=prompt,
-                        video_title=self.video_title,
-                    )
-                    prompt_count += 1
+            print(f"      → {len(segments)} visual segments created")
 
         self.slack.notify_image_prompts_done()
-        print(f"    ✅ Created {prompt_count} total image prompts (was targeting {global_budget})")
+        print(f"    ✅ Created {prompt_count} total image prompts (budget was {global_budget})")
 
         return {"prompt_count": prompt_count}
     

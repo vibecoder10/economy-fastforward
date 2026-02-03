@@ -477,12 +477,11 @@ Generate a single prompt that visually represents THIS EXACT SENTENCE."""
     ) -> list[dict]:
         """Use Claude to semantically segment a scene into visual concepts.
 
-        The pipeline pre-calculates the allowed range based on 6-10s per image:
-        - min_segments = ceil(duration / 10)  — no image longer than 10s
-        - max_segments = floor(duration / 6)  — no image shorter than 6s
-        - target_segments = midpoint
-
-        Claude groups sentences by visual concept within that range.
+        BULLETPROOF version with:
+        - Defensive JSON parsing (strips markdown, retries extraction)
+        - Hard cap enforcement (never exceeds max_segments)
+        - Fallback to word-count-based splitting if Claude fails
+        - Validation of every segment's structure
 
         Returns list of segments, each with:
             - text: the narration for this segment
@@ -490,10 +489,13 @@ Generate a single prompt that visually represents THIS EXACT SENTENCE."""
             - duration: duration in seconds (6-10s range)
         """
         import json
-        from clients.sentence_utils import estimate_sentence_duration
+        import re
+        from clients.sentence_utils import split_into_sentences, estimate_sentence_duration
 
         # Use actual duration if available, otherwise estimate
         scene_duration = actual_total_duration if actual_total_duration else 70.0
+
+        print(f"        [segment] Asking Claude for {target_segments} segments ({min_segments}-{max_segments} range)...")
 
         system_prompt = f"""You are an expert video editor segmenting narration for an AI-animated documentary.
 
@@ -502,16 +504,16 @@ TASK: Group this scene's narration into visual concept segments for image genera
 SCENE DURATION: {scene_duration:.0f} seconds
 
 IMAGE TIMING RULE: Each image is displayed for 6-10 seconds.
-- MINIMUM segments: {min_segments} (each image ≤ 10s)
-- MAXIMUM segments: {max_segments} (each image ≥ 6s)
-- TARGET: approximately {target_segments} segments
+- MINIMUM segments: {min_segments} (each image <= 10s)
+- MAXIMUM segments: {max_segments} (each image >= 6s)
+- TARGET: {target_segments} segments
 
 RULES:
-1. Return between {min_segments} and {max_segments} segments. Target {target_segments}.
+1. Return EXACTLY {target_segments} segments (between {min_segments} and {max_segments}).
 2. Group sentences by VISUAL CONCEPT — split where the visual fundamentally changes.
 3. Each segment should contain 1-3 sentences that share the same visual.
 4. Every sentence in the narration must appear in exactly one segment.
-5. Each segment's duration should be 6-10 seconds (based on word count at 173 wpm).
+5. Do NOT split individual sentences — keep each sentence whole.
 
 WHAT JUSTIFIES A NEW SEGMENT:
 - New metaphor, analogy, or historical example
@@ -525,77 +527,117 @@ WHAT DOES NOT JUSTIFY A NEW SEGMENT:
 - Rhetorical emphasis or restating the same idea
 - Cause and effect within the same topic
 
-OUTPUT FORMAT (JSON only, no markdown fences):
+OUTPUT FORMAT (JSON only, NO markdown fences, NO explanation):
 {{
   "segments": [
     {{
       "sentences": ["First sentence.", "Second sentence."],
-      "visual_concept": "Brief description of the dominant visual for this segment"
+      "visual_concept": "Brief description of the dominant visual"
     }}
   ]
 }}"""
 
-        prompt = f"""Segment this narration into {min_segments}-{max_segments} visual concept groups (target {target_segments}):
+        prompt = f"""Segment this narration into EXACTLY {target_segments} visual concept groups:
 
 {scene_text}
 
-Return JSON with {min_segments}-{max_segments} segments."""
+Return JSON only. EXACTLY {target_segments} segments. No markdown."""
 
-        response = await self.generate(
-            prompt=prompt,
-            system_prompt=system_prompt,
-            model="claude-sonnet-4-5-20250929",
-            max_tokens=4000,
-        )
+        raw_segments = None
 
-        # Parse the response
-        clean_response = response.replace("```json", "").replace("```", "").strip()
-        data = json.loads(clean_response)
+        try:
+            response = await self.generate(
+                prompt=prompt,
+                system_prompt=system_prompt,
+                model="claude-sonnet-4-5-20250929",
+                max_tokens=4000,
+            )
 
-        raw_segments = data.get("segments", [])
+            # Defensive JSON parsing — strip any markdown fences
+            clean = response.strip()
+            clean = re.sub(r'^```(?:json)?\s*', '', clean)
+            clean = re.sub(r'\s*```\s*$', '', clean)
+            clean = clean.strip()
 
-        # Safety: enforce min/max range
-        # If too many segments, merge the shortest adjacent pairs
+            # Try to find JSON object if Claude added extra text
+            json_match = re.search(r'\{[\s\S]*\}', clean)
+            if json_match:
+                clean = json_match.group(0)
+
+            data = json.loads(clean)
+            raw_segments = data.get("segments", [])
+
+            # Validate each segment has required structure
+            valid_segments = []
+            for seg in raw_segments:
+                sentences = seg.get("sentences", [])
+                if not sentences or not isinstance(sentences, list):
+                    continue
+                # Filter out empty strings
+                sentences = [s for s in sentences if isinstance(s, str) and s.strip()]
+                if not sentences:
+                    continue
+                valid_segments.append({
+                    "sentences": sentences,
+                    "visual_concept": seg.get("visual_concept", "Visual segment"),
+                })
+            raw_segments = valid_segments
+
+            print(f"        [segment] Claude returned {len(raw_segments)} segments")
+
+        except (json.JSONDecodeError, KeyError, TypeError) as e:
+            print(f"        [segment] ⚠️ Claude response parsing failed: {e}")
+            print(f"        [segment] Falling back to word-count splitting...")
+            raw_segments = None
+
+        # ── FALLBACK: If Claude failed, split by word count ──
+        if not raw_segments:
+            sentences = split_into_sentences(scene_text)
+            # Distribute sentences evenly across target_segments groups
+            raw_segments = []
+            per_group = max(1, len(sentences) // target_segments)
+            for i in range(0, len(sentences), per_group):
+                group = sentences[i:i + per_group]
+                raw_segments.append({
+                    "sentences": group,
+                    "visual_concept": f"Segment {len(raw_segments) + 1}",
+                })
+            print(f"        [segment] Fallback created {len(raw_segments)} segments from {len(sentences)} sentences")
+
+        # ── HARD CAP: Merge if over max_segments ──
+        merge_count = 0
         while len(raw_segments) > max_segments and len(raw_segments) > 1:
-            # Find the shortest segment by sentence count
+            # Merge the two shortest adjacent segments
             min_idx = min(
                 range(len(raw_segments)),
                 key=lambda i: len(raw_segments[i].get("sentences", []))
             )
-            # Merge with next (or previous if last)
             merge_idx = min_idx + 1 if min_idx < len(raw_segments) - 1 else min_idx - 1
-            target_idx = min(min_idx, merge_idx)
-            other_idx = max(min_idx, merge_idx)
+            lo, hi = min(min_idx, merge_idx), max(min_idx, merge_idx)
 
-            raw_segments[target_idx]["sentences"].extend(
-                raw_segments[other_idx].get("sentences", [])
-            )
-            raw_segments[target_idx]["visual_concept"] += (
-                " + " + raw_segments[other_idx].get("visual_concept", "")
-            )
-            raw_segments.pop(other_idx)
+            raw_segments[lo]["sentences"].extend(raw_segments[hi].get("sentences", []))
+            raw_segments[lo]["visual_concept"] += " + " + raw_segments[hi].get("visual_concept", "")
+            raw_segments.pop(hi)
+            merge_count += 1
 
-        # If too few, just use what we got — better than splitting arbitrarily
+        if merge_count > 0:
+            print(f"        [segment] Merged {merge_count} times → {len(raw_segments)} final segments")
 
-        # Convert to our format with proportional durations
-        total_words = 0
-        for seg in raw_segments:
-            text = " ".join(seg.get("sentences", []))
-            total_words += len(text.split())
+        # ── CONVERT to output format with proportional durations ──
+        total_words = sum(len(" ".join(seg["sentences"]).split()) for seg in raw_segments)
 
         results = []
         for seg in raw_segments:
-            text = " ".join(seg.get("sentences", []))
+            text = " ".join(seg["sentences"])
             word_count = len(text.split())
 
             if actual_total_duration and total_words > 0:
-                # Distribute actual duration proportionally by word count
                 proportion = word_count / total_words
                 duration = actual_total_duration * proportion
             else:
                 duration = estimate_sentence_duration(text)
 
-            # Clamp each segment to 6-10s range
+            # Clamp each segment to 6-10s
             duration = max(6.0, min(10.0, duration))
 
             results.append({
@@ -604,6 +646,7 @@ Return JSON with {min_segments}-{max_segments} segments."""
                 "duration": round(duration, 1),
             })
 
+        print(f"        [segment] Final: {len(results)} segments, durations: {[r['duration'] for r in results]}")
         return results
 
     async def _generate_segment_image_prompt(
