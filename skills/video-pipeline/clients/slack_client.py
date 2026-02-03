@@ -135,3 +135,18 @@ class SlackClient:
             f"```{error}```\n\n"
             f"Please check and retry."
         )
+
+    def notify_queue_complete(self, results: list[dict]) -> dict:
+        """Send queue completion summary to Slack."""
+        message = "✅ *Pipeline Queue Complete*\n\n"
+        message += f"Processed {len(results)} videos:\n"
+        for result in results:
+            title = result.get("title", "Unknown")
+            new_status = result.get("new_status", "Unknown")
+            error = result.get("error")
+            if error:
+                message += f"• \"{title}\" → Failed ({error})\n"
+            else:
+                message += f"• \"{title}\" → {new_status}\n"
+        message += "\nCheck Google Drive for completed assets."
+        return self.send_message(message)

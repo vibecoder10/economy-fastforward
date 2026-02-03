@@ -3,18 +3,26 @@ Video Production Pipeline Orchestrator
 
 STATUS-DRIVEN WORKFLOW:
 The pipeline strictly follows Airtable Ideas table status:
-1. Idea Logged       - New idea, waiting to be picked up
-2. Ready For Scripting - Script Bot will run
-3. Ready For Voice   - Voice Bot will run  
-4. Ready For Visuals - Image Prompt Bot + Image Bot will run
-5. Ready For Thumbnail - Thumbnail Bot will run
-6. Done              - Complete, do NOT process
-7. In Que            - Waiting in queue
+1. Idea Logged              - New idea, waiting for manual trigger (SKIP)
+2. Ready For Scripting      - Script Bot: generate 20-scene script
+3. Ready For Voice          - Voice Bot: generate voice overs
+4. Ready For Visuals        - Image Prompt Bot + Image Bot (max 10-12 images per video)
+5. Ready For Video Scripts  - Video Script Bot: generate motion prompts
+6. Ready For Video Generation - Video Gen Bot: generate AI videos
+7. Ready For Thumbnail      - Thumbnail Bot: generate thumbnail
+8. Done                     - Complete, do NOT process (SKIP)
+9. In Que                   - Waiting in queue (SKIP)
+
+MODES:
+- Default:      python pipeline.py           (process next single video)
+- Queue:        python pipeline.py --run-queue (process ALL actionable videos)
+- Status:       python pipeline.py --status   (show all video statuses)
 
 RULES:
 - Always check Ideas table status FIRST
-- Only process ONE video at a time
-- Each bot checks for its required status before running
+- Default mode: process ONE video at a time
+- Queue mode: process ALL actionable videos, failures don't crash the queue
+- Image generation enforces max 10-12 images per video (budget-constrained)
 """
 
 import os
@@ -423,11 +431,66 @@ class VideoPipeline:
             "new_status": self.STATUS_READY_VIDEO_SCRIPTS,
         }
     
+    def _calculate_image_budget(self, scripts: list[dict], existing_image_count: int) -> tuple[int, dict]:
+        """Calculate video-level image budget and per-scene allocation.
+
+        Enforces: max_images = min(12, video_duration_seconds / 6)
+        Distributes budget across scenes, evenly spaced.
+
+        Args:
+            scripts: All script records for this video
+            existing_image_count: Number of images that already exist
+
+        Returns:
+            (max_images, scene_budgets) where scene_budgets maps scene_number -> allocation
+        """
+        from clients.sentence_utils import estimate_sentence_duration
+
+        # Calculate total video duration
+        total_duration = 0.0
+        scene_numbers = []
+        for script in scripts:
+            scene_text = script.get("Scene text", "")
+            duration = estimate_sentence_duration(scene_text)
+            total_duration += duration
+            scene_numbers.append(script.get("scene", 0))
+
+        scene_numbers.sort()
+
+        # Budget: max 12 images, min 6 seconds per image
+        max_images = min(12, max(6, int(total_duration / 6)))
+        remaining_budget = max(0, max_images - existing_image_count)
+
+        print(f"    Image budget: {max_images} total (video ~{total_duration:.0f}s)")
+        print(f"    Existing images: {existing_image_count} | Remaining budget: {remaining_budget}")
+
+        if remaining_budget <= 0 or not scene_numbers:
+            return max_images, {}
+
+        # Distribute budget across scenes - evenly spaced, always include first and last
+        num_scenes = len(scene_numbers)
+        if num_scenes <= remaining_budget:
+            # Every scene gets 1 image
+            scene_budgets = {s: 1 for s in scene_numbers}
+        else:
+            # Select evenly spaced scenes
+            if remaining_budget == 1:
+                selected_indices = [0]
+            else:
+                selected_indices = [
+                    round(i * (num_scenes - 1) / (remaining_budget - 1))
+                    for i in range(remaining_budget)
+                ]
+            selected_scenes = set(scene_numbers[i] for i in selected_indices)
+            scene_budgets = {s: 1 for s in selected_scenes}
+
+        return max_images, scene_budgets
+
     async def _run_image_prompt_bot(self) -> dict:
         """Generate image prompts for all scenes (internal method).
 
         Supports three modes:
-        - "semantic": Smart segmentation by visual concept (max 10s per segment)
+        - "semantic": Smart segmentation by visual concept (budget-constrained, max 10-12 per video)
         - "sentence": One image per sentence (deprecated)
         - "scene": Old mode (6 prompts per scene, deprecated)
         """
@@ -445,6 +508,9 @@ class VideoPipeline:
         existing_images = self.airtable.get_all_images_for_video(self.video_title)
         existing_scenes = set(img.get("Scene") for img in existing_images)
 
+        # Calculate video-level image budget (enforces max 10-12 per video)
+        max_images, scene_budgets = self._calculate_image_budget(scripts, len(existing_images))
+
         prompt_count = 0
 
         for script in scripts:
@@ -455,17 +521,24 @@ class VideoPipeline:
                 print(f"    Check: Scene {scene_number} prompts already exist, skipping.")
                 continue
 
+            # CHECK: Does this scene have budget allocation?
+            if self.IMAGE_MODE == "semantic" and scene_number not in scene_budgets:
+                print(f"    Skip: Scene {scene_number} not in image budget.")
+                continue
+
             scene_text = script.get("Scene text", "")
 
             print(f"    Generating prompts for scene {scene_number}...")
 
             if self.IMAGE_MODE == "semantic":
-                # SMART: Semantic segmentation by visual concept (max 10s for AI video)
+                # SMART: Semantic segmentation with video-level budget constraint
+                per_scene_budget = scene_budgets.get(scene_number, 1)
                 segments = await self.anthropic.generate_semantic_segments(
                     scene_number=scene_number,
                     scene_text=scene_text,
                     video_title=self.video_title,
                     max_segment_duration=10.0,
+                    max_segments=per_scene_budget,
                 )
 
                 # Save each segment to Airtable
@@ -482,7 +555,7 @@ class VideoPipeline:
                     )
                     prompt_count += 1
 
-                print(f"      → {len(segments)} semantic segments (max 10s each)")
+                print(f"      → {len(segments)} segments (budget: {per_scene_budget})")
 
             elif self.IMAGE_MODE == "sentence":
                 # DEPRECATED: Sentence-aligned mode (1 per sentence)
@@ -523,10 +596,10 @@ class VideoPipeline:
                         video_title=self.video_title,
                     )
                     prompt_count += 1
-        
+
         self.slack.notify_image_prompts_done()
-        print(f"    ✅ Created {prompt_count} image prompts")
-        
+        print(f"    ✅ Created {prompt_count} image prompts (max budget: {max_images})")
+
         return {"prompt_count": prompt_count}
     
     async def _run_image_bot(self) -> dict:
@@ -565,8 +638,6 @@ class VideoPipeline:
         
         self.slack.notify_images_done()
         print(f"    ✅ Generated {image_count} images")
-        
-        return {"image_count": image_count}
 
         return {"image_count": image_count}
 
@@ -761,6 +832,107 @@ class VideoPipeline:
             "thumbnail_url": drive_link
         }
     
+    async def run_queue(self) -> list[dict]:
+        """Process all actionable videos in the queue based on their current status.
+
+        Queries Airtable for all videos not in 'Idea Logged', 'Done', or 'In Que',
+        then runs the appropriate pipeline stage for each one.
+        Failures are logged but don't stop the queue.
+        Sends a Slack summary on completion.
+        """
+        print("=" * 60)
+        print("🔄 PIPELINE QUEUE MODE")
+        print("=" * 60)
+
+        all_ideas = self.airtable.get_all_actionable_ideas()
+
+        if not all_ideas:
+            print("\nNo videos in queue.")
+            return []
+
+        print(f"\nFound {len(all_ideas)} actionable videos:")
+        for idea in all_ideas:
+            print(f"  • {idea.get('Video Title', 'Untitled')[:40]} ({idea.get('Status')})")
+
+        results = []
+
+        for idea in all_ideas:
+            title = idea.get("Video Title", "Untitled")
+            status = idea.get("Status")
+            print(f"\n{'─' * 50}")
+            print(f"Processing: {title}")
+            print(f"Status: {status}")
+            print(f"{'─' * 50}")
+
+            try:
+                # Reset pipeline state for each video
+                self.current_idea = None
+                self.current_idea_id = None
+                self.video_title = None
+                self.project_folder_id = None
+                self.google_doc_id = None
+                self._load_idea(idea)
+
+                result = {}
+                if status == self.STATUS_READY_SCRIPTING:
+                    result = await self.run_script_bot()
+                elif status == self.STATUS_READY_VOICE:
+                    result = await self.run_voice_bot()
+                elif status == self.STATUS_READY_VISUALS:
+                    result = await self.run_visuals_pipeline()
+                elif status == self.STATUS_READY_VIDEO_SCRIPTS:
+                    result = await self.run_video_script_bot()
+                elif status == self.STATUS_READY_VIDEO_GENERATION:
+                    result = await self.run_video_gen_bot()
+                elif status == self.STATUS_READY_THUMBNAIL:
+                    result = await self.run_thumbnail_bot()
+                else:
+                    print(f"  Skipped: unhandled status '{status}'")
+                    continue
+
+                if result.get("error"):
+                    results.append({
+                        "title": title,
+                        "previous_status": status,
+                        "error": result["error"],
+                    })
+                    print(f"  ✗ {title} failed: {result['error']}")
+                else:
+                    new_status = result.get("new_status", status)
+                    results.append({
+                        "title": title,
+                        "previous_status": status,
+                        "new_status": new_status,
+                    })
+                    print(f"  ✓ {title} → {new_status}")
+
+            except Exception as e:
+                results.append({
+                    "title": title,
+                    "previous_status": status,
+                    "error": str(e),
+                })
+                print(f"  ✗ {title} failed: {e}")
+
+        # Send Slack summary
+        if results:
+            self.slack.notify_queue_complete(results)
+
+        # Print summary
+        print(f"\n{'=' * 60}")
+        print(f"📋 QUEUE SUMMARY")
+        print(f"{'=' * 60}")
+        succeeded = [r for r in results if "error" not in r]
+        failed = [r for r in results if "error" in r]
+        print(f"  Processed: {len(results)}")
+        print(f"  Succeeded: {len(succeeded)}")
+        print(f"  Failed:    {len(failed)}")
+        for r in failed:
+            print(f"    ✗ {r['title']}: {r['error']}")
+        print(f"{'=' * 60}")
+
+        return results
+
     async def package_for_remotion(self) -> dict:
         """Package all assets for Remotion video editing."""
         # Get all scripts for current video
@@ -892,6 +1064,11 @@ async def main():
             print(f"  {idea.get('Status', 'Unknown'):20} | {idea.get('Video Title', 'Untitled')[:40]}")
         return
         
+    if len(sys.argv) > 1 and sys.argv[1] == "--run-queue":
+        # Queue mode: process all actionable videos
+        results = await pipeline.run_queue()
+        return
+
     if len(sys.argv) > 1 and sys.argv[1] == "--sync":
         # Sync assets for a specific video
         # Hardcoded for now or args? User wants specific video.

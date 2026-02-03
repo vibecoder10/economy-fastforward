@@ -70,6 +70,23 @@ class AirtableClient:
         """Get all ideas from the table."""
         records = self.ideas_table.all(sort=["Status"])
         return [{"id": r["id"], **r["fields"]} for r in records]
+
+    def get_all_actionable_ideas(self) -> list[dict]:
+        """Get all ideas with actionable statuses (excludes Idea Logged, Done, In Que)."""
+        actionable_statuses = {
+            "Ready For Scripting",
+            "Ready For Voice",
+            "Ready For Visuals",
+            "Ready For Video Scripts",
+            "Ready For Video Generation",
+            "Ready For Thumbnail",
+        }
+        records = self.ideas_table.all(sort=["Status"])
+        return [
+            {"id": r["id"], **r["fields"]}
+            for r in records
+            if r["fields"].get("Status") in actionable_statuses
+        ]
     
     def create_idea(self, idea_data: dict) -> dict:
         """Create a new idea record."""
