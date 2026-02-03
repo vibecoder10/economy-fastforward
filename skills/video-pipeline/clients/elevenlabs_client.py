@@ -131,10 +131,10 @@ class ElevenLabsClient:
     
     async def download_audio(self, audio_url: str) -> bytes:
         """Download audio file from URL.
-        
+
         Args:
             audio_url: URL of the audio file
-            
+
         Returns:
             Audio content as bytes
         """
@@ -142,3 +142,29 @@ class ElevenLabsClient:
             response = await client.get(audio_url, timeout=60.0)
             response.raise_for_status()
             return response.content
+
+    async def get_audio_duration(self, audio_url: str) -> float:
+        """Get duration of an audio file from URL.
+
+        Args:
+            audio_url: URL of the audio file (MP3)
+
+        Returns:
+            Duration in seconds
+        """
+        try:
+            from mutagen.mp3 import MP3
+            from io import BytesIO
+
+            # Download the audio
+            audio_content = await self.download_audio(audio_url)
+
+            # Get duration using mutagen
+            audio = MP3(BytesIO(audio_content))
+            return audio.info.length
+        except ImportError:
+            print("      ⚠️ mutagen not installed, falling back to estimate")
+            return 0.0
+        except Exception as e:
+            print(f"      ⚠️ Could not get audio duration: {e}")
+            return 0.0

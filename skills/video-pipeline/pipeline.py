@@ -354,17 +354,26 @@ class VideoPipeline:
             
             # Generate voice
             audio_url = await self.elevenlabs.generate_and_wait(scene_text)
-            
+
             if audio_url:
+                # Get audio duration for accurate segmentation later
+                voice_duration = await self.elevenlabs.get_audio_duration(audio_url)
+                if voice_duration > 0:
+                    print(f"    Voice duration: {voice_duration:.1f}s")
+
                 # Download audio
                 audio_content = await self.elevenlabs.download_audio(audio_url)
-                
+
                 # Upload to Google Drive
                 filename = f"Scene {scene_number}.mp3"
                 self.google.upload_audio(audio_content, filename, self.project_folder_id)
-                
-                # Update Airtable
-                self.airtable.mark_script_finished(script["id"], audio_url)
+
+                # Update Airtable with URL and duration
+                self.airtable.mark_script_finished(
+                    script["id"],
+                    voice_over_url=audio_url,
+                    voice_duration=voice_duration if voice_duration > 0 else None,
+                )
                 voice_count += 1
         
         # UPDATE STATUS to Ready For Visuals
@@ -460,6 +469,13 @@ class VideoPipeline:
             print(f"    Generating prompts for scene {scene_number}...")
 
             if self.IMAGE_MODE == "semantic":
+                # Get actual voice duration for this scene (if available)
+                voice_duration = self.airtable.get_script_voice_duration(
+                    self.video_title, scene_number
+                )
+                if voice_duration:
+                    print(f"      Using actual voice duration: {voice_duration:.1f}s")
+
                 # SMART: Semantic segmentation by visual concept
                 # Each segment: 6-10 seconds, max 10 segments per scene
                 segments = await self.anthropic.generate_semantic_segments(
@@ -469,6 +485,7 @@ class VideoPipeline:
                     max_segment_duration=10.0,
                     min_segment_duration=6.0,
                     max_segments_per_scene=10,
+                    actual_scene_duration=voice_duration,
                 )
 
                 # Save each segment to Airtable

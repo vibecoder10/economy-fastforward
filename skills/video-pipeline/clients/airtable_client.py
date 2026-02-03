@@ -149,15 +149,66 @@ class AirtableClient:
         self,
         record_id: str,
         voice_over_url: Optional[str] = None,
+        voice_duration: Optional[float] = None,
     ) -> dict:
-        """Mark a script record as finished."""
+        """Mark a script record as finished.
+
+        Args:
+            record_id: Airtable record ID
+            voice_over_url: URL to the generated voice audio
+            voice_duration: Duration of the voice audio in seconds
+        """
         updates = {
             "Script Status": "Finished",
             "Voice Status": "Done",
         }
         if voice_over_url:
             updates["Voice Over"] = [{"url": voice_over_url}]
-        return self.update_script_record(record_id, updates)
+        if voice_duration is not None:
+            updates["Voice Duration (s)"] = voice_duration
+        # typecast=True to auto-create Voice Duration field if needed
+        record = self.script_table.update(record_id, updates, typecast=True)
+        return {"id": record["id"], **record["fields"]}
+
+    def get_script_voice_duration(self, video_title: str, scene_number: int) -> Optional[float]:
+        """Get the voice duration for a specific scene.
+
+        Args:
+            video_title: Title of the video
+            scene_number: Scene number
+
+        Returns:
+            Voice duration in seconds, or None if not available
+        """
+        from pyairtable.formulas import match, AND
+        records = self.script_table.all(
+            formula=AND(
+                match({"Title": video_title}),
+                match({"scene": scene_number}),
+            ),
+            max_records=1,
+        )
+        if records:
+            return records[0]["fields"].get("Voice Duration (s)")
+        return None
+
+    def get_all_voice_durations(self, video_title: str) -> dict[int, float]:
+        """Get all voice durations for a video.
+
+        Args:
+            video_title: Title of the video
+
+        Returns:
+            Dict mapping scene number to duration in seconds
+        """
+        scripts = self.get_scripts_by_title(video_title)
+        durations = {}
+        for script in scripts:
+            scene = script.get("scene", 0)
+            duration = script.get("Voice Duration (s)")
+            if duration is not None:
+                durations[scene] = duration
+        return durations
     
     # ==================== IMAGES TABLE ====================
     

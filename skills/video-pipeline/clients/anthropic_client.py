@@ -401,6 +401,7 @@ Generate a single prompt that visually represents THIS EXACT SENTENCE."""
         max_segment_duration: float = 10.0,
         min_segment_duration: float = 6.0,
         max_segments_per_scene: int = 10,
+        actual_scene_duration: float = None,
     ) -> list[dict]:
         """Generate image prompts based on semantic visual segments.
 
@@ -409,6 +410,7 @@ Generate a single prompt that visually represents THIS EXACT SENTENCE."""
         2. Only creates new images when the visual FUNDAMENTALLY shifts
         3. Enforces duration range (6-10s) for AI video generation
         4. Limits to max 10 segments per ~70 second scene
+        5. Uses actual voice duration when available for accurate timing
 
         Args:
             scene_number: The scene number
@@ -417,6 +419,7 @@ Generate a single prompt that visually represents THIS EXACT SENTENCE."""
             max_segment_duration: Maximum seconds per segment (default 10s)
             min_segment_duration: Minimum seconds per segment (default 6s)
             max_segments_per_scene: Maximum segments allowed (default 10)
+            actual_scene_duration: Actual voice duration in seconds (if available)
 
         Returns:
             List of dicts with:
@@ -433,6 +436,7 @@ Generate a single prompt that visually represents THIS EXACT SENTENCE."""
             max_duration=max_segment_duration,
             min_duration=min_segment_duration,
             max_segments=max_segments_per_scene,
+            actual_total_duration=actual_scene_duration,
         )
 
         # Step 2: Generate image prompts for each segment
@@ -472,27 +476,35 @@ Generate a single prompt that visually represents THIS EXACT SENTENCE."""
         max_duration: float = 10.0,
         min_duration: float = 6.0,
         max_segments: int = 10,
+        actual_total_duration: float = None,
     ) -> list[dict]:
         """Use Claude to semantically segment a scene into visual concepts.
 
         Returns list of segments, each with:
             - text: the narration for this segment
             - visual_concept: why this is a distinct visual
-            - duration: estimated duration in seconds (6-10s range)
+            - duration: duration in seconds (6-10s range)
         """
         from clients.sentence_utils import estimate_sentence_duration
+
+        # Use actual duration if available, otherwise estimate ~70s
+        scene_duration = actual_total_duration if actual_total_duration else 70.0
+        ideal_segments = max(3, min(max_segments, int(scene_duration / 8)))  # Aim for ~8s per segment
 
         system_prompt = f"""You are an expert video editor segmenting narration for AI-animated documentary videos.
 
 YOUR TASK: Group the scene narration into VISUAL CONCEPT SEGMENTS (NOT sentence-by-sentence splitting).
 
+SCENE INFO:
+- Total scene duration: {scene_duration:.1f} seconds
+- Target segments: {ideal_segments} (aim for {min_duration}-{max_duration}s each)
+
 CRITICAL RULES:
-1. A scene is ~70 seconds. You should create 5-8 segments (MAX {max_segments}).
-2. Each segment MUST be {min_duration}-{max_duration} seconds (this is a HARD requirement for AI video generation)
+1. Create {ideal_segments} segments (MAX {max_segments}, MIN 3)
+2. Each segment MUST be {min_duration}-{max_duration} seconds (HARD requirement for AI video generation)
 3. Group multiple sentences together if they share the SAME visual concept
-4. Only create a NEW segment when the visual FUNDAMENTALLY changes (new metaphor, new subject, new location)
-5. Short phrases like "Different decade. Different industry. Identical sleight of hand." = ONE segment, not three
-6. Rhetorical buildups should stay together as ONE segment
+4. Only create a NEW segment when the visual FUNDAMENTALLY changes
+5. Short rhetorical phrases = ONE segment, not multiple
 
 WHAT CONSTITUTES A VISUAL SHIFT (create new segment):
 - New metaphor or analogy being introduced
@@ -504,34 +516,33 @@ WHAT CONSTITUTES A VISUAL SHIFT (create new segment):
 WHAT DOES NOT CONSTITUTE A VISUAL SHIFT (keep in same segment):
 - Continuing to explain the same concept
 - Adding details to current metaphor
-- Rhetorical emphasis phrases
+- Rhetorical emphasis phrases ("Different decade. Different industry." = SAME segment)
 - Cause and effect of same topic
 
 DURATION CALCULATION:
 - Speaking rate: 173 words per minute
 - Formula: (word_count / 173) * 60 = seconds
-- If a concept is under {min_duration}s, MERGE it with adjacent segment
-- If a concept is over {max_duration}s, split it (add "continued" to visual_concept)
+- Segment durations should sum to approximately {scene_duration:.0f} seconds
 
 OUTPUT FORMAT (JSON only, no markdown):
 {{
   "segments": [
     {{
-      "sentences": ["First sentence.", "Second sentence.", "Third sentence that continues same visual concept."],
+      "sentences": ["First sentence.", "Second sentence.", "Third sentence."],
       "visual_concept": "Brief description of the core visual",
       "estimated_duration": 8.5
     }}
   ]
 }}
 
-Remember: Fewer, longer segments = better video. Aim for 5-8 segments, NEVER more than {max_segments}."""
+Remember: Fewer, longer segments = better video. Target {ideal_segments} segments."""
 
-        prompt = f"""Segment this ~70 second scene into 5-8 visual concept groups (max {max_segments}):
+        prompt = f"""Segment this {scene_duration:.0f} second scene into {ideal_segments} visual concept groups:
 
 SCENE TEXT:
 {scene_text}
 
-Return JSON. Each segment should be {min_duration}-{max_duration} seconds. Group by VISUAL CONCEPT, not sentences."""
+Return JSON. Each segment should be {min_duration}-{max_duration} seconds. Total should equal ~{scene_duration:.0f}s."""
 
         response = await self.generate(
             prompt=prompt,
@@ -545,12 +556,27 @@ Return JSON. Each segment should be {min_duration}-{max_duration} seconds. Group
         clean_response = response.replace("```json", "").replace("```", "").strip()
         data = json.loads(clean_response)
 
-        # Convert to our format and validate durations
+        # Convert to our format and calculate proportional durations
         results = []
-        for seg in data.get("segments", []):
+        raw_segments = data.get("segments", [])
+
+        # Calculate word-based proportions to distribute actual duration
+        total_words = 0
+        for seg in raw_segments:
             text = " ".join(seg.get("sentences", []))
-            # Recalculate duration to be accurate
-            duration = estimate_sentence_duration(text)
+            total_words += len(text.split())
+
+        for seg in raw_segments:
+            text = " ".join(seg.get("sentences", []))
+            word_count = len(text.split())
+
+            if actual_total_duration and total_words > 0:
+                # Distribute actual duration proportionally by word count
+                proportion = word_count / total_words
+                duration = actual_total_duration * proportion
+            else:
+                # Fall back to estimate
+                duration = estimate_sentence_duration(text)
 
             # Enforce min/max duration
             if duration < min_duration:
