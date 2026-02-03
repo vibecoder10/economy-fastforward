@@ -216,7 +216,8 @@ class AirtableClient:
             "Sentence Index": sentence_index,
             "Start Time (s)": cumulative_start,
         }
-        record = self.images_table.create(fields)
+        # typecast=True auto-creates fields if they don't exist
+        record = self.images_table.create(fields, typecast=True)
         return {"id": record["id"], **record["fields"]}
 
     def create_segment_image_record(
@@ -264,7 +265,8 @@ class AirtableClient:
             "Start Time (s)": cumulative_start,
             "Visual Concept": visual_concept,  # NEW: Why this is a distinct visual
         }
-        record = self.images_table.create(fields)
+        # typecast=True auto-creates fields if they don't exist
+        record = self.images_table.create(fields, typecast=True)
         return {"id": record["id"], **record["fields"]}
     
     def update_image_record(
