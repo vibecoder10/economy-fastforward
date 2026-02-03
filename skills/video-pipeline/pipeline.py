@@ -6,7 +6,8 @@ The pipeline strictly follows Airtable Ideas table status:
 1. Idea Logged       - New idea, waiting to be picked up
 2. Ready For Scripting - Script Bot will run
 3. Ready For Voice   - Voice Bot will run  
-4. Ready For Visuals - Image Prompt Bot + Image Bot will run
+4. Ready For Image Prompts - Image Prompt Bot will run
+5. Ready for Images     - Image Bot will run
 5. Ready For Thumbnail - Thumbnail Bot will run
 6. Done              - Complete, do NOT process
 7. In Que            - Waiting in queue
@@ -48,7 +49,8 @@ class VideoPipeline:
     STATUS_IDEA_LOGGED = "Idea Logged"
     STATUS_READY_SCRIPTING = "Ready For Scripting"
     STATUS_READY_VOICE = "Ready For Voice"
-    STATUS_READY_VISUALS = "Ready For Visuals"
+    STATUS_READY_IMAGE_PROMPTS = "Ready For Image Prompts"
+    STATUS_READY_IMAGES = "Ready for Images"
     STATUS_READY_VIDEO_SCRIPTS = "Ready For Video Scripts"
     STATUS_READY_VIDEO_GENERATION = "Ready For Video Generation"
     STATUS_READY_THUMBNAIL = "Ready For Thumbnail"
@@ -126,11 +128,11 @@ class VideoPipeline:
             # Some scripts still need voice
             suggested_status = self.STATUS_READY_VOICE
         elif not all_images:
-            # Scripts done, no images yet
-            suggested_status = self.STATUS_READY_VISUALS
+            # Scripts done, no image prompts yet
+            suggested_status = self.STATUS_READY_IMAGE_PROMPTS
         elif pending_images:
-            # Images exist but some pending
-            suggested_status = self.STATUS_READY_VISUALS
+            # Image prompts exist but images not generated yet
+            suggested_status = self.STATUS_READY_IMAGES
         elif len(scene_1_images) > 0 and len(scene_1_prompts) < len(scene_1_images):
             # Images done, but Scene 1 prompts missing
             suggested_status = self.STATUS_READY_VIDEO_SCRIPTS
@@ -192,24 +194,30 @@ class VideoPipeline:
                 
             return await self.run_voice_bot()
         
-        # 3. Check for Ready For Visuals
-        idea = self.get_idea_by_status(self.STATUS_READY_VISUALS)
+        # 3. Check for Ready For Image Prompts
+        idea = self.get_idea_by_status(self.STATUS_READY_IMAGE_PROMPTS)
         if idea:
             self._load_idea(idea)
-            return await self.run_visuals_pipeline()
-            
-        # 4. Check for Ready For Video Scripts
+            return await self.run_image_prompt_bot()
+
+        # 4. Check for Ready for Images
+        idea = self.get_idea_by_status(self.STATUS_READY_IMAGES)
+        if idea:
+            self._load_idea(idea)
+            return await self.run_image_bot()
+
+        # 5. Check for Ready For Video Scripts
         idea = self.get_idea_by_status(self.STATUS_READY_VIDEO_SCRIPTS)
         if idea:
             self._load_idea(idea)
             return await self.run_video_script_bot()
             
-        # 5. Check for Ready For Video Generation
+        # 6. Check for Ready For Video Generation
         idea = self.get_idea_by_status(self.STATUS_READY_VIDEO_GENERATION)
         if idea:
             self._load_idea(idea)
             return await self.run_video_gen_bot()
-        # 6. Check for Ready For Thumbnail
+        # 7. Check for Ready For Thumbnail
         idea = self.get_idea_by_status(self.STATUS_READY_THUMBNAIL)
         if idea:
             self._load_idea(idea)
@@ -313,7 +321,7 @@ class VideoPipeline:
         """Generate voice overs for all scenes.
         
         REQUIRES: Ideas status = "Ready For Voice"
-        UPDATES TO: "Ready For Visuals" when complete
+        UPDATES TO: "Ready For Image Prompts" when complete
         """
         # Verify status
         if not self.current_idea:
@@ -376,9 +384,9 @@ class VideoPipeline:
                 )
                 voice_count += 1
         
-        # UPDATE STATUS to Ready For Visuals
-        self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_VISUALS)
-        print(f"  ✅ Status updated to: {self.STATUS_READY_VISUALS}")
+        # UPDATE STATUS to Ready For Image Prompts
+        self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_IMAGE_PROMPTS)
+        print(f"  ✅ Status updated to: {self.STATUS_READY_IMAGE_PROMPTS}")
         
         self.slack.notify_voice_done()
         
@@ -386,48 +394,72 @@ class VideoPipeline:
             "bot": "Voice Bot",
             "video_title": self.video_title,
             "voice_count": voice_count,
-            "new_status": self.STATUS_READY_VISUALS,
+            "new_status": self.STATUS_READY_IMAGE_PROMPTS,
         }
     
 
 
-    async def run_visuals_pipeline(self) -> dict:
-        """Generate image prompts AND images for all scenes.
-        
-        REQUIRES: Ideas status = "Ready For Visuals"
+    async def run_image_prompt_bot(self) -> dict:
+        """Generate image prompts for all scenes.
+
+        REQUIRES: Ideas status = "Ready For Image Prompts"
+        UPDATES TO: "Ready for Images" when complete
+        """
+        if not self.current_idea:
+            idea = self.get_idea_by_status(self.STATUS_READY_IMAGE_PROMPTS)
+            if not idea:
+                return {"error": "No idea with status 'Ready For Image Prompts'"}
+            self._load_idea(idea)
+
+        if self.current_idea.get("Status") != self.STATUS_READY_IMAGE_PROMPTS:
+            return {"error": f"Idea status is '{self.current_idea.get('Status')}', expected 'Ready For Image Prompts'"}
+
+        print(f"\n🌉 IMAGE PROMPT BOT: Processing '{self.video_title}'")
+
+        prompt_result = await self._run_image_prompt_bot()
+
+        # UPDATE STATUS to Ready for Images
+        self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_IMAGES)
+        print(f"  ✅ Status updated to: {self.STATUS_READY_IMAGES}")
+
+        return {
+            "bot": "Image Prompt Bot",
+            "video_title": self.video_title,
+            "prompt_count": prompt_result.get("prompt_count", 0),
+            "new_status": self.STATUS_READY_IMAGES,
+        }
+
+    async def run_image_bot(self) -> dict:
+        """Generate images from existing prompts.
+
+        REQUIRES: Ideas status = "Ready for Images"
         UPDATES TO: "Ready For Video Scripts" when complete
         """
-        # Verify status
         if not self.current_idea:
-            idea = self.get_idea_by_status(self.STATUS_READY_VISUALS)
+            idea = self.get_idea_by_status(self.STATUS_READY_IMAGES)
             if not idea:
-                return {"error": "No idea with status 'Ready For Visuals'"}
+                return {"error": "No idea with status 'Ready for Images'"}
             self._load_idea(idea)
-        
-        if self.current_idea.get("Status") != self.STATUS_READY_VISUALS:
-            return {"error": f"Idea status is '{self.current_idea.get('Status')}', expected 'Ready For Visuals'"}
-        
-        print(f"\n🖼️ VISUALS PIPELINE: Processing '{self.video_title}'")
-        
+
+        if self.current_idea.get("Status") != self.STATUS_READY_IMAGES:
+            return {"error": f"Idea status is '{self.current_idea.get('Status')}', expected 'Ready for Images'"}
+
+        print(f"\n🖼️ IMAGE BOT: Processing '{self.video_title}'")
+
         # Get or create project folder
         if not self.project_folder_id:
             folder = self.google.get_or_create_folder(self.video_title)
             self.project_folder_id = folder["id"]
-        
-        # Step 1: Generate Image Prompts
-        prompt_result = await self._run_image_prompt_bot()
-        
-        # Step 2: Generate Images
+
         image_result = await self._run_image_bot()
-        
+
         # UPDATE STATUS to Ready For Video Scripts
         self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_VIDEO_SCRIPTS)
         print(f"  ✅ Status updated to: {self.STATUS_READY_VIDEO_SCRIPTS}")
-        
+
         return {
-            "bot": "Visuals Pipeline",
+            "bot": "Image Bot",
             "video_title": self.video_title,
-            "prompt_count": prompt_result.get("prompt_count", 0),
             "image_count": image_result.get("image_count", 0),
             "new_status": self.STATUS_READY_VIDEO_SCRIPTS,
         }

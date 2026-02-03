@@ -62,9 +62,13 @@ class AirtableClient:
         """Get ideas with status 'Ready For Scripting'."""
         return self.get_ideas_by_status("Ready For Scripting", limit)
     
-    def get_ideas_ready_for_visuals(self, limit: int = 1) -> list[dict]:
-        """Get ideas with status 'Ready For Visuals'."""
-        return self.get_ideas_by_status("Ready For Visuals", limit)
+    def get_ideas_ready_for_image_prompts(self, limit: int = 1) -> list[dict]:
+        """Get ideas with status 'Ready For Image Prompts'."""
+        return self.get_ideas_by_status("Ready For Image Prompts", limit)
+
+    def get_ideas_ready_for_images(self, limit: int = 1) -> list[dict]:
+        """Get ideas with status 'Ready for Images'."""
+        return self.get_ideas_by_status("Ready for Images", limit)
     
     def get_all_ideas(self) -> list[dict]:
         """Get all ideas from the table."""
