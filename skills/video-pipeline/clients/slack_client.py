@@ -118,6 +118,15 @@ class SlackClient:
             "✅ Thumbnail created!\n\n"
             "🎬 All assets ready for video editing!"
         )
+
+    def notify_thumbnail_complete(self, video_title: str, thumbnail_url: str) -> dict:
+        """Notify that thumbnail generation is complete with details."""
+        return self.send_message(
+            f"🖼️ *Thumbnail Generated!*\n\n"
+            f"📹 *{video_title}*\n\n"
+            f"🔗 {thumbnail_url}\n\n"
+            f"Status updated to 'Thumbnail Complete'"
+        )
     
     def notify_pipeline_complete(self, video_title: str, folder_url: str) -> dict:
         """Notify that the entire pipeline is complete."""

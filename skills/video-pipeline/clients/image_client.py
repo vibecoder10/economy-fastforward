@@ -8,13 +8,16 @@ import asyncio
 
 class ImageClient:
     """Client for image generation via Kie.ai API."""
-    
+
     # Kie.ai API endpoints (from n8n workflow)
     CREATE_TASK_URL = "https://api.kie.ai/api/v1/jobs/createTask"
     RECORD_INFO_URL = "https://api.kie.ai/api/v1/jobs/recordInfo"
-    
+    QUERY_TASK_URL = "https://api.kie.ai/api/v1/jobs/queryTask"
+
     # Default model from n8n workflow
     DEFAULT_MODEL = "google/nano-banana"
+    # High-quality thumbnail model
+    THUMBNAIL_MODEL = "nano-banana-pro"
     
     def __init__(self, api_key: Optional[str] = None, google_client: Optional[object] = None):
         self.api_key = api_key or os.getenv("KIE_AI_API_KEY")
@@ -364,10 +367,10 @@ class ImageClient:
     
     async def download_image(self, image_url: str) -> bytes:
         """Download image from URL.
-        
+
         Args:
             image_url: URL of the image
-            
+
         Returns:
             Image content as bytes
         """
@@ -375,3 +378,178 @@ class ImageClient:
             response = await client.get(image_url, timeout=60.0)
             response.raise_for_status()
             return response.content
+
+    # ==================== THUMBNAIL GENERATION ====================
+
+    async def create_thumbnail_task(
+        self,
+        prompt: str,
+        aspect_ratio: str = "16:9",
+        resolution: str = "2K",
+        output_format: str = "png",
+    ) -> str:
+        """Create a thumbnail generation task using nano-banana-pro model.
+
+        Args:
+            prompt: Image generation prompt
+            aspect_ratio: Aspect ratio (16:9 recommended for thumbnails)
+            resolution: Output resolution (2K for high quality)
+            output_format: Output format (png, jpg)
+
+        Returns:
+            Task ID for polling
+        """
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.api_key}",
+        }
+
+        payload = {
+            "model": self.THUMBNAIL_MODEL,
+            "input": {
+                "prompt": prompt,
+                "aspect_ratio": aspect_ratio,
+                "resolution": resolution,
+                "output_format": output_format,
+            },
+        }
+
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                self.CREATE_TASK_URL,
+                headers=headers,
+                json=payload,
+                timeout=60.0,
+            )
+            response.raise_for_status()
+            result = response.json()
+
+        task_id = result.get("data", {}).get("taskId")
+        if not task_id:
+            raise ValueError(f"Failed to get task ID: {result}")
+
+        return task_id
+
+    async def query_thumbnail_task(self, task_id: str) -> dict:
+        """Query the status of a thumbnail generation task.
+
+        Args:
+            task_id: Task ID from create_thumbnail_task
+
+        Returns:
+            Task status dict with state and result
+        """
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+        }
+
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                self.QUERY_TASK_URL,
+                headers=headers,
+                params={"taskId": task_id},
+                timeout=30.0,
+            )
+            response.raise_for_status()
+            return response.json()
+
+    async def poll_thumbnail_completion(
+        self,
+        task_id: str,
+        poll_interval: float = 5.0,
+        timeout_seconds: float = 120.0,
+    ) -> Optional[str]:
+        """Poll for thumbnail generation completion.
+
+        Args:
+            task_id: Task ID to poll
+            poll_interval: Seconds between polls (default 5s per PRD)
+            timeout_seconds: Timeout in seconds (default 2 minutes per PRD)
+
+        Returns:
+            Image URL when complete, or None if failed/timeout
+        """
+        import time
+
+        start_time = time.time()
+        max_attempts = int(timeout_seconds / poll_interval)
+
+        for attempt in range(max_attempts):
+            elapsed = time.time() - start_time
+            if elapsed >= timeout_seconds:
+                print(f"      ⏱️ Thumbnail generation timed out after {timeout_seconds}s")
+                return None
+
+            status = await self.query_thumbnail_task(task_id)
+            data = status.get("data", {})
+
+            # Check state
+            state = data.get("state", "").lower()
+            print(f"      DEBUG: Thumbnail state: {state} (attempt {attempt + 1})")
+
+            if state == "success":
+                # Extract image URL from resultJson
+                result_json = data.get("resultJson")
+                if result_json:
+                    import json
+                    if isinstance(result_json, str):
+                        result_data = json.loads(result_json)
+                    else:
+                        result_data = result_json
+
+                    result_urls = result_data.get("resultUrls", [])
+                    if result_urls:
+                        return result_urls[0]
+
+            if state in ["fail", "failed", "failure", "error"]:
+                print(f"      ❌ Thumbnail generation failed: {data}")
+                return None
+
+            await asyncio.sleep(poll_interval)
+
+        print(f"      ⏱️ Thumbnail polling exhausted after {max_attempts} attempts")
+        return None
+
+    async def generate_thumbnail(
+        self,
+        prompt: str,
+        aspect_ratio: str = "16:9",
+        resolution: str = "2K",
+    ) -> Optional[str]:
+        """Generate a thumbnail and wait for completion.
+
+        Full pipeline: create task -> poll -> return URL.
+
+        Args:
+            prompt: Image generation prompt
+            aspect_ratio: Aspect ratio
+            resolution: Output resolution
+
+        Returns:
+            Image URL when complete, or None if failed
+        """
+        print(f"    🎨 Generating thumbnail with {self.THUMBNAIL_MODEL}...")
+        print(f"    Prompt: {prompt[:100]}...")
+
+        try:
+            # Create task
+            task_id = await self.create_thumbnail_task(
+                prompt=prompt,
+                aspect_ratio=aspect_ratio,
+                resolution=resolution,
+            )
+            print(f"    📋 Task created: {task_id}")
+
+            # Poll for completion
+            image_url = await self.poll_thumbnail_completion(task_id)
+
+            if image_url:
+                print(f"    ✅ Thumbnail generated: {image_url[:50]}...")
+                return image_url
+            else:
+                print("    ❌ Thumbnail generation failed")
+                return None
+
+        except Exception as e:
+            print(f"    ❌ Thumbnail generation error: {e}")
+            return None

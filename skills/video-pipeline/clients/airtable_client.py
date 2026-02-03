@@ -97,7 +97,70 @@ class AirtableClient:
         """Update the thumbnail URL of an idea."""
         record = self.ideas_table.update(record_id, {"Thumbnail URL": thumbnail_url})
         return {"id": record["id"], **record["fields"]}
-    
+
+    def get_idea_by_id(self, record_id: str) -> dict:
+        """Get an idea by its record ID."""
+        record = self.ideas_table.get(record_id)
+        return {"id": record["id"], **record["fields"]}
+
+    def get_ideas_ready_for_thumbnail(self, limit: int = 1) -> list[dict]:
+        """Get ideas with status 'Ready For Thumbnail'."""
+        return self.get_ideas_by_status("Ready For Thumbnail", limit)
+
+    def update_idea_thumbnail_complete(
+        self,
+        record_id: str,
+        thumbnail_url: str,
+        next_status: str = "Done",
+    ) -> dict:
+        """Update idea with thumbnail URL and mark as complete.
+
+        Args:
+            record_id: Airtable record ID
+            thumbnail_url: URL of the generated thumbnail
+            next_status: Status to set (default "Done")
+
+        Returns:
+            Updated record dict
+        """
+        updates = {
+            "Thumbnail URL": thumbnail_url,
+            "Status": next_status,
+        }
+        record = self.ideas_table.update(record_id, updates, typecast=True)
+        return {"id": record["id"], **record["fields"]}
+
+    def get_idea_with_reference_thumbnail(self, record_id: str) -> dict:
+        """Get idea record with reference thumbnail info.
+
+        Returns the idea with fields needed for thumbnail generation:
+        - Video Title
+        - Thumbnail Prompt (summary/description)
+        - Reference Thumbnail (URL of reference image to style-match)
+
+        Args:
+            record_id: Airtable record ID
+
+        Returns:
+            Idea dict with thumbnail-related fields
+        """
+        record = self.ideas_table.get(record_id)
+        fields = record["fields"]
+
+        # Extract reference thumbnail URL from attachment field
+        ref_thumbnail = fields.get("Reference Thumbnail", [])
+        ref_url = ref_thumbnail[0]["url"] if ref_thumbnail else None
+
+        return {
+            "id": record["id"],
+            "video_title": fields.get("Video Title", ""),
+            "thumbnail_prompt": fields.get("Thumbnail Prompt", ""),
+            "reference_thumbnail_url": ref_url,
+            "video_summary": fields.get("Future Prediction", ""),  # Use as summary
+            "status": fields.get("Status", ""),
+            **fields,
+        }
+
     # ==================== SCRIPT TABLE ====================
     
     def get_scripts_to_create(self) -> list[dict]:
