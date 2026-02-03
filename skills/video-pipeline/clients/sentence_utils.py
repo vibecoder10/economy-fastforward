@@ -6,20 +6,32 @@ from typing import List, Dict
 
 def split_into_sentences(text: str) -> List[str]:
     """Split text into sentences.
-    
+
     Args:
         text: The full scene narration text
-        
+
     Returns:
         List of sentences
     """
-    # Split on sentence-ending punctuation followed by space or end
-    # Handle common abbreviations and edge cases
-    sentences = re.split(r'(?<=[.!?])\s+', text.strip())
-    
+    # Use a different approach: find sentence boundaries and split
+    # Match sentence-ending punctuation, optionally followed by quotes
+    # Then split on whitespace after these boundaries
+
+    # First, normalize whitespace (convert newlines to spaces)
+    normalized = " ".join(text.split())
+
+    # Pattern matches: punctuation (.!?) optionally followed by closing quote
+    # Then we insert a special delimiter and split on it
+    # This handles: "Hello." and "Hello?" and 'Hello!'
+    pattern = r'([.!?]["\'\u201d\u2019]?)\s+'
+    marked = re.sub(pattern, r'\1|||SPLIT|||', normalized)
+
+    # Split on our delimiter
+    sentences = marked.split('|||SPLIT|||')
+
     # Filter out empty strings and clean up
     sentences = [s.strip() for s in sentences if s.strip()]
-    
+
     return sentences
 
 

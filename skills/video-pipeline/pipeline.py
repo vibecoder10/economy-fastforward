@@ -38,8 +38,11 @@ from clients.image_client import ImageClient
 class VideoPipeline:
     """Orchestrates the full video production pipeline based on Airtable status."""
     
-    # Image generation mode: "sentence" (new, aligned) or "scene" (old, 6 per scene)
-    IMAGE_MODE = os.getenv("IMAGE_MODE", "sentence")
+    # Image generation mode:
+    # - "semantic": Smart segmentation by visual concept (max 10s per segment for AI video)
+    # - "sentence": One image per sentence (deprecated)
+    # - "scene": Old mode with hardcoded 6 images per scene (deprecated)
+    IMAGE_MODE = os.getenv("IMAGE_MODE", "semantic")
     
     # Valid statuses in workflow order
     STATUS_IDEA_LOGGED = "Idea Logged"
@@ -422,47 +425,73 @@ class VideoPipeline:
     
     async def _run_image_prompt_bot(self) -> dict:
         """Generate image prompts for all scenes (internal method).
-        
-        Supports two modes:
-        - "sentence": New sentence-aligned prompts (1 per sentence, with timing)
-        - "scene": Old mode (6 prompts per scene, no timing alignment)
+
+        Supports three modes:
+        - "semantic": Smart segmentation by visual concept (max 10s per segment)
+        - "sentence": One image per sentence (deprecated)
+        - "scene": Old mode (6 prompts per scene, deprecated)
         """
         self.slack.notify_image_prompts_start()
         print(f"\n  🌉 IMAGE PROMPT BOT: Generating prompts (mode: {self.IMAGE_MODE})...")
-        
+
         # Get scripts for this video
         scripts = self.airtable.get_scripts_by_title(self.video_title)
-        
+
         if not scripts:
             print(f"    No scripts found for: {self.video_title}")
             return {"prompt_count": 0}
-        
+
         # Get existing image prompts to avoid duplicates
         existing_images = self.airtable.get_all_images_for_video(self.video_title)
         existing_scenes = set(img.get("Scene") for img in existing_images)
-        
+
         prompt_count = 0
-        
+
         for script in scripts:
             scene_number = script.get("scene", 0)
-            
+
             # CHECK: Do prompts already exist?
             if scene_number in existing_scenes:
                 print(f"    Check: Scene {scene_number} prompts already exist, skipping.")
                 continue
-                
+
             scene_text = script.get("Scene text", "")
-            
+
             print(f"    Generating prompts for scene {scene_number}...")
-            
-            if self.IMAGE_MODE == "sentence":
-                # NEW: Sentence-aligned mode
+
+            if self.IMAGE_MODE == "semantic":
+                # SMART: Semantic segmentation by visual concept (max 10s for AI video)
+                segments = await self.anthropic.generate_semantic_segments(
+                    scene_number=scene_number,
+                    scene_text=scene_text,
+                    video_title=self.video_title,
+                    max_segment_duration=10.0,
+                )
+
+                # Save each segment to Airtable
+                for seg in segments:
+                    self.airtable.create_segment_image_record(
+                        scene_number=scene_number,
+                        segment_index=seg["segment_index"],
+                        segment_text=seg["segment_text"],
+                        duration_seconds=seg["duration_seconds"],
+                        image_prompt=seg["image_prompt"],
+                        video_title=self.video_title,
+                        visual_concept=seg.get("visual_concept", ""),
+                        cumulative_start=seg.get("cumulative_start", 0.0),
+                    )
+                    prompt_count += 1
+
+                print(f"      → {len(segments)} semantic segments (max 10s each)")
+
+            elif self.IMAGE_MODE == "sentence":
+                # DEPRECATED: Sentence-aligned mode (1 per sentence)
                 sentence_prompts = await self.anthropic.generate_sentence_level_prompts(
                     scene_number=scene_number,
                     scene_text=scene_text,
                     video_title=self.video_title,
                 )
-                
+
                 # Save each sentence-aligned prompt to Airtable
                 for sp in sentence_prompts:
                     self.airtable.create_sentence_image_record(
@@ -472,18 +501,19 @@ class VideoPipeline:
                         duration_seconds=sp["duration_seconds"],
                         image_prompt=sp["image_prompt"],
                         video_title=self.video_title,
+                        cumulative_start=sp.get("cumulative_start", 0.0),
                     )
                     prompt_count += 1
-                    
+
                 print(f"      → {len(sentence_prompts)} sentence-aligned prompts")
             else:
-                # OLD: Scene-level mode (6 prompts per scene)
+                # DEPRECATED: Scene-level mode (6 prompts per scene)
                 prompts = await self.anthropic.generate_image_prompts(
                     scene_number=scene_number,
                     scene_text=scene_text,
                     video_title=self.video_title,
                 )
-                
+
                 # Save each prompt to Airtable
                 for i, prompt in enumerate(prompts, 1):
                     self.airtable.create_image_prompt_record(
@@ -565,8 +595,14 @@ class VideoPipeline:
                 print(f"    ⚠️ No Image Prompt found for Scene {scene}, skipping.")
                 continue
 
+            # Get sentence text for better motion alignment
+            sentence_text = img_record.get("Sentence Text", "")
+
             print(f"    Generating motion prompt for Scene {scene}...")
-            motion_prompt = await self.anthropic.generate_video_prompt(image_prompt)
+            motion_prompt = await self.anthropic.generate_video_prompt(
+                image_prompt=image_prompt,
+                sentence_text=sentence_text,
+            )
             
             self.airtable.update_image_video_prompt(img_record["id"], motion_prompt)
             prompt_count += 1

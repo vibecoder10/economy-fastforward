@@ -357,29 +357,19 @@ Generate a single prompt that visually represents THIS EXACT SENTENCE."""
         video_title: str,
     ) -> list[dict]:
         """Generate image prompts aligned to sentences in the scene.
-        
-        This is the new sentence-level alternative to generate_image_prompts().
-        
-        Args:
-            scene_number: The scene number
-            scene_text: Full scene narration text
-            video_title: Title of the video
-            
-        Returns:
-            List of dicts with:
-                - sentence_index: int
-                - sentence_text: str
-                - duration_seconds: float
-                - image_prompt: str
+
+        DEPRECATED: Use generate_semantic_segments() for smarter segmentation.
+
+        This is the old sentence-level approach (one image per sentence).
         """
         from clients.sentence_utils import analyze_scene_for_images
-        
+
         # Analyze the scene into sentences
         sentences = analyze_scene_for_images(scene_text)
-        
+
         results = []
         previous_prompt = ""
-        
+
         for sentence_data in sentences:
             # Generate prompt for this sentence
             prompt = await self.generate_sentence_image_prompt(
@@ -390,7 +380,7 @@ Generate a single prompt that visually represents THIS EXACT SENTENCE."""
                 video_title=video_title,
                 previous_prompt=previous_prompt,
             )
-            
+
             results.append({
                 "sentence_index": sentence_data["sentence_index"],
                 "sentence_text": sentence_data["sentence_text"],
@@ -398,34 +388,259 @@ Generate a single prompt that visually represents THIS EXACT SENTENCE."""
                 "cumulative_start": sentence_data["cumulative_start"],
                 "image_prompt": prompt,
             })
-            
+
             previous_prompt = prompt
-        
+
         return results
 
-    async def generate_video_prompt(self, image_prompt: str) -> str:
-        """Generate a concise motion prompt based on the image description.
-        
+    async def generate_semantic_segments(
+        self,
+        scene_number: int,
+        scene_text: str,
+        video_title: str,
+        max_segment_duration: float = 10.0,
+    ) -> list[dict]:
+        """Generate image prompts based on semantic visual segments.
+
+        This is the smart segmentation approach that:
+        1. Groups sentences by visual concept (not mechanical splitting)
+        2. Only creates new images when the visual needs to shift
+        3. Enforces max duration per segment (for AI video generation limits)
+
+        Args:
+            scene_number: The scene number
+            scene_text: Full scene narration text
+            video_title: Title of the video
+            max_segment_duration: Maximum seconds per segment (default 10s for AI video)
+
+        Returns:
+            List of dicts with:
+                - segment_index: int
+                - segment_text: str (combined sentences)
+                - duration_seconds: float
+                - cumulative_start: float
+                - image_prompt: str
+                - visual_concept: str (description of why this is a segment)
+        """
+        # Step 1: Have Claude analyze and segment the scene semantically
+        segments = await self._analyze_visual_segments(scene_text, max_segment_duration)
+
+        # Step 2: Generate image prompts for each segment
+        results = []
+        previous_prompt = ""
+        cumulative_time = 0.0
+
+        for i, segment in enumerate(segments):
+            # Generate prompt for this segment
+            prompt = await self._generate_segment_image_prompt(
+                segment_text=segment["text"],
+                visual_concept=segment["visual_concept"],
+                segment_index=i + 1,
+                total_segments=len(segments),
+                scene_number=scene_number,
+                video_title=video_title,
+                previous_prompt=previous_prompt,
+            )
+
+            results.append({
+                "segment_index": i + 1,
+                "segment_text": segment["text"],
+                "duration_seconds": segment["duration"],
+                "cumulative_start": round(cumulative_time, 1),
+                "image_prompt": prompt,
+                "visual_concept": segment["visual_concept"],
+            })
+
+            cumulative_time += segment["duration"]
+            previous_prompt = prompt
+
+        return results
+
+    async def _analyze_visual_segments(
+        self,
+        scene_text: str,
+        max_duration: float = 10.0,
+    ) -> list[dict]:
+        """Use Claude to semantically segment a scene into visual concepts.
+
+        Returns list of segments, each with:
+            - text: the narration for this segment
+            - visual_concept: why this is a distinct visual
+            - duration: estimated duration in seconds
+        """
+        from clients.sentence_utils import split_into_sentences, estimate_sentence_duration
+
+        system_prompt = """You are an expert video editor segmenting narration for AI-animated documentary videos.
+
+YOUR TASK: Analyze the scene narration and group sentences into VISUAL SEGMENTS.
+
+RULES FOR SEGMENTATION:
+1. Group sentences that share the SAME visual concept (keep together)
+2. Create a NEW segment when the visual needs to SHIFT (new concept, new metaphor, new subject)
+3. Each segment MUST be ≤{max_duration} seconds (this is a hard technical limit for AI video generation)
+4. Short rhetorical phrases ("Different decade. Different industry.") should stay TOGETHER if same concept
+5. Aim for 4-8 segments per scene (not too few, not too many)
+
+DURATION CALCULATION:
+- Average speaking rate: 173 words per minute
+- Formula: (word_count / 173) * 60 = seconds
+- Minimum 2 seconds per segment
+
+OUTPUT FORMAT (JSON only, no markdown):
+{{
+  "segments": [
+    {{
+      "sentences": ["First sentence.", "Second sentence that continues same idea."],
+      "visual_concept": "Brief description of what visual this represents",
+      "estimated_duration": 8.5
+    }},
+    {{
+      "sentences": ["New concept starts here."],
+      "visual_concept": "Description of new visual",
+      "estimated_duration": 4.2
+    }}
+  ]
+}}
+
+CRITICAL: If a segment would exceed {max_duration}s, you MUST split it even if same concept.
+Add "(continued)" to visual_concept for split segments."""
+
+        prompt = f"""Segment this scene narration into visual segments (max {max_duration}s each):
+
+SCENE TEXT:
+{scene_text}
+
+Return JSON with segments array. Each segment groups sentences by visual concept."""
+
+        response = await self.generate(
+            prompt=prompt,
+            system_prompt=system_prompt.format(max_duration=max_duration),
+            model="claude-sonnet-4-5-20250929",
+            max_tokens=2000,
+        )
+
+        # Parse the response
+        import json
+        clean_response = response.replace("```json", "").replace("```", "").strip()
+        data = json.loads(clean_response)
+
+        # Convert to our format and validate durations
+        results = []
+        for seg in data.get("segments", []):
+            text = " ".join(seg.get("sentences", []))
+            # Recalculate duration to be accurate
+            duration = estimate_sentence_duration(text)
+            # Enforce max duration
+            if duration > max_duration:
+                duration = max_duration
+
+            results.append({
+                "text": text,
+                "visual_concept": seg.get("visual_concept", ""),
+                "duration": round(duration, 1),
+            })
+
+        return results
+
+    async def _generate_segment_image_prompt(
+        self,
+        segment_text: str,
+        visual_concept: str,
+        segment_index: int,
+        total_segments: int,
+        scene_number: int,
+        video_title: str,
+        previous_prompt: str = "",
+    ) -> str:
+        """Generate an image prompt for a semantic segment."""
+        system_prompt = """You are an expert image prompt creator for a faceless YouTube channel.
+
+STRICT STYLE GUIDELINES:
+The style is "Cinematic Lofi Digital".
+Your output MUST start with "Atmospheric lo-fi 2D digital illustration, 16:9."
+
+VISUAL ANCHOR PROTOCOL:
+Frame using one of these "Anchor Settings":
+* Anchor A: "The Digital Void" – Abstract concepts in dark space.
+* Anchor B: "The Urban Exterior" – Futuristic cityscapes at twilight.
+* Anchor C: "The Data Landscape" – Physical representations of data in deserts.
+* Anchor D: "The Macro Lens" – Symbolic objects in close-up.
+
+REQUIRED PROMPT STRUCTURE:
+"Atmospheric lo-fi 2D digital illustration, 16:9. Anchor [Letter]: [Anchor Name]. [Primary Visual Description]. [Secondary Details]. Text '[TEXT]' appears in [Color/Style]. The [Concept Name] visualization. Hand-drawn [elements], soft painterly [contrast], [Color A] versus [Color B], cinematic [mood]."
+
+IMPORTANT:
+- This prompt illustrates a SEMANTIC SEGMENT (may contain multiple sentences)
+- The visual must represent the CORE CONCEPT being explained
+- Maintain visual continuity with the previous image if provided
+- Do not use double quotes inside the prompt, use single quotes
+
+OUTPUT: Return ONLY the prompt string, no JSON, no explanation."""
+
+        continuity_note = ""
+        if previous_prompt:
+            continuity_note = f"\n\nPREVIOUS IMAGE (maintain visual continuity):\n{previous_prompt[:200]}..."
+
+        prompt = f"""Create ONE image prompt for this narrative segment:
+
+VIDEO: {video_title}
+SCENE: {scene_number}
+SEGMENT: {segment_index} of {total_segments}
+
+VISUAL CONCEPT: {visual_concept}
+
+NARRATION TEXT:
+"{segment_text}"
+{continuity_note}
+
+Generate a single prompt that visually represents this segment's core concept."""
+
+        response = await self.generate(
+            prompt=prompt,
+            system_prompt=system_prompt,
+            model="claude-sonnet-4-5-20250929",
+            max_tokens=500,
+        )
+
+        return response.strip()
+
+    async def generate_video_prompt(
+        self,
+        image_prompt: str,
+        sentence_text: str = "",
+    ) -> str:
+        """Generate a concise motion prompt based on the image and narration.
+
         Args:
             image_prompt: The prompt used to generate the static image.
-            
+            sentence_text: The narration being spoken during this image (for alignment).
+
         Returns:
             A short motion prompt (e.g., "slow zoom on the red smoke, dust particles floating").
         """
-        system_prompt = """You are an expert motion prompt engineer for AI video generation (Seed Dance / Kling).
-Your task is to take a detailed IMAGE PROMPT and convert it into a CONCISE (max 15 words) MOTION PROMPT.
+        system_prompt = """You are an expert motion prompt engineer for AI video generation (Seed Dance / Kling / Grok Imagine).
+Your task is to create a CONCISE (max 15 words) MOTION PROMPT that:
+1. Animates the key visual elements in the image
+2. ALIGNS with the emotional tone and content of what's being narrated
 
 GUIDELINES:
-1. Identify the key visual elements in the prompt (e.g. "rain", "smoke", "crowd", "light").
-2. Assign subtle, cinematic movement to them.
-3. Add camera movement (Slow zoom, Pan).
-4. Do NOT describe the scene from scratch. Focus on MOVING what is already there.
+1. Read both the IMAGE PROMPT and the NARRATION TEXT.
+2. Identify key visual elements (e.g. "rain", "smoke", "crowd", "light", "text").
+3. Choose motion that MATCHES the narration mood (tension = slow zoom in, revelation = camera pan, etc.)
+4. Add subtle cinematic movement - don't overanimate.
+5. Do NOT describe the scene from scratch. Focus on MOVING what is already there.
 
-Example Input: "Atmospheric lo-fi... Anchor A: Digital Void. A glowing red pill crumbling into dust... darker background."
-Example Output: "Slow zoom on crumbling pill, dust particles floating upwards, cinematic lighting."
+Example:
+- Image: "Digital void with crumbling red pill..."
+- Narration: "The answer should terrify every investor..."
+- Motion: "Slow dramatic zoom on crumbling pill, dust particles floating upwards, ominous lighting shift."
 """
-        
-        prompt = f"Image Prompt: {image_prompt}\n\nGenerate motion prompt:"
+
+        narration_context = ""
+        if sentence_text:
+            narration_context = f"\n\nNarration being spoken: \"{sentence_text}\""
+
+        prompt = f"Image Prompt: {image_prompt}{narration_context}\n\nGenerate motion prompt:"
         
         # Use a faster model for simple prompts
         response = await self.generate(
