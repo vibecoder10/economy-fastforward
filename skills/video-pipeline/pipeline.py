@@ -435,12 +435,10 @@ class VideoPipeline:
     async def _run_image_prompt_bot(self) -> dict:
         """Generate image prompts for all scenes (internal method).
 
-        Uses GLOBAL BUDGET approach:
-        1. Calculate total video duration across ALL scenes
-        2. Allocate 1-3 image prompts per scene based on duration
-        3. Each scene gets exactly its budget (no more)
-
-        Target: ~1-2 prompts per scene for a typical 70s scene.
+        Uses DURATION-BASED BUDGET approach:
+        - Each image is displayed for 6-10 seconds
+        - A 70s scene → min 7 images (70/10), max 11 images (70/6)
+        - Claude analyzes scene text for visual concepts within that range
         """
         self.slack.notify_image_prompts_start()
         print(f"\n  🌉 IMAGE PROMPT BOT: Generating prompts (mode: {self.IMAGE_MODE})...")
@@ -456,8 +454,11 @@ class VideoPipeline:
         existing_images = self.airtable.get_all_images_for_video(self.video_title)
         existing_scenes = set(img.get("Scene") for img in existing_images)
 
+        import math
+
         # ── STEP 1: Calculate per-scene budgets ──
-        # Gather all voice durations first for global budget allocation
+        # Each image is on screen for 6-10 seconds
+        # min_images = ceil(duration / 10), max_images = floor(duration / 6)
         scene_durations = {}
         for script in scripts:
             scene_number = script.get("scene", 0)
@@ -473,20 +474,22 @@ class VideoPipeline:
         total_duration = sum(scene_durations.values())
         total_scenes = len(scripts)
 
-        # Budget per scene: 1-3 images based on scene duration
-        # < 40s = 1 image, 40-90s = 2 images, > 90s = 3 images
+        # Budget per scene based on 6-10s per image rule
         scene_budgets = {}
         for scene_num, dur in scene_durations.items():
-            if dur < 40:
-                scene_budgets[scene_num] = 1
-            elif dur <= 90:
-                scene_budgets[scene_num] = 2
-            else:
-                scene_budgets[scene_num] = 3
+            min_images = max(1, math.ceil(dur / 10))   # At most 10s per image
+            max_images = max(1, math.floor(dur / 6))    # At least 6s per image
+            # Target the midpoint — let Claude decide within range
+            target = round((min_images + max_images) / 2)
+            scene_budgets[scene_num] = {
+                "min": min_images,
+                "max": max_images,
+                "target": max(min_images, min(max_images, target)),
+            }
 
-        global_budget = sum(scene_budgets.values())
+        global_budget = sum(b["target"] for b in scene_budgets.values())
         print(f"    📊 Video: {total_scenes} scenes, {total_duration:.0f}s total")
-        print(f"    📊 Global budget: {global_budget} images ({global_budget/total_scenes:.1f} avg/scene)")
+        print(f"    📊 Global budget: ~{global_budget} images ({global_budget/total_scenes:.1f} avg/scene)")
 
         prompt_count = 0
 
@@ -500,17 +503,19 @@ class VideoPipeline:
 
             scene_text = script.get("Scene text", "")
             scene_dur = scene_durations.get(scene_number, 70.0)
-            budget = scene_budgets.get(scene_number, 2)
+            budget = scene_budgets.get(scene_number, {"min": 7, "max": 11, "target": 9})
 
-            print(f"    Scene {scene_number} ({scene_dur:.0f}s) → budget: {budget} images")
+            print(f"    Scene {scene_number} ({scene_dur:.0f}s) → {budget['min']}-{budget['max']} images (target {budget['target']})")
 
             if self.IMAGE_MODE == "semantic":
-                # SMART: Semantic segmentation with strict budget
+                # SMART: Semantic segmentation — concept-based within budget range
                 segments = await self.anthropic.generate_semantic_segments(
                     scene_number=scene_number,
                     scene_text=scene_text,
                     video_title=self.video_title,
-                    target_segments=budget,
+                    min_segments=budget["min"],
+                    max_segments=budget["max"],
+                    target_segments=budget["target"],
                     actual_scene_duration=scene_dur,
                 )
 
