@@ -406,3 +406,26 @@ class AirtableClient:
             sort=["Scene", "Image Index"],
         )
         return [{"id": r["id"], **r["fields"]} for r in records]
+
+    def delete_all_images_for_video(self, video_title: str) -> int:
+        """Delete ALL image records for a specific video.
+
+        Uses pyairtable's batch_delete for efficiency (deletes 10 at a time).
+
+        Returns:
+            Number of records deleted
+        """
+        from pyairtable.formulas import match
+        records = self.images_table.all(
+            formula=match({"Video Title": video_title}),
+        )
+        record_ids = [r["id"] for r in records]
+
+        if not record_ids:
+            print(f"    No image records found for '{video_title}'")
+            return 0
+
+        # pyairtable batch_delete handles chunking (max 10 per API call)
+        self.images_table.batch_delete(record_ids)
+        print(f"    Deleted {len(record_ids)} image records for '{video_title}'")
+        return len(record_ids)

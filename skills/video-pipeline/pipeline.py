@@ -941,6 +941,96 @@ async def main():
             print(f"  {idea.get('Status', 'Unknown'):20} | {idea.get('Video Title', 'Untitled')[:40]}")
         return
         
+    if len(sys.argv) > 1 and sys.argv[1] == "--clear-images":
+        # Delete all image records for a video
+        # Usage: python pipeline.py --clear-images "Video Title Here"
+        if len(sys.argv) < 3:
+            print("❌ Usage: python pipeline.py --clear-images \"Video Title\"")
+            return
+        title = sys.argv[2]
+        print(f"\n🗑️  CLEARING all image records for: '{title}'")
+        deleted = pipeline.airtable.delete_all_images_for_video(title)
+        print(f"✅ Deleted {deleted} image records.")
+        return
+
+    if len(sys.argv) > 1 and sys.argv[1] == "--test-scene":
+        # Test image prompt generation on a single scene
+        # Usage: python pipeline.py --test-scene "Video Title" 1
+        if len(sys.argv) < 4:
+            print("❌ Usage: python pipeline.py --test-scene \"Video Title\" <scene_number>")
+            return
+        title = sys.argv[2]
+        scene_num = int(sys.argv[3])
+
+        print(f"\n🧪 TEST: Generating image prompts for Scene {scene_num} of '{title}'")
+        pipeline.video_title = title
+
+        # Get the specific scene script
+        scripts = pipeline.airtable.get_scripts_by_title(title)
+        scene_script = None
+        for s in scripts:
+            if s.get("scene") == scene_num:
+                scene_script = s
+                break
+
+        if not scene_script:
+            print(f"❌ Scene {scene_num} not found for '{title}'")
+            return
+
+        scene_text = scene_script.get("Scene text", "")
+        voice_dur = pipeline.airtable.get_script_voice_duration(title, scene_num)
+
+        if not voice_dur:
+            word_count = len(scene_text.split())
+            voice_dur = (word_count / 173) * 60
+
+        import math
+        min_images = max(1, math.ceil(voice_dur / 10))
+        max_images = max(1, math.floor(voice_dur / 6))
+        target = round((min_images + max_images) / 2)
+        target = max(min_images, min(max_images, target))
+
+        print(f"  Duration: {voice_dur:.1f}s")
+        print(f"  Budget: {min_images}-{max_images} images (target {target})")
+        print(f"  Scene text: {scene_text[:100]}...")
+        print()
+
+        segments = await pipeline.anthropic.generate_semantic_segments(
+            scene_number=scene_num,
+            scene_text=scene_text,
+            video_title=title,
+            min_segments=min_images,
+            max_segments=max_images,
+            target_segments=target,
+            actual_scene_duration=voice_dur,
+        )
+
+        print(f"\n📊 RESULT: {len(segments)} segments generated")
+        print("-" * 60)
+        for seg in segments:
+            print(f"  [{seg['segment_index']}] {seg['duration_seconds']}s | {seg['visual_concept']}")
+            print(f"      Text: {seg['segment_text'][:80]}...")
+            print(f"      Prompt: {seg['image_prompt'][:80]}...")
+            print()
+
+        # Optionally save to Airtable
+        if len(sys.argv) > 4 and sys.argv[4] == "--save":
+            for seg in segments:
+                pipeline.airtable.create_segment_image_record(
+                    scene_number=scene_num,
+                    segment_index=seg["segment_index"],
+                    segment_text=seg["segment_text"],
+                    duration_seconds=seg["duration_seconds"],
+                    image_prompt=seg["image_prompt"],
+                    video_title=title,
+                    visual_concept=seg.get("visual_concept", ""),
+                    cumulative_start=seg.get("cumulative_start", 0.0),
+                )
+            print(f"✅ Saved {len(segments)} segments to Airtable")
+        else:
+            print("ℹ️  Add --save flag to write to Airtable")
+        return
+
     if len(sys.argv) > 1 and sys.argv[1] == "--sync":
         # Sync assets for a specific video
         # Hardcoded for now or args? User wants specific video.
