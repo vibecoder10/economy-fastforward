@@ -460,12 +460,15 @@ class VideoPipeline:
             print(f"    Generating prompts for scene {scene_number}...")
 
             if self.IMAGE_MODE == "semantic":
-                # SMART: Semantic segmentation by visual concept (max 10s for AI video)
+                # SMART: Semantic segmentation by visual concept
+                # Each segment: 6-10 seconds, max 10 segments per scene
                 segments = await self.anthropic.generate_semantic_segments(
                     scene_number=scene_number,
                     scene_text=scene_text,
                     video_title=self.video_title,
                     max_segment_duration=10.0,
+                    min_segment_duration=6.0,
+                    max_segments_per_scene=10,
                 )
 
                 # Save each segment to Airtable
@@ -482,7 +485,7 @@ class VideoPipeline:
                     )
                     prompt_count += 1
 
-                print(f"      → {len(segments)} semantic segments (max 10s each)")
+                print(f"      → {len(segments)} visual concepts (6-10s each, max 10)")
 
             elif self.IMAGE_MODE == "sentence":
                 # DEPRECATED: Sentence-aligned mode (1 per sentence)

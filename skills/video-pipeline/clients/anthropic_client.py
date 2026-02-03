@@ -399,31 +399,41 @@ Generate a single prompt that visually represents THIS EXACT SENTENCE."""
         scene_text: str,
         video_title: str,
         max_segment_duration: float = 10.0,
+        min_segment_duration: float = 6.0,
+        max_segments_per_scene: int = 10,
     ) -> list[dict]:
         """Generate image prompts based on semantic visual segments.
 
         This is the smart segmentation approach that:
         1. Groups sentences by visual concept (not mechanical splitting)
-        2. Only creates new images when the visual needs to shift
-        3. Enforces max duration per segment (for AI video generation limits)
+        2. Only creates new images when the visual FUNDAMENTALLY shifts
+        3. Enforces duration range (6-10s) for AI video generation
+        4. Limits to max 10 segments per ~70 second scene
 
         Args:
             scene_number: The scene number
             scene_text: Full scene narration text
             video_title: Title of the video
-            max_segment_duration: Maximum seconds per segment (default 10s for AI video)
+            max_segment_duration: Maximum seconds per segment (default 10s)
+            min_segment_duration: Minimum seconds per segment (default 6s)
+            max_segments_per_scene: Maximum segments allowed (default 10)
 
         Returns:
             List of dicts with:
                 - segment_index: int
                 - segment_text: str (combined sentences)
-                - duration_seconds: float
+                - duration_seconds: float (6-10s range)
                 - cumulative_start: float
                 - image_prompt: str
                 - visual_concept: str (description of why this is a segment)
         """
         # Step 1: Have Claude analyze and segment the scene semantically
-        segments = await self._analyze_visual_segments(scene_text, max_segment_duration)
+        segments = await self._analyze_visual_segments(
+            scene_text,
+            max_duration=max_segment_duration,
+            min_duration=min_segment_duration,
+            max_segments=max_segments_per_scene,
+        )
 
         # Step 2: Generate image prompts for each segment
         results = []
@@ -460,61 +470,72 @@ Generate a single prompt that visually represents THIS EXACT SENTENCE."""
         self,
         scene_text: str,
         max_duration: float = 10.0,
+        min_duration: float = 6.0,
+        max_segments: int = 10,
     ) -> list[dict]:
         """Use Claude to semantically segment a scene into visual concepts.
 
         Returns list of segments, each with:
             - text: the narration for this segment
             - visual_concept: why this is a distinct visual
-            - duration: estimated duration in seconds
+            - duration: estimated duration in seconds (6-10s range)
         """
-        from clients.sentence_utils import split_into_sentences, estimate_sentence_duration
+        from clients.sentence_utils import estimate_sentence_duration
 
-        system_prompt = """You are an expert video editor segmenting narration for AI-animated documentary videos.
+        system_prompt = f"""You are an expert video editor segmenting narration for AI-animated documentary videos.
 
-YOUR TASK: Analyze the scene narration and group sentences into VISUAL SEGMENTS.
+YOUR TASK: Group the scene narration into VISUAL CONCEPT SEGMENTS (NOT sentence-by-sentence splitting).
 
-RULES FOR SEGMENTATION:
-1. Group sentences that share the SAME visual concept (keep together)
-2. Create a NEW segment when the visual needs to SHIFT (new concept, new metaphor, new subject)
-3. Each segment MUST be ≤{max_duration} seconds (this is a hard technical limit for AI video generation)
-4. Short rhetorical phrases ("Different decade. Different industry.") should stay TOGETHER if same concept
-5. Aim for 4-8 segments per scene (not too few, not too many)
+CRITICAL RULES:
+1. A scene is ~70 seconds. You should create 5-8 segments (MAX {max_segments}).
+2. Each segment MUST be {min_duration}-{max_duration} seconds (this is a HARD requirement for AI video generation)
+3. Group multiple sentences together if they share the SAME visual concept
+4. Only create a NEW segment when the visual FUNDAMENTALLY changes (new metaphor, new subject, new location)
+5. Short phrases like "Different decade. Different industry. Identical sleight of hand." = ONE segment, not three
+6. Rhetorical buildups should stay together as ONE segment
+
+WHAT CONSTITUTES A VISUAL SHIFT (create new segment):
+- New metaphor or analogy being introduced
+- Shift from abstract to concrete (or vice versa)
+- New historical example or time period
+- New character/entity being discussed
+- Dramatic reveal or conclusion
+
+WHAT DOES NOT CONSTITUTE A VISUAL SHIFT (keep in same segment):
+- Continuing to explain the same concept
+- Adding details to current metaphor
+- Rhetorical emphasis phrases
+- Cause and effect of same topic
 
 DURATION CALCULATION:
-- Average speaking rate: 173 words per minute
+- Speaking rate: 173 words per minute
 - Formula: (word_count / 173) * 60 = seconds
-- Minimum 2 seconds per segment
+- If a concept is under {min_duration}s, MERGE it with adjacent segment
+- If a concept is over {max_duration}s, split it (add "continued" to visual_concept)
 
 OUTPUT FORMAT (JSON only, no markdown):
 {{
   "segments": [
     {{
-      "sentences": ["First sentence.", "Second sentence that continues same idea."],
-      "visual_concept": "Brief description of what visual this represents",
+      "sentences": ["First sentence.", "Second sentence.", "Third sentence that continues same visual concept."],
+      "visual_concept": "Brief description of the core visual",
       "estimated_duration": 8.5
-    }},
-    {{
-      "sentences": ["New concept starts here."],
-      "visual_concept": "Description of new visual",
-      "estimated_duration": 4.2
     }}
   ]
 }}
 
-CRITICAL: If a segment would exceed {max_duration}s, you MUST split it even if same concept.
-Add "(continued)" to visual_concept for split segments."""
+Remember: Fewer, longer segments = better video. Aim for 5-8 segments, NEVER more than {max_segments}."""
 
-        prompt = f"""Segment this scene narration into visual segments (max {max_duration}s each):
+        prompt = f"""Segment this ~70 second scene into 5-8 visual concept groups (max {max_segments}):
 
 SCENE TEXT:
 {scene_text}
 
-Return JSON with segments array. Each segment groups sentences by visual concept."""
+Return JSON. Each segment should be {min_duration}-{max_duration} seconds. Group by VISUAL CONCEPT, not sentences."""
 
         response = await self.generate(
             prompt=prompt,
-            system_prompt=system_prompt.format(max_duration=max_duration),
+            system_prompt=system_prompt,
             model="claude-sonnet-4-5-20250929",
             max_tokens=2000,
         )
@@ -530,8 +551,11 @@ Return JSON with segments array. Each segment groups sentences by visual concept
             text = " ".join(seg.get("sentences", []))
             # Recalculate duration to be accurate
             duration = estimate_sentence_duration(text)
-            # Enforce max duration
-            if duration > max_duration:
+
+            # Enforce min/max duration
+            if duration < min_duration:
+                duration = min_duration
+            elif duration > max_duration:
                 duration = max_duration
 
             results.append({
@@ -539,6 +563,30 @@ Return JSON with segments array. Each segment groups sentences by visual concept
                 "visual_concept": seg.get("visual_concept", ""),
                 "duration": round(duration, 1),
             })
+
+        # If we still have too many segments, merge the shortest ones
+        while len(results) > max_segments and len(results) > 1:
+            # Find the shortest segment
+            min_idx = min(range(len(results)), key=lambda i: results[i]["duration"])
+
+            # Merge with adjacent segment (prefer next, fallback to previous)
+            if min_idx < len(results) - 1:
+                merge_idx = min_idx + 1
+            else:
+                merge_idx = min_idx - 1
+
+            # Merge
+            merged_text = results[min_idx]["text"] + " " + results[merge_idx]["text"]
+            merged_concept = results[min_idx]["visual_concept"] + " (merged)"
+            merged_duration = min(results[min_idx]["duration"] + results[merge_idx]["duration"], max_duration)
+
+            # Remove both and insert merged
+            results[min(min_idx, merge_idx)] = {
+                "text": merged_text,
+                "visual_concept": merged_concept,
+                "duration": merged_duration,
+            }
+            results.pop(max(min_idx, merge_idx))
 
         return results
 
