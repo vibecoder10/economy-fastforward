@@ -604,6 +604,60 @@ Generate a single prompt that visually represents this segment's core concept.""
 
         return response.strip()
 
+    async def generate_thumbnail_prompt(
+        self,
+        video_title: str,
+        thumbnail_prompt: str,
+        thumbnail_spec: dict,
+    ) -> str:
+        """Generate an image prompt for thumbnail generation.
+
+        Uses the reference thumbnail analysis (THUMBNAIL_SPEC) to create
+        a prompt that matches the style while applying it to the new video concept.
+
+        Args:
+            video_title: Title of the new video
+            thumbnail_prompt: Brief description of desired thumbnail
+            thumbnail_spec: THUMBNAIL_SPEC JSON from Gemini analysis
+
+        Returns:
+            A finalized image generation prompt
+        """
+        import json
+
+        system_prompt = """You are a Universal Thumbnail Prompt Engineer. Your job is to generate image-generation prompts that recreate reference thumbnails while swapping in new video concepts with instantly readable symbolism.
+Your task:
+1. Match the reference style and composition exactly
+2. Swap content while preserving layout roles
+3. Make locations instantly identifiable using 3+ visual cues
+4. Return ONLY a single plain-text image prompt
+Output: One finalized prompt ready for image generation."""
+
+        user_prompt = f"""You are a Thumbnail Visualizer. Your goal is to apply a specific visual style to a new video concept.
+New Video Concept:
+1. {video_title}
+2. {thumbnail_prompt}
+3. **Reference Analysis (THE STYLE & STRUCTURE):**
+   - Style Data: {json.dumps(thumbnail_spec, indent=2)}
+TASK:
+Generate a cohesive image prompt that visualizes the **"New Video Concept" using *only* the aesthetic and compositional rules found in the "Reference Analysis".
+CRITICAL RULES (STRICT ENFORCEMENT):
+1. **CONTENT SOURCE IS ONLY THE NEW CONCEPT:** All subjects, objects, and actions in your final prompt MUST come from the "New Video Concept".
+2. **DO NOT USE REFERENCE CONTENT:** You are strictly forbidden from using any content from the JSON's description.
+3. **MAP THE STYLE TO THE NEW CONTENT:** Apply the style_fingerprint from the JSON to the new video elements.
+4. **MAP THE COMPOSITION:** Use the layout from the JSON.
+OUTPUT:
+Provide ONLY the final detailed image prompt."""
+
+        response = await self.generate(
+            prompt=user_prompt,
+            system_prompt=system_prompt,
+            model="claude-sonnet-4-5-20250929",
+            max_tokens=1000,
+        )
+
+        return response.strip()
+
     async def generate_video_prompt(
         self,
         image_prompt: str,
