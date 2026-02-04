@@ -745,17 +745,21 @@ class VideoPipeline:
                 video_summary=video_summary,
             )
 
-            print(f"  Generating detailed prompt via Anthropic...")
-            thumbnail_prompt = await self.anthropic.generate_thumbnail_prompt(
-                thumbnail_spec_json=thumbnail_spec,
-                video_title=video_title,
-                thumbnail_concept=basic_prompt,
-            )
-            print(f"  Generated prompt: {thumbnail_prompt[:100]}...")
+            if "error" in thumbnail_spec:
+                print(f"  ⚠️ Gemini analysis failed, falling back to basic prompt")
+                thumbnail_prompt = basic_prompt
+            else:
+                print(f"  Generating detailed prompt via Anthropic...")
+                thumbnail_prompt = await self.anthropic.generate_thumbnail_prompt(
+                    thumbnail_spec_json=thumbnail_spec,
+                    video_title=video_title,
+                    thumbnail_concept=basic_prompt,
+                )
+                print(f"  Generated prompt: {thumbnail_prompt[:100]}...")
 
-            # Save enhanced prompt to Airtable for debugging
-            self.airtable.update_idea_field(self.current_idea_id, "Thumbnail Prompt", thumbnail_prompt)
-            print(f"  ✅ Enhanced prompt saved to Airtable")
+                # Save enhanced prompt to Airtable for debugging
+                self.airtable.update_idea_field(self.current_idea_id, "Thumbnail Prompt", thumbnail_prompt)
+                print(f"  ✅ Enhanced prompt saved to Airtable")
         else:
             print(f"  No reference thumbnail, using basic prompt.")
             thumbnail_prompt = basic_prompt

@@ -2,6 +2,7 @@
 
 import os
 import json
+import re
 from typing import Optional
 import httpx
 
@@ -88,11 +89,33 @@ Return ONLY valid JSON, no markdown formatting."""
             response.raise_for_status()
 
         data = response.json()
-        text = data["candidates"][0]["content"]["parts"][0]["text"]
+        response_text = data["candidates"][0]["content"]["parts"][0]["text"]
 
-        # Parse JSON response
-        clean = text.replace("```json", "").replace("```", "").strip()
-        return json.loads(clean)
+        # Clean up response - remove markdown code blocks if present
+        clean = response_text.strip()
+        if clean.startswith("```json"):
+            clean = clean[7:]
+        if clean.startswith("```"):
+            clean = clean[3:]
+        if clean.endswith("```"):
+            clean = clean[:-3]
+        clean = clean.strip()
+
+        # Try to extract JSON object even if there's extra text
+        json_match = re.search(r'\{[\s\S]*\}', clean)
+        if json_match:
+            clean = json_match.group(0)
+
+        try:
+            return json.loads(clean)
+        except json.JSONDecodeError as e:
+            print(f"  ⚠️ Gemini returned invalid JSON: {e}")
+            print(f"  Raw response: {response_text[:500]}...")
+            # Return minimal spec so pipeline can continue with fallback
+            return {
+                "error": "Invalid JSON from Gemini",
+                "raw_response": response_text[:1000],
+            }
 
     async def _fetch_image_base64(self, url: str) -> str:
         """Download an image and return its base64-encoded content."""
