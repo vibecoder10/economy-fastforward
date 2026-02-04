@@ -20,9 +20,12 @@ RULES:
 import os
 import asyncio
 import json
+import tempfile
 from pathlib import Path
 from typing import Optional
 from dotenv import load_dotenv
+from mutagen import File as MutagenFile
+import httpx
 
 # Load environment variables
 load_dotenv()
@@ -36,20 +39,47 @@ from clients.image_client import ImageClient
 from clients.gemini_client import GeminiClient
 
 
+def get_audio_duration(audio_url: str) -> float:
+    """Download audio file and get duration in seconds."""
+
+    try:
+        response = httpx.get(audio_url, timeout=60.0)
+
+        # Determine file extension from URL or content-type
+        if ".mp3" in audio_url.lower():
+            suffix = ".mp3"
+        elif ".wav" in audio_url.lower():
+            suffix = ".wav"
+        elif ".m4a" in audio_url.lower():
+            suffix = ".m4a"
+        else:
+            suffix = ".mp3"  # Default
+
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as f:
+            f.write(response.content)
+            temp_path = f.name
+
+        audio = MutagenFile(temp_path)
+        duration = audio.info.length  # Duration in seconds
+
+        os.unlink(temp_path)  # Cleanup
+
+        return duration
+    except Exception as e:
+        print(f"    ⚠️ Could not get audio duration: {e}")
+        return None
+
+
 class VideoPipeline:
     """Orchestrates the full video production pipeline based on Airtable status."""
-    
-    # Image generation mode:
-    # - "semantic": Smart segmentation by visual concept (max 10s per segment for AI video)
-    # - "sentence": One image per sentence (deprecated)
-    # - "scene": Old mode with hardcoded 6 images per scene (deprecated)
-    IMAGE_MODE = os.getenv("IMAGE_MODE", "semantic")
-    
+
     # Valid statuses in workflow order
     STATUS_IDEA_LOGGED = "Idea Logged"
     STATUS_READY_SCRIPTING = "Ready For Scripting"
     STATUS_READY_VOICE = "Ready For Voice"
     STATUS_READY_VISUALS = "Ready For Visuals"
+    STATUS_READY_IMAGE_PROMPTS = "Ready For Image Prompts"
+    STATUS_READY_IMAGES = "Ready For Images"
     STATUS_READY_VIDEO_SCRIPTS = "Ready For Video Scripts"
     STATUS_READY_VIDEO_GENERATION = "Ready For Video Generation"
     STATUS_READY_THUMBNAIL = "Ready For Thumbnail"
@@ -408,7 +438,7 @@ class VideoPipeline:
             self.project_folder_id = folder["id"]
         
         # Step 1: Generate Image Prompts
-        prompt_result = await self._run_image_prompt_bot()
+        prompt_result = await self.run_image_prompt_bot()
         
         # Step 2: Generate Images
         image_result = await self._run_image_bot()
@@ -425,111 +455,97 @@ class VideoPipeline:
             "new_status": self.STATUS_READY_VIDEO_SCRIPTS,
         }
     
-    async def _run_image_prompt_bot(self) -> dict:
-        """Generate image prompts for all scenes (internal method).
+    async def run_image_prompt_bot(self):
+        """Generate image prompts for each scene based on voiceover duration.
 
-        Supports three modes:
-        - "semantic": Smart segmentation by visual concept (max 10s per segment)
-        - "sentence": One image per sentence (deprecated)
-        - "scene": Old mode (6 prompts per scene, deprecated)
+        Rule: ONE image per 6-10 seconds of voiceover.
+        A 70-second scene = 7 to 11 images.
         """
-        self.slack.notify_image_prompts_start()
-        print(f"\n  🌉 IMAGE PROMPT BOT: Generating prompts (mode: {self.IMAGE_MODE})...")
 
-        # Get scripts for this video
-        scripts = self.airtable.get_scripts_by_title(self.video_title)
+        # Load idea if not already loaded
+        if not self.current_idea:
+            idea = self.get_idea_by_status(self.STATUS_READY_IMAGE_PROMPTS)
+            if not idea:
+                return {"status": "idle", "message": "No videos at Ready For Image Prompts"}
+            self._load_idea(idea)
 
-        if not scripts:
-            print(f"    No scripts found for: {self.video_title}")
-            return {"prompt_count": 0}
+        # Verify status
+        if self.current_idea.get("Status") != self.STATUS_READY_IMAGE_PROMPTS:
+            return {"error": f"Idea status is '{self.current_idea.get('Status')}', expected '{self.STATUS_READY_IMAGE_PROMPTS}'"}
 
-        # Get existing image prompts to avoid duplicates
-        existing_images = self.airtable.get_all_images_for_video(self.video_title)
-        existing_scenes = set(img.get("Scene") for img in existing_images)
+        print(f"\n🌉 IMAGE PROMPT BOT: Processing '{self.video_title}'")
 
-        prompt_count = 0
+        # Get all scenes for this video from Scripts table
+        scenes = self.airtable.get_scripts_for_video(self.video_title)
+        if not scenes:
+            return {"error": "No scenes found in Scripts table"}
 
-        for script in scripts:
-            scene_number = script.get("scene", 0)
+        print(f"  Found {len(scenes)} scenes")
 
-            # CHECK: Do prompts already exist?
-            if scene_number in existing_scenes:
-                print(f"    Check: Scene {scene_number} prompts already exist, skipping.")
-                continue
+        total_prompts = 0
 
-            scene_text = script.get("Scene text", "")
+        for scene in scenes:
+            fields = scene["fields"]
+            scene_number = fields.get("Scene Number") or fields.get("scene") or 1
+            scene_text = fields.get("Scene Text") or fields.get("Scene text") or ""
+            voice_over = fields.get("Voice Over")  # Airtable attachment
 
-            print(f"    Generating prompts for scene {scene_number}...")
+            # Get voice duration from audio file
+            voice_duration = None
+            if voice_over and isinstance(voice_over, list) and len(voice_over) > 0:
+                voice_url = voice_over[0].get("url")
+                if voice_url:
+                    print(f"  Scene {scene_number}: Fetching audio duration...")
+                    voice_duration = get_audio_duration(voice_url)
+                    if voice_duration:
+                        print(f"    Audio duration: {voice_duration:.1f}s")
 
-            if self.IMAGE_MODE == "semantic":
-                # SMART: Semantic segmentation by visual concept (max 10s for AI video)
-                segments = await self.anthropic.generate_semantic_segments(
-                    scene_number=scene_number,
-                    scene_text=scene_text,
+            # Fallback: estimate from word count (~2.5 words per second)
+            if not voice_duration:
+                word_count = len(scene_text.split())
+                voice_duration = word_count / 2.5
+                print(f"  Scene {scene_number}: Estimated duration from {word_count} words: {voice_duration:.1f}s")
+
+            # Calculate target images (6-10 seconds each, target 8)
+            target_images = max(1, round(voice_duration / 8))
+            min_images = max(1, int(voice_duration / 10))
+            max_images = max(1, int(voice_duration / 6))
+
+            print(f"  Scene {scene_number}: {voice_duration:.0f}s → {target_images} images (range: {min_images}-{max_images})")
+
+            # Ask Anthropic to segment into concepts
+            concepts = await self.anthropic.segment_scene_into_concepts(
+                scene_text=scene_text,
+                target_count=target_images,
+                min_count=min_images,
+                max_count=max_images
+            )
+
+            # Create Airtable records in Images table
+            for i, concept in enumerate(concepts):
+                self.airtable.create_sentence_image_record(
                     video_title=self.video_title,
-                    max_segment_duration=10.0,
+                    scene=scene_number,
+                    image_index=i + 1,
+                    image_prompt=concept.get("image_prompt", ""),
+                    aspect_ratio="16:9"
                 )
+                total_prompts += 1
 
-                # Save each segment to Airtable
-                for seg in segments:
-                    self.airtable.create_segment_image_record(
-                        scene_number=scene_number,
-                        segment_index=seg["segment_index"],
-                        segment_text=seg["segment_text"],
-                        duration_seconds=seg["duration_seconds"],
-                        image_prompt=seg["image_prompt"],
-                        video_title=self.video_title,
-                        visual_concept=seg.get("visual_concept", ""),
-                        cumulative_start=seg.get("cumulative_start", 0.0),
-                    )
-                    prompt_count += 1
+            print(f"    ✅ Created {len(concepts)} prompts for scene {scene_number}")
 
-                print(f"      → {len(segments)} semantic segments (max 10s each)")
+        # Update status to Ready For Images
+        self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_IMAGES)
 
-            elif self.IMAGE_MODE == "sentence":
-                # DEPRECATED: Sentence-aligned mode (1 per sentence)
-                sentence_prompts = await self.anthropic.generate_sentence_level_prompts(
-                    scene_number=scene_number,
-                    scene_text=scene_text,
-                    video_title=self.video_title,
-                )
+        print(f"\n  ✅ Total: {total_prompts} image prompts created")
+        print(f"  ✅ Status updated to: {self.STATUS_READY_IMAGES}")
 
-                # Save each sentence-aligned prompt to Airtable
-                for sp in sentence_prompts:
-                    self.airtable.create_sentence_image_record(
-                        scene_number=scene_number,
-                        sentence_index=sp["sentence_index"],
-                        sentence_text=sp["sentence_text"],
-                        duration_seconds=sp["duration_seconds"],
-                        image_prompt=sp["image_prompt"],
-                        video_title=self.video_title,
-                        cumulative_start=sp.get("cumulative_start", 0.0),
-                    )
-                    prompt_count += 1
-
-                print(f"      → {len(sentence_prompts)} sentence-aligned prompts")
-            else:
-                # DEPRECATED: Scene-level mode (6 prompts per scene)
-                prompts = await self.anthropic.generate_image_prompts(
-                    scene_number=scene_number,
-                    scene_text=scene_text,
-                    video_title=self.video_title,
-                )
-
-                # Save each prompt to Airtable
-                for i, prompt in enumerate(prompts, 1):
-                    self.airtable.create_image_prompt_record(
-                        scene_number=scene_number,
-                        image_index=i,
-                        image_prompt=prompt,
-                        video_title=self.video_title,
-                    )
-                    prompt_count += 1
-        
-        self.slack.notify_image_prompts_done()
-        print(f"    ✅ Created {prompt_count} image prompts")
-        
-        return {"prompt_count": prompt_count}
+        return {
+            "bot": "Image Prompt Bot",
+            "video_title": self.video_title,
+            "prompt_count": total_prompts,
+            "new_status": self.STATUS_READY_IMAGES
+        }
     
     async def _run_image_bot(self) -> dict:
         """Generate images from prompts (internal method)."""

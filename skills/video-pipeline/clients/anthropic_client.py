@@ -1,6 +1,7 @@
 """Anthropic Claude API client for script and prompt generation."""
 
 import os
+import json
 from anthropic import Anthropic
 from typing import Optional
 
@@ -393,217 +394,6 @@ Generate a single prompt that visually represents THIS EXACT SENTENCE."""
 
         return results
 
-    async def generate_semantic_segments(
-        self,
-        scene_number: int,
-        scene_text: str,
-        video_title: str,
-        max_segment_duration: float = 10.0,
-    ) -> list[dict]:
-        """Generate image prompts based on semantic visual segments.
-
-        This is the smart segmentation approach that:
-        1. Groups sentences by visual concept (not mechanical splitting)
-        2. Only creates new images when the visual needs to shift
-        3. Enforces max duration per segment (for AI video generation limits)
-
-        Args:
-            scene_number: The scene number
-            scene_text: Full scene narration text
-            video_title: Title of the video
-            max_segment_duration: Maximum seconds per segment (default 10s for AI video)
-
-        Returns:
-            List of dicts with:
-                - segment_index: int
-                - segment_text: str (combined sentences)
-                - duration_seconds: float
-                - cumulative_start: float
-                - image_prompt: str
-                - visual_concept: str (description of why this is a segment)
-        """
-        # Step 1: Have Claude analyze and segment the scene semantically
-        segments = await self._analyze_visual_segments(scene_text, max_segment_duration)
-
-        # Step 2: Generate image prompts for each segment
-        results = []
-        previous_prompt = ""
-        cumulative_time = 0.0
-
-        for i, segment in enumerate(segments):
-            # Generate prompt for this segment
-            prompt = await self._generate_segment_image_prompt(
-                segment_text=segment["text"],
-                visual_concept=segment["visual_concept"],
-                segment_index=i + 1,
-                total_segments=len(segments),
-                scene_number=scene_number,
-                video_title=video_title,
-                previous_prompt=previous_prompt,
-            )
-
-            results.append({
-                "segment_index": i + 1,
-                "segment_text": segment["text"],
-                "duration_seconds": segment["duration"],
-                "cumulative_start": round(cumulative_time, 1),
-                "image_prompt": prompt,
-                "visual_concept": segment["visual_concept"],
-            })
-
-            cumulative_time += segment["duration"]
-            previous_prompt = prompt
-
-        return results
-
-    async def _analyze_visual_segments(
-        self,
-        scene_text: str,
-        max_duration: float = 10.0,
-    ) -> list[dict]:
-        """Use Claude to semantically segment a scene into visual concepts.
-
-        Returns list of segments, each with:
-            - text: the narration for this segment
-            - visual_concept: why this is a distinct visual
-            - duration: estimated duration in seconds
-        """
-        from clients.sentence_utils import split_into_sentences, estimate_sentence_duration
-
-        system_prompt = """You are an expert video editor segmenting narration for AI-animated documentary videos.
-
-YOUR TASK: Analyze the scene narration and group sentences into VISUAL SEGMENTS.
-
-RULES FOR SEGMENTATION:
-1. Group sentences that share the SAME visual concept (keep together)
-2. Create a NEW segment when the visual needs to SHIFT (new concept, new metaphor, new subject)
-3. Each segment MUST be ≤{max_duration} seconds (this is a hard technical limit for AI video generation)
-4. Short rhetorical phrases ("Different decade. Different industry.") should stay TOGETHER if same concept
-5. Aim for 4-8 segments per scene (not too few, not too many)
-
-DURATION CALCULATION:
-- Average speaking rate: 173 words per minute
-- Formula: (word_count / 173) * 60 = seconds
-- Minimum 2 seconds per segment
-
-OUTPUT FORMAT (JSON only, no markdown):
-{{
-  "segments": [
-    {{
-      "sentences": ["First sentence.", "Second sentence that continues same idea."],
-      "visual_concept": "Brief description of what visual this represents",
-      "estimated_duration": 8.5
-    }},
-    {{
-      "sentences": ["New concept starts here."],
-      "visual_concept": "Description of new visual",
-      "estimated_duration": 4.2
-    }}
-  ]
-}}
-
-CRITICAL: If a segment would exceed {max_duration}s, you MUST split it even if same concept.
-Add "(continued)" to visual_concept for split segments."""
-
-        prompt = f"""Segment this scene narration into visual segments (max {max_duration}s each):
-
-SCENE TEXT:
-{scene_text}
-
-Return JSON with segments array. Each segment groups sentences by visual concept."""
-
-        response = await self.generate(
-            prompt=prompt,
-            system_prompt=system_prompt.format(max_duration=max_duration),
-            model="claude-sonnet-4-5-20250929",
-            max_tokens=2000,
-        )
-
-        # Parse the response
-        import json
-        clean_response = response.replace("```json", "").replace("```", "").strip()
-        data = json.loads(clean_response)
-
-        # Convert to our format and validate durations
-        results = []
-        for seg in data.get("segments", []):
-            text = " ".join(seg.get("sentences", []))
-            # Recalculate duration to be accurate
-            duration = estimate_sentence_duration(text)
-            # Enforce max duration
-            if duration > max_duration:
-                duration = max_duration
-
-            results.append({
-                "text": text,
-                "visual_concept": seg.get("visual_concept", ""),
-                "duration": round(duration, 1),
-            })
-
-        return results
-
-    async def _generate_segment_image_prompt(
-        self,
-        segment_text: str,
-        visual_concept: str,
-        segment_index: int,
-        total_segments: int,
-        scene_number: int,
-        video_title: str,
-        previous_prompt: str = "",
-    ) -> str:
-        """Generate an image prompt for a semantic segment."""
-        system_prompt = """You are an expert image prompt creator for a faceless YouTube channel.
-
-STRICT STYLE GUIDELINES:
-The style is "Cinematic Lofi Digital".
-Your output MUST start with "Atmospheric lo-fi 2D digital illustration, 16:9."
-
-VISUAL ANCHOR PROTOCOL:
-Frame using one of these "Anchor Settings":
-* Anchor A: "The Digital Void" – Abstract concepts in dark space.
-* Anchor B: "The Urban Exterior" – Futuristic cityscapes at twilight.
-* Anchor C: "The Data Landscape" – Physical representations of data in deserts.
-* Anchor D: "The Macro Lens" – Symbolic objects in close-up.
-
-REQUIRED PROMPT STRUCTURE:
-"Atmospheric lo-fi 2D digital illustration, 16:9. Anchor [Letter]: [Anchor Name]. [Primary Visual Description]. [Secondary Details]. Text '[TEXT]' appears in [Color/Style]. The [Concept Name] visualization. Hand-drawn [elements], soft painterly [contrast], [Color A] versus [Color B], cinematic [mood]."
-
-IMPORTANT:
-- This prompt illustrates a SEMANTIC SEGMENT (may contain multiple sentences)
-- The visual must represent the CORE CONCEPT being explained
-- Maintain visual continuity with the previous image if provided
-- Do not use double quotes inside the prompt, use single quotes
-
-OUTPUT: Return ONLY the prompt string, no JSON, no explanation."""
-
-        continuity_note = ""
-        if previous_prompt:
-            continuity_note = f"\n\nPREVIOUS IMAGE (maintain visual continuity):\n{previous_prompt[:200]}..."
-
-        prompt = f"""Create ONE image prompt for this narrative segment:
-
-VIDEO: {video_title}
-SCENE: {scene_number}
-SEGMENT: {segment_index} of {total_segments}
-
-VISUAL CONCEPT: {visual_concept}
-
-NARRATION TEXT:
-"{segment_text}"
-{continuity_note}
-
-Generate a single prompt that visually represents this segment's core concept."""
-
-        response = await self.generate(
-            prompt=prompt,
-            system_prompt=system_prompt,
-            model="claude-sonnet-4-5-20250929",
-            max_tokens=500,
-        )
-
-        return response.strip()
-
     async def generate_thumbnail_prompt(
         self,
         thumbnail_spec_json: dict,
@@ -705,6 +495,116 @@ Example:
         response = await self.generate(
             prompt=prompt,
             system_prompt=system_prompt,
-            model="claude-sonnet-4-5-20250929", 
+            model="claude-sonnet-4-5-20250929",
         )
         return response.strip()
+
+    async def segment_scene_into_concepts(
+        self,
+        scene_text: str,
+        target_count: int,
+        min_count: int,
+        max_count: int
+    ) -> list[dict]:
+        """
+        Segment scene text into visual concepts for image generation.
+        Each concept = one image shown for 6-10 seconds.
+
+        Args:
+            scene_text: The script/narration text for this scene
+            target_count: Target number of concepts to create
+            min_count: Minimum concepts allowed
+            max_count: Maximum concepts allowed
+
+        Returns:
+            List of {"text": "...", "image_prompt": "..."}
+        """
+
+        system_prompt = """You are a visual director segmenting narration into image concepts.
+Each concept will become ONE image shown while that portion of the narration plays.
+Output valid JSON only. No markdown. No explanation."""
+
+        user_prompt = f"""Divide this scene narration into exactly {target_count} visual concepts.
+
+SCENE NARRATION:
+{scene_text}
+
+REQUIREMENTS:
+1. Create exactly {target_count} concepts (minimum {min_count}, maximum {max_count})
+2. Each concept covers a continuous portion of the narration
+3. Divide the text roughly equally across concepts
+4. Group sentences that share the same visual idea
+5. Each concept gets ONE detailed image prompt
+
+OUTPUT FORMAT (JSON only):
+{{
+  "concepts": [
+    {{
+      "concept_number": 1,
+      "text": "The exact sentences from the narration covered by this concept",
+      "image_prompt": "A detailed image generation prompt (100+ words). Describe: the scene, main subjects, composition, camera angle, lighting, art style, mood, color palette. Be specific and cinematic. Do not include any text or words in the image."
+    }},
+    {{
+      "concept_number": 2,
+      "text": "...",
+      "image_prompt": "..."
+    }}
+  ]
+}}
+
+Output ONLY the JSON object. No other text."""
+
+        try:
+            response = self.client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=4096,
+                messages=[
+                    {"role": "user", "content": user_prompt}
+                ],
+                system=system_prompt
+            )
+
+            response_text = response.content[0].text
+
+            # Clean markdown if present
+            clean = response_text.strip()
+            if clean.startswith("```"):
+                # Remove first ``` line
+                lines = clean.split("\n")
+                clean = "\n".join(lines[1:])
+            if clean.endswith("```"):
+                clean = clean[:-3]
+            if clean.startswith("json"):
+                clean = clean[4:]
+            clean = clean.strip()
+
+            # Parse JSON
+            data = json.loads(clean)
+            concepts = data.get("concepts", [])
+
+            # Enforce max count as safety
+            if len(concepts) > max_count:
+                concepts = concepts[:max_count]
+
+            # Ensure minimum
+            if len(concepts) < min_count:
+                print(f"    ⚠️ Only got {len(concepts)} concepts, expected at least {min_count}")
+
+            return concepts
+
+        except json.JSONDecodeError as e:
+            print(f"    ⚠️ Failed to parse concepts JSON: {e}")
+            print(f"    Raw response: {response_text[:500]}...")
+            # Fallback: return single concept
+            return [{
+                "concept_number": 1,
+                "text": scene_text,
+                "image_prompt": f"A cinematic documentary scene depicting: {scene_text[:300]}. Dramatic lighting, professional cinematography, detailed and realistic."
+            }]
+        except Exception as e:
+            print(f"    ⚠️ Error calling Anthropic: {e}")
+            return [{
+                "concept_number": 1,
+                "text": scene_text,
+                "image_prompt": f"A cinematic documentary scene depicting: {scene_text[:300]}. Dramatic lighting, professional cinematography, detailed and realistic."
+            }]

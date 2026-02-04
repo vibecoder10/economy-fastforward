@@ -122,6 +122,20 @@ class AirtableClient:
             sort=["scene"],
         )
         return [{"id": r["id"], **r["fields"]} for r in records]
+
+    def get_scripts_for_video(self, video_title: str) -> list:
+        """Get all script/scene records for a video from the Scripts table."""
+        from pyairtable.formulas import match
+
+        records = self.script_table.all(
+            formula=match({"Title": video_title}),
+            sort=["scene"],
+        )
+
+        # Sort by scene number (handle both "scene" and "Scene Number" field names)
+        records.sort(key=lambda r: r["fields"].get("Scene Number", r["fields"].get("scene", 0)))
+
+        return records
     
     def create_script_record(
         self,
@@ -196,31 +210,24 @@ class AirtableClient:
     
     def create_sentence_image_record(
         self,
-        scene_number: int,
-        sentence_index: int,
-        sentence_text: str,
-        duration_seconds: float,
-        image_prompt: str,
         video_title: str,
-        cumulative_start: float = 0.0,
+        scene: int,
+        image_index: int,
+        image_prompt: str,
         aspect_ratio: str = "16:9",
+        **kwargs  # Ignore extra args
     ) -> dict:
-        """Create a sentence-aligned image prompt record.
+        """Create a record in the Images table."""
 
-        DEPRECATED: Use create_segment_image_record for semantic segmentation.
-        """
         fields = {
-            "Scene": scene_number,
-            "Image Index": sentence_index,
-            "Image Prompt": image_prompt,
             "Video Title": video_title,
+            "Scene": scene,
+            "Image Index": image_index,
+            "Image Prompt": image_prompt,
             "Aspect Ratio": aspect_ratio,
-            "Status": "Pending",
-            "Sentence Text": sentence_text,
-            "Duration (s)": duration_seconds,
-            "Sentence Index": sentence_index,
-            "Start Time (s)": cumulative_start,
+            "Status": "Pending"
         }
+
         record = self.images_table.create(fields)
         return {"id": record["id"], **record["fields"]}
 
