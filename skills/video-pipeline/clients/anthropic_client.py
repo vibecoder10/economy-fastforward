@@ -672,20 +672,39 @@ Example:
         """
         import json
 
-        system_prompt = """You are a Thumbnail Visualizer. Your goal is to apply a specific visual style to a new video concept.
+        system_prompt = """You are a Thumbnail Visualizer creating prompts for AI image generation.
 
-TASK:
-Generate a cohesive image prompt that visualizes the "New Video Concept" using *only* the aesthetic and compositional rules found in the "Reference Analysis".
+Your output must be a SINGLE DETAILED PARAGRAPH (150-300 words) that describes EXACTLY what the image should look like.
 
-CRITICAL RULES (STRICT ENFORCEMENT):
-1. **CONTENT SOURCE IS ONLY THE NEW CONCEPT:** All subjects, objects, and actions in your final prompt MUST come from the "New Video Concept".
-2. **DO NOT USE REFERENCE CONTENT:** You are strictly forbidden from using any content from the JSON's scene_roles descriptions. Those are examples of the *style* applied to a *different* topic and must be ignored.
-3. **MAP THE STYLE TO THE NEW CONTENT:** Apply the `style_fingerprint` from the JSON to the new concept elements.
-4. **MAP THE COMPOSITION:** Use the `layout` and `composition` from the JSON exactly.
-5. **INCLUDE TEXT IF SPECIFIED:** If has_text is true, include the text_blocks with exact styling specified.
+REQUIRED ELEMENTS IN YOUR PROMPT:
+1. Art style first: "A [style] illustration with [outline type] and [shading type]"
+2. Composition: "[camera angle] composition with [layout type]"
+3. Left side detailed description (50+ words): subjects, objects, colors, lighting, textures
+4. Right side detailed description (50+ words): subjects, objects, colors, lighting, textures
+5. Background description: colors, atmosphere, effects
+6. Text overlay: exact text, position, font style, color
+7. Lighting: dramatic highlights, glows, shadows
+8. Color palette: list 4-6 specific colors used throughout
 
-OUTPUT:
-Provide ONLY the final detailed image prompt as plain text. No markdown, no explanation."""
+STYLE RULES:
+- Match the reference style_fingerprint EXACTLY (painterly_comic, cel_shaded, etc.)
+- Include specific details: "glowing", "dramatic highlights", "soft mystical glow"
+- Describe textures and materials
+- Specify positions precisely: "top-right corner", "center-left"
+
+CRITICAL CONTENT RULES:
+- All subjects, objects, and actions MUST come from the "New Video Concept" only.
+- Do NOT reuse any content from the JSON's scene_roles descriptions. Those describe a different topic.
+- Apply the style_fingerprint and composition from the JSON to the new concept elements.
+- If has_text is true, include the text_blocks with exact styling specified.
+
+BAD OUTPUT (too brief):
+"Split screen showing money burning on left, gold on right, with shocked face"
+
+GOOD OUTPUT (detailed):
+"A painterly comic-style illustration with medium black outlines and heavy shading render. Wide camera angle composition with split-screen layout. On the left side, a massive pile of US dollar bills engulfed in roaring orange and red flames, smoke billowing upward against a dark crimson background, individual bills curling and blackening at the edges. A digital LED display in the top-left corner shows '2030' in bright green digits. In the center, a large shocked cartoon face with wide circular eyes and gaping mouth, rendered in pale grey with thick black outlines. On the right side, a glowing transparent protective dome over lush green farmland, inside the dome sits neat stacks of gold bars gleaming with yellow-gold highlights, piles of golden coins, and floating holographic cryptocurrency symbols including Ethereum logo, all bathed in cool blue technological light. Red curved arrows point from the burning cash toward the protected assets. Large white blocky all-caps text at top center reads 'THESE 5 SURVIVED' with subtle drop shadow. Color palette: crimson red, orange flame, cool blue, gold yellow, white, dark grey."
+
+Output ONLY the detailed prompt. No explanations, no markdown."""
 
         spec_str = json.dumps(thumbnail_spec_json, indent=2)
         user_prompt = (
