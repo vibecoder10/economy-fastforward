@@ -399,6 +399,7 @@ Generate a single prompt that visually represents THIS EXACT SENTENCE."""
         scene_text: str,
         video_title: str,
         max_segment_duration: float = 10.0,
+        max_prompts: int = 0,
     ) -> list[dict]:
         """Generate image prompts based on semantic visual segments.
 
@@ -423,7 +424,7 @@ Generate a single prompt that visually represents THIS EXACT SENTENCE."""
                 - visual_concept: str (description of why this is a segment)
         """
         # Step 1: Have Claude analyze and segment the scene semantically
-        segments = await self._analyze_visual_segments(scene_text, max_segment_duration)
+        segments = await self._analyze_visual_segments(scene_text, max_segment_duration, max_prompts=max_prompts)
 
         # Step 2: Generate image prompts for each segment
         results = []
@@ -460,8 +461,14 @@ Generate a single prompt that visually represents THIS EXACT SENTENCE."""
         self,
         scene_text: str,
         max_duration: float = 10.0,
+        max_prompts: int = 0,
     ) -> list[dict]:
         """Use Claude to semantically segment a scene into visual concepts.
+
+        Args:
+            scene_text: The narration text for this scene
+            max_duration: Maximum seconds per segment
+            max_prompts: Maximum number of segments to produce (0 = no limit)
 
         Returns list of segments, each with:
             - text: the narration for this segment
@@ -469,6 +476,10 @@ Generate a single prompt that visually represents THIS EXACT SENTENCE."""
             - duration: estimated duration in seconds
         """
         from clients.sentence_utils import split_into_sentences, estimate_sentence_duration
+
+        max_segments_rule = ""
+        if max_prompts > 0:
+            max_segments_rule = f"\n6. You MUST produce AT MOST {max_prompts} segments for this scene. Merge similar concepts to stay within this limit."
 
         system_prompt = """You are an expert video editor segmenting narration for AI-animated documentary videos.
 
@@ -479,7 +490,7 @@ RULES FOR SEGMENTATION:
 2. Create a NEW segment when the visual needs to SHIFT (new concept, new metaphor, new subject)
 3. Each segment MUST be ≤{max_duration} seconds (this is a hard technical limit for AI video generation)
 4. Short rhetorical phrases ("Different decade. Different industry.") should stay TOGETHER if same concept
-5. Aim for 4-8 segments per scene (not too few, not too many)
+5. Fewer, stronger segments are better than many weak ones{max_segments_rule}
 
 DURATION CALCULATION:
 - Average speaking rate: 173 words per minute
@@ -514,7 +525,7 @@ Return JSON with segments array. Each segment groups sentences by visual concept
 
         response = await self.generate(
             prompt=prompt,
-            system_prompt=system_prompt.format(max_duration=max_duration),
+            system_prompt=system_prompt.format(max_duration=max_duration, max_segments_rule=max_segments_rule),
             model="claude-sonnet-4-5-20250929",
             max_tokens=2000,
         )
@@ -539,6 +550,10 @@ Return JSON with segments array. Each segment groups sentences by visual concept
                 "visual_concept": seg.get("visual_concept", ""),
                 "duration": round(duration, 1),
             })
+
+        # Hard cap: if we still got more than max_prompts, truncate
+        if max_prompts > 0 and len(results) > max_prompts:
+            results = results[:max_prompts]
 
         return results
 

@@ -484,27 +484,62 @@ class VideoPipeline:
         existing_images = self.airtable.get_all_images_for_video(self.video_title)
         existing_scenes = set(img.get("Scene") for img in existing_images)
 
+        # Filter to scenes that still need prompts
+        scenes_to_process = [s for s in scripts if s.get("scene", 0) not in existing_scenes]
+
+        # Calculate image budget: estimate total video duration from script text
+        from clients.sentence_utils import estimate_sentence_duration
+        total_duration = sum(
+            estimate_sentence_duration(s.get("Scene text", ""))
+            for s in scripts
+        )
+        max_images = min(12, max(1, int(total_duration / 6)))
+        # Subtract images that already exist
+        remaining_budget = max(1, max_images - len(existing_images))
+        num_scenes = len(scenes_to_process)
+
+        print(f"    Total duration: ~{total_duration:.0f}s → budget: {max_images} images ({remaining_budget} remaining)")
+
+        # Distribute budget across scenes proportionally by duration
+        scene_durations = {}
+        for s in scenes_to_process:
+            scene_durations[s.get("scene", 0)] = estimate_sentence_duration(s.get("Scene text", ""))
+        total_remaining_duration = sum(scene_durations.values()) or 1.0
+
+        scene_budgets = {}
+        allocated = 0
+        for i, (scene_num, dur) in enumerate(scene_durations.items()):
+            if i == len(scene_durations) - 1:
+                # Last scene gets whatever is left to avoid rounding loss
+                scene_budgets[scene_num] = max(1, remaining_budget - allocated)
+            else:
+                share = max(1, round(remaining_budget * dur / total_remaining_duration))
+                scene_budgets[scene_num] = share
+                allocated += share
+
         prompt_count = 0
 
-        for script in scripts:
+        for script in scenes_to_process:
             scene_number = script.get("scene", 0)
-
-            # CHECK: Do prompts already exist?
-            if scene_number in existing_scenes:
-                print(f"    Check: Scene {scene_number} prompts already exist, skipping.")
-                continue
-
             scene_text = script.get("Scene text", "")
+            scene_max = scene_budgets.get(scene_number, 1)
 
-            print(f"    Generating prompts for scene {scene_number}...")
+            # Hard cap: don't exceed remaining global budget
+            scene_max = min(scene_max, remaining_budget - prompt_count)
+            if scene_max <= 0:
+                print(f"    Image budget exhausted, skipping scene {scene_number}.")
+                break
+
+            print(f"    Generating prompts for scene {scene_number} (max {scene_max})...")
 
             if self.IMAGE_MODE == "semantic":
-                # SMART: Semantic segmentation by visual concept (max 10s for AI video)
+                # SMART: Semantic segmentation by visual concept
                 segments = await self.anthropic.generate_semantic_segments(
                     scene_number=scene_number,
                     scene_text=scene_text,
                     video_title=self.video_title,
                     max_segment_duration=10.0,
+                    max_prompts=scene_max,
                 )
 
                 # Save each segment to Airtable
@@ -521,7 +556,7 @@ class VideoPipeline:
                     )
                     prompt_count += 1
 
-                print(f"      → {len(segments)} semantic segments (max 10s each)")
+                print(f"      → {len(segments)} segments")
 
             elif self.IMAGE_MODE == "sentence":
                 # DEPRECATED: Sentence-aligned mode (1 per sentence)
