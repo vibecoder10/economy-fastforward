@@ -797,8 +797,8 @@ class VideoPipeline:
         drive_link = google_file.get("webViewLink")
         print(f"  ✅ Uploaded to Drive: {drive_link}")
         
-        # Save to Airtable
-        self.airtable.update_idea_thumbnail(self.current_idea_id, drive_link)
+        # Save original Kie URL to Airtable (not Drive link)
+        self.airtable.update_idea_thumbnail(self.current_idea_id, image_urls[0])
         print("  ✅ Saved to Airtable")
         
         # UPDATE STATUS to Done

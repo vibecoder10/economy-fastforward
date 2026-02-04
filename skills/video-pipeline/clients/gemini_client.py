@@ -79,8 +79,8 @@ Return ONLY valid JSON, no markdown formatting."""
                 }
             ],
             "generationConfig": {
-                "temperature": 0.7,
-                "maxOutputTokens": 2048,
+                "temperature": 0.2,
+                "maxOutputTokens": 8192,
             },
         }
 
