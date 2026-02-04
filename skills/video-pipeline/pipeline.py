@@ -33,6 +33,7 @@ from clients.google_client import GoogleClient
 from clients.slack_client import SlackClient
 from clients.elevenlabs_client import ElevenLabsClient
 from clients.image_client import ImageClient
+from clients.gemini_client import GeminiClient
 
 
 class VideoPipeline:
@@ -62,6 +63,7 @@ class VideoPipeline:
         self.google = GoogleClient()
         self.slack = SlackClient()
         self.elevenlabs = ElevenLabsClient()
+        self.gemini = GeminiClient()
         # Pass google client for proxy logic
         self.image_client = ImageClient(google_client=self.google)
         
@@ -709,10 +711,36 @@ class VideoPipeline:
             return {"error": f"Idea status is '{self.current_idea.get('Status')}', expected 'Ready For Thumbnail'"}
         
         print(f"\n🎨 THUMBNAIL BOT: Processing '{self.video_title}'")
-        
-        thumbnail_prompt = self.current_idea.get("Thumbnail Prompt", "")
-        print(f"  Thumbnail prompt: {thumbnail_prompt[:100]}...")
-        
+
+        video_title = self.current_idea.get("Video Title", "")
+        video_summary = self.current_idea.get("Summary", "")
+        reference_url = self.current_idea.get("Video URL")  # Reference thumbnail
+        basic_prompt = self.current_idea.get("Thumbnail Prompt", "")
+
+        # Two-stage generation if reference exists
+        if reference_url:
+            print(f"  Analyzing reference thumbnail via Gemini...")
+            thumbnail_spec = await self.gemini.generate_thumbnail_spec(
+                reference_image_url=reference_url,
+                video_title=video_title,
+                video_summary=video_summary,
+            )
+
+            print(f"  Generating detailed prompt via Anthropic...")
+            thumbnail_prompt = await self.anthropic.generate_thumbnail_prompt(
+                thumbnail_spec_json=thumbnail_spec,
+                video_title=video_title,
+                thumbnail_concept=basic_prompt,
+            )
+            print(f"  Generated prompt: {thumbnail_prompt[:100]}...")
+
+            # Save enhanced prompt to Airtable for debugging
+            self.airtable.update_idea_field(self.current_idea_id, "Thumbnail Prompt", thumbnail_prompt)
+            print(f"  ✅ Enhanced prompt saved to Airtable")
+        else:
+            print(f"  No reference thumbnail, using basic prompt.")
+            thumbnail_prompt = basic_prompt
+
         if not thumbnail_prompt:
              print("  ⚠️ No thumbnail prompt found!")
              return {"error": "No thumbnail prompt"}
