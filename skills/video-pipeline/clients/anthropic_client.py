@@ -400,6 +400,7 @@ Generate a single prompt that visually represents THIS EXACT SENTENCE."""
         video_title: str,
         max_segment_duration: float = 10.0,
         max_prompts: int = 0,
+        voice_duration: float = 0.0,
     ) -> list[dict]:
         """Generate image prompts based on semantic visual segments.
 
@@ -413,6 +414,8 @@ Generate a single prompt that visually represents THIS EXACT SENTENCE."""
             scene_text: Full scene narration text
             video_title: Title of the video
             max_segment_duration: Maximum seconds per segment (default 10s for AI video)
+            max_prompts: Max segments to produce (0 = no limit)
+            voice_duration: Actual voiceover duration in seconds (0 = estimate from text)
 
         Returns:
             List of dicts with:
@@ -424,7 +427,9 @@ Generate a single prompt that visually represents THIS EXACT SENTENCE."""
                 - visual_concept: str (description of why this is a segment)
         """
         # Step 1: Have Claude analyze and segment the scene semantically
-        segments = await self._analyze_visual_segments(scene_text, max_segment_duration, max_prompts=max_prompts)
+        segments = await self._analyze_visual_segments(
+            scene_text, max_segment_duration, max_prompts=max_prompts, voice_duration=voice_duration
+        )
 
         # Step 2: Generate image prompts for each segment
         results = []
@@ -462,40 +467,69 @@ Generate a single prompt that visually represents THIS EXACT SENTENCE."""
         scene_text: str,
         max_duration: float = 10.0,
         max_prompts: int = 0,
+        voice_duration: float = 0.0,
     ) -> list[dict]:
         """Use Claude to semantically segment a scene into visual concepts.
+
+        Uses actual voice duration (if available) to calculate the real speaking
+        rate, giving accurate word-to-time mapping instead of assuming 173 wpm.
 
         Args:
             scene_text: The narration text for this scene
             max_duration: Maximum seconds per segment
             max_prompts: Maximum number of segments to produce (0 = no limit)
+            voice_duration: Actual voiceover duration in seconds (0 = estimate)
 
         Returns list of segments, each with:
             - text: the narration for this segment
             - visual_concept: why this is a distinct visual
             - duration: estimated duration in seconds
         """
-        from clients.sentence_utils import split_into_sentences, estimate_sentence_duration
+        from clients.sentence_utils import estimate_sentence_duration
+
+        word_count = len(scene_text.split())
+
+        # Calculate speaking rate from actual voice duration or fallback
+        if voice_duration > 0:
+            words_per_second = word_count / voice_duration
+            scene_duration = voice_duration
+        else:
+            words_per_second = 173.0 / 60.0  # ~2.88 wps default
+            scene_duration = estimate_sentence_duration(scene_text)
+
+        # Target words per concept (6-10 seconds each)
+        min_words_per_concept = max(1, int(6 * words_per_second))
+        max_words_per_concept = max(min_words_per_concept + 1, int(10 * words_per_second))
+
+        # Expected concept count from timing
+        min_concepts = max(1, int(scene_duration / 10))
+        max_concepts = max(min_concepts, int(scene_duration / 6))
 
         max_segments_rule = ""
         if max_prompts > 0:
-            max_segments_rule = f"\n6. You MUST produce AT MOST {max_prompts} segments for this scene. Merge similar concepts to stay within this limit."
+            # Override max_concepts with budget cap
+            max_concepts = min(max_concepts, max_prompts)
+            max_segments_rule = f"\n6. You MUST produce AT MOST {max_prompts} segments. Merge similar concepts to stay within this limit."
 
         system_prompt = """You are an expert video editor segmenting narration for AI-animated documentary videos.
 
-YOUR TASK: Analyze the scene narration and group sentences into VISUAL SEGMENTS.
+YOUR TASK: Analyze the scene narration and divide it into visual concepts.
+
+DATA FOR THIS SCENE:
+- Total words: {word_count}
+- Voice duration: {scene_duration:.1f} seconds
+- Speaking rate: {words_per_second:.1f} words/second
 
 RULES FOR SEGMENTATION:
-1. Group sentences that share the SAME visual concept (keep together)
-2. Create a NEW segment when the visual needs to SHIFT (new concept, new metaphor, new subject)
-3. Each segment MUST be ≤{max_duration} seconds (this is a hard technical limit for AI video generation)
-4. Short rhetorical phrases ("Different decade. Different industry.") should stay TOGETHER if same concept
-5. Fewer, stronger segments are better than many weak ones{max_segments_rule}
+1. Each concept must be {min_words}-{max_words} words (equals 6-10 seconds of voiceover)
+2. Group sentences that share the SAME visual concept (keep together)
+3. Create a NEW segment only when the visual needs to SHIFT
+4. Short rhetorical phrases should stay TOGETHER if same concept
+5. Output {min_concepts} to {max_concepts} concepts total{max_segments_rule}
 
 DURATION CALCULATION:
-- Average speaking rate: 173 words per minute
-- Formula: (word_count / 173) * 60 = seconds
-- Minimum 2 seconds per segment
+- Use the speaking rate above: duration = word_count / {words_per_second:.1f}
+- Each segment MUST be ≤{max_duration} seconds
 
 OUTPUT FORMAT (JSON only, no markdown):
 {{
@@ -513,10 +547,9 @@ OUTPUT FORMAT (JSON only, no markdown):
   ]
 }}
 
-CRITICAL: If a segment would exceed {max_duration}s, you MUST split it even if same concept.
-Add "(continued)" to visual_concept for split segments."""
+CRITICAL: If a segment would exceed {max_duration}s, you MUST split it even if same concept."""
 
-        prompt = f"""Segment this scene narration into visual segments (max {max_duration}s each):
+        prompt = f"""Segment this scene narration into visual concepts (max {max_duration}s each):
 
 SCENE TEXT:
 {scene_text}
@@ -525,7 +558,17 @@ Return JSON with segments array. Each segment groups sentences by visual concept
 
         response = await self.generate(
             prompt=prompt,
-            system_prompt=system_prompt.format(max_duration=max_duration, max_segments_rule=max_segments_rule),
+            system_prompt=system_prompt.format(
+                word_count=word_count,
+                scene_duration=scene_duration,
+                words_per_second=words_per_second,
+                min_words=min_words_per_concept,
+                max_words=max_words_per_concept,
+                min_concepts=min_concepts,
+                max_concepts=max_concepts,
+                max_segments_rule=max_segments_rule,
+                max_duration=max_duration,
+            ),
             model="claude-sonnet-4-5-20250929",
             max_tokens=2000,
         )
@@ -535,12 +578,12 @@ Return JSON with segments array. Each segment groups sentences by visual concept
         clean_response = response.replace("```json", "").replace("```", "").strip()
         data = json.loads(clean_response)
 
-        # Convert to our format and validate durations
+        # Convert to our format and validate durations using actual speaking rate
         results = []
         for seg in data.get("segments", []):
             text = " ".join(seg.get("sentences", []))
-            # Recalculate duration to be accurate
-            duration = estimate_sentence_duration(text)
+            seg_words = len(text.split())
+            duration = round(seg_words / words_per_second, 1)
             # Enforce max duration
             if duration > max_duration:
                 duration = max_duration
@@ -548,7 +591,7 @@ Return JSON with segments array. Each segment groups sentences by visual concept
             results.append({
                 "text": text,
                 "visual_concept": seg.get("visual_concept", ""),
-                "duration": round(duration, 1),
+                "duration": duration,
             })
 
         # Hard cap: if we still got more than max_prompts, truncate

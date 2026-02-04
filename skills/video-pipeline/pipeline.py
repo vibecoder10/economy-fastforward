@@ -523,6 +523,7 @@ class VideoPipeline:
             scene_number = script.get("scene", 0)
             scene_text = script.get("Scene text", "")
             scene_max = scene_budgets.get(scene_number, 1)
+            voice_dur = scene_durations.get(scene_number, 0.0)
 
             # Hard cap: don't exceed remaining global budget
             scene_max = min(scene_max, remaining_budget - prompt_count)
@@ -530,7 +531,7 @@ class VideoPipeline:
                 print(f"    Image budget exhausted, skipping scene {scene_number}.")
                 break
 
-            print(f"    Generating prompts for scene {scene_number} (max {scene_max})...")
+            print(f"    Generating prompts for scene {scene_number} (max {scene_max}, ~{voice_dur:.0f}s)...")
 
             if self.IMAGE_MODE == "semantic":
                 # SMART: Semantic segmentation by visual concept
@@ -540,6 +541,7 @@ class VideoPipeline:
                     video_title=self.video_title,
                     max_segment_duration=10.0,
                     max_prompts=scene_max,
+                    voice_duration=voice_dur,
                 )
 
                 # Save each segment to Airtable
