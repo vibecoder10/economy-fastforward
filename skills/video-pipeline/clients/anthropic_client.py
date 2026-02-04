@@ -646,6 +646,59 @@ Example:
         response = await self.generate(
             prompt=prompt,
             system_prompt=system_prompt,
-            model="claude-sonnet-4-5-20250929", 
+            model="claude-sonnet-4-5-20250929",
+        )
+        return response.strip()
+
+    async def generate_thumbnail_prompt(
+        self,
+        thumbnail_spec_json: dict,
+        video_title: str,
+        thumbnail_concept: str,
+    ) -> str:
+        """Generate a detailed thumbnail image prompt from a THUMBNAIL_SPEC.
+
+        Takes the structured spec produced by Gemini's reference analysis and
+        produces a cohesive image-generation prompt that applies the reference
+        style to the new video concept.
+
+        Args:
+            thumbnail_spec_json: THUMBNAIL_SPEC dict from Gemini analysis
+            video_title: Title of the video
+            thumbnail_concept: Basic thumbnail concept / idea from the user
+
+        Returns:
+            Plain-text image generation prompt
+        """
+        import json
+
+        system_prompt = """You are a Thumbnail Visualizer. Your goal is to apply a specific visual style to a new video concept.
+
+TASK:
+Generate a cohesive image prompt that visualizes the "New Video Concept" using *only* the aesthetic and compositional rules found in the "Reference Analysis".
+
+CRITICAL RULES (STRICT ENFORCEMENT):
+1. **CONTENT SOURCE IS ONLY THE NEW CONCEPT:** All subjects, objects, and actions in your final prompt MUST come from the "New Video Concept".
+2. **DO NOT USE REFERENCE CONTENT:** You are strictly forbidden from using any content from the JSON's scene_roles descriptions. Those are examples of the *style* applied to a *different* topic and must be ignored.
+3. **MAP THE STYLE TO THE NEW CONTENT:** Apply the `style_fingerprint` from the JSON to the new concept elements.
+4. **MAP THE COMPOSITION:** Use the `layout` and `composition` from the JSON exactly.
+5. **INCLUDE TEXT IF SPECIFIED:** If has_text is true, include the text_blocks with exact styling specified.
+
+OUTPUT:
+Provide ONLY the final detailed image prompt as plain text. No markdown, no explanation."""
+
+        spec_str = json.dumps(thumbnail_spec_json, indent=2)
+        user_prompt = (
+            f"New Video Concept:\n"
+            f"1. Title: {video_title}\n"
+            f"2. Concept: {thumbnail_concept}\n\n"
+            f"Reference Analysis (THE STYLE & STRUCTURE):\n{spec_str}"
+        )
+
+        response = await self.generate(
+            prompt=user_prompt,
+            system_prompt=system_prompt,
+            model="claude-sonnet-4-5-20250929",
+            max_tokens=2048,
         )
         return response.strip()

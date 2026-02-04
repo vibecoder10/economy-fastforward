@@ -30,6 +30,7 @@ load_dotenv()
 from clients.anthropic_client import AnthropicClient
 from clients.airtable_client import AirtableClient
 from clients.google_client import GoogleClient
+from clients.gemini_client import GeminiClient
 from clients.slack_client import SlackClient
 from clients.elevenlabs_client import ElevenLabsClient
 from clients.image_client import ImageClient
@@ -60,6 +61,7 @@ class VideoPipeline:
         self.anthropic = AnthropicClient()
         self.airtable = AirtableClient()
         self.google = GoogleClient()
+        self.gemini = GeminiClient()
         self.slack = SlackClient()
         self.elevenlabs = ElevenLabsClient()
         # Pass google client for proxy logic
@@ -704,8 +706,19 @@ class VideoPipeline:
         return {"video_count": video_count}
     
     async def run_thumbnail_bot(self) -> dict:
-        """Generate thumbnail for the video.
-        
+        """Generate thumbnail for the video using two-stage prompt generation.
+
+        Flow:
+        1. If a Reference Thumbnail exists, run two-stage generation:
+           a. Gemini analyzes reference image -> THUMBNAIL_SPEC JSON
+           b. Anthropic generates styled prompt from spec + concept
+        2. Otherwise fall back to the basic Thumbnail Prompt from Airtable.
+        3. Generate image via Kie.
+        4. Upload to Google Drive (backup).
+        5. Save the *original Kie URL* to the Airtable Thumbnail attachment
+           (Airtable copies to its CDN before the temp URL expires).
+        6. Update status to Done.
+
         REQUIRES: Ideas status = "Ready For Thumbnail"
         UPDATES TO: "Done" when complete
         """
@@ -715,61 +728,103 @@ class VideoPipeline:
             if not idea:
                 return {"error": "No idea with status 'Ready For Thumbnail'"}
             self._load_idea(idea)
-        
+
         if self.current_idea.get("Status") != self.STATUS_READY_THUMBNAIL:
             return {"error": f"Idea status is '{self.current_idea.get('Status')}', expected 'Ready For Thumbnail'"}
-        
-        print(f"\n🎨 THUMBNAIL BOT: Processing '{self.video_title}'")
-        
-        thumbnail_prompt = self.current_idea.get("Thumbnail Prompt", "")
-        print(f"  Thumbnail prompt: {thumbnail_prompt[:100]}...")
-        
-        if not thumbnail_prompt:
-             print("  ⚠️ No thumbnail prompt found!")
-             return {"error": "No thumbnail prompt"}
 
-        # Generate thumbnail image
-        image_urls = await self.image_client.generate_and_wait(thumbnail_prompt, "16:9")
+        print(f"\n🎨 THUMBNAIL BOT: Processing '{self.video_title}'")
+
+        video_title = self.video_title
+        video_summary = self.current_idea.get("Summary", "")
+        thumbnail_concept = self.current_idea.get("Thumbnail Prompt", "")
+
+        # Extract reference thumbnail URL (Airtable attachment field)
+        ref_thumb_field = self.current_idea.get("Reference Thumbnail")
+        reference_url = None
+        if ref_thumb_field and isinstance(ref_thumb_field, list) and len(ref_thumb_field) > 0:
+            reference_url = ref_thumb_field[0].get("url")
+
+        # ---- Stage 1 & 2: Two-stage prompt generation ----
+        if reference_url:
+            print(f"  Reference thumbnail found, running two-stage generation...")
+
+            # Stage 1: Gemini analyses reference image
+            print("  Stage 1: Gemini analyzing reference thumbnail...")
+            thumbnail_spec = await self.gemini.generate_thumbnail_spec(
+                reference_image_url=reference_url,
+                video_title=video_title,
+                video_summary=video_summary,
+            )
+            print("  ✅ THUMBNAIL_SPEC generated")
+
+            # Stage 2: Anthropic generates styled prompt
+            print("  Stage 2: Anthropic generating styled prompt...")
+            final_prompt = await self.anthropic.generate_thumbnail_prompt(
+                thumbnail_spec_json=thumbnail_spec,
+                video_title=video_title,
+                thumbnail_concept=thumbnail_concept or video_summary,
+            )
+            print(f"  ✅ Styled prompt: {final_prompt[:120]}...")
+
+            # Save generated prompt to Airtable for reference
+            self.airtable.update_idea_field(
+                self.current_idea_id, "Generated Thumbnail Prompt", final_prompt,
+            )
+        elif thumbnail_concept:
+            # Fallback: use basic thumbnail prompt
+            print(f"  No reference thumbnail, using basic prompt.")
+            final_prompt = thumbnail_concept
+        else:
+            print("  ⚠️ No thumbnail prompt or reference thumbnail found!")
+            return {"error": "No thumbnail prompt or reference thumbnail"}
+
+        print(f"  Generating thumbnail image via Kie...")
+
+        # ---- Stage 3: Generate image via Kie ----
+        image_urls = await self.image_client.generate_and_wait(final_prompt, "16:9")
         if not image_urls:
-             print("  ⚠️ Failed to generate thumbnail.")
-             return {"error": "Thumbnail generation failed"}
-            
-        print(f"  ✅ Thumbnail generated: {image_urls[0][:50]}...")
-        
-        # Upload to Google Drive
+            print("  ⚠️ Failed to generate thumbnail.")
+            return {"error": "Thumbnail generation failed"}
+
+        thumbnail_url = image_urls[0]
+        print(f"  ✅ Thumbnail generated: {thumbnail_url[:60]}...")
+
+        # ---- Upload to Google Drive (backup) ----
         if self.project_folder_id:
             parent_id = self.project_folder_id
         else:
-            # Try to find folder
-            folder = self.google.search_folder(self.video_title)
+            folder = self.google.search_folder(video_title)
             if folder:
                 parent_id = folder["id"]
             else:
                 print("  ⚠️ Project folder not found, uploading to root.")
                 parent_id = None
-                
-        print("  Uploading to Google Drive...")
+
+        print("  Uploading to Google Drive (backup)...")
         google_file = self.google.upload_file_from_url(
-            url=image_urls[0],
+            url=thumbnail_url,
             name="Thumbnail.png",
-            parent_id=parent_id
+            parent_id=parent_id,
         )
         drive_link = google_file.get("webViewLink")
         print(f"  ✅ Uploaded to Drive: {drive_link}")
-        
-        # Save to Airtable
-        self.airtable.update_idea_thumbnail(self.current_idea_id, drive_link)
-        print("  ✅ Saved to Airtable")
-        
-        # UPDATE STATUS to Done
+
+        # ---- Save to Airtable using original Kie URL ----
+        # Airtable attachment fields fetch and cache the image from the URL,
+        # so using the temp Kie URL is correct (not the Drive HTML page).
+        self.airtable.update_idea_thumbnail(self.current_idea_id, thumbnail_url)
+        print("  ✅ Thumbnail saved to Airtable")
+
+        # ---- Update status to Done ----
         self.airtable.update_idea_status(self.current_idea_id, self.STATUS_DONE)
         print(f"  ✅ Status updated to: {self.STATUS_DONE}")
-        
+
         return {
             "bot": "Thumbnail Bot",
-            "video_title": self.video_title,
+            "video_title": video_title,
             "new_status": self.STATUS_DONE,
-            "thumbnail_url": drive_link
+            "thumbnail_url": thumbnail_url,
+            "drive_backup": drive_link,
         }
     
     async def package_for_remotion(self) -> dict:

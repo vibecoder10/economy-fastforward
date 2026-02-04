@@ -93,6 +93,17 @@ class AirtableClient:
         record = self.ideas_table.update(record_id, {"Status": status}, typecast=True)
         return {"id": record["id"], **record["fields"]}
         
+    def update_idea_field(self, record_id: str, field_name: str, value) -> dict:
+        """Update a single field on an Ideas record.
+
+        Args:
+            record_id: Airtable record ID
+            field_name: Name of the field to update
+            value: Value to set
+        """
+        record = self.ideas_table.update(record_id, {field_name: value})
+        return {"id": record["id"], **record["fields"]}
+
     def update_idea_thumbnail(self, record_id: str, thumbnail_url: str) -> dict:
         """Update the thumbnail URL of an idea."""
         record = self.ideas_table.update(record_id, {"Thumbnail": [{"url": thumbnail_url}]})
