@@ -95,7 +95,7 @@ class AirtableClient:
         
     def update_idea_thumbnail(self, record_id: str, thumbnail_url: str) -> dict:
         """Update the thumbnail URL of an idea."""
-        record = self.ideas_table.update(record_id, {"Thumbnail URL": thumbnail_url})
+        record = self.ideas_table.update(record_id, {"Thumbnail": thumbnail_url})
         return {"id": record["id"], **record["fields"]}
     
     # ==================== SCRIPT TABLE ====================
@@ -159,6 +159,29 @@ class AirtableClient:
             updates["Voice Over"] = [{"url": voice_over_url}]
         return self.update_script_record(record_id, updates)
     
+    def get_script_voice_duration(self, video_title: str) -> float:
+        """Get total voice duration (seconds) for all scenes of a video.
+
+        Queries the Scripts table for the given video title and sums up the
+        Voice Duration field across all scenes.
+
+        Args:
+            video_title: The video title to look up
+
+        Returns:
+            Total voice duration in seconds (0.0 if no data found)
+        """
+        from pyairtable.formulas import match
+        records = self.script_table.all(
+            formula=match({"Title": video_title}),
+        )
+        total_duration = 0.0
+        for r in records:
+            duration = r["fields"].get("Voice Duration", 0)
+            if duration:
+                total_duration += float(duration)
+        return total_duration
+
     # ==================== IMAGES TABLE ====================
     
     def get_pending_images(self) -> list[dict]:

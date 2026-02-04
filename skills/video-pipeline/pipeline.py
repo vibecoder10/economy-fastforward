@@ -441,6 +441,12 @@ class VideoPipeline:
             print(f"    No scripts found for: {self.video_title}")
             return {"prompt_count": 0}
 
+        # Calculate max images based on total voice duration
+        voice_duration = self.airtable.get_script_voice_duration(self.video_title)
+        max_images = int(voice_duration / 6) if voice_duration > 0 else None
+        if max_images:
+            print(f"    Voice duration: {voice_duration:.1f}s → max {max_images} images")
+
         # Get existing image prompts to avoid duplicates
         existing_images = self.airtable.get_all_images_for_video(self.video_title)
         existing_scenes = set(img.get("Scene") for img in existing_images)
@@ -454,6 +460,11 @@ class VideoPipeline:
             if scene_number in existing_scenes:
                 print(f"    Check: Scene {scene_number} prompts already exist, skipping.")
                 continue
+
+            # CHECK: Have we hit the max image cap from voice duration?
+            if max_images and prompt_count >= max_images:
+                print(f"    Reached max images ({max_images}) based on voice duration, stopping.")
+                break
 
             scene_text = script.get("Scene text", "")
 
