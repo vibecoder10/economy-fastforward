@@ -568,6 +568,9 @@ class VideoPipeline:
                     video_title=self.video_title,
                 )
 
+                # Enforce budget cap
+                sentence_prompts = sentence_prompts[:scene_max]
+
                 # Save each sentence-aligned prompt to Airtable
                 for sp in sentence_prompts:
                     self.airtable.create_sentence_image_record(
@@ -581,7 +584,7 @@ class VideoPipeline:
                     )
                     prompt_count += 1
 
-                print(f"      → {len(sentence_prompts)} sentence-aligned prompts")
+                print(f"      → {len(sentence_prompts)} sentence-aligned prompts (capped from source)")
             else:
                 # DEPRECATED: Scene-level mode (6 prompts per scene)
                 prompts = await self.anthropic.generate_image_prompts(
@@ -589,6 +592,9 @@ class VideoPipeline:
                     scene_text=scene_text,
                     video_title=self.video_title,
                 )
+
+                # Enforce budget cap
+                prompts = prompts[:scene_max]
 
                 # Save each prompt to Airtable
                 for i, prompt in enumerate(prompts, 1):
@@ -599,6 +605,8 @@ class VideoPipeline:
                         video_title=self.video_title,
                     )
                     prompt_count += 1
+
+                print(f"      → {len(prompts)} scene-level prompts (capped from source)")
         
         self.slack.notify_image_prompts_done()
         print(f"    ✅ Created {prompt_count} image prompts")
