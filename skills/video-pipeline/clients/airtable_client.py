@@ -200,13 +200,13 @@ class AirtableClient:
         sentence_index: int,
         image_prompt: str,
         video_title: str,
+        sentence_text: str = "",
+        duration_seconds: float = 0.0,
+        cumulative_start: float = 0.0,
         aspect_ratio: str = "16:9",
         **kwargs,
     ) -> dict:
-        """Create a sentence-aligned image prompt record.
-
-        DEPRECATED: Use create_segment_image_record for semantic segmentation.
-        """
+        """Create a sentence-aligned image prompt record."""
         fields = {
             "Scene": scene_number,
             "Image Index": sentence_index,
@@ -214,6 +214,9 @@ class AirtableClient:
             "Video Title": video_title,
             "Aspect Ratio": aspect_ratio,
             "Status": "Pending",
+            "Sentence Text": sentence_text,
+            "Duration (s)": duration_seconds,
+            "Sentence Index": sentence_index,
         }
         record = self.images_table.create(fields)
         return {"id": record["id"], **record["fields"]}
@@ -224,21 +227,14 @@ class AirtableClient:
         segment_index: int,
         image_prompt: str,
         video_title: str,
+        segment_text: str = "",
+        duration_seconds: float = 0.0,
+        cumulative_start: float = 0.0,
+        visual_concept: str = "",
         aspect_ratio: str = "16:9",
         **kwargs,
     ) -> dict:
-        """Create a semantic segment image record.
-
-        Args:
-            scene_number: The scene number
-            segment_index: Position within scene (1-based)
-            image_prompt: The image generation prompt
-            video_title: Title of the video
-            aspect_ratio: Image aspect ratio
-
-        Returns:
-            Created record dict
-        """
+        """Create a semantic segment image record."""
         fields = {
             "Scene": scene_number,
             "Image Index": segment_index,
@@ -246,6 +242,9 @@ class AirtableClient:
             "Video Title": video_title,
             "Aspect Ratio": aspect_ratio,
             "Status": "Pending",
+            "Sentence Text": segment_text,
+            "Duration (s)": duration_seconds,
+            "Sentence Index": segment_index,
         }
         record = self.images_table.create(fields)
         return {"id": record["id"], **record["fields"]}
