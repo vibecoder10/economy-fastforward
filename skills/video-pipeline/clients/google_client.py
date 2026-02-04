@@ -3,6 +3,7 @@
 import os
 import io
 from typing import Optional
+import httpx
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
@@ -210,7 +211,38 @@ class GoogleClient:
     def upload_video(self, content: bytes, name: str, folder_id: str) -> dict:
         """Upload a video file to Google Drive."""
         return self.upload_file(content, name, folder_id, mime_type="video/mp4")
-        
+
+    def upload_file_from_url(
+        self,
+        url: str,
+        name: str,
+        parent_id: Optional[str] = None,
+        mime_type: str = "image/png",
+    ) -> dict:
+        """Download a file from a URL and upload it to Google Drive.
+
+        Args:
+            url: URL to download the file from
+            name: File name in Google Drive
+            parent_id: Target folder ID (uses default if not specified)
+            mime_type: MIME type of the file
+
+        Returns:
+            Dict with file id, name, mimeType, and webViewLink
+        """
+        response = httpx.get(url, timeout=60.0, follow_redirects=True)
+        response.raise_for_status()
+
+        folder_id = parent_id or self.parent_folder_id
+        file = self.upload_file(response.content, name, folder_id, mime_type=mime_type)
+
+        # Make file publicly accessible
+        self.make_file_public(file["id"])
+
+        # Add webViewLink for Drive viewing
+        file["webViewLink"] = f"https://drive.google.com/file/d/{file['id']}/view"
+        return file
+
     def make_file_public(self, file_id: str) -> str:
         """Make a file public and return its direct download link (webContentLink)."""
         # 1. Add 'anyone' permission
