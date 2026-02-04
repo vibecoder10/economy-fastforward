@@ -36,6 +36,21 @@ from clients.image_client import ImageClient
 from clients.gemini_client import GeminiClient
 
 
+def get_youtube_thumbnail(url: str) -> str | None:
+    """Convert YouTube URL to thumbnail image URL."""
+    import re
+    patterns = [
+        r'youtube\.com/watch\?v=([a-zA-Z0-9_-]+)',
+        r'youtu\.be/([a-zA-Z0-9_-]+)',
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, url)
+        if match:
+            video_id = match.group(1)
+            return f"https://img.youtube.com/vi/{video_id}/maxresdefault.jpg"
+    return None
+
+
 class VideoPipeline:
     """Orchestrates the full video production pipeline based on Airtable status."""
     
@@ -716,6 +731,10 @@ class VideoPipeline:
         video_summary = self.current_idea.get("Summary", "")
         reference_url = self.current_idea.get("Video URL")  # Reference thumbnail
         basic_prompt = self.current_idea.get("Thumbnail Prompt", "")
+
+        # Convert YouTube URL to direct thumbnail image URL
+        if reference_url:
+            reference_url = get_youtube_thumbnail(reference_url) or reference_url
 
         # Two-stage generation if reference exists
         if reference_url:
