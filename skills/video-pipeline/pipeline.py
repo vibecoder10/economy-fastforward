@@ -487,60 +487,42 @@ class VideoPipeline:
         # Filter to scenes that still need prompts
         scenes_to_process = [s for s in scripts if s.get("scene", 0) not in existing_scenes]
 
-        # Calculate image budget: estimate total video duration from script text
+        # Calculate scene durations for timing-based concept generation
         from clients.sentence_utils import estimate_sentence_duration
-        total_duration = sum(
-            estimate_sentence_duration(s.get("Scene text", ""))
-            for s in scripts
-        )
-        max_images = min(12, max(1, int(total_duration / 6)))
-        # Subtract images that already exist
-        remaining_budget = max(1, max_images - len(existing_images))
-        num_scenes = len(scenes_to_process)
-
-        print(f"    Total duration: ~{total_duration:.0f}s → budget: {max_images} images ({remaining_budget} remaining)")
-
-        # Distribute budget across scenes proportionally by duration
         scene_durations = {}
         for s in scenes_to_process:
             scene_durations[s.get("scene", 0)] = estimate_sentence_duration(s.get("Scene text", ""))
-        total_remaining_duration = sum(scene_durations.values()) or 1.0
 
-        scene_budgets = {}
-        allocated = 0
-        for i, (scene_num, dur) in enumerate(scene_durations.items()):
-            if i == len(scene_durations) - 1:
-                # Last scene gets whatever is left to avoid rounding loss
-                scene_budgets[scene_num] = max(1, remaining_budget - allocated)
-            else:
-                share = max(1, round(remaining_budget * dur / total_remaining_duration))
-                scene_budgets[scene_num] = share
-                allocated += share
+        total_duration = sum(scene_durations.values())
+        # Each concept/image should cover 6-10 seconds of voiceover
+        # min concepts = duration / 10 (at most 10s each)
+        # max concepts = duration / 6 (at least 6s each)
+        expected_min = max(1, int(total_duration / 10))
+        expected_max = max(1, int(total_duration / 6))
+        print(f"    Total duration: ~{total_duration:.0f}s → expect {expected_min}-{expected_max} concepts (6-10s each)")
 
         prompt_count = 0
 
         for script in scenes_to_process:
             scene_number = script.get("scene", 0)
             scene_text = script.get("Scene text", "")
-            scene_max = scene_budgets.get(scene_number, 1)
             voice_dur = scene_durations.get(scene_number, 0.0)
 
-            # Hard cap: don't exceed remaining global budget
-            scene_max = min(scene_max, remaining_budget - prompt_count)
-            if scene_max <= 0:
-                print(f"    Image budget exhausted, skipping scene {scene_number}.")
-                break
+            # Calculate concepts for THIS scene based on its duration
+            # Each concept should be 6-10 seconds
+            min_concepts = max(1, int(voice_dur / 10))  # at most 10s per concept
+            max_concepts = max(min_concepts, int(voice_dur / 6))  # at least 6s per concept
 
-            print(f"    Generating prompts for scene {scene_number} (max {scene_max}, ~{voice_dur:.0f}s)...")
+            print(f"    Scene {scene_number}: ~{voice_dur:.0f}s → {min_concepts}-{max_concepts} concepts...")
 
             if self.IMAGE_MODE == "semantic":
-                # SMART: Semantic segmentation by visual concept
+                # SMART: Semantic segmentation by visual concept (6-10s each)
                 segments = await self.anthropic.generate_semantic_segments(
                     scene_number=scene_number,
                     scene_text=scene_text,
                     video_title=self.video_title,
                     max_segment_duration=10.0,
-                    max_prompts=scene_max,
+                    max_prompts=max_concepts,
                     voice_duration=voice_dur,
                 )
 
@@ -558,18 +540,18 @@ class VideoPipeline:
                     )
                     prompt_count += 1
 
-                print(f"      → {len(segments)} segments")
+                print(f"      → {len(segments)} concepts")
 
             elif self.IMAGE_MODE == "sentence":
-                # DEPRECATED: Sentence-aligned mode (1 per sentence)
+                # DEPRECATED: Sentence-aligned mode - now respects timing
                 sentence_prompts = await self.anthropic.generate_sentence_level_prompts(
                     scene_number=scene_number,
                     scene_text=scene_text,
                     video_title=self.video_title,
                 )
 
-                # Enforce budget cap
-                sentence_prompts = sentence_prompts[:scene_max]
+                # Cap to max_concepts (based on 6-10s per image)
+                sentence_prompts = sentence_prompts[:max_concepts]
 
                 # Save each sentence-aligned prompt to Airtable
                 for sp in sentence_prompts:
@@ -584,17 +566,17 @@ class VideoPipeline:
                     )
                     prompt_count += 1
 
-                print(f"      → {len(sentence_prompts)} sentence-aligned prompts (capped from source)")
+                print(f"      → {len(sentence_prompts)} concepts (from {len(sentence_prompts)} sentences)")
             else:
-                # DEPRECATED: Scene-level mode (6 prompts per scene)
+                # DEPRECATED: Scene-level mode - now respects timing
                 prompts = await self.anthropic.generate_image_prompts(
                     scene_number=scene_number,
                     scene_text=scene_text,
                     video_title=self.video_title,
                 )
 
-                # Enforce budget cap
-                prompts = prompts[:scene_max]
+                # Cap to max_concepts (based on 6-10s per image)
+                prompts = prompts[:max_concepts]
 
                 # Save each prompt to Airtable
                 for i, prompt in enumerate(prompts, 1):
@@ -606,7 +588,7 @@ class VideoPipeline:
                     )
                     prompt_count += 1
 
-                print(f"      → {len(prompts)} scene-level prompts (capped from source)")
+                print(f"      → {len(prompts)} concepts")
         
         self.slack.notify_image_prompts_done()
         print(f"    ✅ Created {prompt_count} image prompts")
