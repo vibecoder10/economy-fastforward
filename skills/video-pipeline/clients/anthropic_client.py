@@ -604,6 +604,65 @@ Generate a single prompt that visually represents this segment's core concept.""
 
         return response.strip()
 
+    async def generate_thumbnail_prompt(
+        self,
+        thumbnail_spec_json: dict,
+        video_title: str,
+        thumbnail_concept: str = "",
+    ) -> str:
+        """Generate a detailed thumbnail image prompt from a Gemini-analyzed spec.
+
+        Takes the structured spec from Gemini's vision analysis and produces
+        a detailed image generation prompt suitable for Kie.
+
+        Args:
+            thumbnail_spec_json: Structured spec dict from Gemini's analysis
+            video_title: Title of the video
+            thumbnail_concept: Optional basic concept/idea for the thumbnail
+
+        Returns:
+            A detailed image generation prompt string
+        """
+        import json
+
+        system_prompt = """You are an expert thumbnail prompt engineer for YouTube.
+
+Your task is to take a structured thumbnail analysis (from a reference image) and produce
+a DETAILED image generation prompt that recreates a similar style for a NEW video topic.
+
+GUIDELINES:
+1. Preserve the composition style, mood, and color palette from the reference analysis
+2. Adapt the specific visual elements to match the NEW video's topic
+3. Include specific details about: layout, colors, lighting, text placement, focal point
+4. The prompt should be detailed enough for an AI image generator to produce a click-worthy thumbnail
+5. Include any text overlays that should appear on the thumbnail
+6. Keep the prompt under 300 words but be very specific
+
+OUTPUT: Return ONLY the image generation prompt, no explanation or JSON."""
+
+        concept_note = ""
+        if thumbnail_concept:
+            concept_note = f"\n\nBASIC THUMBNAIL CONCEPT (use as creative direction):\n{thumbnail_concept}"
+
+        prompt = f"""Create a detailed thumbnail image generation prompt for this video:
+
+VIDEO TITLE: "{video_title}"
+
+REFERENCE THUMBNAIL ANALYSIS:
+{json.dumps(thumbnail_spec_json, indent=2)}
+{concept_note}
+
+Generate a single detailed prompt that adapts the reference style to this video's topic."""
+
+        response = await self.generate(
+            prompt=prompt,
+            system_prompt=system_prompt,
+            model="claude-sonnet-4-5-20250929",
+            max_tokens=1000,
+        )
+
+        return response.strip()
+
     async def generate_video_prompt(
         self,
         image_prompt: str,
