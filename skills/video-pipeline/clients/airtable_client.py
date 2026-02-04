@@ -198,12 +198,10 @@ class AirtableClient:
         self,
         scene_number: int,
         sentence_index: int,
-        sentence_text: str,
-        duration_seconds: float,
         image_prompt: str,
         video_title: str,
-        cumulative_start: float = 0.0,
         aspect_ratio: str = "16:9",
+        **kwargs,
     ) -> dict:
         """Create a sentence-aligned image prompt record.
 
@@ -216,10 +214,6 @@ class AirtableClient:
             "Video Title": video_title,
             "Aspect Ratio": aspect_ratio,
             "Status": "Pending",
-            "Sentence Text": sentence_text,
-            "Duration (s)": duration_seconds,
-            "Sentence Index": sentence_index,
-            "Start Time (s)": cumulative_start,
         }
         record = self.images_table.create(fields)
         return {"id": record["id"], **record["fields"]}
@@ -228,28 +222,18 @@ class AirtableClient:
         self,
         scene_number: int,
         segment_index: int,
-        segment_text: str,
-        duration_seconds: float,
         image_prompt: str,
         video_title: str,
-        visual_concept: str = "",
-        cumulative_start: float = 0.0,
         aspect_ratio: str = "16:9",
+        **kwargs,
     ) -> dict:
         """Create a semantic segment image record.
-
-        This is the smart segmentation format that groups sentences by visual concept
-        and enforces max duration for AI video generation.
 
         Args:
             scene_number: The scene number
             segment_index: Position within scene (1-based)
-            segment_text: The narration text for this segment (may be multiple sentences)
-            duration_seconds: How long this segment runs (max 10s for AI video)
             image_prompt: The image generation prompt
             video_title: Title of the video
-            visual_concept: Description of why this is a distinct visual segment
-            cumulative_start: Start time within scene (seconds) for video stitching
             aspect_ratio: Image aspect ratio
 
         Returns:
@@ -262,12 +246,6 @@ class AirtableClient:
             "Video Title": video_title,
             "Aspect Ratio": aspect_ratio,
             "Status": "Pending",
-            # Segment-level fields for semantic alignment
-            "Sentence Text": segment_text,  # Reuse field, contains full segment text
-            "Duration (s)": duration_seconds,
-            "Sentence Index": segment_index,  # Reuse as segment index
-            "Start Time (s)": cumulative_start,
-            "Visual Concept": visual_concept,  # NEW: Why this is a distinct visual
         }
         record = self.images_table.create(fields)
         return {"id": record["id"], **record["fields"]}
