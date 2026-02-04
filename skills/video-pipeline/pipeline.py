@@ -3,13 +3,14 @@ Video Production Pipeline Orchestrator
 
 STATUS-DRIVEN WORKFLOW:
 The pipeline strictly follows Airtable Ideas table status:
-1. Idea Logged       - New idea, waiting to be picked up
-2. Ready For Scripting - Script Bot will run
-3. Ready For Voice   - Voice Bot will run  
-4. Ready For Visuals - Image Prompt Bot + Image Bot will run
-5. Ready For Thumbnail - Thumbnail Bot will run
-6. Done              - Complete, do NOT process
-7. In Que            - Waiting in queue
+1. Idea Logged           - New idea, waiting to be picked up
+2. Ready For Scripting   - Script Bot will run
+3. Ready For Voice       - Voice Bot will run
+4. Ready For Image Prompts - Image Prompt Bot will run (prompts only)
+5. Ready For Images      - Image Bot will run (generates actual images)
+6. Ready For Thumbnail   - Thumbnail Bot will run
+7. Done                  - Complete, do NOT process
+8. In Que                - Waiting in queue
 
 RULES:
 - Always check Ideas table status FIRST
@@ -64,7 +65,8 @@ class VideoPipeline:
     STATUS_IDEA_LOGGED = "Idea Logged"
     STATUS_READY_SCRIPTING = "Ready For Scripting"
     STATUS_READY_VOICE = "Ready For Voice"
-    STATUS_READY_VISUALS = "Ready For Visuals"
+    STATUS_READY_IMAGE_PROMPTS = "Ready For Image Prompts"
+    STATUS_READY_IMAGES = "Ready For Images"
     STATUS_READY_VIDEO_SCRIPTS = "Ready For Video Scripts"
     STATUS_READY_VIDEO_GENERATION = "Ready For Video Generation"
     STATUS_READY_THUMBNAIL = "Ready For Thumbnail"
@@ -143,11 +145,11 @@ class VideoPipeline:
             # Some scripts still need voice
             suggested_status = self.STATUS_READY_VOICE
         elif not all_images:
-            # Scripts done, no images yet
-            suggested_status = self.STATUS_READY_VISUALS
+            # Scripts done, no image prompts yet
+            suggested_status = self.STATUS_READY_IMAGE_PROMPTS
         elif pending_images:
-            # Images exist but some pending
-            suggested_status = self.STATUS_READY_VISUALS
+            # Image prompts exist but images still pending
+            suggested_status = self.STATUS_READY_IMAGES
         elif len(scene_1_images) > 0 and len(scene_1_prompts) < len(scene_1_images):
             # Images done, but Scene 1 prompts missing
             suggested_status = self.STATUS_READY_VIDEO_SCRIPTS
@@ -209,24 +211,30 @@ class VideoPipeline:
                 
             return await self.run_voice_bot()
         
-        # 3. Check for Ready For Visuals
-        idea = self.get_idea_by_status(self.STATUS_READY_VISUALS)
+        # 3. Check for Ready For Image Prompts
+        idea = self.get_idea_by_status(self.STATUS_READY_IMAGE_PROMPTS)
         if idea:
             self._load_idea(idea)
-            return await self.run_visuals_pipeline()
-            
-        # 4. Check for Ready For Video Scripts
+            return await self.run_image_prompt_bot()
+
+        # 4. Check for Ready For Images
+        idea = self.get_idea_by_status(self.STATUS_READY_IMAGES)
+        if idea:
+            self._load_idea(idea)
+            return await self.run_image_bot()
+
+        # 5. Check for Ready For Video Scripts
         idea = self.get_idea_by_status(self.STATUS_READY_VIDEO_SCRIPTS)
         if idea:
             self._load_idea(idea)
             return await self.run_video_script_bot()
             
-        # 5. Check for Ready For Video Generation
+        # 6. Check for Ready For Video Generation
         idea = self.get_idea_by_status(self.STATUS_READY_VIDEO_GENERATION)
         if idea:
             self._load_idea(idea)
             return await self.run_video_gen_bot()
-        # 6. Check for Ready For Thumbnail
+        # 7. Check for Ready For Thumbnail
         idea = self.get_idea_by_status(self.STATUS_READY_THUMBNAIL)
         if idea:
             self._load_idea(idea)
@@ -423,10 +431,10 @@ class VideoPipeline:
             self.project_folder_id = folder["id"]
         
         # Step 1: Generate Image Prompts
-        prompt_result = await self._run_image_prompt_bot()
-        
+        prompt_result = await self.run_image_prompt_bot()
+
         # Step 2: Generate Images
-        image_result = await self._run_image_bot()
+        image_result = await self.run_image_bot()
         
         # UPDATE STATUS to Ready For Video Scripts
         self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_VIDEO_SCRIPTS)
@@ -440,14 +448,28 @@ class VideoPipeline:
             "new_status": self.STATUS_READY_VIDEO_SCRIPTS,
         }
     
-    async def _run_image_prompt_bot(self) -> dict:
-        """Generate image prompts for all scenes (internal method).
+    async def run_image_prompt_bot(self) -> dict:
+        """Generate image prompts for all scenes.
+
+        REQUIRES: Ideas status = "Ready For Image Prompts"
+        UPDATES TO: "Ready For Images" when complete
 
         Supports three modes:
         - "semantic": Smart segmentation by visual concept (max 10s per segment)
         - "sentence": One image per sentence (deprecated)
         - "scene": Old mode (6 prompts per scene, deprecated)
         """
+        if not self.current_idea:
+            idea = self.get_idea_by_status(self.STATUS_READY_IMAGE_PROMPTS)
+            if not idea:
+                return {"error": "No idea with status 'Ready For Image Prompts'"}
+            self._load_idea(idea)
+
+        # Get or create project folder
+        if not self.project_folder_id:
+            folder = self.google.get_or_create_folder(self.video_title)
+            self.project_folder_id = folder["id"]
+
         self.slack.notify_image_prompts_start()
         print(f"\n  🌉 IMAGE PROMPT BOT: Generating prompts (mode: {self.IMAGE_MODE})...")
 
@@ -543,11 +565,35 @@ class VideoPipeline:
         
         self.slack.notify_image_prompts_done()
         print(f"    ✅ Created {prompt_count} image prompts")
-        
-        return {"prompt_count": prompt_count}
+
+        # UPDATE STATUS to Ready For Images
+        self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_IMAGES)
+        print(f"  ✅ Status updated to: {self.STATUS_READY_IMAGES}")
+
+        return {
+            "bot": "Image Prompt Bot",
+            "video_title": self.video_title,
+            "prompt_count": prompt_count,
+            "new_status": self.STATUS_READY_IMAGES,
+        }
     
-    async def _run_image_bot(self) -> dict:
-        """Generate images from prompts (internal method)."""
+    async def run_image_bot(self) -> dict:
+        """Generate images from prompts.
+
+        REQUIRES: Ideas status = "Ready For Images"
+        UPDATES TO: "Ready For Thumbnail" when complete
+        """
+        if not self.current_idea:
+            idea = self.get_idea_by_status(self.STATUS_READY_IMAGES)
+            if not idea:
+                return {"error": "No idea with status 'Ready For Images'"}
+            self._load_idea(idea)
+
+        # Get or create project folder
+        if not self.project_folder_id:
+            folder = self.google.get_or_create_folder(self.video_title)
+            self.project_folder_id = folder["id"]
+
         self.slack.notify_images_start()
         print(f"\n  🖼️ IMAGE BOT: Generating images...")
         
@@ -582,10 +628,17 @@ class VideoPipeline:
         
         self.slack.notify_images_done()
         print(f"    ✅ Generated {image_count} images")
-        
-        return {"image_count": image_count}
 
-        return {"image_count": image_count}
+        # UPDATE STATUS to Ready For Thumbnail
+        self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_THUMBNAIL)
+        print(f"  ✅ Status updated to: {self.STATUS_READY_THUMBNAIL}")
+
+        return {
+            "bot": "Image Bot",
+            "video_title": self.video_title,
+            "image_count": image_count,
+            "new_status": self.STATUS_READY_THUMBNAIL,
+        }
 
     async def run_video_script_bot(self) -> dict:
         """Generate video prompts for Scene 1 only (Constraint)."""
