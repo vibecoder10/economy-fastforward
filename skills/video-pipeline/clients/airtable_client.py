@@ -99,8 +99,8 @@ class AirtableClient:
         return {"id": record["id"], **record["fields"]}
 
     def update_idea_thumbnail(self, record_id: str, thumbnail_url: str) -> dict:
-        """Update the thumbnail URL of an idea."""
-        record = self.ideas_table.update(record_id, {"Thumbnail URL": thumbnail_url})
+        """Update the thumbnail attachment of an idea."""
+        record = self.ideas_table.update(record_id, {"Thumbnail": [{"url": thumbnail_url}]})
         return {"id": record["id"], **record["fields"]}
     
     # ==================== SCRIPT TABLE ====================
