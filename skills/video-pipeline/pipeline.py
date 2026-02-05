@@ -544,7 +544,18 @@ class VideoPipeline:
 
             scene_text = script.get("Scene text", "")
 
+            # Calculate words per second from voice duration
+            voice_duration = script.get("Voice Duration", 0)
+            word_count = len(scene_text.split())
+
+            # If no voice duration stored, estimate from word count (173 WPM average)
+            if not voice_duration or voice_duration <= 0:
+                voice_duration = (word_count / 173) * 60
+
+            words_per_second = word_count / voice_duration if voice_duration > 0 else 2.88  # ~173 WPM fallback
+
             print(f"    Generating prompts for scene {scene_number}...")
+            print(f"      Voice duration: {voice_duration:.1f}s, Words: {word_count}, WPS: {words_per_second:.2f}")
 
             if self.IMAGE_MODE == "semantic":
                 # SMART: Semantic segmentation by visual concept (max 10s for AI video)
@@ -555,18 +566,27 @@ class VideoPipeline:
                     max_segment_duration=10.0,
                 )
 
-                # Save each segment to Airtable
-                for seg in segments:
+                # Save each segment to Airtable with calculated durations
+                cumulative_time = 0.0
+                for i, seg in enumerate(segments):
+                    segment_text = seg.get("segment_text", "")
+                    segment_words = len(segment_text.split())
+
+                    # Calculate duration based on actual voice timing
+                    segment_duration = segment_words / words_per_second if words_per_second > 0 else seg["duration_seconds"]
+                    segment_duration = round(segment_duration, 1)
+
                     self.airtable.create_segment_image_record(
                         scene_number=scene_number,
                         segment_index=seg["segment_index"],
-                        segment_text=seg["segment_text"],
-                        duration_seconds=seg["duration_seconds"],
+                        segment_text=segment_text,
+                        duration_seconds=segment_duration,
                         image_prompt=seg["image_prompt"],
                         video_title=self.video_title,
                         visual_concept=seg.get("visual_concept", ""),
-                        cumulative_start=seg.get("cumulative_start", 0.0),
+                        cumulative_start=round(cumulative_time, 1),
                     )
+                    cumulative_time += segment_duration
                     prompt_count += 1
 
                 print(f"      → {len(segments)} semantic segments (max 10s each)")
@@ -579,17 +599,26 @@ class VideoPipeline:
                     video_title=self.video_title,
                 )
 
-                # Save each sentence-aligned prompt to Airtable
-                for sp in sentence_prompts:
+                # Save each sentence-aligned prompt to Airtable with calculated durations
+                cumulative_time = 0.0
+                for i, sp in enumerate(sentence_prompts):
+                    sentence_text = sp.get("sentence_text", "")
+                    sentence_words = len(sentence_text.split())
+
+                    # Calculate duration based on actual voice timing
+                    sentence_duration = sentence_words / words_per_second if words_per_second > 0 else sp["duration_seconds"]
+                    sentence_duration = round(sentence_duration, 1)
+
                     self.airtable.create_sentence_image_record(
                         scene_number=scene_number,
                         sentence_index=sp["sentence_index"],
-                        sentence_text=sp["sentence_text"],
-                        duration_seconds=sp["duration_seconds"],
+                        sentence_text=sentence_text,
+                        duration_seconds=sentence_duration,
                         image_prompt=sp["image_prompt"],
                         video_title=self.video_title,
-                        cumulative_start=sp.get("cumulative_start", 0.0),
+                        cumulative_start=round(cumulative_time, 1),
                     )
+                    cumulative_time += sentence_duration
                     prompt_count += 1
 
                 print(f"      → {len(sentence_prompts)} sentence-aligned prompts")
