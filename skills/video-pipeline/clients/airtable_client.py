@@ -84,6 +84,9 @@ class AirtableClient:
             "Writer Guidance": idea_data.get("writer_guidance", ""),
             "Original DNA": idea_data.get("original_dna", ""),
         }
+        # Add reference video URL if provided (for thumbnail inspiration)
+        if idea_data.get("reference_url"):
+            fields["Reference URL"] = idea_data.get("reference_url")
         record = self.ideas_table.create(fields)
         return {"id": record["id"], **record["fields"]}
     

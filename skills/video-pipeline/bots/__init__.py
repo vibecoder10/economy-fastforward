@@ -1,17 +1,21 @@
-"""Bot implementations for Video Production Pipeline."""
+"""Bot implementations for Video Production Pipeline.
+
+Currently implemented:
+- IdeaBot: Generates video ideas from URLs or concepts
+- TrendingIdeaBot: Generates ideas by analyzing trending YouTube videos
+
+Future bots (logic currently in pipeline.py):
+- ScriptBot
+- VoiceBot
+- ImagePromptBot
+- ImageBot
+- ThumbnailBot
+"""
 
 from .idea_bot import IdeaBot
-from .script_bot import ScriptBot
-from .voice_bot import VoiceBot
-from .image_prompt_bot import ImagePromptBot
-from .image_bot import ImageBot
-from .thumbnail_bot import ThumbnailBot
+from .trending_idea_bot import TrendingIdeaBot
 
 __all__ = [
     "IdeaBot",
-    "ScriptBot",
-    "VoiceBot",
-    "ImagePromptBot",
-    "ImageBot",
-    "ThumbnailBot",
+    "TrendingIdeaBot",
 ]

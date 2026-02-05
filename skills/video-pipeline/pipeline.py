@@ -37,6 +37,9 @@ from clients.slack_client import SlackClient
 from clients.elevenlabs_client import ElevenLabsClient
 from clients.image_client import ImageClient
 from clients.gemini_client import GeminiClient
+from clients.apify_client import ApifyYouTubeClient
+from bots.idea_bot import IdeaBot
+from bots.trending_idea_bot import TrendingIdeaBot
 
 
 class VideoPipeline:
@@ -70,6 +73,11 @@ class VideoPipeline:
         self.gemini = GeminiClient()
         # Pass google client for proxy logic
         self.image_client = ImageClient(google_client=self.google)
+        # Apify for YouTube scraping (optional - may not have API key)
+        try:
+            self.apify = ApifyYouTubeClient()
+        except ValueError:
+            self.apify = None  # No API key configured
         
         # Pipeline state - ALWAYS set from Ideas table
         self.project_folder_id: Optional[str] = None
@@ -264,7 +272,93 @@ class VideoPipeline:
         print("\n✅ No videos ready for processing!")
         print("   To process a video, update its status in the Ideas table.")
         return {"status": "idle", "message": "No videos to process"}
-    
+
+    async def run_idea_bot(self, input_text: str) -> dict:
+        """Generate video ideas from a YouTube URL or concept.
+
+        This is the FIRST step in the pipeline - generates 3 video concepts.
+
+        Args:
+            input_text: Either a YouTube URL or a topic/concept description
+
+        Returns:
+            Dict with generated ideas and their Airtable IDs
+        """
+        print("\n" + "=" * 60)
+        print("💡 IDEA BOT - Generating Video Concepts")
+        print("=" * 60)
+
+        idea_bot = IdeaBot(
+            anthropic_client=self.anthropic,
+            airtable_client=self.airtable,
+            gemini_client=self.gemini,
+            slack_client=self.slack,
+        )
+
+        ideas = await idea_bot.generate_ideas(
+            input_text=input_text,
+            save_to_airtable=True,
+            notify_slack=True,
+        )
+
+        print("\n" + "=" * 60)
+        print("✅ IDEA BOT COMPLETE")
+        print("=" * 60)
+        print(f"Generated {len(ideas)} ideas:")
+        for i, idea in enumerate(ideas, 1):
+            print(f"  {i}. {idea.get('viral_title', 'Untitled')}")
+        print("\nNext steps:")
+        print("  1. Review ideas in Airtable")
+        print("  2. Set your chosen idea's status to 'Ready For Scripting'")
+        print("  3. Run: python pipeline.py")
+
+        return {
+            "status": "ideas_generated",
+            "count": len(ideas),
+            "ideas": [idea.get("viral_title") for idea in ideas],
+        }
+
+    async def run_trending_idea_bot(
+        self,
+        search_queries: Optional[list[str]] = None,
+        num_ideas: int = 3,
+    ) -> dict:
+        """Generate video ideas by analyzing trending YouTube content.
+
+        This scrapes trending videos in the finance/economy niche,
+        analyzes title patterns, and generates modeled concepts.
+
+        Args:
+            search_queries: Custom search terms (or use defaults)
+            num_ideas: Number of ideas to generate
+
+        Returns:
+            Dict with trending analysis and generated ideas
+        """
+        if not self.apify:
+            return {"error": "Apify API key not configured. Add APIFY_API_KEY to .env"}
+
+        trending_bot = TrendingIdeaBot(
+            apify_client=self.apify,
+            anthropic_client=self.anthropic,
+            airtable_client=self.airtable,
+            gemini_client=self.gemini,
+            slack_client=self.slack,
+        )
+
+        result = await trending_bot.generate_from_trending(
+            search_queries=search_queries,
+            num_ideas=num_ideas,
+            save_to_airtable=True,
+            notify_slack=True,
+        )
+
+        return {
+            "status": "trending_ideas_generated",
+            "videos_analyzed": len(result.get("trending_data", {}).get("videos", [])),
+            "ideas": [idea.get("viral_title") for idea in result.get("ideas", [])],
+        }
+
     async def run_script_bot(self) -> dict:
         """Write the full 20-scene script.
         
@@ -1020,9 +1114,31 @@ class VideoPipeline:
 async def main():
     """CLI entry point - runs the next available step."""
     import sys
-    
+
     pipeline = VideoPipeline()
-    
+
+    if len(sys.argv) > 1 and sys.argv[1] in ["--help", "-h"]:
+        print("=" * 60)
+        print("🎬 VIDEO PIPELINE - CLI Options")
+        print("=" * 60)
+        print("\nUsage: python pipeline.py [option]")
+        print("\nOptions:")
+        print("  (no args)     Run the next pipeline step based on Airtable status")
+        print("  --status      Show status of all ideas in Airtable")
+        print('  --idea "..."  Generate 3 video ideas from URL or concept')
+        print("  --trending    Generate ideas from trending YouTube videos (Apify)")
+        print("  --sync        Sync assets to Google Drive")
+        print("  --remotion    Export Remotion props for rendering")
+        print("  --help, -h    Show this help message")
+        print("\nExamples:")
+        print("  python pipeline.py")
+        print("  python pipeline.py --status")
+        print('  python pipeline.py --idea "https://youtu.be/VIDEO_ID"')
+        print('  python pipeline.py --idea "Breaking news about AI regulation"')
+        print("  python pipeline.py --trending")
+        print('  python pipeline.py --trending "crypto crash,bitcoin ETF"')
+        return
+
     if len(sys.argv) > 1 and sys.argv[1] == "--status":
         # Show current status of all ideas
         print("=" * 60)
@@ -1032,7 +1148,41 @@ async def main():
         for idea in ideas:
             print(f"  {idea.get('Status', 'Unknown'):20} | {idea.get('Video Title', 'Untitled')[:40]}")
         return
-        
+
+    if len(sys.argv) > 1 and sys.argv[1] == "--idea":
+        # Generate ideas from URL or concept
+        if len(sys.argv) < 3:
+            print("=" * 60)
+            print("💡 IDEA BOT - Generate Video Concepts")
+            print("=" * 60)
+            print("\nUsage:")
+            print('  python pipeline.py --idea "https://youtube.com/watch?v=VIDEO_ID"')
+            print('  python pipeline.py --idea "Your concept or news topic here"')
+            print("\nExamples:")
+            print('  python pipeline.py --idea "https://youtu.be/dQw4w9WgXcQ"')
+            print('  python pipeline.py --idea "The Federal Reserve just announced rate cuts"')
+            print('  python pipeline.py --idea "AI is replacing software developers"')
+            return
+
+        input_text = " ".join(sys.argv[2:])  # Join all args after --idea
+        result = await pipeline.run_idea_bot(input_text)
+        return
+
+    if len(sys.argv) > 1 and sys.argv[1] == "--trending":
+        # Generate ideas from trending YouTube videos
+        search_queries = None
+        if len(sys.argv) > 2:
+            # Parse custom search queries (comma-separated)
+            queries_str = " ".join(sys.argv[2:])
+            search_queries = [q.strip() for q in queries_str.split(",") if q.strip()]
+            print(f"Using custom queries: {search_queries}")
+
+        result = await pipeline.run_trending_idea_bot(
+            search_queries=search_queries,
+            num_ideas=3,
+        )
+        return
+
     if len(sys.argv) > 1 and sys.argv[1] == "--sync":
         # Sync assets for a specific video
         # Hardcoded for now or args? User wants specific video.

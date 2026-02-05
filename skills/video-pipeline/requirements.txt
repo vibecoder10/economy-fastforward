@@ -25,6 +25,9 @@ openai>=1.12.0  # For DALL-E
 yt-dlp>=2024.1.0
 youtube-transcript-api>=0.6.2
 
+# Web Scraping
+apify-client>=1.6.0  # YouTube trending scraper
+
 # HTTP & Async
 httpx>=0.27.0
 aiohttp>=3.9.0
