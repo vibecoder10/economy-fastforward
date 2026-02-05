@@ -14,7 +14,8 @@ class ImageClient:
     RECORD_INFO_URL = "https://api.kie.ai/api/v1/jobs/recordInfo"
     
     # Default model from n8n workflow
-    DEFAULT_MODEL = "google/nano-banana"
+    DEFAULT_MODEL = "nano-banana"
+    PRO_MODEL = "nano-banana-pro"  # Higher quality for thumbnails
     
     def __init__(self, api_key: Optional[str] = None, google_client: Optional[object] = None):
         self.api_key = api_key or os.getenv("KIE_AI_API_KEY")
@@ -161,8 +162,8 @@ class ImageClient:
             "model": model or self.DEFAULT_MODEL,
             "input": {
                 "prompt": prompt,
+                "aspect_ratio": aspect_ratio,
                 "output_format": output_format,
-                "image_size": aspect_ratio,
             },
         }
         
@@ -173,7 +174,9 @@ class ImageClient:
                 json=payload,
                 timeout=60.0,
             )
-            response.raise_for_status()
+            if response.status_code != 200:
+                print(f"      ❌ Image API error: {response.status_code} - {response.text}")
+                return None
             return response.json()
     
     async def get_task_status(self, task_id: str) -> dict:
@@ -255,18 +258,28 @@ class ImageClient:
         self,
         prompt: str,
         aspect_ratio: str = "16:9",
+        model: str = None,
     ) -> Optional[list[str]]:
         """Generate an image and wait for completion.
-        
+
         Args:
             prompt: Image generation prompt
             aspect_ratio: Aspect ratio
-            
+            model: Model to use (defaults to DEFAULT_MODEL, use PRO_MODEL for thumbnails)
+
         Returns:
             List of image URLs when complete, or None if failed
         """
-        result = await self.create_image(prompt, aspect_ratio)
-        
+        try:
+            result = await self.create_image(prompt, aspect_ratio, model=model)
+        except Exception as e:
+            print(f"      ❌ create_image exception (model: {model or self.DEFAULT_MODEL}): {e}")
+            return None
+
+        if not result:
+            print(f"      ❌ create_image failed (model: {model or self.DEFAULT_MODEL})")
+            return None
+
         task_id = result.get("data", {}).get("taskId")
         if not task_id:
             return None

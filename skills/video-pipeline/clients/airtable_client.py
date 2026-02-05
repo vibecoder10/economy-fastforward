@@ -100,8 +100,25 @@ class AirtableClient:
 
     def update_idea_thumbnail(self, record_id: str, thumbnail_url: str) -> dict:
         """Update the thumbnail URL of an idea."""
-        record = self.ideas_table.update(record_id, {"Thumbnail URL": thumbnail_url})
-        return {"id": record["id"], **record["fields"]}
+        # Try different field names and formats
+        field_attempts = [
+            # Attachment field format (array of objects with url)
+            ("Thumbnail", [{"url": thumbnail_url}]),
+            # Plain URL field formats
+            ("Thumbnail URL", thumbnail_url),
+            ("Thumbnail", thumbnail_url),
+        ]
+
+        for field_name, field_value in field_attempts:
+            try:
+                record = self.ideas_table.update(record_id, {field_name: field_value})
+                print(f"    ✅ Saved thumbnail to '{field_name}' field")
+                return {"id": record["id"], **record["fields"]}
+            except Exception as e:
+                continue  # Try next format
+
+        print(f"    Note: Could not save thumbnail URL to Airtable (tried multiple field names)")
+        return {"id": record_id}
     
     # ==================== SCRIPT TABLE ====================
     
@@ -217,9 +234,9 @@ class AirtableClient:
             "Aspect Ratio": aspect_ratio,
             "Status": "Pending",
             "Sentence Text": sentence_text,
-            "Duration (s)": duration_seconds,
+            "Duration (s)": float(duration_seconds),
             "Sentence Index": sentence_index,
-            "Start Time (s)": cumulative_start,
+            # Note: "Start Time (s)" field removed - Airtable field type issue
         }
         record = self.images_table.create(fields)
         return {"id": record["id"], **record["fields"]}
@@ -264,10 +281,10 @@ class AirtableClient:
             "Status": "Pending",
             # Segment-level fields for semantic alignment
             "Sentence Text": segment_text,  # Reuse field, contains full segment text
-            "Duration (s)": duration_seconds,
+            "Duration (s)": float(duration_seconds),
             "Sentence Index": segment_index,  # Reuse as segment index
-            "Start Time (s)": cumulative_start,
             "Visual Concept": visual_concept,  # NEW: Why this is a distinct visual
+            # Note: "Start Time (s)" field removed - Airtable field type issue
         }
         record = self.images_table.create(fields)
         return {"id": record["id"], **record["fields"]}
@@ -283,8 +300,7 @@ class AirtableClient:
             "Image": [{"url": image_url}],
             "Status": "Done",
         }
-        if drive_url:
-            updates["Drive Image URL"] = drive_url
+        # Note: Drive Image URL field removed - not in Airtable schema
         record = self.images_table.update(record_id, updates, typecast=True)
         return {"id": record["id"], **record["fields"]}
 

@@ -1,7 +1,46 @@
 """Sentence-level utilities for image/audio alignment."""
 
 import re
-from typing import List, Dict
+import tempfile
+import httpx
+from typing import List, Dict, Optional
+
+
+def get_audio_duration(audio_url: str) -> Optional[float]:
+    """Fetch audio file and return duration in seconds.
+
+    Args:
+        audio_url: URL to an audio file (mp3, wav, etc.)
+
+    Returns:
+        Duration in seconds, or None if unable to determine
+    """
+    try:
+        from mutagen.mp3 import MP3
+        from mutagen import MutagenError
+
+        # Download audio to temp file
+        response = httpx.get(audio_url, timeout=30.0, follow_redirects=True)
+        response.raise_for_status()
+
+        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
+            tmp.write(response.content)
+            tmp_path = tmp.name
+
+        # Get duration using mutagen
+        try:
+            audio = MP3(tmp_path)
+            duration = audio.info.length
+            return duration
+        except MutagenError:
+            return None
+        finally:
+            import os
+            os.unlink(tmp_path)
+
+    except Exception as e:
+        print(f"    Warning: Could not get audio duration: {e}")
+        return None
 
 
 def split_into_sentences(text: str) -> List[str]:

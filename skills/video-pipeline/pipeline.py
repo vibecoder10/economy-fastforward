@@ -93,7 +93,39 @@ class VideoPipeline:
         print(f"\n📌 Loaded idea: {self.video_title}")
         print(f"   Status: {idea.get('Status')}")
         print(f"   ID: {self.current_idea_id}")
-    
+
+    def _extract_youtube_thumbnail(self, url: str) -> Optional[str]:
+        """Extract thumbnail image URL from a YouTube video URL.
+
+        Args:
+            url: YouTube video URL (various formats supported)
+
+        Returns:
+            Direct URL to the thumbnail image, or None if not a YouTube URL
+        """
+        import re
+
+        # Patterns to extract video ID from various YouTube URL formats
+        patterns = [
+            r'(?:youtube\.com/watch\?v=|youtu\.be/|youtube\.com/embed/)([a-zA-Z0-9_-]{11})',
+            r'youtube\.com/v/([a-zA-Z0-9_-]{11})',
+            r'youtube\.com/shorts/([a-zA-Z0-9_-]{11})',
+        ]
+
+        video_id = None
+        for pattern in patterns:
+            match = re.search(pattern, url)
+            if match:
+                video_id = match.group(1)
+                break
+
+        if not video_id:
+            return None
+
+        # Return maxresdefault thumbnail (highest quality)
+        # Falls back gracefully if not available
+        return f"https://img.youtube.com/vi/{video_id}/maxresdefault.jpg"
+
     def check_existing_work(self, video_title: str) -> dict:
         """Check what work has already been done for this video.
         
@@ -393,40 +425,109 @@ class VideoPipeline:
         }
 
     async def run_image_prompt_bot(self) -> dict:
-        """Generate image prompts for all scenes.
+        """Generate image prompts based on voiceover duration.
+
+        Rule: ONE image per 6-10 seconds of voiceover.
 
         REQUIRES: Ideas status = "Ready For Image Prompts"
         UPDATES TO: "Ready For Images" when complete
         """
-        # Verify status
+        from clients.sentence_utils import get_audio_duration
+
         if not self.current_idea:
             idea = self.get_idea_by_status(self.STATUS_READY_IMAGE_PROMPTS)
             if not idea:
-                return {"error": "No idea with status 'Ready For Image Prompts'"}
+                return {"status": "idle", "message": "No videos at Ready For Image Prompts"}
             self._load_idea(idea)
 
         if self.current_idea.get("Status") != self.STATUS_READY_IMAGE_PROMPTS:
-            return {"error": f"Idea status is '{self.current_idea.get('Status')}', expected 'Ready For Image Prompts'"}
+            return {"error": f"Status mismatch"}
 
         print(f"\n🌉 IMAGE PROMPT BOT: Processing '{self.video_title}'")
 
-        # Get or create project folder
-        if not self.project_folder_id:
-            folder = self.google.get_or_create_folder(self.video_title)
-            self.project_folder_id = folder["id"]
+        scenes = self.airtable.get_scripts_by_title(self.video_title)
+        if not scenes:
+            return {"error": "No scenes found"}
 
-        # Run the internal image prompt bot
-        result = await self._run_image_prompt_bot()
+        print(f"  Found {len(scenes)} scenes")
 
-        # UPDATE STATUS to Ready For Images
+        total_prompts = 0
+
+        for scene in scenes:
+            scene_number = scene.get("scene") or scene.get("Scene") or 1
+            scene_text = scene.get("Scene text") or scene.get("Script") or ""
+            voice_over = scene.get("Voice Over")
+
+            # Get duration from audio file
+            voice_duration = None
+            if voice_over and isinstance(voice_over, list) and len(voice_over) > 0:
+                voice_url = voice_over[0].get("url")
+                if voice_url:
+                    print(f"  Scene {scene_number}: Fetching audio duration...")
+                    voice_duration = get_audio_duration(voice_url)
+
+            # Fallback to word count estimate
+            if not voice_duration:
+                word_count = len(scene_text.split())
+                voice_duration = word_count / 2.5
+
+            # Calculate words per second for this scene
+            word_count = len(scene_text.split())
+            words_per_second = word_count / voice_duration if voice_duration > 0 else 2.5
+
+            # Target 8 seconds per image (range 6-10)
+            target_images = max(1, round(voice_duration / 8))
+            min_images = max(1, int(voice_duration / 10))
+            max_images = max(1, int(voice_duration / 6))
+
+            # Calculate target words per segment (for 8s at current speaking rate)
+            words_per_segment = int(word_count / target_images) if target_images > 0 else word_count
+
+            print(f"  Scene {scene_number}: {voice_duration:.0f}s → {target_images} images (~{words_per_segment} words each)")
+
+            # Call Anthropic to segment into concepts
+            concepts = await self.anthropic.segment_scene_into_concepts(
+                scene_text=scene_text,
+                target_count=target_images,
+                min_count=min_images,
+                max_count=max_images,
+                words_per_segment=words_per_segment
+            )
+
+            # Create records with calculated durations (capped at 6-10s range)
+            cumulative_start = 0.0
+            for i, concept in enumerate(concepts):
+                concept_text = concept.get("text", "")
+                concept_words = len(concept_text.split())
+                concept_duration = concept_words / words_per_second if words_per_second > 0 else 8.0
+
+                # ENFORCE 6-10s range - cap at 10s max, floor at 6s min
+                concept_duration = max(6.0, min(10.0, concept_duration))
+
+                self.airtable.create_sentence_image_record(
+                    scene_number=scene_number,
+                    sentence_index=i + 1,
+                    sentence_text=concept_text,
+                    duration_seconds=round(concept_duration, 1),
+                    image_prompt=concept.get("image_prompt", ""),
+                    video_title=self.video_title,
+                    cumulative_start=round(cumulative_start, 1),
+                    aspect_ratio="16:9"
+                )
+                cumulative_start += concept_duration
+                total_prompts += 1
+
+            print(f"    ✅ Created {len(concepts)} prompts for scene {scene_number}")
+
         self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_IMAGES)
-        print(f"  ✅ Status updated to: {self.STATUS_READY_IMAGES}")
+
+        print(f"\n  ✅ Total: {total_prompts} image prompts created")
 
         return {
             "bot": "Image Prompt Bot",
             "video_title": self.video_title,
-            "prompt_count": result.get("prompt_count", 0),
-            "new_status": self.STATUS_READY_IMAGES,
+            "prompt_count": total_prompts,
+            "new_status": self.STATUS_READY_IMAGES
         }
 
     async def run_image_bot(self) -> dict:
@@ -492,9 +593,9 @@ class VideoPipeline:
             folder = self.google.get_or_create_folder(self.video_title)
             self.project_folder_id = folder["id"]
         
-        # Step 1: Generate Image Prompts
-        prompt_result = await self._run_image_prompt_bot()
-        
+        # Step 1: Generate Image Prompts (uses new duration-based logic)
+        prompt_result = await self.run_image_prompt_bot()
+
         # Step 2: Generate Images
         image_result = await self._run_image_bot()
         
@@ -510,150 +611,63 @@ class VideoPipeline:
             "new_status": self.STATUS_READY_VIDEO_SCRIPTS,
         }
     
-    async def _run_image_prompt_bot(self) -> dict:
-        """Generate image prompts for all scenes (internal method).
-
-        Supports three modes:
-        - "semantic": Smart segmentation by visual concept (max 10s per segment)
-        - "sentence": One image per sentence (deprecated)
-        - "scene": Old mode (6 prompts per scene, deprecated)
-        """
-        self.slack.notify_image_prompts_start()
-        print(f"\n  🌉 IMAGE PROMPT BOT: Generating prompts (mode: {self.IMAGE_MODE})...")
-
-        # Get scripts for this video
-        scripts = self.airtable.get_scripts_by_title(self.video_title)
-
-        if not scripts:
-            print(f"    No scripts found for: {self.video_title}")
-            return {"prompt_count": 0}
-
-        # Get existing image prompts to avoid duplicates
-        existing_images = self.airtable.get_all_images_for_video(self.video_title)
-        existing_scenes = set(img.get("Scene") for img in existing_images)
-
-        prompt_count = 0
-
-        for script in scripts:
-            scene_number = script.get("scene", 0)
-
-            # CHECK: Do prompts already exist?
-            if scene_number in existing_scenes:
-                print(f"    Check: Scene {scene_number} prompts already exist, skipping.")
-                continue
-
-            scene_text = script.get("Scene text", "")
-
-            print(f"    Generating prompts for scene {scene_number}...")
-
-            if self.IMAGE_MODE == "semantic":
-                # SMART: Semantic segmentation by visual concept (max 10s for AI video)
-                segments = await self.anthropic.generate_semantic_segments(
-                    scene_number=scene_number,
-                    scene_text=scene_text,
-                    video_title=self.video_title,
-                    max_segment_duration=10.0,
-                )
-
-                # Save each segment to Airtable
-                for seg in segments:
-                    self.airtable.create_segment_image_record(
-                        scene_number=scene_number,
-                        segment_index=seg["segment_index"],
-                        segment_text=seg["segment_text"],
-                        duration_seconds=seg["duration_seconds"],
-                        image_prompt=seg["image_prompt"],
-                        video_title=self.video_title,
-                        visual_concept=seg.get("visual_concept", ""),
-                        cumulative_start=seg.get("cumulative_start", 0.0),
-                    )
-                    prompt_count += 1
-
-                print(f"      → {len(segments)} semantic segments (max 10s each)")
-
-            elif self.IMAGE_MODE == "sentence":
-                # DEPRECATED: Sentence-aligned mode (1 per sentence)
-                sentence_prompts = await self.anthropic.generate_sentence_level_prompts(
-                    scene_number=scene_number,
-                    scene_text=scene_text,
-                    video_title=self.video_title,
-                )
-
-                # Save each sentence-aligned prompt to Airtable
-                for sp in sentence_prompts:
-                    self.airtable.create_sentence_image_record(
-                        scene_number=scene_number,
-                        sentence_index=sp["sentence_index"],
-                        sentence_text=sp["sentence_text"],
-                        duration_seconds=sp["duration_seconds"],
-                        image_prompt=sp["image_prompt"],
-                        video_title=self.video_title,
-                        cumulative_start=sp.get("cumulative_start", 0.0),
-                    )
-                    prompt_count += 1
-
-                print(f"      → {len(sentence_prompts)} sentence-aligned prompts")
-            else:
-                # DEPRECATED: Scene-level mode (6 prompts per scene)
-                prompts = await self.anthropic.generate_image_prompts(
-                    scene_number=scene_number,
-                    scene_text=scene_text,
-                    video_title=self.video_title,
-                )
-
-                # Save each prompt to Airtable
-                for i, prompt in enumerate(prompts, 1):
-                    self.airtable.create_image_prompt_record(
-                        scene_number=scene_number,
-                        image_index=i,
-                        image_prompt=prompt,
-                        video_title=self.video_title,
-                    )
-                    prompt_count += 1
-        
-        self.slack.notify_image_prompts_done()
-        print(f"    ✅ Created {prompt_count} image prompts")
-        
-        return {"prompt_count": prompt_count}
-    
     async def _run_image_bot(self) -> dict:
-        """Generate images from prompts (internal method)."""
+        """Generate images from prompts (internal method).
+
+        Processes images in PARALLEL per scene for faster generation.
+        """
         self.slack.notify_images_start()
         print(f"\n  🖼️ IMAGE BOT: Generating images...")
-        
+
         # Get pending images for this video
         pending_images = self.airtable.get_pending_images_for_video(self.video_title)
-        
+
+        # Group images by scene for parallel processing
+        scenes = {}
+        for img in pending_images:
+            scene_num = img.get("Scene", 0)
+            if scene_num not in scenes:
+                scenes[scene_num] = []
+            scenes[scene_num].append(img)
+
         image_count = 0
-        for img_record in pending_images:
-            prompt = img_record.get("Image Prompt", "")
-            aspect_ratio = img_record.get("Aspect Ratio", "16:9")
-            scene = img_record.get("Scene", 0)
-            index = img_record.get("Image Index", 0)
-            
-            print(f"    Generating image for scene {scene}, image {index}...")
-            
-            # Generate image
-            image_urls = await self.image_client.generate_and_wait(prompt, aspect_ratio)
-            
-            if image_urls:
-                # Download image
-                image_content = await self.image_client.download_image(image_urls[0])
-                
-                # Upload to Google Drive and get permanent URL
-                filename = f"Scene_{str(scene).zfill(2)}_{str(index).zfill(2)}.png"
-                drive_file = self.google.upload_image(image_content, filename, self.project_folder_id)
-                drive_url = self.google.make_file_public(drive_file["id"])
-                
-                # Update Airtable with both temp Kie.ai URL and permanent Drive URL
-                self.airtable.update_image_record(img_record["id"], image_urls[0], drive_url=drive_url)
-                image_count += 1
-                print(f"      ✅ Uploaded to Drive: {drive_url}")
-        
+
+        for scene_num in sorted(scenes.keys()):
+            scene_images = scenes[scene_num]
+            print(f"    Scene {scene_num}: Generating {len(scene_images)} images in parallel...")
+
+            # Generate all images for this scene in parallel
+            async def generate_single(img_record):
+                prompt = img_record.get("Image Prompt", "")
+                aspect_ratio = img_record.get("Aspect Ratio", "16:9")
+                index = img_record.get("Image Index", 0)
+
+                image_urls = await self.image_client.generate_and_wait(prompt, aspect_ratio)
+                return (img_record, image_urls, index)
+
+            # Launch all generations concurrently
+            results = await asyncio.gather(*[generate_single(img) for img in scene_images])
+
+            # Process results and upload to Drive
+            for img_record, image_urls, index in results:
+                if image_urls:
+                    # Download image
+                    image_content = await self.image_client.download_image(image_urls[0])
+
+                    # Upload to Google Drive
+                    filename = f"Scene_{str(scene_num).zfill(2)}_{str(index).zfill(2)}.png"
+                    drive_file = self.google.upload_image(image_content, filename, self.project_folder_id)
+                    drive_url = self.google.make_file_public(drive_file["id"])
+
+                    # Update Airtable
+                    self.airtable.update_image_record(img_record["id"], image_urls[0], drive_url=drive_url)
+                    image_count += 1
+                    print(f"      ✅ Scene {scene_num}, Image {index} → Drive")
+
+            print(f"    ✅ Scene {scene_num} complete ({len([r for r in results if r[1]])} images)")
+
         self.slack.notify_images_done()
-        print(f"    ✅ Generated {image_count} images")
-        
-        return {"image_count": image_count}
+        print(f"    ✅ Generated {image_count} total images")
 
         return {"image_count": image_count}
 
@@ -799,14 +813,23 @@ class VideoPipeline:
 
         video_title = self.current_idea.get("Video Title", "")
         video_summary = self.current_idea.get("Summary", "")
-        reference_url = self.current_idea.get("Video URL")  # Reference thumbnail
+        reference_url = self.current_idea.get("Video URL")  # YouTube video URL
         basic_prompt = self.current_idea.get("Thumbnail Prompt", "")
 
-        # Two-stage generation if reference exists
+        # Extract YouTube thumbnail URL from video URL
+        thumbnail_image_url = None
         if reference_url:
+            thumbnail_image_url = self._extract_youtube_thumbnail(reference_url)
+            if thumbnail_image_url:
+                print(f"  Extracted thumbnail: {thumbnail_image_url}")
+            else:
+                print(f"  ⚠️ Could not extract thumbnail from: {reference_url}")
+
+        # Two-stage generation if thumbnail image AND Gemini is available
+        if thumbnail_image_url and self.gemini.api_key:
             print(f"  Analyzing reference thumbnail via Gemini...")
             thumbnail_spec = await self.gemini.generate_thumbnail_spec(
-                reference_image_url=reference_url,
+                reference_image_url=thumbnail_image_url,
                 video_title=video_title,
                 video_summary=video_summary,
             )
@@ -823,15 +846,19 @@ class VideoPipeline:
             self.airtable.update_idea_field(self.current_idea_id, "Thumbnail Prompt", thumbnail_prompt)
             print(f"  ✅ Enhanced prompt saved to Airtable")
         else:
-            print(f"  No reference thumbnail, using basic prompt.")
+            if thumbnail_image_url and not self.gemini.api_key:
+                print(f"  ⚠️ Gemini API key missing, skipping reference analysis.")
+            print(f"  Using basic prompt.")
             thumbnail_prompt = basic_prompt
 
         if not thumbnail_prompt:
              print("  ⚠️ No thumbnail prompt found!")
              return {"error": "No thumbnail prompt"}
 
-        # Generate thumbnail image
-        image_urls = await self.image_client.generate_and_wait(thumbnail_prompt, "16:9")
+        # Generate thumbnail image (use Pro model for higher quality)
+        image_urls = await self.image_client.generate_and_wait(
+            thumbnail_prompt, "16:9", model="nano-banana-pro"
+        )
         if not image_urls:
              print("  ⚠️ Failed to generate thumbnail.")
              return {"error": "Thumbnail generation failed"}
@@ -858,9 +885,10 @@ class VideoPipeline:
         )
         drive_link = google_file.get("webViewLink")
         print(f"  ✅ Uploaded to Drive: {drive_link}")
-        
-        # Save to Airtable
-        self.airtable.update_idea_thumbnail(self.current_idea_id, drive_link)
+
+        # Save to Airtable - use the original image URL (Airtable will download and host it)
+        # Don't use drive_link as that's an HTML page, not a direct image
+        self.airtable.update_idea_thumbnail(self.current_idea_id, image_urls[0])
         print("  ✅ Saved to Airtable")
         
         # UPDATE STATUS to Done

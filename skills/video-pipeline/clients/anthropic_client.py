@@ -671,6 +671,109 @@ Generate a single detailed prompt that adapts the reference style to this video'
 
         return response.strip()
 
+    async def segment_scene_into_concepts(
+        self,
+        scene_text: str,
+        target_count: int,
+        min_count: int,
+        max_count: int,
+        words_per_segment: int = 20,
+    ) -> list[dict]:
+        """Segment scene text into visual concepts based on duration targets.
+
+        This is the duration-based approach that:
+        1. Divides scene text into target_count segments (within min/max range)
+        2. Each segment represents a distinct visual concept
+        3. Returns text chunks and image prompts for each
+
+        Args:
+            scene_text: Full scene narration text
+            target_count: Target number of segments
+            min_count: Minimum allowed segments
+            max_count: Maximum allowed segments
+
+        Returns:
+            List of dicts with:
+                - text: str (the narration text for this segment)
+                - image_prompt: str (the generated image prompt)
+        """
+        CHANNEL_STYLE = """Atmospheric lo-fi 2D digital illustration style. Hand-drawn aesthetic with soft painterly textures.
+Dark moody backgrounds with glowing accent elements. Muted color palette with strategic bright highlights.
+16:9 aspect ratio composition. Cinematic documentary feel."""
+
+        system_prompt = f"""You are an expert video editor and image prompt creator for a faceless YouTube documentary channel.
+
+YOUR TASK: Divide this scene narration into {target_count} visual segments (minimum {min_count}, maximum {max_count}).
+
+CRITICAL DURATION RULE:
+- Each segment MUST be roughly EQUAL in word count
+- Target: Each segment should have approximately {words_per_segment} words (±5 words)
+- This ensures each image displays for 6-10 seconds (not more, not less)
+- DO NOT create segments with vastly different lengths - no segment should exceed {int(words_per_segment * 1.3)} words
+
+SEGMENTATION RULES:
+1. Each segment should represent a DISTINCT visual concept
+2. Keep sentences together when they describe the same visual
+3. Create natural breakpoints where the imagery would need to change
+4. BALANCE word counts across all segments - no segment should be 2x longer than another
+
+REQUIRED VISUAL STYLE FOR ALL IMAGE PROMPTS:
+{CHANNEL_STYLE}
+
+VISUAL ANCHOR PROTOCOL:
+Frame using one of these "Anchor Settings":
+* Anchor A: "The Digital Void" – Abstract concepts in dark space.
+* Anchor B: "The Urban Exterior" – Futuristic cityscapes at twilight.
+* Anchor C: "The Data Landscape" – Physical representations of data in deserts.
+* Anchor D: "The Macro Lens" – Symbolic objects in close-up.
+
+REQUIRED PROMPT STRUCTURE (MUST BE 80-120 WORDS):
+"Atmospheric lo-fi 2D digital illustration, 16:9. Anchor [Letter]: [Anchor Name]. [SPECIFIC VISUAL METAPHOR - name 2-3 concrete objects that symbolize the concept, describe how they interact in the scene]. [SECONDARY DETAILS - add atmospheric elements, lighting, movement]. Text '[KEY PHRASE FROM NARRATION]' appears in [thematic color] [style]. The [concept name] visualization. Hand-drawn [FULL DESCRIPTIVE PHRASE about what's being drawn, not just nouns], soft painterly [FULL PHRASE describing the artistic contrast], [thematic color name] [what it represents] versus [contrasting thematic color] [what it represents], cinematic [FULL PHRASE capturing the key insight or emotional beat], the [mood name] mood."
+
+EXAMPLE OF GOOD PROMPT (follow this level of detail):
+"Atmospheric lo-fi 2D digital illustration, 16:9. Anchor C: Data Landscape. Roblox blocks, TikTok algorithms, Discord servers materialize as stepping stones across economic chasm. Each childhood activity glows revealing hidden preparation for future economy. Text 'IT WAS ALL PREPARATION' appears in revelation gold. Pattern connects seemingly unrelated skills into coherent training path. The hidden training visualization. Hand-drawn childhood games revealing economic preparation, soft painterly every algorithm mastered every server managed, childhood play grays and meaningless activity blacks versus preparation revelation golds and skill connection whites, cinematic they've been training for this economy, the preparation revelation mood."
+
+OUTPUT FORMAT (JSON only, no markdown):
+{{
+  "segments": [
+    {{
+      "text": "The narration text for this segment...",
+      "image_prompt": "Atmospheric lo-fi 2D digital illustration, 16:9. Anchor A: Digital Void. [rest of prompt]..."
+    }},
+    {{
+      "text": "Next segment's narration...",
+      "image_prompt": "Atmospheric lo-fi 2D digital illustration, 16:9. Anchor B: Urban Exterior. [rest of prompt]..."
+    }}
+  ]
+}}
+
+IMPORTANT:
+- Split into exactly {target_count} segments (between {min_count} and {max_count})
+- Each image_prompt MUST start with "Atmospheric lo-fi 2D digital illustration, 16:9."
+- Do not use double quotes inside prompts, use single quotes
+- Maintain visual continuity between segments"""
+
+        prompt = f"""Segment this scene narration into {target_count} visual concepts:
+
+SCENE TEXT:
+{scene_text}
+
+Return JSON with segments array. Each segment has text and image_prompt."""
+
+        response = await self.generate(
+            prompt=prompt,
+            system_prompt=system_prompt,
+            model="claude-sonnet-4-5-20250929",
+            max_tokens=3000,
+        )
+
+        # Parse the response
+        import json
+        clean_response = response.replace("```json", "").replace("```", "").strip()
+        data = json.loads(clean_response)
+
+        return data.get("segments", [])
+
     async def generate_video_prompt(
         self,
         image_prompt: str,
