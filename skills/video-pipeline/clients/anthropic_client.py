@@ -553,11 +553,17 @@ Return JSON with segments array. Each segment groups sentences by visual concept
         previous_prompt: str = "",
     ) -> str:
         """Generate an image prompt for a semantic segment."""
-        system_prompt = """You are an expert image prompt creator for a faceless YouTube channel.
+        CHANNEL_STYLE = """Atmospheric lo-fi 2D digital illustration style. Hand-drawn aesthetic with soft painterly textures.
+Dark moody backgrounds with glowing accent elements. Muted color palette with strategic bright highlights.
+16:9 aspect ratio composition. Cinematic documentary feel."""
 
-STRICT STYLE GUIDELINES:
-The style is "Cinematic Lofi Digital".
-Your output MUST start with "Atmospheric lo-fi 2D digital illustration, 16:9."
+        system_prompt = f"""You are a visual director segmenting narration into image concepts.
+Each concept will become ONE image shown while that portion of the narration plays.
+
+REQUIRED VISUAL STYLE FOR ALL IMAGES:
+{CHANNEL_STYLE}
+
+Every image_prompt you generate MUST start with "Atmospheric lo-fi 2D digital illustration, 16:9." and incorporate the hand-drawn, painterly aesthetic described above.
 
 VISUAL ANCHOR PROTOCOL:
 Frame using one of these "Anchor Settings":
@@ -593,7 +599,9 @@ NARRATION TEXT:
 "{segment_text}"
 {continuity_note}
 
-Generate a single prompt that visually represents this segment's core concept."""
+Generate a single prompt that visually represents this segment's core concept.
+
+REMINDER: Start with 'Atmospheric lo-fi 2D digital illustration, 16:9.' then describe the scene with hand-drawn aesthetic, soft painterly textures, moody lighting, and specific color palette. 100+ words."""
 
         response = await self.generate(
             prompt=prompt,
