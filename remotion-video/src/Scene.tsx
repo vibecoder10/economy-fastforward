@@ -5,9 +5,15 @@ import {
     useCurrentFrame,
     useVideoConfig,
     interpolate,
-    Sequence,
 } from "remotion";
 import { Audio } from "@remotion/media";
+import { useMemo } from "react";
+import {
+    Segment,
+    getCurrentWordIndex,
+    getActiveSegment,
+    getSegmentsForScene,
+} from "./segments";
 
 interface SceneProps {
     sceneNumber: number;
@@ -23,9 +29,6 @@ interface TranscriptData {
         end: number;
     }>;
 }
-
-// Duration each image is shown (in seconds)
-const IMAGE_DURATION_SECONDS = 10;
 
 // Style constants from user preferences
 const STYLE = {
@@ -59,30 +62,69 @@ export const Scene: React.FC<SceneProps> = ({
     transcript,
 }) => {
     const frame = useCurrentFrame();
-    const { fps } = useVideoConfig();
+    const { fps, durationInFrames } = useVideoConfig();
 
-    const imageDurationFrames = IMAGE_DURATION_SECONDS * fps;
-    const currentTimeMs = (frame / fps) * 1000;
+    const currentTimeSeconds = frame / fps;
+    const currentTimeMs = currentTimeSeconds * 1000;
+
+    // Build segments from transcript words - images change based on spoken words
+    const segments: Segment[] = useMemo(() => {
+        if (!transcript?.words || transcript.words.length === 0) {
+            // Fallback: create even segments if no transcript
+            return images.map((img, index) => ({
+                imageFile: img.file,
+                text: "",
+                duration: 10,
+                wordStartIndex: 0,
+                wordEndIndex: 0,
+            }));
+        }
+        const segs = getSegmentsForScene(sceneNumber, transcript.words, images.length);
+
+        // Debug: log segment boundaries for Scene 1
+        if (sceneNumber === 1) {
+            console.log(`Scene ${sceneNumber}: ${segs.length} segments, ${transcript.words.length} words`);
+            segs.forEach((s, i) => {
+                const startWord = transcript.words[s.wordStartIndex]?.word || 'N/A';
+                const startTime = transcript.words[s.wordStartIndex]?.start?.toFixed(1) || 'N/A';
+                console.log(`  Seg ${i+1}: words ${s.wordStartIndex}-${s.wordEndIndex}, starts "${startWord}" @ ${startTime}s`);
+            });
+        }
+
+        return segs;
+    }, [sceneNumber, transcript?.words, images.length]);
+
+    // Find current word index based on time
+    const currentWordIndex = useMemo(() => {
+        if (!transcript?.words || transcript.words.length === 0) return 0;
+        return getCurrentWordIndex(transcript.words, currentTimeSeconds);
+    }, [transcript?.words, currentTimeSeconds]);
+
+    // Get the active segment (and thus image) based on current word
+    const activeSegment = useMemo(() => {
+        return getActiveSegment(segments, currentWordIndex);
+    }, [segments, currentWordIndex]);
+
+    // Find the index of the active segment for motion variation
+    const activeSegmentIndex = useMemo(() => {
+        if (!activeSegment) return 0;
+        return segments.findIndex(s => s.imageFile === activeSegment.imageFile);
+    }, [segments, activeSegment]);
 
     return (
         <AbsoluteFill>
             {/* Audio for this scene */}
             <Audio src={staticFile(audioFile)} />
 
-            {/* Images with dynamic camera motion */}
-            {images.map((image, index) => {
-                const startFrame = index * imageDurationFrames;
-
-                return (
-                    <Sequence
-                        key={image.index}
-                        from={startFrame}
-                        durationInFrames={imageDurationFrames}
-                    >
-                        <DynamicImage imageFile={image.file} motionIndex={index} />
-                    </Sequence>
-                );
-            })}
+            {/* Single image that changes based on spoken words */}
+            {activeSegment && (
+                <DynamicImage
+                    key={activeSegment.imageFile}
+                    imageFile={activeSegment.imageFile}
+                    motionIndex={activeSegmentIndex}
+                    durationFrames={durationInFrames}
+                />
+            )}
 
             {/* Gradient overlay for caption readability */}
             <AbsoluteFill
@@ -191,16 +233,20 @@ const KaraokeCaption: React.FC<{
 type MotionType = "dollyIn" | "panRight" | "dollyOut" | "panLeft";
 
 // Camera motion component with varied effects
-const DynamicImage: React.FC<{ imageFile: string; motionIndex: number }> = ({ imageFile, motionIndex }) => {
+const DynamicImage: React.FC<{
+    imageFile: string;
+    motionIndex: number;
+    durationFrames?: number;
+}> = ({ imageFile, motionIndex, durationFrames }) => {
     const frame = useCurrentFrame();
-    const { durationInFrames } = useVideoConfig();
+    const { durationInFrames, fps } = useVideoConfig();
 
     // Cycle through motion types: dolly in, pan right, dolly out, pan left
     const motionTypes: MotionType[] = ["dollyIn", "panRight", "dollyOut", "panLeft"];
     const motionType = motionTypes[motionIndex % 4];
 
-    // Motion lasts the full image duration
-    const motionDuration = durationInFrames;
+    // Motion lasts the full scene duration (slow continuous motion)
+    const motionDuration = durationFrames || durationInFrames;
 
     let scale = 1;
     let translateX = 0;

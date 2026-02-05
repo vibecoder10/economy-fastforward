@@ -1,0 +1,278 @@
+// Segment data for word-synced image display
+// Each segment maps a portion of the narration to an image file
+
+import { sceneSegmentData, SegmentText } from "./segmentData";
+
+export interface Segment {
+    imageFile: string;      // Image file path
+    text: string;           // The narration text this segment covers
+    duration: number;       // Duration in seconds from pipeline
+    wordStartIndex: number; // Starting word index in the transcript
+    wordEndIndex: number;   // Ending word index (exclusive)
+}
+
+interface Word {
+    word: string;
+    start: number;
+    end: number;
+}
+
+/**
+ * Fuzzy match two words, handling common spelling variations.
+ * Returns true if words match exactly or are spelling variants.
+ */
+function fuzzyMatch(word1: string, word2: string): boolean {
+    if (word1 === word2) return true;
+
+    // Handle empty strings
+    if (!word1 || !word2) return false;
+
+    // Common spelling variations (American vs British)
+    const spellingVariants: Record<string, string[]> = {
+        'utilization': ['utilisation'],
+        'utilisation': ['utilization'],
+        'organization': ['organisation'],
+        'organisation': ['organization'],
+        'realize': ['realise'],
+        'realise': ['realize'],
+        'optimize': ['optimise'],
+        'optimise': ['optimize'],
+        'analyze': ['analyse'],
+        'analyse': ['analyze'],
+        'center': ['centre'],
+        'centre': ['center'],
+        'color': ['colour'],
+        'colour': ['color'],
+        'behavior': ['behaviour'],
+        'behaviour': ['behavior'],
+        'favor': ['favour'],
+        'favour': ['favor'],
+        'neighbor': ['neighbour'],
+        'neighbour': ['neighbor'],
+        'labor': ['labour'],
+        'labour': ['labor'],
+        'honor': ['honour'],
+        'honour': ['honor'],
+    };
+
+    // Check if words are known spelling variants
+    if (spellingVariants[word1]?.includes(word2)) return true;
+    if (spellingVariants[word2]?.includes(word1)) return true;
+
+    // Check for minor differences (1 character difference for words > 4 chars)
+    if (word1.length > 4 && word2.length > 4) {
+        const maxLen = Math.max(word1.length, word2.length);
+        const minLen = Math.min(word1.length, word2.length);
+
+        // Length difference must be at most 1
+        if (maxLen - minLen <= 1) {
+            let differences = 0;
+            const shorter = word1.length <= word2.length ? word1 : word2;
+            const longer = word1.length > word2.length ? word1 : word2;
+
+            let i = 0, j = 0;
+            while (i < shorter.length && j < longer.length) {
+                if (shorter[i] !== longer[j]) {
+                    differences++;
+                    if (shorter.length < longer.length) {
+                        j++; // Skip character in longer word
+                        continue;
+                    }
+                }
+                i++;
+                j++;
+            }
+            differences += (longer.length - j); // Count remaining chars
+
+            if (differences <= 1) return true;
+        }
+    }
+
+    return false;
+}
+
+/**
+ * Find which segment is active based on the current word index.
+ * Returns the segment that contains the given word index.
+ */
+export function getActiveSegment(
+    segments: Segment[],
+    currentWordIndex: number
+): Segment | null {
+    for (const segment of segments) {
+        if (
+            currentWordIndex >= segment.wordStartIndex &&
+            currentWordIndex < segment.wordEndIndex
+        ) {
+            return segment;
+        }
+    }
+    // Return last segment if past all words
+    return segments.length > 0 ? segments[segments.length - 1] : null;
+}
+
+/**
+ * Find the current word index based on time.
+ * Returns the index of the word being spoken at currentTimeSeconds.
+ */
+export function getCurrentWordIndex(
+    words: Word[],
+    currentTimeSeconds: number
+): number {
+    for (let i = 0; i < words.length; i++) {
+        const word = words[i];
+        if (currentTimeSeconds >= word.start && currentTimeSeconds <= word.end) {
+            return i;
+        }
+        // If we're between words, return the previous word's index
+        if (i > 0 && currentTimeSeconds > words[i - 1].end && currentTimeSeconds < word.start) {
+            return i - 1;
+        }
+    }
+    // If past all words, return last index
+    if (words.length > 0 && currentTimeSeconds > words[words.length - 1].end) {
+        return words.length - 1;
+    }
+    return 0;
+}
+
+/**
+ * Build segments by finding the FIRST WORD of each segment text in the transcript.
+ * Uses the first 1-2 distinctive words to anchor each segment's start position.
+ */
+export function buildSegmentsFromPipeline(
+    segmentTexts: SegmentText[],
+    words: Word[],
+    sceneNumber: number
+): Segment[] {
+    const segments: Segment[] = [];
+
+    if (words.length === 0) return segments;
+
+    // Normalize words for matching
+    const normalizedWords = words.map(w => w.word.trim().toLowerCase().replace(/[.,!?;:'"\-]/g, ''));
+
+    // Find start index for each segment by matching first words
+    const segmentStartIndices: number[] = [];
+    let searchFrom = 0;
+
+    for (let i = 0; i < segmentTexts.length; i++) {
+        const segmentText = segmentTexts[i].text;
+
+        // Get first 2-3 words of segment
+        const segmentWords = segmentText.toLowerCase().replace(/[.,!?;:'"\-]/g, '').split(/\s+/).filter(w => w.length > 0);
+        const firstWord = segmentWords[0] || '';
+        const secondWord = segmentWords[1] || '';
+
+        // Find this word sequence in transcript starting from searchFrom
+        let startIdx = -1;
+
+        // Try matching first two words
+        for (let j = searchFrom; j < normalizedWords.length && startIdx === -1; j++) {
+            if (fuzzyMatch(normalizedWords[j], firstWord)) {
+                // Verify second word if available
+                if (secondWord && j + 1 < normalizedWords.length) {
+                    if (fuzzyMatch(normalizedWords[j + 1], secondWord)) {
+                        startIdx = j;
+                    }
+                } else {
+                    startIdx = j;
+                }
+            }
+        }
+
+        // If two-word match failed, try just the first word
+        if (startIdx === -1) {
+            for (let j = searchFrom; j < normalizedWords.length; j++) {
+                if (fuzzyMatch(normalizedWords[j], firstWord)) {
+                    startIdx = j;
+                    break;
+                }
+            }
+        }
+
+        // Last resort: use searchFrom
+        if (startIdx === -1) {
+            startIdx = searchFrom;
+        }
+
+        segmentStartIndices.push(startIdx);
+        searchFrom = startIdx + 1; // Next segment starts after this one
+    }
+
+    // Create segments with boundaries
+    for (let i = 0; i < segmentTexts.length; i++) {
+        const startWordIndex = segmentStartIndices[i];
+        const endWordIndex = i < segmentTexts.length - 1
+            ? segmentStartIndices[i + 1]
+            : words.length;
+
+        segments.push({
+            imageFile: `Scene_${String(sceneNumber).padStart(2, '0')}_${String(i + 1).padStart(2, '0')}.png`,
+            text: segmentTexts[i].text,
+            duration: segmentTexts[i].duration,
+            wordStartIndex: startWordIndex,
+            wordEndIndex: endWordIndex,
+        });
+    }
+
+    return segments;
+}
+
+/**
+ * Create evenly distributed segments when segment texts are not available.
+ * This divides the words equally among the number of images.
+ */
+export function createEvenSegments(
+    words: Word[],
+    imageCount: number,
+    sceneNumber: number
+): Segment[] {
+    const segments: Segment[] = [];
+    const wordsPerSegment = Math.ceil(words.length / imageCount);
+
+    for (let i = 0; i < imageCount; i++) {
+        const startIndex = i * wordsPerSegment;
+        const endIndex = Math.min((i + 1) * wordsPerSegment, words.length);
+
+        // Get the text for this segment
+        const segmentWords = words.slice(startIndex, endIndex);
+        const text = segmentWords.map(w => w.word).join(' ');
+
+        // Estimate duration from word timings
+        const duration = segmentWords.length > 0
+            ? segmentWords[segmentWords.length - 1].end - segmentWords[0].start
+            : 8;
+
+        segments.push({
+            imageFile: `Scene_${String(sceneNumber).padStart(2, '0')}_${String(i + 1).padStart(2, '0')}.png`,
+            text: text,
+            duration: duration,
+            wordStartIndex: startIndex,
+            wordEndIndex: endIndex,
+        });
+    }
+
+    return segments;
+}
+
+/**
+ * Get segments for a scene using pipeline data if available.
+ */
+export function getSegmentsForScene(
+    sceneNumber: number,
+    words: Word[],
+    imageCount: number = 6
+): Segment[] {
+    // Check if we have pipeline segment data for this scene
+    const pipelineSegments = sceneSegmentData[sceneNumber];
+
+    if (pipelineSegments && pipelineSegments.length > 0) {
+        console.log(`Scene ${sceneNumber}: Using ${pipelineSegments.length} segments from pipeline data`);
+        return buildSegmentsFromPipeline(pipelineSegments, words, sceneNumber);
+    }
+
+    // Fallback to even distribution
+    console.log(`Scene ${sceneNumber}: Using even distribution (${imageCount} images)`);
+    return createEvenSegments(words, imageCount, sceneNumber);
+}
