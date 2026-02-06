@@ -61,6 +61,7 @@ class VideoPipeline:
     STATUS_READY_VIDEO_GENERATION = "Ready For Video Generation"
     STATUS_READY_THUMBNAIL = "Ready For Thumbnail"
     STATUS_DONE = "Done"
+    STATUS_READY_TO_RENDER = "Ready To Render"
     STATUS_IN_QUE = "In Que"
     
     def __init__(self):
@@ -265,8 +266,13 @@ class VideoPipeline:
         idea = self.get_idea_by_status(self.STATUS_READY_THUMBNAIL)
         if idea:
             self._load_idea(idea)
-            # No specific check needed here as it's the last step
             return await self.run_thumbnail_bot()
+        
+        # 8. Check for Ready To Render
+        idea = self.get_idea_by_status(self.STATUS_READY_TO_RENDER)
+        if idea:
+            self._load_idea(idea)
+            return await self.run_render_bot()
         
         # No work to do
         print("\n✅ No videos ready for processing!")
@@ -986,14 +992,100 @@ class VideoPipeline:
         print("  ✅ Saved to Airtable")
         
         # UPDATE STATUS to Done
-        self.airtable.update_idea_status(self.current_idea_id, self.STATUS_DONE)
-        print(f"  ✅ Status updated to: {self.STATUS_DONE}")
+        self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_TO_RENDER)
+        print(f"  ✅ Status updated to: {self.STATUS_READY_TO_RENDER}")
         
         return {
             "bot": "Thumbnail Bot",
             "video_title": self.video_title,
-            "new_status": self.STATUS_DONE,
+            "new_status": self.STATUS_READY_TO_RENDER,
             "thumbnail_url": drive_link
+        }
+    
+    async def run_render_bot(self) -> dict:
+        """Render video with Remotion and upload to Google Drive.
+        
+        REQUIRES: Ideas status = "Ready To Render"
+        UPDATES TO: "Done" when complete
+        """
+        import subprocess
+        import re
+        from pathlib import Path
+        
+        if not self.current_idea:
+            idea = self.get_idea_by_status(self.STATUS_READY_TO_RENDER)
+            if not idea:
+                return {"error": "No idea with status 'Ready To Render'"}
+            self._load_idea(idea)
+        
+        print(f"\n🎬 RENDER BOT: Processing '{self.video_title}'")
+        
+        # Get project folder
+        folder = self.google.get_or_create_folder(self.video_title)
+        folder_id = folder["id"]
+        
+        # Export props
+        props = await self.package_for_remotion()
+        
+        remotion_dir = Path(__file__).parent.parent / "remotion-video"
+        props_file = remotion_dir / "props.json"
+        
+        import json
+        with open(props_file, "w") as f:
+            json.dump(props, f, indent=2)
+        print(f"  📦 Props saved to: {props_file}")
+        
+        # Sanitize filename
+        def sanitize(title):
+            clean = re.sub(r'[^\w\s-]', '', title)
+            return re.sub(r'[-\s]+', '_', clean)[:50]
+        
+        safe_name = sanitize(self.video_title)
+        output_file = remotion_dir / "out" / f"{safe_name}.mp4"
+        output_file.parent.mkdir(exist_ok=True)
+        
+        # Render
+        print(f"  🎥 Rendering video (this may take 30-60 minutes)...")
+        render_cmd = [
+            "npx", "remotion", "render",
+            "Main", str(output_file),
+            "--props", str(props_file)
+        ]
+        
+        result = subprocess.run(render_cmd, cwd=remotion_dir)
+        
+        if result.returncode != 0:
+            print(f"  ❌ Render failed")
+            return {"error": "Render failed", "bot": "Render Bot"}
+        
+        if not output_file.exists():
+            print(f"  ❌ Output not found")
+            return {"error": "Output file missing", "bot": "Render Bot"}
+        
+        print(f"  ✅ Rendered: {output_file}")
+        
+        # Upload to Drive
+        print("  ☁️ Uploading to Google Drive...")
+        with open(output_file, "rb") as f:
+            video_content = f.read()
+        
+        drive_file = self.google.upload_video(video_content, f"{safe_name}.mp4", folder_id)
+        drive_url = f"https://drive.google.com/file/d/{drive_file['id']}/view"
+        
+        # Update Airtable
+        self.airtable.update_idea_field(self.current_idea_id, "Final Video", drive_url)
+        self.airtable.update_idea_status(self.current_idea_id, self.STATUS_DONE)
+        
+        print(f"  ✅ Status updated to: {self.STATUS_DONE}")
+        print(f"  🔗 Video: {drive_url}")
+        
+        self.slack.send_message(f"🎬 Video rendered and uploaded!\n*{self.video_title}*\n{drive_url}")
+        
+        return {
+            "bot": "Render Bot",
+            "video_title": self.video_title,
+            "new_status": self.STATUS_DONE,
+            "video_url": drive_url
         }
     
     async def package_for_remotion(self) -> dict:
