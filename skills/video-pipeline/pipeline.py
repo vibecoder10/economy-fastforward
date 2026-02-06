@@ -1054,6 +1054,10 @@ class VideoPipeline:
             json.dump(props, f, indent=2)
         print(f"  📦 Props saved to: {props_file}")
 
+        # Generate segmentData.ts for word-synced image display
+        print(f"  📝 Generating segmentData.ts...")
+        self.generate_segment_data_ts(remotion_dir)
+
         # Download assets to public/ folder for Remotion
         print(f"  ⬇️ Downloading assets to public/...")
         async with httpx.AsyncClient(timeout=60.0) as client:
