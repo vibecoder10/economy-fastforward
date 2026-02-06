@@ -1219,6 +1219,39 @@ async def main():
         print(f"   Scenes: {len(props.get('scenes', []))}")
         return
     
+    if len(sys.argv) > 1 and sys.argv[1] == "--run-queue":
+        # Process ALL videos in pipeline until nothing left to do
+        # Respects Ryan's gate: only processes videos at "Ready For Scripting" or beyond
+        print("=" * 60)
+        print("🔄 PIPELINE QUEUE MODE - Processing Until Empty")
+        print("=" * 60)
+        print("\nThis will process all videos from 'Ready For Scripting' → 'Done'")
+        print("Videos at 'Idea Logged' are SKIPPED (awaiting your approval)\n")
+        
+        processed = 0
+        max_iterations = 100  # Safety limit
+        
+        while processed < max_iterations:
+            result = await pipeline.run_next_step()
+            
+            if result.get("status") == "idle":
+                print("\n✅ Queue empty! All approved videos processed.")
+                break
+            
+            processed += 1
+            print(f"\n--- Completed step {processed} ---")
+            print(f"    Video: {result.get('video_title', 'Unknown')}")
+            print(f"    Bot: {result.get('bot', 'Unknown')}")
+            print(f"    New Status: {result.get('new_status', 'Unknown')}")
+            
+            # Small delay between steps to avoid rate limits
+            await asyncio.sleep(2)
+        
+        print("\n" + "=" * 60)
+        print(f"📋 QUEUE COMPLETE: {processed} steps processed")
+        print("=" * 60)
+        return
+
     print("=" * 60)
     print("🎬 VIDEO PIPELINE - Running Next Step")
     print("=" * 60)
