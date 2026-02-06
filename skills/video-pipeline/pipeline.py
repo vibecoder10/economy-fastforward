@@ -251,17 +251,17 @@ class VideoPipeline:
             self._load_idea(idea)
             return await self.run_image_bot()
 
-        # 5. Check for Ready For Video Scripts
-        idea = self.get_idea_by_status(self.STATUS_READY_VIDEO_SCRIPTS)
-        if idea:
-            self._load_idea(idea)
-            return await self.run_video_script_bot()
+        # 5. SKIPPED - Video Scripts (manual only, costly at $0.10/image)
+        # idea = self.get_idea_by_status(self.STATUS_READY_VIDEO_SCRIPTS)
+        # if idea:
+        #     self._load_idea(idea)
+        #     return await self.run_video_script_bot()
 
-        # 6. Check for Ready For Video Generation
-        idea = self.get_idea_by_status(self.STATUS_READY_VIDEO_GENERATION)
-        if idea:
-            self._load_idea(idea)
-            return await self.run_video_gen_bot()
+        # 6. SKIPPED - Video Generation (manual only, costly at $0.10/image)
+        # idea = self.get_idea_by_status(self.STATUS_READY_VIDEO_GENERATION)
+        # if idea:
+        #     self._load_idea(idea)
+        #     return await self.run_video_gen_bot()
         # 7. Check for Ready For Thumbnail
         idea = self.get_idea_by_status(self.STATUS_READY_THUMBNAIL)
         if idea:
@@ -673,7 +673,7 @@ class VideoPipeline:
         result = await self._run_image_bot()
 
         # UPDATE STATUS to Ready For Video Scripts
-        self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_VIDEO_SCRIPTS)
+        self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_THUMBNAIL)
         print(f"  ✅ Status updated to: {self.STATUS_READY_VIDEO_SCRIPTS}")
 
         return {
@@ -716,7 +716,7 @@ class VideoPipeline:
         image_result = await self._run_image_bot()
         
         # UPDATE STATUS to Ready For Video Scripts
-        self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_VIDEO_SCRIPTS)
+        self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_THUMBNAIL)
         print(f"  ✅ Status updated to: {self.STATUS_READY_VIDEO_SCRIPTS}")
         
         return {
