@@ -13,9 +13,9 @@ class ImageClient:
     CREATE_TASK_URL = "https://api.kie.ai/api/v1/jobs/createTask"
     RECORD_INFO_URL = "https://api.kie.ai/api/v1/jobs/recordInfo"
     
-    # Default model from n8n workflow
-    DEFAULT_MODEL = "nano-banana"
-    PRO_MODEL = "nano-banana-pro"  # Higher quality for thumbnails
+    # Default model from n8n workflow (requires google/ prefix)
+    DEFAULT_MODEL = "google/nano-banana"
+    PRO_MODEL = "google/nano-banana-pro"  # Higher quality for thumbnails
     
     def __init__(self, api_key: Optional[str] = None, google_client: Optional[object] = None):
         self.api_key = api_key or os.getenv("KIE_AI_API_KEY")
