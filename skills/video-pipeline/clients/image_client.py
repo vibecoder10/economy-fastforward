@@ -162,7 +162,7 @@ class ImageClient:
             "model": model or self.DEFAULT_MODEL,
             "input": {
                 "prompt": prompt,
-                "aspect_ratio": aspect_ratio,
+                "image_size": aspect_ratio,  # Kie.ai uses "image_size" not "aspect_ratio"
                 "output_format": output_format,
             },
         }
