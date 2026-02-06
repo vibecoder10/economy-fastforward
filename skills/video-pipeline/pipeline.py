@@ -973,7 +973,7 @@ class VideoPipeline:
 
         # Generate thumbnail image (use Pro model for higher quality)
         image_urls = await self.image_client.generate_and_wait(
-            thumbnail_prompt, "16:9", model="google/nano-banana-pro"
+            thumbnail_prompt, "16:9", model="nano-banana-pro"
         )
         if not image_urls:
              print("  ⚠️ Failed to generate thumbnail.")

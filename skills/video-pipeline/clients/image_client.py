@@ -15,7 +15,7 @@ class ImageClient:
     
     # Default model from n8n workflow (requires google/ prefix)
     DEFAULT_MODEL = "google/nano-banana"
-    PRO_MODEL = "google/nano-banana-pro"  # Higher quality for thumbnails
+    PRO_MODEL = "nano-banana-pro"  # Higher quality for thumbnails
     
     def __init__(self, api_key: Optional[str] = None, google_client: Optional[object] = None):
         self.api_key = api_key or os.getenv("KIE_AI_API_KEY")
@@ -158,14 +158,29 @@ class ImageClient:
             "Content-Type": "application/json",
         }
         
-        payload = {
-            "model": model or self.DEFAULT_MODEL,
-            "input": {
-                "prompt": prompt,
-                "image_size": aspect_ratio,  # Kie.ai uses "image_size" not "aspect_ratio"
-                "output_format": output_format,
-            },
-        }
+        # Different models use different parameter names
+        actual_model = model or self.DEFAULT_MODEL
+        
+        if actual_model == "nano-banana-pro":
+            # Pro model uses aspect_ratio
+            payload = {
+                "model": actual_model,
+                "input": {
+                    "prompt": prompt,
+                    "aspect_ratio": aspect_ratio,
+                    "output_format": output_format,
+                },
+            }
+        else:
+            # google/nano-banana uses image_size
+            payload = {
+                "model": actual_model,
+                "input": {
+                    "prompt": prompt,
+                    "image_size": aspect_ratio,
+                    "output_format": output_format,
+                },
+            }
         
         async with httpx.AsyncClient() as client:
             response = await client.post(
