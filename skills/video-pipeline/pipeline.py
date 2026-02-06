@@ -1020,36 +1020,75 @@ class VideoPipeline:
     
     async def run_render_bot(self) -> dict:
         """Render video with Remotion and upload to Google Drive.
-        
+
         REQUIRES: Ideas status = "Ready To Render"
         UPDATES TO: "Done" when complete
         """
         import subprocess
         import re
+        import httpx
         from pathlib import Path
-        
+
         if not self.current_idea:
             idea = self.get_idea_by_status(self.STATUS_READY_TO_RENDER)
             if not idea:
                 return {"error": "No idea with status 'Ready To Render'"}
             self._load_idea(idea)
-        
+
         print(f"\n🎬 RENDER BOT: Processing '{self.video_title}'")
-        
+
         # Get project folder
         folder = self.google.get_or_create_folder(self.video_title)
         folder_id = folder["id"]
-        
+
         # Export props
         props = await self.package_for_remotion()
-        
+
         remotion_dir = Path(__file__).parent.parent.parent / "remotion-video"
         props_file = remotion_dir / "props.json"
-        
+        public_dir = remotion_dir / "public"
+        public_dir.mkdir(exist_ok=True)
+
         import json
         with open(props_file, "w") as f:
             json.dump(props, f, indent=2)
         print(f"  📦 Props saved to: {props_file}")
+
+        # Download assets to public/ folder for Remotion
+        print(f"  ⬇️ Downloading assets to public/...")
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            for scene in props.get("scenes", []):
+                scene_num = scene.get("sceneNumber", 0)
+
+                # Download audio
+                voice_url = scene.get("voiceUrl")
+                if voice_url:
+                    audio_file = public_dir / f"Scene {scene_num}.mp3"
+                    if not audio_file.exists():
+                        try:
+                            resp = await client.get(voice_url)
+                            resp.raise_for_status()
+                            audio_file.write_bytes(resp.content)
+                            print(f"    ✅ Scene {scene_num} audio")
+                        except Exception as e:
+                            print(f"    ❌ Scene {scene_num} audio failed: {e}")
+
+                # Download images
+                for img in scene.get("images", []):
+                    img_url = img.get("url")
+                    img_index = img.get("index", 0)
+                    if img_url:
+                        img_file = public_dir / f"Scene_{str(scene_num).zfill(2)}_{str(img_index).zfill(2)}.png"
+                        if not img_file.exists():
+                            try:
+                                resp = await client.get(img_url)
+                                resp.raise_for_status()
+                                img_file.write_bytes(resp.content)
+                                print(f"    ✅ Scene {scene_num} image {img_index}")
+                            except Exception as e:
+                                print(f"    ❌ Scene {scene_num} image {img_index} failed: {e}")
+
+        print(f"  ✅ Assets downloaded")
         
         # Sanitize filename
         def sanitize(title):
