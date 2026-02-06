@@ -1270,6 +1270,124 @@ class VideoPipeline:
         return str(output_path)
 
 
+    async def regenerate_images(self, scene_list: list[int] = None, image_indices: list[tuple[int, int]] = None) -> dict:
+        """Regenerate specific missing images for the current video.
+
+        Use this when render fails due to missing images. Can target:
+        1. All images in specific scenes (scene_list)
+        2. Specific scene/index pairs (image_indices)
+        3. All images with empty "Image" field (if no args)
+
+        Args:
+            scene_list: List of scene numbers to regenerate all images for
+            image_indices: List of (scene, index) tuples for specific images
+
+        Returns:
+            Dict with regeneration results
+        """
+        if not self.current_idea:
+            # Try to find a video with images to regenerate
+            idea = self.get_idea_by_status(self.STATUS_READY_TO_RENDER)
+            if not idea:
+                idea = self.get_idea_by_status(self.STATUS_READY_THUMBNAIL)
+            if not idea:
+                idea = self.get_idea_by_status(self.STATUS_READY_IMAGES)
+            if not idea:
+                return {"error": "No video found to regenerate images for"}
+            self._load_idea(idea)
+
+        print(f"\n🔄 REGENERATE IMAGES: Processing '{self.video_title}'")
+
+        # Get or create project folder
+        if not self.project_folder_id:
+            folder = self.google.get_or_create_folder(self.video_title)
+            self.project_folder_id = folder["id"]
+
+        # Get all images for this video
+        all_images = self.airtable.get_all_images_for_video(self.video_title)
+
+        # Filter to images needing regeneration
+        images_to_regen = []
+
+        if image_indices:
+            # Specific scene/index pairs
+            for scene_num, img_index in image_indices:
+                for img in all_images:
+                    if img.get("Scene") == scene_num and img.get("Image Index") == img_index:
+                        images_to_regen.append(img)
+                        break
+        elif scene_list:
+            # All images in specified scenes
+            for img in all_images:
+                if img.get("Scene") in scene_list:
+                    images_to_regen.append(img)
+        else:
+            # All images with no "Image" attachment (missing)
+            for img in all_images:
+                img_attachments = img.get("Image", [])
+                if not img_attachments:
+                    images_to_regen.append(img)
+
+        if not images_to_regen:
+            print("  ✅ No images need regeneration")
+            return {"status": "ok", "regenerated": 0}
+
+        print(f"  Found {len(images_to_regen)} images to regenerate")
+
+        # Group by scene for parallel processing
+        scenes = {}
+        for img in images_to_regen:
+            scene_num = img.get("Scene", 0)
+            if scene_num not in scenes:
+                scenes[scene_num] = []
+            scenes[scene_num].append(img)
+
+        regenerated = 0
+
+        for scene_num in sorted(scenes.keys()):
+            scene_images = scenes[scene_num]
+            print(f"  Scene {scene_num}: Regenerating {len(scene_images)} images...")
+
+            async def generate_single(img_record):
+                prompt = img_record.get("Image Prompt", "")
+                aspect_ratio = img_record.get("Aspect Ratio", "16:9")
+                index = img_record.get("Image Index", 0)
+
+                if not prompt:
+                    return (img_record, None, index, "No prompt")
+
+                try:
+                    image_urls = await self.image_client.generate_and_wait(prompt, aspect_ratio)
+                    return (img_record, image_urls, index, None)
+                except Exception as e:
+                    return (img_record, None, index, str(e))
+
+            # Generate in parallel
+            results = await asyncio.gather(*[generate_single(img) for img in scene_images])
+
+            # Upload to Drive and update Airtable
+            for img_record, image_urls, index, error in results:
+                if error:
+                    print(f"    ❌ Scene {scene_num}, Image {index}: {error}")
+                    continue
+
+                if image_urls:
+                    # Download image
+                    image_content = await self.image_client.download_image(image_urls[0])
+
+                    # Upload to Google Drive
+                    filename = f"Scene_{str(scene_num).zfill(2)}_{str(index).zfill(2)}.png"
+                    drive_file = self.google.upload_image(image_content, filename, self.project_folder_id)
+                    drive_url = self.google.make_file_public(drive_file["id"])
+
+                    # Update Airtable
+                    self.airtable.update_image_record(img_record["id"], image_urls[0], drive_url=drive_url)
+                    regenerated += 1
+                    print(f"    ✅ Scene {scene_num}, Image {index} → regenerated")
+
+        print(f"\n  ✅ Regenerated {regenerated} images")
+        return {"status": "ok", "regenerated": regenerated, "total_requested": len(images_to_regen)}
+
     async def sync_all_assets(self, video_title: str):
         """Syncs all audio and images for a video to Google Drive."""
         print(f"\n🔄 SYNC: Checking assets for '{video_title}'...")
@@ -1363,6 +1481,8 @@ async def main():
         print("  --trending    Generate ideas from trending YouTube videos (Apify)")
         print("  --sync        Sync assets to Google Drive")
         print("  --remotion    Export Remotion props for rendering")
+        print('  --regenerate  Regenerate missing images (fixes render failures)')
+        print("  --run-queue   Process all videos until queue is empty")
         print("  --help, -h    Show this help message")
         print("\nExamples:")
         print("  python pipeline.py")
@@ -1371,6 +1491,7 @@ async def main():
         print('  python pipeline.py --idea "Breaking news about AI regulation"')
         print("  python pipeline.py --trending")
         print('  python pipeline.py --trending "crypto crash,bitcoin ETF"')
+        print('  python pipeline.py --regenerate "Video Title" --images 3:4,4:7')
         return
 
     if len(sys.argv) > 1 and sys.argv[1] == "--status":
@@ -1495,6 +1616,63 @@ async def main():
         print(f"   Segments with text: {total_segments}")
         return
     
+    if len(sys.argv) > 1 and sys.argv[1] == "--regenerate":
+        # Regenerate missing or specific images
+        print("=" * 60)
+        print("🔄 REGENERATE IMAGES")
+        print("=" * 60)
+
+        # Get video title (required)
+        if len(sys.argv) < 3:
+            print("\nUsage:")
+            print('  python pipeline.py --regenerate "Video Title"')
+            print('  python pipeline.py --regenerate "Video Title" --scenes 3,4')
+            print('  python pipeline.py --regenerate "Video Title" --images 3:4,4:7')
+            print("\nExamples:")
+            print('  # Regenerate all missing images')
+            print('  python pipeline.py --regenerate "The 2030 Currency Collapse"')
+            print('  # Regenerate all images in scenes 3 and 4')
+            print('  python pipeline.py --regenerate "Title" --scenes 3,4')
+            print('  # Regenerate specific images (Scene_03_04.png and Scene_04_07.png)')
+            print('  python pipeline.py --regenerate "Title" --images 3:4,4:7')
+            return
+
+        title = sys.argv[2]
+        scene_list = None
+        image_indices = None
+
+        # Parse optional args
+        if "--scenes" in sys.argv:
+            idx = sys.argv.index("--scenes")
+            if idx + 1 < len(sys.argv):
+                scene_list = [int(s) for s in sys.argv[idx + 1].split(",")]
+                print(f"  Targeting scenes: {scene_list}")
+
+        if "--images" in sys.argv:
+            idx = sys.argv.index("--images")
+            if idx + 1 < len(sys.argv):
+                pairs = sys.argv[idx + 1].split(",")
+                image_indices = []
+                for pair in pairs:
+                    scene, index = pair.split(":")
+                    image_indices.append((int(scene), int(index)))
+                print(f"  Targeting images: {image_indices}")
+
+        # Load the video
+        ideas = pipeline.airtable.get_all_ideas()
+        for idea in ideas:
+            if idea.get("Video Title") == title:
+                pipeline._load_idea(idea)
+                break
+
+        if not pipeline.video_title:
+            print(f"❌ Error: Could not find video '{title}'")
+            return
+
+        result = await pipeline.regenerate_images(scene_list=scene_list, image_indices=image_indices)
+        print(f"\n✅ Regeneration complete: {result.get('regenerated', 0)} images")
+        return
+
     if len(sys.argv) > 1 and sys.argv[1] == "--run-queue":
         # Process ALL videos in pipeline until nothing left to do
         # Respects Ryan's gate: only processes videos at "Ready For Scripting" or beyond
