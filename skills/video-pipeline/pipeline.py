@@ -1043,7 +1043,7 @@ class VideoPipeline:
         # Export props
         props = await self.package_for_remotion()
         
-        remotion_dir = Path(__file__).parent.parent / "remotion-video"
+        remotion_dir = Path(__file__).parent.parent.parent / "remotion-video"
         props_file = remotion_dir / "props.json"
         
         import json
