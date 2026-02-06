@@ -1128,7 +1128,8 @@ class VideoPipeline:
                 "images": [
                     {
                         "index": img.get("Image Index", 0),
-                        "url": img.get("Image", [{}])[0].get("url", "") if img.get("Image") else "",
+                        # Use permanent Drive URL instead of expiring Airtable attachment
+                        "url": img.get("Drive Image URL") or (img.get("Image", [{}])[0].get("url", "") if img.get("Image") else ""),
                     }
                     for img in sorted(scene_images, key=lambda x: x.get("Image Index", 0))
                 ],

@@ -14,8 +14,8 @@ class ImageClient:
     RECORD_INFO_URL = "https://api.kie.ai/api/v1/jobs/recordInfo"
     
     # Default model from n8n workflow (requires google/ prefix)
-    DEFAULT_MODEL = "google/nano-banana"
-    PRO_MODEL = "nano-banana-pro"  # Higher quality for thumbnails
+    DEFAULT_MODEL = "google/nano-banana"  # Uses image_size parameter
+    PRO_MODEL = "nano-banana-pro"  # Higher quality for thumbnails, uses aspect_ratio parameter
     
     def __init__(self, api_key: Optional[str] = None, google_client: Optional[object] = None):
         self.api_key = api_key or os.getenv("KIE_AI_API_KEY")
@@ -158,29 +158,22 @@ class ImageClient:
             "Content-Type": "application/json",
         }
         
-        # Different models use different parameter names
-        actual_model = model or self.DEFAULT_MODEL
-        
-        if actual_model == "nano-banana-pro":
-            # Pro model uses aspect_ratio
-            payload = {
-                "model": actual_model,
-                "input": {
-                    "prompt": prompt,
-                    "aspect_ratio": aspect_ratio,
-                    "output_format": output_format,
-                },
-            }
+        use_model = model or self.DEFAULT_MODEL
+
+        # nano-banana-pro uses aspect_ratio parameter, google/nano-banana uses image_size
+        if use_model == self.PRO_MODEL:
+            size_param = {"aspect_ratio": aspect_ratio}
         else:
-            # google/nano-banana uses image_size
-            payload = {
-                "model": actual_model,
-                "input": {
-                    "prompt": prompt,
-                    "image_size": aspect_ratio,
-                    "output_format": output_format,
-                },
-            }
+            size_param = {"image_size": aspect_ratio}
+
+        payload = {
+            "model": use_model,
+            "input": {
+                "prompt": prompt,
+                **size_param,
+                "output_format": output_format,
+            },
+        }
         
         async with httpx.AsyncClient() as client:
             response = await client.post(
