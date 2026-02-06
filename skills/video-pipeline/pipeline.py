@@ -1144,22 +1144,28 @@ class VideoPipeline:
         }
     
     async def package_for_remotion(self) -> dict:
-        """Package all assets for Remotion video editing."""
+        """Package all assets for Remotion video editing.
+
+        Includes segment data (text + duration) for word-synced image display.
+        """
         # Get all scripts for current video
         scripts = self.airtable.get_scripts_by_title(self.video_title)
-        
+
         # Get all images for current video
         images = self.airtable.get_all_images_for_video(self.video_title)
-        
+
         # Build Remotion props structure
         scenes = []
         for script in scripts:
             scene_number = script.get("scene", 0)
             scene_images = [
-                img for img in images 
+                img for img in images
                 if img.get("Scene") == scene_number
             ]
-            
+
+            # Sort images by index
+            sorted_images = sorted(scene_images, key=lambda x: x.get("Image Index", 0))
+
             scenes.append({
                 "sceneNumber": scene_number,
                 "text": script.get("Scene text", ""),
@@ -1169,19 +1175,95 @@ class VideoPipeline:
                         "index": img.get("Image Index", 0),
                         # Use permanent Drive URL instead of expiring Airtable attachment
                         "url": img.get("Drive Image URL") or (img.get("Image", [{}])[0].get("url", "") if img.get("Image") else ""),
+                        # Include segment data for word-synced image display
+                        "segmentText": img.get("Sentence Text", ""),
+                        "duration": img.get("Duration (s)", 8.0),
                     }
-                    for img in sorted(scene_images, key=lambda x: x.get("Image Index", 0))
+                    for img in sorted_images
                 ],
             })
-        
+
         props = {
             "videoTitle": self.video_title,
             "folderId": self.project_folder_id,
             "docId": self.google_doc_id,
             "scenes": scenes,
         }
-        
+
         return props
+
+    def generate_segment_data_ts(self, remotion_dir: Path = None) -> str:
+        """Generate segmentData.ts file for Remotion word-synced image display.
+
+        Reads segment data from Airtable Images table and creates the TypeScript file
+        that Remotion uses to align images with spoken words.
+
+        Args:
+            remotion_dir: Path to remotion-video directory. If None, uses default.
+
+        Returns:
+            Path to generated file
+        """
+        if remotion_dir is None:
+            remotion_dir = Path(__file__).parent.parent.parent / "remotion-video"
+
+        # Get all images for current video
+        images = self.airtable.get_all_images_for_video(self.video_title)
+
+        # Group images by scene
+        scenes_data: dict[int, list] = {}
+        for img in images:
+            scene_num = img.get("Scene", 0)
+            if scene_num not in scenes_data:
+                scenes_data[scene_num] = []
+
+            segment_text = img.get("Sentence Text", "")
+            duration = img.get("Duration (s)", 8.0)
+
+            if segment_text:  # Only include if we have segment text
+                scenes_data[scene_num].append({
+                    "text": segment_text,
+                    "duration": float(duration) if duration else 8.0,
+                    "index": img.get("Image Index", 0),
+                })
+
+        # Sort segments within each scene by index
+        for scene_num in scenes_data:
+            scenes_data[scene_num] = sorted(scenes_data[scene_num], key=lambda x: x["index"])
+
+        # Generate TypeScript content
+        ts_lines = [
+            "// Auto-generated segment data from Airtable",
+            f"// Video: {self.video_title}",
+            "// Generated for word-to-image alignment in Remotion",
+            "",
+            "export interface SegmentText {",
+            "    text: string;",
+            "    duration: number;",
+            "}",
+            "",
+            "export const sceneSegmentData: Record<number, SegmentText[]> = {",
+        ]
+
+        # Add each scene's segments
+        for scene_num in sorted(scenes_data.keys()):
+            segments = scenes_data[scene_num]
+            ts_lines.append(f"    {scene_num}: [")
+            for seg in segments:
+                # Escape quotes in text
+                escaped_text = seg["text"].replace('"', '\\"').replace('\n', ' ')
+                ts_lines.append(f'        {{ text: "{escaped_text}", duration: {seg["duration"]} }},')
+            ts_lines.append("    ],")
+
+        ts_lines.append("};")
+        ts_lines.append("")
+
+        # Write to file
+        output_path = remotion_dir / "src" / "segmentData.ts"
+        output_path.write_text("\n".join(ts_lines))
+
+        print(f"  ✅ Generated segmentData.ts with {len(scenes_data)} scenes")
+        return str(output_path)
 
 
     async def sync_all_assets(self, video_title: str):
@@ -1363,30 +1445,50 @@ async def main():
     if len(sys.argv) > 1 and sys.argv[1] == "--remotion":
         # Export Remotion props for a specific video
         import json
-        title = "The 2030 Currency Collapse: Which Assets Will YOU Still Own?"
-        
+        from pathlib import Path
+
+        # Get title from args or use default
+        if len(sys.argv) > 2:
+            title = " ".join(sys.argv[2:])
+        else:
+            title = "The 2030 Currency Collapse: Which Assets Will YOU Still Own?"
+
         print(f"\n📦 REMOTION EXPORT: Packaging '{title}'...")
-        
+
         # Load the idea to set video_title
         ideas = pipeline.airtable.get_all_ideas()
         for idea in ideas:
             if idea.get("Video Title") == title:
                 pipeline._load_idea(idea)
                 break
-        
+
         if not pipeline.video_title:
             print(f"❌ Error: Could not find video '{title}'")
             return
-            
+
+        # Generate segment data for word-synced image display
+        remotion_dir = Path(__file__).parent.parent.parent / "remotion-video"
+        print(f"\n📝 Generating segmentData.ts...")
+        pipeline.generate_segment_data_ts(remotion_dir)
+
+        # Package props
         props = await pipeline.package_for_remotion()
-        
-        # Write to JSON file in project folder
-        output_path = f"/Users/ryanayler/Desktop/Economy Fastforward/remotion_props_{pipeline.video_title[:30].replace(' ', '_')}.json"
+
+        # Write to JSON file in remotion folder
+        output_path = remotion_dir / "props.json"
         with open(output_path, "w") as f:
             json.dump(props, f, indent=2)
-        
-        print(f"✅ Remotion props exported to: {output_path}")
+
+        print(f"\n✅ Remotion export complete!")
+        print(f"   Props: {output_path}")
         print(f"   Scenes: {len(props.get('scenes', []))}")
+
+        # Count segments with data
+        total_segments = sum(
+            len([img for img in scene.get("images", []) if img.get("segmentText")])
+            for scene in props.get("scenes", [])
+        )
+        print(f"   Segments with text: {total_segments}")
         return
     
     if len(sys.argv) > 1 and sys.argv[1] == "--run-queue":
