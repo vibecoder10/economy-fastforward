@@ -551,10 +551,26 @@ class VideoPipeline:
 
         print(f"  Found {len(scenes)} scenes")
 
+        # Check for existing image prompts to avoid duplicates
+        existing_images = self.airtable.get_all_images_for_video(self.video_title)
+        existing_scene_indices = set()
+        for img in existing_images:
+            key = (img.get("Scene"), img.get("Image Index"))
+            existing_scene_indices.add(key)
+        
+        if existing_images:
+            print(f"  Found {len(existing_images)} existing prompts - will skip completed scenes")
+
         total_prompts = 0
 
         for scene in scenes:
             scene_number = scene.get("scene") or scene.get("Scene") or 1
+            
+            # Check if this scene already has prompts
+            scene_prompts = [img for img in existing_images if img.get("Scene") == scene_number]
+            if scene_prompts:
+                print(f"  Scene {scene_number}: Already has {len(scene_prompts)} prompts, skipping...")
+                continue
             scene_text = scene.get("Scene text") or scene.get("Script") or ""
             voice_over = scene.get("Voice Over")
 
