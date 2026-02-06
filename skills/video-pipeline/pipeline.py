@@ -1183,6 +1183,28 @@ async def main():
         )
         return
 
+    if len(sys.argv) > 1 and sys.argv[1] == "--more-ideas":
+        # Generate more ideas from recent trending data (quick refresh)
+        print("=" * 60)
+        print("💡 MORE IDEAS - Quick Generation from Recent Trends")
+        print("=" * 60)
+        
+        num = 3  # default
+        if len(sys.argv) > 2:
+            try:
+                num = int(sys.argv[2])
+            except ValueError:
+                pass
+        
+        result = await pipeline.run_trending_idea_bot(
+            search_queries=None,  # Use defaults
+            num_ideas=num,
+        )
+        
+        print(f"\n✅ Generated {len(result.get('ideas', []))} new ideas")
+        print("Check Airtable or Slack for the new ideas.")
+        return
+
     if len(sys.argv) > 1 and sys.argv[1] == "--sync":
         # Sync assets for a specific video
         # Hardcoded for now or args? User wants specific video.
