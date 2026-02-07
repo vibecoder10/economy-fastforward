@@ -1204,9 +1204,15 @@ class VideoPipeline:
     
     async def run_thumbnail_bot(self) -> dict:
         """Generate thumbnail for the video.
-        
+
         REQUIRES: Ideas status = "Ready For Thumbnail"
-        UPDATES TO: "Done" when complete
+        UPDATES TO: "Ready To Render" when complete
+
+        Works in two modes:
+        1. WITH reference URL: Gemini analyzes reference → Anthropic adapts with house style
+        2. WITHOUT reference URL: Anthropic generates purely from house style + video context
+
+        Both modes produce on-brand, clickable thumbnails.
         """
         # Verify status
         if not self.current_idea:
@@ -1214,79 +1220,76 @@ class VideoPipeline:
             if not idea:
                 return {"error": "No idea with status 'Ready For Thumbnail'"}
             self._load_idea(idea)
-        
+
         if self.current_idea.get("Status") != self.STATUS_READY_THUMBNAIL:
             return {"error": f"Idea status is '{self.current_idea.get('Status')}', expected 'Ready For Thumbnail'"}
-        
+
         print(f"\n🎨 THUMBNAIL BOT: Processing '{self.video_title}'")
 
         video_title = self.current_idea.get("Video Title", "")
         video_summary = self.current_idea.get("Summary", "")
-        reference_url = self.current_idea.get("Video URL")  # YouTube video URL
+        reference_url = self.current_idea.get("Video URL")
         basic_prompt = self.current_idea.get("Thumbnail Prompt", "")
 
-        # Extract YouTube thumbnail URL from video URL
-        thumbnail_image_url = None
+        # --- OPTIONAL: Reference thumbnail analysis ---
+        thumbnail_spec = None
         if reference_url:
             thumbnail_image_url = self._extract_youtube_thumbnail(reference_url)
-            if thumbnail_image_url:
-                print(f"  Extracted thumbnail: {thumbnail_image_url}")
+            if thumbnail_image_url and self.gemini.api_key:
+                print(f"  📸 Analyzing reference thumbnail via Gemini...")
+                try:
+                    thumbnail_spec = await self.gemini.generate_thumbnail_spec(
+                        reference_image_url=thumbnail_image_url,
+                        video_title=video_title,
+                        video_summary=video_summary,
+                    )
+                    print(f"  ✅ Reference analysis complete")
+                except Exception as e:
+                    print(f"  ⚠️ Reference analysis failed: {e}. Proceeding with house style only.")
+                    thumbnail_spec = None
             else:
-                print(f"  ⚠️ Could not extract thumbnail from: {reference_url}")
-
-        # Two-stage generation if thumbnail image AND Gemini is available
-        if thumbnail_image_url and self.gemini.api_key:
-            print(f"  Analyzing reference thumbnail via Gemini...")
-            thumbnail_spec = await self.gemini.generate_thumbnail_spec(
-                reference_image_url=thumbnail_image_url,
-                video_title=video_title,
-                video_summary=video_summary,
-            )
-
-            print(f"  Generating detailed prompt via Anthropic...")
-            thumbnail_prompt = await self.anthropic.generate_thumbnail_prompt(
-                thumbnail_spec_json=thumbnail_spec,
-                video_title=video_title,
-                thumbnail_concept=basic_prompt,
-            )
-            print(f"  Generated prompt: {thumbnail_prompt[:100]}...")
-
-            # Save enhanced prompt to Airtable for debugging
-            self.airtable.update_idea_field(self.current_idea_id, "Thumbnail Prompt", thumbnail_prompt)
-            print(f"  ✅ Enhanced prompt saved to Airtable")
+                if not thumbnail_image_url:
+                    print(f"  ℹ️ Could not extract thumbnail from URL. Using house style only.")
+                elif not self.gemini.api_key:
+                    print(f"  ⚠️ Gemini API key missing. Using house style only.")
         else:
-            if thumbnail_image_url and not self.gemini.api_key:
-                print(f"  ⚠️ Gemini API key missing, skipping reference analysis.")
-            print(f"  Using basic prompt.")
-            thumbnail_prompt = basic_prompt
+            print(f"  ℹ️ No reference URL. Using house style only.")
 
-        if not thumbnail_prompt:
-             print("  ⚠️ No thumbnail prompt found!")
-             return {"error": "No thumbnail prompt"}
+        # --- ALWAYS: Generate thumbnail prompt via Anthropic ---
+        print(f"  🎯 Generating thumbnail prompt (house style{' + reference' if thumbnail_spec else ''})...")
+        thumbnail_prompt = await self.anthropic.generate_thumbnail_prompt(
+            video_title=video_title,
+            video_summary=video_summary,
+            thumbnail_spec_json=thumbnail_spec,
+            thumbnail_concept=basic_prompt,
+        )
+        print(f"  ✅ Prompt generated: {thumbnail_prompt[:100]}...")
 
-        # Generate thumbnail image (use Pro model for higher quality)
+        # Save generated prompt to Airtable for reference
+        self.airtable.update_idea_field(self.current_idea_id, "Thumbnail Prompt", thumbnail_prompt)
+
+        # --- Generate thumbnail image ---
         image_urls = await self.image_client.generate_and_wait(
             thumbnail_prompt, "16:9", model="nano-banana-pro"
         )
         if not image_urls:
-             print("  ⚠️ Failed to generate thumbnail.")
-             return {"error": "Thumbnail generation failed"}
-            
+            print("  ⚠️ Failed to generate thumbnail.")
+            return {"error": "Thumbnail generation failed"}
+
         print(f"  ✅ Thumbnail generated: {image_urls[0][:50]}...")
-        
-        # Upload to Google Drive
+
+        # --- Upload to Google Drive ---
         if self.project_folder_id:
             parent_id = self.project_folder_id
         else:
-            # Try to find folder
             folder = self.google.search_folder(self.video_title)
             if folder:
                 parent_id = folder["id"]
             else:
                 print("  ⚠️ Project folder not found, uploading to root.")
                 parent_id = None
-                
-        print("  Uploading to Google Drive...")
+
+        print("  ☁️ Uploading to Google Drive...")
         google_file = self.google.upload_file_from_url(
             url=image_urls[0],
             name="Thumbnail.png",
@@ -1295,20 +1298,20 @@ class VideoPipeline:
         drive_link = google_file.get("webViewLink")
         print(f"  ✅ Uploaded to Drive: {drive_link}")
 
-        # Save to Airtable - use the original image URL (Airtable will download and host it)
-        # Don't use drive_link as that's an HTML page, not a direct image
+        # --- Save to Airtable (use temp Kie URL for attachment, it gets copied) ---
         self.airtable.update_idea_thumbnail(self.current_idea_id, image_urls[0])
         print("  ✅ Saved to Airtable")
-        
-        # UPDATE STATUS to Done
+
+        # --- Update status ---
         self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_TO_RENDER)
         print(f"  ✅ Status updated to: {self.STATUS_READY_TO_RENDER}")
-        
+
         return {
             "bot": "Thumbnail Bot",
             "video_title": self.video_title,
             "new_status": self.STATUS_READY_TO_RENDER,
-            "thumbnail_url": drive_link
+            "thumbnail_url": drive_link,
+            "used_reference": thumbnail_spec is not None,
         }
     
     async def run_render_bot(self) -> dict:

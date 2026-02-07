@@ -16,6 +16,74 @@ from clients.style_engine import (
     EXAMPLE_PROMPTS,
 )
 
+# Thumbnail System v2 - Locked House Style
+ANTHROPIC_THUMBNAIL_SYSTEM_PROMPT = """You are the thumbnail prompt engineer for Economy FastForward, \
+a finance/economics YouTube channel.
+
+Your job: Generate a detailed image generation prompt for Nano Banana Pro that produces \
+a click-worthy, on-brand thumbnail.
+
+HOUSE STYLE (always enforce these rules):
+
+COMPOSITION:
+- Left 60% = THE TENSION (dramatic scene, emotional figure, the problem)
+- Right 40% = THE PAYOFF (the answer, protection, opportunity — brightest element)
+- Clean diagonal divide line or contrast shift between sides
+- Bold red arrow pointing from tension to payoff
+
+FIGURE:
+- ONE central human figure in left 60%, comic/editorial illustration style
+- Thick bold black outlines, expressive face readable at small size
+- Upper body minimum, professional clothing (suit/tie)
+- Body language matches the topic's emotion (shock, reaching, stumbling, pointing)
+
+BACKGROUND:
+- Maximum THREE elements total (one environmental, one scattered object, one atmospheric)
+- ONE dominant mood color (deep navy, dark red, or dark green gradient)
+
+PAYOFF:
+- Glowing dome/shield/bubble OR upward growth element
+- BRIGHTEST element in entire thumbnail
+- Radiating golden or green light
+- Contains clear visual symbols of the topic's "answer"
+
+COLOR:
+- 2+1 rule: one dark background color, one bright pop accent, white text
+- Right side always brighter than left side
+
+TEXT (critical — include in every prompt):
+- Position: Upper 20% of frame, two lines stacked
+- Line 1 (larger): The hook — year, number, or dramatic claim, max 5 words
+- Line 2 (slightly smaller): The question or tension, max 5 words
+- Style: Bold white condensed sans-serif, ALL CAPS, thick black outline stroke + drop shadow
+- ONE word highlighted in bright red (the curiosity trigger word)
+- Text must NOT overlap the figure's face or the payoff element
+
+TECHNICAL:
+- Thick black outlines on all figures and objects
+- Flat cel-shaded coloring, high contrast, high saturation
+- Bright overall luminance (dark thumbnails disappear on YouTube)
+- 16:9 aspect ratio
+
+WHEN A REFERENCE SPEC IS PROVIDED:
+Incorporate specific style cues from the reference (pose, color choices, separator style) \
+BUT always enforce the house style rules above. The house style overrides any reference \
+element that conflicts with it.
+
+WHEN NO REFERENCE SPEC IS PROVIDED:
+Generate the thumbnail prompt purely from the house style rules and video topic. \
+This is the normal operating mode. The house style is sufficient to produce on-brand thumbnails.
+
+OUTPUT FORMAT:
+Return ONLY the image generation prompt. No explanations, no JSON, no labels. \
+The prompt should be 150-200 words and follow this structure:
+1. Style declaration
+2. Left tension scene (figure + background)
+3. Right payoff scene (dome/element + contents)
+4. Separator description
+5. Text block (exact text, placement, styling, highlight word)
+6. Technical style rules"""
+
 
 class AnthropicClient:
     """Client for Anthropic Claude API."""
@@ -646,59 +714,61 @@ Generate {PROMPT_MIN_WORDS}-{PROMPT_MAX_WORDS} word prompt. End with STYLE_ENGIN
 
     async def generate_thumbnail_prompt(
         self,
-        thumbnail_spec_json: dict,
         video_title: str,
+        video_summary: str,
+        thumbnail_spec_json: dict = None,
         thumbnail_concept: str = "",
     ) -> str:
-        """Generate a detailed thumbnail image prompt from a Gemini-analyzed spec.
+        """Generate a detailed thumbnail image prompt.
 
-        Takes the structured spec from Gemini's vision analysis and produces
-        a detailed image generation prompt suitable for Kie.
+        Works with OR without a reference thumbnail spec.
+        Always enforces Economy FastForward house style.
 
         Args:
-            thumbnail_spec_json: Structured spec dict from Gemini's analysis
-            video_title: Title of the video
-            thumbnail_concept: Optional basic concept/idea for the thumbnail
+            video_title: The video's title
+            video_summary: Brief summary of the video's content
+            thumbnail_spec_json: Optional Gemini-analyzed reference spec
+            thumbnail_concept: Optional basic concept/direction from Airtable
 
         Returns:
-            A detailed image generation prompt string
+            Complete image generation prompt for Nano Banana Pro
         """
         import json
 
-        system_prompt = """You are an expert thumbnail prompt engineer for YouTube.
+        prompt_parts = [
+            f'Generate a thumbnail prompt for this Economy FastForward video:',
+            f'',
+            f'VIDEO TITLE: "{video_title}"',
+            f'VIDEO SUMMARY: {video_summary}',
+        ]
 
-Your task is to take a structured thumbnail analysis (from a reference image) and produce
-a DETAILED image generation prompt that recreates a similar style for a NEW video topic.
+        if thumbnail_spec_json:
+            prompt_parts.append(f'')
+            prompt_parts.append(f'REFERENCE THUMBNAIL ANALYSIS (adapt style cues, enforce house style):')
+            prompt_parts.append(json.dumps(thumbnail_spec_json, indent=2))
 
-GUIDELINES:
-1. Preserve the composition style, mood, and color palette from the reference analysis
-2. Adapt the specific visual elements to match the NEW video's topic
-3. Include specific details about: layout, colors, lighting, text placement, focal point
-4. The prompt should be detailed enough for an AI image generator to produce a click-worthy thumbnail
-5. Include any text overlays that should appear on the thumbnail
-6. Keep the prompt under 300 words but be very specific
-
-OUTPUT: Return ONLY the image generation prompt, no explanation or JSON."""
-
-        concept_note = ""
         if thumbnail_concept:
-            concept_note = f"\n\nBASIC THUMBNAIL CONCEPT (use as creative direction):\n{thumbnail_concept}"
+            prompt_parts.append(f'')
+            prompt_parts.append(f'CREATIVE DIRECTION: {thumbnail_concept}')
 
-        prompt = f"""Create a detailed thumbnail image generation prompt for this video:
+        prompt_parts.extend([
+            f'',
+            f'THUMBNAIL TEXT TO INCLUDE:',
+            f'Generate two lines of text for the thumbnail based on the video title.',
+            f'Line 1: The hook (year/number/dramatic claim) — max 5 words, ALL CAPS',
+            f'Line 2: The question/tension — max 5 words, ALL CAPS',
+            f'Pick ONE word to highlight in red (the curiosity trigger).',
+            f'',
+            f'Generate the complete image prompt now.',
+        ])
 
-VIDEO TITLE: "{video_title}"
-
-REFERENCE THUMBNAIL ANALYSIS:
-{json.dumps(thumbnail_spec_json, indent=2)}
-{concept_note}
-
-Generate a single detailed prompt that adapts the reference style to this video's topic."""
+        user_prompt = '\n'.join(prompt_parts)
 
         response = await self.generate(
-            prompt=prompt,
-            system_prompt=system_prompt,
+            prompt=user_prompt,
+            system_prompt=ANTHROPIC_THUMBNAIL_SYSTEM_PROMPT,
             model="claude-sonnet-4-5-20250929",
-            max_tokens=1000,
+            max_tokens=1200,
         )
 
         return response.strip()
