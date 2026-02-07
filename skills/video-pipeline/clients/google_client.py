@@ -258,7 +258,62 @@ class GoogleClient:
         ).execute()
         
         return file.get("webContentLink")
-    
+
+    def get_direct_drive_url(self, url_or_id: str) -> str:
+        """Convert a Google Drive view URL or file ID to a direct download URL.
+
+        Grok Imagine and other video generation APIs require direct download URLs,
+        not Drive viewer URLs. This helper handles the conversion.
+
+        Handles multiple URL formats:
+        - https://drive.google.com/file/d/FILE_ID/view
+        - https://drive.google.com/open?id=FILE_ID
+        - https://drive.google.com/uc?id=FILE_ID (already direct)
+        - https://drive.google.com/uc?export=download&id=FILE_ID (already direct)
+        - Raw FILE_ID
+
+        Args:
+            url_or_id: A Drive URL or file ID
+
+        Returns:
+            Direct download URL: https://drive.google.com/uc?export=download&id=FILE_ID
+        """
+        import re
+
+        if not url_or_id:
+            return url_or_id
+
+        # If already a direct download URL, return as-is
+        if "export=download" in url_or_id:
+            return url_or_id
+
+        # If it's a uc?id= URL, add export=download
+        if "uc?id=" in url_or_id:
+            file_id_match = re.search(r'id=([a-zA-Z0-9_-]+)', url_or_id)
+            if file_id_match:
+                return f"https://drive.google.com/uc?export=download&id={file_id_match.group(1)}"
+
+        # Extract file ID from various URL formats
+        file_id = None
+
+        patterns = [
+            r'/file/d/([a-zA-Z0-9_-]+)',   # /file/d/FILE_ID/view
+            r'[?&]id=([a-zA-Z0-9_-]+)',     # ?id=FILE_ID or &id=FILE_ID
+            r'^([a-zA-Z0-9_-]{20,})$',      # Raw file ID (20+ chars, no slashes)
+        ]
+
+        for pattern in patterns:
+            match = re.search(pattern, url_or_id)
+            if match:
+                file_id = match.group(1)
+                break
+
+        if not file_id:
+            # Return original if can't parse (may already be usable or a different URL type)
+            return url_or_id
+
+        return f"https://drive.google.com/uc?export=download&id={file_id}"
+
     # ==================== DOCS OPERATIONS ====================
     
     def create_document(self, title: str, folder_id: Optional[str] = None) -> dict:

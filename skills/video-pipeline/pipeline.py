@@ -199,7 +199,299 @@ class VideoPipeline:
             "images_done": len(done_images),
             "suggested_status": suggested_status,
         }
-    
+
+    # ==========================================================================
+    # ANIMATION PIPELINE - Hero shot detection and cost estimation
+    # ==========================================================================
+
+    # Animation pipeline configuration
+    MANUAL_ONLY_VIDEO_GEN = True  # Requires explicit --animate command (cost control)
+    COST_PER_VIDEO_CLIP = 0.10    # $0.10 per clip via Kie.ai
+
+    def identify_hero_shots(self, images: list[dict], max_heroes: int = 3) -> list[str]:
+        """Identify which images should be hero shots (10s animated clips).
+
+        Hero shots are high-impact moments that receive longer video treatment.
+
+        Rules:
+        1. Maximum 3 hero shots per video (if everything is special, nothing is)
+        2. Never consecutive (minimum 2 images gap for pacing contrast)
+        3. Priority selection:
+           - Scene 1 opener (hook moment)
+           - Key data reveals (keywords: collapse, crash, billion, prediction)
+           - Final scene reveal (ending with impact)
+
+        Args:
+            images: List of image records from Airtable
+            max_heroes: Maximum number of hero shots allowed
+
+        Returns:
+            List of image record IDs that should be hero shots
+        """
+        hero_ids = []
+
+        # Sort by scene and index
+        sorted_images = sorted(
+            images,
+            key=lambda x: (x.get("Scene", 0), x.get("Image Index", 0))
+        )
+
+        if not sorted_images:
+            return []
+
+        def get_image_position(img_id):
+            """Get the position of an image in the sorted list."""
+            for i, img in enumerate(sorted_images):
+                if img["id"] == img_id:
+                    return i
+            return -1
+
+        def is_consecutive_with_existing(img_id):
+            """Check if adding this hero would violate the consecutive rule."""
+            if not hero_ids:
+                return False
+            curr_pos = get_image_position(img_id)
+            for hero_id in hero_ids:
+                hero_pos = get_image_position(hero_id)
+                if abs(curr_pos - hero_pos) < 3:  # Need 2+ images gap
+                    return True
+            return False
+
+        # Rule 1: First image of Scene 1 (opening hook)
+        scene_1_images = [img for img in sorted_images if img.get("Scene") == 1]
+        if scene_1_images:
+            hero_ids.append(scene_1_images[0]["id"])
+
+        # Rule 2: Key data reveals (keywords indicate high-impact moments)
+        data_keywords = ["collapse", "crash", "billion", "trillion", "percent", "2030", "prediction", "warning"]
+        for img in sorted_images:
+            if len(hero_ids) >= max_heroes:
+                break
+            segment_text = img.get("Sentence Text", "").lower()
+            if any(kw in segment_text for kw in data_keywords):
+                if not is_consecutive_with_existing(img["id"]) and img["id"] not in hero_ids:
+                    hero_ids.append(img["id"])
+
+        # Rule 3: Final reveal (last image of final scene)
+        if len(hero_ids) < max_heroes:
+            last_scene = max((img.get("Scene", 0) for img in sorted_images), default=0)
+            final_images = [img for img in sorted_images if img.get("Scene") == last_scene]
+            if final_images:
+                final_img = final_images[-1]
+                if not is_consecutive_with_existing(final_img["id"]) and final_img["id"] not in hero_ids:
+                    hero_ids.append(final_img["id"])
+
+        return hero_ids[:max_heroes]
+
+    def estimate_video_generation_cost(self, video_title: str = None) -> dict:
+        """Estimate the cost of video generation for a video.
+
+        Args:
+            video_title: Title of video to estimate (uses current if None)
+
+        Returns:
+            Dict with cost breakdown:
+            - total_images: int
+            - hero_shots: int
+            - standard_shots: int
+            - total_cost: float
+        """
+        title = video_title or self.video_title
+        if not title:
+            return {"error": "No video title specified"}
+
+        images = self.airtable.get_all_images_for_video(title)
+        done_images = [img for img in images if img.get("Status") == "Done"]
+
+        # Identify hero shots
+        hero_ids = self.identify_hero_shots(done_images)
+
+        hero_count = len(hero_ids)
+        standard_count = len(done_images) - hero_count
+
+        # Cost calculation (same rate for 6s and 10s via Kie.ai)
+        total_cost = len(done_images) * self.COST_PER_VIDEO_CLIP
+
+        return {
+            "video_title": title,
+            "total_images": len(done_images),
+            "hero_shots": hero_count,
+            "standard_shots": standard_count,
+            "total_cost": round(total_cost, 2),
+            "hero_duration": "10s each",
+            "standard_duration": "6s each",
+            "hero_ids": hero_ids,
+        }
+
+    async def run_video_animation_pipeline(
+        self,
+        scene_filter: int = None,
+        heroes_only: bool = False,
+    ) -> dict:
+        """Generate video clips for images with full animation workflow.
+
+        This unified method handles:
+        1. Identifying hero shots (10s duration vs 6s standard)
+        2. Generating shot-type-aware video prompts
+        3. Generating video clips via Grok Imagine
+        4. Uploading to Google Drive
+        5. Updating Airtable with results
+
+        Args:
+            scene_filter: If set, only process this scene number
+            heroes_only: If True, only generate hero shot videos (max 3, cost-effective testing)
+
+        Returns:
+            Dict with generation results
+        """
+        from clients.style_engine import SceneType, get_scene_type_for_segment
+
+        print(f"\n🎬 VIDEO ANIMATION PIPELINE: Processing '{self.video_title}'")
+
+        # Get all done images
+        all_images = self.airtable.get_all_images_for_video(self.video_title)
+        done_images = [img for img in all_images if img.get("Status") == "Done"]
+
+        # Apply scene filter
+        if scene_filter:
+            done_images = [img for img in done_images if img.get("Scene") == scene_filter]
+            print(f"  Filtered to Scene {scene_filter}: {len(done_images)} images")
+
+        # Identify hero shots
+        hero_ids = self.identify_hero_shots(done_images)
+        print(f"  Hero shots identified: {len(hero_ids)}")
+
+        # Filter to heroes only if requested
+        if heroes_only:
+            done_images = [img for img in done_images if img["id"] in hero_ids]
+            print(f"  Heroes-only mode: {len(done_images)} images")
+
+        # Skip images that already have video clips
+        images_to_process = [img for img in done_images if not img.get("Video")]
+        print(f"  Images needing video: {len(images_to_process)}")
+
+        if not images_to_process:
+            print("  ✅ All images already have videos")
+            return {"videos_generated": 0, "actual_cost": 0, "status": "complete"}
+
+        # Ensure project folder exists
+        if not self.project_folder_id:
+            folder = self.google.get_or_create_folder(self.video_title)
+            self.project_folder_id = folder["id"]
+
+        videos_generated = 0
+        actual_cost = 0.0
+
+        for i, img_record in enumerate(images_to_process, 1):
+            scene = img_record.get("Scene", 0)
+            index = img_record.get("Image Index", 0)
+            is_hero = img_record["id"] in hero_ids
+            duration = 10 if is_hero else 6
+
+            hero_marker = " (HERO 10s)" if is_hero else " (6s)"
+            print(f"\n  [{i}/{len(images_to_process)}] Scene {scene}, Image {index}{hero_marker}")
+
+            # Get image URL - prefer Drive URL (permanent)
+            drive_url = img_record.get("Drive Image URL")
+            if not drive_url:
+                image_attachments = img_record.get("Image", [])
+                drive_url = image_attachments[0].get("url") if image_attachments else None
+
+            if not drive_url:
+                print("    ⚠️ No image URL found, skipping")
+                continue
+
+            # Convert to direct download URL for Grok Imagine
+            direct_url = self.google.get_direct_drive_url(drive_url)
+
+            # Determine shot type from segment position
+            scene_images = [im for im in done_images if im.get("Scene") == scene]
+            total_in_scene = len(scene_images)
+            try:
+                scene_type, camera_role = get_scene_type_for_segment(
+                    index - 1,  # 0-based
+                    total_in_scene,
+                    None
+                )
+                scene_type_str = scene_type.value
+            except Exception:
+                scene_type_str = None
+                camera_role = None
+
+            # Generate video prompt if not exists
+            video_prompt = img_record.get("Video Prompt")
+            if not video_prompt:
+                print("    Generating video prompt...")
+                image_prompt = img_record.get("Image Prompt", "")
+                sentence_text = img_record.get("Sentence Text", "")
+
+                video_prompt = await self.anthropic.generate_video_prompt(
+                    image_prompt=image_prompt,
+                    sentence_text=sentence_text,
+                    scene_type=scene_type_str,
+                    is_hero_shot=is_hero,
+                )
+
+                # Save prompt to Airtable
+                self.airtable.update_image_video_prompt(img_record["id"], video_prompt)
+
+            print(f"    Motion: {video_prompt[:60]}...")
+            print(f"    Generating {duration}s video...")
+
+            # Update status to processing
+            self.airtable.update_image_animation_fields(
+                img_record["id"],
+                shot_type=scene_type_str.upper() if scene_type_str else None,
+                is_hero_shot=is_hero,
+                animation_status="Processing",
+                video_duration=duration,
+            )
+
+            # Generate video via Grok Imagine
+            video_url = await self.image_client.generate_video(
+                direct_url,
+                video_prompt,
+                duration=duration,
+            )
+
+            if video_url:
+                # Download and upload to Drive
+                print("    Downloading video...")
+                video_content = await self.image_client.download_image(video_url)
+
+                filename = f"Scene_{str(scene).zfill(2)}_{str(index).zfill(2)}.mp4"
+                print(f"    Uploading {filename} to Drive...")
+                drive_file = self.google.upload_video(video_content, filename, self.project_folder_id)
+                video_drive_url = self.google.make_file_public(drive_file["id"])
+
+                # Update Airtable
+                self.airtable.update_image_video_url(img_record["id"], video_url)
+                self.airtable.update_image_animation_fields(
+                    img_record["id"],
+                    video_clip_url=video_drive_url,
+                    animation_status="Done",
+                )
+
+                videos_generated += 1
+                actual_cost += self.COST_PER_VIDEO_CLIP
+                print("    ✅ Video saved!")
+            else:
+                self.airtable.update_image_animation_fields(
+                    img_record["id"],
+                    animation_status="Failed",
+                )
+                print("    ❌ Video generation failed")
+
+        print(f"\n✅ Generated {videos_generated} videos")
+        print(f"   Actual cost: ${actual_cost:.2f}")
+
+        return {
+            "videos_generated": videos_generated,
+            "actual_cost": round(actual_cost, 2),
+            "total_attempted": len(images_to_process),
+            "status": "complete",
+        }
+
     async def run_next_step(self) -> dict:
         """Run the next step based on what's in the Ideas table.
         
@@ -601,13 +893,14 @@ class VideoPipeline:
 
             print(f"  Scene {scene_number}: {voice_duration:.0f}s → {target_images} images (~{words_per_segment} words each)")
 
-            # Call Anthropic to segment into concepts
+            # Call Anthropic to segment into concepts (uses Documentary Animation Prompt System v2)
             concepts = await self.anthropic.segment_scene_into_concepts(
                 scene_text=scene_text,
                 target_count=target_images,
                 min_count=min_images,
                 max_count=max_images,
-                words_per_segment=words_per_segment
+                words_per_segment=words_per_segment,
+                scene_number=scene_number,
             )
 
             # Create records with calculated durations (capped at 6-10s range)
@@ -1169,6 +1462,12 @@ class VideoPipeline:
         """Package all assets for Remotion video editing.
 
         Includes segment data (text + duration) for word-synced image display.
+        Prefers video clips over static images when available.
+
+        Priority for each image slot:
+        1. Video Clip URL (animated) from Google Drive
+        2. Drive Image URL (static) from Google Drive
+        3. NEVER use Airtable attachment URLs (they expire)
         """
         # Get all scripts for current video
         scripts = self.airtable.get_scripts_by_title(self.video_title)
@@ -1188,21 +1487,42 @@ class VideoPipeline:
             # Sort images by index
             sorted_images = sorted(scene_images, key=lambda x: x.get("Image Index", 0))
 
+            processed_images = []
+            for img in sorted_images:
+                # Check for video clip first (animation pipeline output)
+                video_clip_url = img.get("Video Clip URL")  # Direct Drive URL for video
+                video_attachments = img.get("Video", [])
+
+                # Prefer video clip over static image
+                if video_clip_url:
+                    media_url = video_clip_url
+                    media_type = "video"
+                elif video_attachments:
+                    # Fallback to Video attachment field
+                    media_url = video_attachments[0].get("url", "") if video_attachments else ""
+                    media_type = "video"
+                else:
+                    # Fallback to static image (Drive URL preferred)
+                    media_url = img.get("Drive Image URL") or (
+                        img.get("Image", [{}])[0].get("url", "") if img.get("Image") else ""
+                    )
+                    media_type = "image"
+
+                processed_images.append({
+                    "index": img.get("Image Index", 0),
+                    "url": media_url,
+                    "type": media_type,  # "image" or "video"
+                    "segmentText": img.get("Sentence Text", ""),
+                    "duration": img.get("Duration (s)", 8.0),
+                    "isHeroShot": img.get("Hero Shot", False),
+                    "videoDuration": img.get("Video Duration", 6),
+                })
+
             scenes.append({
                 "sceneNumber": scene_number,
                 "text": script.get("Scene text", ""),
                 "voiceUrl": script.get("Voice Over", [{}])[0].get("url", "") if script.get("Voice Over") else "",
-                "images": [
-                    {
-                        "index": img.get("Image Index", 0),
-                        # Use permanent Drive URL instead of expiring Airtable attachment
-                        "url": img.get("Drive Image URL") or (img.get("Image", [{}])[0].get("url", "") if img.get("Image") else ""),
-                        # Include segment data for word-synced image display
-                        "segmentText": img.get("Sentence Text", ""),
-                        "duration": img.get("Duration (s)", 8.0),
-                    }
-                    for img in sorted_images
-                ],
+                "images": processed_images,
             })
 
         props = {
@@ -1500,6 +1820,7 @@ async def main():
         print("  --sync        Sync assets to Google Drive")
         print("  --remotion    Export Remotion props for rendering")
         print('  --regenerate  Regenerate missing images (fixes render failures)')
+        print('  --animate     Generate video clips from images (Grok Imagine)')
         print("  --run-queue   Process all videos until queue is empty")
         print("  --help, -h    Show this help message")
         print("\nExamples:")
@@ -1510,6 +1831,8 @@ async def main():
         print("  python pipeline.py --trending")
         print('  python pipeline.py --trending "crypto crash,bitcoin ETF"')
         print('  python pipeline.py --regenerate "Video Title" --images 3:4,4:7')
+        print('  python pipeline.py --animate "Video Title" --estimate')
+        print('  python pipeline.py --animate "Video Title" --heroes-only')
         return
 
     if len(sys.argv) > 1 and sys.argv[1] == "--status":
@@ -1689,6 +2012,85 @@ async def main():
 
         result = await pipeline.regenerate_images(scene_list=scene_list, image_indices=image_indices)
         print(f"\n✅ Regeneration complete: {result.get('regenerated', 0)} images")
+        return
+
+    if len(sys.argv) > 1 and sys.argv[1] == "--animate":
+        # Generate video clips from images using Grok Imagine
+        print("=" * 60)
+        print("🎬 ANIMATION PIPELINE - Video Generation")
+        print("=" * 60)
+
+        if len(sys.argv) < 3:
+            print("\nUsage:")
+            print('  python pipeline.py --animate "Video Title"')
+            print('  python pipeline.py --animate "Video Title" --estimate')
+            print('  python pipeline.py --animate "Video Title" --scene 1')
+            print('  python pipeline.py --animate "Video Title" --heroes-only')
+            print("\nOptions:")
+            print("  --estimate     Show cost estimate only (no generation)")
+            print("  --scene N      Only process images from scene N")
+            print("  --heroes-only  Only generate hero shots (max 3, 10s each)")
+            print("\nExamples:")
+            print('  python pipeline.py --animate "The 2030 Currency Collapse"')
+            print('  python pipeline.py --animate "Title" --estimate')
+            print('  python pipeline.py --animate "Title" --heroes-only')
+            return
+
+        title = sys.argv[2]
+
+        # Find and load the video
+        ideas = pipeline.airtable.get_all_ideas()
+        for idea in ideas:
+            if idea.get("Video Title") == title:
+                pipeline._load_idea(idea)
+                break
+
+        if not pipeline.video_title:
+            print(f"❌ Video not found: {title}")
+            return
+
+        # Cost estimation
+        estimate = pipeline.estimate_video_generation_cost()
+        print(f"\n📊 Cost Estimate for '{title}':")
+        print(f"   Total images: {estimate['total_images']}")
+        print(f"   Hero shots (10s): {estimate['hero_shots']}")
+        print(f"   Standard shots (6s): {estimate['standard_shots']}")
+        print(f"   ─────────────────────")
+        print(f"   TOTAL COST: ${estimate['total_cost']:.2f}")
+
+        if "--estimate" in sys.argv:
+            print("\n   (Estimate only - no generation performed)")
+            if estimate.get('hero_ids'):
+                print(f"\n   Hero shot IDs: {estimate['hero_ids']}")
+            return
+
+        # Confirmation for high cost
+        if estimate['total_cost'] > 5.0:
+            print(f"\n⚠️ Cost exceeds $5. Type 'yes' to proceed:")
+            confirm = input("   > ").strip().lower()
+            if confirm != "yes":
+                print("   Cancelled.")
+                return
+
+        # Parse filter options
+        scene_filter = None
+        heroes_only = "--heroes-only" in sys.argv
+
+        if "--scene" in sys.argv:
+            idx = sys.argv.index("--scene")
+            if idx + 1 < len(sys.argv):
+                scene_filter = int(sys.argv[idx + 1])
+                print(f"\n   Scene filter: {scene_filter}")
+
+        # Run video generation
+        print(f"\n🎬 Starting video generation...")
+        result = await pipeline.run_video_animation_pipeline(
+            scene_filter=scene_filter,
+            heroes_only=heroes_only,
+        )
+
+        print(f"\n✅ Generated {result.get('videos_generated', 0)} video clips")
+        print(f"   Actual cost: ${result.get('actual_cost', 0):.2f}")
         return
 
     if len(sys.argv) > 1 and sys.argv[1] == "--run-queue":

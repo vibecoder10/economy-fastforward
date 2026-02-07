@@ -2,7 +2,19 @@
 
 import os
 from anthropic import Anthropic
-from typing import Optional
+from typing import Optional, List, Dict, Tuple
+
+from clients.style_engine import (
+    STYLE_ENGINE,
+    SceneType,
+    CameraRole,
+    SCENE_TYPE_CONFIG,
+    get_documentary_pattern,
+    get_scene_type_for_segment,
+    PROMPT_MIN_WORDS,
+    PROMPT_MAX_WORDS,
+    EXAMPLE_PROMPTS,
+)
 
 
 class AnthropicClient:
@@ -143,78 +155,100 @@ Current Scene Goal: "{scene_beat}\""""
         scene_text: str,
         video_title: str,
     ) -> list[str]:
-        """Generate 6 image prompts for a scene.
-        
-        Uses the Image Prompt Agent from the n8n workflow.
+        """Generate 6 image prompts for a scene using Documentary Animation Prompt System v2.
+
+        Uses the 5-layer architecture with scene type rotation and documentary camera pattern.
         """
-        system_prompt = """You are an expert JSON image prompt creator for a faceless YouTube channel.
+        # Get documentary pattern for 6 images
+        camera_pattern = get_documentary_pattern(6)
 
-STRICT STYLE GUIDELINES:
-The style is "Cinematic Lofi Digital".
-Your output MUST start with "Atmospheric lo-fi 2D digital illustration, 16:9." and strictly follow the structure below.
+        # Build scene type assignments with rotation
+        scene_assignments = []
+        previous_scene_type = None
+        for i in range(6):
+            scene_type, camera_role = get_scene_type_for_segment(i, 6, previous_scene_type)
+            scene_assignments.append({
+                "index": i + 1,
+                "shot_prefix": SCENE_TYPE_CONFIG[scene_type]["shot_prefix"],
+                "camera_role": camera_role.value,
+            })
+            previous_scene_type = scene_type
 
-VISUAL ANCHOR PROTOCOL:
-Frame every prompt using one of these "Anchor Settings":
-* Anchor A: "The Digital Void" – Abstract concepts in dark space.
-* Anchor B: "The Urban Exterior" – Futuristic cityscapes at twilight.
-* Anchor C: "The Data Landscape" – Physical representations of data in deserts.
-* Anchor D: "The Macro Lens" – Symbolic objects in close-up.
+        shot_guidance = "\n".join([
+            f"Image {a['index']}: {a['camera_role'].upper()} → \"{a['shot_prefix']}...\""
+            for a in scene_assignments
+        ])
 
-REQUIRED PROMPT STRUCTURE (Strict Adherence):
-"Atmospheric lo-fi 2D digital illustration, 16:9. Anchor [Letter]: [Anchor Name]. [Primary Visual Description]. [Secondary Details]. Text '[TEXT]' appears in [Color/Style]. The [Concept Name] visualization. Hand-drawn [Specific Elements], soft painterly [Texture/Contrast], [Color A] versus [Color B], cinematic [Mood]."
+        system_prompt = f"""You are a visual director creating documentary-style image prompts for AI animation.
 
-FEW-SHOT EXAMPLES (Use these as style guides for tone and structure):
+=== 5-LAYER PROMPT ARCHITECTURE ===
+Every prompt MUST follow this structure ({PROMPT_MIN_WORDS}-{PROMPT_MAX_WORDS} words total):
 
-Example 1:
-"Atmospheric lo-fi 2D digital illustration, 16:9. Anchor A: Digital Void. Two parallel paths diverge in space. Upper path shows degraded useless pills crumbling into dust labeled 'DONE WRONG: MEDICALLY USELESS' in failure gray. Lower path shows properly stored medications glowing with maintained potency labeled 'KNOWLEDGE WITH PROPER EXECUTION' in mastery gold. Chess pieces symbolize strategic thinking. The execution divide visualization. Hand-drawn gambling with chemically unstable medications, soft painterly proper execution versus worthless knowledge, degradation grays and useless pill dust versus execution mastery golds and maintained potency greens, atmospheric the difference between success and failure, the strategic mastery mood."
+[SHOT TYPE] + [SCENE COMPOSITION] + [FOCAL SUBJECT] + [ENVIRONMENTAL STORYTELLING] + [STYLE_ENGINE + LIGHTING]
 
-Example 2 (The Memory Callback):
-"Atmospheric lo-fi 2D digital illustration, 16:9. Anchor B: Urban Exterior. Silhouette of mother holding child's hand stands at crossroads where currency bills swirl like falling leaves around them. Behind her, fading cityscape dissolves into mist with broken promises text floating away. Wedding ring glows faintly in her palm. Text 'REMEMBER HER' appears in haunting amber. The memory callback visualization. Hand-drawn Venezuelan collapse story returns, soft painterly she never saw it coming, worthless currency grays and dissolving cityscape blues versus wedding ring sacrifice golds and mother's silhouette blacks, cinematic nobody does see it coming, the haunting reminder mood."
+1. SHOT TYPE (5 words): Use the assigned shot prefix
+2. SCENE COMPOSITION (15 words): Physical scene/environment - be CONCRETE
+3. FOCAL SUBJECT (20 words): Main character/object with action/emotion
+4. ENVIRONMENTAL STORYTELLING (30 words): Symbolic objects, visual metaphors, data made physical
+5. STYLE ENGINE + LIGHTING (50 words): "{STYLE_ENGINE}, [warm vs cool color contrast lighting]"
 
-Example 3 (The Pattern Recognition):
-"Atmospheric lo-fi 2D digital illustration, 16:9. Anchor C: Data Landscape. Massive domino chain of economic systems toppling through landscape. Each domino labeled with failed currencies, broken supply chains, vanished permanent systems. Text 'THE QUESTION WAS NEVER WHETHER' appears in inevitable gray. Lightning cracks illuminate pattern of historical collapses repeating. The pattern recognition visualization. Hand-drawn currencies fail supply chains break systems vanish overnight, soft painterly this is not pessimism its pattern recognition, domino toppling grays and system collapse reds versus lightning pattern illumination whites and historical repetition golds, atmospheric economic crisis could happen here, the inevitable pattern mood."
+=== DOCUMENTARY CAMERA PATTERN ===
+{shot_guidance}
 
-OUTPUT FORMAT:
-{
-  "scene": <scene_number>,
-  "prompts": [
-    "prompt 1...",
-    "prompt 2...",
-    "prompt 3...",
-    "prompt 4...",
-    "prompt 5...",
-    "prompt 6..."
-  ]
-}
+=== DO NOT ===
+- Repeat concepts in different words
+- Explain economics (models don't understand abstract concepts)
+- Use vague abstractions
+- Include keyword spam
+- Use double quotes (use single quotes)
 
-IMPORTANT RULES:
-1. Do not use double quotes (") inside the prompt text. Use single quotes for labels.
-2. Every prompt must start with "Atmospheric lo-fi 2D digital illustration, 16:9."
-3. Include the "The [Name] visualization" sentence.
-4. Include "Hand-drawn [elements]" and "soft painterly [elements]" descriptors.
-5. Contrast "Color A versus Color B" in the description.
-"""
-        
-        prompt = f"""Take the scene provided and make 6 JSON image prompts for this scene.
+=== DO ===
+- Concrete nouns: "dollar sign barriers", "crumbling bridge", "glowing neon skyline"
+- Specific colors: "warm amber", "cold blue-white", "muted earth tones with red warning accents"
+- Spatial relationships: "left side dim, right side glowing"
+- Texture words: "paper-cut", "layered", "brushstroke", "film grain"
 
-***
+=== EXAMPLE GOOD PROMPT ===
+"{EXAMPLE_PROMPTS[0]}"
+
+OUTPUT FORMAT (JSON only, no markdown):
+{{
+  "scene": {scene_number},
+  "prompts": ["prompt 1...", "prompt 2...", ...]
+}}"""
+
+        prompt = f"""Create 6 image prompts for this scene following the documentary camera pattern:
+
 Video Title: {video_title}
-Current Scene Number: {scene_number}
-Current Scene Text: {scene_text}
-***
+Scene Number: {scene_number}
 
-Generate exactly 6 unique image prompts that build off each other to make a cohesive storyline. Follow the STRICT STYLE GUIDELINES."""
-        
+SCENE TEXT:
+{scene_text}
+
+SHOT ASSIGNMENTS:
+{shot_guidance}
+
+Generate exactly 6 prompts, {PROMPT_MIN_WORDS}-{PROMPT_MAX_WORDS} words each. Every word must describe something VISUAL."""
+
         response = await self.generate(
             prompt=prompt,
             system_prompt=system_prompt,
             model="claude-sonnet-4-5-20250929",
+            max_tokens=4000,
         )
-        
+
         import json
         clean_response = response.replace("```json", "").replace("```", "").strip()
         data = json.loads(clean_response)
-        return data.get("prompts", [])
+        prompts = data.get("prompts", [])
+
+        # Validate word counts
+        for i, p in enumerate(prompts):
+            word_count = len(p.split())
+            if word_count < PROMPT_MIN_WORDS or word_count > PROMPT_MAX_WORDS:
+                print(f"      ⚠️ Prompt {i+1} word count: {word_count} (target {PROMPT_MIN_WORDS}-{PROMPT_MAX_WORDS})")
+
+        return prompts
     
     async def generate_video_ideas(self, video_dna: dict) -> list[dict]:
         """Generate 3 video concept ideas from analyzed video DNA.
@@ -286,10 +320,10 @@ CRITICAL TASK: You must generate exactly 3 DISTINCT video concepts. Return them 
         video_title: str,
         previous_prompt: str = "",
     ) -> str:
-        """Generate a single image prompt for a specific sentence.
-        
+        """Generate a single image prompt for a specific sentence using Documentary Animation Prompt System v2.
+
         This creates visually coherent, sentence-aligned image prompts.
-        
+
         Args:
             sentence_text: The specific sentence to illustrate
             sentence_index: Position in scene (1-based)
@@ -297,49 +331,49 @@ CRITICAL TASK: You must generate exactly 3 DISTINCT video concepts. Return them 
             scene_number: The scene number
             video_title: Title of the video
             previous_prompt: The previous image prompt (for visual continuity)
-            
+
         Returns:
-            A single image prompt string
+            A single image prompt string ({PROMPT_MIN_WORDS}-{PROMPT_MAX_WORDS} words)
         """
-        system_prompt = """You are an expert image prompt creator for a faceless YouTube channel.
+        # Get scene type and camera role for this sentence
+        scene_type, camera_role = get_scene_type_for_segment(
+            sentence_index - 1, total_sentences, None
+        )
+        shot_prefix = SCENE_TYPE_CONFIG[scene_type]["shot_prefix"]
 
-STRICT STYLE GUIDELINES:
-The style is "Cinematic Lofi Digital".
-Your output MUST start with "Atmospheric lo-fi 2D digital illustration, 16:9."
+        system_prompt = f"""You are a visual director creating documentary-style image prompts for AI animation.
 
-VISUAL ANCHOR PROTOCOL:
-Frame using one of these "Anchor Settings":
-* Anchor A: "The Digital Void" – Abstract concepts in dark space.
-* Anchor B: "The Urban Exterior" – Futuristic cityscapes at twilight.
-* Anchor C: "The Data Landscape" – Physical representations of data in deserts.
-* Anchor D: "The Macro Lens" – Symbolic objects in close-up.
+=== 5-LAYER PROMPT ARCHITECTURE ({PROMPT_MIN_WORDS}-{PROMPT_MAX_WORDS} words) ===
 
-REQUIRED PROMPT STRUCTURE:
-"Atmospheric lo-fi 2D digital illustration, 16:9. Anchor [Letter]: [Anchor Name]. [Primary Visual Description]. [Secondary Details]. Text '[TEXT]' appears in [Color/Style]. The [Concept Name] visualization. Hand-drawn [elements], soft painterly [contrast], [Color A] versus [Color B], cinematic [mood]."
+1. SHOT TYPE: "{shot_prefix}..." (Camera role: {camera_role.value})
+2. SCENE COMPOSITION: Physical scene/environment (be CONCRETE)
+3. FOCAL SUBJECT: Main character/object with action
+4. ENVIRONMENTAL STORYTELLING: Symbolic objects, visual metaphors
+5. STYLE ENGINE + LIGHTING: "{STYLE_ENGINE}, [warm vs cool lighting contrast]"
 
-IMPORTANT:
+=== RULES ===
 - This prompt illustrates ONE SPECIFIC SENTENCE
 - The visual must directly represent what the sentence is saying
-- Maintain visual continuity with the previous image if provided
-- Do not use double quotes inside the prompt, use single quotes
+- Maintain visual continuity with previous image if provided
+- Do not use double quotes (use single quotes)
+- Every word must describe something VISUAL
 
 OUTPUT: Return ONLY the prompt string, no JSON, no explanation."""
 
         continuity_note = ""
         if previous_prompt:
-            continuity_note = f"\n\nPREVIOUS IMAGE (maintain visual continuity):\n{previous_prompt[:200]}..."
+            continuity_note = f"\n\nPREVIOUS IMAGE (maintain continuity):\n{previous_prompt[:150]}..."
 
-        prompt = f"""Create ONE image prompt for this specific sentence:
+        prompt = f"""Create ONE image prompt for this sentence:
 
-VIDEO: {video_title}
-SCENE: {scene_number}
-POSITION: Sentence {sentence_index} of {total_sentences}
+SHOT TYPE: {shot_prefix}...
+CAMERA ROLE: {camera_role.value}
 
 SENTENCE TO ILLUSTRATE:
 "{sentence_text}"
 {continuity_note}
 
-Generate a single prompt that visually represents THIS EXACT SENTENCE."""
+Generate {PROMPT_MIN_WORDS}-{PROMPT_MAX_WORDS} word prompt ending with STYLE_ENGINE + lighting."""
 
         response = await self.generate(
             prompt=prompt,
@@ -347,7 +381,7 @@ Generate a single prompt that visually represents THIS EXACT SENTENCE."""
             model="claude-sonnet-4-5-20250929",
             max_tokens=500,
         )
-        
+
         return response.strip()
 
     async def generate_sentence_level_prompts(
@@ -552,56 +586,54 @@ Return JSON with segments array. Each segment groups sentences by visual concept
         video_title: str,
         previous_prompt: str = "",
     ) -> str:
-        """Generate an image prompt for a semantic segment."""
-        CHANNEL_STYLE = """Atmospheric lo-fi 2D digital illustration style. Hand-drawn aesthetic with soft painterly textures.
-Dark moody backgrounds with glowing accent elements. Muted color palette with strategic bright highlights.
-16:9 aspect ratio composition. Cinematic documentary feel."""
+        """Generate an image prompt for a semantic segment using Documentary Animation Prompt System v2."""
+        # Get scene type and camera role for this segment
+        scene_type, camera_role = get_scene_type_for_segment(
+            segment_index - 1,  # Convert to 0-based
+            total_segments,
+            None  # We don't track previous here, handled in main method
+        )
+        shot_prefix = SCENE_TYPE_CONFIG[scene_type]["shot_prefix"]
 
-        system_prompt = f"""You are a visual director segmenting narration into image concepts.
-Each concept will become ONE image shown while that portion of the narration plays.
+        system_prompt = f"""You are a visual director creating documentary-style image prompts for AI animation.
 
-REQUIRED VISUAL STYLE FOR ALL IMAGES:
-{CHANNEL_STYLE}
+=== 5-LAYER PROMPT ARCHITECTURE ===
+Every prompt MUST follow this structure ({PROMPT_MIN_WORDS}-{PROMPT_MAX_WORDS} words total):
 
-Every image_prompt you generate MUST start with "Atmospheric lo-fi 2D digital illustration, 16:9." and incorporate the hand-drawn, painterly aesthetic described above.
+1. SHOT TYPE: "{shot_prefix}..." (Camera role: {camera_role.value})
+2. SCENE COMPOSITION: Physical scene/environment (be CONCRETE)
+3. FOCAL SUBJECT: Main character/object with action
+4. ENVIRONMENTAL STORYTELLING: Symbolic objects, visual metaphors
+5. STYLE ENGINE + LIGHTING: "{STYLE_ENGINE}, [warm vs cool lighting contrast]"
 
-VISUAL ANCHOR PROTOCOL:
-Frame using one of these "Anchor Settings":
-* Anchor A: "The Digital Void" – Abstract concepts in dark space.
-* Anchor B: "The Urban Exterior" – Futuristic cityscapes at twilight.
-* Anchor C: "The Data Landscape" – Physical representations of data in deserts.
-* Anchor D: "The Macro Lens" – Symbolic objects in close-up.
+=== DO NOT ===
+- Repeat concepts in different words
+- Explain economics (models don't understand abstract concepts)
+- Use vague abstractions
+- Use double quotes (use single quotes)
 
-REQUIRED PROMPT STRUCTURE:
-"Atmospheric lo-fi 2D digital illustration, 16:9. Anchor [Letter]: [Anchor Name]. [Primary Visual Description]. [Secondary Details]. Text '[TEXT]' appears in [Color/Style]. The [Concept Name] visualization. Hand-drawn [elements], soft painterly [contrast], [Color A] versus [Color B], cinematic [mood]."
+=== DO ===
+- Concrete nouns, specific colors, spatial relationships, texture words
+- Every word describes something VISUAL
 
-IMPORTANT:
-- This prompt illustrates a SEMANTIC SEGMENT (may contain multiple sentences)
-- The visual must represent the CORE CONCEPT being explained
-- Maintain visual continuity with the previous image if provided
-- Do not use double quotes inside the prompt, use single quotes
-
-OUTPUT: Return ONLY the prompt string, no JSON, no explanation."""
+OUTPUT: Return ONLY the prompt string (no JSON, no explanation)."""
 
         continuity_note = ""
         if previous_prompt:
-            continuity_note = f"\n\nPREVIOUS IMAGE (maintain visual continuity):\n{previous_prompt[:200]}..."
+            continuity_note = f"\n\nPREVIOUS IMAGE (maintain visual continuity):\n{previous_prompt[:150]}..."
 
-        prompt = f"""Create ONE image prompt for this narrative segment:
+        prompt = f"""Create ONE image prompt for this segment:
 
-VIDEO: {video_title}
-SCENE: {scene_number}
-SEGMENT: {segment_index} of {total_segments}
-
-VISUAL CONCEPT: {visual_concept}
+SHOT TYPE: {shot_prefix}...
+CAMERA ROLE: {camera_role.value}
 
 NARRATION TEXT:
 "{segment_text}"
+
+VISUAL CONCEPT: {visual_concept}
 {continuity_note}
 
-Generate a single prompt that visually represents this segment's core concept.
-
-REMINDER: Start with 'Atmospheric lo-fi 2D digital illustration, 16:9.' then describe the scene with hand-drawn aesthetic, soft painterly textures, moody lighting, and specific color palette. 100+ words."""
+Generate {PROMPT_MIN_WORDS}-{PROMPT_MAX_WORDS} word prompt. End with STYLE_ENGINE + lighting."""
 
         response = await self.generate(
             prompt=prompt,
@@ -678,93 +710,129 @@ Generate a single detailed prompt that adapts the reference style to this video'
         min_count: int,
         max_count: int,
         words_per_segment: int = 20,
+        scene_number: int = 1,
     ) -> list[dict]:
-        """Segment scene text into visual concepts based on duration targets.
+        """Segment scene text into visual concepts using Documentary Animation Prompt System v2.
 
-        This is the duration-based approach that:
-        1. Divides scene text into target_count segments (within min/max range)
-        2. Each segment represents a distinct visual concept
-        3. Returns text chunks and image prompts for each
+        This implementation uses:
+        1. 5-Layer Prompt Architecture (Shot Type → Scene Composition → Focal Subject → Environmental Storytelling → Style Engine + Lighting)
+        2. Scene type rotation (6 types, no consecutive repeats)
+        3. Documentary camera sequence (4-shot pattern)
+        4. Hard word budget (80-120 words per prompt)
 
         Args:
             scene_text: Full scene narration text
             target_count: Target number of segments
             min_count: Minimum allowed segments
             max_count: Maximum allowed segments
+            words_per_segment: Target words per segment for duration
+            scene_number: The scene number (for documentary pattern)
 
         Returns:
             List of dicts with:
                 - text: str (the narration text for this segment)
                 - image_prompt: str (the generated image prompt)
         """
-        CHANNEL_STYLE = """Atmospheric lo-fi 2D digital illustration style. Hand-drawn aesthetic with soft painterly textures.
-Dark moody backgrounds with glowing accent elements. Muted color palette with strategic bright highlights.
-16:9 aspect ratio composition. Cinematic documentary feel."""
+        # Get documentary pattern for this scene
+        camera_pattern = get_documentary_pattern(target_count)
 
-        system_prompt = f"""You are an expert video editor and image prompt creator for a faceless YouTube documentary channel.
+        # Build scene type assignments with rotation
+        scene_type_assignments = []
+        previous_scene_type = None
+        for i in range(target_count):
+            scene_type, camera_role = get_scene_type_for_segment(
+                i, target_count, previous_scene_type
+            )
+            scene_type_assignments.append({
+                "index": i + 1,
+                "scene_type": scene_type,
+                "camera_role": camera_role,
+                "shot_prefix": SCENE_TYPE_CONFIG[scene_type]["shot_prefix"],
+            })
+            previous_scene_type = scene_type
 
-YOUR TASK: Divide this scene narration into {target_count} visual segments (minimum {min_count}, maximum {max_count}).
+        # Format scene type guidance for the prompt
+        scene_type_guidance = "\n".join([
+            f"Segment {a['index']}: {a['camera_role'].value.upper()} → Use \"{a['shot_prefix']}...\""
+            for a in scene_type_assignments
+        ])
 
-CRITICAL DURATION RULE:
-- Each segment MUST be roughly EQUAL in word count
-- Target: Each segment should have approximately {words_per_segment} words (±5 words)
-- This ensures each image displays for 6-10 seconds (not more, not less)
-- DO NOT create segments with vastly different lengths - no segment should exceed {int(words_per_segment * 1.3)} words
+        system_prompt = f"""You are a visual director creating documentary-style image prompts for AI animation.
 
-SEGMENTATION RULES:
-1. Each segment should represent a DISTINCT visual concept
-2. Keep sentences together when they describe the same visual
-3. Create natural breakpoints where the imagery would need to change
-4. BALANCE word counts across all segments - no segment should be 2x longer than another
+YOUR TASK: Divide this scene into {target_count} visual segments ({min_count}-{max_count} range) and create image prompts.
 
-REQUIRED VISUAL STYLE FOR ALL IMAGE PROMPTS:
-{CHANNEL_STYLE}
+=== CRITICAL DURATION RULE ===
+- Each segment: ~{words_per_segment} words (±5 words)
+- Ensures 6-10 second display per image
+- Balance word counts - no segment 2x longer than another
 
-VISUAL ANCHOR PROTOCOL:
-Frame using one of these "Anchor Settings":
-* Anchor A: "The Digital Void" – Abstract concepts in dark space.
-* Anchor B: "The Urban Exterior" – Futuristic cityscapes at twilight.
-* Anchor C: "The Data Landscape" – Physical representations of data in deserts.
-* Anchor D: "The Macro Lens" – Symbolic objects in close-up.
+=== 5-LAYER PROMPT ARCHITECTURE ===
+Every prompt MUST follow this exact structure:
 
-REQUIRED PROMPT STRUCTURE (MUST BE 80-120 WORDS):
-"Atmospheric lo-fi 2D digital illustration, 16:9. Anchor [Letter]: [Anchor Name]. [SPECIFIC VISUAL METAPHOR - name 2-3 concrete objects that symbolize the concept, describe how they interact in the scene]. [SECONDARY DETAILS - add atmospheric elements, lighting, movement]. Text '[KEY PHRASE FROM NARRATION]' appears in [thematic color] [style]. The [concept name] visualization. Hand-drawn [FULL DESCRIPTIVE PHRASE about what's being drawn, not just nouns], soft painterly [FULL PHRASE describing the artistic contrast], [thematic color name] [what it represents] versus [contrasting thematic color] [what it represents], cinematic [FULL PHRASE capturing the key insight or emotional beat], the [mood name] mood."
+[SHOT TYPE] + [SCENE COMPOSITION] + [FOCAL SUBJECT] + [ENVIRONMENTAL STORYTELLING] + [STYLE_ENGINE + LIGHTING]
 
-EXAMPLE OF GOOD PROMPT (follow this level of detail):
-"Atmospheric lo-fi 2D digital illustration, 16:9. Anchor C: Data Landscape. Roblox blocks, TikTok algorithms, Discord servers materialize as stepping stones across economic chasm. Each childhood activity glows revealing hidden preparation for future economy. Text 'IT WAS ALL PREPARATION' appears in revelation gold. Pattern connects seemingly unrelated skills into coherent training path. The hidden training visualization. Hand-drawn childhood games revealing economic preparation, soft painterly every algorithm mastered every server managed, childhood play grays and meaningless activity blacks versus preparation revelation golds and skill connection whites, cinematic they've been training for this economy, the preparation revelation mood."
+1. SHOT TYPE (5 words) — Camera framing. Use the assigned shot prefix.
+2. SCENE COMPOSITION (15 words) — Physical scene/environment. Be CONCRETE: "a small dim apartment", not "economic stagnation"
+3. FOCAL SUBJECT (20 words) — Main character/object with action: "young engineer at desk", "paper-cut workers reaching toward glow"
+4. ENVIRONMENTAL STORYTELLING (30 words) — Symbolic objects, visual metaphors, data made physical
+5. STYLE ENGINE + LIGHTING (50 words) — ALWAYS end with: "{STYLE_ENGINE}, [lighting description using warm vs cool color contrast]"
 
-OUTPUT FORMAT (JSON only, no markdown):
+=== DOCUMENTARY CAMERA PATTERN ===
+{scene_type_guidance}
+
+=== HARD WORD BUDGET: {PROMPT_MIN_WORDS}-{PROMPT_MAX_WORDS} WORDS PER PROMPT ===
+
+=== DO NOT ===
+- Repeat concepts in different words (no "innovation slows" 5 ways)
+- Explain economics (models don't understand "geographic mobility hit record lows")
+- Use vague abstractions ("mobility paralysis", "economic stagnation")
+- Include keyword spam at the end
+- Use double quotes inside prompts (use single quotes)
+
+=== DO ===
+- State each visual concept ONCE with specific imagery
+- Use concrete nouns: "dollar sign barriers", "crumbling bridge", "glowing neon skyline"
+- Include specific colors: "warm amber", "cold blue-white", "muted earth tones with red warning accents"
+- Describe spatial relationships: "left side dim, right side glowing"
+- Include texture words: "paper-cut", "layered", "brushstroke", "film grain"
+
+=== EXAMPLE GOOD PROMPTS ===
+
+Example 1 (WIDE ESTABLISHING - Overhead Map):
+"{EXAMPLE_PROMPTS[0][:300]}..."
+
+Example 2 (MEDIUM HUMAN STORY - Side View):
+"{EXAMPLE_PROMPTS[1][:300]}..."
+
+Example 3 (DATA LANDSCAPE):
+"{EXAMPLE_PROMPTS[3][:300]}..."
+
+=== OUTPUT FORMAT (JSON only, no markdown) ===
 {{
   "segments": [
     {{
       "text": "The narration text for this segment...",
-      "image_prompt": "Atmospheric lo-fi 2D digital illustration, 16:9. Anchor A: Digital Void. [rest of prompt]..."
-    }},
-    {{
-      "text": "Next segment's narration...",
-      "image_prompt": "Atmospheric lo-fi 2D digital illustration, 16:9. Anchor B: Urban Exterior. [rest of prompt]..."
+      "image_prompt": "[SHOT_PREFIX] [scene composition], [focal subject], [environmental storytelling], {STYLE_ENGINE}, [lighting]"
     }}
   ]
-}}
-
-IMPORTANT:
-- Split into exactly {target_count} segments (between {min_count} and {max_count})
-- Each image_prompt MUST start with "Atmospheric lo-fi 2D digital illustration, 16:9."
-- Do not use double quotes inside prompts, use single quotes
-- Maintain visual continuity between segments"""
+}}"""
 
         prompt = f"""Segment this scene narration into {target_count} visual concepts:
 
 SCENE TEXT:
 {scene_text}
 
-Return JSON with segments array. Each segment has text and image_prompt."""
+REQUIRED SHOT ASSIGNMENTS:
+{scene_type_guidance}
+
+Return JSON with segments array. Each segment has text and image_prompt.
+REMEMBER: {PROMPT_MIN_WORDS}-{PROMPT_MAX_WORDS} words per prompt. Every word must describe something VISUAL."""
 
         response = await self.generate(
             prompt=prompt,
             system_prompt=system_prompt,
             model="claude-sonnet-4-5-20250929",
-            max_tokens=3000,
+            max_tokens=4000,
         )
 
         # Parse the response
@@ -772,50 +840,120 @@ Return JSON with segments array. Each segment has text and image_prompt."""
         clean_response = response.replace("```json", "").replace("```", "").strip()
         data = json.loads(clean_response)
 
-        return data.get("segments", [])
+        segments = data.get("segments", [])
+
+        # Validate and log word counts
+        for i, seg in enumerate(segments):
+            prompt_text = seg.get("image_prompt", "")
+            word_count = len(prompt_text.split())
+            if word_count < PROMPT_MIN_WORDS:
+                print(f"      ⚠️ Segment {i+1} prompt too short: {word_count} words (min {PROMPT_MIN_WORDS})")
+            elif word_count > PROMPT_MAX_WORDS:
+                print(f"      ⚠️ Segment {i+1} prompt too long: {word_count} words (max {PROMPT_MAX_WORDS})")
+
+        return segments
 
     async def generate_video_prompt(
         self,
         image_prompt: str,
         sentence_text: str = "",
+        scene_type: str = None,
+        is_hero_shot: bool = False,
     ) -> str:
-        """Generate a concise motion prompt based on the image and narration.
+        """Generate a motion prompt for image-to-video animation.
+
+        Creates a motion-only prompt for Grok Imagine that describes camera movement,
+        subject motion, and atmospheric effects WITHOUT re-describing the scene.
 
         Args:
             image_prompt: The prompt used to generate the static image.
             sentence_text: The narration being spoken during this image (for alignment).
+            scene_type: Scene type string (e.g., "isometric_diorama", "split_screen").
+            is_hero_shot: If True, generate a richer prompt for 10s duration (vs 6s standard).
 
         Returns:
-            A short motion prompt (e.g., "slow zoom on the red smoke, dust particles floating").
+            Motion prompt (max 40 words for 6s, max 55 words for 10s hero).
         """
-        system_prompt = """You are an expert motion prompt engineer for AI video generation (Seed Dance / Kling / Grok Imagine).
-Your task is to create a CONCISE (max 15 words) MOTION PROMPT that:
-1. Animates the key visual elements in the image
-2. ALIGNS with the emotional tone and content of what's being narrated
+        from .style_engine import SceneType, get_camera_motion, get_random_atmospheric_motion
 
-GUIDELINES:
-1. Read both the IMAGE PROMPT and the NARRATION TEXT.
-2. Identify key visual elements (e.g. "rain", "smoke", "crowd", "light", "text").
-3. Choose motion that MATCHES the narration mood (tension = slow zoom in, revelation = camera pan, etc.)
-4. Add subtle cinematic movement - don't overanimate.
-5. Do NOT describe the scene from scratch. Focus on MOVING what is already there.
+        # Determine camera motion based on scene type
+        camera_motion = "Slow push-in"  # default
+        if scene_type:
+            try:
+                st = SceneType(scene_type.lower()) if isinstance(scene_type, str) else scene_type
+                camera_motion = get_camera_motion(st, is_hero_shot)
+            except (ValueError, KeyError):
+                pass
 
-Example:
-- Image: "Digital void with crumbling red pill..."
-- Narration: "The answer should terrify every investor..."
-- Motion: "Slow dramatic zoom on crumbling pill, dust particles floating upwards, ominous lighting shift."
-"""
+        # Word limit based on duration
+        word_limit = 55 if is_hero_shot else 40
+        duration_note = "10-second HERO SHOT" if is_hero_shot else "6-second clip"
+        hero_instruction = """
+For this HERO SHOT (10s), include one additional motion element after the primary subject motion.
+The camera movement can have a secondary phase (e.g., "gradually revealing the full map").""" if is_hero_shot else ""
+
+        system_prompt = f"""You are an expert motion prompt engineer for AI image-to-video generation (Grok Imagine).
+
+CRITICAL RULES:
+1. The source image ALREADY contains the full scene. NEVER re-describe the scene.
+2. You ONLY describe what MOVES and HOW it moves.
+3. Use this exact structure: [Camera movement] + [Primary subject motion] + [Ambient motion]
+4. Maximum {word_limit} words for this {duration_note}.
+5. The art style is lo-fi paper-cut collage. All motion should feel like animated illustrations:
+   - Paper layers shifting with parallax
+   - Figures swaying softly
+   - Gentle, dreamlike movement
+{hero_instruction}
+
+CAMERA MOVEMENT FOR THIS SHOT (use this or adapt slightly):
+{camera_motion}
+
+MOTION VOCABULARY - USE ONLY THESE TYPES:
+
+Figures/People:
+- "figure gently turns head toward..."
+- "silhouette slowly reaches hand forward"
+- "paper-cut figures subtly sway in place"
+- "character's hair and clothes drift as if underwater"
+
+Environmental:
+- "paper layers shift with gentle parallax depth"
+- "leaves and particles drift slowly across frame"
+- "smoke or fog wisps curl through the scene"
+- "light beams slowly sweep across the surface"
+
+Data/Abstract:
+- "flow lines slowly pulse and travel along their paths"
+- "numbers and text elements gently float upward"
+- "graph lines draw themselves left to right"
+- "cracks slowly spread across the surface"
+
+Atmospheric (include at least one):
+- "warm light gently pulses like breathing"
+- "dust particles float through light beams"
+- "subtle film grain flickers"
+- "shadows slowly shift as if clouds passing overhead"
+
+SPEED WORDS - MANDATORY:
+ALWAYS use: slow, subtle, gentle, soft, gradual, drifting, easing
+NEVER use: fast, sudden, dramatic, explosive, rapid, intense, quick
+
+OUTPUT: Return ONLY the motion prompt text. No explanations, no formatting, no labels."""
 
         narration_context = ""
         if sentence_text:
-            narration_context = f"\n\nNarration being spoken: \"{sentence_text}\""
+            narration_context = f"\n\nNarration being spoken during this image: \"{sentence_text}\""
 
-        prompt = f"Image Prompt: {image_prompt}{narration_context}\n\nGenerate motion prompt:"
-        
-        # Use a faster model for simple prompts
+        prompt = f"""Image Prompt (for context, do NOT repeat scene descriptions):
+{image_prompt}
+{narration_context}
+
+Generate a {word_limit}-word-max motion prompt:"""
+
         response = await self.generate(
             prompt=prompt,
             system_prompt=system_prompt,
-            model="claude-sonnet-4-5-20250929", 
+            model="claude-sonnet-4-5-20250929",
+            max_tokens=200,
         )
         return response.strip()

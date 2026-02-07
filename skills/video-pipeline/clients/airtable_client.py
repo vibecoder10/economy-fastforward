@@ -353,6 +353,74 @@ class AirtableClient:
         record = self.images_table.update(record_id, updates)
         return {"id": record["id"], **record["fields"]}
 
+    def update_image_animation_fields(
+        self,
+        record_id: str,
+        shot_type: str = None,
+        is_hero_shot: bool = None,
+        video_clip_url: str = None,
+        animation_status: str = None,
+        video_duration: int = None,
+    ) -> dict:
+        """Update animation-related fields on an image record.
+
+        These fields support the image-to-video animation pipeline.
+
+        Args:
+            record_id: Airtable record ID
+            shot_type: Scene type (e.g., "ISOMETRIC_DIORAMA", "SPLIT_SCREEN")
+            is_hero_shot: Whether this is a hero shot (10s instead of 6s)
+            video_clip_url: Direct URL to the video clip on Google Drive
+            animation_status: "Pending", "Processing", "Done", "Failed"
+            video_duration: Duration in seconds (6 or 10)
+
+        Returns:
+            Updated record dict
+
+        Note:
+            User must add these fields to Airtable Images table:
+            - Shot Type (Single Select)
+            - Hero Shot (Checkbox)
+            - Video Clip URL (URL)
+            - Animation Status (Single Select)
+            - Video Duration (Number)
+        """
+        updates = {}
+
+        if shot_type is not None:
+            updates["Shot Type"] = shot_type
+        if is_hero_shot is not None:
+            updates["Hero Shot"] = is_hero_shot
+        if video_clip_url is not None:
+            updates["Video Clip URL"] = video_clip_url
+        if animation_status is not None:
+            updates["Animation Status"] = animation_status
+        if video_duration is not None:
+            updates["Video Duration"] = video_duration
+
+        if not updates:
+            return {"id": record_id}
+
+        try:
+            record = self.images_table.update(record_id, updates, typecast=True)
+            return {"id": record["id"], **record["fields"]}
+        except Exception as e:
+            error_str = str(e)
+            if "UNKNOWN_FIELD_NAME" in error_str:
+                # Some animation fields might not be added to Airtable yet
+                print(f"      ⚠️ Some animation fields missing in Airtable schema: {error_str[:100]}")
+                # Try with only the core fields that are more likely to exist
+                core_fields = ["Video Clip URL"]
+                core_updates = {k: v for k, v in updates.items() if k in core_fields}
+                if core_updates:
+                    try:
+                        record = self.images_table.update(record_id, core_updates, typecast=True)
+                        return {"id": record["id"], **record["fields"]}
+                    except Exception:
+                        pass
+                return {"id": record_id, "warning": "Animation fields not found in Airtable"}
+            raise
+
     def get_images_ready_for_video_generation(self, video_title: str) -> list[dict]:
         """Get image records that are Done but missing a Video URL."""
         from pyairtable.formulas import match, AND
