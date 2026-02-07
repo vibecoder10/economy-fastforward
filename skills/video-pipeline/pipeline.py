@@ -1508,7 +1508,8 @@ class VideoPipeline:
                     )
                     media_type = "image"
 
-                processed_images.append({
+                # Build base asset
+                asset = {
                     "index": img.get("Image Index", 0),
                     "url": media_url,
                     "type": media_type,  # "image" or "video"
@@ -1516,7 +1517,35 @@ class VideoPipeline:
                     "duration": img.get("Duration (s)", 8.0),
                     "isHeroShot": img.get("Hero Shot", False),
                     "videoDuration": img.get("Video Duration", 6),
-                })
+                }
+
+                # =============================================================
+                # TIMING RECONCILIATION LAYER
+                # Handles mismatch between voiceover duration and clip duration
+                # =============================================================
+                voiceover_duration = asset["duration"]  # from audio timing
+                clip_duration = asset["videoDuration"] if media_type == "video" else None
+
+                if clip_duration is None:
+                    # Static image — use voiceover duration directly (existing behavior)
+                    asset["renderDuration"] = voiceover_duration
+                    asset["playbackRate"] = 1.0
+                elif abs(voiceover_duration - clip_duration) <= 1.5:
+                    # Close enough — adjust playback speed slightly
+                    asset["renderDuration"] = voiceover_duration
+                    asset["playbackRate"] = clip_duration / voiceover_duration if voiceover_duration > 0 else 1.0
+                elif voiceover_duration > clip_duration + 1.5:
+                    # Big gap — hold last frame (or flag for hero shot upgrade)
+                    asset["renderDuration"] = voiceover_duration
+                    asset["playbackRate"] = 1.0
+                    asset["holdLastFrame"] = voiceover_duration - clip_duration
+                else:
+                    # Clip is longer than needed — trim end
+                    asset["renderDuration"] = voiceover_duration
+                    asset["playbackRate"] = 1.0
+                    asset["trimEnd"] = clip_duration - voiceover_duration
+
+                processed_images.append(asset)
 
             scenes.append({
                 "sceneNumber": scene_number,
