@@ -19,56 +19,19 @@ class TrendingIdeaBot:
     Style: Dramatic, urgent, predictive documentary-style content
     """
 
-    # Default search queries organized by category
+    # Focused search queries - top performers only
     DEFAULT_SEARCH_QUERIES = [
-        # Economy & Finance
+        # Core economy topics (high performers)
         "economy collapse 2025",
         "stock market crash prediction",
-        "federal reserve rate cuts",
-        "inflation crisis",
-        "dollar collapse",
-        "recession warning",
-        "bank crisis",
-        "financial crisis prediction",
-
-        # AI & Technology
+        "recession warning 2025",
+        # AI & Tech disruption
         "AI bubble burst",
-        "artificial intelligence takeover",
-        "AI replacing jobs",
-        "tech layoffs 2025",
-        "nvidia stock crash",
-        "AI regulation",
-
-        # Robotics & Automation
-        "robots replacing workers",
-        "humanoid robots",
-        "automation crisis",
-        "tesla optimus robot",
-
-        # Macroeconomics
-        "treasury bond crisis",
-        "national debt crisis",
-        "hyperinflation",
-        "BRICS dollar replacement",
-        "de-dollarization",
-        "central bank digital currency",
-
-        # Geopolitics
+        "AI replacing jobs 2025",
+        # Macro/Geopolitics
+        "dollar collapse prediction",
         "china economy collapse",
-        "tariff war",
-        "world war 3 economy",
-        "sanctions impact",
-        "taiwan invasion economic",
-
-        # Real Estate & Housing
-        "real estate crash 2025",
-        "housing bubble burst",
-        "commercial real estate collapse",
-
-        # Crypto & Alternative Assets
-        "bitcoin crash",
-        "crypto crash prediction",
-        "gold price prediction",
+        "tariff war economic impact",
     ]
 
     # Competitor channels - similar futuristic/documentary style
@@ -110,22 +73,24 @@ class TrendingIdeaBot:
     async def scrape_trending(
         self,
         search_queries: Optional[list[str]] = None,
-        max_results_per_query: int = 10,
+        max_results_per_query: int = 5,
         upload_date: str = "month",
+        top_n: int = 15,
     ) -> dict:
         """Scrape and analyze trending videos.
 
         Args:
             search_queries: Custom search terms, or use defaults
-            max_results_per_query: Videos per search query
+            max_results_per_query: Videos per search query (default 5)
             upload_date: Recency filter - "week", "month", "year"
+            top_n: Only analyze top N videos by views (default 15)
 
         Returns:
             Analysis dict with trends, patterns, top performers
         """
         queries = search_queries or self.DEFAULT_SEARCH_QUERIES
 
-        print(f"\n🔍 SCRAPING: {len(queries)} search queries...")
+        print(f"\n🔍 SCRAPING: {len(queries)} queries × {max_results_per_query} results = ~{len(queries) * max_results_per_query} videos")
 
         videos = await self.apify.search_trending_videos(
             search_queries=queries,
@@ -134,12 +99,20 @@ class TrendingIdeaBot:
             upload_date=upload_date,
         )
 
-        print(f"\n📊 ANALYZING: {len(videos)} total videos...")
+        print(f"  Scraped {len(videos)} videos total")
 
-        analysis = self.apify.analyze_trending_patterns(videos)
+        # Sort by views and keep only top N
+        videos_sorted = sorted(videos, key=lambda x: x.get("views", 0), reverse=True)
+        top_videos = videos_sorted[:top_n]
+
+        print(f"\n📊 ANALYZING: Top {len(top_videos)} videos by views...")
+        for i, v in enumerate(top_videos[:5], 1):
+            print(f"  {i}. {v.get('title', '')[:50]}... ({v.get('views', 0):,} views)")
+
+        analysis = self.apify.analyze_trending_patterns(top_videos)
 
         return {
-            "videos": videos,
+            "videos": top_videos,
             "analysis": analysis,
         }
 
@@ -205,7 +178,8 @@ Return a JSON object with a "concepts" array containing exactly {num_ideas} vide
   "concepts": [
     {{
       "viral_title": "The actual YouTube title",
-      "modeled_from": "Brief note on which pattern/title inspired this",
+      "source_title": "The EXACT title from the trending list that inspired this (copy-paste)",
+      "modeled_from": "WHY this works: What pattern, psychology, or hook makes this title effective. Be specific about the emotional triggers and title mechanics.",
       "thumbnail_visual": "Thumbnail concept description",
       "hook_script": "First 15 seconds of the video script",
       "narrative_logic": {{
@@ -261,15 +235,41 @@ Return ONLY the JSON object, no other text."""
             print(f"    {i}. {title}")
             print(f"       (modeled from: {modeled}...)")
 
-        # Add trending analysis reference and top video URL to each idea
+        # Match each idea's source_title to the scraped videos for URL + metrics
+        all_videos = trending_data.get("videos", [])
         top_videos = analysis.get("top_10_by_views", [])
-        top_video_url = top_videos[0].get("url", "") if top_videos else ""
 
         for idea in ideas:
-            idea["original_dna"] = f"Trending analysis: {len(trending_data.get('videos', []))} videos analyzed"
-            # Add the top-viewed video URL as reference for thumbnail creation
-            if top_video_url:
-                idea["reference_url"] = top_video_url
+            idea["original_dna"] = f"Trending analysis: {len(all_videos)} videos analyzed"
+
+            # Try to find the source video by matching title
+            source_title = idea.get("source_title", "")
+            matched_video = None
+
+            if source_title:
+                # Try exact match first
+                for v in all_videos:
+                    if v.get("title", "").lower() == source_title.lower():
+                        matched_video = v
+                        break
+                # Try partial match if no exact match
+                if not matched_video:
+                    for v in all_videos:
+                        if source_title.lower() in v.get("title", "").lower() or v.get("title", "").lower() in source_title.lower():
+                            matched_video = v
+                            break
+
+            # Attach source video info
+            if matched_video:
+                idea["reference_url"] = matched_video.get("url", "")
+                idea["source_views"] = matched_video.get("views", 0)
+                idea["source_channel"] = matched_video.get("channel", "")
+                print(f"       → Matched to: {matched_video.get('title', '')[:40]}... ({matched_video.get('views', 0):,} views)")
+            elif top_videos:
+                # Fallback to top video if no match
+                idea["reference_url"] = top_videos[0].get("url", "")
+                idea["source_views"] = top_videos[0].get("views", 0)
+                idea["source_channel"] = top_videos[0].get("channel", "")
 
         # Save to Airtable
         if save_to_airtable:

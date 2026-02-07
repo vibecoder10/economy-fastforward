@@ -73,7 +73,8 @@ class AirtableClient:
     
     def create_idea(self, idea_data: dict) -> dict:
         """Create a new idea record."""
-        fields = {
+        # Core fields (always present in Airtable)
+        core_fields = {
             "Status": "Idea Logged",
             "Video Title": idea_data.get("viral_title", ""),
             "Hook Script": idea_data.get("hook_script", ""),
@@ -84,11 +85,29 @@ class AirtableClient:
             "Writer Guidance": idea_data.get("writer_guidance", ""),
             "Original DNA": idea_data.get("original_dna", ""),
         }
-        # Add reference video URL if provided (for thumbnail inspiration)
+
+        # Optional fields (may not exist in Airtable yet)
+        optional_fields = {}
         if idea_data.get("reference_url"):
-            fields["Reference URL"] = idea_data.get("reference_url")
-        record = self.ideas_table.create(fields)
-        return {"id": record["id"], **record["fields"]}
+            optional_fields["Reference URL"] = idea_data.get("reference_url")
+        if idea_data.get("modeled_from"):
+            optional_fields["Idea Reasoning"] = idea_data.get("modeled_from")
+        if idea_data.get("source_views"):
+            optional_fields["Source Views"] = idea_data.get("source_views")
+        if idea_data.get("source_channel"):
+            optional_fields["Source Channel"] = idea_data.get("source_channel")
+
+        # Try with all fields first
+        try:
+            record = self.ideas_table.create({**core_fields, **optional_fields})
+            return {"id": record["id"], **record["fields"]}
+        except Exception as e:
+            if "UNKNOWN_FIELD_NAME" in str(e):
+                # Fallback: save core fields only
+                print(f"    ⚠️ Some fields missing in Airtable, saving core fields only")
+                record = self.ideas_table.create(core_fields)
+                return {"id": record["id"], **record["fields"]}
+            raise
     
     def update_idea_status(self, record_id: str, status: str) -> dict:
         """Update the status of an idea."""

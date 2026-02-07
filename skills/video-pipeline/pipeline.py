@@ -1037,6 +1037,24 @@ class VideoPipeline:
 
         print(f"\n🎬 RENDER BOT: Processing '{self.video_title}'")
 
+        # PRE-FLIGHT CHECK: Regenerate any missing/pending images before render
+        # This prevents render failures due to missing image files
+        print(f"\n  🔍 Pre-flight check: Looking for missing images...")
+        all_images = self.airtable.get_all_images_for_video(self.video_title)
+        pending_images = [img for img in all_images if img.get("Status") == "Pending"]
+        missing_images = [img for img in all_images if not img.get("Image")]
+
+        if pending_images or missing_images:
+            count = len(pending_images) + len(missing_images)
+            print(f"  ⚠️ Found {count} images needing regeneration!")
+            regen_result = await self.regenerate_images()
+            if regen_result.get("regenerated", 0) > 0:
+                print(f"  ✅ Regenerated {regen_result['regenerated']} images before render")
+            else:
+                print(f"  ❌ Failed to regenerate images - render may fail!")
+        else:
+            print(f"  ✅ All {len(all_images)} images present - ready to render")
+
         # Get project folder
         folder = self.google.get_or_create_folder(self.video_title)
         folder_id = folder["id"]
