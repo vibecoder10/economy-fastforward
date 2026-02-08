@@ -1170,11 +1170,8 @@ class VideoPipeline:
                             drive_file = self.google.upload_image(image_content, filename, self.project_folder_id)
                             drive_url = self.google.make_file_public(drive_file["id"])
 
-                            # CHECKPOINT: Update Airtable immediately (include seed for reproducibility)
-                            update_fields = {"Image": [{"url": image_url}], "Status": "Done"}
-                            if False:  # Seed field not in Airtable
-                                update_fields["Seed"] = seed_value
-                            self.airtable.update_record("Images", record_id, update_fields)
+                            # CHECKPOINT: Update Airtable immediately
+                            self.airtable.update_image_record(record_id, image_url)
                             image_count += 1
                             print(f"      ✅ Scene {scene_num}, Image {index} → Done ({image_count}/{total_pending})")
 
@@ -1219,6 +1216,72 @@ class VideoPipeline:
         if failed_count > 0:
             status_msg += f" ({failed_count} failed)"
         self.slack.send_message(status_msg)
+
+        # === RETRY PHASE: Check for any missed/pending images ===
+        max_retries = 3
+        for retry_round in range(max_retries):
+            # Check Airtable for pending images
+            all_images = self.airtable.get_all_images_for_video(self.video_title)
+            pending = [img for img in all_images if img.get("Status") != "Done" and img.get("Image Prompt")]
+            
+            if not pending:
+                print(f"    ✅ All images verified complete")
+                break
+                
+            print(f"    🔄 RETRY {retry_round + 1}/{max_retries}: Found {len(pending)} pending images")
+            self.slack.send_message(f"🔄 Retry {retry_round + 1}: {len(pending)} pending images for *{self.video_title}*")
+            
+            # Group by scene
+            from collections import defaultdict
+            retry_scenes = defaultdict(list)
+            for img in pending:
+                retry_scenes[img.get("Scene", 0)].append(img)
+            
+            retry_count = 0
+            for scene_num in sorted(retry_scenes.keys()):
+                scene_images = retry_scenes[scene_num]
+                print(f"      Scene {scene_num}: {len(scene_images)} pending")
+                
+                for img_record in scene_images:
+                    record_id = img_record["id"]
+                    prompt = img_record.get("Image Prompt", "")
+                    index = img_record.get("Image Index", 0)
+                    
+                    try:
+                        result = await self.image_client.generate_scene_image(prompt)
+                        if result and result.get("image_url"):
+                            image_url = result["image_url"]
+                            
+                            # Download and upload to Drive
+                            image_content = await self.image_client.download_image(image_url)
+                            filename = f"Scene_{str(scene_num).zfill(2)}_{str(index).zfill(2)}.png"
+                            drive_file = self.google.upload_image(image_content, filename, self.project_folder_id)
+                            
+                            # Update Airtable
+                            self.airtable.update_image_record(record_id, image_url)
+                            retry_count += 1
+                            image_count += 1
+                            print(f"        ✅ Scene {scene_num}, Image {index} → Done (retry)")
+                            del image_content
+                        else:
+                            print(f"        ❌ Scene {scene_num}, Image {index} → No image returned")
+                    except Exception as e:
+                        print(f"        ❌ Scene {scene_num}, Image {index} → {e}")
+                    
+                    await asyncio.sleep(2)  # Rate limit
+            
+            print(f"    ✅ Retry {retry_round + 1} complete: {retry_count} recovered")
+            if retry_count == 0:
+                print(f"    ⚠️ No progress made, stopping retries")
+                break
+
+        # Final check
+        final_images = self.airtable.get_all_images_for_video(self.video_title)
+        final_pending = len([img for img in final_images if img.get("Status") != "Done" and img.get("Image Prompt")])
+        if final_pending > 0:
+            self.slack.send_message(f"⚠️ {final_pending} images still pending after retries for *{self.video_title}*")
+        else:
+            self.slack.send_message(f"✅ All {len(final_images)} images complete for *{self.video_title}*")
 
         return {"image_count": image_count, "failed_count": failed_count}
 
@@ -1910,10 +1973,7 @@ class VideoPipeline:
                     drive_url = self.google.make_file_public(drive_file["id"])
 
                     # Update Airtable (include seed for reproducibility)
-                    update_fields = {"Image": [{"url": image_url}], "Status": "Done"}
-                    if False:  # Seed field not in Airtable
-                        update_fields["Seed"] = seed_value
-                    self.airtable.update_record("Images", img_record["id"], update_fields)
+                    self.airtable.update_image_record(record_id, image_url)
                     regenerated += 1
                     print(f"    ✅ Scene {scene_num}, Image {index} → regenerated")
 
