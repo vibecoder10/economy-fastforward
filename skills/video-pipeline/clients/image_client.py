@@ -231,7 +231,18 @@ class ImageClient:
             List of image URLs when complete, or None if failed
         """
         for _ in range(max_attempts):
-            status = await self.get_task_status(task_id)
+            try:
+                status = await self.get_task_status(task_id)
+            except Exception as e:
+                print(f"      ⚠️ Poll error: {e}")
+                await asyncio.sleep(poll_interval)
+                continue
+
+            if not status:
+                print(f"      ⚠️ Empty status response")
+                await asyncio.sleep(poll_interval)
+                continue
+
             data = status.get("data", {})
             
             # Check explicit status or state
