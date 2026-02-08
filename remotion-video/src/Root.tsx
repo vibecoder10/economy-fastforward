@@ -20,6 +20,17 @@ export const RemotionRoot: React.FC = () => {
                     totalScenes: TOTAL_SCENES,
                 }}
             />
+            <Composition
+                id="Scene1Only"
+                component={Main}
+                durationInFrames={90 * FPS}
+                fps={FPS}
+                width={1920}
+                height={1080}
+                defaultProps={{
+                    totalScenes: 1,
+                }}
+            />
         </>
     );
 };
