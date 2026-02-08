@@ -16,6 +16,44 @@ class GoogleDocsUnavailableError(Exception):
     pass
 
 
+def get_direct_drive_url(drive_url: str) -> Optional[str]:
+    """Convert Google Drive view URL to direct download URL.
+
+    CRITICAL: Airtable attachment URLs expire after ~2 hours.
+    Always use Google Drive permanent URLs for image-to-video and Remotion.
+
+    Args:
+        drive_url: Google Drive view URL (e.g., https://drive.google.com/file/d/FILE_ID/view)
+
+    Returns:
+        Direct download URL (e.g., https://drive.google.com/uc?export=download&id=FILE_ID)
+        or None if conversion fails
+    """
+    if not drive_url:
+        return None
+
+    try:
+        # Handle various Drive URL formats
+        if "/file/d/" in drive_url:
+            # Format: https://drive.google.com/file/d/FILE_ID/view
+            file_id = drive_url.split("/file/d/")[1].split("/")[0]
+        elif "id=" in drive_url:
+            # Format: https://drive.google.com/uc?id=FILE_ID or ?export=download&id=FILE_ID
+            file_id = drive_url.split("id=")[1].split("&")[0]
+        elif "/open?id=" in drive_url:
+            # Format: https://drive.google.com/open?id=FILE_ID
+            file_id = drive_url.split("/open?id=")[1].split("&")[0]
+        else:
+            print(f"    ⚠️ Unknown Drive URL format: {drive_url[:50]}...")
+            return None
+
+        return f"https://drive.google.com/uc?export=download&id={file_id}"
+
+    except (IndexError, AttributeError) as e:
+        print(f"    ⚠️ Failed to parse Drive URL: {e}")
+        return None
+
+
 class GoogleClient:
     """Client for Google Drive and Docs APIs."""
 

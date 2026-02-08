@@ -11,14 +11,64 @@ from typing import List, Tuple
 
 
 # =============================================================================
-# STYLE ENGINE CONSTANT - Appended to every image prompt
+# STYLE ENGINE CONSTANTS - 3D Editorial Clay Render Style (v2)
 # =============================================================================
-STYLE_ENGINE = (
-    "Lo-fi 2D digital illustration, paper-cut collage diorama with layered depth, "
-    "visible brushstroke textures, subtle film grain, muted earth tones with selective "
-    "neon accent lighting, tilt-shift miniature depth of field, Studio Ghibli background "
-    "painting meets editorial infographic, 16:9 cinematic composition"
+# CRITICAL: Style engine goes at BEGINNING of prompt, not end.
+# Models weight early tokens more heavily.
+
+STYLE_ENGINE_PREFIX = (
+    "3D editorial conceptual render, monochromatic matte clay figures with no facial "
+    "features, photorealistic materials and studio lighting."
 )
+
+STYLE_ENGINE_SUFFIX = (
+    "Clean studio lighting, shallow depth of field, matte and metallic material "
+    "contrast, cinematic 16:9 composition"
+)
+
+# Legacy constant for backwards compatibility (combines prefix + suffix)
+STYLE_ENGINE = f"{STYLE_ENGINE_PREFIX} {STYLE_ENGINE_SUFFIX}"
+
+# =============================================================================
+# MATERIAL VOCABULARY - For 3D clay render style
+# =============================================================================
+MATERIAL_VOCABULARY = {
+    "premium": [
+        "polished chrome", "brushed gold", "glass dome", "velvet lining",
+        "warm spotlight", "copper accents", "leather with gold foil",
+    ],
+    "institutional": [
+        "brushed steel", "concrete", "frosted glass", "iron chains",
+        "cold fluorescent tubes", "matte black", "industrial pipes",
+    ],
+    "decay": [
+        "rusted iron", "cracked concrete", "leaking dark fluid", "corroded metal",
+        "flickering warning lights", "oxidized copper", "green patina",
+    ],
+    "data": [
+        "frosted glass panels with etched lines", "chrome clipboards",
+        "backlit displays", "embossed metal numerals", "glass gauges with needles",
+    ],
+    "division": [
+        "cracked concrete wall", "glass partition", "steel bars",
+        "lighting shift from cool to warm", "material change concrete to marble",
+    ],
+}
+
+# =============================================================================
+# TEXT RULES FOR SCENE IMAGES - 3D style renders text on surfaces
+# =============================================================================
+TEXT_SURFACE_EXAMPLES = {
+    "dates": "embossed chrome numerals on frosted glass panel",
+    "currency": "stamped chrome price tag",
+    "labels": "gold foil lettering on leather booklet",
+    "stamps": "red rubber stamp impression on matte document",
+    "data": "etched numbers on brushed steel plate",
+}
+
+# Text rules: max 3 elements, max 3 words each, must specify material surface
+TEXT_RULE_WITH_TEXT = "no additional text beyond the specified elements"
+TEXT_RULE_NO_TEXT = "no text, no words, no labels, no signs, no readable text anywhere in the scene"
 
 
 # =============================================================================
@@ -211,31 +261,39 @@ SHOT_TYPE_CAMERA_MOVEMENTS_HERO = {
     "journey_shot": "Slow tracking along the path with gradual depth reveal",
 }
 
-# Motion vocabulary for the paper-cut style (NEVER use fast/sudden/dramatic)
+# Motion vocabulary for 3D clay render style (NEVER use fast/sudden/dramatic)
 MOTION_VOCABULARY = {
     "figures": [
-        "figure gently turns head toward",
-        "silhouette slowly reaches hand forward",
-        "paper-cut figures subtly sway in place",
-        "character's hair and clothes drift as if underwater",
+        "mannequin subtly shifts weight",
+        "mannequin slowly turns body",
+        "mannequin's arm gradually lifts",
+        "mannequin's head gently tilts down",
+        "fingers slowly close around handle",
+    ],
+    "mechanical": [
+        "gears slowly rotate",
+        "pipes subtly vibrate",
+        "gauge needles drift",
+        "lever gradually pulls down",
+        "cracks slowly spread through concrete",
     ],
     "environmental": [
-        "paper layers shift with gentle parallax depth",
-        "leaves and particles drift slowly across frame",
-        "smoke or fog wisps curl through the scene",
-        "light beams slowly sweep across the surface",
+        "dust particles float through light beams",
+        "fog wisps curl between objects",
+        "light slowly sweeps across surface",
+        "reflections shift on chrome",
     ],
     "data": [
-        "flow lines slowly pulse and travel along their paths",
-        "numbers and text elements gently float upward",
-        "graph lines draw themselves left to right",
-        "cracks slowly spread across the surface",
+        "chart bars slowly rise",
+        "trend line gradually draws itself",
+        "numerals gently pulse with light",
+        "glass panel slowly illuminates",
     ],
     "atmospheric": [
-        "warm light gently pulses like breathing",
-        "dust particles float through light beams",
-        "subtle film grain flickers",
-        "shadows slowly shift as if clouds passing overhead",
+        "warm spotlight slowly brightens",
+        "shadows gradually lengthen",
+        "ambient light subtly shifts from cool to warm",
+        "lens flare drifts across frame",
     ],
 }
 
@@ -370,19 +428,21 @@ def get_scene_type_for_segment(
 
 
 # =============================================================================
-# PROMPT WORD BUDGET - Hard limits
+# PROMPT WORD BUDGET - Hard limits (v2: increased for 3D style detail)
 # =============================================================================
-PROMPT_MIN_WORDS = 80
-PROMPT_MAX_WORDS = 120
+PROMPT_MIN_WORDS = 120
+PROMPT_MAX_WORDS = 150
 
-# Word budget breakdown
+# Word budget breakdown (v2: style engine split to prefix/suffix)
 WORD_BUDGET = {
-    "shot_type": 5,
-    "scene_composition": 15,
-    "focal_subject": 20,
-    "environmental_storytelling": 30,
-    "style_engine": 40,  # STYLE_ENGINE constant
-    "lighting": 10,
+    "style_engine_prefix": 18,  # STYLE_ENGINE_PREFIX constant (goes FIRST)
+    "shot_type": 6,
+    "scene_composition": 20,
+    "focal_subject": 25,  # More words needed for mannequin body language
+    "environmental_storytelling": 35,
+    "style_engine_suffix": 15,  # STYLE_ENGINE_SUFFIX constant
+    "lighting": 15,
+    "text_rule": 10,
 }
 
 
@@ -406,83 +466,103 @@ def validate_prompt_length(prompt: str) -> Tuple[bool, int, str]:
 
 
 # =============================================================================
-# 5-LAYER PROMPT ARCHITECTURE
+# 5-LAYER PROMPT ARCHITECTURE (v2: 3D Editorial Clay Render)
 # =============================================================================
 PROMPT_ARCHITECTURE = """
-[SHOT TYPE] + [SCENE COMPOSITION] + [FOCAL SUBJECT] + [ENVIRONMENTAL STORYTELLING] + [STYLE_ENGINE + LIGHTING]
+[STYLE_ENGINE_PREFIX] + [SHOT TYPE] + [SCENE COMPOSITION] + [FOCAL SUBJECT] + [ENVIRONMENTAL STORYTELLING] + [STYLE_ENGINE_SUFFIX + LIGHTING] + [TEXT RULE]
+
+CRITICAL: Style engine prefix goes FIRST - models weight early tokens more heavily.
 
 Layer Definitions:
-1. SHOT TYPE (1 phrase) — Camera framing:
-   - Overhead isometric diorama of...
-   - Side view of...
-   - Extreme wide shot of...
+
+1. STYLE_ENGINE_PREFIX (locked, ~18 words) — ALWAYS FIRST:
+   "3D editorial conceptual render, monochromatic matte clay figures with no facial features, photorealistic materials and studio lighting."
+
+2. SHOT TYPE (1 phrase, ~6 words) — Camera framing:
+   - Isometric overhead view of...
+   - Wide cinematic shot of...
    - Close-up of...
-   - Split-screen showing...
-   - First-person perspective looking at...
+   - Split-screen composition divided by...
+   - Low angle looking up at...
+   - Bird's-eye view of...
 
-2. SCENE COMPOSITION (1-2 phrases) — Physical scene/environment:
-   - Be concrete: "a small dim apartment", "a frozen American landscape as layered paper-cut panorama"
-   - NO abstract concepts. Describe a PLACE.
+3. SCENE COMPOSITION (1-2 phrases, ~20 words) — Physical environment:
+   - Be concrete with MATERIALS: "a brushed steel desk in a concrete office"
+   - Material vocabulary: concrete, brushed steel, chrome, glass, leather, velvet, polished wood, frosted glass, rusted iron, matte black, copper, brass
+   - NO abstract concepts. Describe a PLACE with MATERIALS.
 
-3. FOCAL SUBJECT (1-2 phrases) — Main character/object doing something:
-   - Always include action or state: "young engineer at desk", "paper-cut workers reaching toward glow"
-   - Include emotion: "expression determined but trapped"
+4. FOCAL SUBJECT (1-2 phrases, ~25 words) — Main character/object:
+   - ALWAYS faceless matte gray mannequin: "one faceless matte gray mannequin in a suit"
+   - Specify count and scale: "one mannequin at medium scale", "three mannequin figures"
+   - Include BODY LANGUAGE (critical since no face): "shoulders slumped", "arms reaching upward", "head bowed", "leaning forward confidently"
+   - Include action: "pulling a lever", "walking across", "standing at"
 
-4. ENVIRONMENTAL STORYTELLING (2-3 phrases) — Background/middle-ground details:
-   - Symbolic objects: "stack of apartment listings with crossed-out prices"
-   - Visual metaphors: "broken bridge made of dollar bills spanning a canyon"
-   - Data made physical: "migration flow arrows drawn in pencil fading to nothing"
+5. ENVIRONMENTAL STORYTELLING (2-3 phrases, ~35 words) — Background/middle-ground:
+   - Symbolic objects in appropriate MATERIALS: "chrome checkmark medallions", "rusted padlock icons"
+   - Visual metaphors using physical objects: "cracking pipes leaking dark fluid"
+   - Data made physical: "bar charts on chrome clipboards", "embossed metal numerals"
 
-5. STYLE ENGINE + LIGHTING (locked):
-   - STYLE_ENGINE constant
-   - Scene-specific lighting: "[warm color] representing [concept] vs [cool color] representing [concept]"
+6. STYLE_ENGINE_SUFFIX + LIGHTING (locked + scene-specific, ~30 words):
+   - "Clean studio lighting, shallow depth of field, matte and metallic material contrast, cinematic 16:9 composition"
+   - Plus scene lighting: "[warm description] vs [cool description]"
+
+7. TEXT RULE (always last, ~10 words):
+   - If NO text: "no text, no words, no labels, no signs, no readable text anywhere in the scene"
+   - If text included: "no additional text beyond the specified [elements]"
+   - Text MUST have material surface: "embossed chrome numerals", "stamped metal tag"
+   - Max 3 text elements, max 3 words each
 """
 
 
 # =============================================================================
-# EXAMPLE PROMPTS - Reference for the AI
+# EXAMPLE PROMPTS - Reference for the AI (3D Editorial Clay Render Style)
 # =============================================================================
 EXAMPLE_PROMPTS = [
-    # Image 1 — WIDE ESTABLISHING
+    # Image 1 — WIDE ESTABLISHING (Isometric Diorama)
     (
-        "Overhead isometric map of America as a paper-cut diorama, glowing orange "
-        "clusters marking tech hubs in SF Austin NYC Boston, dim blue-gray everywhere "
-        "else, tiny paper figures crowded in the dim zones reaching toward the glow, "
-        "red price tag barriers ringing each bright cluster, migration flow arrows "
-        "drawn in pencil fading to nothing, warm neon vs cool shadow contrast, "
-        "lo-fi 2D digital illustration with layered paper depth and visible brushstroke "
-        "textures, subtle film grain, tilt-shift miniature depth of field, Studio Ghibli "
-        "background painting meets editorial infographic, 16:9 cinematic wide shot, "
-        "soft volumetric lighting through paper layers"
+        "3D editorial conceptual render, monochromatic matte clay figures with no facial "
+        "features, photorealistic materials and studio lighting. Isometric overhead view "
+        "of a miniature America as a brushed steel diorama, glowing amber clusters marking "
+        "tech hubs, dim concrete zones elsewhere, small matte gray mannequin figures "
+        "crowded in the dim zones arms reaching toward the glow, chrome price tag barriers "
+        "ringing each bright cluster, migration flow lines etched into frosted glass floor. "
+        "Clean studio lighting, shallow depth of field, matte and metallic material contrast, "
+        "cinematic 16:9 composition, warm amber vs cold steel blue lighting contrast, "
+        "no text beyond the etched flow lines"
     ),
     # Image 2 — MEDIUM HUMAN STORY
     (
-        "Side view of a young engineer at a desk in a small dim apartment, laptop screen "
-        "showing job offers from San Francisco, beside her a stack of apartment listings "
-        "with crossed-out prices, through the window a quiet small-town street with bare "
-        "trees, her expression determined but trapped, split warm desk lamp light vs cold "
-        "blue window light, paper-cut collage style with layered depth, muted earth tones "
-        "with selective amber and blue accents, visible hand-drawn linework, lo-fi 2D "
-        "digital illustration with film grain, 16:9 cinematic frame"
+        "3D editorial conceptual render, monochromatic matte clay figures with no facial "
+        "features, photorealistic materials and studio lighting. Medium shot of one matte "
+        "gray mannequin in a wrinkled suit sitting at a brushed steel desk, shoulders "
+        "slumped head bowed, laptop screen glowing with job listings, beside it a stack "
+        "of documents on cracked concrete surface, through frosted glass window a dim "
+        "cityscape. Clean studio lighting, shallow depth of field, matte and metallic "
+        "material contrast, cinematic 16:9 composition, warm desk lamp amber vs cold "
+        "window blue-gray lighting, no text no words no labels"
     ),
     # Image 3 — CLOSE-UP VIGNETTE
     (
-        "Close-up of hands holding a crumpled apartment rejection letter, calculator beside "
-        "them showing $4200 monthly payment, wedding ring on finger suggesting family stakes, "
-        "warm amber light from above casting shadows across the paper textures, shallow "
-        "depth of field with blurred background of packed moving boxes never opened, "
-        "paper-cut collage with visible torn edges, muted earth tones with red accent on "
-        "the rejection stamp, lo-fi 2D digital illustration with brushstroke texture and "
-        "film grain, 16:9"
+        "3D editorial conceptual render, monochromatic matte clay figures with no facial "
+        "features, photorealistic materials and studio lighting. Close-up of matte gray "
+        "mannequin hands gripping edges of a chrome desk, knuckles tensed showing strain, "
+        "on the desk surface stamped metal rejection letter with red 'DENIED' impression, "
+        "chrome calculator displaying '$4200', shallow depth of field blurring background "
+        "of stacked moving boxes. Clean studio lighting, matte and metallic material "
+        "contrast, cinematic 16:9 composition, warm amber overhead vs cool chrome "
+        "reflections, no additional text beyond the specified elements"
     ),
     # Image 4 — DATA LANDSCAPE
     (
-        "A broken bridge made of dollar bills spanning a deep canyon, left cliff edge "
-        "labeled TALENT with crowds of paper-cut workers looking across, right cliff "
-        "labeled OPPORTUNITY with gleaming miniature city skyline and cranes, bridge "
-        "crumbling in the middle with price tags falling into the void, equation fragments "
-        "floating in dusty air, isometric perspective with tilt-shift blur at edges, muted "
-        "palette with red warning accents on the fracture point, lo-fi 2D digital "
-        "illustration with film grain and brushstroke overlay, 16:9 cinematic composition"
+        "3D editorial conceptual render, monochromatic matte clay figures with no facial "
+        "features, photorealistic materials and studio lighting. Wide shot of a broken "
+        "chrome bridge spanning a dark void, left cliff of cracked concrete with matte "
+        "gray mannequin figures shoulders slumped looking across, right cliff of polished "
+        "marble with gleaming glass buildings and copper cranes, bridge fractured in the "
+        "middle with chrome price tags falling into darkness, embossed metal numerals "
+        "'36T' on a steel plate at the fracture point. Clean studio lighting, shallow "
+        "depth of field, matte and metallic material contrast, cinematic 16:9 composition, "
+        "cold concrete gray on left vs warm golden glow on right, no additional text "
+        "beyond the specified numerals"
     ),
 ]

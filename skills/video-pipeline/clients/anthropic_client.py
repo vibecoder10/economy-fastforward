@@ -6,6 +6,11 @@ from typing import Optional, List, Dict, Tuple
 
 from clients.style_engine import (
     STYLE_ENGINE,
+    STYLE_ENGINE_PREFIX,
+    STYLE_ENGINE_SUFFIX,
+    MATERIAL_VOCABULARY,
+    TEXT_RULE_WITH_TEXT,
+    TEXT_RULE_NO_TEXT,
     SceneType,
     CameraRole,
     SCENE_TYPE_CONFIG,
@@ -223,9 +228,10 @@ Current Scene Goal: "{scene_beat}\""""
         scene_text: str,
         video_title: str,
     ) -> list[str]:
-        """Generate 6 image prompts for a scene using Documentary Animation Prompt System v2.
+        """Generate 6 image prompts for a scene using 3D Editorial Clay Render style.
 
         Uses the 5-layer architecture with scene type rotation and documentary camera pattern.
+        Style engine goes at BEGINNING of prompt (models weight early tokens more heavily).
         """
         # Get documentary pattern for 6 images
         camera_pattern = get_documentary_pattern(6)
@@ -247,34 +253,58 @@ Current Scene Goal: "{scene_beat}\""""
             for a in scene_assignments
         ])
 
-        system_prompt = f"""You are a visual director creating documentary-style image prompts for AI animation.
+        system_prompt = f"""You are a visual director creating 3D editorial clay render image prompts for AI animation.
 
-=== 5-LAYER PROMPT ARCHITECTURE ===
-Every prompt MUST follow this structure ({PROMPT_MIN_WORDS}-{PROMPT_MAX_WORDS} words total):
+=== STYLE: 3D EDITORIAL CONCEPTUAL RENDER ===
+Monochromatic matte clay mannequin figures (faceless) in photorealistic material environments.
+Think The Economist meets Pixar meets industrial design.
 
-[SHOT TYPE] + [SCENE COMPOSITION] + [FOCAL SUBJECT] + [ENVIRONMENTAL STORYTELLING] + [STYLE_ENGINE + LIGHTING]
+=== 5-LAYER PROMPT ARCHITECTURE ({PROMPT_MIN_WORDS}-{PROMPT_MAX_WORDS} words) ===
+CRITICAL: Style engine prefix goes FIRST - models weight early tokens more heavily.
 
-1. SHOT TYPE (5 words): Use the assigned shot prefix
-2. SCENE COMPOSITION (15 words): Physical scene/environment - be CONCRETE
-3. FOCAL SUBJECT (20 words): Main character/object with action/emotion
-4. ENVIRONMENTAL STORYTELLING (30 words): Symbolic objects, visual metaphors, data made physical
-5. STYLE ENGINE + LIGHTING (50 words): "{STYLE_ENGINE}, [warm vs cool color contrast lighting]"
+[STYLE_ENGINE_PREFIX] + [SHOT TYPE] + [SCENE COMPOSITION] + [FOCAL SUBJECT] + [ENVIRONMENTAL STORYTELLING] + [STYLE_ENGINE_SUFFIX + LIGHTING] + [TEXT RULE]
+
+1. STYLE_ENGINE_PREFIX (always first, ~18 words):
+   "{STYLE_ENGINE_PREFIX}"
+
+2. SHOT TYPE (~6 words): Use the assigned shot prefix
+
+3. SCENE COMPOSITION (~20 words): Physical environment with MATERIALS
+   - Material vocabulary: concrete, brushed steel, chrome, glass, leather, velvet, frosted glass, rusted iron, matte black, copper, brass
+   - Be concrete: "a brushed steel desk in a concrete office"
+
+4. FOCAL SUBJECT (~25 words): Faceless matte gray mannequin
+   - ALWAYS: "one/three matte gray mannequin(s) in a suit"
+   - Specify count and scale: "one mannequin at medium scale"
+   - Include BODY LANGUAGE (no faces): "shoulders slumped", "arms reaching upward", "head bowed"
+   - Include action: "pulling a lever", "walking across"
+
+5. ENVIRONMENTAL STORYTELLING (~35 words): Background details in appropriate materials
+   - Symbolic objects: "chrome checkmark medallions", "rusted padlock icons"
+   - Data made physical: "bar charts on chrome clipboards", "embossed metal numerals"
+
+6. STYLE_ENGINE_SUFFIX + LIGHTING (~30 words):
+   "{STYLE_ENGINE_SUFFIX}, [warm description] vs [cool description]"
+
+7. TEXT RULE (always last):
+   - If no text: "{TEXT_RULE_NO_TEXT}"
+   - If text (max 3 elements, 3 words each): "{TEXT_RULE_WITH_TEXT}"
+   - Text MUST have material surface: "embossed chrome numerals on glass"
 
 === DOCUMENTARY CAMERA PATTERN ===
 {shot_guidance}
 
 === DO NOT ===
-- Repeat concepts in different words
-- Explain economics (models don't understand abstract concepts)
-- Use vague abstractions
-- Include keyword spam
+- Use paper-cut, illustration, or 2D style references
+- Include facial expressions (mannequins are faceless)
+- Explain economics abstractly
 - Use double quotes (use single quotes)
 
 === DO ===
-- Concrete nouns: "dollar sign barriers", "crumbling bridge", "glowing neon skyline"
-- Specific colors: "warm amber", "cold blue-white", "muted earth tones with red warning accents"
-- Spatial relationships: "left side dim, right side glowing"
-- Texture words: "paper-cut", "layered", "brushstroke", "film grain"
+- Describe materials: chrome, steel, concrete, glass, leather
+- Specify mannequin body language for emotion
+- Use spatial relationships: "left side dark concrete, right side warm polished marble"
+- Include material contrasts: matte vs metallic, warm vs cold
 
 === EXAMPLE GOOD PROMPT ===
 "{EXAMPLE_PROMPTS[0]}"
@@ -285,7 +315,7 @@ OUTPUT FORMAT (JSON only, no markdown):
   "prompts": ["prompt 1...", "prompt 2...", ...]
 }}"""
 
-        prompt = f"""Create 6 image prompts for this scene following the documentary camera pattern:
+        prompt = f"""Create 6 image prompts for this scene using 3D editorial clay render style:
 
 Video Title: {video_title}
 Scene Number: {scene_number}
@@ -296,7 +326,9 @@ SCENE TEXT:
 SHOT ASSIGNMENTS:
 {shot_guidance}
 
-Generate exactly 6 prompts, {PROMPT_MIN_WORDS}-{PROMPT_MAX_WORDS} words each. Every word must describe something VISUAL."""
+Generate exactly 6 prompts, {PROMPT_MIN_WORDS}-{PROMPT_MAX_WORDS} words each.
+Every prompt MUST start with the style engine prefix.
+Every word must describe something VISUAL."""
 
         response = await self.generate(
             prompt=prompt,
@@ -388,7 +420,7 @@ CRITICAL TASK: You must generate exactly 3 DISTINCT video concepts. Return them 
         video_title: str,
         previous_prompt: str = "",
     ) -> str:
-        """Generate a single image prompt for a specific sentence using Documentary Animation Prompt System v2.
+        """Generate a single image prompt for a sentence using 3D Editorial Clay Render style.
 
         This creates visually coherent, sentence-aligned image prompts.
 
@@ -409,22 +441,28 @@ CRITICAL TASK: You must generate exactly 3 DISTINCT video concepts. Return them 
         )
         shot_prefix = SCENE_TYPE_CONFIG[scene_type]["shot_prefix"]
 
-        system_prompt = f"""You are a visual director creating documentary-style image prompts for AI animation.
+        system_prompt = f"""You are a visual director creating 3D editorial clay render image prompts.
 
-=== 5-LAYER PROMPT ARCHITECTURE ({PROMPT_MIN_WORDS}-{PROMPT_MAX_WORDS} words) ===
+=== STYLE: 3D EDITORIAL CONCEPTUAL RENDER ===
+Monochromatic matte clay mannequin figures (faceless) in photorealistic material environments.
 
-1. SHOT TYPE: "{shot_prefix}..." (Camera role: {camera_role.value})
-2. SCENE COMPOSITION: Physical scene/environment (be CONCRETE)
-3. FOCAL SUBJECT: Main character/object with action
-4. ENVIRONMENTAL STORYTELLING: Symbolic objects, visual metaphors
-5. STYLE ENGINE + LIGHTING: "{STYLE_ENGINE}, [warm vs cool lighting contrast]"
+=== 5-LAYER ARCHITECTURE ({PROMPT_MIN_WORDS}-{PROMPT_MAX_WORDS} words) ===
+CRITICAL: Style engine prefix goes FIRST.
+
+1. STYLE_ENGINE_PREFIX (always first): "{STYLE_ENGINE_PREFIX}"
+2. SHOT TYPE: "{shot_prefix}..." (Camera role: {camera_role.value})
+3. SCENE COMPOSITION: Physical environment with MATERIALS (concrete, chrome, glass, steel)
+4. FOCAL SUBJECT: Matte gray mannequin with BODY LANGUAGE (no face expressions)
+5. ENVIRONMENTAL STORYTELLING: Symbolic objects in appropriate materials
+6. STYLE_ENGINE_SUFFIX + LIGHTING: "{STYLE_ENGINE_SUFFIX}, [warm vs cool contrast]"
+7. TEXT RULE: "{TEXT_RULE_NO_TEXT}" (or specify max 3 elements with surfaces)
 
 === RULES ===
 - This prompt illustrates ONE SPECIFIC SENTENCE
-- The visual must directly represent what the sentence is saying
-- Maintain visual continuity with previous image if provided
-- Do not use double quotes (use single quotes)
-- Every word must describe something VISUAL
+- Visual must directly represent what the sentence says
+- Maintain visual continuity with previous image
+- Use material vocabulary: chrome, steel, concrete, glass, leather
+- Mannequin body language conveys emotion (shoulders slumped, arms reaching, head bowed)
 
 OUTPUT: Return ONLY the prompt string, no JSON, no explanation."""
 
@@ -432,7 +470,7 @@ OUTPUT: Return ONLY the prompt string, no JSON, no explanation."""
         if previous_prompt:
             continuity_note = f"\n\nPREVIOUS IMAGE (maintain continuity):\n{previous_prompt[:150]}..."
 
-        prompt = f"""Create ONE image prompt for this sentence:
+        prompt = f"""Create ONE image prompt for this sentence using 3D clay render style:
 
 SHOT TYPE: {shot_prefix}...
 CAMERA ROLE: {camera_role.value}
@@ -441,7 +479,8 @@ SENTENCE TO ILLUSTRATE:
 "{sentence_text}"
 {continuity_note}
 
-Generate {PROMPT_MIN_WORDS}-{PROMPT_MAX_WORDS} word prompt ending with STYLE_ENGINE + lighting."""
+Generate {PROMPT_MIN_WORDS}-{PROMPT_MAX_WORDS} word prompt.
+Start with style engine prefix, end with style engine suffix + lighting + text rule."""
 
         response = await self.generate(
             prompt=prompt,
@@ -654,7 +693,7 @@ Return JSON with segments array. Each segment groups sentences by visual concept
         video_title: str,
         previous_prompt: str = "",
     ) -> str:
-        """Generate an image prompt for a semantic segment using Documentary Animation Prompt System v2."""
+        """Generate an image prompt for a semantic segment using 3D Editorial Clay Render style."""
         # Get scene type and camera role for this segment
         scene_type, camera_role = get_scene_type_for_segment(
             segment_index - 1,  # Convert to 0-based
@@ -663,25 +702,30 @@ Return JSON with segments array. Each segment groups sentences by visual concept
         )
         shot_prefix = SCENE_TYPE_CONFIG[scene_type]["shot_prefix"]
 
-        system_prompt = f"""You are a visual director creating documentary-style image prompts for AI animation.
+        system_prompt = f"""You are a visual director creating 3D editorial clay render image prompts.
 
-=== 5-LAYER PROMPT ARCHITECTURE ===
-Every prompt MUST follow this structure ({PROMPT_MIN_WORDS}-{PROMPT_MAX_WORDS} words total):
+=== STYLE: 3D EDITORIAL CONCEPTUAL RENDER ===
+Monochromatic matte clay mannequin figures (faceless) in photorealistic material environments.
 
-1. SHOT TYPE: "{shot_prefix}..." (Camera role: {camera_role.value})
-2. SCENE COMPOSITION: Physical scene/environment (be CONCRETE)
-3. FOCAL SUBJECT: Main character/object with action
-4. ENVIRONMENTAL STORYTELLING: Symbolic objects, visual metaphors
-5. STYLE ENGINE + LIGHTING: "{STYLE_ENGINE}, [warm vs cool lighting contrast]"
+=== 5-LAYER ARCHITECTURE ({PROMPT_MIN_WORDS}-{PROMPT_MAX_WORDS} words) ===
+CRITICAL: Style engine prefix goes FIRST.
+
+1. STYLE_ENGINE_PREFIX (always first): "{STYLE_ENGINE_PREFIX}"
+2. SHOT TYPE: "{shot_prefix}..." (Camera role: {camera_role.value})
+3. SCENE COMPOSITION: Physical environment with MATERIALS
+4. FOCAL SUBJECT: Matte gray mannequin with BODY LANGUAGE
+5. ENVIRONMENTAL STORYTELLING: Symbolic objects in materials
+6. STYLE_ENGINE_SUFFIX + LIGHTING: "{STYLE_ENGINE_SUFFIX}, [warm vs cool contrast]"
+7. TEXT RULE: "{TEXT_RULE_NO_TEXT}"
 
 === DO NOT ===
-- Repeat concepts in different words
-- Explain economics (models don't understand abstract concepts)
-- Use vague abstractions
+- Use paper-cut, illustration, or 2D references
+- Include facial expressions (mannequins are faceless)
 - Use double quotes (use single quotes)
 
 === DO ===
-- Concrete nouns, specific colors, spatial relationships, texture words
+- Material vocabulary: chrome, steel, concrete, glass, leather
+- Mannequin body language: shoulders slumped, arms reaching, head bowed
 - Every word describes something VISUAL
 
 OUTPUT: Return ONLY the prompt string (no JSON, no explanation)."""
@@ -690,7 +734,7 @@ OUTPUT: Return ONLY the prompt string (no JSON, no explanation)."""
         if previous_prompt:
             continuity_note = f"\n\nPREVIOUS IMAGE (maintain visual continuity):\n{previous_prompt[:150]}..."
 
-        prompt = f"""Create ONE image prompt for this segment:
+        prompt = f"""Create ONE image prompt for this segment using 3D clay render style:
 
 SHOT TYPE: {shot_prefix}...
 CAMERA ROLE: {camera_role.value}
@@ -701,7 +745,8 @@ NARRATION TEXT:
 VISUAL CONCEPT: {visual_concept}
 {continuity_note}
 
-Generate {PROMPT_MIN_WORDS}-{PROMPT_MAX_WORDS} word prompt. End with STYLE_ENGINE + lighting."""
+Generate {PROMPT_MIN_WORDS}-{PROMPT_MAX_WORDS} word prompt.
+Start with style engine prefix, end with style engine suffix + lighting + text rule."""
 
         response = await self.generate(
             prompt=prompt,
@@ -782,13 +827,14 @@ Generate {PROMPT_MIN_WORDS}-{PROMPT_MAX_WORDS} word prompt. End with STYLE_ENGIN
         words_per_segment: int = 20,
         scene_number: int = 1,
     ) -> list[dict]:
-        """Segment scene text into visual concepts using Documentary Animation Prompt System v2.
+        """Segment scene text into visual concepts using 3D Editorial Clay Render style.
 
         This implementation uses:
-        1. 5-Layer Prompt Architecture (Shot Type → Scene Composition → Focal Subject → Environmental Storytelling → Style Engine + Lighting)
+        1. 5-Layer Prompt Architecture with style engine prefix FIRST
         2. Scene type rotation (6 types, no consecutive repeats)
         3. Documentary camera sequence (4-shot pattern)
-        4. Hard word budget (80-120 words per prompt)
+        4. Hard word budget (120-150 words per prompt)
+        5. Faceless matte gray mannequins with body language
 
         Args:
             scene_text: Full scene narration text
@@ -802,6 +848,7 @@ Generate {PROMPT_MIN_WORDS}-{PROMPT_MAX_WORDS} word prompt. End with STYLE_ENGIN
             List of dicts with:
                 - text: str (the narration text for this segment)
                 - image_prompt: str (the generated image prompt)
+                - shot_type: str (the shot type for animation)
         """
         # Get documentary pattern for this scene
         camera_pattern = get_documentary_pattern(target_count)
@@ -827,79 +874,96 @@ Generate {PROMPT_MIN_WORDS}-{PROMPT_MAX_WORDS} word prompt. End with STYLE_ENGIN
             for a in scene_type_assignments
         ])
 
-        system_prompt = f"""You are a visual director creating documentary-style image prompts for AI animation.
+        system_prompt = f"""You are a visual director creating 3D editorial clay render image prompts for AI animation.
 
 YOUR TASK: Divide this scene into {target_count} visual segments ({min_count}-{max_count} range) and create image prompts.
+
+=== STYLE: 3D EDITORIAL CONCEPTUAL RENDER ===
+Monochromatic matte clay mannequin figures (faceless) in photorealistic material environments.
+Think The Economist meets Pixar meets industrial design.
 
 === CRITICAL DURATION RULE ===
 - Each segment: ~{words_per_segment} words (±5 words)
 - Ensures 6-10 second display per image
 - Balance word counts - no segment 2x longer than another
 
-=== 5-LAYER PROMPT ARCHITECTURE ===
-Every prompt MUST follow this exact structure:
+=== 5-LAYER PROMPT ARCHITECTURE ({PROMPT_MIN_WORDS}-{PROMPT_MAX_WORDS} words) ===
+CRITICAL: Style engine prefix goes FIRST - models weight early tokens more heavily.
 
-[SHOT TYPE] + [SCENE COMPOSITION] + [FOCAL SUBJECT] + [ENVIRONMENTAL STORYTELLING] + [STYLE_ENGINE + LIGHTING]
+[STYLE_ENGINE_PREFIX] + [SHOT TYPE] + [SCENE COMPOSITION] + [FOCAL SUBJECT] + [ENVIRONMENTAL STORYTELLING] + [STYLE_ENGINE_SUFFIX + LIGHTING] + [TEXT RULE]
 
-1. SHOT TYPE (5 words) — Camera framing. Use the assigned shot prefix.
-2. SCENE COMPOSITION (15 words) — Physical scene/environment. Be CONCRETE: "a small dim apartment", not "economic stagnation"
-3. FOCAL SUBJECT (20 words) — Main character/object with action: "young engineer at desk", "paper-cut workers reaching toward glow"
-4. ENVIRONMENTAL STORYTELLING (30 words) — Symbolic objects, visual metaphors, data made physical
-5. STYLE ENGINE + LIGHTING (50 words) — ALWAYS end with: "{STYLE_ENGINE}, [lighting description using warm vs cool color contrast]"
+1. STYLE_ENGINE_PREFIX (always first, ~18 words):
+   "{STYLE_ENGINE_PREFIX}"
+
+2. SHOT TYPE (~6 words): Use the assigned shot prefix
+
+3. SCENE COMPOSITION (~20 words): Physical environment with MATERIALS
+   - Material vocabulary: concrete, brushed steel, chrome, glass, leather, velvet, frosted glass, rusted iron, matte black, copper, brass
+   - Be CONCRETE: "a brushed steel desk in a concrete office", NOT "economic stagnation"
+
+4. FOCAL SUBJECT (~25 words): Faceless matte gray mannequin
+   - ALWAYS: "one/three matte gray mannequin(s) in a suit"
+   - Specify count and scale: "one mannequin at medium scale"
+   - Include BODY LANGUAGE (no faces): "shoulders slumped", "arms reaching upward", "head bowed", "leaning forward"
+   - Include action: "pulling a lever", "walking across"
+
+5. ENVIRONMENTAL STORYTELLING (~35 words): Background details in appropriate materials
+   - Symbolic objects: "chrome checkmark medallions", "rusted padlock icons", "red warning lights"
+   - Data made physical: "bar charts on chrome clipboards", "embossed metal numerals '36T'"
+
+6. STYLE_ENGINE_SUFFIX + LIGHTING (~30 words):
+   "{STYLE_ENGINE_SUFFIX}, [warm description] vs [cool description]"
+
+7. TEXT RULE (always last):
+   - Default: "{TEXT_RULE_NO_TEXT}"
+   - If text needed (max 3 elements, 3 words each): specify material surface "embossed chrome numerals"
 
 === DOCUMENTARY CAMERA PATTERN ===
 {scene_type_guidance}
 
-=== HARD WORD BUDGET: {PROMPT_MIN_WORDS}-{PROMPT_MAX_WORDS} WORDS PER PROMPT ===
-
 === DO NOT ===
-- Repeat concepts in different words (no "innovation slows" 5 ways)
-- Explain economics (models don't understand "geographic mobility hit record lows")
-- Use vague abstractions ("mobility paralysis", "economic stagnation")
-- Include keyword spam at the end
+- Use paper-cut, illustration, lo-fi, or 2D style references
+- Include facial expressions (mannequins are faceless)
+- Explain economics abstractly
 - Use double quotes inside prompts (use single quotes)
 
 === DO ===
-- State each visual concept ONCE with specific imagery
-- Use concrete nouns: "dollar sign barriers", "crumbling bridge", "glowing neon skyline"
-- Include specific colors: "warm amber", "cold blue-white", "muted earth tones with red warning accents"
-- Describe spatial relationships: "left side dim, right side glowing"
-- Include texture words: "paper-cut", "layered", "brushstroke", "film grain"
+- Describe materials: chrome, steel, concrete, glass, leather, velvet
+- Specify mannequin body language for emotion
+- Use spatial relationships: "left side dark concrete, right side warm polished marble"
+- Include material contrasts: matte vs metallic, warm vs cold
 
 === EXAMPLE GOOD PROMPTS ===
 
-Example 1 (WIDE ESTABLISHING - Overhead Map):
-"{EXAMPLE_PROMPTS[0][:300]}..."
+Example 1 (WIDE ESTABLISHING):
+"{EXAMPLE_PROMPTS[0][:350]}..."
 
-Example 2 (MEDIUM HUMAN STORY - Side View):
-"{EXAMPLE_PROMPTS[1][:300]}..."
-
-Example 3 (DATA LANDSCAPE):
-"{EXAMPLE_PROMPTS[3][:300]}..."
+Example 2 (MEDIUM HUMAN STORY):
+"{EXAMPLE_PROMPTS[1][:350]}..."
 
 === OUTPUT FORMAT (JSON only, no markdown) ===
 {{
   "segments": [
     {{
       "text": "The narration text for this segment...",
-      "image_prompt": "[SHOT_PREFIX] [scene composition], [focal subject], [environmental storytelling], {STYLE_ENGINE}, [lighting]",
+      "image_prompt": "{STYLE_ENGINE_PREFIX} [shot type] [scene composition], [focal subject with body language], [environmental storytelling], {STYLE_ENGINE_SUFFIX}, [lighting], {TEXT_RULE_NO_TEXT}",
       "shot_type": "wide_establishing"
     }}
   ]
 }}
 
-=== SHOT TYPE VALUES (pick one per segment based on camera framing) ===
+=== SHOT TYPE VALUES ===
 - wide_establishing (aerial, overhead, establishing shots)
 - isometric_diorama (3/4 angle miniature world view)
-- medium_human_story (human subject at medium distance)
+- medium_human_story (mannequin subject at medium distance)
 - close_up_vignette (tight focus on object/detail)
-- data_landscape (charts, graphs, data visualization)
+- data_landscape (charts, graphs as physical objects)
 - split_screen (divided frame comparison)
 - pull_back_reveal (starts close, reveals wider context)
 - overhead_map (top-down view)
 - journey_shot (movement through space)"""
 
-        prompt = f"""Segment this scene narration into {target_count} visual concepts:
+        prompt = f"""Segment this scene narration into {target_count} visual concepts using 3D clay render style:
 
 SCENE TEXT:
 {scene_text}
@@ -908,6 +972,7 @@ REQUIRED SHOT ASSIGNMENTS:
 {scene_type_guidance}
 
 Return JSON with segments array. Each segment has text, image_prompt, and shot_type.
+CRITICAL: Every prompt MUST start with "{STYLE_ENGINE_PREFIX}"
 REMEMBER: {PROMPT_MIN_WORDS}-{PROMPT_MAX_WORDS} words per prompt. Every word must describe something VISUAL."""
 
         response = await self.generate(
@@ -994,10 +1059,10 @@ CRITICAL RULES:
 2. You ONLY describe what MOVES and HOW it moves.
 3. Use this exact structure: [Camera movement] + [Primary subject motion] + [Ambient motion]
 4. Maximum {word_limit} words for this {duration_note}.
-5. The art style is lo-fi paper-cut collage. All motion should feel like animated illustrations:
-   - Paper layers shifting with parallax
-   - Figures swaying softly
-   - Gentle, dreamlike movement
+5. The art style is 3D editorial clay render with mannequin figures. Motion should feel subtle and mechanical:
+   - Mannequins shifting weight, tilting heads, lifting arms
+   - Gears turning, gauges moving, materials reflecting
+   - Dust particles, light shifts, chrome reflections
 {hero_instruction}
 
 REQUIRED CAMERA MOVEMENT (START your response with this exact movement):
@@ -1005,31 +1070,39 @@ REQUIRED CAMERA MOVEMENT (START your response with this exact movement):
 
 CRITICAL: Your response MUST begin with this camera movement. Do NOT substitute "push-in" or "zoom".
 
-MOTION VOCABULARY - USE ONLY THESE TYPES:
+MOTION VOCABULARY - 3D CLAY RENDER STYLE:
 
-Figures/People:
-- "figure gently turns head toward..."
-- "silhouette slowly reaches hand forward"
-- "paper-cut figures subtly sway in place"
-- "character's hair and clothes drift as if underwater"
+Mannequin Figures:
+- "mannequin subtly shifts weight"
+- "mannequin slowly turns body"
+- "mannequin's arm gradually lifts"
+- "mannequin's head gently tilts down"
+- "fingers slowly close around handle"
+
+Mechanical/Industrial:
+- "gears slowly rotate"
+- "pipes subtly vibrate"
+- "gauge needles drift toward red zone"
+- "lever gradually pulls down"
+- "cracks slowly spread through concrete"
 
 Environmental:
-- "paper layers shift with gentle parallax depth"
-- "leaves and particles drift slowly across frame"
-- "smoke or fog wisps curl through the scene"
-- "light beams slowly sweep across the surface"
+- "dust particles float through light beams"
+- "fog wisps curl between objects"
+- "light slowly sweeps across chrome surface"
+- "reflections shift on metallic surfaces"
 
 Data/Abstract:
-- "flow lines slowly pulse and travel along their paths"
-- "numbers and text elements gently float upward"
-- "graph lines draw themselves left to right"
-- "cracks slowly spread across the surface"
+- "chart bars slowly rise"
+- "trend line gradually draws itself"
+- "numerals gently pulse with light"
+- "glass panel slowly illuminates"
 
 Atmospheric (include at least one):
-- "warm light gently pulses like breathing"
-- "dust particles float through light beams"
-- "subtle film grain flickers"
-- "shadows slowly shift as if clouds passing overhead"
+- "warm spotlight slowly brightens"
+- "shadows gradually lengthen"
+- "ambient light subtly shifts from cool to warm"
+- "lens flare drifts across frame"
 
 SPEED WORDS - MANDATORY:
 ALWAYS use: slow, subtle, gentle, soft, gradual, drifting, easing

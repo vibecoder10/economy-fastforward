@@ -8,14 +8,18 @@ import asyncio
 
 class ImageClient:
     """Client for image generation via Kie.ai API."""
-    
+
     # Kie.ai API endpoints (from n8n workflow)
     CREATE_TASK_URL = "https://api.kie.ai/api/v1/jobs/createTask"
     RECORD_INFO_URL = "https://api.kie.ai/api/v1/jobs/recordInfo"
-    
-    # Default model from n8n workflow (requires google/ prefix)
+
+    # Model routing (v2)
+    SCENE_MODEL = "seedream-v4"  # Seed Dream 4.0 for ALL scene images - best 3D editorial render
+    THUMBNAIL_MODEL = "nano-banana-pro"  # Nano Banana Pro for thumbnails ONLY - proven text rendering
+
+    # Legacy models (deprecated but kept for backwards compatibility)
     DEFAULT_MODEL = "google/nano-banana"  # Uses image_size parameter
-    PRO_MODEL = "nano-banana-pro"  # Higher quality for thumbnails, uses aspect_ratio parameter
+    PRO_MODEL = "nano-banana-pro"  # Alias for THUMBNAIL_MODEL
     
     def __init__(self, api_key: Optional[str] = None, google_client: Optional[object] = None):
         self.api_key = api_key or os.getenv("KIE_AI_API_KEY")
@@ -291,12 +295,103 @@ class ImageClient:
         task_id = result.get("data", {}).get("taskId")
         if not task_id:
             return None
-        
+
         # Wait 5 seconds before first poll (Kie API typically returns in ~50-70s for pro model)
         await asyncio.sleep(5)
 
         # Use higher max_attempts for thumbnail generation (can take 60+ seconds)
         return await self.poll_for_completion(task_id, max_attempts=45, poll_interval=2.0)
+
+    async def generate_scene_image(
+        self,
+        prompt: str,
+        seed: int = None,
+    ) -> Optional[dict]:
+        """Generate a scene image using Seed Dream 4.0.
+
+        This is the primary method for all scene/content images in the pipeline.
+        Uses Seed Dream 4.0 which excels at 3D editorial clay render style.
+
+        Args:
+            prompt: Image generation prompt (should use STYLE_ENGINE_PREFIX at start)
+            seed: Optional seed for reproducibility
+
+        Returns:
+            Dict with 'url' and 'seed' keys, or None if failed
+        """
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+
+        # Seed Dream 4.0 API parameters
+        payload = {
+            "model": self.SCENE_MODEL,
+            "input": {
+                "prompt": prompt,
+                "image_size": "landscape_16_9",  # Seed Dream uses image_size, not aspect_ratio
+                "image_resolution": "2K",  # Balance of quality and speed
+                "max_images": 1,  # Always 1 for automation pipeline
+            },
+        }
+
+        if seed is not None:
+            payload["input"]["seed"] = seed
+
+        print(f"      🎨 Generating scene image with Seed Dream 4.0...")
+
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    self.CREATE_TASK_URL,
+                    headers=headers,
+                    json=payload,
+                    timeout=60.0,
+                )
+                if response.status_code != 200:
+                    print(f"      ❌ Seed Dream API error: {response.status_code} - {response.text}")
+                    return None
+
+                task_data = response.json()
+                task_id = task_data.get("data", {}).get("taskId")
+
+                if not task_id:
+                    print(f"      ❌ No task ID returned: {task_data}")
+                    return None
+
+                # Wait and poll for completion
+                await asyncio.sleep(5)
+                result_urls = await self.poll_for_completion(task_id, max_attempts=60, poll_interval=2.0)
+
+                if result_urls:
+                    # Extract seed from result if available
+                    result_seed = task_data.get("data", {}).get("seed", seed)
+                    return {
+                        "url": result_urls[0],
+                        "seed": result_seed,
+                    }
+
+                print(f"      ❌ Seed Dream generation failed (poll timeout)")
+                return None
+
+        except Exception as e:
+            print(f"      ❌ Seed Dream error: {e}")
+            return None
+
+    async def generate_thumbnail(self, prompt: str) -> Optional[list[str]]:
+        """Generate a thumbnail using Nano Banana Pro.
+
+        This is the method for thumbnail images only. Uses Nano Banana Pro
+        which excels at comic/editorial illustration with text rendering.
+
+        Args:
+            prompt: Thumbnail generation prompt
+
+        Returns:
+            List of image URLs, or None if failed
+        """
+        print(f"      🖼️ Generating thumbnail with Nano Banana Pro...")
+        return await self.generate_and_wait(prompt, "16:9", model=self.THUMBNAIL_MODEL)
 
     async def generate_video(
         self,

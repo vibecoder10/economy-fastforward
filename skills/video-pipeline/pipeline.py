@@ -1143,25 +1143,30 @@ class VideoPipeline:
 
                 async with semaphore:
                     prompt = img_record.get("Image Prompt", "")
-                    aspect_ratio = img_record.get("Aspect Ratio", "16:9")
                     index = img_record.get("Image Index", 0)
                     record_id = img_record["id"]
 
                     try:
-                        # Generate image
-                        image_urls = await self.image_client.generate_and_wait(prompt, aspect_ratio)
+                        # Generate scene image using Seed Dream 4.0
+                        result = await self.image_client.generate_scene_image(prompt)
 
-                        if image_urls:
+                        if result and result.get("url"):
+                            image_url = result["url"]
+                            seed_value = result.get("seed")
+
                             # Download image
-                            image_content = await self.image_client.download_image(image_urls[0])
+                            image_content = await self.image_client.download_image(image_url)
 
                             # Upload to Google Drive
                             filename = f"Scene_{str(scene_num).zfill(2)}_{str(index).zfill(2)}.png"
                             drive_file = self.google.upload_image(image_content, filename, self.project_folder_id)
                             drive_url = self.google.make_file_public(drive_file["id"])
 
-                            # CHECKPOINT: Update Airtable immediately
-                            self.airtable.update_image_record(record_id, image_urls[0], drive_url=drive_url)
+                            # CHECKPOINT: Update Airtable immediately (include seed for reproducibility)
+                            update_fields = {"Image": [{"url": image_url}], "Drive Image URL": drive_url}
+                            if seed_value:
+                                update_fields["Seed"] = seed_value
+                            self.airtable.update_record("Images", record_id, update_fields)
                             image_count += 1
                             print(f"      ✅ Scene {scene_num}, Image {index} → Done ({image_count}/{total_pending})")
 
@@ -1297,11 +1302,12 @@ class VideoPipeline:
                 drive_url = image_url_list[0].get("url") if image_url_list else None
             
             motion_prompt = img_record.get("Video Prompt")
-            
+
             if not drive_url or not motion_prompt:
                 continue
-            
-            image_url = drive_url  # Use Drive URL for generation
+
+            # Convert to direct download URL for Grok Imagine
+            image_url = self.google.get_direct_drive_url(drive_url)
                 
             print(f"    [{i}/{total}] Generating video for scene {scene}, image {index}...")
             print(f"      Motion: {motion_prompt}")
@@ -1402,10 +1408,8 @@ class VideoPipeline:
         # Save generated prompt to Airtable for reference
         self.airtable.update_idea_field(self.current_idea_id, "Thumbnail Prompt", thumbnail_prompt)
 
-        # --- Generate thumbnail image ---
-        image_urls = await self.image_client.generate_and_wait(
-            thumbnail_prompt, "16:9", model="nano-banana-pro"
-        )
+        # --- Generate thumbnail image using Nano Banana Pro ---
+        image_urls = await self.image_client.generate_thumbnail(thumbnail_prompt)
         if not image_urls:
             print("  ⚠️ Failed to generate thumbnail.")
             return {"error": "Thumbnail generation failed"}
@@ -1854,15 +1858,15 @@ class VideoPipeline:
 
             async def generate_single(img_record):
                 prompt = img_record.get("Image Prompt", "")
-                aspect_ratio = img_record.get("Aspect Ratio", "16:9")
                 index = img_record.get("Image Index", 0)
 
                 if not prompt:
                     return (img_record, None, index, "No prompt")
 
                 try:
-                    image_urls = await self.image_client.generate_and_wait(prompt, aspect_ratio)
-                    return (img_record, image_urls, index, None)
+                    # Use Seed Dream 4.0 for scene images
+                    result = await self.image_client.generate_scene_image(prompt)
+                    return (img_record, result, index, None)
                 except Exception as e:
                     return (img_record, None, index, str(e))
 
@@ -1870,22 +1874,28 @@ class VideoPipeline:
             results = await asyncio.gather(*[generate_single(img) for img in scene_images])
 
             # Upload to Drive and update Airtable
-            for img_record, image_urls, index, error in results:
+            for img_record, result, index, error in results:
                 if error:
                     print(f"    ❌ Scene {scene_num}, Image {index}: {error}")
                     continue
 
-                if image_urls:
+                if result and result.get("url"):
+                    image_url = result["url"]
+                    seed_value = result.get("seed")
+
                     # Download image
-                    image_content = await self.image_client.download_image(image_urls[0])
+                    image_content = await self.image_client.download_image(image_url)
 
                     # Upload to Google Drive
                     filename = f"Scene_{str(scene_num).zfill(2)}_{str(index).zfill(2)}.png"
                     drive_file = self.google.upload_image(image_content, filename, self.project_folder_id)
                     drive_url = self.google.make_file_public(drive_file["id"])
 
-                    # Update Airtable
-                    self.airtable.update_image_record(img_record["id"], image_urls[0], drive_url=drive_url)
+                    # Update Airtable (include seed for reproducibility)
+                    update_fields = {"Image": [{"url": image_url}], "Drive Image URL": drive_url}
+                    if seed_value:
+                        update_fields["Seed"] = seed_value
+                    self.airtable.update_record("Images", img_record["id"], update_fields)
                     regenerated += 1
                     print(f"    ✅ Scene {scene_num}, Image {index} → regenerated")
 
