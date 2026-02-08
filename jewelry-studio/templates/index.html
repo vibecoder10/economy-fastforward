@@ -6,564 +6,462 @@
     <title>Jewelry Studio</title>
     <style>
         *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
-
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
-            background: #f7f7f7;
-            color: #1a1a1a;
-            line-height: 1.6;
-            min-height: 100vh;
+            background: #f5f5f5; color: #1a1a1a; line-height: 1.6;
         }
 
-        /* ── Header ── */
         header {
-            background: #fff;
-            border-bottom: 1px solid #e0e0e0;
-            padding: 18px 40px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
+            background: #fff; border-bottom: 1px solid #e0e0e0; padding: 16px 32px;
+            display: flex; align-items: center; justify-content: space-between;
         }
-        header h1 { font-size: 18px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; }
-        .header-sub { font-size: 11px; color: #999; letter-spacing: 1px; text-transform: uppercase; }
+        header h1 { font-size: 17px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; }
+        .hsub { font-size: 10px; color: #aaa; letter-spacing: 1px; text-transform: uppercase; }
 
-        /* ── Main ── */
-        main { max-width: 1100px; margin: 0 auto; padding: 32px 20px 80px; }
+        main { max-width: 960px; margin: 0 auto; padding: 28px 16px 80px; }
 
         /* ── Card ── */
-        .card {
-            background: #fff;
-            border: 1px solid #e5e5e5;
-            border-radius: 10px;
-            padding: 28px 32px;
-            margin-bottom: 20px;
-        }
-        .step-head { display: flex; align-items: center; gap: 14px; margin-bottom: 22px; }
-        .step-num {
-            width: 30px; height: 30px; border-radius: 50%; background: #1a1a1a; color: #fff;
+        .card { background: #fff; border: 1px solid #e5e5e5; border-radius: 10px; padding: 24px 28px; margin-bottom: 16px; }
+
+        /* ── Step Header ── */
+        .sh { display: flex; align-items: flex-start; gap: 14px; margin-bottom: 18px; }
+        .sn {
+            width: 28px; height: 28px; border-radius: 50%; background: #1a1a1a; color: #fff;
             display: flex; align-items: center; justify-content: center;
-            font-size: 13px; font-weight: 700; flex-shrink: 0;
+            font-size: 13px; font-weight: 700; flex-shrink: 0; margin-top: 1px;
         }
-        .step-num.done { background: #2d7d46; }
-        .step-title { font-size: 15px; font-weight: 600; }
-
-        /* ── Upload Grid: 3 columns ── */
-        .upload-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr 1fr;
-            gap: 18px;
-        }
-        @media (max-width: 800px) { .upload-grid { grid-template-columns: 1fr; } }
-
-        .upload-col label {
-            display: block; font-size: 11px; font-weight: 600;
-            text-transform: uppercase; letter-spacing: 1px; color: #666; margin-bottom: 8px;
-        }
-        .upload-col .label-hint {
-            display: block; font-size: 10px; font-weight: 400; color: #aaa;
-            letter-spacing: 0; text-transform: none; margin-top: 2px;
-        }
+        .sn.ok { background: #2d7d46; }
+        .st { font-size: 15px; font-weight: 600; }
+        .sd { font-size: 12px; color: #888; margin-top: 2px; line-height: 1.4; }
 
         /* ── Drop Zone ── */
-        .drop-zone {
-            border: 2px dashed #d0d0d0; border-radius: 8px; padding: 30px 16px;
-            text-align: center; cursor: pointer; transition: border-color .2s, background .2s;
-            background: #fafafa; min-height: 150px;
+        .dz {
+            border: 2px dashed #ccc; border-radius: 8px; padding: 28px 16px;
+            text-align: center; cursor: pointer; transition: .2s;
+            background: #fafafa; min-height: 130px;
             display: flex; flex-direction: column; align-items: center; justify-content: center;
         }
-        .drop-zone:hover { border-color: #999; background: #f5f5f5; }
-        .drop-zone.over { border-color: #1a1a1a; background: #f0f0f0; }
-        .drop-zone.has-files { border-color: #2d7d46; border-style: solid; background: #f4fbf6; }
-        .drop-zone .dz-icon { font-size: 26px; opacity: .35; margin-bottom: 6px; }
-        .drop-zone .dz-text { font-size: 12px; color: #888; }
-        .drop-zone .dz-text strong { color: #555; }
-        .drop-zone .dz-hint { font-size: 10px; color: #aaa; margin-top: 4px; }
+        .dz:hover { border-color: #999; background: #f5f5f5; }
+        .dz.over { border-color: #1a1a1a; background: #f0f0f0; }
+        .dz.ok { border-color: #2d7d46; border-style: solid; background: #f4fbf6; }
+        .dz .ico { font-size: 24px; opacity: .3; margin-bottom: 4px; }
+        .dz .txt { font-size: 12px; color: #888; }
+        .dz .txt b { color: #555; }
+        .dz .sub { font-size: 10px; color: #aaa; margin-top: 3px; }
 
-        /* ── Previews ── */
-        .thumbs { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
-        .thumb-wrap { position: relative; }
-        .thumb-wrap img {
-            width: 72px; height: 72px; object-fit: cover; border-radius: 6px; border: 1px solid #e0e0e0;
-        }
-        .thumb-x {
+        /* ── Thumbnails ── */
+        .ths { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+        .tw { position: relative; }
+        .tw img { width: 68px; height: 68px; object-fit: cover; border-radius: 6px; border: 1px solid #ddd; }
+        .tx {
             position: absolute; top: -5px; right: -5px; width: 18px; height: 18px;
             border-radius: 50%; background: #d43; color: #fff; border: none; cursor: pointer;
-            font-size: 11px; display: flex; align-items: center; justify-content: center;
+            font-size: 10px; display: flex; align-items: center; justify-content: center;
         }
 
-        /* ── Type Selector ── */
-        .types { display: flex; gap: 10px; flex-wrap: wrap; }
-        .type-btn {
-            padding: 10px 24px; border: 2px solid #e0e0e0; border-radius: 6px;
-            background: #fff; cursor: pointer; font-size: 13px; font-weight: 500; transition: all .2s;
+        /* ── Type pills ── */
+        .types { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+        .tp {
+            padding: 8px 20px; border: 2px solid #e0e0e0; border-radius: 6px;
+            background: #fff; cursor: pointer; font-size: 13px; font-weight: 500; transition: .2s;
         }
-        .type-btn:hover { border-color: #999; }
-        .type-btn.on { border-color: #1a1a1a; background: #1a1a1a; color: #fff; }
+        .tp:hover { border-color: #999; }
+        .tp.on { border-color: #1a1a1a; background: #1a1a1a; color: #fff; }
 
-        /* ── Extra Instructions ── */
-        .extra-box {
-            margin-top: 18px;
+        /* ── Extra instructions ── */
+        .ebox { margin-top: 2px; }
+        .ebox label { display: block; font-size: 11px; font-weight: 600; color: #666; margin-bottom: 5px; text-transform: uppercase; letter-spacing: .5px; }
+        .ebox textarea {
+            width: 100%; min-height: 52px; padding: 9px 11px; border: 1px solid #ddd;
+            border-radius: 6px; font-family: inherit; font-size: 13px; resize: vertical; background: #fafafa;
         }
-        .extra-box label {
-            display: block; font-size: 12px; font-weight: 600; color: #555; margin-bottom: 6px;
-        }
-        .extra-box textarea {
-            width: 100%; min-height: 60px; padding: 10px 12px;
-            border: 1px solid #ddd; border-radius: 6px; font-family: inherit;
-            font-size: 13px; resize: vertical; background: #fafafa;
-        }
-        .extra-box textarea:focus { outline: none; border-color: #999; background: #fff; }
-        .extra-box .extra-hint { font-size: 10px; color: #aaa; margin-top: 4px; }
+        .ebox textarea:focus { outline: none; border-color: #999; background: #fff; }
+        .ebox .hint { font-size: 10px; color: #aaa; margin-top: 3px; }
 
-        /* ── Generate Button ── */
-        .gen-btn {
-            display: block; width: 100%; padding: 15px; background: #1a1a1a; color: #fff;
+        /* ── Generate ── */
+        .gbtn {
+            display: block; width: 100%; padding: 14px; background: #1a1a1a; color: #fff;
             border: none; border-radius: 8px; font-size: 15px; font-weight: 600;
-            cursor: pointer; letter-spacing: .5px; transition: background .2s;
+            cursor: pointer; transition: .2s;
         }
-        .gen-btn:hover:not(:disabled) { background: #333; }
-        .gen-btn:disabled { background: #bbb; cursor: not-allowed; }
+        .gbtn:hover:not(:disabled) { background: #333; }
+        .gbtn:disabled { background: #bbb; cursor: not-allowed; }
 
-        /* ── Spinner ── */
-        .progress { display: none; text-align: center; padding: 30px 0 10px; }
-        .progress.on { display: block; }
+        /* ── Progress ── */
+        .prog { display: none; text-align: center; padding: 24px 0 8px; }
+        .prog.on { display: block; }
         .spin {
-            width: 36px; height: 36px; border: 3px solid #e5e5e5; border-top-color: #1a1a1a;
-            border-radius: 50%; animation: spin .7s linear infinite; margin: 0 auto 14px;
+            width: 32px; height: 32px; border: 3px solid #e5e5e5; border-top-color: #1a1a1a;
+            border-radius: 50%; animation: sp .7s linear infinite; margin: 0 auto 12px;
         }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        .prog-text { font-size: 14px; color: #555; }
-        .prog-sub  { font-size: 12px; color: #999; margin-top: 4px; }
+        @keyframes sp { to { transform: rotate(360deg); } }
+        .ptxt { font-size: 13px; color: #555; }
+        .psub { font-size: 11px; color: #999; margin-top: 3px; }
 
         /* ── Results ── */
-        .results { display: none; }
-        .results.on { display: block; }
+        .res { display: none; }
+        .res.on { display: block; }
+        .rgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 16px; }
+        @media (max-width: 700px) { .rgrid { grid-template-columns: 1fr; } }
 
-        .results-grid {
-            display: grid; grid-template-columns: repeat(2, 1fr); gap: 18px; margin-top: 18px;
+        .rc { background: #fff; border: 1px solid #e5e5e5; border-radius: 8px; overflow: hidden; }
+        .rc.fail { border-color: #e74c3c; }
+        .rc img { width: 100%; aspect-ratio: 1; object-fit: cover; display: block; }
+        .rf { padding: 12px 14px; display: flex; align-items: center; justify-content: space-between; }
+        .rl { font-size: 12px; font-weight: 600; }
+        .ra { display: flex; gap: 5px; }
+        .sb {
+            padding: 4px 9px; border: 1px solid #ddd; border-radius: 4px; background: #fff;
+            cursor: pointer; font-size: 10px; text-decoration: none; color: #333; transition: .15s;
         }
-        @media (max-width: 700px) { .results-grid { grid-template-columns: 1fr; } }
+        .sb:hover { background: #f0f0f0; }
 
-        .r-card { background: #fff; border: 1px solid #e5e5e5; border-radius: 8px; overflow: hidden; }
-        .r-card.fail { border-color: #e74c3c; }
-        .r-card img { width: 100%; aspect-ratio: 1; object-fit: cover; display: block; }
-        .r-foot {
-            padding: 14px 16px; display: flex; align-items: center; justify-content: space-between;
+        .pe { display: none; padding: 0 14px 12px; }
+        .pe.on { display: block; }
+        .pe textarea {
+            width: 100%; min-height: 60px; padding: 7px 9px; border: 1px solid #ddd;
+            border-radius: 4px; font-family: inherit; font-size: 11px; resize: vertical;
         }
-        .r-label { font-size: 13px; font-weight: 600; }
-        .r-actions { display: flex; gap: 6px; }
-        .sm-btn {
-            padding: 5px 10px; border: 1px solid #ddd; border-radius: 4px; background: #fff;
-            cursor: pointer; font-size: 11px; text-decoration: none; color: #333; transition: background .15s;
+        .pe .rb {
+            margin-top: 5px; padding: 6px 12px; background: #1a1a1a; color: #fff;
+            border: none; border-radius: 4px; cursor: pointer; font-size: 11px;
         }
-        .sm-btn:hover { background: #f0f0f0; }
+        .pe .rb:disabled { background: #999; }
 
-        /* ── Prompt editor ── */
-        .p-edit { display: none; padding: 0 16px 14px; }
-        .p-edit.on { display: block; }
-        .p-edit textarea {
-            width: 100%; min-height: 70px; padding: 8px 10px; border: 1px solid #ddd;
-            border-radius: 4px; font-family: inherit; font-size: 12px; resize: vertical;
-        }
-        .p-edit .regen-btn {
-            margin-top: 6px; padding: 7px 14px; background: #1a1a1a; color: #fff;
-            border: none; border-radius: 4px; cursor: pointer; font-size: 12px;
-        }
-        .p-edit .regen-btn:disabled { background: #999; }
-
-        /* ── Analysis ── */
         .analysis {
-            background: #f9f9f9; border: 1px solid #e5e5e5; border-radius: 6px;
-            padding: 16px; margin-top: 6px;
+            background: #f9f9f9; border: 1px solid #e5e5e5; border-radius: 6px; padding: 14px; margin-top: 4px;
         }
-        .analysis summary {
-            font-size: 12px; font-weight: 600; text-transform: uppercase;
-            letter-spacing: 1px; color: #888; cursor: pointer;
-        }
+        .analysis summary { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: #888; cursor: pointer; }
         .analysis pre {
-            margin-top: 10px; white-space: pre-wrap; word-break: break-word;
-            font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
-            font-size: 11px; line-height: 1.6;
+            margin-top: 8px; white-space: pre-wrap; word-break: break-word;
+            font-family: 'SF Mono', Monaco, monospace; font-size: 10px; line-height: 1.5;
         }
 
-        .fail-placeholder {
+        .fp {
             aspect-ratio: 1; display: flex; align-items: center; justify-content: center;
-            padding: 40px; text-align: center; color: #aaa; font-size: 13px; background: #fafafa;
+            padding: 30px; text-align: center; color: #aaa; font-size: 12px; background: #fafafa;
         }
 
-        /* ── Toast ── */
         .toast {
-            position: fixed; bottom: 24px; right: 24px; padding: 11px 20px;
-            background: #1a1a1a; color: #fff; border-radius: 6px; font-size: 13px;
-            z-index: 1000; animation: fadeUp .25s ease;
+            position: fixed; bottom: 20px; right: 20px; padding: 10px 18px;
+            background: #1a1a1a; color: #fff; border-radius: 6px; font-size: 12px;
+            z-index: 1000; animation: fu .25s ease;
         }
         .toast.err { background: #d43; }
-        @keyframes fadeUp {
-            from { transform: translateY(16px); opacity: 0; }
-            to   { transform: translateY(0); opacity: 1; }
-        }
+        @keyframes fu { from { transform: translateY(14px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
 
-        .dl-all-bar { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; flex-wrap: wrap; }
-        .dl-all-btn {
-            padding: 8px 14px; background: #1a1a1a; color: #fff; border: none;
-            border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer;
-            text-decoration: none;
+        .dlbar { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+        .dlb {
+            padding: 7px 14px; background: #1a1a1a; color: #fff; border: none;
+            border-radius: 6px; font-size: 11px; font-weight: 600; text-decoration: none;
         }
-        .dl-all-btn:hover { background: #333; }
+        .dlb:hover { background: #333; }
     </style>
 </head>
 <body>
 
 <header>
     <div><h1>Jewelry Studio</h1></div>
-    <span class="header-sub">Gemini Analysis &bull; Kie.ai Generation</span>
+    <span class="hsub">Gemini + Kie.ai</span>
 </header>
 
 <main>
 
-    <!-- ── Step 1: Upload ── -->
+    <!-- ═══ STEP 1: Your Jewelry ═══ -->
     <div class="card">
-        <div class="step-head">
-            <div class="step-num">1</div>
-            <div class="step-title">Upload Images</div>
-        </div>
-
-        <div class="upload-grid">
-            <!-- Reference / Model Jewelry -->
-            <div class="upload-col">
-                <label>
-                    Reference Shot
-                    <span class="label-hint">The professional look you want to match (background, lighting, style)</span>
-                </label>
-                <div class="drop-zone" id="dzRef">
-                    <div class="dz-icon">&#9733;</div>
-                    <div class="dz-text"><strong>Drop reference image</strong></div>
-                    <div class="dz-hint">1 professional jewelry photo to match</div>
-                </div>
-                <input type="file" id="inRef" accept="image/*" hidden>
-                <div class="thumbs" id="thRef"></div>
-            </div>
-
-            <!-- Your Jewelry Photos -->
-            <div class="upload-col">
-                <label>
-                    Your Jewelry Photos
-                    <span class="label-hint">Raw photos of the piece you want to mock up</span>
-                </label>
-                <div class="drop-zone" id="dzJewelry">
-                    <div class="dz-icon">&#9670;</div>
-                    <div class="dz-text"><strong>Drop jewelry photos</strong></div>
-                    <div class="dz-hint">1-3 photos, different angles help</div>
-                </div>
-                <input type="file" id="inJewelry" multiple accept="image/*" hidden>
-                <div class="thumbs" id="thJewelry"></div>
-            </div>
-
-            <!-- Model Person -->
-            <div class="upload-col">
-                <label>
-                    Model Image
-                    <span class="label-hint">Person for the on-model product shot</span>
-                </label>
-                <div class="drop-zone" id="dzModel">
-                    <div class="dz-icon">&#9679;</div>
-                    <div class="dz-text"><strong>Drop model image</strong></div>
-                    <div class="dz-hint">1 model hero image</div>
-                </div>
-                <input type="file" id="inModel" accept="image/*" hidden>
-                <div class="thumbs" id="thModel"></div>
+        <div class="sh">
+            <div class="sn">1</div>
+            <div>
+                <div class="st">Upload Your Jewelry</div>
+                <div class="sd">The piece you want professional shots of. Upload 1-3 photos from different angles for a better 360&deg; reference.</div>
             </div>
         </div>
+        <div class="dz" id="dz1">
+            <div class="ico">&#9670;</div>
+            <div class="txt"><b>Drop jewelry photos here</b> or click to browse</div>
+            <div class="sub">JPG / PNG &mdash; up to 3 images</div>
+        </div>
+        <input type="file" id="in1" multiple accept="image/*" hidden>
+        <div class="ths" id="th1"></div>
     </div>
 
-    <!-- ── Step 2: Type + Instructions ── -->
+    <!-- ═══ STEP 2: Model Reference ═══ -->
     <div class="card">
-        <div class="step-head">
-            <div class="step-num">2</div>
-            <div class="step-title">Jewelry Type &amp; Instructions</div>
+        <div class="sh">
+            <div class="sn">2</div>
+            <div>
+                <div class="st">Upload Model Reference</div>
+                <div class="sd">A photo of a person/model. This sets the look for your &ldquo;on-model&rdquo; shot. Any jewelry they&rsquo;re wearing will be ignored &mdash; your piece from Step 1 will be used instead.</div>
+            </div>
         </div>
-        <div class="types" id="typeSelector">
-            <button class="type-btn" data-t="ring">Ring</button>
-            <button class="type-btn" data-t="necklace">Necklace</button>
-            <button class="type-btn" data-t="earrings">Earrings</button>
-            <button class="type-btn" data-t="bracelet">Bracelet</button>
-            <button class="type-btn" data-t="pendant">Pendant</button>
-            <button class="type-btn" data-t="brooch">Brooch</button>
+        <div class="dz" id="dz2">
+            <div class="ico">&#9679;</div>
+            <div class="txt"><b>Drop model image here</b> or click to browse</div>
+            <div class="sub">1 image</div>
+        </div>
+        <input type="file" id="in2" accept="image/*" hidden>
+        <div class="ths" id="th2"></div>
+    </div>
+
+    <!-- ═══ STEP 3: Style Reference ═══ -->
+    <div class="card">
+        <div class="sh">
+            <div class="sn">3</div>
+            <div>
+                <div class="st">Upload Style Reference</div>
+                <div class="sd">A professional jewelry product photo whose <em>style</em> you want to match &mdash; background, lighting, orientation, mood. The jewelry in this image doesn&rsquo;t matter, only the photography style.</div>
+            </div>
+        </div>
+        <div class="dz" id="dz3">
+            <div class="ico">&#9733;</div>
+            <div class="txt"><b>Drop style reference here</b> or click to browse</div>
+            <div class="sub">1 image</div>
+        </div>
+        <input type="file" id="in3" accept="image/*" hidden>
+        <div class="ths" id="th3"></div>
+    </div>
+
+    <!-- ═══ STEP 4: Type + Instructions + Generate ═══ -->
+    <div class="card">
+        <div class="sh">
+            <div class="sn">4</div>
+            <div>
+                <div class="st">Settings &amp; Generate</div>
+                <div class="sd">Pick the jewelry type, add any extra instructions, then generate.</div>
+            </div>
         </div>
 
-        <div class="extra-box">
+        <div class="types" id="types">
+            <button class="tp" data-t="ring">Ring</button>
+            <button class="tp" data-t="necklace">Necklace</button>
+            <button class="tp" data-t="earrings">Earrings</button>
+            <button class="tp" data-t="bracelet">Bracelet</button>
+            <button class="tp" data-t="pendant">Pendant</button>
+            <button class="tp" data-t="brooch">Brooch</button>
+        </div>
+
+        <div class="ebox">
             <label>Extra Instructions (optional)</label>
-            <textarea id="extraInstructions" placeholder="e.g. &quot;Use a soft pink background instead of white&quot; or &quot;Show the ring at a slight tilt&quot; or &quot;Make the diamond sparkle more prominently&quot;"></textarea>
-            <div class="extra-hint">These instructions get appended to every generated prompt</div>
+            <textarea id="extra" placeholder='e.g. "Make the background soft pink" or "Tilt the ring slightly" or "Emphasize the diamond sparkle"'></textarea>
+            <div class="hint">Added to every prompt. Use this to fine-tune the output.</div>
         </div>
-    </div>
 
-    <!-- ── Step 3: Generate ── -->
-    <div class="card">
-        <div class="step-head">
-            <div class="step-num">3</div>
-            <div class="step-title">Generate Product Images</div>
-        </div>
-        <button class="gen-btn" id="btnGen" disabled>Generate 4 Product Shots</button>
-        <div class="progress" id="progress">
+        <br>
+        <button class="gbtn" id="go" disabled>Generate 3 Product Shots</button>
+
+        <div class="prog" id="prog">
             <div class="spin"></div>
-            <div class="prog-text" id="pText">Starting...</div>
-            <div class="prog-sub" id="pSub"></div>
+            <div class="ptxt" id="pt">Starting...</div>
+            <div class="psub" id="ps"></div>
         </div>
     </div>
 
-    <!-- ── Results ── -->
-    <div class="results" id="resultsSection">
+    <!-- ═══ RESULTS ═══ -->
+    <div class="res" id="resSection">
         <div class="card">
-            <div class="step-head">
-                <div class="step-num done">&#10003;</div>
-                <div class="step-title">Product Images</div>
+            <div class="sh">
+                <div class="sn ok">&#10003;</div>
+                <div>
+                    <div class="st">Your Product Images</div>
+                    <div class="sd">Click &ldquo;Edit Prompt&rdquo; on any image to tweak and regenerate individually.</div>
+                </div>
             </div>
 
-            <details class="analysis" id="analysisBlock">
-                <summary>View Gemini Analysis (Reference Style + Jewelry Details + Model)</summary>
-                <pre id="analysisPre"></pre>
+            <details class="analysis">
+                <summary>View Gemini Analysis</summary>
+                <pre id="apre"></pre>
             </details>
 
-            <div class="results-grid" id="rGrid"></div>
-            <div class="dl-all-bar" id="dlBar"></div>
+            <div class="rgrid" id="rgrid"></div>
+            <div class="dlbar" id="dlbar"></div>
         </div>
     </div>
 
 </main>
 
 <script>
-// ─────────── State ───────────
-const S = {
-    refFile: null,          // {id, filename, path}  - reference jewelry shot
-    jewelryFiles: [],       // [{id, filename, path}] - raw jewelry photos
-    modelFile: null,        // {id, filename, path}  - model person
-    type: null,
-    busy: false,
-};
+const S = { jewelry: [], model: null, style: null, type: null, busy: false };
 
-const LABELS = { front: 'Front View', left: 'Left Side', right: 'Right Side', model: 'On Model' };
+const LABELS = { headon: 'Head-On', angled: 'Angled', model: 'On Model' };
 
-// ─────────── Upload wiring ───────────
-function wire(zoneId, inputId, kind) {
-    const zone  = document.getElementById(zoneId);
-    const input = document.getElementById(inputId);
-    zone.addEventListener('click', () => input.click());
-    zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('over'); });
-    zone.addEventListener('dragleave', () => zone.classList.remove('over'));
-    zone.addEventListener('drop', e => {
-        e.preventDefault(); zone.classList.remove('over');
-        onFiles(Array.from(e.dataTransfer.files), kind);
-    });
-    input.addEventListener('change', () => { onFiles(Array.from(input.files), kind); input.value = ''; });
+// ── Upload wiring ──
+function wire(dzId, inId, kind) {
+    const z = document.getElementById(dzId), inp = document.getElementById(inId);
+    z.addEventListener('click', () => inp.click());
+    z.addEventListener('dragover', e => { e.preventDefault(); z.classList.add('over'); });
+    z.addEventListener('dragleave', () => z.classList.remove('over'));
+    z.addEventListener('drop', e => { e.preventDefault(); z.classList.remove('over'); addFiles(e.dataTransfer.files, kind); });
+    inp.addEventListener('change', () => { addFiles(inp.files, kind); inp.value = ''; });
 }
 
-async function onFiles(files, kind) {
-    for (const f of files.filter(f => f.type.startsWith('image/'))) {
-        if (kind === 'jewelry' && S.jewelryFiles.length >= 3) { toast('Max 3 jewelry photos', true); break; }
-        if (kind === 'ref') S.refFile = null;
-        if (kind === 'model') S.modelFile = null;
+async function addFiles(fileList, kind) {
+    for (const f of [...fileList].filter(f => f.type.startsWith('image/'))) {
+        if (kind === 'jewelry' && S.jewelry.length >= 3) { toast('Max 3 photos', true); break; }
+        if (kind === 'model') S.model = null;
+        if (kind === 'style') S.style = null;
 
-        const fd = new FormData();
-        fd.append('file', f);
+        const fd = new FormData(); fd.append('file', f);
         try {
             const r = await fetch('/api/upload', { method: 'POST', body: fd });
             if (!r.ok) throw new Error('Upload failed');
             const d = await r.json();
-            if (kind === 'jewelry') S.jewelryFiles.push(d);
-            else if (kind === 'ref') S.refFile = d;
-            else S.modelFile = d;
-        } catch (e) { toast('Upload error: ' + e.message, true); }
+            if (kind === 'jewelry') S.jewelry.push(d);
+            else if (kind === 'model') S.model = d;
+            else S.style = d;
+        } catch (e) { toast(e.message, true); }
     }
-    renderThumbs(); checkReady();
+    render(); check();
 }
 
-function renderThumbs() {
-    // Reference
-    const rt = document.getElementById('thRef');
-    rt.innerHTML = '';
-    if (S.refFile) {
-        rt.innerHTML = `<div class="thumb-wrap"><img src="${S.refFile.path}" alt="ref"><button class="thumb-x" onclick="rmRef()">&times;</button></div>`;
-    }
-    document.getElementById('dzRef').classList.toggle('has-files', !!S.refFile);
-
-    // Jewelry
-    const jt = document.getElementById('thJewelry');
-    jt.innerHTML = '';
-    S.jewelryFiles.forEach((f, i) => {
-        const d = document.createElement('div'); d.className = 'thumb-wrap';
-        d.innerHTML = `<img src="${f.path}" alt="${f.filename}"><button class="thumb-x" onclick="rmJ(${i})">&times;</button>`;
-        jt.appendChild(d);
+function render() {
+    // Step 1
+    const t1 = document.getElementById('th1'); t1.innerHTML = '';
+    S.jewelry.forEach((f, i) => {
+        t1.innerHTML += `<div class="tw"><img src="${f.path}"><button class="tx" onclick="rmJ(${i})">&times;</button></div>`;
     });
-    document.getElementById('dzJewelry').classList.toggle('has-files', S.jewelryFiles.length > 0);
+    document.getElementById('dz1').classList.toggle('ok', S.jewelry.length > 0);
 
-    // Model
-    const mt = document.getElementById('thModel');
-    mt.innerHTML = '';
-    if (S.modelFile) {
-        mt.innerHTML = `<div class="thumb-wrap"><img src="${S.modelFile.path}" alt="model"><button class="thumb-x" onclick="rmM()">&times;</button></div>`;
-    }
-    document.getElementById('dzModel').classList.toggle('has-files', !!S.modelFile);
+    // Step 2
+    const t2 = document.getElementById('th2'); t2.innerHTML = '';
+    if (S.model) t2.innerHTML = `<div class="tw"><img src="${S.model.path}"><button class="tx" onclick="rmM()">&times;</button></div>`;
+    document.getElementById('dz2').classList.toggle('ok', !!S.model);
+
+    // Step 3
+    const t3 = document.getElementById('th3'); t3.innerHTML = '';
+    if (S.style) t3.innerHTML = `<div class="tw"><img src="${S.style.path}"><button class="tx" onclick="rmS()">&times;</button></div>`;
+    document.getElementById('dz3').classList.toggle('ok', !!S.style);
 }
 
-function rmRef() { S.refFile = null; renderThumbs(); checkReady(); }
-function rmJ(i) { S.jewelryFiles.splice(i, 1); renderThumbs(); checkReady(); }
-function rmM()  { S.modelFile = null; renderThumbs(); checkReady(); }
+function rmJ(i) { S.jewelry.splice(i, 1); render(); check(); }
+function rmM() { S.model = null; render(); check(); }
+function rmS() { S.style = null; render(); check(); }
 
-// ─────────── Type selector ───────────
-document.getElementById('typeSelector').addEventListener('click', e => {
-    const btn = e.target.closest('.type-btn'); if (!btn) return;
-    document.querySelectorAll('.type-btn').forEach(b => b.classList.remove('on'));
-    btn.classList.add('on');
-    S.type = btn.dataset.t;
-    checkReady();
+// ── Type selector ──
+document.getElementById('types').addEventListener('click', e => {
+    const b = e.target.closest('.tp'); if (!b) return;
+    document.querySelectorAll('.tp').forEach(x => x.classList.remove('on'));
+    b.classList.add('on'); S.type = b.dataset.t; check();
 });
 
-function checkReady() {
-    document.getElementById('btnGen').disabled =
-        !(S.refFile && S.jewelryFiles.length > 0 && S.modelFile && S.type) || S.busy;
+function check() {
+    document.getElementById('go').disabled =
+        !(S.jewelry.length && S.model && S.style && S.type) || S.busy;
 }
 
-// ─────────── Generate ───────────
-document.getElementById('btnGen').addEventListener('click', run);
+// ── Generate ──
+document.getElementById('go').addEventListener('click', run);
 
 async function run() {
-    if (S.busy) return;
-    S.busy = true;
-    const btn = document.getElementById('btnGen');
-    const prog = document.getElementById('progress');
-    const res = document.getElementById('resultsSection');
+    if (S.busy) return; S.busy = true;
+    const btn = document.getElementById('go');
+    const prog = document.getElementById('prog');
+    const sec = document.getElementById('resSection');
 
     btn.disabled = true; btn.textContent = 'Generating...';
-    prog.classList.add('on'); res.classList.remove('on');
-
-    setP('Analyzing images with Gemini...', 'Reference style + jewelry details + model description');
+    prog.classList.add('on'); sec.classList.remove('on');
+    setP('Analyzing with Gemini...', 'Jewelry details + model description + style reference');
 
     try {
         const fd = new FormData();
         fd.append('jewelry_type', S.type);
-        fd.append('jewelry_files', JSON.stringify(S.jewelryFiles.map(f => f.id)));
-        fd.append('model_file', S.modelFile.id);
-        fd.append('reference_file', S.refFile.id);
-        fd.append('extra_instructions', document.getElementById('extraInstructions').value);
+        fd.append('jewelry_files', JSON.stringify(S.jewelry.map(f => f.id)));
+        fd.append('model_file', S.model.id);
+        fd.append('style_file', S.style.id);
+        fd.append('extra_instructions', document.getElementById('extra').value);
 
-        setP('Generating product images with Kie.ai...', 'Matching your reference style - this may take 1-2 minutes');
+        setP('Generating with Kie.ai...', 'Creating 3 shots - usually takes 1-2 minutes');
 
         const r = await fetch('/api/generate', { method: 'POST', body: fd });
-        if (!r.ok) { const e = await r.json(); throw new Error(e.detail || 'Generation failed'); }
+        if (!r.ok) { const e = await r.json(); throw new Error(e.detail || 'Failed'); }
         showResults(await r.json());
-
-    } catch (e) { toast('Error: ' + e.message, true); }
+    } catch (e) { toast(e.message, true); }
     finally {
-        S.busy = false; btn.disabled = false; btn.textContent = 'Generate 4 Product Shots';
-        prog.classList.remove('on'); checkReady();
+        S.busy = false; btn.disabled = false; btn.textContent = 'Generate 3 Product Shots';
+        prog.classList.remove('on'); check();
     }
 }
 
-function setP(t, s) {
-    document.getElementById('pText').textContent = t;
-    document.getElementById('pSub').textContent = s || '';
-}
+function setP(t, s) { document.getElementById('pt').textContent = t; document.getElementById('ps').textContent = s || ''; }
 
-// ─────────── Results ───────────
+// ── Results ──
 function showResults(data) {
-    const sec = document.getElementById('resultsSection');
-    const grid = document.getElementById('rGrid');
-    const pre = document.getElementById('analysisPre');
-    const bar = document.getElementById('dlBar');
-
-    pre.textContent = JSON.stringify({
-        reference_style: data.reference_style,
+    const sec = document.getElementById('resSection');
+    const grid = document.getElementById('rgrid');
+    const bar = document.getElementById('dlbar');
+    document.getElementById('apre').textContent = JSON.stringify({
         jewelry_analysis: data.jewelry_analysis,
+        style_analysis: data.style_analysis,
         model_description: data.model_description,
     }, null, 2);
 
-    grid.innerHTML = '';
+    grid.innerHTML = ''; bar.innerHTML = '';
     const locals = [];
 
     for (const r of data.results) {
-        const card = document.createElement('div');
-        card.className = 'r-card' + (r.error ? ' fail' : '');
-
-        let imgHtml = r.local
+        const c = document.createElement('div');
+        c.className = 'rc' + (r.error ? ' fail' : '');
+        const img = r.local
             ? `<img src="${r.local}" alt="${LABELS[r.view]}">`
-            : `<div class="fail-placeholder">Generation failed &mdash; edit prompt and regenerate</div>`;
-
-        card.innerHTML = `
-            ${imgHtml}
-            <div class="r-foot">
-                <span class="r-label">${LABELS[r.view]}</span>
-                <div class="r-actions">
-                    <button class="sm-btn" onclick="toggleEdit(this)">Edit&nbsp;Prompt</button>
-                    ${r.local ? `<a class="sm-btn" href="${r.local}" download="${r.view}.png">Download</a>` : ''}
+            : `<div class="fp">Failed &mdash; edit prompt &amp; regenerate</div>`;
+        c.innerHTML = `${img}
+            <div class="rf">
+                <span class="rl">${LABELS[r.view]}</span>
+                <div class="ra">
+                    <button class="sb" onclick="tog(this)">Edit Prompt</button>
+                    ${r.local ? `<a class="sb" href="${r.local}" download="${r.view}.png">Download</a>` : ''}
                 </div>
             </div>
-            <div class="p-edit">
+            <div class="pe">
                 <textarea>${r.prompt || ''}</textarea>
-                <button class="regen-btn" onclick="regen(this,'${r.view}','${data.batch_id}')">Regenerate This Shot</button>
-            </div>
-        `;
-        grid.appendChild(card);
-        if (r.local) locals.push({ path: r.local, view: r.view });
+                <button class="rb" onclick="regen(this,'${r.view}','${data.batch_id}')">Regenerate</button>
+            </div>`;
+        grid.appendChild(c);
+        if (r.local) locals.push({ p: r.local, v: r.view });
     }
 
-    bar.innerHTML = '';
     for (const l of locals) {
         const a = document.createElement('a');
-        a.className = 'dl-all-btn'; a.href = l.path;
-        a.download = `${l.view}.png`; a.textContent = `Download ${LABELS[l.view]}`;
-        bar.appendChild(a);
+        a.className = 'dlb'; a.href = l.p; a.download = l.v + '.png';
+        a.textContent = LABELS[l.v]; bar.appendChild(a);
     }
 
     sec.classList.add('on');
     sec.scrollIntoView({ behavior: 'smooth' });
 }
 
-function toggleEdit(btn) { btn.closest('.r-card').querySelector('.p-edit').classList.toggle('on'); }
+function tog(b) { b.closest('.rc').querySelector('.pe').classList.toggle('on'); }
 
-async function regen(btn, view, batchId) {
-    const card = btn.closest('.r-card');
+async function regen(btn, view, bid) {
+    const card = btn.closest('.rc');
     const prompt = card.querySelector('textarea').value;
-    btn.disabled = true; btn.textContent = 'Regenerating...';
-
+    btn.disabled = true; btn.textContent = 'Working...';
     try {
         const fd = new FormData();
-        fd.append('prompt', prompt); fd.append('view', view); fd.append('batch_id', batchId);
+        fd.append('prompt', prompt); fd.append('view', view); fd.append('batch_id', bid);
         const r = await fetch('/api/regenerate', { method: 'POST', body: fd });
         if (!r.ok) { const e = await r.json(); throw new Error(e.detail || 'Failed'); }
         const d = await r.json();
-
         let img = card.querySelector('img');
-        if (img) { img.src = d.local; }
-        else {
-            const ph = card.querySelector('.fail-placeholder');
-            if (ph) { img = document.createElement('img'); img.src = d.local; img.alt = LABELS[view]; ph.replaceWith(img); }
-        }
-
+        if (img) img.src = d.local;
+        else { const ph = card.querySelector('.fp'); if (ph) { img = document.createElement('img'); img.src = d.local; ph.replaceWith(img); } }
         let dl = card.querySelector('a[download]');
-        if (dl) { dl.href = d.local; }
-        else {
-            const a = document.createElement('a'); a.className = 'sm-btn'; a.href = d.local;
-            a.download = view + '.png'; a.textContent = 'Download';
-            card.querySelector('.r-actions').appendChild(a);
-        }
-        card.classList.remove('fail');
-        toast('Image regenerated');
-    } catch (e) { toast('Error: ' + e.message, true); }
-    finally { btn.disabled = false; btn.textContent = 'Regenerate This Shot'; }
+        if (dl) dl.href = d.local;
+        else { const a = document.createElement('a'); a.className = 'sb'; a.href = d.local; a.download = view + '.png'; a.textContent = 'Download'; card.querySelector('.ra').appendChild(a); }
+        card.classList.remove('fail'); toast('Regenerated');
+    } catch (e) { toast(e.message, true); }
+    finally { btn.disabled = false; btn.textContent = 'Regenerate'; }
 }
 
-function toast(msg, err) {
+function toast(m, err) {
     const t = document.createElement('div');
     t.className = 'toast' + (err ? ' err' : '');
-    t.textContent = msg; document.body.appendChild(t);
+    t.textContent = m; document.body.appendChild(t);
     setTimeout(() => t.remove(), 3500);
 }
 
-// ─────────── Init ───────────
-wire('dzRef',     'inRef',     'ref');
-wire('dzJewelry', 'inJewelry', 'jewelry');
-wire('dzModel',   'inModel',   'model');
+wire('dz1', 'in1', 'jewelry');
+wire('dz2', 'in2', 'model');
+wire('dz3', 'in3', 'style');
 </script>
 </body>
 </html>
