@@ -467,3 +467,25 @@ class AirtableClient:
             sort=["Scene", "Image Index"],
         )
         return [{"id": r["id"], **r["fields"]} for r in records]
+
+    def update_record(self, table_name: str, record_id: str, fields: dict) -> dict:
+        """Generic update for any table record.
+        
+        Args:
+            table_name: "Ideas", "Script", or "Images"
+            record_id: Airtable record ID
+            fields: Dict of field names to values
+            
+        Returns:
+            Updated record
+        """
+        if table_name == "Ideas":
+            table = self.ideas_table
+        elif table_name == "Script":
+            table = self.script_table
+        elif table_name == "Images":
+            table = self.images_table
+        else:
+            raise ValueError(f"Unknown table: {table_name}")
+        
+        return table.update(record_id, fields)
