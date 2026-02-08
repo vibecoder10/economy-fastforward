@@ -330,7 +330,6 @@ const VideoClip: React.FC<{
             <OffthreadVideo
                 src={staticFile(videoFile)}
                 muted
-                loop
                 style={{
                     width: "100%",
                     height: "100%",
