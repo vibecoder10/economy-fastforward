@@ -40,6 +40,10 @@ from clients.gemini_client import GeminiClient
 from clients.apify_client import ApifyYouTubeClient
 from bots.idea_bot import IdeaBot
 from bots.trending_idea_bot import TrendingIdeaBot
+from bots.idea_modeling import (
+    generate_modeled_ideas,
+    load_config as load_modeling_config,
+)
 
 
 class VideoPipeline:
@@ -656,6 +660,99 @@ class VideoPipeline:
             "status": "trending_ideas_generated",
             "videos_analyzed": len(result.get("trending_data", {}).get("videos", [])),
             "ideas": [idea.get("viral_title") for idea in result.get("ideas", [])],
+        }
+
+    async def run_more_ideas(self, num_ideas: int = 3) -> dict:
+        """Generate more ideas from the existing format library without scraping.
+
+        Loads proven formats from config/idea_modeling_config.json and generates
+        new ideas using the top formats by times_seen.
+
+        Args:
+            num_ideas: Number of ideas to generate
+
+        Returns:
+            Dict with status and generated ideas
+        """
+        # Load the format library
+        try:
+            config = load_modeling_config()
+        except Exception as e:
+            return {"error": f"Could not load modeling config: {e}. Run --trending first."}
+
+        format_library = config.get("format_library", [])
+        if not format_library:
+            return {
+                "error": "Format library is empty. Run --trending first to build up the format library."
+            }
+
+        # Take top 5 formats by times_seen
+        top_formats = sorted(
+            format_library,
+            key=lambda f: (f.get("times_seen", 0), f.get("avg_views", 0)),
+            reverse=True,
+        )[:5]
+
+        print(f"\n📐 Using top {len(top_formats)} formats from library:")
+        for fmt in top_formats:
+            print(f"  • {fmt['formula']} (seen {fmt.get('times_seen', 0)}x)")
+
+        # Generate ideas
+        ideas = await generate_modeled_ideas(
+            formats=top_formats,
+            config=config,
+            anthropic_client=self.anthropic,
+            num_ideas=num_ideas,
+        )
+
+        # Save to Airtable
+        print("  Saving to Airtable...")
+        for i, idea in enumerate(ideas, 1):
+            try:
+                record = self.airtable.create_idea({
+                    "viral_title": idea.get("viral_title", ""),
+                    "source_title": idea.get("original_example", ""),
+                    "modeled_from": (
+                        f"Format: {idea.get('based_on_format', 'N/A')} | "
+                        f"Swapped: {', '.join(idea.get('variables_swapped', []))} | "
+                        f"Triggers: {', '.join(idea.get('psychological_triggers', []))} | "
+                        f"{idea.get('hook_summary', '')}"
+                    ),
+                    "original_dna": "v2 --more-ideas (format library)",
+                })
+                print(f"    ✅ Saved idea {i}: {record.get('id')}")
+            except Exception as e:
+                print(f"    ❌ Failed to save idea {i}: {e}")
+
+        # Notify Slack
+        if self.slack:
+            try:
+                lines = [
+                    "🎯 *IDEA ENGINE v2 — More Ideas (from format library)*",
+                    "",
+                    f"📐 Generated {len(ideas)} ideas from {len(top_formats)} proven formats",
+                    "",
+                    "---",
+                ]
+                for i, idea in enumerate(ideas, 1):
+                    lines.append("")
+                    lines.append(f"💡 *Idea {i}:* \"{idea.get('viral_title', 'Untitled')}\"")
+                    lines.append(f"📐 Format: {idea.get('based_on_format', 'unknown')}")
+                    swaps = idea.get("variables_swapped", [])
+                    if swaps:
+                        lines.append(f"🔄 Swapped: {', '.join(swaps)}")
+                    triggers = idea.get("psychological_triggers", [])
+                    if triggers:
+                        lines.append(f"🎯 Triggers: {', '.join(triggers)}")
+                self.slack.send_message("\n".join(lines))
+                print("  ✅ Slack notification sent")
+            except Exception as e:
+                print(f"  ⚠️ Slack notification failed: {e}")
+
+        return {
+            "status": "more_ideas_generated",
+            "ideas": [idea.get("viral_title") for idea in ideas],
+            "formats_used": len(top_formats),
         }
 
     async def run_script_bot(self) -> dict:
@@ -2127,6 +2224,7 @@ async def main():
         print("  --status      Show status of all ideas in Airtable")
         print('  --idea "..."  Generate 3 video ideas from URL or concept')
         print("  --trending    Generate ideas from trending YouTube videos (Apify)")
+        print("  --more-ideas  Generate ideas from proven format library (no scraping)")
         print("  --sync        Sync assets to Google Drive")
         print("  --remotion    Export Remotion props for rendering")
         print('  --regenerate  Regenerate missing images (fixes render failures)')
@@ -2190,25 +2288,25 @@ async def main():
         return
 
     if len(sys.argv) > 1 and sys.argv[1] == "--more-ideas":
-        # Generate more ideas from recent trending data (quick refresh)
+        # Generate more ideas from format library (no scraping)
         print("=" * 60)
-        print("💡 MORE IDEAS - Quick Generation from Recent Trends")
+        print("💡 MORE IDEAS — From Proven Format Library")
         print("=" * 60)
-        
+
         num = 3  # default
         if len(sys.argv) > 2:
             try:
                 num = int(sys.argv[2])
             except ValueError:
                 pass
-        
-        result = await pipeline.run_trending_idea_bot(
-            search_queries=None,  # Use defaults
-            num_ideas=num,
-        )
-        
-        print(f"\n✅ Generated {len(result.get('ideas', []))} new ideas")
-        print("Check Airtable or Slack for the new ideas.")
+
+        result = await pipeline.run_more_ideas(num_ideas=num)
+
+        if result.get("error"):
+            print(f"\n❌ {result['error']}")
+        else:
+            print(f"\n✅ Generated {len(result.get('ideas', []))} new ideas from {result.get('formats_used', 0)} formats")
+            print("Check Airtable or Slack for the new ideas.")
         return
 
     if len(sys.argv) > 1 and sys.argv[1] == "--sync":
