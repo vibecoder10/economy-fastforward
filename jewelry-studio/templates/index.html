@@ -109,24 +109,41 @@
         .rc img { width: 100%; aspect-ratio: 1; object-fit: cover; display: block; }
         .rf { padding: 12px 14px; display: flex; align-items: center; justify-content: space-between; }
         .rl { font-size: 12px; font-weight: 600; }
-        .ra { display: flex; gap: 5px; }
+        .ra { display: flex; gap: 5px; align-items: center; }
         .sb {
             padding: 4px 9px; border: 1px solid #ddd; border-radius: 4px; background: #fff;
             cursor: pointer; font-size: 10px; text-decoration: none; color: #333; transition: .15s;
         }
         .sb:hover { background: #f0f0f0; }
 
-        .pe { display: none; padding: 0 14px 12px; }
-        .pe.on { display: block; }
-        .pe textarea {
-            width: 100%; min-height: 60px; padding: 7px 9px; border: 1px solid #ddd;
-            border-radius: 4px; font-family: inherit; font-size: 11px; resize: vertical;
+        /* ── Regen panel (feedback + prompt) ── */
+        .rp { display: none; padding: 0 14px 14px; }
+        .rp.on { display: block; }
+        .rp label { display: block; font-size: 10px; font-weight: 600; color: #888; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 4px; }
+        .rp .fb {
+            width: 100%; min-height: 44px; padding: 7px 9px; border: 1px solid #ddd;
+            border-radius: 4px; font-family: inherit; font-size: 12px; resize: vertical;
+            background: #fffbf0; border-color: #e8d5a3;
         }
-        .pe .rb {
-            margin-top: 5px; padding: 6px 12px; background: #1a1a1a; color: #fff;
-            border: none; border-radius: 4px; cursor: pointer; font-size: 11px;
+        .rp .fb:focus { outline: none; border-color: #c4a44a; background: #fff9e6; }
+        .rp .fb-hint { font-size: 9px; color: #aaa; margin: 3px 0 10px; }
+        .rp .prompt-toggle {
+            font-size: 10px; color: #888; cursor: pointer; border: none; background: none;
+            text-decoration: underline; padding: 0; margin-bottom: 4px;
         }
-        .pe .rb:disabled { background: #999; }
+        .rp .prompt-area { display: none; }
+        .rp .prompt-area.on { display: block; }
+        .rp .pa {
+            width: 100%; min-height: 50px; padding: 7px 9px; border: 1px solid #ddd;
+            border-radius: 4px; font-family: inherit; font-size: 10px; resize: vertical;
+            color: #666;
+        }
+        .rp .rr {
+            margin-top: 8px; padding: 8px 16px; background: #1a1a1a; color: #fff;
+            border: none; border-radius: 5px; cursor: pointer; font-size: 12px; font-weight: 600;
+        }
+        .rp .rr:disabled { background: #999; }
+        .rp .rr:hover:not(:disabled) { background: #333; }
 
         .analysis {
             background: #f9f9f9; border: 1px solid #e5e5e5; border-radius: 6px; padding: 14px; margin-top: 4px;
@@ -402,18 +419,28 @@ function showResults(data) {
         c.className = 'rc' + (r.error ? ' fail' : '');
         const img = r.local
             ? `<img src="${r.local}" alt="${LABELS[r.view]}">`
-            : `<div class="fp">Failed &mdash; edit prompt &amp; regenerate</div>`;
+            : `<div class="fp">Failed &mdash; describe what went wrong and regenerate</div>`;
+
+        // Escape prompt for safe HTML embedding
+        const safePrompt = (r.prompt || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+
         c.innerHTML = `${img}
             <div class="rf">
                 <span class="rl">${LABELS[r.view]}</span>
                 <div class="ra">
-                    <button class="sb" onclick="tog(this)">Edit Prompt</button>
+                    <button class="sb" onclick="openRegen(this)" style="background:#1a1a1a;color:#fff;border-color:#1a1a1a;font-weight:600;">Regenerate</button>
                     ${r.local ? `<a class="sb" href="${r.local}" download="${r.view}.png">Download</a>` : ''}
                 </div>
             </div>
-            <div class="pe">
-                <textarea>${r.prompt || ''}</textarea>
-                <button class="rb" onclick="regen(this,'${r.view}','${data.batch_id}')">Regenerate</button>
+            <div class="rp">
+                <label>What&rsquo;s wrong with this image?</label>
+                <textarea class="fb" placeholder="e.g. &quot;The gemstone should be blue not red&quot; or &quot;The band is too thick&quot; or &quot;Wrong metal color - should be rose gold&quot;"></textarea>
+                <div class="fb-hint">Describe what needs to change. This feedback gets added to the prompt as a correction.</div>
+                <button class="prompt-toggle" onclick="togPrompt(this)">Show full prompt &darr;</button>
+                <div class="prompt-area">
+                    <textarea class="pa">${safePrompt}</textarea>
+                </div>
+                <button class="rr" onclick="regen(this,'${r.view}','${data.batch_id}')">Regenerate This Shot</button>
             </div>`;
         grid.appendChild(c);
         if (r.local) locals.push({ p: r.local, v: r.view });
@@ -429,27 +456,65 @@ function showResults(data) {
     sec.scrollIntoView({ behavior: 'smooth' });
 }
 
-function tog(b) { b.closest('.rc').querySelector('.pe').classList.toggle('on'); }
+function openRegen(btn) {
+    const panel = btn.closest('.rc').querySelector('.rp');
+    panel.classList.toggle('on');
+    // Focus the feedback field
+    if (panel.classList.contains('on')) {
+        panel.querySelector('.fb').focus();
+    }
+}
+
+function togPrompt(btn) {
+    const area = btn.nextElementSibling;
+    area.classList.toggle('on');
+    btn.innerHTML = area.classList.contains('on') ? 'Hide full prompt &uarr;' : 'Show full prompt &darr;';
+}
 
 async function regen(btn, view, bid) {
     const card = btn.closest('.rc');
-    const prompt = card.querySelector('textarea').value;
-    btn.disabled = true; btn.textContent = 'Working...';
+    const feedback = card.querySelector('.fb').value;
+    const prompt = card.querySelector('.pa').value;
+    btn.disabled = true; btn.textContent = 'Regenerating...';
+
     try {
         const fd = new FormData();
-        fd.append('prompt', prompt); fd.append('view', view); fd.append('batch_id', bid);
+        fd.append('prompt', prompt);
+        fd.append('view', view);
+        fd.append('batch_id', bid);
+        fd.append('feedback', feedback);
+
         const r = await fetch('/api/regenerate', { method: 'POST', body: fd });
         if (!r.ok) { const e = await r.json(); throw new Error(e.detail || 'Failed'); }
         const d = await r.json();
+
+        // Update image
         let img = card.querySelector('img');
-        if (img) img.src = d.local;
-        else { const ph = card.querySelector('.fp'); if (ph) { img = document.createElement('img'); img.src = d.local; ph.replaceWith(img); } }
+        if (img) { img.src = d.local; }
+        else {
+            const ph = card.querySelector('.fp');
+            if (ph) { img = document.createElement('img'); img.src = d.local; img.alt = LABELS[view]; ph.replaceWith(img); }
+        }
+
+        // Update/add download link
         let dl = card.querySelector('a[download]');
-        if (dl) dl.href = d.local;
-        else { const a = document.createElement('a'); a.className = 'sb'; a.href = d.local; a.download = view + '.png'; a.textContent = 'Download'; card.querySelector('.ra').appendChild(a); }
-        card.classList.remove('fail'); toast('Regenerated');
+        if (dl) { dl.href = d.local; }
+        else {
+            const a = document.createElement('a'); a.className = 'sb'; a.href = d.local;
+            a.download = view + '.png'; a.textContent = 'Download';
+            card.querySelector('.ra').appendChild(a);
+        }
+
+        // Update the prompt textarea with the corrected prompt for next iteration
+        card.querySelector('.pa').value = d.prompt;
+
+        // Clear feedback field for next round
+        card.querySelector('.fb').value = '';
+
+        card.classList.remove('fail');
+        toast('Regenerated with your feedback');
     } catch (e) { toast(e.message, true); }
-    finally { btn.disabled = false; btn.textContent = 'Regenerate'; }
+    finally { btn.disabled = false; btn.textContent = 'Regenerate This Shot'; }
 }
 
 function toast(m, err) {

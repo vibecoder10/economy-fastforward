@@ -413,12 +413,33 @@ async def generate(
 
 
 @app.post("/api/regenerate")
-async def regenerate(prompt: str = Form(...), view: str = Form(...), batch_id: str = Form("re")):
-    url = await generate_image_kie(prompt)
+async def regenerate(
+    prompt: str = Form(...),
+    view: str = Form(...),
+    batch_id: str = Form("re"),
+    feedback: str = Form(""),
+):
+    """Regenerate a single image with optional feedback about what was wrong.
+
+    If feedback is provided, it gets woven into the prompt as a correction
+    directive so the generator knows what to fix.
+    """
+    final_prompt = prompt
+    if feedback and feedback.strip():
+        # Prepend a strong correction block so the model prioritizes the fix
+        correction = (
+            f"IMPORTANT CORRECTION - The previous generation had these issues: {feedback.strip()}. "
+            f"You MUST address these problems in this new generation. "
+            f"Specifically fix: {feedback.strip()}. "
+            f"--- Original prompt follows --- "
+        )
+        final_prompt = correction + prompt
+
+    url = await generate_image_kie(final_prompt)
     if url:
         fname = f"{batch_id}_{view}_{uuid.uuid4().hex[:4]}.png"
         local = await download_save(url, fname)
-        return {"view": view, "url": url, "local": local, "prompt": prompt}
+        return {"view": view, "url": url, "local": local, "prompt": final_prompt}
     raise HTTPException(500, detail="Generation failed")
 
 
