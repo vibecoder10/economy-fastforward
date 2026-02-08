@@ -882,10 +882,22 @@ Example 3 (DATA LANDSCAPE):
   "segments": [
     {{
       "text": "The narration text for this segment...",
-      "image_prompt": "[SHOT_PREFIX] [scene composition], [focal subject], [environmental storytelling], {STYLE_ENGINE}, [lighting]"
+      "image_prompt": "[SHOT_PREFIX] [scene composition], [focal subject], [environmental storytelling], {STYLE_ENGINE}, [lighting]",
+      "shot_type": "wide_establishing"
     }}
   ]
-}}"""
+}}
+
+=== SHOT TYPE VALUES (pick one per segment based on camera framing) ===
+- wide_establishing (aerial, overhead, establishing shots)
+- isometric_diorama (3/4 angle miniature world view)
+- medium_human_story (human subject at medium distance)
+- close_up_vignette (tight focus on object/detail)
+- data_landscape (charts, graphs, data visualization)
+- split_screen (divided frame comparison)
+- pull_back_reveal (starts close, reveals wider context)
+- overhead_map (top-down view)
+- journey_shot (movement through space)"""
 
         prompt = f"""Segment this scene narration into {target_count} visual concepts:
 
@@ -895,7 +907,7 @@ SCENE TEXT:
 REQUIRED SHOT ASSIGNMENTS:
 {scene_type_guidance}
 
-Return JSON with segments array. Each segment has text and image_prompt.
+Return JSON with segments array. Each segment has text, image_prompt, and shot_type.
 REMEMBER: {PROMPT_MIN_WORDS}-{PROMPT_MAX_WORDS} words per prompt. Every word must describe something VISUAL."""
 
         response = await self.generate(
@@ -912,7 +924,14 @@ REMEMBER: {PROMPT_MIN_WORDS}-{PROMPT_MAX_WORDS} words per prompt. Every word mus
 
         segments = data.get("segments", [])
 
-        # Validate and log word counts
+        # Valid shot types
+        valid_shot_types = [
+            "wide_establishing", "isometric_diorama", "medium_human_story",
+            "close_up_vignette", "data_landscape", "split_screen",
+            "pull_back_reveal", "overhead_map", "journey_shot"
+        ]
+
+        # Validate and log word counts, ensure shot_type is valid
         for i, seg in enumerate(segments):
             prompt_text = seg.get("image_prompt", "")
             word_count = len(prompt_text.split())
@@ -920,6 +939,17 @@ REMEMBER: {PROMPT_MIN_WORDS}-{PROMPT_MAX_WORDS} words per prompt. Every word mus
                 print(f"      ⚠️ Segment {i+1} prompt too short: {word_count} words (min {PROMPT_MIN_WORDS})")
             elif word_count > PROMPT_MAX_WORDS:
                 print(f"      ⚠️ Segment {i+1} prompt too long: {word_count} words (max {PROMPT_MAX_WORDS})")
+
+            # Validate/default shot_type
+            shot_type = seg.get("shot_type", "").lower().strip()
+            if shot_type not in valid_shot_types:
+                # Fallback: use scene type from pre-computed assignments
+                if i < len(scene_type_assignments):
+                    shot_type = scene_type_assignments[i]["scene_type"].value
+                else:
+                    shot_type = "medium_human_story"  # safe default
+                print(f"      ⚠️ Segment {i+1} missing/invalid shot_type, using: {shot_type}")
+            seg["shot_type"] = shot_type
 
         return segments
 

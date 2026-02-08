@@ -919,6 +919,9 @@ class VideoPipeline:
                 # ENFORCE 6-10s range - cap at 10s max, floor at 6s min
                 concept_duration = max(6.0, min(10.0, concept_duration))
 
+                # Get shot_type from segment (now included in output)
+                shot_type = concept.get("shot_type", "medium_human_story")
+
                 self.airtable.create_sentence_image_record(
                     scene_number=scene_number,
                     sentence_index=i + 1,
@@ -927,12 +930,17 @@ class VideoPipeline:
                     image_prompt=concept.get("image_prompt", ""),
                     video_title=self.video_title,
                     cumulative_start=round(cumulative_start, 1),
-                    aspect_ratio="16:9"
+                    aspect_ratio="16:9",
+                    shot_type=shot_type,
                 )
                 cumulative_start += concept_duration
                 total_prompts += 1
 
             print(f"    ✅ Created {len(concepts)} prompts for scene {scene_number}")
+
+        # Flag hero shots after all prompts are created
+        hero_count = await self._flag_hero_shots()
+        print(f"  🌟 Flagged {hero_count} hero shots")
 
         self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_IMAGES)
 
@@ -942,8 +950,69 @@ class VideoPipeline:
             "bot": "Image Prompt Bot",
             "video_title": self.video_title,
             "prompt_count": total_prompts,
+            "hero_count": hero_count,
             "new_status": self.STATUS_READY_IMAGES
         }
+
+    async def _flag_hero_shots(self, max_heroes: int = 3) -> int:
+        """Flag 2-3 images per video as hero shots for 10s animation.
+
+        Criteria (flag if ANY match):
+        - Shot type is 'pull_back_reveal'
+        - Shot type is 'isometric_diorama' (complex detail worth lingering on)
+        - Last image in the video sequence
+
+        Constraints:
+        - Maximum 3 hero shots per video
+        - Never flag consecutive images
+
+        Returns:
+            Number of hero shots flagged
+        """
+        # Get all images for this video (just created)
+        all_images = self.airtable.get_all_images_for_video(self.video_title)
+
+        if not all_images:
+            return 0
+
+        # Sort by scene and index for proper ordering
+        sorted_images = sorted(
+            all_images,
+            key=lambda x: (x.get("Scene", 0), x.get("Image Index", 0))
+        )
+
+        hero_shot_types = ["pull_back_reveal", "isometric_diorama"]
+        hero_count = 0
+        last_was_hero = False
+        total_images = len(sorted_images)
+
+        for i, img in enumerate(sorted_images):
+            shot_type = (img.get("Shot Type") or "").lower().strip()
+            is_last = (i == total_images - 1)
+
+            should_flag = (
+                shot_type in hero_shot_types
+                or is_last
+            )
+
+            if should_flag and not last_was_hero and hero_count < max_heroes:
+                # Flag as hero shot
+                self.airtable.update_image_animation_fields(
+                    img["id"],
+                    is_hero_shot=True,
+                )
+                hero_count += 1
+                last_was_hero = True
+                print(f"    🌟 Hero shot: Scene {img.get('Scene')}, Image {img.get('Image Index')} ({shot_type or 'last image'})")
+            else:
+                # Ensure not flagged
+                self.airtable.update_image_animation_fields(
+                    img["id"],
+                    is_hero_shot=False,
+                )
+                last_was_hero = False
+
+        return hero_count
 
     async def run_image_bot(self) -> dict:
         """Generate images from prompts.

@@ -243,6 +243,7 @@ class AirtableClient:
         video_title: str,
         cumulative_start: float = 0.0,
         aspect_ratio: str = "16:9",
+        shot_type: str = None,
     ) -> dict:
         """Create a sentence-aligned image prompt record.
 
@@ -260,7 +261,9 @@ class AirtableClient:
             "Sentence Index": sentence_index,
             # Note: "Start Time (s)" field removed - Airtable field type issue
         }
-        record = self.images_table.create(fields)
+        if shot_type:
+            fields["Shot Type"] = shot_type
+        record = self.images_table.create(fields, typecast=True)
         return {"id": record["id"], **record["fields"]}
 
     def create_segment_image_record(
