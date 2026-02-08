@@ -679,10 +679,13 @@ class VideoPipeline:
         # Create project folder in Google Drive
         folder = self.google.create_folder(self.video_title)
         self.project_folder_id = folder["id"]
-        
-        # Create Google Doc for script
+
+        # Create Google Doc for script (graceful fallback if API unavailable)
         doc = self.google.create_document(self.video_title, self.project_folder_id)
-        self.google_doc_id = doc["id"]
+        self.google_doc_id = doc["id"]  # May be None if unavailable
+        docs_available = not doc.get("unavailable", False)
+        if not docs_available:
+            print("  ⚠️  Google Docs unavailable - scripts will be saved to Airtable only")
         
         # Generate beat sheet
         beat_sheet = await self.anthropic.generate_beat_sheet(self.current_idea)
@@ -731,11 +734,11 @@ class VideoPipeline:
         # UPDATE STATUS to Ready For Voice
         self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_VOICE)
         print(f"  ✅ Status updated to: {self.STATUS_READY_VOICE}")
-        
+
         doc_url = self.google.get_document_url(self.google_doc_id)
         self.slack.notify_script_done(doc_url)
-        
-        return {
+
+        result = {
             "bot": "Script Bot",
             "video_title": self.video_title,
             "folder_id": self.project_folder_id,
@@ -744,6 +747,9 @@ class VideoPipeline:
             "scene_count": len(scenes),
             "new_status": self.STATUS_READY_VOICE,
         }
+        if not docs_available:
+            result["warning"] = "Google Docs API unavailable - scripts saved to Airtable only"
+        return result
     
     async def run_voice_bot(self) -> dict:
         """Generate voice overs for all scenes.
@@ -1831,6 +1837,62 @@ class VideoPipeline:
                 
         print("\n✅ Sync Complete!")
         return {"status": "synced"}
+
+    async def sync_scripts_to_google_doc(self, video_title: str) -> dict:
+        """Create Google Doc from existing Airtable scripts.
+
+        Use this to recover when Google Docs API was unavailable during script generation.
+        Scripts are already saved to Airtable, this just creates the Doc.
+
+        Args:
+            video_title: The video title to sync
+
+        Returns:
+            Dict with doc_id and doc_url if successful
+        """
+        print(f"\n📄 SYNC SCRIPTS TO GOOGLE DOC: '{video_title}'")
+
+        # Get scripts from Airtable
+        scripts = self.airtable.get_scripts_by_title(video_title)
+        if not scripts:
+            return {"error": f"No scripts found for '{video_title}'"}
+
+        print(f"  Found {len(scripts)} scenes in Airtable")
+
+        # Get or create folder
+        folder = self.google.get_or_create_folder(video_title)
+        folder_id = folder["id"]
+
+        # Create Google Doc
+        doc = self.google.create_document(video_title, folder_id)
+        if doc.get("unavailable"):
+            return {"error": "Google Docs API still unavailable"}
+
+        doc_id = doc["id"]
+        print(f"  Created Google Doc: {doc_id}")
+
+        # Append all scenes
+        for script in scripts:
+            scene_num = script.get("scene", 0)
+            scene_text = script.get("Scene text", "")
+            if scene_text:
+                success = self.google.append_to_document(
+                    doc_id,
+                    f"**Scene {scene_num}**\n\n{scene_text}",
+                )
+                if success:
+                    print(f"  ✅ Added Scene {scene_num}")
+                else:
+                    print(f"  ⚠️  Failed to add Scene {scene_num}")
+
+        doc_url = self.google.get_document_url(doc_id)
+        print(f"\n✅ Google Doc created: {doc_url}")
+
+        return {
+            "doc_id": doc_id,
+            "doc_url": doc_url,
+            "scenes_synced": len(scripts),
+        }
 
 
 async def main():
