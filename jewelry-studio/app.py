@@ -101,46 +101,69 @@ def _resolve(file_id: str) -> Path:
 # ──────────────────────────────────────────────
 
 async def analyze_jewelry_piece(image_paths: list[Path], jewelry_type: str) -> dict:
-    """Step 1 analysis: Extract detailed JSON description of the actual jewelry piece."""
+    """Step 1 analysis: Molecular-level detail extraction of the jewelry piece."""
     parts = [
-        {"text": f"""You are a master gemologist and jewelry appraiser analyzing {len(image_paths)} photo(s) of a {jewelry_type}.
-A jeweler needs professional product shots that look EXACTLY like this piece. Your analysis drives the image generation.
+        {"text": f"""You are the world's foremost gemologist and jewelry forensic analyst examining {len(image_paths)} photo(s) of a {jewelry_type}.
+Your analysis DIRECTLY drives an AI image generator. Every inaccuracy = a wrong product photo. Be forensically precise.
 
-PAY EXTREME ATTENTION TO STONES AND PRONGS:
-- Count every single stone precisely. Do not estimate - count them.
-- Describe each stone's exact cut, color, size relative to the piece, and how it catches light.
-- Note the luminescence/brilliance - are they fiery and refractive, or subtle and muted?
-- Describe prong details: number of prongs per stone, prong shape (round, pointed, V-shaped, flat), prong thickness, prong metal color.
-- Note how stones are arranged - in a line, cluster, halo, scattered, graduated sizes, etc.
+═══ COLOR ANALYSIS (MOST CRITICAL) ═══
+- Metal color: Do NOT just say "gold". Specify the EXACT shade. Is it warm buttery yellow gold, pale lemon gold, deep rich honey gold, cool silvery white gold, soft blush rose gold, coppery rose gold, bright platinum silver, oxidized dark silver, etc.?
+- If the piece has TWO-TONE or MULTI-COLOR metals, describe EACH color separately and WHERE each appears (e.g. "rose gold band with white gold prong heads" or "yellow gold base with rhodium-plated crown").
+- Gemstone color: Use EXACT descriptors. Not "blue" but "deep royal sapphire blue" or "light icy baby blue" or "teal-green blue". Not "red" but "vivid pigeon blood red" or "pinkish-red raspberry". Not "clear" but "colorless icy white with rainbow fire" or "slightly warm near-colorless".
+- Compare colors to known references when helpful (e.g. "the color of champagne", "matches Pantone rose quartz").
 
-Return JSON with these fields:
+═══ SIZE & PROPORTION (CRITICAL - ALWAYS GETS WRONG) ═══
+- Estimate the ACTUAL physical size of the piece. Use mm dimensions.
+- For rings: estimate band width in mm, stone diameter in mm, total ring face height in mm.
+- For earrings: estimate total drop length in mm, width in mm, and how large they appear relative to an earlobe (small/subtle, medium, large/statement).
+- For necklaces: estimate pendant size in mm, chain thickness in mm.
+- For bracelets: estimate width in mm, link size if applicable.
+- Describe the size relationship: Is the center stone proportionally large or delicate compared to the band? Is this a dainty piece or a substantial piece?
+- CRITICAL: If this piece would look SMALL and DELICATE on a hand/ear/neck, say so explicitly. If it would look LARGE and BOLD, say so. This controls the generated image scale.
+
+═══ PRONGS & SETTINGS (ALWAYS GETS WRONG) ═══
+- Count prongs PER STONE precisely. 4-prong? 6-prong? Shared prongs?
+- Prong size relative to stone: Are prongs thin/delicate barely visible, or thick/substantial and clearly visible?
+- Prong shape: pointed/tapered, rounded/bead, V-shaped, flat/square, claw, button?
+- Prong color: same as band or different (e.g. white gold prongs on yellow gold band)?
+
+═══ STONES & BRILLIANCE ═══
+- Count EVERY stone. Not "several" - give exact numbers.
+- Size of each stone or group: center stone mm, side stones mm, accent stones mm.
+- Arrangement: halo? three-stone? solitaire? cluster? linear row? scattered? graduated?
+- Brilliance: How do stones catch light? Fiery rainbow dispersion? Icy sharp sparkle? Soft muted glow? Mirror-like reflection?
+
+Return JSON:
 
 {{
   "jewelry_type": "{jewelry_type}",
-  "material": "exact metal type and color (yellow gold 14k/18k/24k, white gold, rose gold, sterling silver, platinum, etc.)",
-  "material_finish": "polished, matte, brushed, hammered, satin, oxidized, high-shine, mirror finish, etc.",
-  "gemstones": "EXTREMELY DETAILED: for EACH stone describe: exact type (diamond, sapphire, ruby, emerald, moissanite, CZ, etc.), exact cut (round brilliant, princess, emerald cut, pear, marquise, cushion, oval, baguette, trillion, etc.), exact color (colorless, near-colorless, fancy yellow, deep blue, pigeon blood red, etc.), approximate carat size or mm dimensions, clarity appearance (eye-clean, visible inclusions, etc.), and brilliance/fire/luminescence (how it catches and refracts light - does it sparkle intensely, glow softly, flash rainbow fire, etc.). Say 'none' if no gemstones.",
-  "gemstone_count": "EXACT count and precise arrangement (e.g. '1 center 1.5ct round brilliant + 6 side 0.1ct rounds + 24 micro-pave rounds around halo'). Count carefully.",
-  "prong_details": "number of prongs per stone, prong shape and style (pointed, rounded, V-tip, flat claw, double prong, shared prong), prong thickness (delicate/substantial), prong metal finish. Say 'n/a' if no prongs.",
-  "stone_luminescence": "describe how the stones interact with light: intense fire and brilliance, subtle shimmer, rainbow dispersion, icy sparkle, warm glow, etc. Note any specific light behavior you see.",
+  "metal_color_exact": "EXTREMELY specific color description of the metal(s). If two-tone, describe BOTH colors and where each appears. Use shade names like 'warm honey yellow gold', 'cool silvery white gold', 'soft pinkish rose gold', etc.",
+  "metal_color_secondary": "If two-tone/multi-tone: the second metal color and where it appears. Say 'none' if single color.",
+  "material": "metal type with karat if discernible (14k yellow gold, 18k rose gold, sterling silver, platinum, etc.)",
+  "material_finish": "polished mirror-shine, matte, brushed, hammered, satin, oxidized, high-shine, etc.",
+  "gemstones": "FOR EACH STONE: exact type, exact cut, EXACT color shade (not just 'blue' - specify the EXACT shade), approximate mm size, clarity, and light behavior. Be exhaustive.",
+  "gemstone_count": "EXACT count per group: e.g. '1 center round 6mm + 2 side baguettes 3x1.5mm + 18 micro-pave rounds 1mm each'. Count precisely from the photos.",
+  "prong_details": "prongs per stone, prong shape, prong thickness relative to stone (barely visible / clearly visible / substantial), prong color vs band color. Say 'n/a' if no prongs.",
+  "stone_luminescence": "exactly how stones interact with light - fiery rainbow dispersion, icy white sparkle, soft warm glow, mirror-like flash, subtle shimmer, etc.",
+  "physical_dimensions": "estimated real-world size in mm. Ring: band width x stone diameter x face height. Earring: total length x width. Necklace: pendant dimensions x chain thickness. Include how it would appear on the body - dainty/subtle, medium, or bold/statement.",
+  "scale_on_body": "How this piece looks when worn: 'very small and delicate - barely noticeable', 'petite and understated', 'medium and noticeable', 'substantial and eye-catching', 'large and bold statement piece'. This is critical for generating correctly sized jewelry on a model.",
   "design_style": "modern, vintage, art deco, minimalist, bohemian, statement, classic, filigree, etc.",
-  "band_chain_details": "band width (thin/medium/thick in mm estimate), chain type, clasp style, base structure details",
-  "setting_type": "prong, bezel, pave, channel, tension, halo, cluster, cathedral, flush, gypsy, etc.",
-  "decorative_elements": "filigree, engraving, milgrain, twisted rope, braided, texture patterns, openwork, gallery details under the setting, etc. Say 'none' if plain.",
-  "overall_shape": "describe the overall silhouette and form from front view",
-  "color_palette": "all visible colors and their exact relationships (e.g. 'warm yellow gold with icy white diamonds and subtle pink undertone')",
-  "size_proportion": "delicate, petite, medium, substantial, chunky, oversized - and approximate dimensions if visible",
-  "unique_features": "anything distinctive: asymmetry, mixed metals, unusual stone shapes, special textures, signature details",
-  "detailed_description": "A comprehensive 5-6 sentence description capturing EVERY visual detail. Start with the stones (type, cut, color, count, arrangement, brilliance), then the prongs and settings, then the metalwork, then overall design and proportions. This is the MOST IMPORTANT field - it must be specific enough to recreate this EXACT piece."
+  "band_chain_details": "band width in mm estimate, profile shape (flat, rounded, knife-edge, comfort-fit), chain type if applicable, clasp details",
+  "setting_type": "prong, bezel, pave, channel, tension, halo, cluster, cathedral, flush, etc.",
+  "decorative_elements": "filigree, engraving, milgrain, twisted rope, braided, texture patterns, openwork, gallery details, split shank, etc. Say 'none' if plain.",
+  "overall_shape": "overall silhouette and form from front view",
+  "color_palette": "COMPLETE color breakdown with exact shades: e.g. 'warm 18k yellow gold (honey tone) with icy colorless round brilliant diamond center, flanked by deep royal blue sapphire baguettes. The gold has a slight rose undertone where it meets the white gold prong heads.'",
+  "size_proportion": "delicate/petite/medium/substantial/chunky with mm estimates",
+  "unique_features": "anything distinctive: asymmetry, mixed metals, unusual stone shapes, special textures, signature details, color contrasts",
+  "detailed_description": "6-8 sentences. START with exact colors (metal shade + stone shades). Then stone count, cut, arrangement. Then prong count/shape/size. Then band/chain details. Then overall proportions and scale on body. Then design style. This must be specific enough to CLONE this piece visually. If someone read only this field, they should be able to draw this piece accurately."
 }}
 
-CRITICAL: Count stones precisely. Describe their sparkle/fire/luminescence. Note every prong. Get the colors exactly right.
-The goal is that someone reading your description could identify this exact piece in a lineup of similar jewelry."""}
+THE #1 FAILURE MODE IS GETTING COLORS WRONG. Triple-check every color. If the metal has warm yellow tones, do NOT describe it as white/silver. If a stone is light blue, do NOT call it deep blue. Be EXACT."""}
     ]
     for p in image_paths:
         parts.append(_img_part(p))
 
-    return _parse_json(await _gemini(parts))
+    return _parse_json(await _gemini(parts, tokens=4096))
 
 
 async def analyze_model_reference(image_path: Path) -> str:
@@ -162,23 +185,26 @@ Do NOT use JSON formatting."""},
 
 
 async def analyze_style_reference(image_path: Path) -> dict:
-    """Step 3 analysis: Extract the photographic STYLE from the reference product shot."""
+    """Step 3 analysis: Extract the photographic STYLE from the reference product shot.
+    Note: Background will always be overridden to pure white in prompt crafting."""
     parts = [
         {"text": """Analyze this professional jewelry product photo purely for its PHOTOGRAPHIC STYLE.
 I want to recreate this exact look with a DIFFERENT piece of jewelry.
 
+NOTE: The background will be overridden to pure white regardless of what's in this image.
+Focus on LIGHTING, MOOD, COMPOSITION, and CAMERA ANGLE - those are what matter most.
+
 Return JSON:
 
 {
-  "background": "describe background (color, gradient, texture, surface material, any visible elements)",
-  "lighting": "lighting setup (direction, softness, highlights, shadows, rim light, fill, etc.)",
+  "lighting": "lighting setup in detail (direction, softness, highlights, shadows, rim light, fill, catch lights, specular highlights on metal, etc.)",
   "orientation": "how the jewelry sits (flat lay, angled, standing, elevated, hanging, draped, on bust/hand, etc.)",
   "camera_angle": "camera perspective (top-down, eye-level, 45-degree, macro close-up, slight overhead, etc.)",
   "composition": "framing style (centered, rule-of-thirds, tight crop, breathing room, negative space, etc.)",
   "mood": "overall aesthetic (luxurious, minimal, warm, cool, editorial, catalog, lifestyle, romantic, etc.)",
-  "props_surface": "any props or surfaces (velvet, marble, wood, fabric, mirror, flowers, none, etc.)",
+  "props_surface": "any props or surfaces visible (velvet, marble, wood, fabric, mirror, flowers, none, etc.) - note: these may or may not be used",
   "color_grading": "color temperature and tone (warm, cool, neutral, high contrast, low contrast, muted, vibrant)",
-  "style_summary": "2-sentence summary of the entire photographic style. Be specific enough to use as a generation directive."
+  "style_summary": "2-sentence summary of the entire photographic style EXCLUDING background. Focus on lighting quality, composition approach, and mood. Be specific enough to use as a generation directive."
 }
 
 IMPORTANT: Describe the STYLE, not the jewelry. Return ONLY valid JSON."""},
@@ -202,6 +228,8 @@ def craft_prompts(
 
     The on-model prompt uses the jewelry JSON description (from the uploaded piece),
     NOT the shape of whatever jewelry the model reference is wearing.
+    All product shots enforce PURE WHITE backgrounds regardless of style reference.
+    Uses molecular-level color and proportion fields for exact replication.
     """
 
     # ── Jewelry description (from Step 1 analysis) ──
@@ -221,8 +249,38 @@ def craft_prompts(
     size = jewelry.get("size_proportion", "")
     unique = jewelry.get("unique_features", "")
 
-    # Build rich piece descriptor - stones and prongs first (most important)
+    # New molecular-level fields
+    metal_exact = jewelry.get("metal_color_exact", "")
+    metal_secondary = jewelry.get("metal_color_secondary", "")
+    dimensions = jewelry.get("physical_dimensions", "")
+    scale = jewelry.get("scale_on_body", "")
+
+    # ── COLOR BLOCK (highest priority - put first in prompt) ──
+    color_block = f"EXACT COLORS (MATCH PRECISELY): "
+    if metal_exact:
+        color_block += f"Primary metal: {metal_exact}. "
+    if metal_secondary and metal_secondary.lower() not in ("none", "n/a", ""):
+        color_block += f"Secondary metal: {metal_secondary}. "
+    if colors:
+        color_block += f"Full palette: {colors}. "
+    color_block += "DO NOT deviate from these exact color descriptions. "
+
+    # ── SCALE BLOCK (second priority - prevents oversized jewelry) ──
+    scale_block = ""
+    if dimensions or scale:
+        scale_block = "SIZE & PROPORTION (CRITICAL - DO NOT MAKE JEWELRY TOO LARGE): "
+        if dimensions:
+            scale_block += f"Physical dimensions: {dimensions}. "
+        if scale:
+            scale_block += f"Scale on body: {scale}. "
+        scale_block += "Generate the jewelry at REALISTIC proportions - match the described scale exactly. "
+
+    # Build rich piece descriptor - colors and prongs first (most important)
     pieces = [f"{finish} {material} {jewelry_type}"]
+    if metal_exact:
+        pieces.append(f"EXACT metal color: {metal_exact}")
+    if metal_secondary and metal_secondary.lower() not in ("none", "n/a", ""):
+        pieces.append(f"secondary metal: {metal_secondary}")
     if gems and gems.lower() not in ("none", "n/a", ""):
         pieces.append(f"set with {gems}")
     if gem_count and gem_count.lower() not in ("none", "n/a", ""):
@@ -237,33 +295,36 @@ def craft_prompts(
         pieces.append(f"with {deco}")
     if band and band.lower() not in ("none", "n/a", ""):
         pieces.append(f"{band}")
+    if dimensions:
+        pieces.append(f"physical size: {dimensions}")
     if unique and unique.lower() not in ("none", "n/a", ""):
         pieces.append(f"distinctive features: {unique}")
 
     core = ", ".join(pieces)
 
-    # Full description block - stone details are critical
+    # Full description block - colors and scale FIRST, then stone details
     jewelry_block = (
         f"JEWELRY PIECE: {core}. "
-        f"Design: {design}. Shape: {shape}. Proportions: {size}. Colors: {colors}. "
+        f"{color_block}"
+        f"{scale_block}"
+        f"Design: {design}. Shape: {shape}. Proportions: {size}. "
         f"STONE DETAIL (CRITICAL): {gems}. Count: {gem_count}. "
-        f"Prongs: {prongs}. Light behavior: {luminescence}. "
+        f"PRONG DETAIL (CRITICAL): {prongs}. "
+        f"Light behavior: {luminescence}. "
         f"Full description: {detailed}"
     )
 
     # ── Style directive (from Step 3 analysis) ──
+    # NOTE: Background is ALWAYS pure white, regardless of style reference
     s = style
     style_block = (
         f"STYLE: {s.get('style_summary', 'Professional jewelry photography.')} "
-        f"Background: {s.get('background', 'clean white')}. "
+        f"BACKGROUND: PURE WHITE (#FFFFFF). Seamless, clean, no shadows on background, no gradients, no texture - ONLY pure white. "
         f"Lighting: {s.get('lighting', 'soft studio')}. "
         f"Color grading: {s.get('color_grading', 'neutral')}. "
         f"Mood: {s.get('mood', 'luxurious')}. "
         f"Composition: {s.get('composition', 'centered')}. "
     )
-    props = s.get("props_surface", "")
-    if props and props.lower() not in ("none", "n/a", ""):
-        style_block += f"Surface/props: {props}. "
 
     # ── Extra instructions ──
     extra_block = ""
@@ -274,9 +335,9 @@ def craft_prompts(
     product_base = (
         f"{style_block}"
         f"{jewelry_block} "
-        f"Professional jewelry product photography, "
+        f"Professional jewelry product photography on PURE WHITE background, "
         f"sharp focus on every detail, high-end commercial catalog quality, "
-        f"photorealistic, 8K resolution{extra_block}"
+        f"photorealistic, 8K resolution, the jewelry must be REALISTICALLY SIZED - not oversized{extra_block}"
     )
 
     prompts = {
@@ -284,21 +345,26 @@ def craft_prompts(
             f"{product_base}, "
             f"straight-on front view, {s.get('camera_angle', 'eye-level')} camera angle, "
             f"orientation: {s.get('orientation', 'centered')}, "
-            f"perfectly centered in frame, symmetrical composition"
+            f"perfectly centered in frame, symmetrical composition, "
+            f"pure white seamless background"
         ),
         "angled": (
             f"{product_base}, "
             f"three-quarter angle view showing depth and dimension, "
             f"slight 40-degree rotation revealing side profile and craftsmanship, "
-            f"orientation: {s.get('orientation', 'angled')}"
+            f"orientation: {s.get('orientation', 'angled')}, "
+            f"pure white seamless background"
         ),
         "model": (
             f"Professional fashion editorial photography. "
             f"MODEL: {model_desc}. "
             f"The model is wearing the following {jewelry_type} - {jewelry_block} "
             f"CRITICAL: The {jewelry_type} must match the description above EXACTLY - "
-            f"do not change or simplify the design, stones, or materials. "
+            f"do not change or simplify the design, stones, materials, or COLORS. "
+            f"{color_block}"
             f"The {jewelry_type} is the hero/focal point of the image. "
+            f"{scale_block}"
+            f"The jewelry must appear at REALISTIC scale on the model's body - NOT oversized. "
             f"Lighting: {s.get('lighting', 'soft studio')}. "
             f"Color grading: {s.get('color_grading', 'neutral')}. "
             f"Mood: {s.get('mood', 'luxurious')}. "
