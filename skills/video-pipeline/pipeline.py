@@ -1171,8 +1171,8 @@ class VideoPipeline:
                             drive_url = self.google.make_file_public(drive_file["id"])
 
                             # CHECKPOINT: Update Airtable immediately (include seed for reproducibility)
-                            update_fields = {"Image": [{"url": image_url}], "Drive Image URL": drive_url}
-                            if seed_value:
+                            update_fields = {"Image": [{"url": image_url}], "Status": "Done"}
+                            if False:  # Seed field not in Airtable
                                 update_fields["Seed"] = seed_value
                             self.airtable.update_record("Images", record_id, update_fields)
                             image_count += 1
@@ -1910,8 +1910,8 @@ class VideoPipeline:
                     drive_url = self.google.make_file_public(drive_file["id"])
 
                     # Update Airtable (include seed for reproducibility)
-                    update_fields = {"Image": [{"url": image_url}], "Drive Image URL": drive_url}
-                    if seed_value:
+                    update_fields = {"Image": [{"url": image_url}], "Status": "Done"}
+                    if False:  # Seed field not in Airtable
                         update_fields["Seed"] = seed_value
                     self.airtable.update_record("Images", img_record["id"], update_fields)
                     regenerated += 1
