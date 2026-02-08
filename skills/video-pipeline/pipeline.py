@@ -1029,15 +1029,29 @@ class VideoPipeline:
     async def _run_image_bot(self) -> dict:
         """Generate images from prompts (internal method).
 
-        Processes images in PARALLEL per scene for faster generation.
+        Uses semaphore-based rate limiting to prevent OOM.
+        Checkpoints progress after each image for crash recovery.
         """
+        import gc
+
+        # Rate limiting configuration
+        MAX_CONCURRENT = 3  # Max concurrent image generations
+        DELAY_BETWEEN_SCENES = 2.0  # Seconds to wait between scenes for memory cleanup
+
         self.slack.notify_images_start()
         print(f"\n  🖼️ IMAGE BOT: Generating images...")
+        print(f"     Rate limit: {MAX_CONCURRENT} concurrent generations")
 
         # Get pending images for this video
         pending_images = self.airtable.get_pending_images_for_video(self.video_title)
+        total_pending = len(pending_images)
+        print(f"     Found {total_pending} pending images")
 
-        # Group images by scene for parallel processing
+        if total_pending == 0:
+            print("     No pending images to generate.")
+            return {"image_count": 0}
+
+        # Group images by scene for organized processing
         scenes = {}
         for img in pending_images:
             scene_num = img.get("Scene", 0)
@@ -1046,45 +1060,75 @@ class VideoPipeline:
             scenes[scene_num].append(img)
 
         image_count = 0
+        failed_count = 0
+        semaphore = asyncio.Semaphore(MAX_CONCURRENT)
 
-        for scene_num in sorted(scenes.keys()):
+        for scene_idx, scene_num in enumerate(sorted(scenes.keys())):
             scene_images = scenes[scene_num]
-            print(f"    Scene {scene_num}: Generating {len(scene_images)} images in parallel...")
+            scene_total = len(scene_images)
+            print(f"\n    Scene {scene_num} ({scene_idx + 1}/{len(scenes)}): {scene_total} images")
 
-            # Generate all images for this scene in parallel
-            async def generate_single(img_record):
-                prompt = img_record.get("Image Prompt", "")
-                aspect_ratio = img_record.get("Aspect Ratio", "16:9")
-                index = img_record.get("Image Index", 0)
+            async def generate_and_save(img_record):
+                """Generate single image with rate limiting and immediate checkpoint."""
+                nonlocal image_count, failed_count
 
-                image_urls = await self.image_client.generate_and_wait(prompt, aspect_ratio)
-                return (img_record, image_urls, index)
+                async with semaphore:
+                    prompt = img_record.get("Image Prompt", "")
+                    aspect_ratio = img_record.get("Aspect Ratio", "16:9")
+                    index = img_record.get("Image Index", 0)
+                    record_id = img_record["id"]
 
-            # Launch all generations concurrently
-            results = await asyncio.gather(*[generate_single(img) for img in scene_images])
+                    try:
+                        # Generate image
+                        image_urls = await self.image_client.generate_and_wait(prompt, aspect_ratio)
 
-            # Process results and upload to Drive
-            for img_record, image_urls, index in results:
-                if image_urls:
-                    # Download image
-                    image_content = await self.image_client.download_image(image_urls[0])
+                        if image_urls:
+                            # Download image
+                            image_content = await self.image_client.download_image(image_urls[0])
 
-                    # Upload to Google Drive
-                    filename = f"Scene_{str(scene_num).zfill(2)}_{str(index).zfill(2)}.png"
-                    drive_file = self.google.upload_image(image_content, filename, self.project_folder_id)
-                    drive_url = self.google.make_file_public(drive_file["id"])
+                            # Upload to Google Drive
+                            filename = f"Scene_{str(scene_num).zfill(2)}_{str(index).zfill(2)}.png"
+                            drive_file = self.google.upload_image(image_content, filename, self.project_folder_id)
+                            drive_url = self.google.make_file_public(drive_file["id"])
 
-                    # Update Airtable
-                    self.airtable.update_image_record(img_record["id"], image_urls[0], drive_url=drive_url)
-                    image_count += 1
-                    print(f"      ✅ Scene {scene_num}, Image {index} → Drive")
+                            # CHECKPOINT: Update Airtable immediately
+                            self.airtable.update_image_record(record_id, image_urls[0], drive_url=drive_url)
+                            image_count += 1
+                            print(f"      ✅ Scene {scene_num}, Image {index} → Done ({image_count}/{total_pending})")
 
-            print(f"    ✅ Scene {scene_num} complete ({len([r for r in results if r[1]])} images)")
+                            # Clear image content from memory
+                            del image_content
+                            return True
+                        else:
+                            failed_count += 1
+                            print(f"      ❌ Scene {scene_num}, Image {index} → Generation failed")
+                            return False
+
+                    except Exception as e:
+                        failed_count += 1
+                        print(f"      ❌ Scene {scene_num}, Image {index} → Error: {e}")
+                        return False
+
+            # Process all images in this scene with rate limiting
+            await asyncio.gather(*[generate_and_save(img) for img in scene_images])
+
+            # Memory cleanup between scenes
+            gc.collect()
+
+            # Progress update
+            print(f"    ✅ Scene {scene_num} complete | Total progress: {image_count}/{total_pending}")
+
+            # Delay between scenes to prevent memory buildup
+            if scene_idx < len(scenes) - 1:
+                await asyncio.sleep(DELAY_BETWEEN_SCENES)
 
         self.slack.notify_images_done()
-        print(f"    ✅ Generated {image_count} total images")
+        print(f"\n    🎉 IMAGE BOT COMPLETE")
+        print(f"       Generated: {image_count}/{total_pending}")
+        if failed_count > 0:
+            print(f"       Failed: {failed_count}")
 
-        return {"image_count": image_count}
+        return {"image_count": image_count, "failed_count": failed_count}
 
     async def run_video_script_bot(self) -> dict:
         """Generate video prompts for Scene 1 only (Constraint)."""
