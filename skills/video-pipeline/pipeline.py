@@ -1202,41 +1202,56 @@ class VideoPipeline:
     async def run_video_script_bot(self) -> dict:
         """Generate video prompts for Scene 1 only (Constraint)."""
         print(f"\n  📝 VIDEO SCRIPT BOT: Generating prompts for Scene 1...")
-        
+
         # Get pending images
         existing_images = self.airtable.get_all_images_for_video(self.video_title)
         done_images = [img for img in existing_images if img.get("Status") == "Done"]
-        
+
         prompt_count = 0
+        hero_count = 0
         for img_record in done_images:
             scene = img_record.get("Scene", 0)
-            
+
             # CONSTRAINT: Only Scene 1
             if scene != 1:
                 continue
-                
+
             # Check if prompt already exists
             if img_record.get("Video Prompt"):
                 continue
-                
+
             image_prompt = img_record.get("Image Prompt", "")
             if not image_prompt:
                 print(f"    ⚠️ No Image Prompt found for Scene {scene}, skipping.")
                 continue
 
-            # Get sentence text for better motion alignment
+            # Get segment data
             sentence_text = img_record.get("Sentence Text", "")
+            shot_type = img_record.get("Shot Type", "medium_human_story")
+            duration = img_record.get("Duration (s)", 6.0)
 
-            print(f"    Generating motion prompt for Scene {scene}...")
+            # Smart hero selection: duration > 6s gets 10s clip
+            is_hero = duration > 6.0
+            clip_duration = 10 if is_hero else 6
+
+            if is_hero:
+                hero_count += 1
+
+            idx = img_record.get("Image Index", "?")
+            print(f"    [{idx}] {shot_type} | {duration:.1f}s segment → {clip_duration}s clip {'(HERO)' if is_hero else ''}")
+
             motion_prompt = await self.anthropic.generate_video_prompt(
                 image_prompt=image_prompt,
                 sentence_text=sentence_text,
+                scene_type=shot_type,
+                is_hero_shot=is_hero,
             )
-            
+
+            # Update Airtable with video prompt
             self.airtable.update_image_video_prompt(img_record["id"], motion_prompt)
             prompt_count += 1
-            
-        print(f"    ✅ Generated {prompt_count} video prompts")
+
+        print(f"    ✅ Generated {prompt_count} video prompts ({hero_count} hero shots @ 10s)")
         
         # Update Status to Ready For Video Generation
         self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_VIDEO_GENERATION)

@@ -292,10 +292,11 @@ class ImageClient:
         if not task_id:
             return None
         
-        # Wait 5 seconds before first poll (Kie API typically returns in ~10s)
+        # Wait 5 seconds before first poll (Kie API typically returns in ~50-70s for pro model)
         await asyncio.sleep(5)
-        
-        return await self.poll_for_completion(task_id)
+
+        # Use higher max_attempts for thumbnail generation (can take 60+ seconds)
+        return await self.poll_for_completion(task_id, max_attempts=45, poll_interval=2.0)
 
     async def generate_video(
         self,

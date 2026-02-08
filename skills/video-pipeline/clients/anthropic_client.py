@@ -974,16 +974,11 @@ REMEMBER: {PROMPT_MIN_WORDS}-{PROMPT_MAX_WORDS} words per prompt. Every word mus
         Returns:
             Motion prompt (max 40 words for 6s, max 55 words for 10s hero).
         """
-        from .style_engine import SceneType, get_camera_motion, get_random_atmospheric_motion
+        from .style_engine import get_camera_motion
 
         # Determine camera motion based on scene type
-        camera_motion = "Slow push-in"  # default
-        if scene_type:
-            try:
-                st = SceneType(scene_type.lower()) if isinstance(scene_type, str) else scene_type
-                camera_motion = get_camera_motion(st, is_hero_shot)
-            except (ValueError, KeyError):
-                pass
+        # Pass string directly - get_camera_motion handles both strings and SceneType enums
+        camera_motion = get_camera_motion(scene_type, is_hero_shot) if scene_type else "Slow push-in"
 
         # Word limit based on duration
         word_limit = 55 if is_hero_shot else 40
@@ -1005,8 +1000,10 @@ CRITICAL RULES:
    - Gentle, dreamlike movement
 {hero_instruction}
 
-CAMERA MOVEMENT FOR THIS SHOT (use this or adapt slightly):
-{camera_motion}
+REQUIRED CAMERA MOVEMENT (START your response with this exact movement):
+"{camera_motion}"
+
+CRITICAL: Your response MUST begin with this camera movement. Do NOT substitute "push-in" or "zoom".
 
 MOTION VOCABULARY - USE ONLY THESE TYPES:
 
@@ -1048,7 +1045,9 @@ OUTPUT: Return ONLY the motion prompt text. No explanations, no formatting, no l
 {image_prompt}
 {narration_context}
 
-Generate a {word_limit}-word-max motion prompt:"""
+The camera movement is ALREADY DECIDED: "{camera_motion}"
+Generate ONLY the subject motion + ambient motion ({word_limit - 10} words max).
+Do NOT include any camera movement - I will prepend it."""
 
         response = await self.generate(
             prompt=prompt,
@@ -1056,4 +1055,7 @@ Generate a {word_limit}-word-max motion prompt:"""
             model="claude-sonnet-4-5-20250929",
             max_tokens=200,
         )
-        return response.strip()
+
+        # Prepend the camera motion to guarantee variety
+        subject_motion = response.strip()
+        return f"{camera_motion}. {subject_motion}"

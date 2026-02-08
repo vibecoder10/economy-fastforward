@@ -130,6 +130,87 @@ CAMERA_MOVEMENT_HERO = {
     SceneType.OVERHEAD_MAP: "Slow push-in with slight rotation surveying the landscape",
 }
 
+# String-based camera movements for all shot types (used by video prompt generator)
+# These are more varied and dynamic than just "push-in"
+SHOT_TYPE_CAMERA_MOVEMENTS = {
+    # Establishing shots - show the world
+    "wide_establishing": [
+        "Slow crane down into the scene",
+        "Gentle drift from left to right surveying the scene",
+        "Slow pull-back revealing the full scope",
+        "Steady hold with subtle parallax shift",
+    ],
+    # Diorama - 3/4 angle miniature
+    "isometric_diorama": [
+        "Slow orbit around the diorama",
+        "Gentle push-in with slight rotation",
+        "Slow crane upward revealing layers",
+        "Subtle drift with parallax depth",
+    ],
+    # Human story - emotional focus
+    "medium_human_story": [
+        "Slow drift toward the subject",
+        "Gentle lateral tracking following the figure",
+        "Very slow push-in on the face",
+        "Subtle sway with the subject breathing",
+    ],
+    # Close-up - detail focus
+    "close_up_vignette": [
+        "Very slow drift to the right",
+        "Gentle rack focus between elements",
+        "Slow rotation around the object",
+        "Subtle breathing zoom",
+    ],
+    # Data viz
+    "data_landscape": [
+        "Slow crane upward",
+        "Gentle tilt down across the data",
+        "Slow tracking along the graph line",
+        "Steady hold as data animates",
+    ],
+    # Split comparison
+    "split_screen": [
+        "Slow lateral pan from left to right",
+        "Gentle drift crossing the divide",
+        "Subtle push-in on both halves",
+        "Slow wipe transition between sides",
+    ],
+    # Reveal shots - dramatic
+    "pull_back_reveal": [
+        "Slow pull-back revealing the full scale",
+        "Gradual crane upward and outward",
+        "Gentle zoom out with rotation",
+        "Slow drift backward unveiling context",
+    ],
+    # Map view
+    "overhead_map": [
+        "Slow push-in on the focal point",
+        "Gentle drift across the terrain",
+        "Slow rotation surveying the landscape",
+        "Subtle crane down into the map",
+    ],
+    # Journey/path
+    "journey_shot": [
+        "Slow tracking along the path",
+        "Gentle dolly forward into the distance",
+        "Slow lateral pan following the journey",
+        "Subtle drift with depth parallax",
+    ],
+}
+
+# Hero versions (10s clips) - add more complexity
+SHOT_TYPE_CAMERA_MOVEMENTS_HERO = {
+    "wide_establishing": "Slow crane down into the scene, then gentle drift revealing the full scope",
+    "isometric_diorama": "Slow orbit around the diorama gradually revealing all layers",
+    "medium_human_story": "Slow drift toward the subject with subtle rack focus",
+    "close_up_vignette": "Very slow rotation around the object with breathing zoom",
+    "data_landscape": "Slow crane upward revealing the full scale of data",
+    "split_screen": "Slow lateral pan from left to right, crossing the divide completely",
+    "pull_back_reveal": "Slow pull-back revealing the full scale, then gentle rotation",
+    "overhead_map": "Slow push-in with rotation surveying the entire landscape",
+    "journey_shot": "Slow tracking along the path with gradual depth reveal",
+}
+
 # Motion vocabulary for the paper-cut style (NEVER use fast/sudden/dramatic)
 MOTION_VOCABULARY = {
     "figures": [
@@ -163,16 +244,32 @@ SPEED_WORDS_ALLOWED = ["slow", "subtle", "gentle", "soft", "gradual", "drifting"
 SPEED_WORDS_FORBIDDEN = ["fast", "sudden", "dramatic", "explosive", "rapid", "intense", "quick"]
 
 
-def get_camera_motion(scene_type: SceneType, is_hero: bool = False) -> str:
-    """Get the appropriate camera motion for a scene type.
+def get_camera_motion(scene_type, is_hero: bool = False) -> str:
+    """Get the appropriate camera motion for a scene/shot type.
 
     Args:
-        scene_type: The scene type (ISOMETRIC_DIORAMA, etc.)
+        scene_type: The scene type - can be SceneType enum or shot_type string
         is_hero: If True, use hero shot motion (more dramatic)
 
     Returns:
         Camera motion string for video prompt
     """
+    import random
+
+    # Handle string shot types (from Airtable Shot Type field)
+    if isinstance(scene_type, str):
+        shot_type = scene_type.lower().strip()
+
+        if is_hero:
+            return SHOT_TYPE_CAMERA_MOVEMENTS_HERO.get(shot_type, "Slow push-in with depth reveal")
+
+        # Get random movement from the list for variety
+        movements = SHOT_TYPE_CAMERA_MOVEMENTS.get(shot_type)
+        if movements:
+            return random.choice(movements)
+        return "Slow push-in"  # fallback
+
+    # Handle SceneType enum (legacy)
     if is_hero:
         return CAMERA_MOVEMENT_HERO.get(scene_type, CAMERA_MOVEMENT_VOCAB.get(scene_type, "Slow push-in"))
     return CAMERA_MOVEMENT_VOCAB.get(scene_type, "Slow push-in")
