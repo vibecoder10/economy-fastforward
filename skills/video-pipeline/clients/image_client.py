@@ -14,7 +14,7 @@ class ImageClient:
     RECORD_INFO_URL = "https://api.kie.ai/api/v1/jobs/recordInfo"
 
     # Model routing (v2)
-    SCENE_MODEL = "seedream-v4"  # Seed Dream 4.0 for ALL scene images - best 3D editorial render
+    SCENE_MODEL = "bytedance/seedream-v4-text-to-image"  # Seed Dream 4.0 for ALL scene images - best 3D editorial render
     THUMBNAIL_MODEL = "nano-banana-pro"  # Nano Banana Pro for thumbnails ONLY - proven text rendering
 
     # Legacy models (deprecated but kept for backwards compatibility)

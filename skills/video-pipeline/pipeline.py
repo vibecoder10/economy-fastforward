@@ -560,11 +560,12 @@ class VideoPipeline:
             self._load_idea(idea)
             return await self.run_thumbnail_bot()
         
-        # 8. Check for Ready To Render
-        idea = self.get_idea_by_status(self.STATUS_READY_TO_RENDER)
-        if idea:
-            self._load_idea(idea)
-            return await self.run_render_bot()
+        # 8. SKIPPED - Render Bot (manual only, Ryan triggers via Remotion Studio)
+        # idea = self.get_idea_by_status(self.STATUS_READY_TO_RENDER)
+        # if idea:
+        #     self._load_idea(idea)
+        #     return await self.run_render_bot()
+
         
         # No work to do
         print("\n✅ No videos ready for processing!")
@@ -938,6 +939,10 @@ class VideoPipeline:
 
             print(f"    ✅ Created {len(concepts)} prompts for scene {scene_number}")
 
+            # Slack progress update every 5 scenes
+            if scene_number % 5 == 0:
+                self.slack.send_message(f"📝 Prompt progress: {total_prompts} prompts created (through Scene {scene_number})")
+
         # Flag hero shots after all prompts are created
         hero_count = await self._flag_hero_shots()
         print(f"  🌟 Flagged {hero_count} hero shots")
@@ -945,6 +950,9 @@ class VideoPipeline:
         self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_IMAGES)
 
         print(f"\n  ✅ Total: {total_prompts} image prompts created")
+
+        # Slack completion
+        self.slack.send_message(f"✅ Image prompts done: {total_prompts} created for *{self.video_title}*")
 
         return {
             "bot": "Image Prompt Bot",
@@ -1192,6 +1200,10 @@ class VideoPipeline:
             # Progress update
             print(f"    ✅ Scene {scene_num} complete | Total progress: {image_count}/{total_pending}")
 
+            # Slack progress update every 5 scenes
+            if (scene_idx + 1) % 5 == 0 or scene_idx == len(scenes) - 1:
+                self.slack.send_message(f"🖼️ Image progress: {image_count}/{total_pending} generated (Scene {scene_num}/{len(scenes)})")
+
             # Delay between scenes to prevent memory buildup
             if scene_idx < len(scenes) - 1:
                 await asyncio.sleep(DELAY_BETWEEN_SCENES)
@@ -1201,6 +1213,12 @@ class VideoPipeline:
         print(f"       Generated: {image_count}/{total_pending}")
         if failed_count > 0:
             print(f"       Failed: {failed_count}")
+
+        # Slack completion with stats
+        status_msg = f"✅ Images done: {image_count}/{total_pending} for *{self.video_title}*"
+        if failed_count > 0:
+            status_msg += f" ({failed_count} failed)"
+        self.slack.send_message(status_msg)
 
         return {"image_count": image_count, "failed_count": failed_count}
 
