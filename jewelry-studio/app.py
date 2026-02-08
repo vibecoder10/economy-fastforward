@@ -103,29 +103,39 @@ def _resolve(file_id: str) -> Path:
 async def analyze_jewelry_piece(image_paths: list[Path], jewelry_type: str) -> dict:
     """Step 1 analysis: Extract detailed JSON description of the actual jewelry piece."""
     parts = [
-        {"text": f"""You are analyzing {len(image_paths)} photo(s) of a {jewelry_type} that a jeweler wants professional product shots of.
-These are raw/casual photos. Your job is to extract EVERY visual detail so an image generator can recreate this EXACT piece.
+        {"text": f"""You are a master gemologist and jewelry appraiser analyzing {len(image_paths)} photo(s) of a {jewelry_type}.
+A jeweler needs professional product shots that look EXACTLY like this piece. Your analysis drives the image generation.
+
+PAY EXTREME ATTENTION TO STONES AND PRONGS:
+- Count every single stone precisely. Do not estimate - count them.
+- Describe each stone's exact cut, color, size relative to the piece, and how it catches light.
+- Note the luminescence/brilliance - are they fiery and refractive, or subtle and muted?
+- Describe prong details: number of prongs per stone, prong shape (round, pointed, V-shaped, flat), prong thickness, prong metal color.
+- Note how stones are arranged - in a line, cluster, halo, scattered, graduated sizes, etc.
 
 Return JSON with these fields:
 
 {{
   "jewelry_type": "{jewelry_type}",
-  "material": "exact metal type and color (yellow gold, white gold, rose gold, sterling silver, platinum, etc.)",
-  "material_finish": "polished, matte, brushed, hammered, satin, oxidized, etc.",
-  "gemstones": "DETAILED description of all stones: type, cut (round brilliant, princess, emerald, pear, marquise, cushion, oval, etc.), color, approximate size, clarity appearance, and arrangement. Say 'none' if no gemstones.",
-  "gemstone_count": "number and arrangement of stones (e.g. '1 center stone with 12 pave side stones')",
+  "material": "exact metal type and color (yellow gold 14k/18k/24k, white gold, rose gold, sterling silver, platinum, etc.)",
+  "material_finish": "polished, matte, brushed, hammered, satin, oxidized, high-shine, mirror finish, etc.",
+  "gemstones": "EXTREMELY DETAILED: for EACH stone describe: exact type (diamond, sapphire, ruby, emerald, moissanite, CZ, etc.), exact cut (round brilliant, princess, emerald cut, pear, marquise, cushion, oval, baguette, trillion, etc.), exact color (colorless, near-colorless, fancy yellow, deep blue, pigeon blood red, etc.), approximate carat size or mm dimensions, clarity appearance (eye-clean, visible inclusions, etc.), and brilliance/fire/luminescence (how it catches and refracts light - does it sparkle intensely, glow softly, flash rainbow fire, etc.). Say 'none' if no gemstones.",
+  "gemstone_count": "EXACT count and precise arrangement (e.g. '1 center 1.5ct round brilliant + 6 side 0.1ct rounds + 24 micro-pave rounds around halo'). Count carefully.",
+  "prong_details": "number of prongs per stone, prong shape and style (pointed, rounded, V-tip, flat claw, double prong, shared prong), prong thickness (delicate/substantial), prong metal finish. Say 'n/a' if no prongs.",
+  "stone_luminescence": "describe how the stones interact with light: intense fire and brilliance, subtle shimmer, rainbow dispersion, icy sparkle, warm glow, etc. Note any specific light behavior you see.",
   "design_style": "modern, vintage, art deco, minimalist, bohemian, statement, classic, filigree, etc.",
-  "band_chain_details": "band width, chain type, clasp style, base structure details",
-  "setting_type": "prong, bezel, pave, channel, tension, halo, cluster, cathedral, etc.",
-  "decorative_elements": "filigree, engraving, milgrain, twisted rope, braided, texture patterns, openwork, etc.",
-  "overall_shape": "describe the overall silhouette and form",
-  "color_palette": "all visible colors and their relationships",
-  "size_proportion": "delicate, petite, medium, substantial, chunky, oversized",
-  "unique_features": "anything distinctive that makes this piece identifiable - unusual details, asymmetry, mixed metals, etc.",
-  "detailed_description": "A comprehensive 4-5 sentence description that would let someone recreate this EXACT piece. Include every detail about materials, stones, metalwork, proportions, and design elements. This is the most important field."
+  "band_chain_details": "band width (thin/medium/thick in mm estimate), chain type, clasp style, base structure details",
+  "setting_type": "prong, bezel, pave, channel, tension, halo, cluster, cathedral, flush, gypsy, etc.",
+  "decorative_elements": "filigree, engraving, milgrain, twisted rope, braided, texture patterns, openwork, gallery details under the setting, etc. Say 'none' if plain.",
+  "overall_shape": "describe the overall silhouette and form from front view",
+  "color_palette": "all visible colors and their exact relationships (e.g. 'warm yellow gold with icy white diamonds and subtle pink undertone')",
+  "size_proportion": "delicate, petite, medium, substantial, chunky, oversized - and approximate dimensions if visible",
+  "unique_features": "anything distinctive: asymmetry, mixed metals, unusual stone shapes, special textures, signature details",
+  "detailed_description": "A comprehensive 5-6 sentence description capturing EVERY visual detail. Start with the stones (type, cut, color, count, arrangement, brilliance), then the prongs and settings, then the metalwork, then overall design and proportions. This is the MOST IMPORTANT field - it must be specific enough to recreate this EXACT piece."
 }}
 
-Be EXTREMELY specific. The goal is to describe this piece so accurately that the generated image looks like the same piece, not just a similar one."""}
+CRITICAL: Count stones precisely. Describe their sparkle/fire/luminescence. Note every prong. Get the colors exactly right.
+The goal is that someone reading your description could identify this exact piece in a lineup of similar jewelry."""}
     ]
     for p in image_paths:
         parts.append(_img_part(p))
@@ -200,6 +210,8 @@ def craft_prompts(
     finish = jewelry.get("material_finish", "")
     gems = jewelry.get("gemstones", "")
     gem_count = jewelry.get("gemstone_count", "")
+    prongs = jewelry.get("prong_details", "")
+    luminescence = jewelry.get("stone_luminescence", "")
     design = jewelry.get("design_style", "")
     setting = jewelry.get("setting_type", "")
     deco = jewelry.get("decorative_elements", "")
@@ -209,12 +221,16 @@ def craft_prompts(
     size = jewelry.get("size_proportion", "")
     unique = jewelry.get("unique_features", "")
 
-    # Build rich piece descriptor
+    # Build rich piece descriptor - stones and prongs first (most important)
     pieces = [f"{finish} {material} {jewelry_type}"]
     if gems and gems.lower() not in ("none", "n/a", ""):
         pieces.append(f"set with {gems}")
     if gem_count and gem_count.lower() not in ("none", "n/a", ""):
-        pieces.append(f"({gem_count})")
+        pieces.append(f"stone count: {gem_count}")
+    if prongs and prongs.lower() not in ("none", "n/a", ""):
+        pieces.append(f"prongs: {prongs}")
+    if luminescence and luminescence.lower() not in ("none", "n/a", ""):
+        pieces.append(f"stone brilliance: {luminescence}")
     if setting and setting.lower() not in ("none", "n/a", ""):
         pieces.append(f"in a {setting} setting")
     if deco and deco.lower() not in ("none", "n/a", ""):
@@ -226,10 +242,12 @@ def craft_prompts(
 
     core = ", ".join(pieces)
 
-    # Full description block for the piece
+    # Full description block - stone details are critical
     jewelry_block = (
         f"JEWELRY PIECE: {core}. "
         f"Design: {design}. Shape: {shape}. Proportions: {size}. Colors: {colors}. "
+        f"STONE DETAIL (CRITICAL): {gems}. Count: {gem_count}. "
+        f"Prongs: {prongs}. Light behavior: {luminescence}. "
         f"Full description: {detailed}"
     )
 
