@@ -1,0 +1,732 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jewelry Studio</title>
+    <style>
+        /* ── Reset ── */
+        *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+            background: #f7f7f7;
+            color: #1a1a1a;
+            line-height: 1.6;
+            min-height: 100vh;
+        }
+
+        /* ── Header ── */
+        header {
+            background: #fff;
+            border-bottom: 1px solid #e0e0e0;
+            padding: 18px 40px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        header h1 {
+            font-size: 18px;
+            font-weight: 700;
+            letter-spacing: 3px;
+            text-transform: uppercase;
+        }
+        .header-sub {
+            font-size: 11px;
+            color: #999;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+        }
+
+        /* ── Main ── */
+        main {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 32px 20px 80px;
+        }
+
+        /* ── Card / Step ── */
+        .card {
+            background: #fff;
+            border: 1px solid #e5e5e5;
+            border-radius: 10px;
+            padding: 28px 32px;
+            margin-bottom: 20px;
+        }
+        .step-head {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            margin-bottom: 22px;
+        }
+        .step-num {
+            width: 30px; height: 30px;
+            border-radius: 50%;
+            background: #1a1a1a;
+            color: #fff;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 13px; font-weight: 700;
+            flex-shrink: 0;
+        }
+        .step-num.done { background: #2d7d46; }
+        .step-title { font-size: 15px; font-weight: 600; }
+
+        /* ── Upload Grid ── */
+        .upload-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        @media (max-width: 700px) { .upload-grid { grid-template-columns: 1fr; } }
+
+        .upload-col label {
+            display: block;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #666;
+            margin-bottom: 8px;
+        }
+
+        /* ── Drop Zone ── */
+        .drop-zone {
+            border: 2px dashed #d0d0d0;
+            border-radius: 8px;
+            padding: 36px 20px;
+            text-align: center;
+            cursor: pointer;
+            transition: border-color .2s, background .2s;
+            background: #fafafa;
+            min-height: 160px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+        .drop-zone:hover { border-color: #999; background: #f5f5f5; }
+        .drop-zone.over { border-color: #1a1a1a; background: #f0f0f0; }
+        .drop-zone.has-files { border-color: #2d7d46; border-style: solid; background: #f4fbf6; }
+        .drop-zone .dz-icon { font-size: 28px; opacity: .35; margin-bottom: 6px; }
+        .drop-zone .dz-text { font-size: 13px; color: #888; }
+        .drop-zone .dz-text strong { color: #555; }
+        .drop-zone .dz-hint { font-size: 11px; color: #aaa; margin-top: 4px; }
+
+        /* ── Previews ── */
+        .thumbs {
+            display: flex;
+            gap: 10px;
+            margin-top: 12px;
+            flex-wrap: wrap;
+        }
+        .thumb-wrap { position: relative; }
+        .thumb-wrap img {
+            width: 88px; height: 88px;
+            object-fit: cover;
+            border-radius: 6px;
+            border: 1px solid #e0e0e0;
+        }
+        .thumb-x {
+            position: absolute; top: -5px; right: -5px;
+            width: 18px; height: 18px;
+            border-radius: 50%;
+            background: #d43; color: #fff;
+            border: none; cursor: pointer;
+            font-size: 11px;
+            display: flex; align-items: center; justify-content: center;
+        }
+
+        /* ── Type Selector ── */
+        .types {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        .type-btn {
+            padding: 10px 28px;
+            border: 2px solid #e0e0e0;
+            border-radius: 6px;
+            background: #fff;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all .2s;
+        }
+        .type-btn:hover { border-color: #999; }
+        .type-btn.on { border-color: #1a1a1a; background: #1a1a1a; color: #fff; }
+
+        /* ── Generate Button ── */
+        .gen-btn {
+            display: block;
+            width: 100%;
+            padding: 15px;
+            background: #1a1a1a;
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            letter-spacing: .5px;
+            transition: background .2s;
+        }
+        .gen-btn:hover:not(:disabled) { background: #333; }
+        .gen-btn:disabled { background: #bbb; cursor: not-allowed; }
+
+        /* ── Spinner / Progress ── */
+        .progress { display: none; text-align: center; padding: 30px 0 10px; }
+        .progress.on { display: block; }
+        .spin {
+            width: 36px; height: 36px;
+            border: 3px solid #e5e5e5;
+            border-top-color: #1a1a1a;
+            border-radius: 50%;
+            animation: spin .7s linear infinite;
+            margin: 0 auto 14px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .prog-text { font-size: 14px; color: #555; }
+        .prog-sub  { font-size: 12px; color: #999; margin-top: 4px; }
+
+        /* ── Results ── */
+        .results { display: none; }
+        .results.on { display: block; }
+
+        .results-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 18px;
+            margin-top: 18px;
+        }
+        @media (max-width: 700px) { .results-grid { grid-template-columns: 1fr; } }
+
+        .r-card {
+            background: #fff;
+            border: 1px solid #e5e5e5;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .r-card.fail { border-color: #e74c3c; }
+        .r-card img {
+            width: 100%;
+            aspect-ratio: 1;
+            object-fit: cover;
+            display: block;
+        }
+        .r-foot {
+            padding: 14px 16px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .r-label { font-size: 13px; font-weight: 600; }
+        .r-actions { display: flex; gap: 6px; }
+
+        .sm-btn {
+            padding: 5px 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background: #fff;
+            cursor: pointer;
+            font-size: 11px;
+            text-decoration: none;
+            color: #333;
+            transition: background .15s;
+        }
+        .sm-btn:hover { background: #f0f0f0; }
+
+        /* ── Prompt editor ── */
+        .p-edit { display: none; padding: 0 16px 14px; }
+        .p-edit.on { display: block; }
+        .p-edit textarea {
+            width: 100%;
+            min-height: 70px;
+            padding: 8px 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-family: inherit;
+            font-size: 12px;
+            resize: vertical;
+        }
+        .p-edit .regen-btn {
+            margin-top: 6px;
+            padding: 7px 14px;
+            background: #1a1a1a;
+            color: #fff;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        .p-edit .regen-btn:disabled { background: #999; }
+
+        /* ── Analysis Panel ── */
+        .analysis {
+            background: #f9f9f9;
+            border: 1px solid #e5e5e5;
+            border-radius: 6px;
+            padding: 16px;
+            margin-top: 6px;
+        }
+        .analysis summary {
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #888;
+            cursor: pointer;
+        }
+        .analysis pre {
+            margin-top: 10px;
+            white-space: pre-wrap;
+            word-break: break-word;
+            font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+            font-size: 11px;
+            line-height: 1.6;
+        }
+
+        /* ── Placeholder for failed gen ── */
+        .fail-placeholder {
+            aspect-ratio: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 40px;
+            text-align: center;
+            color: #aaa;
+            font-size: 13px;
+            background: #fafafa;
+        }
+
+        /* ── Toast ── */
+        .toast {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            padding: 11px 20px;
+            background: #1a1a1a;
+            color: #fff;
+            border-radius: 6px;
+            font-size: 13px;
+            z-index: 1000;
+            animation: fadeUp .25s ease;
+        }
+        .toast.err { background: #d43; }
+        @keyframes fadeUp {
+            from { transform: translateY(16px); opacity: 0; }
+            to   { transform: translateY(0); opacity: 1; }
+        }
+
+        /* ── Download all bar ── */
+        .dl-all-bar {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            margin-top: 18px;
+        }
+        .dl-all-btn {
+            padding: 10px 22px;
+            background: #1a1a1a;
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            text-decoration: none;
+        }
+        .dl-all-btn:hover { background: #333; }
+    </style>
+</head>
+<body>
+
+<header>
+    <div>
+        <h1>Jewelry Studio</h1>
+    </div>
+    <span class="header-sub">Gemini Analysis &bull; Kie.ai Generation</span>
+</header>
+
+<main>
+
+    <!-- ── Step 1: Upload ── -->
+    <div class="card">
+        <div class="step-head">
+            <div class="step-num">1</div>
+            <div class="step-title">Upload Images</div>
+        </div>
+
+        <div class="upload-grid">
+            <!-- Jewelry photos -->
+            <div class="upload-col">
+                <label>Jewelry Photos (1-3)</label>
+                <div class="drop-zone" id="dzJewelry">
+                    <div class="dz-icon">&#9670;</div>
+                    <div class="dz-text"><strong>Drop photos here</strong> or click to browse</div>
+                    <div class="dz-hint">Different angles recommended for best results</div>
+                </div>
+                <input type="file" id="inJewelry" multiple accept="image/*" hidden>
+                <div class="thumbs" id="thJewelry"></div>
+            </div>
+
+            <!-- Model hero image -->
+            <div class="upload-col">
+                <label>Model Hero Image</label>
+                <div class="drop-zone" id="dzModel">
+                    <div class="dz-icon">&#9679;</div>
+                    <div class="dz-text"><strong>Drop model image</strong> or click</div>
+                    <div class="dz-hint">The model your jewelry will be placed on</div>
+                </div>
+                <input type="file" id="inModel" accept="image/*" hidden>
+                <div class="thumbs" id="thModel"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Step 2: Jewelry Type ── -->
+    <div class="card">
+        <div class="step-head">
+            <div class="step-num">2</div>
+            <div class="step-title">Select Jewelry Type</div>
+        </div>
+        <div class="types" id="typeSelector">
+            <button class="type-btn" data-t="ring">Ring</button>
+            <button class="type-btn" data-t="necklace">Necklace</button>
+            <button class="type-btn" data-t="earrings">Earrings</button>
+            <button class="type-btn" data-t="bracelet">Bracelet</button>
+            <button class="type-btn" data-t="pendant">Pendant</button>
+            <button class="type-btn" data-t="brooch">Brooch</button>
+        </div>
+    </div>
+
+    <!-- ── Step 3: Generate ── -->
+    <div class="card">
+        <div class="step-head">
+            <div class="step-num">3</div>
+            <div class="step-title">Generate Product Images</div>
+        </div>
+        <button class="gen-btn" id="btnGen" disabled>Generate 4 Product Shots</button>
+        <div class="progress" id="progress">
+            <div class="spin"></div>
+            <div class="prog-text" id="pText">Starting...</div>
+            <div class="prog-sub" id="pSub"></div>
+        </div>
+    </div>
+
+    <!-- ── Results ── -->
+    <div class="results" id="resultsSection">
+        <div class="card">
+            <div class="step-head">
+                <div class="step-num done">&#10003;</div>
+                <div class="step-title">Product Images</div>
+            </div>
+
+            <details class="analysis" id="analysisBlock">
+                <summary>View Gemini Analysis &amp; Model Description</summary>
+                <pre id="analysisPre"></pre>
+            </details>
+
+            <div class="results-grid" id="rGrid"></div>
+
+            <div class="dl-all-bar" id="dlBar"></div>
+        </div>
+    </div>
+
+</main>
+
+<script>
+// ─────────── State ───────────
+const S = {
+    jewelryFiles: [],   // [{id, filename, path}]
+    modelFile: null,     // {id, filename, path}
+    type: null,
+    busy: false,
+};
+
+const LABELS = {
+    front: 'Front View',
+    left:  'Left Side',
+    right: 'Right Side',
+    model: 'On Model',
+};
+
+// ─────────── Upload wiring ───────────
+function wire(zoneId, inputId, thumbsId, kind) {
+    const zone  = document.getElementById(zoneId);
+    const input = document.getElementById(inputId);
+
+    zone.addEventListener('click', () => input.click());
+    zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('over'); });
+    zone.addEventListener('dragleave', () => zone.classList.remove('over'));
+    zone.addEventListener('drop', e => {
+        e.preventDefault();
+        zone.classList.remove('over');
+        onFiles(Array.from(e.dataTransfer.files), kind);
+    });
+    input.addEventListener('change', () => {
+        onFiles(Array.from(input.files), kind);
+        input.value = '';
+    });
+}
+
+async function onFiles(files, kind) {
+    for (const f of files.filter(f => f.type.startsWith('image/'))) {
+        if (kind === 'jewelry' && S.jewelryFiles.length >= 3) {
+            toast('Max 3 jewelry photos', true);
+            break;
+        }
+        if (kind === 'model' && S.modelFile) {
+            // Replace existing
+            S.modelFile = null;
+        }
+        const fd = new FormData();
+        fd.append('file', f);
+        try {
+            const r = await fetch('/api/upload', { method: 'POST', body: fd });
+            if (!r.ok) throw new Error('Upload failed');
+            const d = await r.json();
+            if (kind === 'jewelry') S.jewelryFiles.push(d);
+            else S.modelFile = d;
+        } catch (e) {
+            toast('Upload error: ' + e.message, true);
+        }
+    }
+    renderThumbs();
+    checkReady();
+}
+
+function renderThumbs() {
+    // Jewelry
+    const jt = document.getElementById('thJewelry');
+    jt.innerHTML = '';
+    S.jewelryFiles.forEach((f, i) => {
+        const d = document.createElement('div');
+        d.className = 'thumb-wrap';
+        d.innerHTML = `<img src="${f.path}" alt="${f.filename}"><button class="thumb-x" onclick="rmJ(${i})">&times;</button>`;
+        jt.appendChild(d);
+    });
+    document.getElementById('dzJewelry').classList.toggle('has-files', S.jewelryFiles.length > 0);
+
+    // Model
+    const mt = document.getElementById('thModel');
+    mt.innerHTML = '';
+    if (S.modelFile) {
+        const d = document.createElement('div');
+        d.className = 'thumb-wrap';
+        d.innerHTML = `<img src="${S.modelFile.path}" alt="${S.modelFile.filename}"><button class="thumb-x" onclick="rmM()">&times;</button>`;
+        mt.appendChild(d);
+    }
+    document.getElementById('dzModel').classList.toggle('has-files', !!S.modelFile);
+}
+
+function rmJ(i) { S.jewelryFiles.splice(i, 1); renderThumbs(); checkReady(); }
+function rmM()  { S.modelFile = null;           renderThumbs(); checkReady(); }
+
+// ─────────── Type selector ───────────
+document.getElementById('typeSelector').addEventListener('click', e => {
+    const btn = e.target.closest('.type-btn');
+    if (!btn) return;
+    document.querySelectorAll('.type-btn').forEach(b => b.classList.remove('on'));
+    btn.classList.add('on');
+    S.type = btn.dataset.t;
+    checkReady();
+});
+
+function checkReady() {
+    document.getElementById('btnGen').disabled =
+        !(S.jewelryFiles.length > 0 && S.modelFile && S.type) || S.busy;
+}
+
+// ─────────── Generate ───────────
+document.getElementById('btnGen').addEventListener('click', run);
+
+async function run() {
+    if (S.busy) return;
+    S.busy = true;
+    const btn = document.getElementById('btnGen');
+    const prog = document.getElementById('progress');
+    const res = document.getElementById('resultsSection');
+
+    btn.disabled = true;
+    btn.textContent = 'Generating...';
+    prog.classList.add('on');
+    res.classList.remove('on');
+
+    setP('Analyzing jewelry with Gemini...', 'Sending your photos for AI analysis');
+
+    try {
+        const fd = new FormData();
+        fd.append('jewelry_type', S.type);
+        fd.append('jewelry_files', JSON.stringify(S.jewelryFiles.map(f => f.id)));
+        fd.append('model_file', S.modelFile.id);
+
+        setP('Generating product images with Kie.ai...', 'Creating all 4 shots simultaneously');
+
+        const r = await fetch('/api/generate', { method: 'POST', body: fd });
+        if (!r.ok) {
+            const e = await r.json();
+            throw new Error(e.detail || 'Generation failed');
+        }
+        const data = await r.json();
+        showResults(data);
+
+    } catch (e) {
+        toast('Error: ' + e.message, true);
+    } finally {
+        S.busy = false;
+        btn.disabled = false;
+        btn.textContent = 'Generate 4 Product Shots';
+        prog.classList.remove('on');
+        checkReady();
+    }
+}
+
+function setP(t, s) {
+    document.getElementById('pText').textContent = t;
+    document.getElementById('pSub').textContent = s || '';
+}
+
+// ─────────── Results ───────────
+function showResults(data) {
+    const sec  = document.getElementById('resultsSection');
+    const grid = document.getElementById('rGrid');
+    const pre  = document.getElementById('analysisPre');
+    const bar  = document.getElementById('dlBar');
+
+    // Analysis
+    const combined = {
+        jewelry_analysis: data.jewelry_analysis,
+        model_description: data.model_description,
+    };
+    pre.textContent = JSON.stringify(combined, null, 2);
+
+    // Cards
+    grid.innerHTML = '';
+    const locals = [];
+
+    for (const r of data.results) {
+        const card = document.createElement('div');
+        card.className = 'r-card' + (r.error ? ' fail' : '');
+
+        let imgHtml;
+        if (r.local) {
+            imgHtml = `<img src="${r.local}" alt="${LABELS[r.view]}">`;
+            locals.push({ path: r.local, view: r.view });
+        } else {
+            imgHtml = `<div class="fail-placeholder">Generation failed &mdash; edit prompt and regenerate</div>`;
+        }
+
+        card.innerHTML = `
+            ${imgHtml}
+            <div class="r-foot">
+                <span class="r-label">${LABELS[r.view]}</span>
+                <div class="r-actions">
+                    <button class="sm-btn" onclick="toggleEdit(this)">Edit&nbsp;Prompt</button>
+                    ${r.local ? `<a class="sm-btn" href="${r.local}" download="${r.view}.png">Download</a>` : ''}
+                </div>
+            </div>
+            <div class="p-edit">
+                <textarea>${r.prompt || ''}</textarea>
+                <button class="regen-btn" onclick="regen(this,'${r.view}','${data.batch_id}')">Regenerate This Shot</button>
+            </div>
+        `;
+        grid.appendChild(card);
+    }
+
+    // Download-all (individual links)
+    bar.innerHTML = '';
+    if (locals.length) {
+        for (const l of locals) {
+            const a = document.createElement('a');
+            a.className = 'dl-all-btn';
+            a.href = l.path;
+            a.download = `${l.view}.png`;
+            a.textContent = `Download ${LABELS[l.view]}`;
+            a.style.fontSize = '12px';
+            a.style.padding = '8px 14px';
+            bar.appendChild(a);
+        }
+    }
+
+    sec.classList.add('on');
+    sec.scrollIntoView({ behavior: 'smooth' });
+}
+
+function toggleEdit(btn) {
+    btn.closest('.r-card').querySelector('.p-edit').classList.toggle('on');
+}
+
+async function regen(btn, view, batchId) {
+    const card = btn.closest('.r-card');
+    const ta   = card.querySelector('textarea');
+    const prompt = ta.value;
+
+    btn.disabled = true;
+    btn.textContent = 'Regenerating...';
+
+    try {
+        const fd = new FormData();
+        fd.append('prompt', prompt);
+        fd.append('view', view);
+        fd.append('batch_id', batchId);
+
+        const r = await fetch('/api/regenerate', { method: 'POST', body: fd });
+        if (!r.ok) {
+            const e = await r.json();
+            throw new Error(e.detail || 'Regeneration failed');
+        }
+        const d = await r.json();
+
+        // Update image
+        let img = card.querySelector('img');
+        if (img) {
+            img.src = d.local;
+        } else {
+            const ph = card.querySelector('.fail-placeholder');
+            if (ph) {
+                img = document.createElement('img');
+                img.src = d.local;
+                img.alt = LABELS[view];
+                ph.replaceWith(img);
+            }
+        }
+
+        // Update/add download link
+        let dl = card.querySelector('a[download]');
+        if (dl) {
+            dl.href = d.local;
+        } else {
+            const acts = card.querySelector('.r-actions');
+            const a = document.createElement('a');
+            a.className = 'sm-btn';
+            a.href = d.local;
+            a.download = view + '.png';
+            a.textContent = 'Download';
+            acts.appendChild(a);
+        }
+
+        card.classList.remove('fail');
+        toast('Image regenerated');
+    } catch (e) {
+        toast('Error: ' + e.message, true);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Regenerate This Shot';
+    }
+}
+
+// ─────────── Toast ───────────
+function toast(msg, err) {
+    const t = document.createElement('div');
+    t.className = 'toast' + (err ? ' err' : '');
+    t.textContent = msg;
+    document.body.appendChild(t);
+    setTimeout(() => t.remove(), 3500);
+}
+
+// ─────────── Init ───────────
+wire('dzJewelry', 'inJewelry', 'thJewelry', 'jewelry');
+wire('dzModel',   'inModel',   'thModel',   'model');
+</script>
+</body>
+</html>
