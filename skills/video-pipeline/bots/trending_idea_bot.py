@@ -9,7 +9,45 @@ This bot:
 """
 
 from typing import Optional
+import json
+import os
 
+from bots.idea_modeling import decompose_title, extract_format, generate_modeled_ideas
+
+
+
+
+def load_modeling_config():
+    config_path = os.path.join(os.path.dirname(__file__), "..", "config", "idea_modeling_config.json")
+    if os.path.exists(config_path):
+        with open(config_path, "r") as f:
+            return json.load(f)
+    return {"format_library": [], "niche_variables": {}}
+
+
+def save_modeling_config(config):
+    config_path = os.path.join(os.path.dirname(__file__), "..", "config", "idea_modeling_config.json")
+    os.makedirs(os.path.dirname(config_path), exist_ok=True)
+    with open(config_path, "w") as f:
+        json.dump(config, f, indent=2)
+
+
+def update_format_library(config, new_formats):
+    library = config.get("format_library", [])
+    existing_formulas = {f["formula"]: i for i, f in enumerate(library)}
+    for fmt in new_formats:
+        formula = fmt["formula"]
+        if formula in existing_formulas:
+            idx = existing_formulas[formula]
+            library[idx]["times_seen"] += fmt["times_seen"]
+            for title in fmt["example_titles"]:
+                if title not in library[idx]["example_titles"]:
+                    library[idx]["example_titles"].append(title)
+        else:
+            library.append(fmt)
+            existing_formulas[formula] = len(library) - 1
+    config["format_library"] = library
+    return config
 
 class TrendingIdeaBot:
     """Generates video ideas by analyzing trending content.
@@ -290,6 +328,133 @@ Return ONLY the JSON object, no other text."""
                 print(f"  ⚠️ Slack notification failed: {e}")
 
         return ideas
+
+
+    async def generate_ideas_v2(
+        self,
+        trending_data: dict,
+        num_ideas: int = 5,
+        save_to_airtable: bool = True,
+        notify_slack: bool = True,
+    ) -> list[dict]:
+        """Generate video ideas using Idea Engine v2 format modeling."""
+        analysis = trending_data.get("analysis", {})
+        all_titles = analysis.get("all_titles", [])[:30]
+        top_videos = analysis.get("top_10_by_views", [])
+        
+        print("\n" + "=" * 50)
+        print("IDEA ENGINE v2 - Format Modeling")
+        print("=" * 50)
+        print(f"Analyzing {len(all_titles)} trending titles...")
+        
+        # Step 1: Decompose each title
+        decomposed = []
+        for title in all_titles:
+            result = await decompose_title(title, self.anthropic)
+            if result:
+                decomposed.append(result)
+        
+        print(f"Decomposed {len(decomposed)}/{len(all_titles)} titles")
+        
+        # Step 2: Extract formats
+        formats = extract_format(decomposed)
+        print(f"Extracted {len(formats)} unique formats")
+        
+        for fmt in formats[:5]:
+            formula_short = fmt["formula"][:60] + "..." if len(fmt["formula"]) > 60 else fmt["formula"]
+            print(f"  - {formula_short} (seen {fmt[times_seen]}x)")
+        
+        # Step 3: Update persistent format library
+        config = load_modeling_config()
+        config = update_format_library(config, formats)
+        save_modeling_config(config)
+        library_size = len(config.get("format_library", []))
+        print(f"Format library now has {library_size} formats")
+        
+        # Step 4: Generate ideas using top formats
+        top_formats = formats[:5] if formats else config.get("format_library", [])[:5]
+        
+        if not top_formats:
+            print("No formats available, falling back to v1")
+            return await self.generate_ideas_from_trends(trending_data, num_ideas, save_to_airtable, notify_slack)
+        
+        ideas = await generate_modeled_ideas(top_formats, config, self.anthropic, num_ideas)
+        
+        print(f"\nGenerated {len(ideas)} modeled ideas:")
+        for i, idea in enumerate(ideas, 1):
+            title = idea.get("viral_title", "Untitled")
+            fmt_id = idea.get("based_on_format", "unknown")
+            print(f"  {i}. {title}")
+            print(f"     Format: {fmt_id}")
+        
+        # Map to expected format for Airtable
+        for idea in ideas:
+            swapped = idea.get("variables_swapped", [])
+            idea["modeled_from"] = f"Format: {idea.get(based_on_format, )} | Swapped: {swapped}"
+            idea["source_title"] = idea.get("original_example", "")
+            idea["original_dna"] = f"Idea Engine v2: {len(decomposed)} titles analyzed"
+            
+            # Try to find source video
+            matched_video = None
+            source_title = idea.get("original_example", "")
+            for v in trending_data.get("videos", []):
+                if source_title and source_title.lower() in v.get("title", "").lower():
+                    matched_video = v
+                    break
+            
+            if matched_video:
+                idea["reference_url"] = matched_video.get("url", "")
+                idea["source_views"] = matched_video.get("views", 0)
+                idea["source_channel"] = matched_video.get("channel", "")
+            elif top_videos:
+                idea["reference_url"] = top_videos[0].get("url", "")
+                idea["source_views"] = top_videos[0].get("views", 0)
+                idea["source_channel"] = top_videos[0].get("channel", "")
+        
+        # Save to Airtable
+        if save_to_airtable:
+            print("Saving to Airtable...")
+            for i, idea in enumerate(ideas, 1):
+                try:
+                    record = self.airtable.create_idea(idea)
+                    print(f"  Saved idea {i}: {record.get(id)}")
+                except Exception as e:
+                    print(f"  Failed to save idea {i}: {e}")
+        
+        # Notify Slack with v2 format
+        if notify_slack and self.slack:
+            try:
+                self._send_v2_slack_notification(ideas, len(all_titles), len(formats))
+                print("Slack notification sent")
+            except Exception as e:
+                print(f"Slack notification failed: {e}")
+        
+        return ideas
+    
+    def _send_v2_slack_notification(self, ideas: list, titles_analyzed: int, formats_found: int):
+        """Send Slack notification in v2 format."""
+        header = f"IDEA ENGINE v2 - Format-Modeled Ideas\n"
+        header += f"Analyzed {titles_analyzed} trending videos -> Extracted {formats_found} reusable formats\n"
+        header += "-" * 40 + "\n"
+        
+        idea_texts = []
+        for i, idea in enumerate(ideas, 1):
+            title = idea.get("viral_title", "Untitled")
+            format_id = idea.get("based_on_format", "unknown")
+            original = idea.get("original_example", "")[:50]
+            swapped = ", ".join(str(s) for s in idea.get("variables_swapped", [])[:2])
+            triggers = ", ".join(idea.get("psychological_triggers", []))
+            
+            text = f"Idea {i}: {title}\n"
+            text += f"  Format: {format_id}\n"
+            text += f"  Based on: {original}...\n"
+            text += f"  Swapped: {swapped}\n"
+            text += f"  Triggers: {triggers}\n"
+            idea_texts.append(text)
+        
+        full_message = header + "\n".join(idea_texts)
+        
+        self.slack.send_message(full_message)
 
     async def generate_from_trending(
         self,

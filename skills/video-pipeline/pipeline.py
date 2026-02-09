@@ -2130,6 +2130,7 @@ async def main():
         print("\nOptions:")
         print("  (no args)     Run the next pipeline step based on Airtable status")
         print("  --status      Show status of all ideas in Airtable")
+        print("  --more-ideas  Generate ideas from saved format library (no scraping)")
         print('  --idea "..."  Generate 3 video ideas from URL or concept')
         print("  --trending    Generate ideas from trending YouTube videos (Apify)")
         print("  --sync        Sync assets to Google Drive")
@@ -2179,6 +2180,71 @@ async def main():
         result = await pipeline.run_idea_bot(input_text)
         return
 
+
+    # === MORE IDEAS FROM FORMAT LIBRARY ===
+    if len(sys.argv) > 1 and sys.argv[1] == "--more-ideas":
+        import json
+        import os as os_mod
+        from bots.idea_modeling import generate_modeled_ideas
+        
+        config_path = os_mod.path.join(os_mod.path.dirname(__file__), "config", "idea_modeling_config.json")
+        
+        if not os_mod.path.exists(config_path):
+            print("No format library found. Run --trending first to build it.")
+            sys.exit(1)
+        
+        with open(config_path, "r") as f:
+            config = json.load(f)
+        
+        format_library = config.get("format_library", [])
+        
+        if not format_library:
+            print("Format library is empty. Run --trending first to populate it.")
+            sys.exit(1)
+        
+        format_library.sort(key=lambda x: x.get("times_seen", 0), reverse=True)
+        top_formats = format_library[:5]
+        
+        print("")
+        print("=" * 50)
+        print("IDEA ENGINE v2 - Generate from Format Library")
+        print("=" * 50)
+        print(f"Using top {len(top_formats)} formats from library of {len(format_library)}:")
+        for fmt in top_formats:
+            formula_display = fmt["formula"][:50] + "..." if len(fmt["formula"]) > 50 else fmt["formula"]
+            seen = fmt.get("times_seen", 1)
+            print(f"  - {formula_display} (seen {seen}x)")
+        
+        load_dotenv()
+        from clients.anthropic_client import AnthropicClient
+        from clients.slack_client import SlackClient
+        
+        anthropic = AnthropicClient()
+        slack = SlackClient()
+        
+        async def run_more_ideas():
+            ideas = await generate_modeled_ideas(top_formats, config, anthropic, num_ideas=3)
+            
+            print(f"Generated {len(ideas)} ideas:")
+            for i, idea in enumerate(ideas, 1):
+                title = idea.get("viral_title", "Untitled")
+                fmt_id = idea.get("based_on_format", "unknown")
+                print(f"  {i}. {title}")
+                print(f"     Format: {fmt_id}")
+            
+            msg_lines = ["IDEA ENGINE v2 - From Format Library", "-" * 40]
+            for i, idea in enumerate(ideas, 1):
+                msg_lines.append(f"{i}. {idea.get('viral_title', 'Untitled')}")
+                msg_lines.append(f"   Format: {idea.get('based_on_format', '')}")
+            
+            slack.send_message(chr(10).join(msg_lines))
+            print("Sent to Slack!")
+            
+            return ideas
+        
+        import asyncio
+        asyncio.run(run_more_ideas())
+        sys.exit(0)
     if len(sys.argv) > 1 and sys.argv[1] == "--trending":
         # Generate ideas from trending YouTube videos
         search_queries = None
@@ -2192,28 +2258,6 @@ async def main():
             search_queries=search_queries,
             num_ideas=3,
         )
-        return
-
-    if len(sys.argv) > 1 and sys.argv[1] == "--more-ideas":
-        # Generate more ideas from recent trending data (quick refresh)
-        print("=" * 60)
-        print("💡 MORE IDEAS - Quick Generation from Recent Trends")
-        print("=" * 60)
-        
-        num = 3  # default
-        if len(sys.argv) > 2:
-            try:
-                num = int(sys.argv[2])
-            except ValueError:
-                pass
-        
-        result = await pipeline.run_trending_idea_bot(
-            search_queries=None,  # Use defaults
-            num_ideas=num,
-        )
-        
-        print(f"\n✅ Generated {len(result.get('ideas', []))} new ideas")
-        print("Check Airtable or Slack for the new ideas.")
         return
 
     if len(sys.argv) > 1 and sys.argv[1] == "--sync":
