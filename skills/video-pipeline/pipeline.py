@@ -923,6 +923,11 @@ class VideoPipeline:
                 # Get shot_type from segment (now included in output)
                 shot_type = concept.get("shot_type", "medium_human_story")
 
+                # Skip if this exact (scene, index) already exists
+                if (scene_number, i + 1) in existing_scene_indices:
+                    print(f"      Skipping Scene {scene_number}, Index {i + 1} - already exists")
+                    continue
+
                 self.airtable.create_sentence_image_record(
                     scene_number=scene_number,
                     sentence_index=i + 1,
