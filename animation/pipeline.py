@@ -60,13 +60,14 @@ class AnimationPipeline:
         self.project_name: Optional[str] = None
         self.cost_tracker: Optional[CostTracker] = None
 
-    # Statuses that indicate an in-progress project we should resume
+    # Statuses that indicate a project we should process or resume
     RESUMABLE_STATUSES = [
         PROJECT_STATUS_CREATE,
         PROJECT_STATUS_PLANNING,
         PROJECT_STATUS_GENERATING_FRAMES,
         PROJECT_STATUS_ANIMATING,
         PROJECT_STATUS_QC,
+        PROJECT_STATUS_FAILED,
     ]
 
     async def run(self) -> Optional[dict]:
