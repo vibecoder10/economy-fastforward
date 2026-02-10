@@ -111,6 +111,25 @@ class AnimationAirtableClient:
             if not r["fields"].get("image done")
         ]
 
+    def get_scenes_needing_end_content(self, project_name: str) -> list[dict]:
+        """Get scenes that have start_image but are missing end_image.
+
+        These are scenes from a previous partial run (e.g. n8n generated start
+        frames) where we need to generate end_image_prompt and/or end_image.
+        """
+        records = self.scenes_table.all(
+            formula=f'{{Project Name}} = "{project_name}"',
+            sort=["scene_order"],
+        )
+        results = []
+        for r in records:
+            fields = r["fields"]
+            has_start = bool(fields.get("start_image"))
+            has_end = bool(fields.get("end_image"))
+            if has_start and not has_end:
+                results.append({"id": r["id"], **fields})
+        return results
+
     def get_scenes_needing_animation(self, project_name: str) -> list[dict]:
         """Get animated scenes where image done = true but video done = false."""
         from pyairtable.formulas import match, AND
@@ -203,6 +222,14 @@ class AnimationAirtableClient:
         """Upload start and end frame images to a scene."""
         updates = {
             "start_image": [{"url": start_image_url}],
+            "end_image": [{"url": end_image_url}],
+            "image done": True,
+        }
+        return self.update_scene(record_id, updates)
+
+    def update_scene_end_image(self, record_id: str, end_image_url: str) -> dict:
+        """Upload just the end frame image to a scene and mark image done."""
+        updates = {
             "end_image": [{"url": end_image_url}],
             "image done": True,
         }

@@ -8,6 +8,7 @@ from animation.config import (
     ANTHROPIC_API_KEY,
     SCENE_PLANNER_MODEL,
     PROTAGONIST_PROMPT_FRAGMENT,
+    NEGATIVE_PROMPT_DEFAULT,
 )
 
 
@@ -215,6 +216,65 @@ class ScenePlanner:
 
         # If we can't repair, return as-is and let the caller handle the error
         return raw_text
+
+    async def generate_end_prompt(self, scene: dict) -> Optional[str]:
+        """Generate an end_image_prompt for a scene that already has a start_image_prompt.
+
+        Used when scenes were partially created (e.g. by n8n) with start content
+        but no end content. Uses the scene's context to create a matching end frame.
+
+        Args:
+            scene: Scene dict with start_image_prompt, narrative_beat, camera_direction, etc.
+
+        Returns:
+            Generated end_image_prompt string, or None on failure
+        """
+        start_prompt = scene.get("start_image_prompt", "")
+        narrative_beat = scene.get("narrative_beat", "")
+        camera_direction = scene.get("camera_direction", "eye_level")
+        glow_state = scene.get("glow_state", 50)
+        glow_behavior = scene.get("glow_behavior", "steady")
+        color_temp = scene.get("color_temperature", "neutral")
+        motion_desc = scene.get("motion_description", "")
+        scene_name = scene.get("scene", "")
+
+        user_prompt = (
+            f"Generate an end_image_prompt for this animation scene.\n\n"
+            f"SCENE: {scene_name}\n"
+            f"NARRATIVE BEAT: {narrative_beat}\n"
+            f"CAMERA DIRECTION: {camera_direction}\n"
+            f"GLOW STATE: {glow_state}/100 ({glow_behavior})\n"
+            f"COLOR TEMPERATURE: {color_temp}\n"
+            f"MOTION: {motion_desc}\n\n"
+            f"START FRAME PROMPT:\n{start_prompt}\n\n"
+            f"PROTAGONIST FRAGMENT (must be included if protagonist is visible):\n"
+            f"{PROTAGONIST_PROMPT_FRAGMENT}\n\n"
+            f"Generate the end_image_prompt that shows the CONCLUSION of this scene's "
+            f"camera movement ({camera_direction}) and action. The end frame should:\n"
+            f"1. Use the same 3D clay render style\n"
+            f"2. Show the result of the {camera_direction} camera movement\n"
+            f"3. Include the protagonist prompt fragment with glow_state {glow_state}\n"
+            f"4. Maintain {color_temp} color temperature\n"
+            f"5. Include: {NEGATIVE_PROMPT_DEFAULT}\n\n"
+            f"Return ONLY the prompt text. No JSON, no explanation, no quotes."
+        )
+
+        try:
+            print(f"      📝 Generating end prompt via Sonnet...")
+            response = self.client.messages.create(
+                model=SCENE_PLANNER_MODEL,
+                max_tokens=1000,
+                temperature=0.7,
+                system=(
+                    "You write image generation prompts for 3D clay render animation scenes "
+                    "featuring a gold-glowing protagonist. Return ONLY the prompt text."
+                ),
+                messages=[{"role": "user", "content": user_prompt}],
+            )
+            return response.content[0].text.strip()
+        except Exception as e:
+            print(f"      ❌ Failed to generate end prompt: {e}")
+            return None
 
     def scenes_to_airtable_rows(self, scene_plan: dict, project_name: str) -> list[dict]:
         """Convert scene plan JSON into Airtable row dicts.

@@ -105,6 +105,10 @@ class AnimationPipeline:
             if not scene_plan:
                 return self._handle_failure("Scene Planning", "Failed to generate scene plan")
 
+            # Phase 2.5: Generate end content for partially-complete scenes
+            # (scenes that have start_image but are missing end_image_prompt / end_image)
+            await self._generate_end_content()
+
             # Phase 3: Generate frames (skips scenes that already have images)
             frames_ok = await self._generate_frames()
             if not frames_ok:
@@ -207,6 +211,84 @@ class AnimationPipeline:
         )
 
         return scene_plan
+
+    # ==================== PHASE 2.5: END CONTENT FOR PARTIAL SCENES ====================
+
+    async def _generate_end_content(self) -> bool:
+        """Generate end_image_prompts and end_images for scenes that already have start content.
+
+        Handles the case where a previous system (e.g. n8n) generated start frames
+        but not end frames. For each scene with start_image but no end_image:
+        1. Generate end_image_prompt via Sonnet (if missing)
+        2. Generate end_image via Kie.ai
+        3. Mark image done
+        """
+        print("\n  🎯 Phase 2.5: End Content Generation (partial scenes)")
+
+        scenes = self.airtable.get_scenes_needing_end_content(self.project_name)
+        total = len(scenes)
+        print(f"    {total} scenes have start_image but need end content")
+
+        if total == 0:
+            print("    ✅ No partial scenes found, skipping")
+            return True
+
+        self.airtable.update_project_status(
+            self.current_project["id"],
+            PROJECT_STATUS_GENERATING_FRAMES,
+        )
+
+        success_count = 0
+        for i, scene in enumerate(scenes):
+            scene_order = scene.get("scene_order", i + 1)
+            scene_type = scene.get("scene_type", "animated")
+            record_id = scene["id"]
+
+            print(f"\n    --- Scene {scene_order} ({scene_type}) [{i+1}/{total}] ---")
+
+            # Budget check (just image cost)
+            if not self.cost_tracker.can_afford_scene("ken_burns"):
+                print(f"    🛑 Budget exceeded, stopping end content generation")
+                self.airtable.update_project_status(
+                    self.current_project["id"],
+                    PROJECT_STATUS_BUDGET_EXCEEDED,
+                )
+                return False
+
+            # For ken_burns/static, copy start_image as end_image
+            if scene_type in ("ken_burns", "static"):
+                start_images = scene.get("start_image", [])
+                if start_images:
+                    start_url = start_images[0].get("url", "")
+                    self.airtable.update_scene_end_image(record_id, start_url)
+                    success_count += 1
+                    print(f"      ✅ Copied start image as end image (non-animated)")
+                continue
+
+            # Step 1: Generate end_image_prompt if missing
+            end_prompt = scene.get("end_image_prompt", "")
+            if not end_prompt:
+                end_prompt = await self.planner.generate_end_prompt(scene)
+                if end_prompt:
+                    self.airtable.update_scene(record_id, {"end_image_prompt": end_prompt})
+                    print(f"      ✅ End prompt generated")
+                else:
+                    print(f"      ❌ Failed to generate end prompt, skipping scene")
+                    continue
+
+            # Step 2: Generate end_image
+            print(f"      🎨 Generating end frame image...")
+            end_url = await self.image_gen.generate_frame(end_prompt)
+            if end_url:
+                self.cost_tracker.record_image_cost(scene_order)
+                self.airtable.update_scene_end_image(record_id, end_url)
+                success_count += 1
+                print(f"      ✅ End image generated and uploaded")
+            else:
+                print(f"      ❌ Failed to generate end image for scene {scene_order}")
+
+        print(f"\n    ✅ End content generation complete: {success_count}/{total} scenes")
+        return success_count > 0
 
     # ==================== PHASE 3: FRAME GENERATION ====================
 
