@@ -333,7 +333,7 @@ def cmd_help(channel: str):
 *Commands:*
 • `status` — Pipeline queue status & running processes
 • `run` — Trigger main video pipeline immediately
-• `animate` — Run animation pipeline (checks animation Airtable, resumes where left off)
+• `animation` — Run animation pipeline (checks animation Airtable, resumes where left off)
 • `kill` — Kill all running pipeline processes
 • `logs` — Last 20 main pipeline log lines (`logs 50` for more)
 • `animlogs` — Last 20 animation log lines (`animlogs 50` for more)
@@ -347,18 +347,20 @@ def cmd_help(channel: str):
 
 # ── Command Router ─────────────────────────────────────────────────────────
 
-COMMANDS = {
-    "status": lambda ch, _: cmd_status(ch),
-    "run": lambda ch, _: cmd_run(ch),
-    "animate": lambda ch, _: cmd_animate(ch),
-    "run animation": lambda ch, _: cmd_animate(ch),
-    "kill": lambda ch, _: cmd_kill(ch),
-    "stop": lambda ch, _: cmd_kill(ch),
-    "animlogs": lambda ch, args: cmd_animlogs(ch, int(args[0]) if args else 20),
-    "logs": lambda ch, args: cmd_logs(ch, int(args[0]) if args else 20),
-    "cron": lambda ch, args: cmd_cron(ch, args[0] if args else None),
-    "help": lambda ch, _: cmd_help(ch),
-}
+# Commands sorted longest-first so "run animation" matches before "run"
+COMMANDS = [
+    ("run animation", lambda ch, _: cmd_animate(ch)),
+    ("animate", lambda ch, _: cmd_animate(ch)),
+    ("animation", lambda ch, _: cmd_animate(ch)),
+    ("animlogs", lambda ch, args: cmd_animlogs(ch, int(args[0]) if args else 20)),
+    ("status", lambda ch, _: cmd_status(ch)),
+    ("run", lambda ch, _: cmd_run(ch)),
+    ("kill", lambda ch, _: cmd_kill(ch)),
+    ("stop", lambda ch, _: cmd_kill(ch)),
+    ("logs", lambda ch, args: cmd_logs(ch, int(args[0]) if args else 20)),
+    ("cron", lambda ch, args: cmd_cron(ch, args[0] if args else None)),
+    ("help", lambda ch, _: cmd_help(ch)),
+]
 
 
 def handle_message(text: str, channel: str, user: str):
@@ -369,8 +371,8 @@ def handle_message(text: str, channel: str, user: str):
 
     text = text.strip().lower()
 
-    # Check if it's a command
-    for cmd, handler in COMMANDS.items():
+    # Check if it's a command (longest prefix match first)
+    for cmd, handler in COMMANDS:
         if text.startswith(cmd):
             args = text[len(cmd):].strip().split() if len(text) > len(cmd) else []
             log.info(f"Command: {cmd} from user {user} in {channel}")
