@@ -60,46 +60,59 @@ class AnimationPipeline:
         self.project_name: Optional[str] = None
         self.cost_tracker: Optional[CostTracker] = None
 
+    # Statuses that indicate an in-progress project we should resume
+    RESUMABLE_STATUSES = [
+        PROJECT_STATUS_CREATE,
+        PROJECT_STATUS_PLANNING,
+        PROJECT_STATUS_GENERATING_FRAMES,
+        PROJECT_STATUS_ANIMATING,
+        PROJECT_STATUS_QC,
+    ]
+
     async def run(self) -> Optional[dict]:
         """Run the full animation pipeline for one project.
 
-        Finds a project with Status = "Create", processes it through
-        all phases, and returns a summary.
+        Finds a project to process — either a new one (Status = "Create")
+        or one that was interrupted mid-run — and resumes from wherever
+        it left off. Each phase checks Airtable for remaining work, so
+        re-running a phase that already completed is safe (it skips).
 
         Returns:
             Summary dict on completion, or None if no projects found
         """
-        # Phase 1: Find a project
+        # Phase 1: Find a project (new or in-progress)
         project = self._find_project()
         if not project:
-            print("  No projects found with Status = 'Create'")
+            print("  No projects found to process")
             return None
 
         self.current_project = project
         self.project_name = project.get("Project Name", project.get("id"))
+        current_status = project.get("Status", "")
         budget = project.get("animation_budget", ANIMATION_BUDGET_DEFAULT)
         self.cost_tracker = CostTracker(budget=float(budget))
 
         print(f"\n{'='*60}")
         print(f"  🎬 Animation Pipeline: {self.project_name}")
+        print(f"  📍 Current status: {current_status}")
         print(f"  💰 Budget: ${self.cost_tracker.budget:.2f}")
         print(f"{'='*60}\n")
 
         try:
-            # Phase 2: Plan scenes
+            # Phase 2: Plan scenes (skips if scenes already exist)
             scene_plan = await self._plan_scenes()
             if not scene_plan:
                 return self._handle_failure("Scene Planning", "Failed to generate scene plan")
 
-            # Phase 3: Generate frames
+            # Phase 3: Generate frames (skips scenes that already have images)
             frames_ok = await self._generate_frames()
             if not frames_ok:
                 return self._handle_failure("Frame Generation", "Failed to generate frames")
 
-            # Phase 4: Animate
+            # Phase 4: Animate (skips scenes that already have video)
             animation_ok = await self._animate_scenes()
 
-            # Phase 5: QC
+            # Phase 5: QC (skips scenes that already have qc_score)
             await self._run_qc()
 
             # Phase 6: Finalize
@@ -110,17 +123,30 @@ class AnimationPipeline:
             return self._handle_failure("Pipeline", str(e))
 
     def _find_project(self) -> Optional[dict]:
-        """Find one project with Status = 'Create'."""
-        projects = self.airtable.get_projects_by_status(PROJECT_STATUS_CREATE, limit=1)
-        if projects:
-            return projects[0]
+        """Find one project to process — new or in-progress."""
+        for status in self.RESUMABLE_STATUSES:
+            projects = self.airtable.get_projects_by_status(status, limit=1)
+            if projects:
+                print(f"  Found project with Status = '{status}'")
+                return projects[0]
         return None
 
     # ==================== PHASE 2: SCENE PLANNING ====================
 
     async def _plan_scenes(self) -> Optional[dict]:
-        """Generate scene plan and write to Airtable."""
+        """Generate scene plan and write to Airtable. Skips if scenes already exist."""
         print("  📋 Phase 2: Scene Planning")
+
+        # Check if scenes already exist (resume case)
+        existing_scenes = self.airtable.get_scenes_for_project(self.project_name)
+        if existing_scenes:
+            print(f"    ✅ {len(existing_scenes)} scenes already exist, skipping planning")
+            # Build a minimal scene_plan dict for downstream use
+            scene_plan = {
+                "scenes": existing_scenes,
+                "total_scenes": len(existing_scenes),
+            }
+            return scene_plan
 
         self.airtable.update_project_status(
             self.current_project["id"],
