@@ -2,6 +2,9 @@
 
 Run with: python webhook_server.py
 Then add Button fields in Airtable that call these endpoints.
+
+Uses the canonical /animation/ module for Airtable client and prompt generation,
+and the local clients/ module for image generation and Google Drive upload.
 """
 
 import os
@@ -9,13 +12,17 @@ import asyncio
 from flask import Flask, request, jsonify
 from dotenv import load_dotenv
 
-load_dotenv()
+# Add repo root to path for animation module
+REPO_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..')
+
+load_dotenv(os.path.join(REPO_ROOT, '.env'))
 
 import sys
+sys.path.insert(0, REPO_ROOT)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from animation.airtable_client import AnimationAirtableClient
-from animation.image_generator import ImagePromptGenerator
+from animation.airtable import AnimationAirtableClient
+from animation.prompt_generator import ImagePromptGenerator
 from clients.image_client import ImageClient
 from clients.google_client import GoogleClient
 
@@ -40,12 +47,11 @@ def run_async(coro):
 
 async def generate_start_image_async(scene_id: str):
     """Generate start image for a scene."""
-    # Get scene
-    scenes = await airtable.get_scenes_for_project_by_id(scene_id)
-    if not scenes:
+    # Get scene (sync call - pyairtable)
+    scene = airtable.get_scene_by_id(scene_id)
+    if not scene:
         return {"error": f"Scene {scene_id} not found"}
 
-    scene = scenes[0]
     scene_num = scene.get("scene_order", "?")
     prompt = scene.get("start_image_prompt")
 
@@ -77,8 +83,8 @@ async def generate_start_image_async(scene_id: str):
     drive_file = google_client.upload_image(image_content, filename, folder_id)
     drive_url = google_client.make_file_public(drive_file["id"])
 
-    # Update Airtable
-    await airtable.update_scene(
+    # Update Airtable (sync call - pyairtable)
+    airtable.update_scene(
         scene_id,
         {
             "start_image": [{"url": drive_url}],
@@ -92,12 +98,11 @@ async def generate_start_image_async(scene_id: str):
 
 async def generate_end_image_async(scene_id: str):
     """Generate end image for a scene."""
-    # Get scene
-    scenes = await airtable.get_scenes_for_project_by_id(scene_id)
-    if not scenes:
+    # Get scene (sync call - pyairtable)
+    scene = airtable.get_scene_by_id(scene_id)
+    if not scene:
         return {"error": f"Scene {scene_id} not found"}
 
-    scene = scenes[0]
     scene_num = scene.get("scene_order", "?")
     end_prompt = scene.get("end_image_prompt")
     start_prompt = scene.get("start_image_prompt")
@@ -106,7 +111,7 @@ async def generate_end_image_async(scene_id: str):
     if not end_prompt and start_prompt:
         print(f"Generating end prompt for Scene {scene_num}...")
         end_prompt = await prompt_gen.generate_end_image_prompt(scene, start_prompt)
-        await airtable.update_scene(scene_id, {"end_image_prompt": end_prompt})
+        airtable.update_scene(scene_id, {"end_image_prompt": end_prompt})
 
     if not end_prompt:
         return {"error": f"Scene {scene_num} has no end_image_prompt"}
@@ -149,8 +154,8 @@ async def generate_end_image_async(scene_id: str):
     drive_file = google_client.upload_image(image_content, filename, folder_id)
     drive_url = google_client.make_file_public(drive_file["id"])
 
-    # Update Airtable
-    await airtable.update_scene(
+    # Update Airtable (sync call - pyairtable)
+    airtable.update_scene(
         scene_id,
         {"end_image": [{"url": drive_url}]}
     )

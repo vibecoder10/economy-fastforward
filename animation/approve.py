@@ -1,6 +1,7 @@
 """Approve scene prompts."""
+import os
 import sys
-sys.path.insert(0, "/home/clawd/projects/economy-fastforward")
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
 from animation.airtable import AnimationAirtableClient
 

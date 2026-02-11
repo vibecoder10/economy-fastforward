@@ -1,19 +1,26 @@
 """Generate end image prompts and end images for all scenes.
 
 Uses Seed Dream v4 Edit with start_image as reference for character consistency.
+
+Uses the canonical /animation/ module for Airtable client and prompt generation,
+and the local clients/ module for image generation and Google Drive upload.
 """
 
 import os
 import asyncio
 from dotenv import load_dotenv
 
-load_dotenv()
+# Add repo root to path for animation module
+REPO_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..')
+
+load_dotenv(os.path.join(REPO_ROOT, '.env'))
 
 import sys
+sys.path.insert(0, REPO_ROOT)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from animation.airtable_client import AnimationAirtableClient
-from animation.image_generator import ImagePromptGenerator
+from animation.airtable import AnimationAirtableClient
+from animation.prompt_generator import ImagePromptGenerator
 from clients.image_client import ImageClient
 from clients.google_client import GoogleClient
 
@@ -30,16 +37,17 @@ async def main(force_regenerate: bool = False):
     google_client = GoogleClient()
 
     # Get project
-    project = await airtable.get_project_by_status("Create")
-    if not project:
+    projects = airtable.get_projects_by_status("Create", limit=1)
+    if not projects:
         print("❌ No project with 'Create' status")
         return
 
+    project = projects[0]
     project_name = project.get("Project Name")
     print(f"📁 Project: {project_name}")
 
     # Get scenes
-    scenes = await airtable.get_scenes_for_project(project_name)
+    scenes = airtable.get_scenes_for_project(project_name)
     print(f"📋 Found {len(scenes)} scenes")
 
     # If force regenerate, clear existing end prompts and images
@@ -47,7 +55,7 @@ async def main(force_regenerate: bool = False):
         print("\n🗑️  Clearing existing end data...")
         for scene in scenes:
             if scene.get("end_image_prompt") or scene.get("end_image"):
-                await airtable.update_scene(
+                airtable.update_scene(
                     scene["id"],
                     {"end_image_prompt": "", "end_image": None}
                 )
@@ -60,11 +68,10 @@ async def main(force_regenerate: bool = False):
     folder_id = folder["id"]
 
     # Phase 1: Generate END prompts for scenes where "start prompt done" is checked
-    # Only generate end prompts when user has approved the start prompt
     scenes_needing_end_prompts = [
         s for s in scenes
         if s.get("start_image_prompt")
-        and s.get("start prompt done")  # User approved start prompt
+        and s.get("start prompt done")
         and not s.get("end_image_prompt")
     ]
     print(f"\n📝 Scenes with approved start prompts needing END prompts: {len(scenes_needing_end_prompts)}")
@@ -78,22 +85,18 @@ async def main(force_regenerate: bool = False):
         end_prompt = await prompt_gen.generate_end_image_prompt(scene, start_prompt)
 
         # Save to Airtable
-        await airtable.update_scene(
-            scene["id"],
-            {"end_image_prompt": end_prompt}
-        )
+        airtable.update_scene(scene["id"], {"end_image_prompt": end_prompt})
         scene["end_image_prompt"] = end_prompt
         print(f"    ✅ {len(end_prompt.split())} words")
 
     # Reload scenes to get updated prompts
-    scenes = await airtable.get_scenes_for_project(project_name)
+    scenes = airtable.get_scenes_for_project(project_name)
 
     # Phase 2: Generate END images for scenes where "end prompt done" is checked
-    # Only generate images when user has approved the end prompt
     scenes_needing_end_images = [
         s for s in scenes
         if s.get("end_image_prompt")
-        and s.get("end prompt done")  # User approved end prompt
+        and s.get("end prompt done")
         and s.get("start_image")
         and not s.get("end_image")
     ]
@@ -112,7 +115,6 @@ async def main(force_regenerate: bool = False):
             print(f"  Scene {scene_num}: No start_image, skipping")
             continue
 
-        # Get the URL from the attachment
         if isinstance(start_images, list) and len(start_images) > 0:
             start_image_url = start_images[0].get("url")
         else:
@@ -147,13 +149,13 @@ async def main(force_regenerate: bool = False):
             drive_url = google_client.make_file_public(drive_file["id"])
 
             # Update Airtable
-            await airtable.update_scene(
+            airtable.update_scene(
                 scene["id"],
                 {"end_image": [{"url": drive_url}]}
             )
 
             images_generated += 1
-            cost += 0.02  # Seed Dream Edit cost
+            cost += 0.02
             print(f"    ✅ Done! (${cost:.2f} total)")
 
         else:

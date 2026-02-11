@@ -42,6 +42,8 @@ Thumbs.db
 *.jpg
 *.jpeg
 
-# Bot JSON exports (contain API responses)
-# Uncomment if you want to include these
-# *.json
+# Log files
+*.log
+
+# Backup files
+*.backup

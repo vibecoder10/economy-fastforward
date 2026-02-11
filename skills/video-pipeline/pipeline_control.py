@@ -5,6 +5,7 @@ Requires: SLACK_BOT_TOKEN, SLACK_APP_TOKEN in environment
 """
 
 import os
+import re
 import sys
 import asyncio
 import subprocess
@@ -23,6 +24,7 @@ app = AsyncApp(token=os.environ.get("SLACK_BOT_TOKEN"))
 
 # Get the base directory for running scripts
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+REPO_ROOT = os.path.join(BASE_DIR, '..', '..')
 
 # Track running process for kill command
 current_process = None
@@ -82,6 +84,13 @@ async def handle_help(message, say):
 - `logs` / `animlogs` - Check if a pipeline is running
 - `status` / `check` - Check current project status
 - `update` - Pull latest code from GitHub (auto-restarts if changes)
+
+*Animation Control:*
+- `animstatus` - Show scene prompt approval status
+- `approve <num>` - Approve prompts for a specific scene
+- `approve all` - Approve all scene prompts
+- `regen <num>` - Regenerate prompts for a specific scene
+
 - `help` - Show this message
 """
     await say(help_text)
@@ -297,6 +306,79 @@ async def handle_update(message, say):
         await say(f":x: Error: {e}")
 
 
+# ==================== ANIMATION CONTROL COMMANDS ====================
+
+@app.message("animstatus")
+async def handle_animstatus(message, say):
+    """Show which scenes need prompt approval."""
+    try:
+        result = subprocess.run(
+            ["python3", "-m", "animation.status"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        output = result.stdout.strip() or result.stderr.strip() or "No output"
+        await say(f"```{output[:2900]}```")
+    except Exception as e:
+        await say(f":x: Error: {e}")
+
+
+@app.message("approve all")
+async def handle_approveall(message, say):
+    """Approve all prompts for all scenes."""
+    try:
+        result = subprocess.run(
+            ["python3", "-m", "animation.approve", "all"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        output = result.stdout.strip() or result.stderr.strip() or "No output"
+        await say(f"```{output[:2900]}```")
+    except Exception as e:
+        await say(f":x: Error: {e}")
+
+
+@app.message(re.compile(r"^approve (\d+)$"))
+async def handle_approve(message, say, context):
+    """Approve prompts for a specific scene."""
+    scene_num = context["matches"][0]
+    try:
+        result = subprocess.run(
+            ["python3", "-m", "animation.approve", scene_num],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        output = result.stdout.strip() or result.stderr.strip() or "No output"
+        await say(f"```{output[:2900]}```")
+    except Exception as e:
+        await say(f":x: Error: {e}")
+
+
+@app.message(re.compile(r"^regen (\d+)$"))
+async def handle_regen(message, say, context):
+    """Regenerate prompts for a specific scene."""
+    scene_num = context["matches"][0]
+    await say(f":arrows_counterclockwise: Regenerating prompts for scene {scene_num}...")
+    try:
+        result = subprocess.run(
+            ["python3", "-m", "animation.regen", scene_num],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        output = result.stdout.strip() or result.stderr.strip() or "No output"
+        await say(f"```{output[:2900]}```")
+    except Exception as e:
+        await say(f":x: Error: {e}")
+
+
 async def main():
     """Start the Slack bot."""
     print("=" * 60)
@@ -307,6 +389,9 @@ async def main():
     print("  animate / animation     - Run animation pipeline")
     print("  prompts / run prompts   - Generate prompts and start images")
     print("  end images              - Generate end images")
+    print("  animstatus              - Show scene prompt approval status")
+    print("  approve <num|all>       - Approve scene prompts")
+    print("  regen <num>             - Regenerate scene prompts")
     print("  stop / kill             - Stop running pipeline")
     print("  logs / animlogs         - Check if pipeline running")
     print("  status / check          - Check project status")

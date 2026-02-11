@@ -1,16 +1,24 @@
-"""Generate prompts and images for existing scenes."""
+"""Generate prompts and images for existing scenes.
+
+Uses the canonical /animation/ module for Airtable client and prompt generation,
+and the local clients/ module for image generation and Google Drive upload.
+"""
 
 import os
 import asyncio
 from dotenv import load_dotenv
 
-load_dotenv()
+# Add repo root to path for animation module
+REPO_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..')
+
+load_dotenv(os.path.join(REPO_ROOT, '.env'))
 
 import sys
+sys.path.insert(0, REPO_ROOT)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from animation.airtable_client import AnimationAirtableClient
-from animation.image_generator import ImagePromptGenerator
+from animation.airtable import AnimationAirtableClient
+from animation.prompt_generator import ImagePromptGenerator
 from clients.image_client import ImageClient
 from clients.google_client import GoogleClient
 
@@ -25,17 +33,18 @@ async def main():
     google_client = GoogleClient()
 
     # Get project
-    project = await airtable.get_project_by_status("Create")
-    if not project:
+    projects = airtable.get_projects_by_status("Create", limit=1)
+    if not projects:
         print("❌ No project with 'Create' status")
         return
 
+    project = projects[0]
     project_name = project.get("Project Name")
     creative_direction = project.get("Creative Direction", "")
     print(f"📁 Project: {project_name}")
 
     # Get scenes
-    scenes = await airtable.get_scenes_for_project(project_name)
+    scenes = airtable.get_scenes_for_project(project_name)
     print(f"📋 Found {len(scenes)} scenes")
 
     # Get or create folder
@@ -54,22 +63,18 @@ async def main():
         prompt = await prompt_gen.generate_image_prompt(scene, creative_direction)
 
         # Save to Airtable
-        await airtable.update_scene(
-            scene["id"],
-            {"start_image_prompt": prompt}
-        )
+        airtable.update_scene(scene["id"], {"start_image_prompt": prompt})
         scene["start_image_prompt"] = prompt
         print(f"    ✅ {len(prompt.split())} words")
 
     # Reload scenes to get updated prompts
-    scenes = await airtable.get_scenes_for_project(project_name)
+    scenes = airtable.get_scenes_for_project(project_name)
 
     # Phase 2: Generate images for scenes where "start prompt done" is checked
-    # Only generate images when user has approved the start prompt
     scenes_needing_images = [
         s for s in scenes
         if s.get("start_image_prompt")
-        and s.get("start prompt done")  # User approved the prompt
+        and s.get("start prompt done")
         and not s.get("start_image")
     ]
     print(f"\n🖼️  Scenes with approved prompts needing images: {len(scenes_needing_images)}")
@@ -102,7 +107,7 @@ async def main():
             drive_url = google_client.make_file_public(drive_file["id"])
 
             # Update Airtable
-            await airtable.update_scene(
+            airtable.update_scene(
                 scene["id"],
                 {
                     "start_image": [{"url": drive_url}],

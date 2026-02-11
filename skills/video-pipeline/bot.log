@@ -1,5 +1,0 @@
-nohup: ignoring input
-Traceback (most recent call last):
-  File "/home/clawd/projects/economy-fastforward/skills/video-pipeline/pipeline_control.py", line 17, in <module>
-    from slack_bolt.async_app import AsyncApp
-ModuleNotFoundError: No module named 'slack_bolt'

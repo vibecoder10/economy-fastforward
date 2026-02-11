@@ -174,6 +174,44 @@ class AnimationAirtableClient:
         )
         return len(records)
 
+    def create_scenes_batch(self, project_name: str, scenes: list[dict]) -> list[dict]:
+        """Create multiple scene records in batch.
+
+        Writes scenes in batches of 10 (Airtable limit) for efficiency.
+
+        Args:
+            project_name: Name of the project (links scenes to project)
+            scenes: List of scene field dicts from scene planner
+
+        Returns:
+            List of created scene records
+        """
+        created = []
+        for i in range(0, len(scenes), 10):
+            batch = scenes[i:i + 10]
+            for scene_fields in batch:
+                scene_fields["Project Name"] = project_name
+                record = self.create_scene(scene_fields)
+                created.append(record)
+            if (i + 10) < len(scenes):
+                print(f"    ... {min(i + 10, len(scenes))}/{len(scenes)} scenes created")
+        return created
+
+    def get_scene_by_id(self, record_id: str) -> Optional[dict]:
+        """Get a single scene by its Airtable record ID.
+
+        Args:
+            record_id: The Airtable record ID (e.g., recXXXXXXXXXXXXXX)
+
+        Returns:
+            Scene dict, or None if not found
+        """
+        try:
+            record = self.scenes_table.get(record_id)
+            return {"id": record["id"], **record["fields"]}
+        except Exception:
+            return None
+
     def create_scene(self, fields: dict) -> dict:
         """Create a new scene record.
 
