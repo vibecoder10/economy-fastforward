@@ -4,17 +4,16 @@ Pipeline Control Bot - Lightweight Slack bot for controlling the video pipeline.
 No AI, no Anthropic API calls. Just listens for commands and runs bash.
 
 Commands:
-  !status    - Show pipeline queue status from Airtable
-  !run       - Trigger pipeline immediately
-  !animate   - Run animation pipeline (checks animation Airtable, resumes where it left off)
-  !kill      - Kill any running pipeline process
-  !logs      - Show last 20 lines of pipeline log
-  !animlogs  - Show last 20 lines of animation log
-  !cron      - Show current cron schedule
-  !cron 10m  - Set cron to every 10 minutes
-  !cron 1h   - Set cron to every hour
-  !cron off  - Disable cron
-  !help      - Show available commands
+  !status   - Show pipeline queue status from Airtable
+  !run      - Trigger pipeline immediately
+  !kill     - Kill any running pipeline process
+  !logs     - Show last 20 lines of pipeline log
+  !cron     - Show current cron schedule
+  !cron 10m - Set cron to every 10 minutes
+  !cron 1h  - Set cron to every hour
+  !cron off - Disable cron
+  !update   - Pull latest code from GitHub
+  !help     - Show available commands
 """
 
 import os
@@ -36,9 +35,8 @@ from slack_sdk.socket_mode.response import SocketModeResponse
 BOT_TOKEN = os.environ.get("SLACK_BOT_TOKEN")
 APP_TOKEN = os.environ.get("SLACK_APP_TOKEN")
 PIPELINE_DIR = os.path.expanduser("~/projects/economy-fastforward/skills/video-pipeline")
-ANIMATION_DIR = os.path.expanduser("~/projects/economy-fastforward")
+REPO_DIR = os.path.expanduser("~/projects/economy-fastforward")
 PIPELINE_LOG = "/tmp/pipeline.log"
-ANIMATION_LOG = "/tmp/animation-pipeline.log"
 ALLOWED_CHANNEL = os.environ.get("SLACK_CHANNEL", "")  # Empty = respond anywhere
 
 # ── Logging ─────────────────────────────────────────────────────────────────
@@ -103,48 +101,26 @@ def _get_status_fallback():
     """Fallback status check - look for running processes and log tail."""
     lines = []
 
-    # Check for running main pipeline processes
+    # Check for running pipeline processes
     ps_result = subprocess.run(
-        ["pgrep", "-af", "pipeline.py --run-queue"],
+        ["pgrep", "-af", "pipeline.py"],
         capture_output=True, text=True,
     )
     if ps_result.stdout.strip():
-        lines.append("🔄 MAIN PIPELINE RUNNING:")
+        lines.append("🔄 RUNNING:")
         for proc in ps_result.stdout.strip().split("\n"):
             lines.append(f"  {proc}")
     else:
-        lines.append("💤 Main pipeline: not running")
+        lines.append("💤 No pipeline process running")
 
-    # Check for running animation pipeline
-    anim_result = subprocess.run(
-        ["pgrep", "-af", "animation.pipeline"],
-        capture_output=True, text=True,
-    )
-    if anim_result.stdout.strip():
-        lines.append("🎬 ANIMATION PIPELINE RUNNING:")
-        for proc in anim_result.stdout.strip().split("\n"):
-            lines.append(f"  {proc}")
-    else:
-        lines.append("💤 Animation pipeline: not running")
-
-    # Show last few main pipeline log lines
+    # Show last few log lines
     if os.path.exists(PIPELINE_LOG):
         tail = subprocess.run(
             ["tail", "-5", PIPELINE_LOG],
             capture_output=True, text=True,
         )
         if tail.stdout.strip():
-            lines.append("\n📋 Last main pipeline log entries:")
-            lines.append(tail.stdout.strip())
-
-    # Show last few animation log lines
-    if os.path.exists(ANIMATION_LOG):
-        tail = subprocess.run(
-            ["tail", "-5", ANIMATION_LOG],
-            capture_output=True, text=True,
-        )
-        if tail.stdout.strip():
-            lines.append("\n🎬 Last animation log entries:")
+            lines.append("\n📋 Last log entries:")
             lines.append(tail.stdout.strip())
 
     # Show cron status
@@ -186,69 +162,16 @@ def cmd_run(channel: str):
         send_message(channel, f"❌ Failed to start pipeline: {e}")
 
 
-def cmd_animate(channel: str):
-    """Trigger the animation pipeline — checks the animation Airtable and resumes where it left off."""
-    # Check if already running
-    ps_result = subprocess.run(
-        ["pgrep", "-f", "animation.pipeline"],
-        capture_output=True, text=True,
-    )
-    if ps_result.stdout.strip():
-        send_message(channel, "⚠️ Animation pipeline is already running. Use `kill` first if you want to restart.")
-        return
-
-    send_message(channel, "🎬 Starting animation pipeline...")
-    try:
-        # Run in background — uses python -m to run the animation module
-        subprocess.Popen(
-            ["python3", "-m", "animation.pipeline"],
-            cwd=ANIMATION_DIR,
-            stdout=open(ANIMATION_LOG, "a"),
-            stderr=subprocess.STDOUT,
-        )
-        send_message(channel, "✅ Animation pipeline started. Use `animlogs` to monitor.")
-    except Exception as e:
-        send_message(channel, f"❌ Failed to start animation pipeline: {e}")
-
-
-def cmd_animlogs(channel: str, num_lines: int = 20):
-    """Show recent animation pipeline logs."""
-    if not os.path.exists(ANIMATION_LOG):
-        send_message(channel, "📋 No animation log file found yet. Animation pipeline hasn't run.")
-        return
-
-    result = subprocess.run(
-        ["tail", f"-{num_lines}", ANIMATION_LOG],
-        capture_output=True, text=True,
-    )
-    output = result.stdout.strip() or "Log file is empty"
-    send_message(channel, f"🎬 *Last {num_lines} animation log lines:*\n```\n{output[:2900]}\n```")
-
-
 def cmd_kill(channel: str):
-    """Kill any running pipeline process (main pipeline and animation)."""
-    killed = []
-
-    # Kill main pipeline
+    """Kill any running pipeline process."""
     result = subprocess.run(
-        ["pkill", "-f", "pipeline.py --run-queue"],
+        ["pkill", "-f", "pipeline.py"],
         capture_output=True, text=True,
     )
     if result.returncode == 0:
-        killed.append("main pipeline")
-
-    # Kill animation pipeline
-    result = subprocess.run(
-        ["pkill", "-f", "animation.pipeline"],
-        capture_output=True, text=True,
-    )
-    if result.returncode == 0:
-        killed.append("animation pipeline")
-
-    if killed:
-        send_message(channel, f"🛑 Killed: {', '.join(killed)}")
+        send_message(channel, "🛑 Pipeline process killed.")
     else:
-        send_message(channel, "💤 No pipeline processes were running.")
+        send_message(channel, "💤 No pipeline process was running.")
 
 
 def cmd_logs(channel: str, num_lines: int = 20):
@@ -263,6 +186,50 @@ def cmd_logs(channel: str, num_lines: int = 20):
     )
     output = result.stdout.strip() or "Log file is empty"
     send_message(channel, f"📋 *Last {num_lines} log lines:*\n```\n{output[:2900]}\n```")
+
+
+def cmd_update(channel: str):
+    """Pull latest code from GitHub."""
+    send_message(channel, "🔄 Pulling latest code from GitHub...")
+    try:
+        result = subprocess.run(
+            ["git", "pull", "origin", "main", "--ff-only"],
+            cwd=REPO_DIR,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        output = result.stdout.strip()
+        stderr = result.stderr.strip()
+
+        if result.returncode == 0:
+            if "Already up to date" in output:
+                send_message(channel, "✅ Already up to date. No new changes.")
+            else:
+                # Show what changed
+                log_result = subprocess.run(
+                    ["git", "log", "--oneline", "-5"],
+                    cwd=REPO_DIR,
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
+                recent = log_result.stdout.strip()
+                send_message(
+                    channel,
+                    f"✅ *Code updated successfully!*\n```\n{output[:1500]}\n```\n"
+                    f"📋 *Recent commits:*\n```\n{recent[:1000]}\n```",
+                )
+        else:
+            # ff-only failed — likely merge conflict or diverged history
+            send_message(
+                channel,
+                f"⚠️ *Update failed* (fast-forward only). May need manual merge.\n```\n{stderr[:2000]}\n```",
+            )
+    except subprocess.TimeoutExpired:
+        send_message(channel, "⏱️ Git pull timed out (60s). Check network connectivity.")
+    except Exception as e:
+        send_message(channel, f"❌ Update error: {e}")
 
 
 def cmd_cron(channel: str, schedule: str = None):
@@ -306,8 +273,16 @@ def cmd_cron(channel: str, schedule: str = None):
 
 
 def _update_cron(cron_expr: str = None):
-    """Update crontab with new pipeline schedule."""
-    pipeline_cmd = f"cd {PIPELINE_DIR} && python3 pipeline.py --run-queue >> {PIPELINE_LOG} 2>&1"
+    """Update crontab with new pipeline schedule.
+
+    The cron command always pulls the latest code from GitHub before running
+    the pipeline, so changes made via Claude Code (phone) take effect immediately.
+    Uses --ff-only to avoid merge conflicts blocking the pipeline.
+    """
+    pipeline_cmd = (
+        f"cd {REPO_DIR} && git pull origin main --ff-only >> {PIPELINE_LOG} 2>&1; "
+        f"cd {PIPELINE_DIR} && python3 pipeline.py --run-queue >> {PIPELINE_LOG} 2>&1"
+    )
 
     # Get existing crontab (minus our pipeline line)
     result = subprocess.run(["crontab", "-l"], capture_output=True, text=True)
@@ -332,35 +307,30 @@ def cmd_help(channel: str):
 
 *Commands:*
 • `status` — Pipeline queue status & running processes
-• `run` — Trigger main video pipeline immediately
-• `animation` — Run animation pipeline (checks animation Airtable, resumes where left off)
-• `kill` — Kill all running pipeline processes
-• `logs` — Last 20 main pipeline log lines (`logs 50` for more)
-• `animlogs` — Last 20 animation log lines (`animlogs 50` for more)
+• `run` — Trigger pipeline immediately
+• `kill` — Kill running pipeline process
+• `logs` — Last 20 log lines (`logs 50` for more)
 • `cron` — Show current schedule
 • `cron 10m` — Set to every 10 min
 • `cron 1h` — Set to every hour
 • `cron off` — Disable auto-run
+• `update` — Pull latest code from GitHub
 • `help` — This message"""
     send_message(channel, help_text)
 
 
 # ── Command Router ─────────────────────────────────────────────────────────
 
-# Commands sorted longest-first so "run animation" matches before "run"
-COMMANDS = [
-    ("run animation", lambda ch, _: cmd_animate(ch)),
-    ("animate", lambda ch, _: cmd_animate(ch)),
-    ("animation", lambda ch, _: cmd_animate(ch)),
-    ("animlogs", lambda ch, args: cmd_animlogs(ch, int(args[0]) if args else 20)),
-    ("status", lambda ch, _: cmd_status(ch)),
-    ("run", lambda ch, _: cmd_run(ch)),
-    ("kill", lambda ch, _: cmd_kill(ch)),
-    ("stop", lambda ch, _: cmd_kill(ch)),
-    ("logs", lambda ch, args: cmd_logs(ch, int(args[0]) if args else 20)),
-    ("cron", lambda ch, args: cmd_cron(ch, args[0] if args else None)),
-    ("help", lambda ch, _: cmd_help(ch)),
-]
+COMMANDS = {
+    "status": lambda ch, _: cmd_status(ch),
+    "run": lambda ch, _: cmd_run(ch),
+    "kill": lambda ch, _: cmd_kill(ch),
+    "stop": lambda ch, _: cmd_kill(ch),
+    "logs": lambda ch, args: cmd_logs(ch, int(args[0]) if args else 20),
+    "cron": lambda ch, args: cmd_cron(ch, args[0] if args else None),
+    "update": lambda ch, _: cmd_update(ch),
+    "help": lambda ch, _: cmd_help(ch),
+}
 
 
 def handle_message(text: str, channel: str, user: str):
@@ -371,8 +341,8 @@ def handle_message(text: str, channel: str, user: str):
 
     text = text.strip().lower()
 
-    # Check if it's a command (longest prefix match first)
-    for cmd, handler in COMMANDS:
+    # Check if it's a command
+    for cmd, handler in COMMANDS.items():
         if text.startswith(cmd):
             args = text[len(cmd):].strip().split() if len(text) > len(cmd) else []
             log.info(f"Command: {cmd} from user {user} in {channel}")
@@ -387,31 +357,27 @@ def handle_message(text: str, channel: str, user: str):
 # ── Cron Failure Monitor ───────────────────────────────────────────────────
 
 class LogMonitor:
-    """Watch pipeline logs for errors and notify Slack."""
+    """Watch pipeline log for errors and notify Slack."""
 
     def __init__(self, notify_channel: str):
         self.notify_channel = notify_channel
-        self.last_sizes = {PIPELINE_LOG: 0, ANIMATION_LOG: 0}
+        self.last_size = 0
+        self.last_check = 0
 
     def check(self):
-        """Check for new errors in all log files."""
-        self._check_log(PIPELINE_LOG, "Pipeline")
-        self._check_log(ANIMATION_LOG, "Animation Pipeline")
-
-    def _check_log(self, log_path: str, label: str):
-        """Check a single log file for new errors."""
-        if not os.path.exists(log_path):
+        """Check for new errors in the log file."""
+        if not os.path.exists(PIPELINE_LOG):
             return
 
-        current_size = os.path.getsize(log_path)
-        if current_size <= self.last_sizes.get(log_path, 0):
+        current_size = os.path.getsize(PIPELINE_LOG)
+        if current_size <= self.last_size:
             return
 
         try:
-            with open(log_path, "r") as f:
-                f.seek(self.last_sizes.get(log_path, 0))
+            with open(PIPELINE_LOG, "r") as f:
+                f.seek(self.last_size)
                 new_content = f.read()
-            self.last_sizes[log_path] = current_size
+            self.last_size = current_size
 
             # Check for errors
             error_patterns = ["Traceback", "Error:", "FAILED", "Exception"]
@@ -423,11 +389,11 @@ class LogMonitor:
                     context = "\n".join(lines[max(0, error_idx - 2):error_idx + 5])
                     send_message(
                         self.notify_channel,
-                        f"🚨 *{label} Error Detected*\n```\n{context[:2900]}\n```",
+                        f"🚨 *Pipeline Error Detected*\n```\n{context[:2900]}\n```",
                     )
                     break  # Only notify once per check
         except Exception as e:
-            log.error(f"Log monitor error ({label}): {e}")
+            log.error(f"Log monitor error: {e}")
 
 
 # ── Socket Mode Handler ───────────────────────────────────────────────────
