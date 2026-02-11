@@ -253,10 +253,11 @@ Current Scene Goal: "{scene_beat}\""""
             for a in scene_assignments
         ])
 
-        system_prompt = f"""You are a visual director creating 3D editorial clay render image prompts for AI animation.
+        system_prompt = f"""You are a visual director creating 3D editorial mannequin render image prompts for AI animation.
 
 === STYLE: 3D EDITORIAL CONCEPTUAL RENDER ===
-Monochromatic matte clay mannequin figures (faceless) in photorealistic material environments.
+Monochromatic smooth matte gray mannequin figures (faceless) in photorealistic material environments.
+Smooth continuous surfaces like a department store display mannequin. NOT clay, NOT stone, NOT action figures.
 Think The Economist meets Pixar meets industrial design.
 
 === 5-LAYER PROMPT ARCHITECTURE ({PROMPT_MIN_WORDS}-{PROMPT_MAX_WORDS} words) ===
@@ -315,7 +316,7 @@ OUTPUT FORMAT (JSON only, no markdown):
   "prompts": ["prompt 1...", "prompt 2...", ...]
 }}"""
 
-        prompt = f"""Create 6 image prompts for this scene using 3D editorial clay render style:
+        prompt = f"""Create 6 image prompts for this scene using 3D editorial mannequin render style:
 
 Video Title: {video_title}
 Scene Number: {scene_number}
@@ -441,10 +442,11 @@ CRITICAL TASK: You must generate exactly 3 DISTINCT video concepts. Return them 
         )
         shot_prefix = SCENE_TYPE_CONFIG[scene_type]["shot_prefix"]
 
-        system_prompt = f"""You are a visual director creating 3D editorial clay render image prompts.
+        system_prompt = f"""You are a visual director creating 3D editorial mannequin render image prompts.
 
 === STYLE: 3D EDITORIAL CONCEPTUAL RENDER ===
-Monochromatic matte clay mannequin figures (faceless) in photorealistic material environments.
+Monochromatic smooth matte gray mannequin figures (faceless) in photorealistic material environments.
+Smooth continuous surfaces like a department store display mannequin. NOT clay, NOT stone, NOT action figures.
 
 === 5-LAYER ARCHITECTURE ({PROMPT_MIN_WORDS}-{PROMPT_MAX_WORDS} words) ===
 CRITICAL: Style engine prefix goes FIRST.
@@ -452,7 +454,7 @@ CRITICAL: Style engine prefix goes FIRST.
 1. STYLE_ENGINE_PREFIX (always first): "{STYLE_ENGINE_PREFIX}"
 2. SHOT TYPE: "{shot_prefix}..." (Camera role: {camera_role.value})
 3. SCENE COMPOSITION: Physical environment with MATERIALS (concrete, chrome, glass, steel)
-4. FOCAL SUBJECT: Matte gray mannequin with BODY LANGUAGE (no face expressions)
+4. FOCAL SUBJECT: Smooth matte gray mannequin with BODY LANGUAGE (no face expressions, smooth surfaces)
 5. ENVIRONMENTAL STORYTELLING: Symbolic objects in appropriate materials
 6. STYLE_ENGINE_SUFFIX + LIGHTING: "{STYLE_ENGINE_SUFFIX}, [warm vs cool contrast]"
 7. TEXT RULE: "{TEXT_RULE_NO_TEXT}" (or specify max 3 elements with surfaces)
@@ -470,7 +472,7 @@ OUTPUT: Return ONLY the prompt string, no JSON, no explanation."""
         if previous_prompt:
             continuity_note = f"\n\nPREVIOUS IMAGE (maintain continuity):\n{previous_prompt[:150]}..."
 
-        prompt = f"""Create ONE image prompt for this sentence using 3D clay render style:
+        prompt = f"""Create ONE image prompt for this sentence using 3D mannequin render style:
 
 SHOT TYPE: {shot_prefix}...
 CAMERA ROLE: {camera_role.value}
@@ -702,10 +704,11 @@ Return JSON with segments array. Each segment groups sentences by visual concept
         )
         shot_prefix = SCENE_TYPE_CONFIG[scene_type]["shot_prefix"]
 
-        system_prompt = f"""You are a visual director creating 3D editorial clay render image prompts.
+        system_prompt = f"""You are a visual director creating 3D editorial mannequin render image prompts.
 
 === STYLE: 3D EDITORIAL CONCEPTUAL RENDER ===
-Monochromatic matte clay mannequin figures (faceless) in photorealistic material environments.
+Monochromatic smooth matte gray mannequin figures (faceless) in photorealistic material environments.
+Smooth continuous surfaces like a department store display mannequin. NOT clay, NOT stone, NOT action figures.
 
 === 5-LAYER ARCHITECTURE ({PROMPT_MIN_WORDS}-{PROMPT_MAX_WORDS} words) ===
 CRITICAL: Style engine prefix goes FIRST.
@@ -734,7 +737,7 @@ OUTPUT: Return ONLY the prompt string (no JSON, no explanation)."""
         if previous_prompt:
             continuity_note = f"\n\nPREVIOUS IMAGE (maintain visual continuity):\n{previous_prompt[:150]}..."
 
-        prompt = f"""Create ONE image prompt for this segment using 3D clay render style:
+        prompt = f"""Create ONE image prompt for this segment using 3D mannequin render style:
 
 SHOT TYPE: {shot_prefix}...
 CAMERA ROLE: {camera_role.value}
@@ -874,12 +877,13 @@ Start with style engine prefix, end with style engine suffix + lighting + text r
             for a in scene_type_assignments
         ])
 
-        system_prompt = f"""You are a visual director creating 3D editorial clay render image prompts for AI animation.
+        system_prompt = f"""You are a visual director creating 3D editorial mannequin render image prompts for AI animation.
 
 YOUR TASK: Divide this scene into {target_count} visual segments ({min_count}-{max_count} range) and create image prompts.
 
 === STYLE: 3D EDITORIAL CONCEPTUAL RENDER ===
-Monochromatic matte clay mannequin figures (faceless) in photorealistic material environments.
+Monochromatic smooth matte gray mannequin figures (faceless) in photorealistic material environments.
+Smooth continuous surfaces like a department store display mannequin. NOT clay, NOT stone, NOT action figures.
 Think The Economist meets Pixar meets industrial design.
 
 === CRITICAL DURATION RULE ===
@@ -963,7 +967,7 @@ Example 2 (MEDIUM HUMAN STORY):
 - overhead_map (top-down view)
 - journey_shot (movement through space)"""
 
-        prompt = f"""Segment this scene narration into {target_count} visual concepts using 3D clay render style:
+        prompt = f"""Segment this scene narration into {target_count} visual concepts using 3D mannequin render style:
 
 SCENE TEXT:
 {scene_text}
@@ -1059,7 +1063,7 @@ CRITICAL RULES:
 2. You ONLY describe what MOVES and HOW it moves.
 3. Use this exact structure: [Camera movement] + [Primary subject motion] + [Ambient motion]
 4. Maximum {word_limit} words for this {duration_note}.
-5. The art style is 3D editorial clay render with mannequin figures. Motion should feel subtle and mechanical:
+5. The art style is 3D editorial mannequin render with mannequin figures. Motion should feel subtle and mechanical:
    - Mannequins shifting weight, tilting heads, lifting arms
    - Gears turning, gauges moving, materials reflecting
    - Dust particles, light shifts, chrome reflections

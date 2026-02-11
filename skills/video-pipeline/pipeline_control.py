@@ -52,6 +52,7 @@ async def handle_help(message, say):
 - `prompts` / `run prompts` - Generate start image prompts and images
 - `end images` / `run end images` - Generate end image prompts and images
 - `status` / `check` - Check current project status
+- `update` - Pull latest code from GitHub
 - `help` - Show this message
 """
     await say(help_text)
@@ -166,6 +167,34 @@ async def handle_status(message, say):
         await say(f":x: Error: {e}")
 
 
+@app.message("update")
+async def handle_update(message, say):
+    """Pull latest code from GitHub and restart."""
+    await say(":arrows_counterclockwise: Pulling latest code from GitHub...")
+
+    try:
+        # Run git pull
+        result = subprocess.run(
+            ["git", "pull", "origin", "main"],
+            cwd=BASE_DIR,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+
+        if result.returncode == 0:
+            output = result.stdout.strip() or "Already up to date."
+            await say(f":white_check_mark: Update complete!\n```{output}```")
+            await say(":warning: Bot will continue running with old code. Restart the service to apply changes:\n`systemctl --user restart pipeline-bot`")
+        else:
+            await say(f":x: Git pull failed:\n```{result.stderr}```")
+
+    except subprocess.TimeoutExpired:
+        await say(":warning: Git pull timed out after 60 seconds")
+    except Exception as e:
+        await say(f":x: Error: {e}")
+
+
 async def main():
     """Start the Slack bot."""
     print("=" * 60)
@@ -177,6 +206,7 @@ async def main():
     print("  prompts / run prompts   - Generate prompts and start images")
     print("  end images              - Generate end images")
     print("  status / check          - Check project status")
+    print("  update                  - Pull latest code from GitHub")
     print("  help                    - Show help")
     print("\nListening for Slack messages...")
 

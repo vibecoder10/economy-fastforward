@@ -1,6 +1,6 @@
 """Image Prompt Generator for Animation Pipeline.
 
-Generates detailed image prompts using the 3D clay render style
+Generates detailed image prompts using the 3D mannequin render style
 with protagonist glow tracking.
 """
 
@@ -12,10 +12,17 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# 3D Clay Render Style Constants (from AGENTS.md)
+# 3D Mannequin Render Style Constants (v3 - smooth mannequin, NOT clay)
 STYLE_ENGINE_PREFIX = (
-    "3D editorial conceptual render, monochromatic matte clay figures with no facial "
-    "features, photorealistic materials and studio lighting."
+    "3D editorial conceptual render, monochromatic smooth matte gray mannequin figures "
+    "with no facial features, smooth continuous surfaces like a department store display mannequin, "
+    "photorealistic materials and studio lighting."
+)
+
+# Negative prompt additions for image generation
+NEGATIVE_PROMPT_ADDITIONS = (
+    "clay texture, rough surface, stone, concrete, action figure, ball joints, "
+    "mechanical joints, panel lines, robot, matte clay, rough matte, porous surface"
 )
 
 STYLE_ENGINE_SUFFIX = (
@@ -39,14 +46,16 @@ CHROME_ENTITY = (
     "fluid mechanical joints, cold blue-white reflections"
 )
 
-IMAGE_PROMPT_SYSTEM = """You are a visual director creating 3D editorial clay render image prompts.
+IMAGE_PROMPT_SYSTEM = """You are a visual director creating 3D editorial mannequin render image prompts.
 
 === STYLE: 3D EDITORIAL CONCEPTUAL RENDER ===
-Monochromatic matte clay mannequin figures (faceless) in photorealistic material environments.
+Monochromatic smooth matte gray mannequin figures (faceless) in photorealistic material environments.
 CRITICAL: The style engine prefix MUST go at the BEGINNING of every prompt.
 
 === PROTAGONIST ===
-A matte gray clay mannequin figure with no facial features.
+A smooth matte gray mannequin figure with no facial features.
+Smooth continuous surfaces like a department store display mannequin.
+NOT clay, NOT stone, NOT an action figure, NOT a robot.
 UNIQUE TRAIT: Has an inner glow (described separately per scene).
 This glow is their sense of purpose/meaning - it changes across the narrative.
 
@@ -207,53 +216,56 @@ End with: "{STYLE_ENGINE_SUFFIX}, {lighting_desc}, no text, no words, no labels\
 
         system = """You are creating an END FRAME for an 8-second animation.
 
-=== THE 8-SECOND RULE ===
-START and END frames must show TWO DIFFERENT MOMENTS IN TIME.
+=== THE 8-SECOND RULE (CRITICAL - ENFORCED) ===
+START AND END FRAMES MUST SHOW TWO DIFFERENT MOMENTS IN TIME.
 
 Think of it like this: if you paused a movie at second 0 and second 8,
 you would see two DIFFERENT still photographs. Not the same photo from
-a different angle. Not the same photo zoomed in. TWO DIFFERENT MOMENTS
-WHERE THE WORLD HAS CHANGED.
+a different angle. Not the same photo zoomed in. Two different moments
+where the WORLD HAS CHANGED.
 
-First, describe what physically HAPPENS in ONE SENTENCE using an ACTION VERB.
-That action is what separates start from end.
+Before writing prompts, describe what physically happens in the scene
+in ONE SENTENCE using an ACTION VERB. That action is what separates
+the start frame from the end frame.
+
+=== PROTAGONIST STYLE (MANDATORY) ===
+Smooth matte gray mannequin figure — like a high-end department store display mannequin.
+Featureless face with only subtle indentations. Smooth continuous body surfaces.
+NOT clay, NOT stone, NOT an action figure, NOT a robot.
+Golden amber glow emanates from cracked chest.
 
 === GOOD FRAME SEPARATION EXAMPLES ===
-- "Chrome entity WALKS through door"
-  Start: Empty doorway, white light
-  End: Chrome entity standing IN the room, white light behind it
+- Start: Protagonist standing at workstation, hands assembling components, glow steady at 70%
+  End: Protagonist has stopped working, hands frozen mid-motion, head turned toward a white light flooding in from the right, glow flickering to 40%
+  What happened: "The protagonist notices something and stops working"
 
-- "Protagonist's glow DIMS as they watch"
-  Start: Bright amber chest glow, warm light on floor
-  End: Glow barely visible, floor dark, posture slumped
+- Start: Wide shot of factory floor, protagonist at center workstation, other mannequins at distant stations
+  End: Same factory floor but the distant workstations are empty, protagonist is the only one left, glow brightened to 90%
+  What happened: "The other workers disappeared, leaving the protagonist alone"
 
-- "Three droids DISSOLVE at stations"
-  Start: Three gray droids working
-  End: Three EMPTY stations, particles floating upward
+- Start: Chrome entity at doorway, silhouetted by white light
+  End: Chrome entity now standing IN the room, protagonist's glow dimmer, floor reflecting chrome
+  What happened: "The chrome entity entered the room"
 
-- "Protagonist SEES reflection in chrome"
-  Start: Facing forward at workstation
-  End: Turned sideways, STARING at warped reflection
+- Start: Protagonist hunched, glow nearly extinguished, dark frame
+  End: Protagonist standing tall, BLINDING amber light filling entire frame, arms raised
+  What happened: "The protagonist's glow surges with refusal to dissolve"
 
-- "Amber light ERUPTS from protagonist's chest"
-  Start: Hunched, glow almost gone
-  End: Standing tall, BLINDING amber light filling frame
+=== BAD FRAME SEPARATION (produces dead animation - NEVER DO THESE) ===
+- Same scene from different angle (this is a camera move, not story)
+- Same scene zoomed in/out (REWRITE - nothing happened)
+- Same characters with "different lighting" (REWRITE - too subtle)
+- Same composition with "subtle changes" (REWRITE - Veo won't animate this)
+- Start and End are nearly identical (CRITICAL FAILURE - zero animation)
 
-=== BAD FRAME SEPARATION (produces dead animation) ===
-NEVER DO THESE:
-- Same scene from different angle
-- Same scene zoomed in/out
-- Same characters with "different lighting"
-- Same composition with "subtle changes"
+=== VALIDATION TEST ===
+After generating both prompts, answer: "What HAPPENED in these 8 seconds?"
+If the answer is just a camera movement, REWRITE.
+Something in the SCENE must physically change.
 
-=== THE TEST ===
-Cover the prompts. Look at just the two images.
-Can you tell what HAPPENED between them in one sentence?
-If NO → rewrite until the answer is obvious.
-
-=== YOUR OUTPUT ===
+=== YOUR OUTPUT FORMAT ===
 1. First line: "ACTION: [verb phrase describing what happens]"
-2. Then: The complete end frame prompt in same style as start prompt
+2. Then: The complete end frame prompt in same smooth mannequin style
 
 The end frame must be a DIFFERENT PHOTOGRAPH showing the RESULT of the action."""
 
@@ -279,7 +291,7 @@ Step 2: Write the END frame prompt showing the RESULT of that action.
 === OUTPUT FORMAT ===
 ACTION: [your one-sentence action description]
 
-[Complete end frame prompt in same 3D clay render style]"""
+[Complete end frame prompt in same 3D smooth mannequin render style]"""
 
         response = self.client.messages.create(
             model="claude-sonnet-4-5-20250929",
@@ -358,7 +370,7 @@ async def main():
         "key_visual_elements": ["glow explosion", "amber light surge", "protagonist stepping forward"],
     }
 
-    creative_direction = """A gold-glowing clay render protagonist walks into a factory where gray droids work identical stations. A sleek chrome entity arrives and begins silently replacing workers one by one. The droids dissolve into particles as they're displaced — no violence, just quiet erasure. Our protagonist watches, glow dimming as the wave approaches, until the moment of their own replacement arrives. Instead of dissolving, their glow surges — a refusal to disappear."""
+    creative_direction = """A gold-glowing smooth gray mannequin protagonist walks into a factory where gray droids work identical stations. A sleek chrome entity arrives and begins silently replacing workers one by one. The droids dissolve into particles as they're displaced — no violence, just quiet erasure. Our protagonist watches, glow dimming as the wave approaches, until the moment of their own replacement arrives. Instead of dissolving, their glow surges — a refusal to disappear."""
 
     print("🎨 Generating test prompt...")
     prompt = await generator.generate_image_prompt(test_scene, creative_direction)
