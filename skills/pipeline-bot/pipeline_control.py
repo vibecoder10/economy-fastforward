@@ -12,6 +12,7 @@ Commands:
   !cron 10m - Set cron to every 10 minutes
   !cron 1h  - Set cron to every hour
   !cron off - Disable cron
+  !update   - Pull latest code from GitHub
   !help     - Show available commands
 """
 
@@ -34,6 +35,7 @@ from slack_sdk.socket_mode.response import SocketModeResponse
 BOT_TOKEN = os.environ.get("SLACK_BOT_TOKEN")
 APP_TOKEN = os.environ.get("SLACK_APP_TOKEN")
 PIPELINE_DIR = os.path.expanduser("~/projects/economy-fastforward/skills/video-pipeline")
+REPO_DIR = os.path.expanduser("~/projects/economy-fastforward")
 PIPELINE_LOG = "/tmp/pipeline.log"
 ALLOWED_CHANNEL = os.environ.get("SLACK_CHANNEL", "")  # Empty = respond anywhere
 
@@ -186,6 +188,50 @@ def cmd_logs(channel: str, num_lines: int = 20):
     send_message(channel, f"📋 *Last {num_lines} log lines:*\n```\n{output[:2900]}\n```")
 
 
+def cmd_update(channel: str):
+    """Pull latest code from GitHub."""
+    send_message(channel, "🔄 Pulling latest code from GitHub...")
+    try:
+        result = subprocess.run(
+            ["git", "pull", "origin", "main", "--ff-only"],
+            cwd=REPO_DIR,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        output = result.stdout.strip()
+        stderr = result.stderr.strip()
+
+        if result.returncode == 0:
+            if "Already up to date" in output:
+                send_message(channel, "✅ Already up to date. No new changes.")
+            else:
+                # Show what changed
+                log_result = subprocess.run(
+                    ["git", "log", "--oneline", "-5"],
+                    cwd=REPO_DIR,
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
+                recent = log_result.stdout.strip()
+                send_message(
+                    channel,
+                    f"✅ *Code updated successfully!*\n```\n{output[:1500]}\n```\n"
+                    f"📋 *Recent commits:*\n```\n{recent[:1000]}\n```",
+                )
+        else:
+            # ff-only failed — likely merge conflict or diverged history
+            send_message(
+                channel,
+                f"⚠️ *Update failed* (fast-forward only). May need manual merge.\n```\n{stderr[:2000]}\n```",
+            )
+    except subprocess.TimeoutExpired:
+        send_message(channel, "⏱️ Git pull timed out (60s). Check network connectivity.")
+    except Exception as e:
+        send_message(channel, f"❌ Update error: {e}")
+
+
 def cmd_cron(channel: str, schedule: str = None):
     """View or change cron schedule."""
     if schedule is None:
@@ -227,8 +273,16 @@ def cmd_cron(channel: str, schedule: str = None):
 
 
 def _update_cron(cron_expr: str = None):
-    """Update crontab with new pipeline schedule."""
-    pipeline_cmd = f"cd {PIPELINE_DIR} && python3 pipeline.py --run-queue >> {PIPELINE_LOG} 2>&1"
+    """Update crontab with new pipeline schedule.
+
+    The cron command always pulls the latest code from GitHub before running
+    the pipeline, so changes made via Claude Code (phone) take effect immediately.
+    Uses --ff-only to avoid merge conflicts blocking the pipeline.
+    """
+    pipeline_cmd = (
+        f"cd {REPO_DIR} && git pull origin main --ff-only >> {PIPELINE_LOG} 2>&1; "
+        f"cd {PIPELINE_DIR} && python3 pipeline.py --run-queue >> {PIPELINE_LOG} 2>&1"
+    )
 
     # Get existing crontab (minus our pipeline line)
     result = subprocess.run(["crontab", "-l"], capture_output=True, text=True)
@@ -260,6 +314,7 @@ def cmd_help(channel: str):
 • `cron 10m` — Set to every 10 min
 • `cron 1h` — Set to every hour
 • `cron off` — Disable auto-run
+• `update` — Pull latest code from GitHub
 • `help` — This message"""
     send_message(channel, help_text)
 
@@ -273,6 +328,7 @@ COMMANDS = {
     "stop": lambda ch, _: cmd_kill(ch),
     "logs": lambda ch, args: cmd_logs(ch, int(args[0]) if args else 20),
     "cron": lambda ch, args: cmd_cron(ch, args[0] if args else None),
+    "update": lambda ch, _: cmd_update(ch),
     "help": lambda ch, _: cmd_help(ch),
 }
 
