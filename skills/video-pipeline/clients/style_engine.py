@@ -11,14 +11,32 @@ from typing import List, Tuple
 
 
 # =============================================================================
-# STYLE ENGINE CONSTANTS - 3D Editorial Clay Render Style (v2)
+# STYLE ENGINE CONSTANTS - 3D Editorial Mannequin Render Style (v3)
 # =============================================================================
 # CRITICAL: Style engine goes at BEGINNING of prompt, not end.
 # Models weight early tokens more heavily.
+#
+# CHARACTER STYLE: Smooth matte gray mannequin (NOT clay, NOT action figure)
+# Think department store display mannequin with smooth continuous surfaces.
 
 STYLE_ENGINE_PREFIX = (
-    "3D editorial conceptual render, monochromatic matte clay figures with no facial "
-    "features, photorealistic materials and studio lighting."
+    "3D editorial conceptual render, monochromatic smooth matte gray mannequin figures "
+    "with no facial features, smooth continuous surfaces like a department store display mannequin, "
+    "photorealistic materials and studio lighting."
+)
+
+# Protagonist style description (for reference in prompts)
+PROTAGONIST_STYLE = (
+    "smooth matte gray mannequin figure — like a high-end department store display mannequin. "
+    "Featureless face with only subtle indentations. Smooth continuous body surfaces. "
+    "NOT clay, NOT stone, NOT an action figure, NOT a robot. "
+    "Golden amber glow emanates from cracked chest."
+)
+
+# Negative prompt additions for image generation (to avoid clay/rough textures)
+NEGATIVE_PROMPT_ADDITIONS = (
+    "clay texture, rough surface, stone, concrete, action figure, ball joints, "
+    "mechanical joints, panel lines, robot, matte clay, rough matte, porous surface"
 )
 
 STYLE_ENGINE_SUFFIX = (
@@ -30,7 +48,7 @@ STYLE_ENGINE_SUFFIX = (
 STYLE_ENGINE = f"{STYLE_ENGINE_PREFIX} {STYLE_ENGINE_SUFFIX}"
 
 # =============================================================================
-# MATERIAL VOCABULARY - For 3D clay render style
+# MATERIAL VOCABULARY - For 3D mannequin render style
 # =============================================================================
 MATERIAL_VOCABULARY = {
     "premium": [
@@ -261,7 +279,7 @@ SHOT_TYPE_CAMERA_MOVEMENTS_HERO = {
     "journey_shot": "Slow tracking along the path with gradual depth reveal",
 }
 
-# Motion vocabulary for 3D clay render style (NEVER use fast/sudden/dramatic)
+# Motion vocabulary for 3D mannequin render style (NEVER use fast/sudden/dramatic)
 MOTION_VOCABULARY = {
     "figures": [
         "mannequin subtly shifts weight",
@@ -476,7 +494,7 @@ CRITICAL: Style engine prefix goes FIRST - models weight early tokens more heavi
 Layer Definitions:
 
 1. STYLE_ENGINE_PREFIX (locked, ~18 words) — ALWAYS FIRST:
-   "3D editorial conceptual render, monochromatic matte clay figures with no facial features, photorealistic materials and studio lighting."
+   "3D editorial conceptual render, monochromatic smooth matte gray mannequin figures with no facial features, photorealistic materials and studio lighting."
 
 2. SHOT TYPE (1 phrase, ~6 words) — Camera framing:
    - Isometric overhead view of...
@@ -520,7 +538,7 @@ Layer Definitions:
 EXAMPLE_PROMPTS = [
     # Image 1 — WIDE ESTABLISHING (Isometric Diorama)
     (
-        "3D editorial conceptual render, monochromatic matte clay figures with no facial "
+        "3D editorial conceptual render, monochromatic smooth matte gray mannequin figures with no facial "
         "features, photorealistic materials and studio lighting. Isometric overhead view "
         "of a miniature America as a brushed steel diorama, glowing amber clusters marking "
         "tech hubs, dim concrete zones elsewhere, small matte gray mannequin figures "
@@ -532,7 +550,7 @@ EXAMPLE_PROMPTS = [
     ),
     # Image 2 — MEDIUM HUMAN STORY
     (
-        "3D editorial conceptual render, monochromatic matte clay figures with no facial "
+        "3D editorial conceptual render, monochromatic smooth matte gray mannequin figures with no facial "
         "features, photorealistic materials and studio lighting. Medium shot of one matte "
         "gray mannequin in a wrinkled suit sitting at a brushed steel desk, shoulders "
         "slumped head bowed, laptop screen glowing with job listings, beside it a stack "
@@ -543,7 +561,7 @@ EXAMPLE_PROMPTS = [
     ),
     # Image 3 — CLOSE-UP VIGNETTE
     (
-        "3D editorial conceptual render, monochromatic matte clay figures with no facial "
+        "3D editorial conceptual render, monochromatic smooth matte gray mannequin figures with no facial "
         "features, photorealistic materials and studio lighting. Close-up of matte gray "
         "mannequin hands gripping edges of a chrome desk, knuckles tensed showing strain, "
         "on the desk surface stamped metal rejection letter with red 'DENIED' impression, "
@@ -554,7 +572,7 @@ EXAMPLE_PROMPTS = [
     ),
     # Image 4 — DATA LANDSCAPE
     (
-        "3D editorial conceptual render, monochromatic matte clay figures with no facial "
+        "3D editorial conceptual render, monochromatic smooth matte gray mannequin figures with no facial "
         "features, photorealistic materials and studio lighting. Wide shot of a broken "
         "chrome bridge spanning a dark void, left cliff of cracked concrete with matte "
         "gray mannequin figures shoulders slumped looking across, right cliff of polished "

@@ -1,6 +1,6 @@
 # Economy FastForward - Agent Documentation
 
-## Visual Style — 3D Editorial Clay Render (Feb 2026)
+## Visual Style — 3D Editorial Mannequin Render (Feb 2026)
 
 ### Overview
 
@@ -32,7 +32,7 @@ Prompts use a **7-layer architecture**:
 
 **STYLE_ENGINE_PREFIX (always first):**
 ```
-3D editorial conceptual render, monochromatic matte clay figures with no facial
+3D editorial conceptual render, monochromatic smooth matte gray mannequin figures with no facial
 features, photorealistic materials and studio lighting.
 ```
 
@@ -147,11 +147,11 @@ Every word must describe something VISUAL.
 - Use double quotes (use single quotes)
 - Exceed 150 words per prompt
 
-### Example Prompts (3D Editorial Clay Render)
+### Example Prompts (3D Editorial Mannequin Render)
 
 #### WIDE ESTABLISHING (Isometric Diorama)
 ```
-3D editorial conceptual render, monochromatic matte clay figures with no facial
+3D editorial conceptual render, monochromatic smooth matte gray mannequin figures with no facial
 features, photorealistic materials and studio lighting. Isometric overhead view
 of a miniature America as a brushed steel diorama, glowing amber clusters marking
 tech hubs, dim concrete zones elsewhere, small matte gray mannequin figures
@@ -164,7 +164,7 @@ no text beyond the etched flow lines
 
 #### MEDIUM HUMAN STORY
 ```
-3D editorial conceptual render, monochromatic matte clay figures with no facial
+3D editorial conceptual render, monochromatic smooth matte gray mannequin figures with no facial
 features, photorealistic materials and studio lighting. Medium shot of one matte
 gray mannequin in a wrinkled suit sitting at a brushed steel desk, shoulders
 slumped head bowed, laptop screen glowing with job listings, beside it a stack
@@ -176,7 +176,7 @@ window blue-gray lighting, no text no words no labels
 
 #### DATA LANDSCAPE
 ```
-3D editorial conceptual render, monochromatic matte clay figures with no facial
+3D editorial conceptual render, monochromatic smooth matte gray mannequin figures with no facial
 features, photorealistic materials and studio lighting. Wide shot of a broken
 chrome bridge spanning a dark void, left cliff of cracked concrete with matte
 gray mannequin figures shoulders slumped looking across, right cliff of polished
@@ -232,7 +232,7 @@ SCENE_PARAMS = {
 
 ### Overview
 
-Thumbnails use a DIFFERENT style than scene images — comic/editorial illustration via Nano Banana Pro, NOT 3D clay render. The house style is locked and works without a reference URL.
+Thumbnails use a DIFFERENT style than scene images — comic/editorial illustration via Nano Banana Pro, NOT 3D mannequin render. The house style is locked and works without a reference URL.
 
 ### House Style
 
