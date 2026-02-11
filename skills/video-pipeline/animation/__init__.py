@@ -2,7 +2,7 @@
 
 Handles the full animation workflow:
 - Scene planning with glow arc tracking
-- Image generation with Seed Dream 4.0
+- Image generation with Seed Dream 4.5 Edit (Core Image reference)
 - Video generation with Veo 3.1
 - QC checking with Haiku
 - Cost tracking and budget enforcement

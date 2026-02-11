@@ -32,7 +32,18 @@ async def main():
 
     project_name = project.get("Project Name")
     creative_direction = project.get("Creative Direction", "")
+
+    # Extract Core Image URL from the project record
+    core_image_attachments = project.get("Core Image", [])
+    core_image_url = ""
+    if core_image_attachments and isinstance(core_image_attachments, list):
+        core_image_url = core_image_attachments[0].get("url", "")
+
     print(f"📁 Project: {project_name}")
+    if core_image_url:
+        print(f"🖼️  Core Image: {core_image_url[:80]}...")
+    else:
+        print(f"⚠️  No Core Image found on project — image generation will fail")
 
     # Get scenes
     scenes = await airtable.get_scenes_for_project(project_name)
@@ -85,8 +96,11 @@ async def main():
         print(f"    Type: {scene.get('scene_type')}")
         print(f"    Glow: {scene.get('glow_state')} ({scene.get('glow_behavior')})")
 
-        # Generate image
-        result = await image_client.generate_scene_image(prompt)
+        # Generate image using Seed Dream 4.5 Edit with Core Image reference
+        if not core_image_url:
+            print(f"    ❌ No Core Image — skipping")
+            continue
+        result = await image_client.generate_scene_image(prompt, core_image_url)
 
         if result and result.get("url"):
             image_url = result["url"]

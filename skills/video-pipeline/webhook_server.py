@@ -38,6 +38,19 @@ def run_async(coro):
         loop.close()
 
 
+def _get_core_image_url(project_name: str) -> str:
+    """Look up the Core Image URL for a project from Airtable."""
+    try:
+        project = airtable.get_project_by_name(project_name)
+        if project:
+            attachments = project.get("Core Image", [])
+            if attachments and isinstance(attachments, list):
+                return attachments[0].get("url", "")
+    except Exception:
+        pass
+    return ""
+
+
 async def generate_start_image_async(scene_id: str):
     """Generate start image for a scene."""
     # Get scene
@@ -62,11 +75,16 @@ async def generate_start_image_async(scene_id: str):
     if isinstance(project_name, list):
         project_name = project_name[0] if project_name else "Unknown"
 
+    # Get Core Image URL for reference
+    core_image_url = _get_core_image_url(project_name)
+    if not core_image_url:
+        return {"error": f"No Core Image found on project '{project_name}'"}
+
     folder = google_client.get_or_create_folder(project_name)
     folder_id = folder["id"]
 
-    # Generate image
-    result = await image_client.generate_scene_image(prompt)
+    # Generate image using Seed Dream 4.5 Edit with Core Image reference
+    result = await image_client.generate_scene_image(prompt, core_image_url)
 
     if not result or not result.get("url"):
         return {"error": "Image generation failed"}
@@ -111,15 +129,6 @@ async def generate_end_image_async(scene_id: str):
     if not end_prompt:
         return {"error": f"Scene {scene_num} has no end_image_prompt"}
 
-    # Get start image URL for reference
-    start_images = scene.get("start_image", [])
-    if not start_images:
-        return {"error": f"Scene {scene_num} has no start_image for reference"}
-
-    start_image_url = start_images[0].get("url") if isinstance(start_images, list) else None
-    if not start_image_url:
-        return {"error": f"Scene {scene_num} has invalid start_image URL"}
-
     if scene.get("end_image"):
         return {"error": f"Scene {scene_num} already has end_image"}
 
@@ -130,14 +139,18 @@ async def generate_end_image_async(scene_id: str):
     if isinstance(project_name, list):
         project_name = project_name[0] if project_name else "Unknown"
 
+    # Get Core Image URL for reference
+    core_image_url = _get_core_image_url(project_name)
+    if not core_image_url:
+        return {"error": f"No Core Image found on project '{project_name}'"}
+
     folder = google_client.get_or_create_folder(project_name)
     folder_id = folder["id"]
 
-    # Generate image with reference
-    result = await image_client.generate_with_reference(
+    # Generate end image with Seed Dream 4.5 Edit (Core Image as reference)
+    result = await image_client.generate_scene_image(
         prompt=end_prompt,
-        reference_image_url=start_image_url,
-        aspect_ratio="16:9",
+        reference_image_url=core_image_url,
     )
 
     if not result or not result.get("url"):

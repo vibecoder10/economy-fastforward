@@ -19,8 +19,7 @@ class ImageClient:
     VEO_1080P_URL = "https://api.kie.ai/api/v1/veo/get-1080p-video"
 
     # Model routing (v2)
-    SCENE_MODEL = "bytedance/seedream-v4-text-to-image"  # Seed Dream 4.0 for scene images
-    SCENE_MODEL_EDIT = "bytedance/seedream-v4-edit"  # Seed Dream 4.0 Edit for reference-based generation
+    SCENE_MODEL = "seedream/4.5-edit"  # Seed Dream 4.5 Edit — all scene images use reference
     THUMBNAIL_MODEL = "nano-banana-pro"  # Nano Banana Pro for thumbnails - text rendering
 
     # Veo 3.1 models
@@ -326,14 +325,18 @@ class ImageClient:
     async def generate_scene_image(
         self,
         prompt: str,
+        reference_image_url: str,
         seed: int = None,
     ) -> Optional[dict]:
-        """Generate a scene image using Seed Dream 4.0.
+        """Generate a scene image using Seed Dream 4.5 Edit with Core Image reference.
 
         This is the primary method for all scene/content images in the pipeline.
+        Every call requires a reference image (the Core Image from the project)
+        to maintain visual consistency.
 
         Args:
             prompt: Image generation prompt (should use STYLE_ENGINE_PREFIX at start)
+            reference_image_url: URL of the Core Image from the project
             seed: Optional seed for reproducibility
 
         Returns:
@@ -344,21 +347,21 @@ class ImageClient:
             "Content-Type": "application/json",
         }
 
-        # Seed Dream 4.0 API parameters
+        # Seed Dream 4.5 Edit API parameters
         payload = {
             "model": self.SCENE_MODEL,
             "input": {
                 "prompt": prompt,
-                "image_size": "landscape_16_9",  # Seed Dream uses image_size
-                "image_resolution": "2K",
-                "max_images": 1,
+                "image_urls": [reference_image_url],
+                "aspect_ratio": "16:9",
+                "quality": "basic",
             },
         }
 
         if seed is not None:
             payload["input"]["seed"] = seed
 
-        print(f"      🎨 Generating scene image with Seed Dream 4.0...")
+        print(f"      🎨 Generating scene image with Seed Dream 4.5 Edit (Core Image ref)...")
 
         try:
             async with httpx.AsyncClient() as client:
@@ -384,7 +387,6 @@ class ImageClient:
                 result_urls = await self.poll_for_completion(task_id, max_attempts=60, poll_interval=2.0)
 
                 if result_urls:
-                    # Extract seed from result if available
                     result_seed = task_data.get("data", {}).get("seed", seed)
                     return {
                         "url": result_urls[0],
@@ -404,77 +406,21 @@ class ImageClient:
         reference_image_url: str,
         seed: int = None,
     ) -> Optional[dict]:
-        """Generate a scene image using Seed Dream 4.0 Edit with a reference image.
+        """Generate a scene image using Seed Dream 4.5 Edit with a reference image.
 
-        Uses the start image as reference to maintain character/scene consistency
+        Uses the Core Image as reference to maintain character/scene consistency
         when generating end frames for animation.
 
         Args:
             prompt: Image generation prompt describing the end frame
-            reference_image_url: URL of the start image to use as reference
+            reference_image_url: URL of the Core Image to use as reference
             seed: Optional seed for reproducibility
 
         Returns:
             Dict with 'url' and 'seed' keys, or None if failed
         """
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-        }
-
-        # Seed Dream 4.0 Edit API parameters
-        payload = {
-            "model": self.SCENE_MODEL_EDIT,
-            "input": {
-                "prompt": prompt,
-                "image_urls": [reference_image_url],  # Reference image for consistency
-                "image_size": "landscape_16_9",
-                "image_resolution": "2K",
-                "max_images": 1,
-            },
-        }
-
-        if seed is not None:
-            payload["input"]["seed"] = seed
-
-        print(f"      🎨 Generating end frame with Seed Dream Edit (reference-based)...")
-
-        try:
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    self.CREATE_TASK_URL,
-                    headers=headers,
-                    json=payload,
-                    timeout=60.0,
-                )
-                if response.status_code != 200:
-                    print(f"      ❌ Seed Dream Edit API error: {response.status_code} - {response.text}")
-                    return None
-
-                task_data = response.json()
-                task_id = task_data.get("data", {}).get("taskId")
-
-                if not task_id:
-                    print(f"      ❌ No task ID returned: {task_data}")
-                    return None
-
-                # Wait and poll for completion
-                await asyncio.sleep(5)
-                result_urls = await self.poll_for_completion(task_id, max_attempts=60, poll_interval=2.0)
-
-                if result_urls:
-                    result_seed = task_data.get("data", {}).get("seed", seed)
-                    return {
-                        "url": result_urls[0],
-                        "seed": result_seed,
-                    }
-
-                print(f"      ❌ Seed Dream Edit generation failed (poll timeout)")
-                return None
-
-        except Exception as e:
-            print(f"      ❌ Seed Dream Edit error: {e}")
-            return None
+        # Delegates to generate_scene_image which already uses Seed Dream 4.5 Edit
+        return await self.generate_scene_image(prompt, reference_image_url, seed)
 
     async def generate_thumbnail(self, prompt: str) -> Optional[list[str]]:
         """Generate a thumbnail using Nano Banana Pro.

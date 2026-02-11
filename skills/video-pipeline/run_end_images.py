@@ -1,6 +1,6 @@
 """Generate end image prompts and end images for all scenes.
 
-Uses Seed Dream v4 Edit with start_image as reference for character consistency.
+Uses Seed Dream 4.5 Edit with Core Image as reference for character consistency.
 """
 
 import os
@@ -36,7 +36,18 @@ async def main(force_regenerate: bool = False):
         return
 
     project_name = project.get("Project Name")
+
+    # Extract Core Image URL from the project record
+    core_image_attachments = project.get("Core Image", [])
+    core_image_url = ""
+    if core_image_attachments and isinstance(core_image_attachments, list):
+        core_image_url = core_image_attachments[0].get("url", "")
+
     print(f"📁 Project: {project_name}")
+    if core_image_url:
+        print(f"🖼️  Core Image: {core_image_url[:80]}...")
+    else:
+        print(f"⚠️  No Core Image found on project — end image generation will fail")
 
     # Get scenes
     scenes = await airtable.get_scenes_for_project(project_name)
@@ -106,31 +117,19 @@ async def main(force_regenerate: bool = False):
         scene_num = scene.get("scene_order", "?")
         end_prompt = scene.get("end_image_prompt")
 
-        # Get start image URL for reference
-        start_images = scene.get("start_image", [])
-        if not start_images:
-            print(f"  Scene {scene_num}: No start_image, skipping")
-            continue
-
-        # Get the URL from the attachment
-        if isinstance(start_images, list) and len(start_images) > 0:
-            start_image_url = start_images[0].get("url")
-        else:
-            start_image_url = None
-
-        if not start_image_url:
-            print(f"  Scene {scene_num}: Invalid start_image URL, skipping")
+        if not core_image_url:
+            print(f"  Scene {scene_num}: No Core Image on project, skipping")
             continue
 
         print(f"\n  [{i}/{len(scenes_needing_end_images)}] Scene {scene_num}")
         print(f"    Type: {scene.get('scene_type')}")
         print(f"    Camera: {scene.get('camera_direction')}")
-        print(f"    Reference: {start_image_url[:60]}...")
+        print(f"    Reference: Core Image")
 
-        # Generate end image with Seed Dream Edit (uses start image as reference)
-        result = await image_client.generate_scene_image_with_reference(
+        # Generate end image with Seed Dream 4.5 Edit (uses Core Image as reference)
+        result = await image_client.generate_scene_image(
             prompt=end_prompt,
-            reference_image_url=start_image_url,
+            reference_image_url=core_image_url,
         )
 
         if result and result.get("url"):

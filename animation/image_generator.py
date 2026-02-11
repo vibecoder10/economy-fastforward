@@ -1,4 +1,8 @@
-"""Image generation for animation frames via Kie.ai (Seed Dream 4.0 / Nano Banana Pro)."""
+"""Image generation for animation frames via Kie.ai (Seed Dream 4.5 Edit).
+
+All frame generation uses the project's Core Image as a reference to maintain
+visual consistency across the entire video.
+"""
 
 import asyncio
 import json
@@ -14,7 +18,11 @@ from animation.config import (
 
 
 class AnimationImageGenerator:
-    """Generates start and end frame images for animation scenes."""
+    """Generates start and end frame images for animation scenes.
+
+    Uses Seed Dream 4.5 Edit with the project's Core Image as a reference
+    so every generated frame stays visually consistent with the project identity.
+    """
 
     def __init__(self, api_key: Optional[str] = None):
         self.api_key = api_key or KIE_API_KEY
@@ -24,13 +32,15 @@ class AnimationImageGenerator:
     async def generate_frame(
         self,
         prompt: str,
-        aspect_ratio: str = "landscape_16_9",
+        reference_image_url: str,
+        aspect_ratio: str = "16:9",
     ) -> Optional[str]:
-        """Generate a single frame image via Seed Dream 4.0.
+        """Generate a single frame image via Seed Dream 4.5 Edit.
 
         Args:
             prompt: Full image generation prompt
-            aspect_ratio: Image size parameter for Seed Dream
+            reference_image_url: URL of the Core Image from the project
+            aspect_ratio: Aspect ratio for Seed Dream 4.5 Edit
 
         Returns:
             URL of generated image, or None if failed
@@ -44,9 +54,9 @@ class AnimationImageGenerator:
             "model": SCENE_IMAGE_MODEL,
             "input": {
                 "prompt": prompt,
-                "image_size": aspect_ratio,
-                "image_resolution": "2K",
-                "max_images": 1,
+                "image_urls": [reference_image_url],
+                "aspect_ratio": aspect_ratio,
+                "quality": "basic",
             },
         }
 
@@ -87,26 +97,30 @@ class AnimationImageGenerator:
         self,
         start_prompt: str,
         end_prompt: str,
+        reference_image_url: str,
     ) -> tuple[Optional[str], Optional[str]]:
         """Generate start and end frame images for a scene.
+
+        Both frames use the Core Image as reference for visual consistency.
 
         Args:
             start_prompt: Prompt for the start frame
             end_prompt: Prompt for the end frame
+            reference_image_url: URL of the Core Image from the project
 
         Returns:
             Tuple of (start_image_url, end_image_url). Either may be None on failure.
         """
-        print(f"      \U0001f3a8 Generating start frame...")
-        start_url = await self.generate_frame(start_prompt)
+        print(f"      \U0001f3a8 Generating start frame (Seed Dream 4.5 Edit w/ Core Image ref)...")
+        start_url = await self.generate_frame(start_prompt, reference_image_url)
 
         if not start_url:
             print(f"      \u274c Start frame generation failed")
             return None, None
 
         print(f"      \u2705 Start frame ready")
-        print(f"      \U0001f3a8 Generating end frame...")
-        end_url = await self.generate_frame(end_prompt)
+        print(f"      \U0001f3a8 Generating end frame (Seed Dream 4.5 Edit w/ Core Image ref)...")
+        end_url = await self.generate_frame(end_prompt, reference_image_url)
 
         if not end_url:
             print(f"      \u274c End frame generation failed")
