@@ -329,6 +329,10 @@ COMMANDS = {
     "logs": lambda ch, args: cmd_logs(ch, int(args[0]) if args else 20),
     "cron": lambda ch, args: cmd_cron(ch, args[0] if args else None),
     "update": lambda ch, _: cmd_update(ch),
+    "animstatus": lambda ch, _: cmd_animstatus(ch),
+    "regen": lambda ch, args: cmd_regen(ch, int(args[0])) if args else None,
+    "approve all": lambda ch, _: cmd_approveall(ch),
+    "approve": lambda ch, args: cmd_approve(ch, int(args[0])) if args else None,
     "help": lambda ch, _: cmd_help(ch),
 }
 
@@ -468,3 +472,70 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+# ==================== ANIMATION CONTROL COMMANDS ====================
+
+def cmd_animstatus(channel: str):
+    """Show which scenes need prompt approval."""
+    try:
+        result = subprocess.run(
+            ["python3", "-m", "animation.status"],
+            cwd=ANIMATION_DIR,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        output = result.stdout.strip() or result.stderr.strip() or "No output"
+        send_message(channel, f"```\n{output[:2900]}\n```")
+    except Exception as e:
+        send_message(channel, f"❌ Error: {e}")
+
+
+def cmd_regen(channel: str, scene_num: int):
+    """Regenerate prompts for a specific scene."""
+    send_message(channel, f"🔄 Regenerating prompts for scene {scene_num}...")
+    try:
+        result = subprocess.run(
+            ["python3", "-m", "animation.regen", str(scene_num)],
+            cwd=ANIMATION_DIR,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        output = result.stdout.strip() or result.stderr.strip() or "No output"
+        send_message(channel, f"```\n{output[:2900]}\n```")
+    except Exception as e:
+        send_message(channel, f"❌ Error: {e}")
+
+
+def cmd_approve(channel: str, scene_num: int):
+    """Approve prompts for a specific scene."""
+    try:
+        result = subprocess.run(
+            ["python3", "-m", "animation.approve", str(scene_num)],
+            cwd=ANIMATION_DIR,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        output = result.stdout.strip() or result.stderr.strip() or "No output"
+        send_message(channel, f"```\n{output[:2900]}\n```")
+    except Exception as e:
+        send_message(channel, f"❌ Error: {e}")
+
+
+def cmd_approveall(channel: str):
+    """Approve all prompts for all scenes."""
+    try:
+        result = subprocess.run(
+            ["python3", "-m", "animation.approve", "all"],
+            cwd=ANIMATION_DIR,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        output = result.stdout.strip() or result.stderr.strip() or "No output"
+        send_message(channel, f"```\n{output[:2900]}\n```")
+    except Exception as e:
+        send_message(channel, f"❌ Error: {e}")
