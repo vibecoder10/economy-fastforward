@@ -1,6 +1,6 @@
 """Generate end image prompts and end images for all scenes.
 
-Uses nano-banana-pro with start_image as reference for character consistency.
+Uses Seed Dream v4 Edit with start_image as reference for character consistency.
 """
 
 import os
@@ -127,11 +127,10 @@ async def main(force_regenerate: bool = False):
         print(f"    Camera: {scene.get('camera_direction')}")
         print(f"    Reference: {start_image_url[:60]}...")
 
-        # Generate end image with reference
-        result = await image_client.generate_with_reference(
+        # Generate end image with Seed Dream Edit (uses start image as reference)
+        result = await image_client.generate_scene_image_with_reference(
             prompt=end_prompt,
             reference_image_url=start_image_url,
-            aspect_ratio="16:9",
         )
 
         if result and result.get("url"):
@@ -154,7 +153,7 @@ async def main(force_regenerate: bool = False):
             )
 
             images_generated += 1
-            cost += 0.03  # nano-banana-pro cost
+            cost += 0.02  # Seed Dream Edit cost
             print(f"    ✅ Done! (${cost:.2f} total)")
 
         else:
