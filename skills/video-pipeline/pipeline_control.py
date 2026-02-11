@@ -185,7 +185,13 @@ async def handle_update(message, say):
         if result.returncode == 0:
             output = result.stdout.strip() or "Already up to date."
             await say(f":white_check_mark: Update complete!\n```{output}```")
-            await say(":warning: Bot will continue running with old code. Restart the service to apply changes:\n`systemctl --user restart pipeline-bot`")
+
+            # Check if there were actual changes
+            if "Already up to date" not in output:
+                await say(":rocket: Restarting bot to apply changes...")
+                # Exit cleanly - systemd will auto-restart with new code
+                await asyncio.sleep(1)
+                os._exit(0)
         else:
             await say(f":x: Git pull failed:\n```{result.stderr}```")
 
