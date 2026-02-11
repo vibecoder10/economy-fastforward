@@ -59,6 +59,7 @@ class AnimationPipeline:
         self.current_project: Optional[dict] = None
         self.project_name: Optional[str] = None
         self.cost_tracker: Optional[CostTracker] = None
+        self.core_image_url: Optional[str] = None
 
     # Statuses that indicate a project we should process or resume
     RESUMABLE_STATUSES = [
@@ -93,10 +94,21 @@ class AnimationPipeline:
         budget = project.get("animation_budget", ANIMATION_BUDGET_DEFAULT)
         self.cost_tracker = CostTracker(budget=float(budget))
 
+        # Extract Core Image URL from the project record (attachment field on Project tab)
+        core_image_attachments = project.get("Core Image", [])
+        if core_image_attachments and isinstance(core_image_attachments, list):
+            self.core_image_url = core_image_attachments[0].get("url", "")
+        else:
+            self.core_image_url = ""
+
         print(f"\n{'='*60}")
         print(f"  🎬 Animation Pipeline: {self.project_name}")
         print(f"  📍 Current status: {current_status}")
         print(f"  💰 Budget: ${self.cost_tracker.budget:.2f}")
+        if self.core_image_url:
+            print(f"  🖼️ Core Image: {self.core_image_url[:80]}...")
+        else:
+            print(f"  ⚠️ No Core Image found on project — frame generation will fail")
         print(f"{'='*60}\n")
 
         try:
@@ -276,9 +288,12 @@ class AnimationPipeline:
                     print(f"      ❌ Failed to generate end prompt, skipping scene")
                     continue
 
-            # Step 2: Generate end_image
-            print(f"      🎨 Generating end frame image...")
-            end_url = await self.image_gen.generate_frame(end_prompt)
+            # Step 2: Generate end_image using Seed Dream 4.5 Edit w/ Core Image
+            print(f"      🎨 Generating end frame image (Seed Dream 4.5 Edit)...")
+            if not self.core_image_url:
+                print(f"      ❌ No Core Image URL — cannot generate reference-based frame")
+                continue
+            end_url = await self.image_gen.generate_frame(end_prompt, self.core_image_url)
             if end_url:
                 self.cost_tracker.record_image_cost(scene_order)
                 self.airtable.update_scene_end_image(record_id, end_url)
@@ -338,9 +353,14 @@ class AnimationPipeline:
                 print(f"    ⚠️ No start_image_prompt, skipping")
                 continue
 
+            # Bail early if no Core Image available
+            if not self.core_image_url:
+                print(f"    ❌ No Core Image URL — cannot generate reference-based frames")
+                continue
+
             # For ken_burns and static, we only need start frame
             if scene_type in ("ken_burns", "static"):
-                start_url = await self.image_gen.generate_frame(start_prompt)
+                start_url = await self.image_gen.generate_frame(start_prompt, self.core_image_url)
                 if start_url:
                     self.cost_tracker.record_image_cost(scene_order)
                     # Use start image as both start and end for non-animated
@@ -357,7 +377,7 @@ class AnimationPipeline:
                 end_prompt = start_prompt
 
             start_url, end_url = await self.image_gen.generate_frame_pair(
-                start_prompt, end_prompt,
+                start_prompt, end_prompt, self.core_image_url,
             )
 
             if start_url and end_url:

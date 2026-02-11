@@ -3,7 +3,7 @@
 Phases:
 1. Scene Planning (Sonnet) - Break script into scenes with glow arc
 2. Image Prompt Generation (Sonnet) - Create detailed prompts
-3. Image Generation (Seed Dream 4.0) - Generate scene images
+3. Image Generation (Seed Dream 4.5 Edit) - Generate scene images with Core Image reference
 4. [MANUAL] Video Generation (Veo 3.1) - Requires --animate flag
 """
 
@@ -30,8 +30,8 @@ class AnimationPipeline:
     """Orchestrates the full animation pipeline."""
 
     # Cost tracking
-    COST_PER_IMAGE = 0.025  # Seed Dream 4.0
-    COST_PER_VIDEO = 0.10   # Veo 3.1
+    COST_PER_IMAGE = 0.0325  # Seed Dream 4.5 Edit (6.5 credits)
+    COST_PER_VIDEO = 0.10    # Veo 3.1
 
     def __init__(self):
         self.airtable = AnimationAirtableClient()
@@ -44,12 +44,21 @@ class AnimationPipeline:
         self.project = None
         self.scenes = []
         self.total_cost = 0.0
+        self.core_image_url = ""
 
     async def load_project(self, status: str = "Create") -> Optional[dict]:
         """Load project with given status."""
         self.project = await self.airtable.get_project_by_status(status)
         if self.project:
             print(f"📁 Loaded project: {self.project.get('Project Name')}")
+            # Extract Core Image URL from the project record
+            core_image_attachments = self.project.get("Core Image", [])
+            if core_image_attachments and isinstance(core_image_attachments, list):
+                self.core_image_url = core_image_attachments[0].get("url", "")
+            if self.core_image_url:
+                print(f"🖼️  Core Image: {self.core_image_url[:80]}...")
+            else:
+                print(f"⚠️  No Core Image found on project — image generation will fail")
         return self.project
 
     async def run_scene_planning(self) -> list:
@@ -148,7 +157,7 @@ class AnimationPipeline:
     async def run_image_generation(self) -> dict:
         """Phase 3: Generate images for all scenes."""
         print("\n" + "=" * 60)
-        print("PHASE 3: IMAGE GENERATION (Seed Dream 4.0)")
+        print("PHASE 3: IMAGE GENERATION (Seed Dream 4.5 Edit)")
         print("=" * 60)
 
         if not self.scenes:
@@ -187,8 +196,11 @@ class AnimationPipeline:
             print(f"    Type: {scene.get('scene_type')}")
             print(f"    Glow: {scene.get('glow_state')} ({scene.get('glow_behavior')})")
 
-            # Generate image
-            result = await self.image_client.generate_scene_image(prompt)
+            # Generate image using Seed Dream 4.5 Edit with Core Image reference
+            if not self.core_image_url:
+                print(f"    ❌ No Core Image — skipping")
+                continue
+            result = await self.image_client.generate_scene_image(prompt, self.core_image_url)
 
             if result and result.get("url"):
                 image_url = result["url"]
