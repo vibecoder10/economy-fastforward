@@ -42,6 +42,12 @@ Thumbs.db
 *.jpg
 *.jpeg
 
+# Jewelry Studio uploads/outputs (generated at runtime)
+jewelry-studio/uploads/*
+jewelry-studio/outputs/*
+!jewelry-studio/uploads/.gitkeep
+!jewelry-studio/outputs/.gitkeep
+
 # Bot JSON exports (contain API responses)
 # Uncomment if you want to include these
 # *.json

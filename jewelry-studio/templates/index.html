@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jewelry Studio</title>
+    <style>
+        *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+            background: #f5f5f5; color: #1a1a1a; line-height: 1.6;
+        }
+
+        header {
+            background: #fff; border-bottom: 1px solid #e0e0e0; padding: 16px 32px;
+            display: flex; align-items: center; justify-content: space-between;
+        }
+        header h1 { font-size: 17px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; }
+        .hsub { font-size: 10px; color: #aaa; letter-spacing: 1px; text-transform: uppercase; }
+
+        main { max-width: 960px; margin: 0 auto; padding: 28px 16px 80px; }
+
+        /* ── Card ── */
+        .card { background: #fff; border: 1px solid #e5e5e5; border-radius: 10px; padding: 24px 28px; margin-bottom: 16px; }
+
+        /* ── Step Header ── */
+        .sh { display: flex; align-items: flex-start; gap: 14px; margin-bottom: 18px; }
+        .sn {
+            width: 28px; height: 28px; border-radius: 50%; background: #1a1a1a; color: #fff;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 13px; font-weight: 700; flex-shrink: 0; margin-top: 1px;
+        }
+        .sn.ok { background: #2d7d46; }
+        .st { font-size: 15px; font-weight: 600; }
+        .sd { font-size: 12px; color: #888; margin-top: 2px; line-height: 1.4; }
+
+        /* ── Drop Zone ── */
+        .dz {
+            border: 2px dashed #ccc; border-radius: 8px; padding: 28px 16px;
+            text-align: center; cursor: pointer; transition: .2s;
+            background: #fafafa; min-height: 130px;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+        }
+        .dz:hover { border-color: #999; background: #f5f5f5; }
+        .dz.over { border-color: #1a1a1a; background: #f0f0f0; }
+        .dz.ok { border-color: #2d7d46; border-style: solid; background: #f4fbf6; }
+        .dz .ico { font-size: 24px; opacity: .3; margin-bottom: 4px; }
+        .dz .txt { font-size: 12px; color: #888; }
+        .dz .txt b { color: #555; }
+        .dz .sub { font-size: 10px; color: #aaa; margin-top: 3px; }
+
+        /* ── Thumbnails ── */
+        .ths { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+        .tw { position: relative; }
+        .tw img { width: 68px; height: 68px; object-fit: cover; border-radius: 6px; border: 1px solid #ddd; }
+        .tx {
+            position: absolute; top: -5px; right: -5px; width: 18px; height: 18px;
+            border-radius: 50%; background: #d43; color: #fff; border: none; cursor: pointer;
+            font-size: 10px; display: flex; align-items: center; justify-content: center;
+        }
+
+        /* ── Type pills ── */
+        .types { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+        .tp {
+            padding: 8px 20px; border: 2px solid #e0e0e0; border-radius: 6px;
+            background: #fff; cursor: pointer; font-size: 13px; font-weight: 500; transition: .2s;
+        }
+        .tp:hover { border-color: #999; }
+        .tp.on { border-color: #1a1a1a; background: #1a1a1a; color: #fff; }
+
+        /* ── Extra instructions ── */
+        .ebox { margin-top: 2px; }
+        .ebox label { display: block; font-size: 11px; font-weight: 600; color: #666; margin-bottom: 5px; text-transform: uppercase; letter-spacing: .5px; }
+        .ebox textarea {
+            width: 100%; min-height: 52px; padding: 9px 11px; border: 1px solid #ddd;
+            border-radius: 6px; font-family: inherit; font-size: 13px; resize: vertical; background: #fafafa;
+        }
+        .ebox textarea:focus { outline: none; border-color: #999; background: #fff; }
+        .ebox .hint { font-size: 10px; color: #aaa; margin-top: 3px; }
+
+        /* ── Generate ── */
+        .gbtn {
+            display: block; width: 100%; padding: 14px; background: #1a1a1a; color: #fff;
+            border: none; border-radius: 8px; font-size: 15px; font-weight: 600;
+            cursor: pointer; transition: .2s;
+        }
+        .gbtn:hover:not(:disabled) { background: #333; }
+        .gbtn:disabled { background: #bbb; cursor: not-allowed; }
+
+        /* ── Progress ── */
+        .prog { display: none; text-align: center; padding: 24px 0 8px; }
+        .prog.on { display: block; }
+        .spin {
+            width: 32px; height: 32px; border: 3px solid #e5e5e5; border-top-color: #1a1a1a;
+            border-radius: 50%; animation: sp .7s linear infinite; margin: 0 auto 12px;
+        }
+        @keyframes sp { to { transform: rotate(360deg); } }
+        .ptxt { font-size: 13px; color: #555; }
+        .psub { font-size: 11px; color: #999; margin-top: 3px; }
+
+        /* ── Results ── */
+        .res { display: none; }
+        .res.on { display: block; }
+        .rgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 16px; }
+        @media (max-width: 700px) { .rgrid { grid-template-columns: 1fr; } }
+
+        .rc { background: #fff; border: 1px solid #e5e5e5; border-radius: 8px; overflow: hidden; }
+        .rc.fail { border-color: #e74c3c; }
+        .rc img { width: 100%; aspect-ratio: 1; object-fit: cover; display: block; }
+        .rf { padding: 12px 14px; display: flex; align-items: center; justify-content: space-between; }
+        .rl { font-size: 12px; font-weight: 600; }
+        .ra { display: flex; gap: 5px; align-items: center; }
+        .sb {
+            padding: 4px 9px; border: 1px solid #ddd; border-radius: 4px; background: #fff;
+            cursor: pointer; font-size: 10px; text-decoration: none; color: #333; transition: .15s;
+        }
+        .sb:hover { background: #f0f0f0; }
+
+        /* ── Regen panel (feedback + prompt) ── */
+        .rp { display: none; padding: 0 14px 14px; }
+        .rp.on { display: block; }
+        .rp label { display: block; font-size: 10px; font-weight: 600; color: #888; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 4px; }
+        .rp .fb {
+            width: 100%; min-height: 44px; padding: 7px 9px; border: 1px solid #ddd;
+            border-radius: 4px; font-family: inherit; font-size: 12px; resize: vertical;
+            background: #fffbf0; border-color: #e8d5a3;
+        }
+        .rp .fb:focus { outline: none; border-color: #c4a44a; background: #fff9e6; }
+        .rp .fb-hint { font-size: 9px; color: #aaa; margin: 3px 0 10px; }
+        .rp .prompt-toggle {
+            font-size: 10px; color: #888; cursor: pointer; border: none; background: none;
+            text-decoration: underline; padding: 0; margin-bottom: 4px;
+        }
+        .rp .prompt-area { display: none; }
+        .rp .prompt-area.on { display: block; }
+        .rp .pa {
+            width: 100%; min-height: 50px; padding: 7px 9px; border: 1px solid #ddd;
+            border-radius: 4px; font-family: inherit; font-size: 10px; resize: vertical;
+            color: #666;
+        }
+        .rp .rr {
+            margin-top: 8px; padding: 8px 16px; background: #1a1a1a; color: #fff;
+            border: none; border-radius: 5px; cursor: pointer; font-size: 12px; font-weight: 600;
+        }
+        .rp .rr:disabled { background: #999; }
+        .rp .rr:hover:not(:disabled) { background: #333; }
+
+        .analysis {
+            background: #f9f9f9; border: 1px solid #e5e5e5; border-radius: 6px; padding: 14px; margin-top: 4px;
+        }
+        .analysis summary { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: #888; cursor: pointer; }
+        .analysis pre {
+            margin-top: 8px; white-space: pre-wrap; word-break: break-word;
+            font-family: 'SF Mono', Monaco, monospace; font-size: 10px; line-height: 1.5;
+        }
+
+        .fp {
+            aspect-ratio: 1; display: flex; align-items: center; justify-content: center;
+            padding: 30px; text-align: center; color: #aaa; font-size: 12px; background: #fafafa;
+        }
+
+        .toast {
+            position: fixed; bottom: 20px; right: 20px; padding: 10px 18px;
+            background: #1a1a1a; color: #fff; border-radius: 6px; font-size: 12px;
+            z-index: 1000; animation: fu .25s ease;
+        }
+        .toast.err { background: #d43; }
+        @keyframes fu { from { transform: translateY(14px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+        .dlbar { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+        .dlb {
+            padding: 7px 14px; background: #1a1a1a; color: #fff; border: none;
+            border-radius: 6px; font-size: 11px; font-weight: 600; text-decoration: none;
+        }
+        .dlb:hover { background: #333; }
+    </style>
+</head>
+<body>
+
+<header>
+    <div><h1>Jewelry Studio</h1></div>
+    <span class="hsub">Gemini + Kie.ai</span>
+</header>
+
+<main>
+
+    <!-- ═══ STEP 1: Your Jewelry ═══ -->
+    <div class="card">
+        <div class="sh">
+            <div class="sn">1</div>
+            <div>
+                <div class="st">Upload Your Jewelry</div>
+                <div class="sd">The piece you want professional shots of. Upload 1-3 photos from different angles for a better 360&deg; reference.</div>
+            </div>
+        </div>
+        <div class="dz" id="dz1">
+            <div class="ico">&#9670;</div>
+            <div class="txt"><b>Drop jewelry photos here</b> or click to browse</div>
+            <div class="sub">JPG / PNG &mdash; up to 3 images</div>
+        </div>
+        <input type="file" id="in1" multiple accept="image/*" hidden>
+        <div class="ths" id="th1"></div>
+    </div>
+
+    <!-- ═══ STEP 2: Model Reference ═══ -->
+    <div class="card">
+        <div class="sh">
+            <div class="sn">2</div>
+            <div>
+                <div class="st">Upload Model Reference</div>
+                <div class="sd">A photo of a person/model. This sets the look for your &ldquo;on-model&rdquo; shot. Any jewelry they&rsquo;re wearing will be ignored &mdash; your piece from Step 1 will be used instead.</div>
+            </div>
+        </div>
+        <div class="dz" id="dz2">
+            <div class="ico">&#9679;</div>
+            <div class="txt"><b>Drop model image here</b> or click to browse</div>
+            <div class="sub">1 image</div>
+        </div>
+        <input type="file" id="in2" accept="image/*" hidden>
+        <div class="ths" id="th2"></div>
+    </div>
+
+    <!-- ═══ STEP 3: Style Reference ═══ -->
+    <div class="card">
+        <div class="sh">
+            <div class="sn">3</div>
+            <div>
+                <div class="st">Upload Style Reference</div>
+                <div class="sd">A professional jewelry product photo whose <em>style</em> you want to match &mdash; background, lighting, orientation, mood. The jewelry in this image doesn&rsquo;t matter, only the photography style.</div>
+            </div>
+        </div>
+        <div class="dz" id="dz3">
+            <div class="ico">&#9733;</div>
+            <div class="txt"><b>Drop style reference here</b> or click to browse</div>
+            <div class="sub">1 image</div>
+        </div>
+        <input type="file" id="in3" accept="image/*" hidden>
+        <div class="ths" id="th3"></div>
+    </div>
+
+    <!-- ═══ STEP 4: Type + Instructions + Generate ═══ -->
+    <div class="card">
+        <div class="sh">
+            <div class="sn">4</div>
+            <div>
+                <div class="st">Settings &amp; Generate</div>
+                <div class="sd">Pick the jewelry type, add any extra instructions, then generate.</div>
+            </div>
+        </div>
+
+        <div class="types" id="types">
+            <button class="tp" data-t="ring">Ring</button>
+            <button class="tp" data-t="necklace">Necklace</button>
+            <button class="tp" data-t="earrings">Earrings</button>
+            <button class="tp" data-t="bracelet">Bracelet</button>
+            <button class="tp" data-t="pendant">Pendant</button>
+            <button class="tp" data-t="brooch">Brooch</button>
+        </div>
+
+        <div class="ebox">
+            <label>Extra Instructions (optional)</label>
+            <textarea id="extra" placeholder='e.g. "Make the background soft pink" or "Tilt the ring slightly" or "Emphasize the diamond sparkle"'></textarea>
+            <div class="hint">Added to every prompt. Use this to fine-tune the output.</div>
+        </div>
+
+        <br>
+        <button class="gbtn" id="go" disabled>Generate 3 Product Shots</button>
+
+        <div class="prog" id="prog">
+            <div class="spin"></div>
+            <div class="ptxt" id="pt">Starting...</div>
+            <div class="psub" id="ps"></div>
+        </div>
+    </div>
+
+    <!-- ═══ RESULTS ═══ -->
+    <div class="res" id="resSection">
+        <div class="card">
+            <div class="sh">
+                <div class="sn ok">&#10003;</div>
+                <div>
+                    <div class="st">Your Product Images</div>
+                    <div class="sd">Click &ldquo;Edit Prompt&rdquo; on any image to tweak and regenerate individually.</div>
+                </div>
+            </div>
+
+            <details class="analysis">
+                <summary>View Gemini Analysis</summary>
+                <pre id="apre"></pre>
+            </details>
+
+            <div class="rgrid" id="rgrid"></div>
+            <div class="dlbar" id="dlbar"></div>
+        </div>
+    </div>
+
+</main>
+
+<script>
+const S = { jewelry: [], model: null, style: null, type: null, busy: false };
+
+const LABELS = { headon: 'Head-On', angled: 'Angled', model: 'On Model' };
+
+// ── Upload wiring ──
+function wire(dzId, inId, kind) {
+    const z = document.getElementById(dzId), inp = document.getElementById(inId);
+    z.addEventListener('click', () => inp.click());
+    z.addEventListener('dragover', e => { e.preventDefault(); z.classList.add('over'); });
+    z.addEventListener('dragleave', () => z.classList.remove('over'));
+    z.addEventListener('drop', e => { e.preventDefault(); z.classList.remove('over'); addFiles(e.dataTransfer.files, kind); });
+    inp.addEventListener('change', () => { addFiles(inp.files, kind); inp.value = ''; });
+}
+
+async function addFiles(fileList, kind) {
+    for (const f of [...fileList].filter(f => f.type.startsWith('image/'))) {
+        if (kind === 'jewelry' && S.jewelry.length >= 3) { toast('Max 3 photos', true); break; }
+        if (kind === 'model') S.model = null;
+        if (kind === 'style') S.style = null;
+
+        const fd = new FormData(); fd.append('file', f);
+        try {
+            const r = await fetch('/api/upload', { method: 'POST', body: fd });
+            if (!r.ok) throw new Error('Upload failed');
+            const d = await r.json();
+            if (kind === 'jewelry') S.jewelry.push(d);
+            else if (kind === 'model') S.model = d;
+            else S.style = d;
+        } catch (e) { toast(e.message, true); }
+    }
+    render(); check();
+}
+
+function render() {
+    // Step 1
+    const t1 = document.getElementById('th1'); t1.innerHTML = '';
+    S.jewelry.forEach((f, i) => {
+        t1.innerHTML += `<div class="tw"><img src="${f.path}"><button class="tx" onclick="rmJ(${i})">&times;</button></div>`;
+    });
+    document.getElementById('dz1').classList.toggle('ok', S.jewelry.length > 0);
+
+    // Step 2
+    const t2 = document.getElementById('th2'); t2.innerHTML = '';
+    if (S.model) t2.innerHTML = `<div class="tw"><img src="${S.model.path}"><button class="tx" onclick="rmM()">&times;</button></div>`;
+    document.getElementById('dz2').classList.toggle('ok', !!S.model);
+
+    // Step 3
+    const t3 = document.getElementById('th3'); t3.innerHTML = '';
+    if (S.style) t3.innerHTML = `<div class="tw"><img src="${S.style.path}"><button class="tx" onclick="rmS()">&times;</button></div>`;
+    document.getElementById('dz3').classList.toggle('ok', !!S.style);
+}
+
+function rmJ(i) { S.jewelry.splice(i, 1); render(); check(); }
+function rmM() { S.model = null; render(); check(); }
+function rmS() { S.style = null; render(); check(); }
+
+// ── Type selector ──
+document.getElementById('types').addEventListener('click', e => {
+    const b = e.target.closest('.tp'); if (!b) return;
+    document.querySelectorAll('.tp').forEach(x => x.classList.remove('on'));
+    b.classList.add('on'); S.type = b.dataset.t; check();
+});
+
+function check() {
+    document.getElementById('go').disabled =
+        !(S.jewelry.length && S.model && S.style && S.type) || S.busy;
+}
+
+// ── Generate ──
+document.getElementById('go').addEventListener('click', run);
+
+async function run() {
+    if (S.busy) return; S.busy = true;
+    const btn = document.getElementById('go');
+    const prog = document.getElementById('prog');
+    const sec = document.getElementById('resSection');
+
+    btn.disabled = true; btn.textContent = 'Generating...';
+    prog.classList.add('on'); sec.classList.remove('on');
+    setP('Analyzing with Gemini...', 'Jewelry details + model description + style reference');
+
+    try {
+        const fd = new FormData();
+        fd.append('jewelry_type', S.type);
+        fd.append('jewelry_files', JSON.stringify(S.jewelry.map(f => f.id)));
+        fd.append('model_file', S.model.id);
+        fd.append('style_file', S.style.id);
+        fd.append('extra_instructions', document.getElementById('extra').value);
+
+        setP('Generating with Kie.ai...', 'Creating 3 shots - usually takes 1-2 minutes');
+
+        const r = await fetch('/api/generate', { method: 'POST', body: fd });
+        if (!r.ok) { const e = await r.json(); throw new Error(e.detail || 'Failed'); }
+        showResults(await r.json());
+    } catch (e) { toast(e.message, true); }
+    finally {
+        S.busy = false; btn.disabled = false; btn.textContent = 'Generate 3 Product Shots';
+        prog.classList.remove('on'); check();
+    }
+}
+
+function setP(t, s) { document.getElementById('pt').textContent = t; document.getElementById('ps').textContent = s || ''; }
+
+// ── Results ──
+function showResults(data) {
+    const sec = document.getElementById('resSection');
+    const grid = document.getElementById('rgrid');
+    const bar = document.getElementById('dlbar');
+    document.getElementById('apre').textContent = JSON.stringify({
+        jewelry_analysis: data.jewelry_analysis,
+        style_analysis: data.style_analysis,
+        model_description: data.model_description,
+    }, null, 2);
+
+    grid.innerHTML = ''; bar.innerHTML = '';
+    const locals = [];
+
+    for (const r of data.results) {
+        const c = document.createElement('div');
+        c.className = 'rc' + (r.error ? ' fail' : '');
+        const img = r.local
+            ? `<img src="${r.local}" alt="${LABELS[r.view]}">`
+            : `<div class="fp">Failed &mdash; describe what went wrong and regenerate</div>`;
+
+        // Escape prompt for safe HTML embedding
+        const safePrompt = (r.prompt || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+
+        c.innerHTML = `${img}
+            <div class="rf">
+                <span class="rl">${LABELS[r.view]}</span>
+                <div class="ra">
+                    <button class="sb" onclick="openRegen(this)" style="background:#1a1a1a;color:#fff;border-color:#1a1a1a;font-weight:600;">Regenerate</button>
+                    ${r.local ? `<a class="sb" href="${r.local}" download="${r.view}.png">Download</a>` : ''}
+                </div>
+            </div>
+            <div class="rp">
+                <label>What&rsquo;s wrong with this image?</label>
+                <textarea class="fb" placeholder="e.g. &quot;The gemstone should be blue not red&quot; or &quot;The band is too thick&quot; or &quot;Wrong metal color - should be rose gold&quot;"></textarea>
+                <div class="fb-hint">Describe what needs to change. This feedback gets added to the prompt as a correction.</div>
+                <button class="prompt-toggle" onclick="togPrompt(this)">Show full prompt &darr;</button>
+                <div class="prompt-area">
+                    <textarea class="pa">${safePrompt}</textarea>
+                </div>
+                <button class="rr" onclick="regen(this,'${r.view}','${data.batch_id}')">Regenerate This Shot</button>
+            </div>`;
+        grid.appendChild(c);
+        if (r.local) locals.push({ p: r.local, v: r.view });
+    }
+
+    for (const l of locals) {
+        const a = document.createElement('a');
+        a.className = 'dlb'; a.href = l.p; a.download = l.v + '.png';
+        a.textContent = LABELS[l.v]; bar.appendChild(a);
+    }
+
+    sec.classList.add('on');
+    sec.scrollIntoView({ behavior: 'smooth' });
+}
+
+function openRegen(btn) {
+    const panel = btn.closest('.rc').querySelector('.rp');
+    panel.classList.toggle('on');
+    // Focus the feedback field
+    if (panel.classList.contains('on')) {
+        panel.querySelector('.fb').focus();
+    }
+}
+
+function togPrompt(btn) {
+    const area = btn.nextElementSibling;
+    area.classList.toggle('on');
+    btn.innerHTML = area.classList.contains('on') ? 'Hide full prompt &uarr;' : 'Show full prompt &darr;';
+}
+
+async function regen(btn, view, bid) {
+    const card = btn.closest('.rc');
+    const feedback = card.querySelector('.fb').value;
+    const prompt = card.querySelector('.pa').value;
+    btn.disabled = true; btn.textContent = 'Regenerating...';
+
+    try {
+        const fd = new FormData();
+        fd.append('prompt', prompt);
+        fd.append('view', view);
+        fd.append('batch_id', bid);
+        fd.append('feedback', feedback);
+
+        const r = await fetch('/api/regenerate', { method: 'POST', body: fd });
+        if (!r.ok) { const e = await r.json(); throw new Error(e.detail || 'Failed'); }
+        const d = await r.json();
+
+        // Update image
+        let img = card.querySelector('img');
+        if (img) { img.src = d.local; }
+        else {
+            const ph = card.querySelector('.fp');
+            if (ph) { img = document.createElement('img'); img.src = d.local; img.alt = LABELS[view]; ph.replaceWith(img); }
+        }
+
+        // Update/add download link
+        let dl = card.querySelector('a[download]');
+        if (dl) { dl.href = d.local; }
+        else {
+            const a = document.createElement('a'); a.className = 'sb'; a.href = d.local;
+            a.download = view + '.png'; a.textContent = 'Download';
+            card.querySelector('.ra').appendChild(a);
+        }
+
+        // Update the prompt textarea with the corrected prompt for next iteration
+        card.querySelector('.pa').value = d.prompt;
+
+        // Clear feedback field for next round
+        card.querySelector('.fb').value = '';
+
+        card.classList.remove('fail');
+        toast('Regenerated with your feedback');
+    } catch (e) { toast(e.message, true); }
+    finally { btn.disabled = false; btn.textContent = 'Regenerate This Shot'; }
+}
+
+function toast(m, err) {
+    const t = document.createElement('div');
+    t.className = 'toast' + (err ? ' err' : '');
+    t.textContent = m; document.body.appendChild(t);
+    setTimeout(() => t.remove(), 3500);
+}
+
+wire('dz1', 'in1', 'jewelry');
+wire('dz2', 'in2', 'model');
+wire('dz3', 'in3', 'style');
+</script>
+</body>
+</html>
