@@ -1,0 +1,169 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// =============================================================================
+// AUTH (NextAuth.js compatible)
+// =============================================================================
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// =============================================================================
+// USER
+// =============================================================================
+
+model User {
+  id               String   @id @default(cuid())
+  email            String   @unique
+  emailVerified    DateTime?
+  name             String?
+  image            String?
+  hashedPassword   String?
+  subscriptionTier String   @default("taste")
+  stripeCustomerId String?
+
+  accounts        Account[]
+  sessions        Session[]
+  apiKeys         ApiKeys?
+  channelProfiles ChannelProfile[]
+  projects        Project[]
+  usageEvents     UsageEvent[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// =============================================================================
+// BYOK API KEYS (encrypted at rest)
+// =============================================================================
+
+model ApiKeys {
+  id            String  @id @default(cuid())
+  userId        String  @unique
+  anthropicKey  String?
+  kieAiKey      String?
+  elevenLabsKey String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  updatedAt DateTime @updatedAt
+}
+
+// =============================================================================
+// CHANNEL PROFILE
+// =============================================================================
+
+model ChannelProfile {
+  id        String  @id @default(cuid())
+  userId    String
+  name      String
+  isDefault Boolean @default(false)
+
+  // Stored as JSON strings
+  narrativeConfig  String @default("{}")
+  visualConfig     String @default("{}")
+  visualAnchors    String @default("[]")
+  defaultCharacter String?
+  defaultEnvironment String?
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projects Project[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// =============================================================================
+// PROJECT
+// =============================================================================
+
+model Project {
+  id               String @id @default(cuid())
+  userId           String
+  channelProfileId String
+  status           String @default("input")
+
+  // Module 2 inputs
+  title            String
+  angle            String   @default("")
+  thesis           String   @default("")
+  pastContext       String?
+  futurePrediction String?
+  openingHook      String?
+  tone             String   @default("analytical with moments of urgency")
+  targetLength     Int      @default(15)
+  characterRef     String?
+  environmentProfile String?
+
+  // Module 3 outputs (JSON)
+  beatSheet String @default("[]")
+  script    String @default("[]")
+
+  // Module 4 outputs (JSON)
+  scenes String @default("[]")
+
+  // Module 7 outputs (JSON)
+  animations String @default("[]")
+
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  channelProfile ChannelProfile @relation(fields: [channelProfileId], references: [id])
+  usageEvents    UsageEvent[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// =============================================================================
+// USAGE METERING
+// =============================================================================
+
+model UsageEvent {
+  id        String   @id @default(cuid())
+  userId    String
+  projectId String
+  eventType String
+  model     String
+  cost      Float
+  timestamp DateTime @default(now())
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
