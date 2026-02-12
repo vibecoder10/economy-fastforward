@@ -1,4 +1,4 @@
-"""Image generation for animation frames via Kie.ai (Seed Dream 4.0 / Nano Banana Pro)."""
+"""Image generation for animation frames via Kie.ai (Seed Dream 4.5 / Nano Banana Pro)."""
 
 import asyncio
 import json
@@ -10,6 +10,7 @@ from animation.config import (
     KIE_CREATE_TASK_URL,
     KIE_RECORD_INFO_URL,
     SCENE_IMAGE_MODEL,
+    SCENE_IMAGE_MODEL_EDIT,
 )
 
 
@@ -26,7 +27,7 @@ class AnimationImageGenerator:
         prompt: str,
         aspect_ratio: str = "landscape_16_9",
     ) -> Optional[str]:
-        """Generate a single frame image via Seed Dream 4.0.
+        """Generate a single frame image via Seed Dream 4.5.
 
         Args:
             prompt: Full image generation prompt
@@ -114,6 +115,74 @@ class AnimationImageGenerator:
 
         print(f"      \u2705 End frame ready")
         return start_url, end_url
+
+    async def generate_frame_with_reference(
+        self,
+        prompt: str,
+        reference_image_url: str,
+        aspect_ratio: str = "landscape_16_9",
+    ) -> Optional[str]:
+        """Generate a frame image using Seed Dream 4.5 Edit with a reference image.
+
+        Uses the start image as reference to maintain character/scene consistency
+        when generating end frames for animation.
+
+        Args:
+            prompt: Image generation prompt describing the frame
+            reference_image_url: URL of the reference image for consistency
+            aspect_ratio: Image size parameter for Seed Dream
+
+        Returns:
+            URL of generated image, or None if failed
+        """
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+
+        payload = {
+            "model": SCENE_IMAGE_MODEL_EDIT,
+            "input": {
+                "prompt": prompt,
+                "image_urls": [reference_image_url],
+                "image_size": aspect_ratio,
+                "image_resolution": "2K",
+                "max_images": 1,
+            },
+        }
+
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    KIE_CREATE_TASK_URL,
+                    headers=headers,
+                    json=payload,
+                    timeout=60.0,
+                )
+                if response.status_code != 200:
+                    print(f"      \u274c Seed Dream Edit API error: {response.status_code} - {response.text}")
+                    return None
+
+                task_data = response.json()
+                task_id = task_data.get("data", {}).get("taskId")
+
+                if not task_id:
+                    print(f"      \u274c No task ID returned: {task_data}")
+                    return None
+
+                # Wait before first poll
+                await asyncio.sleep(5)
+
+                result_urls = await self._poll_for_completion(task_id)
+                if result_urls:
+                    return result_urls[0]
+
+                print(f"      \u274c Reference-based generation failed (poll timeout)")
+                return None
+
+        except Exception as e:
+            print(f"      \u274c Reference-based generation error: {e}")
+            return None
 
     async def _poll_for_completion(
         self,

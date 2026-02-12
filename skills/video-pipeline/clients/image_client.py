@@ -18,9 +18,9 @@ class ImageClient:
     VEO_RECORD_INFO_URL = "https://api.kie.ai/api/v1/veo/record-info"
     VEO_1080P_URL = "https://api.kie.ai/api/v1/veo/get-1080p-video"
 
-    # Model routing (v2)
-    SCENE_MODEL = "bytedance/seedream-v4-text-to-image"  # Seed Dream 4.0 for scene images
-    SCENE_MODEL_EDIT = "bytedance/seedream-v4-edit"  # Seed Dream 4.0 Edit for reference-based generation
+    # Model routing (v3 - Seed Dream 4.5)
+    SCENE_MODEL = "seedream/4.5-text-to-image"  # Seed Dream 4.5 for scene images
+    SCENE_MODEL_EDIT = "seedream/4.5-edit"  # Seed Dream 4.5 Edit for reference-based generation
     THUMBNAIL_MODEL = "nano-banana-pro"  # Nano Banana Pro for thumbnails - text rendering
 
     # Veo 3.1 models
@@ -328,7 +328,7 @@ class ImageClient:
         prompt: str,
         seed: int = None,
     ) -> Optional[dict]:
-        """Generate a scene image using Seed Dream 4.0.
+        """Generate a scene image using Seed Dream 4.5.
 
         This is the primary method for all scene/content images in the pipeline.
 
@@ -344,7 +344,7 @@ class ImageClient:
             "Content-Type": "application/json",
         }
 
-        # Seed Dream 4.0 API parameters
+        # Seed Dream 4.5 API parameters
         payload = {
             "model": self.SCENE_MODEL,
             "input": {
@@ -358,7 +358,7 @@ class ImageClient:
         if seed is not None:
             payload["input"]["seed"] = seed
 
-        print(f"      🎨 Generating scene image with Seed Dream 4.0...")
+        print(f"      🎨 Generating scene image with Seed Dream 4.5...")
 
         try:
             async with httpx.AsyncClient() as client:
@@ -404,7 +404,7 @@ class ImageClient:
         reference_image_url: str,
         seed: int = None,
     ) -> Optional[dict]:
-        """Generate a scene image using Seed Dream 4.0 Edit with a reference image.
+        """Generate a scene image using Seed Dream 4.5 Edit with a reference image.
 
         Uses the start image as reference to maintain character/scene consistency
         when generating end frames for animation.
@@ -422,7 +422,7 @@ class ImageClient:
             "Content-Type": "application/json",
         }
 
-        # Seed Dream 4.0 Edit API parameters
+        # Seed Dream 4.5 Edit API parameters
         payload = {
             "model": self.SCENE_MODEL_EDIT,
             "input": {

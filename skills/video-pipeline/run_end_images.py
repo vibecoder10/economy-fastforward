@@ -1,6 +1,6 @@
 """Generate end image prompts and end images for all scenes.
 
-Uses Seed Dream v4 Edit with start_image as reference for character consistency.
+Uses Seed Dream 4.5 Edit with start_image as reference for character consistency.
 
 Uses the canonical /animation/ module for Airtable client and prompt generation,
 and the local clients/ module for image generation and Google Drive upload.
@@ -129,7 +129,7 @@ async def main(force_regenerate: bool = False):
         print(f"    Camera: {scene.get('camera_direction')}")
         print(f"    Reference: {start_image_url[:60]}...")
 
-        # Generate end image with Seed Dream Edit (uses start image as reference)
+        # Generate end image with Seed Dream 4.5 Edit (uses start image as reference)
         result = await image_client.generate_scene_image_with_reference(
             prompt=end_prompt,
             reference_image_url=start_image_url,

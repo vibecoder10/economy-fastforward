@@ -1160,7 +1160,7 @@ class VideoPipeline:
                     record_id = img_record["id"]
 
                     try:
-                        # Generate scene image using Seed Dream 4.0
+                        # Generate scene image using Seed Dream 4.5
                         result = await self.image_client.generate_scene_image(prompt)
 
                         if result and result.get("url"):
@@ -1950,7 +1950,7 @@ class VideoPipeline:
                     return (img_record, None, index, "No prompt")
 
                 try:
-                    # Use Seed Dream 4.0 for scene images
+                    # Use Seed Dream 4.5 for scene images
                     result = await self.image_client.generate_scene_image(prompt)
                     return (img_record, result, index, None)
                 except Exception as e:
