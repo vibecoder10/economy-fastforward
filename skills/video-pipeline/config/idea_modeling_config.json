@@ -1,0 +1,29 @@
+{
+  psychological_triggers: [
+    {id: longevity, description: Forever, lifetime, never dies — appeals to long-term safety},
+    {id: fear, description: Collapse, crash, crisis — loss aversion trigger},
+    {id: practical_value, description: How to, guide, tips — actionable takeaway},
+    {id: curiosity_gap, description: Secret, hidden, nobody talks about — information asymmetry},
+    {id: authority, description: Expert, insider, CEO reveals — credibility transfer},
+    {id: urgency, description: Now, 2026, this week, before its too late — time pressure"},
+    {"id": "contrarian", "description": "Actually, truth about, myth — challenges assumptions"},
+    {"id": "aspiration", "description": "Millionaire, wealthy, rich — identity/status appeal"},
+    {"id": "outrage", "description": "Exposed, scam, rigged — moral indignation"},
+    {"id": "scale", "description": "Numbers, rankings, lists — concrete magnitude"}
+  ],
+  "variable_types": [
+    {"id": "number", "description": "Concrete number (7, 30, 100)", "examples": ["7", "30", "Top 10"]},
+    {"id": "authority_qualifier", "description": "Credibility word (Most, Best, Expert-Approved)", "examples": ["Most Reliable", "Best", "Billionaires]},
+    {id: core_topic, description: The main subject noun, examples: [Cars, Stocks, Banks]},
+    {id: extreme_benefit, description: The big promise or consequence, examples: [Forever Lasting, Will Collapse, Make You Rich]},
+    {id: specific_mechanism, description: The concrete detail that grounds it, examples: [Engines, In 2026, Before Age 30]},
+    {id: time_anchor, description: Temporal grounding, examples: [In 2026, Right Now, This Month]},
+    {id: target_audience, description: Who this is for, examples: [For Beginners, Nobody Tells You, Every American]}
+  ],
+  format_library: [],
+  niche_variables: {
+    core_topics: [economy, inflation, Federal Reserve, stock market, housing market, banking, debt, recession, dollar, gold, crypto, jobs, wages, trade war, tariffs, GDP, interest rates],
+    channel_name: Economy FastForward,
+    audience: Americans interested in how economic forces affect their daily lives
+  }
+}
