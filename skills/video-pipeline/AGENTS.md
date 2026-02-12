@@ -4,7 +4,7 @@
 
 ### Overview
 
-The Documentary Animation Prompt System generates visually specific, cinematic prompts optimized for AI image generation using **Seed Dream 4.0** for scene images and **Nano Banana Pro** for thumbnails.
+The Documentary Animation Prompt System generates visually specific, cinematic prompts optimized for AI image generation using **Seed Dream 4.5** for scene images and **Nano Banana Pro** for thumbnails.
 
 **Key change in v2:** Style engine prefix goes at BEGINNING of prompts (models weight early tokens more heavily).
 
@@ -207,10 +207,10 @@ Key methods:
 
 | Model | Use Case | Cost | Notes |
 |-------|----------|------|-------|
-| **Seed Dream 4.0** | All scene images | $0.025/image | Best 3D editorial render quality |
+| **Seed Dream 4.5** | All scene images | $0.025/image | Best 3D editorial render quality |
 | **Nano Banana Pro** | Thumbnails ONLY | $0.03/image | Proven text rendering, comic style |
 
-### Seed Dream 4.0 Parameters
+### Seed Dream 4.5 Parameters
 
 ```python
 SCENE_PARAMS = {

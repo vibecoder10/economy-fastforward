@@ -13,7 +13,7 @@ The pipeline is a 9-stage, status-driven video production system:
 Idea Logged → Script → Voice → Image Prompts → Images → Video Scripts → Video Gen → Thumbnail → Done
 ```
 
-**Tech Stack:** Python (async) + Airtable + Google Drive + Kie.ai (Seed Dream 4.0, Grok Imagine) + ElevenLabs + Remotion + Slack Bot
+**Tech Stack:** Python (async) + Airtable + Google Drive + Kie.ai (Seed Dream 4.5, Grok Imagine) + ElevenLabs + Remotion + Slack Bot
 
 **What works well:**
 - Status-driven pipeline with smart resume
@@ -43,7 +43,7 @@ Build a **Character Reference System** with three tiers:
 - Add a `Character Reference` attachment field to the Ideas table
 - Users upload their own character design (a logo mascot, a custom 3D render, a sketch)
 - The image prompt bot incorporates this reference into every prompt: "maintaining the character design from the reference image"
-- Use Seed Dream 4.0's image-to-image mode with the character reference as the base
+- Use Seed Dream 4.5's image-to-image mode with the character reference as the base
 
 **Tier 3 — Character Lock via Seed Pinning**
 - After the first successful character image, capture and store the seed
@@ -200,7 +200,7 @@ Even with the style engine prefix, images across a 20-scene video show noticeabl
   "cartoon, anime, illustration, paper-cut, watercolor, sketch, 2D, flat design,
   different body proportions, facial features, eyes, mouth, nose, realistic skin"
   ```
-- Seed Dream 4.0 supports negative prompts — we're not using them
+- Seed Dream 4.5 supports negative prompts — we're not using them
 
 **Layer 3 — Batch Consistency Scoring**
 - After generating all images for a scene, use Gemini Vision to score consistency (0-100) against the Golden Frame
