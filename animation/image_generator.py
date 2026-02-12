@@ -16,6 +16,20 @@ from animation.config import (
     SCENE_IMAGE_MODEL,
 )
 
+# Seed Dream 4.5 Edit uses the prompt to decide how much the reference image
+# influences the output.  Without an explicit instruction the model treats
+# the reference as a loose suggestion and essentially generates from text
+# alone.  This prefix tells the model to keep the character design, material
+# textures and visual identity from the Core Image while composing the new
+# scene described by the rest of the prompt.
+REFERENCE_ANCHOR_PREFIX = (
+    "Using the reference image as the definitive character and style guide: "
+    "keep the exact character proportions, body material, surface textures, "
+    "chest glow color and intensity, and overall visual identity from the "
+    "reference image. Reproduce the same 3D clay render quality and lighting "
+    "style. Generate a new scene composition as follows — "
+)
+
 
 class AnimationImageGenerator:
     """Generates start and end frame images for animation scenes.
@@ -50,10 +64,14 @@ class AnimationImageGenerator:
             "Content-Type": "application/json",
         }
 
+        # Anchor the prompt to the Core Image so Seed Dream 4.5 Edit
+        # preserves the character design and visual style from the reference.
+        anchored_prompt = f"{REFERENCE_ANCHOR_PREFIX}{prompt}"
+
         payload = {
             "model": SCENE_IMAGE_MODEL,
             "input": {
-                "prompt": prompt,
+                "prompt": anchored_prompt,
                 "image_urls": [reference_image_url],
                 "aspect_ratio": aspect_ratio,
                 "quality": "basic",
