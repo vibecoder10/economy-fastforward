@@ -51,3 +51,12 @@ jewelry-studio/outputs/*
 # Bot JSON exports (contain API responses)
 # Uncomment if you want to include these
 # *.json
+
+# StoryEngine
+storyengine/frontend/.next/
+storyengine/frontend/node_modules/
+storyengine/backend/node_modules/
+storyengine/backend/dist/
+storyengine/**/dev.db
+storyengine/**/dev.db-journal
+storyengine/config/.env.local

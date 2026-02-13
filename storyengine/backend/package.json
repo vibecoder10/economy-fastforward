@@ -1,0 +1,27 @@
+{
+  "name": "storyengine-backend",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc",
+    "start": "node dist/server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.0",
+    "anthropic": "^0.39.0",
+    "httpx-node": "^0.1.0",
+    "zod": "^3.22.0",
+    "googleapis": "^130.0.0",
+    "google-auth-library": "^9.6.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "@types/node": "^20.11.0",
+    "@types/express": "^4.17.0",
+    "@types/cors": "^2.8.0",
+    "tsx": "^4.7.0"
+  }
+}
