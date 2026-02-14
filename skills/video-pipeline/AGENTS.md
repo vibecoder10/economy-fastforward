@@ -1,37 +1,93 @@
 # Economy FastForward - Agent Documentation
 
-## Image Prompt System v2 (Feb 2026)
+## Visual Style — 3D Editorial Mannequin Render (Feb 2026)
 
 ### Overview
 
-The Documentary Animation Prompt System generates visually specific, cinematic prompts optimized for AI image generation (Nano Banana). All images are designed for animation.
+The Documentary Animation Prompt System generates visually specific, cinematic prompts optimized for AI image generation using **Seed Dream 4.0** for scene images and **Nano Banana Pro** for thumbnails.
+
+**Key change in v2:** Style engine prefix goes at BEGINNING of prompts (models weight early tokens more heavily).
 
 ### Architecture
 
-Prompts use a **5-layer architecture**:
+Prompts use a **7-layer architecture**:
 
 ```
-[SHOT TYPE] + [SCENE COMPOSITION] + [FOCAL SUBJECT] + [ENVIRONMENTAL STORYTELLING] + [STYLE_ENGINE + LIGHTING]
+[STYLE_ENGINE_PREFIX] + [SHOT TYPE] + [SCENE COMPOSITION] + [FOCAL SUBJECT] + [ENVIRONMENTAL STORYTELLING] + [STYLE_ENGINE_SUFFIX + LIGHTING] + [TEXT RULE]
 ```
 
 #### Layer Breakdown
 
 | Layer | Words | Description |
 |-------|-------|-------------|
-| Shot Type | 5 | Camera framing (e.g., "Overhead isometric diorama of") |
-| Scene Composition | 15 | Physical scene/environment - CONCRETE places, not abstractions |
-| Focal Subject | 20 | Main character/object with action and emotion |
-| Environmental Storytelling | 30 | Symbolic objects, visual metaphors, data made physical |
-| Style Engine + Lighting | 50 | Locked constant + scene-specific warm vs cool contrast |
+| Style Engine Prefix | 18 | ALWAYS FIRST - 3D editorial style declaration |
+| Shot Type | 6 | Camera framing (e.g., "Isometric overhead view of") |
+| Scene Composition | 20 | Physical environment with MATERIALS (concrete, chrome, glass) |
+| Focal Subject | 25 | Matte gray mannequin with BODY LANGUAGE (no faces) |
+| Environmental Storytelling | 35 | Symbolic objects in appropriate materials |
+| Style Engine Suffix + Lighting | 30 | Locked constant + warm vs cool contrast |
+| Text Rule | 10 | No text, or specify max 3 elements with material surfaces |
 
-### Style Engine (Locked Constant)
+### Style Engine (Locked Constants)
 
+**STYLE_ENGINE_PREFIX (always first):**
 ```
-Lo-fi 2D digital illustration, paper-cut collage diorama with layered depth,
-visible brushstroke textures, subtle film grain, muted earth tones with selective
-neon accent lighting, tilt-shift miniature depth of field, Studio Ghibli background
-painting meets editorial infographic, 16:9 cinematic composition
+3D editorial conceptual render, monochromatic smooth matte gray mannequin figures with no facial
+features, photorealistic materials and studio lighting.
 ```
+
+**STYLE_ENGINE_SUFFIX (near end):**
+```
+Clean studio lighting, shallow depth of field, matte and metallic material
+contrast, cinematic 16:9 composition
+```
+
+### Material Vocabulary
+
+The 3D style's power comes from contrasting material textures:
+
+| Category | Materials |
+|----------|-----------|
+| Premium/Aspirational | polished chrome, brushed gold, glass dome, velvet lining, warm spotlight, copper accents, leather with gold foil |
+| Institutional/Cold | brushed steel, concrete, frosted glass, iron chains, cold fluorescent tubes, matte black, industrial pipes |
+| Decay/Danger | rusted iron, cracked concrete, leaking dark fluid, corroded metal, flickering warning lights, oxidized copper |
+| Data/Information | frosted glass panels with etched lines, chrome clipboards, backlit displays, embossed metal numerals |
+
+### Figure Rules — The Mannequin
+
+**ALWAYS specify:**
+- Exact count: "one mannequin", "three mannequin figures"
+- Material: "matte gray" (consistent across all scenes)
+- Scale: "at medium scale" or "large in foreground"
+- Clothing: "in a suit" for professionals
+- Body language (CRITICAL since no face):
+  - DEFEAT: "shoulders slumped, head bowed, arms hanging"
+  - CONFIDENCE: "striding forward, chin raised, briefcase in hand"
+  - REACHING: "arms extended upward, on tiptoes"
+  - OVERWHELMED: "hunched over desk, hands gripping edges"
+  - TRAPPED: "pressed against glass wall, hands flat on surface"
+
+**NEVER:**
+- "figures" without "mannequin" (model might generate realistic humans)
+- Any facial expressions (mannequins are faceless)
+- "crowd" or "people" (too vague)
+
+### Text Rules for Scene Images
+
+Text renders BETTER in 3D style — use material surfaces:
+
+| Text Type | Example |
+|-----------|---------|
+| Dates | "2030" as embossed chrome numerals on frosted glass |
+| Currency | "$250K" as stamped chrome price tag |
+| Labels | "DENIED" stamped on matte document |
+| Data points | "36T" on brushed steel plate |
+
+**Rules:**
+- Max 3 text elements per image
+- Max 3 words each
+- Every text element needs a material surface specified
+- End prompt with: "no additional text beyond the specified elements" or "no text, no words, no labels"
 
 ### Scene Types (6 Types - Rotate for Variety)
 
@@ -71,73 +127,152 @@ For scenes with fewer images:
 
 ### Word Budget
 
-**Hard limit: 80-120 words per prompt**
+**Hard limit: 120-150 words per prompt** (increased from 80-120 for 3D style detail)
 
 Every word must describe something VISUAL.
 
 ### DO / DO NOT Rules
 
 #### DO:
-- State each visual concept ONCE with specific imagery
-- Use concrete nouns: "dollar sign barriers", "crumbling bridge", "glowing neon skyline"
-- Include specific colors: "warm amber", "cold blue-white", "muted earth tones with red warning accents"
-- Describe spatial relationships: "left side dim, right side glowing"
-- Include texture words: "paper-cut", "layered", "brushstroke", "film grain"
+- Describe MATERIALS: chrome, steel, concrete, glass, leather, velvet
+- Specify mannequin BODY LANGUAGE for emotion
+- Use spatial relationships: "left side dark concrete, right side warm polished marble"
+- Include material contrasts: matte vs metallic, warm vs cold
+- Start every prompt with STYLE_ENGINE_PREFIX
 
 #### DO NOT:
-- Repeat concepts in different words (no "innovation slows" 5 ways)
-- Explain economics (AI models don't understand "geographic mobility hit record lows")
-- Use vague abstractions: "innovation", "mobility paralysis", "economic stagnation"
-- Include keyword spam sections
-- Exceed 120 words per prompt
+- Use paper-cut, illustration, lo-fi, or 2D style references
+- Include facial expressions (mannequins are faceless)
+- Explain economics abstractly
+- Use double quotes (use single quotes)
+- Exceed 150 words per prompt
 
-### Example Prompts
+### Example Prompts (3D Editorial Mannequin Render)
 
-#### WIDE ESTABLISHING (Overhead Map)
+#### WIDE ESTABLISHING (Isometric Diorama)
 ```
-Overhead isometric map of America as a paper-cut diorama, glowing orange
-clusters marking tech hubs in SF Austin NYC Boston, dim blue-gray everywhere
-else, tiny paper figures crowded in the dim zones reaching toward the glow,
-red price tag barriers ringing each bright cluster, migration flow arrows
-drawn in pencil fading to nothing, warm neon vs cool shadow contrast,
-lo-fi 2D digital illustration with layered paper depth and visible brushstroke
-textures, subtle film grain, tilt-shift miniature depth of field, Studio Ghibli
-background painting meets editorial infographic, 16:9 cinematic wide shot,
-soft volumetric lighting through paper layers
+3D editorial conceptual render, monochromatic smooth matte gray mannequin figures with no facial
+features, photorealistic materials and studio lighting. Isometric overhead view
+of a miniature America as a brushed steel diorama, glowing amber clusters marking
+tech hubs, dim concrete zones elsewhere, small matte gray mannequin figures
+crowded in the dim zones arms reaching toward the glow, chrome price tag barriers
+ringing each bright cluster, migration flow lines etched into frosted glass floor.
+Clean studio lighting, shallow depth of field, matte and metallic material contrast,
+cinematic 16:9 composition, warm amber vs cold steel blue lighting contrast,
+no text beyond the etched flow lines
 ```
 
-#### MEDIUM HUMAN STORY (Side View)
+#### MEDIUM HUMAN STORY
 ```
-Side view of a young engineer at a desk in a small dim apartment, laptop screen
-showing job offers from San Francisco, beside her a stack of apartment listings
-with crossed-out prices, through the window a quiet small-town street with bare
-trees, her expression determined but trapped, split warm desk lamp light vs cold
-blue window light, paper-cut collage style with layered depth, muted earth tones
-with selective amber and blue accents, visible hand-drawn linework, lo-fi 2D
-digital illustration with film grain, 16:9 cinematic frame
+3D editorial conceptual render, monochromatic smooth matte gray mannequin figures with no facial
+features, photorealistic materials and studio lighting. Medium shot of one matte
+gray mannequin in a wrinkled suit sitting at a brushed steel desk, shoulders
+slumped head bowed, laptop screen glowing with job listings, beside it a stack
+of documents on cracked concrete surface, through frosted glass window a dim
+cityscape. Clean studio lighting, shallow depth of field, matte and metallic
+material contrast, cinematic 16:9 composition, warm desk lamp amber vs cold
+window blue-gray lighting, no text no words no labels
 ```
 
 #### DATA LANDSCAPE
 ```
-A broken bridge made of dollar bills spanning a deep canyon, left cliff edge
-labeled TALENT with crowds of paper-cut workers looking across, right cliff
-labeled OPPORTUNITY with gleaming miniature city skyline and cranes, bridge
-crumbling in the middle with price tags falling into the void, equation fragments
-floating in dusty air, isometric perspective with tilt-shift blur at edges, muted
-palette with red warning accents on the fracture point, lo-fi 2D digital
-illustration with film grain and brushstroke overlay, 16:9 cinematic composition
+3D editorial conceptual render, monochromatic smooth matte gray mannequin figures with no facial
+features, photorealistic materials and studio lighting. Wide shot of a broken
+chrome bridge spanning a dark void, left cliff of cracked concrete with matte
+gray mannequin figures shoulders slumped looking across, right cliff of polished
+marble with gleaming glass buildings and copper cranes, bridge fractured in the
+middle with chrome price tags falling into darkness, embossed metal numerals
+'36T' on a steel plate at the fracture point. Clean studio lighting, shallow
+depth of field, matte and metallic material contrast, cinematic 16:9 composition,
+cold concrete gray on left vs warm golden glow on right, no additional text
+beyond the specified numerals
 ```
 
 ### Implementation
 
 The prompt system is implemented in:
-- `clients/style_engine.py` - Constants, scene types, camera patterns
+- `clients/style_engine.py` - Constants, scene types, camera patterns, material vocabulary
 - `clients/anthropic_client.py` - Prompt generation methods
 
 Key methods:
-- `segment_scene_into_concepts()` - Main prompt generation with 5-layer architecture
+- `segment_scene_into_concepts()` - Main prompt generation with 7-layer architecture
 - `get_documentary_pattern()` - Returns camera role sequence for segment count
 - `get_scene_type_for_segment()` - Returns scene type with rotation logic
+
+---
+
+## Image Model Routing (Feb 2026)
+
+### Model Configuration
+
+| Model | Use Case | Cost | Notes |
+|-------|----------|------|-------|
+| **Seed Dream 4.0** | All scene images | $0.025/image | Best 3D editorial render quality |
+| **Nano Banana Pro** | Thumbnails ONLY | $0.03/image | Proven text rendering, comic style |
+
+### Seed Dream 4.0 Parameters
+
+```python
+SCENE_PARAMS = {
+    "image_size": "landscape_16_9",  # NOT aspect_ratio
+    "image_resolution": "2K",
+    "max_images": 1,
+    "seed": optional_int,  # Store in Airtable for reproducibility
+}
+```
+
+### Key Methods
+
+- `image_client.generate_scene_image(prompt, seed=None)` → Returns `{"url": str, "seed": int}`
+- `image_client.generate_thumbnail(prompt)` → Returns `[url, ...]`
+
+---
+
+## Thumbnail System v2 (Feb 2026)
+
+### Overview
+
+Thumbnails use a DIFFERENT style than scene images — comic/editorial illustration via Nano Banana Pro, NOT 3D mannequin render. The house style is locked and works without a reference URL.
+
+### House Style
+
+**Composition — "Problem → Payoff" Split:**
+- Left 60%: THE TENSION (dramatic scene, emotional figure, dark mood)
+- Right 40%: THE PAYOFF (answer, protection, brightest element)
+- Separator: diagonal divide line and/or bold red arrow
+
+**Color System — 2+1 Rule:**
+- BACKGROUND: One dominant mood color (deep navy, dark red, dark green)
+- POP ACCENT: One bright contrast (golden glow, electric green)
+- TEXT: White with black outline (ALWAYS)
+
+**Figure Rules:**
+- ONE central figure, comic/editorial illustration style
+- Thick bold black outlines, expressive face
+- Upper body minimum, professional clothing
+- Body language matches topic emotion
+
+### Thumbnail Text
+
+Text IS included in thumbnails (Nano Banana Pro handles it well):
+
+- Position: Upper 20% of frame, two lines stacked
+- Line 1 (larger): Hook — year, number, dramatic claim (max 5 words)
+- Line 2 (smaller): Question/tension (max 5 words)
+- ONE word highlighted in bright red (curiosity trigger)
+- Style: Bold white condensed sans-serif, ALL CAPS, black outline + shadow
+
+### Function Signature (CHANGED in v2)
+
+```python
+# NEW signature - video_title and video_summary required, spec optional
+async def generate_thumbnail_prompt(
+    video_title: str,
+    video_summary: str,
+    thumbnail_spec_json: dict = None,  # Optional Gemini analysis
+    thumbnail_concept: str = "",        # Optional Airtable direction
+) -> str
+```
 
 ---
 
@@ -201,27 +336,35 @@ Motion prompts are generated based on shot type:
 | Data Landscape | Slow crane upward | + revealing the scale |
 | Overhead Map | Slow push-in | + with rotation surveying landscape |
 
-### Motion Vocabulary (Paper-Cut Style)
+### Motion Vocabulary (3D Clay Render Style)
 
-All motion should feel like animated illustrations, not live action.
+All motion should feel subtle and mechanical, matching the 3D render aesthetic.
 
-**Figures/People:**
-- "figure gently turns head toward..."
-- "silhouette slowly reaches hand forward"
-- "paper-cut figures subtly sway in place"
-- "character's hair and clothes drift as if underwater"
+**Mannequin Figures:**
+- "mannequin subtly shifts weight"
+- "mannequin slowly turns body"
+- "mannequin's arm gradually lifts"
+- "mannequin's head gently tilts down"
+- "fingers slowly close around handle"
+
+**Mechanical/Industrial:**
+- "gears slowly rotate"
+- "pipes subtly vibrate"
+- "gauge needles drift toward red zone"
+- "lever gradually pulls down"
+- "cracks slowly spread through concrete"
 
 **Environmental:**
-- "paper layers shift with gentle parallax depth"
-- "leaves and particles drift slowly across frame"
-- "smoke or fog wisps curl through the scene"
-- "light beams slowly sweep across the surface"
+- "dust particles float through light beams"
+- "fog wisps curl between objects"
+- "light slowly sweeps across chrome surface"
+- "reflections shift on metallic surfaces"
 
 **Atmospheric (include at least one):**
-- "warm light gently pulses like breathing"
-- "dust particles float through light beams"
-- "subtle film grain flickers"
-- "shadows slowly shift as if clouds passing overhead"
+- "warm spotlight slowly brightens"
+- "shadows gradually lengthen"
+- "ambient light subtly shifts from cool to warm"
+- "lens flare drifts across frame"
 
 **Speed Words:**
 - ALWAYS use: slow, subtle, gentle, soft, gradual, drifting, easing

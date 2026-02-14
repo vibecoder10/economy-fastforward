@@ -243,6 +243,7 @@ class AirtableClient:
         video_title: str,
         cumulative_start: float = 0.0,
         aspect_ratio: str = "16:9",
+        shot_type: str = None,
     ) -> dict:
         """Create a sentence-aligned image prompt record.
 
@@ -260,7 +261,9 @@ class AirtableClient:
             "Sentence Index": sentence_index,
             # Note: "Start Time (s)" field removed - Airtable field type issue
         }
-        record = self.images_table.create(fields)
+        if shot_type:
+            fields["Shot Type"] = shot_type
+        record = self.images_table.create(fields, typecast=True)
         return {"id": record["id"], **record["fields"]}
 
     def create_segment_image_record(
@@ -464,3 +467,25 @@ class AirtableClient:
             sort=["Scene", "Image Index"],
         )
         return [{"id": r["id"], **r["fields"]} for r in records]
+
+    def update_record(self, table_name: str, record_id: str, fields: dict) -> dict:
+        """Generic update for any table record.
+        
+        Args:
+            table_name: "Ideas", "Script", or "Images"
+            record_id: Airtable record ID
+            fields: Dict of field names to values
+            
+        Returns:
+            Updated record
+        """
+        if table_name == "Ideas":
+            table = self.ideas_table
+        elif table_name == "Script":
+            table = self.script_table
+        elif table_name == "Images":
+            table = self.images_table
+        else:
+            raise ValueError(f"Unknown table: {table_name}")
+        
+        return table.update(record_id, fields)

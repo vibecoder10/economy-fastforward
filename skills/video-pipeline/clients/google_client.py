@@ -2,18 +2,67 @@
 
 import os
 import io
+import time
 from typing import Optional
 import httpx
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
+from googleapiclient.errors import HttpError
+
+
+class GoogleDocsUnavailableError(Exception):
+    """Raised when Google Docs API is unavailable after retries."""
+    pass
+
+
+def get_direct_drive_url(drive_url: str) -> Optional[str]:
+    """Convert Google Drive view URL to direct download URL.
+
+    CRITICAL: Airtable attachment URLs expire after ~2 hours.
+    Always use Google Drive permanent URLs for image-to-video and Remotion.
+
+    Args:
+        drive_url: Google Drive view URL (e.g., https://drive.google.com/file/d/FILE_ID/view)
+
+    Returns:
+        Direct download URL (e.g., https://drive.google.com/uc?export=download&id=FILE_ID)
+        or None if conversion fails
+    """
+    if not drive_url:
+        return None
+
+    try:
+        # Handle various Drive URL formats
+        if "/file/d/" in drive_url:
+            # Format: https://drive.google.com/file/d/FILE_ID/view
+            file_id = drive_url.split("/file/d/")[1].split("/")[0]
+        elif "id=" in drive_url:
+            # Format: https://drive.google.com/uc?id=FILE_ID or ?export=download&id=FILE_ID
+            file_id = drive_url.split("id=")[1].split("&")[0]
+        elif "/open?id=" in drive_url:
+            # Format: https://drive.google.com/open?id=FILE_ID
+            file_id = drive_url.split("/open?id=")[1].split("&")[0]
+        else:
+            print(f"    ⚠️ Unknown Drive URL format: {drive_url[:50]}...")
+            return None
+
+        return f"https://drive.google.com/uc?export=download&id={file_id}"
+
+    except (IndexError, AttributeError) as e:
+        print(f"    ⚠️ Failed to parse Drive URL: {e}")
+        return None
 
 
 class GoogleClient:
     """Client for Google Drive and Docs APIs."""
-    
+
     # Default folder ID from n8n workflow (Economy Fastforward folder)
     DEFAULT_PARENT_FOLDER_ID = "1zqsSvdyLWTRIt-Ri8VQELbYHhJihn6YD"
+
+    # Retry settings for transient errors
+    MAX_RETRIES = 3
+    INITIAL_BACKOFF = 1.0  # seconds
     
     def __init__(
         self,
@@ -56,16 +105,48 @@ class GoogleClient:
         if self._docs_service is None:
             self._docs_service = build("docs", "v1", credentials=self.credentials)
         return self._docs_service
-    
+
+    def _retry_with_backoff(self, func, *args, **kwargs):
+        """Execute a function with exponential backoff retry on transient errors.
+
+        Args:
+            func: Function to execute
+            *args, **kwargs: Arguments to pass to function
+
+        Returns:
+            Result of function call
+
+        Raises:
+            GoogleDocsUnavailableError: If all retries fail with 503
+            HttpError: For non-transient errors
+        """
+        last_error = None
+        for attempt in range(self.MAX_RETRIES):
+            try:
+                return func(*args, **kwargs)
+            except HttpError as e:
+                # Only retry on 503 Service Unavailable
+                if e.resp.status == 503:
+                    last_error = e
+                    wait_time = self.INITIAL_BACKOFF * (2 ** attempt)
+                    print(f"    Google API 503 error, retry {attempt + 1}/{self.MAX_RETRIES} in {wait_time}s...")
+                    time.sleep(wait_time)
+                else:
+                    raise
+        # All retries exhausted
+        raise GoogleDocsUnavailableError(
+            f"Google Docs API unavailable after {self.MAX_RETRIES} retries"
+        ) from last_error
+
     # ==================== DRIVE OPERATIONS ====================
     
     def create_folder(self, name: str, parent_id: Optional[str] = None) -> dict:
         """Create a folder in Google Drive.
-        
+
         Args:
             name: Folder name
             parent_id: Parent folder ID (uses default if not specified)
-            
+
         Returns:
             Dict with folder id, name, and mimeType
         """
@@ -75,13 +156,14 @@ class GoogleClient:
             "mimeType": "application/vnd.google-apps.folder",
             "parents": [parent],
         }
-        
-        folder = self.drive_service.files().create(
-            body=file_metadata,
-            fields="id, name, mimeType",
-        ).execute()
-        
-        return folder
+
+        def _create():
+            return self.drive_service.files().create(
+                body=file_metadata,
+                fields="id, name, mimeType",
+            ).execute()
+
+        return self._retry_with_backoff(_create)
     
     def get_or_create_folder(self, name: str, parent_id: Optional[str] = None) -> dict:
         """Get existing folder or create new one.
@@ -103,22 +185,24 @@ class GoogleClient:
     
     def search_folder(self, name: str) -> Optional[dict]:
         """Search for a folder by name.
-        
+
         Args:
             name: Folder name to search for
-            
+
         Returns:
             Folder dict or None if not found
         """
         # Escape single quotes in folder name
         escaped_name = name.replace("'", "\\'")
         query = f"name = '{escaped_name}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
-        
-        results = self.drive_service.files().list(
-            q=query,
-            fields="files(id, name, mimeType)",
-        ).execute()
-        
+
+        def _search():
+            return self.drive_service.files().list(
+                q=query,
+                fields="files(id, name, mimeType)",
+            ).execute()
+
+        results = self._retry_with_backoff(_search)
         files = results.get("files", [])
         return files[0] if files else None
     
@@ -133,25 +217,29 @@ class GoogleClient:
         """
         escaped_name = name_part.replace("'", "\\'")
         query = f"name contains '{escaped_name}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
-        
-        results = self.drive_service.files().list(
-            q=query,
-            fields="files(id, name, mimeType)",
-        ).execute()
-        
+
+        def _search():
+            return self.drive_service.files().list(
+                q=query,
+                fields="files(id, name, mimeType)",
+            ).execute()
+
+        results = self._retry_with_backoff(_search)
         files = results.get("files", [])
         return files[0] if files else None
-    
+
     def search_file(self, name: str, folder_id: str) -> Optional[dict]:
         """Search for a file by name in a specific folder."""
         escaped_name = name.replace("'", "\\'")
         query = f"name = '{escaped_name}' and '{folder_id}' in parents and trashed = false"
-        
-        results = self.drive_service.files().list(
-            q=query,
-            fields="files(id, name, mimeType)",
-        ).execute()
-        
+
+        def _search():
+            return self.drive_service.files().list(
+                q=query,
+                fields="files(id, name, mimeType)",
+            ).execute()
+
+        results = self._retry_with_backoff(_search)
         files = results.get("files", [])
         return files[0] if files else None
 
@@ -164,14 +252,14 @@ class GoogleClient:
         check_existing: bool = True,
     ) -> dict:
         """Upload a file to Google Drive.
-        
+
         Args:
             content: File content as bytes
             name: File name
             folder_id: Target folder ID
             mime_type: MIME type of the file
             check_existing: If True, checks if file exists and returns it instead of creating duplicate
-            
+
         Returns:
             Dict with file id, name, and mimeType
         """
@@ -185,20 +273,21 @@ class GoogleClient:
             "name": name,
             "parents": [folder_id],
         }
-        
+
         media = MediaIoBaseUpload(
             io.BytesIO(content),
             mimetype=mime_type,
             resumable=True,
         )
-        
-        file = self.drive_service.files().create(
-            body=file_metadata,
-            media_body=media,
-            fields="id, name, mimeType",
-        ).execute()
-        
-        return file
+
+        def _upload():
+            return self.drive_service.files().create(
+                body=file_metadata,
+                media_body=media,
+                fields="id, name, mimeType",
+            ).execute()
+
+        return self._retry_with_backoff(_upload)
     
     def upload_image(self, content: bytes, name: str, folder_id: str) -> dict:
         """Upload an image to Google Drive."""
@@ -245,18 +334,20 @@ class GoogleClient:
 
     def make_file_public(self, file_id: str) -> str:
         """Make a file public and return its direct download link (webContentLink)."""
-        # 1. Add 'anyone' permission
-        self.drive_service.permissions().create(
-            fileId=file_id,
-            body={"role": "reader", "type": "anyone"},
-        ).execute()
-        
-        # 2. Get webContentLink
-        file = self.drive_service.files().get(
-            fileId=file_id,
-            fields="webContentLink"
-        ).execute()
-        
+        def _set_permission():
+            self.drive_service.permissions().create(
+                fileId=file_id,
+                body={"role": "reader", "type": "anyone"},
+            ).execute()
+
+        def _get_link():
+            return self.drive_service.files().get(
+                fileId=file_id,
+                fields="webContentLink"
+            ).execute()
+
+        self._retry_with_backoff(_set_permission)
+        file = self._retry_with_backoff(_get_link)
         return file.get("webContentLink")
 
     def get_direct_drive_url(self, url_or_id: str) -> str:
@@ -318,60 +409,88 @@ class GoogleClient:
     
     def create_document(self, title: str, folder_id: Optional[str] = None) -> dict:
         """Create a new Google Doc.
-        
+
         Args:
             title: Document title
             folder_id: Folder to create doc in (if specified, doc will be moved there)
-            
+
         Returns:
-            Dict with document id and title
+            Dict with document id, title, and 'unavailable' flag if API is down
         """
-        doc = self.docs_service.documents().create(
-            body={"title": title}
-        ).execute()
-        
-        doc_id = doc["documentId"]
-        
-        # Move to folder if specified
-        if folder_id:
-            self.drive_service.files().update(
-                fileId=doc_id,
-                addParents=folder_id,
-                removeParents="root",
-                fields="id, parents",
-            ).execute()
-        
-        return {
-            "id": doc_id,
-            "title": title,
-        }
-    
-    def append_to_document(self, doc_id: str, text: str) -> None:
-        """Append text to a Google Doc.
-        
-        Args:
-            doc_id: Document ID
-            text: Text to append (with newlines)
-        """
-        # Get current document length
-        doc = self.docs_service.documents().get(documentId=doc_id).execute()
-        end_index = doc["body"]["content"][-1]["endIndex"] - 1
-        
-        # Insert text at the end
-        requests = [
-            {
-                "insertText": {
-                    "location": {"index": end_index},
-                    "text": text + "\n\n",
-                }
+        try:
+            def _create():
+                return self.docs_service.documents().create(
+                    body={"title": title}
+                ).execute()
+
+            doc = self._retry_with_backoff(_create)
+            doc_id = doc["documentId"]
+
+            # Move to folder if specified
+            if folder_id:
+                self.drive_service.files().update(
+                    fileId=doc_id,
+                    addParents=folder_id,
+                    removeParents="root",
+                    fields="id, parents",
+                ).execute()
+
+            return {
+                "id": doc_id,
+                "title": title,
+                "unavailable": False,
             }
-        ]
-        
-        self.docs_service.documents().batchUpdate(
-            documentId=doc_id,
-            body={"requests": requests},
-        ).execute()
+        except GoogleDocsUnavailableError:
+            print(f"    ⚠️  Google Docs API unavailable - continuing without doc")
+            return {
+                "id": None,
+                "title": title,
+                "unavailable": True,
+            }
     
-    def get_document_url(self, doc_id: str) -> str:
+    def append_to_document(self, doc_id: Optional[str], text: str) -> bool:
+        """Append text to a Google Doc.
+
+        Args:
+            doc_id: Document ID (None if doc unavailable)
+            text: Text to append (with newlines)
+
+        Returns:
+            True if successful, False if unavailable or failed
+        """
+        if not doc_id:
+            # Doc was never created (API was down)
+            return False
+
+        try:
+            def _append():
+                # Get current document length
+                doc = self.docs_service.documents().get(documentId=doc_id).execute()
+                end_index = doc["body"]["content"][-1]["endIndex"] - 1
+
+                # Insert text at the end
+                requests = [
+                    {
+                        "insertText": {
+                            "location": {"index": end_index},
+                            "text": text + "\n\n",
+                        }
+                    }
+                ]
+
+                self.docs_service.documents().batchUpdate(
+                    documentId=doc_id,
+                    body={"requests": requests},
+                ).execute()
+
+            self._retry_with_backoff(_append)
+            return True
+        except GoogleDocsUnavailableError:
+            print(f"    ⚠️  Google Docs API unavailable - scene saved to Airtable only")
+            return False
+    
+    def get_document_url(self, doc_id: Optional[str]) -> Optional[str]:
         """Get the URL for a Google Doc."""
+        if not doc_id:
+            return None
         return f"https://docs.google.com/document/d/{doc_id}/edit"

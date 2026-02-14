@@ -86,6 +86,7 @@ class VideoPipeline:
         self.video_title: Optional[str] = None
         self.current_idea_id: Optional[str] = None
         self.current_idea: Optional[dict] = None
+        self.core_image_url: Optional[str] = None
     
     def get_idea_by_status(self, status: str) -> Optional[dict]:
         """Get ONE idea with the specified status."""
@@ -99,9 +100,21 @@ class VideoPipeline:
         self.current_idea = idea
         self.current_idea_id = idea.get("id")
         self.video_title = idea.get("Video Title", "Untitled")
+
+        # Extract Core Image URL from the idea/project record
+        core_image_attachments = idea.get("Core Image", [])
+        if core_image_attachments and isinstance(core_image_attachments, list):
+            self.core_image_url = core_image_attachments[0].get("url", "")
+        else:
+            self.core_image_url = ""
+
         print(f"\n📌 Loaded idea: {self.video_title}")
         print(f"   Status: {idea.get('Status')}")
         print(f"   ID: {self.current_idea_id}")
+        if self.core_image_url:
+            print(f"   🖼️ Core Image: {self.core_image_url[:80]}...")
+        else:
+            print(f"   ⚠️ No Core Image found — scene image generation requires it")
 
     def _extract_youtube_thumbnail(self, url: str) -> Optional[str]:
         """Extract thumbnail image URL from a YouTube video URL.
@@ -560,11 +573,12 @@ class VideoPipeline:
             self._load_idea(idea)
             return await self.run_thumbnail_bot()
         
-        # 8. Check for Ready To Render
-        idea = self.get_idea_by_status(self.STATUS_READY_TO_RENDER)
-        if idea:
-            self._load_idea(idea)
-            return await self.run_render_bot()
+        # 8. SKIPPED - Render Bot (manual only, Ryan triggers via Remotion Studio)
+        # idea = self.get_idea_by_status(self.STATUS_READY_TO_RENDER)
+        # if idea:
+        #     self._load_idea(idea)
+        #     return await self.run_render_bot()
+
         
         # No work to do
         print("\n✅ No videos ready for processing!")
@@ -679,10 +693,13 @@ class VideoPipeline:
         # Create project folder in Google Drive
         folder = self.google.create_folder(self.video_title)
         self.project_folder_id = folder["id"]
-        
-        # Create Google Doc for script
+
+        # Create Google Doc for script (graceful fallback if API unavailable)
         doc = self.google.create_document(self.video_title, self.project_folder_id)
-        self.google_doc_id = doc["id"]
+        self.google_doc_id = doc["id"]  # May be None if unavailable
+        docs_available = not doc.get("unavailable", False)
+        if not docs_available:
+            print("  ⚠️  Google Docs unavailable - scripts will be saved to Airtable only")
         
         # Generate beat sheet
         beat_sheet = await self.anthropic.generate_beat_sheet(self.current_idea)
@@ -731,11 +748,11 @@ class VideoPipeline:
         # UPDATE STATUS to Ready For Voice
         self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_VOICE)
         print(f"  ✅ Status updated to: {self.STATUS_READY_VOICE}")
-        
+
         doc_url = self.google.get_document_url(self.google_doc_id)
         self.slack.notify_script_done(doc_url)
-        
-        return {
+
+        result = {
             "bot": "Script Bot",
             "video_title": self.video_title,
             "folder_id": self.project_folder_id,
@@ -744,6 +761,9 @@ class VideoPipeline:
             "scene_count": len(scenes),
             "new_status": self.STATUS_READY_VOICE,
         }
+        if not docs_available:
+            result["warning"] = "Google Docs API unavailable - scripts saved to Airtable only"
+        return result
     
     async def run_voice_bot(self) -> dict:
         """Generate voice overs for all scenes.
@@ -913,6 +933,14 @@ class VideoPipeline:
                 # ENFORCE 6-10s range - cap at 10s max, floor at 6s min
                 concept_duration = max(6.0, min(10.0, concept_duration))
 
+                # Get shot_type from segment (now included in output)
+                shot_type = concept.get("shot_type", "medium_human_story")
+
+                # Skip if this exact (scene, index) already exists
+                if (scene_number, i + 1) in existing_scene_indices:
+                    print(f"      Skipping Scene {scene_number}, Index {i + 1} - already exists")
+                    continue
+
                 self.airtable.create_sentence_image_record(
                     scene_number=scene_number,
                     sentence_index=i + 1,
@@ -921,23 +949,96 @@ class VideoPipeline:
                     image_prompt=concept.get("image_prompt", ""),
                     video_title=self.video_title,
                     cumulative_start=round(cumulative_start, 1),
-                    aspect_ratio="16:9"
+                    aspect_ratio="16:9",
+                    shot_type=shot_type,
                 )
                 cumulative_start += concept_duration
                 total_prompts += 1
 
             print(f"    ✅ Created {len(concepts)} prompts for scene {scene_number}")
 
+            # Slack progress update every 5 scenes
+            if scene_number % 5 == 0:
+                self.slack.send_message(f"📝 Prompt progress: {total_prompts} prompts created (through Scene {scene_number})")
+
+        # Flag hero shots after all prompts are created
+        hero_count = await self._flag_hero_shots()
+        print(f"  🌟 Flagged {hero_count} hero shots")
+
         self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_IMAGES)
 
         print(f"\n  ✅ Total: {total_prompts} image prompts created")
+
+        # Slack completion
+        self.slack.send_message(f"✅ Image prompts done: {total_prompts} created for *{self.video_title}*")
 
         return {
             "bot": "Image Prompt Bot",
             "video_title": self.video_title,
             "prompt_count": total_prompts,
+            "hero_count": hero_count,
             "new_status": self.STATUS_READY_IMAGES
         }
+
+    async def _flag_hero_shots(self, max_heroes: int = 3) -> int:
+        """Flag 2-3 images per video as hero shots for 10s animation.
+
+        Criteria (flag if ANY match):
+        - Shot type is 'pull_back_reveal'
+        - Shot type is 'isometric_diorama' (complex detail worth lingering on)
+        - Last image in the video sequence
+
+        Constraints:
+        - Maximum 3 hero shots per video
+        - Never flag consecutive images
+
+        Returns:
+            Number of hero shots flagged
+        """
+        # Get all images for this video (just created)
+        all_images = self.airtable.get_all_images_for_video(self.video_title)
+
+        if not all_images:
+            return 0
+
+        # Sort by scene and index for proper ordering
+        sorted_images = sorted(
+            all_images,
+            key=lambda x: (x.get("Scene", 0), x.get("Image Index", 0))
+        )
+
+        hero_shot_types = ["pull_back_reveal", "isometric_diorama"]
+        hero_count = 0
+        last_was_hero = False
+        total_images = len(sorted_images)
+
+        for i, img in enumerate(sorted_images):
+            shot_type = (img.get("Shot Type") or "").lower().strip()
+            is_last = (i == total_images - 1)
+
+            should_flag = (
+                shot_type in hero_shot_types
+                or is_last
+            )
+
+            if should_flag and not last_was_hero and hero_count < max_heroes:
+                # Flag as hero shot
+                self.airtable.update_image_animation_fields(
+                    img["id"],
+                    is_hero_shot=True,
+                )
+                hero_count += 1
+                last_was_hero = True
+                print(f"    🌟 Hero shot: Scene {img.get('Scene')}, Image {img.get('Image Index')} ({shot_type or 'last image'})")
+            else:
+                # Ensure not flagged
+                self.airtable.update_image_animation_fields(
+                    img["id"],
+                    is_hero_shot=False,
+                )
+                last_was_hero = False
+
+        return hero_count
 
     async def run_image_bot(self) -> dict:
         """Generate images from prompts.
@@ -1023,15 +1124,29 @@ class VideoPipeline:
     async def _run_image_bot(self) -> dict:
         """Generate images from prompts (internal method).
 
-        Processes images in PARALLEL per scene for faster generation.
+        Uses semaphore-based rate limiting to prevent OOM.
+        Checkpoints progress after each image for crash recovery.
         """
+        import gc
+
+        # Rate limiting configuration
+        MAX_CONCURRENT = 3  # Max concurrent image generations
+        DELAY_BETWEEN_SCENES = 2.0  # Seconds to wait between scenes for memory cleanup
+
         self.slack.notify_images_start()
         print(f"\n  🖼️ IMAGE BOT: Generating images...")
+        print(f"     Rate limit: {MAX_CONCURRENT} concurrent generations")
 
         # Get pending images for this video
         pending_images = self.airtable.get_pending_images_for_video(self.video_title)
+        total_pending = len(pending_images)
+        print(f"     Found {total_pending} pending images")
 
-        # Group images by scene for parallel processing
+        if total_pending == 0:
+            print("     No pending images to generate.")
+            return {"image_count": 0}
+
+        # Group images by scene for organized processing
         scenes = {}
         for img in pending_images:
             scene_num = img.get("Scene", 0)
@@ -1040,84 +1155,214 @@ class VideoPipeline:
             scenes[scene_num].append(img)
 
         image_count = 0
+        failed_count = 0
+        semaphore = asyncio.Semaphore(MAX_CONCURRENT)
 
-        for scene_num in sorted(scenes.keys()):
+        for scene_idx, scene_num in enumerate(sorted(scenes.keys())):
             scene_images = scenes[scene_num]
-            print(f"    Scene {scene_num}: Generating {len(scene_images)} images in parallel...")
+            scene_total = len(scene_images)
+            print(f"\n    Scene {scene_num} ({scene_idx + 1}/{len(scenes)}): {scene_total} images")
 
-            # Generate all images for this scene in parallel
-            async def generate_single(img_record):
-                prompt = img_record.get("Image Prompt", "")
-                aspect_ratio = img_record.get("Aspect Ratio", "16:9")
-                index = img_record.get("Image Index", 0)
+            async def generate_and_save(img_record):
+                """Generate single image with rate limiting and immediate checkpoint."""
+                nonlocal image_count, failed_count
 
-                image_urls = await self.image_client.generate_and_wait(prompt, aspect_ratio)
-                return (img_record, image_urls, index)
+                async with semaphore:
+                    prompt = img_record.get("Image Prompt", "")
+                    index = img_record.get("Image Index", 0)
+                    record_id = img_record["id"]
 
-            # Launch all generations concurrently
-            results = await asyncio.gather(*[generate_single(img) for img in scene_images])
+                    try:
+                        # Generate scene image using Seed Dream 4.5 Edit w/ Core Image
+                        if not self.core_image_url:
+                            print(f"      ❌ No Core Image — skipping")
+                            failed_count += 1
+                            return False
+                        result = await self.image_client.generate_scene_image(prompt, self.core_image_url)
 
-            # Process results and upload to Drive
-            for img_record, image_urls, index in results:
-                if image_urls:
-                    # Download image
-                    image_content = await self.image_client.download_image(image_urls[0])
+                        if result and result.get("url"):
+                            image_url = result["url"]
+                            seed_value = result.get("seed")
 
-                    # Upload to Google Drive
-                    filename = f"Scene_{str(scene_num).zfill(2)}_{str(index).zfill(2)}.png"
-                    drive_file = self.google.upload_image(image_content, filename, self.project_folder_id)
-                    drive_url = self.google.make_file_public(drive_file["id"])
+                            # Download image
+                            image_content = await self.image_client.download_image(image_url)
 
-                    # Update Airtable
-                    self.airtable.update_image_record(img_record["id"], image_urls[0], drive_url=drive_url)
-                    image_count += 1
-                    print(f"      ✅ Scene {scene_num}, Image {index} → Drive")
+                            # Upload to Google Drive
+                            filename = f"Scene_{str(scene_num).zfill(2)}_{str(index).zfill(2)}.png"
+                            drive_file = self.google.upload_image(image_content, filename, self.project_folder_id)
+                            drive_url = self.google.make_file_public(drive_file["id"])
 
-            print(f"    ✅ Scene {scene_num} complete ({len([r for r in results if r[1]])} images)")
+                            # CHECKPOINT: Update Airtable immediately
+                            self.airtable.update_image_record(record_id, image_url)
+                            image_count += 1
+                            print(f"      ✅ Scene {scene_num}, Image {index} → Done ({image_count}/{total_pending})")
+
+                            # Clear image content from memory
+                            del image_content
+                            return True
+                        else:
+                            failed_count += 1
+                            print(f"      ❌ Scene {scene_num}, Image {index} → Generation failed")
+                            return False
+
+                    except Exception as e:
+                        failed_count += 1
+                        print(f"      ❌ Scene {scene_num}, Image {index} → Error: {e}")
+                        return False
+
+            # Process all images in this scene with rate limiting
+            await asyncio.gather(*[generate_and_save(img) for img in scene_images])
+
+            # Memory cleanup between scenes
+            gc.collect()
+
+            # Progress update
+            print(f"    ✅ Scene {scene_num} complete | Total progress: {image_count}/{total_pending}")
+
+            # Slack progress update every 5 scenes
+            if (scene_idx + 1) % 5 == 0 or scene_idx == len(scenes) - 1:
+                self.slack.send_message(f"🖼️ Image progress: {image_count}/{total_pending} generated (Scene {scene_num}/{len(scenes)})")
+
+            # Delay between scenes to prevent memory buildup
+            if scene_idx < len(scenes) - 1:
+                await asyncio.sleep(DELAY_BETWEEN_SCENES)
 
         self.slack.notify_images_done()
-        print(f"    ✅ Generated {image_count} total images")
+        print(f"\n    🎉 IMAGE BOT COMPLETE")
+        print(f"       Generated: {image_count}/{total_pending}")
+        if failed_count > 0:
+            print(f"       Failed: {failed_count}")
 
-        return {"image_count": image_count}
+        # Slack completion with stats
+        status_msg = f"✅ Images done: {image_count}/{total_pending} for *{self.video_title}*"
+        if failed_count > 0:
+            status_msg += f" ({failed_count} failed)"
+        self.slack.send_message(status_msg)
+
+        # === RETRY PHASE: Check for any missed/pending images ===
+        max_retries = 3
+        for retry_round in range(max_retries):
+            # Check Airtable for pending images
+            all_images = self.airtable.get_all_images_for_video(self.video_title)
+            pending = [img for img in all_images if img.get("Status") != "Done" and img.get("Image Prompt")]
+            
+            if not pending:
+                print(f"    ✅ All images verified complete")
+                break
+                
+            print(f"    🔄 RETRY {retry_round + 1}/{max_retries}: Found {len(pending)} pending images")
+            self.slack.send_message(f"🔄 Retry {retry_round + 1}: {len(pending)} pending images for *{self.video_title}*")
+            
+            # Group by scene
+            from collections import defaultdict
+            retry_scenes = defaultdict(list)
+            for img in pending:
+                retry_scenes[img.get("Scene", 0)].append(img)
+            
+            retry_count = 0
+            for scene_num in sorted(retry_scenes.keys()):
+                scene_images = retry_scenes[scene_num]
+                print(f"      Scene {scene_num}: {len(scene_images)} pending")
+                
+                for img_record in scene_images:
+                    record_id = img_record["id"]
+                    prompt = img_record.get("Image Prompt", "")
+                    index = img_record.get("Image Index", 0)
+                    
+                    try:
+                        if not self.core_image_url:
+                            print(f"        ❌ No Core Image — skipping retry")
+                            continue
+                        result = await self.image_client.generate_scene_image(prompt, self.core_image_url)
+                        if result and result.get("image_url"):
+                            image_url = result["image_url"]
+                            
+                            # Download and upload to Drive
+                            image_content = await self.image_client.download_image(image_url)
+                            filename = f"Scene_{str(scene_num).zfill(2)}_{str(index).zfill(2)}.png"
+                            drive_file = self.google.upload_image(image_content, filename, self.project_folder_id)
+                            
+                            # Update Airtable
+                            self.airtable.update_image_record(record_id, image_url)
+                            retry_count += 1
+                            image_count += 1
+                            print(f"        ✅ Scene {scene_num}, Image {index} → Done (retry)")
+                            del image_content
+                        else:
+                            print(f"        ❌ Scene {scene_num}, Image {index} → No image returned")
+                    except Exception as e:
+                        print(f"        ❌ Scene {scene_num}, Image {index} → {e}")
+                    
+                    await asyncio.sleep(2)  # Rate limit
+            
+            print(f"    ✅ Retry {retry_round + 1} complete: {retry_count} recovered")
+            if retry_count == 0:
+                print(f"    ⚠️ No progress made, stopping retries")
+                break
+
+        # Final check
+        final_images = self.airtable.get_all_images_for_video(self.video_title)
+        final_pending = len([img for img in final_images if img.get("Status") != "Done" and img.get("Image Prompt")])
+        if final_pending > 0:
+            self.slack.send_message(f"⚠️ {final_pending} images still pending after retries for *{self.video_title}*")
+        else:
+            self.slack.send_message(f"✅ All {len(final_images)} images complete for *{self.video_title}*")
+
+        return {"image_count": image_count, "failed_count": failed_count}
 
     async def run_video_script_bot(self) -> dict:
         """Generate video prompts for Scene 1 only (Constraint)."""
         print(f"\n  📝 VIDEO SCRIPT BOT: Generating prompts for Scene 1...")
-        
+
         # Get pending images
         existing_images = self.airtable.get_all_images_for_video(self.video_title)
         done_images = [img for img in existing_images if img.get("Status") == "Done"]
-        
+
         prompt_count = 0
+        hero_count = 0
         for img_record in done_images:
             scene = img_record.get("Scene", 0)
-            
+
             # CONSTRAINT: Only Scene 1
             if scene != 1:
                 continue
-                
+
             # Check if prompt already exists
             if img_record.get("Video Prompt"):
                 continue
-                
+
             image_prompt = img_record.get("Image Prompt", "")
             if not image_prompt:
                 print(f"    ⚠️ No Image Prompt found for Scene {scene}, skipping.")
                 continue
 
-            # Get sentence text for better motion alignment
+            # Get segment data
             sentence_text = img_record.get("Sentence Text", "")
+            shot_type = img_record.get("Shot Type", "medium_human_story")
+            duration = img_record.get("Duration (s)", 6.0)
 
-            print(f"    Generating motion prompt for Scene {scene}...")
+            # Smart hero selection: duration > 6s gets 10s clip
+            is_hero = duration > 6.0
+            clip_duration = 10 if is_hero else 6
+
+            if is_hero:
+                hero_count += 1
+
+            idx = img_record.get("Image Index", "?")
+            print(f"    [{idx}] {shot_type} | {duration:.1f}s segment → {clip_duration}s clip {'(HERO)' if is_hero else ''}")
+
             motion_prompt = await self.anthropic.generate_video_prompt(
                 image_prompt=image_prompt,
                 sentence_text=sentence_text,
+                scene_type=shot_type,
+                is_hero_shot=is_hero,
             )
-            
+
+            # Update Airtable with video prompt
             self.airtable.update_image_video_prompt(img_record["id"], motion_prompt)
             prompt_count += 1
-            
-        print(f"    ✅ Generated {prompt_count} video prompts")
+
+        print(f"    ✅ Generated {prompt_count} video prompts ({hero_count} hero shots @ 10s)")
         
         # Update Status to Ready For Video Generation
         self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_VIDEO_GENERATION)
@@ -1163,11 +1408,12 @@ class VideoPipeline:
                 drive_url = image_url_list[0].get("url") if image_url_list else None
             
             motion_prompt = img_record.get("Video Prompt")
-            
+
             if not drive_url or not motion_prompt:
                 continue
-            
-            image_url = drive_url  # Use Drive URL for generation
+
+            # Convert to direct download URL for Grok Imagine
+            image_url = self.google.get_direct_drive_url(drive_url)
                 
             print(f"    [{i}/{total}] Generating video for scene {scene}, image {index}...")
             print(f"      Motion: {motion_prompt}")
@@ -1204,9 +1450,15 @@ class VideoPipeline:
     
     async def run_thumbnail_bot(self) -> dict:
         """Generate thumbnail for the video.
-        
+
         REQUIRES: Ideas status = "Ready For Thumbnail"
-        UPDATES TO: "Done" when complete
+        UPDATES TO: "Ready To Render" when complete
+
+        Works in two modes:
+        1. WITH reference URL: Gemini analyzes reference → Anthropic adapts with house style
+        2. WITHOUT reference URL: Anthropic generates purely from house style + video context
+
+        Both modes produce on-brand, clickable thumbnails.
         """
         # Verify status
         if not self.current_idea:
@@ -1214,79 +1466,74 @@ class VideoPipeline:
             if not idea:
                 return {"error": "No idea with status 'Ready For Thumbnail'"}
             self._load_idea(idea)
-        
+
         if self.current_idea.get("Status") != self.STATUS_READY_THUMBNAIL:
             return {"error": f"Idea status is '{self.current_idea.get('Status')}', expected 'Ready For Thumbnail'"}
-        
+
         print(f"\n🎨 THUMBNAIL BOT: Processing '{self.video_title}'")
 
         video_title = self.current_idea.get("Video Title", "")
         video_summary = self.current_idea.get("Summary", "")
-        reference_url = self.current_idea.get("Video URL")  # YouTube video URL
+        reference_url = self.current_idea.get("Video URL")
         basic_prompt = self.current_idea.get("Thumbnail Prompt", "")
 
-        # Extract YouTube thumbnail URL from video URL
-        thumbnail_image_url = None
+        # --- OPTIONAL: Reference thumbnail analysis ---
+        thumbnail_spec = None
         if reference_url:
             thumbnail_image_url = self._extract_youtube_thumbnail(reference_url)
-            if thumbnail_image_url:
-                print(f"  Extracted thumbnail: {thumbnail_image_url}")
+            if thumbnail_image_url and self.gemini.api_key:
+                print(f"  📸 Analyzing reference thumbnail via Gemini...")
+                try:
+                    thumbnail_spec = await self.gemini.generate_thumbnail_spec(
+                        reference_image_url=thumbnail_image_url,
+                        video_title=video_title,
+                        video_summary=video_summary,
+                    )
+                    print(f"  ✅ Reference analysis complete")
+                except Exception as e:
+                    print(f"  ⚠️ Reference analysis failed: {e}. Proceeding with house style only.")
+                    thumbnail_spec = None
             else:
-                print(f"  ⚠️ Could not extract thumbnail from: {reference_url}")
-
-        # Two-stage generation if thumbnail image AND Gemini is available
-        if thumbnail_image_url and self.gemini.api_key:
-            print(f"  Analyzing reference thumbnail via Gemini...")
-            thumbnail_spec = await self.gemini.generate_thumbnail_spec(
-                reference_image_url=thumbnail_image_url,
-                video_title=video_title,
-                video_summary=video_summary,
-            )
-
-            print(f"  Generating detailed prompt via Anthropic...")
-            thumbnail_prompt = await self.anthropic.generate_thumbnail_prompt(
-                thumbnail_spec_json=thumbnail_spec,
-                video_title=video_title,
-                thumbnail_concept=basic_prompt,
-            )
-            print(f"  Generated prompt: {thumbnail_prompt[:100]}...")
-
-            # Save enhanced prompt to Airtable for debugging
-            self.airtable.update_idea_field(self.current_idea_id, "Thumbnail Prompt", thumbnail_prompt)
-            print(f"  ✅ Enhanced prompt saved to Airtable")
+                if not thumbnail_image_url:
+                    print(f"  ℹ️ Could not extract thumbnail from URL. Using house style only.")
+                elif not self.gemini.api_key:
+                    print(f"  ⚠️ Gemini API key missing. Using house style only.")
         else:
-            if thumbnail_image_url and not self.gemini.api_key:
-                print(f"  ⚠️ Gemini API key missing, skipping reference analysis.")
-            print(f"  Using basic prompt.")
-            thumbnail_prompt = basic_prompt
+            print(f"  ℹ️ No reference URL. Using house style only.")
 
-        if not thumbnail_prompt:
-             print("  ⚠️ No thumbnail prompt found!")
-             return {"error": "No thumbnail prompt"}
-
-        # Generate thumbnail image (use Pro model for higher quality)
-        image_urls = await self.image_client.generate_and_wait(
-            thumbnail_prompt, "16:9", model="nano-banana-pro"
+        # --- ALWAYS: Generate thumbnail prompt via Anthropic ---
+        print(f"  🎯 Generating thumbnail prompt (house style{' + reference' if thumbnail_spec else ''})...")
+        thumbnail_prompt = await self.anthropic.generate_thumbnail_prompt(
+            video_title=video_title,
+            video_summary=video_summary,
+            thumbnail_spec_json=thumbnail_spec,
+            thumbnail_concept=basic_prompt,
         )
+        print(f"  ✅ Prompt generated: {thumbnail_prompt[:100]}...")
+
+        # Save generated prompt to Airtable for reference
+        self.airtable.update_idea_field(self.current_idea_id, "Thumbnail Prompt", thumbnail_prompt)
+
+        # --- Generate thumbnail image using Nano Banana Pro ---
+        image_urls = await self.image_client.generate_thumbnail(thumbnail_prompt)
         if not image_urls:
-             print("  ⚠️ Failed to generate thumbnail.")
-             return {"error": "Thumbnail generation failed"}
-            
+            print("  ⚠️ Failed to generate thumbnail.")
+            return {"error": "Thumbnail generation failed"}
+
         print(f"  ✅ Thumbnail generated: {image_urls[0][:50]}...")
-        
-        # Upload to Google Drive
+
+        # --- Upload to Google Drive ---
         if self.project_folder_id:
             parent_id = self.project_folder_id
         else:
-            # Try to find folder
             folder = self.google.search_folder(self.video_title)
             if folder:
                 parent_id = folder["id"]
             else:
                 print("  ⚠️ Project folder not found, uploading to root.")
                 parent_id = None
-                
-        print("  Uploading to Google Drive...")
+
+        print("  ☁️ Uploading to Google Drive...")
         google_file = self.google.upload_file_from_url(
             url=image_urls[0],
             name="Thumbnail.png",
@@ -1295,20 +1542,20 @@ class VideoPipeline:
         drive_link = google_file.get("webViewLink")
         print(f"  ✅ Uploaded to Drive: {drive_link}")
 
-        # Save to Airtable - use the original image URL (Airtable will download and host it)
-        # Don't use drive_link as that's an HTML page, not a direct image
+        # --- Save to Airtable (use temp Kie URL for attachment, it gets copied) ---
         self.airtable.update_idea_thumbnail(self.current_idea_id, image_urls[0])
         print("  ✅ Saved to Airtable")
-        
-        # UPDATE STATUS to Done
+
+        # --- Update status ---
         self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_TO_RENDER)
         print(f"  ✅ Status updated to: {self.STATUS_READY_TO_RENDER}")
-        
+
         return {
             "bot": "Thumbnail Bot",
             "video_title": self.video_title,
             "new_status": self.STATUS_READY_TO_RENDER,
-            "thumbnail_url": drive_link
+            "thumbnail_url": drive_link,
+            "used_reference": thumbnail_spec is not None,
         }
     
     async def run_render_bot(self) -> dict:
@@ -1717,15 +1964,17 @@ class VideoPipeline:
 
             async def generate_single(img_record):
                 prompt = img_record.get("Image Prompt", "")
-                aspect_ratio = img_record.get("Aspect Ratio", "16:9")
                 index = img_record.get("Image Index", 0)
 
                 if not prompt:
                     return (img_record, None, index, "No prompt")
 
                 try:
-                    image_urls = await self.image_client.generate_and_wait(prompt, aspect_ratio)
-                    return (img_record, image_urls, index, None)
+                    # Use Seed Dream 4.5 Edit with Core Image reference
+                    if not self.core_image_url:
+                        return (img_record, None, index, "No Core Image on project")
+                    result = await self.image_client.generate_scene_image(prompt, self.core_image_url)
+                    return (img_record, result, index, None)
                 except Exception as e:
                     return (img_record, None, index, str(e))
 
@@ -1733,22 +1982,25 @@ class VideoPipeline:
             results = await asyncio.gather(*[generate_single(img) for img in scene_images])
 
             # Upload to Drive and update Airtable
-            for img_record, image_urls, index, error in results:
+            for img_record, result, index, error in results:
                 if error:
                     print(f"    ❌ Scene {scene_num}, Image {index}: {error}")
                     continue
 
-                if image_urls:
+                if result and result.get("url"):
+                    image_url = result["url"]
+                    seed_value = result.get("seed")
+
                     # Download image
-                    image_content = await self.image_client.download_image(image_urls[0])
+                    image_content = await self.image_client.download_image(image_url)
 
                     # Upload to Google Drive
                     filename = f"Scene_{str(scene_num).zfill(2)}_{str(index).zfill(2)}.png"
                     drive_file = self.google.upload_image(image_content, filename, self.project_folder_id)
                     drive_url = self.google.make_file_public(drive_file["id"])
 
-                    # Update Airtable
-                    self.airtable.update_image_record(img_record["id"], image_urls[0], drive_url=drive_url)
+                    # Update Airtable (include seed for reproducibility)
+                    self.airtable.update_image_record(record_id, image_url)
                     regenerated += 1
                     print(f"    ✅ Scene {scene_num}, Image {index} → regenerated")
 
@@ -1828,6 +2080,62 @@ class VideoPipeline:
                 
         print("\n✅ Sync Complete!")
         return {"status": "synced"}
+
+    async def sync_scripts_to_google_doc(self, video_title: str) -> dict:
+        """Create Google Doc from existing Airtable scripts.
+
+        Use this to recover when Google Docs API was unavailable during script generation.
+        Scripts are already saved to Airtable, this just creates the Doc.
+
+        Args:
+            video_title: The video title to sync
+
+        Returns:
+            Dict with doc_id and doc_url if successful
+        """
+        print(f"\n📄 SYNC SCRIPTS TO GOOGLE DOC: '{video_title}'")
+
+        # Get scripts from Airtable
+        scripts = self.airtable.get_scripts_by_title(video_title)
+        if not scripts:
+            return {"error": f"No scripts found for '{video_title}'"}
+
+        print(f"  Found {len(scripts)} scenes in Airtable")
+
+        # Get or create folder
+        folder = self.google.get_or_create_folder(video_title)
+        folder_id = folder["id"]
+
+        # Create Google Doc
+        doc = self.google.create_document(video_title, folder_id)
+        if doc.get("unavailable"):
+            return {"error": "Google Docs API still unavailable"}
+
+        doc_id = doc["id"]
+        print(f"  Created Google Doc: {doc_id}")
+
+        # Append all scenes
+        for script in scripts:
+            scene_num = script.get("scene", 0)
+            scene_text = script.get("Scene text", "")
+            if scene_text:
+                success = self.google.append_to_document(
+                    doc_id,
+                    f"**Scene {scene_num}**\n\n{scene_text}",
+                )
+                if success:
+                    print(f"  ✅ Added Scene {scene_num}")
+                else:
+                    print(f"  ⚠️  Failed to add Scene {scene_num}")
+
+        doc_url = self.google.get_document_url(doc_id)
+        print(f"\n✅ Google Doc created: {doc_url}")
+
+        return {
+            "doc_id": doc_id,
+            "doc_url": doc_url,
+            "scenes_synced": len(scripts),
+        }
 
 
 async def main():

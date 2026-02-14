@@ -71,13 +71,20 @@ class SlackClient:
         """Notify that script writing has started."""
         return self.send_message("📝 Starting to make the script 🏁!")
     
-    def notify_script_done(self, doc_url: str) -> dict:
+    def notify_script_done(self, doc_url: Optional[str] = None) -> dict:
         """Notify that the script is complete."""
-        return self.send_message(
-            f"✅ Script is Done!\n\n"
-            f"📄 View your script: {doc_url}\n\n"
-            f"Now generating voice overs... 🗣️"
-        )
+        if doc_url:
+            return self.send_message(
+                f"✅ Script is Done!\n\n"
+                f"📄 View your script: {doc_url}\n\n"
+                f"Now generating voice overs... 🗣️"
+            )
+        else:
+            return self.send_message(
+                f"✅ Script is Done!\n\n"
+                f"⚠️ Google Docs unavailable - script saved to Airtable\n\n"
+                f"Now generating voice overs... 🗣️"
+            )
     
     def notify_voice_start(self) -> dict:
         """Notify that voice generation has started."""

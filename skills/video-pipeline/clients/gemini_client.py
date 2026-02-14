@@ -69,67 +69,44 @@ class GeminiClient:
         """Extract thumbnail spec fields from raw text when JSON parsing fails.
 
         Uses regex patterns to find key information in the response.
+        Falls back to house style defaults if extraction fails.
         """
+        # House style defaults - these produce on-brand thumbnails
         spec = {
-            "composition": "",
-            "dominant_colors": [],
-            "text_elements": "",
-            "focal_point": "",
-            "mood": "",
-            "key_objects": [],
-            "style_notes": "",
-            "background": "",
-            "suggested_adaptations": "",
+            "composition_layout": "left-right split, 60-40",
+            "figure_pose": "shocked expression, reaching forward",
+            "figure_clothing": "business suit with loosened tie",
+            "background_element": "crumbling structure",
+            "background_mood_color": "deep navy to charcoal gradient",
+            "payoff_element": "glowing golden protective dome",
+            "payoff_glow_color": "intense golden glow",
+            "separator_type": "diagonal divide with red arrow",
+            "color_contrast": "dark navy vs golden glow",
+            "text_placement": "upper 20% of frame, centered",
+            "text_style": "bold white condensed all caps with black outline",
+            "overall_brightness": "bright",
         }
 
-        # Try to find quoted values after field names
+        # Try to extract from text, fall back to house style defaults above
         field_patterns = {
-            "composition": r'"?composition"?\s*[:=]\s*"([^"]+)"',
-            "text_elements": r'"?text_elements"?\s*[:=]\s*"([^"]+)"',
-            "focal_point": r'"?focal_point"?\s*[:=]\s*"([^"]+)"',
-            "mood": r'"?mood"?\s*[:=]\s*"([^"]+)"',
-            "style_notes": r'"?style_notes"?\s*[:=]\s*"([^"]+)"',
-            "background": r'"?background"?\s*[:=]\s*"([^"]+)"',
-            "suggested_adaptations": r'"?suggested_adaptations"?\s*[:=]\s*"([^"]+)"',
+            "composition_layout": r'"?composition_layout"?\s*[:=]\s*"([^"]+)"',
+            "figure_pose": r'"?figure_pose"?\s*[:=]\s*"([^"]+)"',
+            "figure_clothing": r'"?figure_clothing"?\s*[:=]\s*"([^"]+)"',
+            "background_element": r'"?background_element"?\s*[:=]\s*"([^"]+)"',
+            "background_mood_color": r'"?background_mood_color"?\s*[:=]\s*"([^"]+)"',
+            "payoff_element": r'"?payoff_element"?\s*[:=]\s*"([^"]+)"',
+            "payoff_glow_color": r'"?payoff_glow_color"?\s*[:=]\s*"([^"]+)"',
+            "separator_type": r'"?separator_type"?\s*[:=]\s*"([^"]+)"',
+            "color_contrast": r'"?color_contrast"?\s*[:=]\s*"([^"]+)"',
+            "text_placement": r'"?text_placement"?\s*[:=]\s*"([^"]+)"',
+            "text_style": r'"?text_style"?\s*[:=]\s*"([^"]+)"',
+            "overall_brightness": r'"?overall_brightness"?\s*[:=]\s*"([^"]+)"',
         }
 
         for field, pattern in field_patterns.items():
             match = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
             if match:
-                spec[field] = match.group(1).strip()[:500]  # Cap at 500 chars
-
-        # Extract arrays
-        colors_match = re.search(
-            r'"?dominant_colors"?\s*[:=]\s*\[([^\]]+)\]', text, re.IGNORECASE
-        )
-        if colors_match:
-            colors_str = colors_match.group(1)
-            colors = re.findall(r'"([^"]+)"', colors_str)
-            spec["dominant_colors"] = colors[:10]  # Cap at 10 colors
-
-        objects_match = re.search(
-            r'"?key_objects"?\s*[:=]\s*\[([^\]]+)\]', text, re.IGNORECASE
-        )
-        if objects_match:
-            objects_str = objects_match.group(1)
-            objects = re.findall(r'"([^"]+)"', objects_str)
-            spec["key_objects"] = objects[:10]  # Cap at 10 objects
-
-        # If we got nothing, create a basic spec from the raw text summary
-        if not any(
-            [
-                spec["composition"],
-                spec["mood"],
-                spec["focal_point"],
-                spec["dominant_colors"],
-            ]
-        ):
-            # Use the raw text as a general description
-            spec["composition"] = f"Reference thumbnail for: {video_title}"
-            spec["mood"] = "dramatic"
-            spec["dominant_colors"] = ["dark", "accent color"]
-            spec["focal_point"] = "center"
-            spec["suggested_adaptations"] = text[:1000] if text else "Match reference style"
+                spec[field] = match.group(1).strip()[:200]
 
         return spec
 
@@ -139,39 +116,47 @@ class GeminiClient:
         video_title: str,
         video_summary: str = "",
     ) -> dict:
-        """Analyze a reference thumbnail image and produce a structured spec.
+        """Analyze a reference thumbnail and produce a structured spec.
 
-        Uses Gemini's vision capabilities to break down the reference
-        thumbnail into composition, colors, text placement, mood, etc.
+        The spec captures STYLE elements (composition, color, pose) that can be
+        adapted to new topics while maintaining the Economy FastForward house style.
 
         Args:
             reference_image_url: URL of the reference thumbnail image
-            video_title: Title of the video
+            video_title: Title of the video (for context)
             video_summary: Optional summary/description of the video
 
         Returns:
-            Dict with structured thumbnail spec (composition, colors, text, mood, etc.)
+            Dict with structured thumbnail spec (style elements only, not topic/text)
         """
         self._require_api_key()
 
-        # Simplified prompt that's less likely to produce parsing issues
-        user_prompt = f"""Analyze this YouTube thumbnail image for a video titled: "{video_title}"
+        # Updated prompt for v2 - focus on STYLE extraction, not content
+        user_prompt = f"""Analyze this YouTube thumbnail image for a finance/economics channel.
 
-Describe the thumbnail in this exact JSON format. Keep each field value SHORT (under 100 characters):
+Extract ONLY the visual style elements (not the topic or text content).
+
+Output this exact JSON format. Keep each value under 80 characters:
 
 {{
-  "composition": "layout description",
-  "dominant_colors": ["color1", "color2", "color3"],
-  "text_elements": "text style and placement",
-  "focal_point": "what draws attention",
-  "mood": "emotional tone",
-  "key_objects": ["object1", "object2", "object3"],
-  "style_notes": "artistic style",
-  "background": "background description",
-  "suggested_adaptations": "how to adapt for new topic"
+  "composition_layout": "spatial arrangement (e.g., left-right split, centered, diagonal)",
+  "figure_pose": "body language and visible emotion of the human figure",
+  "figure_clothing": "what the figure is wearing",
+  "background_element": "the ONE main background object or scene element",
+  "background_mood_color": "dominant background color or gradient",
+  "payoff_element": "what is on the bright/answer side of the image",
+  "payoff_glow_color": "color of the glow or brightness on the payoff side",
+  "separator_type": "how the two sides are divided (arrow, line, contrast shift)",
+  "color_contrast": "the main color tension (e.g., dark navy vs golden glow)",
+  "text_placement": "where text sits relative to image elements",
+  "text_style": "font weight, color, outline treatment observed",
+  "overall_brightness": "bright or medium or dark overall luminance"
 }}
 
-IMPORTANT: Return ONLY the JSON object, no other text. Keep values short and simple."""
+IMPORTANT:
+- Return ONLY the JSON object, no other text.
+- Describe STYLE, not content. "man in suit reaching" not "man reaching for gold"
+- Do NOT include the reference's specific text or topic in any field."""
 
         url = f"{self.BASE_URL}/models/gemini-2.0-flash:generateContent"
         params = {"key": self.api_key}
@@ -208,7 +193,7 @@ IMPORTANT: Return ONLY the JSON object, no other text. Keep values short and sim
             # Try to parse the JSON response
             result = self._parse_json_response(text)
             if result:
-                print(f"  Gemini analysis: {result.get('mood', 'N/A')} mood, {len(result.get('key_objects', []))} key objects")
+                print(f"  Gemini analysis: {result.get('composition_layout', 'N/A')} layout, {result.get('overall_brightness', 'N/A')} brightness")
                 return result
 
             # If parsing failed, extract what we can from the raw text
@@ -224,17 +209,20 @@ IMPORTANT: Return ONLY the JSON object, no other text. Keep values short and sim
             return self._get_fallback_spec(video_title)
 
     def _get_fallback_spec(self, video_title: str) -> dict:
-        """Return a basic fallback spec when Gemini fails."""
+        """Return house style defaults when Gemini fails."""
         return {
-            "composition": f"Thumbnail for: {video_title}",
-            "dominant_colors": ["dark blue", "orange accent", "white text"],
-            "text_elements": "Bold title text with high contrast",
-            "focal_point": "Center with dramatic imagery",
-            "mood": "dramatic and urgent",
-            "key_objects": ["text overlay", "symbolic imagery"],
-            "style_notes": "High contrast, bold colors, clean composition",
-            "background": "Dark gradient or dramatic scene",
-            "suggested_adaptations": "Use bold text, dramatic lighting, and a clear focal point",
+            "composition_layout": "left-right split, 60-40",
+            "figure_pose": "shocked expression, reaching forward",
+            "figure_clothing": "business suit with loosened tie",
+            "background_element": "crumbling structure",
+            "background_mood_color": "deep navy to charcoal gradient",
+            "payoff_element": "glowing golden protective dome",
+            "payoff_glow_color": "intense golden glow",
+            "separator_type": "diagonal divide with red arrow",
+            "color_contrast": "dark navy vs golden glow",
+            "text_placement": "upper 20% of frame, centered",
+            "text_style": "bold white condensed all caps with black outline",
+            "overall_brightness": "bright",
         }
 
     async def _fetch_image_base64(self, url: str) -> str:

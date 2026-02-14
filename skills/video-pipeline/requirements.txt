@@ -28,6 +28,9 @@ youtube-transcript-api>=0.6.2
 # Web Scraping
 apify-client>=1.6.0  # YouTube trending scraper
 
+# Research Agent - Web Search
+tavily-python>=0.3.0  # Tavily search API for research scanning
+
 # HTTP & Async
 httpx>=0.27.0
 aiohttp>=3.9.0

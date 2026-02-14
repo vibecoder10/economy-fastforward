@@ -1,1 +1,1713 @@
-{"text": " You thought the AI bubble was bad. The cloud computing industry just realised they built a $300 billion empire on quicksand, and when this falls, it's taking your Netflix subscription, your company's entire infrastructure, and possibly the internet itself with it. Here's the financial time bomb nobody's talking about. Right now, three companies control nearly two thirds of the world's cloud infrastructure. Amazon, Microsoft and Google. They convinced every business on earth to abandon their own servers and rent digital space instead. Seemed genius, until the math stopped working. These hyperscalers have been hemorrhaging cash-building AI data centres, betting everything on artificial intelligence revenue that hasn't materialised. Meanwhile, their core cloud customers are waking up to a brutal reality. They're trapped in contracts they can't afford, dependent on infrastructure they don't control, with no exit strategy. The warning signs are everywhere if you know where to look. Earnings reports buried in creative accounting. Capacity utilisation numbers that don't add up. And a pricing war that's destroying margins industry-wide. What happens when the company's hosting civilisations data start cutting corners to survive? We're about to find out.", "segments": [{"id": 0, "seek": 0, "start": 0.0, "end": 1.8, "text": " You thought the AI bubble was bad.", "tokens": [50364, 509, 1194, 264, 7318, 12212, 390, 1578, 13, 50492], "temperature": 0.0, "avg_logprob": -0.21514501327123398, "compression_ratio": 1.5975609756097562, "no_speech_prob": 0.0021703557576984167, "words": [{"word": " You", "start": 0.0, "end": 0.2, "probability": 0.8280981779098511}, {"word": " thought", "start": 0.2, "end": 0.36, "probability": 0.9848453998565674}, {"word": " the", "start": 0.36, "end": 0.52, "probability": 0.9932603240013123}, {"word": " AI", "start": 0.52, "end": 0.7, "probability": 0.9815751314163208}, {"word": " bubble", "start": 0.7, "end": 1.06, "probability": 0.9816232919692993}, {"word": " was", "start": 1.06, "end": 1.36, "probability": 0.996898889541626}, {"word": " bad.", "start": 1.36, "end": 1.8, "probability": 0.6128127574920654}]}, {"id": 1, "seek": 0, "start": 2.52, "end": 7.16, "text": " The cloud computing industry just realised they built a $300 billion empire on quicksand,", "tokens": [50492, 440, 4588, 15866, 3518, 445, 21337, 436, 3094, 257, 1848, 12566, 5218, 17506, 322, 1702, 82, 474, 11, 50748], "temperature": 0.0, "avg_logprob": -0.21514501327123398, "compression_ratio": 1.5975609756097562, "no_speech_prob": 0.0021703557576984167, "words": [{"word": " The", "start": 2.52, "end": 2.64, "probability": 0.9892104864120483}, {"word": " cloud", "start": 2.64, "end": 2.88, "probability": 0.9430705904960632}, {"word": " computing", "start": 2.88, "end": 3.24, "probability": 0.995387613773346}, {"word": " industry", "start": 3.24, "end": 3.74, "probability": 0.9986741542816162}, {"word": " just", "start": 3.74, "end": 3.94, "probability": 0.996865451335907}, {"word": " realised", "start": 3.94, "end": 4.28, "probability": 0.6369674801826477}, {"word": " they", "start": 4.28, "end": 4.5, "probability": 0.9851861596107483}, {"word": " built", "start": 4.5, "end": 4.7, "probability": 0.9814496040344238}, {"word": " a", "start": 4.7, "end": 4.84, "probability": 0.9938685297966003}, {"word": " $300", "start": 4.84, "end": 5.3, "probability": 0.8307271599769592}, {"word": " billion", "start": 5.3, "end": 5.76, "probability": 0.9144492745399475}, {"word": " empire", "start": 5.76, "end": 6.4, "probability": 0.8966996073722839}, {"word": " on", "start": 6.4, "end": 6.62, "probability": 0.9966765642166138}, {"word": " quicksand,", "start": 6.62, "end": 7.16, "probability": 0.7328983396291733}]}, {"id": 2, "seek": 0, "start": 7.46, "end": 12.02, "text": " and when this falls, it's taking your Netflix subscription, your company's entire infrastructure,", "tokens": [50748, 293, 562, 341, 8804, 11, 309, 311, 1940, 428, 12778, 17231, 11, 428, 2237, 311, 2302, 6896, 11, 51000], "temperature": 0.0, "avg_logprob": -0.21514501327123398, "compression_ratio": 1.5975609756097562, "no_speech_prob": 0.0021703557576984167, "words": [{"word": " and", "start": 7.46, "end": 7.7, "probability": 0.9906372427940369}, {"word": " when", "start": 7.7, "end": 7.8, "probability": 0.9894570708274841}, {"word": " this", "start": 7.8, "end": 8.02, "probability": 0.989600419998169}, {"word": " falls,", "start": 8.02, "end": 8.36, "probability": 0.9969404935836792}, {"word": " it's", "start": 8.66, "end": 8.88, "probability": 0.9406304657459259}, {"word": " taking", "start": 8.88, "end": 9.1, "probability": 0.9940279722213745}, {"word": " your", "start": 9.1, "end": 9.32, "probability": 0.9963117241859436}, {"word": " Netflix", "start": 9.32, "end": 9.58, "probability": 0.9807069301605225}, {"word": " subscription,", "start": 9.58, "end": 10.2, "probability": 0.998633086681366}, {"word": " your", "start": 10.64, "end": 10.72, "probability": 0.9950729012489319}, {"word": " company's", "start": 10.72, "end": 11.2, "probability": 0.993200808763504}, {"word": " entire", "start": 11.2, "end": 11.56, "probability": 0.9986727237701416}, {"word": " infrastructure,", "start": 11.56, "end": 12.02, "probability": 0.998847484588623}]}, {"id": 3, "seek": 0, "start": 12.58, "end": 14.5, "text": " and possibly the internet itself with it.", "tokens": [51000, 293, 6264, 264, 4705, 2564, 365, 309, 13, 51118], "temperature": 0.0, "avg_logprob": -0.21514501327123398, "compression_ratio": 1.5975609756097562, "no_speech_prob": 0.0021703557576984167, "words": [{"word": " and", "start": 12.58, "end": 12.76, "probability": 0.9982908368110657}, {"word": " possibly", "start": 12.76, "end": 13.16, "probability": 0.9931821227073669}, {"word": " the", "start": 13.16, "end": 13.4, "probability": 0.9868616461753845}, {"word": " internet", "start": 13.4, "end": 13.72, "probability": 0.6837918162345886}, {"word": " itself", "start": 13.72, "end": 14.12, "probability": 0.9943035840988159}, {"word": " with", "start": 14.12, "end": 14.34, "probability": 0.9501170516014099}, {"word": " it.", "start": 14.34, "end": 14.5, "probability": 0.9993782043457031}]}, {"id": 4, "seek": 0, "start": 15.24, "end": 17.8, "text": " Here's the financial time bomb nobody's talking about.", "tokens": [51118, 1692, 311, 264, 4669, 565, 7851, 5079, 311, 1417, 466, 13, 51304], "temperature": 0.0, "avg_logprob": -0.21514501327123398, "compression_ratio": 1.5975609756097562, "no_speech_prob": 0.0021703557576984167, "words": [{"word": " Here's", "start": 15.24, "end": 15.74, "probability": 0.9777235984802246}, {"word": " the", "start": 15.74, "end": 15.84, "probability": 0.9968641400337219}, {"word": " financial", "start": 15.84, "end": 16.22, "probability": 0.8208538293838501}, {"word": " time", "start": 16.22, "end": 16.58, "probability": 0.9112417101860046}, {"word": " bomb", "start": 16.58, "end": 16.82, "probability": 0.9186960458755493}, {"word": " nobody's", "start": 16.82, "end": 17.28, "probability": 0.910198301076889}, {"word": " talking", "start": 17.28, "end": 17.48, "probability": 0.9969524145126343}, {"word": " about.", "start": 17.48, "end": 17.8, "probability": 0.9994865655899048}]}, {"id": 5, "seek": 0, "start": 18.5, "end": 22.8, "text": " Right now, three companies control nearly two thirds of the world's cloud infrastructure.", "tokens": [51304, 1779, 586, 11, 1045, 3431, 1969, 6217, 732, 34552, 295, 264, 1002, 311, 4588, 6896, 13, 51544], "temperature": 0.0, "avg_logprob": -0.21514501327123398, "compression_ratio": 1.5975609756097562, "no_speech_prob": 0.0021703557576984167, "words": [{"word": " Right", "start": 18.5, "end": 18.8, "probability": 0.9878737330436707}, {"word": " now,", "start": 18.8, "end": 19.12, "probability": 0.9987567663192749}, {"word": " three", "start": 19.32, "end": 19.56, "probability": 0.9222425818443298}, {"word": " companies", "start": 19.56, "end": 20.04, "probability": 0.9980304837226868}, {"word": " control", "start": 20.04, "end": 20.5, "probability": 0.9965565204620361}, {"word": " nearly", "start": 20.5, "end": 20.74, "probability": 0.9983575940132141}, {"word": " two", "start": 20.74, "end": 21.06, "probability": 0.8904045224189758}, {"word": " thirds", "start": 21.06, "end": 21.34, "probability": 0.4691758155822754}, {"word": " of", "start": 21.34, "end": 21.6, "probability": 0.9992514252662659}, {"word": " the", "start": 21.6, "end": 21.74, "probability": 0.9951217770576477}, {"word": " world's", "start": 21.74, "end": 22.06, "probability": 0.998698502779007}, {"word": " cloud", "start": 22.06, "end": 22.26, "probability": 0.9887520670890808}, {"word": " infrastructure.", "start": 22.26, "end": 22.8, "probability": 0.9980738162994385}]}, {"id": 6, "seek": 0, "start": 23.58, "end": 25.12, "text": " Amazon, Microsoft and Google.", "tokens": [51544, 6795, 11, 8116, 293, 3329, 13, 51650], "temperature": 0.0, "avg_logprob": -0.21514501327123398, "compression_ratio": 1.5975609756097562, "no_speech_prob": 0.0021703557576984167, "words": [{"word": " Amazon,", "start": 23.58, "end": 23.88, "probability": 0.9947450160980225}, {"word": " Microsoft", "start": 24.2, "end": 24.52, "probability": 0.9990143775939941}, {"word": " and", "start": 24.52, "end": 24.82, "probability": 0.5434138178825378}, {"word": " Google.", "start": 24.82, "end": 25.12, "probability": 0.9991593360900879}]}, {"id": 7, "seek": 0, "start": 25.62, "end": 29.44, "text": " They convinced every business on earth to abandon their own servers and rent digital", "tokens": [51650, 814, 12561, 633, 1606, 322, 4120, 281, 9072, 641, 1065, 15909, 293, 6214, 4562, 51836], "temperature": 0.0, "avg_logprob": -0.21514501327123398, "compression_ratio": 1.5975609756097562, "no_speech_prob": 0.0021703557576984167, "words": [{"word": " They", "start": 25.62, "end": 25.78, "probability": 0.9971464276313782}, {"word": " convinced", "start": 25.78, "end": 26.06, "probability": 0.9888113737106323}, {"word": " every", "start": 26.06, "end": 26.42, "probability": 0.9960466027259827}, {"word": " business", "start": 26.42, "end": 26.72, "probability": 0.9969611763954163}, {"word": " on", "start": 26.72, "end": 26.96, "probability": 0.997010350227356}, {"word": " earth", "start": 26.96, "end": 27.18, "probability": 0.5279437303543091}, {"word": " to", "start": 27.18, "end": 27.34, "probability": 0.9978678226470947}, {"word": " abandon", "start": 27.34, "end": 27.66, "probability": 0.9987956285476685}, {"word": " their", "start": 27.66, "end": 27.92, "probability": 0.9987717270851135}, {"word": " own", "start": 27.92, "end": 28.12, "probability": 0.9939402341842651}, {"word": " servers", "start": 28.12, "end": 28.5, "probability": 0.9976175427436829}, {"word": " and", "start": 28.5, "end": 28.8, "probability": 0.9371007084846497}, {"word": " rent", "start": 28.8, "end": 29.02, "probability": 0.994784414768219}, {"word": " digital", "start": 29.02, "end": 29.44, "probability": 0.9940019249916077}]}, {"id": 8, "seek": 2944, "start": 29.44, "end": 30.22, "text": " space instead.", "tokens": [50364, 1901, 2602, 13, 50450], "temperature": 0.0, "avg_logprob": -0.1941271064695248, "compression_ratio": 1.60625, "no_speech_prob": 0.0021024069283157587, "words": [{"word": " space", "start": 29.44, "end": 29.76, "probability": 0.8834879994392395}, {"word": " instead.", "start": 29.76, "end": 30.22, "probability": 0.967423677444458}]}, {"id": 9, "seek": 2944, "start": 30.86, "end": 33.36, "text": " Seemed genius, until the math stopped working.", "tokens": [50450, 1100, 15485, 14017, 11, 1826, 264, 5221, 5936, 1364, 13, 50616], "temperature": 0.0, "avg_logprob": -0.1941271064695248, "compression_ratio": 1.60625, "no_speech_prob": 0.0021024069283157587, "words": [{"word": " Seemed", "start": 30.86, "end": 31.24, "probability": 0.6640097498893738}, {"word": " genius,", "start": 31.24, "end": 31.64, "probability": 0.9839956164360046}, {"word": " until", "start": 32.04, "end": 32.42, "probability": 0.9861915111541748}, {"word": " the", "start": 32.42, "end": 32.56, "probability": 0.9873040318489075}, {"word": " math", "start": 32.56, "end": 32.72, "probability": 0.7776570916175842}, {"word": " stopped", "start": 32.72, "end": 32.98, "probability": 0.995794415473938}, {"word": " working.", "start": 32.98, "end": 33.36, "probability": 0.9990659356117249}]}, {"id": 10, "seek": 2944, "start": 34.24, "end": 39.12, "text": " These hyperscalers have been hemorrhaging cash-building AI data centres, betting everything on artificial", "tokens": [50616, 1981, 7420, 433, 9895, 433, 362, 668, 8636, 24362, 71, 3568, 6388, 12, 28126, 7318, 1412, 30096, 11, 34246, 1203, 322, 11677, 50858], "temperature": 0.0, "avg_logprob": -0.1941271064695248, "compression_ratio": 1.60625, "no_speech_prob": 0.0021024069283157587, "words": [{"word": " These", "start": 34.24, "end": 34.5, "probability": 0.9760416150093079}, {"word": " hyperscalers", "start": 34.5, "end": 35.16, "probability": 0.9737088829278946}, {"word": " have", "start": 35.16, "end": 35.3, "probability": 0.9936238527297974}, {"word": " been", "start": 35.3, "end": 35.44, "probability": 0.9922866821289062}, {"word": " hemorrhaging", "start": 35.44, "end": 35.86, "probability": 0.993237242102623}, {"word": " cash", "start": 35.86, "end": 36.16, "probability": 0.9116601347923279}, {"word": "-building", "start": 36.16, "end": 36.4, "probability": 0.8642726838588715}, {"word": " AI", "start": 36.4, "end": 36.72, "probability": 0.9345166087150574}, {"word": " data", "start": 36.72, "end": 37.06, "probability": 0.8374481797218323}, {"word": " centres,", "start": 37.06, "end": 37.52, "probability": 0.644134521484375}, {"word": " betting", "start": 38.04, "end": 38.22, "probability": 0.988560140132904}, {"word": " everything", "start": 38.22, "end": 38.56, "probability": 0.9839349389076233}, {"word": " on", "start": 38.56, "end": 38.8, "probability": 0.9983839988708496}, {"word": " artificial", "start": 38.8, "end": 39.12, "probability": 0.9876857995986938}]}, {"id": 11, "seek": 2944, "start": 39.12, "end": 41.46, "text": " intelligence revenue that hasn't materialised.", "tokens": [50858, 7599, 9324, 300, 6132, 380, 2527, 2640, 13, 50990], "temperature": 0.0, "avg_logprob": -0.1941271064695248, "compression_ratio": 1.60625, "no_speech_prob": 0.0021024069283157587, "words": [{"word": " intelligence", "start": 39.12, "end": 39.76, "probability": 0.9868914484977722}, {"word": " revenue", "start": 39.76, "end": 40.2, "probability": 0.9957644939422607}, {"word": " that", "start": 40.2, "end": 40.42, "probability": 0.997217059135437}, {"word": " hasn't", "start": 40.42, "end": 40.7, "probability": 0.9922212362289429}, {"word": " materialised.", "start": 40.7, "end": 41.46, "probability": 0.887709230184555}]}, {"id": 12, "seek": 2944, "start": 42.02, "end": 45.88, "text": " Meanwhile, their core cloud customers are waking up to a brutal reality.", "tokens": [50990, 13879, 11, 641, 4965, 4588, 4581, 366, 20447, 493, 281, 257, 17878, 4103, 13, 51200], "temperature": 0.0, "avg_logprob": -0.1941271064695248, "compression_ratio": 1.60625, "no_speech_prob": 0.0021024069283157587, "words": [{"word": " Meanwhile,", "start": 42.02, "end": 42.36, "probability": 0.9898365139961243}, {"word": " their", "start": 42.48, "end": 42.58, "probability": 0.9270595908164978}, {"word": " core", "start": 42.58, "end": 42.94, "probability": 0.731283962726593}, {"word": " cloud", "start": 42.94, "end": 43.32, "probability": 0.9558180570602417}, {"word": " customers", "start": 43.32, "end": 43.76, "probability": 0.9946801066398621}, {"word": " are", "start": 43.76, "end": 43.94, "probability": 0.9980416297912598}, {"word": " waking", "start": 43.94, "end": 44.52, "probability": 0.9587885737419128}, {"word": " up", "start": 44.52, "end": 44.78, "probability": 0.995786726474762}, {"word": " to", "start": 44.78, "end": 44.92, "probability": 0.9954257607460022}, {"word": " a", "start": 44.92, "end": 45.04, "probability": 0.9948959946632385}, {"word": " brutal", "start": 45.04, "end": 45.32, "probability": 0.9927378296852112}, {"word": " reality.", "start": 45.32, "end": 45.88, "probability": 0.9986261129379272}]}, {"id": 13, "seek": 2944, "start": 46.36, "end": 49.96, "text": " They're trapped in contracts they can't afford, dependent on infrastructure they don't", "tokens": [51200, 814, 434, 14994, 294, 13952, 436, 393, 380, 6157, 11, 12334, 322, 6896, 436, 500, 380, 51408], "temperature": 0.0, "avg_logprob": -0.1941271064695248, "compression_ratio": 1.60625, "no_speech_prob": 0.0021024069283157587, "words": [{"word": " They're", "start": 46.36, "end": 46.56, "probability": 0.9223512411117554}, {"word": " trapped", "start": 46.56, "end": 46.8, "probability": 0.9981616139411926}, {"word": " in", "start": 46.8, "end": 47.04, "probability": 0.997829020023346}, {"word": " contracts", "start": 47.04, "end": 47.4, "probability": 0.9947893619537354}, {"word": " they", "start": 47.4, "end": 47.62, "probability": 0.9819152355194092}, {"word": " can't", "start": 47.62, "end": 47.88, "probability": 0.9959897398948669}, {"word": " afford,", "start": 47.88, "end": 48.18, "probability": 0.9998202919960022}, {"word": " dependent", "start": 48.54, "end": 48.74, "probability": 0.9820240139961243}, {"word": " on", "start": 48.74, "end": 49.04, "probability": 0.9981529116630554}, {"word": " infrastructure", "start": 49.04, "end": 49.56, "probability": 0.9910133481025696}, {"word": " they", "start": 49.56, "end": 49.8, "probability": 0.9919300675392151}, {"word": " don't", "start": 49.8, "end": 49.96, "probability": 0.9962234795093536}]}, {"id": 14, "seek": 2944, "start": 49.96, "end": 51.82, "text": " control, with no exit strategy.", "tokens": [51408, 1969, 11, 365, 572, 11043, 5206, 13, 51508], "temperature": 0.0, "avg_logprob": -0.1941271064695248, "compression_ratio": 1.60625, "no_speech_prob": 0.0021024069283157587, "words": [{"word": " control,", "start": 49.96, "end": 50.42, "probability": 0.9973178505897522}, {"word": " with", "start": 50.72, "end": 50.86, "probability": 0.9966859221458435}, {"word": " no", "start": 50.86, "end": 51.0, "probability": 0.9983541965484619}, {"word": " exit", "start": 51.0, "end": 51.3, "probability": 0.9916883111000061}, {"word": " strategy.", "start": 51.3, "end": 51.82, "probability": 0.9976205229759216}]}, {"id": 15, "seek": 2944, "start": 52.26, "end": 54.34, "text": " The warning signs are everywhere if you know where to look.", "tokens": [51508, 440, 9164, 7880, 366, 5315, 498, 291, 458, 689, 281, 574, 13, 51636], "temperature": 0.0, "avg_logprob": -0.1941271064695248, "compression_ratio": 1.60625, "no_speech_prob": 0.0021024069283157587, "words": [{"word": " The", "start": 52.26, "end": 52.36, "probability": 0.9874396324157715}, {"word": " warning", "start": 52.36, "end": 52.6, "probability": 0.9950742125511169}, {"word": " signs", "start": 52.6, "end": 52.9, "probability": 0.9975507855415344}, {"word": " are", "start": 52.9, "end": 53.08, "probability": 0.9951348900794983}, {"word": " everywhere", "start": 53.08, "end": 53.38, "probability": 0.9976692795753479}, {"word": " if", "start": 53.38, "end": 53.62, "probability": 0.8328617811203003}, {"word": " you", "start": 53.62, "end": 53.74, "probability": 0.9985976815223694}, {"word": " know", "start": 53.74, "end": 53.82, "probability": 0.9940061569213867}, {"word": " where", "start": 53.82, "end": 54.0, "probability": 0.9948681592941284}, {"word": " to", "start": 54.0, "end": 54.12, "probability": 0.9984619617462158}, {"word": " look.", "start": 54.12, "end": 54.34, "probability": 0.9985402822494507}]}, {"id": 16, "seek": 2944, "start": 54.84, "end": 57.08, "text": " Earnings reports buried in creative accounting.", "tokens": [51636, 462, 2341, 82, 7122, 14101, 294, 5880, 19163, 13, 51782], "temperature": 0.0, "avg_logprob": -0.1941271064695248, "compression_ratio": 1.60625, "no_speech_prob": 0.0021024069283157587, "words": [{"word": " Earnings", "start": 54.84, "end": 55.3, "probability": 0.9451104998588562}, {"word": " reports", "start": 55.3, "end": 55.54, "probability": 0.8443039655685425}, {"word": " buried", "start": 55.54, "end": 56.08, "probability": 0.9172834157943726}, {"word": " in", "start": 56.08, "end": 56.3, "probability": 0.9974930286407471}, {"word": " creative", "start": 56.3, "end": 56.56, "probability": 0.9623001217842102}, {"word": " accounting.", "start": 56.56, "end": 57.08, "probability": 0.9978806972503662}]}, {"id": 17, "seek": 5708, "start": 57.76, "end": 60.3, "text": " Capacity utilisation numbers that don't add up.", "tokens": [50398, 8363, 19008, 4976, 7623, 3547, 300, 500, 380, 909, 493, 13, 50554], "temperature": 0.0, "avg_logprob": -0.2228765834461559, "compression_ratio": 1.4, "no_speech_prob": 0.20428740978240967, "words": [{"word": " Capacity", "start": 57.76, "end": 58.34, "probability": 0.5005301233613864}, {"word": " utilisation", "start": 58.34, "end": 59.1, "probability": 0.6584257036447525}, {"word": " numbers", "start": 59.1, "end": 59.44, "probability": 0.9969047904014587}, {"word": " that", "start": 59.44, "end": 59.64, "probability": 0.9840442538261414}, {"word": " don't", "start": 59.64, "end": 59.94, "probability": 0.9909944832324982}, {"word": " add", "start": 59.94, "end": 60.08, "probability": 0.9988320469856262}, {"word": " up.", "start": 60.08, "end": 60.3, "probability": 0.9932025671005249}]}, {"id": 18, "seek": 5708, "start": 60.62, "end": 64.02, "text": " And a pricing war that's destroying margins industry-wide.", "tokens": [50554, 400, 257, 17621, 1516, 300, 311, 19926, 30317, 3518, 12, 7990, 13, 50760], "temperature": 0.0, "avg_logprob": -0.2228765834461559, "compression_ratio": 1.4, "no_speech_prob": 0.20428740978240967, "words": [{"word": " And", "start": 60.62, "end": 60.98, "probability": 0.9183990955352783}, {"word": " a", "start": 60.98, "end": 61.06, "probability": 0.9818974137306213}, {"word": " pricing", "start": 61.06, "end": 61.4, "probability": 0.9809898734092712}, {"word": " war", "start": 61.4, "end": 61.72, "probability": 0.9902113080024719}, {"word": " that's", "start": 61.72, "end": 61.98, "probability": 0.912176251411438}, {"word": " destroying", "start": 61.98, "end": 62.44, "probability": 0.9921127557754517}, {"word": " margins", "start": 62.44, "end": 62.9, "probability": 0.9629697799682617}, {"word": " industry", "start": 62.9, "end": 63.46, "probability": 0.954613208770752}, {"word": "-wide.", "start": 63.46, "end": 64.02, "probability": 0.8376752436161041}]}, {"id": 19, "seek": 5708, "start": 64.88, "end": 69.6, "text": " What happens when the company's hosting civilisations data start cutting corners to survive?", "tokens": [50760, 708, 2314, 562, 264, 2237, 311, 16058, 5605, 47791, 1412, 722, 6492, 12413, 281, 7867, 30, 51020], "temperature": 0.0, "avg_logprob": -0.2228765834461559, "compression_ratio": 1.4, "no_speech_prob": 0.20428740978240967, "words": [{"word": " What", "start": 64.88, "end": 65.14, "probability": 0.9942018389701843}, {"word": " happens", "start": 65.14, "end": 65.5, "probability": 0.9980103373527527}, {"word": " when", "start": 65.5, "end": 65.68, "probability": 0.9917877316474915}, {"word": " the", "start": 65.68, "end": 65.82, "probability": 0.9756196737289429}, {"word": " company's", "start": 65.82, "end": 66.3, "probability": 0.948971152305603}, {"word": " hosting", "start": 66.3, "end": 66.64, "probability": 0.9802363514900208}, {"word": " civilisations", "start": 66.64, "end": 67.54, "probability": 0.8802754580974579}, {"word": " data", "start": 67.54, "end": 67.82, "probability": 0.8590212464332581}, {"word": " start", "start": 67.82, "end": 68.22, "probability": 0.8750067353248596}, {"word": " cutting", "start": 68.22, "end": 68.58, "probability": 0.9883099794387817}, {"word": " corners", "start": 68.58, "end": 69.0, "probability": 0.9954578876495361}, {"word": " to", "start": 69.0, "end": 69.2, "probability": 0.9972981810569763}, {"word": " survive?", "start": 69.2, "end": 69.6, "probability": 0.9963415265083313}]}, {"id": 20, "seek": 5708, "start": 70.18, "end": 71.2, "text": " We're about to find out.", "tokens": [51020, 492, 434, 466, 281, 915, 484, 13, 51080], "temperature": 0.0, "avg_logprob": -0.2228765834461559, "compression_ratio": 1.4, "no_speech_prob": 0.20428740978240967, "words": [{"word": " We're", "start": 70.18, "end": 70.36, "probability": 0.944748729467392}, {"word": " about", "start": 70.36, "end": 70.52, "probability": 0.9974397420883179}, {"word": " to", "start": 70.52, "end": 70.7, "probability": 0.998563826084137}, {"word": " find", "start": 70.7, "end": 70.92, "probability": 0.998271107673645}, {"word": " out.", "start": 70.92, "end": 71.2, "probability": 0.9991078972816467}]}], "language": "en"}
+{
+  "text": " Forget choosing one safe haven. By 2030, the new wealthy elite won't have a home country, they'll have a portfolio of citizenships, each optimised for a different economic function. Here's the arbitrage strategy that makes migration obsolete. Right now, while you're watching this, over 40,000 individuals are assembling what wealth advisers quietly call Passport Portfolios, strategic combinations of citizenships that function like diversified investments, one passport for banking, another for tax residency, a third for healthcare access, a fourth as pure insurance against political collapse. This isn't about fleeing your country, it's about treating nationality itself as an asset class, one you can stack, hedge, and optimise just like stocks or real estate. The ultra wealthy discovered something the rest of us were never taught. Citizenship is a product, and like any product, some versions offer dramatically better terms than others. The difference between the right combination and the wrong one, potentially millions in lifetime tax savings, visa free access to 180 countries, and an escape hatch if your home nation ever turns hostile to your wealth. The $500,000 question isn't whether this strategy works, it's whether you can still afford to execute it before the window closes.",
+  "segments": [
+    {
+      "id": 0,
+      "seek": 0,
+      "start": 0.0,
+      "end": 5.88,
+      "text": " Forget choosing one safe haven. By 2030, the new wealthy elite won't have a home country,",
+      "tokens": [
+        50364,
+        18675,
+        10875,
+        472,
+        3273,
+        2378,
+        13,
+        3146,
+        28638,
+        11,
+        264,
+        777,
+        17707,
+        17801,
+        1582,
+        380,
+        362,
+        257,
+        1280,
+        1941,
+        11,
+        50676
+      ],
+      "temperature": 0.0,
+      "avg_logprob": -0.1393671130189801,
+      "compression_ratio": 1.5738831615120275,
+      "no_speech_prob": 0.003889958607032895,
+      "words": [
+        {
+          "word": " Forget",
+          "start": 0.0,
+          "end": 0.34,
+          "probability": 0.5670400261878967
+        },
+        {
+          "word": " choosing",
+          "start": 0.34,
+          "end": 0.92,
+          "probability": 0.9325343370437622
+        },
+        {
+          "word": " one",
+          "start": 0.92,
+          "end": 1.16,
+          "probability": 0.8865930438041687
+        },
+        {
+          "word": " safe",
+          "start": 1.16,
+          "end": 1.52,
+          "probability": 0.9662137627601624
+        },
+        {
+          "word": " haven.",
+          "start": 1.52,
+          "end": 1.84,
+          "probability": 0.9358800053596497
+        },
+        {
+          "word": " By",
+          "start": 2.58,
+          "end": 2.68,
+          "probability": 0.9873794317245483
+        },
+        {
+          "word": " 2030,",
+          "start": 2.68,
+          "end": 3.34,
+          "probability": 0.9789733290672302
+        },
+        {
+          "word": " the",
+          "start": 3.82,
+          "end": 3.9,
+          "probability": 0.9847646355628967
+        },
+        {
+          "word": " new",
+          "start": 3.9,
+          "end": 4.1,
+          "probability": 0.8471614718437195
+        },
+        {
+          "word": " wealthy",
+          "start": 4.1,
+          "end": 4.4,
+          "probability": 0.7063284516334534
+        },
+        {
+          "word": " elite",
+          "start": 4.4,
+          "end": 4.72,
+          "probability": 0.9908580183982849
+        },
+        {
+          "word": " won't",
+          "start": 4.72,
+          "end": 5.06,
+          "probability": 0.9925046861171722
+        },
+        {
+          "word": " have",
+          "start": 5.06,
+          "end": 5.24,
+          "probability": 0.997211754322052
+        },
+        {
+          "word": " a",
+          "start": 5.24,
+          "end": 5.34,
+          "probability": 0.9959820508956909
+        },
+        {
+          "word": " home",
+          "start": 5.34,
+          "end": 5.5,
+          "probability": 0.997015118598938
+        },
+        {
+          "word": " country,",
+          "start": 5.5,
+          "end": 5.88,
+          "probability": 0.9902451038360596
+        }
+      ]
+    },
+    {
+      "id": 1,
+      "seek": 0,
+      "start": 6.32,
+      "end": 11.3,
+      "text": " they'll have a portfolio of citizenships, each optimised for a different economic function.",
+      "tokens": [
+        50676,
+        436,
+        603,
+        362,
+        257,
+        12583,
+        295,
+        7180,
+        7640,
+        11,
+        1184,
+        5028,
+        2640,
+        337,
+        257,
+        819,
+        4836,
+        2445,
+        13,
+        50932
+      ],
+      "temperature": 0.0,
+      "avg_logprob": -0.1393671130189801,
+      "compression_ratio": 1.5738831615120275,
+      "no_speech_prob": 0.003889958607032895,
+      "words": [
+        {
+          "word": " they'll",
+          "start": 6.32,
+          "end": 6.54,
+          "probability": 0.966558426618576
+        },
+        {
+          "word": " have",
+          "start": 6.54,
+          "end": 6.66,
+          "probability": 0.9950785636901855
+        },
+        {
+          "word": " a",
+          "start": 6.66,
+          "end": 6.76,
+          "probability": 0.9907446503639221
+        },
+        {
+          "word": " portfolio",
+          "start": 6.76,
+          "end": 7.22,
+          "probability": 0.9589335918426514
+        },
+        {
+          "word": " of",
+          "start": 7.22,
+          "end": 7.68,
+          "probability": 0.9971935153007507
+        },
+        {
+          "word": " citizenships,",
+          "start": 7.68,
+          "end": 8.4,
+          "probability": 0.7943023145198822
+        },
+        {
+          "word": " each",
+          "start": 8.78,
+          "end": 8.94,
+          "probability": 0.9934923052787781
+        },
+        {
+          "word": " optimised",
+          "start": 8.94,
+          "end": 9.52,
+          "probability": 0.6341507285833359
+        },
+        {
+          "word": " for",
+          "start": 9.52,
+          "end": 9.68,
+          "probability": 0.9948155283927917
+        },
+        {
+          "word": " a",
+          "start": 9.68,
+          "end": 9.74,
+          "probability": 0.9887885451316833
+        },
+        {
+          "word": " different",
+          "start": 9.74,
+          "end": 10.02,
+          "probability": 0.9983727335929871
+        },
+        {
+          "word": " economic",
+          "start": 10.02,
+          "end": 10.6,
+          "probability": 0.9775978922843933
+        },
+        {
+          "word": " function.",
+          "start": 10.6,
+          "end": 11.3,
+          "probability": 0.9890533089637756
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "seek": 0,
+      "start": 12.18,
+      "end": 16.88,
+      "text": " Here's the arbitrage strategy that makes migration obsolete. Right now, while you're watching",
+      "tokens": [
+        50972,
+        1692,
+        311,
+        264,
+        14931,
+        16223,
+        5206,
+        300,
+        1669,
+        17011,
+        46333,
+        13,
+        1779,
+        586,
+        11,
+        1339,
+        291,
+        434,
+        1976,
+        51208
+      ],
+      "temperature": 0.0,
+      "avg_logprob": -0.1393671130189801,
+      "compression_ratio": 1.5738831615120275,
+      "no_speech_prob": 0.003889958607032895,
+      "words": [
+        {
+          "word": " Here's",
+          "start": 12.18,
+          "end": 12.52,
+          "probability": 0.9682246446609497
+        },
+        {
+          "word": " the",
+          "start": 12.52,
+          "end": 12.62,
+          "probability": 0.9919530749320984
+        },
+        {
+          "word": " arbitrage",
+          "start": 12.62,
+          "end": 13.02,
+          "probability": 0.9388247728347778
+        },
+        {
+          "word": " strategy",
+          "start": 13.02,
+          "end": 13.54,
+          "probability": 0.9975959658622742
+        },
+        {
+          "word": " that",
+          "start": 13.54,
+          "end": 13.76,
+          "probability": 0.9903458952903748
+        },
+        {
+          "word": " makes",
+          "start": 13.76,
+          "end": 13.92,
+          "probability": 0.9938348531723022
+        },
+        {
+          "word": " migration",
+          "start": 13.92,
+          "end": 14.48,
+          "probability": 0.9900856018066406
+        },
+        {
+          "word": " obsolete.",
+          "start": 14.48,
+          "end": 14.9,
+          "probability": 0.9986706972122192
+        },
+        {
+          "word": " Right",
+          "start": 15.68,
+          "end": 15.98,
+          "probability": 0.9806557893753052
+        },
+        {
+          "word": " now,",
+          "start": 15.98,
+          "end": 16.3,
+          "probability": 0.998308539390564
+        },
+        {
+          "word": " while",
+          "start": 16.4,
+          "end": 16.5,
+          "probability": 0.9935523271560669
+        },
+        {
+          "word": " you're",
+          "start": 16.5,
+          "end": 16.64,
+          "probability": 0.9873851537704468
+        },
+        {
+          "word": " watching",
+          "start": 16.64,
+          "end": 16.88,
+          "probability": 0.9969909191131592
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "seek": 0,
+      "start": 16.88,
+      "end": 23.06,
+      "text": " this, over 40,000 individuals are assembling what wealth advisers quietly call Passport Portfolios,",
+      "tokens": [
+        51208,
+        341,
+        11,
+        670,
+        3356,
+        11,
+        1360,
+        5346,
+        366,
+        43867,
+        437,
+        7203,
+        10280,
+        433,
+        19141,
+        818,
+        10319,
+        2707,
+        6733,
+        7082,
+        2717,
+        11,
+        51540
+      ],
+      "temperature": 0.0,
+      "avg_logprob": -0.1393671130189801,
+      "compression_ratio": 1.5738831615120275,
+      "no_speech_prob": 0.003889958607032895,
+      "words": [
+        {
+          "word": " this,",
+          "start": 16.88,
+          "end": 17.14,
+          "probability": 0.9969425797462463
+        },
+        {
+          "word": " over",
+          "start": 17.6,
+          "end": 17.82,
+          "probability": 0.9962571859359741
+        },
+        {
+          "word": " 40",
+          "start": 17.82,
+          "end": 18.3,
+          "probability": 0.9438599348068237
+        },
+        {
+          "word": ",000",
+          "start": 18.3,
+          "end": 18.76,
+          "probability": 0.9679134488105774
+        },
+        {
+          "word": " individuals",
+          "start": 18.76,
+          "end": 19.22,
+          "probability": 0.9966434240341187
+        },
+        {
+          "word": " are",
+          "start": 19.22,
+          "end": 19.5,
+          "probability": 0.9990004897117615
+        },
+        {
+          "word": " assembling",
+          "start": 19.5,
+          "end": 19.96,
+          "probability": 0.9925557971000671
+        },
+        {
+          "word": " what",
+          "start": 19.96,
+          "end": 20.22,
+          "probability": 0.996697187423706
+        },
+        {
+          "word": " wealth",
+          "start": 20.22,
+          "end": 20.6,
+          "probability": 0.8612339496612549
+        },
+        {
+          "word": " advisers",
+          "start": 20.6,
+          "end": 21.06,
+          "probability": 0.6350154727697372
+        },
+        {
+          "word": " quietly",
+          "start": 21.06,
+          "end": 21.48,
+          "probability": 0.6905128359794617
+        },
+        {
+          "word": " call",
+          "start": 21.48,
+          "end": 21.76,
+          "probability": 0.9345471262931824
+        },
+        {
+          "word": " Passport",
+          "start": 21.76,
+          "end": 22.3,
+          "probability": 0.577618271112442
+        },
+        {
+          "word": " Portfolios,",
+          "start": 22.3,
+          "end": 23.06,
+          "probability": 0.9363140066464742
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "seek": 0,
+      "start": 23.66,
+      "end": 27.54,
+      "text": " strategic combinations of citizenships that function like diversified investments,",
+      "tokens": [
+        51540,
+        10924,
+        21267,
+        295,
+        7180,
+        7640,
+        300,
+        2445,
+        411,
+        6111,
+        2587,
+        13784,
+        11,
+        51768
+      ],
+      "temperature": 0.0,
+      "avg_logprob": -0.1393671130189801,
+      "compression_ratio": 1.5738831615120275,
+      "no_speech_prob": 0.003889958607032895,
+      "words": [
+        {
+          "word": " strategic",
+          "start": 23.66,
+          "end": 24.1,
+          "probability": 0.9384341239929199
+        },
+        {
+          "word": " combinations",
+          "start": 24.1,
+          "end": 24.54,
+          "probability": 0.984973669052124
+        },
+        {
+          "word": " of",
+          "start": 24.54,
+          "end": 24.98,
+          "probability": 0.9989063739776611
+        },
+        {
+          "word": " citizenships",
+          "start": 24.98,
+          "end": 25.68,
+          "probability": 0.9714714288711548
+        },
+        {
+          "word": " that",
+          "start": 25.68,
+          "end": 25.84,
+          "probability": 0.9826259613037109
+        },
+        {
+          "word": " function",
+          "start": 25.84,
+          "end": 26.2,
+          "probability": 0.9962875843048096
+        },
+        {
+          "word": " like",
+          "start": 26.2,
+          "end": 26.42,
+          "probability": 0.98017817735672
+        },
+        {
+          "word": " diversified",
+          "start": 26.42,
+          "end": 27.0,
+          "probability": 0.9938587248325348
+        },
+        {
+          "word": " investments,",
+          "start": 27.0,
+          "end": 27.54,
+          "probability": 0.9899935126304626
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "seek": 2754,
+      "start": 27.54,
+      "end": 33.18,
+      "text": " one passport for banking, another for tax residency, a third for healthcare access,",
+      "tokens": [
+        50388,
+        472,
+        24694,
+        337,
+        18261,
+        11,
+        1071,
+        337,
+        3366,
+        34014,
+        11,
+        257,
+        2636,
+        337,
+        8884,
+        2105,
+        11,
+        50664
+      ],
+      "temperature": 0.0,
+      "avg_logprob": -0.11864195617974974,
+      "compression_ratio": 1.6232394366197183,
+      "no_speech_prob": 0.0018447332549840212,
+      "words": [
+        {
+          "word": " one",
+          "start": 27.54,
+          "end": 28.26,
+          "probability": 0.2432263344526291
+        },
+        {
+          "word": " passport",
+          "start": 28.26,
+          "end": 28.7,
+          "probability": 0.9428380131721497
+        },
+        {
+          "word": " for",
+          "start": 28.7,
+          "end": 29.0,
+          "probability": 0.9806773066520691
+        },
+        {
+          "word": " banking,",
+          "start": 29.0,
+          "end": 29.34,
+          "probability": 0.9026917815208435
+        },
+        {
+          "word": " another",
+          "start": 29.9,
+          "end": 30.18,
+          "probability": 0.9866733551025391
+        },
+        {
+          "word": " for",
+          "start": 30.18,
+          "end": 30.38,
+          "probability": 0.9946006536483765
+        },
+        {
+          "word": " tax",
+          "start": 30.38,
+          "end": 30.62,
+          "probability": 0.9966570138931274
+        },
+        {
+          "word": " residency,",
+          "start": 30.62,
+          "end": 31.34,
+          "probability": 0.9588971734046936
+        },
+        {
+          "word": " a",
+          "start": 31.82,
+          "end": 31.92,
+          "probability": 0.9831997156143188
+        },
+        {
+          "word": " third",
+          "start": 31.92,
+          "end": 32.12,
+          "probability": 0.9767434597015381
+        },
+        {
+          "word": " for",
+          "start": 32.12,
+          "end": 32.32,
+          "probability": 0.9664623141288757
+        },
+        {
+          "word": " healthcare",
+          "start": 32.32,
+          "end": 32.68,
+          "probability": 0.6487605571746826
+        },
+        {
+          "word": " access,",
+          "start": 32.68,
+          "end": 33.18,
+          "probability": 0.9880380630493164
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "seek": 2754,
+      "start": 33.7,
+      "end": 38.64,
+      "text": " a fourth as pure insurance against political collapse. This isn't about fleeing your country,",
+      "tokens": [
+        50664,
+        257,
+        6409,
+        382,
+        6075,
+        7214,
+        1970,
+        3905,
+        15584,
+        13,
+        639,
+        1943,
+        380,
+        466,
+        41885,
+        428,
+        1941,
+        11,
+        50936
+      ],
+      "temperature": 0.0,
+      "avg_logprob": -0.11864195617974974,
+      "compression_ratio": 1.6232394366197183,
+      "no_speech_prob": 0.0018447332549840212,
+      "words": [
+        {
+          "word": " a",
+          "start": 33.7,
+          "end": 33.8,
+          "probability": 0.9899448752403259
+        },
+        {
+          "word": " fourth",
+          "start": 33.8,
+          "end": 34.06,
+          "probability": 0.9804694056510925
+        },
+        {
+          "word": " as",
+          "start": 34.06,
+          "end": 34.24,
+          "probability": 0.6650137305259705
+        },
+        {
+          "word": " pure",
+          "start": 34.24,
+          "end": 34.52,
+          "probability": 0.9789322018623352
+        },
+        {
+          "word": " insurance",
+          "start": 34.52,
+          "end": 35.1,
+          "probability": 0.9932990074157715
+        },
+        {
+          "word": " against",
+          "start": 35.1,
+          "end": 35.34,
+          "probability": 0.9926016926765442
+        },
+        {
+          "word": " political",
+          "start": 35.34,
+          "end": 35.84,
+          "probability": 0.9934664368629456
+        },
+        {
+          "word": " collapse.",
+          "start": 35.84,
+          "end": 36.22,
+          "probability": 0.9883067011833191
+        },
+        {
+          "word": " This",
+          "start": 36.8,
+          "end": 37.06,
+          "probability": 0.9862974882125854
+        },
+        {
+          "word": " isn't",
+          "start": 37.06,
+          "end": 37.34,
+          "probability": 0.9956950843334198
+        },
+        {
+          "word": " about",
+          "start": 37.34,
+          "end": 37.52,
+          "probability": 0.9985606074333191
+        },
+        {
+          "word": " fleeing",
+          "start": 37.52,
+          "end": 37.94,
+          "probability": 0.9742423892021179
+        },
+        {
+          "word": " your",
+          "start": 37.94,
+          "end": 38.16,
+          "probability": 0.9926896691322327
+        },
+        {
+          "word": " country,",
+          "start": 38.16,
+          "end": 38.64,
+          "probability": 0.9984285235404968
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "seek": 2754,
+      "start": 39.12,
+      "end": 44.14,
+      "text": " it's about treating nationality itself as an asset class, one you can stack, hedge,",
+      "tokens": [
+        50936,
+        309,
+        311,
+        466,
+        15083,
+        4048,
+        507,
+        2564,
+        382,
+        364,
+        11999,
+        1508,
+        11,
+        472,
+        291,
+        393,
+        8630,
+        11,
+        25304,
+        11,
+        51208
+      ],
+      "temperature": 0.0,
+      "avg_logprob": -0.11864195617974974,
+      "compression_ratio": 1.6232394366197183,
+      "no_speech_prob": 0.0018447332549840212,
+      "words": [
+        {
+          "word": " it's",
+          "start": 39.12,
+          "end": 39.26,
+          "probability": 0.9865105450153351
+        },
+        {
+          "word": " about",
+          "start": 39.26,
+          "end": 39.4,
+          "probability": 0.99863201379776
+        },
+        {
+          "word": " treating",
+          "start": 39.4,
+          "end": 39.7,
+          "probability": 0.9910385608673096
+        },
+        {
+          "word": " nationality",
+          "start": 39.7,
+          "end": 40.46,
+          "probability": 0.9660172760486603
+        },
+        {
+          "word": " itself",
+          "start": 40.46,
+          "end": 40.82,
+          "probability": 0.9775665402412415
+        },
+        {
+          "word": " as",
+          "start": 40.82,
+          "end": 41.06,
+          "probability": 0.9955703616142273
+        },
+        {
+          "word": " an",
+          "start": 41.06,
+          "end": 41.14,
+          "probability": 0.7365716695785522
+        },
+        {
+          "word": " asset",
+          "start": 41.14,
+          "end": 41.44,
+          "probability": 0.7766675353050232
+        },
+        {
+          "word": " class,",
+          "start": 41.44,
+          "end": 41.88,
+          "probability": 0.98585444688797
+        },
+        {
+          "word": " one",
+          "start": 42.46,
+          "end": 42.68,
+          "probability": 0.8941684365272522
+        },
+        {
+          "word": " you",
+          "start": 42.68,
+          "end": 42.82,
+          "probability": 0.9786188006401062
+        },
+        {
+          "word": " can",
+          "start": 42.82,
+          "end": 42.98,
+          "probability": 0.9970830082893372
+        },
+        {
+          "word": " stack,",
+          "start": 42.98,
+          "end": 43.34,
+          "probability": 0.9742383360862732
+        },
+        {
+          "word": " hedge,",
+          "start": 43.92,
+          "end": 44.14,
+          "probability": 0.996742308139801
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "seek": 2754,
+      "start": 44.52,
+      "end": 50.18,
+      "text": " and optimise just like stocks or real estate. The ultra wealthy discovered something the rest of us",
+      "tokens": [
+        51208,
+        293,
+        5028,
+        908,
+        445,
+        411,
+        12966,
+        420,
+        957,
+        9749,
+        13,
+        440,
+        14808,
+        17707,
+        6941,
+        746,
+        264,
+        1472,
+        295,
+        505,
+        51492
+      ],
+      "temperature": 0.0,
+      "avg_logprob": -0.11864195617974974,
+      "compression_ratio": 1.6232394366197183,
+      "no_speech_prob": 0.0018447332549840212,
+      "words": [
+        {
+          "word": " and",
+          "start": 44.52,
+          "end": 44.62,
+          "probability": 0.9930391907691956
+        },
+        {
+          "word": " optimise",
+          "start": 44.62,
+          "end": 45.1,
+          "probability": 0.641795888543129
+        },
+        {
+          "word": " just",
+          "start": 45.1,
+          "end": 45.38,
+          "probability": 0.9596014022827148
+        },
+        {
+          "word": " like",
+          "start": 45.38,
+          "end": 45.62,
+          "probability": 0.9958938360214233
+        },
+        {
+          "word": " stocks",
+          "start": 45.62,
+          "end": 46.0,
+          "probability": 0.9694002270698547
+        },
+        {
+          "word": " or",
+          "start": 46.0,
+          "end": 46.28,
+          "probability": 0.989117443561554
+        },
+        {
+          "word": " real",
+          "start": 46.28,
+          "end": 46.5,
+          "probability": 0.9967436790466309
+        },
+        {
+          "word": " estate.",
+          "start": 46.5,
+          "end": 46.82,
+          "probability": 0.9960100650787354
+        },
+        {
+          "word": " The",
+          "start": 47.92,
+          "end": 48.06,
+          "probability": 0.9828035831451416
+        },
+        {
+          "word": " ultra",
+          "start": 48.06,
+          "end": 48.32,
+          "probability": 0.9254503846168518
+        },
+        {
+          "word": " wealthy",
+          "start": 48.32,
+          "end": 48.7,
+          "probability": 0.6056945323944092
+        },
+        {
+          "word": " discovered",
+          "start": 48.7,
+          "end": 49.12,
+          "probability": 0.9901555776596069
+        },
+        {
+          "word": " something",
+          "start": 49.12,
+          "end": 49.54,
+          "probability": 0.9943278431892395
+        },
+        {
+          "word": " the",
+          "start": 49.54,
+          "end": 49.72,
+          "probability": 0.9926043748855591
+        },
+        {
+          "word": " rest",
+          "start": 49.72,
+          "end": 49.88,
+          "probability": 0.9981759786605835
+        },
+        {
+          "word": " of",
+          "start": 49.88,
+          "end": 50.04,
+          "probability": 0.9914160370826721
+        },
+        {
+          "word": " us",
+          "start": 50.04,
+          "end": 50.18,
+          "probability": 0.9996612071990967
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "seek": 2754,
+      "start": 50.18,
+      "end": 55.82,
+      "text": " were never taught. Citizenship is a product, and like any product, some versions offer dramatically",
+      "tokens": [
+        51492,
+        645,
+        1128,
+        5928,
+        13,
+        44120,
+        1210,
+        307,
+        257,
+        1674,
+        11,
+        293,
+        411,
+        604,
+        1674,
+        11,
+        512,
+        9606,
+        2626,
+        17548,
+        51784
+      ],
+      "temperature": 0.0,
+      "avg_logprob": -0.11864195617974974,
+      "compression_ratio": 1.6232394366197183,
+      "no_speech_prob": 0.0018447332549840212,
+      "words": [
+        {
+          "word": " were",
+          "start": 50.18,
+          "end": 50.26,
+          "probability": 0.959078311920166
+        },
+        {
+          "word": " never",
+          "start": 50.26,
+          "end": 50.46,
+          "probability": 0.9973553419113159
+        },
+        {
+          "word": " taught.",
+          "start": 50.46,
+          "end": 50.74,
+          "probability": 0.9925791621208191
+        },
+        {
+          "word": " Citizenship",
+          "start": 51.56,
+          "end": 52.12,
+          "probability": 0.960675984621048
+        },
+        {
+          "word": " is",
+          "start": 52.12,
+          "end": 52.32,
+          "probability": 0.995398223400116
+        },
+        {
+          "word": " a",
+          "start": 52.32,
+          "end": 52.42,
+          "probability": 0.9977745413780212
+        },
+        {
+          "word": " product,",
+          "start": 52.42,
+          "end": 52.82,
+          "probability": 0.9894100427627563
+        },
+        {
+          "word": " and",
+          "start": 53.48,
+          "end": 53.66,
+          "probability": 0.987967848777771
+        },
+        {
+          "word": " like",
+          "start": 53.66,
+          "end": 53.78,
+          "probability": 0.9724535346031189
+        },
+        {
+          "word": " any",
+          "start": 53.78,
+          "end": 54.04,
+          "probability": 0.9985131621360779
+        },
+        {
+          "word": " product,",
+          "start": 54.04,
+          "end": 54.4,
+          "probability": 0.9936512112617493
+        },
+        {
+          "word": " some",
+          "start": 54.62,
+          "end": 54.72,
+          "probability": 0.9981933236122131
+        },
+        {
+          "word": " versions",
+          "start": 54.72,
+          "end": 55.06,
+          "probability": 0.9931955337524414
+        },
+        {
+          "word": " offer",
+          "start": 55.06,
+          "end": 55.34,
+          "probability": 0.8419111967086792
+        },
+        {
+          "word": " dramatically",
+          "start": 55.34,
+          "end": 55.82,
+          "probability": 0.9791314601898193
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "seek": 5582,
+      "start": 55.82,
+      "end": 60.04,
+      "text": " better terms than others. The difference between the right combination and the wrong one,",
+      "tokens": [
+        50364,
+        1101,
+        2115,
+        813,
+        2357,
+        13,
+        440,
+        2649,
+        1296,
+        264,
+        558,
+        6562,
+        293,
+        264,
+        2085,
+        472,
+        11,
+        50596
+      ],
+      "temperature": 0.0,
+      "avg_logprob": -0.14904563767569406,
+      "compression_ratio": 1.5284552845528456,
+      "no_speech_prob": 0.00468028336763382,
+      "words": [
+        {
+          "word": " better",
+          "start": 55.82,
+          "end": 56.12,
+          "probability": 0.5143497586250305
+        },
+        {
+          "word": " terms",
+          "start": 56.12,
+          "end": 56.58,
+          "probability": 0.9968008995056152
+        },
+        {
+          "word": " than",
+          "start": 56.58,
+          "end": 56.76,
+          "probability": 0.9879869818687439
+        },
+        {
+          "word": " others.",
+          "start": 56.76,
+          "end": 57.04,
+          "probability": 0.9860618710517883
+        },
+        {
+          "word": " The",
+          "start": 57.76,
+          "end": 57.76,
+          "probability": 0.9882199764251709
+        },
+        {
+          "word": " difference",
+          "start": 57.76,
+          "end": 58.0,
+          "probability": 0.9942102432250977
+        },
+        {
+          "word": " between",
+          "start": 58.0,
+          "end": 58.42,
+          "probability": 0.9980828762054443
+        },
+        {
+          "word": " the",
+          "start": 58.42,
+          "end": 58.6,
+          "probability": 0.9934697151184082
+        },
+        {
+          "word": " right",
+          "start": 58.6,
+          "end": 58.76,
+          "probability": 0.9694110751152039
+        },
+        {
+          "word": " combination",
+          "start": 58.76,
+          "end": 59.32,
+          "probability": 0.9938231706619263
+        },
+        {
+          "word": " and",
+          "start": 59.32,
+          "end": 59.5,
+          "probability": 0.987173318862915
+        },
+        {
+          "word": " the",
+          "start": 59.5,
+          "end": 59.6,
+          "probability": 0.9954337477684021
+        },
+        {
+          "word": " wrong",
+          "start": 59.6,
+          "end": 59.78,
+          "probability": 0.9979932308197021
+        },
+        {
+          "word": " one,",
+          "start": 59.78,
+          "end": 60.04,
+          "probability": 0.9911990761756897
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "seek": 5582,
+      "start": 60.52,
+      "end": 65.66,
+      "text": " potentially millions in lifetime tax savings, visa free access to 180 countries,",
+      "tokens": [
+        50596,
+        7263,
+        6803,
+        294,
+        11364,
+        3366,
+        13454,
+        11,
+        18589,
+        1737,
+        2105,
+        281,
+        11971,
+        3517,
+        11,
+        50872
+      ],
+      "temperature": 0.0,
+      "avg_logprob": -0.14904563767569406,
+      "compression_ratio": 1.5284552845528456,
+      "no_speech_prob": 0.00468028336763382,
+      "words": [
+        {
+          "word": " potentially",
+          "start": 60.52,
+          "end": 60.9,
+          "probability": 0.9938734769821167
+        },
+        {
+          "word": " millions",
+          "start": 60.9,
+          "end": 61.36,
+          "probability": 0.9801931977272034
+        },
+        {
+          "word": " in",
+          "start": 61.36,
+          "end": 61.68,
+          "probability": 0.9870398640632629
+        },
+        {
+          "word": " lifetime",
+          "start": 61.68,
+          "end": 61.92,
+          "probability": 0.9224663972854614
+        },
+        {
+          "word": " tax",
+          "start": 61.92,
+          "end": 62.32,
+          "probability": 0.9868705868721008
+        },
+        {
+          "word": " savings,",
+          "start": 62.32,
+          "end": 62.78,
+          "probability": 0.990142822265625
+        },
+        {
+          "word": " visa",
+          "start": 63.28,
+          "end": 63.54,
+          "probability": 0.8941668272018433
+        },
+        {
+          "word": " free",
+          "start": 63.54,
+          "end": 63.76,
+          "probability": 0.42510083317756653
+        },
+        {
+          "word": " access",
+          "start": 63.76,
+          "end": 64.12,
+          "probability": 0.9986565113067627
+        },
+        {
+          "word": " to",
+          "start": 64.12,
+          "end": 64.42,
+          "probability": 0.989535391330719
+        },
+        {
+          "word": " 180",
+          "start": 64.42,
+          "end": 64.96,
+          "probability": 0.9006696939468384
+        },
+        {
+          "word": " countries,",
+          "start": 64.96,
+          "end": 65.66,
+          "probability": 0.9887114763259888
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "seek": 5582,
+      "start": 66.04,
+      "end": 70.74,
+      "text": " and an escape hatch if your home nation ever turns hostile to your wealth.",
+      "tokens": [
+        50872,
+        293,
+        364,
+        7615,
+        17387,
+        498,
+        428,
+        1280,
+        4790,
+        1562,
+        4523,
+        27312,
+        281,
+        428,
+        7203,
+        13,
+        51104
+      ],
+      "temperature": 0.0,
+      "avg_logprob": -0.14904563767569406,
+      "compression_ratio": 1.5284552845528456,
+      "no_speech_prob": 0.00468028336763382,
+      "words": [
+        {
+          "word": " and",
+          "start": 66.04,
+          "end": 66.2,
+          "probability": 0.9896712899208069
+        },
+        {
+          "word": " an",
+          "start": 66.2,
+          "end": 66.34,
+          "probability": 0.9924024343490601
+        },
+        {
+          "word": " escape",
+          "start": 66.34,
+          "end": 66.68,
+          "probability": 0.9730134606361389
+        },
+        {
+          "word": " hatch",
+          "start": 66.68,
+          "end": 67.06,
+          "probability": 0.9830180406570435
+        },
+        {
+          "word": " if",
+          "start": 67.06,
+          "end": 67.24,
+          "probability": 0.5962567925453186
+        },
+        {
+          "word": " your",
+          "start": 67.24,
+          "end": 67.4,
+          "probability": 0.8868435621261597
+        },
+        {
+          "word": " home",
+          "start": 67.4,
+          "end": 67.84,
+          "probability": 0.7476747632026672
+        },
+        {
+          "word": " nation",
+          "start": 67.84,
+          "end": 68.38,
+          "probability": 0.9793128967285156
+        },
+        {
+          "word": " ever",
+          "start": 68.38,
+          "end": 69.12,
+          "probability": 0.9763455986976624
+        },
+        {
+          "word": " turns",
+          "start": 69.12,
+          "end": 69.42,
+          "probability": 0.9980243444442749
+        },
+        {
+          "word": " hostile",
+          "start": 69.42,
+          "end": 69.8,
+          "probability": 0.9881263971328735
+        },
+        {
+          "word": " to",
+          "start": 69.8,
+          "end": 70.14,
+          "probability": 0.9952497482299805
+        },
+        {
+          "word": " your",
+          "start": 70.14,
+          "end": 70.3,
+          "probability": 0.9943248629570007
+        },
+        {
+          "word": " wealth.",
+          "start": 70.3,
+          "end": 70.74,
+          "probability": 0.991883397102356
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "seek": 5582,
+      "start": 71.56,
+      "end": 76.28,
+      "text": " The $500,000 question isn't whether this strategy works, it's whether you can still afford",
+      "tokens": [
+        51152,
+        440,
+        1848,
+        7526,
+        11,
+        1360,
+        1168,
+        1943,
+        380,
+        1968,
+        341,
+        5206,
+        1985,
+        11,
+        309,
+        311,
+        1968,
+        291,
+        393,
+        920,
+        6157,
+        51384
+      ],
+      "temperature": 0.0,
+      "avg_logprob": -0.14904563767569406,
+      "compression_ratio": 1.5284552845528456,
+      "no_speech_prob": 0.00468028336763382,
+      "words": [
+        {
+          "word": " The",
+          "start": 71.56,
+          "end": 71.82,
+          "probability": 0.9781515598297119
+        },
+        {
+          "word": " $500",
+          "start": 71.82,
+          "end": 72.32,
+          "probability": 0.9257497191429138
+        },
+        {
+          "word": ",000",
+          "start": 72.32,
+          "end": 72.82,
+          "probability": 0.9638528227806091
+        },
+        {
+          "word": " question",
+          "start": 72.82,
+          "end": 73.36,
+          "probability": 0.969086766242981
+        },
+        {
+          "word": " isn't",
+          "start": 73.36,
+          "end": 73.66,
+          "probability": 0.9723455905914307
+        },
+        {
+          "word": " whether",
+          "start": 73.66,
+          "end": 73.86,
+          "probability": 0.9960770010948181
+        },
+        {
+          "word": " this",
+          "start": 73.86,
+          "end": 74.06,
+          "probability": 0.937347948551178
+        },
+        {
+          "word": " strategy",
+          "start": 74.06,
+          "end": 74.38,
+          "probability": 0.9973921775817871
+        },
+        {
+          "word": " works,",
+          "start": 74.38,
+          "end": 74.84,
+          "probability": 0.9987943172454834
+        },
+        {
+          "word": " it's",
+          "start": 75.28,
+          "end": 75.4,
+          "probability": 0.9115690588951111
+        },
+        {
+          "word": " whether",
+          "start": 75.4,
+          "end": 75.56,
+          "probability": 0.9932968020439148
+        },
+        {
+          "word": " you",
+          "start": 75.56,
+          "end": 75.7,
+          "probability": 0.9977779984474182
+        },
+        {
+          "word": " can",
+          "start": 75.7,
+          "end": 75.82,
+          "probability": 0.9883275628089905
+        },
+        {
+          "word": " still",
+          "start": 75.82,
+          "end": 76.02,
+          "probability": 0.9963861703872681
+        },
+        {
+          "word": " afford",
+          "start": 76.02,
+          "end": 76.28,
+          "probability": 0.9979573488235474
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "seek": 5582,
+      "start": 76.28,
+      "end": 77.96,
+      "text": " to execute it before the window closes.",
+      "tokens": [
+        51384,
+        281,
+        14483,
+        309,
+        949,
+        264,
+        4910,
+        24157,
+        13,
+        51756
+      ],
+      "temperature": 0.0,
+      "avg_logprob": -0.14904563767569406,
+      "compression_ratio": 1.5284552845528456,
+      "no_speech_prob": 0.00468028336763382,
+      "words": [
+        {
+          "word": " to",
+          "start": 76.28,
+          "end": 76.46,
+          "probability": 0.9990573525428772
+        },
+        {
+          "word": " execute",
+          "start": 76.46,
+          "end": 76.84,
+          "probability": 0.9960954785346985
+        },
+        {
+          "word": " it",
+          "start": 76.84,
+          "end": 77.0,
+          "probability": 0.9927910566329956
+        },
+        {
+          "word": " before",
+          "start": 77.0,
+          "end": 77.24,
+          "probability": 0.9945061802864075
+        },
+        {
+          "word": " the",
+          "start": 77.24,
+          "end": 77.38,
+          "probability": 0.9951232075691223
+        },
+        {
+          "word": " window",
+          "start": 77.38,
+          "end": 77.54,
+          "probability": 0.9866237044334412
+        },
+        {
+          "word": " closes.",
+          "start": 77.54,
+          "end": 77.96,
+          "probability": 0.9983943104743958
+        }
+      ]
+    }
+  ],
+  "language": "en"
+}
