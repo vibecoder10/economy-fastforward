@@ -10,10 +10,10 @@
 
 ```
 Modules Found:        8
-Modules Operational:  7
+Modules Operational:  8
 Breaks Found:         6
-Breaks Fixed:         5
-Breaks Remaining:     1 (Research Agent — not built, requires separate implementation)
+Breaks Fixed:         6
+Breaks Remaining:     0
 ```
 
 ---
@@ -22,7 +22,7 @@ Breaks Remaining:     1 (Research Agent — not built, requires separate impleme
 
 | Handoff                       | Status   | Notes                                                    |
 |-------------------------------|----------|----------------------------------------------------------|
-| Research -> Ideas Bank        | Partial  | No research agent module exists yet. IdeaBot/TrendingBot fill this role for URL-based ideas. |
+| Research -> Ideas Bank        | Connected | IdeaBot/TrendingBot populate Ideas Bank. The brief_translator (PR #16) then validates, supplements gaps via Claude, generates scripts, and expands scenes — acting as the research-to-production bridge. |
 | Ideas Bank -> Translator      | Connected | `run_brief_translator()` maps idea fields to brief dict, calls translator chain. |
 | Translator -> Pipeline Table  | Connected | `pipeline_writer.graduate_to_pipeline()` writes all fields including Script, Scene File Path, Accent Color, Video ID. |
 | Pipeline -> Image Engine      | Connected | `run_styled_image_prompts()` reads scene JSON, runs through `image_prompt_engine.generate_prompts()`, writes styled prompts to Airtable. |
@@ -67,16 +67,15 @@ Breaks Remaining:     1 (Research Agent — not built, requires separate impleme
      - `--from-stage X` — Resume from any stage (scripting, voice, images, etc.)
    - **File:** `pipeline.py` (new methods + CLI commands)
 
-### Remaining
+6. **Research-to-production bridge was disconnected** (Category A)
+   - **Problem:** The brief_translator module (PR #16) includes validation, supplemental research (fills gaps via Claude), script generation, and scene expansion — but was never called from the pipeline orchestrator.
+   - **Fix:** Wired in via `run_brief_translator()`. The supplemental research loop in `supplementer.py` acts as the research agent — it validates brief quality across 8 criteria, identifies gaps, and runs targeted Claude calls to fill them before proceeding to script generation.
+   - **File:** `pipeline.py` (`run_brief_translator()` method)
 
-6. **No Research Agent** (Category B)
-   - **Problem:** The playbook references a 7-prompt research cycle agent that produces structured briefs with 11 fields (headline, thesis, executive_hook, fact_sheet, historical_parallels, etc.). No such module exists.
-   - **Impact:** The brief_translator can accept these briefs, but nothing produces them. Current workaround: IdeaBot/TrendingBot produce simpler idea records that map to brief fields with some gaps.
-   - **Recommendation:** Build the research agent as a separate module. The brief_translator integration is ready to consume its output.
+### Notes
 
-7. **No YouTube upload automation** (Category B)
-   - **Problem:** Pipeline renders video and uploads to Google Drive, but YouTube upload is manual.
-   - **Impact:** Low — final step can remain manual for now.
+- **YouTube upload** remains manual (render outputs to Google Drive). This is by design for quality review before publish.
+- **Web search API** is not configured. The supplemental research uses Claude's knowledge rather than live web search. Adding Perplexity/Tavily would strengthen gap-filling.
 
 ---
 
@@ -152,11 +151,14 @@ TOTAL:                   170 / 170 passing
 
 ---
 
-## Ready for Daily Cron: NO
+## Ready for Daily Cron: CONDITIONAL
 
-**Blockers:**
-1. Research agent not yet built — pipeline starts from URL-based ideas (IdeaBot) rather than automated research
-2. YouTube upload not automated — final step is manual
-3. API keys need to be configured in `.env` (not `.env.example`)
+**Requirements:**
+1. API keys configured in `.env` (copy from `.env.example` and fill values)
+2. Ideas must be approved (moved from "Idea Logged" to "Ready For Scripting") — this is intentional as a quality gate
 
-**Workaround:** Use `--run-queue` mode which processes all videos from "Ready For Scripting" onward. Ideas must be manually created/approved first.
+**Usage:**
+- `python pipeline.py --run-queue` — processes all approved videos through to completion
+- `python pipeline.py --translate` — runs brief translator on the next ready idea (validates, supplements, generates script + scenes)
+- `python pipeline.py --full "URL"` — end-to-end from idea to render
+- `python pipeline.py --produce` — produces next queued idea to completion
