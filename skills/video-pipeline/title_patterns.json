@@ -1,0 +1,435 @@
+{
+  "version": "1.0",
+  "last_updated": "2026-02-14",
+  "competitors": {
+    "economy_rewind": {
+      "channel_url": "TBD",
+      "focus": "Hidden systems, cycles, historical patterns in economics",
+      "formulas": [
+        {
+          "id": "ER-1",
+          "name": "N-Stage Pattern/Cycle",
+          "top_view_count": 3200000,
+          "template": "The [Number]-Stage [Event Type] [Pattern/Cycle]: [Historical Examples]...",
+          "variables": {
+            "Number": {"type": "integer", "range": [3, 7], "sweet_spot": [5, 7]},
+            "Event Type": {"type": "string", "examples": ["Collapse", "Revolution", "Currency Kill", "Debt Reset", "Sanction Trap"]},
+            "Pattern/Cycle": {"type": "string", "options": ["Pattern", "Cycle", "Playbook", "Blueprint"]},
+            "Historical Examples": {"type": "list", "count": [2, 4], "format": "comma separated"}
+          },
+          "implied_elements": ["USA/viewer country is next", "Current stage number shown"],
+          "examples": [
+            "The 7-Stage Collapse Pattern: Spain, Britain, USSR... USA Is at Stage 5",
+            "The 6-Stage Revolution Cycle: France, Russia, Cuba... 2025 = Next?"
+          ]
+        },
+        {
+          "id": "ER-2",
+          "name": "Trusted Entity Betrayal",
+          "top_view_count": 176000,
+          "template": "How [Trusted Entity] [Secretly/Quietly] [Betrayed/Looted/Built] [Shocking Target]",
+          "variables": {
+            "Trusted Entity": {"type": "string", "examples": ["America", "Wall Street", "The Fed", "NATO", "IMF"]},
+            "Action": {"type": "string", "examples": ["Looted", "Built", "Destroyed", "Funded", "Controls"]},
+            "Shocking Target": {"type": "string", "examples": ["the British Empire", "the Nazi War Machine", "Both Sides"]}
+          },
+          "implied_elements": ["Betrayal of trust", "Secret action revealed"],
+          "examples": [
+            "How America Looted the British Empire During WWII",
+            "How Wall Street Built the Nazi War Machine"
+          ]
+        },
+        {
+          "id": "ER-3",
+          "name": "Anonymous Architects",
+          "top_view_count": 1300000,
+          "template": "They [Designed/Created/Built] a [System/Trap] You Can Never [Escape/Beat/See]",
+          "variables": {
+            "Subject": {"type": "string", "value": "They", "note": "Always anonymous, implies shadowy elite"},
+            "Verb": {"type": "string", "examples": ["Designed", "Created", "Built", "Engineered"]},
+            "Object": {"type": "string", "examples": ["System", "Trap", "Machine", "Prison", "Cage"]},
+            "Consequence": {"type": "string", "examples": ["Can Never Escape", "Were Never Meant to See", "Will Never Break"]}
+          },
+          "implied_elements": ["Shadowy anonymous elite", "Viewer is trapped/ignorant"],
+          "examples": [
+            "They Designed a System You Can Never Escape",
+            "They Built a Financial Prison You Were Never Meant to See"
+          ]
+        },
+        {
+          "id": "ER-4",
+          "name": "Power Figure Biography",
+          "top_view_count": 1300000,
+          "template": "[Power Figure]: The [Person] Who [Created/Destroyed/Controls] The [System]",
+          "variables": {
+            "Power Figure": {"type": "string", "examples": ["Rockefeller", "Rothschild", "JP Morgan", "Kissinger"]},
+            "Role": {"type": "string", "examples": ["Man", "Family", "Group", "Architect"]},
+            "Verb": {"type": "string", "examples": ["Created", "Built", "Destroyed", "Controls", "Designed"]},
+            "System": {"type": "string", "examples": ["The System", "The Modern Economy", "The Global Order"]}
+          },
+          "implied_elements": ["Named power figure", "System-level control"],
+          "examples": [
+            "John D. Rockefeller: The Man Who Created The System You Can't Escape"
+          ]
+        },
+        {
+          "id": "ER-5",
+          "name": "Death Announcement + Personal Threat",
+          "top_view_count": 135000,
+          "template": "The [System] Just [Died/Collapsed]. Your [Personal Thing] Is Next.",
+          "variables": {
+            "System": {"type": "string", "examples": ["Petrodollar", "Dollar Hegemony", "Bond Market", "Banking System"]},
+            "Death Verb": {"type": "string", "examples": ["Just Died", "Just Collapsed", "Just Broke", "Is Officially Dead"]},
+            "Personal Thing": {"type": "string", "examples": ["Dollar", "Savings", "Retirement", "Mortgage", "401k"]}
+          },
+          "implied_elements": ["Urgency", "Personal financial threat"],
+          "examples": [
+            "The Petrodollar Just Died. Your Dollar Is Next.",
+            "The Bond Market Just Broke. Your Retirement Is Next."
+          ]
+        },
+        {
+          "id": "ER-6",
+          "name": "Paradox Question with Dollar Amount",
+          "top_view_count": 114000,
+          "template": "$[Huge Number] in [Crisis Topic]: [Paradox Question]?",
+          "variables": {
+            "Amount": {"type": "string", "note": "Must be shockingly large", "examples": ["$34T", "$317T"]},
+            "Crisis": {"type": "string", "examples": ["Global Debt", "Derivatives", "Unfunded Liabilities"]},
+            "Question": {"type": "string", "note": "Paradoxical", "examples": ["Who lends if everyone owes?", "Where did it go?"]}
+          },
+          "implied_elements": ["Shocking dollar amount", "Unanswerable paradox"],
+          "examples": [
+            "$317 Trillion in Global Debt: Who Is the Lender If Everyone Owes?"
+          ]
+        }
+      ]
+    },
+    "mindplicit": {
+      "channel_url": "TBD",
+      "focus": "Machiavellian self-improvement, dark psychology, power tactics",
+      "formulas": [
+        {
+          "id": "MP-1",
+          "name": "Become So X It Threatens Them",
+          "top_view_count": 433000,
+          "template": "Become So [Virtue/Quality] It [Scares/Terrifies/Intimidates] [Them/People/Everyone]",
+          "alternate_template": "How to Become So [Quality] It [Terrifies] People - Machiavelli",
+          "variables": {
+            "Quality": {"type": "string", "examples": ["Disciplined", "Confident", "Powerful", "Silent", "Wealthy", "Strategic"]},
+            "Threat Verb": {"type": "string", "examples": ["Scares", "Terrifies", "Intimidates", "Threatens", "Unsettles"]},
+            "Attribution": {"type": "string", "note": "Always present", "examples": ["Machiavelli", "Machiavelli's Dark Method"]}
+          },
+          "implied_elements": ["Machiavelli attribution always present", "Self-improvement through dark power"],
+          "examples": [
+            "Become So Disciplined It Scares Them - Machiavelli's Dark Method"
+          ]
+        },
+        {
+          "id": "MP-2",
+          "name": "NEVER Do These Things",
+          "top_view_count": 245000,
+          "template": "[Number] Things You Should NEVER [Do/Say/Show] in [Context] (Machiavelli...)",
+          "variables": {
+            "Number": {"type": "integer", "range": [5, 12]},
+            "Action": {"type": "string", "examples": ["Do", "Say", "Show", "Reveal", "Admit", "Share"]},
+            "Context": {"type": "string", "examples": ["Public", "Business", "To Your Enemies", "Around Powerful People"]}
+          },
+          "implied_elements": ["Numbered list format", "Machiavelli attribution in parenthetical"],
+          "examples": [
+            "9 Things You Should NEVER Do in Public (Machiavelli Warned About This)"
+          ]
+        },
+        {
+          "id": "MP-3",
+          "name": "Never Trust/Save These Types",
+          "top_view_count": 232000,
+          "template": "Never [Save/Trust/Help] These [Number] Types of [People] - Machiavelli's Ruthless...",
+          "variables": {
+            "Action": {"type": "string", "examples": ["Save", "Trust", "Help", "Defend", "Forgive"]},
+            "Number": {"type": "integer", "range": [4, 8]},
+            "Category": {"type": "string", "examples": ["Types of People", "Friends", "Partners", "Colleagues"]}
+          },
+          "implied_elements": ["Ruthless categorization", "Social trust framework"],
+          "examples": [
+            "Never Save These 6 Types of People - Machiavelli's Ruthless Rule"
+          ]
+        },
+        {
+          "id": "MP-4",
+          "name": "What N% Get Wrong",
+          "top_view_count": 137000,
+          "template": "What [High %] of [People] Get Wrong About [Topic] (Machiavelli...)",
+          "variables": {
+            "Percentage": {"type": "string", "examples": ["95%", "99%", "Most People"]},
+            "People": {"type": "string", "examples": ["Men", "Women", "Leaders", "Entrepreneurs", "Investors"]},
+            "Topic": {"type": "string", "examples": ["Money", "Power", "Women", "Success", "Intelligence", "Loyalty"]}
+          },
+          "implied_elements": ["Viewer is likely in the failing majority", "Contrarian truth reveal"],
+          "examples": [
+            "What 99% of Men Get Wrong About Women (Machiavellian Truth)"
+          ]
+        },
+        {
+          "id": "MP-5",
+          "name": "Dark Laws/Rules Numbered List",
+          "top_view_count": 134000,
+          "template": "[Number] Machiavellian Laws of [Dark Quality] - The Psychology of...",
+          "variables": {
+            "Number": {"type": "integer", "range": [5, 12]},
+            "Dark Quality": {"type": "string", "examples": ["Dark Intelligence", "Power", "Manipulation", "Ruthless Strategy"]},
+            "Psychology": {"type": "string", "examples": ["Power", "Control", "Influence", "Domination", "Fear"]}
+          },
+          "implied_elements": ["Numbered laws format", "Dark psychology framework"],
+          "examples": [
+            "9 Machiavellian Laws of Dark Intelligence - The Psychology of Power"
+          ]
+        }
+      ]
+    },
+    "chill_financial_history": {
+      "channel_url": "TBD",
+      "focus": "Country-as-character economic storytelling with parenthetical reveals",
+      "formulas": [
+        {
+          "id": "CFH-1",
+          "name": "Country's Costly Mistake",
+          "top_view_count": 482000,
+          "template": "[Country]'s $[Huge Amount] [Mistake/Gamble/Bet] (The [Named Trap/Problem])",
+          "variables": {
+            "Country": {"type": "string", "examples": ["Germany", "America", "China", "Japan", "UK"]},
+            "Amount": {"type": "string", "note": "Staggeringly large", "examples": ["$500B", "$2T"]},
+            "Mistake Type": {"type": "string", "examples": ["Mistake", "Gamble", "Bet", "Experiment", "Blunder"]},
+            "Named Trap": {"type": "string", "note": "Parenthetical naming the systemic problem"}
+          },
+          "implied_elements": ["Country as character", "Parenthetical reveal as second hook"],
+          "examples": [
+            "Germany's $500 Billion Mistake (The Green Energy Trap)"
+          ]
+        },
+        {
+          "id": "CFH-2",
+          "name": "Why Country Is Dying/Collapsing",
+          "top_view_count": 373000,
+          "template": "Why [Country]'s Economy is [Collapsing/Dying] (The [Number] [Factors])",
+          "alternate_template": "Why [Country] Can't [Grow/Recover] (The Curse of [Historical Root])",
+          "variables": {
+            "Country": {"type": "string", "examples": ["Europe", "Italy", "Japan", "UK"]},
+            "Death Verb": {"type": "string", "examples": ["Collapsing", "Dying", "Shrinking", "Crumbling"]},
+            "Parenthetical": {"type": "string", "note": "Either numbered factors OR Curse of root cause"}
+          },
+          "implied_elements": ["Economic death narrative", "Root cause in parenthetical"],
+          "examples": [
+            "Why Europe's Economy is Collapsing (The 6 Fractures)",
+            "Why Italy Can't Grow (The Curse of The Lira)"
+          ]
+        },
+        {
+          "id": "CFH-3",
+          "name": "Country Is ADJECTIVEer Than You Think",
+          "top_view_count": 369000,
+          "template": "Why [Country] is [ADJECTIVE]er Than You Think (The [Hidden Reason])",
+          "variables": {
+            "Country": {"type": "string", "examples": ["France", "Russia", "India", "Brazil"]},
+            "Adjective": {"type": "string", "note": "Always CAPS", "examples": ["POORER", "WEAKER", "RICHER", "MORE POWERFUL"]},
+            "Hidden Reason": {"type": "string", "note": "Parenthetical reveals the system/cause"}
+          },
+          "structural_techniques": ["Single CAPS word for visual emphasis", "CAPS word on thumbnail matches CAPS word in title"],
+          "examples": [
+            "Why France is POORER Than You Think (The Economic Illusion)"
+          ]
+        },
+        {
+          "id": "CFH-4",
+          "name": "Slow Death of System",
+          "top_view_count": 410000,
+          "template": "The Slow [DEATH/COLLAPSE] of [Major System] (And What Comes Next)",
+          "variables": {
+            "Death Word": {"type": "string", "note": "Always CAPS", "examples": ["DEATH", "COLLAPSE", "END", "DECLINE"]},
+            "System": {"type": "string", "examples": ["Petrodollar", "Dollar Hegemony", "European Union", "Globalization"]},
+            "Parenthetical": {"type": "string", "value": "And What Comes Next", "note": "Always forward-looking promise"}
+          },
+          "structural_techniques": ["Parenthetical always 'And What Comes Next'", "Forward-looking promise"],
+          "examples": [
+            "The Slow DEATH of The Petrodollar (And What Comes Next)"
+          ]
+        },
+        {
+          "id": "CFH-5",
+          "name": "How Sector Swallowed Country",
+          "top_view_count": 189000,
+          "template": "How [Sector/Force] [SWALLOWED/BROKE] [Country]'s Economy",
+          "variables": {
+            "Sector": {"type": "string", "examples": ["Housing", "Debt", "Oil", "Military Spending", "Tourism"]},
+            "Action Verb": {"type": "string", "note": "Always CAPS", "examples": ["SWALLOWED", "BROKE", "CONSUMED", "DESTROYED"]},
+            "Country": {"type": "string", "examples": ["Canada", "Greece", "Spain", "Australia"]}
+          },
+          "structural_techniques": ["CAPS action verb for visual punch", "Sector as aggressor, country as victim"],
+          "examples": [
+            "How Housing SWALLOWED Canada's Economy"
+          ]
+        }
+      ]
+    }
+  },
+  "economy_fastforward": {
+    "channel_focus": "Geopolitical systems + Machiavellian framing hybrid",
+    "positioning": "Bridges Economy Rewind (geopolitical systems) with Mindplicit (Machiavellian framing)",
+    "structural_techniques_from_cfh": [
+      "Parenthetical reveals as second hook (present in ~90% of titles)",
+      "Single CAPS word per title for visual emphasis",
+      "CAPS word on thumbnail matches CAPS word in title"
+    ],
+    "hybrid_formulas": [
+      {
+        "id": "EFF-1",
+        "name": "N-Stage Power Play Pattern",
+        "derived_from": ["ER-1", "Machiavellian framing"],
+        "predicted_performance": "highest",
+        "template": "The [Number]-Stage [Power Event] [Pattern/Trap]: [Historical Examples]... [Threat]",
+        "variables": {
+          "Number": {"type": "integer", "range": [4, 7]},
+          "Power Event": {"type": "string", "examples": ["Sanction Trap", "Currency Kill", "Economic Conquest", "Debt Weapon"]},
+          "Pattern/Trap": {"type": "string", "options": ["Pattern", "Trap", "Playbook", "Strategy"]},
+          "Historical": {"type": "list", "count": [2, 3], "note": "nations, empires, crises"},
+          "Threat": {"type": "string", "examples": ["America Is at Stage [N]", "2026 = Next?"]}
+        },
+        "examples": [
+          "The 5-Stage Sanction Trap: How America Controls the World Economy",
+          "The 4-Stage Currency Kill Pattern: Rome, Britain, USSR... America?"
+        ]
+      },
+      {
+        "id": "EFF-2",
+        "name": "Entity's Dark Strategy",
+        "derived_from": ["ER-4", "MP dark adjective framing"],
+        "predicted_performance": "strong",
+        "template": "[Power Entity]'s [Dark Adjective] [Strategy/Trap] That [Massive Consequence]",
+        "variables": {
+          "Entity": {"type": "string", "examples": ["Putin", "China", "BlackRock", "The Fed", "Saudi Arabia", "BRICS"]},
+          "Dark Adjective": {"type": "string", "examples": ["Ruthless", "Silent", "Brilliant", "Machiavellian", "Calculated"]},
+          "Strategy": {"type": "string", "examples": ["Strategy", "Trap", "Gambit", "Move", "Play", "Maneuver"]},
+          "Consequence": {"type": "string", "examples": ["That Will Bankrupt America", "That Europe Can't Escape", "That Nobody Saw Coming", "That Changes Everything"]}
+        },
+        "examples": [
+          "Putin's Ruthless Energy Trap That Europe Can't Escape",
+          "China's Silent Strategy That Will Bankrupt America by 2030"
+        ]
+      },
+      {
+        "id": "EFF-3",
+        "name": "Machiavellian Laws of Geopolitics",
+        "derived_from": ["MP-5", "geopolitical application"],
+        "predicted_performance": "unique_hybrid",
+        "template": "[Number] Machiavellian [Laws/Rules] of [Geopolitical Topic] [Used Today]",
+        "variables": {
+          "Number": {"type": "integer", "range": [5, 9]},
+          "Laws/Rules": {"type": "string", "options": ["Laws", "Rules", "Principles", "Strategies"]},
+          "Topic": {"type": "string", "examples": ["Economic Warfare", "Currency Manipulation", "Empire Building", "Debt Control"]},
+          "Relevance": {"type": "string", "examples": ["Nations Use Today", "That Control Your Money", "Behind Every Crisis"]}
+        },
+        "examples": [
+          "7 Machiavellian Laws of Economic Warfare Nations Use Today",
+          "5 Dark Rules of Currency Manipulation - Why Your Money Is Shrinking"
+        ]
+      },
+      {
+        "id": "EFF-4",
+        "name": "Trusted Entity Betrayal (Machiavellian Frame)",
+        "derived_from": ["ER-2", "Machiavellian attribution"],
+        "predicted_performance": "strong",
+        "template": "How [Trusted Entity] [Secretly] [Betrayed/Controls] [Victim] - The [Dark] [Strategy]",
+        "variables": {
+          "Trusted Entity": {"type": "string", "examples": ["America", "The Fed", "NATO", "IMF", "World Bank"]},
+          "Action": {"type": "string", "examples": ["Quietly Bought", "Secretly Funds", "Engineered", "Designed"]},
+          "Victim": {"type": "string", "examples": ["Every Government", "Your Economy", "The Third World", "Europe"]},
+          "Frame": {"type": "string", "examples": ["The Machiavellian Playbook", "The Dark Strategy", "The Hidden System"]}
+        },
+        "examples": [
+          "How BlackRock Quietly Bought Every Government on Earth",
+          "How the Fed Secretly Funds Both Sides of Every War"
+        ]
+      },
+      {
+        "id": "EFF-5",
+        "name": "System Death + Personal Threat",
+        "derived_from": ["ER-5", "personal urgency"],
+        "predicted_performance": "strong",
+        "template": "The [System] Just [Died]. [Your Personal Stakes] [Are/Is] Next.",
+        "variables": {
+          "System": {"type": "string", "examples": ["Petrodollar", "Dollar Hegemony", "US Bond Market", "Banking System"]},
+          "Death": {"type": "string", "examples": ["Just Died", "Just Collapsed", "Just Broke", "Is Officially Over"]},
+          "Personal": {"type": "string", "examples": ["Your Savings", "Your Dollar", "Your Retirement", "Your Mortgage"]}
+        },
+        "examples": [
+          "The $34 Trillion Debt Bomb Just Detonated. Nobody's Talking About It.",
+          "The Petrodollar Alliance Just Collapsed. Your Savings Are Next."
+        ]
+      },
+      {
+        "id": "EFF-6",
+        "name": "Counterintuitive System Reveal",
+        "derived_from": ["ER-3", "why curiosity hook"],
+        "predicted_performance": "moderate",
+        "template": "Why [Counterintuitive Claim] - The [Hidden System] Explained",
+        "variables": {
+          "Claim": {"type": "string", "note": "Something that sounds wrong but is true"},
+          "System": {"type": "string", "examples": ["Hidden Tax", "Transfer Pattern", "Invisible Machine", "Silent Weapon"]}
+        },
+        "examples": [
+          "Why Inflation Is Designed to Make You Poorer - The Hidden Tax Explained",
+          "Why Every Financial Crisis Makes the Rich Richer - The Transfer Pattern"
+        ]
+      },
+      {
+        "id": "EFF-7",
+        "name": "Country's Machiavellian Trap",
+        "derived_from": ["CFH-1", "Machiavellian attribution"],
+        "predicted_performance": "strong",
+        "template": "[Country]'s $[Amount] [Trap/Weapon] (The [Machiavellian Strategy] Behind It)",
+        "variables": {
+          "Country": {"type": "string", "examples": ["America", "China", "Russia", "Saudi Arabia"]},
+          "Amount": {"type": "string", "note": "Staggeringly large", "examples": ["$3T", "$34T"]},
+          "Trap/Weapon": {"type": "string", "examples": ["Trap", "Weapon", "Gambit", "Power Play"]},
+          "Strategy": {"type": "string", "examples": ["Machiavellian Strategy", "Silent Economic War", "Dark Playbook"]}
+        },
+        "examples": [
+          "America's $34 Trillion Debt Weapon (The Machiavellian Strategy Behind It)",
+          "China's $3 Trillion Dollar Trap (The Silent Economic War)"
+        ]
+      },
+      {
+        "id": "EFF-8",
+        "name": "Country Is Xer Than You Think (+ power reveal)",
+        "derived_from": ["CFH-3", "Machiavellian power system"],
+        "predicted_performance": "strong",
+        "template": "Why [Country] is [ADJECTIVE]er Than You Think (The [Power System] Explained)",
+        "variables": {
+          "Country": {"type": "string", "note": "Especially contrarian picks"},
+          "Adjective": {"type": "string", "note": "Always CAPS", "examples": ["STRONGER", "WEAKER", "RICHER", "MORE DANGEROUS"]},
+          "Power System": {"type": "string", "examples": ["Energy Strategy", "Debt Pattern", "Currency Weapon", "Military Calculus"]}
+        },
+        "examples": [
+          "Why Russia is STRONGER Than You Think (The Machiavellian Energy Strategy)",
+          "Why America is WEAKER Than You Think (The Hidden Debt Pattern)"
+        ]
+      },
+      {
+        "id": "EFF-9",
+        "name": "Slow Death + Who Controls the Replacement",
+        "derived_from": ["CFH-4", "Machiavellian who benefits framing"],
+        "predicted_performance": "strong",
+        "template": "The Slow [DEATH] of [System] (And Who [Controls/Benefits From] What Comes Next)",
+        "variables": {
+          "Death Word": {"type": "string", "note": "Always CAPS", "examples": ["DEATH", "COLLAPSE", "END"]},
+          "System": {"type": "string", "examples": ["Dollar", "Petrodollar", "NATO", "Globalization", "American Hegemony"]},
+          "Who Benefits": {"type": "string", "note": "Names the power player positioning to replace the dying system"}
+        },
+        "examples": [
+          "The Slow DEATH of the Dollar (And Who Controls What Replaces It)",
+          "The Slow COLLAPSE of NATO (And Russia's Machiavellian Play to Replace It)"
+        ]
+      }
+    ]
+  }
+}
