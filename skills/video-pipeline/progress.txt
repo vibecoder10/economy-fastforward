@@ -1,0 +1,32 @@
+# Pipeline Unification — Progress Log
+
+## Story 0: Audit & Isolate Research Agent (2026-02-15)
+
+### Learnings
+
+1. **Where was the research agent code actually found?**
+   - No standalone research agent existed. Research logic was embedded in
+     `brief_translator/supplementer.py` as targeted gap-filling.
+   - The supplementer runs AFTER validation, filling specific gaps identified
+     by the validator. It's not a deep research system.
+   - The Elon/Machiavelli deep research referenced in the PRD was likely
+     produced in an external session and manually added to Airtable.
+
+2. **What was embedded vs standalone?**
+   - Embedded: `supplementer.py` (targeted gap-filling within brief_translator)
+   - Standalone: Nothing existed — `research_agent.py` was created fresh.
+   - The supplementer remains in brief_translator for its gap-filling role.
+     It's already properly modularized (separate file, imported by __init__.py).
+
+3. **What interface pattern does the codebase use?**
+   - Async functions with client injection:
+     `async def func(anthropic_client, data, ...) -> dict`
+   - All clients initialized in `pipeline.py`'s `VideoPipeline.__init__`
+   - Results are structured dicts
+   - CLI entry via `if __name__ == "__main__": asyncio.run(main())`
+
+### Files Changed
+- Created: `research_agent.py` (standalone deep research module)
+- Created: `research_agent_audit.md` (audit documentation)
+- Created: `progress.txt` (this file)
+- Modified: `brief_translator/__init__.py` (updated docstring to reference research_agent)

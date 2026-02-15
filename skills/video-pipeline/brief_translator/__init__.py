@@ -4,9 +4,13 @@ Middleware that bridges the Research Agent's Ideas Bank output with the
 video production pipeline. Transforms analytical research briefs into
 production-ready creative assets.
 
+Deep research is handled by the standalone research_agent module
+(research_agent.py). This module consumes its output and handles:
+
 Pipeline:
+    Step 0: Deep Research (via research_agent.ResearchAgent — standalone module)
     Step 1: Production Readiness Validation
-    Step 1b: Supplemental Research (if needed)
+    Step 1b: Supplemental Research — targeted gap-filling (if needed)
     Step 2: Script Generation
     Step 3: Scene Expansion (~140 scenes)
     Step 4: Pipeline Table Write
