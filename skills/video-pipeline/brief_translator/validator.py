@@ -94,8 +94,14 @@ def parse_validation_xml(response_text: str) -> dict:
     }
 
 
-def evaluate_validation(validation_result: dict) -> str:
+def evaluate_validation(validation_result: dict, research_enriched: bool = False) -> str:
     """Determine action based on validation scores.
+
+    Args:
+        validation_result: Parsed validation result dict
+        research_enriched: If True, apply relaxed thresholds (research
+                          agent already provided rich content, so minor
+                          WEAK scores are acceptable)
 
     Returns:
         "READY" - Proceed to script generation
@@ -107,6 +113,17 @@ def evaluate_validation(validation_result: dict) -> str:
     fail_count = scores.count("FAIL")
     weak_count = scores.count("WEAK")
 
+    if research_enriched:
+        # Research-enriched ideas get more lenient thresholds since the
+        # research agent already provided structured facts, parallels, etc.
+        if fail_count <= 1 and weak_count <= 4:
+            return "READY"
+        elif fail_count <= 3:
+            return "NEEDS_SUPPLEMENT"
+        else:
+            return "REJECT"
+
+    # Standard thresholds for legacy ideas
     if fail_count == 0 and weak_count <= 2:
         return "READY"
     elif fail_count <= 2 or (fail_count == 0 and weak_count > 2):
@@ -120,7 +137,9 @@ async def validate_brief(anthropic_client, brief: dict) -> dict:
 
     Args:
         anthropic_client: AnthropicClient instance
-        brief: Research brief dict with fields from Ideas Bank
+        brief: Research brief dict with fields from Ideas Bank.
+               If brief contains _research_enriched=True, relaxed
+               validation thresholds are applied.
 
     Returns:
         {
@@ -131,6 +150,7 @@ async def validate_brief(anthropic_client, brief: dict) -> dict:
         }
     """
     prompt = build_validation_prompt(brief)
+    research_enriched = brief.get("_research_enriched", False)
 
     response = await anthropic_client.generate(
         prompt=prompt,
@@ -140,7 +160,7 @@ async def validate_brief(anthropic_client, brief: dict) -> dict:
     )
 
     result = parse_validation_xml(response)
-    result["decision"] = evaluate_validation(result)
+    result["decision"] = evaluate_validation(result, research_enriched=research_enriched)
 
     return result
 

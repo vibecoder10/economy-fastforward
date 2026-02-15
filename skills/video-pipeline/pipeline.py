@@ -1486,23 +1486,55 @@ class VideoPipeline:
         # Build brief from Airtable idea fields if not provided
         if brief is None:
             idea = self.current_idea
-            brief = {
-                "headline": idea.get("Video Title", ""),
-                "thesis": idea.get("Future Prediction", ""),
-                "executive_hook": idea.get("Hook Script", ""),
-                "fact_sheet": idea.get("Writer Guidance", ""),
-                "historical_parallels": idea.get("Past Context", ""),
-                "framework_analysis": idea.get("Present Parallel", ""),
-                "character_dossier": "",
-                "narrative_arc": idea.get("Future Prediction", ""),
-                "counter_arguments": "",
-                "visual_seeds": idea.get("Thumbnail Prompt", ""),
-                "source_bibliography": idea.get("Reference URL", ""),
-                "framework_angle": "",
-                "title_options": idea.get("Video Title", ""),
-                "thumbnail_concepts": idea.get("Thumbnail Prompt", ""),
-                "source_urls": idea.get("Reference URL", ""),
-            }
+
+            # Check for research_payload (from research agent)
+            research_payload_raw = idea.get("Research Payload", "")
+            if research_payload_raw:
+                try:
+                    research_payload = json.loads(research_payload_raw)
+                    print("  📚 Found research payload — using as primary source material")
+                    brief = {
+                        "headline": research_payload.get("headline", idea.get("Video Title", "")),
+                        "thesis": research_payload.get("thesis", ""),
+                        "executive_hook": research_payload.get("executive_hook", idea.get("Hook Script", "")),
+                        "fact_sheet": research_payload.get("fact_sheet", ""),
+                        "historical_parallels": research_payload.get("historical_parallels", ""),
+                        "framework_analysis": research_payload.get("framework_analysis", ""),
+                        "character_dossier": research_payload.get("character_dossier", ""),
+                        "narrative_arc": research_payload.get("narrative_arc", ""),
+                        "counter_arguments": research_payload.get("counter_arguments", ""),
+                        "visual_seeds": research_payload.get("visual_seeds", ""),
+                        "source_bibliography": research_payload.get("source_bibliography", ""),
+                        "framework_angle": research_payload.get("themes", ""),
+                        "title_options": research_payload.get("title_options", idea.get("Video Title", "")),
+                        "thumbnail_concepts": research_payload.get("thumbnail_concepts", ""),
+                        "source_urls": research_payload.get("source_bibliography", ""),
+                        # Pass through research enrichment flag
+                        "_research_enriched": True,
+                    }
+                except (json.JSONDecodeError, TypeError) as e:
+                    print(f"  ⚠️ Could not parse research payload: {e}")
+                    research_payload_raw = ""  # Fall through to legacy path
+
+            if not research_payload_raw:
+                # Legacy path: build brief from standard idea fields
+                brief = {
+                    "headline": idea.get("Video Title", ""),
+                    "thesis": idea.get("Future Prediction", ""),
+                    "executive_hook": idea.get("Hook Script", ""),
+                    "fact_sheet": idea.get("Writer Guidance", ""),
+                    "historical_parallels": idea.get("Past Context", ""),
+                    "framework_analysis": idea.get("Present Parallel", ""),
+                    "character_dossier": "",
+                    "narrative_arc": idea.get("Future Prediction", ""),
+                    "counter_arguments": "",
+                    "visual_seeds": idea.get("Thumbnail Prompt", ""),
+                    "source_bibliography": idea.get("Reference URL", ""),
+                    "framework_angle": "",
+                    "title_options": idea.get("Video Title", ""),
+                    "thumbnail_concepts": idea.get("Thumbnail Prompt", ""),
+                    "source_urls": idea.get("Reference URL", ""),
+                }
 
         # Scene output directory (project-relative)
         scene_output_dir = str(Path(__file__).parent / "scenes")
