@@ -11,8 +11,8 @@ from pathlib import Path
 from typing import Optional
 
 
-# Default scene output directory
-DEFAULT_SCENE_DIR = "/home/bot/pipeline/scenes"
+# Default scene output directory (project-relative fallback)
+DEFAULT_SCENE_DIR = str(Path(__file__).parent.parent / "scenes")
 
 
 def build_writer_guidance(brief: dict, accent_color: str, scene_count: int) -> str:
