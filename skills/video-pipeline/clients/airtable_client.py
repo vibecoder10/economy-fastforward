@@ -68,6 +68,21 @@ class AirtableClient:
             self._images_table = self.api.table(self.base_id, self.IMAGES_TABLE_ID)
         return self._images_table
     
+    @staticmethod
+    def _extract_bad_field(error_msg: str) -> Optional[str]:
+        """Extract the unknown field name from an Airtable error message."""
+        import re
+        # Try UNKNOWN_FIELD_NAME style: ...UNKNOWN_FIELD_NAME..."FieldName"...
+        for delimiter in ("UNKNOWN_FIELD_NAME", "Unknown field name"):
+            if delimiter in error_msg:
+                tail = error_msg.split(delimiter)[-1]
+                m = re.search(r'"([^"]+)"', tail)
+                if m:
+                    return m.group(1)
+        # Fallback: look for any quoted field name after "field"
+        m = re.search(r'field[^"]*"([^"]+)"', error_msg, re.IGNORECASE)
+        return m.group(1) if m else None
+
     # ==================== IDEA CONCEPTS TABLE (new unified entry) ===========
 
     def get_ideas_by_status(self, status: str, limit: int = 1) -> list[dict]:
@@ -144,43 +159,48 @@ class AirtableClient:
             return {"id": record["id"], **record["fields"]}
         except Exception as e:
             error_msg = str(e)
-            if "UNKNOWN_FIELD_NAME" in error_msg:
-                # Identify the bad field from the error message and retry without it
-                import re
-                bad_match = re.search(r'"([^"]+)"', error_msg.split("UNKNOWN_FIELD_NAME")[-1])
-                bad_field = bad_match.group(1) if bad_match else None
+            if "UNKNOWN_FIELD_NAME" not in error_msg and "Unknown field name" not in error_msg:
+                raise
 
-                # Retry by dropping unknown fields one at a time
-                remaining = dict(all_fields)
-                for _attempt in range(len(optional_fields) + 1):
-                    if bad_field and bad_field in remaining:
-                        print(f"    ⚠️ Field '{bad_field}' not in Airtable, dropping it")
-                        del remaining[bad_field]
-                    else:
-                        # Drop all optional fields as last resort
-                        remaining = dict(core_fields)
+            import re
+            bad_field = self._extract_bad_field(error_msg)
+            dropped_fields = set()
 
-                    try:
-                        record = self.idea_concepts_table.create(remaining, typecast=True)
-                        if remaining != all_fields:
-                            dropped = set(all_fields) - set(remaining)
-                            print(f"    ⚠️ Saved without fields: {dropped}")
-                        return {"id": record["id"], **record["fields"]}
-                    except Exception as retry_err:
-                        error_msg = str(retry_err)
-                        if "UNKNOWN_FIELD_NAME" not in error_msg:
-                            raise
-                        bad_match = re.search(
-                            r'"([^"]+)"',
-                            error_msg.split("UNKNOWN_FIELD_NAME")[-1],
-                        )
-                        bad_field = bad_match.group(1) if bad_match else None
+            # Retry by dropping unknown fields one at a time
+            remaining = dict(all_fields)
+            max_retries = len(all_fields)  # absolute upper bound
+            for _attempt in range(max_retries):
+                if bad_field and bad_field in remaining:
+                    print(f"    ⚠️ Field '{bad_field}' not in Airtable, dropping it")
+                    del remaining[bad_field]
+                    dropped_fields.add(bad_field)
+                elif not dropped_fields:
+                    # Could not identify bad field — strip all optional fields
+                    remaining = {k: v for k, v in core_fields.items()
+                                 if k not in dropped_fields}
+                else:
+                    break  # nothing left to drop
 
-                # Final fallback: core fields only
-                print(f"    ⚠️ Multiple fields missing, saving core fields only")
-                record = self.idea_concepts_table.create(core_fields, typecast=True)
-                return {"id": record["id"], **record["fields"]}
-            raise
+                try:
+                    record = self.idea_concepts_table.create(remaining, typecast=True)
+                    if dropped_fields:
+                        print(f"    ⚠️ Saved without fields: {dropped_fields}")
+                    return {"id": record["id"], **record["fields"]}
+                except Exception as retry_err:
+                    error_msg = str(retry_err)
+                    if ("UNKNOWN_FIELD_NAME" not in error_msg
+                            and "Unknown field name" not in error_msg):
+                        raise
+                    bad_field = self._extract_bad_field(error_msg)
+
+            # Final fallback: only Status + Video Title (guaranteed Airtable fields)
+            print(f"    ⚠️ Multiple fields missing, saving minimal record")
+            minimal = {
+                "Status": core_fields.get("Status", "Idea Logged"),
+                "Video Title": core_fields.get("Video Title", ""),
+            }
+            record = self.idea_concepts_table.create(minimal, typecast=True)
+            return {"id": record["id"], **record["fields"]}
 
     def update_idea_status(self, record_id: str, status: str) -> dict:
         """Update the status of an idea in the Idea Concepts table."""
