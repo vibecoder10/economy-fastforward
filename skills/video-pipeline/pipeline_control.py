@@ -85,18 +85,31 @@ async def handle_hello(message, say):
 async def handle_help(message, say):
     """Show available commands."""
     help_text = """*Pipeline Commands:*
+
+*Auto-run*
+- `run` - Pick up the pipeline where it left off and keep going (script -> voice -> prompts -> images -> thumbnail)
+
+*YouTube Pipeline*
 - `script` / `run script` - Run script bot for idea with "Ready For Scripting" status
-- `animate` / `animation` / `run animation` - Run animation pipeline for project with "Create" status
-- `prompts` / `run prompts` - Generate start image prompts and images
+- `voice` / `run voice` - Run voice bot for idea with "Ready For Voice" status
+- `prompts` / `run prompts` - Generate styled image prompts and images
 - `end images` / `run end images` - Generate end image prompts and images
+- `thumbnail` / `run thumbnail` - Generate thumbnail for idea with "Ready For Thumbnail" status
+
+*Animation Pipeline*
+- `animate` / `animation` / `run animation` - Run animation pipeline for project with "Create" status
+
+*Discovery & Research*
 - `discover` / `scan` - Scan headlines and present 2-3 video ideas
 - `discover [focus]` - Scan with focus keyword (e.g., `discover BRICS`)
 - React 1️⃣ 2️⃣ 3️⃣ on discovery results to approve + auto-research
 - `research` / `run research` - Run deep research on next approved idea
 - `research "topic"` - Run deep research on a specific topic
+
+*System*
 - `stop` / `kill` - Stop the currently running pipeline
 - `logs` / `animlogs` - Check if a pipeline is running
-- `status` / `check` - Check current project status
+- `status` / `check` - Check current project status (both pipelines)
 - `update` - Pull latest code from GitHub (auto-restarts if changes)
 - `help` - Show this message
 
@@ -126,6 +139,49 @@ async def handle_stop(message, say):
         await say(f":stop_sign: Killed `{task}`")
     except Exception as e:
         await say(f":x: Error stopping process: {e}")
+
+
+@app.message(re.compile(r"^run$", re.IGNORECASE))
+async def handle_run(message, say):
+    """Pick up the YouTube pipeline where it left off and keep going."""
+    global current_process, current_task_name
+    if current_process:
+        await say(f":x: Already running `{current_task_name}`. Use `stop` to cancel it first.")
+        return
+
+    current_task_name = "run (auto-pipeline)"
+    await say(":rocket: Starting auto-pipeline — checking Airtable for next step...")
+
+    try:
+        from pipeline import VideoPipeline
+
+        pipeline = VideoPipeline()
+        steps_done = 0
+        max_steps = 15  # safety cap
+
+        while steps_done < max_steps:
+            result = await pipeline.run_next_step()
+
+            if result.get("status") == "idle":
+                if steps_done == 0:
+                    await say(":zzz: Nothing to do — no ideas with an actionable status in the pipeline.")
+                else:
+                    await say(f":white_check_mark: Pipeline idle after {steps_done} step(s). All caught up!")
+                break
+
+            bot_name = result.get("bot", "step")
+            new_status = result.get("new_status", "?")
+            steps_done += 1
+            await say(f":gear: Step {steps_done}: *{bot_name}* done — status now `{new_status}`")
+
+        if steps_done >= max_steps:
+            await say(f":warning: Stopped after {max_steps} steps (safety cap).")
+
+    except Exception as e:
+        log.error(f"run auto-pipeline error: {e}", exc_info=True)
+        await say(f":x: Pipeline error: {e}")
+    finally:
+        current_task_name = None
 
 
 @app.message(re.compile(r"run script", re.IGNORECASE))
@@ -241,6 +297,64 @@ async def handle_end_images(message, say):
         await say(":warning: End images generation timed out after 15 minutes")
     except asyncio.CancelledError:
         await say(":stop_sign: End images generation was stopped")
+    except Exception as e:
+        await say(f":x: Error: {e}")
+
+
+@app.message(re.compile(r"run voice", re.IGNORECASE))
+@app.message(re.compile(r"voice", re.IGNORECASE))
+async def handle_voice(message, say):
+    """Run the voice bot."""
+    global current_process
+    if current_process:
+        await say(f":x: Already running `{current_task_name}`. Use `stop` to cancel it first.")
+        return
+
+    await say(":studio_microphone: Starting voice bot...")
+
+    try:
+        returncode, stdout, stderr = await run_script_async("run_voice_bot.py", "voice", say, timeout=600)
+
+        if returncode == 0:
+            output = stdout[-3000:] if len(stdout) > 3000 else stdout
+            await say(f":white_check_mark: Voice bot complete!\n```{output}```")
+        else:
+            error = stderr[-1500:] if len(stderr) > 1500 else stderr
+            await say(f":x: Voice bot error:\n```{error}```")
+
+    except subprocess.TimeoutExpired:
+        await say(":warning: Voice bot timed out after 10 minutes")
+    except asyncio.CancelledError:
+        await say(":stop_sign: Voice bot was stopped")
+    except Exception as e:
+        await say(f":x: Error: {e}")
+
+
+@app.message(re.compile(r"run thumbnail", re.IGNORECASE))
+@app.message(re.compile(r"thumbnail", re.IGNORECASE))
+async def handle_thumbnail(message, say):
+    """Run the thumbnail bot."""
+    global current_process
+    if current_process:
+        await say(f":x: Already running `{current_task_name}`. Use `stop` to cancel it first.")
+        return
+
+    await say(":frame_with_picture: Starting thumbnail bot...")
+
+    try:
+        returncode, stdout, stderr = await run_script_async("run_thumbnail_bot.py", "thumbnail", say, timeout=300)
+
+        if returncode == 0:
+            output = stdout[-3000:] if len(stdout) > 3000 else stdout
+            await say(f":white_check_mark: Thumbnail bot complete!\n```{output}```")
+        else:
+            error = stderr[-1500:] if len(stderr) > 1500 else stderr
+            await say(f":x: Thumbnail bot error:\n```{error}```")
+
+    except subprocess.TimeoutExpired:
+        await say(":warning: Thumbnail bot timed out after 5 minutes")
+    except asyncio.CancelledError:
+        await say(":stop_sign: Thumbnail bot was stopped")
     except Exception as e:
         await say(f":x: Error: {e}")
 
@@ -643,16 +757,19 @@ async def main():
     print("PIPELINE CONTROL BOT")
     print("=" * 60)
     print("\nCommands (case-insensitive):")
+    print("  run                     - Auto-continue pipeline from current status")
     print("  script / run script     - Run script bot")
-    print("  animate / animation     - Run animation pipeline")
+    print("  voice / run voice       - Run voice bot")
     print("  prompts / run prompts   - Generate prompts and start images")
     print("  end images              - Generate end images")
+    print("  thumbnail               - Generate thumbnail")
+    print("  animate / animation     - Run animation pipeline")
     print("  discover / scan         - Scan headlines for video ideas")
     print("  research / run research - Run deep research on approved idea")
     print('  research "topic"        - Run deep research on specific topic')
     print("  stop / kill             - Stop running pipeline")
     print("  logs / animlogs         - Check if pipeline running")
-    print("  status / check          - Check project status")
+    print("  status / check          - Check project status (both pipelines)")
     print("  update                  - Pull latest code (auto-restart)")
     print("  help                    - Show help")
     print("\nListening for Slack messages...")
