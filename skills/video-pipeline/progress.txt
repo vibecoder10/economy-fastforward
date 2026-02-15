@@ -117,3 +117,46 @@
 - Modified: `clients/anthropic_client.py` — legacy beat sheet docstring update
 - Modified: `run_image_pipeline.py` — uses env var for table ID
 - Modified: `.env.example` — documents new `AIRTABLE_IDEA_CONCEPTS_TABLE_ID`
+
+## Story 5: Remove Duplicate Image Prompt Paths (2026-02-15)
+
+### Learnings
+
+1. **Two image prompt paths existed:**
+   - `run_image_prompt_bot` — legacy path, used old beat sheet format
+   - `run_styled_image_prompts` — new path, uses Visual Identity System
+
+2. **Seven call sites updated:**
+   - Status dispatcher in `pipeline.py`
+   - `run_full_pipeline` in `pipeline.py`
+   - `run_produce_from_idea` in `pipeline.py`
+   - `run_image_pipeline.py`
+   - `run_remaining_pipeline.py`
+   - All now call `run_styled_image_prompts` as the primary path
+
+3. **Legacy preserved as fallback:**
+   - Renamed `run_image_prompt_bot` → `run_image_prompt_bot_legacy`
+   - `run_styled_image_prompts` falls back to legacy if scene JSON is missing
+
+### Files Changed
+- Modified: `pipeline.py` — renamed legacy, updated all 5 call sites
+- Modified: `run_image_pipeline.py` — calls `run_styled_image_prompts`
+- Modified: `run_remaining_pipeline.py` — calls `run_styled_image_prompts`
+
+## Story 6: Full Pipeline Audit & Integration Test (2026-02-15)
+
+### Learnings
+
+1. **Audit grep results — all clean:**
+   - Old Ideas table references in active Python: 0
+   - Non-legacy `run_image_prompt_bot` calls: 0
+   - TODO/FIXME/HACK markers: 0
+
+2. **Documentation created:**
+   - `pipeline_flow.md` — complete pipeline flow with ASCII diagram,
+     status transitions, module locations, and entry points
+   - `scenes_schema.md` — created in Story 4
+
+### Files Changed
+- Created: `pipeline_flow.md` — unified pipeline flow documentation
+- Updated: `progress.txt` — full Story 0-6 learnings log
