@@ -1,14 +1,33 @@
 # Unified Pipeline Flow
 
-## Complete Pipeline: Entry → Render
+## Complete Pipeline: Discovery → Entry → Render
 
 ```
+[Discovery Scanner] (Slack: `discover` / `scan`)
+    │
+    ├── Scans: geopolitics, finance, tech, economic policy headlines
+    ├── Filters: Machiavellian lens (power dynamics, hidden systems)
+    ├── Formats: Maps to proven title patterns (title_patterns.json)
+    └── Outputs: 2-3 curated ideas to Slack for approval
+          │
+          ▼
+    Ryan picks one via Slack emoji reaction (1️⃣ 2️⃣ 3️⃣)
+          │
+          ▼
+    Auto-writes to Idea Concepts → Status: "Approved"
+          │
+          ▼
+    Auto-triggers Deep Research Agent
+          │
+          ▼
+
 [All Entry Points]
     │
-    ├── --idea "URL/concept"     → IdeaBot        → source: url_analysis
-    ├── --trending               → TrendingIdeaBot → source: trending
-    ├── --more-ideas             → IdeaModeling    → source: format_library
-    └── --research "topic"       → ResearchAgent   → source: research_agent
+    ├── discover / scan          → DiscoveryScanner → source: discovery_scanner
+    ├── --idea "URL/concept"     → IdeaBot          → source: url_analysis
+    ├── --trending               → TrendingIdeaBot   → source: trending
+    ├── --more-ideas             → IdeaModeling      → source: format_library
+    └── --research "topic"       → ResearchAgent     → source: research_agent
     │
     ▼
 ┌─────────────────────────────┐
@@ -17,7 +36,13 @@
 │  Fields: title, hook,       │
 │    source, research_payload  │
 └──────────┬──────────────────┘
-           │  (Ryan approves manually in Airtable)
+           │  (Ryan approves in Airtable OR via Slack reaction)
+           ▼
+┌─────────────────────────────┐
+│  Status: "Approved"         │  ← NEW: auto-triggers research
+│  (ApprovalWatcher polls)    │
+└──────────┬──────────────────┘
+           │  Deep research runs automatically
            ▼
 ┌─────────────────────────────┐
 │  Status: "Ready For Scripting" │
@@ -100,7 +125,9 @@
 
 | Status | Module | Action | Next Status |
 |--------|--------|--------|-------------|
-| Idea Logged | *(Manual)* | Ryan reviews and approves | Ready For Scripting |
+| *(New)* | Discovery Scanner | Scan headlines, filter, generate titles | Idea Logged |
+| Idea Logged | *(Manual/Slack)* | Ryan reviews and approves | Approved |
+| Approved | ApprovalWatcher | Auto-trigger deep research | Ready For Scripting |
 | Ready For Scripting | Brief Translator | Validate → Script → Scenes | Ready For Voice |
 | Ready For Voice | Voice Bot | TTS generation per scene | Ready For Image Prompts |
 | Ready For Image Prompts | Styled Image Prompts | Visual Identity prompts | Ready For Images |
@@ -112,6 +139,8 @@
 
 | Module | File | Type |
 |--------|------|------|
+| DiscoveryScanner | `discovery_scanner.py` | Python (standalone) |
+| ApprovalWatcher | `approval_watcher.py` | Python (standalone/daemon) |
 | IdeaBot | `bots/idea_bot.py` | Python |
 | TrendingIdeaBot | `bots/trending_idea_bot.py` | Python |
 | IdeaModeling | `bots/idea_modeling.py` | Python |
@@ -134,6 +163,24 @@
 ## Entry Points
 
 ```bash
+# === Discovery Scanner (NEW) ===
+# Scan headlines and generate 2-3 video ideas
+python discovery_scanner.py
+python discovery_scanner.py --focus "BRICS currency"
+python discovery_scanner.py --output discoveries.json
+
+# === Slack Commands (NEW) ===
+# discover / scan          → Scan headlines, present ideas in Slack
+# discover [focus]         → Scan with focus keyword
+# research                 → Research next approved idea
+# research "topic"         → Research a specific topic
+
+# === Approval Watcher (NEW) ===
+# Auto-trigger research when ideas are approved in Airtable
+python approval_watcher.py                # Poll once
+python approval_watcher.py --daemon       # Continuous polling
+
+# === Existing Entry Points ===
 # Generate ideas from URL or concept
 python pipeline.py --idea "https://youtu.be/VIDEO_ID"
 python pipeline.py --idea "Why AI could crash the economy"
@@ -158,4 +205,36 @@ python pipeline.py
 
 # Full pipeline for a queued idea
 python pipeline.py --produce
+```
+
+## Discovery Scanner Flow
+
+```
+Slack: `discover` or `scan`
+    │
+    ├── 1. Gather headlines (Sonnet 4.5, ~$0.01-0.03)
+    │      Sources: Reuters, AP, Bloomberg, FT, WSJ, IMF, Fed
+    │
+    ├── 2. Filter through Machiavellian lens
+    │      Criteria: power dynamics, hidden systems, historical parallels
+    │
+    ├── 3. Generate title variants using title_patterns.json
+    │      EFF-1 through EFF-9 hybrid formulas (Economy Rewind + Mindplicit)
+    │
+    └── 4. Post 2-3 ideas to Slack with emoji reactions
+           │
+           ▼
+    Ryan reacts with 1️⃣ 2️⃣ or 3️⃣
+           │
+           ▼
+    Approved idea → Airtable (status: Approved)
+           │
+           ▼
+    Auto-triggers deep research (Sonnet 4.5, ~$0.05-0.15)
+           │
+           ▼
+    Research payload written back → Status: Ready For Scripting
+           │
+           ▼
+    Pipeline continues: Script → Voice → Images → Render
 ```
