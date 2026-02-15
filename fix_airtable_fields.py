@@ -48,7 +48,7 @@ CODE_FIELDS: dict[str, dict] = {
     "Thumbnail Prompt":   {"type": "multilineText"},
     "Writer Guidance":    {"type": "multilineText"},
     "Original DNA":       {"type": "multilineText"},
-    "Source":             {"type": "singleSelect"},
+    "Source":             {"type": "singleLineText"},
     # --- optional fields (create_idea) ---
     "Reference URL":      {"type": "url"},
     "Idea Reasoning":     {"type": "multilineText"},
@@ -71,7 +71,7 @@ CODE_FIELDS: dict[str, dict] = {
 
 # User-specified type overrides (from the issue)
 USER_TYPE_OVERRIDES = {
-    "Source":             {"type": "singleSelect"},
+    "Source":             {"type": "singleLineText"},
     "Research Payload":   {"type": "multilineText"},
     "Thematic Framework": {"type": "singleLineText"},
     "Hook Script":        {"type": "multilineText"},      # "Hook = long text"
