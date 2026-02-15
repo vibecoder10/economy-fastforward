@@ -309,12 +309,12 @@ Return ONLY the JSON object, no other text."""
                 idea["source_views"] = top_videos[0].get("views", 0)
                 idea["source_channel"] = top_videos[0].get("channel", "")
 
-        # Save to Airtable
+        # Save to Airtable (Idea Concepts table)
         if save_to_airtable:
-            print("  Saving to Airtable...")
+            print("  Saving to Airtable (Idea Concepts)...")
             for i, idea in enumerate(ideas, 1):
                 try:
-                    record = self.airtable.create_idea(idea)
+                    record = self.airtable.create_idea(idea, source="trending")
                     print(f"    ✅ Saved idea {i}: {record.get('id')}")
                 except Exception as e:
                     print(f"    ❌ Failed to save idea {i}: {e}")
@@ -411,12 +411,12 @@ Return ONLY the JSON object, no other text."""
                 idea["source_views"] = top_videos[0].get("views", 0)
                 idea["source_channel"] = top_videos[0].get("channel", "")
         
-        # Save to Airtable
+        # Save to Airtable (Idea Concepts table)
         if save_to_airtable:
-            print("Saving to Airtable...")
+            print("Saving to Airtable (Idea Concepts)...")
             for i, idea in enumerate(ideas, 1):
                 try:
-                    record = self.airtable.create_idea(idea)
+                    record = self.airtable.create_idea(idea, source="trending")
                     print(f"  Saved idea {i}: {record.get(id)}")
                 except Exception as e:
                     print(f"  Failed to save idea {i}: {e}")

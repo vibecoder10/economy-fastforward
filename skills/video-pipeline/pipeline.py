@@ -2637,31 +2637,43 @@ async def main():
         
         load_dotenv()
         from clients.anthropic_client import AnthropicClient
+        from clients.airtable_client import AirtableClient
         from clients.slack_client import SlackClient
-        
+
         anthropic = AnthropicClient()
+        airtable = AirtableClient()
         slack = SlackClient()
-        
+
         async def run_more_ideas():
             ideas = await generate_modeled_ideas(top_formats, config, anthropic, num_ideas=3)
-            
+
             print(f"Generated {len(ideas)} ideas:")
             for i, idea in enumerate(ideas, 1):
                 title = idea.get("viral_title", "Untitled")
                 fmt_id = idea.get("based_on_format", "unknown")
                 print(f"  {i}. {title}")
                 print(f"     Format: {fmt_id}")
-            
+
+            # Save to Airtable (Idea Concepts table)
+            print("  Saving to Airtable (Idea Concepts)...")
+            for i, idea in enumerate(ideas, 1):
+                try:
+                    idea["original_dna"] = f"Idea Engine v2: format_library"
+                    record = airtable.create_idea(idea, source="format_library")
+                    print(f"    ✅ Saved idea {i}: {record.get('id')}")
+                except Exception as e:
+                    print(f"    ❌ Failed to save idea {i}: {e}")
+
             msg_lines = ["IDEA ENGINE v2 - From Format Library", "-" * 40]
             for i, idea in enumerate(ideas, 1):
                 msg_lines.append(f"{i}. {idea.get('viral_title', 'Untitled')}")
                 msg_lines.append(f"   Format: {idea.get('based_on_format', '')}")
-            
+
             slack.send_message(chr(10).join(msg_lines))
             print("Sent to Slack!")
-            
+
             return ideas
-        
+
         import asyncio
         asyncio.run(run_more_ideas())
         sys.exit(0)

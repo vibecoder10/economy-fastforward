@@ -213,19 +213,19 @@ async def graduate_to_pipeline(
         pipeline_record_id = result["id"]
         print(f"  ⚠️ Some new fields not yet in Airtable: {e}")
 
-    # 4. Update Ideas Bank record status
+    # 4. Update Idea Concepts record status
     try:
         airtable_client.update_idea_status(idea_record_id, "sent_to_pipeline")
     except Exception as e:
         # If "sent_to_pipeline" is not a valid status option, try with typecast
         try:
-            airtable_client.ideas_table.update(
+            airtable_client.idea_concepts_table.update(
                 idea_record_id,
                 {"Status": "sent_to_pipeline"},
                 typecast=True,
             )
         except Exception:
-            print(f"  ⚠️ Could not update Ideas Bank status: {e}")
+            print(f"  ⚠️ Could not update Idea Concepts status: {e}")
 
     # 5. Notify via Slack
     if slack_client:

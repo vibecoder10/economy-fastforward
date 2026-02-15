@@ -157,12 +157,12 @@ class IdeaBot:
             if video_dna.get("source_type") == "youtube_url" and video_dna.get("url"):
                 idea["reference_url"] = video_dna.get("url")
 
-        # Save to Airtable
+        # Save to Airtable (Idea Concepts table)
         if save_to_airtable:
-            print("  Saving to Airtable...")
+            print("  Saving to Airtable (Idea Concepts)...")
             for i, idea in enumerate(ideas, 1):
                 try:
-                    record = self.airtable.create_idea(idea)
+                    record = self.airtable.create_idea(idea, source="url_analysis")
                     print(f"    ✅ Saved idea {i}: {record.get('id')}")
                 except Exception as e:
                     print(f"    ❌ Failed to save idea {i}: {e}")

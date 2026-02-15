@@ -1,4 +1,4 @@
-"""Airtable API client for Ideas, Script, and Images tables."""
+"""Airtable API client for Idea Concepts, Ideas (legacy), Script, and Images tables."""
 
 import os
 from pyairtable import Api, Table
@@ -7,29 +7,49 @@ from typing import Optional, Any
 
 class AirtableClient:
     """Client for Airtable API operations."""
-    
+
     # Table IDs from the n8n workflow
     DEFAULT_BASE_ID = "appCIcC58YSTwK3CE"
-    IDEAS_TABLE_ID = "tblrAsJglokZSkC8m"
+    IDEAS_TABLE_ID = "tblrAsJglokZSkC8m"          # Legacy — preserved as archive
     SCRIPT_TABLE_ID = "tbluGSepeZNgb0NxG"
     IMAGES_TABLE_ID = "tbl3luJ0zsWu0MYYz"
-    
+
+    # Idea Concepts — single source of truth for ALL new ideas
+    # Set AIRTABLE_IDEA_CONCEPTS_TABLE_ID in .env once the table is created
+    IDEA_CONCEPTS_TABLE_ID = None  # populated from env in __init__
+
     def __init__(self, api_key: Optional[str] = None, base_id: Optional[str] = None):
         self.api_key = api_key or os.getenv("AIRTABLE_API_KEY")
         if not self.api_key:
             raise ValueError("AIRTABLE_API_KEY not found in environment")
-        
+
         self.base_id = base_id or os.getenv("AIRTABLE_BASE_ID", self.DEFAULT_BASE_ID)
         self.api = Api(self.api_key)
-        
+
+        # Idea Concepts table ID from env (falls back to Ideas table if not set)
+        self.IDEA_CONCEPTS_TABLE_ID = os.getenv(
+            "AIRTABLE_IDEA_CONCEPTS_TABLE_ID",
+            self.IDEAS_TABLE_ID,  # Fallback to legacy Ideas table
+        )
+
         # Initialize table references
         self._ideas_table = None
+        self._idea_concepts_table = None
         self._script_table = None
         self._images_table = None
-    
+
+    @property
+    def idea_concepts_table(self) -> Table:
+        """Get the Idea Concepts table (single source of truth for new ideas)."""
+        if self._idea_concepts_table is None:
+            self._idea_concepts_table = self.api.table(
+                self.base_id, self.IDEA_CONCEPTS_TABLE_ID
+            )
+        return self._idea_concepts_table
+
     @property
     def ideas_table(self) -> Table:
-        """Get the Ideas table."""
+        """Get the legacy Ideas table (preserved as archive, no new writes)."""
         if self._ideas_table is None:
             self._ideas_table = self.api.table(self.base_id, self.IDEAS_TABLE_ID)
         return self._ideas_table
@@ -48,48 +68,58 @@ class AirtableClient:
             self._images_table = self.api.table(self.base_id, self.IMAGES_TABLE_ID)
         return self._images_table
     
-    # ==================== IDEAS TABLE ====================
-    
+    # ==================== IDEA CONCEPTS TABLE (new unified entry) ===========
+
     def get_ideas_by_status(self, status: str, limit: int = 1) -> list[dict]:
-        """Get ideas with the specified status."""
-        records = self.ideas_table.all(
+        """Get ideas with the specified status from Idea Concepts table."""
+        records = self.idea_concepts_table.all(
             formula=f'{{Status}} = "{status}"',
             max_records=limit,
         )
         return [{"id": r["id"], **r["fields"]} for r in records]
-    
+
     def get_ideas_ready_for_scripting(self, limit: int = 1) -> list[dict]:
         """Get ideas with status 'Ready For Scripting'."""
         return self.get_ideas_by_status("Ready For Scripting", limit)
-    
+
     def get_ideas_ready_for_visuals(self, limit: int = 1) -> list[dict]:
         """Get ideas with status 'Ready For Visuals'."""
         return self.get_ideas_by_status("Ready For Visuals", limit)
-    
+
     def get_all_ideas(self) -> list[dict]:
-        """Get all ideas from the table."""
-        records = self.ideas_table.all(sort=["Status"])
+        """Get all ideas from the Idea Concepts table."""
+        records = self.idea_concepts_table.all(sort=["Status"])
         return [{"id": r["id"], **r["fields"]} for r in records]
-    
-    def create_idea(self, idea_data: dict) -> dict:
-        """Create a new idea record."""
+
+    def create_idea(self, idea_data: dict, source: str = "url_analysis") -> dict:
+        """Create a new idea record in the Idea Concepts table.
+
+        All new ideas are written to Idea Concepts (single source of truth).
+        The legacy Ideas table is preserved as archive but receives no new writes.
+
+        Args:
+            idea_data: Dict with idea fields (viral_title, hook_script, etc.)
+            source: Origin of this idea — one of:
+                    "url_analysis", "trending", "format_library", "research_agent"
+        """
         # Core fields (always present in Airtable)
         core_fields = {
             "Status": "Idea Logged",
-            "Video Title": idea_data.get("viral_title", ""),
-            "Hook Script": idea_data.get("hook_script", ""),
-            "Past Context": idea_data.get("narrative_logic", {}).get("past_context", ""),
-            "Present Parallel": idea_data.get("narrative_logic", {}).get("present_parallel", ""),
-            "Future Prediction": idea_data.get("narrative_logic", {}).get("future_prediction", ""),
-            "Thumbnail Prompt": idea_data.get("thumbnail_visual", ""),
-            "Writer Guidance": idea_data.get("writer_guidance", ""),
-            "Original DNA": idea_data.get("original_dna", ""),
+            "Video Title": idea_data.get("viral_title", idea_data.get("Video Title", "")),
+            "Hook Script": idea_data.get("hook_script", idea_data.get("Hook Script", "")),
+            "Past Context": idea_data.get("narrative_logic", {}).get("past_context", idea_data.get("Past Context", "")),
+            "Present Parallel": idea_data.get("narrative_logic", {}).get("present_parallel", idea_data.get("Present Parallel", "")),
+            "Future Prediction": idea_data.get("narrative_logic", {}).get("future_prediction", idea_data.get("Future Prediction", "")),
+            "Thumbnail Prompt": idea_data.get("thumbnail_visual", idea_data.get("Thumbnail Prompt", "")),
+            "Writer Guidance": idea_data.get("writer_guidance", idea_data.get("Writer Guidance", "")),
+            "Original DNA": idea_data.get("original_dna", idea_data.get("Original DNA", "")),
+            "Source": source,
         }
 
         # Optional fields (may not exist in Airtable yet)
         optional_fields = {}
-        if idea_data.get("reference_url"):
-            optional_fields["Reference URL"] = idea_data.get("reference_url")
+        if idea_data.get("reference_url") or idea_data.get("Reference URL"):
+            optional_fields["Reference URL"] = idea_data.get("reference_url", idea_data.get("Reference URL", ""))
         if idea_data.get("modeled_from"):
             optional_fields["Idea Reasoning"] = idea_data.get("modeled_from")
         if idea_data.get("source_views"):
@@ -99,25 +129,24 @@ class AirtableClient:
 
         # Try with all fields first
         try:
-            record = self.ideas_table.create({**core_fields, **optional_fields})
+            record = self.idea_concepts_table.create({**core_fields, **optional_fields}, typecast=True)
             return {"id": record["id"], **record["fields"]}
         except Exception as e:
             if "UNKNOWN_FIELD_NAME" in str(e):
-                # Fallback: save core fields only
+                # Fallback: save core fields only (Source field might not exist yet)
                 print(f"    ⚠️ Some fields missing in Airtable, saving core fields only")
-                record = self.ideas_table.create(core_fields)
+                record = self.idea_concepts_table.create(core_fields, typecast=True)
                 return {"id": record["id"], **record["fields"]}
             raise
-    
+
     def update_idea_status(self, record_id: str, status: str) -> dict:
-        """Update the status of an idea."""
-        # Use typecast=True to handle new options if possible/permissive
-        record = self.ideas_table.update(record_id, {"Status": status}, typecast=True)
+        """Update the status of an idea in the Idea Concepts table."""
+        record = self.idea_concepts_table.update(record_id, {"Status": status}, typecast=True)
         return {"id": record["id"], **record["fields"]}
-        
+
     def update_idea_field(self, record_id: str, field_name: str, value) -> dict:
         """Update a single field on an idea record."""
-        record = self.ideas_table.update(record_id, {field_name: value})
+        record = self.idea_concepts_table.update(record_id, {field_name: value})
         return {"id": record["id"], **record["fields"]}
 
     def update_idea_thumbnail(self, record_id: str, thumbnail_url: str) -> dict:
@@ -133,7 +162,7 @@ class AirtableClient:
 
         for field_name, field_value in field_attempts:
             try:
-                record = self.ideas_table.update(record_id, {field_name: field_value})
+                record = self.idea_concepts_table.update(record_id, {field_name: field_value})
                 print(f"    ✅ Saved thumbnail to '{field_name}' field")
                 return {"id": record["id"], **record["fields"]}
             except Exception as e:
@@ -470,17 +499,19 @@ class AirtableClient:
 
     def update_record(self, table_name: str, record_id: str, fields: dict) -> dict:
         """Generic update for any table record.
-        
+
         Args:
-            table_name: "Ideas", "Script", or "Images"
+            table_name: "Ideas", "Idea Concepts", "Script", or "Images"
             record_id: Airtable record ID
             fields: Dict of field names to values
-            
+
         Returns:
             Updated record
         """
         if table_name == "Ideas":
             table = self.ideas_table
+        elif table_name == "Idea Concepts":
+            table = self.idea_concepts_table
         elif table_name == "Script":
             table = self.script_table
         elif table_name == "Images":

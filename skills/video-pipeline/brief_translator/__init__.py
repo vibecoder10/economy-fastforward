@@ -284,12 +284,12 @@ class BriefTranslator:
                 pass
 
     def _mark_rejected(self, idea_record_id: str, validation: dict):
-        """Mark an Ideas Bank record as rejected."""
+        """Mark an Idea Concepts record as rejected."""
         try:
             self.airtable.update_idea_status(idea_record_id, "rejected")
         except Exception:
             try:
-                self.airtable.ideas_table.update(
+                self.airtable.idea_concepts_table.update(
                     idea_record_id,
                     {"Status": "rejected"},
                     typecast=True,

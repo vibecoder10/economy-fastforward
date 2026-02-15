@@ -30,3 +30,42 @@
 - Created: `research_agent_audit.md` (audit documentation)
 - Created: `progress.txt` (this file)
 - Modified: `brief_translator/__init__.py` (updated docstring to reference research_agent)
+
+## Story 1: Consolidate Airtable Entry Point (2026-02-15)
+
+### Learnings
+
+1. **Airtable table references found in:**
+   - `clients/airtable_client.py` — main table IDs (IDEAS, SCRIPT, IMAGES)
+   - `run_image_pipeline.py` — hardcoded table ID for Ideas
+   - `bots/idea_bot.py` — calls `create_idea()`
+   - `bots/trending_idea_bot.py` — calls `create_idea()` in two places
+   - `pipeline.py` `--more-ideas` — inline code, didn't save to Airtable at all
+   - `brief_translator/pipeline_writer.py` — uses `create_idea()` for graduation
+   - `brief_translator/__init__.py` — uses `ideas_table` directly in fallback
+   - n8n JSON bots (Idea Bot, Script Bot, Voice Bot) — hardcoded IDs, not touched
+
+2. **Design decision: env var fallback**
+   - `AIRTABLE_IDEA_CONCEPTS_TABLE_ID` env var configures the new table
+   - Falls back to legacy IDEAS_TABLE_ID if not set (safe for existing deploys)
+   - All Python entry points now route through `idea_concepts_table`
+
+3. **Source field values:**
+   - `url_analysis` — from `--idea` (IdeaBot)
+   - `trending` — from `--trending` (TrendingIdeaBot)
+   - `format_library` — from `--more-ideas` (now saves to Airtable!)
+   - `research_agent` — reserved for Story 2
+
+4. **Status flow unchanged:**
+   - Idea Logged → (Ryan approves manually) → Ready For Scripting → ...
+   - The "Approved" step is Ryan's manual intervention, not a code change
+
+### Files Changed
+- Modified: `clients/airtable_client.py` — added `idea_concepts_table`, `Source` field
+- Modified: `bots/idea_bot.py` — passes `source="url_analysis"`
+- Modified: `bots/trending_idea_bot.py` — passes `source="trending"` (2 places)
+- Modified: `pipeline.py` — `--more-ideas` now saves to Airtable with `source="format_library"`
+- Modified: `brief_translator/__init__.py` — fallback uses `idea_concepts_table`
+- Modified: `brief_translator/pipeline_writer.py` — fallback uses `idea_concepts_table`
+- Modified: `run_image_pipeline.py` — uses env var for table ID
+- Modified: `.env.example` — documents new `AIRTABLE_IDEA_CONCEPTS_TABLE_ID`

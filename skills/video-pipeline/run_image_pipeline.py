@@ -41,7 +41,9 @@ async def main():
         # Look for Ready For Voice ideas and update them
         from pyairtable import Api
         api = Api(os.getenv("AIRTABLE_API_KEY"))
-        ideas_table = api.table(os.getenv("AIRTABLE_BASE_ID", "appCIcC58YSTwK3CE"), "tblrAsJglokZSkC8m")
+        # Use Idea Concepts table (unified entry point)
+        idea_concepts_table_id = os.getenv("AIRTABLE_IDEA_CONCEPTS_TABLE_ID", "tblrAsJglokZSkC8m")
+        ideas_table = api.table(os.getenv("AIRTABLE_BASE_ID", "appCIcC58YSTwK3CE"), idea_concepts_table_id)
         records = ideas_table.all(
             formula='{Status} = "Ready For Voice"',
             max_records=1,
