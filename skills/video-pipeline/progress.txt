@@ -1,0 +1,162 @@
+# Pipeline Unification — Progress Log
+
+## Story 0: Audit & Isolate Research Agent (2026-02-15)
+
+### Learnings
+
+1. **Where was the research agent code actually found?**
+   - No standalone research agent existed. Research logic was embedded in
+     `brief_translator/supplementer.py` as targeted gap-filling.
+   - The supplementer runs AFTER validation, filling specific gaps identified
+     by the validator. It's not a deep research system.
+   - The Elon/Machiavelli deep research referenced in the PRD was likely
+     produced in an external session and manually added to Airtable.
+
+2. **What was embedded vs standalone?**
+   - Embedded: `supplementer.py` (targeted gap-filling within brief_translator)
+   - Standalone: Nothing existed — `research_agent.py` was created fresh.
+   - The supplementer remains in brief_translator for its gap-filling role.
+     It's already properly modularized (separate file, imported by __init__.py).
+
+3. **What interface pattern does the codebase use?**
+   - Async functions with client injection:
+     `async def func(anthropic_client, data, ...) -> dict`
+   - All clients initialized in `pipeline.py`'s `VideoPipeline.__init__`
+   - Results are structured dicts
+   - CLI entry via `if __name__ == "__main__": asyncio.run(main())`
+
+### Files Changed
+- Created: `research_agent.py` (standalone deep research module)
+- Created: `research_agent_audit.md` (audit documentation)
+- Created: `progress.txt` (this file)
+- Modified: `brief_translator/__init__.py` (updated docstring to reference research_agent)
+
+## Story 1: Consolidate Airtable Entry Point (2026-02-15)
+
+### Learnings
+
+1. **Airtable table references found in:**
+   - `clients/airtable_client.py` — main table IDs (IDEAS, SCRIPT, IMAGES)
+   - `run_image_pipeline.py` — hardcoded table ID for Ideas
+   - `bots/idea_bot.py` — calls `create_idea()`
+   - `bots/trending_idea_bot.py` — calls `create_idea()` in two places
+   - `pipeline.py` `--more-ideas` — inline code, didn't save to Airtable at all
+   - `brief_translator/pipeline_writer.py` — uses `create_idea()` for graduation
+   - `brief_translator/__init__.py` — uses `ideas_table` directly in fallback
+   - n8n JSON bots (Idea Bot, Script Bot, Voice Bot) — hardcoded IDs, not touched
+
+2. **Design decision: env var fallback**
+   - `AIRTABLE_IDEA_CONCEPTS_TABLE_ID` env var configures the new table
+   - Falls back to legacy IDEAS_TABLE_ID if not set (safe for existing deploys)
+   - All Python entry points now route through `idea_concepts_table`
+
+3. **Source field values:**
+   - `url_analysis` — from `--idea` (IdeaBot)
+   - `trending` — from `--trending` (TrendingIdeaBot)
+   - `format_library` — from `--more-ideas` (now saves to Airtable!)
+   - `research_agent` — reserved for Story 2
+
+4. **Status flow unchanged:**
+   - Idea Logged → (Ryan approves manually) → Ready For Scripting → ...
+   - The "Approved" step is Ryan's manual intervention, not a code change
+
+### Files Changed
+- Modified: `clients/airtable_client.py` — added `idea_concepts_table`, `Source` field
+- Modified: `bots/idea_bot.py` — passes `source="url_analysis"`
+- Modified: `bots/trending_idea_bot.py` — passes `source="trending"` (2 places)
+- Modified: `pipeline.py` — `--more-ideas` now saves to Airtable with `source="format_library"`
+- Modified: `brief_translator/__init__.py` — fallback uses `idea_concepts_table`
+- Modified: `brief_translator/pipeline_writer.py` — fallback uses `idea_concepts_table`
+
+## Story 3: Brief Translator Consumes Research Payload (2026-02-15)
+
+### Learnings
+
+1. **Research payload flows naturally through existing pipeline**
+   - The script prompt template already has fields for fact_sheet, historical_parallels,
+     framework_analysis, character_dossier, etc.
+   - Research payload fills these with substantially richer content
+   - Script quality improves automatically from richer input data
+
+2. **Validation adjustment needed**
+   - Research-enriched briefs have _research_enriched=True flag
+   - Relaxed thresholds: up to 1 FAIL and 4 WEAK still pass
+   - Prevents rejection of rich research briefs on minor gaps
+
+## Story 4: Unify Scene Structure (2026-02-15)
+
+### Learnings
+
+1. **Scene count changed from ~136 to ~25**
+   - Old: 136 individual image descriptions (~11s each)
+   - New: 20-30 narrative scenes (3-5 per act, ~50-90s each)
+   - Each scene produces 4-7 images downstream via duration-based expansion
+
+2. **Nested act structure**
+   - Output JSON nests scenes within acts
+   - `flatten_scenes()` provides backward-compat aliases for downstream systems
+   - Key aliases: act↔parent_act, style↔visual_style, script_excerpt↔narration_text
+
+3. **Image generation expanded**
+   - `run_styled_image_prompts` now expands each scene into multiple image slots
+   - IMAGE_INTERVAL_SECONDS = 9 (one image per ~9 seconds of narration)
+   - A 60-second scene produces ~7 images, so 25 scenes → ~170 images total
+
+4. **Backward compatibility preserved**
+   - Old "20-scene" beat sheet in anthropic_client.py marked as legacy
+   - Scene validator supports both unified and legacy field names
+   - DEFAULT_TOTAL_IMAGES aliased to DEFAULT_TOTAL_SCENES
+
+### Files Changed
+- Rewritten: `brief_translator/scene_expander.py` — produces 20-30 scenes in nested act structure
+- Rewritten: `brief_translator/scene_validator.py` — supports both formats, relaxed tolerances
+- Rewritten: `brief_translator/prompts/scene_expand.txt` — nested act JSON output format
+- Created: `scenes_schema.md` — unified scene JSON schema documentation
+- Modified: `brief_translator/__init__.py` — imports new constants
+- Modified: `pipeline.py` — scene-to-image expansion in `run_styled_image_prompts`
+- Modified: `clients/anthropic_client.py` — legacy beat sheet docstring update
+- Modified: `run_image_pipeline.py` — uses env var for table ID
+- Modified: `.env.example` — documents new `AIRTABLE_IDEA_CONCEPTS_TABLE_ID`
+
+## Story 5: Remove Duplicate Image Prompt Paths (2026-02-15)
+
+### Learnings
+
+1. **Two image prompt paths existed:**
+   - `run_image_prompt_bot` — legacy path, used old beat sheet format
+   - `run_styled_image_prompts` — new path, uses Visual Identity System
+
+2. **Seven call sites updated:**
+   - Status dispatcher in `pipeline.py`
+   - `run_full_pipeline` in `pipeline.py`
+   - `run_produce_from_idea` in `pipeline.py`
+   - `run_image_pipeline.py`
+   - `run_remaining_pipeline.py`
+   - All now call `run_styled_image_prompts` as the primary path
+
+3. **Legacy preserved as fallback:**
+   - Renamed `run_image_prompt_bot` → `run_image_prompt_bot_legacy`
+   - `run_styled_image_prompts` falls back to legacy if scene JSON is missing
+
+### Files Changed
+- Modified: `pipeline.py` — renamed legacy, updated all 5 call sites
+- Modified: `run_image_pipeline.py` — calls `run_styled_image_prompts`
+- Modified: `run_remaining_pipeline.py` — calls `run_styled_image_prompts`
+
+## Story 6: Full Pipeline Audit & Integration Test (2026-02-15)
+
+### Learnings
+
+1. **Audit grep results — all clean:**
+   - Old Ideas table references in active Python: 0
+   - Non-legacy `run_image_prompt_bot` calls: 0
+   - TODO/FIXME/HACK markers: 0
+
+2. **Documentation created:**
+   - `pipeline_flow.md` — complete pipeline flow with ASCII diagram,
+     status transitions, module locations, and entry points
+   - `scenes_schema.md` — created in Story 4
+
+### Files Changed
+- Created: `pipeline_flow.md` — unified pipeline flow documentation
+- Updated: `progress.txt` — full Story 0-6 learnings log

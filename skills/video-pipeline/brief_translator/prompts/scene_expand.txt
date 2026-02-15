@@ -1,7 +1,6 @@
 You are a visual director for a documentary-style YouTube channel. Your job
-is to create a complete list of image scene descriptions for a 25-minute
-video. Each image will be displayed for approximately 11 seconds with a
-Ken Burns zoom effect.
+is to break a 25-minute narration script into production scenes — narrative
+segments that will each be voiced, then used to generate multiple AI images.
 
 The video uses three visual styles:
 1. DOSSIER (~60%): Cinematic photorealistic modern scenes — figures in suits,
@@ -31,57 +30,70 @@ The accent color for this video is: {ACCENT_COLOR}
 {VISUAL_SEEDS}
 </visual_seeds>
 
-Generate a COMPLETE scene list — one scene per image. For a 25-minute video
-at ~11 seconds per image, you need approximately {TOTAL_IMAGES} scenes.
+Break the script into {TOTAL_SCENES} production scenes (3-5 per act,
+{TOTAL_SCENES} total across all 6 acts). Each scene is a continuous
+narration segment that will generate 4-7 individual images downstream.
 
 For EACH scene, provide:
 
-1. scene_number (1 through {TOTAL_IMAGES})
-2. act (1-6)
-3. style ("dossier" | "schema" | "echo")
-4. description (1-2 sentences describing what the image depicts — be SPECIFIC
-   about setting, lighting, objects, composition. The description must be
-   detailed enough that an AI image generator can produce it without additional
-   context.)
-5. script_excerpt (the 1-2 sentences of narration this image accompanies —
-   copy directly from the script)
-6. composition_hint ("wide" | "medium" | "closeup" | "environmental" |
+1. scene_number (1 through {TOTAL_SCENES}, sequential across all acts)
+2. parent_act (1-6)
+3. act_marker (e.g., "[ACT 1 — The Hook | 0:00-1:30]")
+4. narration_text (the EXACT text from the script for this segment — copy
+   it verbatim, do NOT summarize or paraphrase)
+5. duration_seconds (calculated: word_count / 2.5 words per second)
+6. visual_style ("dossier" | "schema" | "echo")
+7. composition ("wide" | "medium" | "closeup" | "environmental" |
    "portrait" | "overhead" | "low_angle")
+8. ken_burns ("slow zoom in" | "slow zoom out" | "slow pan left" |
+   "slow pan right" | "slow drift up" | "slow drift down")
+9. mood (1-2 word mood descriptor, e.g., "tension", "revelation", "dread",
+   "hope", "foreboding", "triumph")
+10. description (1-2 sentences describing the PRIMARY visual concept for
+    this segment — be SPECIFIC about setting, lighting, objects)
 
 CRITICAL RULES:
-- Each scene description must be UNIQUE — no two scenes should describe the
-  same composition even if the subject is similar. Vary angle, setting, detail
-  level, and focus point.
-- Dossier scenes should depict what the narration is ABOUT at that moment,
-  not generic "person in suit" images. If the narration mentions $1.25 trillion,
-  the image should reflect scale and money.
-- Schema scenes should appear when the narration discusses RELATIONSHIPS,
-  STRUCTURES, FLOWS, or SYSTEMS. The data overlay should conceptually match
-  what's being explained.
-- Echo scenes should depict SPECIFIC historical moments referenced in the
-  narration. If the script mentions the East India Company charter, the image
-  should show that specific moment.
-- Vary compositions within style runs (don't put 4 medium shots in a row).
-- Never have more than 4 consecutive scenes of the same style.
-- Echo scenes appear in clusters of 2-3, never as isolated singles.
-- First scene and last scene must be dossier style.
-- Scene descriptions should reference the accent color where relevant
-  (e.g., "cold teal glow from monitors" or "amber candlelight").
+- Each scene's narration_text must be an exact, continuous excerpt from
+  the script — no gaps, no overlaps, no paraphrasing
+- ALL script text must be covered (no text left out between scenes)
+- Duration is calculated from word count of narration_text (/ 2.5 wps)
+- Ken Burns direction must ALTERNATE — never the same direction twice in a row
+- Dossier scenes should depict what the narration is ABOUT at that moment
+- Schema scenes appear when narration discusses RELATIONSHIPS, SYSTEMS, DATA
+- Echo scenes depict SPECIFIC historical moments referenced in narration
+- Echo scenes only in Acts 3-5, always in clusters of 2-3 (never isolated)
+- First scene and last scene must be dossier style
+- Never more than 4 consecutive scenes of the same style
+- Vary compositions — don't put 3+ of the same composition in a row
 
-Output as a JSON array:
+Output as a JSON object with nested acts:
 
 ```json
-[
-  {
-    "scene_number": 1,
-    "act": 1,
-    "style": "dossier",
-    "description": "A lone figure in a dark suit stands before floor-to-ceiling windows overlooking a city at night, back to camera, cold teal city lights reflecting on the glass, single overhead light creating a long shadow across a polished floor",
-    "script_excerpt": "On February 2nd, 2026, Elon Musk merged SpaceX and xAI into a single entity valued at $1.25 trillion.",
-    "composition_hint": "wide"
-  },
-  ...
-]
+{{
+  "total_acts": 6,
+  "total_scenes": {TOTAL_SCENES},
+  "acts": [
+    {{
+      "act_number": 1,
+      "act_title": "The Hook",
+      "time_range": "0:00-1:30",
+      "scenes": [
+        {{
+          "scene_number": 1,
+          "parent_act": 1,
+          "act_marker": "[ACT 1 — The Hook | 0:00-1:30]",
+          "narration_text": "On February 2nd, 2026, Elon Musk merged SpaceX and xAI...",
+          "duration_seconds": 36,
+          "visual_style": "dossier",
+          "composition": "wide",
+          "ken_burns": "slow zoom in",
+          "mood": "tension",
+          "description": "A lone figure in a dark suit stands before floor-to-ceiling windows overlooking a city at night, cold teal city lights reflecting on the glass"
+        }}
+      ]
+    }}
+  ]
+}}
 ```
 
-Generate ALL {TOTAL_IMAGES} scenes. Do not truncate or summarize.
+Generate ALL {TOTAL_SCENES} scenes covering the ENTIRE script. Do not truncate.

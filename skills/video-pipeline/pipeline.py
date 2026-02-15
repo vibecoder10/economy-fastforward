@@ -544,11 +544,11 @@ class VideoPipeline:
                 
             return await self.run_voice_bot()
         
-        # 3. Check for Ready For Image Prompts
+        # 3. Check for Ready For Image Prompts (use styled prompts as primary path)
         idea = self.get_idea_by_status(self.STATUS_READY_IMAGE_PROMPTS)
         if idea:
             self._load_idea(idea)
-            return await self.run_image_prompt_bot()
+            return await self.run_styled_image_prompts()
 
         # 4. Check for Ready For Images
         idea = self.get_idea_by_status(self.STATUS_READY_IMAGES)
@@ -672,7 +672,7 @@ class VideoPipeline:
         }
 
     async def run_script_bot(self) -> dict:
-        """Write the full 20-scene script.
+        """Write the full script (legacy 20-scene path).
         
         REQUIRES: Ideas status = "Ready For Scripting"
         UPDATES TO: "Ready For Voice" when complete
@@ -836,8 +836,11 @@ class VideoPipeline:
             "new_status": self.STATUS_READY_IMAGE_PROMPTS,
         }
 
-    async def run_image_prompt_bot(self) -> dict:
-        """Generate image prompts based on voiceover duration.
+    async def run_image_prompt_bot_legacy(self) -> dict:
+        """Generate image prompts based on voiceover duration (LEGACY PATH).
+
+        Deprecated: Use run_styled_image_prompts() instead, which uses the
+        Visual Identity System (Dossier/Schema/Echo) with the unified scene format.
 
         Rule: ONE image per 6-10 seconds of voiceover.
 
@@ -1084,7 +1087,7 @@ class VideoPipeline:
         UPDATES TO: "Ready For Video Scripts" when complete
 
         Note: This is a combined pipeline. For granular control, use
-        run_image_prompt_bot() and run_image_bot() separately.
+        run_styled_image_prompts() and run_image_bot() separately.
         """
         # Verify status
         if not self.current_idea:
@@ -1095,16 +1098,16 @@ class VideoPipeline:
 
         if self.current_idea.get("Status") != self.STATUS_READY_IMAGE_PROMPTS:
             return {"error": f"Idea status is '{self.current_idea.get('Status')}', expected 'Ready For Image Prompts'"}
-        
+
         print(f"\n🖼️ VISUALS PIPELINE: Processing '{self.video_title}'")
-        
+
         # Get or create project folder
         if not self.project_folder_id:
             folder = self.google.get_or_create_folder(self.video_title)
             self.project_folder_id = folder["id"]
-        
-        # Step 1: Generate Image Prompts (uses new duration-based logic)
-        prompt_result = await self.run_image_prompt_bot()
+
+        # Step 1: Generate Styled Image Prompts (Visual Identity System)
+        prompt_result = await self.run_styled_image_prompts()
 
         # Step 2: Generate Images
         image_result = await self._run_image_bot()
@@ -1486,23 +1489,55 @@ class VideoPipeline:
         # Build brief from Airtable idea fields if not provided
         if brief is None:
             idea = self.current_idea
-            brief = {
-                "headline": idea.get("Video Title", ""),
-                "thesis": idea.get("Future Prediction", ""),
-                "executive_hook": idea.get("Hook Script", ""),
-                "fact_sheet": idea.get("Writer Guidance", ""),
-                "historical_parallels": idea.get("Past Context", ""),
-                "framework_analysis": idea.get("Present Parallel", ""),
-                "character_dossier": "",
-                "narrative_arc": idea.get("Future Prediction", ""),
-                "counter_arguments": "",
-                "visual_seeds": idea.get("Thumbnail Prompt", ""),
-                "source_bibliography": idea.get("Reference URL", ""),
-                "framework_angle": "",
-                "title_options": idea.get("Video Title", ""),
-                "thumbnail_concepts": idea.get("Thumbnail Prompt", ""),
-                "source_urls": idea.get("Reference URL", ""),
-            }
+
+            # Check for research_payload (from research agent)
+            research_payload_raw = idea.get("Research Payload", "")
+            if research_payload_raw:
+                try:
+                    research_payload = json.loads(research_payload_raw)
+                    print("  📚 Found research payload — using as primary source material")
+                    brief = {
+                        "headline": research_payload.get("headline", idea.get("Video Title", "")),
+                        "thesis": research_payload.get("thesis", ""),
+                        "executive_hook": research_payload.get("executive_hook", idea.get("Hook Script", "")),
+                        "fact_sheet": research_payload.get("fact_sheet", ""),
+                        "historical_parallels": research_payload.get("historical_parallels", ""),
+                        "framework_analysis": research_payload.get("framework_analysis", ""),
+                        "character_dossier": research_payload.get("character_dossier", ""),
+                        "narrative_arc": research_payload.get("narrative_arc", ""),
+                        "counter_arguments": research_payload.get("counter_arguments", ""),
+                        "visual_seeds": research_payload.get("visual_seeds", ""),
+                        "source_bibliography": research_payload.get("source_bibliography", ""),
+                        "framework_angle": research_payload.get("themes", ""),
+                        "title_options": research_payload.get("title_options", idea.get("Video Title", "")),
+                        "thumbnail_concepts": research_payload.get("thumbnail_concepts", ""),
+                        "source_urls": research_payload.get("source_bibliography", ""),
+                        # Pass through research enrichment flag
+                        "_research_enriched": True,
+                    }
+                except (json.JSONDecodeError, TypeError) as e:
+                    print(f"  ⚠️ Could not parse research payload: {e}")
+                    research_payload_raw = ""  # Fall through to legacy path
+
+            if not research_payload_raw:
+                # Legacy path: build brief from standard idea fields
+                brief = {
+                    "headline": idea.get("Video Title", ""),
+                    "thesis": idea.get("Future Prediction", ""),
+                    "executive_hook": idea.get("Hook Script", ""),
+                    "fact_sheet": idea.get("Writer Guidance", ""),
+                    "historical_parallels": idea.get("Past Context", ""),
+                    "framework_analysis": idea.get("Present Parallel", ""),
+                    "character_dossier": "",
+                    "narrative_arc": idea.get("Future Prediction", ""),
+                    "counter_arguments": "",
+                    "visual_seeds": idea.get("Thumbnail Prompt", ""),
+                    "source_bibliography": idea.get("Reference URL", ""),
+                    "framework_angle": "",
+                    "title_options": idea.get("Video Title", ""),
+                    "thumbnail_concepts": idea.get("Thumbnail Prompt", ""),
+                    "source_urls": idea.get("Reference URL", ""),
+                }
 
         # Scene output directory (project-relative)
         scene_output_dir = str(Path(__file__).parent / "scenes")
@@ -1588,21 +1623,37 @@ class VideoPipeline:
                     break
 
         if not scene_filepath or not Path(scene_filepath).exists():
-            print("  ⚠️ No scene file found — falling back to standard prompt bot")
-            return await self.run_image_prompt_bot()
+            print("  ⚠️ No scene file found — falling back to legacy prompt bot")
+            return await self.run_image_prompt_bot_legacy()
 
         # Load scenes
-        scenes = json.loads(Path(scene_filepath).read_text())
-        print(f"  Loaded {len(scenes)} scenes from {Path(scene_filepath).name}")
+        raw_scenes = json.loads(Path(scene_filepath).read_text())
+        print(f"  Loaded {len(raw_scenes)} scenes from {Path(scene_filepath).name}")
+
+        # Expand scenes for image generation: each scene with duration_seconds
+        # produces multiple image slots (~1 image per 8-11 seconds of narration)
+        IMAGE_INTERVAL_SECONDS = 9  # ~1 image per 9 seconds
+        expanded_scenes = []
+        for scene in raw_scenes:
+            duration = scene.get("duration_seconds", 60)
+            image_count = max(1, round(duration / IMAGE_INTERVAL_SECONDS))
+            for img_idx in range(image_count):
+                expanded = dict(scene)
+                expanded["_source_scene_number"] = scene.get("scene_number", 1)
+                expanded["_image_index"] = img_idx + 1
+                expanded["_images_in_scene"] = image_count
+                expanded_scenes.append(expanded)
+
+        print(f"  Expanded to {len(expanded_scenes)} image slots from {len(raw_scenes)} scenes")
 
         # Determine accent color from idea or default
         accent_color = self.current_idea.get("Accent Color") or "cold teal"
         # Resolve underscored to spaced form for the engine
         accent_color = accent_color.replace("_", " ")
 
-        # Generate styled prompts
+        # Generate styled prompts (one per image slot)
         styled_prompts = generate_prompts(
-            scenes,
+            expanded_scenes,
             accent_color=accent_color,
         )
 
@@ -1621,27 +1672,24 @@ class VideoPipeline:
         # Write prompts to Airtable Images table
         created = 0
         for sp in styled_prompts:
-            scene_number = sp.get("act", "act1")
-            # Map act to a scene number range (rough: act1=1-3, act2=4-6, etc.)
-            # But actually the scenes have scene_number from the scene list
             scene_index = sp["index"]
-            scene_data = scenes[scene_index] if scene_index < len(scenes) else {}
+            scene_data = expanded_scenes[scene_index] if scene_index < len(expanded_scenes) else {}
 
-            # Use scene_number from the scene data if available
-            scene_num = scene_data.get("scene_number", scene_index + 1)
-            segment_index = 1  # One prompt per scene in this mode
+            # Use source scene number and image index for unique keying
+            scene_num = scene_data.get("_source_scene_number", scene_data.get("scene_number", scene_index + 1))
+            segment_index = scene_data.get("_image_index", 1)
 
             if (scene_num, segment_index) in existing_keys:
                 continue
 
             # Scene description from the scene list
-            scene_desc = scene_data.get("scene_description", "")
+            scene_desc = scene_data.get("scene_description", scene_data.get("description", ""))
 
             self.airtable.create_sentence_image_record(
                 scene_number=scene_num,
                 sentence_index=segment_index,
                 sentence_text=scene_desc,
-                duration_seconds=11.0,  # Default ~11s per image
+                duration_seconds=IMAGE_INTERVAL_SECONDS,
                 image_prompt=sp["prompt"],
                 video_title=self.video_title,
                 shot_type=sp.get("composition", "wide"),
@@ -1717,9 +1765,9 @@ class VideoPipeline:
         voice_result = await self.run_voice_bot()
         steps_completed.append(("Voice Bot", voice_result))
 
-        # Step 4: Image Prompts
-        prompt_result = await self.run_image_prompt_bot()
-        steps_completed.append(("Image Prompt Bot", prompt_result))
+        # Step 4: Image Prompts (Visual Identity System)
+        prompt_result = await self.run_styled_image_prompts()
+        steps_completed.append(("Styled Image Prompts", prompt_result))
 
         # Step 5: Images
         image_result = await self.run_image_bot()
@@ -2547,6 +2595,7 @@ async def main():
         print("  --status          Show status of all ideas in Airtable")
         print("  --more-ideas      Generate ideas from saved format library (no scraping)")
         print('  --idea "..."      Generate 3 video ideas from URL or concept')
+        print('  --research "..."  Run deep research on a topic (saves to Idea Concepts)')
         print("  --trending        Generate ideas from trending YouTube videos (Apify)")
         print("  --translate       Run brief translator (research brief → script + scenes)")
         print("  --styled-prompts  Run image prompt engine with visual identity system")
@@ -2600,6 +2649,37 @@ async def main():
         result = await pipeline.run_idea_bot(input_text)
         return
 
+    # === DEEP RESEARCH ===
+    if len(sys.argv) > 1 and sys.argv[1] == "--research":
+        from research_agent import run_research
+
+        if len(sys.argv) < 3:
+            print("=" * 60)
+            print("🔬 RESEARCH AGENT - Deep Topic Research")
+            print("=" * 60)
+            print("\nUsage:")
+            print('  python pipeline.py --research "Topic to research"')
+            print("\nExamples:")
+            print('  python pipeline.py --research "Why the US Dollar Could Collapse by 2030"')
+            print('  python pipeline.py --research "AI is eliminating white-collar jobs"')
+            print("\nThe research payload will be saved to the Idea Concepts table")
+            print("with source='research_agent' and status='Idea Logged'.")
+            return
+
+        topic = " ".join(sys.argv[2:])
+        print(f"\n🔬 RESEARCH AGENT: Researching '{topic}'...")
+        payload = await run_research(
+            anthropic_client=pipeline.anthropic,
+            topic=topic,
+            airtable_client=pipeline.airtable,
+        )
+
+        print(f"\n✅ Research complete!")
+        print(f"   Headline: {payload.get('headline', 'N/A')}")
+        print(f"   Record ID: {payload.get('_airtable_record_id', 'N/A')}")
+        print(f"   Fields: {len(payload)}")
+        print(f"\nNext: Review in Airtable and set status to 'Ready For Scripting'")
+        return
 
     # === MORE IDEAS FROM FORMAT LIBRARY ===
     if len(sys.argv) > 1 and sys.argv[1] == "--more-ideas":
@@ -2637,31 +2717,43 @@ async def main():
         
         load_dotenv()
         from clients.anthropic_client import AnthropicClient
+        from clients.airtable_client import AirtableClient
         from clients.slack_client import SlackClient
-        
+
         anthropic = AnthropicClient()
+        airtable = AirtableClient()
         slack = SlackClient()
-        
+
         async def run_more_ideas():
             ideas = await generate_modeled_ideas(top_formats, config, anthropic, num_ideas=3)
-            
+
             print(f"Generated {len(ideas)} ideas:")
             for i, idea in enumerate(ideas, 1):
                 title = idea.get("viral_title", "Untitled")
                 fmt_id = idea.get("based_on_format", "unknown")
                 print(f"  {i}. {title}")
                 print(f"     Format: {fmt_id}")
-            
+
+            # Save to Airtable (Idea Concepts table)
+            print("  Saving to Airtable (Idea Concepts)...")
+            for i, idea in enumerate(ideas, 1):
+                try:
+                    idea["original_dna"] = f"Idea Engine v2: format_library"
+                    record = airtable.create_idea(idea, source="format_library")
+                    print(f"    ✅ Saved idea {i}: {record.get('id')}")
+                except Exception as e:
+                    print(f"    ❌ Failed to save idea {i}: {e}")
+
             msg_lines = ["IDEA ENGINE v2 - From Format Library", "-" * 40]
             for i, idea in enumerate(ideas, 1):
                 msg_lines.append(f"{i}. {idea.get('viral_title', 'Untitled')}")
                 msg_lines.append(f"   Format: {idea.get('based_on_format', '')}")
-            
+
             slack.send_message(chr(10).join(msg_lines))
             print("Sent to Slack!")
-            
+
             return ideas
-        
+
         import asyncio
         asyncio.run(run_more_ideas())
         sys.exit(0)

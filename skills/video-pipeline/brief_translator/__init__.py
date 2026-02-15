@@ -4,9 +4,13 @@ Middleware that bridges the Research Agent's Ideas Bank output with the
 video production pipeline. Transforms analytical research briefs into
 production-ready creative assets.
 
+Deep research is handled by the standalone research_agent module
+(research_agent.py). This module consumes its output and handles:
+
 Pipeline:
+    Step 0: Deep Research (via research_agent.ResearchAgent — standalone module)
     Step 1: Production Readiness Validation
-    Step 1b: Supplemental Research (if needed)
+    Step 1b: Supplemental Research — targeted gap-filling (if needed)
     Step 2: Script Generation
     Step 3: Scene Expansion (~140 scenes)
     Step 4: Pipeline Table Write
@@ -24,7 +28,7 @@ from .supplementer import (
     MAX_SUPPLEMENT_PASSES,
 )
 from .script_generator import generate_script
-from .scene_expander import expand_scenes, DEFAULT_TOTAL_IMAGES
+from .scene_expander import expand_scenes, DEFAULT_TOTAL_SCENES, DEFAULT_TOTAL_IMAGES
 from .scene_validator import validate_scene_list, auto_fix_minor_issues
 from .pipeline_writer import graduate_to_pipeline
 
@@ -151,9 +155,9 @@ class BriefTranslator:
                 f"{script_result['validation']['act_count']} acts"
             )
 
-            # === STEP 3: Scene Expansion ===
-            logger.info("Step 3: Expanding scenes...")
-            self._notify(f"🎬 Expanding to ~{self.total_images} scene descriptions...")
+            # === STEP 3: Scene Expansion (6 Acts → 20-30 Scenes) ===
+            logger.info("Step 3: Expanding script into production scenes...")
+            self._notify(f"🎬 Expanding to ~{self.total_images} production scenes...")
 
             scenes = await expand_scenes(
                 self.anthropic,
@@ -280,12 +284,12 @@ class BriefTranslator:
                 pass
 
     def _mark_rejected(self, idea_record_id: str, validation: dict):
-        """Mark an Ideas Bank record as rejected."""
+        """Mark an Idea Concepts record as rejected."""
         try:
             self.airtable.update_idea_status(idea_record_id, "rejected")
         except Exception:
             try:
-                self.airtable.ideas_table.update(
+                self.airtable.idea_concepts_table.update(
                     idea_record_id,
                     {"Status": "rejected"},
                     typecast=True,

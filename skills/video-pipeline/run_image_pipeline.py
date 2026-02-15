@@ -41,7 +41,9 @@ async def main():
         # Look for Ready For Voice ideas and update them
         from pyairtable import Api
         api = Api(os.getenv("AIRTABLE_API_KEY"))
-        ideas_table = api.table(os.getenv("AIRTABLE_BASE_ID", "appCIcC58YSTwK3CE"), "tblrAsJglokZSkC8m")
+        # Use Idea Concepts table (unified entry point)
+        idea_concepts_table_id = os.getenv("AIRTABLE_IDEA_CONCEPTS_TABLE_ID", "tblrAsJglokZSkC8m")
+        ideas_table = api.table(os.getenv("AIRTABLE_BASE_ID", "appCIcC58YSTwK3CE"), idea_concepts_table_id)
         records = ideas_table.all(
             formula='{Status} = "Ready For Voice"',
             max_records=1,
@@ -67,12 +69,12 @@ async def main():
     print(f"   Idea ID: {pipeline.current_idea_id}")
     
     try:
-        # Step 1: Image Prompt Bot
+        # Step 1: Styled Image Prompts (Visual Identity System)
         print("\n" + "=" * 40)
-        print("🌉  STEP 1: IMAGE PROMPT BOT")
+        print("🎨  STEP 1: STYLED IMAGE PROMPTS")
         print("=" * 40)
-        prompt_result = await pipeline.run_image_prompt_bot()
-        print(f"   ✅ Image prompts created: {prompt_result['prompt_count']}")
+        prompt_result = await pipeline.run_styled_image_prompts()
+        print(f"   ✅ Image prompts created: {prompt_result.get('prompt_count', prompt_result.get('total_styled', '?'))}")
         
         # Step 2: Image Bot
         print("\n" + "=" * 40)
