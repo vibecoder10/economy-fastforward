@@ -115,7 +115,8 @@ class AirtableClient:
         Args:
             idea_data: Dict with idea fields (viral_title, hook_script, etc.)
             source: Origin of this idea — one of:
-                    "url_analysis", "trending", "format_library", "research_agent"
+                    "url_analysis", "trending", "format_library",
+                    "research_agent", "discovery_scanner"
         """
         # Core fields (always present in Airtable)
         core_fields = {
@@ -141,6 +142,17 @@ class AirtableClient:
             optional_fields["Source Views"] = idea_data.get("source_views")
         if idea_data.get("source_channel"):
             optional_fields["Source Channel"] = idea_data.get("source_channel")
+
+        # Rich schema fields (added by setup_airtable_fields.py)
+        rich_field_keys = [
+            "Framework Angle", "Headline", "Timeliness Score",
+            "Audience Fit Score", "Content Gap Score", "Monetization Risk",
+            "Source URLs", "Executive Hook", "Thesis", "Date Surfaced",
+            "Research Payload", "Thematic Framework",
+        ]
+        for key in rich_field_keys:
+            if key in idea_data and idea_data[key]:
+                optional_fields[key] = idea_data[key]
 
         # Also accept pipeline_writer fields passed directly in idea_data
         pipeline_keys = [
@@ -211,6 +223,40 @@ class AirtableClient:
         """Update a single field on an idea record."""
         record = self.idea_concepts_table.update(record_id, {field_name: value})
         return {"id": record["id"], **record["fields"]}
+
+    def update_idea_fields(self, record_id: str, fields: dict) -> dict:
+        """Update multiple fields on an idea record.
+
+        Gracefully drops unknown fields instead of failing the whole update.
+        """
+        try:
+            record = self.idea_concepts_table.update(record_id, fields, typecast=True)
+            return {"id": record["id"], **record["fields"]}
+        except Exception as e:
+            error_msg = str(e)
+            if "UNKNOWN_FIELD_NAME" not in error_msg and "Unknown field name" not in error_msg:
+                raise
+
+            # Retry by dropping unknown fields one at a time
+            remaining = dict(fields)
+            max_retries = len(fields)
+            for _ in range(max_retries):
+                bad_field = self._extract_bad_field(error_msg)
+                if bad_field and bad_field in remaining:
+                    print(f"    ⚠️ Field '{bad_field}' not in Airtable, dropping it")
+                    del remaining[bad_field]
+                else:
+                    break
+                if not remaining:
+                    return {"id": record_id}
+                try:
+                    record = self.idea_concepts_table.update(record_id, remaining, typecast=True)
+                    return {"id": record["id"], **record["fields"]}
+                except Exception as retry_err:
+                    error_msg = str(retry_err)
+                    if "UNKNOWN_FIELD_NAME" not in error_msg and "Unknown field name" not in error_msg:
+                        raise
+            return {"id": record_id}
 
     def update_idea_thumbnail(self, record_id: str, thumbnail_url: str) -> dict:
         """Update the thumbnail URL of an idea."""
