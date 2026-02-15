@@ -2547,6 +2547,7 @@ async def main():
         print("  --status          Show status of all ideas in Airtable")
         print("  --more-ideas      Generate ideas from saved format library (no scraping)")
         print('  --idea "..."      Generate 3 video ideas from URL or concept')
+        print('  --research "..."  Run deep research on a topic (saves to Idea Concepts)')
         print("  --trending        Generate ideas from trending YouTube videos (Apify)")
         print("  --translate       Run brief translator (research brief → script + scenes)")
         print("  --styled-prompts  Run image prompt engine with visual identity system")
@@ -2600,6 +2601,37 @@ async def main():
         result = await pipeline.run_idea_bot(input_text)
         return
 
+    # === DEEP RESEARCH ===
+    if len(sys.argv) > 1 and sys.argv[1] == "--research":
+        from research_agent import run_research
+
+        if len(sys.argv) < 3:
+            print("=" * 60)
+            print("🔬 RESEARCH AGENT - Deep Topic Research")
+            print("=" * 60)
+            print("\nUsage:")
+            print('  python pipeline.py --research "Topic to research"')
+            print("\nExamples:")
+            print('  python pipeline.py --research "Why the US Dollar Could Collapse by 2030"')
+            print('  python pipeline.py --research "AI is eliminating white-collar jobs"')
+            print("\nThe research payload will be saved to the Idea Concepts table")
+            print("with source='research_agent' and status='Idea Logged'.")
+            return
+
+        topic = " ".join(sys.argv[2:])
+        print(f"\n🔬 RESEARCH AGENT: Researching '{topic}'...")
+        payload = await run_research(
+            anthropic_client=pipeline.anthropic,
+            topic=topic,
+            airtable_client=pipeline.airtable,
+        )
+
+        print(f"\n✅ Research complete!")
+        print(f"   Headline: {payload.get('headline', 'N/A')}")
+        print(f"   Record ID: {payload.get('_airtable_record_id', 'N/A')}")
+        print(f"   Fields: {len(payload)}")
+        print(f"\nNext: Review in Airtable and set status to 'Ready For Scripting'")
+        return
 
     # === MORE IDEAS FROM FORMAT LIBRARY ===
     if len(sys.argv) > 1 and sys.argv[1] == "--more-ideas":

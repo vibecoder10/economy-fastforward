@@ -219,12 +219,85 @@ class ResearchAgent:
         return payload
 
 
+def write_to_airtable(airtable_client, payload: dict) -> dict:
+    """Write a research payload to the Idea Concepts table.
+
+    Creates a new idea record with the full research payload attached
+    as a JSON string in the research_payload field, plus key fields
+    mapped to their respective Airtable columns.
+
+    Args:
+        airtable_client: AirtableClient instance
+        payload: Structured research_payload dict from ResearchAgent
+
+    Returns:
+        Created Airtable record dict with id
+    """
+    # Serialize full payload as JSON for the research_payload field
+    research_payload_json = json.dumps(payload)
+
+    # Validate payload size (Airtable long text limit ~100k chars)
+    if len(research_payload_json) > 100000:
+        logger.warning(
+            f"Research payload is {len(research_payload_json)} chars — "
+            f"may exceed Airtable field limit"
+        )
+
+    # Build the idea data dict compatible with AirtableClient.create_idea()
+    idea_data = {
+        "viral_title": payload.get("headline", ""),
+        "hook_script": payload.get("executive_hook", ""),
+        "narrative_logic": {
+            "past_context": payload.get("historical_parallels", ""),
+            "present_parallel": payload.get("framework_analysis", ""),
+            "future_prediction": payload.get("narrative_arc", ""),
+        },
+        "thumbnail_visual": (
+            payload.get("thumbnail_concepts", "").split("\n")[0]
+            if payload.get("thumbnail_concepts")
+            else ""
+        ),
+        "writer_guidance": payload.get("thesis", ""),
+        "original_dna": json.dumps({
+            "source": "research_agent",
+            "themes": payload.get("themes", ""),
+            "psychological_angles": payload.get("psychological_angles", ""),
+        }),
+    }
+
+    # Create the record with source="research_agent"
+    record = airtable_client.create_idea(idea_data, source="research_agent")
+    record_id = record["id"]
+
+    # Write research-specific fields (may not exist in Airtable yet)
+    research_fields = {
+        "Research Payload": research_payload_json,
+        "Thematic Framework": payload.get("themes", ""),
+    }
+
+    for field_name, field_value in research_fields.items():
+        try:
+            airtable_client.update_idea_field(record_id, field_name, field_value)
+        except Exception as e:
+            if "UNKNOWN_FIELD_NAME" in str(e):
+                logger.info(
+                    f"Field '{field_name}' not yet in Airtable — "
+                    f"create it as a Long Text field"
+                )
+            else:
+                logger.warning(f"Could not write {field_name}: {e}")
+
+    logger.info(f"Research written to Idea Concepts: {record_id}")
+    return record
+
+
 async def run_research(
     anthropic_client,
     topic: str,
     seed_urls: Optional[list[str]] = None,
     context: Optional[str] = None,
     model: str = "claude-sonnet-4-5-20250929",
+    airtable_client=None,
 ) -> dict:
     """Convenience function to run deep research.
 
@@ -236,12 +309,21 @@ async def run_research(
         seed_urls: Optional seed URLs
         context: Optional context
         model: LLM model to use
+        airtable_client: Optional AirtableClient — if provided, writes
+                         research payload to Idea Concepts table
 
     Returns:
-        Structured research_payload dict
+        Structured research_payload dict (with airtable_record_id if written)
     """
     agent = ResearchAgent(anthropic_client, model=model)
-    return await agent.research(topic, seed_urls, context)
+    payload = await agent.research(topic, seed_urls, context)
+
+    # Write to Airtable if client provided
+    if airtable_client is not None:
+        record = write_to_airtable(airtable_client, payload)
+        payload["_airtable_record_id"] = record["id"]
+
+    return payload
 
 
 # === CLI Entry Point ===
@@ -283,6 +365,11 @@ Examples:
         default="claude-sonnet-4-5-20250929",
         help="Model to use (default: claude-sonnet-4-5-20250929)",
     )
+    parser.add_argument(
+        "--save",
+        action="store_true",
+        help="Save research payload to Airtable Idea Concepts table",
+    )
 
     args = parser.parse_args()
 
@@ -294,6 +381,12 @@ Examples:
 
     anthropic = AnthropicClient()
 
+    # Optionally initialize Airtable client
+    airtable = None
+    if args.save:
+        from clients.airtable_client import AirtableClient
+        airtable = AirtableClient()
+
     print(f"\n{'=' * 60}")
     print(f"RESEARCH AGENT — Deep Research")
     print(f"{'=' * 60}")
@@ -301,6 +394,7 @@ Examples:
     if args.urls:
         print(f"Seed URLs: {args.urls}")
     print(f"Model: {args.model}")
+    print(f"Save to Airtable: {'Yes' if args.save else 'No'}")
     print(f"{'=' * 60}\n")
 
     payload = await run_research(
@@ -309,6 +403,7 @@ Examples:
         seed_urls=args.urls,
         context=args.context,
         model=args.model,
+        airtable_client=airtable,
     )
 
     output_json = json.dumps(payload, indent=2)
