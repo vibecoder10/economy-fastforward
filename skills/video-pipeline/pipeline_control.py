@@ -438,7 +438,7 @@ async def _handle_discovery_approval(client, channel: str, ts: str, idea_index: 
 @app.message(re.compile(r"research", re.IGNORECASE))
 async def handle_research(message, say):
     """Run deep research on a topic or next approved idea."""
-    global current_process
+    global current_process, current_task_name
     if current_process:
         await say(f":x: Already running `{current_task_name}`. Use `stop` to cancel it first.")
         return
@@ -452,24 +452,20 @@ async def handle_research(message, say):
        (topic.startswith("'") and topic.endswith("'")):
         topic = topic[1:-1].strip()
 
-    if topic:
-        await say(f":microscope: Starting deep research on: _{topic}_")
-    else:
-        await say(":microscope: Starting research on next approved idea...")
-
     try:
-        cmd = ["python3", "research_agent.py", "--topic", topic, "--save"] if topic else \
-              ["python3", "pipeline.py", "--research-next"]
+        from clients.anthropic_client import AnthropicClient
+        from clients.airtable_client import AirtableClient
+        from research_agent import run_research
 
-        # For no-topic case, use pipeline.py to find next approved idea
+        anthropic = AnthropicClient()
+        airtable = AirtableClient()
+
+        # ------------------------------------------------------------------
+        # Case 1: No topic — find next approved idea, research it, and
+        # update the SAME record (don't create a duplicate).
+        # ------------------------------------------------------------------
         if not topic:
-            # Import and run research directly via pipeline
-            from clients.anthropic_client import AnthropicClient
-            from clients.airtable_client import AirtableClient
-            from research_agent import run_research
-
-            anthropic = AnthropicClient()
-            airtable = AirtableClient()
+            await say(":microscope: Starting research on next approved idea...")
 
             approved = airtable.get_ideas_by_status("Approved", limit=1)
             if not approved:
@@ -480,9 +476,55 @@ async def handle_research(message, say):
                 return
 
             idea = approved[0]
-            topic = idea.get("Video Title", "")
-            await say(f":microscope: Researching approved idea: _{topic}_")
+            record_id = idea["id"]
+            title = idea.get("Video Title", "Untitled")
+            current_task_name = f"research: {title}"
 
+            await say(f":microscope: Researching approved idea: _{title}_")
+
+            # Run research inline (don't create a new record)
+            payload = await run_research(
+                anthropic_client=anthropic,
+                topic=title,
+                context=idea.get("Hook Script", ""),
+                airtable_client=None,  # Don't create a duplicate record
+            )
+
+            # Write research payload back to the SAME record
+            research_json = json.dumps(payload)
+            try:
+                from research_agent import infer_framework_from_research
+                research_fields = {
+                    "Research Payload": research_json,
+                    "Source URLs": payload.get("source_bibliography", ""),
+                    "Executive Hook": payload.get("executive_hook", ""),
+                    "Thesis": payload.get("thesis", ""),
+                }
+                if not idea.get("Framework Angle"):
+                    research_fields["Framework Angle"] = infer_framework_from_research(payload)
+                airtable.update_idea_fields(record_id, research_fields)
+            except Exception as e:
+                log.warning(f"Could not write research fields: {e}")
+                try:
+                    airtable.update_idea_field(record_id, "Research Payload", research_json)
+                except Exception:
+                    log.warning("Could not write Research Payload field either")
+
+            # Advance status to Ready For Scripting
+            airtable.update_idea_status(record_id, "Ready For Scripting")
+
+            current_task_name = None
+            await say(
+                f":white_check_mark: Research complete for: _{title}_\n"
+                f"Headline: {payload.get('headline', title)}\n"
+                f"Status: Ready For Scripting"
+            )
+            return
+
+        # ------------------------------------------------------------------
+        # Case 2: Explicit topic — run as subprocess, create new record.
+        # ------------------------------------------------------------------
+        await say(f":microscope: Starting deep research on: _{topic}_")
         current_task_name = f"research: {topic}"
 
         current_process = await asyncio.create_subprocess_exec(
