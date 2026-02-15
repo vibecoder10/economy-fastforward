@@ -6,6 +6,7 @@ schema and writes the scene list to a JSON file for the image prompt engine.
 
 import json
 import os
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -51,6 +52,35 @@ def build_original_dna(brief: dict, idea_record_id: str, accent_color: str, scen
     })
 
 
+def build_sources_list(brief: dict) -> str:
+    """Build a formatted source list for YouTube show notes / video description.
+
+    Combines source_urls and source_bibliography into a clean list.
+    """
+    sources = set()
+
+    # Collect from all source fields
+    for field in ["source_urls", "source_bibliography"]:
+        text = brief.get(field, "")
+        if not text:
+            continue
+        # Extract URLs
+        urls = re.findall(r'https?://[^\s\)>\]"\']+', text)
+        sources.update(urls)
+        # Also add non-URL source lines (e.g., "Reuters, January 2026")
+        for line in text.strip().split("\n"):
+            line = line.strip().lstrip("- •*")
+            if line and not line.startswith("http"):
+                sources.add(line)
+
+    if not sources:
+        return ""
+
+    # Format as a clean list
+    lines = sorted(sources)
+    return "\n".join(f"- {line}" for line in lines)
+
+
 def build_pipeline_record(
     brief: dict,
     script: str,
@@ -92,6 +122,9 @@ def build_pipeline_record(
 
     scene_count = len(scene_list)
 
+    # Build full source list for YouTube show notes / video description
+    sources_text = build_sources_list(brief)
+
     return {
         # Core mapped fields
         "Video Title": video_title,
@@ -111,6 +144,8 @@ def build_pipeline_record(
         "Video ID": video_id,
         "Scene Count": scene_count,
         "Validation Status": "validated",
+        # Source list for YouTube description / show notes
+        "Sources": sources_text,
     }
 
 

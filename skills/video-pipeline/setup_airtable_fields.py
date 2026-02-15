@@ -104,24 +104,33 @@ REQUIRED_FIELDS = [
     },
 ]
 
+# Fields to add to the Script table
+SCRIPT_TABLE_ID = os.getenv("AIRTABLE_SCRIPT_TABLE_ID", "tbluGSepeZNgb0NxG")
+SCRIPT_REQUIRED_FIELDS = [
+    {
+        "name": "Sources",
+        "type": "multilineText",
+    },
+]
 
-def get_existing_fields() -> set[str]:
-    """Fetch all existing field names on the table."""
+
+def get_existing_fields(table_id: str = TABLE_ID) -> set[str]:
+    """Fetch all existing field names on a table."""
     url = f"https://api.airtable.com/v0/meta/bases/{BASE_ID}/tables"
     resp = requests.get(url, headers=HEADERS)
     resp.raise_for_status()
 
     for table in resp.json().get("tables", []):
-        if table["id"] == TABLE_ID or table["name"] == TABLE_ID:
+        if table["id"] == table_id or table["name"] == table_id:
             return {f["name"] for f in table.get("fields", [])}
 
-    print(f"Table {TABLE_ID} not found in base {BASE_ID}")
+    print(f"Table {table_id} not found in base {BASE_ID}")
     sys.exit(1)
 
 
-def create_field(field_def: dict) -> bool:
-    """Create a single field on the table. Returns True on success."""
-    url = f"https://api.airtable.com/v0/meta/bases/{BASE_ID}/tables/{TABLE_ID}/fields"
+def create_field(field_def: dict, table_id: str = TABLE_ID) -> bool:
+    """Create a single field on a table. Returns True on success."""
+    url = f"https://api.airtable.com/v0/meta/bases/{BASE_ID}/tables/{table_id}/fields"
     resp = requests.post(url, headers=HEADERS, json=field_def)
 
     if resp.status_code == 200:
@@ -132,35 +141,48 @@ def create_field(field_def: dict) -> bool:
         return False
 
 
+def setup_table(table_id: str, table_name: str, fields: list[dict]):
+    """Set up fields on a single table."""
+    print(f"\n{'=' * 50}")
+    print(f"Table: {table_name} ({table_id})")
+    print(f"{'=' * 50}")
+
+    existing = get_existing_fields(table_id)
+    print(f"Existing fields ({len(existing)}): {sorted(existing)}\n")
+
+    created = 0
+    skipped = 0
+    failed = 0
+
+    for field_def in fields:
+        if field_def["name"] in existing:
+            print(f"  = Exists: {field_def['name']}")
+            skipped += 1
+        else:
+            if create_field(field_def, table_id):
+                created += 1
+            else:
+                failed += 1
+
+    print(f"\n  Result: {created} created, {skipped} existed, {failed} failed")
+    return created, skipped, failed
+
+
 def main():
     if not AIRTABLE_API_KEY:
         print("AIRTABLE_API_KEY not set. Add it to .env and re-run.")
         sys.exit(1)
 
     print(f"Base: {BASE_ID}")
-    print(f"Table: {TABLE_ID}")
-    print()
 
-    # Get existing fields
-    existing = get_existing_fields()
-    print(f"Existing fields ({len(existing)}): {sorted(existing)}\n")
+    # Setup Idea Concepts table
+    setup_table(TABLE_ID, "Idea Concepts", REQUIRED_FIELDS)
 
-    # Create missing fields
-    created = 0
-    skipped = 0
-    failed = 0
+    # Setup Script table (Sources field)
+    setup_table(SCRIPT_TABLE_ID, "Script", SCRIPT_REQUIRED_FIELDS)
 
-    for field_def in REQUIRED_FIELDS:
-        if field_def["name"] in existing:
-            print(f"  = Exists: {field_def['name']}")
-            skipped += 1
-        else:
-            if create_field(field_def):
-                created += 1
-            else:
-                failed += 1
-
-    print(f"\nDone: {created} created, {skipped} already existed, {failed} failed")
+    print(f"\n{'=' * 50}")
+    print("All tables configured.")
 
 
 if __name__ == "__main__":

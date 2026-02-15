@@ -306,6 +306,7 @@ class AirtableClient:
         scene_text: str,
         title: str,
         voice_id: str = "G17SuINrv2H9FC6nvetn",
+        sources: str = "",
     ) -> dict:
         """Create a new script record for a scene."""
         fields = {
@@ -315,7 +316,19 @@ class AirtableClient:
             "Voice ID": voice_id,
             "Script Status": "Create",  # Single select, not array
         }
-        record = self.script_table.create(fields)
+        # Store full source list on scene 1 for YouTube show notes
+        if sources and scene_number == 1:
+            fields["Sources"] = sources
+        try:
+            record = self.script_table.create(fields, typecast=True)
+        except Exception as e:
+            # Gracefully drop Sources field if not yet in Airtable
+            if "UNKNOWN_FIELD_NAME" in str(e) and "Sources" in fields:
+                print("    ⚠️ Sources field not on Script table — run setup_airtable_fields.py")
+                del fields["Sources"]
+                record = self.script_table.create(fields, typecast=True)
+            else:
+                raise
         return {"id": record["id"], **record["fields"]}
     
     def update_script_record(
