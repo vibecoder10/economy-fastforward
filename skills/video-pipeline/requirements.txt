@@ -13,6 +13,7 @@ google-api-python-client>=2.116.0
 
 # Slack
 slack-sdk>=3.27.0
+slack-bolt>=1.18.0
 
 # Voice Synthesis
 elevenlabs>=1.0.0
