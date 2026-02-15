@@ -69,12 +69,12 @@ async def main():
     print(f"   Idea ID: {pipeline.current_idea_id}")
     
     try:
-        # Step 1: Image Prompt Bot
+        # Step 1: Styled Image Prompts (Visual Identity System)
         print("\n" + "=" * 40)
-        print("🌉  STEP 1: IMAGE PROMPT BOT")
+        print("🎨  STEP 1: STYLED IMAGE PROMPTS")
         print("=" * 40)
-        prompt_result = await pipeline.run_image_prompt_bot()
-        print(f"   ✅ Image prompts created: {prompt_result['prompt_count']}")
+        prompt_result = await pipeline.run_styled_image_prompts()
+        print(f"   ✅ Image prompts created: {prompt_result.get('prompt_count', prompt_result.get('total_styled', '?'))}")
         
         # Step 2: Image Bot
         print("\n" + "=" * 40)

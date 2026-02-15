@@ -544,11 +544,11 @@ class VideoPipeline:
                 
             return await self.run_voice_bot()
         
-        # 3. Check for Ready For Image Prompts
+        # 3. Check for Ready For Image Prompts (use styled prompts as primary path)
         idea = self.get_idea_by_status(self.STATUS_READY_IMAGE_PROMPTS)
         if idea:
             self._load_idea(idea)
-            return await self.run_image_prompt_bot()
+            return await self.run_styled_image_prompts()
 
         # 4. Check for Ready For Images
         idea = self.get_idea_by_status(self.STATUS_READY_IMAGES)
@@ -836,8 +836,11 @@ class VideoPipeline:
             "new_status": self.STATUS_READY_IMAGE_PROMPTS,
         }
 
-    async def run_image_prompt_bot(self) -> dict:
-        """Generate image prompts based on voiceover duration.
+    async def run_image_prompt_bot_legacy(self) -> dict:
+        """Generate image prompts based on voiceover duration (LEGACY PATH).
+
+        Deprecated: Use run_styled_image_prompts() instead, which uses the
+        Visual Identity System (Dossier/Schema/Echo) with the unified scene format.
 
         Rule: ONE image per 6-10 seconds of voiceover.
 
@@ -1084,7 +1087,7 @@ class VideoPipeline:
         UPDATES TO: "Ready For Video Scripts" when complete
 
         Note: This is a combined pipeline. For granular control, use
-        run_image_prompt_bot() and run_image_bot() separately.
+        run_styled_image_prompts() and run_image_bot() separately.
         """
         # Verify status
         if not self.current_idea:
@@ -1095,16 +1098,16 @@ class VideoPipeline:
 
         if self.current_idea.get("Status") != self.STATUS_READY_IMAGE_PROMPTS:
             return {"error": f"Idea status is '{self.current_idea.get('Status')}', expected 'Ready For Image Prompts'"}
-        
+
         print(f"\n🖼️ VISUALS PIPELINE: Processing '{self.video_title}'")
-        
+
         # Get or create project folder
         if not self.project_folder_id:
             folder = self.google.get_or_create_folder(self.video_title)
             self.project_folder_id = folder["id"]
-        
-        # Step 1: Generate Image Prompts (uses new duration-based logic)
-        prompt_result = await self.run_image_prompt_bot()
+
+        # Step 1: Generate Styled Image Prompts (Visual Identity System)
+        prompt_result = await self.run_styled_image_prompts()
 
         # Step 2: Generate Images
         image_result = await self._run_image_bot()
@@ -1620,8 +1623,8 @@ class VideoPipeline:
                     break
 
         if not scene_filepath or not Path(scene_filepath).exists():
-            print("  ⚠️ No scene file found — falling back to standard prompt bot")
-            return await self.run_image_prompt_bot()
+            print("  ⚠️ No scene file found — falling back to legacy prompt bot")
+            return await self.run_image_prompt_bot_legacy()
 
         # Load scenes
         raw_scenes = json.loads(Path(scene_filepath).read_text())
@@ -1762,9 +1765,9 @@ class VideoPipeline:
         voice_result = await self.run_voice_bot()
         steps_completed.append(("Voice Bot", voice_result))
 
-        # Step 4: Image Prompts
-        prompt_result = await self.run_image_prompt_bot()
-        steps_completed.append(("Image Prompt Bot", prompt_result))
+        # Step 4: Image Prompts (Visual Identity System)
+        prompt_result = await self.run_styled_image_prompts()
+        steps_completed.append(("Styled Image Prompts", prompt_result))
 
         # Step 5: Images
         image_result = await self.run_image_bot()

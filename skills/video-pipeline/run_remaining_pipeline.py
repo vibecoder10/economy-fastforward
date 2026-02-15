@@ -34,12 +34,12 @@ async def main():
         voice_result = await pipeline.run_voice_bot()
         print(f"   ✅ Voice overs generated: {voice_result['voice_count']}")
         
-        # Step 2: Image Prompt Bot
+        # Step 2: Styled Image Prompts (Visual Identity System)
         print("\n" + "=" * 40)
-        print("🌉  STEP 2: IMAGE PROMPT BOT")
+        print("🎨  STEP 2: STYLED IMAGE PROMPTS")
         print("=" * 40)
-        prompt_result = await pipeline.run_image_prompt_bot()
-        print(f"   ✅ Image prompts created: {prompt_result['prompt_count']}")
+        prompt_result = await pipeline.run_styled_image_prompts()
+        print(f"   ✅ Image prompts created: {prompt_result.get('prompt_count', prompt_result.get('total_styled', '?'))}")
         
         # Step 3: Image Bot
         print("\n" + "=" * 40)
