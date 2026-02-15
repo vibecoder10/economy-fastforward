@@ -81,6 +81,8 @@ async def handle_help(message, say):
 - `animate` / `animation` / `run animation` - Run animation pipeline for project with "Create" status
 - `prompts` / `run prompts` - Generate start image prompts and images
 - `end images` / `run end images` - Generate end image prompts and images
+- `discover` / `scan` - Scan headlines and present 2-3 video ideas
+- `discover [focus]` - Scan with focus keyword (e.g., `discover BRICS`)
 - `research` / `run research` - Run deep research on next approved idea
 - `research "topic"` - Run deep research on a specific topic
 - `stop` / `kill` - Stop the currently running pipeline
@@ -232,6 +234,42 @@ async def handle_end_images(message, say):
         await say(":stop_sign: End images generation was stopped")
     except Exception as e:
         await say(f":x: Error: {e}")
+
+
+@app.message(re.compile(r"run discover", re.IGNORECASE))
+@app.message(re.compile(r"discover", re.IGNORECASE))
+@app.message(re.compile(r"scan", re.IGNORECASE))
+async def handle_discover(message, say):
+    """Scan headlines and present 2-3 video ideas."""
+    global current_process
+    if current_process:
+        await say(f":x: Already running `{current_task_name}`. Use `stop` to cancel it first.")
+        return
+
+    # Extract optional focus keyword from message text
+    text = message.get("text", "").strip()
+    focus = re.sub(r"^(run\s+)?(?:discover|scan)\s*", "", text, flags=re.IGNORECASE).strip()
+
+    focus_msg = f" (focus: {focus})" if focus else ""
+    await say(f":mag: Scanning headlines{focus_msg}... This may take a moment.")
+
+    try:
+        from clients.anthropic_client import AnthropicClient
+        from discovery_scanner import run_discovery, format_ideas_for_slack
+
+        anthropic = AnthropicClient()
+        current_task_name_ref = f"discover{focus_msg}"
+
+        result = await run_discovery(
+            anthropic_client=anthropic,
+            focus=focus or None,
+        )
+
+        slack_msg = format_ideas_for_slack(result)
+        await say(slack_msg)
+
+    except Exception as e:
+        await say(f":x: Discovery scan failed: {e}")
 
 
 @app.message(re.compile(r"run research", re.IGNORECASE))
@@ -405,6 +443,7 @@ async def main():
     print("  animate / animation     - Run animation pipeline")
     print("  prompts / run prompts   - Generate prompts and start images")
     print("  end images              - Generate end images")
+    print("  discover / scan         - Scan headlines for video ideas")
     print("  research / run research - Run deep research on approved idea")
     print('  research "topic"        - Run deep research on specific topic')
     print("  stop / kill             - Stop running pipeline")
