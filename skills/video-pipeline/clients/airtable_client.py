@@ -127,14 +127,57 @@ class AirtableClient:
         if idea_data.get("source_channel"):
             optional_fields["Source Channel"] = idea_data.get("source_channel")
 
+        # Also accept pipeline_writer fields passed directly in idea_data
+        pipeline_keys = [
+            "Script", "Scene File Path", "Accent Color",
+            "Video ID", "Scene Count", "Validation Status",
+        ]
+        for key in pipeline_keys:
+            if key in idea_data:
+                optional_fields[key] = idea_data[key]
+
+        all_fields = {**core_fields, **optional_fields}
+
         # Try with all fields first
         try:
-            record = self.idea_concepts_table.create({**core_fields, **optional_fields}, typecast=True)
+            record = self.idea_concepts_table.create(all_fields, typecast=True)
             return {"id": record["id"], **record["fields"]}
         except Exception as e:
-            if "UNKNOWN_FIELD_NAME" in str(e):
-                # Fallback: save core fields only (Source field might not exist yet)
-                print(f"    ⚠️ Some fields missing in Airtable, saving core fields only")
+            error_msg = str(e)
+            if "UNKNOWN_FIELD_NAME" in error_msg:
+                # Identify the bad field from the error message and retry without it
+                import re
+                bad_match = re.search(r'"([^"]+)"', error_msg.split("UNKNOWN_FIELD_NAME")[-1])
+                bad_field = bad_match.group(1) if bad_match else None
+
+                # Retry by dropping unknown fields one at a time
+                remaining = dict(all_fields)
+                for _attempt in range(len(optional_fields) + 1):
+                    if bad_field and bad_field in remaining:
+                        print(f"    ⚠️ Field '{bad_field}' not in Airtable, dropping it")
+                        del remaining[bad_field]
+                    else:
+                        # Drop all optional fields as last resort
+                        remaining = dict(core_fields)
+
+                    try:
+                        record = self.idea_concepts_table.create(remaining, typecast=True)
+                        if remaining != all_fields:
+                            dropped = set(all_fields) - set(remaining)
+                            print(f"    ⚠️ Saved without fields: {dropped}")
+                        return {"id": record["id"], **record["fields"]}
+                    except Exception as retry_err:
+                        error_msg = str(retry_err)
+                        if "UNKNOWN_FIELD_NAME" not in error_msg:
+                            raise
+                        bad_match = re.search(
+                            r'"([^"]+)"',
+                            error_msg.split("UNKNOWN_FIELD_NAME")[-1],
+                        )
+                        bad_field = bad_match.group(1) if bad_match else None
+
+                # Final fallback: core fields only
+                print(f"    ⚠️ Multiple fields missing, saving core fields only")
                 record = self.idea_concepts_table.create(core_fields, typecast=True)
                 return {"id": record["id"], **record["fields"]}
             raise
