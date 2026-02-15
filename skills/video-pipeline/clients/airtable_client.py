@@ -10,13 +10,12 @@ class AirtableClient:
 
     # Table IDs from the n8n workflow
     DEFAULT_BASE_ID = "appCIcC58YSTwK3CE"
-    IDEAS_TABLE_ID = "tblrAsJglokZSkC8m"          # Legacy — preserved as archive
+    IDEAS_TABLE_ID = "tblrAsJglokZSkC8m"          # Legacy alias (same as Idea Concepts)
     SCRIPT_TABLE_ID = "tbluGSepeZNgb0NxG"
     IMAGES_TABLE_ID = "tbl3luJ0zsWu0MYYz"
 
     # Idea Concepts — single source of truth for ALL new ideas
-    # Set AIRTABLE_IDEA_CONCEPTS_TABLE_ID in .env once the table is created
-    IDEA_CONCEPTS_TABLE_ID = None  # populated from env in __init__
+    IDEA_CONCEPTS_TABLE_ID = "tblrAsJglokZSkC8m"  # Hardcoded default
 
     def __init__(self, api_key: Optional[str] = None, base_id: Optional[str] = None):
         self.api_key = api_key or os.getenv("AIRTABLE_API_KEY")
@@ -26,10 +25,10 @@ class AirtableClient:
         self.base_id = base_id or os.getenv("AIRTABLE_BASE_ID", self.DEFAULT_BASE_ID)
         self.api = Api(self.api_key)
 
-        # Idea Concepts table ID from env (falls back to Ideas table if not set)
+        # Idea Concepts table ID — env override or hardcoded default
         self.IDEA_CONCEPTS_TABLE_ID = os.getenv(
             "AIRTABLE_IDEA_CONCEPTS_TABLE_ID",
-            self.IDEAS_TABLE_ID,  # Fallback to legacy Ideas table
+            self.__class__.IDEA_CONCEPTS_TABLE_ID,  # tblrAsJglokZSkC8m
         )
 
         # Initialize table references
