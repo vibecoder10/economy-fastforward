@@ -103,42 +103,193 @@ def _build_research_prompt(
     )
 
 
-def _parse_research_payload(response_text: str) -> dict:
-    """Parse the JSON research payload from Claude's response.
+def _repair_json(text: str) -> str:
+    """Attempt to repair truncated or malformed JSON.
 
-    Handles potential formatting issues (markdown code blocks, etc.)
+    Common issues from LLM output:
+    - Unterminated strings (truncation mid-value)
+    - Trailing commas before closing braces
+    - Missing closing braces/brackets
     """
-    text = response_text.strip()
+    import re as _re
 
-    # Strip markdown code block if present
-    if text.startswith("```"):
-        # Remove opening ```json or ```
-        first_newline = text.index("\n")
-        text = text[first_newline + 1:]
-    if text.endswith("```"):
-        text = text[:-3].rstrip()
+    # Step 1: Close any unterminated string
+    # Walk through tracking quote state
+    in_string = False
+    i = 0
+    while i < len(text):
+        ch = text[i]
+        if ch == '\\' and in_string:
+            i += 2  # skip escaped char
+            continue
+        if ch == '"':
+            in_string = not in_string
+        i += 1
 
-    # Try to find JSON object
-    brace_start = text.find("{")
-    brace_end = text.rfind("}")
-    if brace_start != -1 and brace_end != -1:
-        text = text[brace_start:brace_end + 1]
+    if in_string:
+        # We're inside an unterminated string — close it
+        text = text + '"'
 
-    payload = json.loads(text)
+    # Step 2: Remove trailing commas before } or ]
+    text = _re.sub(r',\s*([\]\}])', r'\1', text)
 
-    # Validate required fields
+    # Step 3: Balance braces and brackets
+    open_braces = text.count('{') - text.count('}')
+    open_brackets = text.count('[') - text.count(']')
+
+    # Trim any dangling comma at the end
+    text = text.rstrip()
+    if text.endswith(','):
+        text = text[:-1]
+
+    text += ']' * max(0, open_brackets)
+    text += '}' * max(0, open_braces)
+
+    return text
+
+
+def _extract_fields_regex(text: str) -> dict:
+    """Extract JSON key-value pairs using regex when json.loads fails.
+
+    Finds patterns like "key": "value" and reconstructs a dict.
+    """
+    import re as _re
+
+    payload = {}
+
+    # Match "key": "value" pairs (handles multi-line values via DOTALL)
+    pattern = _re.compile(
+        r'"(\w+)"\s*:\s*"((?:[^"\\]|\\.)*)(?:"|$)',
+        _re.DOTALL,
+    )
+
+    for match in pattern.finditer(text):
+        key = match.group(1)
+        value = match.group(2)
+        # Unescape basic JSON escapes
+        value = (
+            value.replace('\\"', '"')
+            .replace('\\n', '\n')
+            .replace('\\\\', '\\')
+        )
+        payload[key] = value
+
+    return payload
+
+
+def _build_fallback_payload(raw_text: str) -> dict:
+    """Build a minimal research payload from raw text when all parsing fails.
+
+    Preserves the raw text so partial research isn't lost.
+    """
+    lines = raw_text.strip().split("\n")
+    headline = "Research output (parsing failed)"
+    for line in lines[:10]:
+        line = line.strip().strip('"').strip(',')
+        if 10 < len(line) < 200 and not line.startswith("{"):
+            headline = line
+            break
+
+    return {
+        "headline": headline,
+        "thesis": "",
+        "executive_hook": "",
+        "fact_sheet": raw_text[:2000] if len(raw_text) > 200 else "",
+        "historical_parallels": "",
+        "framework_analysis": "",
+        "character_dossier": "",
+        "narrative_arc": "",
+        "counter_arguments": "",
+        "visual_seeds": "",
+        "source_bibliography": "",
+        "themes": "",
+        "psychological_angles": "",
+        "narrative_arc_suggestion": "",
+        "title_options": "",
+        "thumbnail_concepts": "",
+        "_raw_text": raw_text,
+        "_parse_status": "fallback",
+    }
+
+
+def _validate_payload_fields(payload: dict):
+    """Log warnings for missing required fields."""
     required_fields = [
         "headline", "thesis", "executive_hook", "fact_sheet",
         "historical_parallels", "framework_analysis", "character_dossier",
         "narrative_arc", "counter_arguments", "visual_seeds",
         "source_bibliography",
     ]
-
     missing = [f for f in required_fields if not payload.get(f)]
     if missing:
         logger.warning(f"Research payload missing fields: {missing}")
 
-    return payload
+
+def _parse_research_payload(response_text: str) -> dict:
+    """Parse the JSON research payload from Claude's response.
+
+    Handles:
+    - Markdown code blocks
+    - Truncated JSON (unterminated strings, missing closing braces)
+    - Trailing commas
+    - Complete parse failures (returns fallback with raw text)
+
+    If all parsing attempts fail, returns a minimal payload with the raw
+    text preserved — partial research is better than no research.
+    """
+    text = response_text.strip()
+
+    # Strip markdown code block if present
+    if text.startswith("```"):
+        first_newline = text.index("\n")
+        text = text[first_newline + 1:]
+    if text.endswith("```"):
+        text = text[:-3].rstrip()
+
+    # Try to find JSON object boundaries
+    brace_start = text.find("{")
+    brace_end = text.rfind("}")
+    if brace_start != -1 and brace_end != -1 and brace_end > brace_start:
+        text = text[brace_start:brace_end + 1]
+    elif brace_start != -1:
+        # Opening brace but no closing — truncated response
+        text = text[brace_start:]
+
+    # Attempt 1: Direct parse
+    try:
+        payload = json.loads(text)
+        _validate_payload_fields(payload)
+        return payload
+    except json.JSONDecodeError as e:
+        logger.warning(f"JSON parse failed (attempt 1 — direct): {e}")
+
+    # Attempt 2: Repair truncated JSON
+    try:
+        repaired = _repair_json(text)
+        payload = json.loads(repaired)
+        logger.info("JSON repair successful (attempt 2 — repaired truncation)")
+        _validate_payload_fields(payload)
+        return payload
+    except json.JSONDecodeError as e:
+        logger.warning(f"JSON repair failed (attempt 2): {e}")
+
+    # Attempt 3: Extract individual fields with regex
+    try:
+        payload = _extract_fields_regex(text)
+        if payload and len(payload) >= 3:
+            logger.info(
+                f"Regex field extraction recovered {len(payload)} fields (attempt 3)"
+            )
+            _validate_payload_fields(payload)
+            return payload
+    except Exception as e:
+        logger.warning(f"Regex extraction failed (attempt 3): {e}")
+
+    # Attempt 4: Fallback — save raw text as partial payload
+    logger.error(
+        "All JSON parsing attempts failed — saving raw text as fallback payload"
+    )
+    return _build_fallback_payload(response_text)
 
 
 class ResearchAgent:
@@ -202,11 +353,14 @@ class ResearchAgent:
 
         prompt = _build_research_prompt(topic, seed_urls, context)
 
+        # max_tokens=16000 to prevent truncation — the research payload is
+        # 15 fields of 200-500 words each (~5000-7500 words = ~7000-10000 tokens),
+        # plus JSON structure overhead. 8000 was causing truncated JSON.
         response = await self.anthropic.generate(
             prompt=prompt,
             system_prompt=RESEARCH_SYSTEM_PROMPT,
             model=self.model,
-            max_tokens=8000,
+            max_tokens=16000,
             temperature=0.7,
         )
 
