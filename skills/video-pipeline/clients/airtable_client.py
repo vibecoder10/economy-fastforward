@@ -6,7 +6,58 @@ from typing import Optional, Any
 
 
 class AirtableClient:
-    """Client for Airtable API operations."""
+    """Client for Airtable API operations.
+
+    === IDEA CONCEPTS FIELD AUDIT (2026-02-15) ===
+
+    ACTIVE fields (written/read by the pipeline):
+      Core (always written on create):
+        - Status            : Single Select  — set by create_idea, update_idea_status
+        - Video Title       : Text           — from viral_title / headline
+        - Hook Script       : Text           — from hook / executive_hook
+        - Past Context      : Text           — from narrative_logic.past_context
+        - Present Parallel  : Text           — from narrative_logic.present_parallel
+        - Future Prediction : Text           — from narrative_logic.future_prediction
+        - Thumbnail Prompt  : Text           — from thumbnail_visual
+        - Writer Guidance   : Text           — from writer_guidance / thesis
+        - Original DNA      : Long Text JSON — full source data snapshot
+        - Source            : Text           — origin module name
+
+      Rich schema (written by discovery + research):
+        - Framework Angle   : Single Select  — inferred by discovery/research (10 values)
+        - Headline          : Text           — editorial headline from source/research
+        - Timeliness Score  : Number 1-10    — from estimated_appeal (discovery)
+        - Audience Fit Score: Number 1-10    — from appeal_breakdown.emotional_trigger
+        - Content Gap Score : Number 1-10    — from appeal_breakdown.hidden_system
+        - Source URLs       : Long Text      — bibliography from research
+        - Executive Hook    : Long Text      — 15-second hook from research
+        - Thesis            : Long Text      — core argument from research
+        - Date Surfaced     : Date           — when idea was discovered
+        - Research Payload  : Long Text JSON — full research_payload from research_agent
+        - Thematic Framework: Long Text      — themes extracted during research
+
+      Optional (may be set by specific sources):
+        - Reference URL     : URL            — from url_analysis source
+        - Idea Reasoning    : Text           — from modeled_from (format library)
+        - Source Views      : Number         — from trending source
+        - Source Channel    : Text           — from trending source
+
+    LEGACY / UNUSED fields (exist in Airtable, not actively written):
+        - Monetization Risk : Single Select  — defined in setup_airtable_fields.py
+                              but never populated by any pipeline code.
+                              Candidate for manual editorial use or removal.
+
+    Pipeline-only fields (written by later stages, not discovery/research):
+        - Script            : Long Text      — written by brief_translator
+        - Scene File Path   : Text           — written by pipeline
+        - Accent Color      : Text           — written by pipeline
+        - Video ID          : Text           — written by pipeline
+        - Scene Count       : Number         — written by pipeline
+        - Validation Status : Text           — written by pipeline
+
+    DO NOT DELETE any fields yet — this audit is for documentation only.
+    ===================================================================
+    """
 
     # Table IDs from the n8n workflow
     DEFAULT_BASE_ID = "appCIcC58YSTwK3CE"
@@ -186,9 +237,16 @@ class AirtableClient:
                     del remaining[bad_field]
                     dropped_fields.add(bad_field)
                 elif not dropped_fields:
-                    # Could not identify bad field — strip all optional fields
-                    remaining = {k: v for k, v in core_fields.items()
-                                 if k not in dropped_fields}
+                    # Can't identify the bad field — create with core fields first,
+                    # then update with optional fields individually so we don't lose
+                    # all rich data at once.
+                    print(f"    ⚠️ Can't identify bad field, creating with core fields then updating rich fields")
+                    record = self.idea_concepts_table.create(core_fields, typecast=True)
+                    record_id = record["id"]
+                    if optional_fields:
+                        self._apply_fields_individually(record_id, optional_fields)
+                    updated = self.idea_concepts_table.get(record_id)
+                    return {"id": updated["id"], **updated["fields"]}
                 else:
                     break  # nothing left to drop
 
@@ -223,6 +281,15 @@ class AirtableClient:
         record = self.idea_concepts_table.update(record_id, {field_name: value})
         return {"id": record["id"], **record["fields"]}
 
+    def _apply_fields_individually(self, record_id: str, fields: dict):
+        """Best-effort update: try each field individually so one bad field
+        doesn't block the others from being saved."""
+        for key, value in fields.items():
+            try:
+                self.idea_concepts_table.update(record_id, {key: value}, typecast=True)
+            except Exception as field_err:
+                print(f"    ⚠️ Field '{key}' could not be written: {str(field_err)[:80]}")
+
     def update_idea_fields(self, record_id: str, fields: dict) -> dict:
         """Update multiple fields on an idea record.
 
@@ -245,6 +312,10 @@ class AirtableClient:
                     print(f"    ⚠️ Field '{bad_field}' not in Airtable, dropping it")
                     del remaining[bad_field]
                 else:
+                    # Can't identify the bad field — try each field individually
+                    # so we save as many as possible instead of losing them all.
+                    print(f"    ⚠️ Can't identify bad field, updating fields individually")
+                    self._apply_fields_individually(record_id, remaining)
                     break
                 if not remaining:
                     return {"id": record_id}

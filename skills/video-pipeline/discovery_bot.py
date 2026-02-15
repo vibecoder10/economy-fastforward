@@ -325,15 +325,20 @@ class DiscoveryBot:
                 "Source URLs": payload.get("source_bibliography", ""),
                 "Executive Hook": payload.get("executive_hook", ""),
                 "Thesis": payload.get("thesis", ""),
+                "Thematic Framework": payload.get("themes", ""),
+                "Headline": payload.get("headline", ""),
             }
 
             # Set Framework Angle from research
             framework_angle = infer_framework_from_research(payload)
             research_fields["Framework Angle"] = framework_angle
 
-            self.airtable.update_idea_fields(record_id, research_fields)
+            try:
+                self.airtable.update_idea_fields(record_id, research_fields)
+            except Exception as e:
+                logger.warning(f"Could not write all research fields: {e}")
 
-            # Advance status
+            # Always advance status — even if some field writes failed above
             self.airtable.update_idea_status(record_id, "Ready For Scripting")
 
             self.slack.send_message(

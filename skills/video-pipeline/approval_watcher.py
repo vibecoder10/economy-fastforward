@@ -138,6 +138,8 @@ class ApprovalWatcher:
                     "Source URLs": payload.get("source_bibliography", ""),
                     "Executive Hook": payload.get("executive_hook", ""),
                     "Thesis": payload.get("thesis", ""),
+                    "Thematic Framework": payload.get("themes", ""),
+                    "Headline": payload.get("headline", ""),
                 }
 
                 # Set Framework Angle if not already set on the record
@@ -160,7 +162,7 @@ class ApprovalWatcher:
                     except Exception:
                         logger.warning("Could not write Research Payload field either")
 
-                # Advance status to Ready For Scripting
+                # Always advance status — even if some field writes failed above
                 self.airtable.update_idea_status(
                     record_id, "Ready For Scripting"
                 )
