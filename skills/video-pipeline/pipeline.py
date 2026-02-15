@@ -1066,15 +1066,15 @@ class VideoPipeline:
         # Run the internal image bot
         result = await self._run_image_bot()
 
-        # UPDATE STATUS to Ready For Video Scripts
+        # UPDATE STATUS to Ready For Thumbnail (skips video scripts/gen which are manual)
         self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_THUMBNAIL)
-        print(f"  ✅ Status updated to: {self.STATUS_READY_VIDEO_SCRIPTS}")
+        print(f"  ✅ Status updated to: {self.STATUS_READY_THUMBNAIL}")
 
         return {
             "bot": "Image Bot",
             "video_title": self.video_title,
             "image_count": result.get("image_count", 0),
-            "new_status": self.STATUS_READY_VIDEO_SCRIPTS,
+            "new_status": self.STATUS_READY_THUMBNAIL,
         }
 
     async def run_visuals_pipeline(self) -> dict:
@@ -1109,16 +1109,16 @@ class VideoPipeline:
         # Step 2: Generate Images
         image_result = await self._run_image_bot()
         
-        # UPDATE STATUS to Ready For Video Scripts
+        # UPDATE STATUS to Ready For Thumbnail (skips video scripts/gen which are manual)
         self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_THUMBNAIL)
-        print(f"  ✅ Status updated to: {self.STATUS_READY_VIDEO_SCRIPTS}")
-        
+        print(f"  ✅ Status updated to: {self.STATUS_READY_THUMBNAIL}")
+
         return {
             "bot": "Visuals Pipeline",
             "video_title": self.video_title,
             "prompt_count": prompt_result.get("prompt_count", 0),
             "image_count": image_result.get("image_count", 0),
-            "new_status": self.STATUS_READY_VIDEO_SCRIPTS,
+            "new_status": self.STATUS_READY_THUMBNAIL,
         }
     
     async def _run_image_bot(self) -> dict:
@@ -1448,6 +1448,399 @@ class VideoPipeline:
              
         return {"video_count": video_count}
     
+    # ==========================================================================
+    # BRIEF TRANSLATOR INTEGRATION — Research Brief → Script + Scenes
+    # ==========================================================================
+
+    async def run_brief_translator(self, brief: dict = None) -> dict:
+        """Translate a research brief into a production-ready script and scene list.
+
+        This is the NEW pipeline path for research-backed videos. It replaces
+        the beat-sheet approach with a validated, 6-act narration script and
+        ~140 scene descriptions tagged with visual identity metadata.
+
+        If no brief is provided, reads the current idea's fields as the brief.
+
+        REQUIRES: Ideas status = "Idea Logged" or "Ready For Scripting"
+        UPDATES TO: "Ready For Voice" when complete (script + scenes saved)
+
+        Args:
+            brief: Research brief dict. If None, builds from current idea fields.
+
+        Returns:
+            Dict with translation results including scene_filepath and video_id.
+        """
+        from brief_translator import translate_brief
+
+        if not self.current_idea:
+            idea = (
+                self.get_idea_by_status(self.STATUS_READY_SCRIPTING)
+                or self.get_idea_by_status(self.STATUS_IDEA_LOGGED)
+            )
+            if not idea:
+                return {"error": "No idea available for brief translation"}
+            self._load_idea(idea)
+
+        print(f"\n📜 BRIEF TRANSLATOR: Processing '{self.video_title}'")
+
+        # Build brief from Airtable idea fields if not provided
+        if brief is None:
+            idea = self.current_idea
+            brief = {
+                "headline": idea.get("Video Title", ""),
+                "thesis": idea.get("Future Prediction", ""),
+                "executive_hook": idea.get("Hook Script", ""),
+                "fact_sheet": idea.get("Writer Guidance", ""),
+                "historical_parallels": idea.get("Past Context", ""),
+                "framework_analysis": idea.get("Present Parallel", ""),
+                "character_dossier": "",
+                "narrative_arc": idea.get("Future Prediction", ""),
+                "counter_arguments": "",
+                "visual_seeds": idea.get("Thumbnail Prompt", ""),
+                "source_bibliography": idea.get("Reference URL", ""),
+                "framework_angle": "",
+                "title_options": idea.get("Video Title", ""),
+                "thumbnail_concepts": idea.get("Thumbnail Prompt", ""),
+                "source_urls": idea.get("Reference URL", ""),
+            }
+
+        # Scene output directory (project-relative)
+        scene_output_dir = str(Path(__file__).parent / "scenes")
+
+        result = await translate_brief(
+            anthropic_client=self.anthropic,
+            airtable_client=self.airtable,
+            idea_record_id=self.current_idea_id,
+            brief=brief,
+            slack_client=self.slack,
+            scene_output_dir=scene_output_dir,
+        )
+
+        if result["status"] == "success":
+            # Store scene filepath for downstream use
+            self._scene_filepath = result.get("scene_filepath")
+            self._video_id = result.get("video_id")
+
+            # Update status to Ready For Voice
+            self.airtable.update_idea_status(
+                self.current_idea_id, self.STATUS_READY_VOICE
+            )
+            print(f"  ✅ Status updated to: {self.STATUS_READY_VOICE}")
+            print(f"  📂 Scene file: {self._scene_filepath}")
+
+            self.slack.send_message(
+                f"📜 Brief translated: *{self.video_title}*\n"
+                f"Scenes: {result.get('scene_validation', {}).get('stats', {}).get('total_scenes', '?')}"
+            )
+        else:
+            print(f"  ❌ Translation failed: {result.get('error', result['status'])}")
+
+        return {
+            "bot": "Brief Translator",
+            "video_title": self.video_title,
+            "status": result["status"],
+            "scene_filepath": result.get("scene_filepath"),
+            "video_id": result.get("video_id"),
+            "new_status": self.STATUS_READY_VOICE if result["status"] == "success" else None,
+        }
+
+    # ==========================================================================
+    # IMAGE PROMPT ENGINE INTEGRATION — Scene List → Styled Prompts
+    # ==========================================================================
+
+    async def run_styled_image_prompts(self, scene_filepath: str = None) -> dict:
+        """Generate styled image prompts using the Visual Identity System.
+
+        Reads a scene list JSON (from brief_translator) and runs it through
+        the image_prompt_engine to produce Dossier/Schema/Echo styled prompts
+        with Ken Burns directions and composition directives.
+
+        This is the NEW path that replaces generic Claude prompt generation
+        with the full visual identity system.
+
+        Args:
+            scene_filepath: Path to scene list JSON. If None, searches the
+                scenes/ directory for the current video.
+
+        Returns:
+            Dict with prompt generation results.
+        """
+        from image_prompt_engine import generate_prompts, resolve_accent_color
+
+        if not self.current_idea:
+            idea = self.get_idea_by_status(self.STATUS_READY_IMAGE_PROMPTS)
+            if not idea:
+                return {"error": "No idea at Ready For Image Prompts"}
+            self._load_idea(idea)
+
+        print(f"\n🎨 STYLED IMAGE PROMPTS: Processing '{self.video_title}'")
+
+        # Locate scene file
+        if scene_filepath is None:
+            scene_filepath = getattr(self, "_scene_filepath", None)
+
+        if scene_filepath is None:
+            # Search scenes/ directory for matching file
+            scene_dir = Path(__file__).parent / "scenes"
+            if scene_dir.exists():
+                for f in sorted(scene_dir.glob("*_scenes.json"), reverse=True):
+                    scene_filepath = str(f)
+                    break
+
+        if not scene_filepath or not Path(scene_filepath).exists():
+            print("  ⚠️ No scene file found — falling back to standard prompt bot")
+            return await self.run_image_prompt_bot()
+
+        # Load scenes
+        scenes = json.loads(Path(scene_filepath).read_text())
+        print(f"  Loaded {len(scenes)} scenes from {Path(scene_filepath).name}")
+
+        # Determine accent color from idea or default
+        accent_color = self.current_idea.get("Accent Color") or "cold teal"
+        # Resolve underscored to spaced form for the engine
+        accent_color = accent_color.replace("_", " ")
+
+        # Generate styled prompts
+        styled_prompts = generate_prompts(
+            scenes,
+            accent_color=accent_color,
+        )
+
+        print(f"  Generated {len(styled_prompts)} styled prompts")
+
+        # Check for existing prompts to avoid duplicates
+        existing_images = self.airtable.get_all_images_for_video(self.video_title)
+        existing_keys = {
+            (img.get("Scene"), img.get("Image Index"))
+            for img in existing_images
+        }
+
+        if existing_images:
+            print(f"  Found {len(existing_images)} existing prompts — skipping duplicates")
+
+        # Write prompts to Airtable Images table
+        created = 0
+        for sp in styled_prompts:
+            scene_number = sp.get("act", "act1")
+            # Map act to a scene number range (rough: act1=1-3, act2=4-6, etc.)
+            # But actually the scenes have scene_number from the scene list
+            scene_index = sp["index"]
+            scene_data = scenes[scene_index] if scene_index < len(scenes) else {}
+
+            # Use scene_number from the scene data if available
+            scene_num = scene_data.get("scene_number", scene_index + 1)
+            segment_index = 1  # One prompt per scene in this mode
+
+            if (scene_num, segment_index) in existing_keys:
+                continue
+
+            # Scene description from the scene list
+            scene_desc = scene_data.get("scene_description", "")
+
+            self.airtable.create_sentence_image_record(
+                scene_number=scene_num,
+                sentence_index=segment_index,
+                sentence_text=scene_desc,
+                duration_seconds=11.0,  # Default ~11s per image
+                image_prompt=sp["prompt"],
+                video_title=self.video_title,
+                shot_type=sp.get("composition", "wide"),
+            )
+            created += 1
+
+        print(f"  ✅ Created {created} styled image prompts")
+
+        # Log style distribution
+        styles = [sp["style"] for sp in styled_prompts]
+        dossier_pct = styles.count("dossier") / len(styles) * 100
+        schema_pct = styles.count("schema") / len(styles) * 100
+        echo_pct = styles.count("echo") / len(styles) * 100
+        print(f"  Style mix: Dossier {dossier_pct:.0f}% | Schema {schema_pct:.0f}% | Echo {echo_pct:.0f}%")
+
+        # Update status
+        self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_IMAGES)
+        print(f"  ✅ Status updated to: {self.STATUS_READY_IMAGES}")
+
+        self.slack.send_message(
+            f"🎨 Styled prompts done: {created} for *{self.video_title}*\n"
+            f"D:{dossier_pct:.0f}% S:{schema_pct:.0f}% E:{echo_pct:.0f}%"
+        )
+
+        return {
+            "bot": "Styled Image Prompt Engine",
+            "video_title": self.video_title,
+            "prompt_count": created,
+            "total_styled": len(styled_prompts),
+            "style_distribution": {
+                "dossier": styles.count("dossier"),
+                "schema": styles.count("schema"),
+                "echo": styles.count("echo"),
+            },
+            "new_status": self.STATUS_READY_IMAGES,
+        }
+
+    # ==========================================================================
+    # ORCHESTRATOR EXECUTION MODES
+    # ==========================================================================
+
+    async def run_full_pipeline(self, input_text: str) -> dict:
+        """Run the FULL pipeline: Idea → Script → Voice → Images → Render.
+
+        Execution mode: full
+        """
+        print("=" * 60)
+        print("🚀 FULL PIPELINE MODE")
+        print("=" * 60)
+
+        steps_completed = []
+
+        # Step 1: Generate ideas
+        idea_result = await self.run_idea_bot(input_text)
+        steps_completed.append(("Idea Bot", idea_result))
+
+        # At this point the user must pick an idea in Airtable.
+        # For automated mode, pick the first idea and set it to Ready For Scripting.
+        print("\n⏳ Auto-selecting first idea for full pipeline run...")
+        ideas = self.airtable.get_ideas_by_status(self.STATUS_IDEA_LOGGED, limit=3)
+        if not ideas:
+            return {"error": "No ideas generated", "steps": steps_completed}
+
+        first_idea = ideas[0]
+        self.airtable.update_idea_status(first_idea["id"], self.STATUS_READY_SCRIPTING)
+        self._load_idea(first_idea)
+
+        # Step 2: Script
+        script_result = await self.run_script_bot()
+        steps_completed.append(("Script Bot", script_result))
+
+        # Step 3: Voice
+        voice_result = await self.run_voice_bot()
+        steps_completed.append(("Voice Bot", voice_result))
+
+        # Step 4: Image Prompts
+        prompt_result = await self.run_image_prompt_bot()
+        steps_completed.append(("Image Prompt Bot", prompt_result))
+
+        # Step 5: Images
+        image_result = await self.run_image_bot()
+        steps_completed.append(("Image Bot", image_result))
+
+        # Step 6: Thumbnail
+        thumbnail_result = await self.run_thumbnail_bot()
+        steps_completed.append(("Thumbnail Bot", thumbnail_result))
+
+        print("\n" + "=" * 60)
+        print("✅ FULL PIPELINE COMPLETE")
+        for name, res in steps_completed:
+            status = res.get("new_status", res.get("status", "?"))
+            print(f"  {name}: {status}")
+        print("=" * 60)
+
+        return {"mode": "full", "steps": len(steps_completed)}
+
+    async def run_produce_pipeline(self, idea_record_id: str = None) -> dict:
+        """Pick a researched idea and produce it through to render.
+
+        Execution mode: produce
+        Starts from an idea already in the Ideas Bank and runs:
+        Script → Voice → Images → Thumbnail → (optional Render)
+        """
+        print("=" * 60)
+        print("🎬 PRODUCE MODE — From Idea to Video")
+        print("=" * 60)
+
+        # Find an idea ready for production
+        if idea_record_id:
+            # Load specific idea
+            all_ideas = self.airtable.get_all_ideas()
+            idea = next((i for i in all_ideas if i["id"] == idea_record_id), None)
+            if not idea:
+                return {"error": f"Idea {idea_record_id} not found"}
+        else:
+            idea = (
+                self.get_idea_by_status(self.STATUS_READY_SCRIPTING)
+                or self.get_idea_by_status(self.STATUS_IN_QUE)
+            )
+
+        if not idea:
+            return {"error": "No idea ready for production"}
+
+        self._load_idea(idea)
+
+        # Ensure status is at least Ready For Scripting
+        current_status = idea.get("Status")
+        if current_status in [self.STATUS_IDEA_LOGGED, self.STATUS_IN_QUE]:
+            self.airtable.update_idea_status(
+                self.current_idea_id, self.STATUS_READY_SCRIPTING
+            )
+
+        # Run through pipeline using status-driven loop
+        max_steps = 20
+        for step in range(max_steps):
+            result = await self.run_next_step()
+            if result.get("status") == "idle":
+                break
+            print(f"  Step {step + 1}: {result.get('bot', '?')} → {result.get('new_status', '?')}")
+
+        print(f"\n✅ PRODUCE complete for: {self.video_title}")
+        return {"mode": "produce", "video_title": self.video_title}
+
+    async def run_from_stage(self, stage: str) -> dict:
+        """Resume the pipeline from a specific stage.
+
+        Execution mode: from_stage
+
+        Args:
+            stage: One of: scripting, voice, image_prompts, images,
+                   video_scripts, video_gen, thumbnail, render
+
+        Returns:
+            Pipeline execution result.
+        """
+        stage_to_status = {
+            "scripting": self.STATUS_READY_SCRIPTING,
+            "voice": self.STATUS_READY_VOICE,
+            "image_prompts": self.STATUS_READY_IMAGE_PROMPTS,
+            "images": self.STATUS_READY_IMAGES,
+            "video_scripts": self.STATUS_READY_VIDEO_SCRIPTS,
+            "video_gen": self.STATUS_READY_VIDEO_GENERATION,
+            "thumbnail": self.STATUS_READY_THUMBNAIL,
+            "render": self.STATUS_READY_TO_RENDER,
+        }
+
+        target_status = stage_to_status.get(stage)
+        if not target_status:
+            valid = ", ".join(stage_to_status.keys())
+            return {"error": f"Unknown stage '{stage}'. Valid: {valid}"}
+
+        print(f"=" * 60)
+        print(f"🔄 FROM-STAGE MODE — Resuming from: {stage}")
+        print(f"   Setting status to: {target_status}")
+        print(f"=" * 60)
+
+        if not self.current_idea:
+            # Find the first idea that's in or past this stage
+            all_ideas = self.airtable.get_all_ideas()
+            for idea in all_ideas:
+                if idea.get("Status") != self.STATUS_DONE:
+                    self._load_idea(idea)
+                    break
+            if not self.current_idea:
+                return {"error": "No active idea found"}
+
+        # Force the status
+        self.airtable.update_idea_status(self.current_idea_id, target_status)
+
+        # Run from there
+        max_steps = 20
+        for step in range(max_steps):
+            result = await self.run_next_step()
+            if result.get("status") == "idle":
+                break
+            print(f"  Step {step + 1}: {result.get('bot', '?')} → {result.get('new_status', '?')}")
+
+        return {"mode": "from_stage", "start_stage": stage, "video_title": self.video_title}
+
     async def run_thumbnail_bot(self) -> dict:
         """Generate thumbnail for the video.
 
@@ -2150,17 +2543,22 @@ async def main():
         print("=" * 60)
         print("\nUsage: python pipeline.py [option]")
         print("\nOptions:")
-        print("  (no args)     Run the next pipeline step based on Airtable status")
-        print("  --status      Show status of all ideas in Airtable")
-        print("  --more-ideas  Generate ideas from saved format library (no scraping)")
-        print('  --idea "..."  Generate 3 video ideas from URL or concept')
-        print("  --trending    Generate ideas from trending YouTube videos (Apify)")
-        print("  --sync        Sync assets to Google Drive")
-        print("  --remotion    Export Remotion props for rendering")
-        print('  --regenerate  Regenerate missing images (fixes render failures)')
-        print('  --animate     Generate video clips from images (Grok Imagine)')
-        print("  --run-queue   Process all videos until queue is empty")
-        print("  --help, -h    Show this help message")
+        print("  (no args)         Run the next pipeline step based on Airtable status")
+        print("  --status          Show status of all ideas in Airtable")
+        print("  --more-ideas      Generate ideas from saved format library (no scraping)")
+        print('  --idea "..."      Generate 3 video ideas from URL or concept')
+        print("  --trending        Generate ideas from trending YouTube videos (Apify)")
+        print("  --translate       Run brief translator (research brief → script + scenes)")
+        print("  --styled-prompts  Run image prompt engine with visual identity system")
+        print('  --full "..."      Full pipeline: Idea → Script → Voice → Images → Render')
+        print("  --produce [id]    Produce pipeline from a queued idea to completion")
+        print("  --from-stage X    Resume pipeline from a specific stage")
+        print("  --sync            Sync assets to Google Drive")
+        print("  --remotion        Export Remotion props for rendering")
+        print('  --regenerate      Regenerate missing images (fixes render failures)')
+        print('  --animate         Generate video clips from images (Grok Imagine)')
+        print("  --run-queue       Process all videos until queue is empty")
+        print("  --help, -h        Show this help message")
         print("\nExamples:")
         print("  python pipeline.py")
         print("  python pipeline.py --status")
@@ -2472,6 +2870,50 @@ async def main():
 
         print(f"\n✅ Generated {result.get('videos_generated', 0)} video clips")
         print(f"   Actual cost: ${result.get('actual_cost', 0):.2f}")
+        return
+
+    # === BRIEF TRANSLATOR ===
+    if len(sys.argv) > 1 and sys.argv[1] == "--translate":
+        # Run brief translator on the current idea
+        print("=" * 60)
+        print("📜 BRIEF TRANSLATOR - Research Brief → Script + Scenes")
+        print("=" * 60)
+        result = await pipeline.run_brief_translator()
+        print(f"\nResult: {result.get('status', 'unknown')}")
+        if result.get("scene_filepath"):
+            print(f"Scene file: {result['scene_filepath']}")
+        return
+
+    # === STYLED IMAGE PROMPTS ===
+    if len(sys.argv) > 1 and sys.argv[1] == "--styled-prompts":
+        # Run image prompt engine with visual identity system
+        scene_file = sys.argv[2] if len(sys.argv) > 2 else None
+        result = await pipeline.run_styled_image_prompts(scene_filepath=scene_file)
+        return
+
+    # === FULL PIPELINE ===
+    if len(sys.argv) > 1 and sys.argv[1] == "--full":
+        if len(sys.argv) < 3:
+            print('Usage: python pipeline.py --full "YouTube URL or concept"')
+            return
+        input_text = " ".join(sys.argv[2:])
+        result = await pipeline.run_full_pipeline(input_text)
+        return
+
+    # === PRODUCE MODE ===
+    if len(sys.argv) > 1 and sys.argv[1] == "--produce":
+        idea_id = sys.argv[2] if len(sys.argv) > 2 else None
+        result = await pipeline.run_produce_pipeline(idea_record_id=idea_id)
+        return
+
+    # === FROM-STAGE MODE ===
+    if len(sys.argv) > 1 and sys.argv[1] == "--from-stage":
+        if len(sys.argv) < 3:
+            print("Usage: python pipeline.py --from-stage <stage>")
+            print("Stages: scripting, voice, image_prompts, images, video_scripts, video_gen, thumbnail, render")
+            return
+        stage = sys.argv[2]
+        result = await pipeline.run_from_stage(stage)
         return
 
     if len(sys.argv) > 1 and sys.argv[1] == "--run-queue":
