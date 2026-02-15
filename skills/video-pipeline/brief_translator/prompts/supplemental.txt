@@ -1,0 +1,20 @@
+I have a research brief for a YouTube video that has specific gaps I need
+to fill. The topic is:
+
+<topic>{HEADLINE}</topic>
+
+<existing_research>
+{EXISTING_RESEARCH}
+</existing_research>
+
+<gaps_to_fill>
+{GAPS}
+</gaps_to_fill>
+
+Search for information that specifically fills these gaps. For each gap:
+- Provide specific, sourced facts (not generalities)
+- Focus on visually depictable details (settings, objects, scenes)
+- Include dates, names, and concrete details that a scriptwriter can use
+
+Do NOT repeat information already in the existing research. Only provide
+NEW information that fills the identified gaps.
