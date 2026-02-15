@@ -672,7 +672,7 @@ class VideoPipeline:
         }
 
     async def run_script_bot(self) -> dict:
-        """Write the full 20-scene script.
+        """Write the full script (legacy 20-scene path).
         
         REQUIRES: Ideas status = "Ready For Scripting"
         UPDATES TO: "Ready For Voice" when complete
@@ -1624,17 +1624,33 @@ class VideoPipeline:
             return await self.run_image_prompt_bot()
 
         # Load scenes
-        scenes = json.loads(Path(scene_filepath).read_text())
-        print(f"  Loaded {len(scenes)} scenes from {Path(scene_filepath).name}")
+        raw_scenes = json.loads(Path(scene_filepath).read_text())
+        print(f"  Loaded {len(raw_scenes)} scenes from {Path(scene_filepath).name}")
+
+        # Expand scenes for image generation: each scene with duration_seconds
+        # produces multiple image slots (~1 image per 8-11 seconds of narration)
+        IMAGE_INTERVAL_SECONDS = 9  # ~1 image per 9 seconds
+        expanded_scenes = []
+        for scene in raw_scenes:
+            duration = scene.get("duration_seconds", 60)
+            image_count = max(1, round(duration / IMAGE_INTERVAL_SECONDS))
+            for img_idx in range(image_count):
+                expanded = dict(scene)
+                expanded["_source_scene_number"] = scene.get("scene_number", 1)
+                expanded["_image_index"] = img_idx + 1
+                expanded["_images_in_scene"] = image_count
+                expanded_scenes.append(expanded)
+
+        print(f"  Expanded to {len(expanded_scenes)} image slots from {len(raw_scenes)} scenes")
 
         # Determine accent color from idea or default
         accent_color = self.current_idea.get("Accent Color") or "cold teal"
         # Resolve underscored to spaced form for the engine
         accent_color = accent_color.replace("_", " ")
 
-        # Generate styled prompts
+        # Generate styled prompts (one per image slot)
         styled_prompts = generate_prompts(
-            scenes,
+            expanded_scenes,
             accent_color=accent_color,
         )
 
@@ -1653,27 +1669,24 @@ class VideoPipeline:
         # Write prompts to Airtable Images table
         created = 0
         for sp in styled_prompts:
-            scene_number = sp.get("act", "act1")
-            # Map act to a scene number range (rough: act1=1-3, act2=4-6, etc.)
-            # But actually the scenes have scene_number from the scene list
             scene_index = sp["index"]
-            scene_data = scenes[scene_index] if scene_index < len(scenes) else {}
+            scene_data = expanded_scenes[scene_index] if scene_index < len(expanded_scenes) else {}
 
-            # Use scene_number from the scene data if available
-            scene_num = scene_data.get("scene_number", scene_index + 1)
-            segment_index = 1  # One prompt per scene in this mode
+            # Use source scene number and image index for unique keying
+            scene_num = scene_data.get("_source_scene_number", scene_data.get("scene_number", scene_index + 1))
+            segment_index = scene_data.get("_image_index", 1)
 
             if (scene_num, segment_index) in existing_keys:
                 continue
 
             # Scene description from the scene list
-            scene_desc = scene_data.get("scene_description", "")
+            scene_desc = scene_data.get("scene_description", scene_data.get("description", ""))
 
             self.airtable.create_sentence_image_record(
                 scene_number=scene_num,
                 sentence_index=segment_index,
                 sentence_text=scene_desc,
-                duration_seconds=11.0,  # Default ~11s per image
+                duration_seconds=IMAGE_INTERVAL_SECONDS,
                 image_prompt=sp["prompt"],
                 video_title=self.video_title,
                 shot_type=sp.get("composition", "wide"),

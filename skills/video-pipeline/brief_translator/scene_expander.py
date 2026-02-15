@@ -1,8 +1,11 @@
 """Scene Expansion (Step 3).
 
-Expands a narration script and visual seeds into ~140 individual scene
-descriptions with act assignments and style tags, ready for the image
-prompt engine.
+Expands a narration script into ~20-30 production scenes nested within
+the 6-act structure. Each scene is a narrative segment with narration
+text, duration, visual metadata, and composition directives.
+
+Downstream, the image prompt engine generates multiple images per scene
+based on scene duration (~1 image per 8-11 seconds of narration).
 """
 
 import json
@@ -12,8 +15,8 @@ from typing import Optional
 
 PROMPT_TEMPLATE_PATH = Path(__file__).parent / "prompts" / "scene_expand.txt"
 
-# Default scene count for a 25-minute video at ~11 seconds per image
-DEFAULT_TOTAL_IMAGES = 136
+# Target scene count for unified 6-act → beat sheet structure
+DEFAULT_TOTAL_SCENES = 25  # Dynamic: 20-30 total, 3-5 per act
 
 # Available accent colors
 ACCENT_COLORS = ["cold_teal", "warm_amber", "muted_crimson"]
@@ -27,6 +30,12 @@ VALID_COMPOSITIONS = {
     "portrait", "overhead", "low_angle",
 }
 
+# Valid ken burns directions
+VALID_KEN_BURNS = {
+    "slow zoom in", "slow zoom out", "slow pan left",
+    "slow pan right", "slow drift up", "slow drift down",
+}
+
 
 def load_scene_expand_prompt() -> str:
     """Load the scene expansion prompt template."""
@@ -37,7 +46,7 @@ def build_scene_expand_prompt(
     script: str,
     visual_seeds: str,
     accent_color: str,
-    total_images: int = DEFAULT_TOTAL_IMAGES,
+    total_scenes: int = DEFAULT_TOTAL_SCENES,
 ) -> str:
     """Build the scene expansion prompt."""
     template = load_scene_expand_prompt()
@@ -45,30 +54,56 @@ def build_scene_expand_prompt(
         SCRIPT=script,
         VISUAL_SEEDS=visual_seeds,
         ACCENT_COLOR=accent_color,
-        TOTAL_IMAGES=total_images,
+        TOTAL_SCENES=total_scenes,
     )
 
 
-def parse_scene_list(response_text: str) -> list[dict]:
-    """Parse the JSON scene list from Claude's response.
+def parse_scene_response(response_text: str) -> dict:
+    """Parse the nested act/scene JSON from Claude's response.
 
-    Handles potential JSON formatting issues and extracts the array.
+    Returns the full structure: {"total_acts": 6, "total_scenes": N, "acts": [...]}
     """
-    # Try to find JSON array in the response
-    # First, try to extract from markdown code block
-    json_match = re.search(r"```(?:json)?\s*(\[.*?\])\s*```", response_text, re.DOTALL)
+    # Try to extract from markdown code block
+    json_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", response_text, re.DOTALL)
     if json_match:
         raw_json = json_match.group(1)
     else:
-        # Try to find a raw JSON array
-        bracket_start = response_text.find("[")
-        bracket_end = response_text.rfind("]")
-        if bracket_start != -1 and bracket_end != -1:
-            raw_json = response_text[bracket_start : bracket_end + 1]
+        # Try to find a raw JSON object
+        brace_start = response_text.find("{")
+        brace_end = response_text.rfind("}")
+        if brace_start != -1 and brace_end != -1:
+            raw_json = response_text[brace_start : brace_end + 1]
         else:
-            raise ValueError("Could not find JSON array in scene expansion response")
+            raise ValueError("Could not find JSON object in scene expansion response")
 
     return json.loads(raw_json)
+
+
+def flatten_scenes(scene_structure: dict) -> list[dict]:
+    """Flatten the nested act/scene structure into a flat scene list.
+
+    This is needed for backward compatibility with downstream systems
+    that expect a flat list of scenes.
+
+    Also provides compatibility fields:
+    - 'act' (alias for 'parent_act')
+    - 'style' (alias for 'visual_style')
+    - 'script_excerpt' (alias for 'narration_text')
+    - 'composition_hint' (alias for 'composition')
+    - 'scene_description' (alias for 'description')
+    """
+    flat = []
+    for act in scene_structure.get("acts", []):
+        for scene in act.get("scenes", []):
+            # Add backward-compatibility fields
+            compat = dict(scene)
+            compat["act"] = scene.get("parent_act", act.get("act_number"))
+            compat["style"] = scene.get("visual_style", "dossier")
+            compat["script_excerpt"] = scene.get("narration_text", "")
+            compat["composition_hint"] = scene.get("composition", "medium")
+            compat["scene_description"] = scene.get("description", "")
+            flat.append(compat)
+    return flat
 
 
 async def expand_scenes(
@@ -76,22 +111,24 @@ async def expand_scenes(
     script: str,
     visual_seeds: str,
     accent_color: str = "cold_teal",
-    total_images: int = DEFAULT_TOTAL_IMAGES,
+    total_scenes: int = DEFAULT_TOTAL_SCENES,
 ) -> list[dict]:
-    """Expand a script into a full scene list.
+    """Expand a script into a nested scene list.
 
     Args:
         anthropic_client: AnthropicClient instance
         script: Full narration script with act markers
         visual_seeds: Visual seed concepts from the research brief
         accent_color: Accent color for this video
-        total_images: Target number of scenes
+        total_scenes: Target number of scenes (20-30)
 
     Returns:
-        List of scene dicts with scene_number, act, style, description,
-        script_excerpt, and composition_hint.
+        List of scene dicts (flattened from nested structure) with:
+        scene_number, parent_act, act_marker, narration_text,
+        duration_seconds, visual_style, composition, ken_burns, mood,
+        description, and backward-compat aliases.
     """
-    prompt = build_scene_expand_prompt(script, visual_seeds, accent_color, total_images)
+    prompt = build_scene_expand_prompt(script, visual_seeds, accent_color, total_scenes)
 
     response = await anthropic_client.generate(
         prompt=prompt,
@@ -101,11 +138,12 @@ async def expand_scenes(
     )
 
     try:
-        scenes = parse_scene_list(response)
+        structure = parse_scene_response(response)
+        scenes = flatten_scenes(structure)
     except (json.JSONDecodeError, ValueError):
         # If full generation truncated or failed to parse, try split approach
         scenes = await _expand_scenes_split(
-            anthropic_client, script, visual_seeds, accent_color, total_images
+            anthropic_client, script, visual_seeds, accent_color, total_scenes
         )
 
     return scenes
@@ -116,13 +154,13 @@ async def _expand_scenes_split(
     script: str,
     visual_seeds: str,
     accent_color: str,
-    total_images: int,
+    total_scenes: int,
 ) -> list[dict]:
     """Split scene expansion into two calls (Acts 1-3, Acts 4-6) to avoid truncation."""
     from .script_generator import extract_acts
 
     acts = extract_acts(script)
-    half = total_images // 2
+    half = total_scenes // 2
     all_scenes = []
 
     # Acts 1-3
@@ -143,14 +181,20 @@ async def _expand_scenes_split(
         max_tokens=10000,
         temperature=0.6,
     )
-    first_scenes = parse_scene_list(first_response)
+
+    try:
+        first_structure = parse_scene_response(first_response)
+        first_scenes = flatten_scenes(first_structure)
+    except (json.JSONDecodeError, ValueError):
+        first_scenes = []
+
     all_scenes.extend(first_scenes)
 
     # Acts 4-6
     second_half_script = "\n\n".join(
         f"[ACT {n}]\n{text}" for n, text in acts.items() if n > 3
     )
-    remaining = total_images - len(first_scenes)
+    remaining = total_scenes - len(first_scenes)
     second_prompt = build_scene_expand_prompt(
         second_half_script, visual_seeds, accent_color, remaining
     )
@@ -166,12 +210,21 @@ async def _expand_scenes_split(
         max_tokens=10000,
         temperature=0.6,
     )
-    second_scenes = parse_scene_list(second_response)
+
+    try:
+        second_structure = parse_scene_response(second_response)
+        second_scenes = flatten_scenes(second_structure)
+    except (json.JSONDecodeError, ValueError):
+        second_scenes = []
 
     # Re-number second batch to continue from first
     offset = len(first_scenes)
-    for scene in second_scenes:
-        scene["scene_number"] = offset + second_scenes.index(scene) + 1
+    for i, scene in enumerate(second_scenes):
+        scene["scene_number"] = offset + i + 1
 
     all_scenes.extend(second_scenes)
     return all_scenes
+
+
+# Backward compatibility aliases
+DEFAULT_TOTAL_IMAGES = DEFAULT_TOTAL_SCENES

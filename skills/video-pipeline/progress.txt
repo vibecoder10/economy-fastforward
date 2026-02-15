@@ -67,5 +67,53 @@
 - Modified: `pipeline.py` — `--more-ideas` now saves to Airtable with `source="format_library"`
 - Modified: `brief_translator/__init__.py` — fallback uses `idea_concepts_table`
 - Modified: `brief_translator/pipeline_writer.py` — fallback uses `idea_concepts_table`
+
+## Story 3: Brief Translator Consumes Research Payload (2026-02-15)
+
+### Learnings
+
+1. **Research payload flows naturally through existing pipeline**
+   - The script prompt template already has fields for fact_sheet, historical_parallels,
+     framework_analysis, character_dossier, etc.
+   - Research payload fills these with substantially richer content
+   - Script quality improves automatically from richer input data
+
+2. **Validation adjustment needed**
+   - Research-enriched briefs have _research_enriched=True flag
+   - Relaxed thresholds: up to 1 FAIL and 4 WEAK still pass
+   - Prevents rejection of rich research briefs on minor gaps
+
+## Story 4: Unify Scene Structure (2026-02-15)
+
+### Learnings
+
+1. **Scene count changed from ~136 to ~25**
+   - Old: 136 individual image descriptions (~11s each)
+   - New: 20-30 narrative scenes (3-5 per act, ~50-90s each)
+   - Each scene produces 4-7 images downstream via duration-based expansion
+
+2. **Nested act structure**
+   - Output JSON nests scenes within acts
+   - `flatten_scenes()` provides backward-compat aliases for downstream systems
+   - Key aliases: act↔parent_act, style↔visual_style, script_excerpt↔narration_text
+
+3. **Image generation expanded**
+   - `run_styled_image_prompts` now expands each scene into multiple image slots
+   - IMAGE_INTERVAL_SECONDS = 9 (one image per ~9 seconds of narration)
+   - A 60-second scene produces ~7 images, so 25 scenes → ~170 images total
+
+4. **Backward compatibility preserved**
+   - Old "20-scene" beat sheet in anthropic_client.py marked as legacy
+   - Scene validator supports both unified and legacy field names
+   - DEFAULT_TOTAL_IMAGES aliased to DEFAULT_TOTAL_SCENES
+
+### Files Changed
+- Rewritten: `brief_translator/scene_expander.py` — produces 20-30 scenes in nested act structure
+- Rewritten: `brief_translator/scene_validator.py` — supports both formats, relaxed tolerances
+- Rewritten: `brief_translator/prompts/scene_expand.txt` — nested act JSON output format
+- Created: `scenes_schema.md` — unified scene JSON schema documentation
+- Modified: `brief_translator/__init__.py` — imports new constants
+- Modified: `pipeline.py` — scene-to-image expansion in `run_styled_image_prompts`
+- Modified: `clients/anthropic_client.py` — legacy beat sheet docstring update
 - Modified: `run_image_pipeline.py` — uses env var for table ID
 - Modified: `.env.example` — documents new `AIRTABLE_IDEA_CONCEPTS_TABLE_ID`

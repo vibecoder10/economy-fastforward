@@ -136,9 +136,10 @@ class AnthropicClient:
         return response.content[0].text
     
     async def generate_beat_sheet(self, video_data: dict) -> dict:
-        """Generate a 20-scene beat sheet for a video.
-        
+        """Generate a 20-scene beat sheet for a video (legacy path).
+
         Uses the Script Architect prompt from the n8n workflow.
+        For the unified pipeline, use brief_translator's scene expansion instead.
         """
         system_prompt = """You are a Master Storyteller and Narrative Architect.
 

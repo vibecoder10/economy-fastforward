@@ -28,7 +28,7 @@ from .supplementer import (
     MAX_SUPPLEMENT_PASSES,
 )
 from .script_generator import generate_script
-from .scene_expander import expand_scenes, DEFAULT_TOTAL_IMAGES
+from .scene_expander import expand_scenes, DEFAULT_TOTAL_SCENES, DEFAULT_TOTAL_IMAGES
 from .scene_validator import validate_scene_list, auto_fix_minor_issues
 from .pipeline_writer import graduate_to_pipeline
 
@@ -155,9 +155,9 @@ class BriefTranslator:
                 f"{script_result['validation']['act_count']} acts"
             )
 
-            # === STEP 3: Scene Expansion ===
-            logger.info("Step 3: Expanding scenes...")
-            self._notify(f"🎬 Expanding to ~{self.total_images} scene descriptions...")
+            # === STEP 3: Scene Expansion (6 Acts → 20-30 Scenes) ===
+            logger.info("Step 3: Expanding script into production scenes...")
+            self._notify(f"🎬 Expanding to ~{self.total_images} production scenes...")
 
             scenes = await expand_scenes(
                 self.anthropic,
