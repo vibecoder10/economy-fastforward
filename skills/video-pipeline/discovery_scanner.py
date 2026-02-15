@@ -23,6 +23,7 @@ import json
 import logging
 import os
 import sys
+from datetime import date
 from pathlib import Path
 from typing import Optional
 
@@ -457,6 +458,134 @@ def format_ideas_for_slack(result: dict) -> str:
     )
 
     return "\n".join(lines)
+
+
+def infer_framework_angle(idea: dict) -> str:
+    """Infer the best-fit analytical framework for a discovery idea.
+
+    Maps story characteristics to one of the 10 framework options based on
+    keywords and thematic signals in the angle, hook, and headline.
+    """
+    text = " ".join([
+        idea.get("our_angle", ""),
+        idea.get("hook", ""),
+        idea.get("headline_source", ""),
+        idea.get("historical_parallel_hint", ""),
+    ]).lower()
+
+    # Keyword-to-framework mapping (ordered by specificity)
+    framework_signals = [
+        ("48 Laws", ["law of power", "48 laws", "robert greene", "conceal",
+                      "crush your enemy", "court power", "law 3", "law 15",
+                      "power play", "power grab"]),
+        ("Sun Tzu", ["art of war", "sun tzu", "military", "warfare",
+                      "deception", "terrain", "flank", "siege",
+                      "strategic retreat", "battle"]),
+        ("Machiavelli", ["machiavelli", "the prince", "prince", "virtù",
+                          "fortuna", "feared or loved", "fox and lion",
+                          "principality", "sovereignty"]),
+        ("Game Theory", ["game theory", "nash equilibrium", "prisoner",
+                          "dilemma", "zero-sum", "incentive", "payoff",
+                          "dominant strategy", "tit for tat"]),
+        ("Jung Shadow", ["shadow", "jung", "unconscious", "projection",
+                          "persona", "archetype", "collective unconscious"]),
+        ("Behavioral Econ", ["behavioral", "loss aversion", "anchoring",
+                              "sunk cost", "nudge", "kahneman", "bias",
+                              "irrational", "heuristic"]),
+        ("Stoicism", ["stoic", "marcus aurelius", "seneca", "epictetus",
+                       "control", "fate", "virtue", "endure"]),
+        ("Propaganda", ["propaganda", "bernays", "chomsky", "manufacturing consent",
+                         "media", "narrative control", "information war",
+                         "censorship", "perception management"]),
+        ("Systems Thinking", ["system", "feedback loop", "second-order",
+                               "unintended consequences", "complexity",
+                               "emergent", "cascade", "interconnected"]),
+        ("Evolutionary Psych", ["evolutionary", "tribal", "dominance hierarchy",
+                                 "in-group", "out-group", "status", "instinct",
+                                 "survival", "primal"]),
+    ]
+
+    # Score each framework
+    best_framework = "48 Laws"  # default fallback
+    best_score = 0
+
+    for framework, keywords in framework_signals:
+        score = sum(1 for kw in keywords if kw in text)
+        if score > best_score:
+            best_score = score
+            best_framework = framework
+
+    # If no strong signal, use heuristic based on story type
+    if best_score == 0:
+        if any(w in text for w in ["corporate", "company", "ceo", "merger", "monopoly"]):
+            best_framework = "48 Laws"
+        elif any(w in text for w in ["sanction", "tariff", "trade war", "embargo"]):
+            best_framework = "Game Theory"
+        elif any(w in text for w in ["currency", "dollar", "debt", "inflation", "fed"]):
+            best_framework = "Systems Thinking"
+        elif any(w in text for w in ["army", "nato", "defense", "missile", "nuclear"]):
+            best_framework = "Sun Tzu"
+
+    return best_framework
+
+
+def build_idea_record_from_discovery(idea: dict, idea_number: int = 1) -> dict:
+    """Build a full Airtable record from a discovery scanner idea.
+
+    Maps all discovery fields to the rich Idea Concepts schema including
+    Framework Angle, scores, Source URLs, and more.
+
+    Args:
+        idea: Single idea dict from discovery scanner output
+        idea_number: Which idea was selected (1, 2, or 3)
+
+    Returns:
+        Dict ready for AirtableClient.create_idea()
+    """
+    # Pick the best title from title_options
+    title_options = idea.get("title_options", [])
+    best_title = ""
+    if title_options:
+        best_title = title_options[0].get("title", "")
+
+    # Extract appeal scores
+    appeal_breakdown = idea.get("appeal_breakdown", {})
+
+    # Build source URLs from headline_source
+    headline_source = idea.get("headline_source", "")
+    source_urls = headline_source  # includes source publication and URL if available
+
+    record = {
+        "viral_title": best_title or f"Discovery Idea {idea_number}",
+        "hook_script": idea.get("hook", ""),
+        "writer_guidance": idea.get("our_angle", ""),
+        "narrative_logic": {
+            "past_context": idea.get("historical_parallel_hint", ""),
+            "present_parallel": idea.get("our_angle", ""),
+            "future_prediction": "",
+        },
+        # Rich schema fields
+        "Framework Angle": infer_framework_angle(idea),
+        "Headline": headline_source.split(" — ")[0] if " — " in headline_source else headline_source,
+        "Timeliness Score": min(10, max(1, idea.get("estimated_appeal", 7))),
+        "Audience Fit Score": min(10, max(1, appeal_breakdown.get("emotional_trigger", 7))),
+        "Content Gap Score": min(10, max(1, appeal_breakdown.get("hidden_system", 7))),
+        "Source URLs": source_urls,
+        "Executive Hook": idea.get("hook", ""),
+        "Thesis": idea.get("our_angle", ""),
+        "Date Surfaced": date.today().isoformat(),
+        # Store full discovery data as Original DNA for downstream use
+        "original_dna": json.dumps({
+            "source": "discovery_scanner",
+            "idea_number": idea_number,
+            "title_options": title_options,
+            "appeal_breakdown": appeal_breakdown,
+            "historical_parallel_hint": idea.get("historical_parallel_hint", ""),
+            "headline_source": headline_source,
+        }),
+    }
+
+    return record
 
 
 def format_ideas_for_json(result: dict) -> str:
