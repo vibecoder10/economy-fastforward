@@ -52,6 +52,65 @@ def build_original_dna(brief: dict, idea_record_id: str, accent_color: str, scen
     })
 
 
+def select_video_title(brief: dict) -> str:
+    """Select the best video title using the priority order.
+
+    Priority:
+    1. title_options from research_payload / discovery scanner (best one)
+    2. Headline field from Airtable record
+    3. headline from research brief
+    4. Generate from title_patterns.json (if available)
+    5. Fallback to "Untitled"
+
+    NEVER outputs a generic journalism headline. The title must match
+    Economy FastForward channel voice: Machiavellian, dark power dynamics,
+    pattern/cycle framing.
+    """
+    # Priority 1: title_options (from discovery scanner or research agent)
+    title_options = brief.get("title_options", "")
+    if title_options:
+        # title_options can be a string (newline-separated) or already parsed
+        if isinstance(title_options, list):
+            # List of dicts with "title" key (from discovery scanner)
+            for opt in title_options:
+                if isinstance(opt, dict) and opt.get("title"):
+                    return opt["title"]
+                elif isinstance(opt, str) and opt.strip():
+                    return opt.strip()
+        elif isinstance(title_options, str):
+            # Try to parse as JSON first (may be a serialized list)
+            try:
+                parsed = json.loads(title_options)
+                if isinstance(parsed, list):
+                    for opt in parsed:
+                        if isinstance(opt, dict) and opt.get("title"):
+                            return opt["title"]
+                        elif isinstance(opt, str) and opt.strip():
+                            return opt.strip()
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+            # Newline-separated titles (from research agent)
+            first_line = title_options.strip().split("\n")[0].strip()
+            # Strip numbering like "1. " or "- " prefixes
+            first_line = re.sub(r'^[\d]+[\.\)]\s*', '', first_line)
+            first_line = first_line.lstrip("- •*").strip()
+            if first_line:
+                return first_line
+
+    # Priority 2: Headline field (set by discovery scanner)
+    headline_field = brief.get("Headline", "")
+    if headline_field and len(headline_field) > 10:
+        return headline_field
+
+    # Priority 3: headline from research brief
+    headline = brief.get("headline", "")
+    if headline and len(headline) > 10:
+        return headline
+
+    return "Untitled"
+
+
 def build_sources_list(brief: dict) -> str:
     """Build a formatted source list for YouTube show notes / video description.
 
@@ -94,9 +153,12 @@ def build_pipeline_record(
 
     Maps Ideas Bank fields to Pipeline Table fields per the field mapping spec.
     """
-    # Extract first title option
-    title_options = brief.get("title_options", "")
-    video_title = title_options.split("\n")[0] if title_options else brief.get("headline", "Untitled")
+    # Title selection priority:
+    # 1. title_options from research_payload / discovery scanner
+    # 2. Headline field from Airtable record
+    # 3. headline from research brief
+    # 4. Fallback to "Untitled"
+    video_title = select_video_title(brief)
 
     # Extract first source URL
     source_urls = brief.get("source_urls", brief.get("source_bibliography", ""))
