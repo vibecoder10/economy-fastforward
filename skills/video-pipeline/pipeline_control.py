@@ -2,10 +2,13 @@
 
 Run with: python pipeline_control.py
 Requires: SLACK_BOT_TOKEN, SLACK_APP_TOKEN in environment
+
+All commands are case-insensitive (e.g., "Research", "SCRIPT", "Help" all work).
 """
 
 import os
 import sys
+import re
 import asyncio
 import subprocess
 import signal
@@ -64,13 +67,13 @@ async def run_script_async(script_name: str, task_name: str, say, timeout: int =
         raise
 
 
-@app.message("hello")
+@app.message(re.compile(r"hello", re.IGNORECASE))
 async def handle_hello(message, say):
     """Respond to hello messages."""
     await say(f"Hey there <@{message['user']}>! Pipeline bot is ready.")
 
 
-@app.message("help")
+@app.message(re.compile(r"help", re.IGNORECASE))
 async def handle_help(message, say):
     """Show available commands."""
     help_text = """*Pipeline Commands:*
@@ -78,17 +81,21 @@ async def handle_help(message, say):
 - `animate` / `animation` / `run animation` - Run animation pipeline for project with "Create" status
 - `prompts` / `run prompts` - Generate start image prompts and images
 - `end images` / `run end images` - Generate end image prompts and images
+- `research` / `run research` - Run deep research on next approved idea
+- `research "topic"` - Run deep research on a specific topic
 - `stop` / `kill` - Stop the currently running pipeline
 - `logs` / `animlogs` - Check if a pipeline is running
 - `status` / `check` - Check current project status
 - `update` - Pull latest code from GitHub (auto-restarts if changes)
 - `help` - Show this message
+
+_All commands are case-insensitive._
 """
     await say(help_text)
 
 
-@app.message("stop")
-@app.message("kill")
+@app.message(re.compile(r"stop", re.IGNORECASE))
+@app.message(re.compile(r"kill", re.IGNORECASE))
 async def handle_stop(message, say):
     """Stop the currently running pipeline."""
     global current_process, current_task_name
@@ -110,8 +117,8 @@ async def handle_stop(message, say):
         await say(f":x: Error stopping process: {e}")
 
 
-@app.message("script")
-@app.message("run script")
+@app.message(re.compile(r"run script", re.IGNORECASE))
+@app.message(re.compile(r"script", re.IGNORECASE))
 async def handle_script(message, say):
     """Run the script bot."""
     global current_process
@@ -139,9 +146,9 @@ async def handle_script(message, say):
         await say(f":x: Error: {e}")
 
 
-@app.message("animate")
-@app.message("animation")
-@app.message("run animation")
+@app.message(re.compile(r"run animation", re.IGNORECASE))
+@app.message(re.compile(r"animation", re.IGNORECASE))
+@app.message(re.compile(r"animate", re.IGNORECASE))
 async def handle_animate(message, say):
     """Run the animation pipeline."""
     global current_process
@@ -169,8 +176,8 @@ async def handle_animate(message, say):
         await say(f":x: Error: {e}")
 
 
-@app.message("prompts")
-@app.message("run prompts")
+@app.message(re.compile(r"run prompts", re.IGNORECASE))
+@app.message(re.compile(r"prompts", re.IGNORECASE))
 async def handle_prompts(message, say):
     """Run prompts and start images generation."""
     global current_process
@@ -198,8 +205,8 @@ async def handle_prompts(message, say):
         await say(f":x: Error: {e}")
 
 
-@app.message("end images")
-@app.message("run end images")
+@app.message(re.compile(r"run end images", re.IGNORECASE))
+@app.message(re.compile(r"end images", re.IGNORECASE))
 async def handle_end_images(message, say):
     """Run end images generation."""
     global current_process
@@ -227,8 +234,99 @@ async def handle_end_images(message, say):
         await say(f":x: Error: {e}")
 
 
-@app.message("status")
-@app.message("check")
+@app.message(re.compile(r"run research", re.IGNORECASE))
+@app.message(re.compile(r"research", re.IGNORECASE))
+async def handle_research(message, say):
+    """Run deep research on a topic or next approved idea."""
+    global current_process
+    if current_process:
+        await say(f":x: Already running `{current_task_name}`. Use `stop` to cancel it first.")
+        return
+
+    # Extract topic from message text (preserve original case)
+    text = message.get("text", "").strip()
+    topic = re.sub(r"^(run\s+)?research\s*", "", text, flags=re.IGNORECASE).strip()
+
+    # Strip surrounding quotes if present
+    if (topic.startswith('"') and topic.endswith('"')) or \
+       (topic.startswith("'") and topic.endswith("'")):
+        topic = topic[1:-1].strip()
+
+    if topic:
+        await say(f":microscope: Starting deep research on: _{topic}_")
+    else:
+        await say(":microscope: Starting research on next approved idea...")
+
+    try:
+        cmd = ["python3", "research_agent.py", "--topic", topic, "--save"] if topic else \
+              ["python3", "pipeline.py", "--research-next"]
+
+        # For no-topic case, use pipeline.py to find next approved idea
+        if not topic:
+            # Import and run research directly via pipeline
+            from clients.anthropic_client import AnthropicClient
+            from clients.airtable_client import AirtableClient
+            from research_agent import run_research
+
+            anthropic = AnthropicClient()
+            airtable = AirtableClient()
+
+            approved = airtable.get_ideas_by_status("Approved", limit=1)
+            if not approved:
+                await say(
+                    ":zzz: No approved ideas in queue. "
+                    "Use `research \"topic\"` for a specific topic."
+                )
+                return
+
+            idea = approved[0]
+            topic = idea.get("Video Title", "")
+            await say(f":microscope: Researching approved idea: _{topic}_")
+
+        current_task_name = f"research: {topic}"
+
+        current_process = await asyncio.create_subprocess_exec(
+            "python3", "research_agent.py", "--topic", topic, "--save",
+            cwd=BASE_DIR,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+
+        try:
+            stdout, stderr = await asyncio.wait_for(
+                current_process.communicate(),
+                timeout=600
+            )
+            returncode = current_process.returncode
+            current_process = None
+            current_task_name = None
+
+            if returncode == 0:
+                output = stdout.decode()[-3000:]
+                await say(f":white_check_mark: Research complete for: _{topic}_\n```{output}```")
+            else:
+                error = stderr.decode()[-1500:]
+                await say(f":x: Research error:\n```{error}```")
+
+        except asyncio.TimeoutError:
+            current_process.kill()
+            current_process = None
+            current_task_name = None
+            await say(":warning: Research timed out after 10 minutes")
+        except asyncio.CancelledError:
+            current_process.kill()
+            current_process = None
+            current_task_name = None
+            await say(":stop_sign: Research was stopped")
+
+    except Exception as e:
+        current_process = None
+        current_task_name = None
+        await say(f":x: Research error: {e}")
+
+
+@app.message(re.compile(r"status", re.IGNORECASE))
+@app.message(re.compile(r"check", re.IGNORECASE))
 async def handle_status(message, say):
     """Check current project status."""
     await say(":mag: Checking project status...")
@@ -252,8 +350,8 @@ async def handle_status(message, say):
         await say(f":x: Error: {e}")
 
 
-@app.message("animlogs")
-@app.message("logs")
+@app.message(re.compile(r"animlogs", re.IGNORECASE))
+@app.message(re.compile(r"logs", re.IGNORECASE))
 async def handle_animlogs(message, say):
     """Show recent animation pipeline logs."""
     if current_process is None:
@@ -263,7 +361,7 @@ async def handle_animlogs(message, say):
     await say(f":scroll: Currently running: `{current_task_name}`\n_Output will appear when complete or use `stop` to cancel._")
 
 
-@app.message("update")
+@app.message(re.compile(r"update", re.IGNORECASE))
 async def handle_update(message, say):
     """Pull latest code from GitHub and restart."""
     await say(":arrows_counterclockwise: Pulling latest code from GitHub...")
@@ -302,11 +400,13 @@ async def main():
     print("=" * 60)
     print("PIPELINE CONTROL BOT")
     print("=" * 60)
-    print("\nCommands:")
+    print("\nCommands (case-insensitive):")
     print("  script / run script     - Run script bot")
     print("  animate / animation     - Run animation pipeline")
     print("  prompts / run prompts   - Generate prompts and start images")
     print("  end images              - Generate end images")
+    print("  research / run research - Run deep research on approved idea")
+    print('  research "topic"        - Run deep research on specific topic')
     print("  stop / kill             - Stop running pipeline")
     print("  logs / animlogs         - Check if pipeline running")
     print("  status / check          - Check project status")
