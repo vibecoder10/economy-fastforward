@@ -284,19 +284,20 @@ def infer_framework_from_research(payload: dict) -> str:
     return best_framework
 
 
-def write_to_airtable(airtable_client, payload: dict) -> dict:
+def write_to_airtable(airtable_client, payload: dict, record_id: str = None) -> dict:
     """Write a research payload to the Idea Concepts table.
 
-    Creates a new idea record with the full research payload attached
-    as a JSON string in the research_payload field, plus key fields
-    mapped to their respective Airtable columns.
+    When record_id is provided, updates the existing record (e.g. after
+    discovery → approval → research).  Otherwise creates a new record
+    (standalone research run).
 
     Args:
         airtable_client: AirtableClient instance
         payload: Structured research_payload dict from ResearchAgent
+        record_id: Optional existing Airtable record ID to update
 
     Returns:
-        Created Airtable record dict with id
+        Airtable record dict with id
     """
     # Serialize full payload as JSON for the research_payload field
     research_payload_json = json.dumps(payload)
@@ -312,6 +313,22 @@ def write_to_airtable(airtable_client, payload: dict) -> dict:
     framework_angle = infer_framework_from_research(payload)
     logger.info(f"Inferred Framework Angle: {framework_angle}")
 
+    if record_id:
+        # Update existing record — don't create a duplicate
+        research_fields = {
+            "Research Payload": research_payload_json,
+            "Source URLs": payload.get("source_bibliography", ""),
+            "Executive Hook": payload.get("executive_hook", ""),
+            "Thesis": payload.get("thesis", ""),
+            "Framework Angle": framework_angle,
+            "Thematic Framework": payload.get("themes", ""),
+            "Headline": payload.get("headline", ""),
+        }
+        airtable_client.update_idea_fields(record_id, research_fields)
+        logger.info(f"Research updated on existing record: {record_id}")
+        return {"id": record_id}
+
+    # No record_id — create a brand-new record
     # Build the idea data dict compatible with AirtableClient.create_idea()
     idea_data = {
         "viral_title": payload.get("headline", ""),
@@ -334,6 +351,7 @@ def write_to_airtable(airtable_client, payload: dict) -> dict:
         }),
         # Rich schema fields
         "Framework Angle": framework_angle,
+        "Headline": payload.get("headline", ""),
         "Executive Hook": payload.get("executive_hook", ""),
         "Thesis": payload.get("thesis", ""),
         "Source URLs": payload.get("source_bibliography", ""),
@@ -356,6 +374,7 @@ async def run_research(
     context: Optional[str] = None,
     model: str = "claude-sonnet-4-5-20250929",
     airtable_client=None,
+    record_id: str = None,
 ) -> dict:
     """Convenience function to run deep research.
 
@@ -369,6 +388,8 @@ async def run_research(
         model: LLM model to use
         airtable_client: Optional AirtableClient — if provided, writes
                          research payload to Idea Concepts table
+        record_id: Optional existing Airtable record ID to update
+                   instead of creating a new record
 
     Returns:
         Structured research_payload dict (with airtable_record_id if written)
@@ -378,7 +399,7 @@ async def run_research(
 
     # Write to Airtable if client provided
     if airtable_client is not None:
-        record = write_to_airtable(airtable_client, payload)
+        record = write_to_airtable(airtable_client, payload, record_id=record_id)
         payload["_airtable_record_id"] = record["id"]
 
     return payload
