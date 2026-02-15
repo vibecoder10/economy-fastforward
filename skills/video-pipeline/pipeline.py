@@ -1496,6 +1496,9 @@ class VideoPipeline:
                 try:
                     research_payload = json.loads(research_payload_raw)
                     print("  📚 Found research payload — using as primary source material")
+                    # Read Framework Angle from Airtable record (set by research agent
+                    # or discovery scanner). Falls back to themes if not set.
+                    framework_angle = idea.get("Framework Angle", "") or research_payload.get("themes", "")
                     brief = {
                         "headline": research_payload.get("headline", idea.get("Video Title", "")),
                         "thesis": research_payload.get("thesis", ""),
@@ -1508,23 +1511,25 @@ class VideoPipeline:
                         "counter_arguments": research_payload.get("counter_arguments", ""),
                         "visual_seeds": research_payload.get("visual_seeds", ""),
                         "source_bibliography": research_payload.get("source_bibliography", ""),
-                        "framework_angle": research_payload.get("themes", ""),
+                        "framework_angle": framework_angle,
                         "title_options": research_payload.get("title_options", idea.get("Video Title", "")),
                         "thumbnail_concepts": research_payload.get("thumbnail_concepts", ""),
-                        "source_urls": research_payload.get("source_bibliography", ""),
+                        "source_urls": idea.get("Source URLs", "") or research_payload.get("source_bibliography", ""),
                         # Pass through research enrichment flag
                         "_research_enriched": True,
                     }
+                    print(f"  🎯 Framework Angle: {framework_angle or '(not set)'}")
                 except (json.JSONDecodeError, TypeError) as e:
                     print(f"  ⚠️ Could not parse research payload: {e}")
                     research_payload_raw = ""  # Fall through to legacy path
 
             if not research_payload_raw:
                 # Legacy path: build brief from standard idea fields
+                framework_angle = idea.get("Framework Angle", "")
                 brief = {
                     "headline": idea.get("Video Title", ""),
-                    "thesis": idea.get("Future Prediction", ""),
-                    "executive_hook": idea.get("Hook Script", ""),
+                    "thesis": idea.get("Thesis", "") or idea.get("Future Prediction", ""),
+                    "executive_hook": idea.get("Executive Hook", "") or idea.get("Hook Script", ""),
                     "fact_sheet": idea.get("Writer Guidance", ""),
                     "historical_parallels": idea.get("Past Context", ""),
                     "framework_analysis": idea.get("Present Parallel", ""),
@@ -1533,11 +1538,12 @@ class VideoPipeline:
                     "counter_arguments": "",
                     "visual_seeds": idea.get("Thumbnail Prompt", ""),
                     "source_bibliography": idea.get("Reference URL", ""),
-                    "framework_angle": "",
+                    "framework_angle": framework_angle,
                     "title_options": idea.get("Video Title", ""),
                     "thumbnail_concepts": idea.get("Thumbnail Prompt", ""),
-                    "source_urls": idea.get("Reference URL", ""),
+                    "source_urls": idea.get("Source URLs", "") or idea.get("Reference URL", ""),
                 }
+                print(f"  🎯 Framework Angle: {framework_angle or '(not set — legacy idea)'}")
 
         # Scene output directory (project-relative)
         scene_output_dir = str(Path(__file__).parent / "scenes")
