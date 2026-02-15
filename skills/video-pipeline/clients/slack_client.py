@@ -48,7 +48,54 @@ class SlackClient:
             }
         except SlackApiError as e:
             return {"ok": False, "error": str(e)}
-    
+
+    def add_reaction(self, emoji: str, message_ts: str, channel_id: Optional[str] = None) -> dict:
+        """Add an emoji reaction to a message.
+
+        Args:
+            emoji: Emoji name (without colons, e.g., "one", "white_check_mark")
+            message_ts: Timestamp of the message to react to
+            channel_id: Channel (uses default if not specified)
+
+        Returns:
+            Slack API response dict
+        """
+        target_channel = channel_id or self.channel_id
+
+        try:
+            response = self.client.reactions_add(
+                channel=target_channel,
+                name=emoji,
+                timestamp=message_ts,
+            )
+            return {"ok": response["ok"]}
+        except SlackApiError as e:
+            return {"ok": False, "error": str(e)}
+
+    def get_message(self, message_ts: str, channel_id: Optional[str] = None) -> Optional[dict]:
+        """Retrieve a specific message by timestamp.
+
+        Args:
+            message_ts: Timestamp of the message
+            channel_id: Channel (uses default if not specified)
+
+        Returns:
+            Message dict if found, None otherwise
+        """
+        target_channel = channel_id or self.channel_id
+
+        try:
+            response = self.client.conversations_history(
+                channel=target_channel,
+                latest=message_ts,
+                limit=1,
+                inclusive=True,
+            )
+            messages = response.get("messages", [])
+            return messages[0] if messages else None
+        except SlackApiError:
+            return None
+
     # ==================== PIPELINE NOTIFICATIONS ====================
     
     def notify_pipeline_start(self, youtube_url: str) -> dict:
