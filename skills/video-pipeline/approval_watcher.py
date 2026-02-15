@@ -129,20 +129,36 @@ class ApprovalWatcher:
                     model=self.model,
                 )
 
-                # Write research payload back to the same record
+                # Write research payload and rich fields back to the same record
+                from research_agent import infer_framework_from_research
+
                 research_json = json.dumps(payload)
-                try:
-                    self.airtable.update_idea_field(
-                        record_id, "Research Payload", research_json
+                research_fields = {
+                    "Research Payload": research_json,
+                    "Source URLs": payload.get("source_bibliography", ""),
+                    "Executive Hook": payload.get("executive_hook", ""),
+                    "Thesis": payload.get("thesis", ""),
+                }
+
+                # Set Framework Angle if not already set on the record
+                existing_framework = idea.get("Framework Angle")
+                if not existing_framework:
+                    research_fields["Framework Angle"] = infer_framework_from_research(payload)
+                    logger.info(
+                        f"Set Framework Angle: {research_fields['Framework Angle']}"
                     )
+
+                try:
+                    self.airtable.update_idea_fields(record_id, research_fields)
                 except Exception as e:
-                    if "UNKNOWN_FIELD_NAME" in str(e):
-                        logger.info(
-                            "Research Payload field not yet in Airtable — "
-                            "create it as a Long Text field"
+                    logger.warning(f"Could not write research fields: {e}")
+                    # Fallback: try just the research payload
+                    try:
+                        self.airtable.update_idea_field(
+                            record_id, "Research Payload", research_json
                         )
-                    else:
-                        logger.warning(f"Could not write Research Payload: {e}")
+                    except Exception:
+                        logger.warning("Could not write Research Payload field either")
 
                 # Advance status to Ready For Scripting
                 self.airtable.update_idea_status(

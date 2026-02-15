@@ -219,6 +219,71 @@ class ResearchAgent:
         return payload
 
 
+def infer_framework_from_research(payload: dict) -> str:
+    """Determine the best analytical framework from a research payload.
+
+    The research agent has deep context about the topic at this point,
+    so it can make a more informed framework choice than the discovery scanner.
+    This field is CRITICAL — the brief translator reads it to determine
+    which voice to write the script in.
+
+    Returns:
+        One of the 10 valid Framework Angle values.
+    """
+    # Combine all rich text fields for analysis
+    text = " ".join([
+        payload.get("framework_analysis", ""),
+        payload.get("themes", ""),
+        payload.get("thesis", ""),
+        payload.get("historical_parallels", ""),
+        payload.get("narrative_arc", ""),
+    ]).lower()
+
+    # Score each framework based on keyword presence
+    framework_signals = {
+        "48 Laws": ["law of power", "48 laws", "robert greene", "conceal your intentions",
+                     "crush your enemy", "court power", "appear weak",
+                     "power dynamics", "power play", "strategic deception"],
+        "Machiavelli": ["machiavelli", "the prince", "virtù", "fortuna",
+                         "feared or loved", "fox and lion", "principality",
+                         "statecraft", "political realism"],
+        "Sun Tzu": ["sun tzu", "art of war", "all warfare is deception",
+                     "supreme excellence", "know your enemy", "terrain",
+                     "military strategy", "flanking", "strategic retreat"],
+        "Game Theory": ["game theory", "nash equilibrium", "prisoner's dilemma",
+                         "zero-sum", "positive-sum", "dominant strategy",
+                         "payoff matrix", "incentive structure", "tit for tat"],
+        "Jung Shadow": ["shadow self", "jung", "collective unconscious", "projection",
+                         "persona", "archetype", "individuation", "shadow work"],
+        "Behavioral Econ": ["behavioral economics", "loss aversion", "anchoring",
+                             "sunk cost", "nudge", "kahneman", "tversky",
+                             "cognitive bias", "irrational"],
+        "Stoicism": ["stoic", "marcus aurelius", "seneca", "epictetus",
+                      "what you can control", "memento mori", "amor fati",
+                      "virtue ethics", "tranquility"],
+        "Propaganda": ["propaganda", "bernays", "chomsky", "manufacturing consent",
+                        "media manipulation", "narrative control", "information warfare",
+                        "public relations", "perception management"],
+        "Systems Thinking": ["systems thinking", "feedback loop", "second-order effects",
+                              "unintended consequences", "complexity", "emergent behavior",
+                              "cascade", "systemic risk", "interconnected"],
+        "Evolutionary Psych": ["evolutionary psychology", "tribal instinct",
+                                "dominance hierarchy", "in-group", "out-group",
+                                "status signaling", "survival instinct", "primal"],
+    }
+
+    best_framework = "48 Laws"
+    best_score = 0
+
+    for framework, keywords in framework_signals.items():
+        score = sum(1 for kw in keywords if kw in text)
+        if score > best_score:
+            best_score = score
+            best_framework = framework
+
+    return best_framework
+
+
 def write_to_airtable(airtable_client, payload: dict) -> dict:
     """Write a research payload to the Idea Concepts table.
 
@@ -243,6 +308,10 @@ def write_to_airtable(airtable_client, payload: dict) -> dict:
             f"may exceed Airtable field limit"
         )
 
+    # Determine the best framework angle
+    framework_angle = infer_framework_from_research(payload)
+    logger.info(f"Inferred Framework Angle: {framework_angle}")
+
     # Build the idea data dict compatible with AirtableClient.create_idea()
     idea_data = {
         "viral_title": payload.get("headline", ""),
@@ -263,29 +332,18 @@ def write_to_airtable(airtable_client, payload: dict) -> dict:
             "themes": payload.get("themes", ""),
             "psychological_angles": payload.get("psychological_angles", ""),
         }),
+        # Rich schema fields
+        "Framework Angle": framework_angle,
+        "Executive Hook": payload.get("executive_hook", ""),
+        "Thesis": payload.get("thesis", ""),
+        "Source URLs": payload.get("source_bibliography", ""),
+        "Research Payload": research_payload_json,
+        "Thematic Framework": payload.get("themes", ""),
     }
 
     # Create the record with source="research_agent"
     record = airtable_client.create_idea(idea_data, source="research_agent")
     record_id = record["id"]
-
-    # Write research-specific fields (may not exist in Airtable yet)
-    research_fields = {
-        "Research Payload": research_payload_json,
-        "Thematic Framework": payload.get("themes", ""),
-    }
-
-    for field_name, field_value in research_fields.items():
-        try:
-            airtable_client.update_idea_field(record_id, field_name, field_value)
-        except Exception as e:
-            if "UNKNOWN_FIELD_NAME" in str(e):
-                logger.info(
-                    f"Field '{field_name}' not yet in Airtable — "
-                    f"create it as a Long Text field"
-                )
-            else:
-                logger.warning(f"Could not write {field_name}: {e}")
 
     logger.info(f"Research written to Idea Concepts: {record_id}")
     return record
