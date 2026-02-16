@@ -361,14 +361,50 @@ class AirtableClient:
         return [{"id": r["id"], **r["fields"]} for r in records]
     
     def get_scripts_by_title(self, title: str) -> list[dict]:
-        """Get all script records for a specific video title, ordered by scene number."""
-        # Use pyairtable's match function which handles escaping properly
+        """Get all script records for a specific video title, ordered by scene number.
+
+        Tries multiple field names (Title, Video Title) and falls back to
+        fetching all scripts if exact match fails — handles field renames
+        and minor title mismatches.
+        """
         from pyairtable.formulas import match
+
+        # Try "Title" field first (standard field name)
         records = self.script_table.all(
             formula=match({"Title": title}),
             sort=["scene"],
         )
-        return [{"id": r["id"], **r["fields"]} for r in records]
+        if records:
+            return [{"id": r["id"], **r["fields"]} for r in records]
+
+        # Try "Video Title" field (may have been renamed)
+        records = self.script_table.all(
+            formula=match({"Video Title": title}),
+            sort=["scene"],
+        )
+        if records:
+            return [{"id": r["id"], **r["fields"]} for r in records]
+
+        # Fallback: fetch recent scripts and match by any title-like field
+        # This handles cases where the title field name is unexpected
+        all_records = self.script_table.all(sort=["scene"])
+        if all_records:
+            # Try matching on any field that looks like a title
+            matched = []
+            for r in all_records:
+                fields = r["fields"]
+                record_title = (
+                    fields.get("Title", "")
+                    or fields.get("Video Title", "")
+                    or fields.get("Name", "")
+                    or ""
+                )
+                if record_title.strip().lower() == title.strip().lower():
+                    matched.append({"id": r["id"], **fields})
+            if matched:
+                return matched
+
+        return []
     
     def create_script_record(
         self,
