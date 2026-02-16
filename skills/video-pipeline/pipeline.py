@@ -1226,10 +1226,17 @@ class VideoPipeline:
         print(f"\n  🖼️ IMAGE BOT: Generating images...")
         print(f"     Rate limit: {MAX_CONCURRENT} concurrent generations")
 
-        # Get pending images for this video
-        pending_images = self.airtable.get_pending_images_for_video(self.video_title)
+        # RESUME LOGIC: Get only pending images — already-completed images are skipped
+        all_images = self.airtable.get_all_images_for_video(self.video_title)
+        done_count = len([img for img in all_images if img.get("Status") == "Done"])
+        pending_images = [img for img in all_images if img.get("Status") == "Pending" and img.get("Image Prompt")]
         total_pending = len(pending_images)
-        print(f"     Found {total_pending} pending images")
+
+        if done_count > 0:
+            print(f"     ♻️ RESUME: {done_count} images already done, {total_pending} remaining")
+            self.slack.send_message(f"♻️ Resuming: {done_count} images already done, {total_pending} remaining for *{self.video_title}*")
+        else:
+            print(f"     Found {total_pending} pending images")
 
         if total_pending == 0:
             print("     ⚠️ No pending images found — nothing to generate.")
@@ -1750,41 +1757,66 @@ class VideoPipeline:
 
         print(f"  Expanded to {len(expanded_scenes)} image slots from {len(raw_scenes)} scenes")
 
+        # RESUME LOGIC: Check for existing prompts and skip scenes that already have them
+        existing_images = self.airtable.get_all_images_for_video(self.video_title)
+        existing_keys = {
+            (img.get("Scene"), img.get("Image Index"))
+            for img in existing_images
+            if img.get("Image Prompt")  # Only count scenes with populated Image Prompt
+        }
+
+        if existing_keys:
+            print(f"  ♻️ RESUME: Found {len(existing_keys)} scenes with existing Image Prompts — skipping them")
+
+        # Filter expanded scenes to only those that need prompts
+        scenes_needing_prompts = []
+        scenes_needing_prompts_indices = []
+        for i, scene in enumerate(expanded_scenes):
+            scene_num = scene.get("_source_scene_number", scene.get("scene_number", i + 1))
+            segment_index = scene.get("_image_index", 1)
+            if (scene_num, segment_index) not in existing_keys:
+                scenes_needing_prompts.append(scene)
+                scenes_needing_prompts_indices.append(i)
+
+        if not scenes_needing_prompts:
+            print(f"  ✅ All {len(expanded_scenes)} image prompts already exist — nothing to generate")
+            # Still update status in case it wasn't set
+            self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_IMAGES)
+            return {
+                "bot": "Styled Image Prompt Engine",
+                "video_title": self.video_title,
+                "prompt_count": 0,
+                "total_styled": len(expanded_scenes),
+                "skipped": len(existing_keys),
+                "new_status": self.STATUS_READY_IMAGES,
+            }
+
+        print(f"  Generating prompts for {len(scenes_needing_prompts)}/{len(expanded_scenes)} scenes (skipping {len(existing_keys)} existing)")
+
         # Determine accent color from idea or default
         accent_color = self.current_idea.get("Accent Color") or "cold teal"
         # Resolve underscored to spaced form for the engine
         accent_color = accent_color.replace("_", " ")
 
-        # Generate styled prompts (one per image slot)
+        # Generate styled prompts only for scenes that need them
         styled_prompts = generate_prompts(
-            expanded_scenes,
+            scenes_needing_prompts,
             accent_color=accent_color,
         )
 
         print(f"  Generated {len(styled_prompts)} styled prompts")
 
-        # Check for existing prompts to avoid duplicates
-        existing_images = self.airtable.get_all_images_for_video(self.video_title)
-        existing_keys = {
-            (img.get("Scene"), img.get("Image Index"))
-            for img in existing_images
-        }
-
-        if existing_images:
-            print(f"  Found {len(existing_images)} existing prompts — skipping duplicates")
-
         # Write prompts to Airtable Images table
         created = 0
         for sp in styled_prompts:
-            scene_index = sp["index"]
-            scene_data = expanded_scenes[scene_index] if scene_index < len(expanded_scenes) else {}
+            prompt_index = sp["index"]
+            # Map back to original expanded_scenes index for scene data
+            original_index = scenes_needing_prompts_indices[prompt_index] if prompt_index < len(scenes_needing_prompts_indices) else prompt_index
+            scene_data = expanded_scenes[original_index] if original_index < len(expanded_scenes) else {}
 
             # Use source scene number and image index for unique keying
-            scene_num = scene_data.get("_source_scene_number", scene_data.get("scene_number", scene_index + 1))
+            scene_num = scene_data.get("_source_scene_number", scene_data.get("scene_number", original_index + 1))
             segment_index = scene_data.get("_image_index", 1)
-
-            if (scene_num, segment_index) in existing_keys:
-                continue
 
             # Scene description from the scene list
             scene_desc = scene_data.get("scene_description", scene_data.get("description", ""))
@@ -1800,7 +1832,7 @@ class VideoPipeline:
             )
             created += 1
 
-        print(f"  ✅ Created {created} styled image prompts")
+        print(f"  ✅ Created {created} styled image prompts ({len(existing_keys)} previously existed)")
 
         # Log style distribution
         styles = [sp["style"] for sp in styled_prompts]
@@ -1814,7 +1846,7 @@ class VideoPipeline:
         print(f"  ✅ Status updated to: {self.STATUS_READY_IMAGES}")
 
         self.slack.send_message(
-            f"🎨 Styled prompts done: {created} for *{self.video_title}*\n"
+            f"🎨 Styled prompts done: {created} new, {len(existing_keys)} existing for *{self.video_title}*\n"
             f"D:{dossier_pct:.0f}% S:{schema_pct:.0f}% E:{echo_pct:.0f}%"
         )
 
@@ -1823,6 +1855,7 @@ class VideoPipeline:
             "video_title": self.video_title,
             "prompt_count": created,
             "total_styled": len(styled_prompts),
+            "skipped": len(existing_keys),
             "style_distribution": {
                 "dossier": styles.count("dossier"),
                 "schema": styles.count("schema"),
