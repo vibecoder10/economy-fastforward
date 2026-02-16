@@ -31,16 +31,26 @@ async def main():
     pipeline = VideoPipeline()
 
     try:
-        # First generate image prompts (styled)
+        # First generate image prompts (styled) — resumable: skips scenes with existing prompts
         prompt_result = await pipeline.run_styled_image_prompts()
 
         if prompt_result.get("error"):
-            print(f"\n❌ Prompt generation error: {prompt_result['error']}")
-            sys.exit(1)
+            # If prompts already completed (idea at "Ready For Images"), skip to image generation
+            if "No idea" in prompt_result["error"]:
+                print(f"\n♻️ Prompts already done — resuming with image generation...")
+                prompt_result = {"prompt_count": 0, "skipped": "all"}
+            else:
+                print(f"\n❌ Prompt generation error: {prompt_result['error']}")
+                sys.exit(1)
 
-        print(f"\n📝 Image prompts created: {prompt_result.get('prompt_count', 0)}")
+        skipped = prompt_result.get('skipped', 0)
+        created = prompt_result.get('prompt_count', 0)
+        if skipped:
+            print(f"\n📝 Image prompts: {created} new, {skipped} already existed (resumed)")
+        else:
+            print(f"\n📝 Image prompts created: {created}")
 
-        # Then generate actual images
+        # Then generate actual images — resumable: skips images with Status="Done"
         image_result = await pipeline.run_image_bot()
 
         if image_result.get("error"):
@@ -50,9 +60,9 @@ async def main():
         print("\n" + "=" * 60)
         print("✅ YOUTUBE PROMPTS & IMAGES COMPLETE!")
         print("=" * 60)
-        print(f"\n🎬 Video: {prompt_result.get('video_title')}")
-        print(f"📝 Prompts created: {prompt_result.get('prompt_count', 0)}")
-        print(f"🖼️  Images generated: {image_result.get('images_generated', 0)}")
+        print(f"\n🎬 Video: {prompt_result.get('video_title', image_result.get('video_title'))}")
+        print(f"📝 Prompts created: {created}")
+        print(f"🖼️  Images generated: {image_result.get('image_count', 0)}")
         print(f"📋 New status: {image_result.get('new_status', prompt_result.get('new_status'))}")
 
     except Exception as e:

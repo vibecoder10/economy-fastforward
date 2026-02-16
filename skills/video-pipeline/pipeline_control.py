@@ -268,7 +268,7 @@ async def handle_prompts(message, say):
     await say(":art: Starting prompts and images generation...")
 
     try:
-        returncode, stdout, stderr = await run_script_async("run_youtube_prompts.py", "prompts", say, timeout=600)
+        returncode, stdout, stderr = await run_script_async("run_youtube_prompts.py", "prompts", say, timeout=1800)
 
         if returncode == 0:
             output = stdout[-3000:] if len(stdout) > 3000 else stdout
@@ -278,7 +278,7 @@ async def handle_prompts(message, say):
             await say(f":x: Prompts error:\n```{error}```")
 
     except subprocess.TimeoutExpired:
-        await say(":warning: Prompts generation timed out after 10 minutes")
+        await say(":warning: Prompts generation timed out after 30 minutes")
     except asyncio.CancelledError:
         await say(":stop_sign: Prompts generation was stopped")
     except Exception as e:
@@ -297,7 +297,7 @@ async def handle_end_images(message, say):
     await say(":frame_with_picture: Starting end images generation...")
 
     try:
-        returncode, stdout, stderr = await run_script_async("run_end_images.py", "end images", say, timeout=900)
+        returncode, stdout, stderr = await run_script_async("run_end_images.py", "end images", say, timeout=1800)
 
         if returncode == 0:
             output = stdout[-3000:] if len(stdout) > 3000 else stdout
@@ -307,7 +307,7 @@ async def handle_end_images(message, say):
             await say(f":x: End images error:\n```{error}```")
 
     except subprocess.TimeoutExpired:
-        await say(":warning: End images generation timed out after 15 minutes")
+        await say(":warning: End images generation timed out after 30 minutes")
     except asyncio.CancelledError:
         await say(":stop_sign: End images generation was stopped")
     except Exception as e:
@@ -326,7 +326,7 @@ async def handle_images(message, say):
     await say(":frame_with_picture: Starting image bot... This will take several minutes.")
 
     try:
-        returncode, stdout, stderr = await run_script_async("run_image_bot.py", "images", say, timeout=900)
+        returncode, stdout, stderr = await run_script_async("run_image_bot.py", "images", say, timeout=1800)
 
         if returncode == 0:
             output = stdout[-3000:] if len(stdout) > 3000 else stdout
@@ -336,7 +336,7 @@ async def handle_images(message, say):
             await say(f":x: Image bot error:\n```{error}```")
 
     except subprocess.TimeoutExpired:
-        await say(":warning: Image bot timed out after 15 minutes")
+        await say(":warning: Image bot timed out after 30 minutes")
     except asyncio.CancelledError:
         await say(":stop_sign: Image bot was stopped")
     except Exception as e:
