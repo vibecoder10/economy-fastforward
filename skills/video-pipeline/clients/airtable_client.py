@@ -363,48 +363,47 @@ class AirtableClient:
     def get_scripts_by_title(self, title: str) -> list[dict]:
         """Get all script records for a specific video title, ordered by scene number.
 
-        Tries multiple field names (Title, Video Title) and falls back to
-        fetching all scripts if exact match fails — handles field renames
-        and minor title mismatches.
+        Tries the standard "Title" field, then falls back to fetching all
+        scripts and matching by any title-like field — handles minor title
+        mismatches and unexpected field names.
         """
         from pyairtable.formulas import match
 
-        # Try "Title" field first (standard field name)
-        records = self.script_table.all(
-            formula=match({"Title": title}),
-            sort=["scene"],
-        )
-        if records:
-            return [{"id": r["id"], **r["fields"]} for r in records]
+        # Try "Title" field (standard field name on Script table)
+        try:
+            records = self.script_table.all(
+                formula=match({"Title": title}),
+                sort=["scene"],
+            )
+            if records:
+                return [{"id": r["id"], **r["fields"]} for r in records]
+        except Exception:
+            pass  # Field may not exist — continue to fallback
 
-        # Try "Video Title" field (may have been renamed)
-        records = self.script_table.all(
-            formula=match({"Video Title": title}),
-            sort=["scene"],
-        )
-        if records:
-            return [{"id": r["id"], **r["fields"]} for r in records]
+        # Fallback: fetch all scripts and match by any title-like field
+        # Handles field renames, smart quotes, trailing spaces, etc.
+        try:
+            all_records = self.script_table.all(sort=["scene"])
+        except Exception:
+            return []
 
-        # Fallback: fetch recent scripts and match by any title-like field
-        # This handles cases where the title field name is unexpected
-        all_records = self.script_table.all(sort=["scene"])
-        if all_records:
-            # Try matching on any field that looks like a title
-            matched = []
-            for r in all_records:
-                fields = r["fields"]
-                record_title = (
-                    fields.get("Title", "")
-                    or fields.get("Video Title", "")
-                    or fields.get("Name", "")
-                    or ""
-                )
-                if record_title.strip().lower() == title.strip().lower():
+        if not all_records:
+            return []
+
+        # Normalize the search title for comparison
+        search_title = title.strip().lower()
+
+        matched = []
+        for r in all_records:
+            fields = r["fields"]
+            # Check every text field that could contain the title
+            for field_name in ("Title", "Video Title", "Name"):
+                record_title = fields.get(field_name, "")
+                if record_title and record_title.strip().lower() == search_title:
                     matched.append({"id": r["id"], **fields})
-            if matched:
-                return matched
+                    break
 
-        return []
+        return matched
     
     def create_script_record(
         self,
