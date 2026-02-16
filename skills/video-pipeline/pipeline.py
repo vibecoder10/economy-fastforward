@@ -2027,17 +2027,20 @@ class VideoPipeline:
         return {"mode": "from_stage", "start_stage": stage, "video_title": self.video_title}
 
     async def run_thumbnail_bot(self) -> dict:
-        """Generate thumbnail for the video.
+        """Generate matched thumbnail + title pair for the video.
 
         REQUIRES: Ideas status = "Ready For Thumbnail"
-        UPDATES TO: "Ready To Render" when complete
+        UPDATES TO: "Ready To Render" when complete (or stays if flagged for manual review)
 
-        Works in two modes:
-        1. WITH reference URL: Gemini analyzes reference → Anthropic adapts with house style
-        2. WITHOUT reference URL: Anthropic generates purely from house style + video context
-
-        Both modes produce on-brand, clickable thumbnails.
+        Uses the ThumbnailTitleEngine to:
+        1. Select template (CFH Split / Mindplicit Banner / Power Dynamic)
+        2. Generate a title with proven formula patterns
+        3. Build a thumbnail prompt with the title's CAPS word as the red highlight
+        4. Generate the thumbnail via Nano Banana Pro (up to 3 attempts)
+        5. Validate, upload to Drive, and advance the pipeline
         """
+        from thumbnail_title.engine import ThumbnailTitleEngine
+
         # Verify status
         if not self.current_idea:
             idea = self.get_idea_by_status(self.STATUS_READY_THUMBNAIL)
@@ -2052,51 +2055,24 @@ class VideoPipeline:
 
         video_title = self.current_idea.get("Video Title", "")
         video_summary = self.current_idea.get("Summary", "")
-        reference_url = self.current_idea.get("Video URL")
-        basic_prompt = self.current_idea.get("Thumbnail Prompt", "")
 
-        # --- OPTIONAL: Reference thumbnail analysis ---
-        thumbnail_spec = None
-        if reference_url:
-            thumbnail_image_url = self._extract_youtube_thumbnail(reference_url)
-            if thumbnail_image_url and self.gemini.api_key:
-                print(f"  📸 Analyzing reference thumbnail via Gemini...")
-                try:
-                    thumbnail_spec = await self.gemini.generate_thumbnail_spec(
-                        reference_image_url=thumbnail_image_url,
-                        video_title=video_title,
-                        video_summary=video_summary,
-                    )
-                    print(f"  ✅ Reference analysis complete")
-                except Exception as e:
-                    print(f"  ⚠️ Reference analysis failed: {e}. Proceeding with house style only.")
-                    thumbnail_spec = None
-            else:
-                if not thumbnail_image_url:
-                    print(f"  ℹ️ Could not extract thumbnail from URL. Using house style only.")
-                elif not self.gemini.api_key:
-                    print(f"  ⚠️ Gemini API key missing. Using house style only.")
-        else:
-            print(f"  ℹ️ No reference URL. Using house style only.")
+        # Build metadata for template selection
+        video_metadata = {
+            "Video Title": video_title,
+            "Summary": video_summary,
+            "topic": self.current_idea.get("Headline", ""),
+            "Framework Angle": self.current_idea.get("Framework Angle", ""),
+            "tags": [],
+        }
 
-        # --- ALWAYS: Generate thumbnail prompt via Anthropic ---
-        print(f"  🎯 Generating thumbnail prompt (house style{' + reference' if thumbnail_spec else ''})...")
-        thumbnail_prompt = await self.anthropic.generate_thumbnail_prompt(
-            video_title=video_title,
-            video_summary=video_summary,
-            thumbnail_spec_json=thumbnail_spec,
-            thumbnail_concept=basic_prompt,
-        )
-        print(f"  ✅ Prompt generated: {thumbnail_prompt[:100]}...")
+        # --- Generate matched title + thumbnail ---
+        self.slack.send_message(f"🎨 Generating thumbnail + title for *{self.video_title}*...")
+        engine = ThumbnailTitleEngine(self.anthropic, self.image_client)
 
-        # Save generated prompt to Airtable for reference
-        self.airtable.update_idea_field(self.current_idea_id, "Thumbnail Prompt", thumbnail_prompt)
-
-        # --- Generate thumbnail image using Nano Banana Pro ---
-        self.slack.send_message(f"🎨 Generating thumbnail for *{self.video_title}*...")
-        image_urls = await self.image_client.generate_thumbnail(thumbnail_prompt)
-        if not image_urls:
-            error_msg = f"Thumbnail generation failed for '{self.video_title}'"
+        try:
+            result = await engine.generate(video_metadata)
+        except Exception as e:
+            error_msg = f"Thumbnail/title generation failed for '{self.video_title}': {e}"
             print(f"  ❌ {error_msg}")
             self.slack.send_message(f"❌ Thumbnail Bot STOPPED: {error_msg}\nStatus NOT advanced. Fix issues and run again.")
             return {
@@ -2106,7 +2082,36 @@ class VideoPipeline:
                 "error": error_msg,
             }
 
-        print(f"  ✅ Thumbnail generated: {image_urls[0][:50]}...")
+        # --- Save generated prompt and title metadata to Airtable ---
+        self.airtable.update_idea_field(self.current_idea_id, "Thumbnail Prompt", result["thumbnail_prompt"])
+        # Save title to Video Title field if it was generated fresh
+        if result.get("title"):
+            self.airtable.update_idea_field(self.current_idea_id, "Video Title", result["title"])
+
+        # --- Check if thumbnail generation succeeded ---
+        if result["needs_manual_review"]:
+            error_msg = (
+                f"Thumbnail generation failed after {result['thumbnail_attempt']} attempts "
+                f"for '{self.video_title}'. Flagged for manual review."
+            )
+            print(f"  ❌ {error_msg}")
+            self.slack.send_message(
+                f"⚠️ Thumbnail Bot needs manual review for *{self.video_title}*\n"
+                f"Template: {result['template_name']}\n"
+                f"Title: {result['title']}\n"
+                f"Status NOT advanced. Fix issues and run again."
+            )
+            return {
+                "status": "manual_review",
+                "bot": "Thumbnail Bot",
+                "video_title": self.video_title,
+                "generated_title": result["title"],
+                "template_used": result["template_used"],
+                "error": error_msg,
+            }
+
+        image_url = result["thumbnail_urls"][0]
+        print(f"  ✅ Thumbnail generated: {image_url[:50]}...")
 
         # --- Upload to Google Drive ---
         if self.project_folder_id:
@@ -2119,30 +2124,49 @@ class VideoPipeline:
                 print("  ⚠️ Project folder not found, uploading to root.")
                 parent_id = None
 
+        # Filename: {slug}_thumbnail_v{attempt}.png
+        slug = video_title.lower().replace(" ", "_").replace("'", "")[:50]
+        filename = f"{slug}_thumbnail_v{result['thumbnail_attempt']}.png"
+
         print("  ☁️ Uploading to Google Drive...")
         google_file = self.google.upload_file_from_url(
-            url=image_urls[0],
-            name="Thumbnail.png",
-            parent_id=parent_id
+            url=image_url,
+            name=filename,
+            parent_id=parent_id,
         )
         drive_link = google_file.get("webViewLink")
         print(f"  ✅ Uploaded to Drive: {drive_link}")
 
-        # --- Save to Airtable (use temp Kie URL for attachment, it gets copied) ---
-        self.airtable.update_idea_thumbnail(self.current_idea_id, image_urls[0])
+        # --- Save to Airtable ---
+        self.airtable.update_idea_thumbnail(self.current_idea_id, image_url)
         print("  ✅ Saved to Airtable")
 
         # --- Update status ---
         self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_TO_RENDER)
         print(f"  ✅ Status updated to: {self.STATUS_READY_TO_RENDER}")
-        self.slack.send_message(f"✅ Thumbnail complete for *{self.video_title}*\n📎 {drive_link}")
+
+        self.slack.send_message(
+            f"✅ Thumbnail + title complete for *{self.video_title}*\n"
+            f"📝 Title: {result['title']}\n"
+            f"🎨 Template: {result['template_name']}\n"
+            f"🔴 Red word: {result['caps_word']}\n"
+            f"📎 {drive_link}"
+        )
 
         return {
             "bot": "Thumbnail Bot",
             "video_title": self.video_title,
             "new_status": self.STATUS_READY_TO_RENDER,
             "thumbnail_url": drive_link,
-            "used_reference": thumbnail_spec is not None,
+            "generated_title": result["title"],
+            "caps_word": result["caps_word"],
+            "formula_used": result["formula_used"],
+            "template_used": result["template_used"],
+            "template_name": result["template_name"],
+            "line_1": result["line_1"],
+            "line_2": result["line_2"],
+            "thumbnail_attempt": result["thumbnail_attempt"],
+            "validation": result["validation"],
         }
     
     async def run_render_bot(self) -> dict:
