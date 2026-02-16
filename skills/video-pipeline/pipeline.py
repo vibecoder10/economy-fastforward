@@ -507,12 +507,17 @@ class VideoPipeline:
 
     async def run_next_step(self) -> dict:
         """Run the next step based on what's in the Ideas table.
-        
+
         This is the MAIN entry point. It checks which video needs processing
         and runs the appropriate bot.
+
+        Returns dict with:
+            - On success: bot, video_title, new_status, etc.
+            - On failure: status="failed", error=<message>
+            - On idle: status="idle"
         """
         # Check each status in workflow order
-        
+
         # 1. Check for Ready For Scripting
         idea = self.get_idea_by_status(self.STATUS_READY_SCRIPTING)
         if idea:
@@ -520,15 +525,15 @@ class VideoPipeline:
             # CHECK: Has work already been done?
             work_status = self.check_existing_work(self.video_title)
             suggested = work_status["suggested_status"]
-            
+
             if suggested and suggested != self.STATUS_READY_SCRIPTING:
                 print(f"  ⚠️ Found existing work! Fast-forwarding status to: {suggested}")
                 self.airtable.update_idea_status(self.current_idea_id, suggested)
                 # Restart loop to pick up new status
                 return await self.run_next_step()
-                
-            return await self.run_script_bot()
-        
+
+            return await self._run_step_safe("Script Bot", self.run_script_bot)
+
         # 2. Check for Ready For Voice
         idea = self.get_idea_by_status(self.STATUS_READY_VOICE)
         if idea:
@@ -536,25 +541,25 @@ class VideoPipeline:
             # CHECK: Has work already been done?
             work_status = self.check_existing_work(self.video_title)
             suggested = work_status["suggested_status"]
-            
+
             if suggested and suggested != self.STATUS_READY_VOICE:
                 print(f"  ⚠️ Found existing work! Fast-forwarding status to: {suggested}")
                 self.airtable.update_idea_status(self.current_idea_id, suggested)
                 return await self.run_next_step()
-                
-            return await self.run_voice_bot()
-        
+
+            return await self._run_step_safe("Voice Bot", self.run_voice_bot)
+
         # 3. Check for Ready For Image Prompts (use styled prompts as primary path)
         idea = self.get_idea_by_status(self.STATUS_READY_IMAGE_PROMPTS)
         if idea:
             self._load_idea(idea)
-            return await self.run_styled_image_prompts()
+            return await self._run_step_safe("Image Prompt Bot", self.run_styled_image_prompts)
 
         # 4. Check for Ready For Images
         idea = self.get_idea_by_status(self.STATUS_READY_IMAGES)
         if idea:
             self._load_idea(idea)
-            return await self.run_image_bot()
+            return await self._run_step_safe("Image Bot", self.run_image_bot)
 
         # 5. SKIPPED - Video Scripts (manual only, costly at $0.10/image)
         # idea = self.get_idea_by_status(self.STATUS_READY_VIDEO_SCRIPTS)
@@ -571,19 +576,48 @@ class VideoPipeline:
         idea = self.get_idea_by_status(self.STATUS_READY_THUMBNAIL)
         if idea:
             self._load_idea(idea)
-            return await self.run_thumbnail_bot()
-        
+            return await self._run_step_safe("Thumbnail Bot", self.run_thumbnail_bot)
+
         # 8. SKIPPED - Render Bot (manual only, Ryan triggers via Remotion Studio)
         # idea = self.get_idea_by_status(self.STATUS_READY_TO_RENDER)
         # if idea:
         #     self._load_idea(idea)
         #     return await self.run_render_bot()
 
-        
+
         # No work to do
         print("\n✅ No videos ready for processing!")
         print("   To process a video, update its status in the Ideas table.")
         return {"status": "idle", "message": "No videos to process"}
+
+    async def _run_step_safe(self, bot_name: str, step_fn) -> dict:
+        """Run a pipeline step with error handling.
+
+        Catches any unhandled exception and returns a failure dict
+        instead of crashing the pipeline.
+        """
+        try:
+            result = await step_fn()
+            # Check if the bot itself reported failure
+            if result.get("error") and not result.get("status"):
+                result["status"] = "failed"
+                result.setdefault("bot", bot_name)
+                result.setdefault("video_title", self.video_title)
+            return result
+        except Exception as e:
+            error_msg = f"{bot_name} crashed: {e}"
+            print(f"\n❌ {error_msg}")
+            self.slack.send_message(
+                f"❌ *{bot_name} CRASHED* for *{self.video_title}*\n"
+                f"```{e}```\n"
+                f"Status NOT advanced. Fix and re-run."
+            )
+            return {
+                "status": "failed",
+                "bot": bot_name,
+                "video_title": self.video_title,
+                "error": error_msg,
+            }
 
     async def run_idea_bot(self, input_text: str) -> dict:
         """Generate video ideas from a YouTube URL or concept.
@@ -1047,7 +1081,8 @@ class VideoPipeline:
         """Generate images from prompts.
 
         REQUIRES: Ideas status = "Ready For Images"
-        UPDATES TO: "Ready For Video Scripts" when complete
+        UPDATES TO: "Ready For Thumbnail" when ALL images complete
+        STOPS pipeline if any images fail or none were generated
         """
         # Verify status
         if not self.current_idea:
@@ -1069,9 +1104,41 @@ class VideoPipeline:
         # Run the internal image bot
         result = await self._run_image_bot()
 
-        # UPDATE STATUS to Ready For Thumbnail (skips video scripts/gen which are manual)
+        # VERIFY all images are actually complete before advancing status
+        all_images = self.airtable.get_all_images_for_video(self.video_title)
+        pending = [img for img in all_images if img.get("Status") != "Done" and img.get("Image Prompt")]
+        total = len([img for img in all_images if img.get("Image Prompt")])
+
+        if not all_images or total == 0:
+            error_msg = f"No images found for '{self.video_title}' — cannot advance status"
+            print(f"  ❌ {error_msg}")
+            self.slack.send_message(f"❌ Image Bot STOPPED: {error_msg}")
+            return {
+                "status": "failed",
+                "bot": "Image Bot",
+                "video_title": self.video_title,
+                "error": error_msg,
+            }
+
+        if len(pending) > 0:
+            error_msg = f"{len(pending)}/{total} images still pending after all retries for '{self.video_title}'"
+            print(f"  ❌ {error_msg}")
+            self.slack.send_message(
+                f"❌ Image Bot STOPPED: {error_msg}\n"
+                f"Status NOT advanced. Fix issues and run again."
+            )
+            return {
+                "status": "failed",
+                "bot": "Image Bot",
+                "video_title": self.video_title,
+                "error": error_msg,
+                "images_pending": len(pending),
+                "images_total": total,
+            }
+
+        # ALL images verified complete — safe to advance status
         self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_THUMBNAIL)
-        print(f"  ✅ Status updated to: {self.STATUS_READY_THUMBNAIL}")
+        print(f"  ✅ All {total} images verified complete. Status updated to: {self.STATUS_READY_THUMBNAIL}")
 
         return {
             "bot": "Image Bot",
@@ -1111,10 +1178,26 @@ class VideoPipeline:
 
         # Step 2: Generate Images
         image_result = await self._run_image_bot()
-        
-        # UPDATE STATUS to Ready For Thumbnail (skips video scripts/gen which are manual)
+
+        # VERIFY all images are actually complete before advancing status
+        all_images = self.airtable.get_all_images_for_video(self.video_title)
+        pending = [img for img in all_images if img.get("Status") != "Done" and img.get("Image Prompt")]
+        total = len([img for img in all_images if img.get("Image Prompt")])
+
+        if len(pending) > 0:
+            error_msg = f"{len(pending)}/{total} images still pending after all retries"
+            print(f"  ❌ {error_msg}")
+            self.slack.send_message(f"❌ Visuals Pipeline STOPPED: {error_msg} for *{self.video_title}*")
+            return {
+                "status": "failed",
+                "bot": "Visuals Pipeline",
+                "video_title": self.video_title,
+                "error": error_msg,
+            }
+
+        # ALL images verified complete — safe to advance status
         self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_THUMBNAIL)
-        print(f"  ✅ Status updated to: {self.STATUS_READY_THUMBNAIL}")
+        print(f"  ✅ All {total} images verified complete. Status updated to: {self.STATUS_READY_THUMBNAIL}")
 
         return {
             "bot": "Visuals Pipeline",
@@ -1129,6 +1212,7 @@ class VideoPipeline:
 
         Uses semaphore-based rate limiting to prevent OOM.
         Checkpoints progress after each image for crash recovery.
+        Sends Slack progress updates as each image completes.
         """
         import gc
 
@@ -1146,8 +1230,18 @@ class VideoPipeline:
         print(f"     Found {total_pending} pending images")
 
         if total_pending == 0:
-            print("     No pending images to generate.")
-            return {"image_count": 0}
+            print("     ⚠️ No pending images found — nothing to generate.")
+            self.slack.send_message(f"⚠️ Image Bot: 0 pending images found for *{self.video_title}*. Nothing to generate.")
+            return {"image_count": 0, "failed_count": 0}
+
+        # Pre-flight: Core Image is required for all scene images
+        if not self.core_image_url:
+            error_msg = f"No Core Image found — cannot generate {total_pending} scene images"
+            print(f"     ❌ {error_msg}")
+            self.slack.send_message(f"❌ Image Bot STOPPED: {error_msg} for *{self.video_title}*")
+            return {"image_count": 0, "failed_count": total_pending}
+
+        self.slack.send_message(f"🖼️ Starting image generation: {total_pending} images for *{self.video_title}*")
 
         # Group images by scene for organized processing
         scenes = {}
@@ -1200,6 +1294,9 @@ class VideoPipeline:
                             image_count += 1
                             print(f"      ✅ Scene {scene_num}, Image {index} → Done ({image_count}/{total_pending})")
 
+                            # Slack progress update for every image
+                            self.slack.send_message(f"🖼️ Generating images... {image_count}/{total_pending} complete")
+
                             # Clear image content from memory
                             del image_content
                             return True
@@ -1221,10 +1318,6 @@ class VideoPipeline:
 
             # Progress update
             print(f"    ✅ Scene {scene_num} complete | Total progress: {image_count}/{total_pending}")
-
-            # Slack progress update every 5 scenes
-            if (scene_idx + 1) % 5 == 0 or scene_idx == len(scenes) - 1:
-                self.slack.send_message(f"🖼️ Image progress: {image_count}/{total_pending} generated (Scene {scene_num}/{len(scenes)})")
 
             # Delay between scenes to prevent memory buildup
             if scene_idx < len(scenes) - 1:
@@ -1962,10 +2055,18 @@ class VideoPipeline:
         self.airtable.update_idea_field(self.current_idea_id, "Thumbnail Prompt", thumbnail_prompt)
 
         # --- Generate thumbnail image using Nano Banana Pro ---
+        self.slack.send_message(f"🎨 Generating thumbnail for *{self.video_title}*...")
         image_urls = await self.image_client.generate_thumbnail(thumbnail_prompt)
         if not image_urls:
-            print("  ⚠️ Failed to generate thumbnail.")
-            return {"error": "Thumbnail generation failed"}
+            error_msg = f"Thumbnail generation failed for '{self.video_title}'"
+            print(f"  ❌ {error_msg}")
+            self.slack.send_message(f"❌ Thumbnail Bot STOPPED: {error_msg}\nStatus NOT advanced. Fix issues and run again.")
+            return {
+                "status": "failed",
+                "bot": "Thumbnail Bot",
+                "video_title": self.video_title,
+                "error": error_msg,
+            }
 
         print(f"  ✅ Thumbnail generated: {image_urls[0][:50]}...")
 
@@ -1996,6 +2097,7 @@ class VideoPipeline:
         # --- Update status ---
         self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_TO_RENDER)
         print(f"  ✅ Status updated to: {self.STATUS_READY_TO_RENDER}")
+        self.slack.send_message(f"✅ Thumbnail complete for *{self.video_title}*\n📎 {drive_link}")
 
         return {
             "bot": "Thumbnail Bot",
@@ -3017,31 +3119,67 @@ async def main():
     if len(sys.argv) > 1 and sys.argv[1] == "--run-queue":
         # Process ALL videos in pipeline until nothing left to do
         # Respects Ryan's gate: only processes videos at "Ready For Scripting" or beyond
+        # STOPS on any error — never silently advances past failures
         print("=" * 60)
         print("🔄 PIPELINE QUEUE MODE - Processing Until Empty")
         print("=" * 60)
         print("\nThis will process all videos from 'Ready For Scripting' → 'Done'")
         print("Videos at 'Idea Logged' are SKIPPED (awaiting your approval)\n")
-        
+
         processed = 0
         max_iterations = 100  # Safety limit
-        
+
         while processed < max_iterations:
-            result = await pipeline.run_next_step()
-            
+            try:
+                result = await pipeline.run_next_step()
+            except Exception as e:
+                # Uncaught exception — stop pipeline and report
+                error_msg = f"Pipeline crashed: {e}"
+                print(f"\n❌ {error_msg}")
+                try:
+                    pipeline.slack.send_message(f"❌ *Pipeline STOPPED* after {processed} steps\n```{error_msg}```")
+                except Exception:
+                    pass
+                break
+
             if result.get("status") == "idle":
                 print("\n✅ Queue empty! All approved videos processed.")
+                try:
+                    pipeline.slack.send_message(f"✅ Pipeline queue complete: {processed} steps processed successfully.")
+                except Exception:
+                    pass
                 break
-            
+
+            # CHECK FOR ERRORS — stop pipeline if any step failed
+            if result.get("status") == "failed" or result.get("error"):
+                error_msg = result.get("error", "Unknown error")
+                bot_name = result.get("bot", "Unknown")
+                video_title = result.get("video_title", "Unknown")
+                print(f"\n❌ PIPELINE STOPPED — {bot_name} failed for '{video_title}'")
+                print(f"   Error: {error_msg}")
+                print(f"   Steps completed before failure: {processed}")
+                print(f"\n   Fix the issue and run again. Status was NOT advanced.")
+                try:
+                    pipeline.slack.send_message(
+                        f"❌ *Pipeline STOPPED* — {bot_name} failed\n"
+                        f"Video: *{video_title}*\n"
+                        f"Error: {error_msg}\n"
+                        f"Steps completed: {processed}\n"
+                        f"Status was NOT advanced. Fix and re-run."
+                    )
+                except Exception:
+                    pass
+                break
+
             processed += 1
             print(f"\n--- Completed step {processed} ---")
             print(f"    Video: {result.get('video_title', 'Unknown')}")
             print(f"    Bot: {result.get('bot', 'Unknown')}")
             print(f"    New Status: {result.get('new_status', 'Unknown')}")
-            
+
             # Small delay between steps to avoid rate limits
             await asyncio.sleep(2)
-        
+
         print("\n" + "=" * 60)
         print(f"📋 QUEUE COMPLETE: {processed} steps processed")
         print("=" * 60)
