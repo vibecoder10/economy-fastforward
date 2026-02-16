@@ -1277,8 +1277,8 @@ class VideoPipeline:
                             print(f"        ❌ No Core Image — skipping retry")
                             continue
                         result = await self.image_client.generate_scene_image(prompt, self.core_image_url)
-                        if result and result.get("image_url"):
-                            image_url = result["image_url"]
+                        if result and result.get("url"):
+                            image_url = result["url"]
                             
                             # Download and upload to Drive
                             image_content = await self.image_client.download_image(image_url)
