@@ -112,6 +112,7 @@ async def handle_help(message, say):
 - `logs` / `animlogs` - Check if a pipeline is running
 - `status` / `check` - Check current project status (both pipelines)
 - `update` - Pull latest code from GitHub (auto-restarts if changes)
+- `cron on` / `cron off` / `cron status` - Manage scheduled cron jobs (9 AM discover, 2 PM pipeline)
 - `help` - Show this message
 
 _All commands are case-insensitive._
@@ -793,6 +794,82 @@ async def handle_update(message, say):
         await say(f":x: Error: {e}")
 
 
+@app.message(re.compile(r"^cron", re.IGNORECASE))
+async def handle_cron(message, say):
+    """Manage pipeline cron jobs."""
+    text = message.get("text", "").strip().lower()
+
+    REPO_DIR = os.path.dirname(os.path.dirname(BASE_DIR))
+    PYTHON3 = "python3"
+
+    # Cron entry templates
+    DISCOVER_ENTRY = (
+        f"0 9 * * * cd {REPO_DIR} && git pull origin main --ff-only >> /tmp/pipeline-discover.log 2>&1; "
+        f"cd {BASE_DIR} && {PYTHON3} pipeline.py --discover >> /tmp/pipeline-discover.log 2>&1"
+    )
+    QUEUE_ENTRY = (
+        f"0 14 * * * cd {REPO_DIR} && git pull origin main --ff-only >> /tmp/pipeline-queue.log 2>&1; "
+        f"cd {BASE_DIR} && {PYTHON3} pipeline.py --run-queue >> /tmp/pipeline-queue.log 2>&1"
+    )
+
+    if "off" in text:
+        # Remove pipeline cron jobs
+        try:
+            result = subprocess.run(
+                ["bash", "-c", "crontab -l 2>/dev/null | grep -v 'pipeline-discover\\|pipeline-queue\\|Pipeline Cron\\|Daily idea\\|Daily pipeline' | crontab -"],
+                capture_output=True, text=True, timeout=10,
+            )
+            await say(":stop_sign: Pipeline cron jobs removed.")
+        except Exception as e:
+            await say(f":x: Could not remove cron jobs: {e}")
+        return
+
+    if "on" in text or "setup" in text:
+        # Install both cron jobs
+        try:
+            cron_content = (
+                "# Economy FastForward Pipeline Cron Jobs\n"
+                f"{DISCOVER_ENTRY}\n"
+                f"{QUEUE_ENTRY}\n"
+            )
+            result = subprocess.run(
+                ["bash", "-c", f'(crontab -l 2>/dev/null | grep -v "pipeline-discover\\|pipeline-queue\\|Pipeline Cron\\|Daily idea\\|Daily pipeline"; echo "{DISCOVER_ENTRY}"; echo "{QUEUE_ENTRY}") | crontab -'],
+                capture_output=True, text=True, timeout=10,
+            )
+            await say(
+                ":clock9: Pipeline cron jobs installed!\n"
+                "• *9 AM daily* → `--discover` (scan headlines for new ideas)\n"
+                "• *2 PM daily* → `--run-queue` (process pipeline from scripting to thumbnail)\n"
+                "_Times are in system timezone (UTC). Logs: /tmp/pipeline-discover.log, /tmp/pipeline-queue.log_"
+            )
+        except Exception as e:
+            await say(f":x: Could not install cron jobs: {e}")
+        return
+
+    if "status" in text:
+        # Show current cron jobs
+        try:
+            result = subprocess.run(
+                ["crontab", "-l"],
+                capture_output=True, text=True, timeout=10,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                await say(f":clock3: Current cron jobs:\n```{result.stdout.strip()}```")
+            else:
+                await say(":zzz: No cron jobs installed. Use `cron on` to set up.")
+        except Exception as e:
+            await say(f":x: Could not check cron: {e}")
+        return
+
+    # Default: show help
+    await say(
+        "*Cron Commands:*\n"
+        "• `cron on` / `cron setup` — Install 9 AM discover + 2 PM pipeline cron jobs\n"
+        "• `cron off` — Remove pipeline cron jobs\n"
+        "• `cron status` — Show current cron schedule"
+    )
+
+
 async def main():
     """Start the Slack bot."""
     print("=" * 60)
@@ -814,6 +891,7 @@ async def main():
     print("  logs / animlogs         - Check if pipeline running")
     print("  status / check          - Check project status (both pipelines)")
     print("  update                  - Pull latest code (auto-restart)")
+    print("  cron on/off/status      - Manage scheduled cron jobs")
     print("  help                    - Show help")
     print("\nListening for Slack messages...")
 
