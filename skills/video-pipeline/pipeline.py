@@ -553,12 +553,30 @@ class VideoPipeline:
         idea = self.get_idea_by_status(self.STATUS_READY_IMAGE_PROMPTS)
         if idea:
             self._load_idea(idea)
+            # CHECK: Has work already been done?
+            work_status = self.check_existing_work(self.video_title)
+            suggested = work_status["suggested_status"]
+
+            if suggested and suggested != self.STATUS_READY_IMAGE_PROMPTS:
+                print(f"  ⚠️ Found existing work! Fast-forwarding status to: {suggested}")
+                self.airtable.update_idea_status(self.current_idea_id, suggested)
+                return await self.run_next_step()
+
             return await self._run_step_safe("Image Prompt Bot", self.run_styled_image_prompts)
 
         # 4. Check for Ready For Images
         idea = self.get_idea_by_status(self.STATUS_READY_IMAGES)
         if idea:
             self._load_idea(idea)
+            # CHECK: Has work already been done?
+            work_status = self.check_existing_work(self.video_title)
+            suggested = work_status["suggested_status"]
+
+            if suggested and suggested != self.STATUS_READY_IMAGES:
+                print(f"  ⚠️ Found existing work! Fast-forwarding status to: {suggested}")
+                self.airtable.update_idea_status(self.current_idea_id, suggested)
+                return await self.run_next_step()
+
             return await self._run_step_safe("Image Bot", self.run_image_bot)
 
         # 5. SKIPPED - Video Scripts (manual only, costly at $0.10/image)
@@ -576,6 +594,15 @@ class VideoPipeline:
         idea = self.get_idea_by_status(self.STATUS_READY_THUMBNAIL)
         if idea:
             self._load_idea(idea)
+            # CHECK: Has work already been done?
+            work_status = self.check_existing_work(self.video_title)
+            suggested = work_status["suggested_status"]
+
+            if suggested and suggested != self.STATUS_READY_THUMBNAIL:
+                print(f"  ⚠️ Found existing work! Fast-forwarding status to: {suggested}")
+                self.airtable.update_idea_status(self.current_idea_id, suggested)
+                return await self.run_next_step()
+
             return await self._run_step_safe("Thumbnail Bot", self.run_thumbnail_bot)
 
         # 8. SKIPPED - Render Bot (manual only, Ryan triggers via Remotion Studio)
@@ -1738,14 +1765,18 @@ class VideoPipeline:
                     break
 
         # Load scenes from file or build from Airtable Script records
+        raw_scenes = None
+
+        # Source 1: Scene JSON file (from Brief Translator)
         if scene_filepath and Path(scene_filepath).exists():
             raw_scenes = json.loads(Path(scene_filepath).read_text())
             print(f"  Loaded {len(raw_scenes)} scenes from {Path(scene_filepath).name}")
-        else:
-            # No scene file — try to build scenes from Airtable Script records
+
+        # Source 2: Airtable Script table records (from Script Bot)
+        if not raw_scenes:
             scripts = self.airtable.get_scripts_by_title(self.video_title)
             if scripts:
-                print(f"  ⚠️ No scene file — building {len(scripts)} scenes from Airtable scripts")
+                print(f"  📋 Building {len(scripts)} scenes from Airtable Script table")
                 raw_scenes = []
                 total_scripts = len(scripts)
                 for script in scripts:
@@ -1760,11 +1791,36 @@ class VideoPipeline:
                         "duration_seconds": round(duration, 1),
                         "act": act,
                     })
-            else:
-                return {
-                    "error": "No scenes found — run the scripting step first "
-                    "(status must pass through 'Ready For Scripting' before 'Ready For Image Prompts')"
-                }
+
+        # Source 3: Idea record's own Script field (from Brief Translator pipeline record)
+        if not raw_scenes and self.current_idea:
+            idea_script = self.current_idea.get("Script", "")
+            if idea_script and len(idea_script) > 100:
+                print(f"  📋 Building scenes from idea's Script field ({len(idea_script)} chars)")
+                # Split script into paragraphs as scenes
+                paragraphs = [p.strip() for p in idea_script.split("\n\n") if p.strip() and len(p.strip()) > 20]
+                if paragraphs:
+                    raw_scenes = []
+                    total_paras = len(paragraphs)
+                    for i, para in enumerate(paragraphs):
+                        word_count = len(para.split())
+                        duration = word_count / 2.5 if word_count > 0 else 30
+                        act = min(6, i * 6 // total_paras + 1) if total_paras > 0 else 1
+                        raw_scenes.append({
+                            "scene_number": i + 1,
+                            "scene_description": para,
+                            "duration_seconds": round(duration, 1),
+                            "act": act,
+                        })
+
+        if not raw_scenes:
+            print(f"  ❌ Searched for scenes in: scene files, Script table, idea Script field")
+            print(f"     Video title: '{self.video_title}'")
+            return {
+                "error": f"No scenes found for '{self.video_title}'. "
+                "Checked: scene JSON files, Script table (Title + Video Title fields), "
+                "idea Script field. Ensure scripts exist and the video title matches."
+            }
 
         # Expand scenes for image generation: each scene with duration_seconds
         # produces multiple image slots (~1 image per 8-11 seconds of narration)
