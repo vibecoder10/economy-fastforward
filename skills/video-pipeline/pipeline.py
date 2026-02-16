@@ -114,7 +114,7 @@ class VideoPipeline:
         if self.core_image_url:
             print(f"   🖼️ Core Image: {self.core_image_url[:80]}...")
         else:
-            print(f"   ⚠️ No Core Image found — scene image generation requires it")
+            print(f"   ℹ️ No Core Image — YouTube pipeline uses text-to-image (no reference needed)")
 
     def _extract_youtube_thumbnail(self, url: str) -> Optional[str]:
         """Extract thumbnail image URL from a YouTube video URL.
@@ -1234,12 +1234,13 @@ class VideoPipeline:
             self.slack.send_message(f"⚠️ Image Bot: 0 pending images found for *{self.video_title}*. Nothing to generate.")
             return {"image_count": 0, "failed_count": 0}
 
-        # Pre-flight: Core Image is required for all scene images
-        if not self.core_image_url:
-            error_msg = f"No Core Image found — cannot generate {total_pending} scene images"
-            print(f"     ❌ {error_msg}")
-            self.slack.send_message(f"❌ Image Bot STOPPED: {error_msg} for *{self.video_title}*")
-            return {"image_count": 0, "failed_count": total_pending}
+        # YouTube pipeline: Core Image is optional (uses text-to-image without reference)
+        # Animation pipeline: Core Image is required (uses Seed Dream 4.5 Edit with reference)
+        use_reference = bool(self.core_image_url)
+        if use_reference:
+            print(f"     🖼️ Using Core Image reference (Seed Dream 4.5 Edit)")
+        else:
+            print(f"     📸 Using text-to-image generation (no Core Image reference)")
 
         self.slack.send_message(f"🖼️ Starting image generation: {total_pending} images for *{self.video_title}*")
 
@@ -1270,12 +1271,13 @@ class VideoPipeline:
                     record_id = img_record["id"]
 
                     try:
-                        # Generate scene image using Seed Dream 4.5 Edit w/ Core Image
-                        if not self.core_image_url:
-                            print(f"      ❌ No Core Image — skipping")
-                            failed_count += 1
-                            return False
-                        result = await self.image_client.generate_scene_image(prompt, self.core_image_url)
+                        # Generate image: use Core Image reference if available,
+                        # otherwise use text-to-image (YouTube pipeline path)
+                        if use_reference:
+                            result = await self.image_client.generate_scene_image(prompt, self.core_image_url)
+                        else:
+                            result_urls = await self.image_client.generate_and_wait(prompt, aspect_ratio="16:9")
+                            result = {"url": result_urls[0]} if result_urls else None
 
                         if result and result.get("url"):
                             image_url = result["url"]
@@ -1366,10 +1368,11 @@ class VideoPipeline:
                     index = img_record.get("Image Index", 0)
                     
                     try:
-                        if not self.core_image_url:
-                            print(f"        ❌ No Core Image — skipping retry")
-                            continue
-                        result = await self.image_client.generate_scene_image(prompt, self.core_image_url)
+                        if use_reference:
+                            result = await self.image_client.generate_scene_image(prompt, self.core_image_url)
+                        else:
+                            result_urls = await self.image_client.generate_and_wait(prompt, aspect_ratio="16:9")
+                            result = {"url": result_urls[0]} if result_urls else None
                         if result and result.get("url"):
                             image_url = result["url"]
                             
@@ -2519,10 +2522,12 @@ class VideoPipeline:
                     return (img_record, None, index, "No prompt")
 
                 try:
-                    # Use Seed Dream 4.5 Edit with Core Image reference
-                    if not self.core_image_url:
-                        return (img_record, None, index, "No Core Image on project")
-                    result = await self.image_client.generate_scene_image(prompt, self.core_image_url)
+                    # Use Core Image reference if available, otherwise text-to-image
+                    if self.core_image_url:
+                        result = await self.image_client.generate_scene_image(prompt, self.core_image_url)
+                    else:
+                        result_urls = await self.image_client.generate_and_wait(prompt, aspect_ratio="16:9")
+                        result = {"url": result_urls[0]} if result_urls else None
                     return (img_record, result, index, None)
                 except Exception as e:
                     return (img_record, None, index, str(e))

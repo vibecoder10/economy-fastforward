@@ -14,6 +14,7 @@ from .style_config import (
     COMPOSITION_DIRECTIVES,
     DEFAULT_CONFIG,
     STYLE_SUFFIXES,
+    YOUTUBE_STYLE_PREFIX,
 )
 from .sequencer import assign_styles
 
@@ -46,7 +47,11 @@ def build_prompt(
 ) -> str:
     """Assemble a complete image generation prompt.
 
-    Structure: ``[SCENE_DESCRIPTION], [COMPOSITION_DIRECTIVE], [STYLE_SUFFIX]``
+    Structure: ``[YOUTUBE_STYLE_PREFIX] [SCENE_DESCRIPTION], [COMPOSITION_DIRECTIVE], [STYLE_SUFFIX]``
+
+    The cinematic dossier prefix is placed FIRST because image generation
+    models weight early tokens more heavily, establishing the photorealistic
+    cinematic look before scene-specific content.
 
     Parameters
     ----------
@@ -64,10 +69,13 @@ def build_prompt(
     str
         The complete prompt string, ready for the image generation model.
     """
+    # Cinematic dossier prefix — establishes the photorealistic look
+    prefix = YOUTUBE_STYLE_PREFIX.replace("[ACCENT_COLOR]", accent_color)
+
     comp_text = COMPOSITION_DIRECTIVES.get(composition, "")
     suffix = STYLE_SUFFIXES[style].replace("[ACCENT_COLOR]", accent_color)
 
-    parts = [scene_description.rstrip(", ")]
+    parts = [prefix + " " + scene_description.rstrip(", ")]
     if comp_text:
         parts.append(comp_text)
     parts_str = ", ".join(parts)

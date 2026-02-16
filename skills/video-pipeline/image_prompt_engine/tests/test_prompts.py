@@ -21,6 +21,7 @@ from image_prompt_engine.style_config import (
     ACCENT_COLOR_MAP,
     COMPOSITION_DIRECTIVES,
     DEFAULT_CONFIG,
+    YOUTUBE_STYLE_PREFIX,
 )
 
 
@@ -168,7 +169,7 @@ class TestAccentColor:
 
 class TestPromptStructure:
     def test_prompt_contains_scene_description(self):
-        """Each prompt starts with the scene description."""
+        """Each prompt contains the scene description (after the cinematic prefix)."""
         scenes = [{"scene_description": "A unique test scene with a golden eagle"}]
         results = generate_prompts(scenes, accent_color="cold teal", seed=42)
         assert "A unique test scene with a golden eagle" in results[0]["prompt"]
@@ -219,7 +220,8 @@ class TestBuildPrompt:
             "wide",
             "cold teal",
         )
-        assert prompt.startswith("A figure in shadows")
+        assert prompt.startswith("Cinematic photorealistic editorial photograph")
+        assert "A figure in shadows" in prompt
         assert "wide establishing shot" in prompt
         assert "cold teal" in prompt
         assert "shot on Arri Alexa" in prompt
@@ -232,6 +234,7 @@ class TestBuildPrompt:
             "overhead",
             "warm amber",
         )
+        assert prompt.startswith("Cinematic photorealistic editorial photograph")
         assert "City at night with data overlay" in prompt
         assert "overhead" in prompt.lower() or "surveillance perspective" in prompt
         assert "warm amber" in prompt
@@ -245,6 +248,7 @@ class TestBuildPrompt:
             "medium",
             "cold teal",
         )
+        assert prompt.startswith("Cinematic photorealistic editorial photograph")
         assert "Renaissance ruler at a desk" in prompt
         assert "figure from waist up" in prompt
         assert "candlelight" in prompt
@@ -260,6 +264,69 @@ class TestBuildPrompt:
         """Echo suffix includes 'warm amber tones' regardless of chosen accent."""
         prompt = build_prompt("Historical scene", "echo", "wide", "cold teal")
         assert "warm amber tones" in prompt
+
+
+# ---------------------------------------------------------------------------
+# Cinematic Dossier Style tests (YouTube pipeline)
+# ---------------------------------------------------------------------------
+
+class TestCinematicDossierStyle:
+    """Verify YouTube pipeline uses cinematic dossier style, NOT mannequin style."""
+
+    def test_all_prompts_start_with_cinematic_prefix(self):
+        """Every prompt starts with the cinematic photorealistic prefix."""
+        results = _generate_full_video()
+        for r in results:
+            assert r["prompt"].startswith("Cinematic photorealistic editorial photograph"), (
+                f"Prompt at index {r['index']} does not start with cinematic prefix: "
+                f"{r['prompt'][:80]}..."
+            )
+
+    def test_no_mannequin_style_in_any_prompt(self):
+        """No prompt contains mannequin/clay/department store language."""
+        results = _generate_full_video()
+        forbidden_terms = [
+            "mannequin",
+            "3D editorial conceptual render",
+            "department store display",
+            "clay render",
+            "matte gray mannequin",
+            "faceless",
+            "no facial features",
+        ]
+        for r in results:
+            prompt_lower = r["prompt"].lower()
+            for term in forbidden_terms:
+                assert term.lower() not in prompt_lower, (
+                    f"Forbidden mannequin term '{term}' found in prompt at index {r['index']}: "
+                    f"{r['prompt'][:100]}..."
+                )
+
+    def test_cinematic_prefix_contains_key_elements(self):
+        """The cinematic prefix has all required style elements."""
+        assert "Cinematic photorealistic editorial photograph" in YOUTUBE_STYLE_PREFIX
+        assert "dark moody atmosphere" in YOUTUBE_STYLE_PREFIX
+        assert "Rembrandt lighting" in YOUTUBE_STYLE_PREFIX
+        assert "deep shadows" in YOUTUBE_STYLE_PREFIX
+        assert "shallow depth of field" in YOUTUBE_STYLE_PREFIX
+        assert "film grain" in YOUTUBE_STYLE_PREFIX
+        assert "documentary photography style" in YOUTUBE_STYLE_PREFIX
+        assert "shot on Arri Alexa" in YOUTUBE_STYLE_PREFIX
+        assert "epic scale" in YOUTUBE_STYLE_PREFIX
+        assert "[ACCENT_COLOR]" in YOUTUBE_STYLE_PREFIX
+
+    def test_accent_color_substituted_in_prefix(self):
+        """The [ACCENT_COLOR] placeholder in the prefix is replaced."""
+        prompt = build_prompt("Test scene", "dossier", "wide", "cold teal")
+        assert "cold teal accent lighting" in prompt
+        assert "[ACCENT_COLOR]" not in prompt
+
+    def test_prefix_before_scene_description(self):
+        """The cinematic prefix comes before the scene description in the prompt."""
+        prompt = build_prompt("A specific unique scene", "dossier", "wide", "cold teal")
+        prefix_pos = prompt.index("Cinematic photorealistic")
+        scene_pos = prompt.index("A specific unique scene")
+        assert prefix_pos < scene_pos, "Cinematic prefix must come before scene description"
 
 
 # ---------------------------------------------------------------------------

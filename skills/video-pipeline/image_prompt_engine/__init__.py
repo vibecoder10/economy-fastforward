@@ -38,6 +38,7 @@ from .style_config import (
     KEN_BURNS_PAN_ALTERNATES,
     KEN_BURNS_RULES,
     STYLE_SUFFIXES,
+    YOUTUBE_STYLE_PREFIX,
 )
 
 __all__ = [
@@ -48,6 +49,7 @@ __all__ = [
     "assign_styles",
     # Configuration
     "STYLE_SUFFIXES",
+    "YOUTUBE_STYLE_PREFIX",
     "COMPOSITION_DIRECTIVES",
     "COMPOSITION_CYCLE",
     "ACCENT_COLOR_MAP",

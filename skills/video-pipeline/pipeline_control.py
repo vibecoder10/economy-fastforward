@@ -268,7 +268,7 @@ async def handle_prompts(message, say):
     await say(":art: Starting prompts and images generation...")
 
     try:
-        returncode, stdout, stderr = await run_script_async("run_prompts_and_images.py", "prompts", say, timeout=600)
+        returncode, stdout, stderr = await run_script_async("run_youtube_prompts.py", "prompts", say, timeout=600)
 
         if returncode == 0:
             output = stdout[-3000:] if len(stdout) > 3000 else stdout
