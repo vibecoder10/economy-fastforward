@@ -1725,6 +1725,10 @@ class VideoPipeline:
         if scene_filepath is None:
             scene_filepath = getattr(self, "_scene_filepath", None)
 
+        # Check idea record for scene file path
+        if scene_filepath is None and self.current_idea:
+            scene_filepath = self.current_idea.get("Scene File Path")
+
         if scene_filepath is None:
             # Search scenes/ directory for matching file
             scene_dir = Path(__file__).parent / "scenes"
@@ -1733,13 +1737,34 @@ class VideoPipeline:
                     scene_filepath = str(f)
                     break
 
-        if not scene_filepath or not Path(scene_filepath).exists():
-            print("  ⚠️ No scene file found — falling back to legacy prompt bot")
-            return await self.run_image_prompt_bot_legacy()
-
-        # Load scenes
-        raw_scenes = json.loads(Path(scene_filepath).read_text())
-        print(f"  Loaded {len(raw_scenes)} scenes from {Path(scene_filepath).name}")
+        # Load scenes from file or build from Airtable Script records
+        if scene_filepath and Path(scene_filepath).exists():
+            raw_scenes = json.loads(Path(scene_filepath).read_text())
+            print(f"  Loaded {len(raw_scenes)} scenes from {Path(scene_filepath).name}")
+        else:
+            # No scene file — try to build scenes from Airtable Script records
+            scripts = self.airtable.get_scripts_by_title(self.video_title)
+            if scripts:
+                print(f"  ⚠️ No scene file — building {len(scripts)} scenes from Airtable scripts")
+                raw_scenes = []
+                total_scripts = len(scripts)
+                for script in scripts:
+                    scene_text = script.get("Scene text", "") or script.get("Script", "")
+                    word_count = len(scene_text.split()) if scene_text else 0
+                    duration = word_count / 2.5 if word_count > 0 else 60
+                    scene_num = script.get("scene", len(raw_scenes) + 1)
+                    act = min(6, (scene_num - 1) * 6 // total_scripts + 1) if total_scripts > 0 else 1
+                    raw_scenes.append({
+                        "scene_number": scene_num,
+                        "scene_description": scene_text,
+                        "duration_seconds": round(duration, 1),
+                        "act": act,
+                    })
+            else:
+                return {
+                    "error": "No scenes found — run the scripting step first "
+                    "(status must pass through 'Ready For Scripting' before 'Ready For Image Prompts')"
+                }
 
         # Expand scenes for image generation: each scene with duration_seconds
         # produces multiple image slots (~1 image per 8-11 seconds of narration)
@@ -2769,6 +2794,7 @@ async def main():
         print('  --idea "..."      Generate 3 video ideas from URL or concept')
         print('  --research "..."  Run deep research on a topic (saves to Idea Concepts)')
         print("  --trending        Generate ideas from trending YouTube videos (Apify)")
+        print("  --discover        Scan headlines for video ideas and save to Airtable")
         print("  --translate       Run brief translator (research brief → script + scenes)")
         print("  --styled-prompts  Run image prompt engine with visual identity system")
         print('  --full "..."      Full pipeline: Idea → Script → Voice → Images → Render')
@@ -2942,6 +2968,74 @@ async def main():
             search_queries=search_queries,
             num_ideas=3,
         )
+        return
+
+    # === DISCOVERY SCANNER ===
+    if len(sys.argv) > 1 and sys.argv[1] == "--discover":
+        from discovery_scanner import run_discovery, format_ideas_for_slack
+
+        focus = " ".join(sys.argv[2:]).strip() if len(sys.argv) > 2 else None
+        focus_msg = f" (focus: {focus})" if focus else ""
+
+        print("=" * 60)
+        print(f"🔍 DISCOVERY SCANNER — Scanning headlines{focus_msg}")
+        print("=" * 60)
+
+        result = await run_discovery(
+            anthropic_client=pipeline.anthropic,
+            focus=focus,
+        )
+
+        ideas = result.get("ideas", [])
+        if not ideas:
+            print("\n⚠️ No ideas found. Try with a different focus keyword.")
+            return
+
+        print(f"\nFound {len(ideas)} ideas:\n")
+        for i, idea in enumerate(ideas, 1):
+            title_opts = idea.get("title_options", [])
+            title = title_opts[0]["title"] if title_opts else "Untitled"
+            appeal = idea.get("estimated_appeal", "?")
+            print(f"  {i}. {title} (appeal: {appeal}/10)")
+            hook = idea.get("hook", "")
+            if hook:
+                print(f"     Hook: {hook[:120]}")
+            print()
+
+        # Save to Airtable
+        print("Saving to Airtable (Idea Concepts)...")
+        for i, idea in enumerate(ideas, 1):
+            title_opts = idea.get("title_options", [])
+            title = title_opts[0]["title"] if title_opts else "Untitled"
+            idea_data = {
+                "viral_title": title,
+                "hook_script": idea.get("hook", ""),
+                "narrative_logic": {
+                    "past_context": idea.get("historical_parallel_hint", ""),
+                    "present_parallel": idea.get("our_angle", ""),
+                    "future_prediction": "",
+                },
+                "writer_guidance": idea.get("our_angle", ""),
+                "original_dna": json.dumps({
+                    "source": "discovery_scanner",
+                    "headline_source": idea.get("headline_source", ""),
+                    "estimated_appeal": idea.get("estimated_appeal", 0),
+                }),
+            }
+            try:
+                record = pipeline.airtable.create_idea(idea_data, source="discovery_scanner")
+                print(f"  ✅ Saved idea {i}: {record.get('id')} — {title}")
+            except Exception as e:
+                print(f"  ❌ Failed to save idea {i}: {e}")
+
+        # Notify via Slack
+        try:
+            slack_msg = format_ideas_for_slack(result)
+            pipeline.slack.send_message(slack_msg)
+            print("\nSent to Slack!")
+        except Exception as e:
+            print(f"\n⚠️ Could not send Slack notification: {e}")
+
         return
 
     if len(sys.argv) > 1 and sys.argv[1] == "--sync":
