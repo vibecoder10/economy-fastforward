@@ -6,6 +6,27 @@ composition directives, Ken Burns zoom rules, and default configuration.
 """
 
 # ---------------------------------------------------------------------------
+# YouTube Pipeline Style Prefix — Cinematic Dossier
+# ---------------------------------------------------------------------------
+# Applied at the BEGINNING of every YouTube pipeline image prompt.
+# Models weight early tokens more heavily, so the prefix establishes
+# the photorealistic cinematic look before scene-specific content.
+#
+# The placeholder [ACCENT_COLOR] is replaced at build time.
+#
+# IMPORTANT: This is NOT the mannequin/clay render style. The mannequin
+# style lives in clients/style_engine.py and is used ONLY by the
+# Animation pipeline.
+
+YOUTUBE_STYLE_PREFIX = (
+    "Cinematic photorealistic editorial photograph, dark moody atmosphere, "
+    "desaturated color palette with [ACCENT_COLOR] accent lighting, "
+    "Rembrandt lighting, deep shadows, shallow depth of field, subtle film grain, "
+    "documentary photography style, shot on Arri Alexa, 16:9 cinematic composition, "
+    "epic scale."
+)
+
+# ---------------------------------------------------------------------------
 # Style Prompt Suffixes
 # ---------------------------------------------------------------------------
 # Each style has a prompt suffix appended to every image prompt of that type.
