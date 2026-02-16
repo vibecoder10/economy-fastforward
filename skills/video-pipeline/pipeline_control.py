@@ -93,6 +93,7 @@ async def handle_help(message, say):
 - `script` / `run script` - Run script bot for idea with "Ready For Scripting" status
 - `voice` / `run voice` - Run voice bot for idea with "Ready For Voice" status
 - `prompts` / `run prompts` - Generate styled image prompts and images
+- `images` / `run images` - Generate scene images only (for "Ready For Images" status)
 - `end images` / `run end images` - Generate end image prompts and images
 - `thumbnail` / `run thumbnail` - Generate thumbnail for idea with "Ready For Thumbnail" status
 
@@ -167,6 +168,18 @@ async def handle_run(message, say):
                     await say(":zzz: Nothing to do — no ideas with an actionable status in the pipeline.")
                 else:
                     await say(f":white_check_mark: Pipeline idle after {steps_done} step(s). All caught up!")
+                break
+
+            # STOP on errors — don't silently advance
+            if result.get("status") == "failed" or result.get("error"):
+                error_msg = result.get("error", "Unknown error")
+                bot_name = result.get("bot", "Unknown")
+                await say(
+                    f":x: *Pipeline STOPPED* — {bot_name} failed\n"
+                    f"Error: {error_msg}\n"
+                    f"Steps completed: {steps_done}\n"
+                    f"Status was NOT advanced. Fix the issue and `run` again."
+                )
                 break
 
             bot_name = result.get("bot", "step")
@@ -297,6 +310,35 @@ async def handle_end_images(message, say):
         await say(":warning: End images generation timed out after 15 minutes")
     except asyncio.CancelledError:
         await say(":stop_sign: End images generation was stopped")
+    except Exception as e:
+        await say(f":x: Error: {e}")
+
+
+@app.message(re.compile(r"run images", re.IGNORECASE))
+@app.message(re.compile(r"^images$", re.IGNORECASE))
+async def handle_images(message, say):
+    """Run the image bot only (generates scene images for 'Ready For Images' idea)."""
+    global current_process
+    if current_process:
+        await say(f":x: Already running `{current_task_name}`. Use `stop` to cancel it first.")
+        return
+
+    await say(":frame_with_picture: Starting image bot... This will take several minutes.")
+
+    try:
+        returncode, stdout, stderr = await run_script_async("run_image_bot.py", "images", say, timeout=900)
+
+        if returncode == 0:
+            output = stdout[-3000:] if len(stdout) > 3000 else stdout
+            await say(f":white_check_mark: Image bot complete!\n```{output}```")
+        else:
+            error = stderr[-1500:] if len(stderr) > 1500 else stderr
+            await say(f":x: Image bot error:\n```{error}```")
+
+    except subprocess.TimeoutExpired:
+        await say(":warning: Image bot timed out after 15 minutes")
+    except asyncio.CancelledError:
+        await say(":stop_sign: Image bot was stopped")
     except Exception as e:
         await say(f":x: Error: {e}")
 
@@ -761,6 +803,7 @@ async def main():
     print("  script / run script     - Run script bot")
     print("  voice / run voice       - Run voice bot")
     print("  prompts / run prompts   - Generate prompts and start images")
+    print("  images / run images     - Generate scene images only")
     print("  end images              - Generate end images")
     print("  thumbnail               - Generate thumbnail")
     print("  animate / animation     - Run animation pipeline")
