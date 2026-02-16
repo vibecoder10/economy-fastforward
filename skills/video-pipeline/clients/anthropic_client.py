@@ -21,6 +21,13 @@ from clients.style_engine import (
     EXAMPLE_PROMPTS,
 )
 
+# YouTube pipeline style constants — cinematic dossier (NOT mannequin)
+from image_prompt_engine.style_config import (
+    YOUTUBE_STYLE_PREFIX,
+    STYLE_SUFFIXES as YOUTUBE_STYLE_SUFFIXES,
+    COMPOSITION_DIRECTIVES as YOUTUBE_COMPOSITION_DIRECTIVES,
+)
+
 # Thumbnail System v2 - Locked House Style
 ANTHROPIC_THUMBNAIL_SYSTEM_PROMPT = """You are the thumbnail prompt engineer for Economy FastForward, \
 a finance/economics YouTube channel.
@@ -830,15 +837,15 @@ Start with style engine prefix, end with style engine suffix + lighting + text r
         max_count: int,
         words_per_segment: int = 20,
         scene_number: int = 1,
+        pipeline_type: str = "animation",
     ) -> list[dict]:
-        """Segment scene text into visual concepts using 3D Editorial Clay Render style.
+        """Segment scene text into visual concepts with pipeline-aware style.
 
-        This implementation uses:
-        1. 5-Layer Prompt Architecture with style engine prefix FIRST
-        2. Scene type rotation (6 types, no consecutive repeats)
-        3. Documentary camera sequence (4-shot pattern)
-        4. Hard word budget (120-150 words per prompt)
-        5. Faceless matte gray mannequins with body language
+        Supports two visual styles based on pipeline_type:
+        - "youtube": Cinematic photorealistic dossier style (desaturated,
+          Rembrandt lighting, documentary photography, Arri Alexa look).
+        - "animation": 3D mannequin render style (faceless matte gray
+          mannequins, studio lighting, material contrast).
 
         Args:
             scene_text: Full scene narration text
@@ -847,6 +854,7 @@ Start with style engine prefix, end with style engine suffix + lighting + text r
             max_count: Maximum allowed segments
             words_per_segment: Target words per segment for duration
             scene_number: The scene number (for documentary pattern)
+            pipeline_type: "youtube" or "animation" — controls style prefix
 
         Returns:
             List of dicts with:
@@ -854,6 +862,16 @@ Start with style engine prefix, end with style engine suffix + lighting + text r
                 - image_prompt: str (the generated image prompt)
                 - shot_type: str (the shot type for animation)
         """
+        is_youtube = pipeline_type == "youtube"
+
+        # Select style constants based on pipeline
+        if is_youtube:
+            style_prefix = YOUTUBE_STYLE_PREFIX.replace("[ACCENT_COLOR]", "cold teal")
+            style_suffix = YOUTUBE_STYLE_SUFFIXES["dossier"].replace("[ACCENT_COLOR]", "cold teal")
+        else:
+            style_prefix = STYLE_ENGINE_PREFIX
+            style_suffix = STYLE_ENGINE_SUFFIX
+
         # Get documentary pattern for this scene
         camera_pattern = get_documentary_pattern(target_count)
 
@@ -878,7 +896,88 @@ Start with style engine prefix, end with style engine suffix + lighting + text r
             for a in scene_type_assignments
         ])
 
-        system_prompt = f"""You are a visual director creating 3D editorial mannequin render image prompts for AI animation.
+        # Build system prompt based on pipeline type
+        if is_youtube:
+            system_prompt = f"""You are a visual director creating cinematic photorealistic image prompts for a YouTube documentary channel.
+
+YOUR TASK: Divide this scene into {target_count} visual segments ({min_count}-{max_count} range) and create image prompts.
+
+=== STYLE: CINEMATIC PHOTOREALISTIC DOSSIER ===
+Dark moody atmosphere, desaturated color palette, Rembrandt lighting, deep shadows,
+shallow depth of field, subtle film grain, documentary photography style, shot on Arri Alexa,
+16:9 cinematic composition, epic scale. Think investigative documentary meets editorial photography.
+
+=== CRITICAL DURATION RULE ===
+- Each segment: ~{words_per_segment} words (±5 words)
+- Ensures 6-10 second display per image
+- Balance word counts - no segment 2x longer than another
+
+=== PROMPT ARCHITECTURE (120-150 words) ===
+CRITICAL: Style prefix goes FIRST - models weight early tokens more heavily.
+
+[STYLE_PREFIX] + [SHOT TYPE] + [SCENE COMPOSITION] + [SUBJECT] + [ENVIRONMENTAL DETAIL] + [STYLE_SUFFIX]
+
+1. STYLE PREFIX (always first, ~25 words):
+   "{style_prefix}"
+
+2. SHOT TYPE (~6 words): Use the assigned shot prefix
+
+3. SCENE COMPOSITION (~20 words): Real-world environment
+   - Describe a REAL place: "a dimly lit trading floor", "a cavernous government vault"
+   - Use photorealistic settings, NOT stylized 3D worlds
+
+4. SUBJECT (~25 words): Real people in real situations (NOT mannequins)
+   - Silhouetted figures, partially lit faces, hands on documents
+   - Groups of people in institutional settings
+   - Objects that tell stories: stacks of currency, sealed documents, empty chairs
+
+5. ENVIRONMENTAL DETAIL (~35 words): Background that reinforces the story
+   - Monitors displaying data, stacks of files, institutional architecture
+   - Visual metaphors using real objects: "an empty vault", "a bridge with missing sections"
+   - Scale and atmosphere: vast halls, narrow corridors, towering stacks
+
+6. STYLE SUFFIX (~30 words):
+   "{style_suffix}"
+
+=== DOCUMENTARY CAMERA PATTERN ===
+{scene_type_guidance}
+
+=== DO NOT ===
+- Use mannequin, clay, 3D render, or illustration references
+- Include text or labels in images
+- Describe abstract economic concepts — make them VISUAL
+- Use double quotes inside prompts (use single quotes)
+
+=== DO ===
+- Describe photorealistic environments with cinematic lighting
+- Use real-world visual metaphors: vaults, bridges, corridors, trading floors
+- Include atmospheric details: dust, haze, lens flare, film grain
+- Focus on dramatic lighting contrasts: warm vs cold, shadow vs highlight
+
+=== OUTPUT FORMAT (JSON only, no markdown) ===
+{{
+  "segments": [
+    {{
+      "text": "The narration text for this segment...",
+      "image_prompt": "{style_prefix} [shot type] [scene composition], [subject], [environmental detail]{style_suffix}",
+      "shot_type": "wide_establishing"
+    }}
+  ]
+}}
+
+=== SHOT TYPE VALUES ===
+- wide_establishing (aerial, overhead, establishing shots)
+- isometric_diorama (3/4 angle miniature world view)
+- medium_human_story (subject at medium distance)
+- close_up_vignette (tight focus on object/detail)
+- data_landscape (charts, graphs as physical objects)
+- split_screen (divided frame comparison)
+- pull_back_reveal (starts close, reveals wider context)
+- overhead_map (top-down view)
+- journey_shot (movement through space)"""
+
+        else:
+            system_prompt = f"""You are a visual director creating 3D editorial mannequin render image prompts for AI animation.
 
 YOUR TASK: Divide this scene into {target_count} visual segments ({min_count}-{max_count} range) and create image prompts.
 
@@ -898,7 +997,7 @@ CRITICAL: Style engine prefix goes FIRST - models weight early tokens more heavi
 [STYLE_ENGINE_PREFIX] + [SHOT TYPE] + [SCENE COMPOSITION] + [FOCAL SUBJECT] + [ENVIRONMENTAL STORYTELLING] + [STYLE_ENGINE_SUFFIX + LIGHTING] + [TEXT RULE]
 
 1. STYLE_ENGINE_PREFIX (always first, ~18 words):
-   "{STYLE_ENGINE_PREFIX}"
+   "{style_prefix}"
 
 2. SHOT TYPE (~6 words): Use the assigned shot prefix
 
@@ -917,7 +1016,7 @@ CRITICAL: Style engine prefix goes FIRST - models weight early tokens more heavi
    - Data made physical: "bar charts on chrome clipboards", "embossed metal numerals '36T'"
 
 6. STYLE_ENGINE_SUFFIX + LIGHTING (~30 words):
-   "{STYLE_ENGINE_SUFFIX}, [warm description] vs [cool description]"
+   "{style_suffix}, [warm description] vs [cool description]"
 
 7. TEXT RULE (always last):
    - Default: "{TEXT_RULE_NO_TEXT}"
@@ -951,7 +1050,7 @@ Example 2 (MEDIUM HUMAN STORY):
   "segments": [
     {{
       "text": "The narration text for this segment...",
-      "image_prompt": "{STYLE_ENGINE_PREFIX} [shot type] [scene composition], [focal subject with body language], [environmental storytelling], {STYLE_ENGINE_SUFFIX}, [lighting], {TEXT_RULE_NO_TEXT}",
+      "image_prompt": "{style_prefix} [shot type] [scene composition], [focal subject with body language], [environmental storytelling], {style_suffix}, [lighting], {TEXT_RULE_NO_TEXT}",
       "shot_type": "wide_establishing"
     }}
   ]
@@ -968,7 +1067,9 @@ Example 2 (MEDIUM HUMAN STORY):
 - overhead_map (top-down view)
 - journey_shot (movement through space)"""
 
-        prompt = f"""Segment this scene narration into {target_count} visual concepts using 3D mannequin render style:
+        # Build user prompt based on pipeline type
+        if is_youtube:
+            prompt = f"""Segment this scene narration into {target_count} visual concepts using cinematic photorealistic dossier style:
 
 SCENE TEXT:
 {scene_text}
@@ -977,7 +1078,20 @@ REQUIRED SHOT ASSIGNMENTS:
 {scene_type_guidance}
 
 Return JSON with segments array. Each segment has text, image_prompt, and shot_type.
-CRITICAL: Every prompt MUST start with "{STYLE_ENGINE_PREFIX}"
+CRITICAL: Every prompt MUST start with "{style_prefix}"
+REMEMBER: 120-150 words per prompt. Every word must describe something VISUAL.
+NO mannequins, NO 3D renders, NO clay — photorealistic cinematic documentary style ONLY."""
+        else:
+            prompt = f"""Segment this scene narration into {target_count} visual concepts using 3D mannequin render style:
+
+SCENE TEXT:
+{scene_text}
+
+REQUIRED SHOT ASSIGNMENTS:
+{scene_type_guidance}
+
+Return JSON with segments array. Each segment has text, image_prompt, and shot_type.
+CRITICAL: Every prompt MUST start with "{style_prefix}"
 REMEMBER: {PROMPT_MIN_WORDS}-{PROMPT_MAX_WORDS} words per prompt. Every word must describe something VISUAL."""
 
         response = await self.generate(

@@ -950,7 +950,8 @@ class VideoPipeline:
 
             print(f"  Scene {scene_number}: {voice_duration:.0f}s → {target_images} images (~{words_per_segment} words each)")
 
-            # Call Anthropic to segment into concepts (uses Documentary Animation Prompt System v2)
+            # Call Anthropic to segment into concepts
+            # YouTube pipeline uses cinematic dossier style (NOT mannequin)
             concepts = await self.anthropic.segment_scene_into_concepts(
                 scene_text=scene_text,
                 target_count=target_images,
@@ -958,6 +959,7 @@ class VideoPipeline:
                 max_count=max_images,
                 words_per_segment=words_per_segment,
                 scene_number=scene_number,
+                pipeline_type="youtube",
             )
 
             # Create records with calculated durations (capped at 6-10s range)
