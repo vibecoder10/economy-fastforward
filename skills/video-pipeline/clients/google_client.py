@@ -208,12 +208,24 @@ class GoogleClient:
     
     def search_folder_contains(self, name_part: str) -> Optional[dict]:
         """Search for a folder whose name contains the given string.
-        
+
         Args:
             name_part: Partial folder name to search for
-            
+
         Returns:
             First matching folder dict or None
+        """
+        results = self.search_folders_contains(name_part)
+        return results[0] if results else None
+
+    def search_folders_contains(self, name_part: str) -> list:
+        """Search for ALL folders whose name contains the given string.
+
+        Args:
+            name_part: Partial folder name to search for
+
+        Returns:
+            List of matching folder dicts (id, name, mimeType)
         """
         escaped_name = name_part.replace("'", "\\'")
         query = f"name contains '{escaped_name}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
@@ -225,8 +237,7 @@ class GoogleClient:
             ).execute()
 
         results = self._retry_with_backoff(_search)
-        files = results.get("files", [])
-        return files[0] if files else None
+        return results.get("files", [])
 
     def search_file(self, name: str, folder_id: str) -> Optional[dict]:
         """Search for a file by name in a specific folder."""

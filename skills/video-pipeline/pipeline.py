@@ -2334,9 +2334,47 @@ class VideoPipeline:
         else:
             print(f"  ✅ All {len(all_images)} images present - ready to render")
 
-        # Get project folder
-        folder = self.google.get_or_create_folder(self.video_title)
-        folder_id = folder["id"]
+        # Find the existing Google Drive folder with assets
+        # Use contains-search to handle special characters and slight name differences,
+        # then pick the folder that actually has Scene files in it.
+        folder_id = None
+        # Step 1: Try exact match first
+        exact = self.google.search_folder(self.video_title)
+        if exact:
+            files_in = self.google.list_files_in_folder(exact["id"])
+            scene_files = [f for f in files_in if f["name"].startswith("Scene")]
+            if scene_files:
+                folder_id = exact["id"]
+                print(f"  📂 Found Drive folder (exact match): {exact['name']} ({len(scene_files)} scene files)")
+
+        # Step 2: If exact match has no assets, search by partial title
+        if not folder_id:
+            # Use the first few significant words to find the folder
+            import re as _re
+            # Strip special chars, take first ~40 chars as search key
+            search_key = _re.sub(r'[^\w\s]', '', self.video_title).strip()[:40].strip()
+            candidates = self.google.search_folders_contains(search_key)
+            print(f"  🔍 Searching Drive for '{search_key}' — found {len(candidates)} candidate folders")
+
+            best_folder = None
+            best_count = 0
+            for cand in candidates:
+                files_in = self.google.list_files_in_folder(cand["id"])
+                scene_files = [f for f in files_in if f["name"].startswith("Scene")]
+                print(f"    📁 {cand['name']}: {len(scene_files)} scene files")
+                if len(scene_files) > best_count:
+                    best_count = len(scene_files)
+                    best_folder = cand
+
+            if best_folder and best_count > 0:
+                folder_id = best_folder["id"]
+                print(f"  📂 Using Drive folder: {best_folder['name']} ({best_count} scene files)")
+
+        # Step 3: Last resort — create a new folder (for fresh runs)
+        if not folder_id:
+            print(f"  ⚠️ No existing Drive folder found with assets, creating new one")
+            folder = self.google.get_or_create_folder(self.video_title)
+            folder_id = folder["id"]
 
         # Export props
         props = await self.package_for_remotion()
