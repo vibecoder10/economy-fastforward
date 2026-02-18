@@ -110,9 +110,13 @@ def main():
         "npx", "remotion", "render",
         "Main",
         str(output_file),
-        "--props", str(props_file)
+        "--props", str(props_file),
+        "--concurrency=1",
+        "--gl=swangle",
+        "--timeout=180000",
+        "--offthreadvideo-cache-size-in-bytes=536870912",
     ]
-    
+
     result = subprocess.run(render_cmd, cwd=remotion_dir, capture_output=False)
     
     if result.returncode != 0:
