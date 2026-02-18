@@ -3028,7 +3028,8 @@ async def main():
 
     # === DISCOVERY SCANNER ===
     if len(sys.argv) > 1 and sys.argv[1] == "--discover":
-        from discovery_scanner import run_discovery, format_ideas_for_slack
+        from discovery_scanner import run_discovery, format_ideas_for_slack, build_option_map
+        from discovery_tracker import save_discovery_message
 
         focus = " ".join(sys.argv[2:]).strip() if len(sys.argv) > 2 else None
         focus_msg = f" (focus: {focus})" if focus else ""
@@ -3037,14 +3038,34 @@ async def main():
         print(f"🔍 DISCOVERY SCANNER — Scanning headlines{focus_msg}")
         print("=" * 60)
 
-        result = await run_discovery(
-            anthropic_client=pipeline.anthropic,
-            focus=focus,
-        )
+        try:
+            result = await run_discovery(
+                anthropic_client=pipeline.anthropic,
+                focus=focus,
+            )
+        except Exception as e:
+            error_msg = f"Discovery scanner crashed: {e}"
+            print(f"\n❌ {error_msg}")
+            try:
+                pipeline.slack.send_message(
+                    f"❌ *5 AM Discovery Scan FAILED*\n"
+                    f"```{error_msg}```\n"
+                    f"No ideas were generated. Run `discover` manually to retry."
+                )
+            except Exception:
+                pass
+            return
 
         ideas = result.get("ideas", [])
         if not ideas:
             print("\n⚠️ No ideas found. Try with a different focus keyword.")
+            try:
+                pipeline.slack.send_message(
+                    "🔍 *Daily Discovery Scan* ran at 5 AM but found no strong ideas today.\n"
+                    "Try running `discover [focus]` manually with a specific topic."
+                )
+            except Exception:
+                pass
             return
 
         print(f"\nFound {len(ideas)} ideas:\n")
@@ -3060,6 +3081,7 @@ async def main():
 
         # Save to Airtable
         print("Saving to Airtable (Idea Concepts)...")
+        saved_record_ids = []
         for i, idea in enumerate(ideas, 1):
             title_opts = idea.get("title_options", [])
             title = title_opts[0]["title"] if title_opts else "Untitled"
@@ -3080,17 +3102,64 @@ async def main():
             }
             try:
                 record = pipeline.airtable.create_idea(idea_data, source="discovery_scanner")
+                saved_record_ids.append(record.get("id"))
                 print(f"  ✅ Saved idea {i}: {record.get('id')} — {title}")
             except Exception as e:
+                saved_record_ids.append(None)
                 print(f"  ❌ Failed to save idea {i}: {e}")
 
-        # Notify via Slack
+        # Post interactive Slack message with emoji reactions for idea selection
+        # This lets the user wake up and click to choose an idea
         try:
-            slack_msg = format_ideas_for_slack(result)
-            pipeline.slack.send_message(slack_msg)
-            print("\nSent to Slack!")
+            from slack_sdk import WebClient
+            slack_token = os.getenv("SLACK_BOT_TOKEN")
+            slack_channel = os.getenv("SLACK_CHANNEL_ID", "C0A9U1X8NSW")
+            slack_web = WebClient(token=slack_token)
+
+            slack_msg = (
+                "☀️ *Good Morning! Daily Discovery Scan Complete*\n"
+                "React with 1️⃣ 2️⃣ or 3️⃣ to approve an idea — I'll auto-research it and queue it for the 8 AM pipeline run.\n\n"
+            )
+            slack_msg += format_ideas_for_slack(result)
+
+            response = slack_web.chat_postMessage(
+                channel=slack_channel,
+                text=slack_msg,
+            )
+            msg_ts = response.get("ts", "")
+
+            if msg_ts:
+                # Build option map: one emoji per title option (idea + title)
+                option_map = build_option_map(ideas)
+                emoji_names = ["one", "two", "three", "four", "five", "six", "seven", "eight", "nine"]
+                emojis_to_add = emoji_names[:len(option_map)]
+
+                for emoji in emojis_to_add:
+                    try:
+                        slack_web.reactions_add(
+                            channel=slack_channel,
+                            name=emoji,
+                            timestamp=msg_ts,
+                        )
+                    except Exception as e:
+                        print(f"  ⚠️ Failed to add reaction {emoji}: {e}")
+
+                # Persist tracking data so the Slack bot (pipeline_control.py)
+                # can handle the reaction when the user clicks
+                save_discovery_message(msg_ts, ideas, saved_record_ids)
+                print(f"\n✅ Interactive Slack message posted (ts={msg_ts})")
+                print(f"   {len(option_map)} options with emoji reactions — waiting for your choice!")
+            else:
+                print("\n⚠️ Slack message posted but couldn't get timestamp for reactions")
+
         except Exception as e:
-            print(f"\n⚠️ Could not send Slack notification: {e}")
+            print(f"\n⚠️ Could not send interactive Slack notification: {e}")
+            # Fallback: send plain message
+            try:
+                pipeline.slack.send_message(format_ideas_for_slack(result))
+                print("   Sent plain Slack message as fallback")
+            except Exception:
+                pass
 
         return
 
@@ -3332,15 +3401,71 @@ async def main():
 
     if len(sys.argv) > 1 and sys.argv[1] == "--run-queue":
         # Process ALL videos in pipeline until nothing left to do
-        # Respects Ryan's gate: only processes videos at "Ready For Scripting" or beyond
+        # Scans all Airtable tables and processes every stage:
+        # Ready For Scripting → Script → Voice → Image Prompts → Images → Thumbnail → Ready To Render
         # STOPS on any error — never silently advances past failures
         print("=" * 60)
-        print("🔄 PIPELINE QUEUE MODE - Processing Until Empty")
+        print("🔄 PIPELINE QUEUE MODE - Processing All Stages To Render")
         print("=" * 60)
-        print("\nThis will process all videos from 'Ready For Scripting' → 'Done'")
-        print("Videos at 'Idea Logged' are SKIPPED (awaiting your approval)\n")
+
+        # PRE-FLIGHT: Process any ideas stuck at "Approved" status
+        # This catches ideas approved via Airtable or emoji reactions where
+        # research hasn't been triggered yet
+        print("\n🔍 Pre-flight: Checking for ideas needing research...")
+        try:
+            from approval_watcher import ApprovalWatcher
+            watcher = ApprovalWatcher(
+                anthropic_client=pipeline.anthropic,
+                airtable_client=pipeline.airtable,
+                slack_client=pipeline.slack,
+            )
+            approved_results = await watcher.check_and_process()
+            if approved_results:
+                print(f"  ✅ Researched {len(approved_results)} approved idea(s)")
+                for r in approved_results:
+                    print(f"     → {r.get('headline', 'N/A')}")
+            else:
+                print("  No pending approvals found")
+        except Exception as e:
+            print(f"  ⚠️ Approval pre-flight failed: {e}")
+            # Non-fatal — continue with pipeline
+
+        print("\nScanning all tables for work. Processing stages:")
+        print("  Script → Voice → Image Prompts → Images → Thumbnail → Ready To Render")
+        print("  Videos at 'Idea Logged' are SKIPPED (awaiting your approval)\n")
+
+        # Notify Slack that the daily pipeline run has started
+        try:
+            # Quick scan of what's in the pipeline
+            status_summary = []
+            for status_name in [
+                pipeline.STATUS_READY_SCRIPTING,
+                pipeline.STATUS_READY_VOICE,
+                pipeline.STATUS_READY_IMAGE_PROMPTS,
+                pipeline.STATUS_READY_IMAGES,
+                pipeline.STATUS_READY_THUMBNAIL,
+            ]:
+                ideas_at_status = pipeline.airtable.get_ideas_by_status(status_name, limit=10)
+                if ideas_at_status:
+                    titles = [i.get("Video Title", "Untitled")[:40] for i in ideas_at_status]
+                    status_summary.append(f"  • *{status_name}*: {', '.join(titles)}")
+
+            if status_summary:
+                pipeline.slack.send_message(
+                    "🔄 *8 AM Pipeline Run Starting*\n"
+                    "Scanning all tables and processing every stage through to Ready To Render.\n\n"
+                    "*Work found:*\n" + "\n".join(status_summary)
+                )
+            else:
+                pipeline.slack.send_message(
+                    "🔄 *8 AM Pipeline Run Starting*\n"
+                    "Scanning tables... no videos currently queued for processing."
+                )
+        except Exception:
+            pass
 
         processed = 0
+        steps_log = []  # Track what was done for the summary
         max_iterations = 100  # Safety limit
 
         while processed < max_iterations:
@@ -3359,7 +3484,19 @@ async def main():
             if result.get("status") == "idle":
                 print("\n✅ Queue empty! All approved videos processed.")
                 try:
-                    pipeline.slack.send_message(f"✅ Pipeline queue complete: {processed} steps processed successfully.")
+                    if processed > 0:
+                        summary_lines = "\n".join(f"  • {s}" for s in steps_log[-10:])
+                        pipeline.slack.send_message(
+                            f"✅ *Pipeline queue complete!* {processed} steps processed.\n\n"
+                            f"*Steps completed:*\n{summary_lines}\n\n"
+                            f"All videos have been processed through to their next stage. "
+                            f"Videos at *Ready To Render* are waiting for you to render."
+                        )
+                    else:
+                        pipeline.slack.send_message(
+                            "✅ *Pipeline queue complete* — nothing to process. "
+                            "All videos are either at Idea Logged (awaiting approval) or already Done/Ready To Render."
+                        )
                 except Exception:
                     pass
                 break
@@ -3386,10 +3523,15 @@ async def main():
                 break
 
             processed += 1
+            bot_name = result.get('bot', 'Unknown')
+            video_title = result.get('video_title', 'Unknown')
+            new_status = result.get('new_status', 'Unknown')
+            steps_log.append(f"{bot_name}: _{video_title}_ → {new_status}")
+
             print(f"\n--- Completed step {processed} ---")
-            print(f"    Video: {result.get('video_title', 'Unknown')}")
-            print(f"    Bot: {result.get('bot', 'Unknown')}")
-            print(f"    New Status: {result.get('new_status', 'Unknown')}")
+            print(f"    Video: {video_title}")
+            print(f"    Bot: {bot_name}")
+            print(f"    New Status: {new_status}")
 
             # Small delay between steps to avoid rate limits
             await asyncio.sleep(2)

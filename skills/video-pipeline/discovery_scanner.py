@@ -405,8 +405,10 @@ async def run_discovery(
 def format_ideas_for_slack(result: dict) -> str:
     """Format discovery results as a readable Slack message.
 
-    Produces a mobile-friendly Slack message with numbered ideas,
-    title options, hooks, and appeal scores.
+    Each title option gets its own number so the user can select
+    both the idea AND the specific title they want.
+
+    For 3 ideas with 2 titles each, generates up to 6 numbered options.
 
     Args:
         result: Output from DiscoveryScanner.scan()
@@ -418,20 +420,34 @@ def format_ideas_for_slack(result: dict) -> str:
     if not ideas:
         return "No ideas found. Try running with a different focus keyword."
 
+    # Number emojis for up to 9 options
+    number_emojis = [
+        "1\ufe0f\u20e3", "2\ufe0f\u20e3", "3\ufe0f\u20e3",
+        "4\ufe0f\u20e3", "5\ufe0f\u20e3", "6\ufe0f\u20e3",
+        "7\ufe0f\u20e3", "8\ufe0f\u20e3", "9\ufe0f\u20e3",
+    ]
+
     lines = ["*Discovery Scanner Results*\n"]
+    option_num = 0  # Running count across all ideas
 
     for i, idea in enumerate(ideas, 1):
-        emoji = ["1\ufe0f\u20e3", "2\ufe0f\u20e3", "3\ufe0f\u20e3"][i - 1]
         appeal = idea.get("estimated_appeal", "?")
+        source = idea.get("headline_source", "Unknown source")
 
-        lines.append(f"{emoji} *Idea {i}* (Appeal: {appeal}/10)")
-        lines.append(f"_{idea.get('headline_source', 'Unknown source')}_\n")
+        lines.append(f"*--- Idea {i} ---* (Appeal: {appeal}/10)")
+        lines.append(f"_{source}_\n")
 
-        # Title options
+        # Each title option gets its own selectable number
         for j, title_opt in enumerate(idea.get("title_options", []), 1):
+            if option_num < len(number_emojis):
+                emoji = number_emojis[option_num]
+            else:
+                emoji = f"({option_num + 1})"
             formula_id = title_opt.get("formula_id", "?")
             title = title_opt.get("title", "Untitled")
-            lines.append(f"  *Title {j}* ({formula_id}): {title}")
+            lines.append(f"{emoji}  *{title}*")
+            lines.append(f"      _Formula: {formula_id}_")
+            option_num += 1
 
         lines.append("")
 
@@ -453,11 +469,36 @@ def format_ideas_for_slack(result: dict) -> str:
         lines.append("\n" + "-" * 40 + "\n")
 
     lines.append(
-        "React with 1\ufe0f\u20e3 2\ufe0f\u20e3 or 3\ufe0f\u20e3 "
-        "to approve an idea for deep research."
+        f"React with a number to pick your idea *and* title.\n"
+        f"I'll auto-research it and queue it for the pipeline."
     )
 
     return "\n".join(lines)
+
+
+def build_option_map(ideas: list[dict]) -> list[dict]:
+    """Build a flat list mapping option numbers to (idea_index, title_index).
+
+    Used by both the Slack bot and cron discovery to map emoji reactions
+    to the correct idea + title combination.
+
+    Args:
+        ideas: List of idea dicts from discovery scanner
+
+    Returns:
+        List of dicts with 'idea_index', 'title_index', 'idea', 'title'
+    """
+    options = []
+    for i, idea in enumerate(ideas):
+        for j, title_opt in enumerate(idea.get("title_options", [])):
+            options.append({
+                "idea_index": i,
+                "title_index": j,
+                "idea": idea,
+                "title": title_opt.get("title", "Untitled"),
+                "formula_id": title_opt.get("formula_id", ""),
+            })
+    return options
 
 
 def infer_framework_angle(idea: dict) -> str:
