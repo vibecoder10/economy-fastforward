@@ -1055,17 +1055,17 @@ async def handle_cron(message, say):
         return
 
     if "on" in text or "setup" in text:
-        # Install all cron jobs
+        # Install all cron jobs (CRON_TZ ensures times are Pacific, not UTC)
         try:
-            all_entries = f"{DISCOVER_ENTRY}\\n{QUEUE_ENTRY}\\n{HEALTHCHECK_ENTRY}\\n{APPROVAL_ENTRY}"
+            all_entries = f"CRON_TZ=America/Los_Angeles\\n{DISCOVER_ENTRY}\\n{QUEUE_ENTRY}\\n{HEALTHCHECK_ENTRY}\\n{APPROVAL_ENTRY}"
             result = subprocess.run(
                 ["bash", "-c", f'(crontab -l 2>/dev/null | grep -v "{GREP_PATTERN}"; echo -e "{all_entries}") | crontab -'],
                 capture_output=True, text=True, timeout=10,
             )
             await say(
-                ":clock5: Pipeline cron jobs installed!\n"
-                "• *5:00 AM daily* → `--discover` (scan headlines, post ideas to Slack)\n"
-                "• *8:00 AM daily* → `--run-queue` (process all stages through to Ready To Render)\n"
+                ":clock5: Pipeline cron jobs installed! (All times in Pacific)\n"
+                "• *5:00 AM PT daily* → `--discover` (scan headlines, post ideas to Slack)\n"
+                "• *8:00 AM PT daily* → `--run-queue` (process all stages through to Ready To Render)\n"
                 "• *Every 15 min* → Bot health check (auto-restart if Slack bot dies)\n"
                 "• *Every 30 min* → Approval watcher (catch manual Airtable approvals)\n"
                 "_Discovery: 10 min timeout. Pipeline: 4 hour timeout._"

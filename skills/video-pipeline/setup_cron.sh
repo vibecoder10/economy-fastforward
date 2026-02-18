@@ -9,7 +9,7 @@
 #   3. Every 15 min — Bot health check (restarts Slack bot if it died, notifies you)
 #   4. Every 30 min — Approval watcher (catches manual Airtable approvals)
 #
-# Times are in the system's local timezone.
+# Times are in US/Pacific (America/Los_Angeles) via CRON_TZ.
 # Logs are written to /tmp/pipeline-*.log
 #
 # To view installed cron jobs: crontab -l
@@ -36,13 +36,16 @@ CRON_ENTRIES=$(cat <<EOF
 # Economy FastForward Pipeline Cron Jobs
 # Installed by setup_cron.sh — $(date)
 
-# 5:00 AM — Daily idea discovery scan
+# All times are US/Pacific (handles PST/PDT automatically)
+CRON_TZ=America/Los_Angeles
+
+# 5:00 AM PT — Daily idea discovery scan
 # Pulls latest code, then runs discovery scanner to find new video ideas
 # Posts interactive Slack message with emoji reactions so you wake up and choose an idea
 # Timeout: 10 minutes max (discovery should take <2 min)
 0 5 * * * cd $REPO_DIR && git pull origin main --ff-only >> /tmp/pipeline-discover.log 2>&1; cd $PIPELINE_DIR && timeout 600 $PYTHON3 pipeline.py --discover >> /tmp/pipeline-discover.log 2>&1
 
-# 8:00 AM — Daily pipeline queue run
+# 8:00 AM PT — Daily pipeline queue run
 # First processes any pending approvals, then runs all stages:
 # Ready For Scripting → Script → Voice → Image Prompts → Images → Thumbnail → Ready To Render
 # Timeout: 4 hours max (image generation can be slow)
@@ -73,8 +76,8 @@ fi
 echo "  ✅ Cron jobs installed!"
 echo ""
 echo "  Scheduled:"
-echo "    • 5:00 AM daily    → Discovery scan (post ideas to Slack)"
-echo "    • 8:00 AM daily    → Pipeline queue (process all stages to render)"
+echo "    • 5:00 AM PT daily → Discovery scan (post ideas to Slack)"
+echo "    • 8:00 AM PT daily → Pipeline queue (process all stages to render)"
 echo "    • Every 15 min     → Bot health check (auto-restart if down)"
 echo "    • Every 30 min     → Approval watcher (catch manual approvals)"
 echo ""
