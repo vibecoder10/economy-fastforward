@@ -5,7 +5,7 @@ import { EconomyVideoAnimated } from "./compositions/EconomyVideoAnimated";
 // Each scene is approximately 60 seconds of audio
 const SCENE_DURATION_SECONDS = 60;
 const TOTAL_SCENES = 20;
-const FPS = 30;
+const FPS = 24;
 
 export const RemotionRoot: React.FC = () => {
     return (

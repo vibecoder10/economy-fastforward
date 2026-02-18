@@ -2,7 +2,7 @@ import { Config } from "@remotion/cli/config";
 
 Config.setVideoImageFormat("jpeg");
 Config.setOverwriteOutput(true);
-Config.setJpegQuality(80);
+Config.setJpegQuality(70);
 Config.setConcurrency(1);
 Config.setChromiumOpenGlRenderer("swangle");
 Config.setTimeoutInMilliseconds(180000);
