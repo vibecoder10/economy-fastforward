@@ -119,10 +119,10 @@ def main():
         "Main",
         str(output_file),
         "--props", str(props_file),
-        "--concurrency=1",
+        "--concurrency=3",
         "--gl=swangle",
         "--timeout=180000",
-        "--offthreadvideo-cache-size-in-bytes=536870912",
+        "--offthreadvideo-cache-size-in-bytes=1073741824",
     ]
 
     result = subprocess.run(render_cmd, cwd=remotion_dir, capture_output=False)
