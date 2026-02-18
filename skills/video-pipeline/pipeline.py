@@ -605,12 +605,11 @@ class VideoPipeline:
 
             return await self._run_step_safe("Thumbnail Bot", self.run_thumbnail_bot)
 
-        # 8. SKIPPED - Render Bot (manual only, Ryan triggers via Remotion Studio)
-        # idea = self.get_idea_by_status(self.STATUS_READY_TO_RENDER)
-        # if idea:
-        #     self._load_idea(idea)
-        #     return await self.run_render_bot()
-
+        # 8. Render Bot — one at a time, cleans assets between renders
+        idea = self.get_idea_by_status(self.STATUS_READY_TO_RENDER)
+        if idea:
+            self._load_idea(idea)
+            return await self._run_step_safe("Render Bot", self.run_render_bot)
 
         # No work to do
         print("\n✅ No videos ready for processing!")
@@ -2268,6 +2267,27 @@ class VideoPipeline:
             self._load_idea(idea)
 
         print(f"\n🎬 RENDER BOT: Processing '{self.video_title}'")
+        self.slack.send_message(
+            f"🎬 *Render starting:* _{self.video_title}_\n"
+            f"Running pre-flight checks, downloading assets, then rendering (concurrency=1, ~60-90 min)..."
+        )
+
+        # CLEAN PUBLIC/ DIR — prevents asset contamination between renders
+        # Each video needs its own Scene_XX_XX.png files; stale files from
+        # a previous render would produce wrong visuals.
+        remotion_dir = Path(__file__).parent.parent.parent / "remotion-video"
+        public_dir = remotion_dir / "public"
+        if public_dir.exists():
+            import glob as glob_mod
+            stale_audio = glob_mod.glob(str(public_dir / "Scene *.mp3"))
+            stale_images = glob_mod.glob(str(public_dir / "Scene_*.png"))
+            stale_videos = glob_mod.glob(str(public_dir / "Scene_*.mp4"))
+            removed = 0
+            for f in stale_audio + stale_images + stale_videos:
+                os.remove(f)
+                removed += 1
+            if removed:
+                print(f"  🧹 Cleaned {removed} stale assets from public/")
 
         # PRE-FLIGHT CHECK: Regenerate any missing/pending images before render
         # This prevents render failures due to missing image files
@@ -2294,9 +2314,7 @@ class VideoPipeline:
         # Export props
         props = await self.package_for_remotion()
 
-        remotion_dir = Path(__file__).parent.parent.parent / "remotion-video"
         props_file = remotion_dir / "props.json"
-        public_dir = remotion_dir / "public"
         public_dir.mkdir(exist_ok=True)
 
         import json
@@ -2343,7 +2361,13 @@ class VideoPipeline:
                                 print(f"    ❌ Scene {scene_num} image {img_index} failed: {e}")
 
         print(f"  ✅ Assets downloaded")
-        
+
+        scene_count = len(props.get("scenes", []))
+        self.slack.send_message(
+            f"⬇️ *Assets ready:* _{self.video_title}_\n"
+            f"{scene_count} scenes downloaded. Starting Remotion render now..."
+        )
+
         # Sanitize filename
         def sanitize(title):
             clean = re.sub(r'[^\w\s-]', '', title)
@@ -2369,16 +2393,29 @@ class VideoPipeline:
         
         if result.returncode != 0:
             print(f"  ❌ Render failed")
+            self.slack.send_message(
+                f"❌ *Render FAILED:* _{self.video_title}_\n"
+                f"Remotion exited with code {result.returncode}. Check logs on VPS."
+            )
             return {"error": "Render failed", "bot": "Render Bot"}
-        
+
         if not output_file.exists():
             print(f"  ❌ Output not found")
+            self.slack.send_message(
+                f"❌ *Render FAILED:* _{self.video_title}_\n"
+                f"Remotion finished but output file not found at {output_file}"
+            )
             return {"error": "Output file missing", "bot": "Render Bot"}
-        
-        print(f"  ✅ Rendered: {output_file}")
-        
+
+        file_size_mb = output_file.stat().st_size / (1024 * 1024)
+        print(f"  ✅ Rendered: {output_file} ({file_size_mb:.0f} MB)")
+
         # Upload to Drive
         print("  ☁️ Uploading to Google Drive...")
+        self.slack.send_message(
+            f"✅ *Render complete:* _{self.video_title}_ ({file_size_mb:.0f} MB)\n"
+            f"Uploading to Google Drive..."
+        )
         with open(output_file, "rb") as f:
             video_content = f.read()
         
@@ -2392,7 +2429,12 @@ class VideoPipeline:
         print(f"  ✅ Status updated to: {self.STATUS_DONE}")
         print(f"  🔗 Video: {drive_url}")
         
-        self.slack.send_message(f"🎬 Video rendered and uploaded!\n*{self.video_title}*\n{drive_url}")
+        self.slack.send_message(
+            f"🎉 *Video ready for review!*\n"
+            f"*{self.video_title}*\n\n"
+            f"📺 *Watch here:* {drive_url}\n\n"
+            f"Status updated to *Done*."
+        )
         
         return {
             "bot": "Render Bot",
@@ -3435,7 +3477,7 @@ async def main():
             # Non-fatal — continue with pipeline
 
         print("\nScanning all tables for work. Processing stages:")
-        print("  Script → Voice → Image Prompts → Images → Thumbnail → Ready To Render")
+        print("  Script → Voice → Image Prompts → Images → Thumbnail → Render → Done")
         print("  Videos at 'Idea Logged' are SKIPPED (awaiting your approval)\n")
 
         # Notify Slack that the daily pipeline run has started
@@ -3448,6 +3490,7 @@ async def main():
                 pipeline.STATUS_READY_IMAGE_PROMPTS,
                 pipeline.STATUS_READY_IMAGES,
                 pipeline.STATUS_READY_THUMBNAIL,
+                pipeline.STATUS_READY_TO_RENDER,
             ]:
                 ideas_at_status = pipeline.airtable.get_ideas_by_status(status_name, limit=10)
                 if ideas_at_status:
@@ -3457,7 +3500,7 @@ async def main():
             if status_summary:
                 pipeline.slack.send_message(
                     "🔄 *8 AM Pipeline Run Starting*\n"
-                    "Scanning all tables and processing every stage through to Ready To Render.\n\n"
+                    "Scanning all tables and processing every stage through to Done (including render).\n\n"
                     "*Work found:*\n" + "\n".join(status_summary)
                 )
             else:
@@ -3493,13 +3536,12 @@ async def main():
                         pipeline.slack.send_message(
                             f"✅ *Pipeline queue complete!* {processed} steps processed.\n\n"
                             f"*Steps completed:*\n{summary_lines}\n\n"
-                            f"All videos have been processed through to their next stage. "
-                            f"Videos at *Ready To Render* are waiting for you to render."
+                            f"All videos have been processed through to their next stage."
                         )
                     else:
                         pipeline.slack.send_message(
                             "✅ *Pipeline queue complete* — nothing to process. "
-                            "All videos are either at Idea Logged (awaiting approval) or already Done/Ready To Render."
+                            "All videos are either at Idea Logged (awaiting approval) or already Done."
                         )
                 except Exception:
                     pass
