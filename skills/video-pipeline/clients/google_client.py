@@ -332,6 +332,38 @@ class GoogleClient:
         file["webViewLink"] = f"https://drive.google.com/file/d/{file['id']}/view"
         return file
 
+    def download_file_to_local(self, file_id: str, local_path: str) -> str:
+        """Download a file from Google Drive to local filesystem.
+
+        Args:
+            file_id: Google Drive file ID
+            local_path: Local file path to save to
+
+        Returns:
+            The local_path on success
+
+        Raises:
+            Exception on download failure
+        """
+        import io as _io
+        from googleapiclient.http import MediaIoBaseDownload
+
+        def _download():
+            request = self.drive_service.files().get_media(fileId=file_id)
+            fh = _io.BytesIO()
+            downloader = MediaIoBaseDownload(fh, request)
+            done = False
+            while not done:
+                _, done = downloader.next_chunk()
+            return fh.getvalue()
+
+        content = self._retry_with_backoff(_download)
+
+        os.makedirs(os.path.dirname(local_path), exist_ok=True)
+        with open(local_path, "wb") as f:
+            f.write(content)
+        return local_path
+
     def make_file_public(self, file_id: str) -> str:
         """Make a file public and return its direct download link (webContentLink)."""
         def _set_permission():

@@ -3,16 +3,19 @@ Video Production Pipeline Orchestrator
 
 STATUS-DRIVEN WORKFLOW:
 The pipeline strictly follows Airtable Ideas table status:
-1. Idea Logged            - New idea, waiting to be picked up
-2. Ready For Scripting    - Script Bot will run
-3. Ready For Voice        - Voice Bot will run
-4. Ready For Image Prompts - Image Prompt Bot will run
-5. Ready For Images       - Image Bot will run
-6. Ready For Video Scripts - Video Script Bot will run
-7. Ready For Video Generation - Video Gen Bot will run
-8. Ready For Thumbnail    - Thumbnail Bot will run
-9. Done                   - Complete, do NOT process
-10. In Que                - Waiting in queue
+1.  Idea Logged              - New idea, waiting to be picked up
+2.  Ready For Scripting      - Script Bot will run
+3.  Ready For Voice          - Voice Bot will run
+4.  Ready For Image Prompts  - Image Prompt Bot will run
+5.  Ready For Images         - Image Bot will run
+6.  Ready For Video Scripts  - Video Script Bot will run
+7.  Ready For Video Generation - Video Gen Bot will run
+8.  Ready For Thumbnail      - Thumbnail Bot will run
+9.  Ready To Render          - Render Bot will run
+10. Done                     - All production assets complete, triggers render
+11. Rendered                 - Video rendered, triggers SEO + YouTube upload
+12. Uploaded (Draft)         - Unlisted YouTube draft, awaiting manual publish
+13. In Que                   - Waiting in queue
 
 RULES:
 - Always check Ideas table status FIRST
@@ -64,6 +67,8 @@ class VideoPipeline:
     STATUS_READY_THUMBNAIL = "Ready For Thumbnail"
     STATUS_DONE = "Done"
     STATUS_READY_TO_RENDER = "Ready To Render"
+    STATUS_RENDERED = "Rendered"
+    STATUS_UPLOADED_DRAFT = "Uploaded (Draft)"
     STATUS_IN_QUE = "In Que"
     
     def __init__(self):
@@ -607,11 +612,25 @@ class VideoPipeline:
 
             return await self._run_step_safe("Thumbnail Bot", self.run_thumbnail_bot)
 
-        # 8. Render Bot — one at a time, cleans assets between renders
+        # 8. Check for Done — transition to Ready To Render for rendering
+        idea = self.get_idea_by_status(self.STATUS_DONE)
+        if idea:
+            self._load_idea(idea)
+            print(f"  Video at 'Done', transitioning to 'Ready To Render': {self.video_title}")
+            self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_TO_RENDER)
+            return await self.run_next_step()
+
+        # 9. Render Bot — one at a time, cleans assets between renders
         idea = self.get_idea_by_status(self.STATUS_READY_TO_RENDER)
         if idea:
             self._load_idea(idea)
             return await self._run_step_safe("Render Bot", self.run_render_bot)
+
+        # 10. YouTube Upload Bot — generate SEO + upload as unlisted draft
+        idea = self.get_idea_by_status(self.STATUS_RENDERED)
+        if idea:
+            self._load_idea(idea)
+            return await self._run_step_safe("YouTube Upload Bot", self.run_youtube_upload_bot)
 
         # No work to do
         print("\n✅ No videos ready for processing!")
@@ -755,6 +774,13 @@ class VideoPipeline:
         # Create project folder in Google Drive
         folder = self.google.create_folder(self.video_title)
         self.project_folder_id = folder["id"]
+
+        # Store Drive folder link and ID in Airtable for all subsequent stages
+        folder_url = f"https://drive.google.com/drive/folders/{self.project_folder_id}"
+        self.airtable.update_idea_fields(self.current_idea_id, {
+            "Drive Folder Link": folder_url,
+            "Drive Folder ID": self.project_folder_id,
+        })
 
         # Create Google Doc for script (graceful fallback if API unavailable)
         doc = self.google.create_document(self.video_title, self.project_folder_id)
@@ -2379,6 +2405,18 @@ class VideoPipeline:
         output_file = remotion_dir / "out" / f"{safe_name}.mp4"
         output_file.parent.mkdir(exist_ok=True)
         
+        # Ensure node_modules are installed
+        if not (remotion_dir / "node_modules").exists():
+            print(f"  📦 Installing Remotion dependencies...")
+            install = subprocess.run(["npm", "install"], cwd=remotion_dir, capture_output=False)
+            if install.returncode != 0:
+                print(f"  ❌ npm install failed")
+                self.slack.send_message(
+                    f"❌ *Render FAILED:* _{self.video_title}_\n"
+                    f"`npm install` failed in remotion-video/. Check node/npm on VPS."
+                )
+                return {"error": "npm install failed", "bot": "Render Bot"}
+
         # Render (memory-optimized for 8GB VPS)
         print(f"  🎥 Rendering video (concurrency=1, this may take 60-90 minutes)...")
         render_cmd = [
@@ -2423,28 +2461,176 @@ class VideoPipeline:
         
         drive_file = self.google.upload_video(video_content, f"{safe_name}.mp4", folder_id)
         drive_url = f"https://drive.google.com/file/d/{drive_file['id']}/view"
-        
-        # Update Airtable
-        self.airtable.update_idea_field(self.current_idea_id, "Final Video", drive_url)
-        self.airtable.update_idea_status(self.current_idea_id, self.STATUS_DONE)
-        
-        print(f"  ✅ Status updated to: {self.STATUS_DONE}")
+
+        # Update Airtable — store in both legacy and new field names
+        self.airtable.update_idea_fields(self.current_idea_id, {
+            "Final Video": drive_url,
+            "Final Video URL": drive_url,
+        })
+        self.airtable.update_idea_status(self.current_idea_id, self.STATUS_RENDERED)
+
+        print(f"  ✅ Status updated to: {self.STATUS_RENDERED}")
         print(f"  🔗 Video: {drive_url}")
-        
+
         self.slack.send_message(
-            f"🎉 *Video ready for review!*\n"
-            f"*{self.video_title}*\n\n"
-            f"📺 *Watch here:* {drive_url}\n\n"
-            f"Status updated to *Done*."
+            f"✅ *Render complete:* _{self.video_title}_\n"
+            f"📺 *Drive link:* {drive_url}\n\n"
+            f"Generating SEO metadata and uploading to YouTube next..."
         )
-        
+
         return {
             "bot": "Render Bot",
             "video_title": self.video_title,
-            "new_status": self.STATUS_DONE,
+            "new_status": self.STATUS_RENDERED,
             "video_url": drive_url
         }
-    
+
+    async def run_youtube_upload_bot(self) -> dict:
+        """Generate SEO metadata and upload video to YouTube as unlisted draft.
+
+        REQUIRES: Ideas status = "Rendered"
+        UPDATES TO: "Uploaded (Draft)" when complete
+        """
+        if not self.current_idea:
+            idea = self.get_idea_by_status(self.STATUS_RENDERED)
+            if not idea:
+                return {"error": "No idea with status 'Rendered'"}
+            self._load_idea(idea)
+
+        print(f"\n📺 YOUTUBE UPLOAD BOT: Processing '{self.video_title}'")
+        self.slack.send_message(
+            f"📺 *YouTube upload starting:* _{self.video_title}_\n"
+            f"Generating SEO description and uploading as unlisted draft..."
+        )
+
+        # --- STEP 1: Generate SEO metadata ---
+        print("  Generating SEO metadata...")
+        try:
+            from bots.seo_generator import SEOGenerator
+
+            seo = SEOGenerator(self.anthropic)
+            scripts = self.airtable.get_scripts_by_title(self.video_title)
+            hook = self.current_idea.get("Hook Script", "")
+
+            seo_result = seo.generate(
+                title=self.video_title,
+                hook=hook,
+                scripts=scripts,
+            )
+
+            # Store SEO fields in Airtable
+            self.airtable.update_idea_fields(self.current_idea_id, {
+                "SEO Description": seo_result["description"],
+                "SEO Tags": seo_result["tags"],
+                "SEO Hashtags": seo_result["hashtags"],
+            })
+            print(f"  SEO metadata saved to Airtable")
+            print(f"    Hook line: {seo_result.get('hook_line', '')[:100]}")
+        except Exception as e:
+            print(f"  Warning: SEO generation failed: {e}")
+            print(f"  Continuing with basic description...")
+            # Fallback: use hook as description
+            fallback_desc = self.current_idea.get("Hook Script", self.video_title)
+            self.airtable.update_idea_field(
+                self.current_idea_id, "SEO Description", fallback_desc
+            )
+            seo_result = {
+                "description": fallback_desc,
+                "tags": "",
+                "hashtags": "",
+            }
+
+        # Reload idea to get updated fields
+        updated_ideas = self.airtable.get_ideas_by_status(self.STATUS_RENDERED, limit=10)
+        idea_fresh = None
+        for i in updated_ideas:
+            if i["id"] == self.current_idea_id:
+                idea_fresh = i
+                break
+        if not idea_fresh:
+            idea_fresh = self.current_idea
+            idea_fresh["SEO Description"] = seo_result["description"]
+            idea_fresh["SEO Tags"] = seo_result["tags"]
+
+        # --- STEP 2: Upload to YouTube ---
+        print("  Uploading to YouTube...")
+        try:
+            from bots.youtube_uploader import YouTubeUploader
+
+            yt = YouTubeUploader()
+            upload_result = yt.upload_from_drive(
+                google_client=self.google,
+                airtable_client=self.airtable,
+                idea=idea_fresh,
+            )
+
+            if upload_result.get("error"):
+                raise Exception(upload_result["error"])
+
+        except FileNotFoundError as e:
+            # YouTube token not configured — skip upload, just save SEO
+            print(f"  YouTube credentials not configured: {e}")
+            print(f"  SEO metadata saved. Upload skipped (run youtube_auth.py first).")
+            self.slack.send_message(
+                f"⚠️ *YouTube upload skipped:* _{self.video_title}_\n"
+                f"YouTube credentials not configured. SEO metadata saved.\n"
+                f"Run `python youtube_auth.py` on VPS, then re-run pipeline."
+            )
+            return {
+                "bot": "YouTube Upload Bot",
+                "video_title": self.video_title,
+                "warning": "YouTube credentials not configured",
+                "new_status": self.STATUS_RENDERED,
+            }
+        except Exception as e:
+            error_msg = f"YouTube upload failed: {e}"
+            print(f"  {error_msg}")
+            self.slack.send_message(
+                f"❌ *YouTube upload FAILED:* _{self.video_title}_\n"
+                f"```{e}```\n"
+                f"SEO metadata saved. Fix and re-run."
+            )
+            return {
+                "status": "failed",
+                "bot": "YouTube Upload Bot",
+                "video_title": self.video_title,
+                "error": error_msg,
+            }
+
+        # --- STEP 3: Update status and notify ---
+        self.airtable.update_idea_status(
+            self.current_idea_id, self.STATUS_UPLOADED_DRAFT
+        )
+
+        video_url = upload_result.get("video_url", "")
+        folder_id = self.current_idea.get("Drive Folder ID", "")
+        folder_url = (
+            f"https://drive.google.com/drive/folders/{folder_id}"
+            if folder_id else
+            self.current_idea.get("Drive Folder Link", "")
+        )
+        description_preview = seo_result.get("description", "")[:100]
+
+        # Slack notification for draft review (US-006)
+        self.slack.send_message(
+            f"📺 *Video Ready for Review!*\n\n"
+            f'"{self.video_title}"\n\n'
+            f"🎬 *YouTube Draft:* {video_url}\n"
+            f"📁 *Drive Folder:* {folder_url}\n"
+            f"📝 *Description preview:* {description_preview}...\n\n"
+            f"When ready, open YouTube Studio and set to Public."
+        )
+
+        print(f"  Status updated to: {self.STATUS_UPLOADED_DRAFT}")
+        print(f"  YouTube: {video_url}")
+
+        return {
+            "bot": "YouTube Upload Bot",
+            "video_title": self.video_title,
+            "new_status": self.STATUS_UPLOADED_DRAFT,
+            "video_url": video_url,
+        }
+
     async def package_for_remotion(self) -> dict:
         """Package all assets for Remotion video editing.
 
@@ -3523,7 +3709,7 @@ async def main():
             # Non-fatal — continue with pipeline
 
         print("\nScanning all tables for work. Processing stages:")
-        print("  Script → Voice → Image Prompts → Images → Thumbnail → Render → Done")
+        print("  Script → Voice → Image Prompts → Images → Thumbnail → Render → YouTube Upload")
         print("  Videos at 'Idea Logged' are SKIPPED (awaiting your approval)\n")
 
         # Notify Slack that the daily pipeline run has started
@@ -3540,7 +3726,9 @@ async def main():
                 pipeline.STATUS_READY_IMAGE_PROMPTS,
                 pipeline.STATUS_READY_IMAGES,
                 pipeline.STATUS_READY_THUMBNAIL,
+                pipeline.STATUS_DONE,
                 pipeline.STATUS_READY_TO_RENDER,
+                pipeline.STATUS_RENDERED,
             ]:
                 ideas_at_status = pipeline.airtable.get_ideas_by_status(status_name, limit=10)
                 if ideas_at_status:
@@ -3550,7 +3738,7 @@ async def main():
             if status_summary:
                 pipeline.slack.send_message(
                     f"🔄 *{time_str} Pipeline Run Starting*\n"
-                    "Scanning all tables and processing every stage through to Done (including render).\n\n"
+                    "Scanning all tables and processing every stage through to YouTube upload.\n\n"
                     "*Work found:*\n" + "\n".join(status_summary)
                 )
             else:
