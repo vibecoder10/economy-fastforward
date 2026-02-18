@@ -108,6 +108,11 @@ class VideoPipeline:
         self.current_idea_id = idea.get("id")
         self.video_title = idea.get("Video Title", "Untitled")
 
+        # Restore saved Google Drive folder ID (avoids name-based search issues)
+        saved_folder_id = idea.get("Drive Folder ID")
+        if saved_folder_id:
+            self.project_folder_id = saved_folder_id
+
         # Extract Core Image URL from the idea/project record
         core_image_attachments = idea.get("Core Image", [])
         if core_image_attachments and isinstance(core_image_attachments, list):
@@ -118,6 +123,8 @@ class VideoPipeline:
         print(f"\n📌 Loaded idea: {self.video_title}")
         print(f"   Status: {idea.get('Status')}")
         print(f"   ID: {self.current_idea_id}")
+        if self.project_folder_id:
+            print(f"   📂 Drive Folder: {self.project_folder_id}")
         if self.core_image_url:
             print(f"   🖼️ Core Image: {self.core_image_url[:80]}...")
         else:
@@ -2370,43 +2377,48 @@ class VideoPipeline:
         else:
             print(f"  ✅ All {len(all_images)} images present - ready to render")
 
-        # Find the existing Google Drive folder with assets
-        # Use contains-search to handle special characters and slight name differences,
-        # then pick the folder that actually has Scene files in it.
+        # Find the Google Drive folder with assets.
+        # Strategy: saved ID > exact name > keyword match > create new
         folder_id = None
-        # Step 1: Try exact match first
-        exact = self.google.search_folder(self.video_title)
-        if exact:
-            files_in = self.google.list_files_in_folder(exact["id"])
+
+        # Step 1: Use saved folder ID from Airtable (most reliable)
+        if self.project_folder_id:
+            files_in = self.google.list_files_in_folder(self.project_folder_id)
             scene_files = [f for f in files_in if f["name"].startswith("Scene")]
             if scene_files:
-                folder_id = exact["id"]
-                print(f"  📂 Found Drive folder (exact match): {exact['name']} ({len(scene_files)} scene files)")
+                folder_id = self.project_folder_id
+                print(f"  📂 Using saved Drive folder ID: {folder_id} ({len(scene_files)} scene files)")
 
-        # Step 2: If exact match has no assets, search by partial title
+        # Step 2: Exact name match
         if not folder_id:
-            # Use the first few significant words to find the folder
-            import re as _re
-            # Strip special chars, take first ~40 chars as search key
-            search_key = _re.sub(r'[^\w\s]', '', self.video_title).strip()[:40].strip()
-            candidates = self.google.search_folders_contains(search_key)
-            print(f"  🔍 Searching Drive for '{search_key}' — found {len(candidates)} candidate folders")
+            exact = self.google.search_folder(self.video_title)
+            if exact:
+                files_in = self.google.list_files_in_folder(exact["id"])
+                scene_files = [f for f in files_in if f["name"].startswith("Scene")]
+                if scene_files:
+                    folder_id = exact["id"]
+                    print(f"  📂 Found Drive folder (exact match): {exact['name']} ({len(scene_files)} scene files)")
 
-            best_folder = None
-            best_count = 0
-            for cand in candidates:
+        # Step 3: Keyword match — handles renamed titles (e.g. "$140B TRAP" vs "$140 Billion Liquidity Trap")
+        if not folder_id:
+            scored_folders = self.google.find_folder_by_keywords(self.video_title)
+            print(f"  🔍 Keyword search found {len(scored_folders)} candidate folders")
+
+            for cand, score in scored_folders[:5]:  # Check top 5 matches
                 files_in = self.google.list_files_in_folder(cand["id"])
                 scene_files = [f for f in files_in if f["name"].startswith("Scene")]
-                print(f"    📁 {cand['name']}: {len(scene_files)} scene files")
-                if len(scene_files) > best_count:
-                    best_count = len(scene_files)
-                    best_folder = cand
+                print(f"    📁 {cand['name']}: {len(scene_files)} scene files (score: {score})")
+                if scene_files:
+                    folder_id = cand["id"]
+                    print(f"  📂 Using Drive folder: {cand['name']} ({len(scene_files)} scene files)")
+                    # Save for future runs
+                    if self.current_idea_id:
+                        self.airtable.update_idea_fields(self.current_idea_id, {
+                            "Drive Folder ID": folder_id,
+                        })
+                    break
 
-            if best_folder and best_count > 0:
-                folder_id = best_folder["id"]
-                print(f"  📂 Using Drive folder: {best_folder['name']} ({best_count} scene files)")
-
-        # Step 3: Last resort — create a new folder (for fresh runs)
+        # Step 4: Last resort — create a new folder (for fresh runs)
         if not folder_id:
             print(f"  ⚠️ No existing Drive folder found with assets, creating new one")
             folder = self.google.get_or_create_folder(self.video_title)

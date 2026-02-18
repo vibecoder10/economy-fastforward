@@ -239,6 +239,59 @@ class GoogleClient:
         results = self._retry_with_backoff(_search)
         return results.get("files", [])
 
+    def find_folder_by_keywords(self, title: str) -> list:
+        """Find folders by keyword matching against the parent folder's subfolders.
+
+        Useful when the title has changed since the folder was created.
+        For example, title "China's $140B TRAP" should match folder
+        "China's $140 Billion Liquidity Trap".
+
+        Args:
+            title: Video title to match against folder names
+
+        Returns:
+            List of (folder_dict, score) tuples, sorted by score descending.
+            Score = number of matching keywords (3+ chars).
+        """
+        import re
+
+        # List all subfolders in the parent folder
+        query = (
+            f"'{self.parent_folder_id}' in parents and "
+            f"mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+        )
+
+        def _list():
+            return self.drive_service.files().list(
+                q=query,
+                fields="files(id, name, mimeType)",
+                pageSize=200,
+            ).execute()
+
+        results = self._retry_with_backoff(_list)
+        folders = results.get("files", [])
+
+        # Extract keywords from the title (words 3+ chars, lowercased)
+        title_words = set(
+            w.lower() for w in re.findall(r'[A-Za-z]+', title) if len(w) >= 3
+        )
+
+        if not title_words:
+            return []
+
+        scored = []
+        for folder in folders:
+            folder_words = set(
+                w.lower() for w in re.findall(r'[A-Za-z]+', folder["name"]) if len(w) >= 3
+            )
+            overlap = title_words & folder_words
+            if overlap:
+                scored.append((folder, len(overlap)))
+
+        # Sort by score descending
+        scored.sort(key=lambda x: x[1], reverse=True)
+        return scored
+
     def search_file(self, name: str, folder_id: str) -> Optional[dict]:
         """Search for a file by name in a specific folder."""
         escaped_name = name.replace("'", "\\'")
