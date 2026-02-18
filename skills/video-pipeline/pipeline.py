@@ -2328,7 +2328,10 @@ class VideoPipeline:
 
         # Download assets to public/ folder for Remotion
         print(f"  ⬇️ Downloading assets to public/...")
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        download_ok = 0
+        download_fail = 0
+        failed_assets = []
+        async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
             for scene in props.get("scenes", []):
                 scene_num = scene.get("sceneNumber", 0)
 
@@ -2337,13 +2340,29 @@ class VideoPipeline:
                 if voice_url:
                     audio_file = public_dir / f"Scene {scene_num}.mp3"
                     if not audio_file.exists():
-                        try:
-                            resp = await client.get(voice_url)
-                            resp.raise_for_status()
-                            audio_file.write_bytes(resp.content)
-                            print(f"    ✅ Scene {scene_num} audio")
-                        except Exception as e:
-                            print(f"    ❌ Scene {scene_num} audio failed: {e}")
+                        for attempt in range(3):
+                            try:
+                                resp = await client.get(voice_url)
+                                resp.raise_for_status()
+                                if len(resp.content) < 1000:
+                                    raise ValueError(f"Audio too small ({len(resp.content)} bytes), likely expired URL")
+                                audio_file.write_bytes(resp.content)
+                                print(f"    ✅ Scene {scene_num} audio ({len(resp.content) // 1024} KB)")
+                                download_ok += 1
+                                break
+                            except Exception as e:
+                                if attempt < 2:
+                                    print(f"    ⚠️ Scene {scene_num} audio attempt {attempt+1} failed: {e}, retrying...")
+                                    import asyncio as _aio
+                                    await _aio.sleep(2)
+                                else:
+                                    print(f"    ❌ Scene {scene_num} audio FAILED after 3 attempts: {e}")
+                                    failed_assets.append(f"Scene {scene_num} audio")
+                                    download_fail += 1
+                else:
+                    print(f"    ⚠️ Scene {scene_num} has no voice URL!")
+                    failed_assets.append(f"Scene {scene_num} audio (no URL)")
+                    download_fail += 1
 
                 # Download images
                 for img in scene.get("images", []):
@@ -2352,13 +2371,45 @@ class VideoPipeline:
                     if img_url:
                         img_file = public_dir / f"Scene_{str(scene_num).zfill(2)}_{str(img_index).zfill(2)}.png"
                         if not img_file.exists():
-                            try:
-                                resp = await client.get(img_url)
-                                resp.raise_for_status()
-                                img_file.write_bytes(resp.content)
-                                print(f"    ✅ Scene {scene_num} image {img_index}")
-                            except Exception as e:
-                                print(f"    ❌ Scene {scene_num} image {img_index} failed: {e}")
+                            for attempt in range(3):
+                                try:
+                                    resp = await client.get(img_url)
+                                    resp.raise_for_status()
+                                    if len(resp.content) < 1000:
+                                        raise ValueError(f"Image too small ({len(resp.content)} bytes), likely expired URL")
+                                    img_file.write_bytes(resp.content)
+                                    print(f"    ✅ Scene {scene_num} image {img_index} ({len(resp.content) // 1024} KB)")
+                                    download_ok += 1
+                                    break
+                                except Exception as e:
+                                    if attempt < 2:
+                                        await _aio.sleep(2)
+                                    else:
+                                        print(f"    ❌ Scene {scene_num} image {img_index} FAILED: {e}")
+                                        failed_assets.append(f"Scene {scene_num} image {img_index}")
+                                        download_fail += 1
+                    else:
+                        print(f"    ⚠️ Scene {scene_num} image {img_index} has no URL!")
+                        failed_assets.append(f"Scene {scene_num} image {img_index} (no URL)")
+                        download_fail += 1
+
+        # Validate downloads — abort if critical assets are missing
+        print(f"  📊 Downloads: {download_ok} OK, {download_fail} failed")
+        if download_fail > 0:
+            fail_list = "\n".join(f"  • {a}" for a in failed_assets[:10])
+            extra = f"\n  ... and {len(failed_assets) - 10} more" if len(failed_assets) > 10 else ""
+            print(f"  ❌ Failed assets:\n{fail_list}{extra}")
+
+            if download_fail > download_ok * 0.3:
+                # More than 30% failed — something is fundamentally wrong
+                self.slack.send_message(
+                    f"❌ *Render ABORTED:* _{self.video_title}_\n"
+                    f"Too many asset downloads failed ({download_fail} of {download_ok + download_fail}).\n"
+                    f"Failed:\n{fail_list}{extra}\n\n"
+                    f"This usually means Airtable attachment URLs expired. "
+                    f"Try running the render again — fresh URLs will be fetched."
+                )
+                return {"error": f"{download_fail} asset downloads failed", "bot": "Render Bot"}
 
         print(f"  ✅ Assets downloaded")
 
