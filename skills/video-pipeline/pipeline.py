@@ -2377,6 +2377,18 @@ class VideoPipeline:
         output_file = remotion_dir / "out" / f"{safe_name}.mp4"
         output_file.parent.mkdir(exist_ok=True)
         
+        # Ensure node_modules are installed
+        if not (remotion_dir / "node_modules").exists():
+            print(f"  📦 Installing Remotion dependencies...")
+            install = subprocess.run(["npm", "install"], cwd=remotion_dir, capture_output=False)
+            if install.returncode != 0:
+                print(f"  ❌ npm install failed")
+                self.slack.send_message(
+                    f"❌ *Render FAILED:* _{self.video_title}_\n"
+                    f"`npm install` failed in remotion-video/. Check node/npm on VPS."
+                )
+                return {"error": "npm install failed", "bot": "Render Bot"}
+
         # Render (memory-optimized for 8GB VPS)
         print(f"  🎥 Rendering video (concurrency=1, this may take 60-90 minutes)...")
         render_cmd = [

@@ -100,12 +100,20 @@ def main():
         json.dump(props, f, indent=2)
     print(f"   Saved to: {props_file}")
     
+    # Ensure node_modules are installed
+    if not (remotion_dir / "node_modules").exists():
+        print("\n📦 Installing Remotion dependencies...")
+        install = subprocess.run(["npm", "install"], cwd=remotion_dir, capture_output=False)
+        if install.returncode != 0:
+            print("❌ npm install failed")
+            return
+
     # Render video
     print("\n🎥 Rendering video (this may take 30-60 minutes)...")
     safe_name = sanitize_filename(title)
     output_file = remotion_dir / "out" / f"{safe_name}.mp4"
     output_file.parent.mkdir(exist_ok=True)
-    
+
     render_cmd = [
         "npx", "remotion", "render",
         "Main",
