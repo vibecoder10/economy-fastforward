@@ -2463,19 +2463,6 @@ class VideoPipeline:
                     print(f"    ❌ {fname} FAILED: {e}")
                     failed_assets.append(fname)
                     download_fail += 1
-                continue
-
-            try:
-                content = self.google.download_file(fid)
-                if len(content) < 1000:
-                    raise ValueError(f"File too small ({len(content)} bytes)")
-                dest.write_bytes(content)
-                print(f"    ✅ {fname} ({len(content) // 1024} KB)")
-                download_ok += 1
-            except Exception as e:
-                print(f"    ❌ {fname} FAILED: {e}")
-                failed_assets.append(fname)
-                download_fail += 1
 
         # Validate downloads — abort if critical assets are missing
         print(f"  📊 Downloads: {download_ok} OK, {download_fail} failed")
@@ -2562,6 +2549,7 @@ class VideoPipeline:
         ]
 
         # Stream render output to track progress and send Slack updates
+        print(f"  🎯 Render cmd: {' '.join(str(c) for c in render_cmd)}")
         render_start = _time.time()
         last_update_pct = 0  # Track last milestone we reported
         last_update_time = render_start
@@ -2580,9 +2568,17 @@ class VideoPipeline:
                 continue
             print(f"    {line}")
 
-            # Remotion outputs progress like "Rendered frame 500/28800 (1.7%)"
-            # or "ℹ 25% done" or percentage patterns
-            pct_match = re.search(r'(\d+(?:\.\d+)?)%', line)
+            # Remotion render progress: "Rendered frame 500/28800 (1.7%)"
+            # or "ℹ 25% done".  SKIP non-render lines like browser/bundle
+            # "Chrome Headless Shell (100%)" or "Bundled in 2s" to avoid
+            # false 100% reports before rendering even starts.
+            is_render_line = (
+                "render" in line.lower()
+                or "done" in line.lower()
+                or "frame" in line.lower()
+                or ("/" in line and "%" in line)
+            )
+            pct_match = re.search(r'(\d+(?:\.\d+)?)%', line) if is_render_line else None
             if pct_match:
                 current_pct = float(pct_match.group(1))
                 now = _time.time()
@@ -2981,8 +2977,17 @@ class VideoPipeline:
             segments = scenes_data[scene_num]
             ts_lines.append(f"    {scene_num}: [")
             for seg in segments:
-                # Escape quotes in text
-                escaped_text = seg["text"].replace('"', '\\"').replace('\n', ' ')
+                # Escape for TypeScript double-quoted strings:
+                # backslashes first, then quotes, then newlines
+                escaped_text = (
+                    seg["text"]
+                    .replace('\\', '\\\\')
+                    .replace('"', '\\"')
+                    .replace('\n', ' ')
+                    .replace('\r', ' ')
+                    .replace('`', '\\`')
+                    .replace('${', '\\${')
+                )
                 ts_lines.append(f'        {{ text: "{escaped_text}", duration: {seg["duration"]} }},')
             ts_lines.append("    ],")
 
