@@ -1865,6 +1865,39 @@ class VideoPipeline:
 
         print(f"  Expanded to {len(expanded_scenes)} image slots from {len(raw_scenes)} scenes")
 
+        # Pre-compute per-image sentence text so each image slot gets its
+        # portion of the narration instead of the full scene description.
+        from clients.sentence_utils import split_into_sentences
+
+        _scene_sentence_map: dict[int, list[str]] = {}
+        for scene in raw_scenes:
+            scene_num = scene.get("scene_number", 1)
+            scene_desc_full = scene.get("scene_description", scene.get("description", ""))
+            duration = scene.get("duration_seconds", 60)
+            image_count = max(1, round(duration / IMAGE_INTERVAL_SECONDS))
+
+            sentences = split_into_sentences(scene_desc_full)
+
+            # Distribute sentences across image slots
+            chunks: list[str] = []
+            if not sentences:
+                chunks = [scene_desc_full] * image_count
+            elif len(sentences) <= image_count:
+                # Fewer sentences than slots: one sentence per slot, reuse last for extras
+                for i in range(image_count):
+                    chunks.append(sentences[min(i, len(sentences) - 1)])
+            else:
+                # More sentences than slots: distribute evenly
+                base = len(sentences) // image_count
+                remainder = len(sentences) % image_count
+                idx = 0
+                for i in range(image_count):
+                    count = base + (1 if i < remainder else 0)
+                    chunks.append(" ".join(sentences[idx:idx + count]))
+                    idx += count
+
+            _scene_sentence_map[scene_num] = chunks
+
         # RESUME LOGIC: Check for existing prompts and skip scenes that already have them
         existing_images = self.airtable.get_all_images_for_video(self.video_title)
         existing_keys = {
@@ -1926,13 +1959,16 @@ class VideoPipeline:
             scene_num = scene_data.get("_source_scene_number", scene_data.get("scene_number", original_index + 1))
             segment_index = scene_data.get("_image_index", 1)
 
-            # Scene description from the scene list
+            # Per-image sentence text (split from full scene description)
             scene_desc = scene_data.get("scene_description", scene_data.get("description", ""))
+            sentence_chunks = _scene_sentence_map.get(scene_num, [])
+            img_idx = scene_data.get("_image_index", 1) - 1  # 0-based
+            sentence_text = sentence_chunks[img_idx] if img_idx < len(sentence_chunks) else scene_desc
 
             self.airtable.create_sentence_image_record(
                 scene_number=scene_num,
                 sentence_index=segment_index,
-                sentence_text=scene_desc,
+                sentence_text=sentence_text,
                 duration_seconds=IMAGE_INTERVAL_SECONDS,
                 image_prompt=sp["prompt"],
                 video_title=self.video_title,
