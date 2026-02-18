@@ -291,13 +291,11 @@ const KaraokeCaption: React.FC<{
     );
 };
 
-// Check if video file exists for this segment (Scene 1 has videos)
+// Check if a video file was explicitly provided for this segment
+// Returns non-null only when the imageFile is already an .mp4 path
 const getVideoFile = (imageFile: string): string | null => {
-    // Convert Scene_01_01.png to Scene_01_01.mp4
-    const videoFile = imageFile.replace('.png', '.mp4');
-    // Only Scene 1 has videos for now
-    if (videoFile.startsWith('Scene_01_')) {
-        return videoFile;
+    if (imageFile.endsWith('.mp4')) {
+        return imageFile;
     }
     return null;
 };
