@@ -26,8 +26,10 @@ RULES:
 import os
 import asyncio
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
+from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -3712,6 +3714,10 @@ async def main():
 
         # Notify Slack that the daily pipeline run has started
         try:
+            # Show actual Pacific time in the notification
+            now_pacific = datetime.now(ZoneInfo("America/Los_Angeles"))
+            time_str = now_pacific.strftime("%-I:%M %p PT")
+
             # Quick scan of what's in the pipeline
             status_summary = []
             for status_name in [
@@ -3731,13 +3737,13 @@ async def main():
 
             if status_summary:
                 pipeline.slack.send_message(
-                    "🔄 *8 AM Pipeline Run Starting*\n"
+                    f"🔄 *{time_str} Pipeline Run Starting*\n"
                     "Scanning all tables and processing every stage through to YouTube upload.\n\n"
                     "*Work found:*\n" + "\n".join(status_summary)
                 )
             else:
                 pipeline.slack.send_message(
-                    "🔄 *8 AM Pipeline Run Starting*\n"
+                    f"🔄 *{time_str} Pipeline Run Starting*\n"
                     "Scanning tables... no videos currently queued for processing."
                 )
         except Exception:
