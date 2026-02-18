@@ -20,7 +20,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 PIPELINE_DIR="$SCRIPT_DIR"
-PYTHON3="$(which python3)"
+PYTHON3="/home/clawd/pipeline-bot/venv/bin/python"
 
 echo "=================================================="
 echo "  Pipeline Cron Job Setup"
@@ -61,7 +61,7 @@ EOF
 )
 
 # Preserve any existing cron entries not from this script
-EXISTING=$(crontab -l 2>/dev/null | grep -v "pipeline-discover\|pipeline-queue\|pipeline-bot-health\|pipeline-approval\|Pipeline Cron\|setup_cron\|Daily idea\|Daily pipeline\|bot health\|Approval watcher" || true)
+EXISTING=$(crontab -l 2>/dev/null | grep -v "pipeline-discover\|pipeline-queue\|pipeline-bot-health\|pipeline-approval\|pipeline\.log\|Pipeline Cron\|setup_cron\|Daily idea\|Daily pipeline\|bot health\|Approval watcher\|run-queue\|--discover" || true)
 
 # Install combined crontab
 if [ -n "$EXISTING" ]; then

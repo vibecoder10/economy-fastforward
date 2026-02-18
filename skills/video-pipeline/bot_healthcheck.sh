@@ -8,7 +8,7 @@
 # Logs: /tmp/pipeline-bot-health.log
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PYTHON3="$(which python3 2>/dev/null || echo python3)"
+PYTHON3="/home/clawd/pipeline-bot/venv/bin/python"
 PID_FILE="/tmp/pipeline-bot.pid"
 BOT_SCRIPT="pipeline_control.py"
 
