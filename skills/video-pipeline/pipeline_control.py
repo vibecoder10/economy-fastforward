@@ -112,7 +112,7 @@ async def handle_help(message, say):
 - `logs` / `animlogs` - Check if a pipeline is running
 - `status` / `check` - Check current project status (both pipelines)
 - `update` - Pull latest code from GitHub (auto-restarts if changes)
-- `cron on` / `cron off` / `cron status` - Manage scheduled cron jobs (9 AM discover, 2 PM pipeline)
+- `cron on` / `cron off` / `cron status` - Manage scheduled cron jobs (5 AM discover, 8 AM pipeline)
 - `help` - Show this message
 
 _All commands are case-insensitive._
@@ -422,7 +422,7 @@ async def handle_discover(message, say, client):
 
     try:
         from clients.anthropic_client import AnthropicClient
-        from discovery_scanner import run_discovery, format_ideas_for_slack
+        from discovery_scanner import run_discovery, format_ideas_for_slack, build_option_map
 
         anthropic = AnthropicClient()
 
@@ -441,16 +441,17 @@ async def handle_discover(message, say, client):
             # Track this message for emoji reaction approval
             _discovery_messages[ts] = result.get("ideas", [])
 
-            # Add reaction emojis so user can click to approve
-            idea_count = len(result.get("ideas", []))
-            emojis = ["one", "two", "three"][:idea_count]
-            for emoji in emojis:
+            # Add one reaction emoji per title option (not per idea)
+            option_map = build_option_map(result.get("ideas", []))
+            emoji_names = ["one", "two", "three", "four", "five", "six", "seven", "eight", "nine"]
+            emojis_to_add = emoji_names[:len(option_map)]
+            for emoji in emojis_to_add:
                 try:
                     await client.reactions_add(channel=channel, name=emoji, timestamp=ts)
                 except Exception as e:
                     log.error(f"Failed to add reaction {emoji}: {e}")
 
-            log.info(f"Discovery posted: {idea_count} ideas, message_ts={ts}")
+            log.info(f"Discovery posted: {len(option_map)} options across {len(result.get('ideas', []))} ideas, message_ts={ts}")
 
     except Exception as e:
         await say(f":x: Discovery scan failed: {e}")
@@ -458,28 +459,76 @@ async def handle_discover(message, say, client):
 
 @app.event("reaction_added")
 async def handle_reaction_added(event, client):
-    """Handle emoji reactions — approve discovery ideas when 1/2/3 is reacted."""
+    """Handle emoji reactions — approve discovery ideas when a number is reacted.
+
+    Each number maps to a specific idea + title combination via build_option_map.
+    Checks both in-memory tracking (from Slack bot discover command) and
+    the shared tracker file (from cron job --discover runs).
+    """
+    from discovery_scanner import build_option_map
+    from discovery_tracker import get_discovery_message, remove_discovery_message
+
     reaction = event.get("reaction", "")
     user = event.get("user", "")
     item = event.get("item", {})
     item_ts = item.get("ts", "")
     channel = item.get("channel", "")
 
-    # Only handle number reactions on tracked discovery messages
-    reaction_map = {"one": 0, "two": 1, "three": 2}
-    if reaction not in reaction_map or item_ts not in _discovery_messages:
+    # Map reaction emoji names to 0-based option index
+    reaction_to_index = {
+        "one": 0, "two": 1, "three": 2,
+        "four": 3, "five": 4, "six": 5,
+        "seven": 6, "eight": 7, "nine": 8,
+    }
+    if reaction not in reaction_to_index:
         return
 
-    idea_index = reaction_map[reaction]
-    log.info(
-        f"Discovery reaction: {reaction} from {user} "
-        f"on {item_ts} -> idea {idea_index + 1}"
-    )
+    option_index = reaction_to_index[reaction]
 
-    await _handle_discovery_approval(client, channel, item_ts, idea_index)
+    # Check in-memory tracking first (from Slack bot discover command)
+    if item_ts in _discovery_messages:
+        ideas = _discovery_messages[item_ts]
+        option_map = build_option_map(ideas)
+        if option_index >= len(option_map):
+            return
+        selected = option_map[option_index]
+        log.info(
+            f"Discovery reaction (in-memory): {reaction} from {user} "
+            f"on {item_ts} -> idea {selected['idea_index'] + 1}, title: {selected['title']}"
+        )
+        await _handle_discovery_approval(
+            client, channel, item_ts,
+            selected["idea_index"],
+            selected_title=selected["title"],
+        )
+        return
+
+    # Check shared tracker file (from cron job --discover runs)
+    tracked = get_discovery_message(item_ts)
+    if tracked:
+        ideas = tracked.get("ideas", [])
+        airtable_ids = tracked.get("airtable_record_ids", [])
+        option_map = build_option_map(ideas)
+        if option_index >= len(option_map):
+            return
+        selected = option_map[option_index]
+        log.info(
+            f"Discovery reaction (cron-tracked): {reaction} from {user} "
+            f"on {item_ts} -> idea {selected['idea_index'] + 1}, title: {selected['title']}"
+        )
+        await _handle_cron_discovery_approval(
+            client, channel, item_ts,
+            selected["idea_index"], ideas, airtable_ids,
+            selected_title=selected["title"],
+        )
+        remove_discovery_message(item_ts)
+        return
 
 
-async def _handle_discovery_approval(client, channel: str, ts: str, idea_index: int):
+async def _handle_discovery_approval(
+    client, channel: str, ts: str, idea_index: int,
+    selected_title: str = None,
+):
     """Approve a discovery idea and auto-trigger deep research.
 
     Writes the chosen idea to Airtable as 'Approved', triggers
@@ -490,6 +539,7 @@ async def _handle_discovery_approval(client, channel: str, ts: str, idea_index: 
         channel: Slack channel ID
         ts: Message timestamp of the discovery results
         idea_index: 0-based index of the chosen idea
+        selected_title: Specific title chosen by user (if None, uses first title)
     """
     ideas = _discovery_messages.get(ts, [])
     if not ideas or idea_index >= len(ideas):
@@ -497,9 +547,9 @@ async def _handle_discovery_approval(client, channel: str, ts: str, idea_index: 
         return
 
     idea = ideas[idea_index]
-    # Use first title option as the video title
+    # Use the selected title, or fall back to first title option
     title_options = idea.get("title_options", [])
-    title = title_options[0]["title"] if title_options else "Untitled"
+    title = selected_title or (title_options[0]["title"] if title_options else "Untitled")
 
     await client.chat_postMessage(
         channel=channel,
@@ -585,6 +635,133 @@ async def _handle_discovery_approval(client, channel: str, ts: str, idea_index: 
 
     except Exception as e:
         log.error(f"Approval/research error: {e}", exc_info=True)
+        await client.chat_postMessage(
+            channel=channel,
+            text=f":x: Error processing approval: {e}",
+        )
+
+
+async def _handle_cron_discovery_approval(
+    client, channel: str, ts: str, idea_index: int,
+    ideas: list[dict], airtable_record_ids: list,
+    selected_title: str = None,
+):
+    """Approve a discovery idea from the cron job's tracked messages.
+
+    Unlike _handle_discovery_approval (which creates a new Airtable record),
+    this uses the record already created by the cron --discover run and
+    just updates its status + triggers research.
+
+    Args:
+        client: Slack WebClient for posting messages
+        channel: Slack channel ID
+        ts: Message timestamp of the discovery results
+        idea_index: 0-based index of the chosen idea
+        ideas: List of idea dicts from discovery scanner
+        airtable_record_ids: List of Airtable record IDs (parallel to ideas)
+        selected_title: Specific title chosen by user (if None, uses first title)
+    """
+    if not ideas or idea_index >= len(ideas):
+        log.warning(f"No ideas found for cron message ts={ts} index={idea_index}")
+        return
+
+    idea = ideas[idea_index]
+    title_options = idea.get("title_options", [])
+    title = selected_title or (title_options[0]["title"] if title_options else "Untitled")
+
+    # Get the existing Airtable record ID (already created by cron --discover)
+    record_id = None
+    if airtable_record_ids and idea_index < len(airtable_record_ids):
+        record_id = airtable_record_ids[idea_index]
+
+    await client.chat_postMessage(
+        channel=channel,
+        text=(
+            f":white_check_mark: Idea {idea_index + 1} approved: _{title}_\n"
+            f"Starting deep research..."
+        ),
+    )
+
+    try:
+        from clients.anthropic_client import AnthropicClient
+        from clients.airtable_client import AirtableClient
+        from research_agent import run_research
+
+        anthropic = AnthropicClient()
+        airtable = AirtableClient()
+
+        # If we have an existing record, update it; otherwise create new
+        if record_id:
+            airtable.update_idea_status(record_id, "Approved")
+            # Update Video Title to the user's chosen title
+            if selected_title:
+                try:
+                    airtable.update_idea_field(record_id, "Video Title", selected_title)
+                except Exception as e:
+                    log.warning(f"Could not update Video Title: {e}")
+            log.info(f"Updated existing Airtable record: {record_id} — {title}")
+        else:
+            # Fallback: create a new record (shouldn't normally happen)
+            idea_data = {
+                "viral_title": title,
+                "hook_script": idea.get("hook", ""),
+                "narrative_logic": {
+                    "past_context": idea.get("historical_parallel_hint", ""),
+                    "present_parallel": idea.get("our_angle", ""),
+                    "future_prediction": "",
+                },
+                "writer_guidance": idea.get("our_angle", ""),
+                "original_dna": json.dumps({
+                    "source": "discovery_scanner",
+                    "headline_source": idea.get("headline_source", ""),
+                    "formula_ids": [
+                        t.get("formula_id", "") for t in title_options
+                    ],
+                    "estimated_appeal": idea.get("estimated_appeal", 0),
+                }),
+            }
+            record = airtable.create_idea(idea_data, source="discovery_scanner")
+            record_id = record["id"]
+            airtable.update_idea_status(record_id, "Approved")
+
+        # Auto-trigger deep research
+        await client.chat_postMessage(
+            channel=channel,
+            text=f":microscope: Running deep research for: _{title}_",
+        )
+
+        payload = await run_research(
+            anthropic_client=anthropic,
+            topic=title,
+            context=idea.get("hook", "") + "\n" + idea.get("our_angle", ""),
+            airtable_client=None,
+        )
+
+        # Write research payload back to the record
+        research_json = json.dumps(payload)
+        try:
+            airtable.update_idea_field(record_id, "Research Payload", research_json)
+        except Exception as e:
+            if "UNKNOWN_FIELD_NAME" in str(e):
+                log.info("Research Payload field not yet in Airtable — skipping")
+            else:
+                log.warning(f"Could not write Research Payload: {e}")
+
+        # Advance status to Ready For Scripting (will be picked up by 8 AM pipeline)
+        airtable.update_idea_status(record_id, "Ready For Scripting")
+
+        await client.chat_postMessage(
+            channel=channel,
+            text=(
+                f":white_check_mark: Research complete for: _{title}_\n"
+                f"Headline: {payload.get('headline', title)}\n"
+                f"Status: *Ready For Scripting*\n"
+                f"The 8 AM pipeline run will pick this up automatically, or use `run` to start now."
+            ),
+        )
+
+    except Exception as e:
+        log.error(f"Cron discovery approval error: {e}", exc_info=True)
         await client.chat_postMessage(
             channel=channel,
             text=f":x: Error processing approval: {e}",
@@ -804,11 +981,11 @@ async def handle_cron(message, say):
 
     # Cron entry templates
     DISCOVER_ENTRY = (
-        f"0 9 * * * cd {REPO_DIR} && git pull origin main --ff-only >> /tmp/pipeline-discover.log 2>&1; "
+        f"0 5 * * * cd {REPO_DIR} && git pull origin main --ff-only >> /tmp/pipeline-discover.log 2>&1; "
         f"cd {BASE_DIR} && {PYTHON3} pipeline.py --discover >> /tmp/pipeline-discover.log 2>&1"
     )
     QUEUE_ENTRY = (
-        f"0 14 * * * cd {REPO_DIR} && git pull origin main --ff-only >> /tmp/pipeline-queue.log 2>&1; "
+        f"0 8 * * * cd {REPO_DIR} && git pull origin main --ff-only >> /tmp/pipeline-queue.log 2>&1; "
         f"cd {BASE_DIR} && {PYTHON3} pipeline.py --run-queue >> /tmp/pipeline-queue.log 2>&1"
     )
 
@@ -837,10 +1014,10 @@ async def handle_cron(message, say):
                 capture_output=True, text=True, timeout=10,
             )
             await say(
-                ":clock9: Pipeline cron jobs installed!\n"
-                "• *9 AM daily* → `--discover` (scan headlines for new ideas)\n"
-                "• *2 PM daily* → `--run-queue` (process pipeline from scripting to thumbnail)\n"
-                "_Times are in system timezone (UTC). Logs: /tmp/pipeline-discover.log, /tmp/pipeline-queue.log_"
+                ":clock5: Pipeline cron jobs installed!\n"
+                "• *5:00 AM daily* → `--discover` (scan headlines, post ideas to Slack for approval)\n"
+                "• *8:00 AM daily* → `--run-queue` (process pipeline from scripting through to Ready To Render)\n"
+                "_Times are in system timezone. Logs: /tmp/pipeline-discover.log, /tmp/pipeline-queue.log_"
             )
         except Exception as e:
             await say(f":x: Could not install cron jobs: {e}")
@@ -864,7 +1041,7 @@ async def handle_cron(message, say):
     # Default: show help
     await say(
         "*Cron Commands:*\n"
-        "• `cron on` / `cron setup` — Install 9 AM discover + 2 PM pipeline cron jobs\n"
+        "• `cron on` / `cron setup` — Install 5 AM discover + 8 AM pipeline cron jobs\n"
         "• `cron off` — Remove pipeline cron jobs\n"
         "• `cron status` — Show current cron schedule"
     )

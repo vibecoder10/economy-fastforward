@@ -4,8 +4,10 @@
 # Usage: bash setup_cron.sh
 #
 # This installs two cron jobs:
-#   1. 9 AM  — Daily idea discovery scan (finds new video ideas from headlines)
-#   2. 2 PM  — Daily pipeline queue run (processes all queued videos to completion)
+#   1. 5:00 AM — Daily idea discovery scan (finds new video ideas from headlines)
+#              Sends interactive Slack message with emoji reactions for idea selection
+#   2. 8:00 AM — Daily pipeline queue run (processes all queued videos to completion)
+#              Scans all tables, runs every stage from scripting through to Ready To Render
 #
 # Times are in the system's local timezone.
 # Logs are written to /tmp/pipeline-discover.log and /tmp/pipeline-queue.log
@@ -34,14 +36,16 @@ CRON_ENTRIES=$(cat <<EOF
 # Economy FastForward Pipeline Cron Jobs
 # Installed by setup_cron.sh — $(date)
 
-# 9 AM — Daily idea discovery scan
+# 5:00 AM — Daily idea discovery scan
 # Pulls latest code, then runs discovery scanner to find new video ideas
-0 9 * * * cd $REPO_DIR && git pull origin main --ff-only >> /tmp/pipeline-discover.log 2>&1; cd $PIPELINE_DIR && $PYTHON3 pipeline.py --discover >> /tmp/pipeline-discover.log 2>&1
+# Posts interactive Slack message with emoji reactions so you wake up and choose an idea
+0 5 * * * cd $REPO_DIR && git pull origin main --ff-only >> /tmp/pipeline-discover.log 2>&1; cd $PIPELINE_DIR && $PYTHON3 pipeline.py --discover >> /tmp/pipeline-discover.log 2>&1
 
-# 2 PM — Daily pipeline queue run
-# Processes all videos from 'Ready For Scripting' through 'Ready For Thumbnail'
+# 8:00 AM — Daily pipeline queue run
+# Scans all Airtable tables and processes every video through ALL stages:
+# Ready For Scripting → Script → Voice → Image Prompts → Images → Thumbnail → Ready To Render
 # Continues until all queued work is complete
-0 14 * * * cd $REPO_DIR && git pull origin main --ff-only >> /tmp/pipeline-queue.log 2>&1; cd $PIPELINE_DIR && $PYTHON3 pipeline.py --run-queue >> /tmp/pipeline-queue.log 2>&1
+0 8 * * * cd $REPO_DIR && git pull origin main --ff-only >> /tmp/pipeline-queue.log 2>&1; cd $PIPELINE_DIR && $PYTHON3 pipeline.py --run-queue >> /tmp/pipeline-queue.log 2>&1
 EOF
 )
 
@@ -58,8 +62,8 @@ fi
 echo "  ✅ Cron jobs installed!"
 echo ""
 echo "  Scheduled:"
-echo "    • 9 AM daily  → python3 pipeline.py --discover"
-echo "    • 2 PM daily  → python3 pipeline.py --run-queue"
+echo "    • 5:00 AM daily → python3 pipeline.py --discover"
+echo "    • 8:00 AM daily → python3 pipeline.py --run-queue"
 echo ""
 echo "  Logs:"
 echo "    • /tmp/pipeline-discover.log"
