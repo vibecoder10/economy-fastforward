@@ -112,7 +112,7 @@ async def handle_help(message, say):
 - `logs` / `animlogs` - Check if a pipeline is running
 - `status` / `check` - Check current project status (both pipelines)
 - `update` - Pull latest code from GitHub (auto-restarts if changes)
-- `cron on` / `cron off` / `cron status` - Manage scheduled cron jobs (5 AM discover, 8 AM pipeline)
+- `cron on` / `cron off` / `cron status` - Manage cron jobs (5 AM discover, 8 AM pipeline, health check, approvals)
 - `help` - Show this message
 
 _All commands are case-insensitive._
@@ -466,7 +466,10 @@ async def handle_reaction_added(event, client):
     the shared tracker file (from cron job --discover runs).
     """
     from discovery_scanner import build_option_map
-    from discovery_tracker import get_discovery_message, remove_discovery_message
+    from discovery_tracker import (
+        get_discovery_message, remove_discovery_message,
+        is_reaction_processed, mark_reaction_processed,
+    )
 
     reaction = event.get("reaction", "")
     user = event.get("user", "")
@@ -483,6 +486,11 @@ async def handle_reaction_added(event, client):
     if reaction not in reaction_to_index:
         return
 
+    # Duplicate click protection — check if this reaction was already handled
+    if is_reaction_processed(item_ts, reaction):
+        log.info(f"Ignoring duplicate reaction: {reaction} on {item_ts}")
+        return
+
     option_index = reaction_to_index[reaction]
 
     # Check in-memory tracking first (from Slack bot discover command)
@@ -496,6 +504,8 @@ async def handle_reaction_added(event, client):
             f"Discovery reaction (in-memory): {reaction} from {user} "
             f"on {item_ts} -> idea {selected['idea_index'] + 1}, title: {selected['title']}"
         )
+        # Mark as processed BEFORE starting work (prevents race with double-click)
+        mark_reaction_processed(item_ts, reaction, selected["title"])
         await _handle_discovery_approval(
             client, channel, item_ts,
             selected["idea_index"],
@@ -516,6 +526,8 @@ async def handle_reaction_added(event, client):
             f"Discovery reaction (cron-tracked): {reaction} from {user} "
             f"on {item_ts} -> idea {selected['idea_index'] + 1}, title: {selected['title']}"
         )
+        # Mark as processed BEFORE starting work
+        mark_reaction_processed(item_ts, reaction, selected["title"])
         await _handle_cron_discovery_approval(
             client, channel, item_ts,
             selected["idea_index"], ideas, airtable_ids,
@@ -982,42 +994,48 @@ async def handle_cron(message, say):
     # Cron entry templates
     DISCOVER_ENTRY = (
         f"0 5 * * * cd {REPO_DIR} && git pull origin main --ff-only >> /tmp/pipeline-discover.log 2>&1; "
-        f"cd {BASE_DIR} && {PYTHON3} pipeline.py --discover >> /tmp/pipeline-discover.log 2>&1"
+        f"cd {BASE_DIR} && timeout 600 {PYTHON3} pipeline.py --discover >> /tmp/pipeline-discover.log 2>&1"
     )
     QUEUE_ENTRY = (
         f"0 8 * * * cd {REPO_DIR} && git pull origin main --ff-only >> /tmp/pipeline-queue.log 2>&1; "
-        f"cd {BASE_DIR} && {PYTHON3} pipeline.py --run-queue >> /tmp/pipeline-queue.log 2>&1"
+        f"cd {BASE_DIR} && timeout 14400 {PYTHON3} pipeline.py --run-queue >> /tmp/pipeline-queue.log 2>&1"
+    )
+    HEALTHCHECK_ENTRY = (
+        f"*/15 * * * * cd {BASE_DIR} && bash bot_healthcheck.sh >> /tmp/pipeline-bot-health.log 2>&1"
+    )
+    APPROVAL_ENTRY = (
+        f"*/30 * * * * cd {BASE_DIR} && timeout 600 {PYTHON3} approval_watcher.py >> /tmp/pipeline-approval.log 2>&1"
     )
 
+    GREP_PATTERN = "pipeline-discover\\|pipeline-queue\\|pipeline-bot-health\\|pipeline-approval\\|Pipeline Cron\\|Daily idea\\|Daily pipeline\\|bot_healthcheck\\|approval_watcher"
+
     if "off" in text:
-        # Remove pipeline cron jobs
+        # Remove all pipeline cron jobs
         try:
             result = subprocess.run(
-                ["bash", "-c", "crontab -l 2>/dev/null | grep -v 'pipeline-discover\\|pipeline-queue\\|Pipeline Cron\\|Daily idea\\|Daily pipeline' | crontab -"],
+                ["bash", "-c", f"crontab -l 2>/dev/null | grep -v '{GREP_PATTERN}' | crontab -"],
                 capture_output=True, text=True, timeout=10,
             )
-            await say(":stop_sign: Pipeline cron jobs removed.")
+            await say(":stop_sign: All pipeline cron jobs removed (discover, pipeline, health check, approval watcher).")
         except Exception as e:
             await say(f":x: Could not remove cron jobs: {e}")
         return
 
     if "on" in text or "setup" in text:
-        # Install both cron jobs
+        # Install all cron jobs
         try:
-            cron_content = (
-                "# Economy FastForward Pipeline Cron Jobs\n"
-                f"{DISCOVER_ENTRY}\n"
-                f"{QUEUE_ENTRY}\n"
-            )
+            all_entries = f"{DISCOVER_ENTRY}\\n{QUEUE_ENTRY}\\n{HEALTHCHECK_ENTRY}\\n{APPROVAL_ENTRY}"
             result = subprocess.run(
-                ["bash", "-c", f'(crontab -l 2>/dev/null | grep -v "pipeline-discover\\|pipeline-queue\\|Pipeline Cron\\|Daily idea\\|Daily pipeline"; echo "{DISCOVER_ENTRY}"; echo "{QUEUE_ENTRY}") | crontab -'],
+                ["bash", "-c", f'(crontab -l 2>/dev/null | grep -v "{GREP_PATTERN}"; echo -e "{all_entries}") | crontab -'],
                 capture_output=True, text=True, timeout=10,
             )
             await say(
                 ":clock5: Pipeline cron jobs installed!\n"
-                "• *5:00 AM daily* → `--discover` (scan headlines, post ideas to Slack for approval)\n"
-                "• *8:00 AM daily* → `--run-queue` (process pipeline from scripting through to Ready To Render)\n"
-                "_Times are in system timezone. Logs: /tmp/pipeline-discover.log, /tmp/pipeline-queue.log_"
+                "• *5:00 AM daily* → `--discover` (scan headlines, post ideas to Slack)\n"
+                "• *8:00 AM daily* → `--run-queue` (process all stages through to Ready To Render)\n"
+                "• *Every 15 min* → Bot health check (auto-restart if Slack bot dies)\n"
+                "• *Every 30 min* → Approval watcher (catch manual Airtable approvals)\n"
+                "_Discovery: 10 min timeout. Pipeline: 4 hour timeout._"
             )
         except Exception as e:
             await say(f":x: Could not install cron jobs: {e}")
@@ -1041,8 +1059,8 @@ async def handle_cron(message, say):
     # Default: show help
     await say(
         "*Cron Commands:*\n"
-        "• `cron on` / `cron setup` — Install 5 AM discover + 8 AM pipeline cron jobs\n"
-        "• `cron off` — Remove pipeline cron jobs\n"
+        "• `cron on` / `cron setup` — Install all 4 cron jobs (discover, pipeline, health check, approvals)\n"
+        "• `cron off` — Remove all pipeline cron jobs\n"
         "• `cron status` — Show current cron schedule"
     )
 

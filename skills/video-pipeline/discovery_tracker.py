@@ -99,3 +99,69 @@ def remove_discovery_message(message_ts: str):
         del data[message_ts]
         _save_tracker(data)
         logger.info(f"Removed discovery message ts={message_ts}")
+
+
+# === Reaction deduplication ===
+# Prevents double-clicking an emoji from triggering duplicate research
+
+REACTION_LOG_FILE = "/tmp/pipeline-processed-reactions.json"
+
+
+def _load_reaction_log() -> dict:
+    """Load the processed reactions log."""
+    try:
+        if os.path.exists(REACTION_LOG_FILE):
+            with open(REACTION_LOG_FILE, "r") as f:
+                data = json.load(f)
+            # Prune entries older than 48 hours
+            now = time.time()
+            pruned = {
+                k: v for k, v in data.items()
+                if now - v.get("processed_at", 0) < EXPIRY_SECONDS
+            }
+            return pruned
+        return {}
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def _save_reaction_log(data: dict):
+    """Write reaction log to file."""
+    try:
+        with open(REACTION_LOG_FILE, "w") as f:
+            json.dump(data, f, indent=2)
+    except OSError as e:
+        logger.error(f"Could not save reaction log: {e}")
+
+
+def is_reaction_processed(message_ts: str, reaction: str) -> bool:
+    """Check if a reaction on a message has already been processed.
+
+    Args:
+        message_ts: Slack message timestamp
+        reaction: Emoji name (e.g., "one", "two")
+
+    Returns:
+        True if this reaction was already handled (duplicate click)
+    """
+    key = f"{message_ts}:{reaction}"
+    log = _load_reaction_log()
+    return key in log
+
+
+def mark_reaction_processed(message_ts: str, reaction: str, title: str = ""):
+    """Record that a reaction has been processed (for deduplication).
+
+    Args:
+        message_ts: Slack message timestamp
+        reaction: Emoji name
+        title: Title of the approved idea (for logging)
+    """
+    key = f"{message_ts}:{reaction}"
+    log = _load_reaction_log()
+    log[key] = {
+        "processed_at": time.time(),
+        "title": title,
+    }
+    _save_reaction_log(log)
+    logger.info(f"Marked reaction as processed: {key} ({title})")

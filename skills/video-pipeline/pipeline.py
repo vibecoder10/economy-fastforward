@@ -3038,10 +3038,23 @@ async def main():
         print(f"🔍 DISCOVERY SCANNER — Scanning headlines{focus_msg}")
         print("=" * 60)
 
-        result = await run_discovery(
-            anthropic_client=pipeline.anthropic,
-            focus=focus,
-        )
+        try:
+            result = await run_discovery(
+                anthropic_client=pipeline.anthropic,
+                focus=focus,
+            )
+        except Exception as e:
+            error_msg = f"Discovery scanner crashed: {e}"
+            print(f"\n❌ {error_msg}")
+            try:
+                pipeline.slack.send_message(
+                    f"❌ *5 AM Discovery Scan FAILED*\n"
+                    f"```{error_msg}```\n"
+                    f"No ideas were generated. Run `discover` manually to retry."
+                )
+            except Exception:
+                pass
+            return
 
         ideas = result.get("ideas", [])
         if not ideas:
@@ -3394,6 +3407,29 @@ async def main():
         print("=" * 60)
         print("🔄 PIPELINE QUEUE MODE - Processing All Stages To Render")
         print("=" * 60)
+
+        # PRE-FLIGHT: Process any ideas stuck at "Approved" status
+        # This catches ideas approved via Airtable or emoji reactions where
+        # research hasn't been triggered yet
+        print("\n🔍 Pre-flight: Checking for ideas needing research...")
+        try:
+            from approval_watcher import ApprovalWatcher
+            watcher = ApprovalWatcher(
+                anthropic_client=pipeline.anthropic,
+                airtable_client=pipeline.airtable,
+                slack_client=pipeline.slack,
+            )
+            approved_results = await watcher.check_and_process()
+            if approved_results:
+                print(f"  ✅ Researched {len(approved_results)} approved idea(s)")
+                for r in approved_results:
+                    print(f"     → {r.get('headline', 'N/A')}")
+            else:
+                print("  No pending approvals found")
+        except Exception as e:
+            print(f"  ⚠️ Approval pre-flight failed: {e}")
+            # Non-fatal — continue with pipeline
+
         print("\nScanning all tables for work. Processing stages:")
         print("  Script → Voice → Image Prompts → Images → Thumbnail → Ready To Render")
         print("  Videos at 'Idea Logged' are SKIPPED (awaiting your approval)\n")
