@@ -2377,52 +2377,41 @@ class VideoPipeline:
         else:
             print(f"  ✅ All {len(all_images)} images present - ready to render")
 
-        # Find the Google Drive folder with assets.
-        # Strategy: saved ID > exact name > keyword match > create new
-        folder_id = None
+        # Collect ALL matching Drive folders — assets may be scattered across
+        # duplicates created by earlier get_or_create_folder name-mismatch bugs.
+        # We download Scene files from every folder that has them.
+        asset_folders = []  # list of (folder_id, folder_name)
 
-        # Step 1: Use saved folder ID from Airtable (most reliable)
+        # Check saved folder ID from Airtable
         if self.project_folder_id:
             files_in = self.google.list_files_in_folder(self.project_folder_id)
             scene_files = [f for f in files_in if f["name"].startswith("Scene")]
             if scene_files:
-                folder_id = self.project_folder_id
-                print(f"  📂 Using saved Drive folder ID: {folder_id} ({len(scene_files)} scene files)")
+                asset_folders.append((self.project_folder_id, f"saved ({len(scene_files)} scene files)"))
 
-        # Step 2: Exact name match
-        if not folder_id:
-            exact = self.google.search_folder(self.video_title)
-            if exact:
-                files_in = self.google.list_files_in_folder(exact["id"])
-                scene_files = [f for f in files_in if f["name"].startswith("Scene")]
-                if scene_files:
-                    folder_id = exact["id"]
-                    print(f"  📂 Found Drive folder (exact match): {exact['name']} ({len(scene_files)} scene files)")
+        # Check exact name match
+        exact = self.google.search_folder(self.video_title)
+        if exact and exact["id"] not in [fid for fid, _ in asset_folders]:
+            files_in = self.google.list_files_in_folder(exact["id"])
+            scene_files = [f for f in files_in if f["name"].startswith("Scene")]
+            if scene_files:
+                asset_folders.append((exact["id"], f"{exact['name']} ({len(scene_files)} scene files)"))
 
-        # Step 3: Keyword match — handles renamed titles (e.g. "$140B TRAP" vs "$140 Billion Liquidity Trap")
-        if not folder_id:
-            scored_folders = self.google.find_folder_by_keywords(self.video_title)
-            print(f"  🔍 Keyword search found {len(scored_folders)} candidate folders")
+        # Keyword match — finds ALL related folders including duplicates
+        scored_folders = self.google.find_folder_by_keywords(self.video_title)
+        seen_ids = {fid for fid, _ in asset_folders}
+        for cand, score in scored_folders[:10]:
+            if cand["id"] in seen_ids:
+                continue
+            files_in = self.google.list_files_in_folder(cand["id"])
+            scene_files = [f for f in files_in if f["name"].startswith("Scene")]
+            if scene_files:
+                asset_folders.append((cand["id"], f"{cand['name']} ({len(scene_files)} scene files, score:{score})"))
+                seen_ids.add(cand["id"])
 
-            for cand, score in scored_folders[:5]:  # Check top 5 matches
-                files_in = self.google.list_files_in_folder(cand["id"])
-                scene_files = [f for f in files_in if f["name"].startswith("Scene")]
-                print(f"    📁 {cand['name']}: {len(scene_files)} scene files (score: {score})")
-                if scene_files:
-                    folder_id = cand["id"]
-                    print(f"  📂 Using Drive folder: {cand['name']} ({len(scene_files)} scene files)")
-                    # Save for future runs
-                    if self.current_idea_id:
-                        self.airtable.update_idea_fields(self.current_idea_id, {
-                            "Drive Folder ID": folder_id,
-                        })
-                    break
-
-        # Step 4: Last resort — create a new folder (for fresh runs)
-        if not folder_id:
-            print(f"  ⚠️ No existing Drive folder found with assets, creating new one")
-            folder = self.google.get_or_create_folder(self.video_title)
-            folder_id = folder["id"]
+        print(f"  📂 Found {len(asset_folders)} Drive folders with assets:")
+        for fid, desc in asset_folders:
+            print(f"    📁 {desc}")
 
         # Export props
         props = await self.package_for_remotion()
@@ -2439,29 +2428,41 @@ class VideoPipeline:
         print(f"  📝 Generating segmentData.ts...")
         self.generate_segment_data_ts(remotion_dir)
 
-        # Download assets from Google Drive to public/ folder for Remotion
-        # Drive URLs are permanent — no expiration like Airtable attachments
+        # Download assets from ALL matching Drive folders to public/
+        # First file wins — if Scene 1.mp3 is in folder A, we skip it in folder B
         print(f"  ⬇️ Downloading assets from Google Drive...")
-        drive_files = self.google.list_files_in_folder(folder_id)
-        print(f"    Found {len(drive_files)} files in Drive folder")
-
         download_ok = 0
         download_fail = 0
         failed_assets = []
 
-        for df in drive_files:
-            fname = df["name"]
-            fid = df["id"]
+        for folder_id, folder_desc in asset_folders:
+            drive_files = self.google.list_files_in_folder(folder_id)
+            for df in drive_files:
+                fname = df["name"]
+                fid = df["id"]
 
-            # Only download Scene audio (.mp3) and image (.png) files
-            is_audio = fname.startswith("Scene ") and fname.endswith(".mp3")
-            is_image = fname.startswith("Scene_") and fname.endswith(".png")
-            if not is_audio and not is_image:
-                continue
+                # Only download Scene audio (.mp3) and image (.png) files
+                is_audio = fname.startswith("Scene ") and fname.endswith(".mp3")
+                is_image = fname.startswith("Scene_") and fname.endswith(".png")
+                if not is_audio and not is_image:
+                    continue
 
-            dest = public_dir / fname
-            if dest.exists():
-                download_ok += 1
+                dest = public_dir / fname
+                if dest.exists():
+                    # Already downloaded from a previous folder
+                    continue
+
+                try:
+                    content = self.google.download_file(fid)
+                    if len(content) < 1000:
+                        raise ValueError(f"File too small ({len(content)} bytes)")
+                    dest.write_bytes(content)
+                    print(f"    ✅ {fname} ({len(content) // 1024} KB)")
+                    download_ok += 1
+                except Exception as e:
+                    print(f"    ❌ {fname} FAILED: {e}")
+                    failed_assets.append(fname)
+                    download_fail += 1
                 continue
 
             try:
@@ -2486,10 +2487,10 @@ class VideoPipeline:
         if download_ok == 0:
             self.slack.send_message(
                 f"❌ *Render ABORTED:* _{self.video_title}_\n"
-                f"No assets found in Google Drive folder.\n"
-                f"Make sure audio (.mp3) and image (.png) files are in the Drive folder."
+                f"No Scene assets found across {len(asset_folders)} Drive folder(s).\n"
+                f"Make sure Scene *.mp3 and Scene_*.png files exist in Google Drive."
             )
-            return {"error": "No assets in Drive folder", "bot": "Render Bot"}
+            return {"error": "No assets in Drive folders", "bot": "Render Bot"}
 
         if download_fail > download_ok * 0.3:
             fail_list = "\n".join(f"  • {a}" for a in failed_assets[:10])
@@ -2503,10 +2504,27 @@ class VideoPipeline:
 
         print(f"  ✅ Assets downloaded from Google Drive")
 
+        # Verify every scene has its audio file (Remotion will 404 without it)
         scene_count = len(props.get("scenes", []))
+        missing_audio = []
+        for i in range(1, scene_count + 1):
+            audio_path = public_dir / f"Scene {i}.mp3"
+            if not audio_path.exists():
+                missing_audio.append(f"Scene {i}.mp3")
+
+        if missing_audio:
+            missing_list = ", ".join(missing_audio[:10])
+            print(f"  ❌ Missing audio files: {missing_list}")
+            self.slack.send_message(
+                f"❌ *Render ABORTED:* _{self.video_title}_\n"
+                f"Missing audio: {missing_list}\n"
+                f"Searched {len(asset_folders)} Drive folder(s) — these files were not found anywhere."
+            )
+            return {"error": f"Missing audio: {missing_list}", "bot": "Render Bot"}
+
         self.slack.send_message(
             f"⬇️ *Assets ready:* _{self.video_title}_\n"
-            f"{scene_count} scenes downloaded. Starting Remotion render now..."
+            f"{scene_count} scenes, all audio verified. Starting Remotion render now..."
         )
 
         # Sanitize filename
