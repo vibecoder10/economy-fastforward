@@ -182,6 +182,23 @@ class SlackClient:
             f"Ready for final video assembly in Remotion!"
         )
     
+    def notify_youtube_draft_ready(
+        self,
+        video_title: str,
+        youtube_url: str,
+        drive_folder_url: str,
+        description_preview: str,
+    ) -> dict:
+        """Notify that a video is uploaded as an unlisted YouTube draft."""
+        return self.send_message(
+            f"📺 *Video Ready for Review!*\n\n"
+            f'"{video_title}"\n\n'
+            f"🎬 *YouTube Draft:* {youtube_url}\n"
+            f"📁 *Drive Folder:* {drive_folder_url}\n"
+            f"📝 *Description preview:* {description_preview}...\n\n"
+            f"When ready, open YouTube Studio and set to Public."
+        )
+
     def notify_error(self, step: str, error: str) -> dict:
         """Notify of an error in the pipeline."""
         return self.send_message(
