@@ -54,6 +54,7 @@ class AirtableClient:
         - Video ID          : Text           — written by pipeline
         - Scene Count       : Number         — written by pipeline
         - Validation Status : Text           — written by pipeline
+        - Drive Folder ID   : Text           — Google Drive folder ID, saved by script bot
 
     DO NOT DELETE any fields yet — this audit is for documentation only.
     ===================================================================
