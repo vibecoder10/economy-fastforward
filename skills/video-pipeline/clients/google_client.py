@@ -437,6 +437,41 @@ class GoogleClient:
 
         return f"https://drive.google.com/uc?export=download&id={file_id}"
 
+    def list_files_in_folder(self, folder_id: str) -> list:
+        """List all files in a Google Drive folder.
+
+        Args:
+            folder_id: The folder ID to list files from
+
+        Returns:
+            List of dicts with id, name, and mimeType
+        """
+        query = f"'{folder_id}' in parents and trashed = false"
+
+        def _list():
+            return self.drive_service.files().list(
+                q=query,
+                fields="files(id, name, mimeType, size)",
+                pageSize=200,
+            ).execute()
+
+        results = self._retry_with_backoff(_list)
+        return results.get("files", [])
+
+    def download_file(self, file_id: str) -> bytes:
+        """Download a file's content from Google Drive.
+
+        Args:
+            file_id: The file ID to download
+
+        Returns:
+            File content as bytes
+        """
+        def _download():
+            return self.drive_service.files().get_media(fileId=file_id).execute()
+
+        return self._retry_with_backoff(_download)
+
     # ==================== DOCS OPERATIONS ====================
     
     def create_document(self, title: str, folder_id: Optional[str] = None) -> dict:
