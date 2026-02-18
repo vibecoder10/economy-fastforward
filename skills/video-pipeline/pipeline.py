@@ -2353,14 +2353,18 @@ class VideoPipeline:
         output_file = remotion_dir / "out" / f"{safe_name}.mp4"
         output_file.parent.mkdir(exist_ok=True)
         
-        # Render
-        print(f"  🎥 Rendering video (this may take 30-60 minutes)...")
+        # Render (memory-optimized for 8GB VPS)
+        print(f"  🎥 Rendering video (concurrency=1, this may take 60-90 minutes)...")
         render_cmd = [
             "npx", "remotion", "render",
             "Main", str(output_file),
-            "--props", str(props_file)
+            "--props", str(props_file),
+            "--concurrency=1",
+            "--gl=swangle",
+            "--timeout=180000",
+            "--offthreadvideo-cache-size-in-bytes=536870912",
         ]
-        
+
         result = subprocess.run(render_cmd, cwd=remotion_dir)
         
         if result.returncode != 0:
