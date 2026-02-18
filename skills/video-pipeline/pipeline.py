@@ -2418,6 +2418,7 @@ class VideoPipeline:
                 return {"error": "npm install failed", "bot": "Render Bot"}
 
         # Render (optimized for KVM4: 4 vCPU / 16GB RAM)
+        import time as _time
         print(f"  🎥 Rendering video (concurrency=3, estimated 45-60 minutes)...")
         render_cmd = [
             "npx", "remotion", "render",
@@ -2429,13 +2430,68 @@ class VideoPipeline:
             "--offthreadvideo-cache-size-in-bytes=1073741824",
         ]
 
-        result = subprocess.run(render_cmd, cwd=remotion_dir)
-        
-        if result.returncode != 0:
+        # Stream render output to track progress and send Slack updates
+        render_start = _time.time()
+        last_update_pct = 0  # Track last milestone we reported
+        last_update_time = render_start
+        UPDATE_INTERVAL = 1200  # 20 minutes in seconds
+        last_error_line = ""
+
+        process = subprocess.Popen(
+            render_cmd, cwd=remotion_dir,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True, bufsize=1,
+        )
+
+        for line in process.stdout:
+            line = line.strip()
+            if not line:
+                continue
+            print(f"    {line}")
+
+            # Remotion outputs progress like "Rendered frame 500/28800 (1.7%)"
+            # or "ℹ 25% done" or percentage patterns
+            pct_match = re.search(r'(\d+(?:\.\d+)?)%', line)
+            if pct_match:
+                current_pct = float(pct_match.group(1))
+                now = _time.time()
+                elapsed = now - render_start
+                elapsed_min = int(elapsed / 60)
+
+                # Send Slack update at every 20% milestone OR every 20 minutes
+                milestone = int(current_pct // 20) * 20
+                time_since_update = now - last_update_time
+
+                if (milestone > last_update_pct and milestone > 0) or time_since_update >= UPDATE_INTERVAL:
+                    # Estimate remaining time
+                    if current_pct > 0:
+                        total_est = elapsed / (current_pct / 100)
+                        remaining_min = int((total_est - elapsed) / 60)
+                        eta_str = f"~{remaining_min} min remaining"
+                    else:
+                        eta_str = "estimating..."
+
+                    progress_bar = "█" * int(current_pct // 10) + "░" * (10 - int(current_pct // 10))
+                    self.slack.send_message(
+                        f"🎬 *Render progress:* _{self.video_title}_\n"
+                        f"`{progress_bar}` *{current_pct:.0f}%* — {elapsed_min} min elapsed, {eta_str}"
+                    )
+                    last_update_pct = milestone
+                    last_update_time = now
+
+            # Capture error lines for failure reporting
+            if "error" in line.lower() or "Error" in line:
+                last_error_line = line
+
+        returncode = process.wait()
+        total_min = int((_time.time() - render_start) / 60)
+
+        if returncode != 0:
             print(f"  ❌ Render failed")
+            error_detail = f"\n`{last_error_line}`" if last_error_line else ""
             self.slack.send_message(
                 f"❌ *Render FAILED:* _{self.video_title}_\n"
-                f"Remotion exited with code {result.returncode}. Check logs on VPS."
+                f"Remotion exited with code {returncode} after {total_min} min.{error_detail}"
             )
             return {"error": "Render failed", "bot": "Render Bot"}
 
@@ -2453,7 +2509,7 @@ class VideoPipeline:
         # Upload to Drive
         print("  ☁️ Uploading to Google Drive...")
         self.slack.send_message(
-            f"✅ *Render complete:* _{self.video_title}_ ({file_size_mb:.0f} MB)\n"
+            f"✅ *Render complete:* _{self.video_title}_ ({file_size_mb:.0f} MB, {total_min} min)\n"
             f"Uploading to Google Drive..."
         )
         with open(output_file, "rb") as f:
