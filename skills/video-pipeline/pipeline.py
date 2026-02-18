@@ -2906,6 +2906,7 @@ async def main():
         print("  --remotion        Export Remotion props for rendering")
         print('  --regenerate      Regenerate missing images (fixes render failures)')
         print('  --animate         Generate video clips from images (Grok Imagine)')
+        print("  --render          Render only — skip other stages, process one at a time")
         print("  --run-queue       Process all videos until queue is empty")
         print("  --help, -h        Show this help message")
         print("\nExamples:")
@@ -2918,6 +2919,7 @@ async def main():
         print('  python pipeline.py --regenerate "Video Title" --images 3:4,4:7')
         print('  python pipeline.py --animate "Video Title" --estimate')
         print('  python pipeline.py --animate "Video Title" --heroes-only')
+        print("  python pipeline.py --render")
         return
 
     if len(sys.argv) > 1 and sys.argv[1] == "--status":
@@ -3443,6 +3445,48 @@ async def main():
             return
         stage = sys.argv[2]
         result = await pipeline.run_from_stage(stage)
+        return
+
+    # === RENDER ONLY ===
+    if len(sys.argv) > 1 and sys.argv[1] == "--render":
+        print("=" * 60)
+        print("🎬 RENDER MODE - Render Only (skips other stages)")
+        print("=" * 60)
+
+        ideas = pipeline.airtable.get_ideas_by_status(
+            pipeline.STATUS_READY_TO_RENDER, limit=10
+        )
+
+        if not ideas:
+            print("\n❌ No ideas with status 'Ready To Render'")
+            return
+
+        print(f"\n📋 Found {len(ideas)} video(s) to render:")
+        for i, idea in enumerate(ideas, 1):
+            print(f"   {i}. {idea.get('Video Title', 'Untitled')}")
+
+        rendered = 0
+        for i, idea in enumerate(ideas, 1):
+            title = idea.get("Video Title", "Untitled")
+            print(f"\n{'=' * 60}")
+            print(f"🎬 RENDERING {i}/{len(ideas)}: {title}")
+            print(f"{'=' * 60}")
+
+            pipeline._load_idea(idea)
+            result = await pipeline._run_step_safe("Render Bot", pipeline.run_render_bot)
+
+            if result.get("status") == "failed" or result.get("error"):
+                print(f"\n❌ Render failed for '{title}': {result.get('error')}")
+                print(f"   Stopping — fix this video before rendering the rest.")
+                break
+
+            rendered += 1
+            print(f"\n✅ '{title}' rendered and uploaded!")
+            print(f"   🔗 {result.get('video_url', 'N/A')}")
+
+        print(f"\n{'=' * 60}")
+        print(f"📋 RENDER COMPLETE: {rendered}/{len(ideas)} video(s) rendered")
+        print("=" * 60)
         return
 
     if len(sys.argv) > 1 and sys.argv[1] == "--run-queue":

@@ -87,7 +87,7 @@ async def handle_help(message, say):
     help_text = """*Pipeline Commands:*
 
 *Auto-run*
-- `run` - Pick up the pipeline where it left off and keep going (script -> voice -> prompts -> images -> thumbnail)
+- `run` - Pick up the pipeline where it left off and keep going (one step at a time)
 
 *YouTube Pipeline*
 - `script` / `run script` - Run script bot for idea with "Ready For Scripting" status
@@ -96,6 +96,7 @@ async def handle_help(message, say):
 - `images` / `run images` - Generate scene images only (for "Ready For Images" status)
 - `end images` / `run end images` - Generate end image prompts and images
 - `thumbnail` / `run thumbnail` - Generate thumbnail for idea with "Ready For Thumbnail" status
+- `render` / `run render` - Render videos only (skips other stages, one at a time)
 
 *Animation Pipeline*
 - `animate` / `animation` / `run animation` - Run animation pipeline for project with "Create" status
@@ -398,6 +399,38 @@ async def handle_thumbnail(message, say):
         await say(":warning: Thumbnail bot timed out after 5 minutes")
     except asyncio.CancelledError:
         await say(":stop_sign: Thumbnail bot was stopped")
+    except Exception as e:
+        await say(f":x: Error: {e}")
+
+
+@app.message(re.compile(r"run render", re.IGNORECASE))
+@app.message(re.compile(r"^render$", re.IGNORECASE))
+async def handle_render(message, say):
+    """Render all videos at 'Ready To Render' one at a time."""
+    global current_process
+    if current_process:
+        await say(f":x: Already running `{current_task_name}`. Use `stop` to cancel it first.")
+        return
+
+    await say(":clapper: Starting render bot — will process videos one at a time...")
+
+    try:
+        # Render can take 60-90 min per video, set timeout to 4 hours
+        returncode, stdout, stderr = await run_script_async(
+            "run_render_bot.py", "render", say, timeout=14400
+        )
+
+        if returncode == 0:
+            output = stdout[-3000:] if len(stdout) > 3000 else stdout
+            await say(f":white_check_mark: Render bot complete!\n```{output}```")
+        else:
+            error = stderr[-1500:] if len(stderr) > 1500 else stderr
+            await say(f":x: Render bot error:\n```{error}```")
+
+    except subprocess.TimeoutExpired:
+        await say(":warning: Render bot timed out after 4 hours")
+    except asyncio.CancelledError:
+        await say(":stop_sign: Render bot was stopped")
     except Exception as e:
         await say(f":x: Error: {e}")
 
