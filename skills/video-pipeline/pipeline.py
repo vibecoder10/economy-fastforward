@@ -2417,16 +2417,16 @@ class VideoPipeline:
                 )
                 return {"error": "npm install failed", "bot": "Render Bot"}
 
-        # Render (memory-optimized for 8GB VPS)
-        print(f"  🎥 Rendering video (concurrency=1, this may take 60-90 minutes)...")
+        # Render (optimized for KVM4: 4 vCPU / 16GB RAM)
+        print(f"  🎥 Rendering video (concurrency=3, estimated 45-60 minutes)...")
         render_cmd = [
             "npx", "remotion", "render",
             "Main", str(output_file),
             "--props", str(props_file),
-            "--concurrency=1",
+            "--concurrency=3",
             "--gl=swangle",
             "--timeout=180000",
-            "--offthreadvideo-cache-size-in-bytes=536870912",
+            "--offthreadvideo-cache-size-in-bytes=1073741824",
         ]
 
         result = subprocess.run(render_cmd, cwd=remotion_dir)
