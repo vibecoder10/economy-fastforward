@@ -64,3 +64,5 @@ storyengine/config/.env.local
 # YouTube OAuth credentials (NEVER commit these)
 .youtube-credentials.json
 .youtube-token.json
+.youtube-credentials.json
+.youtube-token.json
