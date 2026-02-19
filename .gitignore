@@ -66,3 +66,6 @@ storyengine/config/.env.local
 .youtube-token.json
 .youtube-credentials.json
 .youtube-token.json
+
+# Video-specific generated files
+remotion-video/src/segmentData.ts
