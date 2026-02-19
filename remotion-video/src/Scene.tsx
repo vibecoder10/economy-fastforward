@@ -138,22 +138,20 @@ export const Scene: React.FC<SceneProps> = ({
     // Crossfade overlap duration (in frames) - clips overlap for smooth transitions
     const CROSSFADE_FRAMES = Math.floor(fps * 0.4); // 0.4 second overlap
 
-    // Calculate timing for all segments using VIDEO DURATIONS (not word timing)
-    // Each video plays for its full duration as specified in segmentData
+    // Calculate timing using AIRTABLE DURATIONS (cumulative timing)
+    // This is more reliable than word matching since transcription may differ from written text
     const segmentTimings = useMemo(() => {
         let cumulativeStart = 0;
 
         return segments.map((seg, index) => {
             const startFrame = Math.floor(cumulativeStart * fps);
-            // Use the actual video duration from segmentData
-            const videoDuration = seg.duration;
-            const baseDurationFrames = Math.floor(videoDuration * fps);
+            const baseDurationFrames = Math.floor(seg.duration * fps);
 
             // Extend duration for crossfade overlap (except last segment)
             const durationFrames = baseDurationFrames + (index < segments.length - 1 ? CROSSFADE_FRAMES : 0);
 
-            // Accumulate start time for next segment
-            cumulativeStart += videoDuration;
+            // Accumulate for next segment
+            cumulativeStart += seg.duration;
 
             return {
                 imageFile: seg.imageFile,
@@ -293,6 +291,7 @@ const KaraokeCaption: React.FC<{
 
 // Check if a video file was explicitly provided for this segment
 // Returns non-null only when the imageFile is already an .mp4 path
+// For PNG-only projects, this will always return null
 const getVideoFile = (imageFile: string): string | null => {
     if (imageFile.endsWith('.mp4')) {
         return imageFile;
