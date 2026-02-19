@@ -56,13 +56,13 @@ def _generate_full_video(seed: int = 42) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 class TestPromptFormat:
-    def test_all_prompts_end_with_16_9(self):
-        """Every prompt ends with '16:9'."""
+    def test_all_prompts_contain_16_9(self):
+        """Every prompt contains '16:9' (from the prefix)."""
         results = _generate_full_video()
         for r in results:
-            assert r["prompt"].rstrip().endswith("16:9"), (
-                f"Prompt at index {r['index']} does not end with '16:9': "
-                f"...{r['prompt'][-30:]}"
+            assert "16:9" in r["prompt"], (
+                f"Prompt at index {r['index']} does not contain '16:9': "
+                f"...{r['prompt'][-60:]}"
             )
 
     def test_dossier_prompts_contain_arri_alexa(self):
@@ -225,7 +225,8 @@ class TestBuildPrompt:
         assert "wide establishing shot" in prompt
         assert "cold teal" in prompt
         assert "shot on Arri Alexa" in prompt
-        assert prompt.endswith("16:9")
+        assert "16:9" in prompt
+        assert "single dramatic light source" in prompt
 
     def test_schema_basic(self):
         prompt = build_prompt(
@@ -239,7 +240,7 @@ class TestBuildPrompt:
         assert "overhead" in prompt.lower() or "surveillance perspective" in prompt
         assert "warm amber" in prompt
         assert "Bloomberg" in prompt
-        assert prompt.endswith("16:9")
+        assert "16:9" in prompt
 
     def test_echo_basic(self):
         prompt = build_prompt(
@@ -253,7 +254,7 @@ class TestBuildPrompt:
         assert "figure from waist up" in prompt
         assert "candlelight" in prompt
         assert "oil painting texture" in prompt
-        assert prompt.endswith("16:9")
+        assert "16:9" in prompt
 
     def test_strips_trailing_comma_from_description(self):
         """Scene descriptions with trailing commas don't create double commas."""
@@ -264,6 +265,24 @@ class TestBuildPrompt:
         """Echo suffix includes 'warm amber tones' regardless of chosen accent."""
         prompt = build_prompt("Historical scene", "echo", "wide", "cold teal")
         assert "warm amber tones" in prompt
+
+    def test_dossier_no_duplicate_rembrandt(self):
+        """Dossier prompts should not duplicate 'Rembrandt lighting' (prefix provides it once)."""
+        prompt = build_prompt("A test scene", "dossier", "wide", "cold teal")
+        count = prompt.lower().count("rembrandt lighting")
+        assert count == 1, f"'Rembrandt lighting' appears {count} times (expected 1)"
+
+    def test_dossier_no_duplicate_film_grain(self):
+        """Dossier prompts should not duplicate 'film grain' (prefix provides it once)."""
+        prompt = build_prompt("A test scene", "dossier", "wide", "cold teal")
+        count = prompt.lower().count("film grain")
+        assert count == 1, f"'film grain' appears {count} times (expected 1)"
+
+    def test_dossier_no_duplicate_arri_alexa(self):
+        """Dossier prompts should not duplicate 'shot on Arri Alexa' (prefix provides it once)."""
+        prompt = build_prompt("A test scene", "dossier", "wide", "cold teal")
+        count = prompt.lower().count("shot on arri alexa")
+        assert count == 1, f"'shot on Arri Alexa' appears {count} times (expected 1)"
 
 
 # ---------------------------------------------------------------------------

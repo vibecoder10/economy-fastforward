@@ -34,25 +34,26 @@ YOUTUBE_STYLE_PREFIX = (
 # chosen accent color string (e.g. "cold teal").
 
 STYLE_SUFFIXES = {
+    # Dossier IS the base look established by the prefix. The suffix adds only
+    # what differentiates dossier from the generic cinematic base.
     "dossier": (
-        ", cinematic photorealistic, single dramatic light source, Rembrandt lighting, "
-        "deep shadows, desaturated color palette with [ACCENT_COLOR] accent, shallow "
-        "depth of field, subtle film grain, dark moody atmosphere, documentary "
-        "photography style, shot on Arri Alexa, 16:9"
+        ", single dramatic light source, high contrast"
     ),
+    # Schema extends the base with data-overlay aesthetics. Prefix already
+    # covers cinematic/film grain/16:9 so those are not repeated here.
     "schema": (
-        ", cinematic photorealistic background with translucent glowing data overlay, "
+        ", translucent glowing data overlay, "
         "thin luminous [ACCENT_COLOR] connection lines and node points, Bloomberg "
-        "terminal meets surveillance system aesthetic, dark atmosphere, minimal and "
-        "elegant, deep blacks with light-emitting data elements, subtle film grain, "
-        "16:9"
+        "terminal meets surveillance system aesthetic, minimal and "
+        "elegant, deep blacks with light-emitting data elements"
     ),
+    # Echo overrides the base with painterly/historical aesthetics. Only
+    # style-defining elements that DIFFER from the prefix are listed.
     "echo": (
-        ", photorealistic with subtle oil painting texture, dramatic chiaroscuro "
+        ", subtle oil painting texture, dramatic chiaroscuro "
         "candlelight lighting, warm amber tones, period-accurate costume and "
-        "architecture detail, deep shadows, slightly soft focus with painterly grain, "
-        "historical documentary style, heavy film grain, atmospheric and evocative, "
-        "16:9"
+        "architecture detail, slightly soft focus with painterly grain, "
+        "historical documentary style, heavy film grain, atmospheric and evocative"
     ),
 }
 

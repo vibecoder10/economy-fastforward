@@ -1755,6 +1755,25 @@ class VideoPipeline:
     # IMAGE PROMPT ENGINE INTEGRATION — Scene List → Styled Prompts
     # ==========================================================================
 
+    def _get_visual_seeds(self) -> str:
+        """Extract visual seed concepts from the current idea record.
+
+        Checks the Research Payload JSON first, then falls back to the
+        Thumbnail Prompt field.
+        """
+        if not self.current_idea:
+            return ""
+        rp_raw = self.current_idea.get("Research Payload", "")
+        if rp_raw:
+            try:
+                rp = json.loads(rp_raw) if isinstance(rp_raw, str) else rp_raw
+                vs = rp.get("visual_seeds", "")
+                if vs:
+                    return vs
+            except (json.JSONDecodeError, TypeError, AttributeError):
+                pass
+        return self.current_idea.get("Thumbnail Prompt", "")
+
     async def run_styled_image_prompts(self, scene_filepath: str = None) -> dict:
         """Generate styled image prompts using the Visual Identity System.
 
@@ -1807,45 +1826,60 @@ class VideoPipeline:
             print(f"  Loaded {len(raw_scenes)} scenes from {Path(scene_filepath).name}")
 
         # Source 2: Airtable Script table records (from Script Bot)
+        # Run through scene_expander to convert raw narration into visual
+        # scene descriptions — narration text must never be used as prompts.
         if not raw_scenes:
             scripts = self.airtable.get_scripts_by_title(self.video_title)
             if scripts:
-                print(f"  📋 Building {len(scripts)} scenes from Airtable Script table")
-                raw_scenes = []
+                print(f"  📋 Found {len(scripts)} script records — expanding via scene_expander")
+                from brief_translator.scene_expander import expand_scenes
+
+                # Reassemble individual script records into a full script
                 total_scripts = len(scripts)
+                act_texts: dict[int, list[str]] = {}
                 for script in scripts:
                     scene_text = script.get("Scene text", "") or script.get("Script", "")
-                    word_count = len(scene_text.split()) if scene_text else 0
-                    duration = word_count / 2.5 if word_count > 0 else 60
-                    scene_num = script.get("scene", len(raw_scenes) + 1)
+                    if not scene_text:
+                        continue
+                    scene_num = script.get("scene", len(act_texts) + 1)
                     act = min(6, (scene_num - 1) * 6 // total_scripts + 1) if total_scripts > 0 else 1
-                    raw_scenes.append({
-                        "scene_number": scene_num,
-                        "scene_description": scene_text,
-                        "duration_seconds": round(duration, 1),
-                        "act": act,
-                    })
+                    act_texts.setdefault(act, []).append(scene_text)
+
+                full_script = "\n\n".join(
+                    f"[ACT {act_num}]\n" + "\n\n".join(texts)
+                    for act_num, texts in sorted(act_texts.items())
+                )
+
+                visual_seeds = self._get_visual_seeds()
+                accent_for_expand = (self.current_idea.get("Accent Color") or "cold_teal").replace(" ", "_")
+
+                raw_scenes = await expand_scenes(
+                    self.anthropic,
+                    full_script,
+                    visual_seeds,
+                    accent_color=accent_for_expand,
+                )
+                print(f"  ✅ Scene expander produced {len(raw_scenes)} scenes with visual descriptions")
 
         # Source 3: Idea record's own Script field (from Brief Translator pipeline record)
+        # Run through scene_expander to convert raw narration into visual
+        # scene descriptions — narration text must never be used as prompts.
         if not raw_scenes and self.current_idea:
             idea_script = self.current_idea.get("Script", "")
             if idea_script and len(idea_script) > 100:
-                print(f"  📋 Building scenes from idea's Script field ({len(idea_script)} chars)")
-                # Split script into paragraphs as scenes
-                paragraphs = [p.strip() for p in idea_script.split("\n\n") if p.strip() and len(p.strip()) > 20]
-                if paragraphs:
-                    raw_scenes = []
-                    total_paras = len(paragraphs)
-                    for i, para in enumerate(paragraphs):
-                        word_count = len(para.split())
-                        duration = word_count / 2.5 if word_count > 0 else 30
-                        act = min(6, i * 6 // total_paras + 1) if total_paras > 0 else 1
-                        raw_scenes.append({
-                            "scene_number": i + 1,
-                            "scene_description": para,
-                            "duration_seconds": round(duration, 1),
-                            "act": act,
-                        })
+                print(f"  📋 Expanding idea Script field via scene_expander ({len(idea_script)} chars)")
+                from brief_translator.scene_expander import expand_scenes
+
+                visual_seeds = self._get_visual_seeds()
+                accent_for_expand = (self.current_idea.get("Accent Color") or "cold_teal").replace(" ", "_")
+
+                raw_scenes = await expand_scenes(
+                    self.anthropic,
+                    idea_script,
+                    visual_seeds,
+                    accent_color=accent_for_expand,
+                )
+                print(f"  ✅ Scene expander produced {len(raw_scenes)} scenes with visual descriptions")
 
         if not raw_scenes:
             print(f"  ❌ Searched for scenes in: scene files, Script table, idea Script field")
@@ -1872,23 +1906,25 @@ class VideoPipeline:
 
         print(f"  Expanded to {len(expanded_scenes)} image slots from {len(raw_scenes)} scenes")
 
-        # Pre-compute per-image sentence text so each image slot gets its
-        # portion of the narration instead of the full scene description.
+        # Pre-compute per-image narration text so each image slot gets its
+        # portion of the narration for Airtable storage / audio sync.
+        # NOTE: We split narration_text (what the narrator says), NOT
+        # scene_description (which is a visual description for prompts).
         from clients.sentence_utils import split_into_sentences
 
         _scene_sentence_map: dict[int, list[str]] = {}
         for scene in raw_scenes:
             scene_num = scene.get("scene_number", 1)
-            scene_desc_full = scene.get("scene_description", scene.get("description", ""))
+            narration = scene.get("narration_text", scene.get("script_excerpt", scene.get("scene_description", "")))
             duration = scene.get("duration_seconds", 60)
             image_count = max(1, round(duration / IMAGE_INTERVAL_SECONDS))
 
-            sentences = split_into_sentences(scene_desc_full)
+            sentences = split_into_sentences(narration)
 
             # Distribute sentences across image slots
             chunks: list[str] = []
             if not sentences:
-                chunks = [scene_desc_full] * image_count
+                chunks = [narration] * image_count
             elif len(sentences) <= image_count:
                 # Fewer sentences than slots: one sentence per slot, reuse last for extras
                 for i in range(image_count):
@@ -1921,15 +1957,11 @@ class VideoPipeline:
 
         print(f"  Generating prompts for {len(scenes_needing_prompts)} scenes")
 
-        # Replace each expanded scene's scene_description with its per-image
-        # sentence chunk so prompts describe ONE visual moment, not the full
-        # narration paragraph.
-        for scene in scenes_needing_prompts:
-            scene_num = scene.get("_source_scene_number", scene.get("scene_number", 1))
-            img_idx = scene.get("_image_index", 1) - 1  # 0-based
-            sentence_chunks = _scene_sentence_map.get(scene_num, [])
-            if sentence_chunks and img_idx < len(sentence_chunks):
-                scene["scene_description"] = sentence_chunks[img_idx]
+        # NOTE: scene_description is a visual description from scene_expander
+        # and must NOT be replaced with narration sentence chunks. The prompt
+        # builder uses scene_description as-is for the image prompt.
+        # Narration chunks (_scene_sentence_map) are used only for the
+        # Airtable sentence_text field (audio sync reference).
 
         # Determine accent color from idea or default
         accent_color = self.current_idea.get("Accent Color") or "cold teal"
@@ -1956,11 +1988,11 @@ class VideoPipeline:
             scene_num = scene_data.get("_source_scene_number", scene_data.get("scene_number", original_index + 1))
             segment_index = scene_data.get("_image_index", 1)
 
-            # Per-image sentence text (split from full scene description)
-            scene_desc = scene_data.get("scene_description", scene_data.get("description", ""))
+            # Per-image narration text for audio sync (from narration_text, NOT visual descriptions)
+            narration_fallback = scene_data.get("narration_text", scene_data.get("script_excerpt", ""))
             sentence_chunks = _scene_sentence_map.get(scene_num, [])
             img_idx = scene_data.get("_image_index", 1) - 1  # 0-based
-            sentence_text = sentence_chunks[img_idx] if img_idx < len(sentence_chunks) else scene_desc
+            sentence_text = sentence_chunks[img_idx] if img_idx < len(sentence_chunks) else narration_fallback
 
             self.airtable.create_sentence_image_record(
                 scene_number=scene_num,
