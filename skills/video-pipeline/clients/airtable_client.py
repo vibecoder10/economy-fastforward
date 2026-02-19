@@ -495,9 +495,9 @@ class AirtableClient:
         scene_number: int,
         sentence_index: int,
         sentence_text: str,
-        duration_seconds: float,
-        image_prompt: str,
-        video_title: str,
+        duration_seconds: float = None,
+        image_prompt: str = "",
+        video_title: str = "",
         cumulative_start: float = 0.0,
         aspect_ratio: str = "16:9",
         shot_type: str = None,
@@ -505,6 +505,9 @@ class AirtableClient:
         """Create a sentence-aligned image prompt record.
 
         DEPRECATED: Use create_segment_image_record for semantic segmentation.
+
+        duration_seconds is optional.  When *None* the field is omitted so
+        that audio_sync can populate real Whisper-based durations later.
         """
         fields = {
             "Scene": scene_number,
@@ -514,10 +517,11 @@ class AirtableClient:
             "Aspect Ratio": aspect_ratio,
             "Status": "Pending",
             "Sentence Text": sentence_text,
-            "Duration (s)": float(duration_seconds),
             "Sentence Index": sentence_index,
             # Note: "Start Time (s)" field removed - Airtable field type issue
         }
+        if duration_seconds is not None:
+            fields["Duration (s)"] = float(duration_seconds)
         if shot_type:
             fields["Shot Type"] = shot_type
         record = self.images_table.create(fields, typecast=True)

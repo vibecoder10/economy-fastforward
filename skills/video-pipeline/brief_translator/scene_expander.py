@@ -217,10 +217,14 @@ async def _expand_scenes_split(
     except (json.JSONDecodeError, ValueError):
         second_scenes = []
 
-    # Re-number second batch to continue from first
-    offset = len(first_scenes)
+    # Re-number second batch to continue from first.
+    # Use the max scene_number (not count) in case the LLM produced
+    # non-contiguous numbers or gaps in the first batch.
+    last_scene_num = max(
+        (s.get("scene_number", 0) for s in first_scenes), default=0
+    )
     for i, scene in enumerate(second_scenes):
-        scene["scene_number"] = offset + i + 1
+        scene["scene_number"] = last_scene_num + i + 1
 
     all_scenes.extend(second_scenes)
     return all_scenes
