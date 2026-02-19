@@ -40,7 +40,7 @@ async def main():
                 print(f"\n♻️ Prompts already done — resuming with image generation...")
                 prompt_result = {"prompt_count": 0, "skipped": "all"}
             else:
-                print(f"\n❌ Prompt generation error: {prompt_result['error']}")
+                print(f"\n❌ Prompt generation error: {prompt_result['error']}", file=sys.stderr)
                 sys.exit(1)
 
         skipped = prompt_result.get('skipped', 0)

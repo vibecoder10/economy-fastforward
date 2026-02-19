@@ -66,7 +66,14 @@ async def run_script_async(script_name: str, task_name: str, say, timeout: int =
         returncode = current_process.returncode
         current_process = None
         current_task_name = None
-        return returncode, stdout.decode(), stderr.decode()
+        stdout_str = stdout.decode()
+        stderr_str = stderr.decode()
+        # If the process failed but stderr is empty, the error was
+        # printed to stdout (e.g. pipeline returning error dicts).
+        # Promote stdout to stderr so callers always have an error msg.
+        if returncode and returncode != 0 and not stderr_str.strip():
+            stderr_str = stdout_str
+        return returncode, stdout_str, stderr_str
     except asyncio.TimeoutError:
         current_process.kill()
         current_process = None
