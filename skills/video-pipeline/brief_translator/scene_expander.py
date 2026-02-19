@@ -4,10 +4,12 @@ Expands a narration script into ~20-30 production scenes nested within
 the 6-act structure. Each scene is a narrative segment with narration
 text, duration, visual metadata, and composition directives.
 
-Processes the script in batches of ~8-10 scenes at a time. Each batch
-receives only its narration, act/style targets, and the last 3 scene
-descriptions from the previous batch as "ALREADY SHOWN" context to
-prevent visual repetition across batch boundaries.
+Scene *structure* (narration boundaries, style, composition, ken_burns,
+mood) is generated in batches of ~8-10 scenes.  Scene *descriptions*
+are then generated one at a time in a sequential pass: each call
+receives the narration text for that scene plus the previous 3
+descriptions as "DO NOT REPEAT" context, making duplicate descriptions
+structurally impossible.
 
 Downstream, the image prompt engine generates multiple images per scene
 based on scene duration (~1 image per 8-11 seconds of narration).
@@ -200,6 +202,87 @@ async def regenerate_duplicate_scenes(
     return scenes
 
 
+async def _generate_description_for_scene(
+    anthropic_client,
+    scene: dict,
+    previous_descriptions: list[str],
+) -> str:
+    """Generate a single scene description with context from recent scenes.
+
+    Args:
+        anthropic_client: AnthropicClient instance
+        scene: Scene dict with narration_text, act/parent_act, style/visual_style,
+               composition/composition_hint fields already populated.
+        previous_descriptions: Up to 3 most recent scene descriptions (newest last).
+
+    Returns:
+        A 20-35 word scene description string.
+    """
+    narration = scene.get("narration_text", scene.get("script_excerpt", ""))
+    act_number = scene.get("act", scene.get("parent_act", ""))
+    style = scene.get("style", scene.get("visual_style", "dossier"))
+    composition = scene.get("composition_hint", scene.get("composition", "medium"))
+
+    prompt = (
+        f"Given this narration line: '{narration}'\n"
+        f"Act: {act_number} | Style: {style} | Composition: {composition}\n"
+    )
+
+    if previous_descriptions:
+        prompt += "\nThe viewer has JUST seen these images (DO NOT repeat any of these):\n"
+        labels = ["Previous", "Before that", "Before that"]
+        for i, desc in enumerate(reversed(previous_descriptions)):
+            prompt += f"- {labels[min(i, len(labels) - 1)]}: {desc}\n"
+
+    prompt += (
+        "\nWrite ONE scene description, 20-35 words. "
+        "Describe a specific, concrete, filmable scene. "
+        "Only describe CONTENT — no lighting, camera, or style language. "
+        "Must be visually different from all previous descriptions above.\n\n"
+        "Return ONLY the scene description, nothing else."
+    )
+
+    response = await anthropic_client.generate(
+        prompt=prompt,
+        model="claude-sonnet-4-5-20250929",
+        max_tokens=200,
+        temperature=0.7,
+    )
+    return response.strip().strip('"').strip()
+
+
+async def _generate_all_descriptions(
+    anthropic_client,
+    scenes: list[dict],
+) -> list[dict]:
+    """Generate descriptions for all scenes sequentially, one at a time.
+
+    Each scene receives the previous 3 descriptions as "DO NOT REPEAT"
+    context, making duplicate descriptions structurally impossible.
+
+    Overwrites the ``description`` and ``scene_description`` fields
+    on each scene dict in-place and returns the modified list.
+    """
+    descriptions: list[str] = []
+
+    for i, scene in enumerate(scenes):
+        # Provide up to 3 most recent descriptions as context
+        recent = descriptions[-3:] if descriptions else []
+
+        new_desc = await _generate_description_for_scene(
+            anthropic_client, scene, recent,
+        )
+
+        scene["description"] = new_desc
+        scene["scene_description"] = new_desc
+        descriptions.append(new_desc)
+
+        if (i + 1) % 10 == 0 or i + 1 == len(scenes):
+            print(f"  Descriptions: {i + 1}/{len(scenes)} scenes")
+
+    return scenes
+
+
 def _plan_batches(acts: dict[int, str], total_scenes: int) -> list[dict]:
     """Group acts into batches targeting ~BATCH_SIZE scenes each.
 
@@ -378,22 +461,18 @@ async def expand_scenes(
     accent_color: str = "cold_teal",
     total_scenes: int = DEFAULT_TOTAL_SCENES,
 ) -> list[dict]:
-    """Expand a script into scenes using batched LLM calls.
+    """Expand a script into scenes using batched structure + per-scene descriptions.
 
-    Splits the script into batches of ~8-10 scenes each (grouping
-    consecutive acts).  Each batch receives:
-    - Only the narration text for its acts
-    - Act number and style distribution targets
-    - The last 3 scene descriptions from the previous batch as
-      "ALREADY SHOWN" context to prevent visual repetition
-    - Accent color and composition/ken_burns continuity state
+    Phase 1 — Structure (batched):
+        Splits the script into batches of ~8-10 scenes each.  Each batch
+        generates scene *structure*: narration boundaries, style,
+        composition, ken_burns, mood.  Batch descriptions are discarded.
 
-    Batches are processed sequentially so each batch can build on the
-    context of the previous one.  Scene numbering is continuous across
-    all batches.
-
-    A post-generation diversity check runs as a safety net and
-    regenerates any consecutive duplicates that slipped through.
+    Phase 2 — Descriptions (sequential, one scene at a time):
+        Iterates through every scene and generates ONE description per
+        LLM call.  Each call receives the narration text for that scene
+        plus the previous 3 descriptions as "DO NOT REPEAT" context.
+        This makes duplicate descriptions structurally impossible.
 
     Args:
         anthropic_client: AnthropicClient instance
@@ -415,11 +494,12 @@ async def expand_scenes(
         # Fallback: treat entire script as a single act
         acts = {1: script}
 
+    # --- Phase 1: Batch structure generation ---
     batches = _plan_batches(acts, total_scenes)
     all_scenes: list[dict] = []
 
     for batch_idx, batch in enumerate(batches):
-        # Build context from previous batch
+        # Build context from previous batch (for composition/ken_burns continuity)
         recent_descriptions = [
             s.get("description", s.get("scene_description", ""))
             for s in all_scenes[-3:]
@@ -458,17 +538,12 @@ async def expand_scenes(
             f"{len(batch_scenes)} scenes (Acts {act_label})"
         )
 
-    # Safety net: diversity check across all scenes
+    # --- Phase 2: Sequential per-scene description generation ---
     if all_scenes:
-        flagged = check_scene_diversity(all_scenes)
-        if flagged:
-            print(f"  {len(flagged)} consecutive duplicate scenes detected — regenerating")
-            all_scenes = await regenerate_duplicate_scenes(
-                anthropic_client, all_scenes, flagged,
-            )
-            still_flagged = check_scene_diversity(all_scenes)
-            if still_flagged:
-                print(f"  {len(still_flagged)} duplicates remain after regeneration (logged)")
+        print(f"  Generating descriptions one-at-a-time for {len(all_scenes)} scenes...")
+        all_scenes = await _generate_all_descriptions(
+            anthropic_client, all_scenes,
+        )
 
     return all_scenes
 

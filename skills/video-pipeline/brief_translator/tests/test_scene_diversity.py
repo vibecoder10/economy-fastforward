@@ -1,17 +1,26 @@
-"""Tests for scene description diversity checking and batch planning."""
+"""Tests for scene description diversity and per-scene description generation."""
 
 import sys
 import os
+import asyncio
 
 import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
-from brief_translator.scene_expander import check_scene_diversity, _plan_batches, BATCH_SIZE
+from brief_translator.scene_expander import (
+    check_scene_diversity,
+    _plan_batches,
+    _generate_description_for_scene,
+    _generate_all_descriptions,
+    BATCH_SIZE,
+)
 
 
-def _scene(desc: str) -> dict:
-    return {"description": desc, "scene_description": desc}
+def _scene(desc: str, **kwargs) -> dict:
+    base = {"description": desc, "scene_description": desc}
+    base.update(kwargs)
+    return base
 
 
 class TestCheckSceneDiversity:
@@ -152,3 +161,165 @@ class TestPlanBatches:
         for b in batches:
             act_order.extend(a["act_number"] for a in b["acts"])
         assert act_order == sorted(act_order)
+
+
+# ---------------------------------------------------------------------------
+# Per-scene description generation tests
+# ---------------------------------------------------------------------------
+
+
+class FakeAnthropicClient:
+    """Mock client that returns a predictable description based on call count."""
+
+    def __init__(self, responses=None):
+        self.calls = []
+        self._responses = responses or []
+        self._call_count = 0
+
+    async def generate(self, prompt, model, max_tokens, temperature):
+        self.calls.append({
+            "prompt": prompt,
+            "model": model,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+        })
+        if self._responses:
+            resp = self._responses[self._call_count % len(self._responses)]
+        else:
+            resp = f"Unique scene description number {self._call_count + 1}"
+        self._call_count += 1
+        return resp
+
+
+class TestGenerateDescriptionForScene:
+    def test_prompt_contains_narration(self):
+        """The per-scene prompt includes the scene's narration text."""
+        client = FakeAnthropicClient()
+        scene = _scene(
+            "",
+            narration_text="The Federal Reserve announced rate cuts today.",
+            act=2, style="dossier", composition="medium",
+        )
+        result = asyncio.get_event_loop().run_until_complete(
+            _generate_description_for_scene(client, scene, [])
+        )
+        assert "Federal Reserve announced rate cuts" in client.calls[0]["prompt"]
+        assert result  # Got a non-empty description
+
+    def test_prompt_includes_previous_descriptions(self):
+        """Previous descriptions are included as DO NOT REPEAT context."""
+        client = FakeAnthropicClient()
+        scene = _scene(
+            "",
+            narration_text="Markets reacted sharply.",
+            act=3, style="schema", composition="wide",
+        )
+        prev = [
+            "A central bank building at dawn",
+            "Traders watching screens on a dark floor",
+            "An empty factory with idle machinery",
+        ]
+        asyncio.get_event_loop().run_until_complete(
+            _generate_description_for_scene(client, scene, prev)
+        )
+        prompt = client.calls[0]["prompt"]
+        assert "DO NOT repeat" in prompt
+        for desc in prev:
+            assert desc in prompt
+
+    def test_prompt_with_no_previous_descriptions(self):
+        """First scene has no previous context — no DO NOT REPEAT section."""
+        client = FakeAnthropicClient()
+        scene = _scene(
+            "",
+            narration_text="Opening line of the documentary.",
+            act=1, style="dossier", composition="wide",
+        )
+        asyncio.get_event_loop().run_until_complete(
+            _generate_description_for_scene(client, scene, [])
+        )
+        prompt = client.calls[0]["prompt"]
+        assert "DO NOT repeat" not in prompt
+
+    def test_strips_quotes_from_response(self):
+        """Surrounding quotes in LLM response are stripped."""
+        client = FakeAnthropicClient(
+            responses=['"A lone figure standing in a vast empty warehouse"']
+        )
+        scene = _scene("", narration_text="Test.", act=1, style="dossier", composition="wide")
+        result = asyncio.get_event_loop().run_until_complete(
+            _generate_description_for_scene(client, scene, [])
+        )
+        assert not result.startswith('"')
+        assert not result.endswith('"')
+
+
+class TestGenerateAllDescriptions:
+    def test_all_scenes_get_unique_descriptions(self):
+        """Each scene gets a distinct description overwriting the original."""
+        client = FakeAnthropicClient()
+        scenes = [
+            _scene("placeholder", narration_text=f"Sentence {i}.", act=1, style="dossier", composition="wide")
+            for i in range(5)
+        ]
+        result = asyncio.get_event_loop().run_until_complete(
+            _generate_all_descriptions(client, scenes)
+        )
+        descs = [s["description"] for s in result]
+        # All descriptions should be unique (FakeAnthropicClient returns numbered descriptions)
+        assert len(set(descs)) == 5
+        # None should be the placeholder
+        assert "placeholder" not in descs
+
+    def test_rolling_context_window(self):
+        """Each call receives up to 3 previous descriptions as context."""
+        client = FakeAnthropicClient()
+        scenes = [
+            _scene("", narration_text=f"Line {i}.", act=1, style="dossier", composition="wide")
+            for i in range(5)
+        ]
+        asyncio.get_event_loop().run_until_complete(
+            _generate_all_descriptions(client, scenes)
+        )
+        # First call: no previous context
+        assert "DO NOT repeat" not in client.calls[0]["prompt"]
+        # Second call: 1 previous
+        assert "Unique scene description number 1" in client.calls[1]["prompt"]
+        # Fourth call: should have 3 previous
+        assert "Unique scene description number 1" in client.calls[3]["prompt"]
+        assert "Unique scene description number 2" in client.calls[3]["prompt"]
+        assert "Unique scene description number 3" in client.calls[3]["prompt"]
+        # Fifth call: rolling window — should NOT have description 1 (only 2, 3, 4)
+        assert "Unique scene description number 1" not in client.calls[4]["prompt"]
+        assert "Unique scene description number 2" in client.calls[4]["prompt"]
+
+    def test_makes_one_call_per_scene(self):
+        """Exactly one LLM call is made per scene."""
+        client = FakeAnthropicClient()
+        scenes = [
+            _scene("", narration_text=f"Line {i}.", act=1, style="dossier", composition="wide")
+            for i in range(7)
+        ]
+        asyncio.get_event_loop().run_until_complete(
+            _generate_all_descriptions(client, scenes)
+        )
+        assert len(client.calls) == 7
+
+    def test_empty_scene_list(self):
+        """Empty input returns empty output without any LLM calls."""
+        client = FakeAnthropicClient()
+        result = asyncio.get_event_loop().run_until_complete(
+            _generate_all_descriptions(client, [])
+        )
+        assert result == []
+        assert len(client.calls) == 0
+
+    def test_backward_compat_fields_updated(self):
+        """Both 'description' and 'scene_description' are set."""
+        client = FakeAnthropicClient()
+        scenes = [_scene("old", narration_text="Test.", act=1, style="dossier", composition="wide")]
+        result = asyncio.get_event_loop().run_until_complete(
+            _generate_all_descriptions(client, scenes)
+        )
+        assert result[0]["description"] == result[0]["scene_description"]
+        assert result[0]["description"] != "old"
