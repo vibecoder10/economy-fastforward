@@ -1998,7 +1998,10 @@ class VideoPipeline:
                 scene_number=scene_num,
                 sentence_index=segment_index,
                 sentence_text=sentence_text,
-                duration_seconds=IMAGE_INTERVAL_SECONDS,
+                # duration_seconds intentionally omitted — audio_sync will
+                # populate real Whisper-based durations when voice audio is
+                # available (before rendering).  Writing a fixed 9s here
+                # would overwrite the field that audio_sync needs to set.
                 image_prompt=sp["prompt"],
                 video_title=self.video_title,
                 shot_type=sp.get("composition", "wide"),
