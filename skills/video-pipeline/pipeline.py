@@ -2413,9 +2413,9 @@ class VideoPipeline:
             json.dump(props, f, indent=2)
         print(f"  📦 Props saved to: {props_file}")
 
-        # Generate segmentData.ts for word-synced image display
-        print(f"  📝 Generating segmentData.ts...")
-        self.generate_segment_data_ts(remotion_dir)
+        # NOTE: segmentData.ts generation removed — timing data now comes from
+        # render_config.json produced by the audio_sync pipeline.
+        # See: audio_sync.render_config_writer
 
         # Download assets from ALL matching Drive folders to public/
         # First file wins — if Scene 1.mp3 is in folder A, we skip it in folder B
@@ -3070,7 +3070,25 @@ class VideoPipeline:
         return props
 
     def generate_segment_data_ts(self, remotion_dir: Path = None) -> str:
-        """Generate segmentData.ts file for Remotion word-synced image display.
+        """DEPRECATED: Use audio_sync.render_config_writer instead.
+
+        This method generated the old segmentData.ts file for Remotion.
+        Timing data now comes from render_config.json produced by the
+        audio_sync pipeline (Whisper-driven timestamps).
+
+        Kept for backward compatibility but is a no-op.
+        """
+        import warnings
+        warnings.warn(
+            "generate_segment_data_ts is deprecated. "
+            "Use audio_sync.render_config_writer to produce render_config.json.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return ""
+
+    def _generate_segment_data_ts_legacy(self, remotion_dir: Path = None) -> str:
+        """Legacy implementation preserved for reference. Do not call directly.
 
         Reads segment data from Airtable Images table and creates the TypeScript file
         that Remotion uses to align images with spoken words.
@@ -3772,10 +3790,9 @@ async def main():
             print(f"❌ Error: Could not find video '{title}'")
             return
 
-        # Generate segment data for word-synced image display
+        # NOTE: segmentData.ts generation removed — timing data now comes from
+        # render_config.json produced by the audio_sync pipeline.
         remotion_dir = Path(__file__).parent.parent.parent / "remotion-video"
-        print(f"\n📝 Generating segmentData.ts...")
-        pipeline.generate_segment_data_ts(remotion_dir)
 
         # Package props
         props = await pipeline.package_for_remotion()
