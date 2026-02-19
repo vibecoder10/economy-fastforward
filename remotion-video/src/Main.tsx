@@ -3,7 +3,7 @@ import { Audio } from "@remotion/media";
 import { Scene } from "./Scene";
 import { useMemo } from "react";
 import { getWordsForScene } from "./transcripts";
-import { sceneSegmentData } from "./segmentData";
+import { getSceneCount, getImageCountForScene } from "./renderConfig";
 
 interface MainProps {
     totalScenes?: number;
@@ -15,15 +15,15 @@ const SCENE_DURATION_SECONDS = 60;
 export const Main: React.FC<MainProps> = ({ totalScenes }) => {
     const { fps } = useVideoConfig();
 
-    // Derive total scenes from segmentData if not provided
-    const sceneCount = totalScenes ?? Object.keys(sceneSegmentData).length;
+    // Derive total scenes from render_config.json, then props, then default
+    const sceneCount = totalScenes ?? getSceneCount() || 20;
 
     // Generate scene data with transcripts - image count is dynamic per scene
     const scenes = useMemo(() => {
         return Array.from({ length: sceneCount }, (_, i) => {
             const sceneNumber = i + 1;
-            // Get image count from segment data, fallback to 6 if not found
-            const imageCount = sceneSegmentData[sceneNumber]?.length ?? 6;
+            // Get image count from render_config.json, fallback to 6
+            const imageCount = getImageCountForScene(sceneNumber) || 6;
 
             return {
                 sceneNumber,

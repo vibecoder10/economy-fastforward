@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """
-Export segment data from Airtable to TypeScript for Remotion.
+DEPRECATED — replaced by audio_sync.render_config_writer.
 
-This script fetches segment texts from Airtable and generates a TypeScript
-file that maps scenes to their segment texts, enabling accurate word-to-image
-alignment in Remotion videos.
+This script previously generated segmentData.ts from Airtable data.
+Timing data now comes from render_config.json produced by the audio_sync
+pipeline (Whisper-driven word timestamps → per-image display timing).
 
-Usage:
-    python scripts/export-segments.py
+To generate timing data for a video, use the audio_sync pipeline instead:
 
-Output:
-    src/segmentData.ts - TypeScript file with segment text mappings
+    from audio_sync import AudioSyncPipeline
+    sync = AudioSyncPipeline()
+    config = sync.run(audio_path, scene_list, video_id, image_dir, timing_dir)
 """
 
 import os
