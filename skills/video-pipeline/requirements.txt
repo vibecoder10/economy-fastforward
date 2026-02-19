@@ -36,6 +36,7 @@ aiofiles>=23.2.0
 
 # Audio Processing
 mutagen>=1.47.0  # Audio duration detection
+openai-whisper>=20231117  # Local Whisper transcription (optional — needs ffmpeg)
 
 # Utilities
 python-dotenv>=1.0.0

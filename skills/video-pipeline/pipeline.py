@@ -2657,6 +2657,167 @@ class VideoPipeline:
             "video_url": drive_url
         }
 
+    async def run_audio_sync(self, audio_path: str = None, scene_list: list = None) -> dict:
+        """Generate Whisper-driven timing data for audio-synced rendering.
+
+        Transcribes the voiceover audio with word-level timestamps,
+        aligns each scene's script_excerpt to the transcript, and
+        produces a render_config.json with per-scene display timing,
+        Ken Burns parameters, and transition types.
+
+        This step runs AFTER voice generation (TTS) and BEFORE the
+        Remotion render.
+
+        Args:
+            audio_path: Path to the full narration audio file.
+                If None, tries to find it in the project's public dir.
+            scene_list: List of scene dicts with ``script_excerpt``.
+                If None, builds from Airtable Script table data.
+
+        Returns:
+            Dict with timing results including the render_config path.
+        """
+        from pathlib import Path as _Path
+        from audio_sync import AudioSyncPipeline
+        from audio_sync.aligner import validate_alignment
+
+        if not self.current_idea:
+            return {"error": "No current idea loaded"}
+
+        print(f"\n🎵 AUDIO SYNC: Processing '{self.video_title}'")
+
+        # Determine video ID
+        video_id = self.current_idea_id or "unknown"
+
+        # Build timing directory
+        pipeline_dir = _Path(__file__).parent
+        timing_dir = pipeline_dir / "timing" / video_id
+        timing_dir.mkdir(parents=True, exist_ok=True)
+
+        # Resolve audio path — look for concatenated narration or individual scenes
+        if audio_path is None:
+            remotion_dir = pipeline_dir.parent.parent / "remotion-video"
+            public_dir = remotion_dir / "public"
+            # Look for a single narration file
+            candidates = [
+                public_dir / "narration.mp3",
+                public_dir / "narration.wav",
+            ]
+            for c in candidates:
+                if c.exists():
+                    audio_path = str(c)
+                    break
+
+            if audio_path is None:
+                # Fall back to concatenating per-scene MP3s
+                scene_audios = sorted(public_dir.glob("Scene *.mp3"))
+                if scene_audios:
+                    print(f"  Found {len(scene_audios)} scene audio files — concatenating...")
+                    try:
+                        import subprocess as _sp
+                        concat_path = timing_dir / "narration_concat.mp3"
+                        # Build ffmpeg concat file
+                        list_file = timing_dir / "concat_list.txt"
+                        with open(list_file, "w") as f:
+                            for sa in scene_audios:
+                                f.write(f"file '{sa}'\n")
+                        _sp.run(
+                            ["ffmpeg", "-y", "-f", "concat", "-safe", "0",
+                             "-i", str(list_file), "-c", "copy", str(concat_path)],
+                            capture_output=True, check=True,
+                        )
+                        audio_path = str(concat_path)
+                        print(f"  Concatenated audio: {concat_path}")
+                    except Exception as e:
+                        print(f"  Warning: ffmpeg concat failed: {e}")
+                        return {
+                            "error": f"Cannot concatenate scene audio: {e}",
+                            "bot": "Audio Sync",
+                        }
+
+            if audio_path is None:
+                return {
+                    "error": "No narration audio found. Run voice bot first.",
+                    "bot": "Audio Sync",
+                }
+
+        # Build scene list from Airtable if not provided
+        if scene_list is None:
+            scripts = self.airtable.get_scripts_by_title(self.video_title)
+            if not scripts:
+                return {"error": "No scripts found", "bot": "Audio Sync"}
+
+            scene_list = []
+            for script in scripts:
+                scene_list.append({
+                    "scene_number": script.get("scene", 0),
+                    "script_excerpt": script.get("Scene text", ""),
+                    "style": script.get("Visual Style", ""),
+                    "visual_style": script.get("Visual Style", ""),
+                    "composition": script.get("Composition", "wide"),
+                    "composition_hint": script.get("Composition", "wide"),
+                    "act": script.get("Parent Act", 1),
+                    "parent_act": script.get("Parent Act", 1),
+                })
+
+        # Determine whether to use API or local Whisper
+        use_api = bool(os.environ.get("OPENAI_API_KEY"))
+
+        print(f"  Whisper mode: {'API' if use_api else 'local'}")
+        print(f"  Audio: {audio_path}")
+        print(f"  Scenes: {len(scene_list)}")
+
+        # Run the audio sync pipeline
+        sync = AudioSyncPipeline(use_api=use_api)
+
+        # Step 1: Transcribe
+        print(f"  Step 1/4: Transcribing audio with Whisper...")
+        words = sync.transcribe(audio_path, cache_dir=timing_dir)
+        print(f"    {len(words)} words transcribed")
+
+        # Step 2: Align
+        print(f"  Step 2/4: Aligning scenes to timestamps...")
+        aligned = sync.align(scene_list, words)
+        report = validate_alignment(aligned)
+        print(f"    Quality: {report['quality']}")
+        print(f"    Fuzzy matched: {report['aligned_fuzzy']}")
+        print(f"    Interpolated: {report['aligned_interpolated']}")
+        if report['issues']:
+            for issue in report['issues'][:5]:
+                print(f"    Warning: {issue}")
+
+        # Step 3: Adjust timing
+        print(f"  Step 3/4: Adjusting timing (pre-roll, post-hold, min/max)...")
+        timed = sync.adjust_timing(aligned)
+
+        # Step 4: Generate render config
+        print(f"  Step 4/4: Writing render config...")
+        image_dir = str(
+            _Path(__file__).parent.parent.parent / "remotion-video" / "public"
+        )
+        config = sync.generate_render_config(
+            video_id=video_id,
+            audio_path=audio_path,
+            scenes=timed,
+            image_dir=image_dir,
+            output_dir=timing_dir,
+        )
+
+        print(f"  Render config: {timing_dir / 'render_config.json'}")
+        print(f"  Total duration: {config['total_duration_seconds']:.1f}s")
+        print(f"  Scenes: {len(config['scenes'])}")
+
+        return {
+            "bot": "Audio Sync",
+            "video_title": self.video_title,
+            "timing_dir": str(timing_dir),
+            "render_config_path": str(timing_dir / "render_config.json"),
+            "total_duration": config["total_duration_seconds"],
+            "scene_count": len(config["scenes"]),
+            "alignment_quality": report["quality"],
+            "words_transcribed": len(words),
+        }
+
     async def run_youtube_upload_bot(self) -> dict:
         """Generate SEO metadata and upload video to YouTube as unlisted draft.
 
