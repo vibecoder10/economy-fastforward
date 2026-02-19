@@ -2017,6 +2017,60 @@ class VideoPipeline:
         echo_pct = styles.count("echo") / len(styles) * 100
         print(f"  Style mix: Dossier {dossier_pct:.0f}% | Schema {schema_pct:.0f}% | Echo {echo_pct:.0f}%")
 
+        # -----------------------------------------------------------
+        # Audio Sync: calculate real per-scene durations from Whisper
+        # word timestamps and write them back to the Airtable image
+        # records.  Voice audio must already exist (voice bot runs
+        # before prompts).  If sync fails, durations are left empty
+        # and can be populated later — we never fall back to fixed 9s.
+        # -----------------------------------------------------------
+        audio_sync_summary = ""
+        try:
+            print(f"\n  🎵 Running audio sync for scene durations...")
+            sync_result = await self.run_audio_sync()
+
+            if sync_result.get("error"):
+                print(f"  ⚠️ Audio sync skipped: {sync_result['error']}")
+                audio_sync_summary = f" | Audio sync skipped: {sync_result['error']}"
+            else:
+                # Write Whisper-aligned durations back to Airtable image records
+                render_config_path = sync_result.get("render_config_path")
+                if render_config_path and Path(render_config_path).exists():
+                    render_config = json.loads(Path(render_config_path).read_text())
+                    duration_updates = 0
+                    image_records = self.airtable.get_all_images_for_video(self.video_title)
+                    # Build lookup: (scene_number, image_index) → record_id
+                    record_lookup = {}
+                    for rec in image_records:
+                        key = (rec.get("Scene"), rec.get("Image Index"))
+                        record_lookup[key] = rec["id"]
+
+                    for rc_scene in render_config.get("scenes", []):
+                        scene_num = rc_scene.get("scene_number")
+                        display_dur = rc_scene.get("display_duration")
+                        if scene_num is None or display_dur is None:
+                            continue
+                        # Match by scene_number — update all image slots for this scene
+                        for (s, idx), rec_id in record_lookup.items():
+                            if s == scene_num:
+                                self.airtable.images_table.update(
+                                    rec_id,
+                                    {"Duration (s)": round(display_dur, 2)},
+                                    typecast=True,
+                                )
+                                duration_updates += 1
+
+                    avg_dur = sync_result["total_duration"] / max(sync_result["scene_count"], 1)
+                    print(f"  ✅ Audio sync: {sync_result['scene_count']} scenes aligned, "
+                          f"avg {avg_dur:.1f}s, {duration_updates} records updated")
+                    audio_sync_summary = (
+                        f" | Audio sync: {sync_result['scene_count']} scenes, "
+                        f"avg {avg_dur:.1f}s"
+                    )
+        except Exception as e:
+            print(f"  ⚠️ Audio sync failed (non-blocking): {e}")
+            audio_sync_summary = f" | Audio sync error: {e}"
+
         # Update status
         self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_IMAGES)
         print(f"  ✅ Status updated to: {self.STATUS_READY_IMAGES}")
@@ -2024,6 +2078,7 @@ class VideoPipeline:
         self.slack.send_message(
             f"🎨 Styled prompts done: {created} for *{self.video_title}*\n"
             f"D:{dossier_pct:.0f}% S:{schema_pct:.0f}% E:{echo_pct:.0f}%"
+            f"{audio_sync_summary}"
         )
 
         return {

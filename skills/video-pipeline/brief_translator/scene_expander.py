@@ -106,6 +106,82 @@ def flatten_scenes(scene_structure: dict) -> list[dict]:
     return flat
 
 
+def check_scene_diversity(scenes: list[dict]) -> list[int]:
+    """Find consecutive scenes with overly similar descriptions.
+
+    Compares the first 8 content words (lowercased) of each pair of
+    consecutive scene descriptions.  If more than 60 % of those words
+    overlap the scene is flagged for regeneration.
+
+    Returns:
+        List of scene *indices* (into *scenes*) that need new descriptions.
+    """
+    flagged: list[int] = []
+    for i in range(1, len(scenes)):
+        prev_desc = scenes[i - 1].get("description", scenes[i - 1].get("scene_description", "")).lower().split()[:8]
+        curr_desc = scenes[i].get("description", scenes[i].get("scene_description", "")).lower().split()[:8]
+
+        if len(prev_desc) >= 6 and len(curr_desc) >= 6:
+            overlap = len(set(prev_desc) & set(curr_desc))
+            overlap_ratio = overlap / max(len(set(prev_desc)), 1)
+            if overlap_ratio > 0.6:
+                flagged.append(i)
+
+    return flagged
+
+
+async def regenerate_duplicate_scenes(
+    anthropic_client,
+    scenes: list[dict],
+    flagged_indices: list[int],
+) -> list[dict]:
+    """Re-generate descriptions for scenes flagged as duplicates.
+
+    For each flagged index, asks the LLM for a visually distinct
+    replacement that differs from both the previous and next scene.
+    """
+    for idx in flagged_indices:
+        scene = scenes[idx]
+        prev_scene = scenes[idx - 1]
+        next_scene = scenes[idx + 1] if idx + 1 < len(scenes) else None
+
+        narration = scene.get("narration_text", scene.get("script_excerpt", ""))
+        prev_desc = prev_scene.get("description", prev_scene.get("scene_description", ""))
+        next_desc = next_scene.get("description", next_scene.get("scene_description", "")) if next_scene else None
+
+        prompt = (
+            "Generate a NEW scene description for this narration line.\n\n"
+            f"The narration text: \"{narration}\"\n"
+            f"Act: {scene.get('act', scene.get('parent_act', ''))}\n"
+            f"Style: {scene.get('style', scene.get('visual_style', 'dossier'))}\n"
+            f"Composition: {scene.get('composition_hint', scene.get('composition', 'medium'))}\n\n"
+            f"The PREVIOUS scene already shows: \"{prev_desc}\"\n"
+        )
+        if next_desc:
+            prompt += f"The NEXT scene shows: \"{next_desc}\"\n"
+
+        prompt += (
+            "\nYour description MUST be visually COMPLETELY DIFFERENT from the "
+            "previous and next scenes. Different setting, different subject, "
+            "different objects. 20-35 words. Describe only CONTENT — no style "
+            "or lighting language.\n\n"
+            "Return ONLY the scene description, nothing else."
+        )
+
+        new_desc = await anthropic_client.generate(
+            prompt=prompt,
+            model="claude-sonnet-4-5-20250929",
+            max_tokens=200,
+            temperature=0.8,
+        )
+        new_desc = new_desc.strip().strip('"').strip()
+
+        scene["description"] = new_desc
+        scene["scene_description"] = new_desc
+
+    return scenes
+
+
 async def expand_scenes(
     anthropic_client,
     script: str,
@@ -145,6 +221,19 @@ async def expand_scenes(
         scenes = await _expand_scenes_split(
             anthropic_client, script, visual_seeds, accent_color, total_scenes
         )
+
+    # Post-generation diversity check: flag and regenerate duplicate scenes
+    if scenes:
+        flagged = check_scene_diversity(scenes)
+        if flagged:
+            print(f"  ⚠️ {len(flagged)} consecutive duplicate scenes detected — regenerating")
+            scenes = await regenerate_duplicate_scenes(
+                anthropic_client, scenes, flagged,
+            )
+            # Second pass: check if any duplicates remain after regeneration
+            still_flagged = check_scene_diversity(scenes)
+            if still_flagged:
+                print(f"  ⚠️ {len(still_flagged)} duplicates remain after regeneration (logged)")
 
     return scenes
 
