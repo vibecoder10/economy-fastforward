@@ -196,8 +196,8 @@ def transcribe(
             raw = load_whisper_raw(cache_file)
             return extract_words(raw)
 
-    # Transcribe
-    if use_api:
+    # Transcribe — prefer API when OPENAI_API_KEY is available
+    if use_api or os.environ.get("OPENAI_API_KEY"):
         raw = transcribe_api(audio_path)
     else:
         raw = transcribe_local(audio_path, model_size=model_size)

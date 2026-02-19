@@ -188,13 +188,20 @@ async def regenerate_duplicate_scenes(
             "Return ONLY the scene description, nothing else."
         )
 
-        new_desc = await anthropic_client.generate(
-            prompt=prompt,
-            model="claude-sonnet-4-5-20250929",
-            max_tokens=200,
-            temperature=0.8,
-        )
-        new_desc = new_desc.strip().strip('"').strip()
+        try:
+            new_desc = await anthropic_client.generate(
+                prompt=prompt,
+                model="claude-sonnet-4-5-20250929",
+                max_tokens=200,
+                temperature=0.8,
+            )
+            if not new_desc:
+                new_desc = _fallback_description(narration)
+            else:
+                new_desc = new_desc.strip().strip('"').strip()
+        except Exception as exc:
+            print(f"    ⚠️ Regeneration failed ({exc}), using fallback")
+            new_desc = _fallback_description(narration)
 
         scene["description"] = new_desc
         scene["scene_description"] = new_desc
@@ -267,18 +274,35 @@ async def _generate_description_for_scene(
         "Return ONLY the scene description, nothing else."
     )
 
-    try:
-        response = await anthropic_client.generate(
-            prompt=prompt,
-            model="claude-sonnet-4-5-20250929",
-            max_tokens=200,
-            temperature=0.7,
-        )
-        result = response.strip().strip('"').strip()
-        if result:
-            return result
-    except Exception as exc:
-        print(f"    ⚠️ LLM call failed ({exc}), using fallback description")
+    import asyncio
+
+    max_retries = 2
+    for attempt in range(max_retries):
+        try:
+            response = await anthropic_client.generate(
+                prompt=prompt,
+                model="claude-sonnet-4-5-20250929",
+                max_tokens=200,
+                temperature=0.7,
+            )
+            if not response:
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(2)
+                    continue
+                return _fallback_description(narration)
+
+            result = response.strip().strip('"').strip()
+            if result:
+                return result
+
+            if attempt < max_retries - 1:
+                await asyncio.sleep(2)
+                continue
+        except Exception as exc:
+            print(f"    ⚠️ LLM call failed ({exc}), attempt {attempt + 1}/{max_retries}")
+            if attempt < max_retries - 1:
+                await asyncio.sleep(2)
+                continue
 
     return _fallback_description(narration)
 
