@@ -115,19 +115,25 @@ class AnthropicClient:
         temperature: float = 1.0,
     ) -> str:
         """Generate a completion using Claude.
-        
+
         Args:
             prompt: The user prompt
             system_prompt: System instructions
             model: Model to use (claude-sonnet-4-5-20250929, claude-opus-4-5-20251101)
             max_tokens: Maximum tokens in response
             temperature: Sampling temperature
-            
+
         Returns:
             The generated text response
+
+        Raises:
+            RuntimeError: If the API returns empty content on both
+                          the initial call and the retry.
         """
+        import asyncio as _asyncio
+
         messages = [{"role": "user", "content": prompt}]
-        
+
         # Build kwargs - only include system if provided
         kwargs = {
             "model": model,
@@ -137,10 +143,21 @@ class AnthropicClient:
         }
         if system_prompt:
             kwargs["system"] = system_prompt
-        
+
         response = self.client.messages.create(**kwargs)
-        
-        return response.content[0].text
+
+        if response.content:
+            return response.content[0].text
+
+        # Empty content — retry once after a short delay
+        print("    ⚠️ API returned empty content, retrying in 2s...")
+        await _asyncio.sleep(2)
+        response = self.client.messages.create(**kwargs)
+
+        if response.content:
+            return response.content[0].text
+
+        raise RuntimeError("Anthropic API returned empty content on both attempts")
     
     async def generate_beat_sheet(self, video_data: dict) -> dict:
         """Generate a 20-scene beat sheet for a video (legacy path).

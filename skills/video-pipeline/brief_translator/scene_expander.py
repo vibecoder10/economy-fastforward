@@ -202,6 +202,31 @@ async def regenerate_duplicate_scenes(
     return scenes
 
 
+def _fallback_description(narration: str) -> str:
+    """Build a simple fallback description from narration text.
+
+    Extracts key nouns/phrases and constructs a generic but concrete
+    scene description.  Used when the LLM call fails entirely.
+    """
+    # Strip common filler words to get content-bearing tokens
+    filler = {
+        "the", "a", "an", "is", "are", "was", "were", "be", "been",
+        "being", "have", "has", "had", "do", "does", "did", "will",
+        "would", "could", "should", "may", "might", "shall", "can",
+        "to", "of", "in", "for", "on", "with", "at", "by", "from",
+        "as", "into", "through", "during", "before", "after", "and",
+        "but", "or", "nor", "not", "so", "yet", "both", "either",
+        "neither", "each", "every", "all", "any", "few", "more",
+        "most", "other", "some", "such", "no", "than", "too", "very",
+        "just", "about", "above", "also", "that", "this", "these",
+        "those", "it", "its", "they", "them", "their", "we", "our",
+        "you", "your", "he", "she", "his", "her", "i", "me", "my",
+    }
+    words = [w for w in narration.split() if w.lower().strip(".,;:!?\"'") not in filler]
+    key_phrase = " ".join(words[:12])
+    return f"A scene depicting {key_phrase}"
+
+
 async def _generate_description_for_scene(
     anthropic_client,
     scene: dict,
@@ -242,13 +267,20 @@ async def _generate_description_for_scene(
         "Return ONLY the scene description, nothing else."
     )
 
-    response = await anthropic_client.generate(
-        prompt=prompt,
-        model="claude-sonnet-4-5-20250929",
-        max_tokens=200,
-        temperature=0.7,
-    )
-    return response.strip().strip('"').strip()
+    try:
+        response = await anthropic_client.generate(
+            prompt=prompt,
+            model="claude-sonnet-4-5-20250929",
+            max_tokens=200,
+            temperature=0.7,
+        )
+        result = response.strip().strip('"').strip()
+        if result:
+            return result
+    except Exception as exc:
+        print(f"    ⚠️ LLM call failed ({exc}), using fallback description")
+
+    return _fallback_description(narration)
 
 
 async def _generate_all_descriptions(
@@ -260,9 +292,14 @@ async def _generate_all_descriptions(
     Each scene receives the previous 3 descriptions as "DO NOT REPEAT"
     context, making duplicate descriptions structurally impossible.
 
+    Includes a 0.4s delay between calls to avoid rate limiting across
+    ~170 sequential requests.
+
     Overwrites the ``description`` and ``scene_description`` fields
     on each scene dict in-place and returns the modified list.
     """
+    import asyncio
+
     descriptions: list[str] = []
 
     for i, scene in enumerate(scenes):
@@ -279,6 +316,10 @@ async def _generate_all_descriptions(
 
         if (i + 1) % 10 == 0 or i + 1 == len(scenes):
             print(f"  Descriptions: {i + 1}/{len(scenes)} scenes")
+
+        # Small delay between calls to avoid rate limiting
+        if i < len(scenes) - 1:
+            await asyncio.sleep(0.4)
 
     return scenes
 

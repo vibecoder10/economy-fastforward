@@ -13,6 +13,7 @@ from brief_translator.scene_expander import (
     _plan_batches,
     _generate_description_for_scene,
     _generate_all_descriptions,
+    _fallback_description,
     BATCH_SIZE,
 )
 
@@ -171,10 +172,11 @@ class TestPlanBatches:
 class FakeAnthropicClient:
     """Mock client that returns a predictable description based on call count."""
 
-    def __init__(self, responses=None):
+    def __init__(self, responses=None, fail_on=None):
         self.calls = []
         self._responses = responses or []
         self._call_count = 0
+        self._fail_on = set(fail_on or [])
 
     async def generate(self, prompt, model, max_tokens, temperature):
         self.calls.append({
@@ -183,6 +185,9 @@ class FakeAnthropicClient:
             "max_tokens": max_tokens,
             "temperature": temperature,
         })
+        if self._call_count in self._fail_on:
+            self._call_count += 1
+            raise RuntimeError("Simulated API failure")
         if self._responses:
             resp = self._responses[self._call_count % len(self._responses)]
         else:
@@ -323,3 +328,68 @@ class TestGenerateAllDescriptions:
         )
         assert result[0]["description"] == result[0]["scene_description"]
         assert result[0]["description"] != "old"
+
+
+# ---------------------------------------------------------------------------
+# Fallback and error handling tests
+# ---------------------------------------------------------------------------
+
+
+class TestFallbackDescription:
+    def test_extracts_key_words(self):
+        """Fallback strips filler and builds a description from content words."""
+        result = _fallback_description(
+            "The Federal Reserve announced sweeping rate cuts today."
+        )
+        assert "Federal" in result
+        assert "Reserve" in result
+        assert "rate" in result
+        # Filler should be stripped
+        assert result.startswith("A scene depicting")
+
+    def test_short_narration(self):
+        """Fallback handles very short narration gracefully."""
+        result = _fallback_description("Factories closed.")
+        assert "Factories" in result
+        assert "closed" in result
+
+    def test_empty_narration(self):
+        """Fallback handles empty narration without crashing."""
+        result = _fallback_description("")
+        assert result.startswith("A scene depicting")
+
+
+class TestErrorHandling:
+    def test_api_failure_uses_fallback(self):
+        """When the LLM call raises, a fallback description is returned."""
+        client = FakeAnthropicClient(fail_on={0})
+        scene = _scene(
+            "",
+            narration_text="The economy contracts sharply in Q4.",
+            act=2, style="dossier", composition="wide",
+        )
+        result = asyncio.get_event_loop().run_until_complete(
+            _generate_description_for_scene(client, scene, [])
+        )
+        # Should get a fallback, not crash
+        assert result
+        assert "scene depicting" in result.lower()
+
+    def test_mid_sequence_failure_continues(self):
+        """A failure mid-sequence falls back and continues processing."""
+        # Fail on 3rd call (index 2), succeed on everything else
+        client = FakeAnthropicClient(fail_on={2})
+        scenes = [
+            _scene("", narration_text=f"The topic number {i} is discussed.", act=1, style="dossier", composition="wide")
+            for i in range(5)
+        ]
+        result = asyncio.get_event_loop().run_until_complete(
+            _generate_all_descriptions(client, scenes)
+        )
+        # All 5 scenes should have descriptions (no crash)
+        assert len(result) == 5
+        for s in result:
+            assert s["description"]
+            assert s["scene_description"]
+        # Scene 3 (index 2) should have a fallback description
+        assert "scene depicting" in result[2]["description"].lower()
