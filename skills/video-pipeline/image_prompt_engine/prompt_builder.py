@@ -7,6 +7,7 @@ image generation prompts ready for NanoBanana.
 
 from __future__ import annotations
 
+import re
 from typing import Optional
 
 from .style_config import (
@@ -17,6 +18,64 @@ from .style_config import (
     YOUTUBE_STYLE_PREFIX,
 )
 from .sequencer import assign_styles
+
+# ---------------------------------------------------------------------------
+# Style-language patterns to strip from scene descriptions before appending
+# the style suffix.  The scene expansion prompt instructs the LLM to omit
+# these, but this acts as a safety net to prevent duplicate directives.
+# ---------------------------------------------------------------------------
+_STYLE_STRIP_PATTERNS: list[re.Pattern[str]] = [
+    re.compile(p, re.IGNORECASE)
+    for p in [
+        # Lighting
+        r"\bRembrandt lighting\b",
+        r"\bdramatic (?:side |back )?lighting\b",
+        r"\bchiaroscuro\b",
+        r"\bcandlelight lighting\b",
+        r"\bsingle dramatic light source\b",
+        # Camera / lens
+        r"\bshot on Arri Alexa\b",
+        r"\b\d{2,3}\s?mm lens\b",
+        r"\b16:\s?9\b",
+        # Color grading
+        r"\bdesaturated (?:color )?palette\b",
+        r"\bcold teal accent(?:\s*lighting)?\b",
+        r"\bwarm amber (?:tones|accent)\b",
+        r"\bmuted crimson accent\b",
+        # Depth of field / film stock
+        r"\bshallow depth of field\b",
+        r"\bbokeh\b",
+        r"\bsubtle film grain\b",
+        r"\bheavy film grain\b",
+        r"\bfilm grain\b",
+        # Style / mood meta-language
+        r"\bcinematic(?:\s+photorealistic)?\b",
+        r"\bphotorealistic\b",
+        r"\bdocumentary(?:\s+photography)?\s+style\b",
+        r"\bdark moody atmosphere\b",
+        r"\bepic scale\b",
+        # Composition terminology (handled by suffix)
+        r"\brule of thirds\b",
+        r"\bleading lines\b",
+    ]
+]
+
+
+def _strip_style_language(description: str) -> str:
+    """Remove style/lighting/camera language from a scene description.
+
+    This prevents duplication with the style suffix and YouTube prefix that
+    are appended by :func:`build_prompt`.
+    """
+    cleaned = description
+    for pat in _STYLE_STRIP_PATTERNS:
+        cleaned = pat.sub("", cleaned)
+    # Collapse leftover punctuation artifacts (double commas, leading commas).
+    cleaned = re.sub(r",\s*,", ",", cleaned)
+    cleaned = re.sub(r"^\s*,\s*", "", cleaned)
+    cleaned = re.sub(r"\s*,\s*$", "", cleaned)
+    cleaned = re.sub(r"\s{2,}", " ", cleaned)
+    return cleaned.strip()
 
 
 def resolve_accent_color(
@@ -75,7 +134,11 @@ def build_prompt(
     comp_text = COMPOSITION_DIRECTIVES.get(composition, "")
     suffix = STYLE_SUFFIXES[style].replace("[ACCENT_COLOR]", accent_color)
 
-    parts = [prefix + " " + scene_description.rstrip(", ")]
+    # Strip any style/lighting/camera language that leaked into the scene
+    # description to avoid duplicating what the prefix and suffix provide.
+    clean_desc = _strip_style_language(scene_description)
+
+    parts = [prefix + " " + clean_desc.rstrip(", ")]
     if comp_text:
         parts.append(comp_text)
     parts_str = ", ".join(parts)
