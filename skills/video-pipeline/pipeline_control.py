@@ -33,6 +33,10 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 current_process = None
 current_task_name = None
 
+# Stop signal for in-process async tasks (e.g. "run" auto-pipeline, inline research)
+# When set, long-running loops should break at the next safe point.
+_stop_event = asyncio.Event()
+
 # Track discovery messages for emoji reaction approval
 # Maps message_ts -> list of ideas from that discovery scan
 _discovery_messages = {}
@@ -127,32 +131,42 @@ async def handle_stop(message, say):
     """Stop the currently running pipeline."""
     global current_process, current_task_name
 
-    if current_process is None:
-        await say(":shrug: No pipeline currently running.")
+    # Case 1: A subprocess is running (script, voice, images, etc.)
+    if current_process is not None:
+        task = current_task_name or "unknown task"
+        try:
+            current_process.terminate()
+            await asyncio.sleep(0.5)
+            if current_process and current_process.returncode is None:
+                current_process.kill()
+            current_process = None
+            current_task_name = None
+            await say(f":stop_sign: Killed `{task}`")
+        except Exception as e:
+            await say(f":x: Error stopping process: {e}")
         return
 
-    task = current_task_name or "unknown task"
-    try:
-        current_process.terminate()
-        await asyncio.sleep(0.5)
-        if current_process and current_process.returncode is None:
-            current_process.kill()
-        current_process = None
-        current_task_name = None
-        await say(f":stop_sign: Killed `{task}`")
-    except Exception as e:
-        await say(f":x: Error stopping process: {e}")
+    # Case 2: An in-process async task is running (e.g. "run" auto-pipeline,
+    # inline research). Signal it to stop at the next safe point.
+    if current_task_name is not None:
+        task = current_task_name
+        _stop_event.set()
+        await say(f":stop_sign: Stopping `{task}` — will halt after current step finishes.")
+        return
+
+    await say(":shrug: No pipeline currently running.")
 
 
 @app.message(re.compile(r"^run$", re.IGNORECASE))
 async def handle_run(message, say):
     """Pick up the YouTube pipeline where it left off and keep going."""
     global current_process, current_task_name
-    if current_process:
+    if current_process or current_task_name:
         await say(f":x: Already running `{current_task_name}`. Use `stop` to cancel it first.")
         return
 
     current_task_name = "run (auto-pipeline)"
+    _stop_event.clear()  # reset stop signal for this run
     await say(":rocket: Starting auto-pipeline — checking Airtable for next step...")
 
     try:
@@ -163,6 +177,13 @@ async def handle_run(message, say):
         max_steps = 15  # safety cap
 
         while steps_done < max_steps:
+            # Check if user asked to stop between steps
+            if _stop_event.is_set():
+                await say(
+                    f":stop_sign: Pipeline stopped by user after {steps_done} step(s)."
+                )
+                break
+
             result = await pipeline.run_next_step()
 
             if result.get("status") == "idle":
@@ -192,11 +213,14 @@ async def handle_run(message, say):
         if steps_done >= max_steps:
             await say(f":warning: Stopped after {max_steps} steps (safety cap).")
 
+    except asyncio.CancelledError:
+        await say(f":stop_sign: Pipeline cancelled after {steps_done} step(s).")
     except Exception as e:
         log.error(f"run auto-pipeline error: {e}", exc_info=True)
         await say(f":x: Pipeline error: {e}")
     finally:
         current_task_name = None
+        _stop_event.clear()
 
 
 @app.message(re.compile(r"run script", re.IGNORECASE))
@@ -818,7 +842,7 @@ async def _handle_cron_discovery_approval(
 async def handle_research(message, say):
     """Run deep research on a topic or next approved idea."""
     global current_process, current_task_name
-    if current_process:
+    if current_process or current_task_name:
         await say(f":x: Already running `{current_task_name}`. Use `stop` to cancel it first.")
         return
 
@@ -830,6 +854,8 @@ async def handle_research(message, say):
     if (topic.startswith('"') and topic.endswith('"')) or \
        (topic.startswith("'") and topic.endswith("'")):
         topic = topic[1:-1].strip()
+
+    _stop_event.clear()  # reset stop signal for this run
 
     try:
         from clients.anthropic_client import AnthropicClient
