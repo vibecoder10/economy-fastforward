@@ -1905,48 +1905,38 @@ class VideoPipeline:
 
             _scene_sentence_map[scene_num] = chunks
 
-        # RESUME LOGIC: Check for existing prompts and skip scenes that already have them
+        # FRESH START: Delete any existing image records for this video so
+        # every run generates clean prompts (no stale/bad cached prompts).
         existing_images = self.airtable.get_all_images_for_video(self.video_title)
-        existing_keys = {
-            (img.get("Scene"), img.get("Image Index"))
-            for img in existing_images
-            if img.get("Image Prompt")  # Only count scenes with populated Image Prompt
-        }
+        if existing_images:
+            print(f"  🗑️ Clearing {len(existing_images)} old image records for fresh prompt generation")
+            old_ids = [img["id"] for img in existing_images]
+            batch_size = 10
+            for i in range(0, len(old_ids), batch_size):
+                self.airtable.images_table.batch_delete(old_ids[i:i + batch_size])
 
-        if existing_keys:
-            print(f"  ♻️ RESUME: Found {len(existing_keys)} scenes with existing Image Prompts — skipping them")
+        # All scenes need prompts (fresh start)
+        scenes_needing_prompts = expanded_scenes
+        scenes_needing_prompts_indices = list(range(len(expanded_scenes)))
 
-        # Filter expanded scenes to only those that need prompts
-        scenes_needing_prompts = []
-        scenes_needing_prompts_indices = []
-        for i, scene in enumerate(expanded_scenes):
-            scene_num = scene.get("_source_scene_number", scene.get("scene_number", i + 1))
-            segment_index = scene.get("_image_index", 1)
-            if (scene_num, segment_index) not in existing_keys:
-                scenes_needing_prompts.append(scene)
-                scenes_needing_prompts_indices.append(i)
+        print(f"  Generating prompts for {len(scenes_needing_prompts)} scenes")
 
-        if not scenes_needing_prompts:
-            print(f"  ✅ All {len(expanded_scenes)} image prompts already exist — nothing to generate")
-            # Still update status in case it wasn't set
-            self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_IMAGES)
-            return {
-                "bot": "Styled Image Prompt Engine",
-                "video_title": self.video_title,
-                "prompt_count": 0,
-                "total_styled": len(expanded_scenes),
-                "skipped": len(existing_keys),
-                "new_status": self.STATUS_READY_IMAGES,
-            }
-
-        print(f"  Generating prompts for {len(scenes_needing_prompts)}/{len(expanded_scenes)} scenes (skipping {len(existing_keys)} existing)")
+        # Replace each expanded scene's scene_description with its per-image
+        # sentence chunk so prompts describe ONE visual moment, not the full
+        # narration paragraph.
+        for scene in scenes_needing_prompts:
+            scene_num = scene.get("_source_scene_number", scene.get("scene_number", 1))
+            img_idx = scene.get("_image_index", 1) - 1  # 0-based
+            sentence_chunks = _scene_sentence_map.get(scene_num, [])
+            if sentence_chunks and img_idx < len(sentence_chunks):
+                scene["scene_description"] = sentence_chunks[img_idx]
 
         # Determine accent color from idea or default
         accent_color = self.current_idea.get("Accent Color") or "cold teal"
         # Resolve underscored to spaced form for the engine
         accent_color = accent_color.replace("_", " ")
 
-        # Generate styled prompts only for scenes that need them
+        # Generate styled prompts for all scenes
         styled_prompts = generate_prompts(
             scenes_needing_prompts,
             accent_color=accent_color,
@@ -1983,7 +1973,7 @@ class VideoPipeline:
             )
             created += 1
 
-        print(f"  ✅ Created {created} styled image prompts ({len(existing_keys)} previously existed)")
+        print(f"  ✅ Created {created} styled image prompts")
 
         # Log style distribution
         styles = [sp["style"] for sp in styled_prompts]
@@ -1997,7 +1987,7 @@ class VideoPipeline:
         print(f"  ✅ Status updated to: {self.STATUS_READY_IMAGES}")
 
         self.slack.send_message(
-            f"🎨 Styled prompts done: {created} new, {len(existing_keys)} existing for *{self.video_title}*\n"
+            f"🎨 Styled prompts done: {created} for *{self.video_title}*\n"
             f"D:{dossier_pct:.0f}% S:{schema_pct:.0f}% E:{echo_pct:.0f}%"
         )
 
@@ -2006,7 +1996,6 @@ class VideoPipeline:
             "video_title": self.video_title,
             "prompt_count": created,
             "total_styled": len(styled_prompts),
-            "skipped": len(existing_keys),
             "style_distribution": {
                 "dossier": styles.count("dossier"),
                 "schema": styles.count("schema"),
