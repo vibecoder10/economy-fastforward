@@ -8,9 +8,18 @@
 # Logs: /tmp/pipeline-bot-health.log
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PYTHON3="/home/clawd/pipeline-bot/venv/bin/python"
+REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 PID_FILE="/tmp/pipeline-bot.pid"
 BOT_SCRIPT="pipeline_control.py"
+
+# Find Python — prefer repo venv, fall back to system python3
+if [ -x "$REPO_DIR/venv/bin/python" ]; then
+    PYTHON3="$REPO_DIR/venv/bin/python"
+elif [ -x "$SCRIPT_DIR/venv/bin/python" ]; then
+    PYTHON3="$SCRIPT_DIR/venv/bin/python"
+else
+    PYTHON3="python3"
+fi
 
 # Check if bot process is alive
 bot_is_running() {
@@ -38,12 +47,12 @@ send_slack_alert() {
     local message="$1"
     local webhook_url
 
-    # Try to read Slack webhook from .env file
-    if [ -f "$SCRIPT_DIR/../../.env" ]; then
+    # Try to read Slack webhook from .env file at repo root
+    if [ -f "$REPO_DIR/.env" ]; then
         local bot_token
-        bot_token=$(grep '^SLACK_BOT_TOKEN=' "$SCRIPT_DIR/../../.env" | cut -d'=' -f2- | tr -d '"' | tr -d "'")
+        bot_token=$(grep '^SLACK_BOT_TOKEN=' "$REPO_DIR/.env" | cut -d'=' -f2- | tr -d '"' | tr -d "'")
         local channel_id
-        channel_id=$(grep '^SLACK_CHANNEL_ID=' "$SCRIPT_DIR/../../.env" | cut -d'=' -f2- | tr -d '"' | tr -d "'" || echo "C0A9U1X8NSW")
+        channel_id=$(grep '^SLACK_CHANNEL_ID=' "$REPO_DIR/.env" | cut -d'=' -f2- | tr -d '"' | tr -d "'" || echo "C0A9U1X8NSW")
 
         if [ -n "$bot_token" ]; then
             curl -s -X POST "https://slack.com/api/chat.postMessage" \
