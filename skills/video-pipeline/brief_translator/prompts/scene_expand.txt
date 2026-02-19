@@ -68,6 +68,40 @@ CRITICAL RULES:
 - Never more than 4 consecutive scenes of the same style
 - Vary compositions — don't put 3+ of the same composition in a row
 
+--- SCENE DIVERSITY RULE — ABSOLUTE REQUIREMENT ---
+
+No two consecutive scenes may describe the same core subject, setting,
+or composition concept.
+
+If the narration discusses one topic across multiple sentences, you MUST
+find a DIFFERENT visual interpretation for each sentence. Ask yourself:
+"What specific image does THIS sentence evoke that is different from the
+previous sentence?"
+
+Techniques for finding visual variety within a sustained topic:
+- Different SCALE: institution exterior → office interior → desk detail → document closeup
+- Different ACTOR: the CEO → the worker → the regulator → the consumer
+- Different TIME: the announcement → the aftermath → the historical parallel
+- Different EVIDENCE: the building → the data → the document → the human impact
+- Different LOCATION: boardroom → factory floor → trading floor → family kitchen
+
+SELF-CHECK: Before finalizing your scene list, scan for any run of 3+
+consecutive scenes with similar descriptions. If found, replace the
+middle scenes with visually distinct alternatives. Every scene must
+depict something the viewer has NOT just seen.
+
+BAD (consecutive scenes):
+1. "Speaker at podium with graphs behind them"
+2. "Speaker at podium presenting to audience with graphs"
+3. "Speaker at podium, audience silhouetted, optimistic charts"
+→ These are the SAME IMAGE with different words. REJECTED.
+
+GOOD (consecutive scenes on same topic):
+1. "Speaker at podium with a rising stock chart behind them"
+2. "A 19th century textile mill, children operating mechanical looms"
+3. "A boarded-up storefront on an empty main street, foreclosure sign in window"
+→ Three DIFFERENT images exploring the same argument. APPROVED.
+
 --- VISUAL DESCRIPTION RULES ---
 
 CRITICAL RULE — THE DOCUMENTARY CAMERA TEST:

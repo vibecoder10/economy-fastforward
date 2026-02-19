@@ -98,6 +98,7 @@ async def handle_help(message, say):
 - `voice` / `run voice` - Run voice bot for idea with "Ready For Voice" status
 - `prompts` / `run prompts` - Generate styled image prompts and images
 - `images` / `run images` - Generate scene images only (for "Ready For Images" status)
+- `sync` / `timing` - Run audio sync (Whisper alignment) to calculate scene durations
 - `end images` / `run end images` - Generate end image prompts and images
 - `thumbnail` / `run thumbnail` - Generate thumbnail for idea with "Ready For Thumbnail" status
 - `render` / `run render` - Render videos only (skips other stages, one at a time)
@@ -365,6 +366,36 @@ async def handle_images(message, say):
         await say(":warning: Image bot timed out after 30 minutes")
     except asyncio.CancelledError:
         await say(":stop_sign: Image bot was stopped")
+    except Exception as e:
+        await say(f":x: Error: {e}")
+
+
+@app.message(re.compile(r"run sync", re.IGNORECASE))
+@app.message(re.compile(r"sync", re.IGNORECASE))
+@app.message(re.compile(r"timing", re.IGNORECASE))
+async def handle_audio_sync(message, say):
+    """Run audio sync (Whisper alignment) to calculate scene durations."""
+    global current_process
+    if current_process:
+        await say(f":x: Already running `{current_task_name}`. Use `stop` to cancel it first.")
+        return
+
+    await say(":musical_note: Starting audio sync (Whisper alignment)...")
+
+    try:
+        returncode, stdout, stderr = await run_script_async("run_audio_sync.py", "audio sync", say, timeout=1800)
+
+        if returncode == 0:
+            output = stdout[-3000:] if len(stdout) > 3000 else stdout
+            await say(f":white_check_mark: Audio sync complete!\n```{output}```")
+        else:
+            error = stderr[-1500:] if len(stderr) > 1500 else stderr
+            await say(f":x: Audio sync error:\n```{error}```")
+
+    except subprocess.TimeoutExpired:
+        await say(":warning: Audio sync timed out after 30 minutes")
+    except asyncio.CancelledError:
+        await say(":stop_sign: Audio sync was stopped")
     except Exception as e:
         await say(f":x: Error: {e}")
 
