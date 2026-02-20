@@ -7,7 +7,7 @@ def reset_visuals(video_title):
     print(f"🗑️ RESETTING VISUALS FOR: {video_title}")
     
     # Load env
-    load_dotenv('../../.env')
+    load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '.env'))
     api_key = os.getenv("AIRTABLE_API_KEY")
     base_id = os.getenv("AIRTABLE_BASE_ID")
     

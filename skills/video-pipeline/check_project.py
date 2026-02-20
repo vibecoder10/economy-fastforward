@@ -7,7 +7,7 @@ import httpx
 from dotenv import load_dotenv
 from collections import Counter
 
-load_dotenv()
+load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '.env'))
 
 AIRTABLE_API_KEY = os.getenv("AIRTABLE_API_KEY")
 

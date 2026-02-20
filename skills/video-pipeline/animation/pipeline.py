@@ -13,7 +13,7 @@ import json
 from typing import Optional
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', '.env'))
 
 from animation.scene_planner import ScenePlanner
 from animation.image_generator import ImagePromptGenerator

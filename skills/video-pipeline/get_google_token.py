@@ -10,7 +10,7 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from dotenv import load_dotenv
 
 # Load environment variables
-load_dotenv()
+load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '.env'))
 
 # Scopes needed for Drive and Docs
 SCOPES = [

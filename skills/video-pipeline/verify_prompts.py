@@ -6,7 +6,7 @@ from pyairtable import Table
 def verify_prompts(video_title):
     print(f"🔍 VERIFYING PROMPTS FOR: {video_title}")
     
-    load_dotenv('../../.env')
+    load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '.env'))
     api_key = os.getenv("AIRTABLE_API_KEY")
     base_id = os.getenv("AIRTABLE_BASE_ID")
     

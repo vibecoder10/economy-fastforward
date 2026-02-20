@@ -10,7 +10,7 @@ from typing import Optional
 from anthropic import Anthropic
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', '.env'))
 
 # 3D Mannequin Render Style Constants (v3 - smooth mannequin, NOT clay)
 STYLE_ENGINE_PREFIX = (

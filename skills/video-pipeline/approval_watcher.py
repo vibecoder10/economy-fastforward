@@ -259,7 +259,7 @@ Examples:
 
     # Load environment
     from dotenv import load_dotenv
-    load_dotenv()
+    load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '.env'))
 
     from clients.anthropic_client import AnthropicClient
     from clients.airtable_client import AirtableClient

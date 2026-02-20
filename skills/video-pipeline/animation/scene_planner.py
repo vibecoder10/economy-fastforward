@@ -13,7 +13,7 @@ from typing import Optional
 from anthropic import Anthropic
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', '.env'))
 
 # Protagonist glow prompt fragment (locked constant)
 # STYLE: Smooth matte gray mannequin (NOT clay, NOT action figure)

@@ -32,8 +32,8 @@ from typing import Optional
 from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 
-# Load environment variables
-load_dotenv()
+# Load environment variables from project root
+load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '.env'))
 
 from clients.anthropic_client import AnthropicClient
 from clients.airtable_client import AirtableClient
@@ -3710,7 +3710,7 @@ async def main():
             seen = fmt.get("times_seen", 1)
             print(f"  - {formula_display} (seen {seen}x)")
         
-        load_dotenv()
+        load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '.env'))
         from clients.anthropic_client import AnthropicClient
         from clients.airtable_client import AirtableClient
         from clients.slack_client import SlackClient
