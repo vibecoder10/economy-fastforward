@@ -36,7 +36,9 @@ aiofiles>=23.2.0
 
 # Audio Processing
 mutagen>=1.47.0  # Audio duration detection
-openai-whisper>=20231117  # Local Whisper transcription (optional — needs ffmpeg)
+# openai-whisper — REMOVED: uses OpenAI Whisper API instead (via openai package above).
+# Local whisper pulled in PyTorch (~2GB) and destroyed VPS startup time.
+# If you ever need local whisper back: pip install openai-whisper
 
 # Utilities
 python-dotenv>=1.0.0
