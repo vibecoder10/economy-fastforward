@@ -1825,101 +1825,62 @@ class VideoPipeline:
             raw_scenes = json.loads(Path(scene_filepath).read_text())
             print(f"  Loaded {len(raw_scenes)} scenes from {Path(scene_filepath).name}")
 
-        # Source 2: Airtable Script table records
-        # Split every record into individual sentences (~160-200 total).
-        # Generate ONE unique visual description per sentence via LLM,
-        # with the previous 3 descriptions as "DO NOT REPEAT" context.
-        # This makes duplicate descriptions structurally impossible.
-        _sentence_level = False
+        # Source 2: Airtable Script table records (from Script Bot)
+        # Reassemble into a full script with act markers, then run through
+        # scene_expander to get ~25 concept-level scenes with proper visual
+        # descriptions.  Narration text must never be used as prompts.
         if not raw_scenes:
             scripts = self.airtable.get_scripts_by_title(self.video_title)
             if scripts:
-                print(f"  📋 Found {len(scripts)} script records — splitting into sentences")
-                from clients.sentence_utils import split_into_sentences
-                from image_prompt_engine.sequencer import assign_styles
+                print(f"  📋 Found {len(scripts)} script records — expanding via scene_expander")
+                from brief_translator.scene_expander import expand_scenes
 
+                # Reassemble individual script records into a full script
                 total_scripts = len(scripts)
-
-                # Step 1: Split all records into individual sentences
-                all_sentences = []
-                for record in scripts:
-                    scene_text = record.get("Scene text", "") or record.get("Script", "")
+                act_texts: dict[int, list[str]] = {}
+                for script in scripts:
+                    scene_text = script.get("Scene text", "") or script.get("Script", "")
                     if not scene_text:
                         continue
-                    scene_num = record.get("scene", len(all_sentences) + 1)
-                    act_num = min(6, (scene_num - 1) * 6 // total_scripts + 1) if total_scripts > 0 else 1
+                    scene_num = script.get("scene", len(act_texts) + 1)
+                    act = min(6, (scene_num - 1) * 6 // total_scripts + 1) if total_scripts > 0 else 1
+                    act_texts.setdefault(act, []).append(scene_text)
 
-                    sentences = split_into_sentences(scene_text)
-                    for sent_idx, sentence in enumerate(sentences):
-                        all_sentences.append({
-                            "_source_scene_number": scene_num,
-                            "_image_index": sent_idx + 1,
-                            "narration_text": sentence,
-                            "script_excerpt": sentence,
-                            "parent_act": act_num,
-                            "act": act_num,
-                        })
+                full_script = "\n\n".join(
+                    f"[ACT {act_num}]\n" + "\n\n".join(texts)
+                    for act_num, texts in sorted(act_texts.items())
+                )
 
-                total_sentences = len(all_sentences)
-                print(f"  Split {total_scripts} records into {total_sentences} sentences across 6 acts")
+                visual_seeds = self._get_visual_seeds()
+                accent_for_expand = (self.current_idea.get("Accent Color") or "cold_teal").replace(" ", "_")
 
-                # Step 2: Pre-assign style/composition/ken_burns via sequencer
-                # so description generation knows the visual style context
-                assignments = assign_styles(total_sentences)
-                for sent, assignment in zip(all_sentences, assignments):
-                    sent["visual_style"] = assignment["style"]
-                    sent["style"] = assignment["style"]
-                    sent["composition"] = assignment["composition"]
-                    sent["composition_hint"] = assignment["composition"]
-                    sent["ken_burns"] = assignment["ken_burns"]
-                    sent["scene_description"] = ""
-                    sent["description"] = ""
+                raw_scenes = await expand_scenes(
+                    self.anthropic,
+                    full_script,
+                    visual_seeds,
+                    accent_color=accent_for_expand,
+                )
+                print(f"  ✅ Scene expander produced {len(raw_scenes)} scenes with visual descriptions")
 
-                # Descriptions will be generated one-at-a-time in the main loop
-                # below, interleaved with prompt building and Airtable writes,
-                # so partial progress is visible immediately.
-                raw_scenes = all_sentences
-                _sentence_level = True
-                print(f"  {total_sentences} sentences ready — will generate descriptions + write prompts one-by-one")
-
-        # Source 3: Idea record's own Script field — same sentence-level approach
+        # Source 3: Idea record's own Script field
+        # Run through scene_expander to convert raw narration into visual
+        # scene descriptions — narration text must never be used as prompts.
         if not raw_scenes and self.current_idea:
             idea_script = self.current_idea.get("Script", "")
             if idea_script and len(idea_script) > 100:
-                print(f"  📋 Splitting idea Script field into sentences ({len(idea_script)} chars)")
-                from clients.sentence_utils import split_into_sentences
-                from image_prompt_engine.sequencer import assign_styles
+                print(f"  📋 Expanding idea Script field via scene_expander ({len(idea_script)} chars)")
+                from brief_translator.scene_expander import expand_scenes
 
-                sentences = split_into_sentences(idea_script)
-                total_sentences = len(sentences)
-                all_sentences = []
-                for i, sentence in enumerate(sentences):
-                    # Distribute evenly across 6 acts by position
-                    act_num = min(6, i * 6 // total_sentences + 1)
-                    all_sentences.append({
-                        "_source_scene_number": i // 8 + 1,
-                        "_image_index": i % 8 + 1,
-                        "narration_text": sentence,
-                        "script_excerpt": sentence,
-                        "parent_act": act_num,
-                        "act": act_num,
-                    })
+                visual_seeds = self._get_visual_seeds()
+                accent_for_expand = (self.current_idea.get("Accent Color") or "cold_teal").replace(" ", "_")
 
-                print(f"  Split into {total_sentences} sentences across 6 acts")
-
-                assignments = assign_styles(total_sentences)
-                for sent, assignment in zip(all_sentences, assignments):
-                    sent["visual_style"] = assignment["style"]
-                    sent["style"] = assignment["style"]
-                    sent["composition"] = assignment["composition"]
-                    sent["composition_hint"] = assignment["composition"]
-                    sent["ken_burns"] = assignment["ken_burns"]
-                    sent["scene_description"] = ""
-                    sent["description"] = ""
-
-                raw_scenes = all_sentences
-                _sentence_level = True
-                print(f"  {total_sentences} sentences ready — will generate descriptions + write prompts one-by-one")
+                raw_scenes = await expand_scenes(
+                    self.anthropic,
+                    idea_script,
+                    visual_seeds,
+                    accent_color=accent_for_expand,
+                )
+                print(f"  ✅ Scene expander produced {len(raw_scenes)} scenes with visual descriptions")
 
         if not raw_scenes:
             print(f"  ❌ Searched for scenes in: scene files, Script table, idea Script field")
@@ -1930,31 +1891,129 @@ class VideoPipeline:
                 "idea Script field. Ensure scripts exist and the video title matches."
             }
 
-        # --- Build image slots and prompts ---
-        # For sentence-level scenes (Source 2/3): each sentence IS one image
-        # slot — no expansion needed, descriptions are already unique.
-        # For scene-level scenes (Source 1 JSON): expand by duration into
-        # multiple image slots per scene (legacy behavior).
+        # --- Expand scenes into image slots and generate prompts ---
+        # Each scene with duration_seconds produces multiple image slots
+        # (~1 image per 9 seconds of narration).
+        IMAGE_INTERVAL_SECONDS = 9
+        expanded_scenes = []
+        for scene in raw_scenes:
+            duration = scene.get("duration_seconds", 60)
+            image_count = max(1, round(duration / IMAGE_INTERVAL_SECONDS))
+            for img_idx in range(image_count):
+                expanded = dict(scene)
+                expanded["_source_scene_number"] = scene.get("scene_number", 1)
+                expanded["_image_index"] = img_idx + 1
+                expanded["_images_in_scene"] = image_count
+                expanded_scenes.append(expanded)
 
+        print(f"  Expanded to {len(expanded_scenes)} image slots from {len(raw_scenes)} scenes")
+
+        # --- Per-slot variation pass ---
+        # Each scene produces multiple image slots that share the same
+        # scene_description.  For each multi-slot scene, run a lightweight
+        # LLM call to tailor the description to the slot's composition,
+        # producing visual variety within the same scene/location.
+        # Slots in single-slot scenes keep their description unchanged.
+        from image_prompt_engine.sequencer import assign_styles as _pre_assign
+        import asyncio
+
+        _pre_assignments = _pre_assign(len(expanded_scenes))
+        multi_slot_count = sum(
+            1 for s in expanded_scenes if s.get("_images_in_scene", 1) > 1
+        )
+
+        if multi_slot_count > 0:
+            print(f"  Generating per-slot description variations for {multi_slot_count} multi-slot images...")
+            previous_varied = ""
+            for slot_idx, slot in enumerate(expanded_scenes):
+                images_in_scene = slot.get("_images_in_scene", 1)
+                if images_in_scene <= 1:
+                    # Single-slot scene: keep description as-is
+                    previous_varied = slot.get("scene_description", slot.get("description", ""))
+                    continue
+
+                base_desc = slot.get("scene_description", slot.get("description", ""))
+                composition = _pre_assignments[slot_idx]["composition"] if slot_idx < len(_pre_assignments) else "medium"
+
+                prompt = (
+                    f"Base scene: '{base_desc}'\n"
+                    f"Composition: {composition}\n"
+                )
+                if previous_varied:
+                    prompt += f"Previous image showed: '{previous_varied}'\n"
+                prompt += (
+                    "\nRewrite the base scene for this specific composition. Same location and "
+                    "topic, but shift focus to match the composition:\n"
+                    "- wide: emphasize the full environment, figure small in frame\n"
+                    "- medium: focus on the person in their setting\n"
+                    "- closeup: zoom into a specific detail, object, or hand\n"
+                    "- environmental: remove the person, show only the space and objects\n"
+                    "- portrait: focus on the figure's posture and silhouette\n"
+                    "- overhead: describe the scene from above\n"
+                    "- low_angle: describe looking up at something imposing\n\n"
+                    "20-35 words. Content only, no style language. "
+                    "Must be different from the previous image description.\n\n"
+                    "Return ONLY the scene description, nothing else."
+                )
+
+                try:
+                    varied = await self.anthropic.generate(
+                        prompt=prompt,
+                        model="claude-sonnet-4-5-20250929",
+                        max_tokens=200,
+                        temperature=0.7,
+                    )
+                    if varied:
+                        varied = varied.strip().strip('"').strip()
+                    if not varied:
+                        varied = base_desc
+                except Exception:
+                    varied = base_desc
+
+                slot["scene_description"] = varied
+                slot["description"] = varied
+                previous_varied = varied
+
+                if (slot_idx + 1) % 20 == 0:
+                    print(f"    Variations: {slot_idx + 1}/{len(expanded_scenes)}")
+
+                # Rate limit between LLM calls
+                await asyncio.sleep(0.3)
+
+            print(f"  ✅ Per-slot variations complete")
+
+        # Pre-compute per-image narration text so each image slot gets its
+        # portion of the narration for Airtable storage / audio sync.
+        # NOTE: We split narration_text (what the narrator says), NOT
+        # scene_description (which is a visual description for prompts).
         from clients.sentence_utils import split_into_sentences
 
-        if _sentence_level:
-            # Each sentence is already one image slot with a unique description
-            expanded_scenes = raw_scenes
-            print(f"  {len(expanded_scenes)} sentence-level image slots (no expansion needed)")
-        else:
-            IMAGE_INTERVAL_SECONDS = 9
-            expanded_scenes = []
-            for scene in raw_scenes:
-                duration = scene.get("duration_seconds", 60)
-                image_count = max(1, round(duration / IMAGE_INTERVAL_SECONDS))
-                for img_idx in range(image_count):
-                    expanded = dict(scene)
-                    expanded["_source_scene_number"] = scene.get("scene_number", 1)
-                    expanded["_image_index"] = img_idx + 1
-                    expanded["_images_in_scene"] = image_count
-                    expanded_scenes.append(expanded)
-            print(f"  Expanded to {len(expanded_scenes)} image slots from {len(raw_scenes)} scenes")
+        _scene_sentence_map: dict[int, list[str]] = {}
+        for scene in raw_scenes:
+            scene_num = scene.get("scene_number", 1)
+            narration = scene.get("narration_text", scene.get("script_excerpt", scene.get("scene_description", "")))
+            duration = scene.get("duration_seconds", 60)
+            image_count = max(1, round(duration / IMAGE_INTERVAL_SECONDS))
+
+            sentences = split_into_sentences(narration)
+
+            # Distribute sentences across image slots
+            chunks: list[str] = []
+            if not sentences:
+                chunks = [narration] * image_count
+            elif len(sentences) <= image_count:
+                for i in range(image_count):
+                    chunks.append(sentences[min(i, len(sentences) - 1)])
+            else:
+                base = len(sentences) // image_count
+                remainder = len(sentences) % image_count
+                idx = 0
+                for i in range(image_count):
+                    count = base + (1 if i < remainder else 0)
+                    chunks.append(" ".join(sentences[idx:idx + count]))
+                    idx += count
+
+            _scene_sentence_map[scene_num] = chunks
 
         # FRESH START: Delete any existing image records for this video so
         # every run generates clean prompts (no stale/bad cached prompts).
@@ -1968,102 +2027,48 @@ class VideoPipeline:
 
         print(f"  Generating prompts for {len(expanded_scenes)} image slots")
 
+        # NOTE: scene_description is a visual description from scene_expander
+        # and must NOT be replaced with narration sentence chunks. The prompt
+        # builder uses scene_description as-is for the image prompt.
+        # Narration chunks (_scene_sentence_map) are used only for the
+        # Airtable sentence_text field (audio sync reference).
+
         # Determine accent color from idea or default
         accent_color = self.current_idea.get("Accent Color") or "cold teal"
         accent_color = accent_color.replace("_", " ")
 
-        if _sentence_level:
-            # INTEGRATED LOOP: for each sentence, generate description →
-            # build prompt → write to Airtable IMMEDIATELY.  This streams
-            # results so partial progress is visible in Airtable even if
-            # the process is interrupted.
-            import asyncio
-            from brief_translator.scene_expander import _generate_description_for_scene
-            from image_prompt_engine.prompt_builder import build_prompt, resolve_accent_color
-            color = resolve_accent_color(accent_color)
+        # Generate styled prompts — sequencer assigns styles, prompt_builder
+        # assembles prefix + description + composition + suffix.
+        styled_prompts = generate_prompts(
+            expanded_scenes,
+            accent_color=accent_color,
+        )
+        print(f"  Generated {len(styled_prompts)} styled prompts")
 
-            descriptions = []
-            styled_prompts = []
-            created = 0
-            total = len(expanded_scenes)
+        # Write prompts to Airtable Images table
+        created = 0
+        for i, sp in enumerate(styled_prompts):
+            scene_data = expanded_scenes[i] if i < len(expanded_scenes) else {}
+            scene_num = scene_data.get("_source_scene_number", scene_data.get("scene_number", i + 1))
+            segment_index = scene_data.get("_image_index", 1)
 
-            print(f"  Generating descriptions + writing prompts one-by-one for {total} sentences...")
+            # Per-image narration text (split from full scene narration) for audio sync
+            sentence_chunks = _scene_sentence_map.get(scene_num, [])
+            img_idx = scene_data.get("_image_index", 1) - 1  # 0-based
+            sentence_text = sentence_chunks[img_idx] if img_idx < len(sentence_chunks) else \
+                scene_data.get("narration_text", scene_data.get("script_excerpt", ""))
 
-            for i, scene in enumerate(expanded_scenes):
-                # 1. Generate unique description (one Claude API call)
-                recent = descriptions[-3:]
-                desc = await _generate_description_for_scene(
-                    self.anthropic, scene, recent,
-                )
-                scene["description"] = desc
-                scene["scene_description"] = desc
-                descriptions.append(desc)
-
-                # 2. Build styled prompt (local, instant)
-                style = scene.get("style", scene.get("visual_style", "dossier"))
-                composition = scene.get("composition", scene.get("composition_hint", "wide"))
-                prompt = build_prompt(desc, style, composition, color)
-                sp = {
-                    "prompt": prompt,
-                    "style": style,
-                    "composition": composition,
-                    "accent_color": color,
-                    "act": scene.get("act", scene.get("parent_act", 1)),
-                    "index": i,
-                    "ken_burns": scene.get("ken_burns", "slow_zoom_in"),
-                }
-                styled_prompts.append(sp)
-
-                # 3. Write to Airtable immediately
-                scene_num = scene.get("_source_scene_number", scene.get("scene_number", i + 1))
-                segment_index = scene.get("_image_index", 1)
-                sentence_text = scene.get("narration_text", scene.get("script_excerpt", ""))
-
-                self.airtable.create_sentence_image_record(
-                    scene_number=scene_num,
-                    sentence_index=segment_index,
-                    sentence_text=sentence_text,
-                    image_prompt=prompt,
-                    video_title=self.video_title,
-                    shot_type=composition,
-                )
-                created += 1
-
-                if (i + 1) % 10 == 0 or i + 1 == total:
-                    print(f"  Progress: {i + 1}/{total} prompts written to Airtable")
-
-                # Rate limit delay between API calls
-                if i < total - 1:
-                    await asyncio.sleep(0.3)
-
-            print(f"  ✅ Created {created} styled image prompts (streamed to Airtable)")
-        else:
-            # Scene-level (Source 1 JSON): use generate_prompts which assigns
-            # styles via the sequencer — legacy behavior.
-            styled_prompts = generate_prompts(
-                expanded_scenes,
-                accent_color=accent_color,
+            self.airtable.create_sentence_image_record(
+                scene_number=scene_num,
+                sentence_index=segment_index,
+                sentence_text=sentence_text,
+                image_prompt=sp["prompt"],
+                video_title=self.video_title,
+                shot_type=sp.get("composition", "wide"),
             )
-            print(f"  Generated {len(styled_prompts)} styled prompts")
+            created += 1
 
-            created = 0
-            for i, sp in enumerate(styled_prompts):
-                scene_data = expanded_scenes[i] if i < len(expanded_scenes) else {}
-                scene_num = scene_data.get("_source_scene_number", scene_data.get("scene_number", i + 1))
-                segment_index = scene_data.get("_image_index", 1)
-                sentence_text = scene_data.get("narration_text", scene_data.get("script_excerpt", ""))
-
-                self.airtable.create_sentence_image_record(
-                    scene_number=scene_num,
-                    sentence_index=segment_index,
-                    sentence_text=sentence_text,
-                    image_prompt=sp["prompt"],
-                    video_title=self.video_title,
-                    shot_type=sp.get("composition", "wide"),
-                )
-                created += 1
-
-            print(f"  ✅ Created {created} styled image prompts")
+        print(f"  ✅ Created {created} styled image prompts")
 
         # Log style distribution
         styles = [sp["style"] for sp in styled_prompts]
