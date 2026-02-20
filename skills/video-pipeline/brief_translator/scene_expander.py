@@ -352,9 +352,13 @@ def _plan_batches(acts: dict[int, str], total_scenes: int) -> list[dict]:
     """Group acts into batches targeting ~BATCH_SIZE scenes each.
 
     Allocates scenes to acts proportionally by word count (clamped 3-5
-    per act), then groups consecutive acts so each batch targets 8-10
-    scenes.  A trailing batch with fewer than 4 scenes is merged into
-    the previous batch to avoid tiny final calls.
+    per act when there are multiple acts).  When only a single act is
+    present (fallback case where the entire script was treated as one
+    act), the full ``total_scenes`` target is used instead of the 3-5
+    clamp, split across multiple batches of ~BATCH_SIZE.
+
+    A trailing batch with fewer than 4 scenes is merged into the
+    previous batch to avoid tiny final calls.
 
     Returns:
         List of batch dicts, each with:
@@ -365,29 +369,35 @@ def _plan_batches(acts: dict[int, str], total_scenes: int) -> list[dict]:
     act_words = {n: len(acts[n].split()) for n in act_nums}
     total_words = sum(act_words.values()) or 1
 
-    # Proportional allocation clamped to 3-5 per act
     targets: dict[int, int] = {}
-    for n in act_nums:
-        proportion = act_words[n] / total_words
-        targets[n] = max(3, min(5, round(proportion * total_scenes)))
 
-    # Adjust to hit total_scenes exactly (may need multiple passes)
-    diff = total_scenes - sum(targets.values())
-    while diff != 0:
-        adjusted = False
-        for n in sorted(act_nums, key=lambda x: act_words[x], reverse=True):
-            if diff == 0:
-                break
-            if diff > 0 and targets[n] < 5:
-                targets[n] += 1
-                diff -= 1
-                adjusted = True
-            elif diff < 0 and targets[n] > 3:
-                targets[n] -= 1
-                diff += 1
-                adjusted = True
-        if not adjusted:
-            break  # Can't reach exact total within 3-5 clamp
+    if len(act_nums) == 1:
+        # Single act (fallback): assign all target scenes to it.
+        # Do NOT clamp to 3-5 — the caller expects total_scenes output.
+        targets[act_nums[0]] = total_scenes
+    else:
+        # Multiple acts: proportional allocation clamped to 3-5 per act
+        for n in act_nums:
+            proportion = act_words[n] / total_words
+            targets[n] = max(3, min(5, round(proportion * total_scenes)))
+
+        # Adjust to hit total_scenes exactly (may need multiple passes)
+        diff = total_scenes - sum(targets.values())
+        while diff != 0:
+            adjusted = False
+            for n in sorted(act_nums, key=lambda x: act_words[x], reverse=True):
+                if diff == 0:
+                    break
+                if diff > 0 and targets[n] < 5:
+                    targets[n] += 1
+                    diff -= 1
+                    adjusted = True
+                elif diff < 0 and targets[n] > 3:
+                    targets[n] -= 1
+                    diff += 1
+                    adjusted = True
+            if not adjusted:
+                break  # Can't reach exact total within 3-5 clamp
 
     # Group acts into batches
     batches: list[dict] = []
@@ -555,8 +565,11 @@ async def expand_scenes(
     from .script_generator import extract_acts
 
     acts = extract_acts(script)
+    print(f"  [expand_scenes] extract_acts found {len(acts)} acts: {sorted(acts.keys()) if acts else '(none)'}")
+    print(f"  [expand_scenes] script length: {len(script)} chars, {len(script.split())} words")
     if not acts:
         # Fallback: treat entire script as a single act
+        print(f"  [expand_scenes] ⚠️ No act markers found — treating entire script as 1 act")
         acts = {1: script}
 
     # --- Phase 1: Batch structure generation ---
