@@ -1825,6 +1825,22 @@ class VideoPipeline:
             raw_scenes = json.loads(Path(scene_filepath).read_text())
             print(f"  Loaded {len(raw_scenes)} scenes from {Path(scene_filepath).name}")
 
+        # --- Scene expansion cache ---
+        # Cache expanded scenes to a local JSON file so expensive LLM calls
+        # are not repeated when the pipeline resumes after a failure.
+        _cache_dir = Path(__file__).parent / "scenes"
+        _cache_dir.mkdir(exist_ok=True)
+        _safe_title = "".join(c if c.isalnum() or c in " _-" else "_" for c in self.video_title)[:80].strip()
+        _cache_path = _cache_dir / f"{_safe_title}_scenes.json"
+
+        if not raw_scenes and _cache_path.exists():
+            try:
+                raw_scenes = json.loads(_cache_path.read_text())
+                if raw_scenes:
+                    print(f"  📂 Loaded {len(raw_scenes)} cached scenes from {_cache_path.name}")
+            except (json.JSONDecodeError, OSError):
+                raw_scenes = None
+
         # Source 2: Airtable Script table records (from Script Bot)
         # Reassemble into a full script with act markers, then run through
         # scene_expander to get ~25 concept-level scenes with proper visual
@@ -1867,6 +1883,13 @@ class VideoPipeline:
                 )
                 print(f"  ✅ Scene expander produced {len(raw_scenes)} scenes with visual descriptions")
 
+                # Cache expanded scenes for resume
+                try:
+                    _cache_path.write_text(json.dumps(raw_scenes, indent=2))
+                    print(f"  💾 Cached {len(raw_scenes)} scenes to {_cache_path.name}")
+                except OSError as e:
+                    print(f"  ⚠️ Could not cache scenes: {e}")
+
         # Source 3: Idea record's own Script field
         # Run through scene_expander to convert raw narration into visual
         # scene descriptions — narration text must never be used as prompts.
@@ -1886,6 +1909,13 @@ class VideoPipeline:
                     accent_color=accent_for_expand,
                 )
                 print(f"  ✅ Scene expander produced {len(raw_scenes)} scenes with visual descriptions")
+
+                # Cache expanded scenes for resume
+                try:
+                    _cache_path.write_text(json.dumps(raw_scenes, indent=2))
+                    print(f"  💾 Cached {len(raw_scenes)} scenes to {_cache_path.name}")
+                except OSError as e:
+                    print(f"  ⚠️ Could not cache scenes: {e}")
 
         if not raw_scenes:
             print(f"  ❌ Searched for scenes in: scene files, Script table, idea Script field")
@@ -2020,15 +2050,18 @@ class VideoPipeline:
 
             _scene_sentence_map[scene_num] = chunks
 
-        # FRESH START: Delete any existing image records for this video so
-        # every run generates clean prompts (no stale/bad cached prompts).
+        # --- Incremental write: skip image slots that already exist ---
+        # Build a lookup of existing (Scene, Image Index) pairs so we can
+        # resume after a crash without re-creating records or losing work.
         existing_images = self.airtable.get_all_images_for_video(self.video_title)
-        if existing_images:
-            print(f"  🗑️ Clearing {len(existing_images)} old image records for fresh prompt generation")
-            old_ids = [img["id"] for img in existing_images]
-            batch_size = 10
-            for i in range(0, len(old_ids), batch_size):
-                self.airtable.images_table.batch_delete(old_ids[i:i + batch_size])
+        existing_keys: set[tuple[int, int]] = set()
+        for img in existing_images:
+            key = (img.get("Scene"), img.get("Image Index"))
+            if key[0] is not None and key[1] is not None:
+                existing_keys.add(key)
+
+        if existing_keys:
+            print(f"  📂 Found {len(existing_keys)} existing image records — will skip duplicates")
 
         print(f"  Generating prompts for {len(expanded_scenes)} image slots")
 
@@ -2050,12 +2083,19 @@ class VideoPipeline:
         )
         print(f"  Generated {len(styled_prompts)} styled prompts")
 
-        # Write prompts to Airtable Images table
+        # Write prompts to Airtable Images table — one at a time, skipping
+        # any (Scene, Image Index) pair that already has a record.
         created = 0
+        skipped = 0
         for i, sp in enumerate(styled_prompts):
             scene_data = expanded_scenes[i] if i < len(expanded_scenes) else {}
             scene_num = scene_data.get("_source_scene_number", scene_data.get("scene_number", i + 1))
             segment_index = scene_data.get("_image_index", 1)
+
+            # Skip if this slot already has an Airtable record
+            if (scene_num, segment_index) in existing_keys:
+                skipped += 1
+                continue
 
             # Per-image narration text (split from full scene narration) for audio sync
             sentence_chunks = _scene_sentence_map.get(scene_num, [])
@@ -2073,7 +2113,11 @@ class VideoPipeline:
             )
             created += 1
 
-        print(f"  ✅ Created {created} styled image prompts")
+            if created % 10 == 0:
+                print(f"    Written {created} prompts to Airtable...")
+
+        print(f"  ✅ Created {created} new image prompts" +
+              (f" (skipped {skipped} existing)" if skipped else ""))
 
         # Log style distribution
         styles = [sp["style"] for sp in styled_prompts]
@@ -2140,16 +2184,25 @@ class VideoPipeline:
         self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_IMAGES)
         print(f"  ✅ Status updated to: {self.STATUS_READY_IMAGES}")
 
+        _skip_note = f" ({skipped} resumed)" if skipped else ""
         self.slack.send_message(
-            f"🎨 Styled prompts done: {created} for *{self.video_title}*\n"
+            f"🎨 Styled prompts done: {created} new{_skip_note} for *{self.video_title}*\n"
             f"D:{dossier_pct:.0f}% S:{schema_pct:.0f}% E:{echo_pct:.0f}%"
             f"{audio_sync_summary}"
         )
+
+        # Clean up scene cache after successful completion
+        if _cache_path.exists():
+            try:
+                _cache_path.unlink()
+            except OSError:
+                pass
 
         return {
             "bot": "Styled Image Prompt Engine",
             "video_title": self.video_title,
             "prompt_count": created,
+            "skipped_existing": skipped,
             "total_styled": len(styled_prompts),
             "style_distribution": {
                 "dossier": styles.count("dossier"),
