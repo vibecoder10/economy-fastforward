@@ -302,7 +302,7 @@ async def handle_prompts(message, say):
     await say(":art: Starting prompts and images generation...")
 
     try:
-        returncode, stdout, stderr = await run_script_async("run_youtube_prompts.py", "prompts", say, timeout=1800)
+        returncode, stdout, stderr = await run_script_async("run_youtube_prompts.py", "prompts", say, timeout=3600)
 
         if returncode == 0:
             output = stdout[-3000:] if len(stdout) > 3000 else stdout
@@ -312,7 +312,7 @@ async def handle_prompts(message, say):
             await say(f":x: Prompts error:\n```{error}```")
 
     except subprocess.TimeoutExpired:
-        await say(":warning: Prompts generation timed out after 30 minutes")
+        await say(":warning: Prompts generation timed out after 60 minutes")
     except asyncio.CancelledError:
         await say(":stop_sign: Prompts generation was stopped")
     except Exception as e:
