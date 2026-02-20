@@ -1837,6 +1837,7 @@ class VideoPipeline:
 
                 # Reassemble individual script records into a full script
                 total_scripts = len(scripts)
+                print(f"  📋 Total script records from Airtable: {total_scripts}")
                 act_texts: dict[int, list[str]] = {}
                 for script in scripts:
                     scene_text = script.get("Scene text", "") or script.get("Script", "")
@@ -1846,10 +1847,14 @@ class VideoPipeline:
                     act = min(6, (scene_num - 1) * 6 // total_scripts + 1) if total_scripts > 0 else 1
                     act_texts.setdefault(act, []).append(scene_text)
 
+                print(f"  📋 Reassembled into {len(act_texts)} acts: "
+                      + ", ".join(f"Act {k}: {len(v)} scenes" for k, v in sorted(act_texts.items())))
+
                 full_script = "\n\n".join(
                     f"[ACT {act_num}]\n" + "\n\n".join(texts)
                     for act_num, texts in sorted(act_texts.items())
                 )
+                print(f"  📋 Full script: {len(full_script)} chars, {len(full_script.split())} words")
 
                 visual_seeds = self._get_visual_seeds()
                 accent_for_expand = (self.current_idea.get("Accent Color") or "cold_teal").replace(" ", "_")

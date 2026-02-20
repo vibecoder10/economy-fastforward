@@ -18,9 +18,16 @@ SCRIPT_TARGET_WORDS = 3750
 # Expected act count
 EXPECTED_ACT_COUNT = 6
 
-# Act marker regex pattern
+# Act marker regex pattern — full format: [ACT 1 — Title | 0:00 - 4:10 | ~500 words]
 ACT_MARKER_PATTERN = re.compile(
     r"\[ACT\s+(\d+)\s*[—–-]\s*(.*?)\s*\|\s*([\d:]+\s*-\s*[\d:]+)\s*(?:\|\s*~?\s*(\d+)\s*words?)?\s*\]",
+    re.IGNORECASE,
+)
+
+# Fallback regex for simple markers: [ACT 1], [ACT 2], etc.
+# Used when script is reassembled from Airtable records without full act metadata.
+ACT_MARKER_SIMPLE_PATTERN = re.compile(
+    r"\[ACT\s+(\d+)\s*\]",
     re.IGNORECASE,
 )
 
@@ -323,11 +330,20 @@ def validate_script(script: str) -> dict:
 def extract_acts(script: str) -> dict[int, str]:
     """Split script text into individual acts.
 
+    Tries the full act marker format first (with title, timestamps, word
+    count).  Falls back to simple ``[ACT N]`` markers which are produced
+    when the pipeline reassembles Airtable Script records into a full
+    script.
+
     Returns:
         Dict mapping act number (1-6) to the text content of that act.
     """
     acts = {}
     markers = list(ACT_MARKER_PATTERN.finditer(script))
+
+    # Fallback: try simple [ACT N] markers if full pattern found nothing
+    if not markers:
+        markers = list(ACT_MARKER_SIMPLE_PATTERN.finditer(script))
 
     for i, match in enumerate(markers):
         act_num = int(match.group(1))
