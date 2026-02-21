@@ -475,28 +475,23 @@ class AirtableClient:
         scene_number: int,
         concept_index: int,
         sentence_text: str,
-        visual_concept: str,
-        visual_style: str,
+        image_prompt: str,
         composition: str,
         video_title: str,
-        mood: str = "",
         aspect_ratio: str = "16:9",
     ) -> dict:
         """Create an image record from a visual concept expansion.
 
         Each record represents one visual concept within a scene — a portion
-        of the narration paired with a filmable visual description. The Image
-        Prompt field is left empty and populated in a separate pass.
+        of the narration paired with a styled image prompt ready for generation.
 
         Args:
             scene_number: Scene number from Script table
             concept_index: 1-based position within the scene
             sentence_text: Exact narration text this concept covers
-            visual_concept: 20-35 word filmable visual description
-            visual_style: dossier / schema / echo
+            image_prompt: Styled image prompt (built via build_prompt)
             composition: wide / medium / closeup / etc.
             video_title: Title linking to Ideas table
-            mood: 1-2 word mood descriptor
             aspect_ratio: Image aspect ratio
 
         Returns:
@@ -506,15 +501,13 @@ class AirtableClient:
             "Scene": scene_number,
             "Image Index": concept_index,
             "Sentence Text": sentence_text,
-            "Visual Concept": visual_concept,
+            "Image Prompt": image_prompt,
             "Shot Type": composition,
             "Video Title": video_title,
             "Aspect Ratio": aspect_ratio,
             "Status": "Pending",
             "Sentence Index": concept_index,
         }
-        if mood:
-            fields["Mood"] = mood
         record = self.images_table.create(fields, typecast=True)
         return {"id": record["id"], **record["fields"]}
     

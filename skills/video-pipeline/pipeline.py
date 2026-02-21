@@ -1045,11 +1045,9 @@ class VideoPipeline:
                     scene_number=scene_number,
                     concept_index=i + 1,
                     sentence_text=concept_text,
-                    visual_concept=concept.get("image_prompt", ""),
-                    visual_style="dossier",
-                    composition="medium",
+                    image_prompt=concept.get("image_prompt", ""),
+                    composition=shot_type or "medium",
                     video_title=self.video_title,
-                    shot_type=shot_type,
                 )
                 cumulative_start += concept_duration
                 total_prompts += 1
@@ -1832,13 +1830,14 @@ class VideoPipeline:
             print(f"  Found existing records for scenes {sorted(existing_scenes)} — will skip")
 
         # ---------------------------------------------------------------
-        # PASS 1: Expand each script record into visual concepts
+        # Expand each script record into visual concepts + styled prompts
         # ---------------------------------------------------------------
-        print(f"\n  --- PASS 1: Expanding {total_scripts} scenes into visual concepts ---")
+        print(f"\n  --- Expanding {total_scripts} scenes into visual concepts + prompts ---")
 
         total_concepts = 0
         scenes_expanded = 0
         scenes_skipped = 0
+        style_counts = {"dossier": 0, "schema": 0, "echo": 0}
 
         for script in scripts:
             scene_num = script.get("scene", 0)
@@ -1868,86 +1867,35 @@ class VideoPipeline:
             )
 
             for concept in concepts:
+                visual_desc = concept["visual_description"]
+                visual_style = concept.get("visual_style", "dossier")
+                composition = concept.get("composition", "medium")
+
+                # Build styled prompt immediately — no intermediate storage
+                prompt = build_prompt(visual_desc, visual_style, composition, accent_color)
+
                 self.airtable.create_concept_record(
                     scene_number=scene_num,
                     concept_index=concept["concept_index"],
                     sentence_text=concept["sentence_text"],
-                    visual_concept=concept["visual_description"],
-                    visual_style=concept.get("visual_style", "dossier"),
-                    composition=concept.get("composition", "medium"),
+                    image_prompt=prompt,
+                    composition=composition,
                     video_title=self.video_title,
-                    mood=concept.get("mood", ""),
                 )
+
+                style_counts[visual_style] = style_counts.get(visual_style, 0) + 1
 
             total_concepts += len(concepts)
             scenes_expanded += 1
-            print(f"    {len(concepts)} concepts written to Airtable")
+            print(f"    {len(concepts)} concepts + prompts written to Airtable")
 
-        print(f"\n  PASS 1 complete: {scenes_expanded} scenes expanded, "
-              f"{total_concepts} concepts created"
-              + (f", {scenes_skipped} scenes resumed" if scenes_skipped else ""))
-
-        # ---------------------------------------------------------------
-        # PASS 2: Generate styled image prompts for each concept
-        # ---------------------------------------------------------------
-        print(f"\n  --- PASS 2: Generating styled image prompts ---")
-
-        all_records = self.airtable.get_all_images_for_video(self.video_title)
-        records_needing_prompts = [
-            r for r in all_records if not r.get("Image Prompt")
-        ]
-
-        print(f"  {len(records_needing_prompts)} records need image prompts "
-              f"(of {len(all_records)} total)")
-
-        prompts_generated = 0
-        for rec in records_needing_prompts:
-            visual_desc = rec.get("Visual Concept", "")
-            if not visual_desc:
-                visual_desc = f"Documentary scene depicting {rec.get('Sentence Text', '')[:80]}"
-
-            visual_style = "dossier"
-            for field_name in ("Visual Style", "visual_style"):
-                val = rec.get(field_name, "")
-                if val and val.lower() in ("dossier", "schema", "echo"):
-                    visual_style = val.lower()
-                    break
-
-            composition = rec.get("Shot Type", "wide")
-            if composition not in ("wide", "medium", "closeup", "environmental",
-                                   "portrait", "overhead", "low_angle"):
-                composition = "medium"
-
-            prompt = build_prompt(visual_desc, visual_style, composition, accent_color)
-
-            self.airtable.images_table.update(
-                rec["id"],
-                {"Image Prompt": prompt, "Status": "Pending"},
-                typecast=True,
-            )
-            prompts_generated += 1
-
-            if prompts_generated % 10 == 0:
-                print(f"    {prompts_generated} prompts generated...")
-
-        print(f"  PASS 2 complete: {prompts_generated} image prompts generated")
-
-        # Style distribution
-        all_records = self.airtable.get_all_images_for_video(self.video_title)
-        style_counts = {"dossier": 0, "schema": 0, "echo": 0}
-        for rec in all_records:
-            for field_name in ("Visual Style", "visual_style"):
-                val = rec.get(field_name, "")
-                if val and val.lower() in style_counts:
-                    style_counts[val.lower()] += 1
-                    break
-            else:
-                style_counts["dossier"] += 1
-
+        skip_note = f" ({scenes_skipped} resumed)" if scenes_skipped else ""
         total_styled = sum(style_counts.values()) or 1
         dossier_pct = style_counts["dossier"] / total_styled * 100
         schema_pct = style_counts["schema"] / total_styled * 100
         echo_pct = style_counts["echo"] / total_styled * 100
+        print(f"\n  Done: {scenes_expanded} scenes expanded, "
+              f"{total_concepts} concepts created{skip_note}")
         print(f"  Style mix: Dossier {dossier_pct:.0f}% | Schema {schema_pct:.0f}% | Echo {echo_pct:.0f}%")
 
         # ---------------------------------------------------------------
