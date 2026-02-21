@@ -1041,15 +1041,14 @@ class VideoPipeline:
                     print(f"      Skipping Scene {scene_number}, Index {i + 1} - already exists")
                     continue
 
-                self.airtable.create_sentence_image_record(
+                self.airtable.create_concept_record(
                     scene_number=scene_number,
-                    sentence_index=i + 1,
+                    concept_index=i + 1,
                     sentence_text=concept_text,
-                    duration_seconds=round(concept_duration, 1),
-                    image_prompt=concept.get("image_prompt", ""),
+                    visual_concept=concept.get("image_prompt", ""),
+                    visual_style="dossier",
+                    composition="medium",
                     video_title=self.video_title,
-                    cumulative_start=round(cumulative_start, 1),
-                    aspect_ratio="16:9",
                     shot_type=shot_type,
                 )
                 cumulative_start += concept_duration
@@ -1775,23 +1774,26 @@ class VideoPipeline:
         return self.current_idea.get("Thumbnail Prompt", "")
 
     async def run_styled_image_prompts(self, scene_filepath: str = None) -> dict:
-        """Generate styled image prompts using the Visual Identity System.
+        """Expand script scenes into visual concepts and generate styled image prompts.
 
-        Reads a scene list JSON (from brief_translator) and runs it through
-        the image_prompt_engine to produce Dossier/Schema/Echo styled prompts
-        with Ken Burns directions and composition directives.
+        Two-pass scene-by-scene pipeline:
 
-        This is the NEW path that replaces generic Claude prompt generation
-        with the full visual identity system.
+        Pass 1 — Expand: For each Script table record, expand its narration
+        into 6-10 visual concepts via LLM. Each concept's sentence_text is
+        validated as an exact substring of the original scene text. Written
+        to Airtable Images table immediately after each scene.
 
-        Args:
-            scene_filepath: Path to scene list JSON. If None, searches the
-                scenes/ directory for the current video.
+        Pass 2 — Prompt: For each Image record missing an Image Prompt,
+        build the styled prompt (prefix + description + composition + suffix)
+        and write it back.
+
+        Audio sync runs after both passes to populate real durations.
 
         Returns:
             Dict with prompt generation results.
         """
-        from image_prompt_engine import generate_prompts, resolve_accent_color
+        from image_prompt_engine.prompt_builder import build_prompt
+        from brief_translator.scene_expander import expand_scene_concepts
 
         if not self.current_idea:
             idea = self.get_idea_by_status(self.STATUS_READY_IMAGE_PROMPTS)
@@ -1801,375 +1803,170 @@ class VideoPipeline:
 
         print(f"\n🎨 STYLED IMAGE PROMPTS: Processing '{self.video_title}'")
 
-        # Locate scene file
-        if scene_filepath is None:
-            scene_filepath = getattr(self, "_scene_filepath", None)
-
-        # Check idea record for scene file path
-        if scene_filepath is None and self.current_idea:
-            scene_filepath = self.current_idea.get("Scene File Path")
-
-        if scene_filepath is None:
-            # Search scenes/ directory for matching file
-            scene_dir = Path(__file__).parent / "scenes"
-            if scene_dir.exists():
-                for f in sorted(scene_dir.glob("*_scenes.json"), reverse=True):
-                    scene_filepath = str(f)
-                    break
-
-        # Load scenes from file or build from Airtable Script records
-        raw_scenes = None
-
-        # Source 1: Scene JSON file (from Brief Translator)
-        if scene_filepath and Path(scene_filepath).exists():
-            raw_scenes = json.loads(Path(scene_filepath).read_text())
-            print(f"  Loaded {len(raw_scenes)} scenes from {Path(scene_filepath).name}")
-
-        # --- Scene expansion cache ---
-        # Cache expanded scenes to a local JSON file so expensive LLM calls
-        # are not repeated when the pipeline resumes after a failure.
-        _cache_dir = Path(__file__).parent / "scenes"
-        _cache_dir.mkdir(exist_ok=True)
-        _safe_title = "".join(c if c.isalnum() or c in " _-" else "_" for c in self.video_title)[:80].strip()
-        _cache_path = _cache_dir / f"{_safe_title}_scenes.json"
-
-        if not raw_scenes and _cache_path.exists():
-            try:
-                _cached = json.loads(_cache_path.read_text())
-                if _cached:
-                    # Validate cached scenes cover all 6 acts before using them
-                    _cached_acts = {int(s.get("parent_act") or s.get("act") or 0) for s in _cached}
-                    _cached_acts.discard(0)
-                    if len(_cached_acts) >= 6:
-                        raw_scenes = _cached
-                        print(f"  📂 Loaded {len(raw_scenes)} cached scenes from {_cache_path.name}")
-                    else:
-                        print(f"  ⚠️ Cached scenes only cover acts {sorted(_cached_acts)} — "
-                              f"discarding stale cache, will re-expand")
-                        _cache_path.unlink(missing_ok=True)
-            except (json.JSONDecodeError, OSError):
-                raw_scenes = None
-
-        # Source 2: Airtable Script table records (from Script Bot)
-        # Reassemble into a full script with act markers, then run through
-        # scene_expander to get ~25 concept-level scenes with proper visual
-        # descriptions.  Narration text must never be used as prompts.
-        if not raw_scenes:
-            scripts = self.airtable.get_scripts_by_title(self.video_title)
-            if scripts:
-                print(f"  📋 Found {len(scripts)} script records — expanding via scene_expander")
-                from brief_translator.scene_expander import expand_scenes
-
-                # Reassemble individual script records into a full script
-                total_scripts = len(scripts)
-                print(f"  📋 Total script records from Airtable: {total_scripts}")
-                act_texts: dict[int, list[str]] = {}
-                for script in scripts:
-                    scene_text = script.get("Scene text", "") or script.get("Script", "")
-                    if not scene_text:
-                        continue
-                    scene_num = script.get("scene", len(act_texts) + 1)
-                    act = min(6, (scene_num - 1) * 6 // total_scripts + 1) if total_scripts > 0 else 1
-                    act_texts.setdefault(act, []).append(scene_text)
-
-                print(f"  📋 Reassembled into {len(act_texts)} acts: "
-                      + ", ".join(f"Act {k}: {len(v)} scenes" for k, v in sorted(act_texts.items())))
-
-                full_script = "\n\n".join(
-                    f"[ACT {act_num}]\n" + "\n\n".join(texts)
-                    for act_num, texts in sorted(act_texts.items())
-                )
-                print(f"  📋 Full script: {len(full_script)} chars, {len(full_script.split())} words")
-
-                visual_seeds = self._get_visual_seeds()
-                accent_for_expand = (self.current_idea.get("Accent Color") or "cold_teal").replace(" ", "_")
-
-                raw_scenes = await expand_scenes(
-                    self.anthropic,
-                    full_script,
-                    visual_seeds,
-                    accent_color=accent_for_expand,
-                )
-                print(f"  ✅ Scene expander produced {len(raw_scenes)} scenes with visual descriptions")
-
-                # Cache expanded scenes for resume — only if all acts are present
-                _expanded_acts = {int(s.get("parent_act") or s.get("act") or 0) for s in raw_scenes}
-                _expanded_acts.discard(0)
-                if len(_expanded_acts) >= 6:
-                    try:
-                        _cache_path.write_text(json.dumps(raw_scenes, indent=2))
-                        print(f"  💾 Cached {len(raw_scenes)} scenes to {_cache_path.name}")
-                    except OSError as e:
-                        print(f"  ⚠️ Could not cache scenes: {e}")
-                else:
-                    print(f"  ⚠️ Scenes only cover acts {sorted(_expanded_acts)} — "
-                          f"NOT caching incomplete expansion")
-
-        # Source 3: Idea record's own Script field
-        # Run through scene_expander to convert raw narration into visual
-        # scene descriptions — narration text must never be used as prompts.
-        if not raw_scenes and self.current_idea:
-            idea_script = self.current_idea.get("Script", "")
-            if idea_script and len(idea_script) > 100:
-                print(f"  📋 Expanding idea Script field via scene_expander ({len(idea_script)} chars)")
-                from brief_translator.scene_expander import expand_scenes
-
-                visual_seeds = self._get_visual_seeds()
-                accent_for_expand = (self.current_idea.get("Accent Color") or "cold_teal").replace(" ", "_")
-
-                raw_scenes = await expand_scenes(
-                    self.anthropic,
-                    idea_script,
-                    visual_seeds,
-                    accent_color=accent_for_expand,
-                )
-                print(f"  ✅ Scene expander produced {len(raw_scenes)} scenes with visual descriptions")
-
-                # Cache expanded scenes for resume — only if all acts are present
-                _expanded_acts2 = {int(s.get("parent_act") or s.get("act") or 0) for s in raw_scenes}
-                _expanded_acts2.discard(0)
-                if len(_expanded_acts2) >= 6:
-                    try:
-                        _cache_path.write_text(json.dumps(raw_scenes, indent=2))
-                        print(f"  💾 Cached {len(raw_scenes)} scenes to {_cache_path.name}")
-                    except OSError as e:
-                        print(f"  ⚠️ Could not cache scenes: {e}")
-                else:
-                    print(f"  ⚠️ Scenes only cover acts {sorted(_expanded_acts2)} — "
-                          f"NOT caching incomplete expansion")
-
-        if not raw_scenes:
-            print(f"  ❌ Searched for scenes in: scene files, Script table, idea Script field")
-            print(f"     Video title: '{self.video_title}'")
+        # ---------------------------------------------------------------
+        # Load script records from Airtable (source of truth)
+        # ---------------------------------------------------------------
+        scripts = self.airtable.get_scripts_by_title(self.video_title)
+        if not scripts:
             return {
-                "error": f"No scenes found for '{self.video_title}'. "
-                "Checked: scene JSON files, Script table (Title + Video Title fields), "
-                "idea Script field. Ensure scripts exist and the video title matches."
+                "error": f"No script records found for '{self.video_title}'. "
+                "Run Script Bot first."
             }
 
-        # --- Expand scenes into image slots and generate prompts ---
-        # Each scene with duration_seconds produces multiple image slots
-        # (~1 image per 9 seconds of narration).
-        IMAGE_INTERVAL_SECONDS = 9
-        expanded_scenes = []
-        for scene in raw_scenes:
-            duration = scene.get("duration_seconds", 60)
-            image_count = max(1, round(duration / IMAGE_INTERVAL_SECONDS))
-            for img_idx in range(image_count):
-                expanded = dict(scene)
-                expanded["_source_scene_number"] = scene.get("scene_number", 1)
-                expanded["_image_index"] = img_idx + 1
-                expanded["_images_in_scene"] = image_count
-                expanded_scenes.append(expanded)
+        total_scripts = len(scripts)
+        print(f"  Found {total_scripts} script records")
 
-        print(f"  Expanded to {len(expanded_scenes)} image slots from {len(raw_scenes)} scenes")
+        # Determine accent color and visual seeds
+        accent_color = (self.current_idea.get("Accent Color") or "cold teal").replace("_", " ")
+        visual_seeds = self._get_visual_seeds()
 
-        # --- Per-slot variation pass ---
-        # Each scene produces multiple image slots that share the same
-        # scene_description.  For each multi-slot scene, run a lightweight
-        # LLM call to tailor the description to the slot's composition,
-        # producing visual variety within the same scene/location.
-        # Slots in single-slot scenes keep their description unchanged.
-        from image_prompt_engine.sequencer import assign_styles as _pre_assign
-        import asyncio
-
-        _pre_assignments = _pre_assign(len(expanded_scenes))
-        multi_slot_count = sum(
-            1 for s in expanded_scenes if s.get("_images_in_scene", 1) > 1
-        )
-
-        if multi_slot_count > 0:
-            print(f"  Generating per-slot description variations for {multi_slot_count} multi-slot images...")
-            previous_varied = ""
-            for slot_idx, slot in enumerate(expanded_scenes):
-                images_in_scene = slot.get("_images_in_scene", 1)
-                if images_in_scene <= 1:
-                    # Single-slot scene: keep description as-is
-                    previous_varied = slot.get("scene_description", slot.get("description", ""))
-                    continue
-
-                base_desc = slot.get("scene_description", slot.get("description", ""))
-                composition = _pre_assignments[slot_idx]["composition"] if slot_idx < len(_pre_assignments) else "medium"
-
-                prompt = (
-                    f"Base scene: '{base_desc}'\n"
-                    f"Composition: {composition}\n"
-                )
-                if previous_varied:
-                    prompt += f"Previous image showed: '{previous_varied}'\n"
-                prompt += (
-                    "\nRewrite the base scene for this specific composition. Same location and "
-                    "topic, but shift focus to match the composition:\n"
-                    "- wide: emphasize the full environment, figure small in frame\n"
-                    "- medium: focus on the person in their setting\n"
-                    "- closeup: zoom into a specific detail, object, or hand\n"
-                    "- environmental: remove the person, show only the space and objects\n"
-                    "- portrait: focus on the figure's posture and silhouette\n"
-                    "- overhead: describe the scene from above\n"
-                    "- low_angle: describe looking up at something imposing\n\n"
-                    "20-35 words. Content only, no style language. "
-                    "Must be different from the previous image description.\n\n"
-                    "Return ONLY the scene description, nothing else."
-                )
-
-                try:
-                    varied = await self.anthropic.generate(
-                        prompt=prompt,
-                        model="claude-sonnet-4-5-20250929",
-                        max_tokens=200,
-                        temperature=0.7,
-                    )
-                    if varied:
-                        varied = varied.strip().strip('"').strip()
-                    if not varied:
-                        varied = base_desc
-                except Exception:
-                    varied = base_desc
-
-                slot["scene_description"] = varied
-                slot["description"] = varied
-                previous_varied = varied
-
-                if (slot_idx + 1) % 20 == 0:
-                    print(f"    Variations: {slot_idx + 1}/{len(expanded_scenes)}")
-
-                # Rate limit between LLM calls
-                await asyncio.sleep(0.3)
-
-            print(f"  ✅ Per-slot variations complete")
-
-        # Pre-compute per-image narration text so each image slot gets its
-        # portion of the narration for Airtable storage / audio sync.
-        # NOTE: We split narration_text (what the narrator says), NOT
-        # scene_description (which is a visual description for prompts).
-        from clients.sentence_utils import split_into_sentences
-
-        _scene_sentence_map: dict[int, list[str]] = {}
-        for scene in raw_scenes:
-            scene_num = scene.get("scene_number", 1)
-            narration = scene.get("narration_text", scene.get("script_excerpt", scene.get("scene_description", "")))
-            duration = scene.get("duration_seconds", 60)
-            image_count = max(1, round(duration / IMAGE_INTERVAL_SECONDS))
-
-            sentences = split_into_sentences(narration)
-
-            # Distribute sentences across image slots
-            chunks: list[str] = []
-            if not sentences:
-                chunks = [narration] * image_count
-            elif len(sentences) <= image_count:
-                for i in range(image_count):
-                    chunks.append(sentences[min(i, len(sentences) - 1)])
-            else:
-                base = len(sentences) // image_count
-                remainder = len(sentences) % image_count
-                idx = 0
-                for i in range(image_count):
-                    count = base + (1 if i < remainder else 0)
-                    chunks.append(" ".join(sentences[idx:idx + count]))
-                    idx += count
-
-            _scene_sentence_map[scene_num] = chunks
-
-        # --- Incremental write: skip image slots that already exist ---
-        # Build a lookup of existing (Scene, Image Index) pairs so we can
-        # resume after a crash without re-creating records or losing work.
+        # Check which scenes already have image records (for resume)
         existing_images = self.airtable.get_all_images_for_video(self.video_title)
-        existing_keys: set[tuple[int, int]] = set()
+        existing_scenes: set[int] = set()
         for img in existing_images:
-            key = (img.get("Scene"), img.get("Image Index"))
-            if key[0] is not None and key[1] is not None:
-                existing_keys.add(key)
+            scene_num = img.get("Scene")
+            if scene_num is not None:
+                existing_scenes.add(int(scene_num))
 
-        if existing_keys:
-            print(f"  📂 Found {len(existing_keys)} existing image records — will skip duplicates")
+        if existing_scenes:
+            print(f"  Found existing records for scenes {sorted(existing_scenes)} — will skip")
 
-        print(f"  Generating prompts for {len(expanded_scenes)} image slots")
+        # ---------------------------------------------------------------
+        # PASS 1: Expand each script record into visual concepts
+        # ---------------------------------------------------------------
+        print(f"\n  --- PASS 1: Expanding {total_scripts} scenes into visual concepts ---")
 
-        # NOTE: scene_description is a visual description from scene_expander
-        # and must NOT be replaced with narration sentence chunks. The prompt
-        # builder uses scene_description as-is for the image prompt.
-        # Narration chunks (_scene_sentence_map) are used only for the
-        # Airtable sentence_text field (audio sync reference).
+        total_concepts = 0
+        scenes_expanded = 0
+        scenes_skipped = 0
 
-        # Determine accent color from idea or default
-        accent_color = self.current_idea.get("Accent Color") or "cold teal"
-        accent_color = accent_color.replace("_", " ")
+        for script in scripts:
+            scene_num = script.get("scene", 0)
+            scene_text = script.get("Scene text", "") or script.get("Script", "")
 
-        # Generate styled prompts — sequencer assigns styles, prompt_builder
-        # assembles prefix + description + composition + suffix.
-        styled_prompts = generate_prompts(
-            expanded_scenes,
-            accent_color=accent_color,
-        )
-        print(f"  Generated {len(styled_prompts)} styled prompts")
-
-        # Write prompts to Airtable Images table — one at a time, skipping
-        # any (Scene, Image Index) pair that already has a record.
-        created = 0
-        skipped = 0
-        for i, sp in enumerate(styled_prompts):
-            scene_data = expanded_scenes[i] if i < len(expanded_scenes) else {}
-            scene_num = scene_data.get("_source_scene_number", scene_data.get("scene_number", i + 1))
-            segment_index = scene_data.get("_image_index", 1)
-
-            # Skip if this slot already has an Airtable record
-            if (scene_num, segment_index) in existing_keys:
-                skipped += 1
+            if not scene_text:
+                print(f"  Scene {scene_num}: empty text, skipping")
                 continue
 
-            # Per-image narration text (split from full scene narration) for audio sync
-            sentence_chunks = _scene_sentence_map.get(scene_num, [])
-            img_idx = scene_data.get("_image_index", 1) - 1  # 0-based
-            sentence_text = sentence_chunks[img_idx] if img_idx < len(sentence_chunks) else \
-                scene_data.get("narration_text", scene_data.get("script_excerpt", ""))
+            if scene_num in existing_scenes:
+                scenes_skipped += 1
+                continue
 
-            self.airtable.create_sentence_image_record(
+            act_number = min(6, (scene_num - 1) * 6 // total_scripts + 1) if total_scripts > 0 else 1
+
+            print(f"  Scene {scene_num} (Act {act_number}): "
+                  f"{len(scene_text.split())} words — expanding...")
+
+            concepts = await expand_scene_concepts(
+                anthropic_client=self.anthropic,
                 scene_number=scene_num,
-                sentence_index=segment_index,
-                sentence_text=sentence_text,
-                image_prompt=sp["prompt"],
-                video_title=self.video_title,
-                shot_type=sp.get("composition", "wide"),
+                scene_text=scene_text,
+                visual_seeds=visual_seeds,
+                accent_color=accent_color,
+                act_number=act_number,
+                total_scenes=total_scripts,
             )
-            created += 1
 
-            if created % 10 == 0:
-                print(f"    Written {created} prompts to Airtable...")
+            for concept in concepts:
+                self.airtable.create_concept_record(
+                    scene_number=scene_num,
+                    concept_index=concept["concept_index"],
+                    sentence_text=concept["sentence_text"],
+                    visual_concept=concept["visual_description"],
+                    visual_style=concept.get("visual_style", "dossier"),
+                    composition=concept.get("composition", "medium"),
+                    video_title=self.video_title,
+                    mood=concept.get("mood", ""),
+                )
 
-        print(f"  ✅ Created {created} new image prompts" +
-              (f" (skipped {skipped} existing)" if skipped else ""))
+            total_concepts += len(concepts)
+            scenes_expanded += 1
+            print(f"    {len(concepts)} concepts written to Airtable")
 
-        # Log style distribution
-        styles = [sp["style"] for sp in styled_prompts]
-        dossier_pct = styles.count("dossier") / len(styles) * 100
-        schema_pct = styles.count("schema") / len(styles) * 100
-        echo_pct = styles.count("echo") / len(styles) * 100
+        print(f"\n  PASS 1 complete: {scenes_expanded} scenes expanded, "
+              f"{total_concepts} concepts created"
+              + (f", {scenes_skipped} scenes resumed" if scenes_skipped else ""))
+
+        # ---------------------------------------------------------------
+        # PASS 2: Generate styled image prompts for each concept
+        # ---------------------------------------------------------------
+        print(f"\n  --- PASS 2: Generating styled image prompts ---")
+
+        all_records = self.airtable.get_all_images_for_video(self.video_title)
+        records_needing_prompts = [
+            r for r in all_records if not r.get("Image Prompt")
+        ]
+
+        print(f"  {len(records_needing_prompts)} records need image prompts "
+              f"(of {len(all_records)} total)")
+
+        prompts_generated = 0
+        for rec in records_needing_prompts:
+            visual_desc = rec.get("Visual Concept", "")
+            if not visual_desc:
+                visual_desc = f"Documentary scene depicting {rec.get('Sentence Text', '')[:80]}"
+
+            visual_style = "dossier"
+            for field_name in ("Visual Style", "visual_style"):
+                val = rec.get(field_name, "")
+                if val and val.lower() in ("dossier", "schema", "echo"):
+                    visual_style = val.lower()
+                    break
+
+            composition = rec.get("Shot Type", "wide")
+            if composition not in ("wide", "medium", "closeup", "environmental",
+                                   "portrait", "overhead", "low_angle"):
+                composition = "medium"
+
+            prompt = build_prompt(visual_desc, visual_style, composition, accent_color)
+
+            self.airtable.images_table.update(
+                rec["id"],
+                {"Image Prompt": prompt, "Status": "Pending"},
+                typecast=True,
+            )
+            prompts_generated += 1
+
+            if prompts_generated % 10 == 0:
+                print(f"    {prompts_generated} prompts generated...")
+
+        print(f"  PASS 2 complete: {prompts_generated} image prompts generated")
+
+        # Style distribution
+        all_records = self.airtable.get_all_images_for_video(self.video_title)
+        style_counts = {"dossier": 0, "schema": 0, "echo": 0}
+        for rec in all_records:
+            for field_name in ("Visual Style", "visual_style"):
+                val = rec.get(field_name, "")
+                if val and val.lower() in style_counts:
+                    style_counts[val.lower()] += 1
+                    break
+            else:
+                style_counts["dossier"] += 1
+
+        total_styled = sum(style_counts.values()) or 1
+        dossier_pct = style_counts["dossier"] / total_styled * 100
+        schema_pct = style_counts["schema"] / total_styled * 100
+        echo_pct = style_counts["echo"] / total_styled * 100
         print(f"  Style mix: Dossier {dossier_pct:.0f}% | Schema {schema_pct:.0f}% | Echo {echo_pct:.0f}%")
 
-        # -----------------------------------------------------------
-        # Audio Sync: calculate real per-scene durations from Whisper
-        # word timestamps and write them back to the Airtable image
-        # records.  Voice audio must already exist (voice bot runs
-        # before prompts).  If sync fails, durations are left empty
-        # and can be populated later — we never fall back to fixed 9s.
-        # -----------------------------------------------------------
+        # ---------------------------------------------------------------
+        # Audio Sync: Whisper-aligned durations
+        # ---------------------------------------------------------------
         audio_sync_summary = ""
         try:
-            print(f"\n  🎵 Running audio sync for scene durations...")
+            print(f"\n  Running audio sync for scene durations...")
             sync_result = await self.run_audio_sync()
 
             if sync_result.get("error"):
-                print(f"  ⚠️ Audio sync skipped: {sync_result['error']}")
+                print(f"  Audio sync skipped: {sync_result['error']}")
                 audio_sync_summary = f" | Audio sync skipped: {sync_result['error']}"
             else:
-                # Write Whisper-aligned durations back to Airtable image records
                 render_config_path = sync_result.get("render_config_path")
                 if render_config_path and Path(render_config_path).exists():
                     render_config = json.loads(Path(render_config_path).read_text())
                     duration_updates = 0
                     image_records = self.airtable.get_all_images_for_video(self.video_title)
-                    # Build lookup: (scene_number, image_index) → record_id
                     record_lookup = {}
                     for rec in image_records:
                         key = (rec.get("Scene"), rec.get("Image Index"))
@@ -2180,7 +1977,6 @@ class VideoPipeline:
                         display_dur = rc_scene.get("display_duration")
                         if scene_num is None or display_dur is None:
                             continue
-                        # Match by scene_number — update all image slots for this scene
                         for (s, idx), rec_id in record_lookup.items():
                             if s == scene_num:
                                 self.airtable.images_table.update(
@@ -2191,45 +1987,36 @@ class VideoPipeline:
                                 duration_updates += 1
 
                     avg_dur = sync_result["total_duration"] / max(sync_result["scene_count"], 1)
-                    print(f"  ✅ Audio sync: {sync_result['scene_count']} scenes aligned, "
+                    print(f"  Audio sync: {sync_result['scene_count']} scenes aligned, "
                           f"avg {avg_dur:.1f}s, {duration_updates} records updated")
                     audio_sync_summary = (
                         f" | Audio sync: {sync_result['scene_count']} scenes, "
                         f"avg {avg_dur:.1f}s"
                     )
         except Exception as e:
-            print(f"  ⚠️ Audio sync failed (non-blocking): {e}")
+            print(f"  Audio sync failed (non-blocking): {e}")
             audio_sync_summary = f" | Audio sync error: {e}"
 
         # Update status
         self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_IMAGES)
-        print(f"  ✅ Status updated to: {self.STATUS_READY_IMAGES}")
+        print(f"  Status updated to: {self.STATUS_READY_IMAGES}")
 
-        _skip_note = f" ({skipped} resumed)" if skipped else ""
+        skip_note = f" ({scenes_skipped} resumed)" if scenes_skipped else ""
         self.slack.send_message(
-            f"🎨 Styled prompts done: {created} new{_skip_note} for *{self.video_title}*\n"
+            f"Styled prompts done: {total_concepts} concepts from {scenes_expanded} scenes{skip_note} "
+            f"for *{self.video_title}*\n"
             f"D:{dossier_pct:.0f}% S:{schema_pct:.0f}% E:{echo_pct:.0f}%"
             f"{audio_sync_summary}"
         )
 
-        # Clean up scene cache after successful completion
-        if _cache_path.exists():
-            try:
-                _cache_path.unlink()
-            except OSError:
-                pass
-
         return {
             "bot": "Styled Image Prompt Engine",
             "video_title": self.video_title,
-            "prompt_count": created,
-            "skipped_existing": skipped,
-            "total_styled": len(styled_prompts),
-            "style_distribution": {
-                "dossier": styles.count("dossier"),
-                "schema": styles.count("schema"),
-                "echo": styles.count("echo"),
-            },
+            "scenes_expanded": scenes_expanded,
+            "scenes_skipped": scenes_skipped,
+            "total_concepts": total_concepts,
+            "prompts_generated": prompts_generated,
+            "style_distribution": style_counts,
             "new_status": self.STATUS_READY_IMAGES,
         }
 
