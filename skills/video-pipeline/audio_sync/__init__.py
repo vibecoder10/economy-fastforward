@@ -21,7 +21,6 @@ from typing import Any
 from .transcriber import (
     WordTimestamp,
     transcribe,
-    transcribe_local,
     transcribe_api,
     extract_words,
     save_whisper_raw,
@@ -39,9 +38,6 @@ from .render_config_writer import (
     write_render_config,
     save_scene_timing,
 )
-from .config import DEFAULT_WHISPER_MODEL
-
-
 class AudioSyncPipeline:
     """
     End-to-end orchestrator for the audio-sync pipeline.
@@ -49,16 +45,12 @@ class AudioSyncPipeline:
     Wraps transcription, alignment, timing adjustment, transition
     assignment, Ken Burns calculation, and render config generation
     into a simple procedural API.
+
+    Transcription always uses the OpenAI Whisper API (no local model).
     """
 
-    def __init__(
-        self,
-        *,
-        use_api: bool = False,
-        whisper_model: str = DEFAULT_WHISPER_MODEL,
-    ) -> None:
-        self.use_api = use_api
-        self.whisper_model = whisper_model
+    def __init__(self, **_kwargs) -> None:
+        pass
 
     # ------------------------------------------------------------------
     # Step 1 — Transcribe
@@ -69,13 +61,8 @@ class AudioSyncPipeline:
         audio_path: str,
         cache_dir: str | Path | None = None,
     ) -> list[WordTimestamp]:
-        """Run Whisper on *audio_path* and return word timestamps."""
-        return transcribe(
-            audio_path,
-            use_api=self.use_api,
-            model_size=self.whisper_model,
-            cache_dir=cache_dir,
-        )
+        """Run Whisper API on *audio_path* and return word timestamps."""
+        return transcribe(audio_path, cache_dir=cache_dir)
 
     # ------------------------------------------------------------------
     # Step 2 — Align
@@ -192,7 +179,6 @@ __all__ = [
     "AudioSyncPipeline",
     "WordTimestamp",
     "transcribe",
-    "transcribe_local",
     "transcribe_api",
     "extract_words",
     "save_whisper_raw",

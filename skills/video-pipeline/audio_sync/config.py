@@ -72,7 +72,7 @@ DEFAULT_WIDTH: int = 1920
 DEFAULT_HEIGHT: int = 1080
 
 # ---------------------------------------------------------------------------
-# Whisper defaults
+# Whisper
 # ---------------------------------------------------------------------------
-DEFAULT_WHISPER_MODEL: str = "medium"
-"""Recommended model for production quality. Use 'small' on CPU-only VPS."""
+# Transcription uses the OpenAI Whisper API exclusively (model: whisper-1).
+# No local model support — requires OPENAI_API_KEY in .env.

@@ -1,7 +1,8 @@
 """
-Whisper transcription — local model or OpenAI API.
+Whisper transcription via the OpenAI API.
 
 Produces word-level timestamps for the entire narration audio file.
+Uses the hosted OpenAI Whisper API exclusively — no local model.
 """
 
 from __future__ import annotations
@@ -12,8 +13,6 @@ from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
-
-from .config import DEFAULT_WHISPER_MODEL
 
 # Load .env from project root so OPENAI_API_KEY is available
 load_dotenv(Path(__file__).resolve().parent.parent.parent.parent / ".env")
@@ -41,42 +40,6 @@ class WordTimestamp:
 
 
 # ---------------------------------------------------------------------------
-# Local Whisper transcription
-# ---------------------------------------------------------------------------
-
-def transcribe_local(
-    audio_path: str,
-    model_size: str = DEFAULT_WHISPER_MODEL,
-) -> dict[str, Any]:
-    """
-    Transcribe audio with the local ``openai-whisper`` package.
-
-    Args:
-        audio_path: Path to .mp3 / .wav narration file.
-        model_size: One of ``tiny``, ``base``, ``small``, ``medium``, ``large``.
-
-    Returns:
-        Raw Whisper result dict (segments + word timestamps).
-    """
-    try:
-        import whisper  # type: ignore[import-untyped]
-    except ImportError as exc:
-        raise RuntimeError(
-            "Local whisper not installed. "
-            "Run `pip install openai-whisper` or use transcribe_api()."
-        ) from exc
-
-    model = whisper.load_model(model_size)
-    result = model.transcribe(
-        audio_path,
-        word_timestamps=True,
-        language="en",
-        condition_on_previous_text=True,
-    )
-    return result
-
-
-# ---------------------------------------------------------------------------
 # OpenAI Whisper API transcription
 # ---------------------------------------------------------------------------
 
@@ -84,7 +47,7 @@ def transcribe_api(audio_path: str) -> dict[str, Any]:
     """
     Transcribe audio via the OpenAI Whisper API (hosted, no GPU needed).
 
-    Cost: ~$0.006/min of audio.  A 25-min video ≈ $0.15.
+    Cost: ~$0.006/min of audio.  A 25-min video ~ $0.15.
 
     Requires ``OPENAI_API_KEY`` env var.
 
@@ -119,16 +82,12 @@ def transcribe_api(audio_path: str) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# Unified extraction
+# Word extraction
 # ---------------------------------------------------------------------------
 
 def extract_words(raw_result: dict[str, Any]) -> list[WordTimestamp]:
     """
-    Normalise Whisper output (local or API) into a flat list of
-    :class:`WordTimestamp` objects.
-
-    Local Whisper nests words inside ``segments[].words[]``.
-    The API returns a flat ``words[]`` list at top level.
+    Normalise Whisper API output into a flat list of WordTimestamp objects.
     """
     words: list[WordTimestamp] = []
 
@@ -142,7 +101,7 @@ def extract_words(raw_result: dict[str, Any]) -> list[WordTimestamp]:
             ))
         return words
 
-    # Local whisper format — words nested in segments
+    # Fallback: words nested in segments (older API response format)
     for segment in raw_result.get("segments", []):
         for w in segment.get("words", []):
             words.append(WordTimestamp(
@@ -174,18 +133,17 @@ def load_whisper_raw(path: str | Path) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# Convenience entry-point
+# Main entry-point
 # ---------------------------------------------------------------------------
 
 def transcribe(
     audio_path: str,
     *,
-    use_api: bool = False,
-    model_size: str = DEFAULT_WHISPER_MODEL,
     cache_dir: str | Path | None = None,
+    **_kwargs,
 ) -> list[WordTimestamp]:
     """
-    High-level entry point: transcribe audio and return word timestamps.
+    Transcribe audio via the OpenAI Whisper API and return word timestamps.
 
     If *cache_dir* is provided, the raw Whisper JSON is saved there as
     ``whisper_raw.json`` and subsequent calls with the same *cache_dir*
@@ -193,29 +151,34 @@ def transcribe(
 
     Args:
         audio_path: Path to the narration audio file.
-        use_api: If ``True``, use the OpenAI hosted API instead of a
-            local model.
-        model_size: Local model size (ignored when *use_api* is ``True``).
         cache_dir: Optional directory for caching Whisper output.
 
     Returns:
-        Flat list of :class:`WordTimestamp` objects.
+        Flat list of WordTimestamp objects.
     """
-    # Check cache
+    # Verify API key is available before doing anything
+    api_key = os.environ.get("OPENAI_API_KEY", "")
+    if not api_key or api_key.startswith("sk-xxxxx"):
+        # Try loading .env one more time in case it wasn't loaded at import
+        load_dotenv(Path(__file__).resolve().parent.parent.parent.parent / ".env", override=True)
+        api_key = os.environ.get("OPENAI_API_KEY", "")
+    if not api_key or api_key.startswith("sk-xxxxx"):
+        raise RuntimeError(
+            "OPENAI_API_KEY not found. Cannot transcribe without the API key. "
+            "Set it in your .env file at the project root."
+        )
+
+    # Check cache first
     if cache_dir is not None:
         cache_file = Path(cache_dir) / "whisper_raw.json"
         if cache_file.exists():
             raw = load_whisper_raw(cache_file)
             return extract_words(raw)
 
-    # Transcribe — prefer API when OPENAI_API_KEY is available
-    api_key = os.environ.get("OPENAI_API_KEY")
-    if use_api or (api_key and not api_key.startswith("sk-xxxxx")):
-        raw = transcribe_api(audio_path)
-    else:
-        raw = transcribe_local(audio_path, model_size=model_size)
+    # Transcribe via OpenAI Whisper API
+    raw = transcribe_api(audio_path)
 
-    # Cache
+    # Cache the result
     if cache_dir is not None:
         save_whisper_raw(raw, Path(cache_dir) / "whisper_raw.json")
 
