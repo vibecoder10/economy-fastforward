@@ -28,7 +28,7 @@ from .supplementer import (
     MAX_SUPPLEMENT_PASSES,
 )
 from .script_generator import generate_script
-from .scene_expander import expand_scenes, DEFAULT_TOTAL_SCENES, DEFAULT_TOTAL_IMAGES
+from .scene_expander import expand_scene_concepts
 from .scene_validator import validate_scene_list, auto_fix_minor_issues
 from .pipeline_writer import graduate_to_pipeline
 
@@ -49,7 +49,7 @@ class BriefTranslator:
         airtable_client,
         slack_client=None,
         accent_color: str = "cold_teal",
-        total_images: int = DEFAULT_TOTAL_IMAGES,
+        total_images: int = 25,
         scene_output_dir: Optional[str] = None,
         script_model: str = "claude-sonnet-4-5-20250929",
     ):
@@ -60,7 +60,7 @@ class BriefTranslator:
             airtable_client: AirtableClient instance for database ops
             slack_client: SlackClient instance for notifications (optional)
             accent_color: Visual accent color (cold_teal | warm_amber | muted_crimson)
-            total_images: Target number of scenes (~136-140)
+            total_images: Target number of scenes (unused, kept for compat)
             scene_output_dir: Directory for scene JSON files
             script_model: Model for script generation (Opus for quality, Sonnet for cost)
         """
@@ -68,7 +68,7 @@ class BriefTranslator:
         self.airtable = airtable_client
         self.slack = slack_client
         self.accent_color = accent_color
-        self.total_images = total_images
+        self.total_images = total_images or 25
         self.scene_output_dir = scene_output_dir
         self.script_model = script_model
 
@@ -155,57 +155,44 @@ class BriefTranslator:
                 f"{script_result['validation']['act_count']} acts"
             )
 
-            # === STEP 3: Scene Expansion (6 Acts → 20-30 Scenes) ===
-            logger.info("Step 3: Expanding script into production scenes...")
-            self._notify(f"🎬 Expanding to ~{self.total_images} production scenes...")
+            # === STEP 3: Scene Expansion (per-scene concept expansion) ===
+            logger.info("Step 3: Expanding script into visual concepts (scene by scene)...")
+            self._notify(f"🎬 Expanding script scenes into visual concepts...")
 
-            scenes = await expand_scenes(
-                self.anthropic,
-                script,
-                brief.get("visual_seeds", ""),
-                self.accent_color,
-                self.total_images,
-            )
+            # Extract acts from the script to process scene by scene
+            from .script_generator import extract_acts
+            acts = extract_acts(script)
+            if not acts:
+                acts = {1: script}
 
-            # Validate scene list
-            scene_validation = validate_scene_list(
-                scenes, {"total_images": self.total_images}
-            )
-            result["scene_validation"] = scene_validation
-
-            if not scene_validation["valid"]:
-                logger.info(
-                    f"Scene validation found {scene_validation['issue_count']} issues, "
-                    f"attempting auto-fix..."
+            scenes = []
+            visual_seeds = brief.get("visual_seeds", "")
+            scene_counter = 0
+            for act_num in sorted(acts.keys()):
+                act_text = acts[act_num]
+                scene_counter += 1
+                concepts = await expand_scene_concepts(
+                    anthropic_client=self.anthropic,
+                    scene_number=scene_counter,
+                    scene_text=act_text,
+                    visual_seeds=visual_seeds,
+                    accent_color=self.accent_color,
+                    act_number=act_num,
+                    total_scenes=len(acts),
                 )
-                scenes = auto_fix_minor_issues(scenes)
-                scene_validation = validate_scene_list(
-                    scenes, {"total_images": self.total_images}
-                )
-                result["scene_validation"] = scene_validation
+                for c in concepts:
+                    scenes.append({
+                        "scene_number": scene_counter,
+                        "concept_index": c["concept_index"],
+                        "sentence_text": c["sentence_text"],
+                        "visual_description": c["visual_description"],
+                        "visual_style": c.get("visual_style", "dossier"),
+                        "composition": c.get("composition", "medium"),
+                        "mood": c.get("mood", ""),
+                        "parent_act": act_num,
+                    })
 
-                if not scene_validation["valid"]:
-                    # Try one more expansion with error feedback
-                    major_issues = [
-                        i for i in scene_validation["issues"]
-                        if "Too few" in i or "missing field" in i
-                    ]
-                    if major_issues:
-                        logger.warning(f"Major scene issues remain: {major_issues}")
-                        result["error"] = f"Scene expansion failed: {major_issues}"
-                        self._notify(f"❌ Scene expansion failed: {major_issues}")
-                        return result
-                    # Minor issues only — proceed with warning
-                    logger.warning(
-                        f"Proceeding with {scene_validation['issue_count']} minor scene issues"
-                    )
-
-            logger.info(
-                f"Scenes expanded: {scene_validation['stats']['total_scenes']} scenes | "
-                f"D:{scene_validation['stats']['dossier']} "
-                f"S:{scene_validation['stats']['schema']} "
-                f"E:{scene_validation['stats']['echo']}"
-            )
+            logger.info(f"Expanded {len(acts)} acts into {len(scenes)} visual concepts")
 
             # === STEP 4: Pipeline Table Write ===
             logger.info("Step 4: Writing to pipeline...")
@@ -316,7 +303,7 @@ async def translate_brief(
     brief: dict,
     slack_client=None,
     accent_color: str = "cold_teal",
-    total_images: int = DEFAULT_TOTAL_IMAGES,
+    total_images: int = 25,
     scene_output_dir: Optional[str] = None,
     script_model: str = "claude-sonnet-4-5-20250929",
 ) -> dict:

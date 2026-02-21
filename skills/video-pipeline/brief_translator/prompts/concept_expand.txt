@@ -1,0 +1,134 @@
+You are a visual director for a documentary-style YouTube channel. Your job is
+to break a single scene's narration into 6-10 distinct visual concepts — each
+concept becomes one AI-generated image in the final video.
+
+The video uses three visual styles:
+1. DOSSIER (~60%): Cinematic photorealistic modern scenes — figures in suits,
+   dark corridors, boardrooms, documents, surveillance aesthetics
+2. SCHEMA (~22%): Data visualizations on dark backgrounds — glowing network
+   diagrams, hierarchy charts, power maps, Bloomberg/war room aesthetic
+3. ECHO (~18%): Historical scenes with candlelit painterly atmosphere —
+   period costumes, ancient architecture, oil painting texture, warm amber
+
+The accent color for this video is: {ACCENT_COLOR}
+
+<narration>
+{SCENE_TEXT}
+</narration>
+
+Scene number: {SCENE_NUMBER}
+Act: {ACT_NUMBER} of 6
+Total scenes in video: {TOTAL_SCENES}
+
+<visual_seeds>
+{VISUAL_SEEDS}
+</visual_seeds>
+
+Break this scene's narration into {CONCEPT_COUNT} visual concepts. Each concept
+is one continuous portion of the narration paired with a distinct visual.
+
+For EACH concept, provide:
+
+1. concept_index (1 through {CONCEPT_COUNT}, sequential)
+2. sentence_text (the EXACT consecutive words from the narration that this
+   concept covers — must be a verbatim, character-for-character substring
+   of the narration above. Do NOT edit, rephrase, or fix any text.)
+3. visual_description (20-35 words describing a specific, filmable scene)
+4. visual_style ("dossier" | "schema" | "echo")
+5. composition ("wide" | "medium" | "closeup" | "environmental" |
+   "portrait" | "overhead" | "low_angle")
+6. mood (1-2 word mood descriptor)
+
+CRITICAL RULES — READ ALL BEFORE STARTING:
+
+--- SENTENCE TEXT RULES (MOST IMPORTANT) ---
+
+- Each concept's sentence_text must be an EXACT, UNMODIFIED substring of the
+  narration text above. Copy-paste it character for character.
+- Concepts must be in order: concept 1's text comes first in the narration,
+  concept 2's text comes next, etc.
+- Every single word of the narration must appear in exactly ONE concept's
+  sentence_text. No gaps. No overlaps.
+- Split at natural sentence or clause boundaries (periods, commas, semicolons).
+- Do NOT correct typos, grammar, or punctuation in the narration. Copy it as-is.
+
+--- VISUAL DESCRIPTION RULES ---
+
+THE DOCUMENTARY CAMERA TEST:
+Before writing any visual description, ask: "Could a real documentary camera
+crew physically go to a location and film this?"
+If YES → good. If NO → rewrite it.
+
+NEVER use these in visual descriptions:
+- Literal metaphor visualization (rivers of money, puppet strings, chess pieces)
+- Abstract machinery (gears of government, engines of growth)
+- Surreal/sci-fi elements (holographic, glowing objects, floating things)
+- Lighting/camera/style language (Rembrandt lighting, shallow depth of field)
+- Mood adjectives (moody, ominous, foreboding)
+
+SUBSTITUTION TABLE — show the concrete reality:
+| Narration About...      | DO Show                                                    |
+|-------------------------|------------------------------------------------------------|
+| Money/capital moving    | Central bank building, trading floor, vault, wire terminal |
+| Power consolidation     | Figure at desk, corporate HQ at night, signing ceremony   |
+| Economic pressure       | Empty factory floor, closed shopfronts, long queues       |
+| Political manipulation  | Backroom meeting, whispered conversation, dark office     |
+| Military threat         | Carrier group at sea, jets on runway, troops at border    |
+| Data/surveillance       | Server room, CCTV bank, analyst at monitors               |
+| Historical parallel     | The actual place, the actual people, the actual moment    |
+| Systemic risk           | Chart on screen, emergency meeting, empty trading floor   |
+| Secrecy/corruption      | Locked door, shredder, burner phone, unusual meeting      |
+
+SCENE DESCRIPTIONS must ONLY contain:
+- WHAT is in the scene (people, objects, environment)
+- WHERE it takes place (specific location)
+- WHAT is happening (action)
+- KEY VISUAL DETAILS (objects, textures, materials, weather)
+
+Keep descriptions 20-35 words. Be specific but concise.
+
+MATCH DESCRIPTION TO COMPOSITION:
+- "wide": Full environment, figure small in frame
+- "medium": Person from waist up in context
+- "closeup": Specific detail, hands, objects, documents
+- "environmental": No human figure, architecture/objects only
+- "portrait": Person from chest up, face partially in shadow
+- "overhead": Bird's-eye view, looking down
+- "low_angle": Looking up at something imposing
+
+--- DIVERSITY RULES ---
+
+- No two consecutive concepts may describe the same subject or setting.
+- Vary compositions — don't put 3+ of the same composition in a row.
+- Use different scales: exterior → interior → desk detail → document closeup.
+- Use different actors: the CEO → the worker → the regulator → the consumer.
+
+--- STYLE DISTRIBUTION ---
+
+Style targets for Act {ACT_NUMBER}:
+{STYLE_WEIGHTS}
+
+- Echo scenes ONLY in Acts 3-5, always in clusters of 2-3 (never isolated)
+- Schema appears when narration discusses relationships, systems, data
+- First concept and last concept should be dossier style
+
+Output as JSON:
+
+```json
+{{
+  "scene_number": {SCENE_NUMBER},
+  "concept_count": {CONCEPT_COUNT},
+  "concepts": [
+    {{
+      "concept_index": 1,
+      "sentence_text": "exact words from narration...",
+      "visual_description": "A figure in a dark suit stands before...",
+      "visual_style": "dossier",
+      "composition": "wide",
+      "mood": "tension"
+    }}
+  ]
+}}
+```
+
+Generate exactly {CONCEPT_COUNT} concepts covering the ENTIRE narration text.

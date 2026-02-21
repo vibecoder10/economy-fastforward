@@ -470,109 +470,52 @@ class AirtableClient:
         )
         return [{"id": r["id"], **r["fields"]} for r in records]
     
-    def create_image_prompt_record(
+    def create_concept_record(
         self,
         scene_number: int,
-        image_index: int,
-        image_prompt: str,
-        video_title: str,
-        aspect_ratio: str = "16:9",
-    ) -> dict:
-        """Create a new image prompt record."""
-        fields = {
-            "Scene": scene_number,
-            "Image Index": image_index,
-            "Image Prompt": image_prompt,
-            "Video Title": video_title,
-            "Aspect Ratio": aspect_ratio,
-            "Status": "Pending",
-        }
-        record = self.images_table.create(fields)
-        return {"id": record["id"], **record["fields"]}
-    
-    def create_sentence_image_record(
-        self,
-        scene_number: int,
-        sentence_index: int,
+        concept_index: int,
         sentence_text: str,
-        duration_seconds: float = None,
-        image_prompt: str = "",
-        video_title: str = "",
-        cumulative_start: float = 0.0,
-        aspect_ratio: str = "16:9",
-        shot_type: str = None,
-    ) -> dict:
-        """Create a sentence-aligned image prompt record.
-
-        DEPRECATED: Use create_segment_image_record for semantic segmentation.
-
-        duration_seconds is optional.  When *None* the field is omitted so
-        that audio_sync can populate real Whisper-based durations later.
-        """
-        fields = {
-            "Scene": scene_number,
-            "Image Index": sentence_index,
-            "Image Prompt": image_prompt,
-            "Video Title": video_title,
-            "Aspect Ratio": aspect_ratio,
-            "Status": "Pending",
-            "Sentence Text": sentence_text,
-            "Sentence Index": sentence_index,
-            # Note: "Start Time (s)" field removed - Airtable field type issue
-        }
-        if duration_seconds is not None:
-            fields["Duration (s)"] = float(duration_seconds)
-        if shot_type:
-            fields["Shot Type"] = shot_type
-        record = self.images_table.create(fields, typecast=True)
-        return {"id": record["id"], **record["fields"]}
-
-    def create_segment_image_record(
-        self,
-        scene_number: int,
-        segment_index: int,
-        segment_text: str,
-        duration_seconds: float,
-        image_prompt: str,
+        visual_concept: str,
+        visual_style: str,
+        composition: str,
         video_title: str,
-        visual_concept: str = "",
-        cumulative_start: float = 0.0,
+        mood: str = "",
         aspect_ratio: str = "16:9",
     ) -> dict:
-        """Create a semantic segment image record.
+        """Create an image record from a visual concept expansion.
 
-        This is the smart segmentation format that groups sentences by visual concept
-        and enforces max duration for AI video generation.
+        Each record represents one visual concept within a scene — a portion
+        of the narration paired with a filmable visual description. The Image
+        Prompt field is left empty and populated in a separate pass.
 
         Args:
-            scene_number: The scene number
-            segment_index: Position within scene (1-based)
-            segment_text: The narration text for this segment (may be multiple sentences)
-            duration_seconds: How long this segment runs (max 10s for AI video)
-            image_prompt: The image generation prompt
-            video_title: Title of the video
-            visual_concept: Description of why this is a distinct visual segment
-            cumulative_start: Start time within scene (seconds) for video stitching
+            scene_number: Scene number from Script table
+            concept_index: 1-based position within the scene
+            sentence_text: Exact narration text this concept covers
+            visual_concept: 20-35 word filmable visual description
+            visual_style: dossier / schema / echo
+            composition: wide / medium / closeup / etc.
+            video_title: Title linking to Ideas table
+            mood: 1-2 word mood descriptor
             aspect_ratio: Image aspect ratio
 
         Returns:
-            Created record dict
+            Created record dict with id + fields
         """
         fields = {
             "Scene": scene_number,
-            "Image Index": segment_index,
-            "Image Prompt": image_prompt,
+            "Image Index": concept_index,
+            "Sentence Text": sentence_text,
+            "Visual Concept": visual_concept,
+            "Shot Type": composition,
             "Video Title": video_title,
             "Aspect Ratio": aspect_ratio,
             "Status": "Pending",
-            # Segment-level fields for semantic alignment
-            "Sentence Text": segment_text,  # Reuse field, contains full segment text
-            "Duration (s)": float(duration_seconds),
-            "Sentence Index": segment_index,  # Reuse as segment index
-            "Visual Concept": visual_concept,  # NEW: Why this is a distinct visual
-            # Note: "Start Time (s)" field removed - Airtable field type issue
+            "Sentence Index": concept_index,
         }
-        record = self.images_table.create(fields)
+        if mood:
+            fields["Mood"] = mood
+        record = self.images_table.create(fields, typecast=True)
         return {"id": record["id"], **record["fields"]}
     
     def update_image_record(
