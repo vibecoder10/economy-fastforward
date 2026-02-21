@@ -33,13 +33,23 @@ async def main():
 
     pipeline = VideoPipeline()
 
-    # Find a video that has image records (Ready For Images or later)
-    idea = pipeline.get_idea_by_status(pipeline.STATUS_READY_IMAGES)
+    # Find a video that has voice audio — audio sync can run at any stage
+    # after voice generation (Ready For Image Prompts and later)
+    idea = None
+    for status in [
+        pipeline.STATUS_READY_IMAGES,
+        pipeline.STATUS_READY_IMAGE_PROMPTS,
+        pipeline.STATUS_READY_THUMBNAIL,
+        pipeline.STATUS_READY_VIDEO_SCRIPTS,
+        pipeline.STATUS_READY_VIDEO_GENERATION,
+        pipeline.STATUS_READY_TO_RENDER,
+    ]:
+        idea = pipeline.get_idea_by_status(status)
+        if idea:
+            break
+
     if not idea:
-        # Also check if there's a video at the image prompts stage
-        idea = pipeline.get_idea_by_status(pipeline.STATUS_READY_IMAGE_PROMPTS)
-    if not idea:
-        print("❌ No idea found at 'Ready For Images' or 'Ready For Image Prompts'")
+        print("❌ No idea found at any stage after voice generation")
         sys.exit(1)
 
     pipeline._load_idea(idea)
