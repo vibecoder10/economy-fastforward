@@ -2723,21 +2723,11 @@ class VideoPipeline:
                     "parent_act": script.get("Parent Act", 1),
                 })
 
-        # Determine whether to use API or local Whisper
-        # Explicitly load .env from project root (load_dotenv at module level
-        # may miss it depending on working directory)
-        _project_env = _Path(__file__).resolve().parent.parent.parent / ".env"
-        if _project_env.exists():
-            load_dotenv(_project_env, override=False)
-        api_key = os.environ.get("OPENAI_API_KEY", "")
-        use_api = bool(api_key and not api_key.startswith("sk-xxxxx"))
-
-        print(f"  Whisper mode: {'API' if use_api else 'local'}")
         print(f"  Audio: {audio_path}")
         print(f"  Scenes: {len(scene_list)}")
 
-        # Run the audio sync pipeline
-        sync = AudioSyncPipeline(use_api=use_api)
+        # Run the audio sync pipeline (always uses OpenAI Whisper API)
+        sync = AudioSyncPipeline()
 
         # Step 1: Transcribe
         print(f"  Step 1/4: Transcribing audio with Whisper...")
