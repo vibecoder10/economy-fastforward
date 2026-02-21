@@ -1963,7 +1963,6 @@ class VideoPipeline:
             "scenes_expanded": scenes_expanded,
             "scenes_skipped": scenes_skipped,
             "total_concepts": total_concepts,
-            "prompts_generated": prompts_generated,
             "style_distribution": style_counts,
             "new_status": self.STATUS_READY_IMAGES,
         }
