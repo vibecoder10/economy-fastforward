@@ -11,7 +11,12 @@ import os
 from pathlib import Path
 from typing import Any
 
+from dotenv import load_dotenv
+
 from .config import DEFAULT_WHISPER_MODEL
+
+# Load .env from project root so OPENAI_API_KEY is available
+load_dotenv(Path(__file__).resolve().parent.parent.parent.parent / ".env")
 
 
 # ---------------------------------------------------------------------------
@@ -93,7 +98,14 @@ def transcribe_api(audio_path: str) -> dict[str, Any]:
             "openai package not installed. Run `pip install openai`."
         ) from exc
 
-    client = openai.OpenAI()
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key or api_key.startswith("sk-xxxxx"):
+        raise RuntimeError(
+            "OPENAI_API_KEY not configured. "
+            "Set your real key in .env (project root) or as an environment variable."
+        )
+
+    client = openai.OpenAI(api_key=api_key)
 
     with open(audio_path, "rb") as f:
         result = client.audio.transcriptions.create(
@@ -197,7 +209,8 @@ def transcribe(
             return extract_words(raw)
 
     # Transcribe — prefer API when OPENAI_API_KEY is available
-    if use_api or os.environ.get("OPENAI_API_KEY"):
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if use_api or (api_key and not api_key.startswith("sk-xxxxx")):
         raw = transcribe_api(audio_path)
     else:
         raw = transcribe_local(audio_path, model_size=model_size)
