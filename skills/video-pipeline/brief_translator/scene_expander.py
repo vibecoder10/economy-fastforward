@@ -502,29 +502,81 @@ async def _expand_batch(
 
     prompt += batch_ctx
 
-    response = await anthropic_client.generate(
-        prompt=prompt,
-        model="claude-sonnet-4-5-20250929",
-        max_tokens=8000,
-        temperature=0.6,
-    )
+    import asyncio as _asyncio
 
-    try:
-        structure = parse_scene_response(response)
-        scenes = flatten_scenes(structure)
-    except (json.JSONDecodeError, ValueError):
-        # Single retry on parse failure
-        response = await anthropic_client.generate(
-            prompt=prompt + "\n\nPrevious attempt failed to parse. Return ONLY valid JSON.",
-            model="claude-sonnet-4-5-20250929",
-            max_tokens=8000,
-            temperature=0.5,
-        )
+    act_label = ", ".join(str(a["act_number"]) for a in batch["acts"])
+    max_attempts = 3
+
+    for attempt in range(1, max_attempts + 1):
+        extra = ""
+        if attempt == 2:
+            extra = "\n\nIMPORTANT: Return ONLY valid JSON. No markdown, no commentary."
+        elif attempt == 3:
+            extra = (
+                "\n\nCRITICAL: Your previous responses could not be parsed. "
+                "Return ONLY a JSON object starting with { and ending with }. "
+                "No markdown code fences. No text before or after the JSON."
+            )
         try:
+            response = await anthropic_client.generate(
+                prompt=prompt + extra,
+                model="claude-sonnet-4-5-20250929",
+                max_tokens=8000,
+                temperature=max(0.4, 0.7 - 0.1 * attempt),
+            )
             structure = parse_scene_response(response)
             scenes = flatten_scenes(structure)
-        except (json.JSONDecodeError, ValueError):
-            scenes = []
+            if scenes:
+                return scenes
+            print(f"    ⚠️ Batch (Acts {act_label}) attempt {attempt}/{max_attempts}: "
+                  f"parsed OK but 0 scenes in result")
+        except (json.JSONDecodeError, ValueError) as exc:
+            print(f"    ⚠️ Batch (Acts {act_label}) attempt {attempt}/{max_attempts}: "
+                  f"JSON parse failed — {exc}")
+        except Exception as exc:
+            print(f"    ⚠️ Batch (Acts {act_label}) attempt {attempt}/{max_attempts}: "
+                  f"LLM error — {exc}")
+
+        if attempt < max_attempts:
+            await _asyncio.sleep(2)
+
+    print(f"    ❌ Batch (Acts {act_label}) failed after {max_attempts} attempts — "
+          f"falling back to per-act expansion")
+
+    # Fallback: expand each act in the batch individually
+    scenes: list[dict] = []
+    for act_info in batch["acts"]:
+        single_batch = {
+            "acts": [act_info],
+            "target_scenes": act_info["target_scenes"],
+        }
+        single_prompt = build_scene_expand_prompt(
+            f"[ACT {act_info['act_number']}]\n{act_info['text']}",
+            visual_seeds, accent_color, act_info["target_scenes"],
+        )
+        single_prompt += (
+            f"\n\nGenerate exactly {act_info['target_scenes']} scenes "
+            f"for Act {act_info['act_number']}.\n"
+            f"Start scene_number at {start_scene_num + len(scenes)}.\n"
+            "Return ONLY valid JSON."
+        )
+        try:
+            resp = await anthropic_client.generate(
+                prompt=single_prompt,
+                model="claude-sonnet-4-5-20250929",
+                max_tokens=4000,
+                temperature=0.5,
+            )
+            struct = parse_scene_response(resp)
+            act_scenes = flatten_scenes(struct)
+            if act_scenes:
+                scenes.extend(act_scenes)
+                print(f"    ✅ Per-act fallback: Act {act_info['act_number']} → "
+                      f"{len(act_scenes)} scenes")
+            else:
+                print(f"    ❌ Per-act fallback: Act {act_info['act_number']} → 0 scenes")
+        except Exception as exc:
+            print(f"    ❌ Per-act fallback: Act {act_info['act_number']} failed — {exc}")
 
     return scenes
 
@@ -615,6 +667,18 @@ async def expand_scenes(
             f"  Batch {batch_idx + 1}/{len(batches)}: "
             f"{len(batch_scenes)} scenes (Acts {act_label})"
         )
+
+    # Verify all acts produced scenes
+    covered_acts = set()
+    for s in all_scenes:
+        act_num = s.get("parent_act") or s.get("act")
+        if act_num:
+            covered_acts.add(int(act_num))
+    expected_acts = set(acts.keys())
+    missing_acts = expected_acts - covered_acts
+    if missing_acts:
+        print(f"  ⚠️ Missing scenes for act(s): {sorted(missing_acts)} — "
+              f"got {len(all_scenes)} scenes covering acts {sorted(covered_acts)}")
 
     # --- Phase 2: Sequential per-scene description generation ---
     if all_scenes:

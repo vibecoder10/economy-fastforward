@@ -1835,9 +1835,18 @@ class VideoPipeline:
 
         if not raw_scenes and _cache_path.exists():
             try:
-                raw_scenes = json.loads(_cache_path.read_text())
-                if raw_scenes:
-                    print(f"  📂 Loaded {len(raw_scenes)} cached scenes from {_cache_path.name}")
+                _cached = json.loads(_cache_path.read_text())
+                if _cached:
+                    # Validate cached scenes cover all 6 acts before using them
+                    _cached_acts = {int(s.get("parent_act") or s.get("act") or 0) for s in _cached}
+                    _cached_acts.discard(0)
+                    if len(_cached_acts) >= 6:
+                        raw_scenes = _cached
+                        print(f"  📂 Loaded {len(raw_scenes)} cached scenes from {_cache_path.name}")
+                    else:
+                        print(f"  ⚠️ Cached scenes only cover acts {sorted(_cached_acts)} — "
+                              f"discarding stale cache, will re-expand")
+                        _cache_path.unlink(missing_ok=True)
             except (json.JSONDecodeError, OSError):
                 raw_scenes = None
 
@@ -1883,12 +1892,18 @@ class VideoPipeline:
                 )
                 print(f"  ✅ Scene expander produced {len(raw_scenes)} scenes with visual descriptions")
 
-                # Cache expanded scenes for resume
-                try:
-                    _cache_path.write_text(json.dumps(raw_scenes, indent=2))
-                    print(f"  💾 Cached {len(raw_scenes)} scenes to {_cache_path.name}")
-                except OSError as e:
-                    print(f"  ⚠️ Could not cache scenes: {e}")
+                # Cache expanded scenes for resume — only if all acts are present
+                _expanded_acts = {int(s.get("parent_act") or s.get("act") or 0) for s in raw_scenes}
+                _expanded_acts.discard(0)
+                if len(_expanded_acts) >= 6:
+                    try:
+                        _cache_path.write_text(json.dumps(raw_scenes, indent=2))
+                        print(f"  💾 Cached {len(raw_scenes)} scenes to {_cache_path.name}")
+                    except OSError as e:
+                        print(f"  ⚠️ Could not cache scenes: {e}")
+                else:
+                    print(f"  ⚠️ Scenes only cover acts {sorted(_expanded_acts)} — "
+                          f"NOT caching incomplete expansion")
 
         # Source 3: Idea record's own Script field
         # Run through scene_expander to convert raw narration into visual
@@ -1910,12 +1925,18 @@ class VideoPipeline:
                 )
                 print(f"  ✅ Scene expander produced {len(raw_scenes)} scenes with visual descriptions")
 
-                # Cache expanded scenes for resume
-                try:
-                    _cache_path.write_text(json.dumps(raw_scenes, indent=2))
-                    print(f"  💾 Cached {len(raw_scenes)} scenes to {_cache_path.name}")
-                except OSError as e:
-                    print(f"  ⚠️ Could not cache scenes: {e}")
+                # Cache expanded scenes for resume — only if all acts are present
+                _expanded_acts2 = {int(s.get("parent_act") or s.get("act") or 0) for s in raw_scenes}
+                _expanded_acts2.discard(0)
+                if len(_expanded_acts2) >= 6:
+                    try:
+                        _cache_path.write_text(json.dumps(raw_scenes, indent=2))
+                        print(f"  💾 Cached {len(raw_scenes)} scenes to {_cache_path.name}")
+                    except OSError as e:
+                        print(f"  ⚠️ Could not cache scenes: {e}")
+                else:
+                    print(f"  ⚠️ Scenes only cover acts {sorted(_expanded_acts2)} — "
+                          f"NOT caching incomplete expansion")
 
         if not raw_scenes:
             print(f"  ❌ Searched for scenes in: scene files, Script table, idea Script field")
@@ -2969,7 +2990,13 @@ class VideoPipeline:
                 })
 
         # Determine whether to use API or local Whisper
-        use_api = bool(os.environ.get("OPENAI_API_KEY"))
+        # Explicitly load .env from project root (load_dotenv at module level
+        # may miss it depending on working directory)
+        _project_env = _Path(__file__).resolve().parent.parent.parent / ".env"
+        if _project_env.exists():
+            load_dotenv(_project_env, override=False)
+        api_key = os.environ.get("OPENAI_API_KEY", "")
+        use_api = bool(api_key and not api_key.startswith("sk-xxxxx"))
 
         print(f"  Whisper mode: {'API' if use_api else 'local'}")
         print(f"  Audio: {audio_path}")
