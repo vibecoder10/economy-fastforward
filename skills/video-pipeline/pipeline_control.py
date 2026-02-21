@@ -1068,8 +1068,20 @@ async def handle_update(message, say):
             # Check if there were actual changes
             if "Already up to date" not in output:
                 await say(":rocket: Restarting bot to apply changes...")
-                # Exit cleanly - systemd will auto-restart with new code
-                await asyncio.sleep(1)
+                # Spawn new bot process before exiting so there's no downtime
+                # (previously relied on cron health check — up to 15 min wait)
+                bot_script = os.path.join(BASE_DIR, "pipeline_control.py")
+                new_proc = subprocess.Popen(
+                    [sys.executable, bot_script],
+                    cwd=BASE_DIR,
+                    stdout=open("/tmp/pipeline-bot.log", "w"),
+                    stderr=subprocess.STDOUT,
+                    start_new_session=True,
+                )
+                # Update PID file so health check tracks the new process
+                with open("/tmp/pipeline-bot.pid", "w") as f:
+                    f.write(str(new_proc.pid))
+                await asyncio.sleep(2)
                 os._exit(0)
         else:
             await say(f":x: Git pull failed:\n```{result.stderr}```")
