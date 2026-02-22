@@ -2740,6 +2740,7 @@ class VideoPipeline:
         report = validate_alignment(aligned)
         print(f"    Quality: {report['quality']}")
         print(f"    Fuzzy matched: {report['aligned_fuzzy']}")
+        print(f"    Low confidence: {report.get('aligned_low_confidence', 0)}")
         print(f"    Interpolated: {report['aligned_interpolated']}")
         if report['issues']:
             for issue in report['issues'][:5]:
