@@ -2740,6 +2740,44 @@ class VideoPipeline:
                 print(f"    Scene {scene_num}: ⚠️ no words transcribed")
                 continue
 
+            # Validate Whisper timestamps against actual audio duration.
+            # The Whisper API word-level timestamps can drift significantly
+            # from the real audio timeline (sometimes 2x). Use ffprobe as
+            # ground truth and scale timestamps when they diverge.
+            whisper_dur = words[-1].end
+            actual_dur = None
+            try:
+                probe = _sp.run(
+                    ["ffprobe", "-v", "quiet", "-show_entries",
+                     "format=duration", "-of",
+                     "default=noprint_wrappers=1:nokey=1",
+                     str(audio_file)],
+                    capture_output=True, text=True, timeout=10,
+                )
+                if probe.returncode == 0 and probe.stdout.strip():
+                    actual_dur = float(probe.stdout.strip())
+            except Exception:
+                pass
+
+            # Fallback to mutagen if ffprobe unavailable
+            if actual_dur is None:
+                try:
+                    from mutagen.mp3 import MP3
+                    actual_dur = MP3(str(audio_file)).info.length
+                except Exception:
+                    pass
+
+            if actual_dur and whisper_dur > 0:
+                drift = abs(actual_dur - whisper_dur) / actual_dur
+                if drift > 0.10:
+                    scale = actual_dur / whisper_dur
+                    print(f"    Scene {scene_num}: ⚠️ Whisper duration drift — "
+                          f"audio={actual_dur:.2f}s, whisper={whisper_dur:.2f}s, "
+                          f"scaling by {scale:.3f}")
+                    for w in words:
+                        w.start *= scale
+                        w.end *= scale
+
             scene_audio_dur = words[-1].end
             print(f"    Scene {scene_num}: {len(words)} words, {scene_audio_dur:.1f}s — {len(images)} images")
 
