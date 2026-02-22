@@ -2621,85 +2621,59 @@ class VideoPipeline:
         }
 
     async def run_audio_sync(self, audio_path: str = None, scene_list: list = None) -> dict:
-        """Generate Whisper-driven timing data for audio-synced rendering.
+        """Calculate per-image durations by matching Sentence Text to audio.
 
-        Transcribes the voiceover audio with word-level timestamps,
-        aligns each scene's script_excerpt to the transcript, and
-        produces a render_config.json with per-scene display timing,
-        Ken Burns parameters, and transition types.
-
-        This step runs AFTER voice generation (TTS) and BEFORE the
-        Remotion render.
-
-        Args:
-            audio_path: Path to the full narration audio file.
-                If None, tries to find it in the project's public dir.
-            scene_list: List of scene dicts with ``script_excerpt``.
-                If None, builds from Airtable Script table data.
-
-        Returns:
-            Dict with timing results including the render_config path.
+        For each scene:
+        1. Download Scene N.mp3 from Google Drive
+        2. Transcribe with Whisper → word-level timestamps
+        3. Walk through each image's Sentence Text sequentially
+        4. Duration = how long it takes to say that sentence
+        5. Write duration to image's Airtable record immediately
         """
         from pathlib import Path as _Path
         from audio_sync import AudioSyncPipeline
-        from audio_sync.aligner import validate_alignment
+        from audio_sync.transcriber import transcribe
+        from audio_sync.aligner import normalize_text
+        from audio_sync.transition_engine import assign_transitions
+        from audio_sync.ken_burns_calculator import assign_ken_burns
+        from difflib import SequenceMatcher
+        from collections import defaultdict
+        import subprocess as _sp
 
         if not self.current_idea:
             return {"error": "No current idea loaded"}
 
         print(f"\n🎵 AUDIO SYNC: Processing '{self.video_title}'")
 
-        # Determine video ID
         video_id = self.current_idea_id or "unknown"
-
-        # Build timing directory
         pipeline_dir = _Path(__file__).parent
         timing_dir = pipeline_dir / "timing" / video_id
         timing_dir.mkdir(parents=True, exist_ok=True)
-
-        # Build scene list from Airtable if not provided
-        if scene_list is None:
-            scripts = self.airtable.get_scripts_by_title(self.video_title)
-            if not scripts:
-                return {"error": "No scripts found", "bot": "Audio Sync"}
-
-            scene_list = []
-            for script in scripts:
-                scene_list.append({
-                    "scene_number": script.get("scene", 0),
-                    "script_excerpt": script.get("Scene text", ""),
-                    "style": script.get("Visual Style", ""),
-                    "visual_style": script.get("Visual Style", ""),
-                    "composition": script.get("Composition", "wide"),
-                    "composition_hint": script.get("Composition", "wide"),
-                    "act": script.get("Parent Act", 1),
-                    "parent_act": script.get("Parent Act", 1),
-                })
-
-        num_scenes = len(scene_list)
-        print(f"  Scenes: {num_scenes}")
-
-        # ── Step 1: Get per-scene audio files from Google Drive ──
-        # Each scene has its own "Scene N.mp3" — just measure its duration.
-        # No Whisper transcription or fuzzy alignment needed.
-        print(f"  Step 1/3: Getting scene audio files...")
-
-        import subprocess as _sp
-
-        def _get_audio_duration(path: str) -> float:
-            """Get duration of an audio file in seconds using ffprobe."""
-            result = _sp.run(
-                ["ffprobe", "-v", "error", "-show_entries",
-                 "format=duration", "-of", "csv=p=0", path],
-                capture_output=True, text=True, timeout=15,
-            )
-            return float(result.stdout.strip())
-
         audio_dir = timing_dir / "audio"
         audio_dir.mkdir(parents=True, exist_ok=True)
-        scene_audio_paths: dict[int, _Path] = {}  # scene_number -> local path
 
-        # Download from Google Drive if available
+        # ── Step 1: Load image records from Airtable ──
+        print(f"  Step 1/4: Loading image records from Airtable...")
+        image_records = self.airtable.get_all_images_for_video(self.video_title)
+        if not image_records:
+            return {"error": "No image records found in Airtable", "bot": "Audio Sync"}
+
+        scenes_images: dict[int, list[dict]] = defaultdict(list)
+        for img in image_records:
+            scene_num = img.get("Scene")
+            if scene_num is not None:
+                scenes_images[scene_num].append(img)
+        for sn in scenes_images:
+            scenes_images[sn].sort(key=lambda x: x.get("Image Index", 0))
+
+        scene_numbers = sorted(scenes_images.keys())
+        total_images = sum(len(imgs) for imgs in scenes_images.values())
+        print(f"  Found {total_images} images across {len(scene_numbers)} scenes")
+
+        # ── Step 2: Download scene audio from Google Drive ──
+        print(f"  Step 2/4: Downloading scene audio from Google Drive...")
+        scene_audio_paths: dict[int, _Path] = {}
+
         if self.project_folder_id:
             try:
                 drive_files = self.google.list_files_in_folder(self.project_folder_id)
@@ -2707,27 +2681,22 @@ class VideoPipeline:
                     f for f in drive_files
                     if f["name"].startswith("Scene ") and f["name"].endswith(".mp3")
                 ]
-                if scene_mp3s:
-                    print(f"  Downloading {len(scene_mp3s)} scene audio files from Google Drive...")
-                    for df in scene_mp3s:
-                        local_path = audio_dir / df["name"]
-                        if not local_path.exists():
-                            content = self.google.download_file(df["id"])
-                            if len(content) < 500:
-                                print(f"    ⚠️ Skipping {df['name']} — too small")
-                                continue
-                            local_path.write_bytes(content)
-                            print(f"    ✅ {df['name']} ({len(content) // 1024} KB)")
-                        # Extract scene number from filename "Scene 5.mp3"
-                        try:
-                            snum = int(df["name"].replace("Scene ", "").replace(".mp3", "").strip())
-                            scene_audio_paths[snum] = local_path
-                        except ValueError:
-                            pass
+                for df in scene_mp3s:
+                    local_path = audio_dir / df["name"]
+                    if not local_path.exists():
+                        content = self.google.download_file(df["id"])
+                        if len(content) < 500:
+                            continue
+                        local_path.write_bytes(content)
+                    try:
+                        snum = int(df["name"].replace("Scene ", "").replace(".mp3", "").strip())
+                        scene_audio_paths[snum] = local_path
+                    except ValueError:
+                        pass
+                print(f"  Downloaded {len(scene_audio_paths)} scene audio files")
             except Exception as e:
                 print(f"  ⚠️ Drive download failed ({e}), trying local files...")
 
-        # Fallback: check public/ directory
         if not scene_audio_paths:
             remotion_dir = pipeline_dir.parent.parent / "remotion-video"
             public_dir = remotion_dir / "public"
@@ -2738,60 +2707,144 @@ class VideoPipeline:
                 except ValueError:
                     pass
             if scene_audio_paths:
-                print(f"  ⚠️ Using {len(scene_audio_paths)} audio files from public/ (may be stale)")
+                print(f"  ⚠️ Using {len(scene_audio_paths)} audio files from public/")
 
         if not scene_audio_paths:
-            return {
-                "error": "No scene audio files found. Run voice bot first.",
-                "bot": "Audio Sync",
-            }
+            return {"error": "No scene audio files found. Run voice bot first.", "bot": "Audio Sync"}
 
-        print(f"  Found audio for {len(scene_audio_paths)} scenes")
+        # ── Step 3: Transcribe each scene & match sentence durations ──
+        print(f"  Step 3/4: Transcribing scenes & matching sentences...")
 
-        # ── Step 2: Measure each scene's audio duration with ffprobe ──
-        print(f"  Step 2/3: Measuring audio durations (ffprobe)...")
-
-        running_time = 0.0
+        duration_updates = 0
         total_duration = 0.0
-        timed_scenes = []
+        scene_durations: dict[int, float] = {}
 
-        for scene in scene_list:
-            scene_num = scene.get("scene_number", 0)
+        for scene_num in scene_numbers:
+            images = scenes_images[scene_num]
             audio_file = scene_audio_paths.get(scene_num)
 
-            if audio_file and audio_file.exists():
+            if not audio_file or not audio_file.exists():
+                print(f"    Scene {scene_num}: ⚠️ no audio, skipping")
+                continue
+
+            # Transcribe this scene's audio with Whisper
+            cache_dir = timing_dir / f"scene_{scene_num}"
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            try:
+                words = transcribe(str(audio_file), cache_dir=cache_dir)
+            except Exception as e:
+                print(f"    Scene {scene_num}: ⚠️ Whisper failed ({e}), skipping")
+                continue
+
+            if not words:
+                print(f"    Scene {scene_num}: ⚠️ no words transcribed")
+                continue
+
+            scene_audio_dur = words[-1].end
+            print(f"    Scene {scene_num}: {len(words)} words, {scene_audio_dur:.1f}s — {len(images)} images")
+
+            # Walk through images sequentially, matching each Sentence Text
+            word_pointer = 0
+            scene_total = 0.0
+
+            for img_idx, img in enumerate(images):
+                sentence = img.get("Sentence Text", "") or ""
+                record_id = img["id"]
+                img_index = img.get("Image Index", img_idx + 1)
+
+                if not sentence.strip():
+                    print(f"      Image {img_index}: (no sentence text)")
+                    continue
+
+                sentence_words = normalize_text(sentence).split()
+                sentence_len = len(sentence_words)
+                if sentence_len == 0:
+                    continue
+
+                # Find this sentence in the transcript from current position
+                best_start = word_pointer
+                best_score = 0.0
+                sentence_text_norm = " ".join(sentence_words)
+                search_limit = min(word_pointer + sentence_len * 4, len(words))
+
+                for i in range(word_pointer, search_limit):
+                    span = words[i: i + sentence_len]
+                    if len(span) < max(sentence_len // 2, 1):
+                        break
+                    whisper_text = " ".join(normalize_text(w.word) for w in span)
+                    score = SequenceMatcher(None, sentence_text_norm, whisper_text).ratio()
+                    if score > best_score:
+                        best_score = score
+                        best_start = i
+
+                if best_score >= 0.4:
+                    match_end = min(best_start + sentence_len - 1, len(words) - 1)
+                    start_time = words[best_start].start
+                    end_time = words[match_end].end
+                    dur = round(end_time - start_time, 2)
+                    word_pointer = match_end + 1
+                    method = "matched"
+                else:
+                    # Fallback: proportional estimate within remaining audio
+                    remaining_imgs = len(images) - img_idx
+                    remaining_words = len(words) - word_pointer
+                    if remaining_words > 0 and remaining_imgs > 0:
+                        est_words = remaining_words // remaining_imgs
+                        est_end = min(word_pointer + est_words, len(words) - 1)
+                        start_time = words[word_pointer].start if word_pointer < len(words) else 0
+                        end_time = words[est_end].end
+                        dur = round(end_time - start_time, 2)
+                        word_pointer = est_end + 1
+                    else:
+                        dur = 5.0
+                    method = "estimated"
+
+                dur = max(dur, 1.0)  # minimum 1 second
+
+                # Write duration to Airtable immediately
                 try:
-                    dur = _get_audio_duration(str(audio_file))
+                    self.airtable.images_table.update(
+                        record_id, {"Duration (s)": dur}, typecast=True,
+                    )
+                    duration_updates += 1
                 except Exception as e:
-                    print(f"    ⚠️ Scene {scene_num}: ffprobe failed ({e}), using 5s default")
-                    dur = 5.0
-            else:
-                print(f"    ⚠️ Scene {scene_num}: no audio file found, using 5s default")
-                dur = 5.0
+                    print(f"      Image {img_index}: ⚠️ Airtable write failed ({e})")
 
-            start_time = running_time
-            end_time = running_time + dur
-            running_time = end_time
-            total_duration += dur
+                total_duration += dur
+                scene_total += dur
+                print(f"      Image {img_index}: {dur:.2f}s ({method}) — \"{sentence[:50]}...\"")
 
+            scene_durations[scene_num] = scene_total
+
+        # ── Step 4: Build render config ──
+        print(f"  Step 4/4: Writing render config...")
+
+        scripts = self.airtable.get_scripts_by_title(self.video_title) or []
+        running_time = 0.0
+        timed_scenes = []
+        for script in scripts:
+            sn = script.get("scene", 0)
+            dur = scene_durations.get(sn, 5.0)
             timed_scenes.append({
-                **scene,
-                "start_time": round(start_time, 4),
-                "end_time": round(end_time, 4),
+                "scene_number": sn,
+                "script_excerpt": script.get("Scene text", ""),
+                "style": script.get("Visual Style", ""),
+                "visual_style": script.get("Visual Style", ""),
+                "composition": script.get("Composition", "wide"),
+                "composition_hint": script.get("Composition", "wide"),
+                "start_time": round(running_time, 4),
+                "end_time": round(running_time + dur, 4),
                 "duration": round(dur, 4),
-                "alignment_method": "ffprobe",
+                "display_start": round(running_time, 4),
+                "display_end": round(running_time + dur, 4),
+                "display_duration": round(dur, 4),
+                "alignment_method": "sentence_match",
             })
-            print(f"    Scene {scene_num}: {dur:.1f}s")
+            running_time += dur
 
-        print(f"  Total audio duration: {total_duration:.1f}s")
+        timed_scenes = assign_transitions(timed_scenes)
+        timed_scenes = assign_ken_burns(timed_scenes)
 
-        # ── Step 3: Apply timing adjustments + build render config ──
-        print(f"  Step 3/3: Adjusting timing & writing render config...")
-
-        sync = AudioSyncPipeline()
-        timed = sync.adjust_timing(timed_scenes)
-
-        # Concatenate scene audio for the render config reference
         concat_path = timing_dir / "narration_concat.mp3"
         sorted_audio = sorted(scene_audio_paths.items())
         list_file = timing_dir / "concat_list.txt"
@@ -2804,33 +2857,35 @@ class VideoPipeline:
                  "-i", str(list_file), "-c", "copy", str(concat_path)],
                 capture_output=True, check=True,
             )
-        except Exception as e:
-            print(f"  ⚠️ Concat failed ({e}), render config will reference individual files")
-            concat_path = _Path(str(sorted_audio[0][1])) if sorted_audio else _Path("")
+        except Exception:
+            concat_path = sorted_audio[0][1] if sorted_audio else _Path("")
 
-        image_dir = str(
-            _Path(__file__).parent.parent.parent / "remotion-video" / "public"
-        )
+        image_dir = str(_Path(__file__).parent.parent.parent / "remotion-video" / "public")
+        sync = AudioSyncPipeline()
         config = sync.generate_render_config(
             video_id=video_id,
             audio_path=str(concat_path),
-            scenes=timed,
+            scenes=timed_scenes,
             image_dir=image_dir,
             output_dir=timing_dir,
         )
 
+        avg_dur = total_duration / max(duration_updates, 1)
+        print(f"\n  ✅ {duration_updates} image durations written to Airtable")
+        print(f"  Avg image duration: {avg_dur:.1f}s")
+        print(f"  Total duration: {total_duration:.1f}s")
         print(f"  Render config: {timing_dir / 'render_config.json'}")
-        print(f"  Total duration: {config['total_duration_seconds']:.1f}s")
-        print(f"  Scenes: {len(config['scenes'])}")
 
         return {
             "bot": "Audio Sync",
             "video_title": self.video_title,
             "timing_dir": str(timing_dir),
             "render_config_path": str(timing_dir / "render_config.json"),
-            "total_duration": config["total_duration_seconds"],
-            "scene_count": len(config["scenes"]),
-            "alignment_quality": "direct",
+            "total_duration": total_duration,
+            "scene_count": len(scene_numbers),
+            "image_count": duration_updates,
+            "avg_duration": round(avg_dur, 2),
+            "alignment_quality": "sentence_match",
         }
 
     async def run_youtube_upload_bot(self) -> dict:
