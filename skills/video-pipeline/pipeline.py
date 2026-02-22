@@ -2633,10 +2633,8 @@ class VideoPipeline:
         from pathlib import Path as _Path
         from audio_sync import AudioSyncPipeline
         from audio_sync.transcriber import transcribe
-        from audio_sync.aligner import normalize_text
         from audio_sync.transition_engine import assign_transitions
         from audio_sync.ken_burns_calculator import assign_ken_burns
-        from difflib import SequenceMatcher
         from collections import defaultdict
         import subprocess as _sp
 
@@ -2781,63 +2779,58 @@ class VideoPipeline:
             scene_audio_dur = words[-1].end
             print(f"    Scene {scene_num}: {len(words)} words, {scene_audio_dur:.1f}s — {len(images)} images")
 
-            # Walk through images sequentially, matching each Sentence Text
-            word_pointer = 0
-            scene_total = 0.0
-
+            # ── Proportional word-count mapping ──
+            # Each image's Sentence Text covers a portion of the scene
+            # narration. Allocate Whisper words proportionally based on
+            # each sentence's word count, then read durations straight
+            # from the Whisper timestamps. No fuzzy matching needed —
+            # both the sentence texts and Whisper words are in order.
+            img_entries = []  # (record, img_index, sentence, word_count)
+            total_sentence_words = 0
             for img_idx, img in enumerate(images):
                 sentence = img.get("Sentence Text", "") or ""
-                record_id = img["id"]
                 img_index = img.get("Image Index", img_idx + 1)
-
                 if not sentence.strip():
-                    print(f"      Image {img_index}: (no sentence text)")
+                    print(f"      Image {img_index}: (no sentence text, skipping)")
                     continue
-
-                sentence_words = normalize_text(sentence).split()
-                sentence_len = len(sentence_words)
-                if sentence_len == 0:
+                wc = len(sentence.split())
+                if wc == 0:
                     continue
+                img_entries.append((img, img_index, sentence, wc))
+                total_sentence_words += wc
 
-                # Find this sentence in the transcript from current position
-                best_start = word_pointer
-                best_score = 0.0
-                sentence_text_norm = " ".join(sentence_words)
-                search_limit = min(word_pointer + sentence_len * 4, len(words))
+            if not img_entries:
+                print(f"    Scene {scene_num}: no images with sentence text")
+                continue
 
-                for i in range(word_pointer, search_limit):
-                    span = words[i: i + sentence_len]
-                    if len(span) < max(sentence_len // 2, 1):
-                        break
-                    whisper_text = " ".join(normalize_text(w.word) for w in span)
-                    score = SequenceMatcher(None, sentence_text_norm, whisper_text).ratio()
-                    if score > best_score:
-                        best_score = score
-                        best_start = i
+            total_whisper = len(words)
+            scene_total = 0.0
 
-                if best_score >= 0.4:
-                    match_end = min(best_start + sentence_len - 1, len(words) - 1)
-                    start_time = words[best_start].start
-                    end_time = words[match_end].end
-                    dur = round(end_time - start_time, 2)
-                    word_pointer = match_end + 1
-                    method = "matched"
+            # Pass 1: find each image's start index in the Whisper words
+            cumulative = 0
+            start_indices = []
+            for _img, _idx, _sent, wc in img_entries:
+                frac = cumulative / total_sentence_words
+                w_start = int(round(frac * total_whisper))
+                w_start = max(0, min(w_start, total_whisper - 1))
+                start_indices.append(w_start)
+                cumulative += wc
+
+            # Pass 2: duration = gap between consecutive start times.
+            # This naturally includes inter-sentence pauses in the
+            # narrator's delivery, giving each image its full display
+            # window (speech + following pause).
+            for entry_idx, (img, img_index, sentence, wc) in enumerate(img_entries):
+                record_id = img["id"]
+                start_time = words[start_indices[entry_idx]].start
+
+                if entry_idx < len(img_entries) - 1:
+                    end_time = words[start_indices[entry_idx + 1]].start
                 else:
-                    # Fallback: proportional estimate within remaining audio
-                    remaining_imgs = len(images) - img_idx
-                    remaining_words = len(words) - word_pointer
-                    if remaining_words > 0 and remaining_imgs > 0:
-                        est_words = remaining_words // remaining_imgs
-                        est_end = min(word_pointer + est_words, len(words) - 1)
-                        start_time = words[word_pointer].start if word_pointer < len(words) else 0
-                        end_time = words[est_end].end
-                        dur = round(end_time - start_time, 2)
-                        word_pointer = est_end + 1
-                    else:
-                        dur = 5.0
-                    method = "estimated"
+                    end_time = words[-1].end
 
-                dur = max(dur, 1.0)  # minimum 1 second
+                dur = round(end_time - start_time, 2)
+                dur = max(dur, 1.0)
 
                 # Write duration to Airtable immediately
                 try:
@@ -2850,7 +2843,7 @@ class VideoPipeline:
 
                 total_duration += dur
                 scene_total += dur
-                print(f"      Image {img_index}: {dur:.2f}s ({method}) — \"{sentence[:50]}...\"")
+                print(f"      Image {img_index}: {dur:.2f}s ({wc}w) — \"{sentence[:50]}...\"")
 
             scene_durations[scene_num] = scene_total
 
