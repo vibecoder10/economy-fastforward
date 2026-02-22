@@ -172,30 +172,37 @@ Research/Idea ──► Script ──► Voice ──► Image Prompts ──►
 
 ## Status-Driven Pipeline (CRITICAL)
 
-The pipeline is a **state machine** driven by the `Status` field in the Airtable Ideas table. Every bot reads the current status, does its work, then advances the status.
+The pipeline is a **state machine** driven by the `Status` field in the Airtable Idea Concepts table. Every bot reads the current status, does its work, then advances the status.
+
+### Three Entry Paths Into the Pipeline
+1. **Discovery Scanner** (`discovery_scanner.py`): Scans Reuters, AP, Bloomberg, FT, WSJ headlines → filters through Machiavellian lens → generates 2-3 ideas → posts to Slack → user reacts with emoji (1/2/3) → writes to Airtable as "Approved"
+2. **Idea Bot** (`bots/idea_bot.py`): Takes YouTube URL or concept → generates 3 viral concept variations → writes as "Idea Logged"
+3. **Trending Idea Bot** (`bots/trending_idea_bot.py`): Scrapes YouTube trending → models from format library → writes as "Idea Logged"
 
 ### Status Flow
 ```
 Idea Logged
-  ↓ [Idea Bot selects concept]
+  ↓ [Manual approval in Airtable UI]
+Approved
+  ↓ [ApprovalWatcher auto-triggers Research Agent → 7-prompt deep research cycle]
 Ready For Scripting
-  ↓ [Script Bot generates 6-act script]
+  ↓ [Brief Translator: validates research → generates 6-act script → expands 20-30 scenes]
 Ready For Voice
-  ↓ [Voice Bot synthesizes narration via ElevenLabs]
+  ↓ [Voice Bot synthesizes narration per scene via ElevenLabs]
 Ready For Image Prompts
-  ↓ [Image Prompt Bot generates 120 prompts]
+  ↓ [Styled Image Prompts: expand scenes → 4-7 images each → styled 120-150 word prompts]
 Ready For Images
-  ↓ [Image Bot generates 120 images via Seed Dream 4.5]
+  ↓ [Image Bot generates images via Seed Dream 4.5]
 Ready For Video Scripts
   ↓ [Video Script Bot generates motion prompts]
 Ready For Video Generation
-  ↓ [Video Bot animates via Veo 3.1 Fast]
+  ↓ [Video Bot animates via Veo 3.1 Fast — MANUAL, cost-controlled via --animate]
 Ready For Thumbnail
-  ↓ [Thumbnail Bot generates YouTube thumbnail]
+  ↓ [Thumbnail Bot generates YouTube thumbnail via Nano Banana Pro]
 Ready To Render
   ↓ [Remotion renders final MP4]
 Done
-  ↓ [Upload to YouTube]
+  ↓ [YouTube upload — currently manual]
 Rendered / Uploaded (Draft)
 ```
 
@@ -205,6 +212,27 @@ Rendered / Uploaded (Draft)
 - **ALWAYS update status via Airtable client** after a bot completes. Never leave a record in a stale status.
 - **Check status BEFORE processing**. Bots must verify the record is in the expected status before starting work.
 - **Failed records**: Set status to `Failed - [Stage Name]` with error details in the `Notes` field. Don't leave records stuck in an intermediate state.
+- **Resume safety**: The status-driven design means any interruption (crash, rate limit, network failure) can be resumed by simply re-running the pipeline. It will pick up from the current status.
+
+### CLI Commands (Quick Reference)
+```bash
+# Discovery & Ideas
+python discovery_scanner.py                          # Scan headlines → Slack
+python pipeline.py --idea "URL/concept"              # URL analysis → 3 concepts
+python pipeline.py --trending                        # Trending YouTube analysis
+
+# Research
+python research_agent.py --topic "topic"             # Deep 7-prompt research
+python approval_watcher.py --daemon                  # Auto-research approved ideas
+
+# Pipeline Control
+python pipeline.py                                   # Auto-run next available step
+python pipeline.py --full "URL"                      # End-to-end: Idea → Render
+python pipeline.py --from-stage scripting            # Resume from specific stage
+python pipeline.py --styled-prompts                  # Generate image prompts only
+python pipeline.py --animate "Video Title"           # Animation (cost-controlled)
+python pipeline.py --animate "Video Title" --estimate # Cost estimate only
+```
 
 ---
 
@@ -351,6 +379,55 @@ Every idea carries metadata DNA that flows through the entire pipeline:
 }
 ```
 **All content uses Past → Present → Future framing.** This is the Economy FastForward brand voice. Don't break this structure.
+
+### Research Payload (14-Field JSON)
+Output by `research_agent.py`, stored in `Research Payload` field, consumed by brief_translator:
+```python
+{
+    "headline": str,              # Compelling video title
+    "thesis": str,                # Core argument (2-3 sentences)
+    "executive_hook": str,        # 15-second opening hook
+    "fact_sheet": str,            # 10+ specific facts with numbers/dates
+    "historical_parallels": str,  # 3+ events with dates, figures, outcomes
+    "framework_analysis": str,    # Analytical lens (Machiavellian, systems thinking, etc.)
+    "character_dossier": str,     # 3+ key figures (name, role, actions, visuals)
+    "narrative_arc": str,         # What happened → Why matters → What's next
+    "counter_arguments": str,     # Strongest opposing arguments + rebuttals
+    "visual_seeds": str,          # 5+ visual concepts for image generation
+    "source_bibliography": str,   # Key sources and reports
+    "themes": str,                # 3+ intellectual frameworks
+    "psychological_angles": str,  # Viewer hooks (fears, aspirations, curiosities)
+    "narrative_arc_suggestion": str  # 6-act structure with emotional arcs
+}
+```
+
+### Brief Translator Validation
+Before scripting, the brief translator validates research across 8 criteria:
+- Hook strength, Fact density, Framework depth, Historical parallel richness
+- Character visualizability, Implication specificity, Visual variety, Structural completeness
+- Tolerance: Up to 1 FAIL + 4 WEAK still passes (if research_enriched=true)
+- Runs targeted gap-filling via `supplementer.py` if validation fails
+
+### Scene JSON Structure
+Output by brief_translator, defines every scene for downstream consumption:
+```python
+{
+    "total_acts": 6, "total_scenes": 25,
+    "acts": [{
+        "act_number": 1, "act_title": "The Hook",
+        "time_range": "0:00-1:30", "word_target": 225,
+        "scenes": [{
+            "scene_number": 1, "narration_text": "...",
+            "duration_seconds": 36,
+            "visual_style": "dossier|schema|echo",
+            "composition": "wide|medium|closeup|...",
+            "ken_burns": "slow zoom in|out|pan left|right|...",
+            "mood": "tension|revelation|urgency"
+        }]
+    }]
+}
+```
+Duration calculation: `word_count / 2.5 wps = seconds`. Images per scene: `ceil(duration / 9)`.
 
 ### Trending Idea Format Library
 The v2 idea engine decomposes viral titles into typed variables:
@@ -535,18 +612,32 @@ cd remotion-video && npm run render   # Render final MP4 to out/final.mp4
 4. **Dry run**: Process a full video with `--dry-run` if available
 5. **Cost check**: Will this change increase per-video cost? By how much?
 
-### Test Locations
-- `image_prompt_engine/tests/` - Style system tests
-- `brief_translator/tests/` - Script generation tests
-- `audio_sync/tests/` - Alignment and timing tests
-- `thumbnail_generator/test_generator.py` - Thumbnail generation tests
+### Test Locations & Coverage (170 tests passing as of Feb 2026)
+```
+image_prompt_engine/tests/    77 tests  (style system, prompt building, sequencing)
+brief_translator/tests/       67 tests  (validation, scene expansion, pipeline writing)
+tests/test_pipeline_integration.py  26 tests  (end-to-end integration)
+audio_sync/tests/             —         (alignment, timing, Ken Burns)
+thumbnail_generator/          —         (generation tests)
+```
 
 ### Running Tests
 ```bash
 cd skills/video-pipeline && python -m pytest image_prompt_engine/tests/
 cd skills/video-pipeline && python -m pytest brief_translator/tests/
+cd skills/video-pipeline && python -m pytest tests/test_pipeline_integration.py
 cd skills/video-pipeline && python -m pytest audio_sync/tests/
 ```
+
+### Key Integration Tests Verify
+- Research output has all validator fields
+- Brief has all script generator fields
+- Scenes have required fields + visual identity markers
+- All prompts end with "16:9"
+- Ken Burns has 3+ unique directions, pan directions alternate
+- Visual identity distribution matches targets (60D/22S/18E)
+- Status chain is valid, no mismatches
+- Scene dir is project-relative (not hardcoded VPS path)
 
 ---
 
