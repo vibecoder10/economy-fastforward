@@ -14,8 +14,21 @@ from typing import Any
 
 from dotenv import load_dotenv
 
-# Load .env from project root so OPENAI_API_KEY is available
-load_dotenv(Path(__file__).resolve().parent.parent.parent.parent / ".env")
+
+def _find_and_load_env() -> None:
+    """Walk up from this file to find and load the project .env."""
+    current = Path(__file__).resolve().parent
+    for _ in range(10):
+        env_file = current / ".env"
+        if env_file.exists():
+            load_dotenv(env_file, override=True)
+            return
+        if current.parent == current:
+            break
+        current = current.parent
+
+
+_find_and_load_env()
 
 
 # ---------------------------------------------------------------------------
@@ -159,8 +172,7 @@ def transcribe(
     # Verify API key is available before doing anything
     api_key = os.environ.get("OPENAI_API_KEY", "")
     if not api_key or api_key.startswith("sk-xxxxx"):
-        # Try loading .env one more time in case it wasn't loaded at import
-        load_dotenv(Path(__file__).resolve().parent.parent.parent.parent / ".env", override=True)
+        _find_and_load_env()
         api_key = os.environ.get("OPENAI_API_KEY", "")
     if not api_key or api_key.startswith("sk-xxxxx"):
         raise RuntimeError(
