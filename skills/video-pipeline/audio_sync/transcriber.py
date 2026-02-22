@@ -15,17 +15,44 @@ from typing import Any
 from dotenv import load_dotenv
 
 
-def _find_and_load_env() -> None:
-    """Walk up from this file to find and load the project .env."""
+def _find_env_file() -> Path | None:
+    """Walk up from this file to find the project .env."""
     current = Path(__file__).resolve().parent
     for _ in range(10):
         env_file = current / ".env"
         if env_file.exists():
-            load_dotenv(env_file, override=True)
-            return
+            return env_file
         if current.parent == current:
             break
         current = current.parent
+    return None
+
+
+def _find_and_load_env() -> None:
+    """Walk up from this file to find and load the project .env."""
+    env_file = _find_env_file()
+    if env_file:
+        load_dotenv(env_file, override=True)
+
+
+def _read_key_from_env_file() -> str:
+    """Manually parse .env to extract OPENAI_API_KEY (bypasses dotenv)."""
+    env_file = _find_env_file()
+    if not env_file:
+        return ""
+    try:
+        for line in env_file.read_text().splitlines():
+            line = line.strip()
+            if line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            if key.strip() == "OPENAI_API_KEY":
+                value = value.strip().strip("'").strip('"')
+                if value and not value.startswith("sk-xxxxx"):
+                    return value
+    except Exception:
+        pass
+    return ""
 
 
 _find_and_load_env()
@@ -169,11 +196,16 @@ def transcribe(
     Returns:
         Flat list of WordTimestamp objects.
     """
-    # Verify API key is available before doing anything
+    # Ensure API key is available — try multiple methods
     api_key = os.environ.get("OPENAI_API_KEY", "")
     if not api_key or api_key.startswith("sk-xxxxx"):
         _find_and_load_env()
         api_key = os.environ.get("OPENAI_API_KEY", "")
+    if not api_key or api_key.startswith("sk-xxxxx"):
+        # Last resort: read .env file directly (bypasses dotenv entirely)
+        api_key = _read_key_from_env_file()
+        if api_key:
+            os.environ["OPENAI_API_KEY"] = api_key
     if not api_key or api_key.startswith("sk-xxxxx"):
         raise RuntimeError(
             "OPENAI_API_KEY not found. Cannot transcribe without the API key. "
