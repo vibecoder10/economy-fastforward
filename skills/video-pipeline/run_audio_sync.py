@@ -21,7 +21,17 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from dotenv import load_dotenv
-load_dotenv(os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
+
+# Find .env by walking up from this file
+_dir = Path(__file__).resolve().parent
+for _i in range(10):
+    _env = _dir / ".env"
+    if _env.exists():
+        load_dotenv(_env, override=True)
+        break
+    if _dir.parent == _dir:
+        break
+    _dir = _dir.parent
 
 from pipeline import VideoPipeline
 
