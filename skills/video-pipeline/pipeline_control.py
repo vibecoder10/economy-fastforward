@@ -62,6 +62,17 @@ _discovery_messages = {}
 log = logging.getLogger("pipeline-control-bolt")
 
 
+# Map task names back to handler functions for retry
+_TASK_HANDLER_MAP = {}  # populated after handler definitions
+
+
+def _record_failure(task_name: str) -> None:
+    """Record a failed task so 'retry' can re-run it."""
+    global _last_failed_command, _last_failed_handler
+    _last_failed_command = task_name
+    _last_failed_handler = _TASK_HANDLER_MAP.get(task_name)
+
+
 async def run_script_async(script_name: str, task_name: str, say, timeout: int = 600) -> tuple[int, str, str]:
     """Run a Python script asynchronously and return (returncode, stdout, stderr)."""
     global current_process, current_task_name
@@ -92,11 +103,15 @@ async def run_script_async(script_name: str, task_name: str, say, timeout: int =
         # Promote stdout to stderr so callers always have an error msg.
         if returncode and returncode != 0 and not stderr_str.strip():
             stderr_str = stdout_str
+        # Track failures for retry
+        if returncode and returncode != 0:
+            _record_failure(task_name)
         return returncode, stdout_str, stderr_str
     except asyncio.TimeoutError:
         current_process.kill()
         current_process = None
         current_task_name = None
+        _record_failure(task_name)
         raise subprocess.TimeoutExpired(script_name, timeout)
     except asyncio.CancelledError:
         current_process.kill()
@@ -139,16 +154,25 @@ async def handle_help(message, say):
 - `research` / `run research` - Run deep research on next approved idea
 - `research "topic"` - Run deep research on a specific topic
 
-*System*
+*Pipeline Management*
+- `queue` / `pipeline` - Show all active ideas and their statuses
+- `skip` - Skip the current pipeline step (advance to next status)
+- `retry` / `try again` - Re-run the last failed command
+
+*System & DevOps*
 - `stop` / `kill` - Stop the currently running pipeline
-- `logs` / `animlogs` - Check if a pipeline is running
 - `status` / `check` - Check current project status (both pipelines)
+- `logs` / `tail logs` / `show logs` - Show recent pipeline log output
+- `disk` / `space` - Check VPS disk usage
+- `set env KEY=VALUE` - Set any environment variable in .env
+- `set key sk-proj-...` - Set OpenAI API key (shortcut for set env)
+- `show env` / `env vars` - Show all env vars (values masked)
 - `update` - Pull latest code from GitHub (auto-restarts if changes)
-- `set key sk-proj-...` - Set OpenAI API key in .env (for Whisper transcription)
-- `cron on` / `cron off` / `cron status` - Manage cron jobs (5 AM discover, 8 AM pipeline, health check, approvals)
+- `restart` / `reboot` - Restart the bot process
+- `cron on` / `cron off` / `cron status` - Manage cron jobs
 - `help` - Show this message
 
-_All commands are case-insensitive. You can also use natural language — the bot uses AI to understand what you mean (e.g., "do the whisper thing", "next step", "make a thumbnail")._
+_All commands are case-insensitive. You can also use natural language — the bot uses AI to understand what you mean (e.g., "do the whisper thing", "next step", "how much disk space", "show me the queue")._
 """
     await say(help_text)
 
@@ -160,44 +184,299 @@ async def handle_set_key(message, say):
     if not match:
         await say(":x: Usage: `set key sk-proj-...`")
         return
+    # Delegate to set env
+    fake = {"text": f"set env OPENAI_API_KEY={match.group(1).strip()}", "user": message.get("user", "")}
+    await handle_set_env(fake, say)
 
-    new_key = match.group(1).strip()
-    if len(new_key) < 20:
-        await say(":x: That doesn't look like a valid OpenAI API key.")
+
+def _get_env_path() -> str:
+    """Return absolute path to the project .env file."""
+    return os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", ".env"))
+
+
+def _set_env_var(env_path: str, key: str, value: str) -> None:
+    """Set a key=value in the .env file (replace if exists, append if not)."""
+    if os.path.exists(env_path):
+        content = open(env_path).read()
+    else:
+        content = ""
+
+    pattern = re.compile(rf"^{re.escape(key)}=.*$", re.MULTILINE)
+    if pattern.search(content):
+        content = pattern.sub(f"{key}={value}", content)
+    else:
+        content = content.rstrip() + f"\n{key}={value}\n"
+
+    with open(env_path, "w") as f:
+        f.write(content)
+
+    os.environ[key] = value
+
+
+def _mask_value(value: str) -> str:
+    """Mask a secret value for display."""
+    if len(value) <= 8:
+        return "***"
+    return value[:4] + "..." + value[-4:]
+
+
+@app.message(re.compile(r"set\s+env\s+(\w+)\s*=\s*(.+)", re.IGNORECASE))
+async def handle_set_env(message, say):
+    """Set any environment variable in the project .env file."""
+    match = re.search(r"set\s+env\s+(\w+)\s*=\s*(.+)", message["text"], re.IGNORECASE)
+    if not match:
+        await say(":x: Usage: `set env KEY=VALUE`")
         return
 
-    # Find the project .env file
-    env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", ".env")
-    env_path = os.path.abspath(env_path)
+    key = match.group(1).strip()
+    value = match.group(2).strip().strip("'").strip('"')
+
+    if not key or not value:
+        await say(":x: Usage: `set env KEY=VALUE`")
+        return
+
+    env_path = _get_env_path()
+    try:
+        _set_env_var(env_path, key, value)
+        await say(f":white_check_mark: `{key}` set in `{env_path}`\nValue: `{_mask_value(value)}`")
+    except Exception as e:
+        await say(f":x: Failed to set {key}: {e}")
+
+
+@app.message(re.compile(r"show\s+env", re.IGNORECASE))
+@app.message(re.compile(r"env\s+vars?", re.IGNORECASE))
+async def handle_show_env(message, say):
+    """Show all env vars from the project .env file (values masked)."""
+    env_path = _get_env_path()
+
+    if not os.path.exists(env_path):
+        await say(f":x: No `.env` file found at `{env_path}`")
+        return
 
     try:
-        # Read existing .env content
-        if os.path.exists(env_path):
-            content = open(env_path).read()
+        lines = []
+        for line in open(env_path).read().splitlines():
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            if "=" not in stripped:
+                continue
+            key, _, value = stripped.partition("=")
+            key = key.strip()
+            value = value.strip().strip("'").strip('"')
+            if value and not value.startswith("xxxxx"):
+                status = ":white_check_mark:"
+                display = _mask_value(value)
+            else:
+                status = ":x:"
+                display = "(not set / placeholder)"
+            lines.append(f"{status} `{key}` = `{display}`")
+
+        if lines:
+            header = f"*Environment variables* (`{env_path}`):\n"
+            await say(header + "\n".join(lines))
         else:
-            content = ""
-
-        # Replace or append OPENAI_API_KEY
-        import re as _re
-        if _re.search(r"^OPENAI_API_KEY=.*$", content, _re.MULTILINE):
-            content = _re.sub(
-                r"^OPENAI_API_KEY=.*$",
-                f"OPENAI_API_KEY={new_key}",
-                content,
-                flags=_re.MULTILINE,
-            )
-        else:
-            content = content.rstrip() + f"\nOPENAI_API_KEY={new_key}\n"
-
-        with open(env_path, "w") as f:
-            f.write(content)
-
-        # Also set in current process so subprocesses inherit it
-        os.environ["OPENAI_API_KEY"] = new_key
-        masked = new_key[:8] + "..." + new_key[-4:]
-        await say(f":white_check_mark: OPENAI_API_KEY set in `{env_path}`\nKey: `{masked}`\nAudio sync should work now.")
+            await say(f":shrug: `.env` file is empty at `{env_path}`")
     except Exception as e:
-        await say(f":x: Failed to set key: {e}")
+        await say(f":x: Error reading .env: {e}")
+
+
+@app.message(re.compile(r"^restart$", re.IGNORECASE))
+@app.message(re.compile(r"reboot", re.IGNORECASE))
+async def handle_restart(message, say):
+    """Restart the bot process."""
+    await say(":arrows_counterclockwise: Restarting bot...")
+    try:
+        bot_script = os.path.join(BASE_DIR, "pipeline_control.py")
+        new_proc = subprocess.Popen(
+            [sys.executable, bot_script],
+            cwd=BASE_DIR,
+            stdout=open("/tmp/pipeline-bot.log", "w"),
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
+        with open("/tmp/pipeline-bot.pid", "w") as f:
+            f.write(str(new_proc.pid))
+        await say(f":white_check_mark: New bot started (PID: {new_proc.pid}). Shutting down old instance...")
+        await asyncio.sleep(2)
+        os._exit(0)
+    except Exception as e:
+        await say(f":x: Restart failed: {e}")
+
+
+@app.message(re.compile(r"disk", re.IGNORECASE))
+@app.message(re.compile(r"space", re.IGNORECASE))
+async def handle_disk(message, say):
+    """Show disk usage on the VPS."""
+    try:
+        # Overall disk usage
+        df_result = subprocess.run(
+            ["df", "-h", "/"],
+            capture_output=True, text=True, timeout=10,
+        )
+        # Project directory size
+        du_result = subprocess.run(
+            ["du", "-sh", os.path.abspath(os.path.join(BASE_DIR, "..", ".."))],
+            capture_output=True, text=True, timeout=30,
+        )
+        # Tmp/logs size
+        tmp_result = subprocess.run(
+            ["du", "-sh", "/tmp/pipeline-bot.log",
+             "/tmp/pipeline-discover.log",
+             "/tmp/pipeline-queue.log"],
+            capture_output=True, text=True, timeout=10,
+        )
+
+        parts = [":floppy_disk: *Disk Usage*\n"]
+        if df_result.returncode == 0:
+            parts.append(f"*System:*\n```{df_result.stdout.strip()}```\n")
+        if du_result.returncode == 0:
+            parts.append(f"*Project:* `{du_result.stdout.strip()}`\n")
+        if tmp_result.stdout.strip():
+            parts.append(f"*Logs:*\n```{tmp_result.stdout.strip()}```")
+
+        await say("\n".join(parts))
+    except Exception as e:
+        await say(f":x: Error checking disk: {e}")
+
+
+@app.message(re.compile(r"tail\s*logs?", re.IGNORECASE))
+@app.message(re.compile(r"show\s*logs?", re.IGNORECASE))
+async def handle_tail_logs(message, say):
+    """Show last N lines of pipeline bot log."""
+    text = message.get("text", "")
+    # Extract optional line count (default 30)
+    num_match = re.search(r"(\d+)", text)
+    num_lines = min(int(num_match.group(1)), 100) if num_match else 30
+
+    log_files = {
+        "Bot": "/tmp/pipeline-bot.log",
+        "Discover": "/tmp/pipeline-discover.log",
+        "Queue": "/tmp/pipeline-queue.log",
+    }
+
+    found_any = False
+    for label, path in log_files.items():
+        if not os.path.exists(path):
+            continue
+        try:
+            result = subprocess.run(
+                ["tail", f"-{num_lines}", path],
+                capture_output=True, text=True, timeout=10,
+            )
+            if result.stdout.strip():
+                found_any = True
+                output = result.stdout[-3000:]  # Slack message limit
+                await say(f":scroll: *{label} Log* (last {num_lines} lines of `{path}`):\n```{output}```")
+        except Exception:
+            pass
+
+    if not found_any:
+        await say(":shrug: No log files found.")
+
+
+# Track last failed command for retry
+_last_failed_command = None
+_last_failed_handler = None
+
+
+@app.message(re.compile(r"^retry$", re.IGNORECASE))
+@app.message(re.compile(r"^try again$", re.IGNORECASE))
+async def handle_retry(message, say):
+    """Re-run the last failed command."""
+    global _last_failed_command, _last_failed_handler
+    if not _last_failed_handler:
+        await say(":shrug: Nothing to retry — no recent failures.")
+        return
+
+    cmd_name = _last_failed_command or "unknown"
+    await say(f":arrows_counterclockwise: Retrying `{cmd_name}`...")
+    handler = _last_failed_handler
+    _last_failed_command = None
+    _last_failed_handler = None
+    if handler == handle_discover:
+        await handler(message, say, client=app.client)
+    else:
+        await handler(message, say)
+
+
+@app.message(re.compile(r"^queue$", re.IGNORECASE))
+@app.message(re.compile(r"^pipeline$", re.IGNORECASE))
+async def handle_queue(message, say):
+    """Show all ideas in the Airtable pipeline with their current status."""
+    await say(":mag: Checking pipeline queue...")
+    try:
+        from clients.airtable_client import AirtableClient
+        airtable = AirtableClient()
+
+        all_ideas = airtable.get_all_ideas()
+        active_statuses = [
+            "Ready For Scripting", "Ready For Voice", "Ready For Image Prompts",
+            "Ready For Images", "Ready For Video Scripts", "Ready For Video Generation",
+            "Ready For Thumbnail", "Ready To Render", "In Que",
+        ]
+
+        # Group by status — get_all_ideas returns flat dicts with id + fields
+        by_status = {}
+        for idea in all_ideas:
+            status = idea.get("Status", "Unknown")
+            if status in active_statuses:
+                title = idea.get("Title", idea.get("Name", "Untitled"))
+                by_status.setdefault(status, []).append(title)
+
+        if not by_status:
+            await say(":zzz: Pipeline is empty — no ideas with active statuses.")
+            return
+
+        lines = [":clipboard: *Pipeline Queue*\n"]
+        for status in active_statuses:
+            if status in by_status:
+                ideas = by_status[status]
+                lines.append(f"*{status}* ({len(ideas)}):")
+                for title in ideas:
+                    lines.append(f"  • {title}")
+        lines.append(f"\n_Total: {sum(len(v) for v in by_status.values())} active idea(s)_")
+        await say("\n".join(lines))
+    except Exception as e:
+        await say(f":x: Error checking queue: {e}")
+
+
+@app.message(re.compile(r"^skip$", re.IGNORECASE))
+async def handle_skip(message, say):
+    """Skip the current pipeline step — advance status to the next stage."""
+    await say(":mag: Looking for the current idea to skip...")
+    try:
+        from clients.airtable_client import AirtableClient
+        airtable = AirtableClient()
+
+        # Status progression order
+        status_order = [
+            "Idea Logged", "Ready For Scripting", "Ready For Voice",
+            "Ready For Image Prompts", "Ready For Images",
+            "Ready For Video Scripts", "Ready For Video Generation",
+            "Ready For Thumbnail", "Ready To Render", "Done",
+        ]
+
+        all_ideas = airtable.get_all_ideas()
+        # Find the first idea with an active (non-terminal) status
+        for idea in all_ideas:
+            status = idea.get("Status", "")
+            if status in status_order[1:-1]:  # between "Ready For Scripting" and "Done"
+                idx = status_order.index(status)
+                next_status = status_order[idx + 1]
+                title = idea.get("Title", idea.get("Name", "Untitled"))
+                record_id = idea["id"]
+
+                airtable.update_idea_status(record_id, next_status)
+                await say(
+                    f":fast_forward: Skipped `{status}` → `{next_status}`\n"
+                    f"Idea: *{title}*"
+                )
+                return
+
+        await say(":shrug: No active idea found to skip.")
+    except Exception as e:
+        await say(f":x: Error skipping: {e}")
 
 
 @app.message(re.compile(r"stop", re.IGNORECASE))
@@ -1267,8 +1546,16 @@ Available commands (return one of these EXACTLY):
 - "research TOPIC" — research a specific topic (replace TOPIC with the user's topic)
 - "stop" — stop / kill the currently running pipeline
 - "status" — check current project status
-- "update" — pull latest code from GitHub
+- "queue" — show all active ideas and their pipeline statuses
+- "skip" — skip the current pipeline step
+- "retry" — re-run the last failed command
+- "disk" — check disk space / storage usage
+- "tail logs" — show recent log output
+- "show env" — show environment variables
+- "set env KEY=VALUE" — set an environment variable (keep KEY=VALUE from user message)
 - "set key KEY" — set the OpenAI API key (replace KEY with the actual key from the message)
+- "restart" — restart the bot process
+- "update" — pull latest code from GitHub
 - "cron on" — enable cron jobs
 - "cron off" — disable cron jobs
 - "cron status" — check cron schedule
@@ -1281,7 +1568,10 @@ Rules:
 3. Be generous with interpretation — "do the whisper thing" → sync, \
 "make me a thumb" → thumbnail, "what's happening" → status, \
 "pull the code" → update, "next step" → run, \
-"generate the voiceover" → voice, "create images" → images
+"generate the voiceover" → voice, "create images" → images, \
+"how much storage" → disk, "what's in the pipeline" → queue, \
+"do that again" → retry, "show me the logs" → tail logs, \
+"check my keys" → show env
 4. If they mention an API key or secret key, return: set key KEY
 5. If truly ambiguous, return: unknown"""
 
@@ -1338,6 +1628,13 @@ async def handle_fallback(event, say):
         "discover": handle_discover,
         "stop": handle_stop,
         "status": handle_status,
+        "queue": handle_queue,
+        "skip": handle_skip,
+        "retry": handle_retry,
+        "disk": handle_disk,
+        "tail logs": handle_tail_logs,
+        "show env": handle_show_env,
+        "restart": handle_restart,
         "update": handle_update,
         "help": handle_help,
         "cron on": handle_cron,
@@ -1345,9 +1642,14 @@ async def handle_fallback(event, say):
         "cron status": handle_cron,
     }
 
+    # Check for "set env KEY=VALUE" command
+    if command.startswith("set env "):
+        fake_message = {"text": command, "user": event.get("user", "")}
+        await handle_set_env(fake_message, say)
+        return
+
     # Check for "set key" command
     if command.startswith("set key"):
-        # Re-inject the original message so the regex handler can parse the key
         fake_message = {"text": f"set key {text}", "user": event.get("user", "")}
         await handle_set_key(fake_message, say)
         return
@@ -1378,30 +1680,35 @@ async def handle_fallback(event, say):
         print(f"[ai-router] Unmapped command: '{command}'")
 
 
+# Populate retry map — maps task_name used in run_script_async to handler
+_TASK_HANDLER_MAP.update({
+    "script": handle_script,
+    "voice": handle_voice,
+    "images": handle_images,
+    "end images": handle_end_images,
+    "prompts": handle_prompts,
+    "audio sync": handle_audio_sync,
+    "thumbnail": handle_thumbnail,
+    "render": handle_render,
+    "animation": handle_animate,
+})
+
+
 async def main():
     """Start the Slack bot."""
     print("=" * 60)
     print("PIPELINE CONTROL BOT")
     print("=" * 60)
-    print("\nCommands (case-insensitive):")
+    print("\nCommands (case-insensitive + natural language via AI):")
     print("  run                     - Auto-continue pipeline from current status")
-    print("  script / run script     - Run script bot")
-    print("  voice / run voice       - Run voice bot")
-    print("  prompts / run prompts   - Generate prompts and start images")
-    print("  images / run images     - Generate scene images only")
-    print("  end images              - Generate end images")
-    print("  thumbnail               - Generate thumbnail")
-    print("  animate / animation     - Run animation pipeline")
-    print("  discover / scan         - Scan headlines for video ideas")
-    print("  research / run research - Run deep research on approved idea")
-    print('  research "topic"        - Run deep research on specific topic')
-    print("  stop / kill             - Stop running pipeline")
-    print("  logs / animlogs         - Check if pipeline running")
-    print("  status / check          - Check project status (both pipelines)")
-    print("  update                  - Pull latest code (auto-restart)")
+    print("  script / voice / prompts / images / sync / thumbnail / render")
+    print("  animate / discover / research")
+    print("  queue / skip / retry    - Pipeline management")
+    print("  stop / status / logs / disk / show env / restart / update")
+    print("  set env KEY=VALUE       - Set any env var in .env")
     print("  cron on/off/status      - Manage scheduled cron jobs")
-    print("  help                    - Show help")
-    print("\nListening for Slack messages...")
+    print("  help                    - Show all commands")
+    print("\nListening for Slack messages (+ AI fallback for natural language)...")
 
     handler = AsyncSocketModeHandler(app, os.environ.get("SLACK_APP_TOKEN"))
     await handler.start_async()
