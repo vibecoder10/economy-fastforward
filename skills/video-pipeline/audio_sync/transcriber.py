@@ -220,13 +220,30 @@ def transcribe(
     _load_openai_key()
     api_key = os.environ.get("OPENAI_API_KEY", "")
     if not api_key or api_key.startswith("sk-xxxxx"):
-        raise RuntimeError(
-            "OPENAI_API_KEY not found. Cannot transcribe.\n"
-            f"  Searched from: {Path(__file__).resolve()}\n"
-            f"  Home dir: {Path.home()}\n"
-            f"  CWD: {Path.cwd()}\n"
-            "Create a .env file with OPENAI_API_KEY=sk-proj-... in your project root."
-        )
+        # Build diagnostic info
+        diag_lines = [
+            "OPENAI_API_KEY not found or still set to placeholder.",
+            f"  Searched from: {Path(__file__).resolve()}",
+            f"  Home dir: {Path.home()}",
+            f"  CWD: {Path.cwd()}",
+        ]
+        # Show which .env files exist and what they contain for this key
+        project_env = Path(__file__).resolve().parent.parent.parent.parent / ".env"
+        for p in [project_env, Path.home() / ".env"]:
+            if p.exists():
+                try:
+                    for line in p.read_text().splitlines():
+                        if "OPENAI_API_KEY" in line and not line.strip().startswith("#"):
+                            val = line.partition("=")[2].strip()
+                            masked = val[:8] + "..." if len(val) > 8 else val
+                            diag_lines.append(f"  Found in {p}: {masked}")
+                except Exception:
+                    pass
+        diag_lines.append("")
+        diag_lines.append("FIX: SSH into the VPS and run:")
+        diag_lines.append(f"  nano {project_env}")
+        diag_lines.append("  Replace 'OPENAI_API_KEY=sk-xxxxx' with your real OpenAI API key.")
+        raise RuntimeError("\n".join(diag_lines))
 
     # Check cache first
     if cache_dir is not None:

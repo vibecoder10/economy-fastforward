@@ -144,12 +144,60 @@ async def handle_help(message, say):
 - `logs` / `animlogs` - Check if a pipeline is running
 - `status` / `check` - Check current project status (both pipelines)
 - `update` - Pull latest code from GitHub (auto-restarts if changes)
+- `set key sk-proj-...` - Set OpenAI API key in .env (for Whisper transcription)
 - `cron on` / `cron off` / `cron status` - Manage cron jobs (5 AM discover, 8 AM pipeline, health check, approvals)
 - `help` - Show this message
 
 _All commands are case-insensitive._
 """
     await say(help_text)
+
+
+@app.message(re.compile(r"set\s+(?:openai[_\s]*(?:api[_\s]*)?)?key\s+(sk-\S+)", re.IGNORECASE))
+async def handle_set_key(message, say):
+    """Set OPENAI_API_KEY in the project .env file from Slack."""
+    match = re.search(r"set\s+(?:openai[_\s]*(?:api[_\s]*)?)?key\s+(sk-\S+)", message["text"], re.IGNORECASE)
+    if not match:
+        await say(":x: Usage: `set key sk-proj-...`")
+        return
+
+    new_key = match.group(1).strip()
+    if len(new_key) < 20:
+        await say(":x: That doesn't look like a valid OpenAI API key.")
+        return
+
+    # Find the project .env file
+    env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", ".env")
+    env_path = os.path.abspath(env_path)
+
+    try:
+        # Read existing .env content
+        if os.path.exists(env_path):
+            content = open(env_path).read()
+        else:
+            content = ""
+
+        # Replace or append OPENAI_API_KEY
+        import re as _re
+        if _re.search(r"^OPENAI_API_KEY=.*$", content, _re.MULTILINE):
+            content = _re.sub(
+                r"^OPENAI_API_KEY=.*$",
+                f"OPENAI_API_KEY={new_key}",
+                content,
+                flags=_re.MULTILINE,
+            )
+        else:
+            content = content.rstrip() + f"\nOPENAI_API_KEY={new_key}\n"
+
+        with open(env_path, "w") as f:
+            f.write(content)
+
+        # Also set in current process so subprocesses inherit it
+        os.environ["OPENAI_API_KEY"] = new_key
+        masked = new_key[:8] + "..." + new_key[-4:]
+        await say(f":white_check_mark: OPENAI_API_KEY set in `{env_path}`\nKey: `{masked}`\nAudio sync should work now.")
+    except Exception as e:
+        await say(f":x: Failed to set key: {e}")
 
 
 @app.message(re.compile(r"stop", re.IGNORECASE))
