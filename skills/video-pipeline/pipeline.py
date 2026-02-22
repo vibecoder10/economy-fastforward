@@ -2657,24 +2657,74 @@ class VideoPipeline:
         timing_dir = pipeline_dir / "timing" / video_id
         timing_dir.mkdir(parents=True, exist_ok=True)
 
-        # Resolve audio path — look for concatenated narration or individual scenes
+        # Resolve audio path — prefer downloading from Google Drive
+        # to avoid stale audio from previous videos in public/
         if audio_path is None:
             remotion_dir = pipeline_dir.parent.parent / "remotion-video"
             public_dir = remotion_dir / "public"
-            # Look for a single narration file
-            candidates = [
-                public_dir / "narration.mp3",
-                public_dir / "narration.wav",
-            ]
-            for c in candidates:
-                if c.exists():
-                    audio_path = str(c)
-                    break
 
+            # Strategy 1: Download scene MP3s from this video's Drive folder
+            if self.project_folder_id:
+                try:
+                    drive_files = self.google.list_files_in_folder(self.project_folder_id)
+                    scene_mp3s = sorted(
+                        [f for f in drive_files
+                         if f["name"].startswith("Scene ") and f["name"].endswith(".mp3")],
+                        key=lambda f: f["name"],
+                    )
+                    if scene_mp3s:
+                        print(f"  Downloading {len(scene_mp3s)} scene audio files from Google Drive...")
+                        audio_dir = timing_dir / "audio"
+                        audio_dir.mkdir(parents=True, exist_ok=True)
+                        downloaded = []
+                        for df in scene_mp3s:
+                            local_path = audio_dir / df["name"]
+                            if not local_path.exists():
+                                content = self.google.download_file(df["id"])
+                                if len(content) < 500:
+                                    print(f"    ⚠️ Skipping {df['name']} — too small ({len(content)} bytes)")
+                                    continue
+                                local_path.write_bytes(content)
+                            downloaded.append(local_path)
+                        if downloaded:
+                            print(f"  Concatenating {len(downloaded)} scene audio files...")
+                            import subprocess as _sp
+                            concat_path = timing_dir / "narration_concat.mp3"
+                            list_file = timing_dir / "concat_list.txt"
+                            with open(list_file, "w") as f:
+                                for sa in downloaded:
+                                    f.write(f"file '{sa}'\n")
+                            _sp.run(
+                                ["ffmpeg", "-y", "-f", "concat", "-safe", "0",
+                                 "-i", str(list_file), "-c", "copy", str(concat_path)],
+                                capture_output=True, check=True,
+                            )
+                            audio_path = str(concat_path)
+                            print(f"  Concatenated audio: {concat_path}")
+                            # Invalidate Whisper cache — audio may have changed
+                            whisper_cache = timing_dir / "whisper_raw.json"
+                            if whisper_cache.exists():
+                                whisper_cache.unlink()
+                                print(f"  🗑️ Cleared stale Whisper cache (re-transcribing fresh audio)")
+                except Exception as e:
+                    print(f"  ⚠️ Drive download failed ({e}), falling back to local files...")
+
+            # Strategy 2: Look for a single narration file in public/
             if audio_path is None:
-                # Fall back to concatenating per-scene MP3s
+                candidates = [
+                    public_dir / "narration.mp3",
+                    public_dir / "narration.wav",
+                ]
+                for c in candidates:
+                    if c.exists():
+                        audio_path = str(c)
+                        break
+
+            # Strategy 3: Concatenate per-scene MP3s from public/ (may be stale!)
+            if audio_path is None:
                 scene_audios = sorted(public_dir.glob("Scene *.mp3"))
                 if scene_audios:
+                    print(f"  ⚠️ Using {len(scene_audios)} scene audio files from public/ (may be from a previous video!)")
                     print(f"  Found {len(scene_audios)} scene audio files — concatenating...")
                     try:
                         import subprocess as _sp
@@ -2733,6 +2783,39 @@ class VideoPipeline:
         print(f"  Step 1/4: Transcribing audio with Whisper...")
         words = sync.transcribe(audio_path, cache_dir=timing_dir)
         print(f"    {len(words)} words transcribed")
+
+        # Sanity check: verify the transcript matches the script
+        # Compare first scene's opening words against the transcript
+        if words and scene_list:
+            import re as _re
+            def _norm(t):
+                return _re.sub(r"[^\w\s]", "", t.lower()).split()
+
+            first_excerpt = scene_list[0].get("script_excerpt", "")
+            first_words = _norm(first_excerpt)[:15]
+            transcript_start = [_norm(w.word)[0] for w in words[:50] if _norm(w.word)]
+
+            # Check if any 5-word sequence from the script appears in the transcript opening
+            match_found = False
+            if len(first_words) >= 5 and len(transcript_start) >= 5:
+                excerpt_str = " ".join(first_words[:8])
+                for i in range(min(30, len(transcript_start) - 4)):
+                    chunk = " ".join(transcript_start[i:i + 8])
+                    from difflib import SequenceMatcher as _SM
+                    if _SM(None, excerpt_str, chunk).ratio() >= 0.5:
+                        match_found = True
+                        break
+
+            if not match_found and first_words:
+                print(f"  ⚠️ MISMATCH WARNING: transcript doesn't match script!")
+                print(f"     Script starts with: '{' '.join(first_words[:10])}...'")
+                print(f"     Audio starts with:  '{' '.join(transcript_start[:10])}...'")
+                print(f"     This usually means the audio files are from a different video.")
+                print(f"     The Whisper cache will be cleared — please verify the audio source.")
+                # Clear the whisper cache so the next run re-transcribes
+                whisper_cache = timing_dir / "whisper_raw.json"
+                if whisper_cache.exists():
+                    whisper_cache.unlink()
 
         # Step 2: Align
         print(f"  Step 2/4: Aligning scenes to timestamps...")
