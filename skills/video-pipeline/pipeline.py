@@ -2657,103 +2657,6 @@ class VideoPipeline:
         timing_dir = pipeline_dir / "timing" / video_id
         timing_dir.mkdir(parents=True, exist_ok=True)
 
-        # Resolve audio path — prefer downloading from Google Drive
-        # to avoid stale audio from previous videos in public/
-        if audio_path is None:
-            remotion_dir = pipeline_dir.parent.parent / "remotion-video"
-            public_dir = remotion_dir / "public"
-
-            # Strategy 1: Download scene MP3s from this video's Drive folder
-            if self.project_folder_id:
-                try:
-                    drive_files = self.google.list_files_in_folder(self.project_folder_id)
-                    scene_mp3s = sorted(
-                        [f for f in drive_files
-                         if f["name"].startswith("Scene ") and f["name"].endswith(".mp3")],
-                        key=lambda f: f["name"],
-                    )
-                    if scene_mp3s:
-                        print(f"  Downloading {len(scene_mp3s)} scene audio files from Google Drive...")
-                        audio_dir = timing_dir / "audio"
-                        audio_dir.mkdir(parents=True, exist_ok=True)
-                        downloaded = []
-                        for df in scene_mp3s:
-                            local_path = audio_dir / df["name"]
-                            if not local_path.exists():
-                                content = self.google.download_file(df["id"])
-                                if len(content) < 500:
-                                    print(f"    ⚠️ Skipping {df['name']} — too small ({len(content)} bytes)")
-                                    continue
-                                local_path.write_bytes(content)
-                            downloaded.append(local_path)
-                        if downloaded:
-                            print(f"  Concatenating {len(downloaded)} scene audio files...")
-                            import subprocess as _sp
-                            concat_path = timing_dir / "narration_concat.mp3"
-                            list_file = timing_dir / "concat_list.txt"
-                            with open(list_file, "w") as f:
-                                for sa in downloaded:
-                                    f.write(f"file '{sa}'\n")
-                            _sp.run(
-                                ["ffmpeg", "-y", "-f", "concat", "-safe", "0",
-                                 "-i", str(list_file), "-c", "copy", str(concat_path)],
-                                capture_output=True, check=True,
-                            )
-                            audio_path = str(concat_path)
-                            print(f"  Concatenated audio: {concat_path}")
-                            # Invalidate Whisper cache — audio may have changed
-                            whisper_cache = timing_dir / "whisper_raw.json"
-                            if whisper_cache.exists():
-                                whisper_cache.unlink()
-                                print(f"  🗑️ Cleared stale Whisper cache (re-transcribing fresh audio)")
-                except Exception as e:
-                    print(f"  ⚠️ Drive download failed ({e}), falling back to local files...")
-
-            # Strategy 2: Look for a single narration file in public/
-            if audio_path is None:
-                candidates = [
-                    public_dir / "narration.mp3",
-                    public_dir / "narration.wav",
-                ]
-                for c in candidates:
-                    if c.exists():
-                        audio_path = str(c)
-                        break
-
-            # Strategy 3: Concatenate per-scene MP3s from public/ (may be stale!)
-            if audio_path is None:
-                scene_audios = sorted(public_dir.glob("Scene *.mp3"))
-                if scene_audios:
-                    print(f"  ⚠️ Using {len(scene_audios)} scene audio files from public/ (may be from a previous video!)")
-                    print(f"  Found {len(scene_audios)} scene audio files — concatenating...")
-                    try:
-                        import subprocess as _sp
-                        concat_path = timing_dir / "narration_concat.mp3"
-                        # Build ffmpeg concat file
-                        list_file = timing_dir / "concat_list.txt"
-                        with open(list_file, "w") as f:
-                            for sa in scene_audios:
-                                f.write(f"file '{sa}'\n")
-                        _sp.run(
-                            ["ffmpeg", "-y", "-f", "concat", "-safe", "0",
-                             "-i", str(list_file), "-c", "copy", str(concat_path)],
-                            capture_output=True, check=True,
-                        )
-                        audio_path = str(concat_path)
-                        print(f"  Concatenated audio: {concat_path}")
-                    except Exception as e:
-                        print(f"  Warning: ffmpeg concat failed: {e}")
-                        return {
-                            "error": f"Cannot concatenate scene audio: {e}",
-                            "bot": "Audio Sync",
-                        }
-
-            if audio_path is None:
-                return {
-                    "error": "No narration audio found. Run voice bot first.",
-                    "bot": "Audio Sync",
-                }
-
         # Build scene list from Airtable if not provided
         if scene_list is None:
             scripts = self.airtable.get_scripts_by_title(self.video_title)
@@ -2773,74 +2676,144 @@ class VideoPipeline:
                     "parent_act": script.get("Parent Act", 1),
                 })
 
-        print(f"  Audio: {audio_path}")
-        print(f"  Scenes: {len(scene_list)}")
+        num_scenes = len(scene_list)
+        print(f"  Scenes: {num_scenes}")
 
-        # Run the audio sync pipeline (always uses OpenAI Whisper API)
+        # ── Step 1: Get per-scene audio files from Google Drive ──
+        # Each scene has its own "Scene N.mp3" — just measure its duration.
+        # No Whisper transcription or fuzzy alignment needed.
+        print(f"  Step 1/3: Getting scene audio files...")
+
+        import subprocess as _sp
+
+        def _get_audio_duration(path: str) -> float:
+            """Get duration of an audio file in seconds using ffprobe."""
+            result = _sp.run(
+                ["ffprobe", "-v", "error", "-show_entries",
+                 "format=duration", "-of", "csv=p=0", path],
+                capture_output=True, text=True, timeout=15,
+            )
+            return float(result.stdout.strip())
+
+        audio_dir = timing_dir / "audio"
+        audio_dir.mkdir(parents=True, exist_ok=True)
+        scene_audio_paths: dict[int, _Path] = {}  # scene_number -> local path
+
+        # Download from Google Drive if available
+        if self.project_folder_id:
+            try:
+                drive_files = self.google.list_files_in_folder(self.project_folder_id)
+                scene_mp3s = [
+                    f for f in drive_files
+                    if f["name"].startswith("Scene ") and f["name"].endswith(".mp3")
+                ]
+                if scene_mp3s:
+                    print(f"  Downloading {len(scene_mp3s)} scene audio files from Google Drive...")
+                    for df in scene_mp3s:
+                        local_path = audio_dir / df["name"]
+                        if not local_path.exists():
+                            content = self.google.download_file(df["id"])
+                            if len(content) < 500:
+                                print(f"    ⚠️ Skipping {df['name']} — too small")
+                                continue
+                            local_path.write_bytes(content)
+                            print(f"    ✅ {df['name']} ({len(content) // 1024} KB)")
+                        # Extract scene number from filename "Scene 5.mp3"
+                        try:
+                            snum = int(df["name"].replace("Scene ", "").replace(".mp3", "").strip())
+                            scene_audio_paths[snum] = local_path
+                        except ValueError:
+                            pass
+            except Exception as e:
+                print(f"  ⚠️ Drive download failed ({e}), trying local files...")
+
+        # Fallback: check public/ directory
+        if not scene_audio_paths:
+            remotion_dir = pipeline_dir.parent.parent / "remotion-video"
+            public_dir = remotion_dir / "public"
+            for mp3 in sorted(public_dir.glob("Scene *.mp3")):
+                try:
+                    snum = int(mp3.name.replace("Scene ", "").replace(".mp3", "").strip())
+                    scene_audio_paths[snum] = mp3
+                except ValueError:
+                    pass
+            if scene_audio_paths:
+                print(f"  ⚠️ Using {len(scene_audio_paths)} audio files from public/ (may be stale)")
+
+        if not scene_audio_paths:
+            return {
+                "error": "No scene audio files found. Run voice bot first.",
+                "bot": "Audio Sync",
+            }
+
+        print(f"  Found audio for {len(scene_audio_paths)} scenes")
+
+        # ── Step 2: Measure each scene's audio duration with ffprobe ──
+        print(f"  Step 2/3: Measuring audio durations (ffprobe)...")
+
+        running_time = 0.0
+        total_duration = 0.0
+        timed_scenes = []
+
+        for scene in scene_list:
+            scene_num = scene.get("scene_number", 0)
+            audio_file = scene_audio_paths.get(scene_num)
+
+            if audio_file and audio_file.exists():
+                try:
+                    dur = _get_audio_duration(str(audio_file))
+                except Exception as e:
+                    print(f"    ⚠️ Scene {scene_num}: ffprobe failed ({e}), using 5s default")
+                    dur = 5.0
+            else:
+                print(f"    ⚠️ Scene {scene_num}: no audio file found, using 5s default")
+                dur = 5.0
+
+            start_time = running_time
+            end_time = running_time + dur
+            running_time = end_time
+            total_duration += dur
+
+            timed_scenes.append({
+                **scene,
+                "start_time": round(start_time, 4),
+                "end_time": round(end_time, 4),
+                "duration": round(dur, 4),
+                "alignment_method": "ffprobe",
+            })
+            print(f"    Scene {scene_num}: {dur:.1f}s")
+
+        print(f"  Total audio duration: {total_duration:.1f}s")
+
+        # ── Step 3: Apply timing adjustments + build render config ──
+        print(f"  Step 3/3: Adjusting timing & writing render config...")
+
         sync = AudioSyncPipeline()
+        timed = sync.adjust_timing(timed_scenes)
 
-        # Step 1: Transcribe
-        print(f"  Step 1/4: Transcribing audio with Whisper...")
-        words = sync.transcribe(audio_path, cache_dir=timing_dir)
-        print(f"    {len(words)} words transcribed")
+        # Concatenate scene audio for the render config reference
+        concat_path = timing_dir / "narration_concat.mp3"
+        sorted_audio = sorted(scene_audio_paths.items())
+        list_file = timing_dir / "concat_list.txt"
+        with open(list_file, "w") as f:
+            for _, sa in sorted_audio:
+                f.write(f"file '{sa}'\n")
+        try:
+            _sp.run(
+                ["ffmpeg", "-y", "-f", "concat", "-safe", "0",
+                 "-i", str(list_file), "-c", "copy", str(concat_path)],
+                capture_output=True, check=True,
+            )
+        except Exception as e:
+            print(f"  ⚠️ Concat failed ({e}), render config will reference individual files")
+            concat_path = _Path(str(sorted_audio[0][1])) if sorted_audio else _Path("")
 
-        # Sanity check: verify the transcript matches the script
-        # Compare first scene's opening words against the transcript
-        if words and scene_list:
-            import re as _re
-            def _norm(t):
-                return _re.sub(r"[^\w\s]", "", t.lower()).split()
-
-            first_excerpt = scene_list[0].get("script_excerpt", "")
-            first_words = _norm(first_excerpt)[:15]
-            transcript_start = [_norm(w.word)[0] for w in words[:50] if _norm(w.word)]
-
-            # Check if any 5-word sequence from the script appears in the transcript opening
-            match_found = False
-            if len(first_words) >= 5 and len(transcript_start) >= 5:
-                excerpt_str = " ".join(first_words[:8])
-                for i in range(min(30, len(transcript_start) - 4)):
-                    chunk = " ".join(transcript_start[i:i + 8])
-                    from difflib import SequenceMatcher as _SM
-                    if _SM(None, excerpt_str, chunk).ratio() >= 0.5:
-                        match_found = True
-                        break
-
-            if not match_found and first_words:
-                print(f"  ⚠️ MISMATCH WARNING: transcript doesn't match script!")
-                print(f"     Script starts with: '{' '.join(first_words[:10])}...'")
-                print(f"     Audio starts with:  '{' '.join(transcript_start[:10])}...'")
-                print(f"     This usually means the audio files are from a different video.")
-                print(f"     The Whisper cache will be cleared — please verify the audio source.")
-                # Clear the whisper cache so the next run re-transcribes
-                whisper_cache = timing_dir / "whisper_raw.json"
-                if whisper_cache.exists():
-                    whisper_cache.unlink()
-
-        # Step 2: Align
-        print(f"  Step 2/4: Aligning scenes to timestamps...")
-        aligned = sync.align(scene_list, words)
-        report = validate_alignment(aligned)
-        print(f"    Quality: {report['quality']}")
-        print(f"    Fuzzy matched: {report['aligned_fuzzy']}")
-        print(f"    Low confidence: {report.get('aligned_low_confidence', 0)}")
-        print(f"    Interpolated: {report['aligned_interpolated']}")
-        if report['issues']:
-            for issue in report['issues'][:5]:
-                print(f"    Warning: {issue}")
-
-        # Step 3: Adjust timing
-        print(f"  Step 3/4: Adjusting timing (pre-roll, post-hold, min/max)...")
-        timed = sync.adjust_timing(aligned)
-
-        # Step 4: Generate render config
-        print(f"  Step 4/4: Writing render config...")
         image_dir = str(
             _Path(__file__).parent.parent.parent / "remotion-video" / "public"
         )
         config = sync.generate_render_config(
             video_id=video_id,
-            audio_path=audio_path,
+            audio_path=str(concat_path),
             scenes=timed,
             image_dir=image_dir,
             output_dir=timing_dir,
@@ -2857,8 +2830,7 @@ class VideoPipeline:
             "render_config_path": str(timing_dir / "render_config.json"),
             "total_duration": config["total_duration_seconds"],
             "scene_count": len(config["scenes"]),
-            "alignment_quality": report["quality"],
-            "words_transcribed": len(words),
+            "alignment_quality": "direct",
         }
 
     async def run_youtube_upload_bot(self) -> dict:
