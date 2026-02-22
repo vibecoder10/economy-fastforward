@@ -144,12 +144,60 @@ async def handle_help(message, say):
 - `logs` / `animlogs` - Check if a pipeline is running
 - `status` / `check` - Check current project status (both pipelines)
 - `update` - Pull latest code from GitHub (auto-restarts if changes)
+- `set key sk-proj-...` - Set OpenAI API key in .env (for Whisper transcription)
 - `cron on` / `cron off` / `cron status` - Manage cron jobs (5 AM discover, 8 AM pipeline, health check, approvals)
 - `help` - Show this message
 
-_All commands are case-insensitive._
+_All commands are case-insensitive. You can also use natural language — the bot uses AI to understand what you mean (e.g., "do the whisper thing", "next step", "make a thumbnail")._
 """
     await say(help_text)
+
+
+@app.message(re.compile(r"set\s+(?:openai[_\s]*(?:api[_\s]*)?)?key\s+(sk-\S+)", re.IGNORECASE))
+async def handle_set_key(message, say):
+    """Set OPENAI_API_KEY in the project .env file from Slack."""
+    match = re.search(r"set\s+(?:openai[_\s]*(?:api[_\s]*)?)?key\s+(sk-\S+)", message["text"], re.IGNORECASE)
+    if not match:
+        await say(":x: Usage: `set key sk-proj-...`")
+        return
+
+    new_key = match.group(1).strip()
+    if len(new_key) < 20:
+        await say(":x: That doesn't look like a valid OpenAI API key.")
+        return
+
+    # Find the project .env file
+    env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", ".env")
+    env_path = os.path.abspath(env_path)
+
+    try:
+        # Read existing .env content
+        if os.path.exists(env_path):
+            content = open(env_path).read()
+        else:
+            content = ""
+
+        # Replace or append OPENAI_API_KEY
+        import re as _re
+        if _re.search(r"^OPENAI_API_KEY=.*$", content, _re.MULTILINE):
+            content = _re.sub(
+                r"^OPENAI_API_KEY=.*$",
+                f"OPENAI_API_KEY={new_key}",
+                content,
+                flags=_re.MULTILINE,
+            )
+        else:
+            content = content.rstrip() + f"\nOPENAI_API_KEY={new_key}\n"
+
+        with open(env_path, "w") as f:
+            f.write(content)
+
+        # Also set in current process so subprocesses inherit it
+        os.environ["OPENAI_API_KEY"] = new_key
+        masked = new_key[:8] + "..." + new_key[-4:]
+        await say(f":white_check_mark: OPENAI_API_KEY set in `{env_path}`\nKey: `{masked}`\nAudio sync should work now.")
+    except Exception as e:
+        await say(f":x: Failed to set key: {e}")
 
 
 @app.message(re.compile(r"stop", re.IGNORECASE))
@@ -1191,6 +1239,143 @@ async def handle_cron(message, say):
         "• `cron off` — Remove all pipeline cron jobs\n"
         "• `cron status` — Show current cron schedule"
     )
+
+
+# ---------------------------------------------------------------------------
+# AI-powered fallback — catches messages that no regex handler matched
+# ---------------------------------------------------------------------------
+
+_AI_ROUTER_SYSTEM = """\
+You are the command router for a Slack-based video production pipeline bot.
+
+The user sent a message that didn't match any built-in command. Your job is to
+figure out what they want and return the EXACT command keyword to execute.
+
+Available commands (return one of these EXACTLY):
+- "run" — auto-continue the pipeline from its current status
+- "script" — generate a script for the next video
+- "voice" — generate voiceover audio
+- "prompts" — generate image prompts and start image generation
+- "images" — generate scene images only
+- "end images" — generate end/outro images
+- "sync" — run audio sync / Whisper alignment / calculate timing
+- "thumbnail" — generate a thumbnail
+- "render" — render the video
+- "animate" — run animation pipeline
+- "discover" — scan headlines for new video ideas
+- "research" — run deep research on an approved idea
+- "research TOPIC" — research a specific topic (replace TOPIC with the user's topic)
+- "stop" — stop / kill the currently running pipeline
+- "status" — check current project status
+- "update" — pull latest code from GitHub
+- "set key KEY" — set the OpenAI API key (replace KEY with the actual key from the message)
+- "cron on" — enable cron jobs
+- "cron off" — disable cron jobs
+- "cron status" — check cron schedule
+- "help" — show available commands
+- "unknown" — message is not a bot command (casual chat, question, etc.)
+
+Rules:
+1. Return ONLY the command string, nothing else. No quotes, no explanation.
+2. If the user is asking a question or chatting, return: unknown
+3. Be generous with interpretation — "do the whisper thing" → sync, \
+"make me a thumb" → thumbnail, "what's happening" → status, \
+"pull the code" → update, "next step" → run, \
+"generate the voiceover" → voice, "create images" → images
+4. If they mention an API key or secret key, return: set key KEY
+5. If truly ambiguous, return: unknown"""
+
+
+@app.event("message")
+async def handle_fallback(event, say):
+    """AI-powered fallback for messages that no regex handler matched."""
+    text = event.get("text", "").strip()
+    if not text:
+        return
+
+    # Skip bot messages, edits, and thread replies to avoid loops
+    if event.get("bot_id") or event.get("subtype") or event.get("thread_ts"):
+        return
+
+    # Skip very short or very long messages
+    if len(text) < 2 or len(text) > 500:
+        return
+
+    try:
+        from clients.anthropic_client import AnthropicClient
+        anthropic = AnthropicClient()
+
+        command = await anthropic.generate(
+            prompt=f"User message: {text}",
+            system_prompt=_AI_ROUTER_SYSTEM,
+            model="claude-haiku-4-5-20251001",
+            max_tokens=100,
+            temperature=0.0,
+        )
+        command = command.strip().lower()
+
+    except Exception as e:
+        print(f"[ai-router] Error: {e}")
+        return
+
+    if command == "unknown":
+        return
+
+    print(f"[ai-router] '{text}' → '{command}'")
+
+    # Build a mapping of command keywords to handler functions
+    command_map = {
+        "run": handle_run,
+        "script": handle_script,
+        "voice": handle_voice,
+        "prompts": handle_prompts,
+        "images": handle_images,
+        "end images": handle_end_images,
+        "sync": handle_audio_sync,
+        "thumbnail": handle_thumbnail,
+        "render": handle_render,
+        "animate": handle_animate,
+        "discover": handle_discover,
+        "stop": handle_stop,
+        "status": handle_status,
+        "update": handle_update,
+        "help": handle_help,
+        "cron on": handle_cron,
+        "cron off": handle_cron,
+        "cron status": handle_cron,
+    }
+
+    # Check for "set key" command
+    if command.startswith("set key"):
+        # Re-inject the original message so the regex handler can parse the key
+        fake_message = {"text": f"set key {text}", "user": event.get("user", "")}
+        await handle_set_key(fake_message, say)
+        return
+
+    # Check for "research TOPIC" variant
+    if command.startswith("research "):
+        fake_message = {"text": command, "user": event.get("user", "")}
+        await handle_research(fake_message, say)
+        return
+
+    # Check for "discover" with focus keyword
+    if command.startswith("discover"):
+        fake_message = {"text": command, "user": event.get("user", ""),
+                        "channel": event.get("channel", "")}
+        await handle_discover(fake_message, say, client=app.client)
+        return
+
+    handler = command_map.get(command)
+    if handler:
+        fake_message = {"text": command, "user": event.get("user", ""),
+                        "channel": event.get("channel", "")}
+        if handler == handle_discover:
+            await handler(fake_message, say, client=app.client)
+        else:
+            await handler(fake_message, say)
+    else:
+        # AI returned something unexpected — ignore silently
+        print(f"[ai-router] Unmapped command: '{command}'")
 
 
 async def main():
