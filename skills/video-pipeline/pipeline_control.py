@@ -18,7 +18,25 @@ import signal
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from dotenv import load_dotenv
-load_dotenv(os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
+
+# Load .env from project root — walk up to find it
+_control_dir = os.path.dirname(os.path.abspath(__file__))
+for _i in range(10):
+    _env_path = os.path.join(_control_dir, ".env")
+    if os.path.exists(_env_path):
+        load_dotenv(_env_path, override=True)
+        break
+    _parent = os.path.dirname(_control_dir)
+    if _parent == _control_dir:
+        break
+    _control_dir = _parent
+
+# Verify critical API keys are loaded
+_openai_key = os.environ.get("OPENAI_API_KEY", "")
+if _openai_key and not _openai_key.startswith("sk-xxxxx"):
+    print(f"[env] OPENAI_API_KEY loaded ({len(_openai_key)} chars)")
+else:
+    print("[env] WARNING: OPENAI_API_KEY not found — audio sync will fail")
 
 from slack_bolt.async_app import AsyncApp
 from slack_bolt.adapter.socket_mode.async_handler import AsyncSocketModeHandler
@@ -54,6 +72,7 @@ async def run_script_async(script_name: str, task_name: str, say, timeout: int =
     current_process = await asyncio.create_subprocess_exec(
         "python3", script_path,
         cwd=BASE_DIR,
+        env=os.environ.copy(),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )

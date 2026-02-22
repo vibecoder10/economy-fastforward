@@ -15,47 +15,67 @@ from typing import Any
 from dotenv import load_dotenv
 
 
-def _find_env_file() -> Path | None:
-    """Walk up from this file to find the project .env."""
+def _load_openai_key() -> None:
+    """Find and load OPENAI_API_KEY from .env files.
+
+    Searches for .env files in multiple locations, tries dotenv first,
+    then falls back to manual parsing. Looks for both .env and
+    .env.production files.
+    """
+    # Already set and valid? Skip.
+    existing = os.environ.get("OPENAI_API_KEY", "")
+    if existing and not existing.startswith("sk-xxxxx"):
+        return
+
+    # Collect candidate .env file paths
+    candidates: list[Path] = []
     current = Path(__file__).resolve().parent
     for _ in range(10):
-        env_file = current / ".env"
-        if env_file.exists():
-            return env_file
+        candidates.append(current / ".env")
+        candidates.append(current / ".env.production")
         if current.parent == current:
             break
         current = current.parent
-    return None
+
+    # Also check common deployment paths
+    for extra in [
+        Path.home() / ".env",
+        Path("/home/clawd/projects/economy-fastforward/.env"),
+        Path("/home/clawd/.env"),
+    ]:
+        candidates.append(extra)
+
+    # Try dotenv on each candidate
+    for env_file in candidates:
+        if env_file.exists():
+            try:
+                load_dotenv(env_file, override=True)
+                key = os.environ.get("OPENAI_API_KEY", "")
+                if key and not key.startswith("sk-xxxxx"):
+                    return
+            except Exception:
+                pass
+
+    # Dotenv failed — try manual parse on each candidate
+    for env_file in candidates:
+        if not env_file.exists():
+            continue
+        try:
+            for line in env_file.read_text().splitlines():
+                line = line.strip()
+                if line.startswith("#") or "=" not in line:
+                    continue
+                k, _, v = line.partition("=")
+                if k.strip() == "OPENAI_API_KEY":
+                    v = v.strip().strip("'").strip('"')
+                    if v and not v.startswith("sk-xxxxx"):
+                        os.environ["OPENAI_API_KEY"] = v
+                        return
+        except Exception:
+            continue
 
 
-def _find_and_load_env() -> None:
-    """Walk up from this file to find and load the project .env."""
-    env_file = _find_env_file()
-    if env_file:
-        load_dotenv(env_file, override=True)
-
-
-def _read_key_from_env_file() -> str:
-    """Manually parse .env to extract OPENAI_API_KEY (bypasses dotenv)."""
-    env_file = _find_env_file()
-    if not env_file:
-        return ""
-    try:
-        for line in env_file.read_text().splitlines():
-            line = line.strip()
-            if line.startswith("#") or "=" not in line:
-                continue
-            key, _, value = line.partition("=")
-            if key.strip() == "OPENAI_API_KEY":
-                value = value.strip().strip("'").strip('"')
-                if value and not value.startswith("sk-xxxxx"):
-                    return value
-    except Exception:
-        pass
-    return ""
-
-
-_find_and_load_env()
+_load_openai_key()
 
 
 # ---------------------------------------------------------------------------
@@ -196,20 +216,16 @@ def transcribe(
     Returns:
         Flat list of WordTimestamp objects.
     """
-    # Ensure API key is available — try multiple methods
+    # Ensure API key is available
+    _load_openai_key()
     api_key = os.environ.get("OPENAI_API_KEY", "")
     if not api_key or api_key.startswith("sk-xxxxx"):
-        _find_and_load_env()
-        api_key = os.environ.get("OPENAI_API_KEY", "")
-    if not api_key or api_key.startswith("sk-xxxxx"):
-        # Last resort: read .env file directly (bypasses dotenv entirely)
-        api_key = _read_key_from_env_file()
-        if api_key:
-            os.environ["OPENAI_API_KEY"] = api_key
-    if not api_key or api_key.startswith("sk-xxxxx"):
         raise RuntimeError(
-            "OPENAI_API_KEY not found. Cannot transcribe without the API key. "
-            "Set it in your .env file at the project root."
+            "OPENAI_API_KEY not found. Cannot transcribe.\n"
+            f"  Searched from: {Path(__file__).resolve()}\n"
+            f"  Home dir: {Path.home()}\n"
+            f"  CWD: {Path.cwd()}\n"
+            "Create a .env file with OPENAI_API_KEY=sk-proj-... in your project root."
         )
 
     # Check cache first
