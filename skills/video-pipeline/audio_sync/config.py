@@ -11,8 +11,8 @@ all audio_sync submodules.
 MIN_DISPLAY_SECONDS: float = 3.0
 """No image shown for less than 3 seconds."""
 
-MAX_DISPLAY_SECONDS: float = 18.0
-"""No image shown for more than 18 seconds."""
+MAX_DISPLAY_SECONDS: float = 300.0
+"""Safety cap only — scene duration comes directly from its audio file."""
 
 PRE_ROLL_SECONDS: float = 0.3
 """Image appears 0.3 s BEFORE its narration starts."""
