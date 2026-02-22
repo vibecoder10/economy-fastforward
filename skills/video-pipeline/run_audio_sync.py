@@ -105,10 +105,9 @@ async def main():
         print("✅ AUDIO SYNC COMPLETE!")
         print("=" * 60)
         print(f"🎬 Video: {sync_result.get('video_title')}")
-        print(f"📊 Scenes aligned: {sync_result.get('scene_count')}")
-        print(f"🔤 Words transcribed: {sync_result.get('words_transcribed')}")
+        print(f"📊 Scenes: {sync_result.get('scene_count')}")
         print(f"⏱️  Total duration: {sync_result.get('total_duration', 0):.1f}s")
-        print(f"📋 Quality: {sync_result.get('alignment_quality')}")
+        print(f"📋 Method: {sync_result.get('alignment_quality', 'direct')}")
         print(f"📂 Render config: {sync_result.get('render_config_path')}")
 
     except Exception as e:
