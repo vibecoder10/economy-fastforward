@@ -2804,30 +2804,31 @@ class VideoPipeline:
                 continue
 
             total_whisper = len(words)
-            cumulative = 0
             scene_total = 0.0
 
-            for entry_idx, (img, img_index, sentence, wc) in enumerate(img_entries):
-                record_id = img["id"]
-
-                # Map this sentence's word-count fraction to Whisper indices
-                frac_start = cumulative / total_sentence_words
-                frac_end = (cumulative + wc) / total_sentence_words
+            # Pass 1: find each image's start index in the Whisper words
+            cumulative = 0
+            start_indices = []
+            for _img, _idx, _sent, wc in img_entries:
+                frac = cumulative / total_sentence_words
+                w_start = int(round(frac * total_whisper))
+                w_start = max(0, min(w_start, total_whisper - 1))
+                start_indices.append(w_start)
                 cumulative += wc
 
-                w_start = int(round(frac_start * total_whisper))
-                w_end = int(round(frac_end * total_whisper)) - 1
+            # Pass 2: duration = gap between consecutive start times.
+            # This naturally includes inter-sentence pauses in the
+            # narrator's delivery, giving each image its full display
+            # window (speech + following pause).
+            for entry_idx, (img, img_index, sentence, wc) in enumerate(img_entries):
+                record_id = img["id"]
+                start_time = words[start_indices[entry_idx]].start
 
-                # Clamp to valid range
-                w_start = max(0, min(w_start, total_whisper - 1))
-                w_end = max(w_start, min(w_end, total_whisper - 1))
+                if entry_idx < len(img_entries) - 1:
+                    end_time = words[start_indices[entry_idx + 1]].start
+                else:
+                    end_time = words[-1].end
 
-                # Last entry captures through the final Whisper word
-                if entry_idx == len(img_entries) - 1:
-                    w_end = total_whisper - 1
-
-                start_time = words[w_start].start
-                end_time = words[w_end].end
                 dur = round(end_time - start_time, 2)
                 dur = max(dur, 1.0)
 
