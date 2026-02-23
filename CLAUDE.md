@@ -4,9 +4,7 @@
 
 ## Stack
 
-Python 3.11+ (async) · TypeScript · Remotion · Airtable (orchestration DB)
-Claude (scripts) · Kie.ai (images/video) · ElevenLabs (voice) · Whisper (transcription)
-Google Drive (storage) · Slack (control) · Next.js (frontend)
+Python 3.11+ (async) · TypeScript · Remotion · Airtable (orchestration DB) Claude (scripts) · Kie.ai (images/video) · ElevenLabs (voice) · Whisper (transcription) Google Drive (storage) · Slack (control) · Next.js (frontend)
 
 ## Repo Structure
 
@@ -18,12 +16,7 @@ Google Drive (storage) · Slack (control) · Next.js (frontend)
 
 ## Architecture
 
-Status-driven pipeline where Airtable Status fields gate each stage:
-
-```
-Research → Script → Voice → Image Prompts → Images → Video Scripts
-→ Video Generation → Thumbnail → Render → Upload
-```
+Status-driven pipeline where Airtable Status fields gate each stage: Research → Script → Voice → Image Prompts → Images → Video Scripts → Video Generation → Thumbnail → Render → Upload
 
 **CRITICAL:** Never skip a status. Always update via Airtable client. Check status before processing.
 
@@ -59,17 +52,17 @@ python -m ruff check .
 
 ## Key Reference Docs (read ONLY when relevant)
 
-- Airtable schema & field maps → `docs/airtable-schema.md`
-- API integration patterns (retry, polling, JSON parsing) → `docs/api-patterns.md`
-- Image Prompt Engine (3-style system, 4-layer architecture) → `docs/image-prompt-engine.md`
-- Remotion rendering system → `docs/remotion-rendering.md`
-- Common failure modes & fixes (13 scenarios) → `docs/failure-modes.md`
-- Data architecture (Video DNA, Research Payload, Scene JSON) → `docs/data-architecture.md`
-- Cost breakdown per video → `docs/cost-awareness.md`
-- Environment variables reference → `docs/env-vars.md`
-- Infrastructure & deployment (VPS, cron, Slack bot) → `docs/infrastructure.md`
-- Critical file map → `docs/file-map.md`
-- Development patterns → `docs/development-patterns.md`
+- Airtable schema & field maps → @docs/airtable-schema.md
+- API integration patterns (retry, polling, JSON parsing) → @docs/api-patterns.md
+- Image Prompt Engine (3-style system, 4-layer architecture) → @docs/image-prompt-engine.md
+- Remotion rendering system → @docs/remotion-rendering.md
+- Common failure modes & fixes (13 scenarios) → @docs/failure-modes.md
+- Data architecture (Video DNA, Research Payload, Scene JSON) → @docs/data-architecture.md
+- Cost breakdown per video → @docs/cost-awareness.md
+- Environment variables reference → @docs/env-vars.md
+- Infrastructure & deployment (VPS, cron, Slack bot) → @docs/infrastructure.md
+- Critical file map → @docs/file-map.md
+- Development patterns → @docs/development-patterns.md
 
 ## Core Principles
 
@@ -80,8 +73,7 @@ python -m ruff check .
 
 ## Testing
 
-170+ tests across 4 test suites. Run the relevant suite after every change.
-Never mark a task done until tests pass.
+170+ tests across 4 test suites. Run the relevant suite after every change. Never mark a task done until tests pass.
 
 ## Session Startup
 
