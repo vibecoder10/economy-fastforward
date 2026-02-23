@@ -16,7 +16,7 @@ export const Main: React.FC<MainProps> = ({ totalScenes }) => {
     const { fps } = useVideoConfig();
 
     // Derive total scenes from render_config.json, then props, then default
-    const sceneCount = totalScenes ?? getSceneCount() || 20;
+    const sceneCount = (totalScenes ?? getSceneCount()) || 20;
 
     // Generate scene data with transcripts - image count is dynamic per scene
     const scenes = useMemo(() => {
