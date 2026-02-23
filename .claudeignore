@@ -1,0 +1,16 @@
+jewelry-studio/
+node_modules/
+__pycache__/
+.venv/
+*.pyc
+remotion-video/out/
+remotion-video/build/
+dist/
+*.mp4
+*.mp3
+*.wav
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.webp
