@@ -51,6 +51,9 @@ CRITICAL RULES — READ ALL BEFORE STARTING:
   sentence_text. No gaps. No overlaps.
 - Split at natural sentence or clause boundaries (periods, commas, semicolons).
 - Do NOT correct typos, grammar, or punctuation in the narration. Copy it as-is.
+- MAXIMUM 25 WORDS per concept's sentence_text. If a sentence is longer than
+  25 words, split it at a natural clause boundary (comma, dash, semicolon).
+  Never put more than 25 words into a single concept.
 
 --- VISUAL DESCRIPTION RULES ---
 

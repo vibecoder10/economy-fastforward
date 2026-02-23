@@ -37,16 +37,18 @@ STYLE_DISTRIBUTION = {
 # Concept count range by words in scene text
 MIN_CONCEPTS = 6
 MAX_CONCEPTS = 10
+MAX_WORDS_PER_CONCEPT = 25
 
 
 def _estimate_concept_count(scene_text: str) -> int:
     """Decide how many concepts a scene should have based on word count.
 
-    Roughly 1 concept per 20-30 words of narration, clamped to 6-10.
+    Ensures every concept stays within MAX_WORDS_PER_CONCEPT words.
     """
     word_count = len(scene_text.split())
-    # ~25 words per concept is a good average speaking pace
-    ideal = max(MIN_CONCEPTS, min(MAX_CONCEPTS, round(word_count / 25)))
+    # Need at least ceil(word_count / MAX_WORDS_PER_CONCEPT) concepts
+    min_needed = max(MIN_CONCEPTS, -(-word_count // MAX_WORDS_PER_CONCEPT))
+    ideal = max(min_needed, min(MAX_CONCEPTS, round(word_count / 20)))
     return ideal
 
 
@@ -156,8 +158,16 @@ def _validate_concepts(
     if trailing and len(trailing.split()) > 3:
         return False, f"Uncovered trailing text ({len(trailing.split())} words): '{trailing[:60]}...'"
 
-    # Validate visual fields
+    # Validate word count and visual fields
     for i, concept in enumerate(concepts):
+        text = concept.get("sentence_text", "")
+        wc = len(text.split())
+        if wc > MAX_WORDS_PER_CONCEPT:
+            return False, (
+                f"Concept {i + 1} has {wc} words (max {MAX_WORDS_PER_CONCEPT}): "
+                f"'{text[:60]}...'"
+            )
+
         style = concept.get("visual_style", "")
         if style not in VALID_STYLES:
             concept["visual_style"] = "dossier"
@@ -177,7 +187,7 @@ def _mechanical_split(scene_text: str, target_count: int) -> list[dict]:
 
     Used when the LLM fails to produce valid concepts after all retries.
     Returns concepts with generic visual descriptions that downstream
-    prompt generation can still work with.
+    prompt generation can still work with.  Respects MAX_WORDS_PER_CONCEPT.
     """
     from clients.sentence_utils import split_into_sentences
 
@@ -185,7 +195,7 @@ def _mechanical_split(scene_text: str, target_count: int) -> list[dict]:
     if not sentences:
         sentences = [scene_text]
 
-    # Group sentences into target_count chunks
+    # Group sentences into target_count chunks, then re-split any that exceed the word limit
     chunks: list[str] = []
     if len(sentences) <= target_count:
         chunks = list(sentences)
@@ -197,6 +207,17 @@ def _mechanical_split(scene_text: str, target_count: int) -> list[dict]:
             count = base + (1 if i < remainder else 0)
             chunks.append(" ".join(sentences[idx:idx + count]))
             idx += count
+
+    # Re-split any chunks that exceed the word limit
+    final_chunks: list[str] = []
+    for chunk in chunks:
+        words = chunk.split()
+        if len(words) <= MAX_WORDS_PER_CONCEPT:
+            final_chunks.append(chunk)
+        else:
+            for i in range(0, len(words), MAX_WORDS_PER_CONCEPT):
+                final_chunks.append(" ".join(words[i:i + MAX_WORDS_PER_CONCEPT]))
+    chunks = final_chunks
 
     concepts = []
     compositions = ["wide", "medium", "closeup", "environmental", "portrait", "overhead", "low_angle"]
