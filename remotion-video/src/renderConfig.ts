@@ -51,10 +51,12 @@ export function loadRenderConfig(): RenderConfig | null {
     if (_cachedConfig) return _cachedConfig;
 
     try {
-        // In Remotion, public/ files are accessed via staticFile()
-        // For build-time loading, we try require() first
+        // Use a dynamic require to prevent esbuild from resolving this at
+        // bundle time. The file may not exist yet (audio_sync pipeline hasn't
+        // run), so this must not cause a build error.
+        const configPath = "../public/" + "render_config.json";
         // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const config = require("../../public/render_config.json") as RenderConfig;
+        const config = require(configPath) as RenderConfig;
         _cachedConfig = config;
         return config;
     } catch {
