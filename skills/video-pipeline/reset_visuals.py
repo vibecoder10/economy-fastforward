@@ -1,49 +1,52 @@
+"""Delete all image records for a video from the Airtable Images table."""
+
 import os
+import sys
+
+sys.path.insert(0, os.path.dirname(__file__))
+
 from dotenv import load_dotenv
-from pyairtable import Table
+load_dotenv(os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
+
+from pyairtable import Api
 from pyairtable.formulas import match
 
-def reset_visuals(video_title):
+
+def reset_visuals(video_title: str):
     print(f"🗑️ RESETTING VISUALS FOR: {video_title}")
-    
-    # Load env
-    load_dotenv('../../.env')
+
     api_key = os.getenv("AIRTABLE_API_KEY")
     base_id = os.getenv("AIRTABLE_BASE_ID")
-    
     if not api_key or not base_id:
-        print("❌ Missing Airtable credentials")
+        print("❌ Missing AIRTABLE_API_KEY or AIRTABLE_BASE_ID")
         return
 
-    # Connect to Images table
-    # ID from SKILL.md: tbl3luJ0zsWu0MYYz
-    # But usually we use the name or ID. Let's trust .env if possible, but strict ID is safer.
-    # checking airtable_client.py, it uses os.getenv("AIRTABLE_TABLE_IMAGES") or "Images"
-    # let's try to load the client logic or just use the Table directly
-    
-    table = Table(api_key, base_id, "Images")
-    
-    # Find all records for this video
+    api = Api(api_key)
+    table = api.table(base_id, "tbl3luJ0zsWu0MYYz")  # Images table ID
+
     print("🔍 Searching for records...")
-    records = table.all(formula=match({"Video Title": video_title}))
+    records = table.all(
+        formula=match({"Video Title": video_title}),
+        sort=["Scene", "Image Index"],
+    )
     print(f"Found {len(records)} records.")
-    
+
     if not records:
         print("✅ No records to delete.")
         return
 
-    # Delete in batches
     ids = [r["id"] for r in records]
     print(f"🔥 Deleting {len(ids)} records...")
-    
+
     batch_size = 10
     for i in range(0, len(ids), batch_size):
-        batch = ids[i:i+batch_size]
+        batch = ids[i:i + batch_size]
         table.batch_delete(batch)
-        print(f"   Deleted batch {i}-{i+len(batch)}")
-        
+        print(f"   Deleted batch {i + 1}-{i + len(batch)}")
+
     print("✅ Visuals reset complete!")
 
+
 if __name__ == "__main__":
-    title = "The 2030 Currency Collapse: Which Assets Will YOU Still Own?"
+    title = "The Robot TRAP Nobody Sees Coming (A 4-Stage Monopoly)"
     reset_visuals(title)
