@@ -96,3 +96,24 @@ export function getRenderScenesForScene(sceneNumber: number): RenderScene[] {
 export function getImageCountForScene(sceneNumber: number): number {
     return getRenderScenesForScene(sceneNumber).length;
 }
+
+/**
+ * Get scene duration from render_config (sum of per-image display_duration).
+ * Returns null if render_config is unavailable or has no entries for this scene.
+ */
+export function getSceneDurationFromConfig(sceneNumber: number): number | null {
+    const scenes = getRenderScenesForScene(sceneNumber);
+    if (scenes.length === 0) return null;
+    const total = scenes.reduce((sum, s) => sum + s.display_duration, 0);
+    return total > 0 ? total : null;
+}
+
+/**
+ * Get total video duration from render_config.
+ * Returns null if render_config is unavailable.
+ */
+export function getTotalDurationFromConfig(): number | null {
+    const config = loadRenderConfig();
+    if (!config || !config.total_duration_seconds) return null;
+    return config.total_duration_seconds > 0 ? config.total_duration_seconds : null;
+}

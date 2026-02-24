@@ -2774,6 +2774,37 @@ class VideoPipeline:
             scene_audio_dur = words[-1].end
             print(f"    Scene {scene_num}: {len(words)} words, {scene_audio_dur:.1f}s — {len(images)} images")
 
+            # ── Write Remotion caption file ──
+            # Remotion's transcripts.ts reads word-level timestamps from
+            # src/captions/Scene N.json (compiled into the bundle at render
+            # time). Write drift-corrected words so karaoke timing and
+            # scene durations are consistent with render_config.
+            captions_dir = _Path(__file__).parent.parent.parent / "remotion-video" / "src" / "captions"
+            captions_dir.mkdir(parents=True, exist_ok=True)
+            caption_path = captions_dir / f"Scene {scene_num}.json"
+            caption_data = {
+                "text": " ".join(w.word.strip() for w in words),
+                "segments": [{
+                    "id": 0,
+                    "start": words[0].start,
+                    "end": words[-1].end,
+                    "text": " ".join(w.word.strip() for w in words),
+                    "words": [
+                        {"word": w.word, "start": round(w.start, 4),
+                         "end": round(w.end, 4), "probability": 1.0}
+                        for w in words
+                    ],
+                }],
+                "language": "en",
+            }
+            try:
+                import json as _json
+                with open(caption_path, "w") as _f:
+                    _json.dump(caption_data, _f, indent=2)
+                print(f"    Scene {scene_num}: wrote {len(words)} words to {caption_path.name}")
+            except Exception as e:
+                print(f"    Scene {scene_num}: ⚠️ caption write failed ({e})")
+
             # ── Proportional word-count mapping ──
             # Each image's Sentence Text covers a portion of the scene
             # narration. Allocate Whisper words proportionally based on
