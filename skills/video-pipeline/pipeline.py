@@ -2376,9 +2376,49 @@ class VideoPipeline:
             json.dump(props, f, indent=2)
         print(f"  📦 Props saved to: {props_file}")
 
-        # NOTE: segmentData.ts generation removed — timing data now comes from
-        # render_config.json produced by the audio_sync pipeline.
-        # See: audio_sync.render_config_writer
+        # Generate render_config.json from Airtable data (props already has it).
+        # This is the single source of truth for Remotion timing — each image's
+        # Duration (s) and Sentence Text from the Airtable Images table.
+        running_time = 0.0
+        render_scenes = []
+        for scene in props.get("scenes", []):
+            sn = scene.get("sceneNumber", 0)
+            for img_asset in scene.get("images", []):
+                dur = float(img_asset.get("duration", 8.0) or 8.0)
+                img_idx = img_asset.get("index", 0)
+                sentence = img_asset.get("segmentText", "")
+                composition = img_asset.get("shotType", "wide") or "wide"
+                render_scenes.append({
+                    "scene_number": sn,
+                    "image_index": img_idx,
+                    "image_path": str(public_dir / f"Scene_{sn:02d}_{img_idx:02d}.png"),
+                    "display_start": round(running_time, 4),
+                    "display_end": round(running_time + dur, 4),
+                    "display_duration": round(dur, 4),
+                    "narration_start": round(running_time, 4),
+                    "narration_end": round(running_time + dur, 4),
+                    "style": "",
+                    "composition": composition,
+                    "act": 0,
+                    "ken_burns": {},
+                    "transition_in": {},
+                    "transition_out": {},
+                    "sentence_text": sentence,
+                })
+                running_time += dur
+
+        render_config = {
+            "video_id": self.current_idea_id or "unknown",
+            "audio_path": "",
+            "total_duration_seconds": round(running_time, 4),
+            "fps": 24,
+            "resolution": {"width": 1920, "height": 1080},
+            "scenes": render_scenes,
+        }
+        rc_path = public_dir / "render_config.json"
+        with open(rc_path, "w") as f:
+            json.dump(render_config, f, indent=2)
+        print(f"  📋 render_config.json: {len(render_scenes)} images, {running_time:.1f}s total")
 
         # Download assets from ALL matching Drive folders to public/
         # First file wins — if Scene 1.mp3 is in folder A, we skip it in folder B
@@ -2773,6 +2813,37 @@ class VideoPipeline:
 
             scene_audio_dur = words[-1].end
             print(f"    Scene {scene_num}: {len(words)} words, {scene_audio_dur:.1f}s — {len(images)} images")
+
+            # ── Write Remotion caption file ──
+            # Remotion's transcripts.ts reads word-level timestamps from
+            # src/captions/Scene N.json (compiled into the bundle at render
+            # time). Write drift-corrected words so karaoke timing and
+            # scene durations are consistent with render_config.
+            captions_dir = _Path(__file__).parent.parent.parent / "remotion-video" / "src" / "captions"
+            captions_dir.mkdir(parents=True, exist_ok=True)
+            caption_path = captions_dir / f"Scene {scene_num}.json"
+            caption_data = {
+                "text": " ".join(w.word.strip() for w in words),
+                "segments": [{
+                    "id": 0,
+                    "start": words[0].start,
+                    "end": words[-1].end,
+                    "text": " ".join(w.word.strip() for w in words),
+                    "words": [
+                        {"word": w.word, "start": round(w.start, 4),
+                         "end": round(w.end, 4), "probability": 1.0}
+                        for w in words
+                    ],
+                }],
+                "language": "en",
+            }
+            try:
+                import json as _json
+                with open(caption_path, "w") as _f:
+                    _json.dump(caption_data, _f, indent=2)
+                print(f"    Scene {scene_num}: wrote {len(words)} words to {caption_path.name}")
+            except Exception as e:
+                print(f"    Scene {scene_num}: ⚠️ caption write failed ({e})")
 
             # ── Proportional word-count mapping ──
             # Each image's Sentence Text covers a portion of the scene
