@@ -67,7 +67,7 @@ COMPOSITION_DIRECTION_MAP: dict[str, str] = {
 # ---------------------------------------------------------------------------
 # Render defaults
 # ---------------------------------------------------------------------------
-DEFAULT_FPS: int = 30
+DEFAULT_FPS: int = 24
 DEFAULT_WIDTH: int = 1920
 DEFAULT_HEIGHT: int = 1080
 
