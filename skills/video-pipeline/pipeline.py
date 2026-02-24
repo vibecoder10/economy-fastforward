@@ -1910,37 +1910,15 @@ class VideoPipeline:
                 print(f"  Audio sync skipped: {sync_result['error']}")
                 audio_sync_summary = f" | Audio sync skipped: {sync_result['error']}"
             else:
-                render_config_path = sync_result.get("render_config_path")
-                if render_config_path and Path(render_config_path).exists():
-                    render_config = json.loads(Path(render_config_path).read_text())
-                    duration_updates = 0
-                    image_records = self.airtable.get_all_images_for_video(self.video_title)
-                    record_lookup = {}
-                    for rec in image_records:
-                        key = (rec.get("Scene"), rec.get("Image Index"))
-                        record_lookup[key] = rec["id"]
-
-                    for rc_scene in render_config.get("scenes", []):
-                        scene_num = rc_scene.get("scene_number")
-                        display_dur = rc_scene.get("display_duration")
-                        if scene_num is None or display_dur is None:
-                            continue
-                        for (s, idx), rec_id in record_lookup.items():
-                            if s == scene_num:
-                                self.airtable.images_table.update(
-                                    rec_id,
-                                    {"Duration (s)": round(display_dur, 2)},
-                                    typecast=True,
-                                )
-                                duration_updates += 1
-
-                    avg_dur = sync_result["total_duration"] / max(sync_result["scene_count"], 1)
-                    print(f"  Audio sync: {sync_result['scene_count']} scenes aligned, "
-                          f"avg {avg_dur:.1f}s, {duration_updates} records updated")
-                    audio_sync_summary = (
-                        f" | Audio sync: {sync_result['scene_count']} scenes, "
-                        f"avg {avg_dur:.1f}s"
-                    )
+                # Durations already written to Airtable by run_audio_sync()
+                # (per-image updates at line ~2906). No need to re-write here.
+                avg_dur = sync_result["total_duration"] / max(sync_result["scene_count"], 1)
+                print(f"  Audio sync: {sync_result['scene_count']} scenes aligned, "
+                      f"avg {avg_dur:.1f}s, {sync_result.get('image_count', 0)} images timed")
+                audio_sync_summary = (
+                    f" | Audio sync: {sync_result['scene_count']} scenes, "
+                    f"avg {avg_dur:.1f}s"
+                )
         except Exception as e:
             print(f"  Audio sync failed (non-blocking): {e}")
             audio_sync_summary = f" | Audio sync error: {e}"
