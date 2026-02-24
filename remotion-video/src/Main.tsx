@@ -9,8 +9,20 @@ interface MainProps {
     totalScenes?: number;
 }
 
-// Approximate duration per scene in seconds (will be refined with audio duration)
-const SCENE_DURATION_SECONDS = 60;
+// Fallback duration when transcript data is unavailable
+const FALLBACK_SCENE_DURATION_SECONDS = 60;
+// Buffer after last spoken word to let audio trail off naturally
+const SCENE_END_BUFFER_SECONDS = 1;
+
+/**
+ * Compute actual scene duration from Whisper transcript word timestamps.
+ * Uses the last word's end time + a small buffer.
+ */
+function getSceneDurationSeconds(sceneNumber: number): number {
+    const words = getWordsForScene(sceneNumber);
+    if (words.length === 0) return FALLBACK_SCENE_DURATION_SECONDS;
+    return words[words.length - 1].end + SCENE_END_BUFFER_SECONDS;
+}
 
 export const Main: React.FC<MainProps> = ({ totalScenes }) => {
     const { fps } = useVideoConfig();
@@ -39,12 +51,13 @@ export const Main: React.FC<MainProps> = ({ totalScenes }) => {
         });
     }, [sceneCount]);
 
-    // Calculate cumulative start frames for each scene
+    // Calculate cumulative start frames using actual audio durations per scene
     const scenesWithTiming = useMemo(() => {
         let cumulativeFrames = 0;
         return scenes.map((scene) => {
             const startFrame = cumulativeFrames;
-            const durationFrames = SCENE_DURATION_SECONDS * fps;
+            const sceneDuration = getSceneDurationSeconds(scene.sceneNumber);
+            const durationFrames = Math.ceil(sceneDuration * fps);
             cumulativeFrames += durationFrames;
             return { ...scene, startFrame, durationFrames };
         });

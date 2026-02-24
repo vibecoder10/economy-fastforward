@@ -223,6 +223,52 @@ export function buildSegmentsFromPipeline(
 }
 
 /**
+ * Create segments using duration ratios to distribute words proportionally.
+ * When render_config provides durations but no sentence text, allocate words
+ * based on each segment's share of the total duration.
+ */
+export function createDurationBasedSegments(
+    segmentTexts: SegmentText[],
+    words: Word[],
+    sceneNumber: number
+): Segment[] {
+    const segments: Segment[] = [];
+    if (words.length === 0 || segmentTexts.length === 0) return segments;
+
+    const totalDuration = segmentTexts.reduce((sum, st) => sum + st.duration, 0);
+    if (totalDuration <= 0) {
+        return createEvenSegments(words, segmentTexts.length, sceneNumber);
+    }
+
+    let wordPointer = 0;
+    for (let i = 0; i < segmentTexts.length; i++) {
+        const fraction = segmentTexts[i].duration / totalDuration;
+        const wordCount = i < segmentTexts.length - 1
+            ? Math.round(fraction * words.length)
+            : words.length - wordPointer; // Last segment gets remaining words
+
+        const startIndex = wordPointer;
+        const endIndex = Math.min(wordPointer + Math.max(wordCount, 1), words.length);
+
+        const segmentWords = words.slice(startIndex, endIndex);
+        const text = segmentWords.map(w => w.word).join(' ');
+        const duration = segmentTexts[i].duration;
+
+        segments.push({
+            imageFile: `Scene_${String(sceneNumber).padStart(2, '0')}_${String(i + 1).padStart(2, '0')}.png`,
+            text: text,
+            duration: duration,
+            wordStartIndex: startIndex,
+            wordEndIndex: endIndex,
+        });
+
+        wordPointer = endIndex;
+    }
+
+    return segments;
+}
+
+/**
  * Create evenly distributed segments when segment texts are not available.
  * This divides the words equally among the number of images.
  */
@@ -273,12 +319,23 @@ export function getSegmentsForScene(
 
     if (renderScenes.length > 0) {
         // Convert render_config scenes to SegmentText format
+        // Use sentence_text from render_config for accurate word-to-image matching
         const segmentTexts: SegmentText[] = renderScenes.map((rs) => ({
-            text: "", // render_config uses timestamps, not text matching
+            text: rs.sentence_text || "",
             duration: rs.display_duration,
         }));
-        console.log(`Scene ${sceneNumber}: Using ${segmentTexts.length} segments from render_config.json`);
-        return buildSegmentsFromPipeline(segmentTexts, words, sceneNumber);
+
+        // If we have sentence text, use word matching for precise alignment
+        const hasText = segmentTexts.some((st) => st.text.length > 0);
+        if (hasText) {
+            console.log(`Scene ${sceneNumber}: Using ${segmentTexts.length} segments from render_config.json (with sentence text)`);
+            return buildSegmentsFromPipeline(segmentTexts, words, sceneNumber);
+        }
+
+        // No sentence text available — use duration-based even distribution
+        // rather than word matching with empty text (which produces garbage boundaries)
+        console.log(`Scene ${sceneNumber}: Using ${segmentTexts.length} segments from render_config.json (duration-based)`);
+        return createDurationBasedSegments(segmentTexts, words, sceneNumber);
     }
 
     // Fallback to even distribution

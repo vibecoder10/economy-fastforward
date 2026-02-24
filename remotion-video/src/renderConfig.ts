@@ -17,6 +17,8 @@ export interface RenderScene {
     ken_burns: Record<string, unknown>;
     transition_in: Record<string, unknown>;
     transition_out: Record<string, unknown>;
+    sentence_text?: string;
+    image_index?: number;
 }
 
 export interface RenderConfig {

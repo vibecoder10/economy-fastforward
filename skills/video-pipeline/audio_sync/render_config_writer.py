@@ -49,12 +49,19 @@ def build_render_config(
     render_scenes = []
     for scene in scenes:
         scene_number = scene.get("scene_number", 0)
+        image_index = scene.get("image_index", 0)
 
-        # Build image path — pad scene number to 3 digits
-        image_filename = f"scene_{scene_number:03d}.png"
+        # Build image path — use image_index if present (per-image entry),
+        # otherwise fall back to scene_number-only path (legacy per-scene entry)
+        if image_index:
+            image_filename = (
+                f"Scene_{scene_number:02d}_{image_index:02d}.png"
+            )
+        else:
+            image_filename = f"scene_{scene_number:03d}.png"
         image_path = str(Path(image_dir) / image_filename)
 
-        render_scenes.append({
+        entry: dict[str, Any] = {
             "scene_number": scene_number,
             "image_path": image_path,
             "display_start": round(scene.get("display_start", 0.0), 4),
@@ -72,7 +79,16 @@ def build_render_config(
             "ken_burns": scene.get("ken_burns", {}),
             "transition_in": scene.get("transition_in", {}),
             "transition_out": scene.get("transition_out", {}),
-        })
+        }
+
+        # Include per-image fields when available
+        if image_index:
+            entry["image_index"] = image_index
+        sentence_text = scene.get("sentence_text", "")
+        if sentence_text:
+            entry["sentence_text"] = sentence_text
+
+        render_scenes.append(entry)
 
     return {
         "video_id": video_id,
