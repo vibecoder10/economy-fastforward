@@ -46,21 +46,26 @@ export interface SegmentText {
 let _cachedConfig: RenderConfig | null = null;
 
 /**
- * Load render_config.json from the public/ directory.
- * Returns null if the file doesn't exist (fallback to even distribution).
+ * Load render_config.json from the public/ directory via Remotion's
+ * static file server.  Uses a synchronous XMLHttpRequest so the data
+ * is available immediately at component-registration time (Root.tsx).
+ *
+ * Returns null only if the file genuinely doesn't exist.
  */
 export function loadRenderConfig(): RenderConfig | null {
     if (_cachedConfig) return _cachedConfig;
 
     try {
-        // Use a dynamic require to prevent esbuild from resolving this at
-        // bundle time. The file may not exist yet (audio_sync pipeline hasn't
-        // run), so this must not cause a build error.
-        const configPath = "../public/" + "render_config.json";
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const config = require(configPath) as RenderConfig;
-        _cachedConfig = config;
-        return config;
+        const url = staticFile("render_config.json");
+        const xhr = new XMLHttpRequest();
+        xhr.open("GET", url, false); // synchronous
+        xhr.send();
+        if (xhr.status === 200) {
+            const config = JSON.parse(xhr.responseText) as RenderConfig;
+            _cachedConfig = config;
+            return config;
+        }
+        return null;
     } catch {
         // render_config.json not present — pipeline hasn't generated it yet
         return null;
