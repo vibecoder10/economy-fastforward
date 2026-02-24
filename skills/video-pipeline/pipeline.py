@@ -2624,7 +2624,6 @@ class VideoPipeline:
         5. Write duration to image's Airtable record immediately
         """
         from pathlib import Path as _Path
-        from audio_sync import AudioSyncPipeline
         from audio_sync.transcriber import transcribe
         from audio_sync.transition_engine import assign_transitions
         from audio_sync.ken_burns_calculator import assign_ken_burns
@@ -2840,35 +2839,47 @@ class VideoPipeline:
 
             scene_durations[scene_num] = scene_total
 
-        # ── Step 4: Build render config ──
-        print(f"  Step 4/4: Writing render config...")
+        # ── Step 4: Build per-IMAGE render config ──
+        # Each image gets its own entry with sentence_text so Remotion can
+        # match words to images precisely. Entries are grouped by scene_number.
+        print(f"  Step 4/4: Writing per-image render config...")
 
-        scripts = self.airtable.get_scripts_by_title(self.video_title) or []
+        from audio_sync.render_config_writer import build_render_config, write_render_config
+
         running_time = 0.0
-        timed_scenes = []
-        for script in scripts:
-            sn = script.get("scene", 0)
-            dur = scene_durations.get(sn, 5.0)
-            timed_scenes.append({
-                "scene_number": sn,
-                "script_excerpt": script.get("Scene text", ""),
-                "style": script.get("Visual Style", ""),
-                "visual_style": script.get("Visual Style", ""),
-                "composition": script.get("Composition", "wide"),
-                "composition_hint": script.get("Composition", "wide"),
-                "start_time": round(running_time, 4),
-                "end_time": round(running_time + dur, 4),
-                "duration": round(dur, 4),
-                "display_start": round(running_time, 4),
-                "display_end": round(running_time + dur, 4),
-                "display_duration": round(dur, 4),
-                "alignment_method": "sentence_match",
-            })
-            running_time += dur
+        timed_images = []
+        for scene_num in scene_numbers:
+            images = scenes_images[scene_num]
+            for img_idx, img in enumerate(images):
+                sentence = img.get("Sentence Text", "") or ""
+                # Use the duration just written to Airtable (or read existing)
+                dur = img.get("Duration (s)", 0) or 0
+                if dur <= 0:
+                    # Fallback: even share of scene duration
+                    scene_dur = scene_durations.get(scene_num, 60.0)
+                    dur = scene_dur / max(len(images), 1)
+                dur = float(dur)
 
-        timed_scenes = assign_transitions(timed_scenes)
-        timed_scenes = assign_ken_burns(timed_scenes)
+                timed_images.append({
+                    "scene_number": scene_num,
+                    "image_index": img.get("Image Index", img_idx + 1),
+                    "sentence_text": sentence,
+                    "start_time": round(running_time, 4),
+                    "end_time": round(running_time + dur, 4),
+                    "duration": round(dur, 4),
+                    "display_start": round(running_time, 4),
+                    "display_end": round(running_time + dur, 4),
+                    "display_duration": round(dur, 4),
+                    "alignment_method": "sentence_match",
+                    "style": "",
+                    "composition": "wide",
+                })
+                running_time += dur
 
+        timed_images = assign_transitions(timed_images)
+        timed_images = assign_ken_burns(timed_images)
+
+        # Concat scene audio for the full-video audio path
         concat_path = timing_dir / "narration_concat.mp3"
         sorted_audio = sorted(scene_audio_paths.items())
         list_file = timing_dir / "concat_list.txt"
@@ -2884,27 +2895,38 @@ class VideoPipeline:
         except Exception:
             concat_path = sorted_audio[0][1] if sorted_audio else _Path("")
 
-        image_dir = str(_Path(__file__).parent.parent.parent / "remotion-video" / "public")
-        sync = AudioSyncPipeline()
-        config = sync.generate_render_config(
+        remotion_dir = _Path(__file__).parent.parent.parent / "remotion-video"
+        image_dir = str(remotion_dir / "public")
+
+        config = build_render_config(
             video_id=video_id,
             audio_path=str(concat_path),
-            scenes=timed_scenes,
+            scenes=timed_images,
             image_dir=image_dir,
-            output_dir=timing_dir,
         )
+
+        # Write to timing directory
+        write_render_config(config, timing_dir / "render_config.json")
+
+        # Also copy to remotion-video/public/ so Remotion can read it at render time
+        remotion_public = remotion_dir / "public"
+        remotion_public.mkdir(parents=True, exist_ok=True)
+        write_render_config(config, remotion_public / "render_config.json")
 
         avg_dur = total_duration / max(duration_updates, 1)
         print(f"\n  ✅ {duration_updates} image durations written to Airtable")
         print(f"  Avg image duration: {avg_dur:.1f}s")
         print(f"  Total duration: {total_duration:.1f}s")
         print(f"  Render config: {timing_dir / 'render_config.json'}")
+        print(f"  Remotion config: {remotion_public / 'render_config.json'}")
+        print(f"  Per-image entries: {len(timed_images)}")
 
         return {
             "bot": "Audio Sync",
             "video_title": self.video_title,
             "timing_dir": str(timing_dir),
             "render_config_path": str(timing_dir / "render_config.json"),
+            "remotion_config_path": str(remotion_public / "render_config.json"),
             "total_duration": total_duration,
             "scene_count": len(scene_numbers),
             "image_count": duration_updates,
