@@ -1,34 +1,31 @@
 import { Composition } from "remotion";
 import { Main } from "./Main";
 import { EconomyVideoAnimated } from "./compositions/EconomyVideoAnimated";
-import { getWordsForScene } from "./transcripts";
 import { getSceneDurationFromConfig, getTotalDurationFromConfig } from "./renderConfig";
 
 const TOTAL_SCENES = 20;
 const FPS = 24;
 // Buffer after last spoken word to let audio trail off naturally
 const SCENE_END_BUFFER_SECONDS = 1;
-// Fallback when transcript data is unavailable
-const FALLBACK_SCENE_DURATION_SECONDS = 60;
 
 /**
- * Get scene duration from the best available source:
- * 1. render_config.json (audio-synced per-image timing) — most accurate
- * 2. Whisper transcript word timestamps (caption files) — fallback
- * 3. Hardcoded 60s — last resort
+ * Get scene duration from render_config.json (the single source of truth).
+ * Throws if render_config is missing — the pipeline MUST run audio sync
+ * before rendering.
  */
 function getSceneDurationSeconds(sceneNumber: number): number {
     const configDuration = getSceneDurationFromConfig(sceneNumber);
     if (configDuration !== null) return configDuration + SCENE_END_BUFFER_SECONDS;
 
-    const words = getWordsForScene(sceneNumber);
-    if (words.length === 0) return FALLBACK_SCENE_DURATION_SECONDS;
-    return words[words.length - 1].end + SCENE_END_BUFFER_SECONDS;
+    throw new Error(
+        `render_config.json has no timing data for scene ${sceneNumber}. ` +
+        `Audio sync must run before rendering.`
+    );
 }
 
 /**
- * Total video duration. Prefers render_config's total_duration_seconds,
- * falls back to summing per-scene durations.
+ * Total video duration from render_config.json.
+ * Falls back to summing per-scene durations (still from render_config).
  */
 function getTotalDurationFrames(sceneCount: number, fps: number): number {
     const configTotal = getTotalDurationFromConfig();
@@ -37,6 +34,7 @@ function getTotalDurationFrames(sceneCount: number, fps: number): number {
         return Math.ceil((configTotal + sceneCount * SCENE_END_BUFFER_SECONDS) * fps);
     }
 
+    // Sum per-scene durations (each reads from render_config)
     let total = 0;
     for (let i = 1; i <= sceneCount; i++) {
         total += Math.ceil(getSceneDurationSeconds(i) * fps);
