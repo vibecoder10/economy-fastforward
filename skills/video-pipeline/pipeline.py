@@ -2545,7 +2545,7 @@ class VideoPipeline:
         render_start = _time.time()
         last_update_frame = 0  # Track last frame count we reported
         last_update_time = render_start
-        FRAME_UPDATE_INTERVAL = 500  # Send update every N frames
+        FRAME_UPDATE_INTERVAL = 5000  # Send update every N frames
         TIME_UPDATE_INTERVAL = 300   # Or every 5 minutes
         last_error_line = ""
 
@@ -2573,7 +2573,7 @@ class VideoPipeline:
                 frames_since_update = current_frame - last_update_frame
                 time_since_update = now - last_update_time
 
-                # Send Slack update every 500 frames OR every 5 minutes
+                # Send Slack update every 5000 frames OR every 5 minutes
                 if frames_since_update >= FRAME_UPDATE_INTERVAL or time_since_update >= TIME_UPDATE_INTERVAL:
                     # Estimate remaining time
                     if current_pct > 0:
