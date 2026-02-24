@@ -35,6 +35,7 @@ Thumbs.db
 # Remotion
 .remotion/
 remotion-video/src/segmentData.ts
+remotion-video/public/
 
 # Large media files (keep in Google Drive)
 *.mp3
