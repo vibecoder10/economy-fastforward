@@ -2376,9 +2376,49 @@ class VideoPipeline:
             json.dump(props, f, indent=2)
         print(f"  📦 Props saved to: {props_file}")
 
-        # NOTE: segmentData.ts generation removed — timing data now comes from
-        # render_config.json produced by the audio_sync pipeline.
-        # See: audio_sync.render_config_writer
+        # Generate render_config.json from Airtable data (props already has it).
+        # This is the single source of truth for Remotion timing — each image's
+        # Duration (s) and Sentence Text from the Airtable Images table.
+        running_time = 0.0
+        render_scenes = []
+        for scene in props.get("scenes", []):
+            sn = scene.get("sceneNumber", 0)
+            for img_asset in scene.get("images", []):
+                dur = float(img_asset.get("duration", 8.0) or 8.0)
+                img_idx = img_asset.get("index", 0)
+                sentence = img_asset.get("segmentText", "")
+                composition = img_asset.get("shotType", "wide") or "wide"
+                render_scenes.append({
+                    "scene_number": sn,
+                    "image_index": img_idx,
+                    "image_path": str(public_dir / f"Scene_{sn:02d}_{img_idx:02d}.png"),
+                    "display_start": round(running_time, 4),
+                    "display_end": round(running_time + dur, 4),
+                    "display_duration": round(dur, 4),
+                    "narration_start": round(running_time, 4),
+                    "narration_end": round(running_time + dur, 4),
+                    "style": "",
+                    "composition": composition,
+                    "act": 0,
+                    "ken_burns": {},
+                    "transition_in": {},
+                    "transition_out": {},
+                    "sentence_text": sentence,
+                })
+                running_time += dur
+
+        render_config = {
+            "video_id": self.current_idea_id or "unknown",
+            "audio_path": "",
+            "total_duration_seconds": round(running_time, 4),
+            "fps": 24,
+            "resolution": {"width": 1920, "height": 1080},
+            "scenes": render_scenes,
+        }
+        rc_path = public_dir / "render_config.json"
+        with open(rc_path, "w") as f:
+            json.dump(render_config, f, indent=2)
+        print(f"  📋 render_config.json: {len(render_scenes)} images, {running_time:.1f}s total")
 
         # Download assets from ALL matching Drive folders to public/
         # First file wins — if Scene 1.mp3 is in folder A, we skip it in folder B
