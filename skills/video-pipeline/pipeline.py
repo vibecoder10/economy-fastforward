@@ -2708,6 +2708,9 @@ class VideoPipeline:
         duration_updates = 0
         total_duration = 0.0
         scene_durations: dict[int, float] = {}
+        # Cache calculated durations locally so Step 4 can use them
+        # (Airtable records in scenes_images are stale after Step 3 writes)
+        image_durations: dict[tuple[int, int], float] = {}  # (scene_num, img_index) -> seconds
 
         for scene_num in scene_numbers:
             images = scenes_images[scene_num]
@@ -2824,6 +2827,9 @@ class VideoPipeline:
                 dur = round(end_time - start_time, 2)
                 dur = max(dur, 1.0)
 
+                # Cache locally for Step 4 (render config generation)
+                image_durations[(scene_num, img_index)] = dur
+
                 # Write duration to Airtable immediately
                 try:
                     self.airtable.images_table.update(
@@ -2852,17 +2858,24 @@ class VideoPipeline:
             images = scenes_images[scene_num]
             for img_idx, img in enumerate(images):
                 sentence = img.get("Sentence Text", "") or ""
-                # Use the duration just written to Airtable (or read existing)
-                dur = img.get("Duration (s)", 0) or 0
+                img_index = img.get("Image Index", img_idx + 1)
+
+                # Look up the proportional duration calculated in Step 3.
+                # The local scenes_images dict is stale (loaded before Step 3),
+                # so we use the image_durations cache instead.
+                dur = image_durations.get((scene_num, img_index), 0)
                 if dur <= 0:
                     # Fallback: even share of scene duration
                     scene_dur = scene_durations.get(scene_num, 60.0)
                     dur = scene_dur / max(len(images), 1)
                 dur = float(dur)
 
+                # Use actual composition from image record (Shot Type)
+                composition = img.get("Shot Type", "") or "wide"
+
                 timed_images.append({
                     "scene_number": scene_num,
-                    "image_index": img.get("Image Index", img_idx + 1),
+                    "image_index": img_index,
                     "sentence_text": sentence,
                     "start_time": round(running_time, 4),
                     "end_time": round(running_time + dur, 4),
@@ -2872,7 +2885,7 @@ class VideoPipeline:
                     "display_duration": round(dur, 4),
                     "alignment_method": "sentence_match",
                     "style": "",
-                    "composition": "wide",
+                    "composition": composition,
                 })
                 running_time += dur
 
