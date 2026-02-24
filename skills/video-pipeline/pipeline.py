@@ -2503,9 +2503,10 @@ class VideoPipeline:
         # Stream render output to track progress and send Slack updates
         print(f"  🎯 Render cmd: {' '.join(str(c) for c in render_cmd)}")
         render_start = _time.time()
-        last_update_pct = 0  # Track last milestone we reported
+        last_update_frame = 0  # Track last frame count we reported
         last_update_time = render_start
-        UPDATE_INTERVAL = 1200  # 20 minutes in seconds
+        FRAME_UPDATE_INTERVAL = 500  # Send update every N frames
+        TIME_UPDATE_INTERVAL = 300   # Or every 5 minutes
         last_error_line = ""
 
         process = subprocess.Popen(
@@ -2520,28 +2521,20 @@ class VideoPipeline:
                 continue
             print(f"    {line}")
 
-            # Remotion render progress: "Rendered frame 500/28800 (1.7%)"
-            # or "ℹ 25% done".  SKIP non-render lines like browser/bundle
-            # "Chrome Headless Shell (100%)" or "Bundled in 2s" to avoid
-            # false 100% reports before rendering even starts.
-            is_render_line = (
-                "render" in line.lower()
-                or "done" in line.lower()
-                or "frame" in line.lower()
-                or ("/" in line and "%" in line)
-            )
-            pct_match = re.search(r'(\d+(?:\.\d+)?)%', line) if is_render_line else None
-            if pct_match:
-                current_pct = float(pct_match.group(1))
+            # Parse Remotion frame progress: "Rendered 500/28800"
+            frame_match = re.search(r'Rendered\s+(\d+)/(\d+)', line)
+            if frame_match:
+                current_frame = int(frame_match.group(1))
+                total_frames = int(frame_match.group(2))
+                current_pct = (current_frame / total_frames * 100) if total_frames > 0 else 0
                 now = _time.time()
                 elapsed = now - render_start
                 elapsed_min = int(elapsed / 60)
-
-                # Send Slack update at every 20% milestone OR every 20 minutes
-                milestone = int(current_pct // 20) * 20
+                frames_since_update = current_frame - last_update_frame
                 time_since_update = now - last_update_time
 
-                if (milestone > last_update_pct and milestone > 0) or time_since_update >= UPDATE_INTERVAL:
+                # Send Slack update every 500 frames OR every 5 minutes
+                if frames_since_update >= FRAME_UPDATE_INTERVAL or time_since_update >= TIME_UPDATE_INTERVAL:
                     # Estimate remaining time
                     if current_pct > 0:
                         total_est = elapsed / (current_pct / 100)
@@ -2553,9 +2546,9 @@ class VideoPipeline:
                     progress_bar = "█" * int(current_pct // 10) + "░" * (10 - int(current_pct // 10))
                     self.slack.send_message(
                         f"🎬 *Render progress:* _{self.video_title}_\n"
-                        f"`{progress_bar}` *{current_pct:.0f}%* — {elapsed_min} min elapsed, {eta_str}"
+                        f"`{progress_bar}` *{current_pct:.1f}%* — frame {current_frame}/{total_frames} — {elapsed_min} min elapsed, {eta_str}"
                     )
-                    last_update_pct = milestone
+                    last_update_frame = current_frame
                     last_update_time = now
 
             # Capture error lines for failure reporting
