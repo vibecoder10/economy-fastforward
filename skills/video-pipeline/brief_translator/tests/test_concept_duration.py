@@ -53,7 +53,7 @@ class TestValidateConceptDurations:
 
     def test_long_concept_split_into_two(self):
         """A concept over MAX_WORDS should be split."""
-        long_text = " ".join(f"word{i}" for i in range(30))  # 30 words
+        long_text = " ".join(f"word{i}" for i in range(40))  # 40 words
         concepts = [
             _make_concept(long_text, index=1),
         ]

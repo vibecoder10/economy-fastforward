@@ -38,7 +38,7 @@ STYLE_DISTRIBUTION = {
 MIN_CONCEPTS = 6
 MAX_CONCEPTS = 10
 MIN_WORDS_PER_CONCEPT = 12   # ~5s at 2.5 wps — prevents flash images
-MAX_WORDS_PER_CONCEPT = 25   # ~10s at 2.5 wps — prevents stall images
+MAX_WORDS_PER_CONCEPT = 35   # ~14s at 2.5 wps — allows natural sentence groupings
 
 
 def _estimate_concept_count(scene_text: str) -> int:

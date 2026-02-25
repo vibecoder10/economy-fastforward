@@ -51,14 +51,14 @@ CRITICAL RULES — READ ALL BEFORE STARTING:
   sentence_text. No gaps. No overlaps.
 - Split at natural sentence or clause boundaries (periods, commas, semicolons).
 - Do NOT correct typos, grammar, or punctuation in the narration. Copy it as-is.
-- MAXIMUM 25 WORDS per concept's sentence_text. If a sentence is longer than
-  25 words, split it at a natural clause boundary (comma, dash, semicolon).
-  Never put more than 25 words into a single concept.
+- MAXIMUM 35 WORDS per concept's sentence_text. If a sentence is longer than
+  35 words, split it at a natural clause boundary (comma, dash, semicolon).
+  Never put more than 35 words into a single concept.
 - MINIMUM 12 WORDS per concept's sentence_text. If a sentence is under 12
   words, merge it with its neighbor into one concept. A concept under 12
   words will display for less than 5 seconds — too fast for viewers to
   register the image.
-- Aim for 15-22 words per concept (~6-9 seconds display time per image).
+- Aim for 15-28 words per concept (~6-11 seconds display time per image).
 
 --- VISUAL DESCRIPTION RULES ---
 
