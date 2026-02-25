@@ -37,7 +37,8 @@ STYLE_DISTRIBUTION = {
 # Concept count range by words in scene text
 MIN_CONCEPTS = 6
 MAX_CONCEPTS = 10
-MAX_WORDS_PER_CONCEPT = 25
+MIN_WORDS_PER_CONCEPT = 12   # ~5s at 2.5 wps — prevents flash images
+MAX_WORDS_PER_CONCEPT = 25   # ~10s at 2.5 wps — prevents stall images
 
 
 def _estimate_concept_count(scene_text: str) -> int:
@@ -180,6 +181,60 @@ def _validate_concepts(
             return False, f"Concept {i + 1} has no visual_description"
 
     return True, ""
+
+
+def _validate_concept_durations(concepts: list[dict]) -> list[dict]:
+    """Merge too-short concepts and split too-long ones.
+
+    Runs AFTER the LLM produces concepts and BEFORE image generation.
+    This ensures every concept will display for 5-10 seconds when
+    audio_sync calculates Whisper timestamps later.
+
+    Concepts that are merged or split get ``needs_new_prompt = True``
+    so the caller can regenerate their image prompt if needed.
+    """
+    validated: list[dict] = []
+    i = 0
+
+    while i < len(concepts):
+        concept = {k: v for k, v in concepts[i].items()}  # shallow copy
+        wc = len(concept.get("sentence_text", "").split())
+
+        # Too short — merge with next concept
+        if wc < MIN_WORDS_PER_CONCEPT and i + 1 < len(concepts):
+            nxt = concepts[i + 1]
+            concept["sentence_text"] = (
+                concept["sentence_text"] + " " + nxt.get("sentence_text", "")
+            ).strip()
+            # Regenerate visual description for the merged concept
+            concept["needs_new_prompt"] = True
+            i += 2
+        # Too long — split into two
+        elif wc > MAX_WORDS_PER_CONCEPT:
+            words = concept["sentence_text"].split()
+            mid = len(words) // 2
+
+            part1 = dict(concept)
+            part1["sentence_text"] = " ".join(words[:mid])
+            part1["needs_new_prompt"] = True
+
+            part2 = dict(concept)
+            part2["sentence_text"] = " ".join(words[mid:])
+            part2["needs_new_prompt"] = True
+
+            validated.extend([part1, part2])
+            i += 1
+            continue
+        else:
+            i += 1
+
+        validated.append(concept)
+
+    # Re-index
+    for idx, c in enumerate(validated):
+        c["concept_index"] = idx + 1
+
+    return validated
 
 
 def _mechanical_split(scene_text: str, target_count: int) -> list[dict]:
@@ -327,6 +382,7 @@ async def expand_scene_concepts(
             is_valid, error = _validate_concepts(concepts, scene_text, concept_count)
 
             if is_valid:
+                concepts = _validate_concept_durations(concepts)
                 return concepts
 
             last_error = error

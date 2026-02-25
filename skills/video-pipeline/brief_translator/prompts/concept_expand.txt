@@ -54,6 +54,11 @@ CRITICAL RULES — READ ALL BEFORE STARTING:
 - MAXIMUM 25 WORDS per concept's sentence_text. If a sentence is longer than
   25 words, split it at a natural clause boundary (comma, dash, semicolon).
   Never put more than 25 words into a single concept.
+- MINIMUM 12 WORDS per concept's sentence_text. If a sentence is under 12
+  words, merge it with its neighbor into one concept. A concept under 12
+  words will display for less than 5 seconds — too fast for viewers to
+  register the image.
+- Aim for 15-22 words per concept (~6-9 seconds display time per image).
 
 --- VISUAL DESCRIPTION RULES ---
 
