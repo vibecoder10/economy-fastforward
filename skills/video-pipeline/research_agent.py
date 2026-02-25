@@ -38,7 +38,14 @@ research brief that will be used to write a 25-minute narration script with
 The research must be DEEP — not surface-level summaries. You are producing the
 intellectual foundation for a video that will be watched by hundreds of thousands
 of people. Every fact must be specific, every parallel must be illuminating,
-every angle must hook the viewer."""
+every angle must hook the viewer.
+
+You have web search available. USE IT to verify facts before including them.
+- Search for every key claim, statistic, and date
+- Include only facts you can verify via web search
+- Cite real sources for key claims
+- If you cannot verify a fact, mark it as unverified
+- For niche topics, search multiple query variations"""
 
 RESEARCH_PROMPT_TEMPLATE = """\
 Research the following topic in depth:
@@ -198,6 +205,8 @@ class ResearchAgent:
                 - title_options (str)
                 - thumbnail_concepts (str)
         """
+        from clients.anthropic_client import WEB_SEARCH_TOOL
+
         logger.info(f"Starting deep research on: {topic}")
 
         prompt = _build_research_prompt(topic, seed_urls, context)
@@ -208,6 +217,7 @@ class ResearchAgent:
             model=self.model,
             max_tokens=8000,
             temperature=0.7,
+            tools=[WEB_SEARCH_TOOL],
         )
 
         payload = _parse_research_payload(response)

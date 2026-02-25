@@ -28,6 +28,14 @@ from image_prompt_engine.style_config import (
     COMPOSITION_DIRECTIVES as YOUTUBE_COMPOSITION_DIRECTIVES,
 )
 
+# Web search tool for real-time headline gathering and fact verification.
+# Pass as tools=[WEB_SEARCH_TOOL] to generate() to enable web search.
+WEB_SEARCH_TOOL = {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 5,
+}
+
 # Thumbnail System v2 - Locked House Style
 ANTHROPIC_THUMBNAIL_SYSTEM_PROMPT = """You are the thumbnail prompt engineer for Economy FastForward, \
 a finance/economics YouTube channel.
@@ -113,6 +121,7 @@ class AnthropicClient:
         model: str = "claude-sonnet-4-5-20250929",
         max_tokens: int = 4096,
         temperature: float = 1.0,
+        tools: list = None,
     ) -> str:
         """Generate a completion using Claude.
 
@@ -122,6 +131,7 @@ class AnthropicClient:
             model: Model to use (claude-sonnet-4-5-20250929, claude-opus-4-5-20251101)
             max_tokens: Maximum tokens in response
             temperature: Sampling temperature
+            tools: Optional list of tool definitions (e.g. [WEB_SEARCH_TOOL])
 
         Returns:
             The generated text response
@@ -143,21 +153,41 @@ class AnthropicClient:
         }
         if system_prompt:
             kwargs["system"] = system_prompt
+        if tools:
+            kwargs["tools"] = tools
 
         response = self.client.messages.create(**kwargs)
 
-        if response.content:
-            return response.content[0].text
+        text = self._extract_text(response)
+        if text:
+            return text
 
         # Empty content — retry once after a short delay
         print("    ⚠️ API returned empty content, retrying in 2s...")
         await _asyncio.sleep(2)
         response = self.client.messages.create(**kwargs)
 
-        if response.content:
-            return response.content[0].text
+        text = self._extract_text(response)
+        if text:
+            return text
 
         raise RuntimeError("Anthropic API returned empty content on both attempts")
+
+    @staticmethod
+    def _extract_text(response) -> str:
+        """Extract text from a response that may contain mixed content blocks.
+
+        When tools like web_search are enabled, the response contains
+        tool_use and tool_result blocks alongside text blocks. This
+        method extracts only the text.
+        """
+        if not response.content:
+            return ""
+        text_parts = []
+        for block in response.content:
+            if hasattr(block, "text"):
+                text_parts.append(block.text)
+        return "\n".join(text_parts)
     
     async def generate_beat_sheet(self, video_data: dict) -> dict:
         """Generate a 20-scene beat sheet for a video (legacy path).
