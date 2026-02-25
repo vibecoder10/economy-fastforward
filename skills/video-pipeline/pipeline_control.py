@@ -856,6 +856,8 @@ async def handle_discover(message, say, client):
     # Extract optional focus keyword from message text
     text = message.get("text", "").strip()
     focus = re.sub(r"^(run\s+)?(?:discover|scan)\s*", "", text, flags=re.IGNORECASE).strip()
+    # Strip brackets — users type "Discover [topic]" but brackets aren't part of the topic
+    focus = focus.strip("[]")
     channel = message.get("channel", "")
 
     focus_msg = f" (focus: {focus})" if focus else ""
