@@ -1866,6 +1866,35 @@ class VideoPipeline:
                 total_scenes=total_scripts,
             )
 
+            # Regenerate visual_description for concepts that were merged
+            # or split by _validate_concept_durations(). Their sentence_text
+            # changed, so the original description no longer matches.
+            needs_regen = [c for c in concepts if c.get("needs_new_prompt")]
+            if needs_regen:
+                print(f"    Regenerating {len(needs_regen)} visual descriptions "
+                      f"(duration-adjusted concepts)...")
+                for concept in needs_regen:
+                    try:
+                        new_desc = await self.anthropic.generate(
+                            prompt=(
+                                "You are a visual director for a documentary. "
+                                "Write a 20-35 word description of a specific, filmable scene "
+                                "that illustrates this narration text. "
+                                "Describe WHAT is in the scene, WHERE it takes place, "
+                                "and WHAT is happening. No metaphors, no abstract imagery. "
+                                "Return ONLY the description, nothing else.\n\n"
+                                f"Narration: \"{concept['sentence_text']}\""
+                            ),
+                            model="claude-sonnet-4-5-20250929",
+                            max_tokens=200,
+                            temperature=0.4,
+                        )
+                        concept["visual_description"] = new_desc.strip()
+                    except Exception as e:
+                        print(f"      ⚠️ Regen failed for concept "
+                              f"{concept['concept_index']}: {e}")
+                    concept.pop("needs_new_prompt", None)
+
             for concept in concepts:
                 visual_desc = concept["visual_description"]
                 visual_style = concept.get("visual_style", "dossier")
@@ -2867,36 +2896,11 @@ class VideoPipeline:
                     "word_count": wc,
                 })
 
-            # Enforce minimum image duration — merge images under 5s
-            # with their next neighbor so no image flashes too briefly.
-            MIN_IMAGE_DURATION = 5.0
-            merged: list[dict] = []
-            absorbed_indices: set[int] = set()
-            ri = 0
-            while ri < len(scene_raw):
-                entry = {k: v for k, v in scene_raw[ri].items()}  # copy
-                if entry["duration"] < MIN_IMAGE_DURATION and ri + 1 < len(scene_raw):
-                    nxt = scene_raw[ri + 1]
-                    absorbed_indices.add(nxt["image_index"])
-                    entry["sentence_text"] = (
-                        entry["sentence_text"] + " " + nxt["sentence_text"]
-                    ).strip()
-                    entry["duration"] = round(entry["duration"] + nxt["duration"], 2)
-                    entry["display_end"] = nxt["display_end"]
-                    entry["word_count"] = entry["word_count"] + nxt["word_count"]
-                    print(f"      Merged image {entry['image_index']} + {nxt['image_index']} "
-                          f"→ {entry['duration']:.2f}s (was {scene_raw[ri]['duration']:.2f}s + {nxt['duration']:.2f}s)")
-                    ri += 2  # skip absorbed image
-                else:
-                    ri += 1
-                merged.append(entry)
-
-            # Re-index merged entries
-            for idx, entry in enumerate(merged):
-                entry["image_index"] = idx + 1
-
-            # Write enforced durations to Airtable and cache
-            for entry in merged:
+            # Write Whisper-calculated durations to Airtable and cache.
+            # No merging — each image keeps its own duration. If a concept
+            # is too short, that's a signal to fix concept grouping, not
+            # something audio_sync should mask by deleting images.
+            for entry in scene_raw:
                 record_id = entry["record_id"]
                 img_index = entry["image_index"]
                 dur = entry["duration"]
@@ -2917,11 +2921,8 @@ class VideoPipeline:
                 scene_total += dur
                 print(f"      Image {img_index}: {dur:.2f}s ({wc}w) — \"{sentence[:50]}...\"")
 
-            # Mark absorbed images with 0 duration so Step 4 skips them
-            for absorbed_idx in absorbed_indices:
-                image_durations[(scene_num, absorbed_idx)] = 0
-
             scene_durations[scene_num] = scene_total
+
 
         # ── Step 4: Build per-IMAGE render config ──
         # Each image gets its own entry with sentence_text so Remotion can

@@ -37,7 +37,8 @@ STYLE_DISTRIBUTION = {
 # Concept count range by words in scene text
 MIN_CONCEPTS = 6
 MAX_CONCEPTS = 10
-MAX_WORDS_PER_CONCEPT = 25
+MIN_WORDS_PER_CONCEPT = 12   # ~5s at 2.5 wps — prevents flash images
+MAX_WORDS_PER_CONCEPT = 35   # ~14s at 2.5 wps — allows natural sentence groupings
 
 
 def _estimate_concept_count(scene_text: str) -> int:
@@ -153,18 +154,28 @@ def _validate_concepts(
 
         search_start = pos + len(normalized_text)
 
-    # Check trailing text
+    # Check trailing text — auto-fix small amounts by appending to last concept
     trailing = normalized_source[search_start:].strip()
-    if trailing and len(trailing.split()) > 3:
-        return False, f"Uncovered trailing text ({len(trailing.split())} words): '{trailing[:60]}...'"
+    if trailing:
+        trailing_wc = len(trailing.split())
+        if trailing_wc <= 20:
+            # Small trailing text — append to last concept instead of failing
+            last = concepts[-1]
+            last["sentence_text"] = (last.get("sentence_text", "") + " " + trailing).strip()
+        elif trailing_wc > 20:
+            return False, f"Uncovered trailing text ({trailing_wc} words): '{trailing[:60]}...'"
 
     # Validate word count and visual fields
     for i, concept in enumerate(concepts):
         text = concept.get("sentence_text", "")
         wc = len(text.split())
-        if wc > MAX_WORDS_PER_CONCEPT:
+        # Allow up to 40 words — only reject truly oversized concepts.
+        # _validate_concept_durations() will split anything over MAX_WORDS
+        # (35) after validation passes, so 36-40 words get fixed downstream.
+        HARD_REJECT_WORDS = 40
+        if wc > HARD_REJECT_WORDS:
             return False, (
-                f"Concept {i + 1} has {wc} words (max {MAX_WORDS_PER_CONCEPT}): "
+                f"Concept {i + 1} has {wc} words (max {HARD_REJECT_WORDS}): "
                 f"'{text[:60]}...'"
             )
 
@@ -182,42 +193,109 @@ def _validate_concepts(
     return True, ""
 
 
+def _validate_concept_durations(concepts: list[dict]) -> list[dict]:
+    """Merge too-short concepts and split too-long ones.
+
+    Runs AFTER the LLM produces concepts and BEFORE image generation.
+    This ensures every concept will display for 5-10 seconds when
+    audio_sync calculates Whisper timestamps later.
+
+    Concepts that are merged or split get ``needs_new_prompt = True``
+    so the caller can regenerate their image prompt if needed.
+    """
+    validated: list[dict] = []
+    i = 0
+
+    while i < len(concepts):
+        concept = {k: v for k, v in concepts[i].items()}  # shallow copy
+        wc = len(concept.get("sentence_text", "").split())
+
+        # Too short — merge with next concept
+        if wc < MIN_WORDS_PER_CONCEPT and i + 1 < len(concepts):
+            nxt = concepts[i + 1]
+            concept["sentence_text"] = (
+                concept["sentence_text"] + " " + nxt.get("sentence_text", "")
+            ).strip()
+            # Regenerate visual description for the merged concept
+            concept["needs_new_prompt"] = True
+            i += 2
+        # Too long — split into two
+        elif wc > MAX_WORDS_PER_CONCEPT:
+            words = concept["sentence_text"].split()
+            mid = len(words) // 2
+
+            part1 = dict(concept)
+            part1["sentence_text"] = " ".join(words[:mid])
+            part1["needs_new_prompt"] = True
+
+            part2 = dict(concept)
+            part2["sentence_text"] = " ".join(words[mid:])
+            part2["needs_new_prompt"] = True
+
+            validated.extend([part1, part2])
+            i += 1
+            continue
+        else:
+            i += 1
+
+        validated.append(concept)
+
+    # Re-index
+    for idx, c in enumerate(validated):
+        c["concept_index"] = idx + 1
+
+    return validated
+
+
 def _mechanical_split(scene_text: str, target_count: int) -> list[dict]:
-    """Fallback: split scene text mechanically into concepts.
+    """Fallback: split scene text into concepts at sentence boundaries.
 
     Used when the LLM fails to produce valid concepts after all retries.
-    Returns concepts with generic visual descriptions that downstream
-    prompt generation can still work with.  Respects MAX_WORDS_PER_CONCEPT.
+    Groups sentences into chunks of 12-35 words each, never cutting
+    mid-sentence. Returns concepts with generic visual descriptions that
+    downstream prompt generation can still work with.
     """
-    from clients.sentence_utils import split_into_sentences
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "sentence_utils",
+        Path(__file__).parent.parent / "clients" / "sentence_utils.py",
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    split_into_sentences = mod.split_into_sentences
 
     sentences = split_into_sentences(scene_text)
     if not sentences:
         sentences = [scene_text]
 
-    # Group sentences into target_count chunks, then re-split any that exceed the word limit
+    # Group sentences into chunks that respect word count bounds.
+    # Accumulate sentences until adding the next one would exceed MAX.
+    # If a single sentence exceeds MAX, it becomes its own chunk (no mid-sentence cuts).
     chunks: list[str] = []
-    if len(sentences) <= target_count:
-        chunks = list(sentences)
-    else:
-        base = len(sentences) // target_count
-        remainder = len(sentences) % target_count
-        idx = 0
-        for i in range(target_count):
-            count = base + (1 if i < remainder else 0)
-            chunks.append(" ".join(sentences[idx:idx + count]))
-            idx += count
+    current_chunk: list[str] = []
+    current_wc = 0
 
-    # Re-split any chunks that exceed the word limit
-    final_chunks: list[str] = []
-    for chunk in chunks:
-        words = chunk.split()
-        if len(words) <= MAX_WORDS_PER_CONCEPT:
-            final_chunks.append(chunk)
-        else:
-            for i in range(0, len(words), MAX_WORDS_PER_CONCEPT):
-                final_chunks.append(" ".join(words[i:i + MAX_WORDS_PER_CONCEPT]))
-    chunks = final_chunks
+    for sentence in sentences:
+        swc = len(sentence.split())
+
+        # If adding this sentence would exceed MAX and we already have
+        # enough words, flush the current chunk first.
+        if current_chunk and current_wc + swc > MAX_WORDS_PER_CONCEPT:
+            chunks.append(" ".join(current_chunk))
+            current_chunk = []
+            current_wc = 0
+
+        current_chunk.append(sentence)
+        current_wc += swc
+
+    # Flush remaining
+    if current_chunk:
+        chunks.append(" ".join(current_chunk))
+
+    # Merge any final chunk that's too short with its predecessor
+    if len(chunks) > 1 and len(chunks[-1].split()) < MIN_WORDS_PER_CONCEPT:
+        chunks[-2] = chunks[-2] + " " + chunks[-1]
+        chunks.pop()
 
     concepts = []
     compositions = ["wide", "medium", "closeup", "environmental", "portrait", "overhead", "low_angle"]
@@ -327,6 +405,7 @@ async def expand_scene_concepts(
             is_valid, error = _validate_concepts(concepts, scene_text, concept_count)
 
             if is_valid:
+                concepts = _validate_concept_durations(concepts)
                 return concepts
 
             last_error = error
