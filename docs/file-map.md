@@ -10,6 +10,7 @@
 | `discovery_scanner.py` | Finds trending topics for video ideas |
 | `research_agent.py` | Deep research on topics using Claude |
 | `render_video.py` | Calls Remotion to produce final MP4 |
+| `performance_tracker.py` | Daily YouTube metrics sync → Airtable (views, CTR, retention, snapshots) |
 | `run_*_bot.py` | Individual stage runners (9 scripts) |
 
 ## Bot Modules (`skills/video-pipeline/bots/`)

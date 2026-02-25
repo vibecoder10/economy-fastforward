@@ -2,11 +2,11 @@
 
 Run this script once on the VPS to complete the OAuth flow.
 It opens a browser for Google sign-in and saves the token to
-.youtube-token.json for all future uploads.
+.youtube-token.json for all future uploads and analytics reads.
 
 Prerequisites:
     1. Create a Google Cloud project
-    2. Enable YouTube Data API v3
+    2. Enable YouTube Data API v3 AND YouTube Analytics API
     3. Create OAuth2 Desktop credentials
     4. Download credentials JSON and save as:
        skills/video-pipeline/.youtube-credentials.json
@@ -16,6 +16,10 @@ Usage:
 
     # On a headless VPS, use --no-browser and paste the URL manually:
     python youtube_auth.py --no-browser
+
+Note:
+    After adding new scopes, delete .youtube-token.json and re-run
+    this script to re-authenticate with the expanded permissions.
 """
 
 import json
@@ -24,7 +28,11 @@ from pathlib import Path
 
 from google_auth_oauthlib.flow import InstalledAppFlow
 
-SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
+SCOPES = [
+    "https://www.googleapis.com/auth/youtube.upload",
+    "https://www.googleapis.com/auth/youtube.readonly",
+    "https://www.googleapis.com/auth/yt-analytics.readonly",
+]
 
 PIPELINE_DIR = Path(__file__).parent
 CREDENTIALS_FILE = PIPELINE_DIR / ".youtube-credentials.json"

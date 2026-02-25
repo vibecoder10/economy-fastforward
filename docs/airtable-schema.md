@@ -16,6 +16,12 @@ Optional fields:
 - `Google Drive Folder ID`, `Thumbnail`, `Pipeline Mode`, `Notes`
 - `Upload Status`, `YouTube Video ID`, `YouTube URL`
 
+Performance fields (written by `performance_tracker.py`, daily cron):
+- Lifetime: `Views`, `Likes`, `Comments`, `Subscribers Gained`
+- Analytics: `Impressions`, `CTR (%)`, `Avg View Duration (s)`, `Avg Retention (%)`, `Watch Time (hours)`
+- Snapshots (written once): `Views 24h`, `Views 48h`, `Views 7d`, `Views 30d`, `CTR 48h (%)`, `Retention 48h (%)`
+- Metadata: `Last Analytics Sync`, `Upload Date`
+
 ## Scripts Table
 
 - `Scene`, `Scene text`, `Title`, `Voice ID`
