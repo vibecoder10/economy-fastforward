@@ -34,6 +34,56 @@ STYLE_DISTRIBUTION = {
     6: {"dossier": 65, "schema": 35, "echo": 0},
 }
 
+
+def _enforce_style_distribution(concepts: list, act_number: int) -> list:
+    """Enforce the target style distribution programmatically.
+
+    The LLM often defaults to dossier. This reassigns visual_style
+    based on STYLE_DISTRIBUTION targets for the given act.
+    """
+    dist = STYLE_DISTRIBUTION.get(act_number, STYLE_DISTRIBUTION[1])
+    n = len(concepts)
+    if n == 0:
+        return concepts
+
+    # Calculate target counts
+    echo_count = round(n * dist["echo"] / 100)
+    schema_count = round(n * dist["schema"] / 100)
+
+    # No echo in acts 1, 2, 6
+    if act_number in (1, 2, 6):
+        echo_count = 0
+
+    dossier_count = n - echo_count - schema_count
+
+    # Build result: start all dossier
+    result = ["dossier"] * n
+
+    # Place echo cluster in middle third (acts 3-5 only)
+    if echo_count > 0:
+        mid = n // 2
+        start = max(1, mid - echo_count // 2)
+        for i in range(echo_count):
+            idx = start + i
+            if 0 < idx < n - 1:
+                result[idx] = "echo"
+
+    # Place schema spread evenly, skip first, last, and echo slots
+    schema_placed = 0
+    if schema_count > 0:
+        step = max(1, n // (schema_count + 1))
+        for i in range(step, n - 1, step):
+            if result[i] == "dossier" and schema_placed < schema_count:
+                result[i] = "schema"
+                schema_placed += 1
+
+    # Apply to concepts
+    for i, concept in enumerate(concepts):
+        concept["visual_style"] = result[i]
+
+    return concepts
+
+
 # Concept count range by words in scene text
 MIN_CONCEPTS = 6
 MAX_CONCEPTS = 10
@@ -406,6 +456,7 @@ async def expand_scene_concepts(
 
             if is_valid:
                 concepts = _validate_concept_durations(concepts)
+                concepts = _enforce_style_distribution(concepts, act_number)
                 return concepts
 
             last_error = error
