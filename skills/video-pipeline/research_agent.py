@@ -215,7 +215,7 @@ class ResearchAgent:
             prompt=prompt,
             system_prompt=RESEARCH_SYSTEM_PROMPT,
             model=self.model,
-            max_tokens=8000,
+            max_tokens=16000,
             temperature=0.7,
             tools=[WEB_SEARCH_TOOL],
         )
