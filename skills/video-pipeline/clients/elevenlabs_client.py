@@ -64,7 +64,7 @@ class ElevenLabsClient:
                 self.WAVESPEED_API_URL,
                 headers=headers,
                 json=payload,
-                timeout=60.0,
+                timeout=180.0,
             )
             response.raise_for_status()
             return response.json()
@@ -72,7 +72,7 @@ class ElevenLabsClient:
     async def poll_for_completion(
         self,
         get_url: str,
-        max_attempts: int = 30,
+        max_attempts: int = 60,
         poll_interval: float = 5.0,
     ) -> Optional[str]:
         """Poll for voice generation completion.
@@ -91,7 +91,7 @@ class ElevenLabsClient:
         
         async with httpx.AsyncClient() as client:
             for _ in range(max_attempts):
-                response = await client.get(get_url, headers=headers, timeout=30.0)
+                response = await client.get(get_url, headers=headers, timeout=180.0)
                 response.raise_for_status()
                 data = response.json()
                 
@@ -139,6 +139,6 @@ class ElevenLabsClient:
             Audio content as bytes
         """
         async with httpx.AsyncClient() as client:
-            response = await client.get(audio_url, timeout=60.0)
+            response = await client.get(audio_url, timeout=180.0)
             response.raise_for_status()
             return response.content
