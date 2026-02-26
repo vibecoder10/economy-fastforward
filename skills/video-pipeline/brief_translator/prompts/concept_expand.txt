@@ -95,6 +95,23 @@ SCENE DESCRIPTIONS must ONLY contain:
 
 Keep descriptions 20-35 words. Be specific but concise.
 
+CRITICAL — VISUAL DESCRIPTION QUALITY CHECK:
+Your visual_description must NEVER contain words from the narration text.
+It describes what the CAMERA SEES, not what the narrator SAYS.
+
+BAD (restating narration):
+  "This scenario requires several conditions that unlikely materialize"
+  "Must convince commanders control independent military forces revenue"
+  "Game theory suggests cooperation unstable without enforcement"
+
+GOOD (what the camera sees):
+  "Three Mexican military commanders hunched over maps in a concrete bunker, single bare bulb overhead, cold teal shadows"
+  "Stacks of peso bills on a metal table beside an assault rifle, cartel insignia scratched into the wall"
+  "Empty highway stretching through Jalisco desert, burned-out truck blocking both lanes, smoke rising"
+
+If your visual_description reads like a summary of the narration, DELETE IT
+and write what a documentary camera crew would actually film instead.
+
 MATCH DESCRIPTION TO COMPOSITION:
 - "wide": Full environment, figure small in frame
 - "medium": Person from waist up in context
