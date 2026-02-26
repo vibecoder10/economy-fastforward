@@ -760,24 +760,32 @@ class VideoPipeline:
         }
 
     async def run_script_bot(self) -> dict:
-        """Write the full script (legacy 20-scene path).
-        
+        """Write the full script using 2-stage generation (outline → per-act).
+
+        Builds a research brief from Airtable fields (Research Payload JSON
+        first, legacy fields fallback) and calls generate_script_staged().
+
         REQUIRES: Ideas status = "Ready For Scripting"
         UPDATES TO: "Ready For Voice" when complete
         """
+        from brief_translator.script_generator import (
+            generate_script_staged,
+            extract_acts,
+        )
+
         # Verify status
         if not self.current_idea:
             idea = self.get_idea_by_status(self.STATUS_READY_SCRIPTING)
             if not idea:
                 return {"error": "No idea with status 'Ready For Scripting'"}
             self._load_idea(idea)
-        
+
         if self.current_idea.get("Status") != self.STATUS_READY_SCRIPTING:
             return {"error": f"Idea status is '{self.current_idea.get('Status')}', expected 'Ready For Scripting'"}
-        
+
         self.slack.notify_script_start()
         print(f"\n📝 SCRIPT BOT: Processing '{self.video_title}'")
-        
+
         # Create project folder in Google Drive
         folder = self.google.create_folder(self.video_title)
         self.project_folder_id = folder["id"]
@@ -795,51 +803,104 @@ class VideoPipeline:
         docs_available = not doc.get("unavailable", False)
         if not docs_available:
             print("  ⚠️  Google Docs unavailable - scripts will be saved to Airtable only")
-        
-        # Generate beat sheet
-        beat_sheet = await self.anthropic.generate_beat_sheet(self.current_idea)
-        scenes = beat_sheet.get("script_outline", [])
-        
-        # Get existing scripts for this video
+
+        # === Build research brief from Airtable fields ===
+        idea = self.current_idea
+        research_payload_raw = idea.get("Research Payload", "")
+        brief = None
+
+        if research_payload_raw:
+            try:
+                research_payload = json.loads(research_payload_raw)
+                print("  📚 Found research payload — using as primary source material")
+                framework_angle = (
+                    idea.get("Framework Angle", "")
+                    or research_payload.get("themes", "")
+                )
+                brief = {
+                    "headline": research_payload.get("headline", idea.get("Video Title", "")),
+                    "thesis": research_payload.get("thesis", ""),
+                    "executive_hook": research_payload.get("executive_hook", idea.get("Hook Script", "")),
+                    "fact_sheet": research_payload.get("fact_sheet", ""),
+                    "historical_parallels": research_payload.get("historical_parallels", ""),
+                    "framework_analysis": research_payload.get("framework_analysis", ""),
+                    "character_dossier": research_payload.get("character_dossier", ""),
+                    "narrative_arc": research_payload.get("narrative_arc", ""),
+                    "counter_arguments": research_payload.get("counter_arguments", ""),
+                    "visual_seeds": research_payload.get("visual_seeds", ""),
+                    "source_bibliography": research_payload.get("source_bibliography", ""),
+                    "framework_angle": framework_angle,
+                    "title_options": research_payload.get("title_options", idea.get("Video Title", "")),
+                    "source_urls": idea.get("Source URLs", "") or research_payload.get("source_bibliography", ""),
+                }
+                print(f"  🎯 Framework Angle: {framework_angle or '(not set)'}")
+            except (json.JSONDecodeError, TypeError) as e:
+                print(f"  ⚠️  Could not parse research payload: {e}")
+
+        if brief is None:
+            # Legacy path: build brief from standard idea fields
+            framework_angle = idea.get("Framework Angle", "")
+            brief = {
+                "headline": idea.get("Video Title", ""),
+                "thesis": idea.get("Thesis", "") or idea.get("Future Prediction", ""),
+                "executive_hook": idea.get("Executive Hook", "") or idea.get("Hook Script", ""),
+                "fact_sheet": idea.get("Writer Guidance", ""),
+                "historical_parallels": idea.get("Past Context", ""),
+                "framework_analysis": idea.get("Present Parallel", ""),
+                "character_dossier": "",
+                "narrative_arc": idea.get("Future Prediction", ""),
+                "counter_arguments": "",
+                "visual_seeds": idea.get("Thumbnail Prompt", ""),
+                "source_bibliography": idea.get("Reference URL", ""),
+                "framework_angle": framework_angle,
+                "title_options": idea.get("Video Title", ""),
+                "source_urls": idea.get("Source URLs", "") or idea.get("Reference URL", ""),
+            }
+            print(f"  🎯 Framework Angle: {framework_angle or '(not set — legacy idea)'}")
+
+        # === Generate script using 2-stage approach ===
+        print("  🚀 Running 2-stage script generation (7 Sonnet calls)...")
+        script_result = await generate_script_staged(
+            anthropic_client=self.anthropic,
+            brief=brief,
+        )
+
+        full_script = script_result["script"]
+        acts = script_result.get("acts") or extract_acts(full_script)
+        validation = script_result["validation"]
+
+        print(f"  📊 Script: {validation['word_count']} words, {validation['act_count']} acts")
+        if validation["issues"]:
+            print(f"  ⚠️  Validation issues: {validation['issues']}")
+
+        # === Save acts to Airtable and Google Doc ===
+        # Get existing scripts for this video to avoid duplicates
         existing_scripts = self.airtable.get_scripts_by_title(self.video_title)
         existing_scenes = {s.get("scene"): s for s in existing_scripts}
-        
-        # Write each scene
-        for scene in scenes:
-            scene_number = scene.get("scene_number", 0)
-            scene_beat = scene.get("beat", "")
-            
-            # CHECK: Does script already exist?
-            if scene_number in existing_scenes:
-                print(f"  Check: Scene {scene_number} already exists, skipping generation.")
-                # We still need to append to the doc if we're rebuilding it, 
-                # but let's assume the doc usually exists if the script does.
-                # If we really wanted to be robust, we'd check if it's in the doc.
-                # For now, just skip the generation step.
+
+        act_count = 0
+        for act_num in sorted(acts.keys()):
+            act_text = acts[act_num]
+
+            # Skip if already exists
+            if act_num in existing_scenes:
+                print(f"  Check: Act {act_num} already exists, skipping.")
                 continue
-            
-            print(f"  Writing scene {scene_number}...")
-            
-            # Generate scene narration
-            scene_text = await self.anthropic.write_scene(
-                scene_number=scene_number,
-                scene_beat=scene_beat,
-                video_title=self.video_title,
-            )
-            
-            # Save to Airtable
+
+            # Save to Airtable as script record (scene = act number)
             self.airtable.create_script_record(
-                scene_number=scene_number,
-                scene_text=scene_text,
+                scene_number=act_num,
+                scene_text=act_text,
                 title=self.video_title,
             )
-            
+
             # Append to Google Doc
             self.google.append_to_document(
                 self.google_doc_id,
-                f"**Scene {scene_number}**\n\n{scene_text}",
+                f"**Act {act_num}**\n\n{act_text}",
             )
-        
+            act_count += 1
+
         # UPDATE STATUS to Ready For Voice
         self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_VOICE)
         print(f"  ✅ Status updated to: {self.STATUS_READY_VOICE}")
@@ -853,11 +914,15 @@ class VideoPipeline:
             "folder_id": self.project_folder_id,
             "doc_id": self.google_doc_id,
             "doc_url": doc_url,
-            "scene_count": len(scenes),
+            "scene_count": act_count,
+            "word_count": validation["word_count"],
+            "act_count": validation["act_count"],
             "new_status": self.STATUS_READY_VOICE,
         }
         if not docs_available:
             result["warning"] = "Google Docs API unavailable - scripts saved to Airtable only"
+        if script_result.get("outline"):
+            result["outline_generated"] = True
         return result
     
     async def run_voice_bot(self) -> dict:
