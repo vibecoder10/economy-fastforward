@@ -24,7 +24,11 @@ from pathlib import Path
 
 from google_auth_oauthlib.flow import InstalledAppFlow
 
-SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
+SCOPES = [
+    "https://www.googleapis.com/auth/youtube.upload",
+    "https://www.googleapis.com/auth/youtube.readonly",
+    "https://www.googleapis.com/auth/yt-analytics.readonly"
+]
 
 PIPELINE_DIR = Path(__file__).parent
 CREDENTIALS_FILE = PIPELINE_DIR / ".youtube-credentials.json"
