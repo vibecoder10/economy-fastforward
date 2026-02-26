@@ -1,0 +1,813 @@
+{
+  "duration": 72.52999877929688,
+  "language": "english",
+  "text": "The pattern isn't just repeating, it's escalating. Ford monopolized the assembly line. One factory process. Foxconn monopolized manufacturing itself. Hundreds of factories, millions of workers, entire industries dependent on a single supplier. Now, Tesla, they're not monopolizing a process or even production, they're monopolizing the worker. Think about what that means. Every warehouse, every factory floor, every agricultural operation, every construction site, every hospital, every home, all of them potentially dependent on robots from a single company. A company that controls the software updates, the repair networks, the training data, the kill switch. Ford's monopoly shaped an industry, Foxconn's shaped global trade. Tesla's could shape human civilization itself. And here's what keeps economists awake at night. Each generation's monopoly emerged faster than the last. Ford took decades. Foxconn took years. Tesla's humanoid dominance could lock in within months once production scales. The window to establish alternatives, to build competing infrastructure, to create regulatory frameworks, it's not closing, it's almost closed.",
+  "segments": null,
+  "usage": {
+    "seconds": 73.0,
+    "type": "duration"
+  },
+  "words": [
+    {
+      "end": 0.5400000214576721,
+      "start": 0.0,
+      "word": "The"
+    },
+    {
+      "end": 0.5400000214576721,
+      "start": 0.5400000214576721,
+      "word": "pattern"
+    },
+    {
+      "end": 0.7400000095367432,
+      "start": 0.5400000214576721,
+      "word": "isn't"
+    },
+    {
+      "end": 1.2000000476837158,
+      "start": 0.7400000095367432,
+      "word": "just"
+    },
+    {
+      "end": 1.4600000381469727,
+      "start": 1.2000000476837158,
+      "word": "repeating"
+    },
+    {
+      "end": 1.940000057220459,
+      "start": 1.5800000429153442,
+      "word": "it's"
+    },
+    {
+      "end": 2.440000057220459,
+      "start": 1.940000057220459,
+      "word": "escalating"
+    },
+    {
+      "end": 3.380000114440918,
+      "start": 3.319999933242798,
+      "word": "Ford"
+    },
+    {
+      "end": 3.9000000953674316,
+      "start": 3.380000114440918,
+      "word": "monopolized"
+    },
+    {
+      "end": 4.380000114440918,
+      "start": 3.9000000953674316,
+      "word": "the"
+    },
+    {
+      "end": 4.380000114440918,
+      "start": 4.380000114440918,
+      "word": "assembly"
+    },
+    {
+      "end": 4.71999979019165,
+      "start": 4.380000114440918,
+      "word": "line"
+    },
+    {
+      "end": 5.599999904632568,
+      "start": 5.179999828338623,
+      "word": "One"
+    },
+    {
+      "end": 5.880000114440918,
+      "start": 5.599999904632568,
+      "word": "factory"
+    },
+    {
+      "end": 6.5,
+      "start": 5.880000114440918,
+      "word": "process"
+    },
+    {
+      "end": 7.679999828338623,
+      "start": 7.119999885559082,
+      "word": "Foxconn"
+    },
+    {
+      "end": 8.100000381469727,
+      "start": 7.679999828338623,
+      "word": "monopolized"
+    },
+    {
+      "end": 8.720000267028809,
+      "start": 8.100000381469727,
+      "word": "manufacturing"
+    },
+    {
+      "end": 9.260000228881836,
+      "start": 8.720000267028809,
+      "word": "itself"
+    },
+    {
+      "end": 10.140000343322754,
+      "start": 10.0,
+      "word": "Hundreds"
+    },
+    {
+      "end": 10.739999771118164,
+      "start": 10.140000343322754,
+      "word": "of"
+    },
+    {
+      "end": 10.739999771118164,
+      "start": 10.739999771118164,
+      "word": "factories"
+    },
+    {
+      "end": 11.319999694824219,
+      "start": 11.079999923706055,
+      "word": "millions"
+    },
+    {
+      "end": 11.640000343322754,
+      "start": 11.319999694824219,
+      "word": "of"
+    },
+    {
+      "end": 12.359999656677246,
+      "start": 11.640000343322754,
+      "word": "workers"
+    },
+    {
+      "end": 13.420000076293945,
+      "start": 13.020000457763672,
+      "word": "entire"
+    },
+    {
+      "end": 13.880000114440918,
+      "start": 13.420000076293945,
+      "word": "industries"
+    },
+    {
+      "end": 14.34000015258789,
+      "start": 13.880000114440918,
+      "word": "dependent"
+    },
+    {
+      "end": 14.600000381469727,
+      "start": 14.34000015258789,
+      "word": "on"
+    },
+    {
+      "end": 14.739999771118164,
+      "start": 14.600000381469727,
+      "word": "a"
+    },
+    {
+      "end": 15.140000343322754,
+      "start": 14.739999771118164,
+      "word": "single"
+    },
+    {
+      "end": 15.479999542236328,
+      "start": 15.140000343322754,
+      "word": "supplier"
+    },
+    {
+      "end": 16.479999542236328,
+      "start": 16.1200008392334,
+      "word": "Now"
+    },
+    {
+      "end": 17.059999465942383,
+      "start": 16.760000228881836,
+      "word": "Tesla"
+    },
+    {
+      "end": 17.68000030517578,
+      "start": 17.540000915527344,
+      "word": "they're"
+    },
+    {
+      "end": 17.8799991607666,
+      "start": 17.68000030517578,
+      "word": "not"
+    },
+    {
+      "end": 18.459999084472656,
+      "start": 17.8799991607666,
+      "word": "monopolizing"
+    },
+    {
+      "end": 18.719999313354492,
+      "start": 18.459999084472656,
+      "word": "a"
+    },
+    {
+      "end": 19.100000381469727,
+      "start": 18.719999313354492,
+      "word": "process"
+    },
+    {
+      "end": 19.239999771118164,
+      "start": 19.100000381469727,
+      "word": "or"
+    },
+    {
+      "end": 19.81999969482422,
+      "start": 19.239999771118164,
+      "word": "even"
+    },
+    {
+      "end": 19.959999084472656,
+      "start": 19.81999969482422,
+      "word": "production"
+    },
+    {
+      "end": 20.760000228881836,
+      "start": 20.1200008392334,
+      "word": "they're"
+    },
+    {
+      "end": 21.3799991607666,
+      "start": 20.760000228881836,
+      "word": "monopolizing"
+    },
+    {
+      "end": 21.6200008392334,
+      "start": 21.3799991607666,
+      "word": "the"
+    },
+    {
+      "end": 21.920000076293945,
+      "start": 21.6200008392334,
+      "word": "worker"
+    },
+    {
+      "end": 23.020000457763672,
+      "start": 22.700000762939453,
+      "word": "Think"
+    },
+    {
+      "end": 23.239999771118164,
+      "start": 23.020000457763672,
+      "word": "about"
+    },
+    {
+      "end": 23.440000534057617,
+      "start": 23.239999771118164,
+      "word": "what"
+    },
+    {
+      "end": 23.68000030517578,
+      "start": 23.440000534057617,
+      "word": "that"
+    },
+    {
+      "end": 24.020000457763672,
+      "start": 23.68000030517578,
+      "word": "means"
+    },
+    {
+      "end": 24.799999237060547,
+      "start": 24.479999542236328,
+      "word": "Every"
+    },
+    {
+      "end": 25.31999969482422,
+      "start": 24.799999237060547,
+      "word": "warehouse"
+    },
+    {
+      "end": 26.399999618530273,
+      "start": 25.899999618530273,
+      "word": "every"
+    },
+    {
+      "end": 26.579999923706055,
+      "start": 26.399999618530273,
+      "word": "factory"
+    },
+    {
+      "end": 27.059999465942383,
+      "start": 26.579999923706055,
+      "word": "floor"
+    },
+    {
+      "end": 27.799999237060547,
+      "start": 27.600000381469727,
+      "word": "every"
+    },
+    {
+      "end": 28.360000610351562,
+      "start": 27.799999237060547,
+      "word": "agricultural"
+    },
+    {
+      "end": 28.920000076293945,
+      "start": 28.360000610351562,
+      "word": "operation"
+    },
+    {
+      "end": 29.479999542236328,
+      "start": 28.920000076293945,
+      "word": "every"
+    },
+    {
+      "end": 30.059999465942383,
+      "start": 29.479999542236328,
+      "word": "construction"
+    },
+    {
+      "end": 30.440000534057617,
+      "start": 30.059999465942383,
+      "word": "site"
+    },
+    {
+      "end": 30.940000534057617,
+      "start": 30.700000762939453,
+      "word": "every"
+    },
+    {
+      "end": 31.280000686645508,
+      "start": 30.940000534057617,
+      "word": "hospital"
+    },
+    {
+      "end": 31.920000076293945,
+      "start": 31.6200008392334,
+      "word": "every"
+    },
+    {
+      "end": 32.29999923706055,
+      "start": 31.920000076293945,
+      "word": "home"
+    },
+    {
+      "end": 33.02000045776367,
+      "start": 32.880001068115234,
+      "word": "all"
+    },
+    {
+      "end": 33.15999984741211,
+      "start": 33.02000045776367,
+      "word": "of"
+    },
+    {
+      "end": 33.41999816894531,
+      "start": 33.15999984741211,
+      "word": "them"
+    },
+    {
+      "end": 33.939998626708984,
+      "start": 33.41999816894531,
+      "word": "potentially"
+    },
+    {
+      "end": 34.2599983215332,
+      "start": 33.939998626708984,
+      "word": "dependent"
+    },
+    {
+      "end": 34.84000015258789,
+      "start": 34.2599983215332,
+      "word": "on"
+    },
+    {
+      "end": 34.84000015258789,
+      "start": 34.84000015258789,
+      "word": "robots"
+    },
+    {
+      "end": 35.040000915527344,
+      "start": 34.84000015258789,
+      "word": "from"
+    },
+    {
+      "end": 35.20000076293945,
+      "start": 35.040000915527344,
+      "word": "a"
+    },
+    {
+      "end": 35.52000045776367,
+      "start": 35.20000076293945,
+      "word": "single"
+    },
+    {
+      "end": 35.84000015258789,
+      "start": 35.52000045776367,
+      "word": "company"
+    },
+    {
+      "end": 36.81999969482422,
+      "start": 36.619998931884766,
+      "word": "A"
+    },
+    {
+      "end": 36.939998626708984,
+      "start": 36.81999969482422,
+      "word": "company"
+    },
+    {
+      "end": 37.400001525878906,
+      "start": 36.939998626708984,
+      "word": "that"
+    },
+    {
+      "end": 37.63999938964844,
+      "start": 37.400001525878906,
+      "word": "controls"
+    },
+    {
+      "end": 38.20000076293945,
+      "start": 37.63999938964844,
+      "word": "the"
+    },
+    {
+      "end": 38.20000076293945,
+      "start": 38.20000076293945,
+      "word": "software"
+    },
+    {
+      "end": 38.7400016784668,
+      "start": 38.20000076293945,
+      "word": "updates"
+    },
+    {
+      "end": 39.5,
+      "start": 39.31999969482422,
+      "word": "the"
+    },
+    {
+      "end": 39.70000076293945,
+      "start": 39.5,
+      "word": "repair"
+    },
+    {
+      "end": 40.2599983215332,
+      "start": 39.70000076293945,
+      "word": "networks"
+    },
+    {
+      "end": 40.84000015258789,
+      "start": 40.619998931884766,
+      "word": "the"
+    },
+    {
+      "end": 41.099998474121094,
+      "start": 40.84000015258789,
+      "word": "training"
+    },
+    {
+      "end": 41.47999954223633,
+      "start": 41.099998474121094,
+      "word": "data"
+    },
+    {
+      "end": 41.86000061035156,
+      "start": 41.70000076293945,
+      "word": "the"
+    },
+    {
+      "end": 42.20000076293945,
+      "start": 41.86000061035156,
+      "word": "kill"
+    },
+    {
+      "end": 42.560001373291016,
+      "start": 42.20000076293945,
+      "word": "switch"
+    },
+    {
+      "end": 43.91999816894531,
+      "start": 43.400001525878906,
+      "word": "Ford's"
+    },
+    {
+      "end": 43.91999816894531,
+      "start": 43.91999816894531,
+      "word": "monopoly"
+    },
+    {
+      "end": 44.220001220703125,
+      "start": 43.91999816894531,
+      "word": "shaped"
+    },
+    {
+      "end": 44.900001525878906,
+      "start": 44.220001220703125,
+      "word": "an"
+    },
+    {
+      "end": 44.900001525878906,
+      "start": 44.900001525878906,
+      "word": "industry"
+    },
+    {
+      "end": 45.81999969482422,
+      "start": 45.36000061035156,
+      "word": "Foxconn's"
+    },
+    {
+      "end": 46.0,
+      "start": 45.81999969482422,
+      "word": "shaped"
+    },
+    {
+      "end": 46.439998626708984,
+      "start": 46.0,
+      "word": "global"
+    },
+    {
+      "end": 46.81999969482422,
+      "start": 46.439998626708984,
+      "word": "trade"
+    },
+    {
+      "end": 47.7400016784668,
+      "start": 47.400001525878906,
+      "word": "Tesla's"
+    },
+    {
+      "end": 47.959999084472656,
+      "start": 47.7400016784668,
+      "word": "could"
+    },
+    {
+      "end": 48.18000030517578,
+      "start": 47.959999084472656,
+      "word": "shape"
+    },
+    {
+      "end": 48.540000915527344,
+      "start": 48.18000030517578,
+      "word": "human"
+    },
+    {
+      "end": 48.880001068115234,
+      "start": 48.540000915527344,
+      "word": "civilization"
+    },
+    {
+      "end": 49.41999816894531,
+      "start": 48.880001068115234,
+      "word": "itself"
+    },
+    {
+      "end": 50.060001373291016,
+      "start": 49.7400016784668,
+      "word": "And"
+    },
+    {
+      "end": 50.099998474121094,
+      "start": 50.060001373291016,
+      "word": "here's"
+    },
+    {
+      "end": 50.279998779296875,
+      "start": 50.099998474121094,
+      "word": "what"
+    },
+    {
+      "end": 50.459999084472656,
+      "start": 50.279998779296875,
+      "word": "keeps"
+    },
+    {
+      "end": 50.91999816894531,
+      "start": 50.459999084472656,
+      "word": "economists"
+    },
+    {
+      "end": 51.220001220703125,
+      "start": 50.91999816894531,
+      "word": "awake"
+    },
+    {
+      "end": 51.599998474121094,
+      "start": 51.220001220703125,
+      "word": "at"
+    },
+    {
+      "end": 51.599998474121094,
+      "start": 51.599998474121094,
+      "word": "night"
+    },
+    {
+      "end": 52.459999084472656,
+      "start": 52.220001220703125,
+      "word": "Each"
+    },
+    {
+      "end": 53.52000045776367,
+      "start": 52.459999084472656,
+      "word": "generation's"
+    },
+    {
+      "end": 53.52000045776367,
+      "start": 53.52000045776367,
+      "word": "monopoly"
+    },
+    {
+      "end": 54.040000915527344,
+      "start": 53.52000045776367,
+      "word": "emerged"
+    },
+    {
+      "end": 54.65999984741211,
+      "start": 54.040000915527344,
+      "word": "faster"
+    },
+    {
+      "end": 54.91999816894531,
+      "start": 54.65999984741211,
+      "word": "than"
+    },
+    {
+      "end": 55.119998931884766,
+      "start": 54.91999816894531,
+      "word": "the"
+    },
+    {
+      "end": 55.400001525878906,
+      "start": 55.119998931884766,
+      "word": "last"
+    },
+    {
+      "end": 56.2599983215332,
+      "start": 56.13999938964844,
+      "word": "Ford"
+    },
+    {
+      "end": 56.459999084472656,
+      "start": 56.2599983215332,
+      "word": "took"
+    },
+    {
+      "end": 56.959999084472656,
+      "start": 56.459999084472656,
+      "word": "decades"
+    },
+    {
+      "end": 57.91999816894531,
+      "start": 57.41999816894531,
+      "word": "Foxconn"
+    },
+    {
+      "end": 58.060001373291016,
+      "start": 57.91999816894531,
+      "word": "took"
+    },
+    {
+      "end": 58.459999084472656,
+      "start": 58.060001373291016,
+      "word": "years"
+    },
+    {
+      "end": 59.41999816894531,
+      "start": 59.0,
+      "word": "Tesla's"
+    },
+    {
+      "end": 59.84000015258789,
+      "start": 59.41999816894531,
+      "word": "humanoid"
+    },
+    {
+      "end": 60.18000030517578,
+      "start": 59.84000015258789,
+      "word": "dominance"
+    },
+    {
+      "end": 60.459999084472656,
+      "start": 60.18000030517578,
+      "word": "could"
+    },
+    {
+      "end": 60.65999984741211,
+      "start": 60.459999084472656,
+      "word": "lock"
+    },
+    {
+      "end": 60.91999816894531,
+      "start": 60.65999984741211,
+      "word": "in"
+    },
+    {
+      "end": 61.279998779296875,
+      "start": 60.91999816894531,
+      "word": "within"
+    },
+    {
+      "end": 61.560001373291016,
+      "start": 61.279998779296875,
+      "word": "months"
+    },
+    {
+      "end": 61.880001068115234,
+      "start": 61.560001373291016,
+      "word": "once"
+    },
+    {
+      "end": 62.29999923706055,
+      "start": 61.880001068115234,
+      "word": "production"
+    },
+    {
+      "end": 62.7400016784668,
+      "start": 62.29999923706055,
+      "word": "scales"
+    },
+    {
+      "end": 63.7599983215332,
+      "start": 63.58000183105469,
+      "word": "The"
+    },
+    {
+      "end": 64.0199966430664,
+      "start": 63.7599983215332,
+      "word": "window"
+    },
+    {
+      "end": 64.31999969482422,
+      "start": 64.0199966430664,
+      "word": "to"
+    },
+    {
+      "end": 64.63999938964844,
+      "start": 64.31999969482422,
+      "word": "establish"
+    },
+    {
+      "end": 65.30000305175781,
+      "start": 64.63999938964844,
+      "word": "alternatives"
+    },
+    {
+      "end": 66.0,
+      "start": 65.91999816894531,
+      "word": "to"
+    },
+    {
+      "end": 66.19999694824219,
+      "start": 66.0,
+      "word": "build"
+    },
+    {
+      "end": 66.69999694824219,
+      "start": 66.19999694824219,
+      "word": "competing"
+    },
+    {
+      "end": 67.33999633789062,
+      "start": 66.69999694824219,
+      "word": "infrastructure"
+    },
+    {
+      "end": 68.04000091552734,
+      "start": 67.86000061035156,
+      "word": "to"
+    },
+    {
+      "end": 68.33999633789062,
+      "start": 68.04000091552734,
+      "word": "create"
+    },
+    {
+      "end": 68.9800033569336,
+      "start": 68.33999633789062,
+      "word": "regulatory"
+    },
+    {
+      "end": 69.54000091552734,
+      "start": 68.9800033569336,
+      "word": "frameworks"
+    },
+    {
+      "end": 70.05999755859375,
+      "start": 69.81999969482422,
+      "word": "it's"
+    },
+    {
+      "end": 70.41999816894531,
+      "start": 70.05999755859375,
+      "word": "not"
+    },
+    {
+      "end": 70.9000015258789,
+      "start": 70.41999816894531,
+      "word": "closing"
+    },
+    {
+      "end": 71.37999725341797,
+      "start": 71.12000274658203,
+      "word": "it's"
+    },
+    {
+      "end": 71.73999786376953,
+      "start": 71.37999725341797,
+      "word": "almost"
+    },
+    {
+      "end": 72.16000366210938,
+      "start": 71.73999786376953,
+      "word": "closed"
+    }
+  ],
+  "task": "transcribe"
+}

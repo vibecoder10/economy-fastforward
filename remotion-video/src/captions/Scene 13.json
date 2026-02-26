@@ -1,1 +1,1082 @@
-{"text": " The accounting magic happens in plain sight. When a cloud provider extends 100 million in credits to a startup, that startup immediately spends those credits on cloud services. Under generally accepted accounting principles, this books as legitimate revenue the moment the service is delivered. The auditors sign off because, technically, two separate legal entities engaged in an arm's length transaction. But follow the money. It starts in the cloud provider's treasury, moves briefly through the startup's account, then flows right back as payment for services. The provider's revenue line swells, their cash position barely changes, Wall Street celebrates the growth. This isn't fraud, that's what makes it so dangerous. Every transaction meets the letter of accounting law. Revenue recognition rules require only that a service was provided and a customer agreed to pay. They don't ask whether that customer's ability to pay originated from the vendor itself. It's a closed loop disguised as commerce. The provider is essentially paying itself, booking the payment as income, and reporting it to shareholders as organic growth. The big four auditors approve these financials every quarter.", "segments": [{"id": 0, "seek": 0, "start": 0.0, "end": 2.08, "text": " The accounting magic happens in plain sight.", "tokens": [50364, 440, 19163, 5585, 2314, 294, 11121, 7860, 13, 50500], "temperature": 0.0, "avg_logprob": -0.16824304011830113, "compression_ratio": 1.6785714285714286, "no_speech_prob": 0.0006800508708693087, "words": [{"word": " The", "start": 0.0, "end": 0.18, "probability": 0.8025228977203369}, {"word": " accounting", "start": 0.18, "end": 0.48, "probability": 0.7824122309684753}, {"word": " magic", "start": 0.48, "end": 0.86, "probability": 0.9909961223602295}, {"word": " happens", "start": 0.86, "end": 1.26, "probability": 0.9959748387336731}, {"word": " in", "start": 1.26, "end": 1.48, "probability": 0.9958802461624146}, {"word": " plain", "start": 1.48, "end": 1.72, "probability": 0.9860333800315857}, {"word": " sight.", "start": 1.72, "end": 2.08, "probability": 0.9888971447944641}]}, {"id": 1, "seek": 0, "start": 2.78, "end": 6.04, "text": " When a cloud provider extends 100 million in credits to a startup,", "tokens": [50500, 1133, 257, 4588, 12398, 26448, 2319, 2459, 294, 16816, 281, 257, 18578, 11, 50672], "temperature": 0.0, "avg_logprob": -0.16824304011830113, "compression_ratio": 1.6785714285714286, "no_speech_prob": 0.0006800508708693087, "words": [{"word": " When", "start": 2.78, "end": 2.9, "probability": 0.9901898503303528}, {"word": " a", "start": 2.9, "end": 3.0, "probability": 0.9977329969406128}, {"word": " cloud", "start": 3.0, "end": 3.24, "probability": 0.892314076423645}, {"word": " provider", "start": 3.24, "end": 3.66, "probability": 0.9985370635986328}, {"word": " extends", "start": 3.66, "end": 4.06, "probability": 0.9959533214569092}, {"word": " 100", "start": 4.06, "end": 4.52, "probability": 0.3300307095050812}, {"word": " million", "start": 4.52, "end": 4.86, "probability": 0.9724164605140686}, {"word": " in", "start": 4.86, "end": 5.1, "probability": 0.9737970232963562}, {"word": " credits", "start": 5.1, "end": 5.36, "probability": 0.9898779392242432}, {"word": " to", "start": 5.36, "end": 5.62, "probability": 0.9975236058235168}, {"word": " a", "start": 5.62, "end": 5.74, "probability": 0.9916319251060486}, {"word": " startup,", "start": 5.74, "end": 6.04, "probability": 0.7415173649787903}]}, {"id": 2, "seek": 0, "start": 6.24, "end": 9.46, "text": " that startup immediately spends those credits on cloud services.", "tokens": [50672, 300, 18578, 4258, 25620, 729, 16816, 322, 4588, 3328, 13, 50894], "temperature": 0.0, "avg_logprob": -0.16824304011830113, "compression_ratio": 1.6785714285714286, "no_speech_prob": 0.0006800508708693087, "words": [{"word": " that", "start": 6.24, "end": 6.36, "probability": 0.9904128909111023}, {"word": " startup", "start": 6.36, "end": 6.86, "probability": 0.9365025162696838}, {"word": " immediately", "start": 6.86, "end": 7.32, "probability": 0.9951629638671875}, {"word": " spends", "start": 7.32, "end": 7.88, "probability": 0.9975436329841614}, {"word": " those", "start": 7.88, "end": 8.06, "probability": 0.9914959669113159}, {"word": " credits", "start": 8.06, "end": 8.46, "probability": 0.9970155954360962}, {"word": " on", "start": 8.46, "end": 8.7, "probability": 0.9983964562416077}, {"word": " cloud", "start": 8.7, "end": 9.0, "probability": 0.9878750443458557}, {"word": " services.", "start": 9.0, "end": 9.46, "probability": 0.9991034865379333}]}, {"id": 3, "seek": 0, "start": 10.58, "end": 12.7, "text": " Under generally accepted accounting principles,", "tokens": [50894, 6974, 5101, 9035, 19163, 9156, 11, 51024], "temperature": 0.0, "avg_logprob": -0.16824304011830113, "compression_ratio": 1.6785714285714286, "no_speech_prob": 0.0006800508708693087, "words": [{"word": " Under", "start": 10.58, "end": 10.86, "probability": 0.9878330230712891}, {"word": " generally", "start": 10.86, "end": 11.2, "probability": 0.7170780301094055}, {"word": " accepted", "start": 11.2, "end": 11.72, "probability": 0.8892205357551575}, {"word": " accounting", "start": 11.72, "end": 12.16, "probability": 0.9784854054450989}, {"word": " principles,", "start": 12.16, "end": 12.7, "probability": 0.9925314784049988}]}, {"id": 4, "seek": 0, "start": 13.22, "end": 16.72, "text": " this books as legitimate revenue the moment the service is delivered.", "tokens": [51024, 341, 3642, 382, 17956, 9324, 264, 1623, 264, 2643, 307, 10144, 13, 51238], "temperature": 0.0, "avg_logprob": -0.16824304011830113, "compression_ratio": 1.6785714285714286, "no_speech_prob": 0.0006800508708693087, "words": [{"word": " this", "start": 13.22, "end": 13.42, "probability": 0.9913243055343628}, {"word": " books", "start": 13.42, "end": 13.68, "probability": 0.747597336769104}, {"word": " as", "start": 13.68, "end": 13.86, "probability": 0.9762188792228699}, {"word": " legitimate", "start": 13.86, "end": 14.34, "probability": 0.6080583930015564}, {"word": " revenue", "start": 14.34, "end": 15.02, "probability": 0.9936766028404236}, {"word": " the", "start": 15.02, "end": 15.28, "probability": 0.9434993863105774}, {"word": " moment", "start": 15.28, "end": 15.64, "probability": 0.9984050393104553}, {"word": " the", "start": 15.64, "end": 15.84, "probability": 0.989334762096405}, {"word": " service", "start": 15.84, "end": 16.16, "probability": 0.996711254119873}, {"word": " is", "start": 16.16, "end": 16.38, "probability": 0.9984643459320068}, {"word": " delivered.", "start": 16.38, "end": 16.72, "probability": 0.9983699917793274}]}, {"id": 5, "seek": 0, "start": 17.5, "end": 19.5, "text": " The auditors sign off because, technically,", "tokens": [51238, 440, 2379, 9862, 1465, 766, 570, 11, 12120, 11, 51370], "temperature": 0.0, "avg_logprob": -0.16824304011830113, "compression_ratio": 1.6785714285714286, "no_speech_prob": 0.0006800508708693087, "words": [{"word": " The", "start": 17.5, "end": 17.64, "probability": 0.9900268316268921}, {"word": " auditors", "start": 17.64, "end": 17.94, "probability": 0.935263603925705}, {"word": " sign", "start": 17.94, "end": 18.34, "probability": 0.9954687356948853}, {"word": " off", "start": 18.34, "end": 18.56, "probability": 0.9832767248153687}, {"word": " because,", "start": 18.56, "end": 18.8, "probability": 0.9367800951004028}, {"word": " technically,", "start": 18.94, "end": 19.5, "probability": 0.5538356304168701}]}, {"id": 6, "seek": 0, "start": 20.14, "end": 23.4, "text": " two separate legal entities engaged in an arm's length transaction.", "tokens": [51370, 732, 4994, 5089, 16667, 8237, 294, 364, 3726, 311, 4641, 14425, 13, 51566], "temperature": 0.0, "avg_logprob": -0.16824304011830113, "compression_ratio": 1.6785714285714286, "no_speech_prob": 0.0006800508708693087, "words": [{"word": " two", "start": 20.14, "end": 20.34, "probability": 0.9646968245506287}, {"word": " separate", "start": 20.34, "end": 20.68, "probability": 0.9947916269302368}, {"word": " legal", "start": 20.68, "end": 20.98, "probability": 0.9979643821716309}, {"word": " entities", "start": 20.98, "end": 21.4, "probability": 0.9737511277198792}, {"word": " engaged", "start": 21.4, "end": 21.94, "probability": 0.9199906587600708}, {"word": " in", "start": 21.94, "end": 22.18, "probability": 0.999184787273407}, {"word": " an", "start": 22.18, "end": 22.36, "probability": 0.9860163331031799}, {"word": " arm's", "start": 22.36, "end": 22.66, "probability": 0.7094923108816147}, {"word": " length", "start": 22.66, "end": 22.78, "probability": 0.894576907157898}, {"word": " transaction.", "start": 22.78, "end": 23.4, "probability": 0.9957274198532104}]}, {"id": 7, "seek": 0, "start": 23.92, "end": 24.8, "text": " But follow the money.", "tokens": [51566, 583, 1524, 264, 1460, 13, 51628], "temperature": 0.0, "avg_logprob": -0.16824304011830113, "compression_ratio": 1.6785714285714286, "no_speech_prob": 0.0006800508708693087, "words": [{"word": " But", "start": 23.92, "end": 24.22, "probability": 0.9886616468429565}, {"word": " follow", "start": 24.22, "end": 24.44, "probability": 0.9819050431251526}, {"word": " the", "start": 24.44, "end": 24.6, "probability": 0.9984179735183716}, {"word": " money.", "start": 24.6, "end": 24.8, "probability": 0.9994926452636719}]}, {"id": 8, "seek": 0, "start": 25.3, "end": 26.9, "text": " It starts in the cloud provider's treasury,", "tokens": [51628, 467, 3719, 294, 264, 4588, 12398, 311, 47213, 11, 51720], "temperature": 0.0, "avg_logprob": -0.16824304011830113, "compression_ratio": 1.6785714285714286, "no_speech_prob": 0.0006800508708693087, "words": [{"word": " It", "start": 25.3, "end": 25.46, "probability": 0.9916934370994568}, {"word": " starts", "start": 25.46, "end": 25.64, "probability": 0.9978364109992981}, {"word": " in", "start": 25.64, "end": 25.86, "probability": 0.9924684166908264}, {"word": " the", "start": 25.86, "end": 25.94, "probability": 0.9940992593765259}, {"word": " cloud", "start": 25.94, "end": 26.16, "probability": 0.9661181569099426}, {"word": " provider's", "start": 26.16, "end": 26.6, "probability": 0.9759133458137512}, {"word": " treasury,", "start": 26.6, "end": 26.9, "probability": 0.8236304521560669}]}, {"id": 9, "seek": 0, "start": 27.2, "end": 28.98, "text": " moves briefly through the startup's account,", "tokens": [51720, 6067, 10515, 807, 264, 18578, 311, 2696, 11, 51832], "temperature": 0.0, "avg_logprob": -0.16824304011830113, "compression_ratio": 1.6785714285714286, "no_speech_prob": 0.0006800508708693087, "words": [{"word": " moves", "start": 27.2, "end": 27.4, "probability": 0.9948340654373169}, {"word": " briefly", "start": 27.4, "end": 27.8, "probability": 0.9982144832611084}, {"word": " through", "start": 27.8, "end": 28.06, "probability": 0.9957785606384277}, {"word": " the", "start": 28.06, "end": 28.22, "probability": 0.9895200729370117}, {"word": " startup's", "start": 28.22, "end": 28.7, "probability": 0.9082484245300293}, {"word": " account,", "start": 28.7, "end": 28.98, "probability": 0.9993823766708374}]}, {"id": 10, "seek": 2898, "start": 28.98, "end": 31.36, "text": " then flows right back as payment for services.", "tokens": [50376, 550, 12867, 558, 646, 382, 10224, 337, 3328, 13, 50520], "temperature": 0.0, "avg_logprob": -0.11356462637583414, "compression_ratio": 1.6266666666666667, "no_speech_prob": 0.0008356111356988549, "words": [{"word": " then", "start": 28.98, "end": 29.5, "probability": 0.14465667307376862}, {"word": " flows", "start": 29.5, "end": 29.78, "probability": 0.9539003372192383}, {"word": " right", "start": 29.78, "end": 30.04, "probability": 0.9680780172348022}, {"word": " back", "start": 30.04, "end": 30.28, "probability": 0.9968982934951782}, {"word": " as", "start": 30.28, "end": 30.48, "probability": 0.9883571267127991}, {"word": " payment", "start": 30.48, "end": 30.72, "probability": 0.9896628260612488}, {"word": " for", "start": 30.72, "end": 30.94, "probability": 0.9935073852539062}, {"word": " services.", "start": 30.94, "end": 31.36, "probability": 0.9962719678878784}]}, {"id": 11, "seek": 2898, "start": 32.3, "end": 33.98, "text": " The provider's revenue line swells,", "tokens": [50520, 440, 12398, 311, 9324, 1622, 34251, 82, 11, 50624], "temperature": 0.0, "avg_logprob": -0.11356462637583414, "compression_ratio": 1.6266666666666667, "no_speech_prob": 0.0008356111356988549, "words": [{"word": " The", "start": 32.3, "end": 32.36, "probability": 0.8059056401252747}, {"word": " provider's", "start": 32.36, "end": 32.86, "probability": 0.9684023857116699}, {"word": " revenue", "start": 32.86, "end": 33.06, "probability": 0.9920476078987122}, {"word": " line", "start": 33.06, "end": 33.38, "probability": 0.9423977136611938}, {"word": " swells,", "start": 33.38, "end": 33.98, "probability": 0.9939984977245331}]}, {"id": 12, "seek": 2898, "start": 34.34, "end": 35.82, "text": " their cash position barely changes,", "tokens": [50624, 641, 6388, 2535, 10268, 2962, 11, 50728], "temperature": 0.0, "avg_logprob": -0.11356462637583414, "compression_ratio": 1.6266666666666667, "no_speech_prob": 0.0008356111356988549, "words": [{"word": " their", "start": 34.34, "end": 34.48, "probability": 0.9805906414985657}, {"word": " cash", "start": 34.48, "end": 34.72, "probability": 0.9974864721298218}, {"word": " position", "start": 34.72, "end": 35.12, "probability": 0.9895071387290955}, {"word": " barely", "start": 35.12, "end": 35.4, "probability": 0.9974182844161987}, {"word": " changes,", "start": 35.4, "end": 35.82, "probability": 0.9992183446884155}]}, {"id": 13, "seek": 2898, "start": 36.46, "end": 37.8, "text": " Wall Street celebrates the growth.", "tokens": [50728, 9551, 7638, 47182, 264, 4599, 13, 50824], "temperature": 0.0, "avg_logprob": -0.11356462637583414, "compression_ratio": 1.6266666666666667, "no_speech_prob": 0.0008356111356988549, "words": [{"word": " Wall", "start": 36.46, "end": 36.6, "probability": 0.8911319375038147}, {"word": " Street", "start": 36.6, "end": 36.84, "probability": 0.9907279014587402}, {"word": " celebrates", "start": 36.84, "end": 37.3, "probability": 0.9951417446136475}, {"word": " the", "start": 37.3, "end": 37.56, "probability": 0.9931275844573975}, {"word": " growth.", "start": 37.56, "end": 37.8, "probability": 0.9979173541069031}]}, {"id": 14, "seek": 2898, "start": 38.32, "end": 40.7, "text": " This isn't fraud, that's what makes it so dangerous.", "tokens": [50824, 639, 1943, 380, 14560, 11, 300, 311, 437, 1669, 309, 370, 5795, 13, 50956], "temperature": 0.0, "avg_logprob": -0.11356462637583414, "compression_ratio": 1.6266666666666667, "no_speech_prob": 0.0008356111356988549, "words": [{"word": " This", "start": 38.32, "end": 38.5, "probability": 0.9576095342636108}, {"word": " isn't", "start": 38.5, "end": 38.76, "probability": 0.996756911277771}, {"word": " fraud,", "start": 38.76, "end": 39.04, "probability": 0.9627860188484192}, {"word": " that's", "start": 39.36, "end": 39.7, "probability": 0.98100546002388}, {"word": " what", "start": 39.7, "end": 39.8, "probability": 0.9975911378860474}, {"word": " makes", "start": 39.8, "end": 40.04, "probability": 0.994959831237793}, {"word": " it", "start": 40.04, "end": 40.16, "probability": 0.9966152310371399}, {"word": " so", "start": 40.16, "end": 40.3, "probability": 0.9952954649925232}, {"word": " dangerous.", "start": 40.3, "end": 40.7, "probability": 0.9926922917366028}]}, {"id": 15, "seek": 2898, "start": 42.06, "end": 44.34, "text": " Every transaction meets the letter of accounting law.", "tokens": [51012, 2048, 14425, 13961, 264, 5063, 295, 19163, 2101, 13, 51160], "temperature": 0.0, "avg_logprob": -0.11356462637583414, "compression_ratio": 1.6266666666666667, "no_speech_prob": 0.0008356111356988549, "words": [{"word": " Every", "start": 42.06, "end": 42.28, "probability": 0.9734146595001221}, {"word": " transaction", "start": 42.28, "end": 42.66, "probability": 0.9992892742156982}, {"word": " meets", "start": 42.66, "end": 43.14, "probability": 0.9965806603431702}, {"word": " the", "start": 43.14, "end": 43.36, "probability": 0.9962942004203796}, {"word": " letter", "start": 43.36, "end": 43.54, "probability": 0.8881357312202454}, {"word": " of", "start": 43.54, "end": 43.68, "probability": 0.9928699135780334}, {"word": " accounting", "start": 43.68, "end": 43.98, "probability": 0.877005934715271}, {"word": " law.", "start": 43.98, "end": 44.34, "probability": 0.9925339221954346}]}, {"id": 16, "seek": 2898, "start": 45.0, "end": 48.46, "text": " Revenue recognition rules require only that a service was provided", "tokens": [51160, 1300, 29307, 11150, 4474, 3651, 787, 300, 257, 2643, 390, 5649, 51348], "temperature": 0.0, "avg_logprob": -0.11356462637583414, "compression_ratio": 1.6266666666666667, "no_speech_prob": 0.0008356111356988549, "words": [{"word": " Revenue", "start": 45.0, "end": 45.3, "probability": 0.9831041693687439}, {"word": " recognition", "start": 45.3, "end": 45.72, "probability": 0.9278520941734314}, {"word": " rules", "start": 45.72, "end": 46.26, "probability": 0.9976558685302734}, {"word": " require", "start": 46.26, "end": 46.6, "probability": 0.9852828979492188}, {"word": " only", "start": 46.6, "end": 47.14, "probability": 0.9767880439758301}, {"word": " that", "start": 47.14, "end": 47.38, "probability": 0.9665731191635132}, {"word": " a", "start": 47.38, "end": 47.46, "probability": 0.9871943593025208}, {"word": " service", "start": 47.46, "end": 47.76, "probability": 0.9975666999816895}, {"word": " was", "start": 47.76, "end": 47.98, "probability": 0.9798381328582764}, {"word": " provided", "start": 47.98, "end": 48.46, "probability": 0.998089611530304}]}, {"id": 17, "seek": 2898, "start": 48.46, "end": 50.08, "text": " and a customer agreed to pay.", "tokens": [51348, 293, 257, 5474, 9166, 281, 1689, 13, 51436], "temperature": 0.0, "avg_logprob": -0.11356462637583414, "compression_ratio": 1.6266666666666667, "no_speech_prob": 0.0008356111356988549, "words": [{"word": " and", "start": 48.46, "end": 48.98, "probability": 0.9003671407699585}, {"word": " a", "start": 48.98, "end": 49.1, "probability": 0.9883900880813599}, {"word": " customer", "start": 49.1, "end": 49.4, "probability": 0.9985232949256897}, {"word": " agreed", "start": 49.4, "end": 49.7, "probability": 0.9947896003723145}, {"word": " to", "start": 49.7, "end": 49.88, "probability": 0.9989861845970154}, {"word": " pay.", "start": 49.88, "end": 50.08, "probability": 0.9996328353881836}]}, {"id": 18, "seek": 2898, "start": 50.5, "end": 52.74, "text": " They don't ask whether that customer's ability to pay", "tokens": [51436, 814, 500, 380, 1029, 1968, 300, 5474, 311, 3485, 281, 1689, 51548], "temperature": 0.0, "avg_logprob": -0.11356462637583414, "compression_ratio": 1.6266666666666667, "no_speech_prob": 0.0008356111356988549, "words": [{"word": " They", "start": 50.5, "end": 50.66, "probability": 0.9955618381500244}, {"word": " don't", "start": 50.66, "end": 50.84, "probability": 0.9986920356750488}, {"word": " ask", "start": 50.84, "end": 51.14, "probability": 0.9976711869239807}, {"word": " whether", "start": 51.14, "end": 51.42, "probability": 0.9843385815620422}, {"word": " that", "start": 51.42, "end": 51.62, "probability": 0.9586915969848633}, {"word": " customer's", "start": 51.62, "end": 52.1, "probability": 0.9811418950557709}, {"word": " ability", "start": 52.1, "end": 52.32, "probability": 0.9984672665596008}, {"word": " to", "start": 52.32, "end": 52.56, "probability": 0.9978854060173035}, {"word": " pay", "start": 52.56, "end": 52.74, "probability": 0.9991095662117004}]}, {"id": 19, "seek": 2898, "start": 52.74, "end": 54.32, "text": " originated from the vendor itself.", "tokens": [51548, 31129, 490, 264, 24321, 2564, 13, 51652], "temperature": 0.0, "avg_logprob": -0.11356462637583414, "compression_ratio": 1.6266666666666667, "no_speech_prob": 0.0008356111356988549, "words": [{"word": " originated", "start": 52.74, "end": 53.06, "probability": 0.9982907176017761}, {"word": " from", "start": 53.06, "end": 53.5, "probability": 0.9975010752677917}, {"word": " the", "start": 53.5, "end": 53.64, "probability": 0.9963974356651306}, {"word": " vendor", "start": 53.64, "end": 53.9, "probability": 0.995574951171875}, {"word": " itself.", "start": 53.9, "end": 54.32, "probability": 0.9948267340660095}]}, {"id": 20, "seek": 2898, "start": 54.86, "end": 56.64, "text": " It's a closed loop disguised as commerce.", "tokens": [51652, 467, 311, 257, 5395, 6367, 23333, 2640, 382, 26320, 13, 51752], "temperature": 0.0, "avg_logprob": -0.11356462637583414, "compression_ratio": 1.6266666666666667, "no_speech_prob": 0.0008356111356988549, "words": [{"word": " It's", "start": 54.86, "end": 55.12, "probability": 0.9815405011177063}, {"word": " a", "start": 55.12, "end": 55.16, "probability": 0.9938756823539734}, {"word": " closed", "start": 55.16, "end": 55.4, "probability": 0.9979211688041687}, {"word": " loop", "start": 55.4, "end": 55.7, "probability": 0.9030190110206604}, {"word": " disguised", "start": 55.7, "end": 56.22, "probability": 0.9839137196540833}, {"word": " as", "start": 56.22, "end": 56.34, "probability": 0.9990239143371582}, {"word": " commerce.", "start": 56.34, "end": 56.64, "probability": 0.9866611361503601}]}, {"id": 21, "seek": 5664, "start": 57.6, "end": 59.78, "text": " The provider is essentially paying itself,", "tokens": [50412, 440, 12398, 307, 4476, 6229, 2564, 11, 50540], "temperature": 0.0, "avg_logprob": -0.1302317464074423, "compression_ratio": 1.364963503649635, "no_speech_prob": 0.005688708275556564, "words": [{"word": " The", "start": 57.54, "end": 57.88, "probability": 0.6985481977462769}, {"word": " provider", "start": 57.88, "end": 58.22, "probability": 0.9961680769920349}, {"word": " is", "start": 58.22, "end": 58.48, "probability": 0.9932247996330261}, {"word": " essentially", "start": 58.48, "end": 59.02, "probability": 0.9629653692245483}, {"word": " paying", "start": 59.02, "end": 59.36, "probability": 0.9947115182876587}, {"word": " itself,", "start": 59.36, "end": 59.78, "probability": 0.9919901490211487}]}, {"id": 22, "seek": 5664, "start": 60.32, "end": 61.6, "text": " booking the payment as income,", "tokens": [50540, 34424, 264, 10224, 382, 5742, 11, 50628], "temperature": 0.0, "avg_logprob": -0.1302317464074423, "compression_ratio": 1.364963503649635, "no_speech_prob": 0.005688708275556564, "words": [{"word": " booking", "start": 60.32, "end": 60.52, "probability": 0.9951802492141724}, {"word": " the", "start": 60.52, "end": 60.7, "probability": 0.9914106130599976}, {"word": " payment", "start": 60.7, "end": 60.98, "probability": 0.9777145385742188}, {"word": " as", "start": 60.98, "end": 61.24, "probability": 0.9943100214004517}, {"word": " income,", "start": 61.24, "end": 61.6, "probability": 0.9901239275932312}]}, {"id": 23, "seek": 5664, "start": 62.14, "end": 64.26, "text": " and reporting it to shareholders as organic growth.", "tokens": [50628, 293, 10031, 309, 281, 33294, 382, 10220, 4599, 13, 50744], "temperature": 0.0, "avg_logprob": -0.1302317464074423, "compression_ratio": 1.364963503649635, "no_speech_prob": 0.005688708275556564, "words": [{"word": " and", "start": 62.14, "end": 62.18, "probability": 0.9933679699897766}, {"word": " reporting", "start": 62.18, "end": 62.54, "probability": 0.9977033734321594}, {"word": " it", "start": 62.54, "end": 62.74, "probability": 0.9921086430549622}, {"word": " to", "start": 62.74, "end": 62.84, "probability": 0.9971596002578735}, {"word": " shareholders", "start": 62.84, "end": 63.3, "probability": 0.9936116337776184}, {"word": " as", "start": 63.3, "end": 63.58, "probability": 0.989161491394043}, {"word": " organic", "start": 63.58, "end": 63.88, "probability": 0.9906512498855591}, {"word": " growth.", "start": 63.88, "end": 64.26, "probability": 0.9969415068626404}]}, {"id": 24, "seek": 5664, "start": 65.28, "end": 68.12, "text": " The big four auditors approve these financials every quarter.", "tokens": [50792, 440, 955, 1451, 2379, 9862, 18827, 613, 4669, 82, 633, 6555, 13, 50960], "temperature": 0.0, "avg_logprob": -0.1302317464074423, "compression_ratio": 1.364963503649635, "no_speech_prob": 0.005688708275556564, "words": [{"word": " The", "start": 65.28, "end": 65.44, "probability": 0.9931167364120483}, {"word": " big", "start": 65.44, "end": 65.64, "probability": 0.9090890884399414}, {"word": " four", "start": 65.64, "end": 65.86, "probability": 0.8100954294204712}, {"word": " auditors", "start": 65.86, "end": 66.28, "probability": 0.9327781498432159}, {"word": " approve", "start": 66.28, "end": 66.7, "probability": 0.9860804677009583}, {"word": " these", "start": 66.7, "end": 66.92, "probability": 0.9851839542388916}, {"word": " financials", "start": 66.92, "end": 67.58, "probability": 0.9903041422367096}, {"word": " every", "start": 67.58, "end": 67.74, "probability": 0.9887542724609375}, {"word": " quarter.", "start": 67.74, "end": 68.12, "probability": 0.998690664768219}]}], "language": "en"}
+{
+  "text": "Here's the kicker that nobody's talking about Tesla doesn't need to keep Optimus to themselves In fact the real play is giving it away 20 000 That's the price tag they're floating to other manufacturers Ford wants robots for their assembly lines Here you go Amazon needs warehouse workers that don't unionise Step right up The economics are irresistible No company can build a humanoid robot at that price point Tesla's already eaten the R D costs They've got the manufacturing scale They're practically doing you a favour Except every single robot sold runs on Tesla's neural networks Every unit phones home to Tesla's cloud servers Every software update every capability upgrade every security patch flows through Cupertino's uglier cousin in Austin Texas You think you bought a robot You think it's yours But try running it without Tesla's blessing Try switching to a competitor's operating system You can't You didn't purchase hardware You subscribed to an ecosystem And the moment Tesla controls the software that powers your entire factory floor you don't negotiate with them You comply",
+  "segments": [
+    {
+      "id": 0,
+      "start": 0.0,
+      "end": 66.63999938964844,
+      "text": "Here's the kicker that nobody's talking about Tesla doesn't need to keep Optimus to themselves In fact the real play is giving it away 20 000 That's the price tag they're floating to other manufacturers Ford wants robots for their assembly lines Here you go Amazon needs warehouse workers that don't unionise Step right up The economics are irresistible No company can build a humanoid robot at that price point Tesla's already eaten the R D costs They've got the manufacturing scale They're practically doing you a favour Except every single robot sold runs on Tesla's neural networks Every unit phones home to Tesla's cloud servers Every software update every capability upgrade every security patch flows through Cupertino's uglier cousin in Austin Texas You think you bought a robot You think it's yours But try running it without Tesla's blessing Try switching to a competitor's operating system You can't You didn't purchase hardware You subscribed to an ecosystem And the moment Tesla controls the software that powers your entire factory floor you don't negotiate with them You comply",
+      "words": [
+        {
+          "word": "Here's",
+          "start": 0.0,
+          "end": 0.28,
+          "probability": 1.0
+        },
+        {
+          "word": "the",
+          "start": 0.28,
+          "end": 0.56,
+          "probability": 1.0
+        },
+        {
+          "word": "kicker",
+          "start": 0.56,
+          "end": 0.76,
+          "probability": 1.0
+        },
+        {
+          "word": "that",
+          "start": 0.76,
+          "end": 1.18,
+          "probability": 1.0
+        },
+        {
+          "word": "nobody's",
+          "start": 1.18,
+          "end": 1.66,
+          "probability": 1.0
+        },
+        {
+          "word": "talking",
+          "start": 1.66,
+          "end": 1.88,
+          "probability": 1.0
+        },
+        {
+          "word": "about",
+          "start": 1.88,
+          "end": 2.28,
+          "probability": 1.0
+        },
+        {
+          "word": "Tesla",
+          "start": 3.48,
+          "end": 3.48,
+          "probability": 1.0
+        },
+        {
+          "word": "doesn't",
+          "start": 3.48,
+          "end": 3.76,
+          "probability": 1.0
+        },
+        {
+          "word": "need",
+          "start": 3.76,
+          "end": 4.04,
+          "probability": 1.0
+        },
+        {
+          "word": "to",
+          "start": 4.04,
+          "end": 4.22,
+          "probability": 1.0
+        },
+        {
+          "word": "keep",
+          "start": 4.22,
+          "end": 4.38,
+          "probability": 1.0
+        },
+        {
+          "word": "Optimus",
+          "start": 4.38,
+          "end": 4.78,
+          "probability": 1.0
+        },
+        {
+          "word": "to",
+          "start": 4.78,
+          "end": 4.92,
+          "probability": 1.0
+        },
+        {
+          "word": "themselves",
+          "start": 4.92,
+          "end": 5.46,
+          "probability": 1.0
+        },
+        {
+          "word": "In",
+          "start": 6.06,
+          "end": 6.2,
+          "probability": 1.0
+        },
+        {
+          "word": "fact",
+          "start": 6.2,
+          "end": 6.42,
+          "probability": 1.0
+        },
+        {
+          "word": "the",
+          "start": 6.8,
+          "end": 6.94,
+          "probability": 1.0
+        },
+        {
+          "word": "real",
+          "start": 6.94,
+          "end": 7.24,
+          "probability": 1.0
+        },
+        {
+          "word": "play",
+          "start": 7.24,
+          "end": 7.42,
+          "probability": 1.0
+        },
+        {
+          "word": "is",
+          "start": 7.42,
+          "end": 7.6,
+          "probability": 1.0
+        },
+        {
+          "word": "giving",
+          "start": 7.6,
+          "end": 7.82,
+          "probability": 1.0
+        },
+        {
+          "word": "it",
+          "start": 7.82,
+          "end": 7.94,
+          "probability": 1.0
+        },
+        {
+          "word": "away",
+          "start": 7.94,
+          "end": 8.32,
+          "probability": 1.0
+        },
+        {
+          "word": "20",
+          "start": 8.88,
+          "end": 9.34,
+          "probability": 1.0
+        },
+        {
+          "word": "000",
+          "start": 9.34,
+          "end": 9.68,
+          "probability": 1.0
+        },
+        {
+          "word": "That's",
+          "start": 10.42,
+          "end": 10.74,
+          "probability": 1.0
+        },
+        {
+          "word": "the",
+          "start": 10.74,
+          "end": 10.9,
+          "probability": 1.0
+        },
+        {
+          "word": "price",
+          "start": 10.9,
+          "end": 11.16,
+          "probability": 1.0
+        },
+        {
+          "word": "tag",
+          "start": 11.16,
+          "end": 11.36,
+          "probability": 1.0
+        },
+        {
+          "word": "they're",
+          "start": 11.36,
+          "end": 11.6,
+          "probability": 1.0
+        },
+        {
+          "word": "floating",
+          "start": 11.6,
+          "end": 11.82,
+          "probability": 1.0
+        },
+        {
+          "word": "to",
+          "start": 11.82,
+          "end": 12.04,
+          "probability": 1.0
+        },
+        {
+          "word": "other",
+          "start": 12.04,
+          "end": 12.28,
+          "probability": 1.0
+        },
+        {
+          "word": "manufacturers",
+          "start": 12.28,
+          "end": 12.72,
+          "probability": 1.0
+        },
+        {
+          "word": "Ford",
+          "start": 13.56,
+          "end": 13.62,
+          "probability": 1.0
+        },
+        {
+          "word": "wants",
+          "start": 13.62,
+          "end": 13.84,
+          "probability": 1.0
+        },
+        {
+          "word": "robots",
+          "start": 13.84,
+          "end": 14.18,
+          "probability": 1.0
+        },
+        {
+          "word": "for",
+          "start": 14.18,
+          "end": 14.36,
+          "probability": 1.0
+        },
+        {
+          "word": "their",
+          "start": 14.36,
+          "end": 14.66,
+          "probability": 1.0
+        },
+        {
+          "word": "assembly",
+          "start": 14.66,
+          "end": 14.88,
+          "probability": 1.0
+        },
+        {
+          "word": "lines",
+          "start": 14.88,
+          "end": 15.24,
+          "probability": 1.0
+        },
+        {
+          "word": "Here",
+          "start": 15.72,
+          "end": 15.9,
+          "probability": 1.0
+        },
+        {
+          "word": "you",
+          "start": 15.9,
+          "end": 16.04,
+          "probability": 1.0
+        },
+        {
+          "word": "go",
+          "start": 16.04,
+          "end": 16.24,
+          "probability": 1.0
+        },
+        {
+          "word": "Amazon",
+          "start": 16.74,
+          "end": 17.0,
+          "probability": 1.0
+        },
+        {
+          "word": "needs",
+          "start": 17.0,
+          "end": 17.28,
+          "probability": 1.0
+        },
+        {
+          "word": "warehouse",
+          "start": 17.28,
+          "end": 17.7,
+          "probability": 1.0
+        },
+        {
+          "word": "workers",
+          "start": 17.7,
+          "end": 18.02,
+          "probability": 1.0
+        },
+        {
+          "word": "that",
+          "start": 18.02,
+          "end": 18.3,
+          "probability": 1.0
+        },
+        {
+          "word": "don't",
+          "start": 18.3,
+          "end": 18.56,
+          "probability": 1.0
+        },
+        {
+          "word": "unionise",
+          "start": 18.56,
+          "end": 19.22,
+          "probability": 1.0
+        },
+        {
+          "word": "Step",
+          "start": 19.5,
+          "end": 19.76,
+          "probability": 1.0
+        },
+        {
+          "word": "right",
+          "start": 19.76,
+          "end": 19.98,
+          "probability": 1.0
+        },
+        {
+          "word": "up",
+          "start": 19.98,
+          "end": 20.18,
+          "probability": 1.0
+        },
+        {
+          "word": "The",
+          "start": 20.54,
+          "end": 20.76,
+          "probability": 1.0
+        },
+        {
+          "word": "economics",
+          "start": 20.76,
+          "end": 21.26,
+          "probability": 1.0
+        },
+        {
+          "word": "are",
+          "start": 21.26,
+          "end": 21.64,
+          "probability": 1.0
+        },
+        {
+          "word": "irresistible",
+          "start": 21.64,
+          "end": 22.08,
+          "probability": 1.0
+        },
+        {
+          "word": "No",
+          "start": 22.5,
+          "end": 22.68,
+          "probability": 1.0
+        },
+        {
+          "word": "company",
+          "start": 22.68,
+          "end": 23.02,
+          "probability": 1.0
+        },
+        {
+          "word": "can",
+          "start": 23.02,
+          "end": 23.28,
+          "probability": 1.0
+        },
+        {
+          "word": "build",
+          "start": 23.28,
+          "end": 23.44,
+          "probability": 1.0
+        },
+        {
+          "word": "a",
+          "start": 23.44,
+          "end": 23.66,
+          "probability": 1.0
+        },
+        {
+          "word": "humanoid",
+          "start": 23.66,
+          "end": 24.04,
+          "probability": 1.0
+        },
+        {
+          "word": "robot",
+          "start": 24.04,
+          "end": 24.3,
+          "probability": 1.0
+        },
+        {
+          "word": "at",
+          "start": 24.3,
+          "end": 24.48,
+          "probability": 1.0
+        },
+        {
+          "word": "that",
+          "start": 24.48,
+          "end": 24.68,
+          "probability": 1.0
+        },
+        {
+          "word": "price",
+          "start": 24.68,
+          "end": 24.98,
+          "probability": 1.0
+        },
+        {
+          "word": "point",
+          "start": 24.98,
+          "end": 25.2,
+          "probability": 1.0
+        },
+        {
+          "word": "Tesla's",
+          "start": 26.08,
+          "end": 26.52,
+          "probability": 1.0
+        },
+        {
+          "word": "already",
+          "start": 26.52,
+          "end": 26.88,
+          "probability": 1.0
+        },
+        {
+          "word": "eaten",
+          "start": 26.88,
+          "end": 27.04,
+          "probability": 1.0
+        },
+        {
+          "word": "the",
+          "start": 27.04,
+          "end": 27.3,
+          "probability": 1.0
+        },
+        {
+          "word": "R",
+          "start": 27.3,
+          "end": 27.46,
+          "probability": 1.0
+        },
+        {
+          "word": "D",
+          "start": 27.46,
+          "end": 27.64,
+          "probability": 1.0
+        },
+        {
+          "word": "costs",
+          "start": 27.64,
+          "end": 28.02,
+          "probability": 1.0
+        },
+        {
+          "word": "They've",
+          "start": 28.02,
+          "end": 28.52,
+          "probability": 1.0
+        },
+        {
+          "word": "got",
+          "start": 28.52,
+          "end": 28.66,
+          "probability": 1.0
+        },
+        {
+          "word": "the",
+          "start": 28.66,
+          "end": 28.9,
+          "probability": 1.0
+        },
+        {
+          "word": "manufacturing",
+          "start": 28.9,
+          "end": 29.32,
+          "probability": 1.0
+        },
+        {
+          "word": "scale",
+          "start": 29.32,
+          "end": 29.68,
+          "probability": 1.0
+        },
+        {
+          "word": "They're",
+          "start": 30.06,
+          "end": 30.26,
+          "probability": 1.0
+        },
+        {
+          "word": "practically",
+          "start": 30.26,
+          "end": 30.84,
+          "probability": 1.0
+        },
+        {
+          "word": "doing",
+          "start": 30.84,
+          "end": 31.08,
+          "probability": 1.0
+        },
+        {
+          "word": "you",
+          "start": 31.08,
+          "end": 31.24,
+          "probability": 1.0
+        },
+        {
+          "word": "a",
+          "start": 31.24,
+          "end": 31.42,
+          "probability": 1.0
+        },
+        {
+          "word": "favour",
+          "start": 31.42,
+          "end": 31.68,
+          "probability": 1.0
+        },
+        {
+          "word": "Except",
+          "start": 32.38,
+          "end": 32.76,
+          "probability": 1.0
+        },
+        {
+          "word": "every",
+          "start": 32.76,
+          "end": 33.2,
+          "probability": 1.0
+        },
+        {
+          "word": "single",
+          "start": 33.2,
+          "end": 33.7,
+          "probability": 1.0
+        },
+        {
+          "word": "robot",
+          "start": 33.7,
+          "end": 33.84,
+          "probability": 1.0
+        },
+        {
+          "word": "sold",
+          "start": 33.84,
+          "end": 34.3,
+          "probability": 1.0
+        },
+        {
+          "word": "runs",
+          "start": 34.3,
+          "end": 34.48,
+          "probability": 1.0
+        },
+        {
+          "word": "on",
+          "start": 34.48,
+          "end": 34.74,
+          "probability": 1.0
+        },
+        {
+          "word": "Tesla's",
+          "start": 34.74,
+          "end": 35.12,
+          "probability": 1.0
+        },
+        {
+          "word": "neural",
+          "start": 35.12,
+          "end": 35.42,
+          "probability": 1.0
+        },
+        {
+          "word": "networks",
+          "start": 35.42,
+          "end": 35.8,
+          "probability": 1.0
+        },
+        {
+          "word": "Every",
+          "start": 36.52,
+          "end": 36.7,
+          "probability": 1.0
+        },
+        {
+          "word": "unit",
+          "start": 36.7,
+          "end": 37.04,
+          "probability": 1.0
+        },
+        {
+          "word": "phones",
+          "start": 37.04,
+          "end": 37.46,
+          "probability": 1.0
+        },
+        {
+          "word": "home",
+          "start": 37.46,
+          "end": 37.78,
+          "probability": 1.0
+        },
+        {
+          "word": "to",
+          "start": 37.78,
+          "end": 37.94,
+          "probability": 1.0
+        },
+        {
+          "word": "Tesla's",
+          "start": 37.94,
+          "end": 38.46,
+          "probability": 1.0
+        },
+        {
+          "word": "cloud",
+          "start": 38.46,
+          "end": 38.72,
+          "probability": 1.0
+        },
+        {
+          "word": "servers",
+          "start": 38.72,
+          "end": 39.0,
+          "probability": 1.0
+        },
+        {
+          "word": "Every",
+          "start": 39.6,
+          "end": 39.78,
+          "probability": 1.0
+        },
+        {
+          "word": "software",
+          "start": 39.78,
+          "end": 40.22,
+          "probability": 1.0
+        },
+        {
+          "word": "update",
+          "start": 40.22,
+          "end": 40.62,
+          "probability": 1.0
+        },
+        {
+          "word": "every",
+          "start": 41.04,
+          "end": 41.38,
+          "probability": 1.0
+        },
+        {
+          "word": "capability",
+          "start": 41.38,
+          "end": 41.94,
+          "probability": 1.0
+        },
+        {
+          "word": "upgrade",
+          "start": 41.94,
+          "end": 42.42,
+          "probability": 1.0
+        },
+        {
+          "word": "every",
+          "start": 42.94,
+          "end": 43.2,
+          "probability": 1.0
+        },
+        {
+          "word": "security",
+          "start": 43.2,
+          "end": 43.72,
+          "probability": 1.0
+        },
+        {
+          "word": "patch",
+          "start": 43.72,
+          "end": 44.12,
+          "probability": 1.0
+        },
+        {
+          "word": "flows",
+          "start": 44.12,
+          "end": 44.44,
+          "probability": 1.0
+        },
+        {
+          "word": "through",
+          "start": 44.44,
+          "end": 44.74,
+          "probability": 1.0
+        },
+        {
+          "word": "Cupertino's",
+          "start": 44.74,
+          "end": 45.56,
+          "probability": 1.0
+        },
+        {
+          "word": "uglier",
+          "start": 45.56,
+          "end": 45.8,
+          "probability": 1.0
+        },
+        {
+          "word": "cousin",
+          "start": 45.8,
+          "end": 46.04,
+          "probability": 1.0
+        },
+        {
+          "word": "in",
+          "start": 46.04,
+          "end": 46.38,
+          "probability": 1.0
+        },
+        {
+          "word": "Austin",
+          "start": 46.38,
+          "end": 46.56,
+          "probability": 1.0
+        },
+        {
+          "word": "Texas",
+          "start": 46.8,
+          "end": 47.08,
+          "probability": 1.0
+        },
+        {
+          "word": "You",
+          "start": 47.18,
+          "end": 47.64,
+          "probability": 1.0
+        },
+        {
+          "word": "think",
+          "start": 47.64,
+          "end": 47.82,
+          "probability": 1.0
+        },
+        {
+          "word": "you",
+          "start": 47.82,
+          "end": 48.14,
+          "probability": 1.0
+        },
+        {
+          "word": "bought",
+          "start": 48.14,
+          "end": 48.14,
+          "probability": 1.0
+        },
+        {
+          "word": "a",
+          "start": 48.14,
+          "end": 48.68,
+          "probability": 1.0
+        },
+        {
+          "word": "robot",
+          "start": 48.68,
+          "end": 48.68,
+          "probability": 1.0
+        },
+        {
+          "word": "You",
+          "start": 49.18,
+          "end": 49.38,
+          "probability": 1.0
+        },
+        {
+          "word": "think",
+          "start": 49.38,
+          "end": 49.48,
+          "probability": 1.0
+        },
+        {
+          "word": "it's",
+          "start": 49.48,
+          "end": 49.76,
+          "probability": 1.0
+        },
+        {
+          "word": "yours",
+          "start": 49.76,
+          "end": 50.12,
+          "probability": 1.0
+        },
+        {
+          "word": "But",
+          "start": 50.2,
+          "end": 50.66,
+          "probability": 1.0
+        },
+        {
+          "word": "try",
+          "start": 50.66,
+          "end": 50.92,
+          "probability": 1.0
+        },
+        {
+          "word": "running",
+          "start": 50.92,
+          "end": 51.18,
+          "probability": 1.0
+        },
+        {
+          "word": "it",
+          "start": 51.18,
+          "end": 51.38,
+          "probability": 1.0
+        },
+        {
+          "word": "without",
+          "start": 51.38,
+          "end": 51.74,
+          "probability": 1.0
+        },
+        {
+          "word": "Tesla's",
+          "start": 51.74,
+          "end": 52.68,
+          "probability": 1.0
+        },
+        {
+          "word": "blessing",
+          "start": 52.68,
+          "end": 52.68,
+          "probability": 1.0
+        },
+        {
+          "word": "Try",
+          "start": 53.2,
+          "end": 53.52,
+          "probability": 1.0
+        },
+        {
+          "word": "switching",
+          "start": 53.52,
+          "end": 53.84,
+          "probability": 1.0
+        },
+        {
+          "word": "to",
+          "start": 53.84,
+          "end": 54.1,
+          "probability": 1.0
+        },
+        {
+          "word": "a",
+          "start": 54.1,
+          "end": 54.32,
+          "probability": 1.0
+        },
+        {
+          "word": "competitor's",
+          "start": 54.32,
+          "end": 54.94,
+          "probability": 1.0
+        },
+        {
+          "word": "operating",
+          "start": 54.94,
+          "end": 55.54,
+          "probability": 1.0
+        },
+        {
+          "word": "system",
+          "start": 55.54,
+          "end": 55.94,
+          "probability": 1.0
+        },
+        {
+          "word": "You",
+          "start": 56.12,
+          "end": 56.32,
+          "probability": 1.0
+        },
+        {
+          "word": "can't",
+          "start": 56.32,
+          "end": 56.74,
+          "probability": 1.0
+        },
+        {
+          "word": "You",
+          "start": 56.74,
+          "end": 57.38,
+          "probability": 1.0
+        },
+        {
+          "word": "didn't",
+          "start": 57.38,
+          "end": 57.64,
+          "probability": 1.0
+        },
+        {
+          "word": "purchase",
+          "start": 57.64,
+          "end": 58.06,
+          "probability": 1.0
+        },
+        {
+          "word": "hardware",
+          "start": 58.06,
+          "end": 58.58,
+          "probability": 1.0
+        },
+        {
+          "word": "You",
+          "start": 58.92,
+          "end": 59.18,
+          "probability": 1.0
+        },
+        {
+          "word": "subscribed",
+          "start": 59.18,
+          "end": 59.46,
+          "probability": 1.0
+        },
+        {
+          "word": "to",
+          "start": 59.46,
+          "end": 59.76,
+          "probability": 1.0
+        },
+        {
+          "word": "an",
+          "start": 59.76,
+          "end": 59.9,
+          "probability": 1.0
+        },
+        {
+          "word": "ecosystem",
+          "start": 59.9,
+          "end": 60.44,
+          "probability": 1.0
+        },
+        {
+          "word": "And",
+          "start": 60.96,
+          "end": 61.04,
+          "probability": 1.0
+        },
+        {
+          "word": "the",
+          "start": 61.04,
+          "end": 61.16,
+          "probability": 1.0
+        },
+        {
+          "word": "moment",
+          "start": 61.16,
+          "end": 61.48,
+          "probability": 1.0
+        },
+        {
+          "word": "Tesla",
+          "start": 61.48,
+          "end": 61.86,
+          "probability": 1.0
+        },
+        {
+          "word": "controls",
+          "start": 61.86,
+          "end": 62.3,
+          "probability": 1.0
+        },
+        {
+          "word": "the",
+          "start": 62.3,
+          "end": 62.7,
+          "probability": 1.0
+        },
+        {
+          "word": "software",
+          "start": 62.7,
+          "end": 62.7,
+          "probability": 1.0
+        },
+        {
+          "word": "that",
+          "start": 62.7,
+          "end": 63.16,
+          "probability": 1.0
+        },
+        {
+          "word": "powers",
+          "start": 63.16,
+          "end": 63.16,
+          "probability": 1.0
+        },
+        {
+          "word": "your",
+          "start": 63.16,
+          "end": 63.36,
+          "probability": 1.0
+        },
+        {
+          "word": "entire",
+          "start": 63.36,
+          "end": 64.1,
+          "probability": 1.0
+        },
+        {
+          "word": "factory",
+          "start": 64.1,
+          "end": 64.28,
+          "probability": 1.0
+        },
+        {
+          "word": "floor",
+          "start": 64.28,
+          "end": 64.56,
+          "probability": 1.0
+        },
+        {
+          "word": "you",
+          "start": 64.78,
+          "end": 64.78,
+          "probability": 1.0
+        },
+        {
+          "word": "don't",
+          "start": 64.78,
+          "end": 64.96,
+          "probability": 1.0
+        },
+        {
+          "word": "negotiate",
+          "start": 64.96,
+          "end": 65.38,
+          "probability": 1.0
+        },
+        {
+          "word": "with",
+          "start": 65.38,
+          "end": 65.74,
+          "probability": 1.0
+        },
+        {
+          "word": "them",
+          "start": 65.74,
+          "end": 65.74,
+          "probability": 1.0
+        },
+        {
+          "word": "You",
+          "start": 66.22,
+          "end": 66.44,
+          "probability": 1.0
+        },
+        {
+          "word": "comply",
+          "start": 66.44,
+          "end": 66.64,
+          "probability": 1.0
+        }
+      ]
+    }
+  ],
+  "language": "en"
+}

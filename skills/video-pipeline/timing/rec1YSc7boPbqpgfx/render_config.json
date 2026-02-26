@@ -1,0 +1,4548 @@
+{
+  "video_id": "rec1YSc7boPbqpgfx",
+  "audio_path": "/Users/ryanayler/economy-fastforward/skills/video-pipeline/timing/rec1YSc7boPbqpgfx/narration_concat.mp3",
+  "total_duration_seconds": 1376.88,
+  "fps": 24,
+  "resolution": {
+    "width": 1920,
+    "height": 1080
+  },
+  "scenes": [
+    {
+      "scene_number": 1,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_01_01.png",
+      "display_start": 0.0,
+      "display_end": 6.92,
+      "display_duration": 6.92,
+      "narration_start": 0.0,
+      "narration_end": 6.92,
+      "style": "",
+      "composition": "medium",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": 40,
+        "end_x_offset": -40,
+        "direction": "slow_pan_left",
+        "speed_multiplier": 1.59
+      },
+      "transition_in": {
+        "type": "fade_from_black",
+        "duration": 1.0
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 1,
+      "sentence_text": "Everyone's asking the wrong question about Optimus. They're debating whether it can fold laundry, whether it stumbles on stairs, whether the demos are staged."
+    },
+    {
+      "scene_number": 1,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_01_02.png",
+      "display_start": 6.92,
+      "display_end": 13.42,
+      "display_duration": 6.5,
+      "narration_start": 6.92,
+      "narration_end": 13.42,
+      "style": "",
+      "composition": "portrait",
+      "act": 0,
+      "ken_burns": {
+        "start_scale": 1.0,
+        "end_scale": 1.15,
+        "direction": "slow_zoom_in",
+        "speed_multiplier": 1.692
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 2,
+      "sentence_text": "Meanwhile, Elon Musk is running a playbook that's over a hundred years old, and almost nobody sees it."
+    },
+    {
+      "scene_number": 1,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_01_03.png",
+      "display_start": 13.42,
+      "display_end": 19.52,
+      "display_duration": 6.1,
+      "narration_start": 13.42,
+      "narration_end": 19.52,
+      "style": "",
+      "composition": "wide",
+      "act": 0,
+      "ken_burns": {
+        "start_scale": 1.0,
+        "end_scale": 1.15,
+        "direction": "slow_zoom_in",
+        "speed_multiplier": 1.803
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 3,
+      "sentence_text": "This isn't about robots doing your chores. This is about who owns the workforce of the future."
+    },
+    {
+      "scene_number": 1,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_01_04.png",
+      "display_start": 19.52,
+      "display_end": 28.0,
+      "display_duration": 8.48,
+      "narration_start": 19.52,
+      "narration_end": 28.0,
+      "style": "",
+      "composition": "environmental",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": 40,
+        "end_x_offset": -40,
+        "direction": "slow_pan_left",
+        "speed_multiplier": 1.297
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 4,
+      "sentence_text": "Think about what Tesla actually controls right now. The factories. The AI training data. The energy infrastructure. The manufacturing supply chain."
+    },
+    {
+      "scene_number": 1,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_01_05.png",
+      "display_start": 28.0,
+      "display_end": 34.54,
+      "display_duration": 6.54,
+      "narration_start": 28.0,
+      "narration_end": 34.54,
+      "style": "",
+      "composition": "medium",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": 40,
+        "end_x_offset": -40,
+        "direction": "slow_pan_left",
+        "speed_multiplier": 1.682
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 5,
+      "sentence_text": "Now add a humanoid robot that slots directly into existing human workspaces, no redesign required."
+    },
+    {
+      "scene_number": 1,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_01_06.png",
+      "display_start": 34.54,
+      "display_end": 43.06,
+      "display_duration": 8.52,
+      "narration_start": 34.54,
+      "narration_end": 43.06,
+      "style": "",
+      "composition": "environmental",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": 40,
+        "end_x_offset": -40,
+        "direction": "slow_pan_left",
+        "speed_multiplier": 1.291
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 6,
+      "sentence_text": "Every warehouse. Every assembly line. Every fulfillment center. Every hospital, every farm, every construction site."
+    },
+    {
+      "scene_number": 1,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_01_07.png",
+      "display_start": 43.06,
+      "display_end": 52.5,
+      "display_duration": 9.44,
+      "narration_start": 43.06,
+      "narration_end": 52.5,
+      "style": "",
+      "composition": "closeup",
+      "act": 0,
+      "ken_burns": {
+        "start_scale": 1.15,
+        "end_scale": 1.0,
+        "direction": "slow_zoom_out",
+        "speed_multiplier": 1.165
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 7,
+      "sentence_text": "When one company controls the machines that do the work, they don't need to employ anyone. They become the employer. They rent the labor force to everyone else."
+    },
+    {
+      "scene_number": 1,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_01_08.png",
+      "display_start": 52.5,
+      "display_end": 58.18,
+      "display_duration": 5.68,
+      "narration_start": 52.5,
+      "narration_end": 58.18,
+      "style": "",
+      "composition": "overhead",
+      "act": 0,
+      "ken_burns": {
+        "start_scale": 1.0,
+        "end_scale": 1.15,
+        "direction": "slow_zoom_in",
+        "speed_multiplier": 1.937
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 8,
+      "sentence_text": "This is a four-stage monopoly hiding in plain sight. And by the time most people understand what's happening, the trap"
+    },
+    {
+      "scene_number": 1,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_01_09.png",
+      "display_start": 58.18,
+      "display_end": 64.08,
+      "display_duration": 5.9,
+      "narration_start": 58.18,
+      "narration_end": 64.08,
+      "style": "",
+      "composition": "overhead",
+      "act": 0,
+      "ken_burns": {
+        "start_scale": 1.0,
+        "end_scale": 1.15,
+        "direction": "slow_zoom_in",
+        "speed_multiplier": 1.864
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 9,
+      "sentence_text": "will already be closed. You need to see each stage clearly, because the window to understand this is closing fast."
+    },
+    {
+      "scene_number": 2,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_02_01.png",
+      "display_start": 64.08,
+      "display_end": 69.64,
+      "display_duration": 5.56,
+      "narration_start": 64.08,
+      "narration_end": 69.64,
+      "style": "",
+      "composition": "closeup",
+      "act": 0,
+      "ken_burns": {
+        "start_scale": 1.15,
+        "end_scale": 1.0,
+        "direction": "slow_zoom_out",
+        "speed_multiplier": 1.978
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 1,
+      "sentence_text": "Everyone's laughing at the wrong thing. You've seen the clips. Optimus folding laundry like a confused toddler."
+    },
+    {
+      "scene_number": 2,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_02_02.png",
+      "display_start": 69.64,
+      "display_end": 74.52,
+      "display_duration": 4.88,
+      "narration_start": 69.64,
+      "narration_end": 74.52,
+      "style": "",
+      "composition": "medium",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": 40,
+        "end_x_offset": -40,
+        "direction": "slow_pan_left",
+        "speed_multiplier": 2.254
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 2,
+      "sentence_text": "Serving drinks at investor parties. Waving at crowds while Elon grins for the cameras."
+    },
+    {
+      "scene_number": 2,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_02_03.png",
+      "display_start": 74.52,
+      "display_end": 82.72,
+      "display_duration": 8.2,
+      "narration_start": 74.52,
+      "narration_end": 82.72,
+      "style": "",
+      "composition": "closeup",
+      "act": 0,
+      "ken_burns": {
+        "start_scale": 1.15,
+        "end_scale": 1.0,
+        "direction": "slow_zoom_out",
+        "speed_multiplier": 1.341
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 3,
+      "sentence_text": "And the headlines write themselves. \"Tesla's robot butler fumbles basic tasks.\" \"Years away from replacing your housekeeper.\""
+    },
+    {
+      "scene_number": 2,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_02_04.png",
+      "display_start": 82.72,
+      "display_end": 91.06,
+      "display_duration": 8.34,
+      "narration_start": 82.72,
+      "narration_end": 91.06,
+      "style": "",
+      "composition": "environmental",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": -40,
+        "end_x_offset": 40,
+        "direction": "slow_pan_right",
+        "speed_multiplier": 1.319
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 4,
+      "sentence_text": "Hilarious. Harmless. Completely beside the point. Because while you're chuckling at a machine struggling with t-shirts, you're asking the wrong question entirely."
+    },
+    {
+      "scene_number": 2,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_02_05.png",
+      "display_start": 91.06,
+      "display_end": 97.08,
+      "display_duration": 6.02,
+      "narration_start": 91.06,
+      "narration_end": 97.08,
+      "style": "",
+      "composition": "medium",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": -40,
+        "end_x_offset": 40,
+        "direction": "slow_pan_right",
+        "speed_multiplier": 1.827
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 5,
+      "sentence_text": "The media wants you focused on domestic help. On convenience. On whether this thing can load your dishwasher."
+    },
+    {
+      "scene_number": 2,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_02_06.png",
+      "display_start": 97.08,
+      "display_end": 107.0,
+      "display_duration": 9.92,
+      "narration_start": 97.08,
+      "narration_end": 107.0,
+      "style": "",
+      "composition": "closeup",
+      "act": 0,
+      "ken_burns": {
+        "start_scale": 1.15,
+        "end_scale": 1.0,
+        "direction": "slow_zoom_out",
+        "speed_multiplier": 1.109
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 6,
+      "sentence_text": "But here's what nobody's talking about. Tesla doesn't need Optimus to fold your laundry. They need it to fold the same component eight thousand times per shift."
+    },
+    {
+      "scene_number": 2,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_02_07.png",
+      "display_start": 107.0,
+      "display_end": 115.58,
+      "display_duration": 8.58,
+      "narration_start": 107.0,
+      "narration_end": 115.58,
+      "style": "",
+      "composition": "wide",
+      "act": 0,
+      "ken_burns": {
+        "start_scale": 1.0,
+        "end_scale": 1.15,
+        "direction": "slow_zoom_in",
+        "speed_multiplier": 1.282
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 7,
+      "sentence_text": "They don't need it serving drinks at parties. They need it serving parts on assembly lines, twenty-four hours a day, no breaks, no benefits, no complaints."
+    },
+    {
+      "scene_number": 2,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_02_08.png",
+      "display_start": 115.58,
+      "display_end": 126.44,
+      "display_duration": 10.86,
+      "narration_start": 115.58,
+      "narration_end": 126.44,
+      "style": "",
+      "composition": "environmental",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": -40,
+        "end_x_offset": 40,
+        "direction": "slow_pan_right",
+        "speed_multiplier": 1.013
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 8,
+      "sentence_text": "The clumsy demos aren't the product. They're the distraction. While you're laughing at what Optimus can't do in your living room, you're ignoring what it's already learning to do in Tesla's factories."
+    },
+    {
+      "scene_number": 2,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_02_09.png",
+      "display_start": 126.44,
+      "display_end": 131.06,
+      "display_duration": 4.62,
+      "narration_start": 126.44,
+      "narration_end": 131.06,
+      "style": "",
+      "composition": "wide",
+      "act": 0,
+      "ken_burns": {
+        "start_scale": 1.0,
+        "end_scale": 1.15,
+        "direction": "slow_zoom_in",
+        "speed_multiplier": 2.381
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 9,
+      "sentence_text": "And that learning is accelerating faster than anyone outside those walls truly understands."
+    },
+    {
+      "scene_number": 3,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_03_01.png",
+      "display_start": 131.06,
+      "display_end": 139.46,
+      "display_duration": 8.4,
+      "narration_start": 131.06,
+      "narration_end": 139.46,
+      "style": "",
+      "composition": "medium",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": 40,
+        "end_x_offset": -40,
+        "direction": "slow_pan_left",
+        "speed_multiplier": 1.31
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 1,
+      "sentence_text": "Twenty thousand dollars. When Musk dropped that number, the internet exploded with visions of robot butlers folding laundry and walking dogs."
+    },
+    {
+      "scene_number": 3,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_03_02.png",
+      "display_start": 139.46,
+      "display_end": 144.58,
+      "display_duration": 5.12,
+      "narration_start": 139.46,
+      "narration_end": 144.58,
+      "style": "",
+      "composition": "medium",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": -40,
+        "end_x_offset": 40,
+        "direction": "slow_pan_right",
+        "speed_multiplier": 2.148
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 2,
+      "sentence_text": "But pause for a second. Who actually writes a twenty thousand dollar check without blinking?"
+    },
+    {
+      "scene_number": 3,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_03_03.png",
+      "display_start": 144.58,
+      "display_end": 149.76,
+      "display_duration": 5.18,
+      "narration_start": 144.58,
+      "narration_end": 149.76,
+      "style": "",
+      "composition": "overhead",
+      "act": 0,
+      "ken_burns": {
+        "start_scale": 1.0,
+        "end_scale": 1.15,
+        "direction": "slow_zoom_in",
+        "speed_multiplier": 2.124
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 3,
+      "sentence_text": "Not the average family saving for college tuition. Not the retiree on a fixed income."
+    },
+    {
+      "scene_number": 3,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_03_04.png",
+      "display_start": 149.76,
+      "display_end": 158.0,
+      "display_duration": 8.24,
+      "narration_start": 149.76,
+      "narration_end": 158.0,
+      "style": "",
+      "composition": "wide",
+      "act": 0,
+      "ken_burns": {
+        "start_scale": 1.0,
+        "end_scale": 1.15,
+        "direction": "slow_zoom_in",
+        "speed_multiplier": 1.335
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 4,
+      "sentence_text": "Factories do. Warehouse operators do. Logistics companies burning through millions in labor costs every single month \u2014 they do."
+    },
+    {
+      "scene_number": 3,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_03_05.png",
+      "display_start": 158.0,
+      "display_end": 166.82,
+      "display_duration": 8.82,
+      "narration_start": 158.0,
+      "narration_end": 166.82,
+      "style": "",
+      "composition": "closeup",
+      "act": 0,
+      "ken_burns": {
+        "start_scale": 1.15,
+        "end_scale": 1.0,
+        "direction": "slow_zoom_out",
+        "speed_multiplier": 1.247
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 5,
+      "sentence_text": "See, twenty grand sounds like a consumer price point. It's designed to. It makes headlines. It trends on social media. It gets people dreaming about personal assistants."
+    },
+    {
+      "scene_number": 3,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_03_06.png",
+      "display_start": 166.82,
+      "display_end": 175.42,
+      "display_duration": 8.6,
+      "narration_start": 166.82,
+      "narration_end": 175.42,
+      "style": "",
+      "composition": "environmental",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": 40,
+        "end_x_offset": -40,
+        "direction": "slow_pan_left",
+        "speed_multiplier": 1.279
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 6,
+      "sentence_text": "But here's the cold math nobody's running. A factory worker costs roughly fifty thousand dollars a year \u2014 minimum."
+    },
+    {
+      "scene_number": 3,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_03_07.png",
+      "display_start": 175.42,
+      "display_end": 192.66,
+      "display_duration": 17.24,
+      "narration_start": 175.42,
+      "narration_end": 192.66,
+      "style": "",
+      "composition": "medium",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": 40,
+        "end_x_offset": -40,
+        "direction": "slow_pan_left",
+        "speed_multiplier": 0.638
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 7,
+      "sentence_text": "Benefits, insurance, overtime, turnover training. The expenses compound relentlessly. A twenty thousand dollar robot that works twenty-four hours without bathroom breaks, without sick days, without union negotiations? That's not a purchase. That's a no-brainer capital investment that pays for itself in five months."
+    },
+    {
+      "scene_number": 3,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_03_08.png",
+      "display_start": 192.66,
+      "display_end": 203.58,
+      "display_duration": 10.92,
+      "narration_start": 192.66,
+      "narration_end": 203.58,
+      "style": "",
+      "composition": "overhead",
+      "act": 0,
+      "ken_burns": {
+        "start_scale": 1.0,
+        "end_scale": 1.15,
+        "direction": "slow_zoom_in",
+        "speed_multiplier": 1.007
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 8,
+      "sentence_text": "The price isn't ambitious. It's surgical. Tesla didn't announce a consumer product. They announced the most aggressive factory automation play in industrial history \u2014 disguised as a tech announcement."
+    },
+    {
+      "scene_number": 4,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_04_01.png",
+      "display_start": 203.58,
+      "display_end": 210.56,
+      "display_duration": 6.98,
+      "narration_start": 203.58,
+      "narration_end": 210.56,
+      "style": "",
+      "composition": "wide",
+      "act": 0,
+      "ken_burns": {
+        "start_scale": 1.0,
+        "end_scale": 1.15,
+        "direction": "slow_zoom_in",
+        "speed_multiplier": 1.576
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 1,
+      "sentence_text": "Here's the truth nobody wants to admit. This isn't about whether robots will take jobs. That debate is a distraction."
+    },
+    {
+      "scene_number": 4,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_04_02.png",
+      "display_start": 210.56,
+      "display_end": 216.3,
+      "display_duration": 5.74,
+      "narration_start": 210.56,
+      "narration_end": 216.3,
+      "style": "",
+      "composition": "overhead",
+      "act": 0,
+      "ken_burns": {
+        "start_scale": 1.0,
+        "end_scale": 1.15,
+        "direction": "slow_zoom_in",
+        "speed_multiplier": 1.916
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 2,
+      "sentence_text": "The real question is far more dangerous: What happens when a single company controls the entire stack?"
+    },
+    {
+      "scene_number": 4,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_04_03.png",
+      "display_start": 216.3,
+      "display_end": 223.32,
+      "display_duration": 7.02,
+      "narration_start": 216.3,
+      "narration_end": 223.32,
+      "style": "",
+      "composition": "environmental",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": -40,
+        "end_x_offset": 40,
+        "direction": "slow_pan_right",
+        "speed_multiplier": 1.567
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 3,
+      "sentence_text": "The hardware. The software. The manufacturing. The data. Four layers. Four chokepoints. One entity holding all the keys."
+    },
+    {
+      "scene_number": 4,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_04_04.png",
+      "display_start": 223.32,
+      "display_end": 231.98,
+      "display_duration": 8.66,
+      "narration_start": 223.32,
+      "narration_end": 231.98,
+      "style": "",
+      "composition": "wide",
+      "act": 0,
+      "ken_burns": {
+        "start_scale": 1.0,
+        "end_scale": 1.15,
+        "direction": "slow_zoom_in",
+        "speed_multiplier": 1.27
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 4,
+      "sentence_text": "Over the next fifteen minutes, we're going to walk through a monopoly trap that's been assembling itself in plain sight. Stage by stage. Piece by piece."
+    },
+    {
+      "scene_number": 4,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_04_05.png",
+      "display_start": 231.98,
+      "display_end": 240.34,
+      "display_duration": 8.36,
+      "narration_start": 231.98,
+      "narration_end": 240.34,
+      "style": "",
+      "composition": "medium",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": 40,
+        "end_x_offset": -40,
+        "direction": "slow_pan_left",
+        "speed_multiplier": 1.316
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 5,
+      "sentence_text": "And here's what makes it so effective \u2014 each stage looks completely reasonable on its own. Helpful, even. Revolutionary, they'll call it."
+    },
+    {
+      "scene_number": 4,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_04_06.png",
+      "display_start": 240.34,
+      "display_end": 253.06,
+      "display_duration": 12.72,
+      "narration_start": 240.34,
+      "narration_end": 253.06,
+      "style": "",
+      "composition": "environmental",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": 40,
+        "end_x_offset": -40,
+        "direction": "slow_pan_left",
+        "speed_multiplier": 0.865
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 6,
+      "sentence_text": "But zoom out, and the pattern becomes undeniable. By the time most people recognize what's happened, the exits will already be sealed. The alternatives will have starved. The dependencies will be too deep to untangle."
+    },
+    {
+      "scene_number": 4,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_04_07.png",
+      "display_start": 253.06,
+      "display_end": 265.08,
+      "display_duration": 12.02,
+      "narration_start": 253.06,
+      "narration_end": 265.08,
+      "style": "",
+      "composition": "medium",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": 40,
+        "end_x_offset": -40,
+        "direction": "slow_pan_left",
+        "speed_multiplier": 0.915
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 7,
+      "sentence_text": "Because the most dangerous thing about Optimus isn't the tasks it can perform today. It's not the jobs it might replace tomorrow. It's what it systematically makes impossible for everyone else. Four stages. Let's begin."
+    },
+    {
+      "scene_number": 5,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_05_01.png",
+      "display_start": 265.08,
+      "display_end": 271.72,
+      "display_duration": 6.64,
+      "narration_start": 265.08,
+      "narration_end": 271.72,
+      "style": "",
+      "composition": "medium",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": -40,
+        "end_x_offset": 40,
+        "direction": "slow_pan_right",
+        "speed_multiplier": 1.657
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 1,
+      "sentence_text": "Most people think Ford's genius was the Model T. They're wrong. His real genius was owning everything that made it possible."
+    },
+    {
+      "scene_number": 5,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_05_02.png",
+      "display_start": 271.72,
+      "display_end": 279.58,
+      "display_duration": 7.86,
+      "narration_start": 271.72,
+      "narration_end": 279.58,
+      "style": "",
+      "composition": "environmental",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": -40,
+        "end_x_offset": 40,
+        "direction": "slow_pan_right",
+        "speed_multiplier": 1.399
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 2,
+      "sentence_text": "The iron ore mines in Michigan. The rubber plantations in Brazil. The glass factories in Pennsylvania. The railroads connecting them all."
+    },
+    {
+      "scene_number": 5,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_05_03.png",
+      "display_start": 279.58,
+      "display_end": 286.6,
+      "display_duration": 7.02,
+      "narration_start": 279.58,
+      "narration_end": 286.6,
+      "style": "",
+      "composition": "wide",
+      "act": 0,
+      "ken_burns": {
+        "start_scale": 1.0,
+        "end_scale": 1.15,
+        "direction": "slow_zoom_in",
+        "speed_multiplier": 1.567
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 3,
+      "sentence_text": "When competitors needed to buy parts from a dozen different suppliers, Ford just... made his own. Cheaper. Faster. Better."
+    },
+    {
+      "scene_number": 5,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_05_04.png",
+      "display_start": 286.6,
+      "display_end": 301.34,
+      "display_duration": 14.74,
+      "narration_start": 286.6,
+      "narration_end": 301.34,
+      "style": "",
+      "composition": "environmental",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": -40,
+        "end_x_offset": 40,
+        "direction": "slow_pan_right",
+        "speed_multiplier": 0.746
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 4,
+      "sentence_text": "This is vertical integration, and in 1913, it was revolutionary. See, Ford didn't just want to build cars. He wanted to control the entire chain of production from raw earth to finished automobile. No middlemen. No dependencies. No weaknesses."
+    },
+    {
+      "scene_number": 5,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_05_05.png",
+      "display_start": 301.34,
+      "display_end": 314.52,
+      "display_duration": 13.18,
+      "narration_start": 301.34,
+      "narration_end": 314.52,
+      "style": "",
+      "composition": "environmental",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": 40,
+        "end_x_offset": -40,
+        "direction": "slow_pan_left",
+        "speed_multiplier": 0.835
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 5,
+      "sentence_text": "And it worked. The Model T's price dropped from eight hundred fifty dollars to just two hundred sixty. Ford captured half the American auto market while everyone else scrambled to catch up."
+    },
+    {
+      "scene_number": 5,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_05_06.png",
+      "display_start": 314.52,
+      "display_end": 324.56,
+      "display_duration": 10.04,
+      "narration_start": 314.52,
+      "narration_end": 324.56,
+      "style": "",
+      "composition": "medium",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": 40,
+        "end_x_offset": -40,
+        "direction": "slow_pan_left",
+        "speed_multiplier": 1.096
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 6,
+      "sentence_text": "But here's what matters for our story: Ford proved something dangerous. If you control every stage of production, you don't just compete in a market. You become the market."
+    },
+    {
+      "scene_number": 5,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_05_07.png",
+      "display_start": 324.56,
+      "display_end": 332.9,
+      "display_duration": 8.34,
+      "narration_start": 324.56,
+      "narration_end": 332.9,
+      "style": "",
+      "composition": "wide",
+      "act": 0,
+      "ken_burns": {
+        "start_scale": 1.0,
+        "end_scale": 1.15,
+        "direction": "slow_zoom_in",
+        "speed_multiplier": 1.319
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 7,
+      "sentence_text": "Now fast forward one hundred years. Someone is running the exact same playbook. Only this time, they're not building cars. They're building the machines that think."
+    },
+    {
+      "scene_number": 6,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_06_01.png",
+      "display_start": 332.9,
+      "display_end": 344.44,
+      "display_duration": 11.54,
+      "narration_start": 332.9,
+      "narration_end": 344.44,
+      "style": "",
+      "composition": "medium",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": 40,
+        "end_x_offset": -40,
+        "direction": "slow_pan_left",
+        "speed_multiplier": 0.953
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 1,
+      "sentence_text": "Ford didn't just build cars. He built a trap. Every supplier who wanted to survive had one choice: serve Ford, or disappear. He dictated prices. He set delivery schedules."
+    },
+    {
+      "scene_number": 6,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_06_02.png",
+      "display_start": 344.44,
+      "display_end": 350.16,
+      "display_duration": 5.72,
+      "narration_start": 344.44,
+      "narration_end": 350.16,
+      "style": "",
+      "composition": "wide",
+      "act": 0,
+      "ken_burns": {
+        "start_scale": 1.0,
+        "end_scale": 1.15,
+        "direction": "slow_zoom_in",
+        "speed_multiplier": 1.923
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 2,
+      "sentence_text": "He decided who stayed in business and who didn't. This wasn't competition. This was control."
+    },
+    {
+      "scene_number": 6,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_06_03.png",
+      "display_start": 350.16,
+      "display_end": 357.2,
+      "display_duration": 7.04,
+      "narration_start": 350.16,
+      "narration_end": 357.2,
+      "style": "",
+      "composition": "environmental",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": -40,
+        "end_x_offset": 40,
+        "direction": "slow_pan_right",
+        "speed_multiplier": 1.562
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 3,
+      "sentence_text": "See, Ford understood something his rivals missed. You don't win by making a better product. You win by making yourself unavoidable."
+    },
+    {
+      "scene_number": 6,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_06_04.png",
+      "display_start": 357.2,
+      "display_end": 363.48,
+      "display_duration": 6.28,
+      "narration_start": 357.2,
+      "narration_end": 363.48,
+      "style": "",
+      "composition": "environmental",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": 40,
+        "end_x_offset": -40,
+        "direction": "slow_pan_left",
+        "speed_multiplier": 1.752
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 4,
+      "sentence_text": "The Model T wasn't competing with other automobiles. It was absorbing the entire ecosystem around it."
+    },
+    {
+      "scene_number": 6,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_06_05.png",
+      "display_start": 363.48,
+      "display_end": 374.08,
+      "display_duration": 10.6,
+      "narration_start": 363.48,
+      "narration_end": 374.08,
+      "style": "",
+      "composition": "wide",
+      "act": 0,
+      "ken_burns": {
+        "start_scale": 1.0,
+        "end_scale": 1.15,
+        "direction": "slow_zoom_in",
+        "speed_multiplier": 1.038
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 5,
+      "sentence_text": "Rubber plantations in Brazil? Ford owned them. Glass factories? His. Steel mills, railroads, timber operations? All feeding into one machine."
+    },
+    {
+      "scene_number": 6,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_06_06.png",
+      "display_start": 374.08,
+      "display_end": 379.24,
+      "display_duration": 5.16,
+      "narration_start": 374.08,
+      "narration_end": 379.24,
+      "style": "",
+      "composition": "closeup",
+      "act": 0,
+      "ken_burns": {
+        "start_scale": 1.15,
+        "end_scale": 1.0,
+        "direction": "slow_zoom_out",
+        "speed_multiplier": 2.132
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 6,
+      "sentence_text": "Other automakers thought they were in a race. Ford knew he was building a cage."
+    },
+    {
+      "scene_number": 6,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_06_07.png",
+      "display_start": 379.24,
+      "display_end": 392.28,
+      "display_duration": 13.04,
+      "narration_start": 379.24,
+      "narration_end": 392.28,
+      "style": "",
+      "composition": "environmental",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": -40,
+        "end_x_offset": 40,
+        "direction": "slow_pan_right",
+        "speed_multiplier": 0.844
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 7,
+      "sentence_text": "By the time competitors realized what was happening, they weren't fighting Ford. They were fighting a system. Every parts manufacturer, every raw material supplier, every skilled worker had already been locked into his orbit."
+    },
+    {
+      "scene_number": 6,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_06_08.png",
+      "display_start": 392.28,
+      "display_end": 398.2,
+      "display_duration": 5.92,
+      "narration_start": 392.28,
+      "narration_end": 398.2,
+      "style": "",
+      "composition": "low_angle",
+      "act": 0,
+      "ken_burns": {
+        "start_y_offset": 30,
+        "end_y_offset": -30,
+        "direction": "slow_tilt_up",
+        "speed_multiplier": 1.858
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 8,
+      "sentence_text": "The Model T didn't succeed because it was the best car. It succeeded because Ford made alternatives structurally"
+    },
+    {
+      "scene_number": 6,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_06_09.png",
+      "display_start": 398.2,
+      "display_end": 404.46,
+      "display_duration": 6.26,
+      "narration_start": 398.2,
+      "narration_end": 404.46,
+      "style": "",
+      "composition": "low_angle",
+      "act": 0,
+      "ken_burns": {
+        "start_y_offset": 30,
+        "end_y_offset": -30,
+        "direction": "slow_tilt_up",
+        "speed_multiplier": 1.757
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 9,
+      "sentence_text": "impossible. And right now, the same playbook is being executed again. Only this time, the trap is invisible."
+    },
+    {
+      "scene_number": 7,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_07_01.png",
+      "display_start": 404.46,
+      "display_end": 410.22,
+      "display_duration": 5.76,
+      "narration_start": 404.46,
+      "narration_end": 410.22,
+      "style": "",
+      "composition": "medium",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": -40,
+        "end_x_offset": 40,
+        "direction": "slow_pan_right",
+        "speed_multiplier": 1.91
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 1,
+      "sentence_text": "The year is 2007. Steve Jobs holds up a glass rectangle and calls it revolutionary."
+    },
+    {
+      "scene_number": 7,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_07_02.png",
+      "display_start": 410.22,
+      "display_end": 414.94,
+      "display_duration": 4.72,
+      "narration_start": 410.22,
+      "narration_end": 414.94,
+      "style": "",
+      "composition": "wide",
+      "act": 0,
+      "ken_burns": {
+        "start_scale": 1.0,
+        "end_scale": 1.15,
+        "direction": "slow_zoom_in",
+        "speed_multiplier": 2.331
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 2,
+      "sentence_text": "But here's what nobody mentions. Apple didn't build the iPhone. Foxconn did."
+    },
+    {
+      "scene_number": 7,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_07_03.png",
+      "display_start": 414.94,
+      "display_end": 428.44,
+      "display_duration": 13.5,
+      "narration_start": 414.94,
+      "narration_end": 428.44,
+      "style": "",
+      "composition": "environmental",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": 40,
+        "end_x_offset": -40,
+        "direction": "slow_pan_left",
+        "speed_multiplier": 0.815
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 3,
+      "sentence_text": "One factory. One partner. One critical dependency. Within three years, Foxconn manufactured ninety percent of Apple's products. They knew every component, every assembly secret, every margin."
+    },
+    {
+      "scene_number": 7,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_07_04.png",
+      "display_start": 428.44,
+      "display_end": 438.64,
+      "display_duration": 10.2,
+      "narration_start": 428.44,
+      "narration_end": 438.64,
+      "style": "",
+      "composition": "wide",
+      "act": 0,
+      "ken_burns": {
+        "start_scale": 1.0,
+        "end_scale": 1.15,
+        "direction": "slow_zoom_in",
+        "speed_multiplier": 1.078
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 4,
+      "sentence_text": "And suddenly, the most valuable company on Earth couldn't walk away. This is Stage Two of the trap. The Foxconn Blueprint."
+    },
+    {
+      "scene_number": 7,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_07_05.png",
+      "display_start": 438.64,
+      "display_end": 445.92,
+      "display_duration": 7.28,
+      "narration_start": 438.64,
+      "narration_end": 445.92,
+      "style": "",
+      "composition": "medium",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": -40,
+        "end_x_offset": 40,
+        "direction": "slow_pan_right",
+        "speed_multiplier": 1.511
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 5,
+      "sentence_text": "You design the product. You own the brand. But someone else controls the hands that build it. And those hands learn everything."
+    },
+    {
+      "scene_number": 7,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_07_06.png",
+      "display_start": 445.92,
+      "display_end": 452.04,
+      "display_duration": 6.12,
+      "narration_start": 445.92,
+      "narration_end": 452.04,
+      "style": "",
+      "composition": "overhead",
+      "act": 0,
+      "ken_burns": {
+        "start_scale": 1.0,
+        "end_scale": 1.15,
+        "direction": "slow_zoom_in",
+        "speed_multiplier": 1.797
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 6,
+      "sentence_text": "Foxconn expanded to employ over a million workers. They built cities around Apple's demand. They became infrastructure."
+    },
+    {
+      "scene_number": 7,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_07_07.png",
+      "display_start": 452.04,
+      "display_end": 464.3,
+      "display_duration": 12.26,
+      "narration_start": 452.04,
+      "narration_end": 464.3,
+      "style": "",
+      "composition": "environmental",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": 40,
+        "end_x_offset": -40,
+        "direction": "slow_pan_left",
+        "speed_multiplier": 0.897
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 7,
+      "sentence_text": "And infrastructure doesn't get replaced. It gets negotiated with. Apple tried diversifying to Vietnam, to India. But Foxconn followed them there too. The dependency had metastasized."
+    },
+    {
+      "scene_number": 7,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_07_08.png",
+      "display_start": 464.3,
+      "display_end": 474.02,
+      "display_duration": 9.72,
+      "narration_start": 464.3,
+      "narration_end": 474.02,
+      "style": "",
+      "composition": "environmental",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": -40,
+        "end_x_offset": 40,
+        "direction": "slow_pan_right",
+        "speed_multiplier": 1.132
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 8,
+      "sentence_text": "Now transpose this pattern onto artificial intelligence. OpenAI creates GPT. Microsoft provides the computing power. Nvidia supplies every"
+    },
+    {
+      "scene_number": 7,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_07_09.png",
+      "display_start": 474.02,
+      "display_end": 479.22,
+      "display_duration": 5.2,
+      "narration_start": 474.02,
+      "narration_end": 479.22,
+      "style": "",
+      "composition": "environmental",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": 40,
+        "end_x_offset": -40,
+        "direction": "slow_pan_left",
+        "speed_multiplier": 2.115
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 9,
+      "sentence_text": "chip that makes it possible. Who really holds the leverage when the product can't exist without the builder?"
+    },
+    {
+      "scene_number": 8,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_08_01.png",
+      "display_start": 479.22,
+      "display_end": 485.14,
+      "display_duration": 5.92,
+      "narration_start": 479.22,
+      "narration_end": 485.14,
+      "style": "",
+      "composition": "wide",
+      "act": 0,
+      "ken_burns": {
+        "start_scale": 1.0,
+        "end_scale": 1.15,
+        "direction": "slow_zoom_in",
+        "speed_multiplier": 1.858
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 1,
+      "sentence_text": "Every tech company thinks they're competing with Apple. They're not. They're competing for Foxconn's attention."
+    },
+    {
+      "scene_number": 8,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_08_02.png",
+      "display_start": 485.14,
+      "display_end": 493.0,
+      "display_duration": 7.86,
+      "narration_start": 485.14,
+      "narration_end": 493.0,
+      "style": "",
+      "composition": "closeup",
+      "act": 0,
+      "ken_burns": {
+        "start_scale": 1.15,
+        "end_scale": 1.0,
+        "direction": "slow_zoom_out",
+        "speed_multiplier": 1.399
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 2,
+      "sentence_text": "Samsung needs them. Google needs them. Amazon, Sony, Microsoft \u2014 they all line up at the same door, begging for production slots."
+    },
+    {
+      "scene_number": 8,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_08_03.png",
+      "display_start": 493.0,
+      "display_end": 502.52,
+      "display_duration": 9.52,
+      "narration_start": 493.0,
+      "narration_end": 502.52,
+      "style": "",
+      "composition": "environmental",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": -40,
+        "end_x_offset": 40,
+        "direction": "slow_pan_right",
+        "speed_multiplier": 1.155
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 3,
+      "sentence_text": "Because here's the brutal math: there are only a handful of facilities on Earth capable of manufacturing electronics at this scale, this speed, this precision."
+    },
+    {
+      "scene_number": 8,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_08_04.png",
+      "display_start": 502.52,
+      "display_end": 513.68,
+      "display_duration": 11.16,
+      "narration_start": 502.52,
+      "narration_end": 513.68,
+      "style": "",
+      "composition": "environmental",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": 40,
+        "end_x_offset": -40,
+        "direction": "slow_pan_left",
+        "speed_multiplier": 0.986
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 4,
+      "sentence_text": "And Foxconn controls the largest share. So what happens when demand spikes? When a new product launches? Companies bid against each other \u2014 not for customers, but for factory time."
+    },
+    {
+      "scene_number": 8,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_08_05.png",
+      "display_start": 513.68,
+      "display_end": 522.36,
+      "display_duration": 8.68,
+      "narration_start": 513.68,
+      "narration_end": 522.36,
+      "style": "",
+      "composition": "medium",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": 40,
+        "end_x_offset": -40,
+        "direction": "slow_pan_left",
+        "speed_multiplier": 1.267
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 5,
+      "sentence_text": "Foxconn plays them off like auction houses, extracting maximum value from every relationship. This isn't manufacturing. This is a tollbooth."
+    },
+    {
+      "scene_number": 8,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_08_06.png",
+      "display_start": 522.36,
+      "display_end": 528.6,
+      "display_duration": 6.24,
+      "narration_start": 522.36,
+      "narration_end": 528.6,
+      "style": "",
+      "composition": "wide",
+      "act": 0,
+      "ken_burns": {
+        "start_scale": 1.0,
+        "end_scale": 1.15,
+        "direction": "slow_zoom_in",
+        "speed_multiplier": 1.763
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 6,
+      "sentence_text": "The bottleneck was never about who designs the best phone or who runs the cleverest ad campaign. It's about who can actually build the thing."
+    },
+    {
+      "scene_number": 8,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_08_07.png",
+      "display_start": 528.6,
+      "display_end": 537.54,
+      "display_duration": 8.94,
+      "narration_start": 528.6,
+      "narration_end": 537.54,
+      "style": "",
+      "composition": "overhead",
+      "act": 0,
+      "ken_burns": {
+        "start_scale": 1.0,
+        "end_scale": 1.15,
+        "direction": "slow_zoom_in",
+        "speed_multiplier": 1.23
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 7,
+      "sentence_text": "And that power \u2014 the power to say yes or no, fast or slow, your order or theirs \u2014 that power sits in Shenzhen."
+    },
+    {
+      "scene_number": 8,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_08_08.png",
+      "display_start": 537.54,
+      "display_end": 541.96,
+      "display_duration": 4.42,
+      "narration_start": 537.54,
+      "narration_end": 541.96,
+      "style": "",
+      "composition": "wide",
+      "act": 0,
+      "ken_burns": {
+        "start_scale": 1.0,
+        "end_scale": 1.15,
+        "direction": "slow_zoom_in",
+        "speed_multiplier": 2.489
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 8,
+      "sentence_text": "Foxconn doesn't need to own your company. It just needs to be the only one who can make your products real."
+    },
+    {
+      "scene_number": 9,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_09_01.png",
+      "display_start": 541.96,
+      "display_end": 550.44,
+      "display_duration": 8.48,
+      "narration_start": 541.96,
+      "narration_end": 550.44,
+      "style": "",
+      "composition": "medium",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": 40,
+        "end_x_offset": -40,
+        "direction": "slow_pan_left",
+        "speed_multiplier": 1.297
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 1,
+      "sentence_text": "Here's the thing that keeps industry analysts awake at night. Henry Ford didn't beat his competitors by building a better car. He beat them by controlling the assembly line itself."
+    },
+    {
+      "scene_number": 9,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_09_02.png",
+      "display_start": 550.44,
+      "display_end": 554.92,
+      "display_duration": 4.48,
+      "narration_start": 550.44,
+      "narration_end": 554.92,
+      "style": "",
+      "composition": "medium",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": -40,
+        "end_x_offset": 40,
+        "direction": "slow_pan_right",
+        "speed_multiplier": 2.455
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 2,
+      "sentence_text": "Every manufacturer who wanted to compete had to license his methods or fall behind."
+    },
+    {
+      "scene_number": 9,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_09_03.png",
+      "display_start": 554.92,
+      "display_end": 564.36,
+      "display_duration": 9.44,
+      "narration_start": 554.92,
+      "narration_end": 564.36,
+      "style": "",
+      "composition": "overhead",
+      "act": 0,
+      "ken_burns": {
+        "start_scale": 1.0,
+        "end_scale": 1.15,
+        "direction": "slow_zoom_in",
+        "speed_multiplier": 1.165
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 3,
+      "sentence_text": "Foxconn didn't become the world's largest electronics manufacturer by designing better phones. They became indispensable by mastering the factory floor."
+    },
+    {
+      "scene_number": 9,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_09_04.png",
+      "display_start": 564.36,
+      "display_end": 570.42,
+      "display_duration": 6.06,
+      "narration_start": 564.36,
+      "narration_end": 570.42,
+      "style": "",
+      "composition": "environmental",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": 40,
+        "end_x_offset": -40,
+        "direction": "slow_pan_left",
+        "speed_multiplier": 1.815
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 4,
+      "sentence_text": "Apple, Samsung, Sony\u2014they all depend on Foxconn because replacing them would cost billions and take years."
+    },
+    {
+      "scene_number": 9,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_09_05.png",
+      "display_start": 570.42,
+      "display_end": 575.1,
+      "display_duration": 4.68,
+      "narration_start": 570.42,
+      "narration_end": 575.1,
+      "style": "",
+      "composition": "medium",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": 40,
+        "end_x_offset": -40,
+        "direction": "slow_pan_left",
+        "speed_multiplier": 2.35
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 5,
+      "sentence_text": "The playbook is always the same. Control the process, not just the product."
+    },
+    {
+      "scene_number": 9,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_09_06.png",
+      "display_start": 575.1,
+      "display_end": 581.98,
+      "display_duration": 6.88,
+      "narration_start": 575.1,
+      "narration_end": 581.98,
+      "style": "",
+      "composition": "environmental",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": 40,
+        "end_x_offset": -40,
+        "direction": "slow_pan_left",
+        "speed_multiplier": 1.599
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 6,
+      "sentence_text": "Now look at what Elon Musk is actually constructing. Tesla isn't just making robots. They're building the entire"
+    },
+    {
+      "scene_number": 9,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_09_07.png",
+      "display_start": 581.98,
+      "display_end": 590.06,
+      "display_duration": 8.08,
+      "narration_start": 581.98,
+      "narration_end": 590.06,
+      "style": "",
+      "composition": "environmental",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": -40,
+        "end_x_offset": 40,
+        "direction": "slow_pan_right",
+        "speed_multiplier": 1.361
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 7,
+      "sentence_text": "ecosystem\u2014the AI training data from millions of vehicles, the neural network architecture, the manufacturing expertise, the supply chain relationships."
+    },
+    {
+      "scene_number": 9,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_09_08.png",
+      "display_start": 590.06,
+      "display_end": 600.74,
+      "display_duration": 10.68,
+      "narration_start": 590.06,
+      "narration_end": 600.74,
+      "style": "",
+      "composition": "wide",
+      "act": 0,
+      "ken_burns": {
+        "start_scale": 1.0,
+        "end_scale": 1.15,
+        "direction": "slow_zoom_in",
+        "speed_multiplier": 1.03
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 8,
+      "sentence_text": "By the time competitors realize what's happening, switching costs will be astronomical. Every company that waits to develop"
+    },
+    {
+      "scene_number": 9,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_09_09.png",
+      "display_start": 600.74,
+      "display_end": 607.72,
+      "display_duration": 6.98,
+      "narration_start": 600.74,
+      "narration_end": 607.72,
+      "style": "",
+      "composition": "wide",
+      "act": 0,
+      "ken_burns": {
+        "start_scale": 1.0,
+        "end_scale": 1.15,
+        "direction": "slow_zoom_in",
+        "speed_multiplier": 1.576
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 9,
+      "sentence_text": "their own humanoid workforce will face an impossible choice: build from scratch for years, or license from Tesla today."
+    },
+    {
+      "scene_number": 9,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_09_10.png",
+      "display_start": 607.72,
+      "display_end": 612.06,
+      "display_duration": 4.34,
+      "narration_start": 607.72,
+      "narration_end": 612.06,
+      "style": "",
+      "composition": "wide",
+      "act": 0,
+      "ken_burns": {
+        "start_scale": 1.0,
+        "end_scale": 1.15,
+        "direction": "slow_zoom_in",
+        "speed_multiplier": 2.535
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 10,
+      "sentence_text": "This isn't about selling robots. This is about becoming the factory floor of the future."
+    },
+    {
+      "scene_number": 10,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_10_01.png",
+      "display_start": 612.06,
+      "display_end": 616.64,
+      "display_duration": 4.58,
+      "narration_start": 612.06,
+      "narration_end": 616.64,
+      "style": "",
+      "composition": "wide",
+      "act": 0,
+      "ken_burns": {
+        "start_scale": 1.0,
+        "end_scale": 1.15,
+        "direction": "slow_zoom_in",
+        "speed_multiplier": 2.402
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 1,
+      "sentence_text": "Tesla's factories have become something far more valuable than car assembly lines."
+    },
+    {
+      "scene_number": 10,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_10_02.png",
+      "display_start": 616.64,
+      "display_end": 630.2,
+      "display_duration": 13.56,
+      "narration_start": 616.64,
+      "narration_end": 630.2,
+      "style": "",
+      "composition": "overhead",
+      "act": 0,
+      "ken_burns": {
+        "start_scale": 1.0,
+        "end_scale": 1.15,
+        "direction": "slow_zoom_in",
+        "speed_multiplier": 0.811
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 2,
+      "sentence_text": "They're the world's largest robot training ground. Every single day, Optimus units walk the floors of Gigafactories in Texas, California, and soon Germany. They're not just working. They're learning."
+    },
+    {
+      "scene_number": 10,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_10_03.png",
+      "display_start": 630.2,
+      "display_end": 637.66,
+      "display_duration": 7.46,
+      "narration_start": 630.2,
+      "narration_end": 637.66,
+      "style": "",
+      "composition": "environmental",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": -40,
+        "end_x_offset": 40,
+        "direction": "slow_pan_right",
+        "speed_multiplier": 1.475
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 3,
+      "sentence_text": "Every misstep, every successful grasp, every navigation around a human worker gets uploaded and shared across the entire fleet."
+    },
+    {
+      "scene_number": 10,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_10_04.png",
+      "display_start": 637.66,
+      "display_end": 646.7,
+      "display_duration": 9.04,
+      "narration_start": 637.66,
+      "narration_end": 646.7,
+      "style": "",
+      "composition": "medium",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": -40,
+        "end_x_offset": 40,
+        "direction": "slow_pan_right",
+        "speed_multiplier": 1.217
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 4,
+      "sentence_text": "This is the data advantage nobody's talking about. Boston Dynamics has impressive robots. Figure AI has billions in funding."
+    },
+    {
+      "scene_number": 10,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_10_05.png",
+      "display_start": 646.7,
+      "display_end": 655.34,
+      "display_duration": 8.64,
+      "narration_start": 646.7,
+      "narration_end": 655.34,
+      "style": "",
+      "composition": "wide",
+      "act": 0,
+      "ken_burns": {
+        "start_scale": 1.0,
+        "end_scale": 1.15,
+        "direction": "slow_zoom_in",
+        "speed_multiplier": 1.273
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 5,
+      "sentence_text": "But here's their impossible problem: where do you train a humanoid robot at scale? You can't simulate your way to real-world performance."
+    },
+    {
+      "scene_number": 10,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_10_06.png",
+      "display_start": 655.34,
+      "display_end": 665.74,
+      "display_duration": 10.4,
+      "narration_start": 655.34,
+      "narration_end": 665.74,
+      "style": "",
+      "composition": "medium",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": -40,
+        "end_x_offset": 40,
+        "direction": "slow_pan_right",
+        "speed_multiplier": 1.058
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 6,
+      "sentence_text": "Robots need physical interaction with actual environments, actual objects, actual chaos. Tesla already has millions of square feet of complex manufacturing space."
+    },
+    {
+      "scene_number": 10,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_10_07.png",
+      "display_start": 665.74,
+      "display_end": 680.82,
+      "display_duration": 15.08,
+      "narration_start": 665.74,
+      "narration_end": 680.82,
+      "style": "",
+      "composition": "medium",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": 40,
+        "end_x_offset": -40,
+        "direction": "slow_pan_left",
+        "speed_multiplier": 0.729
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 7,
+      "sentence_text": "Temperature variations. Moving equipment. Human coworkers. Unpredictable situations every single hour. Their competitors would need to spend billions building factories they don't need, just to create training environments Tesla already owns and operates at profit."
+    },
+    {
+      "scene_number": 10,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_10_08.png",
+      "display_start": 680.82,
+      "display_end": 689.36,
+      "display_duration": 8.54,
+      "narration_start": 680.82,
+      "narration_end": 689.36,
+      "style": "",
+      "composition": "low_angle",
+      "act": 0,
+      "ken_burns": {
+        "start_y_offset": 30,
+        "end_y_offset": -30,
+        "direction": "slow_tilt_up",
+        "speed_multiplier": 1.288
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 8,
+      "sentence_text": "The laboratory is the business. The business is the laboratory. And that closed loop might be the most underestimated advantage in the entire robotics race."
+    },
+    {
+      "scene_number": 11,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_11_01.png",
+      "display_start": 689.36,
+      "display_end": 700.8,
+      "display_duration": 11.44,
+      "narration_start": 689.36,
+      "narration_end": 700.8,
+      "style": "",
+      "composition": "closeup",
+      "act": 0,
+      "ken_burns": {
+        "start_scale": 1.15,
+        "end_scale": 1.0,
+        "direction": "slow_zoom_out",
+        "speed_multiplier": 0.962
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 1,
+      "sentence_text": "Every time an Optimus robot picks up a bolt, that movement becomes data. Every failed grip, every successful assembly, every unexpected obstacle \u2014 logged, analyzed, uploaded."
+    },
+    {
+      "scene_number": 11,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_11_02.png",
+      "display_start": 700.8,
+      "display_end": 711.08,
+      "display_duration": 10.28,
+      "narration_start": 700.8,
+      "narration_end": 711.08,
+      "style": "",
+      "composition": "environmental",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": 40,
+        "end_x_offset": -40,
+        "direction": "slow_pan_left",
+        "speed_multiplier": 1.07
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 2,
+      "sentence_text": "This is the real treasure Tesla is mining. While competitors run simulations in virtual environments, Tesla is harvesting millions of hours of actual factory footage."
+    },
+    {
+      "scene_number": 11,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_11_03.png",
+      "display_start": 711.08,
+      "display_end": 716.28,
+      "display_duration": 5.2,
+      "narration_start": 711.08,
+      "narration_end": 716.28,
+      "style": "",
+      "composition": "wide",
+      "act": 0,
+      "ken_burns": {
+        "start_scale": 1.0,
+        "end_scale": 1.15,
+        "direction": "slow_zoom_in",
+        "speed_multiplier": 2.115
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 3,
+      "sentence_text": "Real hands touching real objects in real conditions. The difference is everything."
+    },
+    {
+      "scene_number": 11,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_11_04.png",
+      "display_start": 716.28,
+      "display_end": 727.92,
+      "display_duration": 11.64,
+      "narration_start": 716.28,
+      "narration_end": 727.92,
+      "style": "",
+      "composition": "medium",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": -40,
+        "end_x_offset": 40,
+        "direction": "slow_pan_right",
+        "speed_multiplier": 0.945
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 4,
+      "sentence_text": "Boston Dynamics can make robots do backflips for YouTube. Impressive? Absolutely. But those are choreographed performances, not scalable intelligence."
+    },
+    {
+      "scene_number": 11,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_11_05.png",
+      "display_start": 727.92,
+      "display_end": 736.06,
+      "display_duration": 8.14,
+      "narration_start": 727.92,
+      "narration_end": 736.06,
+      "style": "",
+      "composition": "environmental",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": -40,
+        "end_x_offset": 40,
+        "direction": "slow_pan_right",
+        "speed_multiplier": 1.351
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 5,
+      "sentence_text": "Tesla's approach is uglier but smarter. Put imperfect robots in real factories. Let them struggle. Let them fail."
+    },
+    {
+      "scene_number": 11,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_11_06.png",
+      "display_start": 736.06,
+      "display_end": 752.48,
+      "display_duration": 16.42,
+      "narration_start": 736.06,
+      "narration_end": 752.48,
+      "style": "",
+      "composition": "environmental",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": 40,
+        "end_x_offset": -40,
+        "direction": "slow_pan_left",
+        "speed_multiplier": 0.67
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 6,
+      "sentence_text": "Capture every millisecond of that struggle. Because here's what most people miss: AI models are only as good as their training data. And nobody else has access to the chaotic, unpredictable, genuinely useful data that comes from actual manufacturing floors."
+    },
+    {
+      "scene_number": 11,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_11_07.png",
+      "display_start": 752.48,
+      "display_end": 764.48,
+      "display_duration": 12.0,
+      "narration_start": 752.48,
+      "narration_end": 764.48,
+      "style": "",
+      "composition": "environmental",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": -40,
+        "end_x_offset": 40,
+        "direction": "slow_pan_right",
+        "speed_multiplier": 0.917
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 7,
+      "sentence_text": "By the time competitors build their first humanoid production line, Tesla will have accumulated a data advantage measured not in months, but in years of real-world experience. That gap doesn't close. It widens."
+    },
+    {
+      "scene_number": 12,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_12_01.png",
+      "display_start": 764.48,
+      "display_end": 777.86,
+      "display_duration": 13.38,
+      "narration_start": 764.48,
+      "narration_end": 777.86,
+      "style": "",
+      "composition": "medium",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": -40,
+        "end_x_offset": 40,
+        "direction": "slow_pan_right",
+        "speed_multiplier": 0.822
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 1,
+      "sentence_text": "The numbers don't lie, and these numbers are terrifying. Tesla employs over one hundred thousand workers right now. Engineers, assembly line technicians, warehouse staff, quality inspectors. Human beings earning human wages."
+    },
+    {
+      "scene_number": 12,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_12_02.png",
+      "display_start": 777.86,
+      "display_end": 787.12,
+      "display_duration": 9.26,
+      "narration_start": 777.86,
+      "narration_end": 787.12,
+      "style": "",
+      "composition": "environmental",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": -40,
+        "end_x_offset": 40,
+        "direction": "slow_pan_right",
+        "speed_multiplier": 1.188
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 2,
+      "sentence_text": "Now imagine Optimus reaches full deployment inside Tesla's own factories. No lunch breaks. No health insurance. No shift changes. No union negotiations."
+    },
+    {
+      "scene_number": 12,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_12_03.png",
+      "display_start": 787.12,
+      "display_end": 798.86,
+      "display_duration": 11.74,
+      "narration_start": 787.12,
+      "narration_end": 798.86,
+      "style": "",
+      "composition": "closeup",
+      "act": 0,
+      "ken_burns": {
+        "start_scale": 1.15,
+        "end_scale": 1.0,
+        "direction": "slow_zoom_out",
+        "speed_multiplier": 0.937
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 3,
+      "sentence_text": "Just tireless precision, twenty-four hours a day, seven days a week. Tesla's labor costs don't just decrease. They evaporate. Meanwhile, Ford is still paying workers. Toyota is still paying workers."
+    },
+    {
+      "scene_number": 12,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_12_04.png",
+      "display_start": 798.86,
+      "display_end": 808.98,
+      "display_duration": 10.12,
+      "narration_start": 798.86,
+      "narration_end": 808.98,
+      "style": "",
+      "composition": "wide",
+      "act": 0,
+      "ken_burns": {
+        "start_scale": 1.0,
+        "end_scale": 1.15,
+        "direction": "slow_zoom_in",
+        "speed_multiplier": 1.087
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 4,
+      "sentence_text": "Every single competitor is hemorrhaging money on the one expense Tesla has eliminated entirely. This isn't a competitive advantage. This is extinction-level economics."
+    },
+    {
+      "scene_number": 12,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_12_05.png",
+      "display_start": 808.98,
+      "display_end": 819.74,
+      "display_duration": 10.76,
+      "narration_start": 808.98,
+      "narration_end": 819.74,
+      "style": "",
+      "composition": "medium",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": -40,
+        "end_x_offset": 40,
+        "direction": "slow_pan_right",
+        "speed_multiplier": 1.022
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 5,
+      "sentence_text": "When your rival's cost structure drops by forty percent overnight, you don't adapt. You collapse. The gap between Tesla and everyone else stops being a lead. It becomes a canyon."
+    },
+    {
+      "scene_number": 12,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_12_06.png",
+      "display_start": 819.74,
+      "display_end": 830.66,
+      "display_duration": 10.92,
+      "narration_start": 819.74,
+      "narration_end": 830.66,
+      "style": "",
+      "composition": "low_angle",
+      "act": 0,
+      "ken_burns": {
+        "start_y_offset": 30,
+        "end_y_offset": -30,
+        "direction": "slow_tilt_up",
+        "speed_multiplier": 1.007
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 6,
+      "sentence_text": "And canyons don't close. The traditional automakers aren't competing against Elon Musk anymore. They're competing against an army that never sleeps, never complains, and never cashes a paycheck."
+    },
+    {
+      "scene_number": 13,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_13_01.png",
+      "display_start": 830.66,
+      "display_end": 839.54,
+      "display_duration": 8.88,
+      "narration_start": 830.66,
+      "narration_end": 839.54,
+      "style": "",
+      "composition": "medium",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": -40,
+        "end_x_offset": 40,
+        "direction": "slow_pan_right",
+        "speed_multiplier": 1.239
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 1,
+      "sentence_text": "Here's the kicker that nobody's talking about. Tesla doesn't need to keep Optimus to themselves. In fact, the real play is giving it away."
+    },
+    {
+      "scene_number": 13,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_13_02.png",
+      "display_start": 839.54,
+      "display_end": 844.28,
+      "display_duration": 4.74,
+      "narration_start": 839.54,
+      "narration_end": 844.28,
+      "style": "",
+      "composition": "closeup",
+      "act": 0,
+      "ken_burns": {
+        "start_scale": 1.15,
+        "end_scale": 1.0,
+        "direction": "slow_zoom_out",
+        "speed_multiplier": 2.321
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 2,
+      "sentence_text": "Twenty thousand dollars. That's the price tag they're floating to other manufacturers."
+    },
+    {
+      "scene_number": 13,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_13_03.png",
+      "display_start": 844.28,
+      "display_end": 851.42,
+      "display_duration": 7.14,
+      "narration_start": 844.28,
+      "narration_end": 851.42,
+      "style": "",
+      "composition": "wide",
+      "act": 0,
+      "ken_burns": {
+        "start_scale": 1.0,
+        "end_scale": 1.15,
+        "direction": "slow_zoom_in",
+        "speed_multiplier": 1.541
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 3,
+      "sentence_text": "Ford wants robots for their assembly lines? Here you go. Amazon needs warehouse workers that don't unionize? Step right up."
+    },
+    {
+      "scene_number": 13,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_13_04.png",
+      "display_start": 851.42,
+      "display_end": 857.18,
+      "display_duration": 5.76,
+      "narration_start": 851.42,
+      "narration_end": 857.18,
+      "style": "",
+      "composition": "environmental",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": -40,
+        "end_x_offset": 40,
+        "direction": "slow_pan_right",
+        "speed_multiplier": 1.91
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 4,
+      "sentence_text": "The economics are irresistible. No company can build a humanoid robot at that price point."
+    },
+    {
+      "scene_number": 13,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_13_05.png",
+      "display_start": 857.18,
+      "display_end": 863.04,
+      "display_duration": 5.86,
+      "narration_start": 857.18,
+      "narration_end": 863.04,
+      "style": "",
+      "composition": "environmental",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": 40,
+        "end_x_offset": -40,
+        "direction": "slow_pan_left",
+        "speed_multiplier": 1.877
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 5,
+      "sentence_text": "Tesla's already eaten the R&D costs. They've got the manufacturing scale. They're practically doing you a favor."
+    },
+    {
+      "scene_number": 13,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_13_06.png",
+      "display_start": 863.04,
+      "display_end": 870.26,
+      "display_duration": 7.22,
+      "narration_start": 863.04,
+      "narration_end": 870.26,
+      "style": "",
+      "composition": "environmental",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": -40,
+        "end_x_offset": 40,
+        "direction": "slow_pan_right",
+        "speed_multiplier": 1.524
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 6,
+      "sentence_text": "Except every single robot sold runs on Tesla's neural networks. Every unit phones home to Tesla's cloud servers."
+    },
+    {
+      "scene_number": 13,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_13_07.png",
+      "display_start": 870.26,
+      "display_end": 877.84,
+      "display_duration": 7.58,
+      "narration_start": 870.26,
+      "narration_end": 877.84,
+      "style": "",
+      "composition": "wide",
+      "act": 0,
+      "ken_burns": {
+        "start_scale": 1.0,
+        "end_scale": 1.15,
+        "direction": "slow_zoom_in",
+        "speed_multiplier": 1.451
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 7,
+      "sentence_text": "Every software update, every capability upgrade, every security patch flows through Cupertino's uglier cousin in Austin, Texas."
+    },
+    {
+      "scene_number": 13,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_13_08.png",
+      "display_start": 877.84,
+      "display_end": 887.4,
+      "display_duration": 9.56,
+      "narration_start": 877.84,
+      "narration_end": 887.4,
+      "style": "",
+      "composition": "medium",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": 40,
+        "end_x_offset": -40,
+        "direction": "slow_pan_left",
+        "speed_multiplier": 1.151
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 8,
+      "sentence_text": "You think you bought a robot. You think it's yours. But try running it without Tesla's blessing. Try switching to a competitor's operating system. You can't."
+    },
+    {
+      "scene_number": 13,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_13_09.png",
+      "display_start": 887.4,
+      "display_end": 897.3,
+      "display_duration": 9.9,
+      "narration_start": 887.4,
+      "narration_end": 897.3,
+      "style": "",
+      "composition": "overhead",
+      "act": 0,
+      "ken_burns": {
+        "start_scale": 1.0,
+        "end_scale": 1.15,
+        "direction": "slow_zoom_in",
+        "speed_multiplier": 1.111
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 9,
+      "sentence_text": "You didn't purchase hardware. You subscribed to an ecosystem. And the moment Tesla controls the software that powers your entire factory floor, you don't negotiate with them. You comply."
+    },
+    {
+      "scene_number": 14,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_14_01.png",
+      "display_start": 897.3,
+      "display_end": 909.18,
+      "display_duration": 11.88,
+      "narration_start": 897.3,
+      "narration_end": 909.18,
+      "style": "",
+      "composition": "wide",
+      "act": 0,
+      "ken_burns": {
+        "start_scale": 1.0,
+        "end_scale": 1.15,
+        "direction": "slow_zoom_in",
+        "speed_multiplier": 0.926
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 1,
+      "sentence_text": "They won't sell you the robot. That's the trap nobody's talking about. Think about it. Elon Musk isn't manufacturing humanoids to stock warehouse shelves at Walmart. He's building a rental empire."
+    },
+    {
+      "scene_number": 14,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_14_02.png",
+      "display_start": 909.18,
+      "display_end": 916.76,
+      "display_duration": 7.58,
+      "narration_start": 909.18,
+      "narration_end": 916.76,
+      "style": "",
+      "composition": "medium",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": -40,
+        "end_x_offset": 40,
+        "direction": "slow_pan_right",
+        "speed_multiplier": 1.451
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 2,
+      "sentence_text": "A subscription service for physical labor itself. Picture Ford at the height of his power. Now imagine he didn't just sell Model Ts."
+    },
+    {
+      "scene_number": 14,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_14_03.png",
+      "display_start": 916.76,
+      "display_end": 929.42,
+      "display_duration": 12.66,
+      "narration_start": 916.76,
+      "narration_end": 929.42,
+      "style": "",
+      "composition": "closeup",
+      "act": 0,
+      "ken_burns": {
+        "start_scale": 1.15,
+        "end_scale": 1.0,
+        "direction": "slow_zoom_out",
+        "speed_multiplier": 0.869
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 3,
+      "sentence_text": "Imagine he leased his assembly lines to General Motors, to Chrysler, to every manufacturer on Earth. They build their cars, their products, their profits \u2014 all on equipment they'll never own. Paying rent."
+    },
+    {
+      "scene_number": 14,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_14_04.png",
+      "display_start": 929.42,
+      "display_end": 942.18,
+      "display_duration": 12.76,
+      "narration_start": 929.42,
+      "narration_end": 942.18,
+      "style": "",
+      "composition": "environmental",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": 40,
+        "end_x_offset": -40,
+        "direction": "slow_pan_left",
+        "speed_multiplier": 0.862
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 4,
+      "sentence_text": "Month after month. Year after year. Forever. This is Stage Four. The extraction phase. Tesla doesn't want to compete with Amazon's warehouses or BMW's factories. Tesla wants to power them."
+    },
+    {
+      "scene_number": 14,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_14_05.png",
+      "display_start": 942.18,
+      "display_end": 951.5,
+      "display_duration": 9.32,
+      "narration_start": 942.18,
+      "narration_end": 951.5,
+      "style": "",
+      "composition": "portrait",
+      "act": 0,
+      "ken_burns": {
+        "start_scale": 1.0,
+        "end_scale": 1.15,
+        "direction": "slow_zoom_in",
+        "speed_multiplier": 1.18
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 5,
+      "sentence_text": "Every robot lifting boxes in fulfillment centers, welding frames in auto plants, packing shipments at ports \u2014 sending a percentage back to one company."
+    },
+    {
+      "scene_number": 14,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_14_06.png",
+      "display_start": 951.5,
+      "display_end": 960.18,
+      "display_duration": 8.68,
+      "narration_start": 951.5,
+      "narration_end": 960.18,
+      "style": "",
+      "composition": "overhead",
+      "act": 0,
+      "ken_burns": {
+        "start_scale": 1.0,
+        "end_scale": 1.15,
+        "direction": "slow_zoom_in",
+        "speed_multiplier": 1.267
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 6,
+      "sentence_text": "The labor force that builds civilization itself, owned by a single entity. Your competitors pay rent to the same landlord you do."
+    },
+    {
+      "scene_number": 14,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_14_07.png",
+      "display_start": 960.18,
+      "display_end": 969.66,
+      "display_duration": 9.48,
+      "narration_start": 960.18,
+      "narration_end": 969.66,
+      "style": "",
+      "composition": "low_angle",
+      "act": 0,
+      "ken_burns": {
+        "start_y_offset": 30,
+        "end_y_offset": -30,
+        "direction": "slow_tilt_up",
+        "speed_multiplier": 1.16
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 7,
+      "sentence_text": "Innovation becomes impossible when your operating costs flow directly into someone else's war chest. The assembly line changed who owns production. The humanoid changes who owns work."
+    },
+    {
+      "scene_number": 15,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_15_01.png",
+      "display_start": 969.66,
+      "display_end": 976.58,
+      "display_duration": 6.92,
+      "narration_start": 969.66,
+      "narration_end": 976.58,
+      "style": "",
+      "composition": "wide",
+      "act": 0,
+      "ken_burns": {
+        "start_scale": 1.0,
+        "end_scale": 1.15,
+        "direction": "slow_zoom_in",
+        "speed_multiplier": 1.59
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 1,
+      "sentence_text": "Here's the competition's nightmare scenario. You're a tech giant. You've got deep pockets. You decide to build your own humanoid robot."
+    },
+    {
+      "scene_number": 15,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_15_02.png",
+      "display_start": 976.58,
+      "display_end": 986.48,
+      "display_duration": 9.9,
+      "narration_start": 976.58,
+      "narration_end": 986.48,
+      "style": "",
+      "composition": "environmental",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": -40,
+        "end_x_offset": 40,
+        "direction": "slow_pan_right",
+        "speed_multiplier": 1.111
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 2,
+      "sentence_text": "First, you need the AI. That's billions in compute, years of training data, and you're starting from scratch while Tesla's been collecting real-world movement data for a decade."
+    },
+    {
+      "scene_number": 15,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_15_03.png",
+      "display_start": 986.48,
+      "display_end": 994.72,
+      "display_duration": 8.24,
+      "narration_start": 986.48,
+      "narration_end": 994.72,
+      "style": "",
+      "composition": "closeup",
+      "act": 0,
+      "ken_burns": {
+        "start_scale": 1.15,
+        "end_scale": 1.0,
+        "direction": "slow_zoom_out",
+        "speed_multiplier": 1.335
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 3,
+      "sentence_text": "Then you need the hardware. Custom actuators, sensors, battery systems. Another few billion. Another five years minimum."
+    },
+    {
+      "scene_number": 15,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_15_04.png",
+      "display_start": 994.72,
+      "display_end": 1005.5,
+      "display_duration": 10.78,
+      "narration_start": 994.72,
+      "narration_end": 1005.5,
+      "style": "",
+      "composition": "environmental",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": -40,
+        "end_x_offset": 40,
+        "direction": "slow_pan_right",
+        "speed_multiplier": 1.02
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 4,
+      "sentence_text": "But here's where it gets brutal. You need to train these robots. That means factories, warehouses, real environments where they can learn."
+    },
+    {
+      "scene_number": 15,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_15_05.png",
+      "display_start": 1005.5,
+      "display_end": 1011.7,
+      "display_duration": 6.2,
+      "narration_start": 1005.5,
+      "narration_end": 1011.7,
+      "style": "",
+      "composition": "wide",
+      "act": 0,
+      "ken_burns": {
+        "start_scale": 1.0,
+        "end_scale": 1.15,
+        "direction": "slow_zoom_in",
+        "speed_multiplier": 1.774
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 5,
+      "sentence_text": "Tesla already has those. You'd have to build them or convince companies to let your prototype robots stumble around their facilities."
+    },
+    {
+      "scene_number": 15,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_15_06.png",
+      "display_start": 1011.7,
+      "display_end": 1019.9,
+      "display_duration": 8.2,
+      "narration_start": 1011.7,
+      "narration_end": 1019.9,
+      "style": "",
+      "composition": "environmental",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": -40,
+        "end_x_offset": 40,
+        "direction": "slow_pan_right",
+        "speed_multiplier": 1.341
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 6,
+      "sentence_text": "By the time you've solved the AI, perfected the hardware, and trained your first generation... Tesla has ten million Optimus units deployed worldwide."
+    },
+    {
+      "scene_number": 15,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_15_07.png",
+      "display_start": 1019.9,
+      "display_end": 1025.32,
+      "display_duration": 5.42,
+      "narration_start": 1019.9,
+      "narration_end": 1025.32,
+      "style": "",
+      "composition": "environmental",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": 40,
+        "end_x_offset": -40,
+        "direction": "slow_pan_left",
+        "speed_multiplier": 2.03
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 7,
+      "sentence_text": "They're cheaper because of scale. They're smarter because of data. They're everywhere because they got there first."
+    },
+    {
+      "scene_number": 15,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_15_08.png",
+      "display_start": 1025.32,
+      "display_end": 1033.3,
+      "display_duration": 7.98,
+      "narration_start": 1025.32,
+      "narration_end": 1033.3,
+      "style": "",
+      "composition": "medium",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": 40,
+        "end_x_offset": -40,
+        "direction": "slow_pan_left",
+        "speed_multiplier": 1.378
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 8,
+      "sentence_text": "You haven't lost the race. The race was over before you started running. This is what a technological moat looks like. Not patents. Not secrets."
+    },
+    {
+      "scene_number": 15,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_15_09.png",
+      "display_start": 1033.3,
+      "display_end": 1034.54,
+      "display_duration": 1.24,
+      "narration_start": 1033.3,
+      "narration_end": 1034.54,
+      "style": "",
+      "composition": "closeup",
+      "act": 0,
+      "ken_burns": {
+        "start_scale": 1.15,
+        "end_scale": 1.0,
+        "direction": "slow_zoom_out",
+        "speed_multiplier": 3.667
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 9,
+      "sentence_text": "Just time nobody else has."
+    },
+    {
+      "scene_number": 16,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_16_01.png",
+      "display_start": 1034.54,
+      "display_end": 1044.06,
+      "display_duration": 9.52,
+      "narration_start": 1034.54,
+      "narration_end": 1044.06,
+      "style": "",
+      "composition": "medium",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": 40,
+        "end_x_offset": -40,
+        "direction": "slow_pan_left",
+        "speed_multiplier": 1.155
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 1,
+      "sentence_text": "The trap snaps shut so quietly you won't even hear it. Manufacturing plants start simple. They lease a few Optimus units, run the numbers, and the math is undeniable."
+    },
+    {
+      "scene_number": 16,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_16_02.png",
+      "display_start": 1044.06,
+      "display_end": 1051.4,
+      "display_duration": 7.34,
+      "narration_start": 1044.06,
+      "narration_end": 1051.4,
+      "style": "",
+      "composition": "closeup",
+      "act": 0,
+      "ken_burns": {
+        "start_scale": 1.15,
+        "end_scale": 1.0,
+        "direction": "slow_zoom_out",
+        "speed_multiplier": 1.499
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 2,
+      "sentence_text": "Why pay humans forty dollars an hour when robots cost eight? So they scale up. Ten units become a hundred."
+    },
+    {
+      "scene_number": 16,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_16_03.png",
+      "display_start": 1051.4,
+      "display_end": 1060.78,
+      "display_duration": 9.38,
+      "narration_start": 1051.4,
+      "narration_end": 1060.78,
+      "style": "",
+      "composition": "overhead",
+      "act": 0,
+      "ken_burns": {
+        "start_scale": 1.0,
+        "end_scale": 1.15,
+        "direction": "slow_zoom_in",
+        "speed_multiplier": 1.173
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 3,
+      "sentence_text": "A hundred become a thousand. Then something shifts. Tesla adjusts the subscription model. Monthly fees climb fifteen percent. Then twenty."
+    },
+    {
+      "scene_number": 16,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_16_04.png",
+      "display_start": 1060.78,
+      "display_end": 1068.56,
+      "display_duration": 7.78,
+      "narration_start": 1060.78,
+      "narration_end": 1068.56,
+      "style": "",
+      "composition": "medium",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": -40,
+        "end_x_offset": 40,
+        "direction": "slow_pan_right",
+        "speed_multiplier": 1.414
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 4,
+      "sentence_text": "Factory owners grumble, but what's the alternative? Fire the machines and post job listings? Retrain a human workforce that's moved on to other industries?"
+    },
+    {
+      "scene_number": 16,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_16_05.png",
+      "display_start": 1068.56,
+      "display_end": 1076.46,
+      "display_duration": 7.9,
+      "narration_start": 1068.56,
+      "narration_end": 1076.46,
+      "style": "",
+      "composition": "environmental",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": -40,
+        "end_x_offset": 40,
+        "direction": "slow_pan_right",
+        "speed_multiplier": 1.392
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 5,
+      "sentence_text": "The cost of switching back now exceeds the cost of staying locked in. This is the dependency spiral, and it's devastatingly effective."
+    },
+    {
+      "scene_number": 16,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_16_06.png",
+      "display_start": 1076.46,
+      "display_end": 1082.0,
+      "display_duration": 5.54,
+      "narration_start": 1076.46,
+      "narration_end": 1082.0,
+      "style": "",
+      "composition": "medium",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": -40,
+        "end_x_offset": 40,
+        "direction": "slow_pan_right",
+        "speed_multiplier": 1.986
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 6,
+      "sentence_text": "Every price increase gets absorbed because the pain of leaving hurts more than the pain of paying."
+    },
+    {
+      "scene_number": 16,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_16_07.png",
+      "display_start": 1082.0,
+      "display_end": 1089.5,
+      "display_duration": 7.5,
+      "narration_start": 1082.0,
+      "narration_end": 1089.5,
+      "style": "",
+      "composition": "environmental",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": -40,
+        "end_x_offset": 40,
+        "direction": "slow_pan_right",
+        "speed_multiplier": 1.467
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 7,
+      "sentence_text": "Tesla doesn't need to own your factory. They just need to own something your factory cannot function without. The rent extraction phase has begun."
+    },
+    {
+      "scene_number": 16,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_16_08.png",
+      "display_start": 1089.5,
+      "display_end": 1101.02,
+      "display_duration": 11.52,
+      "narration_start": 1089.5,
+      "narration_end": 1101.02,
+      "style": "",
+      "composition": "wide",
+      "act": 0,
+      "ken_burns": {
+        "start_scale": 1.0,
+        "end_scale": 1.15,
+        "direction": "slow_zoom_in",
+        "speed_multiplier": 0.955
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 8,
+      "sentence_text": "And here's what makes it permanent: the longer you stay, the deeper you sink. Your human expertise erodes. Your alternatives vanish. You're not a customer anymore. You're a subscriber who forgot how to leave."
+    },
+    {
+      "scene_number": 17,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_17_01.png",
+      "display_start": 1101.02,
+      "display_end": 1105.72,
+      "display_duration": 4.7,
+      "narration_start": 1101.02,
+      "narration_end": 1105.72,
+      "style": "",
+      "composition": "wide",
+      "act": 0,
+      "ken_burns": {
+        "start_scale": 1.0,
+        "end_scale": 1.15,
+        "direction": "slow_zoom_in",
+        "speed_multiplier": 2.34
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 1,
+      "sentence_text": "By 2030, this won't be a competition anymore. It'll be a coronation."
+    },
+    {
+      "scene_number": 17,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_17_02.png",
+      "display_start": 1105.72,
+      "display_end": 1114.42,
+      "display_duration": 8.7,
+      "narration_start": 1105.72,
+      "narration_end": 1114.42,
+      "style": "",
+      "composition": "environmental",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": 40,
+        "end_x_offset": -40,
+        "direction": "slow_pan_left",
+        "speed_multiplier": 1.264
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 2,
+      "sentence_text": "Picture this: Optimus units running thirty percent of global manufacturing. Not scattered across different companies, but flowing from one source."
+    },
+    {
+      "scene_number": 17,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_17_03.png",
+      "display_start": 1114.42,
+      "display_end": 1125.34,
+      "display_duration": 10.92,
+      "narration_start": 1114.42,
+      "narration_end": 1125.34,
+      "style": "",
+      "composition": "portrait",
+      "act": 0,
+      "ken_burns": {
+        "start_scale": 1.0,
+        "end_scale": 1.15,
+        "direction": "slow_zoom_in",
+        "speed_multiplier": 1.007
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 3,
+      "sentence_text": "One ecosystem. One man's vision. At that point, the question flips entirely. It's no longer \"who makes the best robots?\" It's \"who can afford NOT to use Tesla's?\""
+    },
+    {
+      "scene_number": 17,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_17_04.png",
+      "display_start": 1125.34,
+      "display_end": 1133.9,
+      "display_duration": 8.56,
+      "narration_start": 1125.34,
+      "narration_end": 1133.9,
+      "style": "",
+      "composition": "environmental",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": 40,
+        "end_x_offset": -40,
+        "direction": "slow_pan_left",
+        "speed_multiplier": 1.285
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 4,
+      "sentence_text": "Because here's the brutal math. If your competitor cuts labor costs by sixty percent using Optimus, you have two choices."
+    },
+    {
+      "scene_number": 17,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_17_05.png",
+      "display_start": 1133.9,
+      "display_end": 1148.4,
+      "display_duration": 14.5,
+      "narration_start": 1133.9,
+      "narration_end": 1148.4,
+      "style": "",
+      "composition": "wide",
+      "act": 0,
+      "ken_burns": {
+        "start_scale": 1.0,
+        "end_scale": 1.15,
+        "direction": "slow_zoom_in",
+        "speed_multiplier": 0.759
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 5,
+      "sentence_text": "Adopt the same system, or die slowly watching your margins evaporate. This is the trap nobody's talking about. Musk doesn't need to crush the competition. He just needs enough market penetration to make his platform the default."
+    },
+    {
+      "scene_number": 17,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_17_06.png",
+      "display_start": 1148.4,
+      "display_end": 1162.56,
+      "display_duration": 14.16,
+      "narration_start": 1148.4,
+      "narration_end": 1162.56,
+      "style": "",
+      "composition": "overhead",
+      "act": 0,
+      "ken_burns": {
+        "start_scale": 1.0,
+        "end_scale": 1.15,
+        "direction": "slow_zoom_in",
+        "speed_multiplier": 0.777
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 6,
+      "sentence_text": "The safe choice. The only choice that shareholders will accept. And once you're locked into Tesla's hardware, Tesla's software, Tesla's energy grid... you're not a customer anymore. You're a dependent."
+    },
+    {
+      "scene_number": 17,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_17_07.png",
+      "display_start": 1162.56,
+      "display_end": 1172.74,
+      "display_duration": 10.18,
+      "narration_start": 1162.56,
+      "narration_end": 1172.74,
+      "style": "",
+      "composition": "wide",
+      "act": 0,
+      "ken_burns": {
+        "start_scale": 1.0,
+        "end_scale": 1.15,
+        "direction": "slow_zoom_in",
+        "speed_multiplier": 1.081
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 7,
+      "sentence_text": "Six years. That's all that separates us from a world where one company doesn't just compete in the global economy. It fundamentally becomes the infrastructure underneath it."
+    },
+    {
+      "scene_number": 18,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_18_01.png",
+      "display_start": 1172.74,
+      "display_end": 1181.34,
+      "display_duration": 8.6,
+      "narration_start": 1172.74,
+      "narration_end": 1181.34,
+      "style": "",
+      "composition": "wide",
+      "act": 0,
+      "ken_burns": {
+        "start_scale": 1.0,
+        "end_scale": 1.15,
+        "direction": "slow_zoom_in",
+        "speed_multiplier": 1.279
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 1,
+      "sentence_text": "The moment Optimus reaches critical mass, something fundamental shifts. This isn't about selling robots. It's about controlling the means of production itself."
+    },
+    {
+      "scene_number": 18,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_18_02.png",
+      "display_start": 1181.34,
+      "display_end": 1191.86,
+      "display_duration": 10.52,
+      "narration_start": 1181.34,
+      "narration_end": 1191.86,
+      "style": "",
+      "composition": "environmental",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": -40,
+        "end_x_offset": 40,
+        "direction": "slow_pan_right",
+        "speed_multiplier": 1.046
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 2,
+      "sentence_text": "Think about what manufacturing really is. It's the conversion of raw materials into everything civilization needs. Food processing. Medicine production. Infrastructure. Defense."
+    },
+    {
+      "scene_number": 18,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_18_03.png",
+      "display_start": 1191.86,
+      "display_end": 1196.44,
+      "display_duration": 4.58,
+      "narration_start": 1191.86,
+      "narration_end": 1196.44,
+      "style": "",
+      "composition": "overhead",
+      "act": 0,
+      "ken_burns": {
+        "start_scale": 1.0,
+        "end_scale": 1.15,
+        "direction": "slow_zoom_in",
+        "speed_multiplier": 2.402
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 3,
+      "sentence_text": "Whoever commands an army of tireless, obedient workers commands the output of nations."
+    },
+    {
+      "scene_number": 18,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_18_04.png",
+      "display_start": 1196.44,
+      "display_end": 1204.34,
+      "display_duration": 7.9,
+      "narration_start": 1196.44,
+      "narration_end": 1204.34,
+      "style": "",
+      "composition": "closeup",
+      "act": 0,
+      "ken_burns": {
+        "start_scale": 1.15,
+        "end_scale": 1.0,
+        "direction": "slow_zoom_out",
+        "speed_multiplier": 1.392
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 4,
+      "sentence_text": "Musk understands this with perfect clarity. He's not building a product line. He's constructing leverage over the entire global economy."
+    },
+    {
+      "scene_number": 18,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_18_05.png",
+      "display_start": 1204.34,
+      "display_end": 1217.1,
+      "display_duration": 12.76,
+      "narration_start": 1204.34,
+      "narration_end": 1217.1,
+      "style": "",
+      "composition": "low_angle",
+      "act": 0,
+      "ken_burns": {
+        "start_y_offset": 30,
+        "end_y_offset": -30,
+        "direction": "slow_tilt_up",
+        "speed_multiplier": 0.862
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 5,
+      "sentence_text": "When one entity controls millions of workers who never unionize, never demand raises, never vote, never question orders \u2014 that entity holds power no government, no corporation, no individual has ever possessed in human history."
+    },
+    {
+      "scene_number": 18,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_18_06.png",
+      "display_start": 1217.1,
+      "display_end": 1226.6,
+      "display_duration": 9.5,
+      "narration_start": 1217.1,
+      "narration_end": 1226.6,
+      "style": "",
+      "composition": "environmental",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": -40,
+        "end_x_offset": 40,
+        "direction": "slow_pan_right",
+        "speed_multiplier": 1.158
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 6,
+      "sentence_text": "Countries will face an impossible choice. Adopt Optimus and become dependent on Musk's infrastructure. Reject it and watch their economies collapse against competitors who didn't."
+    },
+    {
+      "scene_number": 18,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_18_07.png",
+      "display_start": 1226.6,
+      "display_end": 1237.92,
+      "display_duration": 11.32,
+      "narration_start": 1226.6,
+      "narration_end": 1237.92,
+      "style": "",
+      "composition": "medium",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": -40,
+        "end_x_offset": 40,
+        "direction": "slow_pan_right",
+        "speed_multiplier": 0.972
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 7,
+      "sentence_text": "This is the real game being played while everyone debates battery life and actuator specs. The robots are just the visible pieces. The board is civilization itself."
+    },
+    {
+      "scene_number": 18,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_18_08.png",
+      "display_start": 1237.92,
+      "display_end": 1241.48,
+      "display_duration": 3.56,
+      "narration_start": 1237.92,
+      "narration_end": 1241.48,
+      "style": "",
+      "composition": "wide",
+      "act": 0,
+      "ken_burns": {
+        "start_scale": 1.0,
+        "end_scale": 1.15,
+        "direction": "slow_zoom_in",
+        "speed_multiplier": 3.09
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 8,
+      "sentence_text": "And most people don't even realize they're already players in someone else's game."
+    },
+    {
+      "scene_number": 19,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_19_01.png",
+      "display_start": 1241.48,
+      "display_end": 1248.6,
+      "display_duration": 7.12,
+      "narration_start": 1241.48,
+      "narration_end": 1248.6,
+      "style": "",
+      "composition": "wide",
+      "act": 0,
+      "ken_burns": {
+        "start_scale": 1.0,
+        "end_scale": 1.15,
+        "direction": "slow_zoom_in",
+        "speed_multiplier": 1.545
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 1,
+      "sentence_text": "The pattern isn't just repeating. It's escalating. Ford monopolized the assembly line. One factory process."
+    },
+    {
+      "scene_number": 19,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_19_02.png",
+      "display_start": 1248.6,
+      "display_end": 1257.6,
+      "display_duration": 9.0,
+      "narration_start": 1248.6,
+      "narration_end": 1257.6,
+      "style": "",
+      "composition": "overhead",
+      "act": 0,
+      "ken_burns": {
+        "start_scale": 1.0,
+        "end_scale": 1.15,
+        "direction": "slow_zoom_in",
+        "speed_multiplier": 1.222
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 2,
+      "sentence_text": "Foxconn monopolized manufacturing itself. Hundreds of factories, millions of workers, entire industries dependent on a single supplier."
+    },
+    {
+      "scene_number": 19,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_19_03.png",
+      "display_start": 1257.6,
+      "display_end": 1264.18,
+      "display_duration": 6.58,
+      "narration_start": 1257.6,
+      "narration_end": 1264.18,
+      "style": "",
+      "composition": "medium",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": -40,
+        "end_x_offset": 40,
+        "direction": "slow_pan_right",
+        "speed_multiplier": 1.672
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 3,
+      "sentence_text": "Now Tesla. They're not monopolizing a process or even production. They're monopolizing the worker."
+    },
+    {
+      "scene_number": 19,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_19_04.png",
+      "display_start": 1264.18,
+      "display_end": 1274.36,
+      "display_duration": 10.18,
+      "narration_start": 1264.18,
+      "narration_end": 1274.36,
+      "style": "",
+      "composition": "environmental",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": -40,
+        "end_x_offset": 40,
+        "direction": "slow_pan_right",
+        "speed_multiplier": 1.081
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 4,
+      "sentence_text": "Think about what that means. Every warehouse. Every factory floor. Every agricultural operation. Every construction site. Every hospital. Every home."
+    },
+    {
+      "scene_number": 19,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_19_05.png",
+      "display_start": 1274.36,
+      "display_end": 1284.88,
+      "display_duration": 10.52,
+      "narration_start": 1274.36,
+      "narration_end": 1284.88,
+      "style": "",
+      "composition": "environmental",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": 40,
+        "end_x_offset": -40,
+        "direction": "slow_pan_left",
+        "speed_multiplier": 1.046
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 5,
+      "sentence_text": "All of them, potentially dependent on robots from a single company. A company that controls the software updates. The repair networks. The training data. The kill switch."
+    },
+    {
+      "scene_number": 19,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_19_06.png",
+      "display_start": 1284.88,
+      "display_end": 1291.22,
+      "display_duration": 6.34,
+      "narration_start": 1284.88,
+      "narration_end": 1291.22,
+      "style": "",
+      "composition": "environmental",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": -40,
+        "end_x_offset": 40,
+        "direction": "slow_pan_right",
+        "speed_multiplier": 1.735
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 6,
+      "sentence_text": "Ford's monopoly shaped an industry. Foxconn's shaped global trade. Tesla's could shape human civilization itself."
+    },
+    {
+      "scene_number": 19,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_19_07.png",
+      "display_start": 1291.22,
+      "display_end": 1305.06,
+      "display_duration": 13.84,
+      "narration_start": 1291.22,
+      "narration_end": 1305.06,
+      "style": "",
+      "composition": "environmental",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": 40,
+        "end_x_offset": -40,
+        "direction": "slow_pan_left",
+        "speed_multiplier": 0.795
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 7,
+      "sentence_text": "And here's what keeps economists awake at night. Each generation's monopoly emerged faster than the last. Ford took decades. Foxconn took years. Tesla's humanoid dominance could lock in within months once production scales."
+    },
+    {
+      "scene_number": 19,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_19_08.png",
+      "display_start": 1305.06,
+      "display_end": 1313.64,
+      "display_duration": 8.58,
+      "narration_start": 1305.06,
+      "narration_end": 1313.64,
+      "style": "",
+      "composition": "medium",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": 40,
+        "end_x_offset": -40,
+        "direction": "slow_pan_left",
+        "speed_multiplier": 1.282
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 8,
+      "sentence_text": "The window to establish alternatives, to build competing infrastructure, to create regulatory frameworks, it's not closing. It's almost closed."
+    },
+    {
+      "scene_number": 20,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_20_01.png",
+      "display_start": 1313.64,
+      "display_end": 1321.26,
+      "display_duration": 7.62,
+      "narration_start": 1313.64,
+      "narration_end": 1321.26,
+      "style": "",
+      "composition": "medium",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": -40,
+        "end_x_offset": 40,
+        "direction": "slow_pan_right",
+        "speed_multiplier": 1.444
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 1,
+      "sentence_text": "So while the world argues about whether Optimus can fold laundry or walk up stairs, they're missing the only question that actually matters."
+    },
+    {
+      "scene_number": 20,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_20_02.png",
+      "display_start": 1321.26,
+      "display_end": 1328.64,
+      "display_duration": 7.38,
+      "narration_start": 1321.26,
+      "narration_end": 1328.64,
+      "style": "",
+      "composition": "wide",
+      "act": 0,
+      "ken_burns": {
+        "start_scale": 1.0,
+        "end_scale": 1.15,
+        "direction": "slow_zoom_in",
+        "speed_multiplier": 1.491
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 2,
+      "sentence_text": "By 2030, when robots build the cars, assemble the batteries, mine the lithium, and construct the factories that make more robots,"
+    },
+    {
+      "scene_number": 20,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_20_03.png",
+      "display_start": 1328.64,
+      "display_end": 1334.76,
+      "display_duration": 6.12,
+      "narration_start": 1328.64,
+      "narration_end": 1334.76,
+      "style": "",
+      "composition": "environmental",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": 40,
+        "end_x_offset": -40,
+        "direction": "slow_pan_left",
+        "speed_multiplier": 1.797
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 3,
+      "sentence_text": "when one company controls that entire loop, what exactly remains for everyone else?"
+    },
+    {
+      "scene_number": 20,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_20_04.png",
+      "display_start": 1334.76,
+      "display_end": 1343.44,
+      "display_duration": 8.68,
+      "narration_start": 1334.76,
+      "narration_end": 1343.44,
+      "style": "",
+      "composition": "wide",
+      "act": 0,
+      "ken_burns": {
+        "start_scale": 1.0,
+        "end_scale": 1.15,
+        "direction": "slow_zoom_in",
+        "speed_multiplier": 1.267
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 4,
+      "sentence_text": "This isn't about job losses. We've survived those before. This is about a fundamental restructuring of who owns the means of production itself."
+    },
+    {
+      "scene_number": 20,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_20_05.png",
+      "display_start": 1343.44,
+      "display_end": 1351.16,
+      "display_duration": 7.72,
+      "narration_start": 1343.44,
+      "narration_end": 1351.16,
+      "style": "",
+      "composition": "overhead",
+      "act": 0,
+      "ken_burns": {
+        "start_scale": 1.0,
+        "end_scale": 1.15,
+        "direction": "slow_zoom_in",
+        "speed_multiplier": 1.425
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 5,
+      "sentence_text": "Not factories. Not equipment. But the labor force that requires no wages, no sleep, no negotiation."
+    },
+    {
+      "scene_number": 20,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_20_06.png",
+      "display_start": 1351.16,
+      "display_end": 1358.42,
+      "display_duration": 7.26,
+      "narration_start": 1351.16,
+      "narration_end": 1358.42,
+      "style": "",
+      "composition": "closeup",
+      "act": 0,
+      "ken_burns": {
+        "start_scale": 1.15,
+        "end_scale": 1.0,
+        "direction": "slow_zoom_out",
+        "speed_multiplier": 1.515
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 6,
+      "sentence_text": "The trap isn't coming. The trap is already here. The lithium contracts are signed. The robot prototypes are walking."
+    },
+    {
+      "scene_number": 20,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_20_07.png",
+      "display_start": 1358.42,
+      "display_end": 1365.62,
+      "display_duration": 7.2,
+      "narration_start": 1358.42,
+      "narration_end": 1365.62,
+      "style": "",
+      "composition": "environmental",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": 40,
+        "end_x_offset": -40,
+        "direction": "slow_pan_left",
+        "speed_multiplier": 1.528
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 7,
+      "sentence_text": "The vertical integration is nearly complete. And most people can't see it because they're still thinking about this as a car company."
+    },
+    {
+      "scene_number": 20,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_20_08.png",
+      "display_start": 1365.62,
+      "display_end": 1369.92,
+      "display_duration": 4.3,
+      "narration_start": 1365.62,
+      "narration_end": 1369.92,
+      "style": "",
+      "composition": "medium",
+      "act": 0,
+      "ken_burns": {
+        "start_x_offset": 40,
+        "end_x_offset": -40,
+        "direction": "slow_pan_left",
+        "speed_multiplier": 2.558
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "image_index": 8,
+      "sentence_text": "By the time the average person realizes what happened, the gates will have already closed."
+    },
+    {
+      "scene_number": 20,
+      "image_path": "/Users/ryanayler/economy-fastforward/remotion-video/public/Scene_20_09.png",
+      "display_start": 1369.92,
+      "display_end": 1376.88,
+      "display_duration": 6.96,
+      "narration_start": 1369.92,
+      "narration_end": 1376.88,
+      "style": "",
+      "composition": "portrait",
+      "act": 0,
+      "ken_burns": {
+        "start_scale": 1.0,
+        "end_scale": 1.15,
+        "direction": "slow_zoom_in",
+        "speed_multiplier": 1.58
+      },
+      "transition_in": {
+        "type": "crossfade",
+        "duration": 0.4
+      },
+      "transition_out": {
+        "type": "fade_to_black",
+        "duration": 1.0
+      },
+      "image_index": 9,
+      "sentence_text": "The question isn't whether you believe this will happen. The question is what you're going to do with the time between now and when it does."
+    }
+  ]
+}

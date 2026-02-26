@@ -1,1 +1,1070 @@
-{"text": " The numbers don't lie, but they do hide in footnotes. Here's what Wall Street isn't telling you. Start with AII. Customer revenue is a percentage of total cloud revenue. AWS sits at 31%. Azure hits 38%. Google Cloud reaches a staggering 44%. These aren't customers, they are dependents. Now look at Disclose Compute Credit liabilities. Microsoft has extended over 12 billion in credits to AI startups. Google has committed 9 billion. Amazon trails at 7 billion. These are IOUs that may never convert to cash. The purchase commitment footnotes reveal even more. All three have locked in GPU orders through 2028, totaling over 90 billion combined. They're betting everything on demand that might evaporate. But the real scandal, depreciation assumptions, they're writing off AI servers over six years while the technology refreshes every 18 months. That's aggressive accounting masking accelerated obsolescence. Azure carries the highest circular exposure dependent on Microsoft's own AI ecosystem. AWS has the greatest absolute concentration of AI startup revenue. Google Cloud has extended the most credit relative to its size. This is your roadmap to understanding who falls first.", "segments": [{"id": 0, "seek": 0, "start": 0.0, "end": 3.34, "text": " The numbers don't lie, but they do hide in footnotes.", "tokens": [50364, 440, 3547, 500, 380, 4544, 11, 457, 436, 360, 6479, 294, 2671, 2247, 279, 13, 50548], "temperature": 0.0, "avg_logprob": -0.16787392238401017, "compression_ratio": 1.4797047970479704, "no_speech_prob": 0.0031646208371967077, "words": [{"word": " The", "start": 0.0, "end": 0.18, "probability": 0.512702226638794}, {"word": " numbers", "start": 0.18, "end": 0.52, "probability": 0.9871180057525635}, {"word": " don't", "start": 0.52, "end": 1.04, "probability": 0.9742086827754974}, {"word": " lie,", "start": 1.04, "end": 1.42, "probability": 0.9530383348464966}, {"word": " but", "start": 1.78, "end": 1.92, "probability": 0.9957444071769714}, {"word": " they", "start": 1.92, "end": 2.06, "probability": 0.9911832809448242}, {"word": " do", "start": 2.06, "end": 2.26, "probability": 0.9849700927734375}, {"word": " hide", "start": 2.26, "end": 2.54, "probability": 0.9895893931388855}, {"word": " in", "start": 2.54, "end": 2.74, "probability": 0.9875613451004028}, {"word": " footnotes.", "start": 2.74, "end": 3.34, "probability": 0.9883564114570618}]}, {"id": 1, "seek": 0, "start": 3.82, "end": 5.36, "text": " Here's what Wall Street isn't telling you.", "tokens": [50548, 1692, 311, 437, 9551, 7638, 1943, 380, 3585, 291, 13, 50652], "temperature": 0.0, "avg_logprob": -0.16787392238401017, "compression_ratio": 1.4797047970479704, "no_speech_prob": 0.0031646208371967077, "words": [{"word": " Here's", "start": 3.82, "end": 4.1, "probability": 0.972285121679306}, {"word": " what", "start": 4.1, "end": 4.2, "probability": 0.9970786571502686}, {"word": " Wall", "start": 4.2, "end": 4.38, "probability": 0.9846455454826355}, {"word": " Street", "start": 4.38, "end": 4.6, "probability": 0.89238041639328}, {"word": " isn't", "start": 4.6, "end": 4.94, "probability": 0.9948059022426605}, {"word": " telling", "start": 4.94, "end": 5.12, "probability": 0.9959123730659485}, {"word": " you.", "start": 5.12, "end": 5.36, "probability": 0.9968205690383911}]}, {"id": 2, "seek": 0, "start": 6.06, "end": 10.08, "text": " Start with AII. Customer revenue is a percentage of total cloud revenue.", "tokens": [50652, 6481, 365, 7318, 40, 13, 37168, 9324, 307, 257, 9668, 295, 3217, 4588, 9324, 13, 50892], "temperature": 0.0, "avg_logprob": -0.16787392238401017, "compression_ratio": 1.4797047970479704, "no_speech_prob": 0.0031646208371967077, "words": [{"word": " Start", "start": 6.06, "end": 6.08, "probability": 0.288743257522583}, {"word": " with", "start": 6.08, "end": 6.32, "probability": 0.9972742199897766}, {"word": " AII.", "start": 6.32, "end": 7.1, "probability": 0.8699573576450348}, {"word": " Customer", "start": 7.42, "end": 7.72, "probability": 0.9171152114868164}, {"word": " revenue", "start": 7.72, "end": 8.16, "probability": 0.9358770847320557}, {"word": " is", "start": 8.16, "end": 8.34, "probability": 0.7335521578788757}, {"word": " a", "start": 8.34, "end": 8.42, "probability": 0.9887480735778809}, {"word": " percentage", "start": 8.42, "end": 8.78, "probability": 0.9931094646453857}, {"word": " of", "start": 8.78, "end": 9.04, "probability": 0.9988106489181519}, {"word": " total", "start": 9.04, "end": 9.32, "probability": 0.8305919170379639}, {"word": " cloud", "start": 9.32, "end": 9.68, "probability": 0.9383047819137573}, {"word": " revenue.", "start": 9.68, "end": 10.08, "probability": 0.9994780421257019}]}, {"id": 3, "seek": 0, "start": 10.68, "end": 18.080000000000002, "text": " AWS sits at 31%. Azure hits 38%. Google Cloud reaches a staggering 44%.", "tokens": [50892, 17650, 12696, 412, 10353, 6856, 11969, 8664, 12843, 6856, 3329, 8061, 14235, 257, 42974, 16408, 6856, 51268], "temperature": 0.0, "avg_logprob": -0.16787392238401017, "compression_ratio": 1.4797047970479704, "no_speech_prob": 0.0031646208371967077, "words": [{"word": " AWS", "start": 10.68, "end": 11.0, "probability": 0.9894136190414429}, {"word": " sits", "start": 11.0, "end": 11.46, "probability": 0.9938050508499146}, {"word": " at", "start": 11.46, "end": 11.7, "probability": 0.9923410415649414}, {"word": " 31%.", "start": 11.7, "end": 13.16, "probability": 0.8671011626720428}, {"word": " Azure", "start": 13.16, "end": 13.64, "probability": 0.941677451133728}, {"word": " hits", "start": 13.64, "end": 14.0, "probability": 0.9847407937049866}, {"word": " 38%.", "start": 14.0, "end": 15.36, "probability": 0.9801484942436218}, {"word": " Google", "start": 15.36, "end": 16.08, "probability": 0.998650848865509}, {"word": " Cloud", "start": 16.08, "end": 16.5, "probability": 0.9143598675727844}, {"word": " reaches", "start": 16.5, "end": 16.82, "probability": 0.9930682182312012}, {"word": " a", "start": 16.82, "end": 17.1, "probability": 0.9958000779151917}, {"word": " staggering", "start": 17.1, "end": 17.36, "probability": 0.9985507130622864}, {"word": " 44%.", "start": 17.36, "end": 18.080000000000002, "probability": 0.9882314801216125}]}, {"id": 4, "seek": 0, "start": 18.64, "end": 21.2, "text": " These aren't customers, they are dependents.", "tokens": [51312, 1981, 3212, 380, 4581, 11, 436, 366, 5672, 791, 13, 51424], "temperature": 0.0, "avg_logprob": -0.16787392238401017, "compression_ratio": 1.4797047970479704, "no_speech_prob": 0.0031646208371967077, "words": [{"word": " These", "start": 18.64, "end": 19.24, "probability": 0.9886468052864075}, {"word": " aren't", "start": 19.24, "end": 19.46, "probability": 0.9978991746902466}, {"word": " customers,", "start": 19.46, "end": 19.86, "probability": 0.9950029253959656}, {"word": " they", "start": 20.32, "end": 20.42, "probability": 0.9919390082359314}, {"word": " are", "start": 20.42, "end": 20.56, "probability": 0.6017033457756042}, {"word": " dependents.", "start": 20.56, "end": 21.2, "probability": 0.9020037055015564}]}, {"id": 5, "seek": 0, "start": 22.0, "end": 24.0, "text": " Now look at Disclose Compute Credit liabilities.", "tokens": [51460, 823, 574, 412, 4208, 3474, 541, 6620, 1169, 36006, 375, 6167, 13, 51596], "temperature": 0.0, "avg_logprob": -0.16787392238401017, "compression_ratio": 1.4797047970479704, "no_speech_prob": 0.0031646208371967077, "words": [{"word": " Now", "start": 22.0, "end": 22.18, "probability": 0.9597361087799072}, {"word": " look", "start": 22.18, "end": 22.34, "probability": 0.8024322986602783}, {"word": " at", "start": 22.34, "end": 22.48, "probability": 0.9988152980804443}, {"word": " Disclose", "start": 22.48, "end": 22.86, "probability": 0.7445746858914694}, {"word": " Compute", "start": 22.86, "end": 23.2, "probability": 0.8924354314804077}, {"word": " Credit", "start": 23.2, "end": 23.48, "probability": 0.9012646079063416}, {"word": " liabilities.", "start": 23.48, "end": 24.0, "probability": 0.8423434793949127}]}, {"id": 6, "seek": 0, "start": 24.64, "end": 28.26, "text": " Microsoft has extended over 12 billion in credits to AI startups.", "tokens": [51596, 8116, 575, 10913, 670, 2272, 5218, 294, 16816, 281, 7318, 28041, 13, 51808], "temperature": 0.0, "avg_logprob": -0.16787392238401017, "compression_ratio": 1.4797047970479704, "no_speech_prob": 0.0031646208371967077, "words": [{"word": " Microsoft", "start": 24.64, "end": 25.14, "probability": 0.9980650544166565}, {"word": " has", "start": 25.14, "end": 25.4, "probability": 0.9964025020599365}, {"word": " extended", "start": 25.4, "end": 25.9, "probability": 0.9953562617301941}, {"word": " over", "start": 25.9, "end": 26.18, "probability": 0.9969666600227356}, {"word": " 12", "start": 26.18, "end": 26.54, "probability": 0.7636425495147705}, {"word": " billion", "start": 26.54, "end": 26.86, "probability": 0.965592622756958}, {"word": " in", "start": 26.86, "end": 27.1, "probability": 0.9865542650222778}, {"word": " credits", "start": 27.1, "end": 27.4, "probability": 0.9757286906242371}, {"word": " to", "start": 27.4, "end": 27.64, "probability": 0.9954494833946228}, {"word": " AI", "start": 27.64, "end": 27.78, "probability": 0.9870924949645996}, {"word": " startups.", "start": 27.78, "end": 28.26, "probability": 0.712471604347229}]}, {"id": 7, "seek": 2826, "start": 28.82, "end": 32.56, "text": " Google has committed 9 billion. Amazon trails at 7 billion.", "tokens": [50392, 3329, 575, 7784, 1722, 5218, 13, 6795, 23024, 412, 1614, 5218, 13, 50604], "temperature": 0.0, "avg_logprob": -0.10199699401855469, "compression_ratio": 1.5524475524475525, "no_speech_prob": 0.002764493925496936, "words": [{"word": " Google", "start": 28.82, "end": 29.14, "probability": 0.8934644460678101}, {"word": " has", "start": 29.14, "end": 29.42, "probability": 0.9903911352157593}, {"word": " committed", "start": 29.42, "end": 29.72, "probability": 0.980839729309082}, {"word": " 9", "start": 29.72, "end": 30.08, "probability": 0.5118945240974426}, {"word": " billion.", "start": 30.08, "end": 30.34, "probability": 0.9465164542198181}, {"word": " Amazon", "start": 30.92, "end": 31.2, "probability": 0.9956724643707275}, {"word": " trails", "start": 31.2, "end": 31.72, "probability": 0.9309253096580505}, {"word": " at", "start": 31.72, "end": 31.92, "probability": 0.9769301414489746}, {"word": " 7", "start": 31.92, "end": 32.26, "probability": 0.9680864214897156}, {"word": " billion.", "start": 32.26, "end": 32.56, "probability": 0.9966229200363159}]}, {"id": 8, "seek": 2826, "start": 33.22, "end": 35.36, "text": " These are IOUs that may never convert to cash.", "tokens": [50604, 1981, 366, 286, 4807, 82, 300, 815, 1128, 7620, 281, 6388, 13, 50744], "temperature": 0.0, "avg_logprob": -0.10199699401855469, "compression_ratio": 1.5524475524475525, "no_speech_prob": 0.002764493925496936, "words": [{"word": " These", "start": 33.22, "end": 33.36, "probability": 0.9940558671951294}, {"word": " are", "start": 33.36, "end": 33.5, "probability": 0.9947943091392517}, {"word": " IOUs", "start": 33.5, "end": 34.06, "probability": 0.900343676408132}, {"word": " that", "start": 34.06, "end": 34.18, "probability": 0.9951040744781494}, {"word": " may", "start": 34.18, "end": 34.34, "probability": 0.9933995008468628}, {"word": " never", "start": 34.34, "end": 34.58, "probability": 0.9972609281539917}, {"word": " convert", "start": 34.58, "end": 34.94, "probability": 0.997010350227356}, {"word": " to", "start": 34.94, "end": 35.1, "probability": 0.9965618252754211}, {"word": " cash.", "start": 35.1, "end": 35.36, "probability": 0.989953339099884}]}, {"id": 9, "seek": 2826, "start": 36.02, "end": 38.44, "text": " The purchase commitment footnotes reveal even more.", "tokens": [50744, 440, 8110, 8371, 2671, 2247, 279, 10658, 754, 544, 13, 50896], "temperature": 0.0, "avg_logprob": -0.10199699401855469, "compression_ratio": 1.5524475524475525, "no_speech_prob": 0.002764493925496936, "words": [{"word": " The", "start": 36.02, "end": 36.14, "probability": 0.9897929430007935}, {"word": " purchase", "start": 36.14, "end": 36.46, "probability": 0.8332865238189697}, {"word": " commitment", "start": 36.46, "end": 36.88, "probability": 0.9424074292182922}, {"word": " footnotes", "start": 36.88, "end": 37.58, "probability": 0.9893212914466858}, {"word": " reveal", "start": 37.58, "end": 37.82, "probability": 0.9961696267127991}, {"word": " even", "start": 37.82, "end": 38.14, "probability": 0.99199378490448}, {"word": " more.", "start": 38.14, "end": 38.44, "probability": 0.999352753162384}]}, {"id": 10, "seek": 2826, "start": 38.98, "end": 41.84, "text": " All three have locked in GPU orders through 2028,", "tokens": [50896, 1057, 1045, 362, 9376, 294, 18407, 9470, 807, 945, 11205, 11, 51068], "temperature": 0.0, "avg_logprob": -0.10199699401855469, "compression_ratio": 1.5524475524475525, "no_speech_prob": 0.002764493925496936, "words": [{"word": " All", "start": 38.98, "end": 39.18, "probability": 0.9971323013305664}, {"word": " three", "start": 39.18, "end": 39.44, "probability": 0.9602913856506348}, {"word": " have", "start": 39.44, "end": 39.6, "probability": 0.8836826086044312}, {"word": " locked", "start": 39.6, "end": 39.86, "probability": 0.9914969801902771}, {"word": " in", "start": 39.86, "end": 40.02, "probability": 0.9741118550300598}, {"word": " GPU", "start": 40.02, "end": 40.24, "probability": 0.9879775047302246}, {"word": " orders", "start": 40.24, "end": 40.72, "probability": 0.994985818862915}, {"word": " through", "start": 40.72, "end": 40.98, "probability": 0.9934222102165222}, {"word": " 2028,", "start": 40.98, "end": 41.84, "probability": 0.9317240118980408}]}, {"id": 11, "seek": 2826, "start": 42.36, "end": 44.22, "text": " totaling over 90 billion combined.", "tokens": [51068, 3217, 278, 670, 4289, 5218, 9354, 13, 51164], "temperature": 0.0, "avg_logprob": -0.10199699401855469, "compression_ratio": 1.5524475524475525, "no_speech_prob": 0.002764493925496936, "words": [{"word": " totaling", "start": 42.36, "end": 42.9, "probability": 0.8722793161869049}, {"word": " over", "start": 42.9, "end": 43.06, "probability": 0.9967676401138306}, {"word": " 90", "start": 43.06, "end": 43.48, "probability": 0.9787192940711975}, {"word": " billion", "start": 43.48, "end": 43.76, "probability": 0.9947541952133179}, {"word": " combined.", "start": 43.76, "end": 44.22, "probability": 0.9914986491203308}]}, {"id": 12, "seek": 2826, "start": 44.96, "end": 47.44, "text": " They're betting everything on demand that might evaporate.", "tokens": [51192, 814, 434, 34246, 1203, 322, 4733, 300, 1062, 26315, 473, 13, 51320], "temperature": 0.0, "avg_logprob": -0.10199699401855469, "compression_ratio": 1.5524475524475525, "no_speech_prob": 0.002764493925496936, "words": [{"word": " They're", "start": 44.96, "end": 45.16, "probability": 0.9477179646492004}, {"word": " betting", "start": 45.16, "end": 45.36, "probability": 0.9950039982795715}, {"word": " everything", "start": 45.36, "end": 45.88, "probability": 0.9962660670280457}, {"word": " on", "start": 45.88, "end": 46.16, "probability": 0.9975793957710266}, {"word": " demand", "start": 46.16, "end": 46.46, "probability": 0.9931928515434265}, {"word": " that", "start": 46.46, "end": 46.66, "probability": 0.9974501729011536}, {"word": " might", "start": 46.66, "end": 46.82, "probability": 0.9992272853851318}, {"word": " evaporate.", "start": 46.82, "end": 47.44, "probability": 0.9982469975948334}]}, {"id": 13, "seek": 2826, "start": 48.16, "end": 51.14, "text": " But the real scandal, depreciation assumptions,", "tokens": [51360, 583, 264, 957, 27922, 11, 40609, 399, 17695, 11, 51516], "temperature": 0.0, "avg_logprob": -0.10199699401855469, "compression_ratio": 1.5524475524475525, "no_speech_prob": 0.002764493925496936, "words": [{"word": " But", "start": 48.16, "end": 48.5, "probability": 0.9927303194999695}, {"word": " the", "start": 48.5, "end": 48.6, "probability": 0.9896306395530701}, {"word": " real", "start": 48.6, "end": 48.82, "probability": 0.9974226951599121}, {"word": " scandal,", "start": 48.82, "end": 49.24, "probability": 0.9974767565727234}, {"word": " depreciation", "start": 49.92, "end": 50.66, "probability": 0.9973060786724091}, {"word": " assumptions,", "start": 50.66, "end": 51.14, "probability": 0.9971928000450134}]}, {"id": 14, "seek": 2826, "start": 52.06, "end": 54.74, "text": " they're writing off AI servers over six years", "tokens": [51548, 436, 434, 3579, 766, 7318, 15909, 670, 2309, 924, 51684], "temperature": 0.0, "avg_logprob": -0.10199699401855469, "compression_ratio": 1.5524475524475525, "no_speech_prob": 0.002764493925496936, "words": [{"word": " they're", "start": 52.06, "end": 52.3, "probability": 0.9674311578273773}, {"word": " writing", "start": 52.3, "end": 52.64, "probability": 0.9792505502700806}, {"word": " off", "start": 52.64, "end": 52.88, "probability": 0.9899337887763977}, {"word": " AI", "start": 52.88, "end": 53.1, "probability": 0.9455624222755432}, {"word": " servers", "start": 53.1, "end": 53.64, "probability": 0.9957250356674194}, {"word": " over", "start": 53.64, "end": 53.92, "probability": 0.9956795573234558}, {"word": " six", "start": 53.92, "end": 54.3, "probability": 0.9145515561103821}, {"word": " years", "start": 54.3, "end": 54.74, "probability": 0.998999297618866}]}, {"id": 15, "seek": 2826, "start": 54.74, "end": 57.38, "text": " while the technology refreshes every 18 months.", "tokens": [51684, 1339, 264, 2899, 15134, 279, 633, 2443, 2493, 13, 51820], "temperature": 0.0, "avg_logprob": -0.10199699401855469, "compression_ratio": 1.5524475524475525, "no_speech_prob": 0.002764493925496936, "words": [{"word": " while", "start": 54.74, "end": 54.94, "probability": 0.8397043943405151}, {"word": " the", "start": 54.94, "end": 55.08, "probability": 0.9947191476821899}, {"word": " technology", "start": 55.08, "end": 55.54, "probability": 0.9981885552406311}, {"word": " refreshes", "start": 55.54, "end": 56.2, "probability": 0.9931248426437378}, {"word": " every", "start": 56.2, "end": 56.58, "probability": 0.9968231916427612}, {"word": " 18", "start": 56.58, "end": 56.94, "probability": 0.9954912066459656}, {"word": " months.", "start": 56.94, "end": 57.38, "probability": 0.9965298771858215}]}, {"id": 16, "seek": 5738, "start": 58.02, "end": 61.56, "text": " That's aggressive accounting masking accelerated obsolescence.", "tokens": [50396, 663, 311, 10762, 19163, 31226, 29763, 3181, 7456, 25434, 13, 50568], "temperature": 0.0, "avg_logprob": -0.09957195009504045, "compression_ratio": 1.469298245614035, "no_speech_prob": 0.001245160703547299, "words": [{"word": " That's", "start": 58.02, "end": 58.42, "probability": 0.7197708487510681}, {"word": " aggressive", "start": 58.42, "end": 58.84, "probability": 0.9853606820106506}, {"word": " accounting", "start": 58.84, "end": 59.36, "probability": 0.959755539894104}, {"word": " masking", "start": 59.36, "end": 59.88, "probability": 0.6609564423561096}, {"word": " accelerated", "start": 59.88, "end": 60.5, "probability": 0.8473641872406006}, {"word": " obsolescence.", "start": 60.5, "end": 61.56, "probability": 0.9949689110120138}]}, {"id": 17, "seek": 5738, "start": 62.16, "end": 64.56, "text": " Azure carries the highest circular exposure", "tokens": [50600, 11969, 16402, 264, 6343, 16476, 10420, 50724], "temperature": 0.0, "avg_logprob": -0.09957195009504045, "compression_ratio": 1.469298245614035, "no_speech_prob": 0.001245160703547299, "words": [{"word": " Azure", "start": 62.16, "end": 62.52, "probability": 0.8944242000579834}, {"word": " carries", "start": 62.52, "end": 63.06, "probability": 0.9898852109909058}, {"word": " the", "start": 63.06, "end": 63.26, "probability": 0.9969910383224487}, {"word": " highest", "start": 63.26, "end": 63.56, "probability": 0.9786072969436646}, {"word": " circular", "start": 63.56, "end": 64.02, "probability": 0.9909986257553101}, {"word": " exposure", "start": 64.02, "end": 64.56, "probability": 0.9935241937637329}]}, {"id": 18, "seek": 5738, "start": 64.56, "end": 67.2, "text": " dependent on Microsoft's own AI ecosystem.", "tokens": [50724, 12334, 322, 8116, 311, 1065, 7318, 11311, 13, 50860], "temperature": 0.0, "avg_logprob": -0.09957195009504045, "compression_ratio": 1.469298245614035, "no_speech_prob": 0.001245160703547299, "words": [{"word": " dependent", "start": 64.56, "end": 64.94, "probability": 0.7103332281112671}, {"word": " on", "start": 64.94, "end": 65.26, "probability": 0.9969780445098877}, {"word": " Microsoft's", "start": 65.26, "end": 65.88, "probability": 0.9765089452266693}, {"word": " own", "start": 65.88, "end": 66.1, "probability": 0.9956111311912537}, {"word": " AI", "start": 66.1, "end": 66.44, "probability": 0.9568378329277039}, {"word": " ecosystem.", "start": 66.44, "end": 67.2, "probability": 0.9745563864707947}]}, {"id": 19, "seek": 5738, "start": 67.88, "end": 72.34, "text": " AWS has the greatest absolute concentration of AI startup revenue.", "tokens": [50888, 17650, 575, 264, 6636, 8236, 9856, 295, 7318, 18578, 9324, 13, 51140], "temperature": 0.0, "avg_logprob": -0.09957195009504045, "compression_ratio": 1.469298245614035, "no_speech_prob": 0.001245160703547299, "words": [{"word": " AWS", "start": 67.88, "end": 68.28, "probability": 0.5619028806686401}, {"word": " has", "start": 68.28, "end": 68.64, "probability": 0.9966008067131042}, {"word": " the", "start": 68.64, "end": 68.78, "probability": 0.9989633560180664}, {"word": " greatest", "start": 68.78, "end": 69.24, "probability": 0.9962894916534424}, {"word": " absolute", "start": 69.24, "end": 69.9, "probability": 0.9875017404556274}, {"word": " concentration", "start": 69.9, "end": 70.6, "probability": 0.9905305504798889}, {"word": " of", "start": 70.6, "end": 70.94, "probability": 0.9961020946502686}, {"word": " AI", "start": 70.94, "end": 71.26, "probability": 0.9929338693618774}, {"word": " startup", "start": 71.26, "end": 71.84, "probability": 0.782646119594574}, {"word": " revenue.", "start": 71.84, "end": 72.34, "probability": 0.998843789100647}]}, {"id": 20, "seek": 5738, "start": 72.96, "end": 76.26, "text": " Google Cloud has extended the most credit relative to its size.", "tokens": [51140, 3329, 8061, 575, 10913, 264, 881, 5397, 4972, 281, 1080, 2744, 13, 51328], "temperature": 0.0, "avg_logprob": -0.09957195009504045, "compression_ratio": 1.469298245614035, "no_speech_prob": 0.001245160703547299, "words": [{"word": " Google", "start": 72.96, "end": 73.28, "probability": 0.9990491271018982}, {"word": " Cloud", "start": 73.28, "end": 73.74, "probability": 0.9150049686431885}, {"word": " has", "start": 73.74, "end": 73.92, "probability": 0.9941805601119995}, {"word": " extended", "start": 73.92, "end": 74.38, "probability": 0.9970892071723938}, {"word": " the", "start": 74.38, "end": 74.58, "probability": 0.9967459440231323}, {"word": " most", "start": 74.58, "end": 74.78, "probability": 0.9990813732147217}, {"word": " credit", "start": 74.78, "end": 75.06, "probability": 0.9964370727539062}, {"word": " relative", "start": 75.06, "end": 75.46, "probability": 0.9942644238471985}, {"word": " to", "start": 75.46, "end": 75.76, "probability": 0.9988453388214111}, {"word": " its", "start": 75.76, "end": 75.86, "probability": 0.978118896484375}, {"word": " size.", "start": 75.86, "end": 76.26, "probability": 0.998134434223175}]}, {"id": 21, "seek": 5738, "start": 76.8, "end": 79.46, "text": " This is your roadmap to understanding who falls first.", "tokens": [51328, 639, 307, 428, 35738, 281, 3701, 567, 8804, 700, 13, 51496], "temperature": 0.0, "avg_logprob": -0.09957195009504045, "compression_ratio": 1.469298245614035, "no_speech_prob": 0.001245160703547299, "words": [{"word": " This", "start": 76.8, "end": 77.02, "probability": 0.9978345036506653}, {"word": " is", "start": 77.02, "end": 77.14, "probability": 0.997977077960968}, {"word": " your", "start": 77.14, "end": 77.28, "probability": 0.9966908693313599}, {"word": " roadmap", "start": 77.28, "end": 77.68, "probability": 0.9004548788070679}, {"word": " to", "start": 77.68, "end": 78.0, "probability": 0.9967331886291504}, {"word": " understanding", "start": 78.0, "end": 78.5, "probability": 0.9975691437721252}, {"word": " who", "start": 78.5, "end": 78.82, "probability": 0.9949899315834045}, {"word": " falls", "start": 78.82, "end": 79.1, "probability": 0.9958871006965637}, {"word": " first.", "start": 79.1, "end": 79.46, "probability": 0.9970391988754272}]}], "language": "en"}
+{
+  "text": "The moment Optimus reaches critical mass something fundamental shifts This isn't about selling robots It's about controlling the means of production itself Think about what manufacturing really is It's the conversion of raw materials into everything civilization needs Food processing medicine production infrastructure defense Whoever commands an army of tireless obedient workers commands the output of nations Musk understands this with perfect clarity He's not building a product line He's constructing leverage over the entire global economy When one entity controls millions of workers who never unionize never demand raises never vote never question orders that entity holds power No government no corporation no individual has ever possessed in human history Countries will face an impossible choice Adopt Optimus and become dependent on Musk's infrastructure Reject it and watch their economies collapse against competitors who didn't This is the real game being played while everyone debates battery life and actuator specs The robots are just the visible pieces The board is civilization itself And most people don't even realize they're already players in someone else's game",
+  "segments": [
+    {
+      "id": 0,
+      "start": 0.0,
+      "end": 68.73999786376953,
+      "text": "The moment Optimus reaches critical mass something fundamental shifts This isn't about selling robots It's about controlling the means of production itself Think about what manufacturing really is It's the conversion of raw materials into everything civilization needs Food processing medicine production infrastructure defense Whoever commands an army of tireless obedient workers commands the output of nations Musk understands this with perfect clarity He's not building a product line He's constructing leverage over the entire global economy When one entity controls millions of workers who never unionize never demand raises never vote never question orders that entity holds power No government no corporation no individual has ever possessed in human history Countries will face an impossible choice Adopt Optimus and become dependent on Musk's infrastructure Reject it and watch their economies collapse against competitors who didn't This is the real game being played while everyone debates battery life and actuator specs The robots are just the visible pieces The board is civilization itself And most people don't even realize they're already players in someone else's game",
+      "words": [
+        {
+          "word": "The",
+          "start": 0.0,
+          "end": 0.22,
+          "probability": 1.0
+        },
+        {
+          "word": "moment",
+          "start": 0.22,
+          "end": 0.44,
+          "probability": 1.0
+        },
+        {
+          "word": "Optimus",
+          "start": 0.44,
+          "end": 0.84,
+          "probability": 1.0
+        },
+        {
+          "word": "reaches",
+          "start": 0.84,
+          "end": 1.22,
+          "probability": 1.0
+        },
+        {
+          "word": "critical",
+          "start": 1.22,
+          "end": 1.62,
+          "probability": 1.0
+        },
+        {
+          "word": "mass",
+          "start": 1.62,
+          "end": 1.96,
+          "probability": 1.0
+        },
+        {
+          "word": "something",
+          "start": 2.14,
+          "end": 2.36,
+          "probability": 1.0
+        },
+        {
+          "word": "fundamental",
+          "start": 2.36,
+          "end": 3.0,
+          "probability": 1.0
+        },
+        {
+          "word": "shifts",
+          "start": 3.0,
+          "end": 3.44,
+          "probability": 1.0
+        },
+        {
+          "word": "This",
+          "start": 4.04,
+          "end": 4.04,
+          "probability": 1.0
+        },
+        {
+          "word": "isn't",
+          "start": 4.04,
+          "end": 4.22,
+          "probability": 1.0
+        },
+        {
+          "word": "about",
+          "start": 4.22,
+          "end": 4.58,
+          "probability": 1.0
+        },
+        {
+          "word": "selling",
+          "start": 4.58,
+          "end": 4.82,
+          "probability": 1.0
+        },
+        {
+          "word": "robots",
+          "start": 4.82,
+          "end": 5.28,
+          "probability": 1.0
+        },
+        {
+          "word": "It's",
+          "start": 5.7,
+          "end": 5.8,
+          "probability": 1.0
+        },
+        {
+          "word": "about",
+          "start": 5.8,
+          "end": 6.14,
+          "probability": 1.0
+        },
+        {
+          "word": "controlling",
+          "start": 6.14,
+          "end": 6.54,
+          "probability": 1.0
+        },
+        {
+          "word": "the",
+          "start": 6.54,
+          "end": 6.8,
+          "probability": 1.0
+        },
+        {
+          "word": "means",
+          "start": 6.8,
+          "end": 7.04,
+          "probability": 1.0
+        },
+        {
+          "word": "of",
+          "start": 7.04,
+          "end": 7.54,
+          "probability": 1.0
+        },
+        {
+          "word": "production",
+          "start": 7.54,
+          "end": 7.54,
+          "probability": 1.0
+        },
+        {
+          "word": "itself",
+          "start": 7.54,
+          "end": 8.06,
+          "probability": 1.0
+        },
+        {
+          "word": "Think",
+          "start": 8.6,
+          "end": 8.66,
+          "probability": 1.0
+        },
+        {
+          "word": "about",
+          "start": 8.66,
+          "end": 8.82,
+          "probability": 1.0
+        },
+        {
+          "word": "what",
+          "start": 8.82,
+          "end": 9.18,
+          "probability": 1.0
+        },
+        {
+          "word": "manufacturing",
+          "start": 9.18,
+          "end": 9.7,
+          "probability": 1.0
+        },
+        {
+          "word": "really",
+          "start": 9.7,
+          "end": 10.06,
+          "probability": 1.0
+        },
+        {
+          "word": "is",
+          "start": 10.06,
+          "end": 10.34,
+          "probability": 1.0
+        },
+        {
+          "word": "It's",
+          "start": 10.84,
+          "end": 10.92,
+          "probability": 1.0
+        },
+        {
+          "word": "the",
+          "start": 10.92,
+          "end": 11.08,
+          "probability": 1.0
+        },
+        {
+          "word": "conversion",
+          "start": 11.08,
+          "end": 11.4,
+          "probability": 1.0
+        },
+        {
+          "word": "of",
+          "start": 11.4,
+          "end": 11.62,
+          "probability": 1.0
+        },
+        {
+          "word": "raw",
+          "start": 11.62,
+          "end": 11.84,
+          "probability": 1.0
+        },
+        {
+          "word": "materials",
+          "start": 11.84,
+          "end": 12.2,
+          "probability": 1.0
+        },
+        {
+          "word": "into",
+          "start": 12.2,
+          "end": 12.46,
+          "probability": 1.0
+        },
+        {
+          "word": "everything",
+          "start": 12.46,
+          "end": 12.92,
+          "probability": 1.0
+        },
+        {
+          "word": "civilization",
+          "start": 12.92,
+          "end": 13.66,
+          "probability": 1.0
+        },
+        {
+          "word": "needs",
+          "start": 13.66,
+          "end": 14.18,
+          "probability": 1.0
+        },
+        {
+          "word": "Food",
+          "start": 15.0,
+          "end": 15.0,
+          "probability": 1.0
+        },
+        {
+          "word": "processing",
+          "start": 15.0,
+          "end": 15.5,
+          "probability": 1.0
+        },
+        {
+          "word": "medicine",
+          "start": 16.0,
+          "end": 16.22,
+          "probability": 1.0
+        },
+        {
+          "word": "production",
+          "start": 16.22,
+          "end": 16.74,
+          "probability": 1.0
+        },
+        {
+          "word": "infrastructure",
+          "start": 17.22,
+          "end": 17.76,
+          "probability": 1.0
+        },
+        {
+          "word": "defense",
+          "start": 18.3,
+          "end": 18.66,
+          "probability": 1.0
+        },
+        {
+          "word": "Whoever",
+          "start": 19.12,
+          "end": 19.36,
+          "probability": 1.0
+        },
+        {
+          "word": "commands",
+          "start": 19.36,
+          "end": 19.76,
+          "probability": 1.0
+        },
+        {
+          "word": "an",
+          "start": 19.76,
+          "end": 20.12,
+          "probability": 1.0
+        },
+        {
+          "word": "army",
+          "start": 20.12,
+          "end": 20.12,
+          "probability": 1.0
+        },
+        {
+          "word": "of",
+          "start": 20.12,
+          "end": 20.74,
+          "probability": 1.0
+        },
+        {
+          "word": "tireless",
+          "start": 20.74,
+          "end": 20.74,
+          "probability": 1.0
+        },
+        {
+          "word": "obedient",
+          "start": 21.18,
+          "end": 21.18,
+          "probability": 1.0
+        },
+        {
+          "word": "workers",
+          "start": 21.18,
+          "end": 21.58,
+          "probability": 1.0
+        },
+        {
+          "word": "commands",
+          "start": 21.58,
+          "end": 22.04,
+          "probability": 1.0
+        },
+        {
+          "word": "the",
+          "start": 22.04,
+          "end": 22.36,
+          "probability": 1.0
+        },
+        {
+          "word": "output",
+          "start": 22.36,
+          "end": 22.5,
+          "probability": 1.0
+        },
+        {
+          "word": "of",
+          "start": 22.5,
+          "end": 23.16,
+          "probability": 1.0
+        },
+        {
+          "word": "nations",
+          "start": 23.16,
+          "end": 23.16,
+          "probability": 1.0
+        },
+        {
+          "word": "Musk",
+          "start": 23.7,
+          "end": 23.78,
+          "probability": 1.0
+        },
+        {
+          "word": "understands",
+          "start": 23.78,
+          "end": 24.34,
+          "probability": 1.0
+        },
+        {
+          "word": "this",
+          "start": 24.34,
+          "end": 24.64,
+          "probability": 1.0
+        },
+        {
+          "word": "with",
+          "start": 24.64,
+          "end": 24.92,
+          "probability": 1.0
+        },
+        {
+          "word": "perfect",
+          "start": 24.92,
+          "end": 25.28,
+          "probability": 1.0
+        },
+        {
+          "word": "clarity",
+          "start": 25.28,
+          "end": 25.66,
+          "probability": 1.0
+        },
+        {
+          "word": "He's",
+          "start": 25.86,
+          "end": 26.06,
+          "probability": 1.0
+        },
+        {
+          "word": "not",
+          "start": 26.06,
+          "end": 26.3,
+          "probability": 1.0
+        },
+        {
+          "word": "building",
+          "start": 26.3,
+          "end": 26.5,
+          "probability": 1.0
+        },
+        {
+          "word": "a",
+          "start": 26.5,
+          "end": 26.74,
+          "probability": 1.0
+        },
+        {
+          "word": "product",
+          "start": 26.74,
+          "end": 26.92,
+          "probability": 1.0
+        },
+        {
+          "word": "line",
+          "start": 26.92,
+          "end": 27.2,
+          "probability": 1.0
+        },
+        {
+          "word": "He's",
+          "start": 27.2,
+          "end": 28.0,
+          "probability": 1.0
+        },
+        {
+          "word": "constructing",
+          "start": 28.0,
+          "end": 28.46,
+          "probability": 1.0
+        },
+        {
+          "word": "leverage",
+          "start": 28.46,
+          "end": 28.94,
+          "probability": 1.0
+        },
+        {
+          "word": "over",
+          "start": 28.94,
+          "end": 29.2,
+          "probability": 1.0
+        },
+        {
+          "word": "the",
+          "start": 29.2,
+          "end": 29.28,
+          "probability": 1.0
+        },
+        {
+          "word": "entire",
+          "start": 29.28,
+          "end": 29.78,
+          "probability": 1.0
+        },
+        {
+          "word": "global",
+          "start": 29.78,
+          "end": 30.08,
+          "probability": 1.0
+        },
+        {
+          "word": "economy",
+          "start": 30.08,
+          "end": 30.4,
+          "probability": 1.0
+        },
+        {
+          "word": "When",
+          "start": 31.6,
+          "end": 31.66,
+          "probability": 1.0
+        },
+        {
+          "word": "one",
+          "start": 31.66,
+          "end": 31.96,
+          "probability": 1.0
+        },
+        {
+          "word": "entity",
+          "start": 31.96,
+          "end": 32.22,
+          "probability": 1.0
+        },
+        {
+          "word": "controls",
+          "start": 32.22,
+          "end": 32.66,
+          "probability": 1.0
+        },
+        {
+          "word": "millions",
+          "start": 32.66,
+          "end": 33.0,
+          "probability": 1.0
+        },
+        {
+          "word": "of",
+          "start": 33.0,
+          "end": 33.56,
+          "probability": 1.0
+        },
+        {
+          "word": "workers",
+          "start": 33.56,
+          "end": 33.56,
+          "probability": 1.0
+        },
+        {
+          "word": "who",
+          "start": 33.56,
+          "end": 33.74,
+          "probability": 1.0
+        },
+        {
+          "word": "never",
+          "start": 33.74,
+          "end": 33.96,
+          "probability": 1.0
+        },
+        {
+          "word": "unionize",
+          "start": 33.96,
+          "end": 34.56,
+          "probability": 1.0
+        },
+        {
+          "word": "never",
+          "start": 34.8,
+          "end": 34.94,
+          "probability": 1.0
+        },
+        {
+          "word": "demand",
+          "start": 34.94,
+          "end": 35.28,
+          "probability": 1.0
+        },
+        {
+          "word": "raises",
+          "start": 35.28,
+          "end": 35.66,
+          "probability": 1.0
+        },
+        {
+          "word": "never",
+          "start": 35.94,
+          "end": 35.98,
+          "probability": 1.0
+        },
+        {
+          "word": "vote",
+          "start": 35.98,
+          "end": 36.38,
+          "probability": 1.0
+        },
+        {
+          "word": "never",
+          "start": 36.74,
+          "end": 36.74,
+          "probability": 1.0
+        },
+        {
+          "word": "question",
+          "start": 36.74,
+          "end": 37.42,
+          "probability": 1.0
+        },
+        {
+          "word": "orders",
+          "start": 37.42,
+          "end": 37.74,
+          "probability": 1.0
+        },
+        {
+          "word": "that",
+          "start": 38.18,
+          "end": 38.38,
+          "probability": 1.0
+        },
+        {
+          "word": "entity",
+          "start": 38.38,
+          "end": 38.76,
+          "probability": 1.0
+        },
+        {
+          "word": "holds",
+          "start": 38.76,
+          "end": 39.06,
+          "probability": 1.0
+        },
+        {
+          "word": "power",
+          "start": 39.06,
+          "end": 39.5,
+          "probability": 1.0
+        },
+        {
+          "word": "No",
+          "start": 39.92,
+          "end": 39.92,
+          "probability": 1.0
+        },
+        {
+          "word": "government",
+          "start": 39.92,
+          "end": 40.24,
+          "probability": 1.0
+        },
+        {
+          "word": "no",
+          "start": 40.4,
+          "end": 41.22,
+          "probability": 1.0
+        },
+        {
+          "word": "corporation",
+          "start": 41.22,
+          "end": 41.22,
+          "probability": 1.0
+        },
+        {
+          "word": "no",
+          "start": 41.32,
+          "end": 41.52,
+          "probability": 1.0
+        },
+        {
+          "word": "individual",
+          "start": 41.52,
+          "end": 41.92,
+          "probability": 1.0
+        },
+        {
+          "word": "has",
+          "start": 41.92,
+          "end": 42.12,
+          "probability": 1.0
+        },
+        {
+          "word": "ever",
+          "start": 42.12,
+          "end": 42.56,
+          "probability": 1.0
+        },
+        {
+          "word": "possessed",
+          "start": 42.56,
+          "end": 42.56,
+          "probability": 1.0
+        },
+        {
+          "word": "in",
+          "start": 42.56,
+          "end": 42.8,
+          "probability": 1.0
+        },
+        {
+          "word": "human",
+          "start": 42.8,
+          "end": 43.08,
+          "probability": 1.0
+        },
+        {
+          "word": "history",
+          "start": 43.08,
+          "end": 43.32,
+          "probability": 1.0
+        },
+        {
+          "word": "Countries",
+          "start": 44.36,
+          "end": 44.36,
+          "probability": 1.0
+        },
+        {
+          "word": "will",
+          "start": 44.36,
+          "end": 44.62,
+          "probability": 1.0
+        },
+        {
+          "word": "face",
+          "start": 44.62,
+          "end": 44.82,
+          "probability": 1.0
+        },
+        {
+          "word": "an",
+          "start": 44.82,
+          "end": 45.04,
+          "probability": 1.0
+        },
+        {
+          "word": "impossible",
+          "start": 45.04,
+          "end": 45.4,
+          "probability": 1.0
+        },
+        {
+          "word": "choice",
+          "start": 45.4,
+          "end": 45.88,
+          "probability": 1.0
+        },
+        {
+          "word": "Adopt",
+          "start": 47.08,
+          "end": 47.08,
+          "probability": 1.0
+        },
+        {
+          "word": "Optimus",
+          "start": 47.08,
+          "end": 47.62,
+          "probability": 1.0
+        },
+        {
+          "word": "and",
+          "start": 47.62,
+          "end": 47.8,
+          "probability": 1.0
+        },
+        {
+          "word": "become",
+          "start": 47.8,
+          "end": 48.08,
+          "probability": 1.0
+        },
+        {
+          "word": "dependent",
+          "start": 48.08,
+          "end": 48.4,
+          "probability": 1.0
+        },
+        {
+          "word": "on",
+          "start": 48.4,
+          "end": 48.74,
+          "probability": 1.0
+        },
+        {
+          "word": "Musk's",
+          "start": 48.74,
+          "end": 49.12,
+          "probability": 1.0
+        },
+        {
+          "word": "infrastructure",
+          "start": 49.12,
+          "end": 49.64,
+          "probability": 1.0
+        },
+        {
+          "word": "Reject",
+          "start": 50.56,
+          "end": 50.84,
+          "probability": 1.0
+        },
+        {
+          "word": "it",
+          "start": 50.84,
+          "end": 51.04,
+          "probability": 1.0
+        },
+        {
+          "word": "and",
+          "start": 51.04,
+          "end": 51.26,
+          "probability": 1.0
+        },
+        {
+          "word": "watch",
+          "start": 51.26,
+          "end": 51.38,
+          "probability": 1.0
+        },
+        {
+          "word": "their",
+          "start": 51.38,
+          "end": 51.66,
+          "probability": 1.0
+        },
+        {
+          "word": "economies",
+          "start": 51.66,
+          "end": 52.04,
+          "probability": 1.0
+        },
+        {
+          "word": "collapse",
+          "start": 52.04,
+          "end": 52.54,
+          "probability": 1.0
+        },
+        {
+          "word": "against",
+          "start": 52.54,
+          "end": 52.82,
+          "probability": 1.0
+        },
+        {
+          "word": "competitors",
+          "start": 52.82,
+          "end": 53.32,
+          "probability": 1.0
+        },
+        {
+          "word": "who",
+          "start": 53.32,
+          "end": 53.62,
+          "probability": 1.0
+        },
+        {
+          "word": "didn't",
+          "start": 53.62,
+          "end": 53.86,
+          "probability": 1.0
+        },
+        {
+          "word": "This",
+          "start": 53.86,
+          "end": 54.84,
+          "probability": 1.0
+        },
+        {
+          "word": "is",
+          "start": 54.84,
+          "end": 55.02,
+          "probability": 1.0
+        },
+        {
+          "word": "the",
+          "start": 55.02,
+          "end": 55.2,
+          "probability": 1.0
+        },
+        {
+          "word": "real",
+          "start": 55.2,
+          "end": 55.62,
+          "probability": 1.0
+        },
+        {
+          "word": "game",
+          "start": 55.62,
+          "end": 55.8,
+          "probability": 1.0
+        },
+        {
+          "word": "being",
+          "start": 55.8,
+          "end": 56.18,
+          "probability": 1.0
+        },
+        {
+          "word": "played",
+          "start": 56.18,
+          "end": 56.4,
+          "probability": 1.0
+        },
+        {
+          "word": "while",
+          "start": 56.4,
+          "end": 56.98,
+          "probability": 1.0
+        },
+        {
+          "word": "everyone",
+          "start": 56.98,
+          "end": 57.36,
+          "probability": 1.0
+        },
+        {
+          "word": "debates",
+          "start": 57.36,
+          "end": 57.74,
+          "probability": 1.0
+        },
+        {
+          "word": "battery",
+          "start": 57.74,
+          "end": 58.22,
+          "probability": 1.0
+        },
+        {
+          "word": "life",
+          "start": 58.22,
+          "end": 58.48,
+          "probability": 1.0
+        },
+        {
+          "word": "and",
+          "start": 58.48,
+          "end": 58.68,
+          "probability": 1.0
+        },
+        {
+          "word": "actuator",
+          "start": 58.68,
+          "end": 59.14,
+          "probability": 1.0
+        },
+        {
+          "word": "specs",
+          "start": 59.14,
+          "end": 59.62,
+          "probability": 1.0
+        },
+        {
+          "word": "The",
+          "start": 60.3,
+          "end": 60.52,
+          "probability": 1.0
+        },
+        {
+          "word": "robots",
+          "start": 60.52,
+          "end": 60.76,
+          "probability": 1.0
+        },
+        {
+          "word": "are",
+          "start": 60.76,
+          "end": 61.06,
+          "probability": 1.0
+        },
+        {
+          "word": "just",
+          "start": 61.06,
+          "end": 61.32,
+          "probability": 1.0
+        },
+        {
+          "word": "the",
+          "start": 61.32,
+          "end": 61.58,
+          "probability": 1.0
+        },
+        {
+          "word": "visible",
+          "start": 61.58,
+          "end": 61.88,
+          "probability": 1.0
+        },
+        {
+          "word": "pieces",
+          "start": 61.88,
+          "end": 62.34,
+          "probability": 1.0
+        },
+        {
+          "word": "The",
+          "start": 62.82,
+          "end": 63.18,
+          "probability": 1.0
+        },
+        {
+          "word": "board",
+          "start": 63.18,
+          "end": 63.34,
+          "probability": 1.0
+        },
+        {
+          "word": "is",
+          "start": 63.34,
+          "end": 63.56,
+          "probability": 1.0
+        },
+        {
+          "word": "civilization",
+          "start": 63.56,
+          "end": 64.06,
+          "probability": 1.0
+        },
+        {
+          "word": "itself",
+          "start": 64.06,
+          "end": 64.68,
+          "probability": 1.0
+        },
+        {
+          "word": "And",
+          "start": 65.18,
+          "end": 65.32,
+          "probability": 1.0
+        },
+        {
+          "word": "most",
+          "start": 65.32,
+          "end": 65.44,
+          "probability": 1.0
+        },
+        {
+          "word": "people",
+          "start": 65.44,
+          "end": 65.66,
+          "probability": 1.0
+        },
+        {
+          "word": "don't",
+          "start": 65.66,
+          "end": 65.88,
+          "probability": 1.0
+        },
+        {
+          "word": "even",
+          "start": 65.88,
+          "end": 66.42,
+          "probability": 1.0
+        },
+        {
+          "word": "realize",
+          "start": 66.42,
+          "end": 66.7,
+          "probability": 1.0
+        },
+        {
+          "word": "they're",
+          "start": 66.7,
+          "end": 66.92,
+          "probability": 1.0
+        },
+        {
+          "word": "already",
+          "start": 66.92,
+          "end": 67.36,
+          "probability": 1.0
+        },
+        {
+          "word": "players",
+          "start": 67.36,
+          "end": 67.66,
+          "probability": 1.0
+        },
+        {
+          "word": "in",
+          "start": 67.66,
+          "end": 67.9,
+          "probability": 1.0
+        },
+        {
+          "word": "someone",
+          "start": 67.9,
+          "end": 68.16,
+          "probability": 1.0
+        },
+        {
+          "word": "else's",
+          "start": 68.16,
+          "end": 68.66,
+          "probability": 1.0
+        },
+        {
+          "word": "game",
+          "start": 68.66,
+          "end": 68.74,
+          "probability": 1.0
+        }
+      ]
+    }
+  ],
+  "language": "en"
+}

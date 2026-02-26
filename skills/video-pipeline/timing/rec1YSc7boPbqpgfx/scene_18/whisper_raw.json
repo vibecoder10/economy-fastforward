@@ -1,0 +1,893 @@
+{
+  "duration": 69.13999938964844,
+  "language": "english",
+  "text": "The moment Optimus reaches critical mass, something fundamental shifts. This isn't about selling robots. It's about controlling the means of production itself. Think about what manufacturing really is. It's the conversion of raw materials into everything civilization needs. Food processing, medicine production, infrastructure, defense. Whoever commands an army of tireless, obedient workers commands the output of nations. Musk understands this with perfect clarity. He's not building a product line. He's constructing leverage over the entire global economy. When one entity controls millions of workers who never unionize, never demand raises, never vote, never question orders, that entity holds power. No government, no corporation, no individual has ever possessed in human history. Countries will face an impossible choice. Adopt Optimus and become dependent on Musk's infrastructure. Reject it and watch their economies collapse against competitors who didn't. This is the real game being played while everyone debates battery life and actuator specs. The robots are just the visible pieces. The board is civilization itself. And most people don't even realize they're already players in someone else's game.",
+  "segments": null,
+  "usage": {
+    "seconds": 70.0,
+    "type": "duration"
+  },
+  "words": [
+    {
+      "end": 0.2199999988079071,
+      "start": 0.0,
+      "word": "The"
+    },
+    {
+      "end": 0.4399999976158142,
+      "start": 0.2199999988079071,
+      "word": "moment"
+    },
+    {
+      "end": 0.8399999737739563,
+      "start": 0.4399999976158142,
+      "word": "Optimus"
+    },
+    {
+      "end": 1.2200000286102295,
+      "start": 0.8399999737739563,
+      "word": "reaches"
+    },
+    {
+      "end": 1.6200000047683716,
+      "start": 1.2200000286102295,
+      "word": "critical"
+    },
+    {
+      "end": 1.9600000381469727,
+      "start": 1.6200000047683716,
+      "word": "mass"
+    },
+    {
+      "end": 2.359999895095825,
+      "start": 2.140000104904175,
+      "word": "something"
+    },
+    {
+      "end": 3.0,
+      "start": 2.359999895095825,
+      "word": "fundamental"
+    },
+    {
+      "end": 3.440000057220459,
+      "start": 3.0,
+      "word": "shifts"
+    },
+    {
+      "end": 4.039999961853027,
+      "start": 4.039999961853027,
+      "word": "This"
+    },
+    {
+      "end": 4.21999979019165,
+      "start": 4.039999961853027,
+      "word": "isn't"
+    },
+    {
+      "end": 4.579999923706055,
+      "start": 4.21999979019165,
+      "word": "about"
+    },
+    {
+      "end": 4.820000171661377,
+      "start": 4.579999923706055,
+      "word": "selling"
+    },
+    {
+      "end": 5.28000020980835,
+      "start": 4.820000171661377,
+      "word": "robots"
+    },
+    {
+      "end": 5.800000190734863,
+      "start": 5.699999809265137,
+      "word": "It's"
+    },
+    {
+      "end": 6.139999866485596,
+      "start": 5.800000190734863,
+      "word": "about"
+    },
+    {
+      "end": 6.539999961853027,
+      "start": 6.139999866485596,
+      "word": "controlling"
+    },
+    {
+      "end": 6.800000190734863,
+      "start": 6.539999961853027,
+      "word": "the"
+    },
+    {
+      "end": 7.039999961853027,
+      "start": 6.800000190734863,
+      "word": "means"
+    },
+    {
+      "end": 7.539999961853027,
+      "start": 7.039999961853027,
+      "word": "of"
+    },
+    {
+      "end": 7.539999961853027,
+      "start": 7.539999961853027,
+      "word": "production"
+    },
+    {
+      "end": 8.0600004196167,
+      "start": 7.539999961853027,
+      "word": "itself"
+    },
+    {
+      "end": 8.65999984741211,
+      "start": 8.600000381469727,
+      "word": "Think"
+    },
+    {
+      "end": 8.819999694824219,
+      "start": 8.65999984741211,
+      "word": "about"
+    },
+    {
+      "end": 9.180000305175781,
+      "start": 8.819999694824219,
+      "word": "what"
+    },
+    {
+      "end": 9.699999809265137,
+      "start": 9.180000305175781,
+      "word": "manufacturing"
+    },
+    {
+      "end": 10.0600004196167,
+      "start": 9.699999809265137,
+      "word": "really"
+    },
+    {
+      "end": 10.34000015258789,
+      "start": 10.0600004196167,
+      "word": "is"
+    },
+    {
+      "end": 10.920000076293945,
+      "start": 10.84000015258789,
+      "word": "It's"
+    },
+    {
+      "end": 11.079999923706055,
+      "start": 10.920000076293945,
+      "word": "the"
+    },
+    {
+      "end": 11.399999618530273,
+      "start": 11.079999923706055,
+      "word": "conversion"
+    },
+    {
+      "end": 11.619999885559082,
+      "start": 11.399999618530273,
+      "word": "of"
+    },
+    {
+      "end": 11.84000015258789,
+      "start": 11.619999885559082,
+      "word": "raw"
+    },
+    {
+      "end": 12.199999809265137,
+      "start": 11.84000015258789,
+      "word": "materials"
+    },
+    {
+      "end": 12.460000038146973,
+      "start": 12.199999809265137,
+      "word": "into"
+    },
+    {
+      "end": 12.920000076293945,
+      "start": 12.460000038146973,
+      "word": "everything"
+    },
+    {
+      "end": 13.65999984741211,
+      "start": 12.920000076293945,
+      "word": "civilization"
+    },
+    {
+      "end": 14.180000305175781,
+      "start": 13.65999984741211,
+      "word": "needs"
+    },
+    {
+      "end": 15.0,
+      "start": 15.0,
+      "word": "Food"
+    },
+    {
+      "end": 15.5,
+      "start": 15.0,
+      "word": "processing"
+    },
+    {
+      "end": 16.219999313354492,
+      "start": 16.0,
+      "word": "medicine"
+    },
+    {
+      "end": 16.739999771118164,
+      "start": 16.219999313354492,
+      "word": "production"
+    },
+    {
+      "end": 17.760000228881836,
+      "start": 17.219999313354492,
+      "word": "infrastructure"
+    },
+    {
+      "end": 18.65999984741211,
+      "start": 18.299999237060547,
+      "word": "defense"
+    },
+    {
+      "end": 19.360000610351562,
+      "start": 19.1200008392334,
+      "word": "Whoever"
+    },
+    {
+      "end": 19.760000228881836,
+      "start": 19.360000610351562,
+      "word": "commands"
+    },
+    {
+      "end": 20.1200008392334,
+      "start": 19.760000228881836,
+      "word": "an"
+    },
+    {
+      "end": 20.1200008392334,
+      "start": 20.1200008392334,
+      "word": "army"
+    },
+    {
+      "end": 20.739999771118164,
+      "start": 20.1200008392334,
+      "word": "of"
+    },
+    {
+      "end": 20.739999771118164,
+      "start": 20.739999771118164,
+      "word": "tireless"
+    },
+    {
+      "end": 21.18000030517578,
+      "start": 21.18000030517578,
+      "word": "obedient"
+    },
+    {
+      "end": 21.579999923706055,
+      "start": 21.18000030517578,
+      "word": "workers"
+    },
+    {
+      "end": 22.040000915527344,
+      "start": 21.579999923706055,
+      "word": "commands"
+    },
+    {
+      "end": 22.360000610351562,
+      "start": 22.040000915527344,
+      "word": "the"
+    },
+    {
+      "end": 22.5,
+      "start": 22.360000610351562,
+      "word": "output"
+    },
+    {
+      "end": 23.15999984741211,
+      "start": 22.5,
+      "word": "of"
+    },
+    {
+      "end": 23.15999984741211,
+      "start": 23.15999984741211,
+      "word": "nations"
+    },
+    {
+      "end": 23.780000686645508,
+      "start": 23.700000762939453,
+      "word": "Musk"
+    },
+    {
+      "end": 24.34000015258789,
+      "start": 23.780000686645508,
+      "word": "understands"
+    },
+    {
+      "end": 24.639999389648438,
+      "start": 24.34000015258789,
+      "word": "this"
+    },
+    {
+      "end": 24.920000076293945,
+      "start": 24.639999389648438,
+      "word": "with"
+    },
+    {
+      "end": 25.280000686645508,
+      "start": 24.920000076293945,
+      "word": "perfect"
+    },
+    {
+      "end": 25.65999984741211,
+      "start": 25.280000686645508,
+      "word": "clarity"
+    },
+    {
+      "end": 26.059999465942383,
+      "start": 25.860000610351562,
+      "word": "He's"
+    },
+    {
+      "end": 26.299999237060547,
+      "start": 26.059999465942383,
+      "word": "not"
+    },
+    {
+      "end": 26.5,
+      "start": 26.299999237060547,
+      "word": "building"
+    },
+    {
+      "end": 26.739999771118164,
+      "start": 26.5,
+      "word": "a"
+    },
+    {
+      "end": 26.920000076293945,
+      "start": 26.739999771118164,
+      "word": "product"
+    },
+    {
+      "end": 27.200000762939453,
+      "start": 26.920000076293945,
+      "word": "line"
+    },
+    {
+      "end": 28.0,
+      "start": 27.200000762939453,
+      "word": "He's"
+    },
+    {
+      "end": 28.459999084472656,
+      "start": 28.0,
+      "word": "constructing"
+    },
+    {
+      "end": 28.940000534057617,
+      "start": 28.459999084472656,
+      "word": "leverage"
+    },
+    {
+      "end": 29.200000762939453,
+      "start": 28.940000534057617,
+      "word": "over"
+    },
+    {
+      "end": 29.280000686645508,
+      "start": 29.200000762939453,
+      "word": "the"
+    },
+    {
+      "end": 29.780000686645508,
+      "start": 29.280000686645508,
+      "word": "entire"
+    },
+    {
+      "end": 30.079999923706055,
+      "start": 29.780000686645508,
+      "word": "global"
+    },
+    {
+      "end": 30.399999618530273,
+      "start": 30.079999923706055,
+      "word": "economy"
+    },
+    {
+      "end": 31.65999984741211,
+      "start": 31.600000381469727,
+      "word": "When"
+    },
+    {
+      "end": 31.959999084472656,
+      "start": 31.65999984741211,
+      "word": "one"
+    },
+    {
+      "end": 32.220001220703125,
+      "start": 31.959999084472656,
+      "word": "entity"
+    },
+    {
+      "end": 32.65999984741211,
+      "start": 32.220001220703125,
+      "word": "controls"
+    },
+    {
+      "end": 33.0,
+      "start": 32.65999984741211,
+      "word": "millions"
+    },
+    {
+      "end": 33.560001373291016,
+      "start": 33.0,
+      "word": "of"
+    },
+    {
+      "end": 33.560001373291016,
+      "start": 33.560001373291016,
+      "word": "workers"
+    },
+    {
+      "end": 33.7400016784668,
+      "start": 33.560001373291016,
+      "word": "who"
+    },
+    {
+      "end": 33.959999084472656,
+      "start": 33.7400016784668,
+      "word": "never"
+    },
+    {
+      "end": 34.560001373291016,
+      "start": 33.959999084472656,
+      "word": "unionize"
+    },
+    {
+      "end": 34.939998626708984,
+      "start": 34.79999923706055,
+      "word": "never"
+    },
+    {
+      "end": 35.279998779296875,
+      "start": 34.939998626708984,
+      "word": "demand"
+    },
+    {
+      "end": 35.65999984741211,
+      "start": 35.279998779296875,
+      "word": "raises"
+    },
+    {
+      "end": 35.97999954223633,
+      "start": 35.939998626708984,
+      "word": "never"
+    },
+    {
+      "end": 36.380001068115234,
+      "start": 35.97999954223633,
+      "word": "vote"
+    },
+    {
+      "end": 36.7400016784668,
+      "start": 36.7400016784668,
+      "word": "never"
+    },
+    {
+      "end": 37.41999816894531,
+      "start": 36.7400016784668,
+      "word": "question"
+    },
+    {
+      "end": 37.7400016784668,
+      "start": 37.41999816894531,
+      "word": "orders"
+    },
+    {
+      "end": 38.380001068115234,
+      "start": 38.18000030517578,
+      "word": "that"
+    },
+    {
+      "end": 38.7599983215332,
+      "start": 38.380001068115234,
+      "word": "entity"
+    },
+    {
+      "end": 39.060001373291016,
+      "start": 38.7599983215332,
+      "word": "holds"
+    },
+    {
+      "end": 39.5,
+      "start": 39.060001373291016,
+      "word": "power"
+    },
+    {
+      "end": 39.91999816894531,
+      "start": 39.91999816894531,
+      "word": "No"
+    },
+    {
+      "end": 40.2400016784668,
+      "start": 39.91999816894531,
+      "word": "government"
+    },
+    {
+      "end": 41.220001220703125,
+      "start": 40.400001525878906,
+      "word": "no"
+    },
+    {
+      "end": 41.220001220703125,
+      "start": 41.220001220703125,
+      "word": "corporation"
+    },
+    {
+      "end": 41.52000045776367,
+      "start": 41.31999969482422,
+      "word": "no"
+    },
+    {
+      "end": 41.91999816894531,
+      "start": 41.52000045776367,
+      "word": "individual"
+    },
+    {
+      "end": 42.119998931884766,
+      "start": 41.91999816894531,
+      "word": "has"
+    },
+    {
+      "end": 42.560001373291016,
+      "start": 42.119998931884766,
+      "word": "ever"
+    },
+    {
+      "end": 42.560001373291016,
+      "start": 42.560001373291016,
+      "word": "possessed"
+    },
+    {
+      "end": 42.79999923706055,
+      "start": 42.560001373291016,
+      "word": "in"
+    },
+    {
+      "end": 43.08000183105469,
+      "start": 42.79999923706055,
+      "word": "human"
+    },
+    {
+      "end": 43.31999969482422,
+      "start": 43.08000183105469,
+      "word": "history"
+    },
+    {
+      "end": 44.36000061035156,
+      "start": 44.36000061035156,
+      "word": "Countries"
+    },
+    {
+      "end": 44.619998931884766,
+      "start": 44.36000061035156,
+      "word": "will"
+    },
+    {
+      "end": 44.81999969482422,
+      "start": 44.619998931884766,
+      "word": "face"
+    },
+    {
+      "end": 45.040000915527344,
+      "start": 44.81999969482422,
+      "word": "an"
+    },
+    {
+      "end": 45.400001525878906,
+      "start": 45.040000915527344,
+      "word": "impossible"
+    },
+    {
+      "end": 45.880001068115234,
+      "start": 45.400001525878906,
+      "word": "choice"
+    },
+    {
+      "end": 47.08000183105469,
+      "start": 47.08000183105469,
+      "word": "Adopt"
+    },
+    {
+      "end": 47.619998931884766,
+      "start": 47.08000183105469,
+      "word": "Optimus"
+    },
+    {
+      "end": 47.79999923706055,
+      "start": 47.619998931884766,
+      "word": "and"
+    },
+    {
+      "end": 48.08000183105469,
+      "start": 47.79999923706055,
+      "word": "become"
+    },
+    {
+      "end": 48.400001525878906,
+      "start": 48.08000183105469,
+      "word": "dependent"
+    },
+    {
+      "end": 48.7400016784668,
+      "start": 48.400001525878906,
+      "word": "on"
+    },
+    {
+      "end": 49.119998931884766,
+      "start": 48.7400016784668,
+      "word": "Musk's"
+    },
+    {
+      "end": 49.63999938964844,
+      "start": 49.119998931884766,
+      "word": "infrastructure"
+    },
+    {
+      "end": 50.84000015258789,
+      "start": 50.560001373291016,
+      "word": "Reject"
+    },
+    {
+      "end": 51.040000915527344,
+      "start": 50.84000015258789,
+      "word": "it"
+    },
+    {
+      "end": 51.2599983215332,
+      "start": 51.040000915527344,
+      "word": "and"
+    },
+    {
+      "end": 51.380001068115234,
+      "start": 51.2599983215332,
+      "word": "watch"
+    },
+    {
+      "end": 51.65999984741211,
+      "start": 51.380001068115234,
+      "word": "their"
+    },
+    {
+      "end": 52.040000915527344,
+      "start": 51.65999984741211,
+      "word": "economies"
+    },
+    {
+      "end": 52.540000915527344,
+      "start": 52.040000915527344,
+      "word": "collapse"
+    },
+    {
+      "end": 52.81999969482422,
+      "start": 52.540000915527344,
+      "word": "against"
+    },
+    {
+      "end": 53.31999969482422,
+      "start": 52.81999969482422,
+      "word": "competitors"
+    },
+    {
+      "end": 53.619998931884766,
+      "start": 53.31999969482422,
+      "word": "who"
+    },
+    {
+      "end": 53.86000061035156,
+      "start": 53.619998931884766,
+      "word": "didn't"
+    },
+    {
+      "end": 54.84000015258789,
+      "start": 53.86000061035156,
+      "word": "This"
+    },
+    {
+      "end": 55.02000045776367,
+      "start": 54.84000015258789,
+      "word": "is"
+    },
+    {
+      "end": 55.20000076293945,
+      "start": 55.02000045776367,
+      "word": "the"
+    },
+    {
+      "end": 55.619998931884766,
+      "start": 55.20000076293945,
+      "word": "real"
+    },
+    {
+      "end": 55.79999923706055,
+      "start": 55.619998931884766,
+      "word": "game"
+    },
+    {
+      "end": 56.18000030517578,
+      "start": 55.79999923706055,
+      "word": "being"
+    },
+    {
+      "end": 56.400001525878906,
+      "start": 56.18000030517578,
+      "word": "played"
+    },
+    {
+      "end": 56.97999954223633,
+      "start": 56.400001525878906,
+      "word": "while"
+    },
+    {
+      "end": 57.36000061035156,
+      "start": 56.97999954223633,
+      "word": "everyone"
+    },
+    {
+      "end": 57.7400016784668,
+      "start": 57.36000061035156,
+      "word": "debates"
+    },
+    {
+      "end": 58.220001220703125,
+      "start": 57.7400016784668,
+      "word": "battery"
+    },
+    {
+      "end": 58.47999954223633,
+      "start": 58.220001220703125,
+      "word": "life"
+    },
+    {
+      "end": 58.68000030517578,
+      "start": 58.47999954223633,
+      "word": "and"
+    },
+    {
+      "end": 59.13999938964844,
+      "start": 58.68000030517578,
+      "word": "actuator"
+    },
+    {
+      "end": 59.619998931884766,
+      "start": 59.13999938964844,
+      "word": "specs"
+    },
+    {
+      "end": 60.52000045776367,
+      "start": 60.29999923706055,
+      "word": "The"
+    },
+    {
+      "end": 60.7599983215332,
+      "start": 60.52000045776367,
+      "word": "robots"
+    },
+    {
+      "end": 61.060001373291016,
+      "start": 60.7599983215332,
+      "word": "are"
+    },
+    {
+      "end": 61.31999969482422,
+      "start": 61.060001373291016,
+      "word": "just"
+    },
+    {
+      "end": 61.58000183105469,
+      "start": 61.31999969482422,
+      "word": "the"
+    },
+    {
+      "end": 61.880001068115234,
+      "start": 61.58000183105469,
+      "word": "visible"
+    },
+    {
+      "end": 62.34000015258789,
+      "start": 61.880001068115234,
+      "word": "pieces"
+    },
+    {
+      "end": 63.18000030517578,
+      "start": 62.81999969482422,
+      "word": "The"
+    },
+    {
+      "end": 63.34000015258789,
+      "start": 63.18000030517578,
+      "word": "board"
+    },
+    {
+      "end": 63.560001373291016,
+      "start": 63.34000015258789,
+      "word": "is"
+    },
+    {
+      "end": 64.05999755859375,
+      "start": 63.560001373291016,
+      "word": "civilization"
+    },
+    {
+      "end": 64.68000030517578,
+      "start": 64.05999755859375,
+      "word": "itself"
+    },
+    {
+      "end": 65.31999969482422,
+      "start": 65.18000030517578,
+      "word": "And"
+    },
+    {
+      "end": 65.44000244140625,
+      "start": 65.31999969482422,
+      "word": "most"
+    },
+    {
+      "end": 65.66000366210938,
+      "start": 65.44000244140625,
+      "word": "people"
+    },
+    {
+      "end": 65.87999725341797,
+      "start": 65.66000366210938,
+      "word": "don't"
+    },
+    {
+      "end": 66.41999816894531,
+      "start": 65.87999725341797,
+      "word": "even"
+    },
+    {
+      "end": 66.69999694824219,
+      "start": 66.41999816894531,
+      "word": "realize"
+    },
+    {
+      "end": 66.91999816894531,
+      "start": 66.69999694824219,
+      "word": "they're"
+    },
+    {
+      "end": 67.36000061035156,
+      "start": 66.91999816894531,
+      "word": "already"
+    },
+    {
+      "end": 67.66000366210938,
+      "start": 67.36000061035156,
+      "word": "players"
+    },
+    {
+      "end": 67.9000015258789,
+      "start": 67.66000366210938,
+      "word": "in"
+    },
+    {
+      "end": 68.16000366210938,
+      "start": 67.9000015258789,
+      "word": "someone"
+    },
+    {
+      "end": 68.66000366210938,
+      "start": 68.16000366210938,
+      "word": "else's"
+    },
+    {
+      "end": 68.73999786376953,
+      "start": 68.66000366210938,
+      "word": "game"
+    }
+  ],
+  "task": "transcribe"
+}
