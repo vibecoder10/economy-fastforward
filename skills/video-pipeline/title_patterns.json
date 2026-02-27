@@ -430,6 +430,16 @@
           "The Slow COLLAPSE of NATO (And Russia's Machiavellian Play to Replace It)"
         ]
       }
+    ],
+    "title_architectures": [
+      {"id": "ARCH-1", "name": "Specific Number + Stakes", "principle": "Lead with a concrete dollar amount or statistic, follow with consequence", "example": "America's $200 Billion Energy Weapon Nobody Talks About"},
+      {"id": "ARCH-2", "name": "Contradiction Hook", "principle": "State something that sounds wrong but is true", "example": "China Wants Japan to Rearm (Here's Why)"},
+      {"id": "ARCH-3", "name": "Countdown/Deadline", "principle": "Imply a ticking clock or approaching threshold", "example": "The Dollar Has 18 Months Left as Reserve Currency"},
+      {"id": "ARCH-4", "name": "Hidden Actor Reveal", "principle": "Name WHO is behind a visible event", "example": "Who Actually Controls Russian Oil After Sanctions"},
+      {"id": "ARCH-5", "name": "Victim's Fatal Mistake", "principle": "Frame a country/entity as making an irreversible error", "example": "Japan Just Made the One Mistake China Was Waiting For"},
+      {"id": "ARCH-6", "name": "Comparative Betrayal", "principle": "X did the same thing as historical villain", "example": "America Is Running the East India Company Playbook on Russia"},
+      {"id": "ARCH-7", "name": "Quiet Power Move", "principle": "Something important happened that nobody noticed", "example": "The Most Dangerous Trade Deal of 2026 Was Signed Last Tuesday"},
+      {"id": "ARCH-8", "name": "Inevitability Frame", "principle": "Present outcome as already decided, explain why", "example": "Why the Next Global Currency Was Already Chosen"}
     ]
   }
 }
