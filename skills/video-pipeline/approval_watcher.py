@@ -34,6 +34,35 @@ logger = logging.getLogger(__name__)
 _processed_ids: set[str] = set()
 
 
+def _extract_formula_id(idea: dict) -> str:
+    """Extract the formula_id for the selected title from original_dna.
+
+    Matches the Video Title against title_options stored in original_dna JSON.
+    Returns the matching formula_id, or the first one if no exact match.
+    """
+    dna_str = idea.get("Original DNA", "")
+    if not dna_str:
+        return ""
+    try:
+        dna = json.loads(dna_str)
+    except (json.JSONDecodeError, TypeError):
+        return ""
+
+    title_options = dna.get("title_options", [])
+    if not title_options:
+        # Fallback: check formula_ids list
+        formula_ids = dna.get("formula_ids", [])
+        return formula_ids[0] if formula_ids else ""
+
+    video_title = idea.get("Video Title", "").strip().lower()
+    for opt in title_options:
+        if opt.get("title", "").strip().lower() == video_title:
+            return opt.get("formula_id", "")
+
+    # No exact match — return first formula_id
+    return title_options[0].get("formula_id", "")
+
+
 class ApprovalWatcher:
     """Watches Airtable for approved ideas and triggers deep research.
 
@@ -111,6 +140,18 @@ class ApprovalWatcher:
             self._notify(
                 f"🔬 Auto-researching approved idea: _{title}_"
             )
+
+            # Save Title Formula if not already set (extract from original_dna)
+            if not idea.get("Title Formula"):
+                formula_id = _extract_formula_id(idea)
+                if formula_id:
+                    try:
+                        self.airtable.update_idea_field(
+                            record_id, "Title Formula", formula_id
+                        )
+                        logger.info(f"Set Title Formula: {formula_id}")
+                    except Exception as e:
+                        logger.warning(f"Could not write Title Formula: {e}")
 
             try:
                 # Build context from idea fields
