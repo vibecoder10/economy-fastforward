@@ -1,9 +1,9 @@
 import { Composition } from "remotion";
 import { Main } from "./Main";
 import { EconomyVideoAnimated } from "./compositions/EconomyVideoAnimated";
-import { getSceneDurationFromConfig, getTotalDurationFromConfig } from "./renderConfig";
+import { getSceneCount, getSceneDurationFromConfig, getTotalDurationFromConfig } from "./renderConfig";
 
-const TOTAL_SCENES = 20;
+const TOTAL_SCENES = getSceneCount() || 6;
 const FPS = 24;
 // Buffer after last spoken word to let audio trail off naturally
 const SCENE_END_BUFFER_SECONDS = 1;
