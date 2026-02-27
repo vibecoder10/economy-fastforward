@@ -38,7 +38,30 @@ from audio_sync.ken_burns_calculator import assign_ken_burns
 from audio_sync.render_config_writer import build_render_config, write_render_config
 
 
-VIDEO_TITLE = "The Robot TRAP Nobody Sees Coming (A 4-Stage Monopoly)"
+def _get_video_title() -> str:
+    """Get video title from CLI args or prompt interactively."""
+    if len(sys.argv) > 1:
+        return " ".join(sys.argv[1:])
+
+    # No hardcoded default — force explicit selection to prevent
+    # audio contamination between videos (the #1 recurring bug).
+    print("Usage: python3 run_audio_sync.py \"Video Title\"")
+    print("\nAvailable videos (from Airtable):")
+    try:
+        api = get_airtable_api()
+        table = api.table(AIRTABLE_BASE_ID, AIRTABLE_IDEAS_TABLE_ID)
+        records = table.all(sort=["Video Title"])
+        for r in records:
+            status = r["fields"].get("Status", "")
+            title = r["fields"].get("Video Title", "")
+            if title and status in ("Ready To Render", "Done", "Rendered"):
+                print(f"  • [{status}] {title}")
+    except Exception:
+        pass
+    sys.exit(1)
+
+
+VIDEO_TITLE = _get_video_title()
 DESKTOP_SRC = Path.home() / "Desktop" / VIDEO_TITLE
 
 # Hardcoded Airtable IDs (must match clients/airtable_client.py)

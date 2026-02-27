@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Download images from Airtable and upload to Google Drive.
 
-Reads all image records for the Robot video, downloads each attachment,
+Reads all image records for a video, downloads each attachment,
 and uploads to the matching Google Drive folder with Scene_XX_YY.png naming.
 
-Usage (on VPS):
-    python3 upload_images_to_drive.py
+Usage:
+    python3 upload_images_to_drive.py "Video Title"
 """
 import os
 import sys
@@ -23,7 +23,15 @@ import httpx
 from clients.airtable_client import AirtableClient
 from clients.google_client import GoogleClient
 
-VIDEO_TITLE = "The Robot TRAP Nobody Sees Coming (A 4-Stage Monopoly)"
+def _get_video_title() -> str:
+    """Get video title from CLI args — no hardcoded default."""
+    if len(sys.argv) > 1:
+        return " ".join(sys.argv[1:])
+    print("Usage: python3 upload_images_to_drive.py \"Video Title\"")
+    sys.exit(1)
+
+
+VIDEO_TITLE = _get_video_title()
 
 
 def main():

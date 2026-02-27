@@ -2304,7 +2304,7 @@ class VideoPipeline:
 
         # CLEAN PUBLIC/ DIR — prevents asset contamination between renders
         # Each video needs its own Scene_XX_XX.png files; stale files from
-        # a previous render would produce wrong visuals.
+        # a previous render would produce wrong visuals or WRONG AUDIO.
         remotion_dir = Path(__file__).parent.parent.parent / "remotion-video"
         public_dir = remotion_dir / "public"
         if public_dir.exists():
@@ -2312,12 +2312,24 @@ class VideoPipeline:
             stale_audio = glob_mod.glob(str(public_dir / "Scene *.mp3"))
             stale_images = glob_mod.glob(str(public_dir / "Scene_*.png"))
             stale_videos = glob_mod.glob(str(public_dir / "Scene_*.mp4"))
+            stale_config = glob_mod.glob(str(public_dir / "render_config.json"))
             removed = 0
-            for f in stale_audio + stale_images + stale_videos:
+            for f in stale_audio + stale_images + stale_videos + stale_config:
                 os.remove(f)
                 removed += 1
             if removed:
                 print(f"  🧹 Cleaned {removed} stale assets from public/")
+
+        # CLEAN CAPTION FILES — stale captions from a previous video cause
+        # wrong karaoke text and timing in the rendered video.
+        captions_dir = remotion_dir / "src" / "captions"
+        if captions_dir.exists():
+            import glob as glob_mod
+            stale_captions = glob_mod.glob(str(captions_dir / "Scene *.json"))
+            for f in stale_captions:
+                os.remove(f)
+            if stale_captions:
+                print(f"  🧹 Cleaned {len(stale_captions)} stale caption files")
 
         # PRE-FLIGHT CHECK: Regenerate any missing/pending images before render
         # This prevents render failures due to missing image files

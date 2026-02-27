@@ -22,9 +22,18 @@ async def main():
     
     pipeline = VideoPipeline()
     
-    # Set the folder ID from the previous script bot run
-    pipeline.project_folder_id = "1dF0p5iMgUa04oArBvAnHswHJKSckacmS"
-    pipeline.video_title = "Why AI's \"Fake Bubble\" Will Make You RICH"
+    # Load from Airtable via CLI argument — no hardcoded titles/IDs
+    if len(sys.argv) < 2:
+        print("Usage: python3 run_remaining_pipeline.py \"Video Title\"")
+        sys.exit(1)
+    video_title = " ".join(sys.argv[1:])
+
+    ideas = pipeline.airtable.get_all_ideas()
+    idea = next((i for i in ideas if i.get("Video Title") == video_title), None)
+    if not idea:
+        print(f"❌ No idea found with title: {video_title}")
+        sys.exit(1)
+    pipeline._load_idea(idea)
     
     try:
         # Step 1: Voice Bot
