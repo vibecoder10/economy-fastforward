@@ -2364,7 +2364,7 @@ class VideoPipeline:
         print(f"\n🎬 RENDER BOT: Processing '{self.video_title}'")
         self.slack.send_message(
             f"🎬 *Render starting:* _{self.video_title}_\n"
-            f"Running pre-flight checks, downloading assets, then rendering (concurrency=1, ~60-90 min)..."
+            f"Running pre-flight checks, downloading assets, then rendering (concurrency=4, ~35-50 min)..."
         )
 
         # CLEAN PUBLIC/ DIR — prevents asset contamination between renders
@@ -2582,15 +2582,15 @@ class VideoPipeline:
 
         # Render (optimized for KVM4: 4 vCPU / 16GB RAM)
         import time as _time
-        print(f"  🎥 Rendering video (concurrency=3, estimated 45-60 minutes)...")
+        print(f"  🎥 Rendering video (concurrency=4, estimated 35-50 minutes)...")
         render_cmd = [
             "npx", "remotion", "render",
             "Main", str(output_file),
             "--props", str(props_file),
-            "--concurrency=3",
+            "--concurrency=4",
             "--gl=swangle",
             "--timeout=180000",
-            "--offthreadvideo-cache-size-in-bytes=1073741824",
+            "--offthreadvideo-cache-size-in-bytes=4294967296",
         ]
 
         # Stream render output to track progress and send Slack updates
