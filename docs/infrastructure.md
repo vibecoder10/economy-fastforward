@@ -11,6 +11,7 @@
 | Time | Job | Timeout |
 |------|-----|---------|
 | 5:00 AM | `pipeline.py --discover` (idea discovery) | 10 min |
+| 6:00 AM UTC | `performance_tracker.py` (YouTube metrics sync) | 10 min |
 | 8:00 AM | `pipeline.py --run-queue` (process pipeline) | 4 hours |
 | Every 15 min | `bot_healthcheck.sh` (restart Slack bot if dead) | - |
 | Every 30 min | `approval_watcher.py` (check for approvals) | 10 min |

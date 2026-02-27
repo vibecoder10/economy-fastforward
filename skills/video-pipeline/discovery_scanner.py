@@ -82,37 +82,6 @@ def _load_discovery_prompt() -> str:
         return f.read()
 
 
-def _build_scan_query(focus: Optional[str] = None) -> str:
-    """Build the search query for headline scanning.
-
-    Creates a query that covers all source categories and optionally
-    focuses on a specific niche keyword.
-    """
-    base_topics = [
-        "geopolitics",
-        "global finance",
-        "economic policy",
-        "central banks",
-        "trade wars",
-        "sanctions",
-        "currency",
-        "debt crisis",
-        "power dynamics",
-        "economic warfare",
-    ]
-
-    if focus:
-        return (
-            f"latest news headlines about {focus} "
-            f"related to geopolitics finance economics power dynamics 2026"
-        )
-
-    return (
-        "latest major headlines today: geopolitics, global finance, "
-        "economic policy, trade wars, sanctions, central banks, "
-        "tech power dynamics, currency wars, debt crises 2026"
-    )
-
 
 def _build_headline_scan_prompt(
     headlines: str,
@@ -135,9 +104,15 @@ def _build_headline_scan_prompt(
 
     focus_instruction = ""
     if focus:
+        clean_focus = focus.strip("[]")
         focus_instruction = (
-            f"\n\nFOCUS KEYWORD: '{focus}' — prioritize stories related "
-            f"to this topic, but don't force it if no strong stories exist."
+            f"\n\nFOCUS TOPIC: '{clean_focus}'\n"
+            f"ALL ideas MUST be directly about this topic. "
+            f"Generate different angles/perspectives on this specific topic. "
+            f"Do NOT include ideas about unrelated topics regardless of their "
+            f"appeal score.\n"
+            f"If the headlines contain no relevant results for this topic, "
+            f"say so explicitly — do not substitute unrelated headlines."
         )
 
     return f"""\
@@ -254,10 +229,10 @@ class DiscoveryScanner:
         self,
         focus: Optional[str] = None,
     ) -> str:
-        """Gather current headlines using LLM web search capabilities.
+        """Gather current headlines via web search.
 
-        Uses the Anthropic client with a focused query to gather
-        headlines across all source categories.
+        Uses the Anthropic web search tool to find real, current
+        headlines rather than relying on training data.
 
         Args:
             focus: Optional niche keyword to focus the scan
@@ -265,30 +240,46 @@ class DiscoveryScanner:
         Returns:
             String containing gathered headlines
         """
-        query = _build_scan_query(focus)
+        from clients.anthropic_client import WEB_SEARCH_TOOL
 
-        # Use the LLM to search and compile headlines
-        # The LLM has access to web search through its training data
-        # and can synthesize recent events
-        scan_prompt = f"""\
-You are a news aggregator. Your job is to compile the most important
-current headlines from the past 48 hours across these categories:
+        if focus:
+            scan_prompt = f"""\
+Search the web for current news about: {focus}
 
+Find 10-15 real headlines from the past 48 hours related to this topic.
+Search from sources like: {', '.join(SCAN_SOURCES['geopolitics'] + SCAN_SOURCES['finance'])}.
+
+For each headline, include:
+- The actual headline text
+- The source publication
+- The date published
+- A 1-sentence summary with specific facts (numbers, names, dates)
+
+Only return headlines you actually find via web search.
+Do NOT fabricate headlines or sources.
+If you find fewer than 10 results about this specific topic, that's fine —
+return what you find. Do NOT pad with unrelated headlines.
+"""
+        else:
+            scan_prompt = f"""\
+Search the web for the most important current news headlines from the past 48 hours.
+
+Cover these categories:
 1. GEOPOLITICS: {', '.join(SCAN_SOURCES['geopolitics'])}
 2. FINANCE: {', '.join(SCAN_SOURCES['finance'])}
 3. ECONOMIC POLICY: {', '.join(SCAN_SOURCES['economic_policy'])}
 4. TECH/BUSINESS: {', '.join(SCAN_SOURCES['tech_business'])}
 
-{"Focus especially on: " + focus if focus else ""}
-
 For each headline, include:
-- The headline text
-- The source (publication name)
-- A 1-sentence summary of the key facts
-- Any numbers, dollar amounts, or percentages mentioned
+- The actual headline text
+- The source publication
+- The date published
+- A 1-sentence summary with specific facts (numbers, names, dates)
 
-List 15-25 headlines total, covering all 4 categories.
-Format as a simple numbered list. Focus on stories with:
+List 15-25 headlines total. Only return headlines you actually find
+via web search. Do NOT fabricate headlines or sources.
+
+Focus on stories with:
 - Major power shifts between nations or institutions
 - Economic policy changes with global implications
 - Financial market disruptions or systemic risks
@@ -303,12 +294,14 @@ purely domestic politics without global economic implications.
             prompt=scan_prompt,
             system_prompt=(
                 "You are a financial and geopolitical news aggregator. "
-                "Compile current headlines from major sources. Be factual "
-                "and specific — include numbers, names, and dates."
+                "Use web search to find real, current headlines. Be factual "
+                "and specific — include numbers, names, and dates. "
+                "Only report headlines you find via search."
             ),
             model=self.model,
-            max_tokens=3000,
+            max_tokens=8000,
             temperature=0.3,
+            tools=[WEB_SEARCH_TOOL],
         )
 
         return headlines
