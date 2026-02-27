@@ -94,12 +94,18 @@ def _build_headline_scan_prompt(
     and instructions for analysis.
     """
     # Extract EFF formulas for inline reference
-    eff_formulas = title_patterns.get("economy_fastforward", {}).get(
-        "hybrid_formulas", []
-    )
+    eff_section = title_patterns.get("economy_fastforward", {})
+    eff_formulas = eff_section.get("hybrid_formulas", [])
     formulas_summary = "\n".join(
         f"- {f['id']}: {f['name']} — Template: \"{f['template']}\""
         for f in eff_formulas
+    )
+
+    # Extract ARCH architectures for inline reference
+    arch_architectures = eff_section.get("title_architectures", [])
+    arch_summary = "\n".join(
+        f"- {a['id']}: {a['name']} — Principle: \"{a['principle']}\" — Example: \"{a['example']}\""
+        for a in arch_architectures
     )
 
     focus_instruction = ""
@@ -118,26 +124,37 @@ def _build_headline_scan_prompt(
     return f"""\
 Analyze these current headlines and select the 2-3 best stories for
 Economy FastForward videos. Apply the Machiavellian lens and generate
-title variants using the formula library.
+title variants using the formula library AND the architecture library.
 
 === CURRENT HEADLINES ===
 {headlines}
 
-=== AVAILABLE TITLE FORMULAS (use EFF formulas first) ===
+=== AVAILABLE TITLE FORMULAS (EFF — template-based) ===
 {formulas_summary}
+
+=== AVAILABLE TITLE ARCHITECTURES (ARCH — principle-based, non-template) ===
+{arch_summary}
 
 === FULL FORMULA LIBRARY (for variable reference) ===
 {json.dumps(eff_formulas, indent=2)}
+
+=== FULL ARCHITECTURE LIBRARY (for principle reference) ===
+{json.dumps(arch_architectures, indent=2)}
 {focus_instruction}
 
 INSTRUCTIONS:
 1. Select exactly 2-3 stories (not more, not less)
 2. Each story must pass the power dynamics filter (minimum 6/10)
-3. Generate 2 title variants per story using DIFFERENT formulas
-4. Include formula_id for each title variant
-5. Rate each story's appeal (1-10) with breakdown by criterion
-6. Suggest a historical parallel for the research phase
-7. Write a 2-3 sentence hook that creates a curiosity gap
+3. Generate 2 title variants per story:
+   a. One title MUST use an EFF formula (include formula_id like "EFF-2")
+   b. One title MUST use an ARCH architecture (include formula_id like "ARCH-3")
+   c. The two titles must use DIFFERENT structural approaches — never both numbered, never both use parentheticals
+4. NEVER use EFF-1 (N-Stage Pattern) more than once across the entire batch
+5. Titles must be under 60 characters when possible (mobile-safe)
+6. No colons followed by long subtitle lists
+7. Rate each story's appeal (1-10) with breakdown by criterion
+8. Suggest a historical parallel for the research phase
+9. Write a 2-3 sentence hook that creates a curiosity gap
 
 Return your response as valid JSON following the output format specified
 in your system prompt. No markdown code blocks — raw JSON only.

@@ -298,6 +298,74 @@ def build_slack_summary(
     return "\n".join(lines)
 
 
+def get_formula_performance(airtable_client) -> list[dict]:
+    """Get average CTR grouped by Title Formula.
+
+    Queries all ideas that have both a Title Formula and YouTube analytics,
+    groups by formula_id, and returns average CTR per formula sorted best-first.
+
+    Args:
+        airtable_client: AirtableClient instance
+
+    Returns:
+        List of dicts: [{"formula_id": "EFF-2", "avg_ctr": 5.1, "count": 3, "titles": [...]}]
+    """
+    all_ideas = airtable_client.get_all_ideas()
+
+    # Filter to records with both Title Formula and CTR data
+    formula_data: dict[str, list] = {}
+    for idea in all_ideas:
+        formula_id = idea.get("Title Formula", "")
+        ctr = idea.get("CTR (%)")
+        if not formula_id or ctr is None:
+            continue
+        if formula_id not in formula_data:
+            formula_data[formula_id] = []
+        formula_data[formula_id].append({
+            "title": idea.get("Video Title", "Unknown"),
+            "ctr": float(ctr),
+            "views": idea.get("Views", 0),
+        })
+
+    # Calculate averages and sort by CTR descending
+    results = []
+    for formula_id, entries in formula_data.items():
+        avg_ctr = sum(e["ctr"] for e in entries) / len(entries)
+        results.append({
+            "formula_id": formula_id,
+            "avg_ctr": round(avg_ctr, 2),
+            "count": len(entries),
+            "titles": [e["title"] for e in entries],
+        })
+
+    results.sort(key=lambda r: r["avg_ctr"], reverse=True)
+    return results
+
+
+def build_formula_report(rankings: list[dict]) -> str:
+    """Build a Slack message summarizing formula performance.
+
+    Args:
+        rankings: Output from get_formula_performance()
+
+    Returns:
+        Formatted Slack message string
+    """
+    if not rankings:
+        return "*Weekly Formula Report*\nNo videos with Title Formula + CTR data yet."
+
+    lines = ["*Weekly Title Formula Performance*\n"]
+    for i, r in enumerate(rankings, 1):
+        lines.append(
+            f"{i}. *{r['formula_id']}* — Avg CTR: {r['avg_ctr']}% "
+            f"({r['count']} video{'s' if r['count'] != 1 else ''})"
+        )
+        for title in r["titles"]:
+            lines.append(f"    • {title}")
+
+    return "\n".join(lines)
+
+
 def main(recent_only: bool = False, dry_run: bool = False):
     """Pull YouTube metrics and write to Airtable.
 
@@ -344,9 +412,12 @@ def main(recent_only: bool = False, dry_run: bool = False):
         record_id = video["id"]
         title = video.get("Video Title", "Unknown")
         upload_date = video.get("Upload Date")
+        formula_id = video.get("Title Formula", "")
 
         print(f"  {title}")
         print(f"    YouTube ID: {video_id}")
+        if formula_id:
+            print(f"    Title Formula: {formula_id}")
 
         # Fetch lifetime stats (YouTube Data API v3)
         stats = fetch_video_stats(youtube, video_id)
@@ -402,12 +473,19 @@ def main(recent_only: bool = False, dry_run: bool = False):
             except Exception as e:
                 print(f"    Airtable write failed: {e}")
 
+        # Log formula-tagged summary line
+        if formula_id and (stats or analytics):
+            ctr_str = f"{analytics['ctr']}%" if analytics else "N/A"
+            views_str = f"{stats['views']:,}" if stats else "N/A"
+            print(f"    Video: {title} | Formula: {formula_id} | 48h CTR: {ctr_str} | 48h Views: {views_str}")
+
         # Track result for summary
         result = {
             "title": title,
             "video_id": video_id,
             "success": stats is not None,
             "views": stats["views"] if stats else 0,
+            "formula_id": formula_id,
         }
         if analytics:
             result["ctr"] = analytics["ctr"]
@@ -424,6 +502,16 @@ def main(recent_only: bool = False, dry_run: bool = False):
             summary = build_slack_summary(results, len(videos))
             slack.send_message(summary)
             print("Slack summary sent")
+
+            # Weekly formula performance report (Sundays only)
+            if datetime.now(timezone.utc).weekday() == 6:
+                rankings = get_formula_performance(airtable)
+                if rankings:
+                    report = build_formula_report(rankings)
+                    slack.send_message(report)
+                    print("Weekly formula report sent")
+                    for r in rankings:
+                        print(f"  {r['formula_id']}: avg CTR {r['avg_ctr']}% ({r['count']} videos)")
         except Exception as e:
             print(f"Slack notification failed (non-blocking): {e}")
 

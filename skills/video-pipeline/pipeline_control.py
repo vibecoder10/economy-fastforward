@@ -953,6 +953,7 @@ async def handle_reaction_added(event, client):
             client, channel, item_ts,
             selected["idea_index"],
             selected_title=selected["title"],
+            selected_formula_id=selected.get("formula_id", ""),
         )
         return
 
@@ -975,6 +976,7 @@ async def handle_reaction_added(event, client):
             client, channel, item_ts,
             selected["idea_index"], ideas, airtable_ids,
             selected_title=selected["title"],
+            selected_formula_id=selected.get("formula_id", ""),
         )
         remove_discovery_message(item_ts)
         return
@@ -983,6 +985,7 @@ async def handle_reaction_added(event, client):
 async def _handle_discovery_approval(
     client, channel: str, ts: str, idea_index: int,
     selected_title: str = None,
+    selected_formula_id: str = "",
 ):
     """Approve a discovery idea and auto-trigger deep research.
 
@@ -1047,7 +1050,15 @@ async def _handle_discovery_approval(
 
         # Set status to Approved
         airtable.update_idea_status(record_id, "Approved")
-        log.info(f"Idea written to Airtable: {record_id} — {title}")
+
+        # Save the selected formula_id for performance tracking
+        if selected_formula_id:
+            try:
+                airtable.update_idea_field(record_id, "Title Formula", selected_formula_id)
+            except Exception as e:
+                log.warning(f"Could not write Title Formula: {e}")
+
+        log.info(f"Idea written to Airtable: {record_id} — {title} (formula: {selected_formula_id})")
 
         # Auto-trigger deep research
         await client.chat_postMessage(
@@ -1100,6 +1111,7 @@ async def _handle_cron_discovery_approval(
     client, channel: str, ts: str, idea_index: int,
     ideas: list[dict], airtable_record_ids: list,
     selected_title: str = None,
+    selected_formula_id: str = "",
 ):
     """Approve a discovery idea from the cron job's tracked messages.
 
@@ -1154,7 +1166,13 @@ async def _handle_cron_discovery_approval(
                     airtable.update_idea_field(record_id, "Video Title", selected_title)
                 except Exception as e:
                     log.warning(f"Could not update Video Title: {e}")
-            log.info(f"Updated existing Airtable record: {record_id} — {title}")
+            # Save the selected formula_id for performance tracking
+            if selected_formula_id:
+                try:
+                    airtable.update_idea_field(record_id, "Title Formula", selected_formula_id)
+                except Exception as e:
+                    log.warning(f"Could not write Title Formula: {e}")
+            log.info(f"Updated existing Airtable record: {record_id} — {title} (formula: {selected_formula_id})")
         else:
             # Fallback: create a new record (shouldn't normally happen)
             idea_data = {
@@ -1178,6 +1196,11 @@ async def _handle_cron_discovery_approval(
             record = airtable.create_idea(idea_data, source="discovery_scanner")
             record_id = record["id"]
             airtable.update_idea_status(record_id, "Approved")
+            if selected_formula_id:
+                try:
+                    airtable.update_idea_field(record_id, "Title Formula", selected_formula_id)
+                except Exception as e:
+                    log.warning(f"Could not write Title Formula: {e}")
 
         # Auto-trigger deep research
         await client.chat_postMessage(
