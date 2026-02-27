@@ -48,5 +48,9 @@ def reset_visuals(video_title: str):
 
 
 if __name__ == "__main__":
-    title = "The Robot TRAP Nobody Sees Coming (A 4-Stage Monopoly)"
+    if len(sys.argv) > 1:
+        title = " ".join(sys.argv[1:])
+    else:
+        print("Usage: python3 reset_visuals.py \"Video Title\"")
+        sys.exit(1)
     reset_visuals(title)

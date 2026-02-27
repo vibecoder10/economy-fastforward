@@ -245,18 +245,45 @@ def transcribe(
         diag_lines.append("  Replace 'OPENAI_API_KEY=sk-xxxxx' with your real OpenAI API key.")
         raise RuntimeError("\n".join(diag_lines))
 
-    # Check cache first
+    # Check cache — but invalidate if the audio file has changed.
+    # Without this check, regenerated voiceovers (new MP3 with same
+    # filename) silently reuse the OLD transcription, causing the
+    # render to play the wrong audio content.
     if cache_dir is not None:
         cache_file = Path(cache_dir) / "whisper_raw.json"
-        if cache_file.exists():
+        meta_file = Path(cache_dir) / "whisper_cache_meta.json"
+        audio_p = Path(audio_path)
+        audio_size = audio_p.stat().st_size if audio_p.exists() else 0
+        audio_mtime = audio_p.stat().st_mtime if audio_p.exists() else 0
+
+        cache_valid = False
+        if cache_file.exists() and meta_file.exists():
+            try:
+                meta = json.loads(meta_file.read_text())
+                if (meta.get("audio_size") == audio_size
+                        and meta.get("audio_mtime") == audio_mtime
+                        and meta.get("audio_path") == str(audio_p.resolve())):
+                    cache_valid = True
+            except Exception:
+                pass
+
+        if cache_valid:
             raw = load_whisper_raw(cache_file)
             return extract_words(raw)
 
     # Transcribe via OpenAI Whisper API
     raw = transcribe_api(audio_path)
 
-    # Cache the result
+    # Cache the result with metadata for invalidation
     if cache_dir is not None:
         save_whisper_raw(raw, Path(cache_dir) / "whisper_raw.json")
+        meta_file = Path(cache_dir) / "whisper_cache_meta.json"
+        audio_p = Path(audio_path)
+        meta = {
+            "audio_path": str(audio_p.resolve()),
+            "audio_size": audio_p.stat().st_size if audio_p.exists() else 0,
+            "audio_mtime": audio_p.stat().st_mtime if audio_p.exists() else 0,
+        }
+        meta_file.write_text(json.dumps(meta))
 
     return extract_words(raw)
