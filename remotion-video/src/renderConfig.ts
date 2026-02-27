@@ -62,15 +62,24 @@ export function loadRenderConfig(): RenderConfig | null {
 }
 
 /**
+ * Get the sorted list of unique scene numbers from render config.
+ * This is the authoritative list — scene numbers may not be sequential
+ * (e.g. if audio_sync skipped a scene due to Whisper failure).
+ */
+export function getSceneNumbers(): number[] {
+    const config = loadRenderConfig();
+    if (!config || config.scenes.length === 0) return [];
+
+    const nums = new Set(config.scenes.map((s) => s.scene_number));
+    return Array.from(nums).sort((a, b) => a - b);
+}
+
+/**
  * Get the number of scenes from render config.
  * Groups render_config scenes by scene_number (multiple images may share a scene).
  */
 export function getSceneCount(): number {
-    const config = loadRenderConfig();
-    if (!config || config.scenes.length === 0) return 0;
-
-    const sceneNumbers = new Set(config.scenes.map((s) => s.scene_number));
-    return sceneNumbers.size;
+    return getSceneNumbers().length;
 }
 
 /**

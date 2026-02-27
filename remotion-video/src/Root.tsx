@@ -1,45 +1,47 @@
 import { Composition } from "remotion";
 import { Main } from "./Main";
 import { EconomyVideoAnimated } from "./compositions/EconomyVideoAnimated";
-import { getSceneDurationFromConfig, getTotalDurationFromConfig } from "./renderConfig";
+import { getSceneDurationFromConfig, getTotalDurationFromConfig, getSceneNumbers } from "./renderConfig";
 
-const TOTAL_SCENES = 20;
 const FPS = 24;
 // Buffer after last spoken word to let audio trail off naturally
 const SCENE_END_BUFFER_SECONDS = 1;
 
 /**
- * Get scene duration from render_config.json (the single source of truth).
- * Throws if render_config is missing — the pipeline MUST run audio sync
- * before rendering.
- */
-function getSceneDurationSeconds(sceneNumber: number): number {
-    const configDuration = getSceneDurationFromConfig(sceneNumber);
-    if (configDuration !== null) return configDuration + SCENE_END_BUFFER_SECONDS;
-
-    throw new Error(
-        `render_config.json has no timing data for scene ${sceneNumber}. ` +
-        `Audio sync must run before rendering.`
-    );
-}
-
-/**
  * Total video duration from render_config.json.
- * Falls back to summing per-scene durations (still from render_config).
+ * Uses total_duration_seconds when available, otherwise sums per-scene
+ * durations using the ACTUAL scene numbers from render_config (not 1..N).
  */
-function getTotalDurationFrames(sceneCount: number, fps: number): number {
+function getTotalDurationFrames(fps: number): number {
+    const sceneNums = getSceneNumbers();
+    const sceneCount = sceneNums.length || 20;
+
     const configTotal = getTotalDurationFromConfig();
     if (configTotal !== null) {
         // Add buffer per scene for audio trail-off
         return Math.ceil((configTotal + sceneCount * SCENE_END_BUFFER_SECONDS) * fps);
     }
 
-    // Sum per-scene durations (each reads from render_config)
+    // Sum per-scene durations using actual scene numbers from render_config
     let total = 0;
-    for (let i = 1; i <= sceneCount; i++) {
-        total += Math.ceil(getSceneDurationSeconds(i) * fps);
+    for (const sceneNum of sceneNums) {
+        const dur = getSceneDurationFromConfig(sceneNum);
+        if (dur !== null) {
+            total += Math.ceil((dur + SCENE_END_BUFFER_SECONDS) * fps);
+        }
     }
-    return total;
+    // Fallback: 25 minutes if render_config has no data at all
+    return total || Math.ceil(25 * 60 * fps);
+}
+
+/**
+ * Duration for a single scene (Scene1Only composition).
+ */
+function getScene1DurationFrames(fps: number): number {
+    const dur = getSceneDurationFromConfig(1);
+    if (dur !== null) return Math.ceil((dur + SCENE_END_BUFFER_SECONDS) * fps);
+    // Fallback: 2 minutes for preview
+    return Math.ceil(2 * 60 * fps);
 }
 
 export const RemotionRoot: React.FC = () => {
@@ -48,18 +50,15 @@ export const RemotionRoot: React.FC = () => {
             <Composition
                 id="Main"
                 component={Main}
-                durationInFrames={getTotalDurationFrames(TOTAL_SCENES, FPS)}
+                durationInFrames={getTotalDurationFrames(FPS)}
                 fps={FPS}
                 width={1920}
                 height={1080}
-                defaultProps={{
-                    totalScenes: TOTAL_SCENES,
-                }}
             />
             <Composition
                 id="Scene1Only"
                 component={Main}
-                durationInFrames={Math.ceil(getSceneDurationSeconds(1) * FPS)}
+                durationInFrames={getScene1DurationFrames(FPS)}
                 fps={FPS}
                 width={1920}
                 height={1080}

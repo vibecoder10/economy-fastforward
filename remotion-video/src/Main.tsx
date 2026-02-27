@@ -3,7 +3,7 @@ import { Audio } from "@remotion/media";
 import { Scene } from "./Scene";
 import { useMemo } from "react";
 import { getWordsForScene } from "./transcripts";
-import { getSceneCount, getImageCountForScene, getSceneDurationFromConfig } from "./renderConfig";
+import { getSceneNumbers, getImageCountForScene, getSceneDurationFromConfig } from "./renderConfig";
 
 interface MainProps {
     totalScenes?: number;
@@ -14,30 +14,33 @@ const SCENE_END_BUFFER_SECONDS = 1;
 
 /**
  * Get scene duration from render_config.json (the single source of truth).
- * Throws if render_config is missing — the pipeline MUST run audio sync
- * before rendering.  No fallbacks, no hardcoded durations.
+ * Returns null if render_config has no data for this scene (scene was
+ * skipped during audio_sync — e.g. Whisper failure or missing audio).
  */
-function getSceneDurationSeconds(sceneNumber: number): number {
+function getSceneDurationSeconds(sceneNumber: number): number | null {
     const configDuration = getSceneDurationFromConfig(sceneNumber);
     if (configDuration !== null) return configDuration + SCENE_END_BUFFER_SECONDS;
-
-    throw new Error(
-        `render_config.json has no timing data for scene ${sceneNumber}. ` +
-        `Audio sync must run before rendering. ` +
-        `Re-run the pipeline from the image prompts stage.`
-    );
+    return null;
 }
 
 export const Main: React.FC<MainProps> = ({ totalScenes }) => {
     const { fps } = useVideoConfig();
 
-    // Derive total scenes from render_config.json, then props, then default
-    const sceneCount = (totalScenes ?? getSceneCount()) || 20;
+    // Get actual scene numbers from render_config.json.
+    // When totalScenes is passed (e.g. Scene1Only preview), use sequential 1..N.
+    // Otherwise use the real scene numbers — they may not be sequential if
+    // audio_sync skipped a scene.
+    const sceneNumberList = useMemo(() => {
+        if (totalScenes) {
+            return Array.from({ length: totalScenes }, (_, i) => i + 1);
+        }
+        const nums = getSceneNumbers();
+        return nums.length > 0 ? nums : Array.from({ length: 20 }, (_, i) => i + 1);
+    }, [totalScenes]);
 
     // Generate scene data with transcripts - image count is dynamic per scene
     const scenes = useMemo(() => {
-        return Array.from({ length: sceneCount }, (_, i) => {
-            const sceneNumber = i + 1;
+        return sceneNumberList.map((sceneNumber) => {
             // Get image count from render_config.json, fallback to 6
             const imageCount = getImageCountForScene(sceneNumber) || 6;
 
@@ -53,18 +56,27 @@ export const Main: React.FC<MainProps> = ({ totalScenes }) => {
                 },
             };
         });
-    }, [sceneCount]);
+    }, [sceneNumberList]);
 
-    // Calculate cumulative start frames using actual audio durations per scene
+    // Calculate cumulative start frames using actual audio durations per scene.
+    // Scenes missing from render_config are skipped (they had no audio data).
     const scenesWithTiming = useMemo(() => {
         let cumulativeFrames = 0;
-        return scenes.map((scene) => {
-            const startFrame = cumulativeFrames;
+        const result: Array<typeof scenes[number] & { startFrame: number; durationFrames: number }> = [];
+        for (const scene of scenes) {
             const sceneDuration = getSceneDurationSeconds(scene.sceneNumber);
+            if (sceneDuration === null) {
+                console.warn(
+                    `Scene ${scene.sceneNumber}: no timing data in render_config.json, skipping`
+                );
+                continue;
+            }
+            const startFrame = cumulativeFrames;
             const durationFrames = Math.ceil(sceneDuration * fps);
             cumulativeFrames += durationFrames;
-            return { ...scene, startFrame, durationFrames };
-        });
+            result.push({ ...scene, startFrame, durationFrames });
+        }
+        return result;
     }, [scenes, fps]);
 
     return (
