@@ -2337,37 +2337,29 @@ class VideoPipeline:
         else:
             print(f"  ✅ All {len(all_images)} images present - ready to render")
 
-        # Collect ALL matching Drive folders — assets may be scattered across
-        # duplicates created by earlier get_or_create_folder name-mismatch bugs.
-        # We download Scene files from every folder that has them.
+        # Use the saved project folder ID if it has Scene files.
+        # Only fall back to keyword search if project_folder_id is missing
+        # or has zero Scene files. This prevents audio/image contamination
+        # from other video folders with similar names.
         asset_folders = []  # list of (folder_id, folder_name)
 
-        # Check saved folder ID from Airtable
         if self.project_folder_id:
             files_in = self.google.list_files_in_folder(self.project_folder_id)
             scene_files = [f for f in files_in if f["name"].startswith("Scene")]
             if scene_files:
                 asset_folders.append((self.project_folder_id, f"saved ({len(scene_files)} scene files)"))
 
-        # Check exact name match
-        exact = self.google.search_folder(self.video_title)
-        if exact and exact["id"] not in [fid for fid, _ in asset_folders]:
-            files_in = self.google.list_files_in_folder(exact["id"])
-            scene_files = [f for f in files_in if f["name"].startswith("Scene")]
-            if scene_files:
-                asset_folders.append((exact["id"], f"{exact['name']} ({len(scene_files)} scene files)"))
-
-        # Keyword match — finds ALL related folders including duplicates
-        scored_folders = self.google.find_folder_by_keywords(self.video_title)
-        seen_ids = {fid for fid, _ in asset_folders}
-        for cand, score in scored_folders[:10]:
-            if cand["id"] in seen_ids:
-                continue
-            files_in = self.google.list_files_in_folder(cand["id"])
-            scene_files = [f for f in files_in if f["name"].startswith("Scene")]
-            if scene_files:
-                asset_folders.append((cand["id"], f"{cand['name']} ({len(scene_files)} scene files, score:{score})"))
-                seen_ids.add(cand["id"])
+        # Only search Drive if the saved folder had no Scene files
+        if not asset_folders:
+            if self.project_folder_id:
+                print(f"  ⚠️ Saved folder {self.project_folder_id} has no Scene files, falling back to search")
+            scored_folders = self.google.find_folder_by_keywords(self.video_title)
+            for cand, score in scored_folders[:10]:
+                files_in = self.google.list_files_in_folder(cand["id"])
+                scene_files = [f for f in files_in if f["name"].startswith("Scene")]
+                if scene_files:
+                    asset_folders.append((cand["id"], f"{cand['name']} ({len(scene_files)} scene files, score:{score})"))
+                    break  # Use first match only to avoid contamination
 
         print(f"  📂 Found {len(asset_folders)} Drive folders with assets:")
         for fid, desc in asset_folders:
