@@ -2371,7 +2371,6 @@ class VideoPipeline:
         props_file = remotion_dir / "props.json"
         public_dir.mkdir(exist_ok=True)
 
-        import json
         with open(props_file, "w") as f:
             json.dump(props, f, indent=2)
         print(f"  📦 Props saved to: {props_file}")
@@ -2818,9 +2817,8 @@ class VideoPipeline:
                 "language": "en",
             }
             try:
-                import json as _json
                 with open(caption_path, "w") as _f:
-                    _json.dump(caption_data, _f, indent=2)
+                    json.dump(caption_data, _f, indent=2)
                 print(f"    Scene {scene_num}: wrote {len(words)} words to {caption_path.name}")
             except Exception as e:
                 print(f"    Scene {scene_num}: ⚠️ caption write failed ({e})")
@@ -3734,7 +3732,6 @@ async def main():
 
     # === MORE IDEAS FROM FORMAT LIBRARY ===
     if len(sys.argv) > 1 and sys.argv[1] == "--more-ideas":
-        import json
         import os as os_mod
         from bots.idea_modeling import generate_modeled_ideas
         
@@ -3969,7 +3966,6 @@ async def main():
         
     if len(sys.argv) > 1 and sys.argv[1] == "--remotion":
         # Export Remotion props for a specific video
-        import json
         from pathlib import Path
 
         # Get title from args or use default
