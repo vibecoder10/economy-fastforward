@@ -2404,6 +2404,15 @@ class VideoPipeline:
             rc_total = rc_data.get("total_duration_seconds", 0)
             print(f"  📋 render_config.json (from audio_sync): "
                   f"{rc_scene_count} images, {rc_total:.1f}s total")
+
+            # Embed render_config in props so Remotion reads it via
+            # getInputProps() instead of the static JSON import.  The static
+            # import gets baked into the webpack bundle and can go stale when
+            # Remotion's .remotion/ cache persists across different videos.
+            props["renderConfig"] = rc_data
+            with open(props_file, "w") as f:
+                json.dump(props, f, indent=2)
+            print(f"  📦 Props updated with embedded renderConfig")
         else:
             raise RuntimeError(
                 f"render_config.json not found at {audio_sync_config}. "
@@ -2517,6 +2526,14 @@ class VideoPipeline:
                     f"`npm install` failed in remotion-video/. Check node/npm on VPS."
                 )
                 return {"error": "npm install failed", "bot": "Render Bot"}
+
+        # Clear Remotion's webpack bundle cache to guarantee fresh data.
+        # The static import of render_config.json gets baked into the cached
+        # bundle; without clearing, a previous video's caption text persists.
+        remotion_cache = remotion_dir / ".remotion"
+        if remotion_cache.exists():
+            shutil.rmtree(remotion_cache, ignore_errors=True)
+            print(f"  🧹 Cleared Remotion bundle cache")
 
         # Render (optimized for KVM4: 4 vCPU / 16GB RAM)
         import time as _time
