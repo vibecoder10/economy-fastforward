@@ -322,7 +322,7 @@ class GoogleClient:
             name: File name
             folder_id: Target folder ID
             mime_type: MIME type of the file
-            check_existing: If True, checks if file exists and returns it instead of creating duplicate
+            check_existing: If True, checks if file exists and replaces its content instead of creating duplicate
 
         Returns:
             Dict with file id, name, and mimeType
@@ -330,8 +330,22 @@ class GoogleClient:
         if check_existing:
             existing_file = self.search_file(name, folder_id)
             if existing_file:
-                print(f"      found existing file: {name} ({existing_file['id']})")
-                return existing_file
+                print(f"      found existing file: {name} ({existing_file['id']}), replacing content...")
+                media = MediaIoBaseUpload(
+                    io.BytesIO(content),
+                    mimetype=mime_type,
+                    resumable=True,
+                )
+                file_id = existing_file["id"]
+
+                def _update():
+                    return self.drive_service.files().update(
+                        fileId=file_id,
+                        media_body=media,
+                        fields="id, name, mimeType",
+                    ).execute()
+
+                return self._retry_with_backoff(_update)
 
         file_metadata = {
             "name": name,
