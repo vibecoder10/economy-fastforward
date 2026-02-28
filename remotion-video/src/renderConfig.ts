@@ -1,16 +1,17 @@
-// Load per-video render configuration.
+// Load per-video render configuration from CLI input props ONLY.
 //
-// PRIMARY source: getInputProps() — data passed via --props on every render.
-// FALLBACK source: static import of public/render_config.json (may be stale
-// if Remotion's webpack bundle cache wasn't invalidated between videos).
+// CRITICAL: This file previously used a static `import` of
+// public/render_config.json.  That import gets baked into the webpack bundle
+// at build time.  Remotion caches bundles in .remotion/, so switching to a
+// new video WITHOUT clearing the cache served the OLD video's caption text.
+// This caused "Optimus They" captions to appear over El Mencho images.
 //
-// The static import bakes render_config.json into the webpack bundle at build
-// time.  Remotion caches bundles in .remotion/, so switching videos without
-// cache invalidation serves the OLD video's caption text.  Using getInputProps()
-// avoids this entirely because props are parsed from the CLI on every render.
+// The static import has been REMOVED.  All data now flows through
+// getInputProps() which reads --props from the CLI on every render.
+// If no props are available (e.g. Studio preview), all functions return
+// null/empty — never stale data from a previous video.
 
 import { getInputProps } from "remotion";
-import renderConfigJson from "../public/render_config.json";
 
 export interface RenderScene {
     scene_number: number;
@@ -44,29 +45,26 @@ export interface RenderConfig {
 
 /**
  * Segment text data derived from render_config scenes.
- * Replaces the old SegmentText interface from segmentData.ts.
  */
 export interface SegmentText {
     text: string;
     duration: number;
 }
 
-// Module-level cache for loaded render config
+// Module-level cache (lives only for this render process)
 let _cachedConfig: RenderConfig | null = null;
 
 /**
- * Load render configuration, preferring CLI input props over the static import.
+ * Load render config from CLI input props (--props).
  *
- * Input props (--props) are always fresh — they're parsed from the CLI on each
- * render.  The static import of render_config.json is baked into the webpack
- * bundle and can go stale when Remotion's bundle cache persists across videos.
+ * Returns the renderConfig object embedded in props.json by pipeline.py,
+ * or null if unavailable.  NEVER returns stale data from a previous video.
  */
 export function loadRenderConfig(): RenderConfig | null {
     if (_cachedConfig) return _cachedConfig;
 
-    // 1. Prefer renderConfig embedded in input props (always fresh)
     try {
-        const inputProps = getInputProps() as Record<string, unknown> | undefined;
+        const inputProps = getInputProps() as Record<string, unknown>;
         const rc = inputProps?.renderConfig as RenderConfig | undefined;
         if (rc?.scenes && rc.scenes.length > 0) {
             _cachedConfig = rc;
@@ -76,19 +74,11 @@ export function loadRenderConfig(): RenderConfig | null {
         // getInputProps() unavailable (e.g. during initial bundling)
     }
 
-    // 2. Fallback to static import (works in Studio preview and when props
-    //    don't include renderConfig)
-    try {
-        _cachedConfig = renderConfigJson as unknown as RenderConfig;
-        return _cachedConfig;
-    } catch {
-        return null;
-    }
+    return null;
 }
 
 /**
- * Reset cached config — call when input props change between renders.
- * Exposed for testing.
+ * Reset cached config.  Exposed for testing.
  */
 export function resetConfigCache(): void {
     _cachedConfig = null;
@@ -96,8 +86,6 @@ export function resetConfigCache(): void {
 
 /**
  * Get the sorted list of unique scene numbers from render config.
- * This is the authoritative list — scene numbers may not be sequential
- * (e.g. if audio_sync skipped a scene due to Whisper failure).
  */
 export function getSceneNumbers(): number[] {
     const config = loadRenderConfig();
@@ -109,7 +97,6 @@ export function getSceneNumbers(): number[] {
 
 /**
  * Get the number of scenes from render config.
- * Groups render_config scenes by scene_number (multiple images may share a scene).
  */
 export function getSceneCount(): number {
     return getSceneNumbers().length;
@@ -135,7 +122,7 @@ export function getImageCountForScene(sceneNumber: number): number {
 
 /**
  * Get scene duration from render_config (sum of per-image display_duration).
- * Returns null if render_config is unavailable or has no entries for this scene.
+ * Returns null if unavailable.
  */
 export function getSceneDurationFromConfig(sceneNumber: number): number | null {
     const scenes = getRenderScenesForScene(sceneNumber);
@@ -146,7 +133,7 @@ export function getSceneDurationFromConfig(sceneNumber: number): number | null {
 
 /**
  * Get total video duration from render_config.
- * Returns null if render_config is unavailable.
+ * Returns null if unavailable.
  */
 export function getTotalDurationFromConfig(): number | null {
     const config = loadRenderConfig();
