@@ -7,7 +7,7 @@ from typing import Optional
 import httpx
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseUpload
+from googleapiclient.http import MediaFileUpload, MediaIoBaseUpload
 from googleapiclient.errors import HttpError
 
 
@@ -378,6 +378,81 @@ class GoogleClient:
     def upload_video(self, content: bytes, name: str, folder_id: str) -> dict:
         """Upload a video file to Google Drive."""
         return self.upload_file(content, name, folder_id, mime_type="video/mp4")
+
+    def upload_large_file(
+        self,
+        file_path: str,
+        name: str,
+        folder_id: str,
+        mime_type: str = "video/mp4",
+        chunk_size_mb: int = 50,
+        check_existing: bool = True,
+    ) -> dict:
+        """Upload a large file to Google Drive using chunked resumable upload.
+
+        Unlike upload_file(), this reads from disk in chunks and never loads
+        the entire file into memory. Suitable for files >100 MB.
+
+        Args:
+            file_path: Local path to the file
+            name: File name in Google Drive
+            folder_id: Target folder ID
+            mime_type: MIME type of the file
+            chunk_size_mb: Chunk size in megabytes (must be multiple of 256 KB)
+            check_existing: If True, update existing file instead of creating duplicate
+
+        Returns:
+            Dict with file id, name, and mimeType
+        """
+        chunk_size = chunk_size_mb * 1024 * 1024
+        file_size_bytes = os.path.getsize(file_path)
+        file_size_mb = file_size_bytes / (1024 * 1024)
+        print(f"    Uploading {name} ({file_size_mb:.1f} MB) in {chunk_size_mb} MB chunks...")
+
+        media = MediaFileUpload(
+            file_path,
+            mimetype=mime_type,
+            chunksize=chunk_size,
+            resumable=True,
+        )
+
+        existing_file = None
+        if check_existing:
+            existing_file = self.search_file(name, folder_id)
+
+        if existing_file:
+            file_id = existing_file["id"]
+            print(f"      Found existing file: {name} ({file_id}), replacing content...")
+            request = self.drive_service.files().update(
+                fileId=file_id,
+                media_body=media,
+                fields="id, name, mimeType",
+            )
+        else:
+            file_metadata = {"name": name, "parents": [folder_id]}
+            request = self.drive_service.files().create(
+                body=file_metadata,
+                media_body=media,
+                fields="id, name, mimeType",
+            )
+
+        response = None
+        while response is None:
+            try:
+                status, response = request.next_chunk()
+                if status:
+                    pct = int(status.progress() * 100)
+                    print(f"      Uploaded {pct}%")
+            except HttpError as e:
+                if e.resp.status in (500, 502, 503, 504):
+                    wait = self.INITIAL_BACKOFF * 2
+                    print(f"      Transient error {e.resp.status}, retrying in {wait}s...")
+                    time.sleep(wait)
+                    continue
+                raise
+
+        print(f"    Upload complete: {response['name']} ({response['id']})")
+        return response
 
     def upload_file_from_url(
         self,
