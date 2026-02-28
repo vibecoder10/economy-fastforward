@@ -1336,6 +1336,7 @@ class VideoPipeline:
                     prompt = img_record.get("Image Prompt", "")
                     index = img_record.get("Image Index", 0)
                     record_id = img_record["id"]
+                    prompt_preview = prompt[:120] + "..." if len(prompt) > 120 else prompt
 
                     try:
                         # Generate image: use Core Image reference if available,
@@ -1344,11 +1345,10 @@ class VideoPipeline:
                             result = await self.image_client.generate_scene_image(prompt, self.core_image_url)
                         else:
                             result_urls = await self.image_client.generate_and_wait(prompt, aspect_ratio="16:9")
-                            result = {"url": result_urls[0]} if result_urls else None
+                            result = {"url": result_urls[0]} if result_urls and len(result_urls) > 0 else None
 
                         if result and result.get("url"):
                             image_url = result["url"]
-                            seed_value = result.get("seed")
 
                             # Download image
                             image_content = await self.image_client.download_image(image_url)
@@ -1356,7 +1356,7 @@ class VideoPipeline:
                             # Upload to Google Drive
                             filename = f"Scene_{str(scene_num).zfill(2)}_{str(index).zfill(2)}.png"
                             drive_file = self.google.upload_image(image_content, filename, self.project_folder_id)
-                            drive_url = self.google.make_file_public(drive_file["id"])
+                            self.google.make_file_public(drive_file["id"])
 
                             # CHECKPOINT: Update Airtable immediately
                             self.airtable.update_image_record(record_id, image_url)
@@ -1371,12 +1371,18 @@ class VideoPipeline:
                             return True
                         else:
                             failed_count += 1
-                            print(f"      ❌ Scene {scene_num}, Image {index} → Generation failed")
+                            print(f"      ❌ Scene {scene_num}, Image {index} → Generation failed (no image URL returned)")
+                            print(f"         Record ID: {record_id}")
+                            print(f"         Prompt: {prompt_preview}")
                             return False
 
                     except Exception as e:
                         failed_count += 1
                         print(f"      ❌ Scene {scene_num}, Image {index} → Error: {e}")
+                        print(f"         Record ID: {record_id}")
+                        print(f"         Prompt: {prompt_preview}")
+                        import traceback
+                        traceback.print_exc()
                         return False
 
             # Process all images in this scene with rate limiting
@@ -1434,20 +1440,21 @@ class VideoPipeline:
                     prompt = img_record.get("Image Prompt", "")
                     index = img_record.get("Image Index", 0)
                     
+                    prompt_preview = prompt[:120] + "..." if len(prompt) > 120 else prompt
                     try:
                         if use_reference:
                             result = await self.image_client.generate_scene_image(prompt, self.core_image_url)
                         else:
                             result_urls = await self.image_client.generate_and_wait(prompt, aspect_ratio="16:9")
-                            result = {"url": result_urls[0]} if result_urls else None
+                            result = {"url": result_urls[0]} if result_urls and len(result_urls) > 0 else None
                         if result and result.get("url"):
                             image_url = result["url"]
-                            
+
                             # Download and upload to Drive
                             image_content = await self.image_client.download_image(image_url)
                             filename = f"Scene_{str(scene_num).zfill(2)}_{str(index).zfill(2)}.png"
                             drive_file = self.google.upload_image(image_content, filename, self.project_folder_id)
-                            
+
                             # Update Airtable
                             self.airtable.update_image_record(record_id, image_url)
                             retry_count += 1
@@ -1455,9 +1462,15 @@ class VideoPipeline:
                             print(f"        ✅ Scene {scene_num}, Image {index} → Done (retry)")
                             del image_content
                         else:
-                            print(f"        ❌ Scene {scene_num}, Image {index} → No image returned")
+                            print(f"        ❌ Scene {scene_num}, Image {index} → No image returned (retry)")
+                            print(f"           Record ID: {record_id}")
+                            print(f"           Prompt: {prompt_preview}")
                     except Exception as e:
                         print(f"        ❌ Scene {scene_num}, Image {index} → {e}")
+                        print(f"           Record ID: {record_id}")
+                        print(f"           Prompt: {prompt_preview}")
+                        import traceback
+                        traceback.print_exc()
                     
                     await asyncio.sleep(2)  # Rate limit
             

@@ -196,7 +196,11 @@ class ImageClient:
                 timeout=60.0,
             )
             if response.status_code != 200:
-                print(f"      ❌ Image API error: {response.status_code} - {response.text}")
+                prompt_preview = prompt[:100] + "..." if len(prompt) > 100 else prompt
+                print(f"      ❌ Image API error: HTTP {response.status_code}")
+                print(f"         Response: {response.text[:500]}")
+                print(f"         Model: {use_model}")
+                print(f"         Prompt: {prompt_preview}")
                 return None
             return response.json()
     
@@ -262,11 +266,21 @@ class ImageClient:
             # Log status for debug
             print(f"      DEBUG: State: {task_state} | Status: {task_status}")
 
-            if (task_status == 3 or 
+            if (task_status == 3 or
                 str(task_status).lower() in ["failed", "failure", "error"] or
                 str(task_state).lower() in ["fail", "failed", "failure", "error"]):
-                
-                print(f"      ⚠️ Task reported failure (State: {task_state}, Status: {task_status})")
+
+                # Extract all available error details from the API response
+                error_msg = data.get("errorMessage") or data.get("error") or data.get("msg") or "No error details provided"
+                error_code = data.get("errorCode") or data.get("code")
+                task_id_str = data.get("taskId", "unknown")
+                print(f"      ❌ Task FAILED (taskId: {task_id_str})")
+                print(f"         State: {task_state} | Status: {task_status}")
+                print(f"         Error: {error_msg}")
+                if error_code:
+                    print(f"         Error code: {error_code}")
+                # Log the full response data for debugging hard-to-diagnose failures
+                print(f"         Full response data: {data}")
                 return None
 
             result_json = data.get("resultJson")
@@ -302,25 +316,43 @@ class ImageClient:
         Returns:
             List of image URLs when complete, or None if failed
         """
+        use_model = model or self.DEFAULT_MODEL
+        prompt_preview = prompt[:100] + "..." if len(prompt) > 100 else prompt
+
         try:
             result = await self.create_image(prompt, aspect_ratio, model=model)
         except Exception as e:
-            print(f"      ❌ create_image exception (model: {model or self.DEFAULT_MODEL}): {e}")
+            print(f"      ❌ create_image exception (model: {use_model}): {e}")
+            print(f"         Prompt: {prompt_preview}")
             return None
 
         if not result:
-            print(f"      ❌ create_image failed (model: {model or self.DEFAULT_MODEL})")
+            print(f"      ❌ create_image failed (model: {use_model}) — API returned no result")
+            print(f"         Prompt: {prompt_preview}")
             return None
 
         task_id = result.get("data", {}).get("taskId")
         if not task_id:
+            api_msg = result.get("msg") or result.get("message") or "unknown"
+            api_code = result.get("code", "unknown")
+            print(f"      ❌ No task ID in response (model: {use_model})")
+            print(f"         API code: {api_code}, message: {api_msg}")
+            print(f"         Prompt: {prompt_preview}")
             return None
+
+        print(f"      🎯 Task created: {task_id} (model: {use_model})")
 
         # Wait 5 seconds before first poll (Kie API typically returns in ~50-70s for pro model)
         await asyncio.sleep(5)
 
         # Use higher max_attempts for thumbnail generation (can take 60+ seconds)
-        return await self.poll_for_completion(task_id, max_attempts=45, poll_interval=2.0)
+        result_urls = await self.poll_for_completion(task_id, max_attempts=45, poll_interval=2.0)
+
+        if not result_urls:
+            print(f"      ❌ Generation failed for task {task_id} (model: {use_model})")
+            print(f"         Prompt: {prompt_preview}")
+
+        return result_urls
 
     async def generate_scene_image(
         self,
@@ -361,6 +393,7 @@ class ImageClient:
         if seed is not None:
             payload["input"]["seed"] = seed
 
+        prompt_preview = prompt[:100] + "..." if len(prompt) > 100 else prompt
         print(f"      🎨 Generating scene image with Seed Dream 4.5 Edit (Core Image ref)...")
 
         try:
@@ -372,15 +405,21 @@ class ImageClient:
                     timeout=60.0,
                 )
                 if response.status_code != 200:
-                    print(f"      ❌ Scene image API error: {response.status_code} - {response.text}")
+                    print(f"      ❌ Scene image API error: {response.status_code}")
+                    print(f"         Response: {response.text[:500]}")
+                    print(f"         Prompt: {prompt_preview}")
                     return None
 
                 task_data = response.json()
                 task_id = task_data.get("data", {}).get("taskId")
 
                 if not task_id:
-                    print(f"      ❌ No task ID returned: {task_data}")
+                    print(f"      ❌ No task ID returned")
+                    print(f"         API response: {task_data}")
+                    print(f"         Prompt: {prompt_preview}")
                     return None
+
+                print(f"      🎯 Scene image task: {task_id}")
 
                 # Wait and poll for completion
                 await asyncio.sleep(5)
@@ -393,11 +432,15 @@ class ImageClient:
                         "seed": result_seed,
                     }
 
-                print(f"      ❌ Scene image generation failed (poll timeout)")
+                print(f"      ❌ Scene image generation failed (task: {task_id})")
+                print(f"         Prompt: {prompt_preview}")
                 return None
 
         except Exception as e:
             print(f"      ❌ Scene image error: {e}")
+            print(f"         Prompt: {prompt_preview}")
+            import traceback
+            traceback.print_exc()
             return None
 
     async def generate_scene_image_with_reference(
