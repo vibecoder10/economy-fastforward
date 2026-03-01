@@ -11,7 +11,8 @@
 | **User** | `clawd` |
 | **Path** | `/home/clawd/projects/economy-fastforward/` |
 | **OS** | Linux (Ubuntu-based) |
-| **RAM** | 8 GB + 4 GB swap (`/swapfile`, `vm.swappiness=10`) |
+| **CPU** | 4 vCPU |
+| **RAM** | 16 GB + 4 GB swap (`/swapfile`, `vm.swappiness=10`) |
 | **Swap setup** | `setup_swap.sh` — required for Remotion rendering (OOMs without it) |
 | **PID file** | `/tmp/pipeline-bot.pid` (Slack bot) |
 | **Logs** | `/tmp/pipeline-*.log` |
@@ -52,7 +53,25 @@
 | `remotion-video/` | TypeScript/Remotion video rendering project |
 | `remotion-video/src/Main.tsx` | Entry point — maps scenes from render_config.json |
 | `remotion-video/src/Scene.tsx` | Core composition (~450 lines) — karaoke captions, Ken Burns, crossfades |
-| `remotion-video/src/captions/Scene [1-20].json` | Per-scene word-level timestamps |
+| `remotion-video/src/renderConfig.ts` | Loads render config from `getInputProps()` CLI props |
+| `remotion-video/src/transcripts.ts` | Derives word-level timing from render_config (no static caption files) |
+| `remotion-video/src/segments.ts` | Builds image-to-audio timing segments |
+| `remotion-video/remotion.config.ts` | Render settings: concurrency, GL renderer, cache size |
+
+### Remotion Render Config
+
+Settings in `remotion.config.ts` and `render_video.py` CLI flags:
+
+| Setting | Value | Source |
+|---------|-------|--------|
+| Concurrency | 3 | `remotion.config.ts:6`, `render_video.py:122` |
+| Video image format | JPEG (quality 70) | `remotion.config.ts:4-5` |
+| OpenGL renderer | `swangle` (software WebGL, no GPU) | `remotion.config.ts:7`, `render_video.py:123` |
+| Timeout | 180,000 ms (3 min per frame) | `remotion.config.ts:8`, `render_video.py:124` |
+| Offthread video cache | 1 GB (1,073,741,824 bytes) | `remotion.config.ts:9`, `render_video.py:125` |
+| Overwrite output | true | `remotion.config.ts:3` |
+
+Captions are loaded dynamically from `render_config.json` via `getInputProps()` at render time. The old static `captions/Scene [1-20].json` files are gitignored and deleted — they caused stale caption bugs when Remotion's `.remotion/` webpack cache served old data.
 
 ### Config & Env
 
@@ -151,6 +170,20 @@ Root Parent Folder (1zqsSvdyLWTRIt-Ri8VQELbYHhJihn6YD)
 - Drive URLs are permanent; Airtable attachment URLs expire in ~2 hours
 - On Kie.ai 500 errors: proxy fallback downloads image → re-uploads to Drive → retries with Drive URL
 
+### Upload Methods (`google_client.py`)
+
+| Method | Input | Best For | Mechanism |
+|--------|-------|----------|-----------|
+| `upload_file()` | `content: bytes` | Small files (images, audio) | In-memory, single request |
+| `upload_large_file()` | `file_path: str` | Large files (video, >100 MB) | Chunked resumable (50 MB chunks) |
+
+Both methods:
+- **Update in-place:** If `check_existing=True` (default), search for existing file by name in folder. If found, replace content via `files().update()` instead of creating a duplicate.
+- Use Google's resumable upload protocol
+- Handle transient HTTP errors (500, 502, 503, 504) with backoff retry
+
+`upload_large_file()` streams from disk — never loads the entire file into memory. Prints upload progress as percentage per chunk.
+
 ---
 
 ## 5. Slack Channel
@@ -189,11 +222,13 @@ Each job auto-pulls from GitHub (`git pull origin main --ff-only`) before runnin
 
 | Time | Job | Command | Timeout |
 |------|-----|---------|---------|
-| 5:00 AM PT daily | Discovery Scanner | `pipeline.py --discover` | 10 min |
+| 2:00 PM UTC (6:00 AM PST) daily | Discovery Scanner | `pipeline.py --discover` | 10 min |
 | 6:00 AM UTC daily | Performance Tracker | `performance_tracker.py` | 10 min |
 | 8:00 AM PT daily | Pipeline Queue Runner | `pipeline.py --run-queue` | 4 hours |
 | Every 15 min | Bot Health Check | `bot_healthcheck.sh` | — |
 | Every 30 min | Approval Watcher | `approval_watcher.py` | 10 min |
+
+> **Note:** `setup_cron.sh` says `0 5 * * *` with `CRON_TZ=America/Los_Angeles`, but the actual VPS crontab runs discovery at 2PM UTC. Actual crontab takes precedence.
 
 **Health check behavior:**
 1. Checks `/tmp/pipeline-bot.pid` and verifies process is alive
@@ -294,7 +329,76 @@ Done
 
 ---
 
-## 10. Git Branch Strategy
+## 10. Title System
+
+### Title Patterns Library (`title_patterns.json`)
+
+Competitor analysis document with proven formulas from 3 channels:
+- **Economy Rewind (ER):** 6 formulas — systemic patterns, cycles, betrayals, power figures
+- **Mindplicit (MP):** 5 formulas — dark psychology, Machiavellian self-improvement
+- **Chill Financial History (CFH):** 5 formulas — country-as-character storytelling
+- **Economy FastForward (EFF):** 9 hybrid formulas combining all three sources
+
+### 8 Title Architectures (ARCH)
+
+| Architecture | Hook Type | Example Pattern |
+|-------------|-----------|-----------------|
+| **ARCH-1** | Specific Number + Stakes | Concrete dollar amounts |
+| **ARCH-2** | Contradiction Hook | Sounds wrong but true |
+| **ARCH-3** | Countdown/Deadline | Ticking clock urgency |
+| **ARCH-4** | Hidden Actor Reveal | Who's really behind events |
+| **ARCH-5** | Victim's Fatal Mistake | Irreversible errors |
+| **ARCH-6** | Comparative Betrayal | Historical parallels |
+| **ARCH-7** | Quiet Power Move | Unnoticed important events |
+| **ARCH-8** | Inevitability Frame | Outcome already decided |
+
+### Formula Tracking
+
+- **Airtable field:** `Title Formula` — stores which formula (e.g., `EFF-2`) generated each title
+- **Weekly CTR report:** `performance_tracker.py` runs a Sunday report (`weekday() == 6`) that:
+  1. Groups all uploaded videos by `Title Formula`
+  2. Computes average CTR per formula
+  3. Posts a ranked Slack summary (best-performing formulas first)
+
+---
+
+## 11. Thumbnail System
+
+### Three Templates (`thumbnail_title/templates.py`)
+
+| Template | Name | Weight | Layout |
+|----------|------|--------|--------|
+| **A** | CFH Split | 60% | Character on left 60%, secondary element on right, text upper-right |
+| **B** | Mindplicit Banner | 10% | Full-width text banner top 20%, dramatic scene below |
+| **C** | Power Dynamic | 30% | Two-figure narrative — victim (cold blue, left) vs power figure (warm amber, right), red arrow |
+
+All templates: 16:9 (1280x720), editorial comic style via Nano Banana Pro.
+
+### Template Selection (`thumbnail_title/selector.py`)
+
+Selection is keyword-driven against topic, title, summary, framework angle, and tags:
+
+- **POWER_KEYWORDS → Template C:** robot, ai replace, monopoly, inequality, corporate, billionaire, oligarch, who owns, who controls, who profits, ban, blacklist, purge, weapon, sanctions, trap, control, dominance, leverage, coercion, force, punish, puppet, chess, weaponize, crush, destroy, eliminate, betray, backstab, exploit
+- **STRATEGY_KEYWORDS → Template B:** machiavelli, strategy, hidden, secret, never do, warning, dark, manipulation, power play
+- **Default → Template A**
+
+### Machiavellian Visual Vocabulary (`thumbnail_title/prompt_builder.py`)
+
+~50% of thumbnails get a random Machiavellian element injected:
+- Puppet strings descending from top of frame
+- Chess pieces scattered on ground
+- Shadowy hand reaching from edge
+- Tilted crown falling through air
+- Cracked golden scale of justice
+- Dagger with dollar-sign handle stuck in a map
+
+### CAPS Word Guidance (`thumbnail_title/title_generator.py`)
+
+The CAPS word in the title must be visceral (PURGE, TRAP, KILLED, CRUSHED, WEAPONIZED, BLACKLISTED, BANNED, BETRAYED, RIGGED, DOOMED). Generic structural words (STAGE, STEP, PHASE, PATTERN) are banned. The CAPS word must match the `red_word` in the thumbnail prompt for visual-verbal coherence.
+
+---
+
+## 12. Git Branch Strategy
 
 ### Branches
 
