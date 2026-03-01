@@ -10,13 +10,18 @@ POWER_KEYWORDS = [
     "robot", "ai replace", "monopoly", "inequality",
     "corporate", "billionaire", "oligarch", "who owns",
     "who controls", "who profits",
+    "ban", "blacklist", "purge", "weapon", "sanctions",
+    "trap", "control", "dominance", "leverage", "coercion",
+    "force", "punish", "puppet", "chess", "weaponize",
+    "crush", "destroy", "eliminate", "betray", "backstab",
+    "exploit",
 ]
 
 # Keywords that trigger Template B: Mindplicit Banner
 STRATEGY_KEYWORDS = [
     "machiavelli", "strategy", "hidden", "secret",
     "never do", "warning", "dark", "manipulation",
-    "power play", "puppet",
+    "power play",
 ]
 
 

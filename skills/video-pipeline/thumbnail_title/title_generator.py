@@ -85,8 +85,12 @@ Your job: Generate a click-worthy title that follows one of the proven formula p
 
 RULES:
 1. The title MUST contain exactly ONE word in ALL CAPS — this is the curiosity trigger.
-2. The CAPS word becomes the red highlight in the thumbnail. Pick a word with emotional weight:
-   TRAP, DEATH, COLLAPSE, WEAPON, CRISIS, LIES, DYING, SWALLOWED, MISTAKE, STRONGER, WEAKER, RICHER, etc.
+2. The CAPS word becomes the red highlight in the thumbnail. It must trigger a visceral
+   emotional reaction — a gut punch, not a label.
+   BEST caps_words (prefer these): PURGE, TRAP, KILLED, CRUSHED, WEAPONIZED, BLACKLISTED,
+   BANNED, BETRAYED, RIGGED, DOOMED, BROKE, DEAD, SWALLOWED, COLLAPSE, DEATH, DYING
+   AVOID generic structural words: STAGE, STEP, PHASE, PATTERN, LAWS, RULES, SYSTEM, PLAN
+   The caps_word should make a viewer feel something, not describe a format.
 3. The main hook (before the parenthetical) should be 6-8 words.
 4. The parenthetical reveal should create a curiosity gap.
 5. Total title length should be under 70 characters for the main hook.
