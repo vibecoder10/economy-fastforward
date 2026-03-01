@@ -2,14 +2,14 @@
  * Image Generation Client via Kie.ai API
  *
  * Ported from: skills/video-pipeline/clients/image_client.py
- * Supports Seed Dream 4.0 (scene images) and Nano Banana Pro (thumbnails).
+ * Supports Nano Banana 2 (scene images) and Nano Banana Pro (thumbnails).
  */
 
 const CREATE_TASK_URL = "https://api.kie.ai/api/v1/jobs/createTask";
 const RECORD_INFO_URL = "https://api.kie.ai/api/v1/jobs/recordInfo";
 
 // Model routing
-const SCENE_MODEL = "seedream/4.5-edit";
+const SCENE_MODEL = "nano-banana-2";
 const THUMBNAIL_MODEL = "nano-banana-pro";
 
 export class ImageClient {
@@ -111,7 +111,7 @@ export class ImageClient {
   }
 
   /**
-   * Generate a scene image using Seed Dream 4.5 Edit with reference.
+   * Generate a scene image using Nano Banana 2 with reference.
    */
   async generateSceneImage(
     prompt: string,
@@ -122,10 +122,10 @@ export class ImageClient {
       model: SCENE_MODEL,
       input: {
         prompt,
-        image_urls: [referenceImageUrl],
+        image_input: [referenceImageUrl],
         aspect_ratio: "16:9",
-        quality: "basic",
-        ...(seed !== undefined ? { seed } : {}),
+        resolution: "1K",
+        output_format: "png",
       },
     };
 
@@ -151,7 +151,7 @@ export class ImageClient {
       if (urls?.length) {
         return {
           url: urls[0],
-          seed: taskData?.data?.seed ?? seed,
+          seed: undefined,
         };
       }
       return null;

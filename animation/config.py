@@ -23,7 +23,7 @@ SCENE_PLANNER_MODEL = "claude-sonnet-4-5-20250929"
 QC_MODEL = "claude-haiku-4-5-20241022"
 
 # ==================== IMAGE GENERATION ====================
-SCENE_IMAGE_MODEL = "seedream/4.5-edit"  # Seed Dream 4.5 Edit — reference-based generation
+SCENE_IMAGE_MODEL = "nano-banana-2"  # Nano Banana 2 — reference-based generation (cheaper)
 THUMBNAIL_IMAGE_MODEL = "nano-banana-pro"
 
 # ==================== VIDEO GENERATION ====================
