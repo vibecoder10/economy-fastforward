@@ -150,6 +150,7 @@ async def handle_help(message, say):
 
 *Analytics*
 - `analytics` / `run analytics` - Sync YouTube metrics for all uploaded videos to Airtable
+- `analyze` / `run analyze` - Run weekly performance analysis (title formulas, topics, retention insights)
 
 *Discovery & Research*
 - `discover` / `scan` - Scan headlines and present 2-3 video ideas
@@ -915,6 +916,36 @@ async def handle_analytics(message, say):
         await say(f":x: Analytics error: {e}")
 
 
+@app.message(re.compile(r"run analyze", re.IGNORECASE))
+@app.message(re.compile(r"^analyze$", re.IGNORECASE))
+async def handle_analyze(message, say):
+    """Run weekly performance analysis and post insights to Slack."""
+    global current_process, current_task_name
+    if current_process or current_task_name:
+        await say(f":x: Already running `{current_task_name}`. Use `stop` to cancel it first.")
+        return
+
+    await say(":bar_chart: Running performance analysis...")
+
+    try:
+        returncode, stdout, stderr = await run_script_async(
+            "performance_analyzer.py",
+            "analyze",
+            say,
+            timeout=300,
+        )
+
+        if returncode == 0:
+            output = stdout[-3000:] if len(stdout) > 3000 else stdout
+            await say(f":white_check_mark: Analysis complete!\n```{output}```")
+        else:
+            error = stderr[-1500:] if len(stderr) > 1500 else stderr
+            await say(f":x: Analysis failed:\n```{error}```")
+
+    except Exception as e:
+        await say(f":x: Analysis error: {e}")
+
+
 @app.message(re.compile(r"run discover", re.IGNORECASE))
 @app.message(re.compile(r"discover", re.IGNORECASE))
 @app.message(re.compile(r"scan", re.IGNORECASE))
@@ -1640,6 +1671,7 @@ Available commands (return one of these EXACTLY):
 - "upload" — upload a rendered video to YouTube as unlisted draft
 - "animate" — run animation pipeline
 - "analytics" — sync YouTube performance metrics (views, CTR, retention) to Airtable
+- "analyze" — run weekly performance analysis (title formulas, topics, velocity, retention insights)
 - "discover" — scan headlines for new video ideas
 - "research" — run deep research on an approved idea
 - "research TOPIC" — research a specific topic (replace TOPIC with the user's topic)
@@ -1674,6 +1706,8 @@ Rules:
 "check analytics" → analytics, "sync metrics" → analytics, \
 "get video stats" → analytics, "youtube stats" → analytics, \
 "how are my videos doing" → analytics, "pull analytics" → analytics, \
+"analyze performance" → analyze, "weekly report" → analyze, \
+"what's working" → analyze, "performance insights" → analyze, \
 "do that again" → retry, "show me the logs" → tail logs, \
 "check my keys" → show env
 4. If they mention an API key or secret key, return: set key KEY
