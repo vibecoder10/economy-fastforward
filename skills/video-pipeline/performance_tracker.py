@@ -50,7 +50,7 @@ READ_SCOPES = [
 # Snapshot fields — written once, never overwritten
 SNAPSHOT_FIELDS = {
     "Views 24h", "Views 48h", "Views 7d", "Views 30d",
-    "CTR 48h (%)", "Retention 48h (%)",
+    "Retention 48h (%)",
 }
 
 
@@ -155,9 +155,14 @@ def fetch_video_analytics(
 
     YouTube Analytics data has a 24-48 hour delay. This is expected.
 
+    Note: impressions and impressionClickThroughRate are NOT available
+    in the Analytics API v2 reports.query endpoint for per-video queries.
+    Those require the bulk Reporting API (channel_reach_basic_a1 reports).
+    We fetch what's available: watch time, avg duration, retention, subs.
+
     Returns:
-        dict with impressions, ctr, avg_view_duration, avg_retention,
-        watch_time_hours, subscribers_gained or None on failure
+        dict with avg_view_duration, avg_retention, watch_time_hours,
+        subscribers_gained or None on failure
     """
     try:
         start_date = upload_date[:10] if upload_date else "2024-01-01"
@@ -169,8 +174,7 @@ def fetch_video_analytics(
             endDate=end_date,
             metrics=(
                 "views,estimatedMinutesWatched,averageViewDuration,"
-                "averageViewPercentage,subscribersGained,"
-                "impressions,impressionClickThroughRate"
+                "averageViewPercentage,subscribersGained"
             ),
             filters=f"video=={video_id}",
         ).execute()
@@ -187,8 +191,6 @@ def fetch_video_analytics(
             "avg_view_duration": round(row[2], 1),
             "avg_retention": round(row[3], 1),
             "subscribers_gained": int(row[4]),
-            "impressions": int(row[5]),
-            "ctr": round(row[6] * 100, 2),  # API returns decimal (0.05 = 5%)
         }
     except Exception as e:
         print(f"     Analytics fetch failed: {e}")
@@ -237,8 +239,6 @@ def calculate_snapshots(
         if existing_fields.get("Views 48h") is None:
             snapshots["Views 48h"] = stats["views"]
         if analytics:
-            if existing_fields.get("CTR 48h (%)") is None:
-                snapshots["CTR 48h (%)"] = analytics["ctr"]
             if existing_fields.get("Retention 48h (%)") is None:
                 snapshots["Retention 48h (%)"] = analytics["avg_retention"]
 
@@ -282,15 +282,15 @@ def build_slack_summary(
             f"\nTop performer: *{top['title']}*"
             f" — {top.get('views', 0):,} views"
         )
-        if top.get("ctr") is not None:
-            lines.append(f"  CTR: {top['ctr']}% | Retention: {top.get('avg_retention', '?')}%")
+        if top.get("avg_retention") is not None:
+            lines.append(f"  Retention: {top['avg_retention']}%")
 
-    # Videos with low CTR (< 3%) — needs attention
-    low_ctr = [r for r in successful if r.get("ctr") is not None and r["ctr"] < 3.0]
-    if low_ctr:
-        lines.append("\nNeeds attention (CTR < 3%):")
-        for r in low_ctr:
-            lines.append(f"  - {r['title']}: {r['ctr']}% CTR")
+    # Videos with low retention (< 30%) — needs attention
+    low_retention = [r for r in successful if r.get("avg_retention") is not None and r["avg_retention"] < 30.0]
+    if low_retention:
+        lines.append("\nNeeds attention (retention < 30%):")
+        for r in low_retention:
+            lines.append(f"  - {r['title']}: {r['avg_retention']}% retention")
 
     if failed:
         lines.append(f"\n{len(failed)} videos failed to sync.")
@@ -299,46 +299,46 @@ def build_slack_summary(
 
 
 def get_formula_performance(airtable_client) -> list[dict]:
-    """Get average CTR grouped by Title Formula.
+    """Get average retention grouped by Title Formula.
 
     Queries all ideas that have both a Title Formula and YouTube analytics,
-    groups by formula_id, and returns average CTR per formula sorted best-first.
+    groups by formula_id, and returns average retention per formula sorted best-first.
 
     Args:
         airtable_client: AirtableClient instance
 
     Returns:
-        List of dicts: [{"formula_id": "EFF-2", "avg_ctr": 5.1, "count": 3, "titles": [...]}]
+        List of dicts: [{"formula_id": "EFF-2", "avg_retention": 45.1, "count": 3, "titles": [...]}]
     """
     all_ideas = airtable_client.get_all_ideas()
 
-    # Filter to records with both Title Formula and CTR data
+    # Filter to records with both Title Formula and retention data
     formula_data: dict[str, list] = {}
     for idea in all_ideas:
         formula_id = idea.get("Title Formula", "")
-        ctr = idea.get("CTR (%)")
-        if not formula_id or ctr is None:
+        retention = idea.get("Avg Retention (%)")
+        if not formula_id or retention is None:
             continue
         if formula_id not in formula_data:
             formula_data[formula_id] = []
         formula_data[formula_id].append({
             "title": idea.get("Video Title", "Unknown"),
-            "ctr": float(ctr),
+            "retention": float(retention),
             "views": idea.get("Views", 0),
         })
 
-    # Calculate averages and sort by CTR descending
+    # Calculate averages and sort by retention descending
     results = []
     for formula_id, entries in formula_data.items():
-        avg_ctr = sum(e["ctr"] for e in entries) / len(entries)
+        avg_retention = sum(e["retention"] for e in entries) / len(entries)
         results.append({
             "formula_id": formula_id,
-            "avg_ctr": round(avg_ctr, 2),
+            "avg_retention": round(avg_retention, 2),
             "count": len(entries),
             "titles": [e["title"] for e in entries],
         })
 
-    results.sort(key=lambda r: r["avg_ctr"], reverse=True)
+    results.sort(key=lambda r: r["avg_retention"], reverse=True)
     return results
 
 
@@ -352,12 +352,12 @@ def build_formula_report(rankings: list[dict]) -> str:
         Formatted Slack message string
     """
     if not rankings:
-        return "*Weekly Formula Report*\nNo videos with Title Formula + CTR data yet."
+        return "*Weekly Formula Report*\nNo videos with Title Formula + retention data yet."
 
     lines = ["*Weekly Title Formula Performance*\n"]
     for i, r in enumerate(rankings, 1):
         lines.append(
-            f"{i}. *{r['formula_id']}* — Avg CTR: {r['avg_ctr']}% "
+            f"{i}. *{r['formula_id']}* — Avg Retention: {r['avg_retention']}% "
             f"({r['count']} video{'s' if r['count'] != 1 else ''})"
         )
         for title in r["titles"]:
@@ -429,7 +429,7 @@ def main(recent_only: bool = False, dry_run: bool = False):
         # Fetch analytics (YouTube Analytics API)
         analytics = fetch_video_analytics(yt_analytics, video_id, upload_date)
         if analytics:
-            print(f"    CTR: {analytics['ctr']}% | Retention: {analytics['avg_retention']}% | Impressions: {analytics['impressions']:,}")
+            print(f"    Retention: {analytics['avg_retention']}% | Avg Duration: {analytics['avg_view_duration']}s | Watch Time: {analytics['watch_time_hours']}h")
         else:
             print("    No analytics available (24-48h delay is normal)")
 
@@ -448,8 +448,6 @@ def main(recent_only: bool = False, dry_run: bool = False):
 
         if analytics:
             update_fields.update({
-                "Impressions": analytics["impressions"],
-                "CTR (%)": analytics["ctr"],
                 "Avg View Duration (s)": analytics["avg_view_duration"],
                 "Avg Retention (%)": analytics["avg_retention"],
                 "Watch Time (hours)": analytics["watch_time_hours"],
@@ -475,9 +473,9 @@ def main(recent_only: bool = False, dry_run: bool = False):
 
         # Log formula-tagged summary line
         if formula_id and (stats or analytics):
-            ctr_str = f"{analytics['ctr']}%" if analytics else "N/A"
+            retention_str = f"{analytics['avg_retention']}%" if analytics else "N/A"
             views_str = f"{stats['views']:,}" if stats else "N/A"
-            print(f"    Video: {title} | Formula: {formula_id} | 48h CTR: {ctr_str} | 48h Views: {views_str}")
+            print(f"    Formula: {formula_id} | Retention: {retention_str} | Views: {views_str}")
 
         # Track result for summary
         result = {
@@ -488,7 +486,6 @@ def main(recent_only: bool = False, dry_run: bool = False):
             "formula_id": formula_id,
         }
         if analytics:
-            result["ctr"] = analytics["ctr"]
             result["avg_retention"] = analytics["avg_retention"]
         results.append(result)
 
@@ -511,7 +508,7 @@ def main(recent_only: bool = False, dry_run: bool = False):
                     slack.send_message(report)
                     print("Weekly formula report sent")
                     for r in rankings:
-                        print(f"  {r['formula_id']}: avg CTR {r['avg_ctr']}% ({r['count']} videos)")
+                        print(f"  {r['formula_id']}: avg retention {r['avg_retention']}% ({r['count']} videos)")
         except Exception as e:
             print(f"Slack notification failed (non-blocking): {e}")
 
