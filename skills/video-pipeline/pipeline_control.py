@@ -143,6 +143,7 @@ async def handle_help(message, say):
 - `end images` / `run end images` - Generate end image prompts and images
 - `thumbnail` / `run thumbnail` - Generate thumbnail for idea with "Ready For Thumbnail" status
 - `render` / `run render` - Render videos only (skips other stages, one at a time)
+- `upload` / `run upload` - Upload a rendered video to YouTube as an unlisted draft
 
 *Animation Pipeline*
 - `animate` / `animation` / `run animation` - Run animation pipeline for project with "Create" status
@@ -841,6 +842,43 @@ async def handle_render(message, say):
         await say(":stop_sign: Render bot was stopped")
     except Exception as e:
         await say(f":x: Error: {e}")
+
+
+@app.message(re.compile(r"run upload", re.IGNORECASE))
+@app.message(re.compile(r"^upload$", re.IGNORECASE))
+async def handle_upload(message, say):
+    """Upload a rendered video to YouTube as an unlisted draft."""
+    global current_process, current_task_name
+    if current_process or current_task_name:
+        await say(f":x: Already running `{current_task_name}`. Use `stop` to cancel it first.")
+        return
+
+    current_task_name = "upload (YouTube draft)"
+    await say(":tv: Starting YouTube upload — looking for rendered videos...")
+
+    try:
+        from pipeline import VideoPipeline
+
+        pipeline = VideoPipeline()
+        result = await pipeline.run_youtube_upload_bot()
+
+        if result.get("error"):
+            await say(f":x: Upload failed: {result['error']}")
+        elif result.get("warning"):
+            await say(f":warning: {result['warning']}")
+        elif result.get("video_url"):
+            await say(
+                f":white_check_mark: *Uploaded as unlisted draft!*\n"
+                f":tv: {result['video_url']}\n"
+                f"Open YouTube Studio to set to Public when ready."
+            )
+        else:
+            await say(":white_check_mark: Upload complete.")
+
+    except Exception as e:
+        await say(f":x: Upload error: {e}")
+    finally:
+        current_task_name = None
 
 
 @app.message(re.compile(r"run discover", re.IGNORECASE))
@@ -1565,6 +1603,7 @@ Available commands (return one of these EXACTLY):
 - "sync" — run audio sync / Whisper alignment / calculate timing
 - "thumbnail" — generate a thumbnail
 - "render" — render the video
+- "upload" — upload a rendered video to YouTube as unlisted draft
 - "animate" — run animation pipeline
 - "discover" — scan headlines for new video ideas
 - "research" — run deep research on an approved idea
@@ -1595,6 +1634,8 @@ Rules:
 "pull the code" → update, "next step" → run, \
 "generate the voiceover" → voice, "create images" → images, \
 "how much storage" → disk, "what's in the pipeline" → queue, \
+"upload to youtube" → upload, "push to youtube" → upload, \
+"upload as draft" → upload, "youtube draft" → upload, \
 "do that again" → retry, "show me the logs" → tail logs, \
 "check my keys" → show env
 4. If they mention an API key or secret key, return: set key KEY
@@ -1649,6 +1690,7 @@ async def handle_fallback(event, say):
         "sync": handle_audio_sync,
         "thumbnail": handle_thumbnail,
         "render": handle_render,
+        "upload": handle_upload,
         "animate": handle_animate,
         "discover": handle_discover,
         "stop": handle_stop,
@@ -1715,6 +1757,7 @@ _TASK_HANDLER_MAP.update({
     "audio sync": handle_audio_sync,
     "thumbnail": handle_thumbnail,
     "render": handle_render,
+    "upload": handle_upload,
     "animation": handle_animate,
 })
 
@@ -1726,7 +1769,7 @@ async def main():
     print("=" * 60)
     print("\nCommands (case-insensitive + natural language via AI):")
     print("  run                     - Auto-continue pipeline from current status")
-    print("  script / voice / prompts / images / sync / thumbnail / render")
+    print("  script / voice / prompts / images / sync / thumbnail / render / upload")
     print("  animate / discover / research")
     print("  queue / skip / retry    - Pipeline management")
     print("  stop / status / logs / disk / show env / restart / update")
