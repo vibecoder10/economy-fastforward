@@ -148,6 +148,9 @@ async def handle_help(message, say):
 *Animation Pipeline*
 - `animate` / `animation` / `run animation` - Run animation pipeline for project with "Create" status
 
+*Analytics*
+- `analytics` / `run analytics` - Sync YouTube metrics for all uploaded videos to Airtable
+
 *Discovery & Research*
 - `discover` / `scan` - Scan headlines and present 2-3 video ideas
 - `discover [focus]` - Scan with focus keyword (e.g., `discover BRICS`)
@@ -881,6 +884,37 @@ async def handle_upload(message, say):
         current_task_name = None
 
 
+@app.message(re.compile(r"run analytics", re.IGNORECASE))
+@app.message(re.compile(r"^analytics$", re.IGNORECASE))
+async def handle_analytics(message, say):
+    """Sync YouTube analytics for all uploaded videos to Airtable."""
+    global current_process, current_task_name
+    if current_process or current_task_name:
+        await say(f":x: Already running `{current_task_name}`. Use `stop` to cancel it first.")
+        return
+
+    await say(":chart_with_upwards_trend: Syncing YouTube analytics for all uploaded videos...")
+
+    try:
+        returncode, stdout, stderr = await run_script_async(
+            "run_analytics.py",
+            "analytics",
+            say,
+            timeout=600,
+        )
+
+        if returncode == 0:
+            # Extract summary from output
+            output = stdout[-3000:] if len(stdout) > 3000 else stdout
+            await say(f":white_check_mark: Analytics sync complete!\n```{output}```")
+        else:
+            error = stderr[-1500:] if len(stderr) > 1500 else stderr
+            await say(f":x: Analytics sync failed:\n```{error}```")
+
+    except Exception as e:
+        await say(f":x: Analytics error: {e}")
+
+
 @app.message(re.compile(r"run discover", re.IGNORECASE))
 @app.message(re.compile(r"discover", re.IGNORECASE))
 @app.message(re.compile(r"scan", re.IGNORECASE))
@@ -1605,6 +1639,7 @@ Available commands (return one of these EXACTLY):
 - "render" — render the video
 - "upload" — upload a rendered video to YouTube as unlisted draft
 - "animate" — run animation pipeline
+- "analytics" — sync YouTube performance metrics (views, CTR, retention) to Airtable
 - "discover" — scan headlines for new video ideas
 - "research" — run deep research on an approved idea
 - "research TOPIC" — research a specific topic (replace TOPIC with the user's topic)
@@ -1636,6 +1671,9 @@ Rules:
 "how much storage" → disk, "what's in the pipeline" → queue, \
 "upload to youtube" → upload, "push to youtube" → upload, \
 "upload as draft" → upload, "youtube draft" → upload, \
+"check analytics" → analytics, "sync metrics" → analytics, \
+"get video stats" → analytics, "youtube stats" → analytics, \
+"how are my videos doing" → analytics, "pull analytics" → analytics, \
 "do that again" → retry, "show me the logs" → tail logs, \
 "check my keys" → show env
 4. If they mention an API key or secret key, return: set key KEY
@@ -1691,6 +1729,7 @@ async def handle_fallback(event, say):
         "thumbnail": handle_thumbnail,
         "render": handle_render,
         "upload": handle_upload,
+        "analytics": handle_analytics,
         "animate": handle_animate,
         "discover": handle_discover,
         "stop": handle_stop,
@@ -1758,6 +1797,7 @@ _TASK_HANDLER_MAP.update({
     "thumbnail": handle_thumbnail,
     "render": handle_render,
     "upload": handle_upload,
+    "analytics": handle_analytics,
     "animation": handle_animate,
 })
 
