@@ -3946,22 +3946,17 @@ async def main():
 
         # Post interactive Slack message with emoji reactions for idea selection
         # This lets the user wake up and click to choose an idea
+        # Always target production-agent channel — cron runs unattended so we
+        # can't rely on SLACK_CHANNEL_ID env var which may point elsewhere.
+        production_channel = SlackClient.DEFAULT_CHANNEL_ID
         try:
-            from slack_sdk import WebClient
-            slack_token = os.getenv("SLACK_BOT_TOKEN")
-            slack_channel = os.getenv("SLACK_CHANNEL_ID", "C0A9U1X8NSW")
-            slack_web = WebClient(token=slack_token)
-
             slack_msg = (
                 "☀️ *Good Morning! Daily Discovery Scan Complete*\n"
                 "React with 1️⃣ 2️⃣ or 3️⃣ to approve an idea — I'll auto-research it and queue it for the 8 AM pipeline run.\n\n"
             )
             slack_msg += format_ideas_for_slack(result)
 
-            response = slack_web.chat_postMessage(
-                channel=slack_channel,
-                text=slack_msg,
-            )
+            response = pipeline.slack.send_message(slack_msg, production_channel)
             msg_ts = response.get("ts", "")
 
             if msg_ts:
@@ -3972,11 +3967,7 @@ async def main():
 
                 for emoji in emojis_to_add:
                     try:
-                        slack_web.reactions_add(
-                            channel=slack_channel,
-                            name=emoji,
-                            timestamp=msg_ts,
-                        )
+                        pipeline.slack.add_reaction(emoji, msg_ts, production_channel)
                     except Exception as e:
                         print(f"  ⚠️ Failed to add reaction {emoji}: {e}")
 
@@ -3990,9 +3981,9 @@ async def main():
 
         except Exception as e:
             print(f"\n⚠️ Could not send interactive Slack notification: {e}")
-            # Fallback: send plain message
+            # Fallback: send plain message to production channel
             try:
-                pipeline.slack.send_message(format_ideas_for_slack(result))
+                pipeline.slack.send_message(format_ideas_for_slack(result), production_channel)
                 print("   Sent plain Slack message as fallback")
             except Exception:
                 pass
