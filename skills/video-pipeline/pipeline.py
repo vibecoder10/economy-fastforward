@@ -3957,36 +3957,45 @@ async def main():
             slack_msg += format_ideas_for_slack(result)
 
             response = pipeline.slack.send_message(slack_msg, production_channel)
+
+            if not response.get("ok"):
+                error_detail = response.get("error", "unknown error")
+                raise RuntimeError(f"Slack API rejected message: {error_detail}")
+
             msg_ts = response.get("ts", "")
+            if not msg_ts:
+                raise RuntimeError("Slack returned ok but no message timestamp")
 
-            if msg_ts:
-                # Build option map: one emoji per title option (idea + title)
-                option_map = build_option_map(ideas)
-                emoji_names = ["one", "two", "three", "four", "five", "six", "seven", "eight", "nine"]
-                emojis_to_add = emoji_names[:len(option_map)]
+            # Build option map: one emoji per title option (idea + title)
+            option_map = build_option_map(ideas)
+            emoji_names = ["one", "two", "three", "four", "five", "six", "seven", "eight", "nine"]
+            emojis_to_add = emoji_names[:len(option_map)]
 
-                for emoji in emojis_to_add:
-                    try:
-                        pipeline.slack.add_reaction(emoji, msg_ts, production_channel)
-                    except Exception as e:
-                        print(f"  ⚠️ Failed to add reaction {emoji}: {e}")
+            for emoji in emojis_to_add:
+                try:
+                    pipeline.slack.add_reaction(emoji, msg_ts, production_channel)
+                except Exception as e:
+                    print(f"  ⚠️ Failed to add reaction {emoji}: {e}")
 
-                # Persist tracking data so the Slack bot (pipeline_control.py)
-                # can handle the reaction when the user clicks
-                save_discovery_message(msg_ts, ideas, saved_record_ids)
-                print(f"\n✅ Interactive Slack message posted (ts={msg_ts})")
-                print(f"   {len(option_map)} options with emoji reactions — waiting for your choice!")
-            else:
-                print("\n⚠️ Slack message posted but couldn't get timestamp for reactions")
+            # Persist tracking data so the Slack bot (pipeline_control.py)
+            # can handle the reaction when the user clicks
+            save_discovery_message(msg_ts, ideas, saved_record_ids)
+            print(f"\n✅ Interactive Slack message posted (ts={msg_ts})")
+            print(f"   {len(option_map)} options with emoji reactions — waiting for your choice!")
 
         except Exception as e:
-            print(f"\n⚠️ Could not send interactive Slack notification: {e}")
-            # Fallback: send plain message to production channel
+            print(f"\n❌ Slack notification FAILED: {e}")
+            # Fallback: try sending a plain message (no reactions/tracking)
             try:
-                pipeline.slack.send_message(format_ideas_for_slack(result), production_channel)
-                print("   Sent plain Slack message as fallback")
-            except Exception:
-                pass
+                fallback = pipeline.slack.send_message(format_ideas_for_slack(result), production_channel)
+                if fallback.get("ok"):
+                    print("   Sent plain Slack message as fallback (no emoji reactions)")
+                else:
+                    print(f"   Fallback also failed: {fallback.get('error', 'unknown')}")
+                    print("   Ideas were saved to Airtable — check there manually.")
+            except Exception as e2:
+                print(f"   Fallback also failed: {e2}")
+                print("   Ideas were saved to Airtable — check there manually.")
 
         return
 
