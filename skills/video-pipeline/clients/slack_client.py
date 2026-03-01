@@ -1,17 +1,22 @@
 """Slack API client for notifications."""
 
 import os
+import time
 from typing import Optional
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
 
+# Transient Slack error codes that are safe to retry.
+_RETRYABLE_ERRORS = {"ratelimited", "service_unavailable", "internal_error", "request_timeout"}
+
+
 class SlackClient:
     """Client for Slack API operations."""
-    
+
     # Default channel from n8n workflow
     DEFAULT_CHANNEL_ID = "C0A9U1X8NSW"  # production-agent channel
-    
+
     def __init__(
         self,
         bot_token: Optional[str] = None,
@@ -20,34 +25,48 @@ class SlackClient:
         self.bot_token = bot_token or os.getenv("SLACK_BOT_TOKEN")
         if not self.bot_token:
             raise ValueError("SLACK_BOT_TOKEN not found in environment")
-        
+
         self.channel_id = channel_id or os.getenv("SLACK_CHANNEL_ID", self.DEFAULT_CHANNEL_ID)
         self.client = WebClient(token=self.bot_token)
-    
+
     def send_message(self, text: str, channel_id: Optional[str] = None) -> dict:
-        """Send a message to a Slack channel.
-        
+        """Send a message to a Slack channel with retry on transient errors.
+
         Args:
             text: Message text (supports Slack markdown)
             channel_id: Channel to send to (uses default if not specified)
-            
+
         Returns:
-            Slack API response dict
+            Slack API response dict with ok, ts, channel
+
+        Raises:
+            SlackApiError: On permanent API errors (invalid token, channel not found, etc.)
         """
         target_channel = channel_id or self.channel_id
-        
-        try:
-            response = self.client.chat_postMessage(
-                channel=target_channel,
-                text=text,
-            )
-            return {
-                "ok": response["ok"],
-                "ts": response["ts"],
-                "channel": response["channel"],
-            }
-        except SlackApiError as e:
-            return {"ok": False, "error": str(e)}
+
+        last_error = None
+        for attempt in range(3):
+            try:
+                response = self.client.chat_postMessage(
+                    channel=target_channel,
+                    text=text,
+                )
+                return {
+                    "ok": response["ok"],
+                    "ts": response["ts"],
+                    "channel": response["channel"],
+                }
+            except SlackApiError as e:
+                last_error = e
+                error_code = e.response.get("error", "") if e.response else ""
+                if error_code in _RETRYABLE_ERRORS and attempt < 2:
+                    wait = (attempt + 1) * 2  # 2s, 4s
+                    if error_code == "ratelimited":
+                        wait = int(e.response.headers.get("Retry-After", wait))
+                    print(f"    Slack {error_code}, retrying in {wait}s (attempt {attempt + 1}/3)...")
+                    time.sleep(wait)
+                    continue
+                raise
 
     def add_reaction(self, emoji: str, message_ts: str, channel_id: Optional[str] = None) -> dict:
         """Add an emoji reaction to a message.
@@ -59,18 +78,18 @@ class SlackClient:
 
         Returns:
             Slack API response dict
+
+        Raises:
+            SlackApiError: On API errors
         """
         target_channel = channel_id or self.channel_id
 
-        try:
-            response = self.client.reactions_add(
-                channel=target_channel,
-                name=emoji,
-                timestamp=message_ts,
-            )
-            return {"ok": response["ok"]}
-        except SlackApiError as e:
-            return {"ok": False, "error": str(e)}
+        response = self.client.reactions_add(
+            channel=target_channel,
+            name=emoji,
+            timestamp=message_ts,
+        )
+        return {"ok": response["ok"]}
 
     def get_message(self, message_ts: str, channel_id: Optional[str] = None) -> Optional[dict]:
         """Retrieve a specific message by timestamp.
@@ -95,6 +114,13 @@ class SlackClient:
             return messages[0] if messages else None
         except SlackApiError:
             return None
+
+    def notify(self, text: str, channel_id: Optional[str] = None) -> None:
+        """Fire-and-forget notification. Never raises — Slack failures must not kill the pipeline."""
+        try:
+            self.send_message(text, channel_id)
+        except Exception:
+            pass
 
     # ==================== PIPELINE NOTIFICATIONS ====================
     
