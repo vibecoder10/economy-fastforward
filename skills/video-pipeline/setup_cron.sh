@@ -3,11 +3,12 @@
 #
 # Usage: bash setup_cron.sh
 #
-# This installs four cron jobs:
+# This installs five cron jobs:
 #   1. 5:00 AM  — Daily idea discovery scan (posts ideas to Slack for approval)
-#   2. 8:00 AM  — Daily pipeline queue run (processes all stages through to Ready To Render)
-#   3. Every 15 min — Bot health check (restarts Slack bot if it died, notifies you)
-#   4. Every 30 min — Approval watcher (catches manual Airtable approvals)
+#   2. 7:00 AM  — Daily YouTube performance tracker (syncs analytics to Airtable)
+#   3. 8:00 AM  — Daily pipeline queue run (processes all stages through to Ready To Render)
+#   4. Every 15 min — Bot health check (restarts Slack bot if it died, notifies you)
+#   5. Every 30 min — Approval watcher (catches manual Airtable approvals)
 #
 # Times are in US/Pacific (America/Los_Angeles) via CRON_TZ.
 # Logs are written to /tmp/pipeline-*.log
@@ -45,6 +46,12 @@ CRON_TZ=America/Los_Angeles
 # Timeout: 10 minutes max (discovery should take <2 min)
 0 5 * * * cd $REPO_DIR && git pull origin main --ff-only >> /tmp/pipeline-discover.log 2>&1; cd $PIPELINE_DIR && timeout 600 $PYTHON3 pipeline.py --discover >> /tmp/pipeline-discover.log 2>&1
 
+# 7:00 AM PT — Daily YouTube performance tracker
+# Syncs YouTube metrics (views, CTR, retention, snapshots) to Airtable
+# Runs with --recent flag to focus on videos from the last 30 days
+# Timeout: 10 minutes max
+0 7 * * * cd $REPO_DIR && git pull origin main --ff-only >> /tmp/performance-tracker.log 2>&1; cd $PIPELINE_DIR && timeout 600 $PYTHON3 performance_tracker.py --recent >> /tmp/performance-tracker.log 2>&1
+
 # 8:00 AM PT — Daily pipeline queue run
 # First processes any pending approvals, then runs all stages:
 # Ready For Scripting → Script → Voice → Image Prompts → Images → Thumbnail → Ready To Render
@@ -64,7 +71,7 @@ EOF
 )
 
 # Preserve any existing cron entries not from this script
-EXISTING=$(crontab -l 2>/dev/null | grep -v "pipeline-discover\|pipeline-queue\|pipeline-bot-health\|pipeline-approval\|pipeline\.log\|Pipeline Cron\|setup_cron\|Daily idea\|Daily pipeline\|bot health\|Approval watcher\|run-queue\|--discover" || true)
+EXISTING=$(crontab -l 2>/dev/null | grep -v "pipeline-discover\|pipeline-queue\|pipeline-bot-health\|pipeline-approval\|performance-tracker\|pipeline\.log\|Pipeline Cron\|setup_cron\|Daily idea\|Daily pipeline\|performance tracker\|bot health\|Approval watcher\|run-queue\|--discover\|performance_tracker" || true)
 
 # Install combined crontab
 if [ -n "$EXISTING" ]; then
@@ -77,17 +84,20 @@ echo "  ✅ Cron jobs installed!"
 echo ""
 echo "  Scheduled:"
 echo "    • 5:00 AM PT daily → Discovery scan (post ideas to Slack)"
+echo "    • 7:00 AM PT daily → YouTube performance tracker (sync analytics)"
 echo "    • 8:00 AM PT daily → Pipeline queue (process all stages to render)"
 echo "    • Every 15 min     → Bot health check (auto-restart if down)"
 echo "    • Every 30 min     → Approval watcher (catch manual approvals)"
 echo ""
 echo "  Timeouts:"
-echo "    • Discovery: 10 min max"
-echo "    • Pipeline:  4 hours max"
-echo "    • Approval:  10 min max"
+echo "    • Discovery:    10 min max"
+echo "    • Performance:  10 min max"
+echo "    • Pipeline:     4 hours max"
+echo "    • Approval:     10 min max"
 echo ""
 echo "  Logs:"
 echo "    • /tmp/pipeline-discover.log"
+echo "    • /tmp/performance-tracker.log"
 echo "    • /tmp/pipeline-queue.log"
 echo "    • /tmp/pipeline-bot-health.log"
 echo "    • /tmp/pipeline-approval.log"

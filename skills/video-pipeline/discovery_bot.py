@@ -171,14 +171,14 @@ class DiscoveryBot:
             )
         except Exception as e:
             logger.error(f"Discovery scan failed: {e}")
-            self.slack.send_message(
+            self.slack.notify(
                 f"❌ Discovery scan failed: {str(e)[:200]}", channel_id
             )
             return None
 
         ideas = result.get("ideas", [])
         if not ideas:
-            self.slack.send_message("No ideas found. Try a different focus.", channel_id)
+            self.slack.notify("No ideas found. Try a different focus.", channel_id)
             return None
 
         # Format and post results
@@ -233,7 +233,7 @@ class DiscoveryBot:
 
         ideas = stored.get("ideas", [])
         if idea_number > len(ideas):
-            self.slack.send_message(
+            self.slack.notify(
                 f"⚠️ Idea {idea_number} doesn't exist (only {len(ideas)} ideas).",
                 channel_id,
             )
@@ -246,7 +246,7 @@ class DiscoveryBot:
             best_title = title_options[0].get("title", "")
 
         logger.info(f"Approving idea {idea_number}: {best_title}")
-        self.slack.send_message(
+        self.slack.notify(
             f"✅ Idea {idea_number} approved. Starting deep research on: "
             f"_{best_title or idea.get('our_angle', 'Unknown')[:80]}_...",
             channel_id,
@@ -265,7 +265,7 @@ class DiscoveryBot:
 
         except Exception as e:
             logger.error(f"Approval failed: {e}", exc_info=True)
-            self.slack.send_message(
+            self.slack.notify(
                 f"❌ Approval failed: {str(e)[:200]}",
                 channel_id,
             )
@@ -341,7 +341,7 @@ class DiscoveryBot:
             # Always advance status — even if some field writes failed above
             self.airtable.update_idea_status(record_id, "Ready For Scripting")
 
-            self.slack.send_message(
+            self.slack.notify(
                 f"✅ Research complete: _{payload.get('headline', title)}_\n"
                 f"Framework: {framework_angle}\n"
                 f"Status: Ready For Scripting",
@@ -350,7 +350,7 @@ class DiscoveryBot:
 
         except Exception as e:
             logger.error(f"Research failed: {e}", exc_info=True)
-            self.slack.send_message(
+            self.slack.notify(
                 f"⚠️ Research failed for _{title}_: {str(e)[:200]}\n"
                 f"Status remains: Approved (retry manually or via approval_watcher)",
                 channel_id,

@@ -661,7 +661,7 @@ class VideoPipeline:
         except Exception as e:
             error_msg = f"{bot_name} crashed: {e}"
             print(f"\n❌ {error_msg}")
-            self.slack.send_message(
+            self.slack.notify(
                 f"❌ *{bot_name} CRASHED* for *{self.video_title}*\n"
                 f"```{e}```\n"
                 f"Status NOT advanced. Fix and re-run."
@@ -1056,7 +1056,7 @@ class VideoPipeline:
 
             # Slack progress update every 5 scenes
             if scene_number % 5 == 0:
-                self.slack.send_message(f"📝 Prompt progress: {total_prompts} prompts created (through Scene {scene_number})")
+                self.slack.notify(f"📝 Prompt progress: {total_prompts} prompts created (through Scene {scene_number})")
 
         # Flag hero shots after all prompts are created
         hero_count = await self._flag_hero_shots()
@@ -1067,7 +1067,7 @@ class VideoPipeline:
         print(f"\n  ✅ Total: {total_prompts} image prompts created")
 
         # Slack completion
-        self.slack.send_message(f"✅ Image prompts done: {total_prompts} created for *{self.video_title}*")
+        self.slack.notify(f"✅ Image prompts done: {total_prompts} created for *{self.video_title}*")
 
         return {
             "bot": "Image Prompt Bot",
@@ -1172,7 +1172,7 @@ class VideoPipeline:
         if not all_images or total == 0:
             error_msg = f"No images found for '{self.video_title}' — cannot advance status"
             print(f"  ❌ {error_msg}")
-            self.slack.send_message(f"❌ Image Bot STOPPED: {error_msg}")
+            self.slack.notify(f"❌ Image Bot STOPPED: {error_msg}")
             return {
                 "status": "failed",
                 "bot": "Image Bot",
@@ -1183,7 +1183,7 @@ class VideoPipeline:
         if len(pending) > 0:
             error_msg = f"{len(pending)}/{total} images still pending after all retries for '{self.video_title}'"
             print(f"  ❌ {error_msg}")
-            self.slack.send_message(
+            self.slack.notify(
                 f"❌ Image Bot STOPPED: {error_msg}\n"
                 f"Status NOT advanced. Fix issues and run again."
             )
@@ -1247,7 +1247,7 @@ class VideoPipeline:
         if len(pending) > 0:
             error_msg = f"{len(pending)}/{total} images still pending after all retries"
             print(f"  ❌ {error_msg}")
-            self.slack.send_message(f"❌ Visuals Pipeline STOPPED: {error_msg} for *{self.video_title}*")
+            self.slack.notify(f"❌ Visuals Pipeline STOPPED: {error_msg} for *{self.video_title}*")
             return {
                 "status": "failed",
                 "bot": "Visuals Pipeline",
@@ -1292,13 +1292,13 @@ class VideoPipeline:
 
         if done_count > 0:
             print(f"     ♻️ RESUME: {done_count} images already done, {total_pending} remaining")
-            self.slack.send_message(f"♻️ Resuming: {done_count} images already done, {total_pending} remaining for *{self.video_title}*")
+            self.slack.notify(f"♻️ Resuming: {done_count} images already done, {total_pending} remaining for *{self.video_title}*")
         else:
             print(f"     Found {total_pending} pending images")
 
         if total_pending == 0:
             print("     ⚠️ No pending images found — nothing to generate.")
-            self.slack.send_message(f"⚠️ Image Bot: 0 pending images found for *{self.video_title}*. Nothing to generate.")
+            self.slack.notify(f"⚠️ Image Bot: 0 pending images found for *{self.video_title}*. Nothing to generate.")
             return {"image_count": 0, "failed_count": 0}
 
         # YouTube pipeline: Core Image is optional (uses text-to-image without reference)
@@ -1309,7 +1309,7 @@ class VideoPipeline:
         else:
             print(f"     📸 Using text-to-image generation (no Core Image reference)")
 
-        self.slack.send_message(f"🖼️ Starting image generation: {total_pending} images for *{self.video_title}*")
+        self.slack.notify(f"🖼️ Starting image generation: {total_pending} images for *{self.video_title}*")
 
         # Group images by scene for organized processing
         scenes = {}
@@ -1364,7 +1364,7 @@ class VideoPipeline:
                             print(f"      ✅ Scene {scene_num}, Image {index} → Done ({image_count}/{total_pending})")
 
                             # Slack progress update for every image
-                            self.slack.send_message(f"🖼️ Generating images... {image_count}/{total_pending} complete")
+                            self.slack.notify(f"🖼️ Generating images... {image_count}/{total_pending} complete")
 
                             # Clear image content from memory
                             del image_content
@@ -1408,7 +1408,7 @@ class VideoPipeline:
         status_msg = f"✅ Images done: {image_count}/{total_pending} for *{self.video_title}*"
         if failed_count > 0:
             status_msg += f" ({failed_count} failed)"
-        self.slack.send_message(status_msg)
+        self.slack.notify(status_msg)
 
         # === RETRY PHASE: Check for any missed/pending images ===
         max_retries = 3
@@ -1422,7 +1422,7 @@ class VideoPipeline:
                 break
                 
             print(f"    🔄 RETRY {retry_round + 1}/{max_retries}: Found {len(pending)} pending images")
-            self.slack.send_message(f"🔄 Retry {retry_round + 1}: {len(pending)} pending images for *{self.video_title}*")
+            self.slack.notify(f"🔄 Retry {retry_round + 1}: {len(pending)} pending images for *{self.video_title}*")
             
             # Group by scene
             from collections import defaultdict
@@ -1483,9 +1483,9 @@ class VideoPipeline:
         final_images = self.airtable.get_all_images_for_video(self.video_title)
         final_pending = len([img for img in final_images if img.get("Status") != "Done" and img.get("Image Prompt")])
         if final_pending > 0:
-            self.slack.send_message(f"⚠️ {final_pending} images still pending after retries for *{self.video_title}*")
+            self.slack.notify(f"⚠️ {final_pending} images still pending after retries for *{self.video_title}*")
         else:
-            self.slack.send_message(f"✅ All {len(final_images)} images complete for *{self.video_title}*")
+            self.slack.notify(f"✅ All {len(final_images)} images complete for *{self.video_title}*")
 
         return {"image_count": image_count, "failed_count": failed_count}
 
@@ -1745,7 +1745,7 @@ class VideoPipeline:
             print(f"  ✅ Status updated to: {self.STATUS_READY_VOICE}")
             print(f"  📂 Scene file: {self._scene_filepath}")
 
-            self.slack.send_message(
+            self.slack.notify(
                 f"📜 Brief translated: *{self.video_title}*\n"
                 f"Scenes: {result.get('scene_validation', {}).get('stats', {}).get('total_scenes', '?')}"
             )
@@ -1971,7 +1971,7 @@ class VideoPipeline:
         print(f"  Status updated to: {self.STATUS_READY_IMAGES}")
 
         skip_note = f" ({scenes_skipped} resumed)" if scenes_skipped else ""
-        self.slack.send_message(
+        self.slack.notify(
             f"Styled prompts done: {total_concepts} concepts from {scenes_expanded} scenes{skip_note} "
             f"for *{self.video_title}*\n"
             f"D:{dossier_pct:.0f}% S:{schema_pct:.0f}% E:{echo_pct:.0f}%"
@@ -2190,7 +2190,7 @@ class VideoPipeline:
         }
 
         # --- Generate matched title + thumbnail ---
-        self.slack.send_message(f"🎨 Generating thumbnail + title for *{self.video_title}*...")
+        self.slack.notify(f"🎨 Generating thumbnail + title for *{self.video_title}*...")
         engine = ThumbnailTitleEngine(self.anthropic, self.image_client)
 
         try:
@@ -2198,7 +2198,7 @@ class VideoPipeline:
         except Exception as e:
             error_msg = f"Thumbnail/title generation failed for '{self.video_title}': {e}"
             print(f"  ❌ {error_msg}")
-            self.slack.send_message(f"❌ Thumbnail Bot STOPPED: {error_msg}\nStatus NOT advanced. Fix issues and run again.")
+            self.slack.notify(f"❌ Thumbnail Bot STOPPED: {error_msg}\nStatus NOT advanced. Fix issues and run again.")
             return {
                 "status": "failed",
                 "bot": "Thumbnail Bot",
@@ -2219,7 +2219,7 @@ class VideoPipeline:
                 f"for '{self.video_title}'. Flagged for manual review."
             )
             print(f"  ❌ {error_msg}")
-            self.slack.send_message(
+            self.slack.notify(
                 f"⚠️ Thumbnail Bot needs manual review for *{self.video_title}*\n"
                 f"Template: {result['template_name']}\n"
                 f"Title: {result['title']}\n"
@@ -2269,7 +2269,7 @@ class VideoPipeline:
         self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_TO_RENDER)
         print(f"  ✅ Status updated to: {self.STATUS_READY_TO_RENDER}")
 
-        self.slack.send_message(
+        self.slack.notify(
             f"✅ Thumbnail + title complete for *{self.video_title}*\n"
             f"📝 Title: {result['title']}\n"
             f"🎨 Template: {result['template_name']}\n"
@@ -2310,7 +2310,7 @@ class VideoPipeline:
             self._load_idea(idea)
 
         print(f"\n🎬 RENDER BOT: Processing '{self.video_title}'")
-        self.slack.send_message(
+        self.slack.notify(
             f"🎬 *Render starting:* _{self.video_title}_\n"
             f"Running pre-flight checks, downloading assets, then rendering (concurrency=1, ~60-90 min)..."
         )
@@ -2477,7 +2477,7 @@ class VideoPipeline:
             print(f"  ❌ Failed assets:\n{fail_list}{extra}")
 
         if download_ok == 0:
-            self.slack.send_message(
+            self.slack.notify(
                 f"❌ *Render ABORTED:* _{self.video_title}_\n"
                 f"No Scene assets found across {len(asset_folders)} Drive folder(s).\n"
                 f"Make sure Scene *.mp3 and Scene_*.png files exist in Google Drive."
@@ -2487,7 +2487,7 @@ class VideoPipeline:
         if download_fail > download_ok * 0.3:
             fail_list = "\n".join(f"  • {a}" for a in failed_assets[:10])
             extra = f"\n  ... and {len(failed_assets) - 10} more" if len(failed_assets) > 10 else ""
-            self.slack.send_message(
+            self.slack.notify(
                 f"❌ *Render ABORTED:* _{self.video_title}_\n"
                 f"Too many asset downloads failed ({download_fail} of {download_ok + download_fail}).\n"
                 f"Failed:\n{fail_list}{extra}"
@@ -2507,14 +2507,14 @@ class VideoPipeline:
         if missing_audio:
             missing_list = ", ".join(missing_audio[:10])
             print(f"  ❌ Missing audio files: {missing_list}")
-            self.slack.send_message(
+            self.slack.notify(
                 f"❌ *Render ABORTED:* _{self.video_title}_\n"
                 f"Missing audio: {missing_list}\n"
                 f"Searched {len(asset_folders)} Drive folder(s) — these files were not found anywhere."
             )
             return {"error": f"Missing audio: {missing_list}", "bot": "Render Bot"}
 
-        self.slack.send_message(
+        self.slack.notify(
             f"⬇️ *Assets ready:* _{self.video_title}_\n"
             f"{scene_count} scenes, all audio verified. Starting Remotion render now..."
         )
@@ -2534,7 +2534,7 @@ class VideoPipeline:
             install = subprocess.run(["npm", "install"], cwd=remotion_dir, capture_output=False)
             if install.returncode != 0:
                 print(f"  ❌ npm install failed")
-                self.slack.send_message(
+                self.slack.notify(
                     f"❌ *Render FAILED:* _{self.video_title}_\n"
                     f"`npm install` failed in remotion-video/. Check node/npm on VPS."
                 )
@@ -2605,7 +2605,7 @@ class VideoPipeline:
                         eta_str = "estimating..."
 
                     progress_bar = "█" * int(current_pct // 10) + "░" * (10 - int(current_pct // 10))
-                    self.slack.send_message(
+                    self.slack.notify(
                         f"🎬 *Render progress:* _{self.video_title}_\n"
                         f"`{progress_bar}` *{current_pct:.1f}%* — frame {current_frame}/{total_frames} — {elapsed_min} min elapsed, {eta_str}"
                     )
@@ -2622,7 +2622,7 @@ class VideoPipeline:
         if returncode != 0:
             print(f"  ❌ Render failed")
             error_detail = f"\n`{last_error_line}`" if last_error_line else ""
-            self.slack.send_message(
+            self.slack.notify(
                 f"❌ *Render FAILED:* _{self.video_title}_\n"
                 f"Remotion exited with code {returncode} after {total_min} min.{error_detail}"
             )
@@ -2630,7 +2630,7 @@ class VideoPipeline:
 
         if not output_file.exists():
             print(f"  ❌ Output not found")
-            self.slack.send_message(
+            self.slack.notify(
                 f"❌ *Render FAILED:* _{self.video_title}_\n"
                 f"Remotion finished but output file not found at {output_file}"
             )
@@ -2641,7 +2641,7 @@ class VideoPipeline:
 
         # Upload to Drive
         print("  ☁️ Uploading to Google Drive...")
-        self.slack.send_message(
+        self.slack.notify(
             f"✅ *Render complete:* _{self.video_title}_ ({file_size_mb:.0f} MB, {total_min} min)\n"
             f"Uploading to Google Drive..."
         )
@@ -2661,7 +2661,7 @@ class VideoPipeline:
         print(f"  ✅ Status updated to: {self.STATUS_RENDERED}")
         print(f"  🔗 Video: {drive_url}")
 
-        self.slack.send_message(
+        self.slack.notify(
             f"✅ *Render complete:* _{self.video_title}_\n"
             f"📺 *Drive link:* {drive_url}\n\n"
             f"Generating SEO metadata and uploading to YouTube next..."
@@ -3072,7 +3072,7 @@ class VideoPipeline:
             self._load_idea(idea)
 
         print(f"\n📺 YOUTUBE UPLOAD BOT: Processing '{self.video_title}'")
-        self.slack.send_message(
+        self.slack.notify(
             f"📺 *YouTube upload starting:* _{self.video_title}_\n"
             f"Generating SEO description and uploading as unlisted draft..."
         )
@@ -3145,7 +3145,7 @@ class VideoPipeline:
             # YouTube token not configured — skip upload, just save SEO
             print(f"  YouTube credentials not configured: {e}")
             print(f"  SEO metadata saved. Upload skipped (run youtube_auth.py first).")
-            self.slack.send_message(
+            self.slack.notify(
                 f"⚠️ *YouTube upload skipped:* _{self.video_title}_\n"
                 f"YouTube credentials not configured. SEO metadata saved.\n"
                 f"Run `python youtube_auth.py` on VPS, then re-run pipeline."
@@ -3159,7 +3159,7 @@ class VideoPipeline:
         except Exception as e:
             error_msg = f"YouTube upload failed: {e}"
             print(f"  {error_msg}")
-            self.slack.send_message(
+            self.slack.notify(
                 f"❌ *YouTube upload FAILED:* _{self.video_title}_\n"
                 f"```{e}```\n"
                 f"SEO metadata saved. Fix and re-run."
@@ -3186,7 +3186,7 @@ class VideoPipeline:
         description_preview = seo_result.get("description", "")[:100]
 
         # Slack notification for draft review (US-006)
-        self.slack.send_message(
+        self.slack.notify(
             f"📺 *Video Ready for Review!*\n\n"
             f'"{self.video_title}"\n\n'
             f"🎬 *YouTube Draft:* {video_url}\n"
@@ -3839,7 +3839,7 @@ async def main():
                 msg_lines.append(f"{i}. {idea.get('viral_title', 'Untitled')}")
                 msg_lines.append(f"   Format: {idea.get('based_on_format', '')}")
 
-            slack.send_message(chr(10).join(msg_lines))
+            slack.notify(chr(10).join(msg_lines))
             print("Sent to Slack!")
 
             return ideas
@@ -3957,36 +3957,41 @@ async def main():
             slack_msg += format_ideas_for_slack(result)
 
             response = pipeline.slack.send_message(slack_msg, production_channel)
-            msg_ts = response.get("ts", "")
+            msg_ts = response["ts"]
 
-            if msg_ts:
-                # Build option map: one emoji per title option (idea + title)
-                option_map = build_option_map(ideas)
-                emoji_names = ["one", "two", "three", "four", "five", "six", "seven", "eight", "nine"]
-                emojis_to_add = emoji_names[:len(option_map)]
+            # Build option map: one emoji per title option (idea + title)
+            option_map = build_option_map(ideas)
+            emoji_names = ["one", "two", "three", "four", "five", "six", "seven", "eight", "nine"]
+            emojis_to_add = emoji_names[:len(option_map)]
 
-                for emoji in emojis_to_add:
-                    try:
-                        pipeline.slack.add_reaction(emoji, msg_ts, production_channel)
-                    except Exception as e:
-                        print(f"  ⚠️ Failed to add reaction {emoji}: {e}")
+            for emoji in emojis_to_add:
+                try:
+                    pipeline.slack.add_reaction(emoji, msg_ts, production_channel)
+                except Exception as e:
+                    print(f"  ⚠️ Failed to add reaction {emoji}: {e}")
 
-                # Persist tracking data so the Slack bot (pipeline_control.py)
-                # can handle the reaction when the user clicks
-                save_discovery_message(msg_ts, ideas, saved_record_ids)
-                print(f"\n✅ Interactive Slack message posted (ts={msg_ts})")
-                print(f"   {len(option_map)} options with emoji reactions — waiting for your choice!")
-            else:
-                print("\n⚠️ Slack message posted but couldn't get timestamp for reactions")
+            # Persist tracking data so the Slack bot (pipeline_control.py)
+            # can handle the reaction when the user clicks
+            save_discovery_message(msg_ts, ideas, saved_record_ids)
+            print(f"\n✅ Interactive Slack message posted (ts={msg_ts})")
+            print(f"   {len(option_map)} options with emoji reactions — waiting for your choice!")
 
         except Exception as e:
-            print(f"\n⚠️ Could not send interactive Slack notification: {e}")
-            # Fallback: send plain message to production channel
+            print(f"\n❌ Slack notification FAILED: {e}")
+            # Fallback: try a shorter plain message (no reactions/tracking)
             try:
-                pipeline.slack.send_message(format_ideas_for_slack(result), production_channel)
-                print("   Sent plain Slack message as fallback")
-            except Exception:
-                pass
+                # Send a compact version in case the full message was too long
+                short_msg = "☀️ *Discovery Scan Complete* — ideas saved to Airtable.\n"
+                for i, idea in enumerate(ideas, 1):
+                    title_opts = idea.get("title_options", [])
+                    title = title_opts[0]["title"] if title_opts else "Untitled"
+                    short_msg += f"{i}. {title}\n"
+                short_msg += "\nCheck Airtable to approve."
+                pipeline.slack.send_message(short_msg, production_channel)
+                print("   Sent short fallback message to Slack")
+            except Exception as e2:
+                print(f"   Fallback also failed: {e2}")
+                print("   Ideas were saved to Airtable — check there manually.")
 
         return
 

@@ -454,7 +454,7 @@ Return ONLY the JSON object, no other text."""
         
         full_message = header + "\n".join(idea_texts)
         
-        self.slack.send_message(full_message)
+        self.slack.notify(full_message)
 
     async def generate_from_trending(
         self,
