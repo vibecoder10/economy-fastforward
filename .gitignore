@@ -64,9 +64,8 @@ storyengine/**/dev.db
 storyengine/**/dev.db-journal
 storyengine/config/.env.local
 
-# YouTube OAuth credentials (NEVER commit these)
+# YouTube OAuth credentials and config (NEVER commit these)
 .youtube-credentials.json
 .youtube-token.json
-.youtube-credentials.json
-.youtube-token.json
+.reporting-job.json
 
