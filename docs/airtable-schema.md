@@ -18,7 +18,8 @@ Optional fields:
 
 Performance fields (written by `performance_tracker.py`, daily cron):
 - Lifetime: `Views`, `Likes`, `Comments`, `Subscribers Gained`
-- Analytics: `Impressions`, `CTR (%)`, `Avg View Duration (s)`, `Avg Retention (%)`, `Watch Time (hours)`
+- Analytics (YouTube Analytics API): `Avg View Duration (s)`, `Avg Retention (%)`, `Watch Time (hours)`
+- Reporting (YouTube Reporting API bulk CSV): `Impressions`, `CTR (%)`
 - Snapshots (written once): `Views 24h`, `Views 48h`, `Views 7d`, `Views 30d`, `CTR 48h (%)`, `Retention 48h (%)`
 - Metadata: `Last Analytics Sync`, `Upload Date`
 
