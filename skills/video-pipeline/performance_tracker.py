@@ -19,8 +19,8 @@ Usage:
     python performance_tracker.py --dry-run   # Show what would be updated, don't write
 
 Cron (VPS):
-    0 6 * * * cd /home/clawd/economy-fastforward/skills/video-pipeline && \
-        python3 performance_tracker.py >> /tmp/performance-tracker.log 2>&1
+    Installed by setup_cron.sh — 7:00 AM PT daily (CRON_TZ=America/Los_Angeles)
+    See setup_cron.sh for the full cron entry.
 """
 
 import json
