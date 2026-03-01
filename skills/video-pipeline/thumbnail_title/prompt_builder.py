@@ -3,13 +3,30 @@
 Takes title generation output (caps_word, line_1, line_2) and video metadata,
 then uses Claude to fill template variables and produce the final Nano Banana Pro
 prompt from one of the three templates.
+
+Optionally injects a Machiavellian visual element (~50% of thumbnails) for
+thematic consistency across the channel brand.
 """
 
 import json
+import random
 from typing import Optional
 
-from thumbnail_title.templates import TEMPLATES, TEMPLATE_A_CFH_SPLIT, TEMPLATE_B_MINDPLICIT_BANNER, TEMPLATE_C_POWER_DYNAMIC
+from thumbnail_title.templates import TEMPLATES
 from thumbnail_title.selector import select_template
+
+
+# ---------------------------------------------------------------------------
+# Machiavellian visual elements — injected ~50% of the time
+# ---------------------------------------------------------------------------
+MACHIAVELLIAN_ELEMENTS = [
+    "subtle puppet strings descending from top of frame",
+    "chess pieces scattered on the ground near the figure",
+    "a shadowy hand reaching in from the edge of frame",
+    "a tilted crown falling through the air",
+    "a cracked golden scale of justice in background",
+    "a dagger with a dollar-sign handle stuck in a map",
+]
 
 
 # System prompt for Claude to fill template variables
@@ -115,7 +132,31 @@ class ThumbnailPromptBuilder:
                 f"Required: {variables_needed}"
             )
 
+        # Inject a Machiavellian visual element ~50% of the time
+        prompt = self._maybe_inject_machiavellian_element(prompt)
+
         return prompt
+
+    @staticmethod
+    def _maybe_inject_machiavellian_element(prompt: str) -> str:
+        """Inject a Machiavellian visual element with ~50% probability.
+
+        Inserts a thematic detail sentence before the final style description
+        line (the last paragraph) to reinforce the channel's power-dynamics brand.
+        """
+        if random.random() > 0.5:
+            return prompt
+
+        element = random.choice(MACHIAVELLIAN_ELEMENTS)
+        # Insert before the last paragraph (the style footer)
+        last_break = prompt.rfind("\n\n")
+        if last_break == -1:
+            return prompt
+        return (
+            prompt[:last_break]
+            + f",\n\n{element.capitalize()},\n"
+            + prompt[last_break:]
+        )
 
     async def _fill_variables(
         self,
@@ -185,16 +226,26 @@ class ThumbnailPromptBuilder:
         """Return human-readable descriptions for each template's variables."""
         if template_key == "template_a":
             return {
-                "nationality": "Country/region context (e.g., American, European, Chinese)",
-                "worker_type": "Character archetype (e.g., blue-collar worker, businessman, citizen)",
+                "character_archetype": (
+                    "A RECOGNIZABLE STEREOTYPE, not a generic person. Must be instantly "
+                    "readable as a specific social role. Examples: 'panicked Wall Street "
+                    "trader in rumpled suit with loosened tie', 'smug Uncle Sam with top "
+                    "hat and pointing finger', 'sweating Pentagon general covered in "
+                    "medals', 'terrified tech CEO gripping cracked laptop', 'furious "
+                    "Chinese official slamming table'"
+                ),
                 "emotion": "Primary facial emotion (e.g., panicked, shocked, frustrated, angry)",
-                "cultural_signifier": "Instant recognition prop (e.g., hard hat, Uncle Sam hat, business suit)",
                 "mouth_expression": "Reinforces emotion (e.g., open in shock, gritted in anger)",
                 "secondary_element": "Right-side visual that contrasts with figure (e.g., sleek robot in golden glow, crumbling bank building)",
             }
         elif template_key == "template_b":
             return {
-                "power_scene": "Central dramatic scene (e.g., worker looking up at massive robot shadow, figure at chess board)",
+                "power_scene": (
+                    "Central dramatic scene with optional power elements (e.g., worker "
+                    "looking up at massive robot shadow with puppet strings visible from "
+                    "above, figure at chess board with chess pieces scattered on ground, "
+                    "silhouette of a puppeteer pulling strings from the darkness)"
+                ),
                 "ground_detail": "Floor-level context detail (e.g., scattered tools and fallen hard hat, cracked floor tiles)",
             }
         elif template_key == "template_c":
@@ -202,8 +253,17 @@ class ThumbnailPromptBuilder:
                 "victim_type": "Displaced figure (e.g., panicked blue-collar worker, shocked small business owner)",
                 "emotion": "Victim's emotion (e.g., shock, panic, fear, anger)",
                 "cultural_signifier": "Flying prop (e.g., hard hat, briefcase, apron, glasses)",
-                "power_figure": "Controller figure (e.g., calm man in dark suit sitting in leather chair with fingers steepled)",
-                "instrument": "Tool of power (e.g., golden glowing robot, stack of contracts, money printer)",
+                "power_figure": (
+                    "Controller figure — face partially in shadow, only eyes visible in "
+                    "golden light, wearing dark suit, radiating calm control (e.g., calm "
+                    "man in dark suit sitting in leather chair with fingers steepled)"
+                ),
+                "instrument": (
+                    "Tool of power (e.g., golden glowing robot, giant puppet cross with "
+                    "strings attached to victim, oversized chess king piece, golden "
+                    "throne, red button labeled KILL SWITCH, giant pair of scissors "
+                    "cutting puppet strings, stack of contracts, money printer)"
+                ),
                 "relationship": "Arrow label suggesting dynamics (e.g., REPLACEMENT, EXTRACTION, CONTROL)",
             }
         return {}
