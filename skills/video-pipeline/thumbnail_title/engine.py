@@ -76,24 +76,33 @@ class ThumbnailTitleEngine:
 
         if stripped.upper().startswith("REPLACE:"):
             raw = stripped[len("REPLACE:"):].strip()
+            print("  🔄 REPLACE override active — using custom prompt")
             # Substitute text variables so the override can reference them
             try:
-                return raw.format(**subs)
-            except KeyError:
+                result = raw.format(**subs)
+                print("  ✅ REPLACE override applied (placeholders filled)")
+                return result
+            except (KeyError, IndexError, ValueError):
                 # User didn't include placeholders — use as-is
+                print("  ✅ REPLACE override applied (raw, no placeholders)")
                 return raw
 
         if stripped.upper().startswith("APPEND:"):
             addition = stripped[len("APPEND:"):].strip()
+            print("  ➕ APPEND override active — adding to template")
         elif stripped.startswith("+"):
             addition = stripped[1:].strip()
+            print("  ➕ '+' override active — adding to template")
         else:
             addition = stripped
+            print("  ➕ Default override active — appending to template")
 
         combined = template_prompt + ",\n\n" + addition
         try:
-            return combined.format(**subs)
-        except KeyError:
+            result = combined.format(**subs)
+            print("  ✅ Override applied to template prompt")
+            return result
+        except (KeyError, IndexError, ValueError):
             # Template variables not yet filled — can't resolve here,
             # fall back to the normal prompt builder
             print("  ⚠️ Thumbnail override couldn't fill template variables, falling back to normal builder")
@@ -169,12 +178,14 @@ class ThumbnailTitleEngine:
 
         # Step 4: Build thumbnail prompt (with optional style override)
         print(f"  Building thumbnail prompt...")
+        print(f"  📋 Override received by engine: {repr(thumbnail_style_override[:100]) if thumbnail_style_override else 'None'}")
         if thumbnail_style_override:
             thumbnail_prompt = self._apply_thumbnail_override(
                 thumbnail_style_override, template_key, title_data,
                 video_title, video_summary,
             )
             if thumbnail_prompt is None:
+                print("  ⚠️ Override returned None — falling back to normal prompt builder")
                 # Fallback to normal builder if override couldn't be applied
                 thumbnail_prompt = await self.prompt_builder.build(
                     template_key=template_key,
@@ -182,7 +193,10 @@ class ThumbnailTitleEngine:
                     video_title=video_title,
                     video_summary=video_summary,
                 )
+            else:
+                print("  ✅ Override applied successfully — skipping normal prompt builder")
         else:
+            print("  ℹ️ No override — using normal prompt builder")
             thumbnail_prompt = await self.prompt_builder.build(
                 template_key=template_key,
                 title_data=title_data,
@@ -190,6 +204,7 @@ class ThumbnailTitleEngine:
                 video_summary=video_summary,
             )
         print(f"  Prompt built ({len(thumbnail_prompt)} chars)")
+        print(f"  📤 Final prompt being sent to image generator: {thumbnail_prompt[:100]}...")
 
         # Step 5: Generate thumbnail image (with retry)
         thumbnail_urls = None

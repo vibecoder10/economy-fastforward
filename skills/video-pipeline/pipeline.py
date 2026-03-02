@@ -2183,11 +2183,21 @@ class VideoPipeline:
 
         print(f"\n🎨 THUMBNAIL BOT: Processing '{self.video_title}'")
 
+        # Always re-fetch from Airtable to pick up style overrides set after
+        # the idea was first loaded (e.g. via Slack !style command between stages)
+        try:
+            fresh = self.airtable.idea_concepts_table.get(self.current_idea_id)
+            if fresh:
+                self.current_idea.update(fresh.get("fields", {}))
+        except Exception as e:
+            print(f"  ⚠️ Could not refresh idea from Airtable: {e}")
+
         video_title = self.current_idea.get("Video Title", "")
         video_summary = self.current_idea.get("Summary", "")
 
         # Read per-video thumbnail style override (set via Slack !style command)
         thumbnail_style_override = (self.current_idea.get("Thumbnail Style Override") or "").strip()
+        print(f"  📋 Reading Thumbnail Style Override from Airtable: {repr(thumbnail_style_override) if thumbnail_style_override else 'None'}")
         if thumbnail_style_override:
             print(f"  🎨 Thumbnail style override active: {thumbnail_style_override[:80]}...")
 
@@ -2201,9 +2211,11 @@ class VideoPipeline:
         }
 
         # --- Generate matched title + thumbnail ---
-        self.slack.notify(f"🎨 Generating thumbnail + title for *{self.video_title}*...")
+        override_note = f" (with style override)" if thumbnail_style_override else ""
+        self.slack.notify(f"🎨 Generating thumbnail + title for *{self.video_title}*{override_note}...")
         engine = ThumbnailTitleEngine(self.anthropic, self.image_client)
 
+        print(f"  📤 Passing override to engine.generate(): {repr(thumbnail_style_override[:100]) if thumbnail_style_override else 'None'}")
         try:
             result = await engine.generate(
                 video_metadata,
@@ -2283,10 +2295,14 @@ class VideoPipeline:
         self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_TO_RENDER)
         print(f"  ✅ Status updated to: {self.STATUS_READY_TO_RENDER}")
 
+        template_info = result['template_name']
+        if thumbnail_style_override:
+            override_mode = "REPLACE" if thumbnail_style_override.upper().startswith("REPLACE:") else "APPEND"
+            template_info = f"{result['template_name']} ({override_mode} override active)"
         self.slack.notify(
             f"✅ Thumbnail + title complete for *{self.video_title}*\n"
             f"📝 Title: {result['title']}\n"
-            f"🎨 Template: {result['template_name']}\n"
+            f"🎨 Template: {template_info}\n"
             f"🔴 Red word: {result['caps_word']}\n"
             f"📎 {drive_link}"
         )
