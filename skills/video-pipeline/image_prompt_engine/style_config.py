@@ -14,16 +14,16 @@ composition directives, Ken Burns zoom rules, and default configuration.
 #
 # The placeholder [ACCENT_COLOR] is replaced at build time.
 #
-# IMPORTANT: This is NOT the mannequin/clay render style. The mannequin
-# style lives in clients/style_engine.py and is used ONLY by the
-# Animation pipeline.
+# Both pipelines (YouTube and Animation) now share the same unified
+# cinematic photorealistic documentary visual identity.
 
 YOUTUBE_STYLE_PREFIX = (
     "Cinematic photorealistic editorial photograph, dark moody atmosphere, "
     "desaturated color palette with [ACCENT_COLOR] accent lighting, "
     "Rembrandt lighting, deep shadows, shallow depth of field, subtle film grain, "
-    "documentary photography style, shot on Arri Alexa, 16:9 cinematic composition, "
-    "epic scale."
+    "documentary photography style, shot on Arri Alexa 65 with 35mm Master Prime lens, "
+    "16:9 cinematic composition, epic scale, 8K resolution downsampled for extreme "
+    "cinematic density."
 )
 
 # ---------------------------------------------------------------------------
@@ -37,7 +37,8 @@ STYLE_SUFFIXES = {
     # Dossier IS the base look established by the prefix. The suffix adds only
     # what differentiates dossier from the generic cinematic base.
     "dossier": (
-        ", single dramatic light source, high contrast"
+        ", single dramatic light source, high contrast, "
+        "distinct chromatic aberration, organic halation effects around glowing elements"
     ),
     # Schema extends the base with data-overlay aesthetics. Prefix already
     # covers cinematic/film grain/16:9 so those are not repeated here.
@@ -81,17 +82,26 @@ COMPOSITION_CYCLE = ["wide", "medium", "closeup", "environmental", "portrait", "
 # ---------------------------------------------------------------------------
 
 ACCENT_COLOR_MAP = {
+    # Teal = tech / geopolitical
     "geopolitical": "cold teal",
     "ai_tech": "cold teal",
     "corporate_power": "cold teal",
     "surveillance": "cold teal",
+    # Amber = power / money
     "economic": "warm amber",
     "financial": "warm amber",
     "historical_power": "warm amber",
     "old_money": "warm amber",
+    # Red = military / conflict
     "conflict": "muted crimson",
     "warfare": "muted crimson",
     "political_violence": "muted crimson",
+    "military": "muted crimson",
+    # Green = economics / growth
+    "markets": "deep green",
+    "growth": "deep green",
+    "trade": "deep green",
+    # Default
     "default": "cold teal",
 }
 

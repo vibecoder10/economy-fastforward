@@ -284,13 +284,23 @@ class TestBuildPrompt:
         count = prompt.lower().count("shot on arri alexa")
         assert count == 1, f"'shot on Arri Alexa' appears {count} times (expected 1)"
 
+    def test_prefix_contains_8k_resolution(self):
+        """The prefix includes 8K resolution downsampled for density."""
+        assert "8K resolution" in YOUTUBE_STYLE_PREFIX
+
+    def test_dossier_suffix_has_halation(self):
+        """Dossier suffix includes chromatic aberration and halation."""
+        from image_prompt_engine.style_config import STYLE_SUFFIXES
+        assert "chromatic aberration" in STYLE_SUFFIXES["dossier"]
+        assert "halation" in STYLE_SUFFIXES["dossier"]
+
 
 # ---------------------------------------------------------------------------
 # Cinematic Dossier Style tests (YouTube pipeline)
 # ---------------------------------------------------------------------------
 
 class TestCinematicDossierStyle:
-    """Verify YouTube pipeline uses cinematic dossier style, NOT mannequin style."""
+    """Verify YouTube pipeline uses cinematic dossier style."""
 
     def test_all_prompts_start_with_cinematic_prefix(self):
         """Every prompt starts with the cinematic photorealistic prefix."""
@@ -301,23 +311,21 @@ class TestCinematicDossierStyle:
                 f"{r['prompt'][:80]}..."
             )
 
-    def test_no_mannequin_style_in_any_prompt(self):
-        """No prompt contains mannequin/clay/department store language."""
+    def test_no_legacy_style_in_any_prompt(self):
+        """No prompt contains legacy mannequin/clay/department store language."""
         results = _generate_full_video()
         forbidden_terms = [
             "mannequin",
             "3D editorial conceptual render",
             "department store display",
             "clay render",
-            "matte gray mannequin",
-            "faceless",
-            "no facial features",
+            "matte gray",
         ]
         for r in results:
             prompt_lower = r["prompt"].lower()
             for term in forbidden_terms:
                 assert term.lower() not in prompt_lower, (
-                    f"Forbidden mannequin term '{term}' found in prompt at index {r['index']}: "
+                    f"Forbidden legacy term '{term}' found in prompt at index {r['index']}: "
                     f"{r['prompt'][:100]}..."
                 )
 

@@ -42,7 +42,7 @@ SAMPLE_SCENE_LIST = [
         "scene_number": i + 1,
         "act": f"act{min((i // 23) + 1, 6)}",
         "style": ["dossier", "dossier", "schema", "dossier", "echo"][i % 5],
-        "scene_description": f"Scene {i+1}: A mannequin figure in a dark boardroom #{i+1}",
+        "scene_description": f"Scene {i+1}: An anonymous figure silhouetted in a dark boardroom #{i+1}",
         "script_excerpt": f"The merger of SpaceX and xAI represents segment {i+1}.",
         "composition_hint": ["wide", "medium", "closeup", "environmental", "portrait"][i % 5],
     }

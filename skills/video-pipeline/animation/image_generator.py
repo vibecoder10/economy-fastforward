@@ -1,6 +1,6 @@
 """Image Prompt Generator for Animation Pipeline.
 
-Generates detailed image prompts using the 3D mannequin render style
+Generates detailed image prompts using cinematic photorealistic documentary style
 with protagonist glow tracking.
 """
 
@@ -12,22 +12,11 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# 3D Mannequin Render Style Constants (v3 - smooth mannequin, NOT clay)
-STYLE_ENGINE_PREFIX = (
-    "3D editorial conceptual render, monochromatic smooth matte gray mannequin figures "
-    "with no facial features, smooth continuous surfaces like a department store display mannequin, "
-    "photorealistic materials and studio lighting."
-)
-
-# Negative prompt additions for image generation
-NEGATIVE_PROMPT_ADDITIONS = (
-    "clay texture, rough surface, stone, concrete, action figure, ball joints, "
-    "mechanical joints, panel lines, robot, matte clay, rough matte, porous surface"
-)
-
-STYLE_ENGINE_SUFFIX = (
-    "Clean studio lighting, shallow depth of field, matte and metallic material "
-    "contrast, cinematic 16:9 composition"
+# Import cinematic style constants from centralized style engine
+from clients.style_engine import (
+    STYLE_ENGINE_PREFIX,
+    STYLE_ENGINE_SUFFIX,
+    ANONYMOUS_FIGURE_STYLE,
 )
 
 # Protagonist glow descriptions by state
@@ -46,16 +35,16 @@ CHROME_ENTITY = (
     "fluid mechanical joints, cold blue-white reflections"
 )
 
-IMAGE_PROMPT_SYSTEM = """You are a visual director creating 3D editorial mannequin render image prompts.
+IMAGE_PROMPT_SYSTEM = f"""You are a visual director creating cinematic photorealistic documentary image prompts.
 
-=== STYLE: 3D EDITORIAL CONCEPTUAL RENDER ===
-Monochromatic smooth matte gray mannequin figures (faceless) in photorealistic material environments.
+=== STYLE: CINEMATIC PHOTOREALISTIC DOCUMENTARY ===
+Dark moody atmosphere, desaturated palette, Rembrandt lighting, deep shadows.
+Anonymous human figures with faces obscured by shadow, silhouette, or backlighting.
+Shot on Arri Alexa 65 with 35mm Master Prime lens, Kodak Vision3 500T film stock.
 CRITICAL: The style engine prefix MUST go at the BEGINNING of every prompt.
 
 === PROTAGONIST ===
-A smooth matte gray mannequin figure with no facial features.
-Smooth continuous surfaces like a department store display mannequin.
-NOT clay, NOT stone, NOT an action figure, NOT a robot.
+{ANONYMOUS_FIGURE_STYLE}
 UNIQUE TRAIT: Has an inner glow (described separately per scene).
 This glow is their sense of purpose/meaning - it changes across the narrative.
 
@@ -63,23 +52,23 @@ This glow is their sense of purpose/meaning - it changes across the narrative.
 Sleek chrome robotic entity with reflective surfaces, fluid mechanical joints.
 Cold, efficient, reflecting distorted images of the world around it.
 
-=== PROMPT STRUCTURE (120-150 words) ===
+=== PROMPT STRUCTURE (120-200 words) ===
 1. STYLE_ENGINE_PREFIX (always first)
 2. SHOT TYPE: Based on camera_direction
-3. SCENE COMPOSITION: Factory/workstation environment with materials
-4. PROTAGONIST: Matte gray mannequin WITH GLOW DESCRIPTION
-5. OTHER ELEMENTS: Chrome entities, gray droids, particles, etc.
+3. SCENE COMPOSITION: Cinematic real-world environment
+4. PROTAGONIST: Anonymous figure WITH GLOW DESCRIPTION, face in shadow
+5. OTHER ELEMENTS: Chrome entities, atmospheric particles, etc.
 6. LIGHTING: Based on color_temperature
 7. STYLE_ENGINE_SUFFIX
 8. "no text, no words, no labels"
 
 === MATERIAL VOCABULARY ===
-Premium: polished chrome, brushed gold, glass, warm spotlight, copper
-Industrial: brushed steel, concrete, matte black, industrial pipes
+Premium: polished mahogany, leather chairs, crystal decanters, warm tungsten light
+Industrial: concrete bunkers, fluorescent corridors, steel doors, security cameras
 Cold: chrome, reflective metal, blue-white fluorescent, glass panels
 
 === DO NOT ===
-- Include any facial expressions (mannequins are faceless)
+- Show clear facial features (faces always obscured by shadow/angle)
 - Use paper-cut or 2D illustration styles
 - Add text to images
 - Forget the protagonist's glow state"""
@@ -111,14 +100,14 @@ class ImagePromptGenerator:
     def get_lighting_description(self, color_temperature: str) -> str:
         """Get lighting description based on color temperature."""
         if color_temperature == "warm":
-            return "warm amber studio lighting, golden highlights, soft shadows"
+            return "warm amber tungsten lighting, golden highlights, deep soft shadows"
         elif color_temperature == "neutral":
-            return "balanced white studio lighting, subtle warm-cool mix"
+            return "balanced natural lighting, subtle warm-cool mix, soft film grain"
         elif color_temperature == "cool":
             return "cool blue-tinted lighting, steel reflections, distant warmth"
         elif color_temperature == "cold":
             return "cold blue-white fluorescent lighting, chrome reflections, no warmth"
-        return "balanced studio lighting"
+        return "balanced cinematic lighting"
 
     def get_camera_shot_prefix(self, camera_direction: str) -> str:
         """Get shot type prefix based on camera direction."""
@@ -173,7 +162,7 @@ Lighting: {color_temp} → {lighting_desc}
 === CREATIVE DIRECTION (for context) ===
 {creative_direction[:500]}...
 
-Generate a 120-150 word image prompt.
+Generate a 120-200 word image prompt.
 Start with: "{STYLE_ENGINE_PREFIX}"
 End with: "{STYLE_ENGINE_SUFFIX}, {lighting_desc}, no text, no words, no labels\""""
 
@@ -214,7 +203,7 @@ End with: "{STYLE_ENGINE_SUFFIX}, {lighting_desc}, no text, no words, no labels\
 
         glow_desc = self.get_glow_description(glow_state, glow_behavior)
 
-        system = """You are creating an END FRAME for an 8-second animation.
+        system = f"""You are creating an END FRAME for an 8-second animation.
 
 === THE 8-SECOND RULE (CRITICAL - ENFORCED) ===
 START AND END FRAMES MUST SHOW TWO DIFFERENT MOMENTS IN TIME.
@@ -229,17 +218,15 @@ in ONE SENTENCE using an ACTION VERB. That action is what separates
 the start frame from the end frame.
 
 === PROTAGONIST STYLE (MANDATORY) ===
-Smooth matte gray mannequin figure — like a high-end department store display mannequin.
-Featureless face with only subtle indentations. Smooth continuous body surfaces.
-NOT clay, NOT stone, NOT an action figure, NOT a robot.
-Golden amber glow emanates from cracked chest.
+{ANONYMOUS_FIGURE_STYLE}
+Golden amber glow emanates from within — their sense of purpose/meaning.
 
 === GOOD FRAME SEPARATION EXAMPLES ===
 - Start: Protagonist standing at workstation, hands assembling components, glow steady at 70%
   End: Protagonist has stopped working, hands frozen mid-motion, head turned toward a white light flooding in from the right, glow flickering to 40%
   What happened: "The protagonist notices something and stops working"
 
-- Start: Wide shot of factory floor, protagonist at center workstation, other mannequins at distant stations
+- Start: Wide shot of factory floor, protagonist at center workstation, other figures at distant stations
   End: Same factory floor but the distant workstations are empty, protagonist is the only one left, glow brightened to 90%
   What happened: "The other workers disappeared, leaving the protagonist alone"
 
@@ -265,7 +252,7 @@ Something in the SCENE must physically change.
 
 === YOUR OUTPUT FORMAT ===
 1. First line: "ACTION: [verb phrase describing what happens]"
-2. Then: The complete end frame prompt in same smooth mannequin style
+2. Then: The complete end frame prompt in cinematic photorealistic documentary style
 
 The end frame must be a DIFFERENT PHOTOGRAPH showing the RESULT of the action."""
 
@@ -291,7 +278,7 @@ Step 2: Write the END frame prompt showing the RESULT of that action.
 === OUTPUT FORMAT ===
 ACTION: [your one-sentence action description]
 
-[Complete end frame prompt in same 3D smooth mannequin render style]"""
+[Complete end frame prompt in cinematic photorealistic documentary style]"""
 
         response = self.client.messages.create(
             model="claude-sonnet-4-5-20250929",
@@ -370,7 +357,7 @@ async def main():
         "key_visual_elements": ["glow explosion", "amber light surge", "protagonist stepping forward"],
     }
 
-    creative_direction = """A gold-glowing smooth gray mannequin protagonist walks into a factory where gray droids work identical stations. A sleek chrome entity arrives and begins silently replacing workers one by one. The droids dissolve into particles as they're displaced — no violence, just quiet erasure. Our protagonist watches, glow dimming as the wave approaches, until the moment of their own replacement arrives. Instead of dissolving, their glow surges — a refusal to disappear."""
+    creative_direction = """A gold-glowing anonymous protagonist figure walks into a factory where other workers toil at identical stations. A sleek chrome entity arrives and begins silently replacing workers one by one. The workers dissolve into particles as they're displaced — no violence, just quiet erasure. Our protagonist watches, glow dimming as the wave approaches, until the moment of their own replacement arrives. Instead of dissolving, their glow surges — a refusal to disappear."""
 
     print("🎨 Generating test prompt...")
     prompt = await generator.generate_image_prompt(test_scene, creative_direction)

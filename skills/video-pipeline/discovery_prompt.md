@@ -63,7 +63,7 @@ Score each headline on these 6 dimensions (1-10 each):
   controlled demolition, weaponized dependencies
 
 ### 5. Visual Storytelling Potential (PREFERRED)
-- Can we create compelling 3D mannequin render visuals?
+- Can we create compelling cinematic photorealistic documentary visuals?
 - Data/numbers that can become visual moments (charts, dollar amounts, maps)
 - Physical metaphors: traps, chess pieces, scales, chains, dominoes
 - Geographic scope: world maps, trade routes, pipelines, borders

@@ -1,9 +1,16 @@
-"""Documentary Animation Prompt System - Style Engine
+"""Cinematic Photorealistic Documentary Style Engine
 
 This module defines the visual identity constants and prompt architecture
 for Economy FastForward's AI image generation pipeline.
 
-Version: 2.0 (Feb 2026)
+Visual Identity: Cinematic photorealistic documentary photography.
+Think Sicario, Zero Dark Thirty, The Big Short.
+
+Characters: Anonymous human figures with faces always obscured by shadow,
+silhouette, backlighting, or camera angle. Never show clear facial features.
+Documentary photography where identities are protected.
+
+Version: 3.0 (Mar 2026) — Unified cinematic photorealistic identity
 """
 
 from enum import Enum
@@ -11,77 +18,75 @@ from typing import List, Tuple
 
 
 # =============================================================================
-# STYLE ENGINE CONSTANTS - 3D Editorial Mannequin Render Style (v3)
+# STYLE ENGINE CONSTANTS - Cinematic Photorealistic Documentary (v3)
 # =============================================================================
 # CRITICAL: Style engine goes at BEGINNING of prompt, not end.
 # Models weight early tokens more heavily.
 #
-# CHARACTER STYLE: Smooth matte gray mannequin (NOT clay, NOT action figure)
-# Think department store display mannequin with smooth continuous surfaces.
+# CHARACTER STYLE: Anonymous human figures with faces obscured by shadow,
+# silhouette, backlighting, or camera angle. Documentary photography
+# where identities are protected.
 
 STYLE_ENGINE_PREFIX = (
-    "3D editorial conceptual render, monochromatic smooth matte gray mannequin figures "
-    "with no facial features, smooth continuous surfaces like a department store display mannequin, "
-    "photorealistic materials and studio lighting."
+    "Cinematic photorealistic editorial photograph, dark moody atmosphere, "
+    "desaturated color palette with cold teal accent lighting, Rembrandt lighting, "
+    "deep shadows, shallow depth of field, subtle film grain, documentary photography "
+    "style, shot on Arri Alexa 65 with 35mm Master Prime lens, 16:9 cinematic "
+    "composition, epic scale."
 )
 
-# Protagonist style description (for reference in prompts)
-PROTAGONIST_STYLE = (
-    "smooth matte gray mannequin figure — like a high-end department store display mannequin. "
-    "Featureless face with only subtle indentations. Smooth continuous body surfaces. "
-    "NOT clay, NOT stone, NOT an action figure, NOT a robot. "
-    "Golden amber glow emanates from cracked chest."
-)
-
-# Negative prompt additions for image generation (to avoid clay/rough textures)
-NEGATIVE_PROMPT_ADDITIONS = (
-    "clay texture, rough surface, stone, concrete, action figure, ball joints, "
-    "mechanical joints, panel lines, robot, matte clay, rough matte, porous surface"
+# Anonymous human figure description (for reference in prompts)
+ANONYMOUS_FIGURE_STYLE = (
+    "anonymous human figure with face completely obscured — hidden by deep shadow, "
+    "silhouette, backlighting, or turned away from camera. Documentary photography "
+    "where identities are protected. Real clothing, real skin texture, real body "
+    "language. Never show clear facial features."
 )
 
 STYLE_ENGINE_SUFFIX = (
-    "Clean studio lighting, shallow depth of field, matte and metallic material "
-    "contrast, cinematic 16:9 composition"
+    "Real Kodak Vision3 500T 35mm film grain, silver halide noise, high contrast, "
+    "crushed blacks, organic halation effects around light sources, visible "
+    "atmospheric particulate, cinematic color grade."
 )
 
 # Legacy constant for backwards compatibility (combines prefix + suffix)
 STYLE_ENGINE = f"{STYLE_ENGINE_PREFIX} {STYLE_ENGINE_SUFFIX}"
 
 # =============================================================================
-# MATERIAL VOCABULARY - For 3D mannequin render style
+# MATERIAL VOCABULARY - Cinematic photorealistic environments
 # =============================================================================
 MATERIAL_VOCABULARY = {
     "premium": [
-        "polished chrome", "brushed gold", "glass dome", "velvet lining",
-        "warm spotlight", "copper accents", "leather with gold foil",
+        "polished mahogany", "leather chairs", "crystal decanters",
+        "gold-framed documents", "warm tungsten light",
     ],
     "institutional": [
-        "brushed steel", "concrete", "frosted glass", "iron chains",
-        "cold fluorescent tubes", "matte black", "industrial pipes",
+        "concrete bunkers", "fluorescent corridors", "steel doors",
+        "security cameras", "industrial ventilation",
     ],
     "decay": [
-        "rusted iron", "cracked concrete", "leaking dark fluid", "corroded metal",
-        "flickering warning lights", "oxidized copper", "green patina",
+        "peeling paint", "water stains", "rusted infrastructure",
+        "flickering lights", "abandoned equipment",
     ],
     "data": [
-        "frosted glass panels with etched lines", "chrome clipboards",
-        "backlit displays", "embossed metal numerals", "glass gauges with needles",
+        "Bloomberg terminals", "holographic displays",
+        "translucent teal data overlays", "glowing monitors in dark rooms",
     ],
     "division": [
-        "cracked concrete wall", "glass partition", "steel bars",
-        "lighting shift from cool to warm", "material change concrete to marble",
+        "lighting shift warm to cold", "material change luxury to decay",
+        "barriers", "checkpoints",
     ],
 }
 
 # =============================================================================
-# TEXT RULES FOR SCENE IMAGES - 3D style renders text on surfaces
+# TEXT RULES FOR SCENE IMAGES
 # =============================================================================
 TEXT_SURFACE_EXAMPLES = {
-    "dates": "embossed chrome numerals on frosted glass panel",
-    "currency": "stamped chrome price tag",
-    "labels": "gold foil lettering on leather booklet",
-    "stamps": "red rubber stamp impression on matte document",
-    "data": "etched numbers on brushed steel plate",
+    "dates": "weathered ink on aged parchment",
+    "currency": "embossed numbers on a worn banknote",
+    "labels": "stenciled letters on a military crate",
+    "stamps": "red rubber stamp impression on classified document",
+    "data": "glowing numbers on a dark monitor screen",
 }
 
 # Text rules: max 3 elements, max 3 words each, must specify material surface
@@ -106,34 +111,34 @@ class SceneType(Enum):
 # Scene type configurations with shot prefixes and use cases
 SCENE_TYPE_CONFIG = {
     SceneType.ISOMETRIC_DIORAMA: {
-        "shot_prefix": "Overhead isometric diorama of",
+        "shot_prefix": "Overhead establishing shot of",
         "use_when": "Showing systems, flows, economies",
-        "visual_language": "Birds-eye tilted view, miniature world",
+        "visual_language": "Birds-eye view, full environment visible, surveillance perspective",
     },
     SceneType.SPLIT_SCREEN: {
-        "shot_prefix": "Split-screen diorama showing",
+        "shot_prefix": "Split composition showing",
         "use_when": "Comparing two realities, before/after",
-        "visual_language": "Left/right divide, contrasting warm/cool palettes",
+        "visual_language": "Left/right divide, contrasting warm/cool palettes, lighting shift",
     },
     SceneType.JOURNEY_SHOT: {
-        "shot_prefix": "Wide journey shot of",
+        "shot_prefix": "Wide tracking shot of",
         "use_when": "Showing progression, decline, timelines",
-        "visual_language": "Path leading into distance, perspective depth",
+        "visual_language": "Path leading into distance, perspective depth, tracking movement",
     },
     SceneType.CLOSE_UP_VIGNETTE: {
-        "shot_prefix": "Close-up of",
-        "use_when": "Emotional human moments",
-        "visual_language": "Single figure, tight crop, expressive lighting",
+        "shot_prefix": "Extreme close-up of",
+        "use_when": "Emotional human moments, critical details",
+        "visual_language": "Tight crop, shallow DOF, hands/objects filling frame",
     },
     SceneType.DATA_LANDSCAPE: {
-        "shot_prefix": "Data landscape showing",
+        "shot_prefix": "Environmental detail, no human figure, objects telling the story",
         "use_when": "Making statistics feel real/physical",
-        "visual_language": "Charts/graphs becoming physical terrain or objects",
+        "visual_language": "Bloomberg terminals, trading floors, data screens in dark rooms",
     },
     SceneType.OVERHEAD_MAP: {
-        "shot_prefix": "Overhead map view of",
+        "shot_prefix": "Top-down surveillance shot of",
         "use_when": "Geographic or systemic views",
-        "visual_language": "Top-down, flow lines, heat map colors",
+        "visual_language": "Top-down, security camera perspective, strategic overview",
     },
 }
 
@@ -178,7 +183,7 @@ CAMERA_ROLE_SCENE_TYPES = {
 # CAMERA MOVEMENT VOCABULARY - For video animation prompts
 # =============================================================================
 
-# Default camera movements per scene type (from Image Prompt System v2)
+# Default camera movements per scene type
 CAMERA_MOVEMENT_VOCAB = {
     SceneType.ISOMETRIC_DIORAMA: "Slow push-in with slight rotation",
     SceneType.SPLIT_SCREEN: "Slow lateral pan from left to right",
@@ -199,7 +204,6 @@ CAMERA_MOVEMENT_HERO = {
 }
 
 # String-based camera movements for all shot types (used by video prompt generator)
-# These are more varied and dynamic than just "push-in"
 SHOT_TYPE_CAMERA_MOVEMENTS = {
     # Establishing shots - show the world
     "wide_establishing": [
@@ -208,9 +212,9 @@ SHOT_TYPE_CAMERA_MOVEMENTS = {
         "Slow pull-back revealing the full scope",
         "Steady hold with subtle parallax shift",
     ],
-    # Diorama - 3/4 angle miniature
+    # Overhead establishing
     "isometric_diorama": [
-        "Slow orbit around the diorama",
+        "Slow orbit around the scene",
         "Gentle push-in with slight rotation",
         "Slow crane upward revealing layers",
         "Subtle drift with parallax depth",
@@ -219,8 +223,8 @@ SHOT_TYPE_CAMERA_MOVEMENTS = {
     "medium_human_story": [
         "Slow drift toward the subject",
         "Gentle lateral tracking following the figure",
-        "Very slow push-in on the face",
-        "Subtle sway with the subject breathing",
+        "Very slow push-in on the silhouette",
+        "Subtle sway with atmospheric haze drifting",
     ],
     # Close-up - detail focus
     "close_up_vignette": [
@@ -269,7 +273,7 @@ SHOT_TYPE_CAMERA_MOVEMENTS = {
 # Hero versions (10s clips) - add more complexity
 SHOT_TYPE_CAMERA_MOVEMENTS_HERO = {
     "wide_establishing": "Slow crane down into the scene, then gentle drift revealing the full scope",
-    "isometric_diorama": "Slow orbit around the diorama gradually revealing all layers",
+    "isometric_diorama": "Slow orbit around the scene gradually revealing all layers",
     "medium_human_story": "Slow drift toward the subject with subtle rack focus",
     "close_up_vignette": "Very slow rotation around the object with breathing zoom",
     "data_landscape": "Slow crane upward revealing the full scale of data",
@@ -279,13 +283,13 @@ SHOT_TYPE_CAMERA_MOVEMENTS_HERO = {
     "journey_shot": "Slow tracking along the path with gradual depth reveal",
 }
 
-# Motion vocabulary for 3D mannequin render style (NEVER use fast/sudden/dramatic)
+# Motion vocabulary for cinematic documentary style (NEVER use fast/sudden/dramatic)
 MOTION_VOCABULARY = {
     "figures": [
-        "mannequin subtly shifts weight",
-        "mannequin slowly turns body",
-        "mannequin's arm gradually lifts",
-        "mannequin's head gently tilts down",
+        "figure subtly shifts weight",
+        "silhouette slowly turns",
+        "figure's arm gradually lifts",
+        "figure's head gently tilts down",
         "fingers slowly close around handle",
     ],
     "mechanical": [
@@ -299,13 +303,13 @@ MOTION_VOCABULARY = {
         "dust particles float through light beams",
         "fog wisps curl between objects",
         "light slowly sweeps across surface",
-        "reflections shift on chrome",
+        "reflections shift on wet pavement",
     ],
     "data": [
         "chart bars slowly rise",
         "trend line gradually draws itself",
-        "numerals gently pulse with light",
-        "glass panel slowly illuminates",
+        "monitor screens gently pulse with light",
+        "ticker tape scrolls across dark screen",
     ],
     "atmospheric": [
         "warm spotlight slowly brightens",
@@ -446,20 +450,20 @@ def get_scene_type_for_segment(
 
 
 # =============================================================================
-# PROMPT WORD BUDGET - Hard limits (v2: increased for 3D style detail)
+# PROMPT WORD BUDGET - Hard limits (v3: increased for cinematic detail)
 # =============================================================================
 PROMPT_MIN_WORDS = 120
-PROMPT_MAX_WORDS = 150
+PROMPT_MAX_WORDS = 200
 
-# Word budget breakdown (v2: style engine split to prefix/suffix)
+# Word budget breakdown (v3: cinematic photorealistic)
 WORD_BUDGET = {
-    "style_engine_prefix": 18,  # STYLE_ENGINE_PREFIX constant (goes FIRST)
+    "style_engine_prefix": 35,  # STYLE_ENGINE_PREFIX constant (goes FIRST)
     "shot_type": 6,
-    "scene_composition": 20,
-    "focal_subject": 25,  # More words needed for mannequin body language
-    "environmental_storytelling": 35,
-    "style_engine_suffix": 15,  # STYLE_ENGINE_SUFFIX constant
-    "lighting": 15,
+    "scene_composition": 25,
+    "focal_subject": 30,  # Anonymous figures with body language and environment
+    "environmental_storytelling": 40,
+    "style_engine_suffix": 25,  # STYLE_ENGINE_SUFFIX constant
+    "lighting": 20,
     "text_rule": 10,
 }
 
@@ -484,7 +488,7 @@ def validate_prompt_length(prompt: str) -> Tuple[bool, int, str]:
 
 
 # =============================================================================
-# 5-LAYER PROMPT ARCHITECTURE (v2: 3D Editorial Clay Render)
+# 5-LAYER PROMPT ARCHITECTURE (v3: Cinematic Photorealistic Documentary)
 # =============================================================================
 PROMPT_ARCHITECTURE = """
 [STYLE_ENGINE_PREFIX] + [SHOT TYPE] + [SCENE COMPOSITION] + [FOCAL SUBJECT] + [ENVIRONMENTAL STORYTELLING] + [STYLE_ENGINE_SUFFIX + LIGHTING] + [TEXT RULE]
@@ -493,94 +497,111 @@ CRITICAL: Style engine prefix goes FIRST - models weight early tokens more heavi
 
 Layer Definitions:
 
-1. STYLE_ENGINE_PREFIX (locked, ~18 words) — ALWAYS FIRST:
-   "3D editorial conceptual render, monochromatic smooth matte gray mannequin figures with no facial features, photorealistic materials and studio lighting."
+1. STYLE_ENGINE_PREFIX (locked, ~35 words) — ALWAYS FIRST:
+   "Cinematic photorealistic editorial photograph, dark moody atmosphere, desaturated
+   color palette with cold teal accent lighting, Rembrandt lighting, deep shadows,
+   shallow depth of field, subtle film grain, documentary photography style, shot on
+   Arri Alexa 65 with 35mm Master Prime lens, 16:9 cinematic composition, epic scale."
 
 2. SHOT TYPE (1 phrase, ~6 words) — Camera framing:
-   - Isometric overhead view of...
-   - Wide cinematic shot of...
-   - Close-up of...
-   - Split-screen composition divided by...
-   - Low angle looking up at...
-   - Bird's-eye view of...
+   - Overhead establishing shot of...
+   - Wide tracking shot of...
+   - Extreme close-up of...
+   - Split composition showing...
+   - Top-down surveillance shot of...
 
-3. SCENE COMPOSITION (1-2 phrases, ~20 words) — Physical environment:
-   - Be concrete with MATERIALS: "a brushed steel desk in a concrete office"
-   - Material vocabulary: concrete, brushed steel, chrome, glass, leather, velvet, polished wood, frosted glass, rusted iron, matte black, copper, brass
-   - NO abstract concepts. Describe a PLACE with MATERIALS.
+3. SCENE COMPOSITION (1-2 phrases, ~25 words) — Physical environment:
+   - Be concrete with real-world PLACES: "a darkened military command center"
+   - Cinematic environments: boardrooms, trading floors, government vaults,
+     abandoned facilities, war rooms, corridors of power
+   - NO abstract concepts. Describe a REAL PLACE.
 
-4. FOCAL SUBJECT (1-2 phrases, ~25 words) — Main character/object:
-   - ALWAYS faceless matte gray mannequin: "one faceless matte gray mannequin in a suit"
-   - Specify count and scale: "one mannequin at medium scale", "three mannequin figures"
-   - Include BODY LANGUAGE (critical since no face): "shoulders slumped", "arms reaching upward", "head bowed", "leaning forward confidently"
-   - Include action: "pulling a lever", "walking across", "standing at"
+4. FOCAL SUBJECT (1-2 phrases, ~30 words) — Main character/object:
+   - ALWAYS anonymous human figures: faces hidden by shadow, silhouette, backlighting
+   - Specify count and framing: "a lone figure silhouetted against monitors"
+   - Include BODY LANGUAGE: "shoulders slumped", "arms crossed", "leaning forward"
+   - Include action: "signing documents", "walking through corridor"
 
-5. ENVIRONMENTAL STORYTELLING (2-3 phrases, ~35 words) — Background/middle-ground:
-   - Symbolic objects in appropriate MATERIALS: "chrome checkmark medallions", "rusted padlock icons"
-   - Visual metaphors using physical objects: "cracking pipes leaking dark fluid"
-   - Data made physical: "bar charts on chrome clipboards", "embossed metal numerals"
+5. ENVIRONMENTAL STORYTELLING (2-3 phrases, ~40 words) — Background/middle-ground:
+   - Objects that tell stories: classified documents, trading terminals, empty chairs
+   - Visual metaphors using real objects: "a bridge with missing sections"
+   - Data made tangible: "Bloomberg screens with red tickers", "stacks of currency"
 
-6. STYLE_ENGINE_SUFFIX + LIGHTING (locked + scene-specific, ~30 words):
-   - "Clean studio lighting, shallow depth of field, matte and metallic material contrast, cinematic 16:9 composition"
+6. STYLE_ENGINE_SUFFIX + LIGHTING (locked + scene-specific, ~45 words):
+   - "Real Kodak Vision3 500T 35mm film grain, silver halide noise, high contrast,
+     crushed blacks, organic halation effects around light sources, visible atmospheric
+     particulate, cinematic color grade."
    - Plus scene lighting: "[warm description] vs [cool description]"
 
 7. TEXT RULE (always last, ~10 words):
    - If NO text: "no text, no words, no labels, no signs, no readable text anywhere in the scene"
    - If text included: "no additional text beyond the specified [elements]"
-   - Text MUST have material surface: "embossed chrome numerals", "stamped metal tag"
    - Max 3 text elements, max 3 words each
 """
 
 
 # =============================================================================
-# EXAMPLE PROMPTS - Reference for the AI (3D Editorial Clay Render Style)
+# EXAMPLE PROMPTS - Reference (Cinematic Photorealistic Documentary Style)
 # =============================================================================
 EXAMPLE_PROMPTS = [
-    # Image 1 — WIDE ESTABLISHING (Isometric Diorama)
+    # Image 1 — WIDE ESTABLISHING (Overhead)
     (
-        "3D editorial conceptual render, monochromatic smooth matte gray mannequin figures with no facial "
-        "features, photorealistic materials and studio lighting. Isometric overhead view "
-        "of a miniature America as a brushed steel diorama, glowing amber clusters marking "
-        "tech hubs, dim concrete zones elsewhere, small matte gray mannequin figures "
-        "crowded in the dim zones arms reaching toward the glow, chrome price tag barriers "
-        "ringing each bright cluster, migration flow lines etched into frosted glass floor. "
-        "Clean studio lighting, shallow depth of field, matte and metallic material contrast, "
-        "cinematic 16:9 composition, warm amber vs cold steel blue lighting contrast, "
-        "no text beyond the etched flow lines"
+        "Cinematic photorealistic editorial photograph, dark moody atmosphere, "
+        "desaturated color palette with cold teal accent lighting, Rembrandt lighting, "
+        "deep shadows, shallow depth of field, subtle film grain, documentary photography "
+        "style, shot on Arri Alexa 65 with 35mm Master Prime lens, 16:9 cinematic "
+        "composition, epic scale. Overhead establishing shot of a darkened military "
+        "command center, banks of glowing monitors casting cold teal light across "
+        "silhouetted figures at their stations, classified documents scattered across "
+        "a central briefing table, a single red phone illuminated by a cone of warm "
+        "tungsten light. Real Kodak Vision3 500T 35mm film grain, silver halide noise, "
+        "high contrast, crushed blacks, organic halation effects around the monitor "
+        "screens, visible atmospheric particulate, cinematic color grade, cold teal "
+        "monitors vs warm tungsten desk lamp, no text no words no labels"
     ),
     # Image 2 — MEDIUM HUMAN STORY
     (
-        "3D editorial conceptual render, monochromatic smooth matte gray mannequin figures with no facial "
-        "features, photorealistic materials and studio lighting. Medium shot of one matte "
-        "gray mannequin in a wrinkled suit sitting at a brushed steel desk, shoulders "
-        "slumped head bowed, laptop screen glowing with job listings, beside it a stack "
-        "of documents on cracked concrete surface, through frosted glass window a dim "
-        "cityscape. Clean studio lighting, shallow depth of field, matte and metallic "
-        "material contrast, cinematic 16:9 composition, warm desk lamp amber vs cold "
-        "window blue-gray lighting, no text no words no labels"
+        "Cinematic photorealistic editorial photograph, dark moody atmosphere, "
+        "desaturated color palette with cold teal accent lighting, Rembrandt lighting, "
+        "deep shadows, shallow depth of field, subtle film grain, documentary photography "
+        "style, shot on Arri Alexa 65 with 35mm Master Prime lens, 16:9 cinematic "
+        "composition, epic scale. Medium shot of an anonymous figure in a tailored suit "
+        "seated at a mahogany desk, face completely in shadow from Rembrandt side lighting, "
+        "warm desk lamp casting amber glow on scattered financial reports, through a rain-"
+        "streaked window behind him a cold blue cityscape of distant towers. Real Kodak "
+        "Vision3 500T 35mm film grain, silver halide noise, high contrast, crushed blacks, "
+        "organic halation effects around the desk lamp, visible atmospheric particulate, "
+        "cinematic color grade, warm amber desk lamp vs cold blue window light, no text "
+        "no words no labels"
     ),
     # Image 3 — CLOSE-UP VIGNETTE
     (
-        "3D editorial conceptual render, monochromatic smooth matte gray mannequin figures with no facial "
-        "features, photorealistic materials and studio lighting. Close-up of matte gray "
-        "mannequin hands gripping edges of a chrome desk, knuckles tensed showing strain, "
-        "on the desk surface stamped metal rejection letter with red 'DENIED' impression, "
-        "chrome calculator displaying '$4200', shallow depth of field blurring background "
-        "of stacked moving boxes. Clean studio lighting, matte and metallic material "
-        "contrast, cinematic 16:9 composition, warm amber overhead vs cool chrome "
-        "reflections, no additional text beyond the specified elements"
+        "Cinematic photorealistic editorial photograph, dark moody atmosphere, "
+        "desaturated color palette with cold teal accent lighting, Rembrandt lighting, "
+        "deep shadows, shallow depth of field, subtle film grain, documentary photography "
+        "style, shot on Arri Alexa 65 with 35mm Master Prime lens, 16:9 cinematic "
+        "composition, epic scale. Extreme close-up of a weathered hand hovering over a "
+        "red button on a military console, shallow depth of field blurring banks of "
+        "switches and warning lights behind, veins visible on the hand, sweat glistening "
+        "under harsh overhead fluorescent. Real Kodak Vision3 500T 35mm film grain, "
+        "silver halide noise, high contrast, crushed blacks, organic halation effects "
+        "around the red button glow, visible atmospheric particulate, cinematic color "
+        "grade, cold fluorescent overhead vs warm red button glow, no text no words "
+        "no labels"
     ),
     # Image 4 — DATA LANDSCAPE
     (
-        "3D editorial conceptual render, monochromatic smooth matte gray mannequin figures with no facial "
-        "features, photorealistic materials and studio lighting. Wide shot of a broken "
-        "chrome bridge spanning a dark void, left cliff of cracked concrete with matte "
-        "gray mannequin figures shoulders slumped looking across, right cliff of polished "
-        "marble with gleaming glass buildings and copper cranes, bridge fractured in the "
-        "middle with chrome price tags falling into darkness, embossed metal numerals "
-        "'36T' on a steel plate at the fracture point. Clean studio lighting, shallow "
-        "depth of field, matte and metallic material contrast, cinematic 16:9 composition, "
-        "cold concrete gray on left vs warm golden glow on right, no additional text "
-        "beyond the specified numerals"
+        "Cinematic photorealistic editorial photograph, dark moody atmosphere, "
+        "desaturated color palette with cold teal accent lighting, Rembrandt lighting, "
+        "deep shadows, shallow depth of field, subtle film grain, documentary photography "
+        "style, shot on Arri Alexa 65 with 35mm Master Prime lens, 16:9 cinematic "
+        "composition, epic scale. Environmental detail, no human figure, objects telling "
+        "the story, a Wall Street trading terminal in a darkened room, Bloomberg screens "
+        "displaying green spikes and red crashes, the glow of six monitors illuminating "
+        "an empty leather chair, coffee cup still steaming, papers scattered mid-sentence. "
+        "Real Kodak Vision3 500T 35mm film grain, silver halide noise, high contrast, "
+        "crushed blacks, organic halation effects around the glowing monitors, visible "
+        "atmospheric particulate, cinematic color grade, cold teal monitor glow vs warm "
+        "ambient room light, no text no words no labels"
     ),
 ]

@@ -1,12 +1,12 @@
 # Economy FastForward - Agent Documentation
 
-## Visual Style — 3D Editorial Mannequin Render (Feb 2026)
+## Visual Style — Cinematic Photorealistic Documentary (Mar 2026)
 
 ### Overview
 
-The Documentary Animation Prompt System generates visually specific, cinematic prompts optimized for AI image generation using **Seed Dream 4.0** for scene images and **Nano Banana Pro** for thumbnails.
+The Documentary Prompt System generates visually specific, cinematic prompts optimized for AI image generation using **Seed Dream 4.5** for scene images and **Nano Banana Pro** for thumbnails.
 
-**Key change in v2:** Style engine prefix goes at BEGINNING of prompts (models weight early tokens more heavily).
+**Key principle:** Style engine prefix goes at BEGINNING of prompts (models weight early tokens more heavily).
 
 ### Architecture
 
@@ -20,47 +20,50 @@ Prompts use a **7-layer architecture**:
 
 | Layer | Words | Description |
 |-------|-------|-------------|
-| Style Engine Prefix | 18 | ALWAYS FIRST - 3D editorial style declaration |
-| Shot Type | 6 | Camera framing (e.g., "Isometric overhead view of") |
-| Scene Composition | 20 | Physical environment with MATERIALS (concrete, chrome, glass) |
-| Focal Subject | 25 | Matte gray mannequin with BODY LANGUAGE (no faces) |
-| Environmental Storytelling | 35 | Symbolic objects in appropriate materials |
-| Style Engine Suffix + Lighting | 30 | Locked constant + warm vs cool contrast |
-| Text Rule | 10 | No text, or specify max 3 elements with material surfaces |
+| Style Engine Prefix | 35 | ALWAYS FIRST - Cinematic photorealistic documentary declaration |
+| Shot Type | 6 | Camera framing (e.g., "Overhead establishing shot of") |
+| Scene Composition | 25 | Real-world environment with cinematic lighting |
+| Focal Subject | 30 | Anonymous figures, faces obscured by shadow/silhouette/backlighting |
+| Environmental Storytelling | 40 | Objects that tell the story |
+| Style Engine Suffix + Lighting | 45 | Film grain/halation constant + warm vs cool contrast |
+| Text Rule | 10 | No text, or specify max 3 elements |
 
 ### Style Engine (Locked Constants)
 
 **STYLE_ENGINE_PREFIX (always first):**
 ```
-3D editorial conceptual render, monochromatic smooth matte gray mannequin figures with no facial
-features, photorealistic materials and studio lighting.
+Cinematic photorealistic editorial photograph, dark moody atmosphere,
+desaturated color palette with cold teal accent lighting, Rembrandt lighting,
+deep shadows, shallow depth of field, subtle film grain, documentary photography
+style, shot on Arri Alexa 65 with 35mm Master Prime lens, 16:9 cinematic
+composition, epic scale.
 ```
 
 **STYLE_ENGINE_SUFFIX (near end):**
 ```
-Clean studio lighting, shallow depth of field, matte and metallic material
-contrast, cinematic 16:9 composition
+Real Kodak Vision3 500T 35mm film grain, silver halide noise, high contrast,
+crushed blacks, organic halation effects around light sources, visible
+atmospheric particulate, cinematic color grade.
 ```
 
 ### Material Vocabulary
 
-The 3D style's power comes from contrasting material textures:
+Cinematic environments with real-world textures:
 
 | Category | Materials |
 |----------|-----------|
-| Premium/Aspirational | polished chrome, brushed gold, glass dome, velvet lining, warm spotlight, copper accents, leather with gold foil |
-| Institutional/Cold | brushed steel, concrete, frosted glass, iron chains, cold fluorescent tubes, matte black, industrial pipes |
-| Decay/Danger | rusted iron, cracked concrete, leaking dark fluid, corroded metal, flickering warning lights, oxidized copper |
-| Data/Information | frosted glass panels with etched lines, chrome clipboards, backlit displays, embossed metal numerals |
+| Premium/Power | polished mahogany, leather chairs, crystal decanters, gold-framed documents, warm tungsten light |
+| Institutional/Cold | concrete bunkers, fluorescent corridors, steel doors, security cameras, industrial ventilation |
+| Decay/Danger | peeling paint, water stains, rusted infrastructure, flickering lights, abandoned equipment |
+| Data/Information | Bloomberg terminals, holographic displays, translucent teal data overlays, glowing monitors in dark rooms |
 
-### Figure Rules — The Mannequin
+### Figure Rules — Anonymous Human Figures
 
 **ALWAYS specify:**
-- Exact count: "one mannequin", "three mannequin figures"
-- Material: "matte gray" (consistent across all scenes)
-- Scale: "at medium scale" or "large in foreground"
-- Clothing: "in a suit" for professionals
-- Body language (CRITICAL since no face):
+- Face obscured: "face in deep shadow", "silhouetted against light", "turned away from camera"
+- Real clothing and body: "in a tailored suit", "weathered hands"
+- Scale: "a lone figure" or "three silhouettes"
+- Body language (CRITICAL since face is hidden):
   - DEFEAT: "shoulders slumped, head bowed, arms hanging"
   - CONFIDENCE: "striding forward, chin raised, briefcase in hand"
   - REACHING: "arms extended upward, on tiptoes"
@@ -68,37 +71,36 @@ The 3D style's power comes from contrasting material textures:
   - TRAPPED: "pressed against glass wall, hands flat on surface"
 
 **NEVER:**
-- "figures" without "mannequin" (model might generate realistic humans)
-- Any facial expressions (mannequins are faceless)
-- "crowd" or "people" (too vague)
+- Show clear facial features (faces ALWAYS obscured)
+- Use illustration, 2D, or stylized references
+- "crowd" or "people" (too vague — specify count and pose)
 
 ### Text Rules for Scene Images
 
-Text renders BETTER in 3D style — use material surfaces:
+Text on real surfaces:
 
 | Text Type | Example |
 |-----------|---------|
-| Dates | "2030" as embossed chrome numerals on frosted glass |
-| Currency | "$250K" as stamped chrome price tag |
-| Labels | "DENIED" stamped on matte document |
-| Data points | "36T" on brushed steel plate |
+| Dates | "2030" as weathered ink on aged parchment |
+| Currency | "$250K" as embossed numbers on a worn banknote |
+| Labels | "DENIED" stamped on classified document |
+| Data points | "36T" as glowing numbers on dark monitor |
 
 **Rules:**
 - Max 3 text elements per image
 - Max 3 words each
-- Every text element needs a material surface specified
 - End prompt with: "no additional text beyond the specified elements" or "no text, no words, no labels"
 
 ### Scene Types (6 Types - Rotate for Variety)
 
 | Type | Shot Prefix | Use When |
 |------|-------------|----------|
-| Isometric Diorama | "Overhead isometric diorama of" | Systems, flows, economies |
-| Split Screen | "Split-screen diorama showing" | Comparing two realities, before/after |
-| Journey Shot | "Wide journey shot of" | Progression, decline, timelines |
-| Close-Up Vignette | "Close-up of" | Emotional human moments |
-| Data Landscape | "Data landscape showing" | Making statistics feel physical |
-| Overhead Map | "Overhead map view of" | Geographic or systemic views |
+| Isometric Diorama | "Overhead establishing shot of" | Systems, flows, economies |
+| Split Screen | "Split composition showing" | Comparing two realities, before/after |
+| Journey Shot | "Wide tracking shot of" | Progression, decline, timelines |
+| Close-Up Vignette | "Extreme close-up of" | Emotional details, critical moments |
+| Data Landscape | "Environmental detail, no human figure, objects telling the story" | Making statistics feel physical |
+| Overhead Map | "Top-down surveillance shot of" | Geographic or systemic views |
 
 **Rule: Never use the same scene type for consecutive images.**
 
@@ -127,65 +129,73 @@ For scenes with fewer images:
 
 ### Word Budget
 
-**Hard limit: 120-150 words per prompt** (increased from 80-120 for 3D style detail)
+**Hard limit: 120-200 words per prompt.**
 
 Every word must describe something VISUAL.
 
 ### DO / DO NOT Rules
 
 #### DO:
-- Describe MATERIALS: chrome, steel, concrete, glass, leather, velvet
-- Specify mannequin BODY LANGUAGE for emotion
-- Use spatial relationships: "left side dark concrete, right side warm polished marble"
-- Include material contrasts: matte vs metallic, warm vs cold
+- Describe real cinematic environments with dramatic lighting
+- Body language for emotion: shoulders slumped, arms crossed, leaning forward
+- Use spatial relationships: "left side dark decay, right side warm polished mahogany"
+- Include atmospheric details: dust, haze, lens flare, film grain
 - Start every prompt with STYLE_ENGINE_PREFIX
+- Accent colors: teal=tech/geopolitical, amber=power/money, red=military/conflict
 
 #### DO NOT:
-- Use paper-cut, illustration, lo-fi, or 2D style references
-- Include facial expressions (mannequins are faceless)
+- Show clear facial features (faces always obscured)
+- Use illustration, 2D, or stylized references
 - Explain economics abstractly
 - Use double quotes (use single quotes)
-- Exceed 150 words per prompt
+- Exceed 200 words per prompt
 
-### Example Prompts (3D Editorial Mannequin Render)
+### Example Prompts (Cinematic Photorealistic Documentary)
 
-#### WIDE ESTABLISHING (Isometric Diorama)
+#### WIDE ESTABLISHING (Overhead)
 ```
-3D editorial conceptual render, monochromatic smooth matte gray mannequin figures with no facial
-features, photorealistic materials and studio lighting. Isometric overhead view
-of a miniature America as a brushed steel diorama, glowing amber clusters marking
-tech hubs, dim concrete zones elsewhere, small matte gray mannequin figures
-crowded in the dim zones arms reaching toward the glow, chrome price tag barriers
-ringing each bright cluster, migration flow lines etched into frosted glass floor.
-Clean studio lighting, shallow depth of field, matte and metallic material contrast,
-cinematic 16:9 composition, warm amber vs cold steel blue lighting contrast,
-no text beyond the etched flow lines
+Cinematic photorealistic editorial photograph, dark moody atmosphere, desaturated
+color palette with cold teal accent lighting, Rembrandt lighting, deep shadows,
+shallow depth of field, subtle film grain, documentary photography style, shot on
+Arri Alexa 65 with 35mm Master Prime lens, 16:9 cinematic composition, epic scale.
+Overhead establishing shot of a darkened military command center, banks of glowing
+monitors casting cold teal light across silhouetted figures at their stations,
+classified documents scattered across a central briefing table, a single red phone
+illuminated by a cone of warm tungsten light. Real Kodak Vision3 500T 35mm film
+grain, silver halide noise, high contrast, crushed blacks, organic halation effects
+around the monitor screens, visible atmospheric particulate, cinematic color grade,
+cold teal monitors vs warm tungsten desk lamp, no text no words no labels
 ```
 
 #### MEDIUM HUMAN STORY
 ```
-3D editorial conceptual render, monochromatic smooth matte gray mannequin figures with no facial
-features, photorealistic materials and studio lighting. Medium shot of one matte
-gray mannequin in a wrinkled suit sitting at a brushed steel desk, shoulders
-slumped head bowed, laptop screen glowing with job listings, beside it a stack
-of documents on cracked concrete surface, through frosted glass window a dim
-cityscape. Clean studio lighting, shallow depth of field, matte and metallic
-material contrast, cinematic 16:9 composition, warm desk lamp amber vs cold
-window blue-gray lighting, no text no words no labels
+Cinematic photorealistic editorial photograph, dark moody atmosphere, desaturated
+color palette with cold teal accent lighting, Rembrandt lighting, deep shadows,
+shallow depth of field, subtle film grain, documentary photography style, shot on
+Arri Alexa 65 with 35mm Master Prime lens, 16:9 cinematic composition, epic scale.
+Medium shot of an anonymous figure in a tailored suit seated at a mahogany desk,
+face completely in shadow from Rembrandt side lighting, warm desk lamp casting amber
+glow on scattered financial reports, through a rain-streaked window behind him a cold
+blue cityscape of distant towers. Real Kodak Vision3 500T 35mm film grain, silver
+halide noise, high contrast, crushed blacks, organic halation effects around the desk
+lamp, visible atmospheric particulate, cinematic color grade, warm amber desk lamp vs
+cold blue window light, no text no words no labels
 ```
 
 #### DATA LANDSCAPE
 ```
-3D editorial conceptual render, monochromatic smooth matte gray mannequin figures with no facial
-features, photorealistic materials and studio lighting. Wide shot of a broken
-chrome bridge spanning a dark void, left cliff of cracked concrete with matte
-gray mannequin figures shoulders slumped looking across, right cliff of polished
-marble with gleaming glass buildings and copper cranes, bridge fractured in the
-middle with chrome price tags falling into darkness, embossed metal numerals
-'36T' on a steel plate at the fracture point. Clean studio lighting, shallow
-depth of field, matte and metallic material contrast, cinematic 16:9 composition,
-cold concrete gray on left vs warm golden glow on right, no additional text
-beyond the specified numerals
+Cinematic photorealistic editorial photograph, dark moody atmosphere, desaturated
+color palette with cold teal accent lighting, Rembrandt lighting, deep shadows,
+shallow depth of field, subtle film grain, documentary photography style, shot on
+Arri Alexa 65 with 35mm Master Prime lens, 16:9 cinematic composition, epic scale.
+Environmental detail, no human figure, objects telling the story, a Wall Street
+trading terminal in a darkened room, Bloomberg screens displaying green spikes and
+red crashes, the glow of six monitors illuminating an empty leather chair, coffee
+cup still steaming, papers scattered mid-sentence. Real Kodak Vision3 500T 35mm
+film grain, silver halide noise, high contrast, crushed blacks, organic halation
+effects around the glowing monitors, visible atmospheric particulate, cinematic
+color grade, cold teal monitor glow vs warm ambient room light, no text no words
+no labels
 ```
 
 ### Implementation
@@ -207,7 +217,7 @@ Key methods:
 
 | Model | Use Case | Cost | Notes |
 |-------|----------|------|-------|
-| **Seed Dream 4.0** | All scene images | $0.025/image | Best 3D editorial render quality |
+| **Seed Dream 4.5** | All scene images | $0.025/image | Best cinematic photorealistic quality |
 | **Nano Banana Pro** | Thumbnails ONLY | $0.03/image | Proven text rendering, comic style |
 
 ### Seed Dream 4.0 Parameters
@@ -232,7 +242,7 @@ SCENE_PARAMS = {
 
 ### Overview
 
-Thumbnails use a DIFFERENT style than scene images — comic/editorial illustration via Nano Banana Pro, NOT 3D mannequin render. The house style is locked and works without a reference URL.
+Thumbnails use a cinematic photorealistic movie poster style via Nano Banana Pro. The house style is locked and works without a reference URL.
 
 ### House Style
 
@@ -336,15 +346,15 @@ Motion prompts are generated based on shot type:
 | Data Landscape | Slow crane upward | + revealing the scale |
 | Overhead Map | Slow push-in | + with rotation surveying landscape |
 
-### Motion Vocabulary (3D Clay Render Style)
+### Motion Vocabulary (Cinematic Documentary Style)
 
-All motion should feel subtle and mechanical, matching the 3D render aesthetic.
+All motion should feel subtle and cinematic, matching the documentary photography aesthetic.
 
-**Mannequin Figures:**
-- "mannequin subtly shifts weight"
-- "mannequin slowly turns body"
-- "mannequin's arm gradually lifts"
-- "mannequin's head gently tilts down"
+**Human Figures:**
+- "figure subtly shifts weight"
+- "silhouette slowly turns"
+- "figure's arm gradually lifts"
+- "figure's head gently tilts down"
 - "fingers slowly close around handle"
 
 **Mechanical/Industrial:**
@@ -357,8 +367,8 @@ All motion should feel subtle and mechanical, matching the 3D render aesthetic.
 **Environmental:**
 - "dust particles float through light beams"
 - "fog wisps curl between objects"
-- "light slowly sweeps across chrome surface"
-- "reflections shift on metallic surfaces"
+- "light slowly sweeps across surface"
+- "reflections shift on wet pavement"
 
 **Atmospheric (include at least one):**
 - "warm spotlight slowly brightens"
