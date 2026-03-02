@@ -98,11 +98,30 @@ def resolve_accent_color(
     return DEFAULT_CONFIG["default_accent_color"]
 
 
+def _apply_style_override(prefix: str, override: str) -> str:
+    """Apply an image style override to the prefix.
+
+    - ``"REPLACE: ..."`` — use the override as the entire prefix.
+    - ``"+" or "APPEND: ..."`` — append the override to the default prefix.
+    - Otherwise — append the override to the default prefix (additive default).
+    """
+    stripped = override.strip()
+    if stripped.upper().startswith("REPLACE:"):
+        return stripped[len("REPLACE:"):].strip()
+    if stripped.startswith("+"):
+        return prefix + " " + stripped[1:].strip()
+    if stripped.upper().startswith("APPEND:"):
+        return prefix + " " + stripped[len("APPEND:"):].strip()
+    # Default: additive
+    return prefix + " " + stripped
+
+
 def build_prompt(
     scene_description: str,
     style: str,
     composition: str,
     accent_color: str,
+    image_style_override: Optional[str] = None,
 ) -> str:
     """Assemble a complete image generation prompt.
 
@@ -122,6 +141,11 @@ def build_prompt(
         A key from :data:`COMPOSITION_DIRECTIVES`.
     accent_color : str
         The accent color string (e.g. ``"cold teal"``).
+    image_style_override : str, optional
+        Per-video style override from Airtable. If provided:
+        - ``"REPLACE: ..."`` replaces the default prefix entirely.
+        - ``"+" or "APPEND: ..."`` appends to the default prefix.
+        - Otherwise appends to the default prefix (additive default).
 
     Returns
     -------
@@ -130,6 +154,9 @@ def build_prompt(
     """
     # Cinematic dossier prefix — establishes the photorealistic look
     prefix = YOUTUBE_STYLE_PREFIX.replace("[ACCENT_COLOR]", accent_color)
+
+    if image_style_override and image_style_override.strip():
+        prefix = _apply_style_override(prefix, image_style_override)
 
     comp_text = COMPOSITION_DIRECTIVES.get(composition, "")
     suffix = STYLE_SUFFIXES[style].replace("[ACCENT_COLOR]", accent_color)
@@ -154,6 +181,7 @@ def generate_prompts(
     topic_category: Optional[str] = None,
     act_timestamps: Optional[dict] = None,
     seed: Optional[int] = None,
+    image_style_override: Optional[str] = None,
 ) -> list[dict]:
     """Generate fully constructed prompts for an entire video.
 
@@ -173,6 +201,8 @@ def generate_prompts(
         Custom act timestamp breakpoints. Falls back to defaults.
     seed : int, optional
         RNG seed for reproducible style sequencing.
+    image_style_override : str, optional
+        Per-video style override applied to every prompt's prefix.
 
     Returns
     -------
@@ -196,7 +226,8 @@ def generate_prompts(
         style = assignment["style"]
         composition = assignment["composition"]
 
-        prompt = build_prompt(desc, style, composition, color)
+        prompt = build_prompt(desc, style, composition, color,
+                              image_style_override=image_style_override)
 
         results.append({
             "prompt": prompt,

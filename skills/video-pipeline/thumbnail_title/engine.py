@@ -13,7 +13,6 @@ Usage from pipeline.py:
     result = await engine.generate(video_metadata)
 """
 
-import json
 from typing import Optional
 
 from thumbnail_title.selector import select_template
@@ -44,11 +43,68 @@ class ThumbnailTitleEngine:
         self.prompt_builder = ThumbnailPromptBuilder(anthropic_client)
         self.image_client = image_client
 
+    @staticmethod
+    def _apply_thumbnail_override(
+        override: str,
+        template_key: str,
+        title_data: dict,
+        video_title: str,
+        video_summary: str,
+    ) -> Optional[str]:
+        """Apply a thumbnail style override to the prompt.
+
+        - ``"REPLACE: ..."`` — use as entire prompt, substituting {line_1},
+          {line_2}, {red_word} placeholders.
+        - ``"APPEND: ..."`` — append to the selected template prompt, then
+          substitute placeholders.
+        - Otherwise — append to the selected template (additive default).
+
+        Returns the final prompt string, or None if the override is empty.
+        """
+        from thumbnail_title.templates import TEMPLATES
+
+        stripped = override.strip()
+        if not stripped:
+            return None
+
+        template_prompt = TEMPLATES[template_key]["prompt"]
+        subs = {
+            "line_1": title_data["line_1"],
+            "line_2": title_data["line_2"],
+            "red_word": title_data["caps_word"],
+        }
+
+        if stripped.upper().startswith("REPLACE:"):
+            raw = stripped[len("REPLACE:"):].strip()
+            # Substitute text variables so the override can reference them
+            try:
+                return raw.format(**subs)
+            except KeyError:
+                # User didn't include placeholders — use as-is
+                return raw
+
+        if stripped.upper().startswith("APPEND:"):
+            addition = stripped[len("APPEND:"):].strip()
+        elif stripped.startswith("+"):
+            addition = stripped[1:].strip()
+        else:
+            addition = stripped
+
+        combined = template_prompt + ",\n\n" + addition
+        try:
+            return combined.format(**subs)
+        except KeyError:
+            # Template variables not yet filled — can't resolve here,
+            # fall back to the normal prompt builder
+            print("  ⚠️ Thumbnail override couldn't fill template variables, falling back to normal builder")
+            return None
+
     async def generate(
         self,
         video_metadata: dict,
         preferred_formula: Optional[str] = None,
         preferred_template: Optional[str] = None,
+        thumbnail_style_override: Optional[str] = None,
     ) -> dict:
         """Generate a matched title + thumbnail pair.
 
@@ -62,6 +118,11 @@ class ThumbnailTitleEngine:
                 - Framework Angle: str
             preferred_formula: Force a specific title formula (formula_1..formula_6).
             preferred_template: Force a specific template (template_a or template_b).
+            thumbnail_style_override: Per-video override from Airtable.
+                - "REPLACE: ..." — use as entire prompt (line_1/line_2/red_word
+                  placeholders still substituted).
+                - "APPEND: ..." — append to selected template.
+                - Otherwise — append to selected template.
 
         Returns:
             Dict with:
@@ -106,14 +167,28 @@ class ThumbnailTitleEngine:
             for issue in pair_issues:
                 print(f"  WARNING: {issue}")
 
-        # Step 4: Build thumbnail prompt
+        # Step 4: Build thumbnail prompt (with optional style override)
         print(f"  Building thumbnail prompt...")
-        thumbnail_prompt = await self.prompt_builder.build(
-            template_key=template_key,
-            title_data=title_data,
-            video_title=video_title,
-            video_summary=video_summary,
-        )
+        if thumbnail_style_override:
+            thumbnail_prompt = self._apply_thumbnail_override(
+                thumbnail_style_override, template_key, title_data,
+                video_title, video_summary,
+            )
+            if thumbnail_prompt is None:
+                # Fallback to normal builder if override couldn't be applied
+                thumbnail_prompt = await self.prompt_builder.build(
+                    template_key=template_key,
+                    title_data=title_data,
+                    video_title=video_title,
+                    video_summary=video_summary,
+                )
+        else:
+            thumbnail_prompt = await self.prompt_builder.build(
+                template_key=template_key,
+                title_data=title_data,
+                video_title=video_title,
+                video_summary=video_summary,
+            )
         print(f"  Prompt built ({len(thumbnail_prompt)} chars)")
 
         # Step 5: Generate thumbnail image (with retry)

@@ -164,6 +164,11 @@ async def handle_help(message, say):
 - `skip` - Skip the current pipeline step (advance to next status)
 - `retry` / `try again` - Re-run the last failed command
 
+*Style Overrides*
+- `style image <title>: <instructions>` - Set image style override for a video
+- `style thumbnail <title>: <instructions>` - Set thumbnail style override for a video
+- `style reset <title>` - Clear all style overrides for a video
+
 *System & DevOps*
 - `stop` / `kill` - Stop the currently running pipeline
 - `status` / `check` - Check current project status (both pipelines)
@@ -1649,6 +1654,92 @@ async def handle_cron(message, say):
 
 
 # ---------------------------------------------------------------------------
+# !style — per-video style overrides for image prompts and thumbnails
+# ---------------------------------------------------------------------------
+
+@app.message(re.compile(r"^!?style\s+image\s+(.+?):\s*(.+)", re.IGNORECASE))
+async def handle_style_image(message, say):
+    """Set an image style override for a specific video."""
+    match = re.search(r"^!?style\s+image\s+(.+?):\s*(.+)", message["text"], re.IGNORECASE)
+    if not match:
+        await say(":x: Usage: `style image <video_title>: <instructions>`")
+        return
+
+    title = match.group(1).strip()
+    instructions = match.group(2).strip()
+
+    try:
+        from clients.airtable_client import AirtableClient
+        airtable = AirtableClient()
+        idea = airtable.find_idea_by_title(title)
+        if not idea:
+            await say(f":x: No video found matching *{title}*")
+            return
+
+        airtable.update_idea_fields(idea["id"], {"Image Style Override": instructions})
+        preview = instructions[:50] + "..." if len(instructions) > 50 else instructions
+        video_title = idea.get("Video Title", title)
+        await say(f":art: Image style override set for *{video_title}*: {preview}")
+    except Exception as e:
+        await say(f":x: Error setting image style override: {e}")
+
+
+@app.message(re.compile(r"^!?style\s+thumbnail\s+(.+?):\s*(.+)", re.IGNORECASE))
+async def handle_style_thumbnail(message, say):
+    """Set a thumbnail style override for a specific video."""
+    match = re.search(r"^!?style\s+thumbnail\s+(.+?):\s*(.+)", message["text"], re.IGNORECASE)
+    if not match:
+        await say(":x: Usage: `style thumbnail <video_title>: <instructions>`")
+        return
+
+    title = match.group(1).strip()
+    instructions = match.group(2).strip()
+
+    try:
+        from clients.airtable_client import AirtableClient
+        airtable = AirtableClient()
+        idea = airtable.find_idea_by_title(title)
+        if not idea:
+            await say(f":x: No video found matching *{title}*")
+            return
+
+        airtable.update_idea_fields(idea["id"], {"Thumbnail Style Override": instructions})
+        preview = instructions[:50] + "..." if len(instructions) > 50 else instructions
+        video_title = idea.get("Video Title", title)
+        await say(f":art: Thumbnail style override set for *{video_title}*: {preview}")
+    except Exception as e:
+        await say(f":x: Error setting thumbnail style override: {e}")
+
+
+@app.message(re.compile(r"^!?style\s+reset\s+(.+)", re.IGNORECASE))
+async def handle_style_reset(message, say):
+    """Clear both style overrides for a specific video."""
+    match = re.search(r"^!?style\s+reset\s+(.+)", message["text"], re.IGNORECASE)
+    if not match:
+        await say(":x: Usage: `style reset <video_title>`")
+        return
+
+    title = match.group(1).strip()
+
+    try:
+        from clients.airtable_client import AirtableClient
+        airtable = AirtableClient()
+        idea = airtable.find_idea_by_title(title)
+        if not idea:
+            await say(f":x: No video found matching *{title}*")
+            return
+
+        airtable.update_idea_fields(idea["id"], {
+            "Image Style Override": "",
+            "Thumbnail Style Override": "",
+        })
+        video_title = idea.get("Video Title", title)
+        await say(f":white_check_mark: Style overrides cleared for *{video_title}*")
+    except Exception as e:
+        await say(f":x: Error resetting style overrides: {e}")
+
+
+# ---------------------------------------------------------------------------
 # AI-powered fallback — catches messages that no regex handler matched
 # ---------------------------------------------------------------------------
 
@@ -1690,6 +1781,9 @@ Available commands (return one of these EXACTLY):
 - "cron on" — enable cron jobs
 - "cron off" — disable cron jobs
 - "cron status" — check cron schedule
+- "style image TITLE: INSTRUCTIONS" — set image style override for a video (keep TITLE and INSTRUCTIONS from user message)
+- "style thumbnail TITLE: INSTRUCTIONS" — set thumbnail style override for a video (keep TITLE and INSTRUCTIONS)
+- "style reset TITLE" — clear style overrides for a video (keep TITLE from user message)
 - "help" — show available commands
 - "unknown" — message is not a bot command (casual chat, question, etc.)
 
@@ -1709,7 +1803,10 @@ Rules:
 "analyze performance" → analyze, "weekly report" → analyze, \
 "what's working" → analyze, "performance insights" → analyze, \
 "do that again" → retry, "show me the logs" → tail logs, \
-"check my keys" → show env
+"check my keys" → show env, \
+"change the image style for VIDEO to DESCRIPTION" → style image VIDEO: DESCRIPTION, \
+"make the images for VIDEO look like DESCRIPTION" → style image VIDEO: DESCRIPTION, \
+"reset the style for VIDEO" → style reset VIDEO
 4. If they mention an API key or secret key, return: set key KEY
 5. If truly ambiguous, return: unknown"""
 
@@ -1800,6 +1897,20 @@ async def handle_fallback(event, say):
         await handle_research(fake_message, say)
         return
 
+    # Check for "style image/thumbnail/reset" commands
+    if command.startswith("style image "):
+        fake_message = {"text": command, "user": event.get("user", "")}
+        await handle_style_image(fake_message, say)
+        return
+    if command.startswith("style thumbnail "):
+        fake_message = {"text": command, "user": event.get("user", "")}
+        await handle_style_thumbnail(fake_message, say)
+        return
+    if command.startswith("style reset "):
+        fake_message = {"text": command, "user": event.get("user", "")}
+        await handle_style_reset(fake_message, say)
+        return
+
     # Check for "discover" with focus keyword
     if command.startswith("discover"):
         fake_message = {"text": command, "user": event.get("user", ""),
@@ -1846,6 +1957,7 @@ async def main():
     print("  script / voice / prompts / images / sync / thumbnail / render / upload")
     print("  animate / discover / research")
     print("  queue / skip / retry    - Pipeline management")
+    print("  style image/thumbnail/reset - Per-video style overrides")
     print("  stop / status / logs / disk / show env / restart / update")
     print("  set env KEY=VALUE       - Set any env var in .env")
     print("  cron on/off/status      - Manage scheduled cron jobs")
