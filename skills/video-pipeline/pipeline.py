@@ -1814,6 +1814,11 @@ class VideoPipeline:
 
         print(f"\n🎨 STYLED IMAGE PROMPTS: Processing '{self.video_title}'")
 
+        # Read per-video image style override (set via Slack !style command)
+        image_style_override = (self.current_idea.get("Image Style Override") or "").strip()
+        if image_style_override:
+            print(f"  🎨 Image style override active: {image_style_override[:80]}...")
+
         # ---------------------------------------------------------------
         # Load script records from Airtable (source of truth)
         # ---------------------------------------------------------------
@@ -1914,7 +1919,8 @@ class VideoPipeline:
                 composition = concept.get("composition", "medium")
 
                 # Build styled prompt immediately — no intermediate storage
-                prompt = build_prompt(visual_desc, visual_style, composition, accent_color)
+                prompt = build_prompt(visual_desc, visual_style, composition, accent_color,
+                                      image_style_override=image_style_override)
 
                 self.airtable.create_concept_record(
                     scene_number=scene_num,
@@ -2180,6 +2186,11 @@ class VideoPipeline:
         video_title = self.current_idea.get("Video Title", "")
         video_summary = self.current_idea.get("Summary", "")
 
+        # Read per-video thumbnail style override (set via Slack !style command)
+        thumbnail_style_override = (self.current_idea.get("Thumbnail Style Override") or "").strip()
+        if thumbnail_style_override:
+            print(f"  🎨 Thumbnail style override active: {thumbnail_style_override[:80]}...")
+
         # Build metadata for template selection
         video_metadata = {
             "Video Title": video_title,
@@ -2194,7 +2205,10 @@ class VideoPipeline:
         engine = ThumbnailTitleEngine(self.anthropic, self.image_client)
 
         try:
-            result = await engine.generate(video_metadata)
+            result = await engine.generate(
+                video_metadata,
+                thumbnail_style_override=thumbnail_style_override or None,
+            )
         except Exception as e:
             error_msg = f"Thumbnail/title generation failed for '{self.video_title}': {e}"
             print(f"  ❌ {error_msg}")

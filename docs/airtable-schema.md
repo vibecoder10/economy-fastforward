@@ -11,6 +11,10 @@ Rich fields (written by research):
 - `Source URLs`, `Executive Hook`, `Thesis`, `Date Surfaced`
 - `Research Payload` (JSON), `Thematic Framework`
 
+Style override fields (set via Slack `!style` commands):
+- `Image Style Override` (Long Text) — custom instructions for image prompt prefix. Supports `REPLACE:`, `APPEND:`, or `+` prefixes.
+- `Thumbnail Style Override` (Long Text) — custom instructions for thumbnail template. Supports `REPLACE:`, `APPEND:`, or `+` prefixes.
+
 Optional fields:
 - `Reference URL`, `Idea Reasoning`, `Source Views`, `Source Channel`
 - `Google Drive Folder ID`, `Thumbnail`, `Pipeline Mode`, `Notes`

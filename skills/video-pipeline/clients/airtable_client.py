@@ -47,6 +47,10 @@ class AirtableClient:
                               but never populated by any pipeline code.
                               Candidate for manual editorial use or removal.
 
+    Style overrides (written via Slack !style commands):
+        - Image Style Override    : Long Text — custom instructions for image prompt prefix
+        - Thumbnail Style Override: Long Text — custom instructions for thumbnail template
+
     Pipeline-only fields (written by later stages, not discovery/research):
         - Script            : Long Text      — written by brief_translator
         - Scene File Path   : Text           — written by pipeline
@@ -271,6 +275,43 @@ class AirtableClient:
             }
             record = self.idea_concepts_table.create(minimal, typecast=True)
             return {"id": record["id"], **record["fields"]}
+
+    def find_idea_by_title(self, title: str) -> Optional[dict]:
+        """Find an idea by title using fuzzy matching.
+
+        Tries exact match first, then falls back to case-insensitive
+        substring matching across all records.
+
+        Returns:
+            Matching idea record, or None if not found.
+        """
+        from pyairtable.formulas import match
+
+        # Try exact match first
+        try:
+            records = self.idea_concepts_table.all(
+                formula=match({"Video Title": title}),
+                max_records=1,
+            )
+            if records:
+                r = records[0]
+                return {"id": r["id"], **r["fields"]}
+        except Exception:
+            pass
+
+        # Fallback: fetch all and do case-insensitive substring match
+        all_records = self.idea_concepts_table.all()
+        search = title.strip().lower()
+        best_match = None
+        for r in all_records:
+            record_title = r["fields"].get("Video Title", "")
+            if not record_title:
+                continue
+            if record_title.strip().lower() == search:
+                return {"id": r["id"], **r["fields"]}
+            if search in record_title.strip().lower() or record_title.strip().lower() in search:
+                best_match = {"id": r["id"], **r["fields"]}
+        return best_match
 
     def update_idea_status(self, record_id: str, status: str) -> dict:
         """Update the status of an idea in the Idea Concepts table."""
