@@ -61,7 +61,7 @@ class ThumbnailTitleEngine:
                 - topic: str
                 - Framework Angle: str
             preferred_formula: Force a specific title formula (formula_1..formula_6).
-            preferred_template: Force a specific template (template_a..template_c).
+            preferred_template: Force a specific template (template_a or template_b).
 
         Returns:
             Dict with:

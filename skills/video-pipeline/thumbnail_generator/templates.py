@@ -1,81 +1,67 @@
 """Thumbnail prompt templates for Economy FastForward.
 
-Three templates, each producing a distinct visual layout:
-  - Template A: CFH Split (default, ~70% usage)
-  - Template B: Mindplicit Banner (~20% usage)
-  - Template C: Power Dynamic (~10% usage, EFF exclusive)
+Two cinematic photorealistic templates:
+  - Template A: Cinematic Scene (default, ~60% usage)
+  - Template B: Cinematic Close-Up (~40% usage, person-focused)
 
-All templates produce 16:9 editorial comic illustrations via Nano Banana Pro
+All templates produce 16:9 cinematic photorealistic images via Nano Banana Pro
 with text baked directly into the image.
-
-TEXT PLACEMENT FIX: Both text lines are always described as one stacked unit
-in the same sentence. Never describe line_1 and line_2 as separate instructions
-in different paragraphs — Nano Banana Pro places them unpredictably otherwise.
 """
 
 
 # ---------------------------------------------------------------------------
-# Template A: CFH Split (default — 70% of thumbnails)
-# Select when: Country stories, economic explanations, system breakdowns,
-#               human-impact hook.
+# Template A: Cinematic Scene (default — ~60% of thumbnails)
+# Select when: Systems, countries, markets, institutions, economic breakdowns.
 # ---------------------------------------------------------------------------
-TEMPLATE_A = """Editorial comic illustration, bold graphic novel style, dark navy background with dramatic amber side lighting, 16:9 landscape aspect ratio,
-
-Left 60% of frame: {nationality} {worker_type} with {emotion} facial expression, wearing {cultural_signifier}, mouth {mouth_expression}, waist-up framing, face is large and clearly readable, bold black outlines, high color saturation, sweat drops or motion lines reinforcing the emotion,
-
-Right side: {secondary_element}, this element tells the second half of the story and contrasts with the figure's emotion,
-
-Bold text stacked in upper right reading "{line_1}" in large white bold condensed all-caps font with heavy black outline stroke, the word "{red_word}" is bright red, and directly below it in smaller white bold text "{line_2}" with the same black outline, both lines tightly grouped together in the same area,
-
-Dark navy gradient background, simple composition, thick confident black linework, bold saturated colors, magazine cover composition"""
+TEMPLATE_A = (
+    "Cinematic photorealistic movie poster composition, 16:9 landscape aspect "
+    "ratio, ultra dramatic lighting with single amber light source from the left, "
+    "deep crushed blacks, shallow depth of field, film grain, shot on Arri Alexa,\n\n"
+    "{scene_description}, epic scale, the scene tells a story of power and "
+    "consequence,\n\n"
+    "Extreme contrast — highlights pushed bright, shadows near black, desaturated "
+    "color palette with only {accent_color} as the single vivid accent color,\n\n"
+    "Bold text anchored to upper-right 30% of frame reading '{line_1}' in massive "
+    "white bold condensed all-caps font with heavy black outline stroke, the word "
+    "'{red_word}' is bright red and is the LARGEST element in the entire image at "
+    "approximately 3x the size of other text. Directly below with no gap, smaller "
+    "white bold text '{line_2}' with black outline. Text must not overlap the main "
+    "focal point,\n\n"
+    "Movie poster composition, high contrast, must be instantly readable at "
+    "120x68 pixel mobile thumbnail size"
+)
 
 # Template A required variables
 TEMPLATE_A_VARS = [
-    "nationality", "worker_type", "emotion", "cultural_signifier",
-    "mouth_expression", "secondary_element", "line_1", "red_word", "line_2",
+    "scene_description", "accent_color", "line_1", "red_word", "line_2",
 ]
 
 
 # ---------------------------------------------------------------------------
-# Template B: Mindplicit Banner (20% of thumbnails)
-# Select when: Machiavellian strategy, power dynamics, hidden systems,
-#               warning/command style.
+# Template B: Cinematic Close-Up (~40% of thumbnails)
+# Select when: Person-focused stories, assassinations, leaders, CEO,
+#               president, dictator, commander, general, individual power figures.
 # ---------------------------------------------------------------------------
-TEMPLATE_B = """Editorial comic illustration, dark dramatic scene, deep navy black background with warm amber lighting from below, 16:9 landscape aspect ratio,
-
-Bold text banner across top 20 percent of frame reading "{line_1}" in large white bold condensed all-caps font with heavy black outline stroke, the word "{red_word}" is bright red, and directly below it in smaller white text "{line_2}" with black outline, both lines at the top of the frame,
-
-Center and lower frame: {power_scene}, dramatic shadows with warm amber accent lighting on key focal points,
-
-{ground_detail}, editorial illustration with noir influence, bold blacks, dramatic contrast, thick black linework"""
+TEMPLATE_B = (
+    "Cinematic photorealistic extreme close-up, 16:9 landscape aspect ratio, "
+    "Rembrandt lighting with dramatic shadow cutting across the frame, ultra "
+    "shallow depth of field, film grain, dark moody atmosphere,\n\n"
+    "{close_up_subject}, intense detail, occupying left 55% of frame, "
+    "{emotion_detail},\n\n"
+    "Background is dark with subtle {background_element} visible in bokeh, "
+    "desaturated palette with only {accent_color} as vivid accent,\n\n"
+    "Bold text block anchored to right 40% of frame reading '{line_1}' in "
+    "massive white bold condensed all-caps font with heavy black outline stroke, "
+    "the word '{red_word}' is bright red and LARGEST element. '{line_2}' directly "
+    "below, smaller white text with black outline,\n\n"
+    "Cinematic color grade, crushed blacks, single light source, readable at "
+    "mobile thumbnail size"
+)
 
 # Template B required variables
 TEMPLATE_B_VARS = [
-    "line_1", "red_word", "line_2", "power_scene", "ground_detail",
-]
-
-
-# ---------------------------------------------------------------------------
-# Template C: Power Dynamic (10% of thumbnails — EFF exclusive)
-# Select when: Robot/AI replacement, wealth inequality, corporate power,
-#               winners vs losers narratives.
-# ---------------------------------------------------------------------------
-TEMPLATE_C = """Editorial comic illustration, bold graphic novel style, dark navy background with dramatic golden amber lighting, 16:9 landscape aspect ratio,
-
-Left side: {victim_type} stumbling backward in {emotion}, {cultural_signifier} flying off, mouth open, eyes wide, bold black outlines, high color saturation, waist-up framing with large readable facial expression, cold blue lighting on this figure,
-
-Right side: {power_figure}, a {instrument} standing beside the power figure like a loyal servant, warm golden amber lighting on this side, floating dollar signs in the golden glow,
-
-A large bold red arrow pointing from the victim toward the instrument suggesting {relationship},
-
-Bold text stacked at top of frame reading "{line_1}" in large white bold condensed all-caps font with heavy black outline stroke, the word "{red_word}" is bright red, and directly below it in smaller white text "{line_2}" with black outline, both lines tightly grouped,
-
-Simple composition, thick confident black linework, magazine cover style, dramatic contrast between cold blue victim side and warm golden power side"""
-
-# Template C required variables
-TEMPLATE_C_VARS = [
-    "victim_type", "emotion", "cultural_signifier", "power_figure",
-    "instrument", "relationship", "line_1", "red_word", "line_2",
+    "close_up_subject", "emotion_detail", "background_element",
+    "accent_color", "line_1", "red_word", "line_2",
 ]
 
 
@@ -83,9 +69,8 @@ TEMPLATE_C_VARS = [
 # Template registry
 # ---------------------------------------------------------------------------
 TEMPLATES = {
-    "template_a": {"name": "CFH Split", "prompt": TEMPLATE_A, "variables": TEMPLATE_A_VARS},
-    "template_b": {"name": "Mindplicit Banner", "prompt": TEMPLATE_B, "variables": TEMPLATE_B_VARS},
-    "template_c": {"name": "Power Dynamic", "prompt": TEMPLATE_C, "variables": TEMPLATE_C_VARS},
+    "template_a": {"name": "Cinematic Scene", "prompt": TEMPLATE_A, "variables": TEMPLATE_A_VARS},
+    "template_b": {"name": "Cinematic Close-Up", "prompt": TEMPLATE_B, "variables": TEMPLATE_B_VARS},
 }
 
 
@@ -93,18 +78,20 @@ TEMPLATES = {
 # Template selection
 # ---------------------------------------------------------------------------
 
-# Keywords that trigger Template C: Power Dynamic
-_POWER_KEYWORDS = [
-    "robot", "ai replace", "monopoly", "inequality",
-    "corporate", "billionaire", "oligarch", "who owns",
-    "who controls", "who profits", "replacement",
-]
-
-# Keywords that trigger Template B: Mindplicit Banner
-_STRATEGY_KEYWORDS = [
-    "machiavelli", "strategy", "hidden", "secret",
-    "never do", "warning", "dark", "manipulation",
-    "power play", "puppet", "behind the curtain",
+# Keywords that trigger Template B: Cinematic Close-Up (person-focused)
+_PERSON_KEYWORDS = [
+    "assassin", "assassination", "murder", "killed",
+    "leader", "leaders", "leadership",
+    "ceo", "founder", "executive",
+    "president", "prime minister", "chancellor",
+    "dictator", "tyrant", "authoritarian",
+    "commander", "general", "admiral", "military leader",
+    "king", "queen", "emperor", "monarch", "dynasty",
+    "oligarch", "billionaire", "tycoon", "mogul",
+    "spy", "agent", "defector",
+    "warlord", "rebel leader", "coup",
+    "who is", "the man who", "the woman who",
+    "his plan", "her plan", "his secret", "her secret",
 ]
 
 
@@ -116,19 +103,15 @@ def select_template(topic: str, tags: list[str] = None) -> str:
         tags: Optional list of tags for template selection.
 
     Returns:
-        One of 'template_a', 'template_b', 'template_c'.
+        One of 'template_a', 'template_b'.
     """
     topic_lower = topic.lower()
     tags_lower = [t.lower() for t in (tags or [])]
     all_text = topic_lower + " " + " ".join(tags_lower)
 
-    # Template C: Power Dynamic — winners vs losers
-    if any(kw in all_text for kw in _POWER_KEYWORDS):
-        return "template_c"
-
-    # Template B: Mindplicit Banner — strategy/warning
-    if any(kw in all_text for kw in _STRATEGY_KEYWORDS):
+    # Template B: Cinematic Close-Up — person-focused stories
+    if any(kw in all_text for kw in _PERSON_KEYWORDS):
         return "template_b"
 
-    # Template A: CFH Split — default
+    # Template A: Cinematic Scene — default for systems, countries, markets
     return "template_a"

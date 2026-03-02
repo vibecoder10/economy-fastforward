@@ -2,7 +2,7 @@
 
 Standalone module for generating matched thumbnail/title pairs for the
 Economy FastForward YouTube pipeline. Uses Nano Banana Pro (via Kie.ai)
-for image generation with three editorial comic templates.
+for image generation with two cinematic photorealistic templates.
 
 Quick start:
     from thumbnail_generator import produce_thumbnail_and_title
@@ -20,7 +20,6 @@ from thumbnail_generator.generator import generate_thumbnail, produce_thumbnail_
 from thumbnail_generator.templates import (
     TEMPLATE_A,
     TEMPLATE_B,
-    TEMPLATE_C,
     TEMPLATES,
     select_template,
 )
@@ -38,7 +37,6 @@ __all__ = [
     "produce_thumbnail_and_title",
     "TEMPLATE_A",
     "TEMPLATE_B",
-    "TEMPLATE_C",
     "TEMPLATES",
     "select_template",
     "TITLE_FORMULAS",

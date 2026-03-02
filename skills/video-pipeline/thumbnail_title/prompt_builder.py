@@ -2,7 +2,7 @@
 
 Takes title generation output (caps_word, line_1, line_2) and video metadata,
 then uses Claude to fill template variables and produce the final Nano Banana Pro
-prompt from one of the three templates.
+prompt from one of the two cinematic photorealistic templates.
 
 Optionally injects a Machiavellian visual element (~50% of thumbnails) for
 thematic consistency across the channel brand.
@@ -18,45 +18,44 @@ from thumbnail_title.selector import select_template
 
 # ---------------------------------------------------------------------------
 # Machiavellian visual elements — injected ~50% of the time
+# Updated for cinematic photorealistic style.
 # ---------------------------------------------------------------------------
 MACHIAVELLIAN_ELEMENTS = [
-    "subtle puppet strings descending from top of frame",
-    "chess pieces scattered on the ground near the figure",
-    "a shadowy hand reaching in from the edge of frame",
-    "a tilted crown falling through the air",
-    "a cracked golden scale of justice in background",
-    "a dagger with a dollar-sign handle stuck in a map",
+    "puppet strings descending from darkness above",
+    "chess pieces scattered on a polished dark floor",
+    "a crown lying discarded in shadow",
+    "a dagger embedded in a world map",
+    "a cracked golden scale of justice half-hidden in darkness",
+    "a single red chess king toppled on black marble",
 ]
 
 
 # System prompt for Claude to fill template variables
 VARIABLE_FILL_SYSTEM_PROMPT = """\
-You are the visual director for Economy FastForward thumbnail illustrations.
+You are the visual director for Economy FastForward cinematic thumbnails.
 
 Your job: Fill in the template variables to produce a compelling thumbnail that pairs
-with the given title. The thumbnail should show the HUMAN COST visually while the
-title explains the system or cause verbally.
+with the given title. The thumbnail should evoke CINEMATIC TENSION — like a movie poster
+frame that makes viewers feel they're about to witness something powerful.
 
 STYLE RULES:
-- Editorial comic illustration, bold graphic novel style
-- Dark navy background (#0A0F1A) with dramatic amber/golden lighting
-- Bold black outlines, high color saturation
+- Cinematic photorealistic, shot on Arri Alexa look
+- Deep crushed blacks, single dramatic light source, film grain
+- Shallow depth of field, desaturated palette with ONE vivid accent color
 - 16:9 landscape, 1280x720
 - Maximum 3 colors: dark background, bright accent, white text
-- Face must be readable at 160x90 (YouTube search size)
+- Must be readable at 120x68 (YouTube mobile thumbnail size)
+
+ACCENT COLOR GUIDE (match to topic):
+- Teal (#00BFA5) for tech, AI, innovation
+- Amber/Gold (#FFB800) for power, money, authority
+- Red (#E63946) for military, conflict, crisis
+- Green (#22C55E) for economics, growth, markets
 
 TEXT RULES (already in template, but guide your choices):
 - line_1 and line_2 are PROVIDED — use them exactly as given
 - red_word is PROVIDED — use it exactly as given
 - All text ALL CAPS, bold condensed sans-serif, heavy black outline
-
-EMOTION GUIDE:
-- Match the emotion to the caps_word:
-  TRAP/CRISIS/COLLAPSE → panicked, shocked
-  DEATH/DYING → worried, fearful
-  WEAPON/SWALLOWED → angry, frustrated
-  LIES/MISTAKE → frustrated, betrayed
-  STRONGER/RICHER/WEAKER → determined, defiant
 
 OUTPUT FORMAT (JSON only, no markdown):
 Return a JSON object with ALL required variable names as keys.
@@ -88,7 +87,7 @@ class ThumbnailPromptBuilder:
         """Build a complete thumbnail prompt.
 
         Args:
-            template_key: One of 'template_a', 'template_b', 'template_c'.
+            template_key: One of 'template_a', 'template_b'.
             title_data: Output from TitleGenerator.generate() containing
                 caps_word, line_1, line_2.
             video_title: The video's working title.
@@ -226,44 +225,45 @@ class ThumbnailPromptBuilder:
         """Return human-readable descriptions for each template's variables."""
         if template_key == "template_a":
             return {
-                "character_archetype": (
-                    "A RECOGNIZABLE STEREOTYPE, not a generic person. Must be instantly "
-                    "readable as a specific social role. Examples: 'panicked Wall Street "
-                    "trader in rumpled suit with loosened tie', 'smug Uncle Sam with top "
-                    "hat and pointing finger', 'sweating Pentagon general covered in "
-                    "medals', 'terrified tech CEO gripping cracked laptop', 'furious "
-                    "Chinese official slamming table'"
+                "scene_description": (
+                    "A dramatic cinematic environment that tells the story visually. "
+                    "Must feel like a movie poster frame — epic scale, single focal "
+                    "point, storytelling through setting. Examples: 'military command "
+                    "bunker with glowing screens and a single empty chair under a "
+                    "spotlight', 'massive oil tanker in dark ocean with a single red "
+                    "warning light', 'Wall Street trading floor frozen mid-crash with "
+                    "papers suspended in air'"
                 ),
-                "emotion": "Primary facial emotion (e.g., panicked, shocked, frustrated, angry)",
-                "mouth_expression": "Reinforces emotion (e.g., open in shock, gritted in anger)",
-                "secondary_element": "Right-side visual that contrasts with figure (e.g., sleek robot in golden glow, crumbling bank building)",
+                "accent_color": (
+                    "The single vivid accent color matching the topic. Use: teal for "
+                    "tech/AI, amber/gold for power/money, red for military/conflict, "
+                    "green for economics. Return just the color name (e.g., 'amber')."
+                ),
             }
         elif template_key == "template_b":
             return {
-                "power_scene": (
-                    "Central dramatic scene with optional power elements (e.g., worker "
-                    "looking up at massive robot shadow with puppet strings visible from "
-                    "above, figure at chess board with chess pieces scattered on ground, "
-                    "silhouette of a puppeteer pulling strings from the darkness)"
+                "close_up_subject": (
+                    "An extreme close-up of an object or detail that represents the "
+                    "person or power figure. NOT a face — use symbolic objects instead. "
+                    "Examples: 'a weathered hand gripping a nuclear launch key', "
+                    "'a cracked military medal on a dark wooden desk', 'classified "
+                    "documents stamped TOP SECRET under harsh desk lamp light'"
                 ),
-                "ground_detail": "Floor-level context detail (e.g., scattered tools and fallen hard hat, cracked floor tiles)",
-            }
-        elif template_key == "template_c":
-            return {
-                "victim_type": "Displaced figure (e.g., panicked blue-collar worker, shocked small business owner)",
-                "emotion": "Victim's emotion (e.g., shock, panic, fear, anger)",
-                "cultural_signifier": "Flying prop (e.g., hard hat, briefcase, apron, glasses)",
-                "power_figure": (
-                    "Controller figure — face partially in shadow, only eyes visible in "
-                    "golden light, wearing dark suit, radiating calm control (e.g., calm "
-                    "man in dark suit sitting in leather chair with fingers steepled)"
+                "emotion_detail": (
+                    "Textural detail that conveys emotion through the close-up subject. "
+                    "Examples: 'sweat visible, tension in every detail', 'dust and "
+                    "scratches showing age and use', 'the weight of consequence visible "
+                    "in every texture'"
                 ),
-                "instrument": (
-                    "Tool of power (e.g., golden glowing robot, giant puppet cross with "
-                    "strings attached to victim, oversized chess king piece, golden "
-                    "throne, red button labeled KILL SWITCH, giant pair of scissors "
-                    "cutting puppet strings, stack of contracts, money printer)"
+                "background_element": (
+                    "A subtle element visible in the bokeh background that adds context. "
+                    "Examples: 'a blurred war room map', 'out-of-focus city skyline at "
+                    "night', 'soft glow of multiple monitor screens'"
                 ),
-                "relationship": "Arrow label suggesting dynamics (e.g., REPLACEMENT, EXTRACTION, CONTROL)",
+                "accent_color": (
+                    "The single vivid accent color matching the topic. Use: teal for "
+                    "tech/AI, amber/gold for power/money, red for military/conflict, "
+                    "green for economics. Return just the color name (e.g., 'red')."
+                ),
             }
         return {}

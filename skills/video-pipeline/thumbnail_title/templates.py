@@ -1,83 +1,62 @@
 """Thumbnail prompt templates for Economy FastForward.
 
-Three templates, each producing a distinct visual layout:
-  - Template A: CFH Split (default, ~60% usage)
-  - Template B: Mindplicit Banner (~10% usage)
-  - Template C: Power Dynamic (~30% usage, EFF exclusive)
+Two cinematic photorealistic templates:
+  - Template A: Cinematic Scene (default, ~60% usage)
+  - Template B: Cinematic Close-Up (~40% usage, person-focused)
 
-All templates produce 1280x720 (16:9) editorial comic illustrations
+All templates produce 1280x720 (16:9) cinematic photorealistic images
 via Nano Banana Pro with text baked directly into the image.
 """
 
 
 # ---------------------------------------------------------------------------
-# Template A: CFH Split
+# Template A: Cinematic Scene (default — ~60% of thumbnails)
 # ---------------------------------------------------------------------------
-# character_archetype should be a RECOGNIZABLE STEREOTYPE, not a generic person.
-# Examples: "panicked Wall Street trader in rumpled suit with loosened tie",
-# "smug Uncle Sam with top hat and pointing finger",
-# "sweating Pentagon general covered in medals",
-# "terrified tech CEO gripping cracked laptop",
-# "furious Chinese official slamming table"
-TEMPLATE_A_CFH_SPLIT = (
-    "Editorial comic illustration, bold graphic novel style, dark navy background "
-    "with dramatic amber side lighting, 16:9 landscape aspect ratio,\n\n"
-    "Left 60% of frame: {character_archetype} with {emotion} facial expression, "
-    "mouth {mouth_expression}, waist-up framing, "
-    "face is large and clearly readable, bold black outlines, high color saturation, "
-    "sweat drops or motion lines reinforcing the emotion,\n\n"
-    "Right side: {secondary_element}, this element tells the second half of the story "
-    "and contrasts with the figure's emotion,\n\n"
-    "Bold text block anchored to upper-right 35% of frame, text must not overlap "
-    "the character's face. Line_1 reading \"{line_1}\" in large white bold condensed "
-    "all-caps font with heavy black outline stroke, the word \"{red_word}\" is bright "
-    "red and is the LARGEST text element. Directly below with no gap, smaller white "
-    "bold text \"{line_2}\" with black outline. Line_1 font size is approximately 3x "
-    "larger than line_2.\n\n"
-    "Simple composition, thick confident black linework, bold saturated colors, "
-    "magazine cover composition, high contrast, readable at small mobile thumbnail size"
-)
-
-
-# ---------------------------------------------------------------------------
-# Template B: Mindplicit Banner
-# ---------------------------------------------------------------------------
-TEMPLATE_B_MINDPLICIT_BANNER = (
-    "Editorial comic illustration, dark dramatic scene, deep navy black background "
-    "with warm amber lighting from below, 16:9 landscape aspect ratio,\n\n"
-    "Text banner spans full width across top 20% of frame. \"{line_1}\" in large "
+# scene_description: dramatic environment that tells the story visually.
+# Examples: "military command bunker with glowing screens and a single empty
+# chair under a spotlight", "massive oil tanker in dark ocean with a single
+# red warning light", "Wall Street trading floor frozen mid-crash with papers
+# suspended in air"
+TEMPLATE_A_CINEMATIC_SCENE = (
+    "Cinematic photorealistic movie poster composition, 16:9 landscape aspect "
+    "ratio, ultra dramatic lighting with single amber light source from the left, "
+    "deep crushed blacks, shallow depth of field, film grain, shot on Arri Alexa,\n\n"
+    "{scene_description}, epic scale, the scene tells a story of power and "
+    "consequence,\n\n"
+    "Extreme contrast — highlights pushed bright, shadows near black, desaturated "
+    "color palette with only {accent_color} as the single vivid accent color,\n\n"
+    "Bold text anchored to upper-right 30% of frame reading '{line_1}' in massive "
     "white bold condensed all-caps font with heavy black outline stroke, the word "
-    "\"{red_word}\" is bright red and LARGEST. \"{line_2}\" directly below, smaller "
-    "white text with black outline. Text must be fully contained in top 20% of frame.\n\n"
-    "Center and lower frame: {power_scene}, dramatic shadows with warm amber accent "
-    "lighting on key focal points,\n\n"
-    "{ground_detail},\n\n"
-    "Simple composition, thick confident black linework, bold saturated colors, "
-    "magazine cover composition, high contrast, readable at small mobile thumbnail size"
+    "'{red_word}' is bright red and is the LARGEST element in the entire image at "
+    "approximately 3x the size of other text. Directly below with no gap, smaller "
+    "white bold text '{line_2}' with black outline. Text must not overlap the main "
+    "focal point,\n\n"
+    "Movie poster composition, high contrast, must be instantly readable at "
+    "120x68 pixel mobile thumbnail size"
 )
 
 
 # ---------------------------------------------------------------------------
-# Template C: Power Dynamic (EFF Exclusive)
+# Template B: Cinematic Close-Up (~40% of thumbnails)
 # ---------------------------------------------------------------------------
-TEMPLATE_C_POWER_DYNAMIC = (
-    "Editorial comic illustration, bold graphic novel style, dark navy background "
-    "with dramatic golden amber lighting, 16:9 landscape aspect ratio,\n\n"
-    "Bold text reading \"{line_1}\" anchored to top-center of frame, spanning full "
-    "width. \"{red_word}\" is bright red and LARGEST text element. \"{line_2}\" "
-    "directly below, smaller white text with black outline. All text contained in "
-    "top 15% of frame, above both figures.\n\n"
-    "Left side: {victim_type} stumbling backward in {emotion}, {cultural_signifier} "
-    "flying off, mouth open, eyes wide, bold black outlines, high color saturation, "
-    "waist-up framing with large readable facial expression, cold blue lighting on "
-    "this figure,\n\n"
-    "Right side: {power_figure}, a {instrument} standing beside the power figure like "
-    "a loyal servant, warm golden amber lighting on this side, floating dollar signs "
-    "in the golden glow,\n\n"
-    "A large bold red arrow pointing from the victim toward the instrument suggesting "
-    "{relationship},\n\n"
-    "Simple composition, thick confident black linework, bold saturated colors, "
-    "magazine cover composition, high contrast, readable at small mobile thumbnail size"
+# close_up_subject: an object or detail that represents the person/power.
+# Examples: "a weathered hand gripping a nuclear launch key", "a cracked
+# military medal on a dark wooden desk", "classified documents stamped
+# TOP SECRET under harsh desk lamp light"
+TEMPLATE_B_CINEMATIC_CLOSEUP = (
+    "Cinematic photorealistic extreme close-up, 16:9 landscape aspect ratio, "
+    "Rembrandt lighting with dramatic shadow cutting across the frame, ultra "
+    "shallow depth of field, film grain, dark moody atmosphere,\n\n"
+    "{close_up_subject}, intense detail, occupying left 55% of frame, "
+    "{emotion_detail},\n\n"
+    "Background is dark with subtle {background_element} visible in bokeh, "
+    "desaturated palette with only {accent_color} as vivid accent,\n\n"
+    "Bold text block anchored to right 40% of frame reading '{line_1}' in "
+    "massive white bold condensed all-caps font with heavy black outline stroke, "
+    "the word '{red_word}' is bright red and LARGEST element. '{line_2}' directly "
+    "below, smaller white text with black outline,\n\n"
+    "Cinematic color grade, crushed blacks, single light source, readable at "
+    "mobile thumbnail size"
 )
 
 
@@ -86,29 +65,21 @@ TEMPLATE_C_POWER_DYNAMIC = (
 # ---------------------------------------------------------------------------
 TEMPLATES = {
     "template_a": {
-        "name": "CFH Split",
-        "prompt": TEMPLATE_A_CFH_SPLIT,
+        "name": "Cinematic Scene",
+        "prompt": TEMPLATE_A_CINEMATIC_SCENE,
         "usage_weight": 0.60,
         "variables": [
-            "character_archetype", "emotion", "mouth_expression",
-            "secondary_element", "line_1", "red_word", "line_2",
+            "scene_description", "accent_color",
+            "line_1", "red_word", "line_2",
         ],
     },
     "template_b": {
-        "name": "Mindplicit Banner",
-        "prompt": TEMPLATE_B_MINDPLICIT_BANNER,
-        "usage_weight": 0.10,
+        "name": "Cinematic Close-Up",
+        "prompt": TEMPLATE_B_CINEMATIC_CLOSEUP,
+        "usage_weight": 0.40,
         "variables": [
-            "line_1", "red_word", "line_2", "power_scene", "ground_detail",
-        ],
-    },
-    "template_c": {
-        "name": "Power Dynamic",
-        "prompt": TEMPLATE_C_POWER_DYNAMIC,
-        "usage_weight": 0.30,
-        "variables": [
-            "victim_type", "emotion", "cultural_signifier", "power_figure",
-            "instrument", "relationship", "line_1", "red_word", "line_2",
+            "close_up_subject", "emotion_detail", "background_element",
+            "accent_color", "line_1", "red_word", "line_2",
         ],
     },
 }
@@ -118,11 +89,11 @@ TEMPLATES = {
 # Color palette
 # ---------------------------------------------------------------------------
 COLOR_PALETTE = {
-    "background_default": "#0A0F1A",      # deep navy black
-    "background_crisis": "#8B1A1A",        # deep crimson (crisis/collapse)
-    "background_geopolitical": "#1A2A4A",  # midnight blue (geopolitical)
-    "accent_gold": "#FFB800",              # dollar amounts, wealth symbols
-    "alert_red": "#E63946",                # ONE highlighted word
-    "accent_green": "#22C55E",             # wealth/growth (sparingly)
-    "text_white": "#FFFFFF",               # all body text (+ black stroke)
+    "background_default": "#0A0F1A",      # deep crushed blacks
+    "accent_amber": "#FFB800",            # power, money, authority
+    "accent_teal": "#00BFA5",             # tech, AI, innovation
+    "accent_red": "#E63946",              # military, conflict, crisis
+    "accent_green": "#22C55E",            # economics, growth, markets
+    "alert_red": "#E63946",               # ONE highlighted word
+    "text_white": "#FFFFFF",              # all body text (+ black stroke)
 }
