@@ -27,21 +27,18 @@ def test_template_selection():
     """Test that template selection logic routes correctly."""
     print("--- Template Selection ---")
 
-    # Template C: Power Dynamic keywords
-    assert select_template("Robot AI replacement economy", ["monopoly"]) == "template_c"
-    assert select_template("Who owns the robots?") == "template_c"
-    assert select_template("corporate inequality") == "template_c"
-    print("  template_c selection: PASS")
+    # Template B: Cinematic Close-Up — person-focused keywords
+    assert select_template("The CEO who destroyed an empire") == "template_b"
+    assert select_template("Putin's assassination plot") == "template_b"
+    assert select_template("Why this dictator scares the world") == "template_b"
+    assert select_template("The general who defied orders", ["military leader"]) == "template_b"
+    print("  template_b selection (person-focused): PASS")
 
-    # Template B: Mindplicit Banner keywords
-    assert select_template("Machiavelli's hidden strategy") == "template_b"
-    assert select_template("The dark manipulation") == "template_b"
-    assert select_template("Power play puppet masters", ["warning"]) == "template_b"
-    print("  template_b selection: PASS")
-
-    # Template A: Default fallback
+    # Template A: Cinematic Scene — default for systems/institutions
     assert select_template("China's economy explained") == "template_a"
     assert select_template("Dollar crisis", ["economics"]) == "template_a"
+    assert select_template("The robot trap nobody sees coming") == "template_a"
+    assert select_template("Corporate inequality", ["monopoly"]) == "template_a"
     print("  template_a selection (default): PASS")
 
     print("  ALL TEMPLATE SELECTION TESTS PASSED\n")
@@ -137,56 +134,40 @@ def test_prompt_template_filling():
     print("--- Prompt Template Filling ---")
 
     vars_a = {
-        "nationality": "Chinese",
-        "worker_type": "businessman",
-        "emotion": "panicked",
-        "cultural_signifier": "a dark business suit",
-        "mouth_expression": "open in shock",
-        "secondary_element": "a massive glowing golden dollar sign",
+        "scene_description": "military command bunker with glowing screens and a "
+                             "single empty chair under a spotlight",
+        "accent_color": "amber",
         "line_1": "CHINA'S $140B TRAP",
         "red_word": "TRAP",
         "line_2": "DOLLAR WEAPON",
     }
     prompt = TEMPLATE_A.format(**vars_a)
-    assert "Chinese" in prompt
-    assert "businessman" in prompt
-    assert "panicked" in prompt
+    assert "military command bunker" in prompt
+    assert "amber" in prompt
     assert "CHINA'S $140B TRAP" in prompt
     assert "TRAP" in prompt
     assert "DOLLAR WEAPON" in prompt
     assert "16:9" in prompt
+    assert "Arri Alexa" in prompt
     print(f"  Template A fill ({len(prompt)} chars): PASS")
 
     from thumbnail_generator.templates import TEMPLATE_B
     vars_b = {
-        "line_1": "THE ROBOT TRAP",
+        "close_up_subject": "a weathered hand gripping a nuclear launch key",
+        "emotion_detail": "sweat visible, tension in every detail",
+        "background_element": "a blurred war room map",
+        "accent_color": "red",
+        "line_1": "THE NUCLEAR TRAP",
         "red_word": "TRAP",
         "line_2": "NOBODY SEES COMING",
-        "power_scene": "worker looking up at massive robot shadow on wall",
-        "ground_detail": "scattered tools and fallen hard hat",
     }
     prompt_b = TEMPLATE_B.format(**vars_b)
-    assert "THE ROBOT TRAP" in prompt_b
-    assert "worker looking up" in prompt_b
+    assert "weathered hand gripping" in prompt_b
+    assert "sweat visible" in prompt_b
+    assert "blurred war room map" in prompt_b
+    assert "THE NUCLEAR TRAP" in prompt_b
+    assert "Rembrandt lighting" in prompt_b
     print(f"  Template B fill ({len(prompt_b)} chars): PASS")
-
-    from thumbnail_generator.templates import TEMPLATE_C
-    vars_c = {
-        "victim_type": "panicked blue-collar worker",
-        "emotion": "shock",
-        "cultural_signifier": "hard hat",
-        "power_figure": "calm man in dark suit in leather chair with steepled fingers",
-        "instrument": "golden glowing robot",
-        "relationship": "replacement",
-        "line_1": "MONOPOLY TRAP",
-        "red_word": "TRAP",
-        "line_2": "WHO OWNS THE ROBOTS?",
-    }
-    prompt_c = TEMPLATE_C.format(**vars_c)
-    assert "panicked blue-collar worker" in prompt_c
-    assert "golden glowing robot" in prompt_c
-    assert "replacement" in prompt_c
-    print(f"  Template C fill ({len(prompt_c)} chars): PASS")
 
     print("  ALL TEMPLATE FILLING TESTS PASSED\n")
 
@@ -236,18 +217,13 @@ def test_end_to_end_dry_run():
     print(f"  Topic: {topic}")
     print(f"  Tags: {tags}")
     print(f"  Selected template: {template_key}")
-    # "trap" keyword triggers template_c (power dynamic) due to "trap" not being
-    # in power keywords. Actually "dollar" and "trap" alone don't match power keywords.
-    # This should default to template_a.
+    assert template_key == "template_a"  # No person keywords → default
 
     # Step 2: Build prompt
     template_vars = {
-        "nationality": "Chinese",
-        "worker_type": "businessman",
-        "emotion": "panicked",
-        "cultural_signifier": "a dark business suit",
-        "mouth_expression": "open in shock",
-        "secondary_element": "a massive glowing golden dollar sign looming behind him with yuan bills scattered in the air",
+        "scene_description": "massive oil tanker in dark ocean with a single "
+                             "red warning light",
+        "accent_color": "amber",
         "line_1": "CHINA'S $140B TRAP",
         "red_word": "TRAP",
         "line_2": "DOLLAR WEAPON",
@@ -294,12 +270,9 @@ def test_produce_thumbnail_and_title_integration():
             topic="China's $140 Billion Dollar Trap",
             tags=["china", "dollar", "trap", "economics"],
             template_vars={
-                "nationality": "Chinese",
-                "worker_type": "businessman",
-                "emotion": "panicked",
-                "cultural_signifier": "a dark business suit",
-                "mouth_expression": "open in shock",
-                "secondary_element": "a massive glowing golden dollar sign looming behind him with yuan bills scattered in the air",
+                "scene_description": "massive oil tanker in dark ocean with a "
+                                     "single red warning light",
+                "accent_color": "amber",
                 "line_1": "CHINA'S $140B TRAP",
                 "red_word": "TRAP",
                 "line_2": "DOLLAR WEAPON",
@@ -317,7 +290,7 @@ def test_produce_thumbnail_and_title_integration():
         )
         print(f"  Result: {json.dumps(result, indent=2, default=str)}")
         assert result["title"] is not None
-        assert result["template_used"] in ("template_a", "template_b", "template_c")
+        assert result["template_used"] in ("template_a", "template_b")
         assert result["attempts"] >= 1
         print("  INTEGRATION TEST PASSED\n")
 
