@@ -1012,7 +1012,7 @@ class VideoPipeline:
             print(f"  Scene {scene_number}: {voice_duration:.0f}s → {target_images} images (~{words_per_segment} words each)")
 
             # Call Anthropic to segment into concepts
-            # YouTube pipeline uses cinematic dossier style (NOT mannequin)
+            # YouTube pipeline uses cinematic photorealistic dossier style
             concepts = await self.anthropic.segment_scene_into_concepts(
                 scene_text=scene_text,
                 target_count=target_images,

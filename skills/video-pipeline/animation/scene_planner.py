@@ -16,10 +16,10 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Protagonist glow prompt fragment (locked constant)
-# STYLE: Smooth matte gray mannequin (NOT clay, NOT action figure)
+# STYLE: Anonymous human figure, face obscured by shadow/silhouette
 PROTAGONIST_GLOW_FRAGMENT = (
-    "a smooth matte gray mannequin figure with no facial features, "
-    "smooth continuous surfaces like a department store display mannequin, "
+    "an anonymous human figure with face completely obscured by deep shadow, "
+    "real clothing and skin texture, documentary photography where identity is protected, "
     "emanating a soft {glow_color} inner glow at {glow_intensity}% intensity, "
     "glow behavior: {glow_behavior}"
 )
@@ -231,7 +231,7 @@ You refuse to dissolve."""
 
     creative_direction = """"The Replacement: When AI Comes For Your Job"
 
-A gold-glowing smooth gray mannequin protagonist walks into a factory where gray droids work identical stations. A sleek chrome entity arrives and begins silently replacing workers one by one. The droids dissolve into particles as they're displaced — no violence, just quiet erasure. Our protagonist watches, glow dimming as the wave approaches, until the moment of their own replacement arrives. Instead of dissolving, their glow surges — a refusal to disappear.
+A gold-glowing anonymous protagonist figure walks into a factory where other workers toil at identical stations. A sleek chrome entity arrives and begins silently replacing workers one by one. The workers dissolve into particles as they're displaced — no violence, just quiet erasure. Our protagonist watches, glow dimming as the wave approaches, until the moment of their own replacement arrives. Instead of dissolving, their glow surges — a refusal to disappear.
 
 Narrative Voice: Second-person hybrid. Calm, knowing, slightly melancholic. "You" are the protagonist.
 
