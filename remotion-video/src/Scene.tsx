@@ -7,22 +7,16 @@ import {
     interpolate,
     OffthreadVideo,
     Sequence,
+    Loop,
 } from "remotion";
 import { Audio } from "@remotion/media";
-import { useMemo } from "react";
+import { useMemo, useCallback } from "react";
 import {
     Segment,
     getCurrentWordIndex,
     getActiveSegment,
     getSegmentsForScene,
 } from "./segments";
-
-// TODO Phase 2: Add sound layer rendering alongside voiceover.
-// Each sound layer has: file, start_segment, end_segment, volume, loop, fade_in, fade_out.
-// Use Remotion's <Audio> + interpolate() for volume fades.
-// Map start_segment/end_segment to frames using caption/word timestamp data.
-// If sound_layers is empty or undefined, render scene normally (backward compatible).
-// Multiple sound layers can overlap (ambient + layer + punctuation simultaneously).
 
 interface SoundLayer {
     file: string;
@@ -154,10 +148,44 @@ export const Scene: React.FC<SceneProps> = ({
         });
     }, [segments, fps, CROSSFADE_FRAMES]);
 
+    // Map sound layers to frame ranges using segmentTimings
+    const soundLayerTimings = useMemo(() => {
+        if (!soundLayers || soundLayers.length === 0 || segmentTimings.length === 0) {
+            return [];
+        }
+
+        return soundLayers.map((layer) => {
+            // Segments are 1-based, segmentTimings is 0-based
+            const startIdx = Math.max(0, Math.min(layer.start_segment - 1, segmentTimings.length - 1));
+            const endIdx = Math.max(0, Math.min(layer.end_segment - 1, segmentTimings.length - 1));
+
+            const startFrame = segmentTimings[startIdx].startFrame;
+            const endTiming = segmentTimings[endIdx];
+            const endFrame = endTiming.startFrame + endTiming.durationFrames;
+            const durationFrames = Math.max(1, endFrame - startFrame);
+
+            return { layer, startFrame, durationFrames };
+        });
+    }, [soundLayers, segmentTimings]);
+
     return (
         <AbsoluteFill>
             {/* Audio for this scene */}
             <Audio src={staticFile(audioFile)} />
+
+            {/* Sound effect layers — play underneath voiceover */}
+            {soundLayerTimings.map(({ layer, startFrame, durationFrames }, idx) => (
+                <Sequence
+                    key={`sfx-${sceneNumber}-${idx}`}
+                    from={startFrame}
+                    durationInFrames={durationFrames}
+                >
+                    <SoundLayerAudio
+                        layer={layer}
+                        durationFrames={durationFrames}
+                    />
+                </Sequence>
+            ))}
 
             {/* Render all clips in Sequences - proper Remotion pattern for sequential video */}
             {segmentTimings.map((timing, index) => (
@@ -176,6 +204,58 @@ export const Scene: React.FC<SceneProps> = ({
 
         </AbsoluteFill>
     );
+};
+
+// Sound layer audio component — handles volume fades and looping
+const SoundLayerAudio: React.FC<{
+    layer: SoundLayer;
+    durationFrames: number;
+}> = ({ layer, durationFrames }) => {
+    const { fps } = useVideoConfig();
+
+    const fadeInFrames = Math.round(layer.fade_in * fps);
+    const fadeOutFrames = Math.round(layer.fade_out * fps);
+
+    // Build volume callback with fade in/out
+    const getVolume = useCallback(
+        (f: number) => {
+            // Safety: if duration is very short, just use flat volume
+            if (durationFrames < fadeInFrames + fadeOutFrames + 2) {
+                return layer.volume;
+            }
+
+            return interpolate(
+                f,
+                [
+                    0,
+                    Math.max(1, fadeInFrames),
+                    Math.max(fadeInFrames + 1, durationFrames - fadeOutFrames),
+                    durationFrames,
+                ],
+                [0, layer.volume, layer.volume, 0],
+                { extrapolateLeft: "clamp", extrapolateRight: "clamp" },
+            );
+        },
+        [durationFrames, fadeInFrames, fadeOutFrames, layer.volume],
+    );
+
+    const audioElement = (
+        <Audio
+            src={staticFile(layer.file)}
+            startFrom={0}
+            volume={getVolume}
+        />
+    );
+
+    if (layer.loop) {
+        return (
+            <Loop durationInFrames={durationFrames}>
+                {audioElement}
+            </Loop>
+        );
+    }
+
+    return audioElement;
 };
 
 // Check if a video file was explicitly provided for this segment

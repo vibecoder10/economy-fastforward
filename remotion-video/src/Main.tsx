@@ -1,4 +1,4 @@
-import { AbsoluteFill, Sequence, staticFile, useVideoConfig } from "remotion";
+import { AbsoluteFill, Sequence, staticFile, useVideoConfig, getInputProps } from "remotion";
 import { Audio } from "@remotion/media";
 import { Scene } from "./Scene";
 import { useMemo } from "react";
@@ -23,8 +23,40 @@ function getSceneDurationSeconds(sceneNumber: number): number | null {
     return null;
 }
 
+interface SoundLayerData {
+    file: string;
+    start_segment: number;
+    end_segment: number;
+    volume: number;
+    loop: boolean;
+    fade_in: number;
+    fade_out: number;
+}
+
+interface PropsScene {
+    sceneNumber: number;
+    sound_layers?: SoundLayerData[];
+}
+
 export const Main: React.FC<MainProps> = ({ totalScenes }) => {
     const { fps } = useVideoConfig();
+
+    // Load sound layers from inputProps (embedded by pipeline.py)
+    const soundLayersByScene = useMemo(() => {
+        const map: Record<number, SoundLayerData[]> = {};
+        try {
+            const inputProps = getInputProps() as Record<string, unknown>;
+            const propsScenes = (inputProps?.scenes ?? []) as PropsScene[];
+            for (const s of propsScenes) {
+                if (s.sceneNumber && s.sound_layers && s.sound_layers.length > 0) {
+                    map[s.sceneNumber] = s.sound_layers;
+                }
+            }
+        } catch {
+            // No input props available (studio preview)
+        }
+        return map;
+    }, []);
 
     // Get actual scene numbers from render_config.json.
     // When totalScenes is passed (e.g. Scene1Only preview), use sequential 1..N.
@@ -54,9 +86,10 @@ export const Main: React.FC<MainProps> = ({ totalScenes }) => {
                 transcript: {
                     words: getWordsForScene(sceneNumber),
                 },
+                soundLayers: soundLayersByScene[sceneNumber] ?? [],
             };
         });
-    }, [sceneNumberList]);
+    }, [sceneNumberList, soundLayersByScene]);
 
     // Calculate cumulative start frames using actual audio durations per scene.
     // Scenes missing from render_config are skipped (they had no audio data).
@@ -92,6 +125,7 @@ export const Main: React.FC<MainProps> = ({ totalScenes }) => {
                         audioFile={scene.audioFile}
                         images={scene.images}
                         transcript={scene.transcript}
+                        soundLayers={scene.soundLayers}
                     />
                 </Sequence>
             ))}
