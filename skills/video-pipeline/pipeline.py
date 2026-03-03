@@ -1832,8 +1832,12 @@ class VideoPipeline:
         total_scripts = len(scripts)
         print(f"  Found {total_scripts} script records")
 
-        # Determine accent color and visual seeds
-        accent_color = (self.current_idea.get("Accent Color") or "cold teal").replace("_", " ")
+        # Determine accent color: Airtable field first, then topic category map, then default
+        from image_prompt_engine import resolve_accent_color
+        airtable_color = (self.current_idea.get("Accent Color") or "").replace("_", " ").strip()
+        accent_color = resolve_accent_color(
+            accent_color=airtable_color or None,
+        )
         visual_seeds = self._get_visual_seeds()
 
         # Check which scenes already have image records (for resume)
