@@ -12,12 +12,15 @@ interface MainProps {
 // Buffer after last spoken word to let audio trail off naturally
 const SCENE_END_BUFFER_SECONDS = 1;
 
-/**
- * Get scene duration from render_config.json (the single source of truth).
- * Throws if render_config is missing — the pipeline MUST run audio sync
- * before rendering.  No fallbacks, no hardcoded durations.
- */
-function getSceneDurationSeconds(sceneNumber: number): number {
+function getSceneDurationSeconds(sceneNumber: number, transcript: { words: Array<{ start: number, end: number }> }): number {
+    // Determine the actual duration of the scene's audio by looking at the last word in the transcript
+    if (transcript && transcript.words.length > 0) {
+        const lastWord = transcript.words[transcript.words.length - 1];
+        // Add a buffer explicitly to give time after the last word
+        return lastWord.end + SCENE_END_BUFFER_SECONDS;
+    }
+
+    // Fallback back to config if somehow transcript is empty
     const configDuration = getSceneDurationFromConfig(sceneNumber);
     if (configDuration !== null) return configDuration + SCENE_END_BUFFER_SECONDS;
 
@@ -60,7 +63,7 @@ export const Main: React.FC<MainProps> = ({ totalScenes }) => {
         let cumulativeFrames = 0;
         return scenes.map((scene) => {
             const startFrame = cumulativeFrames;
-            const sceneDuration = getSceneDurationSeconds(scene.sceneNumber);
+            const sceneDuration = getSceneDurationSeconds(scene.sceneNumber, scene.transcript);
             const durationFrames = Math.ceil(sceneDuration * fps);
             cumulativeFrames += durationFrames;
             return { ...scene, startFrame, durationFrames };

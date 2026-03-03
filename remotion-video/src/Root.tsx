@@ -2,6 +2,7 @@ import { Composition } from "remotion";
 import { Main } from "./Main";
 import { EconomyVideoAnimated } from "./compositions/EconomyVideoAnimated";
 import { getSceneCount, getSceneDurationFromConfig, getTotalDurationFromConfig } from "./renderConfig";
+import { getWordsForScene } from "./transcripts";
 
 const TOTAL_SCENES = getSceneCount() || 6;
 const FPS = 24;
@@ -14,6 +15,12 @@ const SCENE_END_BUFFER_SECONDS = 1;
  * before rendering.
  */
 function getSceneDurationSeconds(sceneNumber: number): number {
+    const transcriptWords = getWordsForScene(sceneNumber);
+    if (transcriptWords && transcriptWords.length > 0) {
+        const lastWord = transcriptWords[transcriptWords.length - 1];
+        return lastWord.end + SCENE_END_BUFFER_SECONDS;
+    }
+
     const configDuration = getSceneDurationFromConfig(sceneNumber);
     if (configDuration !== null) return configDuration + SCENE_END_BUFFER_SECONDS;
 
@@ -28,13 +35,7 @@ function getSceneDurationSeconds(sceneNumber: number): number {
  * Falls back to summing per-scene durations (still from render_config).
  */
 function getTotalDurationFrames(sceneCount: number, fps: number): number {
-    const configTotal = getTotalDurationFromConfig();
-    if (configTotal !== null) {
-        // Add buffer per scene for audio trail-off
-        return Math.ceil((configTotal + sceneCount * SCENE_END_BUFFER_SECONDS) * fps);
-    }
-
-    // Sum per-scene durations (each reads from render_config)
+    // Sum per-scene durations (each reads from transcripts to match Main.tsx precisely)
     let total = 0;
     for (let i = 1; i <= sceneCount; i++) {
         total += Math.ceil(getSceneDurationSeconds(i) * fps);

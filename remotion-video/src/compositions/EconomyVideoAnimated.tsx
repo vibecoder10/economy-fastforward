@@ -38,23 +38,24 @@ export const EconomyVideoAnimated: React.FC<AnimatedVideoProps> = ({
     // Collect all words from all scenes for captions
     const allWords = useMemo(() => {
         const words: Array<{ word: string; start: number; end: number }> = [];
-        let cumulativeTime = 0;
 
-        scenes.forEach((scene) => {
+        sceneTimings.forEach(({ scene, startFrame }) => {
             if (scene.transcript?.words) {
+                // Determine exactly when this scene's sequence starts in seconds
+                const sceneStartTimeSequence = startFrame / fps;
+
                 scene.transcript.words.forEach((word) => {
                     words.push({
                         word: word.word,
-                        start: word.start + cumulativeTime,
-                        end: word.end + cumulativeTime,
+                        start: word.start + sceneStartTimeSequence,
+                        end: word.end + sceneStartTimeSequence,
                     });
                 });
             }
-            cumulativeTime += scene.duration;
         });
 
         return words;
-    }, [scenes]);
+    }, [sceneTimings, fps]);
 
     return (
         <AbsoluteFill style={{ backgroundColor: "#000" }}>
