@@ -167,7 +167,8 @@ async def handle_help(message, say):
 *Style Overrides*
 - `style image <title>: <instructions>` - Set image style override for a video
 - `style thumbnail <title>: <instructions>` - Set thumbnail style override for a video
-- `style reset <title>` - Clear all style overrides for a video
+- `style color <title>: <color>` - Set accent color (cold teal, muted crimson, warm amber, muted green)
+- `style reset <title>` - Clear all style overrides and accent color for a video
 
 *System & DevOps*
 - `stop` / `kill` - Stop the currently running pipeline
@@ -1711,9 +1712,41 @@ async def handle_style_thumbnail(message, say):
         await say(f":x: Error setting thumbnail style override: {e}")
 
 
+@app.message(re.compile(r"^!?style\s+color\s+(.+?):\s*(.+)", re.IGNORECASE))
+async def handle_style_color(message, say):
+    """Set an accent color override for a specific video."""
+    match = re.search(r"^!?style\s+color\s+(.+?):\s*(.+)", message["text"], re.IGNORECASE)
+    if not match:
+        await say(":x: Usage: `style color <video_title>: <color>`")
+        return
+
+    title = match.group(1).strip()
+    color = match.group(2).strip().lower()
+
+    from image_prompt_engine.style_config import VALID_ACCENT_COLORS
+    if color not in VALID_ACCENT_COLORS:
+        valid = ", ".join(sorted(VALID_ACCENT_COLORS))
+        await say(f":x: Invalid accent color *{color}*. Valid values: {valid}")
+        return
+
+    try:
+        from clients.airtable_client import AirtableClient
+        airtable = AirtableClient()
+        idea = airtable.find_idea_by_title(title)
+        if not idea:
+            await say(f":x: No video found matching *{title}*")
+            return
+
+        airtable.update_idea_fields(idea["id"], {"Accent Color": color})
+        video_title = idea.get("Video Title", title)
+        await say(f":art: Accent color set for *{video_title}*: {color}")
+    except Exception as e:
+        await say(f":x: Error setting accent color: {e}")
+
+
 @app.message(re.compile(r"^!?style\s+reset\s+(.+)", re.IGNORECASE))
 async def handle_style_reset(message, say):
-    """Clear both style overrides for a specific video."""
+    """Clear both style overrides and accent color for a specific video."""
     match = re.search(r"^!?style\s+reset\s+(.+)", message["text"], re.IGNORECASE)
     if not match:
         await say(":x: Usage: `style reset <video_title>`")
@@ -1732,6 +1765,7 @@ async def handle_style_reset(message, say):
         airtable.update_idea_fields(idea["id"], {
             "Image Style Override": "",
             "Thumbnail Style Override": "",
+            "Accent Color": "",
         })
         video_title = idea.get("Video Title", title)
         await say(f":white_check_mark: Style overrides cleared for *{video_title}*")
@@ -1783,6 +1817,7 @@ Available commands (return one of these EXACTLY):
 - "cron status" — check cron schedule
 - "style image TITLE: INSTRUCTIONS" — set image style override for a video (keep TITLE and INSTRUCTIONS from user message)
 - "style thumbnail TITLE: INSTRUCTIONS" — set thumbnail style override for a video (keep TITLE and INSTRUCTIONS)
+- "style color TITLE: COLOR" — set accent color for a video (valid colors: cold teal, muted crimson, warm amber, muted green). Keep TITLE and COLOR from user message.
 - "style reset TITLE" — clear style overrides for a video (keep TITLE from user message)
 - "help" — show available commands
 - "unknown" — message is not a bot command (casual chat, question, etc.)
@@ -1806,6 +1841,11 @@ Rules:
 "check my keys" → show env, \
 "change the image style for VIDEO to DESCRIPTION" → style image VIDEO: DESCRIPTION, \
 "make the images for VIDEO look like DESCRIPTION" → style image VIDEO: DESCRIPTION, \
+"make the VIDEO video red" → style color VIDEO: muted crimson, \
+"use crimson for VIDEO" → style color VIDEO: muted crimson, \
+"use teal for VIDEO" → style color VIDEO: cold teal, \
+"make VIDEO amber" → style color VIDEO: warm amber, \
+"green accent for VIDEO" → style color VIDEO: muted green, \
 "reset the style for VIDEO" → style reset VIDEO
 4. If they mention an API key or secret key, return: set key KEY
 5. If truly ambiguous, return: unknown"""
@@ -1897,7 +1937,7 @@ async def handle_fallback(event, say):
         await handle_research(fake_message, say)
         return
 
-    # Check for "style image/thumbnail/reset" commands
+    # Check for "style image/thumbnail/color/reset" commands
     if command.startswith("style image "):
         fake_message = {"text": command, "user": event.get("user", "")}
         await handle_style_image(fake_message, say)
@@ -1905,6 +1945,10 @@ async def handle_fallback(event, say):
     if command.startswith("style thumbnail "):
         fake_message = {"text": command, "user": event.get("user", "")}
         await handle_style_thumbnail(fake_message, say)
+        return
+    if command.startswith("style color "):
+        fake_message = {"text": command, "user": event.get("user", "")}
+        await handle_style_color(fake_message, say)
         return
     if command.startswith("style reset "):
         fake_message = {"text": command, "user": event.get("user", "")}
@@ -1957,7 +2001,7 @@ async def main():
     print("  script / voice / prompts / images / sync / thumbnail / render / upload")
     print("  animate / discover / research")
     print("  queue / skip / retry    - Pipeline management")
-    print("  style image/thumbnail/reset - Per-video style overrides")
+    print("  style image/thumbnail/color/reset - Per-video style overrides")
     print("  stop / status / logs / disk / show env / restart / update")
     print("  set env KEY=VALUE       - Set any env var in .env")
     print("  cron on/off/status      - Manage scheduled cron jobs")

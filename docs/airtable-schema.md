@@ -14,6 +14,7 @@ Rich fields (written by research):
 Style override fields (set via Slack `!style` commands):
 - `Image Style Override` (Long Text) — custom instructions for image prompt prefix. Supports `REPLACE:`, `APPEND:`, or `+` prefixes.
 - `Thumbnail Style Override` (Long Text) — custom instructions for thumbnail template. Supports `REPLACE:`, `APPEND:`, or `+` prefixes.
+- `Accent Color` (Single Line Text) — per-video accent color override. If set, used directly instead of topic category mapping. Valid values: `cold teal`, `muted crimson`, `warm amber`, `muted green`.
 
 Optional fields:
 - `Reference URL`, `Idea Reasoning`, `Source Views`, `Source Channel`

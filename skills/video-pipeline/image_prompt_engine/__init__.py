@@ -38,6 +38,7 @@ from .style_config import (
     KEN_BURNS_PAN_ALTERNATES,
     KEN_BURNS_RULES,
     STYLE_SUFFIXES,
+    VALID_ACCENT_COLORS,
     YOUTUBE_STYLE_PREFIX,
 )
 
@@ -57,4 +58,5 @@ __all__ = [
     "KEN_BURNS_RULES",
     "KEN_BURNS_PAN_ALTERNATES",
     "DEFAULT_CONFIG",
+    "VALID_ACCENT_COLORS",
 ]

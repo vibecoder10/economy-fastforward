@@ -105,6 +105,9 @@ ACCENT_COLOR_MAP = {
     "default": "cold teal",
 }
 
+# Valid accent colors that can be set via Slack or Airtable
+VALID_ACCENT_COLORS = {"cold teal", "muted crimson", "warm amber", "muted green"}
+
 # ---------------------------------------------------------------------------
 # Act Style Weights
 # ---------------------------------------------------------------------------
