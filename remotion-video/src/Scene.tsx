@@ -50,30 +50,6 @@ interface TranscriptData {
     }>;
 }
 
-// Style constants from user preferences
-const STYLE = {
-    font: {
-        family: "Inter",
-        weight: 900,
-        size: 80,
-        letterSpacing: "0.01em",
-        wordGap: 20,
-    },
-    colors: {
-        current: "#FFE135", // Bright yellow - currently spoken word
-        past: "#FFFFFF", // White - already spoken
-        future: "#888888", // Gray - not yet spoken
-        glow: "none",
-        textStroke: "8px #000000", // Thick black outline
-    },
-    position: {
-        bottom: 120,
-        gradientHeight: "40%",
-    },
-    chunking: {
-        wordsPerChunk: 4,
-    },
-};
 
 export const Scene: React.FC<SceneProps> = ({
     sceneNumber,
@@ -86,8 +62,6 @@ export const Scene: React.FC<SceneProps> = ({
     const { fps, durationInFrames } = useVideoConfig();
 
     const currentTimeSeconds = frame / fps;
-    const currentTimeMs = currentTimeSeconds * 1000;
-
     // Check if we have transcript data
     const hasTranscript = transcript?.words && transcript.words.length > 0;
 
@@ -200,111 +174,7 @@ export const Scene: React.FC<SceneProps> = ({
                 </Sequence>
             ))}
 
-            {/* Gradient overlay for caption readability */}
-            <AbsoluteFill
-                style={{
-                    display: "flex",
-                    background: `linear-gradient(to top, rgba(0,0,0,0.85) 0%, transparent ${STYLE.position.gradientHeight})`,
-                    justifyContent: "flex-end",
-                    alignItems: "center",
-                    paddingBottom: STYLE.position.bottom,
-                }}
-            >
-                {/* Caption display */}
-                <div
-                    style={{
-                        display: "flex",
-                        flexWrap: "wrap",
-                        justifyContent: "center",
-                        gap: STYLE.font.wordGap,
-                        maxWidth: "80%",
-                        fontFamily: STYLE.font.family,
-                        fontWeight: STYLE.font.weight,
-                        fontSize: STYLE.font.size,
-                        letterSpacing: STYLE.font.letterSpacing,
-                    }}
-                >
-                    {transcript?.words ? (
-                        <KaraokeCaption words={transcript.words} currentTimeMs={currentTimeMs} />
-                    ) : (
-                        <span style={{ color: STYLE.colors.past }}>Scene {sceneNumber}</span>
-                    )}
-                </div>
-            </AbsoluteFill>
         </AbsoluteFill>
-    );
-};
-
-// Karaoke caption component with word-by-word highlighting
-const KaraokeCaption: React.FC<{
-    words: Array<{ word: string; start: number; end: number }>;
-    currentTimeMs: number;
-}> = ({ words, currentTimeMs }) => {
-    const currentTimeSec = currentTimeMs / 1000;
-
-    // Chunk words into groups of 4
-    const chunks: Array<Array<{ word: string; start: number; end: number; originalIndex: number }>> = [];
-    for (let i = 0; i < words.length; i += STYLE.chunking.wordsPerChunk) {
-        chunks.push(words.slice(i, i + STYLE.chunking.wordsPerChunk).map((w, idx) => ({
-            ...w,
-            originalIndex: i + idx,
-        })));
-    }
-
-    // Find current chunk based on time
-    const currentChunkIndex = chunks.findIndex((chunk) => {
-        const chunkStart = chunk[0].start;
-        const chunkEnd = chunk[chunk.length - 1].end;
-        return currentTimeSec >= chunkStart && currentTimeSec <= chunkEnd;
-    });
-
-    // If between chunks, show the next chunk
-    let activeChunkIndex = currentChunkIndex;
-    if (activeChunkIndex === -1) {
-        // Find the next upcoming chunk
-        activeChunkIndex = chunks.findIndex((chunk) => chunk[0].start > currentTimeSec);
-        if (activeChunkIndex === -1) activeChunkIndex = chunks.length - 1;
-    }
-
-    const currentChunk = chunks[activeChunkIndex];
-
-    if (!currentChunk) return null;
-
-    // Find which word is currently being spoken
-    const currentWordIndex = words.findIndex(
-        (w) => currentTimeSec >= w.start && currentTimeSec <= w.end
-    );
-
-    return (
-        <>
-            {currentChunk.map((wordData) => {
-                // Clean word (remove trailing punctuation but preserve contractions)
-                const cleanWord = wordData.word.replace(/[.,!?;:]$/, "");
-
-                // Determine word state: past, current, or future
-                let color = STYLE.colors.future;
-                if (wordData.originalIndex < currentWordIndex) {
-                    color = STYLE.colors.past;
-                } else if (wordData.originalIndex === currentWordIndex) {
-                    color = STYLE.colors.current;
-                }
-
-                return (
-                    <span
-                        key={`${wordData.start}-${wordData.originalIndex}`}
-                        style={{
-                            color: color,
-                            WebkitTextStroke: STYLE.colors.textStroke,
-                            paintOrder: "stroke fill",
-                            display: "inline-block",
-                            transition: "color 0.1s ease-out",
-                        }}
-                    >
-                        {cleanWord}
-                    </span>
-                );
-            })}
-        </>
     );
 };
 
