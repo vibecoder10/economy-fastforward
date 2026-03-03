@@ -249,8 +249,10 @@ async def graduate_to_pipeline(
     accent_color: str,
     scene_output_dir: Optional[str] = None,
     slack_client=None,
+    acts: Optional[dict] = None,
+    psych_assignments: Optional[list[dict]] = None,
 ) -> dict:
-    """Full graduation: Ideas Bank -> Pipeline Table + Scene File.
+    """Full graduation: Ideas Bank -> Pipeline Table + Scene File + Script Records.
 
     Args:
         airtable_client: AirtableClient instance
@@ -261,6 +263,8 @@ async def graduate_to_pipeline(
         accent_color: Chosen accent color
         scene_output_dir: Where to save scene JSON (optional)
         slack_client: SlackClient instance for notifications (optional)
+        acts: Dict mapping act number to act text (for Script table records)
+        psych_assignments: List of {"scene": N, "angle": str} (from psych_angle_assigner)
 
     Returns:
         {
@@ -310,7 +314,31 @@ async def graduate_to_pipeline(
         pipeline_record_id = result["id"]
         print(f"  ⚠️ Some new fields not yet in Airtable: {e}")
 
-    # 4. Update Idea Concepts record status
+    # 4. Create Script table records (one per act) with Psych Angle
+    if acts:
+        video_title = select_video_title(brief)
+        sources_text = build_sources_list(brief)
+        # Build a lookup: scene_number → psych_angle
+        angle_lookup = {}
+        if psych_assignments:
+            for pa in psych_assignments:
+                angle_lookup[pa["scene"]] = pa["angle"]
+
+        for act_num in sorted(acts.keys()):
+            act_text = acts[act_num]
+            psych_angle = angle_lookup.get(act_num, "")
+            try:
+                airtable_client.create_script_record(
+                    scene_number=act_num,
+                    scene_text=act_text,
+                    title=video_title,
+                    psych_angle=psych_angle,
+                    sources=sources_text if act_num == 1 else "",
+                )
+            except Exception as e:
+                print(f"  ⚠️ Could not create Script record for scene {act_num}: {e}")
+
+    # 5. Update Idea Concepts record status  (was step 4)
     try:
         airtable_client.update_idea_status(idea_record_id, "sent_to_pipeline")
     except Exception as e:
@@ -324,7 +352,7 @@ async def graduate_to_pipeline(
         except Exception:
             print(f"  ⚠️ Could not update Idea Concepts status: {e}")
 
-    # 5. Notify via Slack
+    # 6. Notify via Slack
     if slack_client:
         try:
             slack_client.send_message(

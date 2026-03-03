@@ -1795,6 +1795,7 @@ class VideoPipeline:
                         "title_options": research_payload.get("title_options", idea.get("Video Title", "")),
                         "thumbnail_concepts": research_payload.get("thumbnail_concepts", ""),
                         "source_urls": idea.get("Source URLs", "") or research_payload.get("source_bibliography", ""),
+                        "psychological_angles": research_payload.get("psychological_angles", ""),
                         # Pass through research enrichment flag
                         "_research_enriched": True,
                     }

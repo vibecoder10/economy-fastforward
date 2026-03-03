@@ -454,6 +454,7 @@ class AirtableClient:
         title: str,
         voice_id: str = "G17SuINrv2H9FC6nvetn",
         sources: str = "",
+        psych_angle: str = "",
     ) -> dict:
         """Create a new script record for a scene."""
         fields = {
@@ -466,13 +467,19 @@ class AirtableClient:
         # Store full source list on scene 1 for YouTube show notes
         if sources and scene_number == 1:
             fields["Sources"] = sources
+        if psych_angle:
+            fields["Psych Angle"] = psych_angle
         try:
             record = self.script_table.create(fields, typecast=True)
         except Exception as e:
-            # Gracefully drop Sources field if not yet in Airtable
-            if "UNKNOWN_FIELD_NAME" in str(e) and "Sources" in fields:
-                print("    ⚠️ Sources field not on Script table — run setup_airtable_fields.py")
-                del fields["Sources"]
+            error_msg = str(e)
+            if "UNKNOWN_FIELD_NAME" not in error_msg:
+                raise
+            # Gracefully drop unknown fields and retry
+            bad_field = self._extract_bad_field(error_msg)
+            if bad_field and bad_field in fields:
+                print(f"    ⚠️ {bad_field} field not on Script table — add it in Airtable")
+                del fields[bad_field]
                 record = self.script_table.create(fields, typecast=True)
             else:
                 raise
