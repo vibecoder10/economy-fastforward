@@ -74,6 +74,24 @@ def main():
         scene_number = script.get("scene", 0)
         scene_images = [img for img in images if img.get("Scene") == scene_number]
         
+        # TODO Phase 2: Read "Sound Map" JSON from script, download SFX files
+        # from Google Drive to remotion-video/public/sfx/, and build a
+        # "sound_layers" array for each scene in render_config.json:
+        #
+        # "sound_layers": [
+        #     {
+        #         "file": "sfx/sfx_scene_1_0.mp3",
+        #         "start_segment": 1,
+        #         "end_segment": 2,
+        #         "volume": 0.12,
+        #         "loop": true,
+        #         "fade_in": 0.5,
+        #         "fade_out": 0.5
+        #     }
+        # ]
+        #
+        # If a scene has no sound map or no SFX files, set "sound_layers": [].
+
         scenes.append({
             "sceneNumber": scene_number,
             "text": script.get("Scene text", ""),
@@ -85,6 +103,7 @@ def main():
                 }
                 for img in sorted(scene_images, key=lambda x: x.get("Image Index", 0))
             ],
+            "sound_layers": [],  # Phase 2: populated from Sound Map
         })
     
     props = {

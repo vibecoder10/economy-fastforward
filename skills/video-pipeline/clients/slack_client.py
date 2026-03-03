@@ -167,9 +167,25 @@ class SlackClient:
         """Notify that voice overs are complete."""
         return self.send_message(
             "✅ Voice Over Done!\n\n"
-            "Now generating image prompts... 🌉"
+            "Now designing sound... 🎧"
         )
-    
+
+    def notify_sound_design_done(self, title: str, scene_count: int, total_sounds: int) -> dict:
+        """Notify that sound design maps are complete."""
+        return self.send_message(
+            f"✅ Sound design complete: {total_sounds} sounds across {scene_count} scenes\n\n"
+            f"Now generating sound effects... 🔊"
+        )
+
+    def notify_sound_effects_done(
+        self, title: str, scene_count: int, total_generated: int, estimated_cost: float
+    ) -> dict:
+        """Notify that sound effect audio files have been generated."""
+        return self.send_message(
+            f"✅ Generated {total_generated} sound effects (~${estimated_cost:.2f})\n\n"
+            f"Now generating image prompts... 🌉"
+        )
+
     def notify_image_prompts_start(self) -> dict:
         """Notify that image prompt generation has started."""
         return self.send_message("🌉 Starting to make the image prompts!")

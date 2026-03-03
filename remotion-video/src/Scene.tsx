@@ -17,11 +17,29 @@ import {
     getSegmentsForScene,
 } from "./segments";
 
+// TODO Phase 2: Add sound layer rendering alongside voiceover.
+// Each sound layer has: file, start_segment, end_segment, volume, loop, fade_in, fade_out.
+// Use Remotion's <Audio> + interpolate() for volume fades.
+// Map start_segment/end_segment to frames using caption/word timestamp data.
+// If sound_layers is empty or undefined, render scene normally (backward compatible).
+// Multiple sound layers can overlap (ambient + layer + punctuation simultaneously).
+
+interface SoundLayer {
+    file: string;
+    start_segment: number;
+    end_segment: number;
+    volume: number;
+    loop: boolean;
+    fade_in: number;
+    fade_out: number;
+}
+
 interface SceneProps {
     sceneNumber: number;
     audioFile: string;
     images: Array<{ index: number; file: string }>;
     transcript?: TranscriptData;
+    soundLayers?: SoundLayer[];
 }
 
 interface TranscriptData {
@@ -62,6 +80,7 @@ export const Scene: React.FC<SceneProps> = ({
     audioFile,
     images,
     transcript,
+    soundLayers,
 }) => {
     const frame = useCurrentFrame();
     const { fps, durationInFrames } = useVideoConfig();
