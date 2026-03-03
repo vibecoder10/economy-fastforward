@@ -31,6 +31,10 @@ from .script_generator import generate_script
 from .scene_expander import expand_scene_concepts
 from .scene_validator import validate_scene_list, auto_fix_minor_issues
 from .pipeline_writer import graduate_to_pipeline
+from .psych_angle_assigner import (
+    assign_angles_to_scenes,
+    format_psych_arc_summary,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -155,15 +159,24 @@ class BriefTranslator:
                 f"{script_result['validation']['act_count']} acts"
             )
 
-            # === STEP 3: Scene Expansion (per-scene concept expansion) ===
-            logger.info("Step 3: Expanding script into visual concepts (scene by scene)...")
-            self._notify(f"🎬 Expanding script scenes into visual concepts...")
-
-            # Extract acts from the script to process scene by scene
+            # === STEP 2b: Assign Psychological Angles ===
             from .script_generator import extract_acts
             acts = extract_acts(script)
             if not acts:
                 acts = {1: script}
+
+            psych_angles_raw = brief.get("psychological_angles", "")
+            psych_assignments = assign_angles_to_scenes(
+                num_scenes=len(acts),
+                psychological_angles=psych_angles_raw,
+            )
+            psych_arc_summary = format_psych_arc_summary(psych_assignments)
+            if psych_arc_summary:
+                logger.info(f"Psychological arc: {psych_arc_summary}")
+
+            # === STEP 3: Scene Expansion (per-scene concept expansion) ===
+            logger.info("Step 3: Expanding script into visual concepts (scene by scene)...")
+            self._notify(f"🎬 Expanding script scenes into visual concepts...")
 
             scenes = []
             visual_seeds = brief.get("visual_seeds", "")
@@ -207,12 +220,20 @@ class BriefTranslator:
                 accent_color=self.accent_color,
                 scene_output_dir=self.scene_output_dir,
                 slack_client=self.slack,
+                acts=acts,
+                psych_assignments=psych_assignments,
             )
 
             result["status"] = "success"
             result["pipeline_record_id"] = graduation["pipeline_record_id"]
             result["scene_filepath"] = graduation["scene_filepath"]
             result["video_id"] = graduation["video_id"]
+
+            # Log psychological arc to Slack
+            if psych_arc_summary:
+                self._notify(
+                    f"📝 Script complete. Psychological arc: {psych_arc_summary}"
+                )
 
             logger.info(
                 f"Translation complete: {graduation['video_id']} → "
