@@ -137,6 +137,9 @@ async def handle_help(message, say):
 *YouTube Pipeline*
 - `script` / `run script` - Run script bot for idea with "Ready For Scripting" status
 - `voice` / `run voice` - Run voice bot for idea with "Ready For Voice" status
+- `run sound design <title>` - Generate sound maps for a video (Claude analyzes scenes)
+- `run sound effects <title>` - Generate sound effect audio files from sound maps
+- `run sound all <title>` - Run sound design + sound effects sequentially
 - `prompts` / `run prompts` - Generate styled image prompts and images
 - `images` / `run images` - Generate scene images only (for "Ready For Images" status)
 - `sync` / `timing` - Run audio sync (Whisper alignment) to calculate scene durations
@@ -791,6 +794,175 @@ async def handle_voice(message, say):
         await say(":stop_sign: Voice bot was stopped")
     except Exception as e:
         await say(f":x: Error: {e}")
+
+
+@app.message(re.compile(r"^!?run\s+sound\s+design\s+(.+)", re.IGNORECASE))
+async def handle_sound_design(message, say):
+    """Generate sound maps for a video via Claude."""
+    global current_task_name
+    if current_process or current_task_name:
+        await say(f":x: Already running `{current_task_name}`. Use `stop` to cancel it first.")
+        return
+
+    match = re.search(r"^!?run\s+sound\s+design\s+(.+)", message["text"], re.IGNORECASE)
+    if not match:
+        await say(":x: Usage: `run sound design <video title>`")
+        return
+
+    title_query = match.group(1).strip()
+    current_task_name = "sound design"
+
+    try:
+        from clients.airtable_client import AirtableClient
+        from bots.sound_prompt_bot import SoundPromptBot
+
+        airtable = AirtableClient()
+        idea = airtable.find_idea_by_title(title_query)
+        if not idea:
+            await say(f":x: No video found matching *{title_query}*")
+            return
+
+        video_title = idea.get("Video Title", title_query)
+        await say(f":headphones: Starting sound design for *{video_title}*...")
+
+        bot = SoundPromptBot(airtable=airtable)
+        result = await bot.process_video(video_title)
+
+        if result.get("error"):
+            await say(f":x: Sound design failed: {result['error']}")
+        else:
+            scenes = result.get("scenes_processed", 0)
+            sounds = result.get("total_sounds", 0)
+            await say(
+                f":white_check_mark: Sound design complete for *{video_title}*!\n"
+                f"Generated {sounds} sound descriptions across {scenes} scenes."
+            )
+
+    except Exception as e:
+        await say(f":x: Sound design error: {e}")
+        _record_failure("sound design")
+    finally:
+        current_task_name = None
+
+
+@app.message(re.compile(r"^!?run\s+sound\s+effects?\s+(.+)", re.IGNORECASE))
+async def handle_sound_effects(message, say):
+    """Generate sound effect audio files from sound maps."""
+    global current_task_name
+    if current_process or current_task_name:
+        await say(f":x: Already running `{current_task_name}`. Use `stop` to cancel it first.")
+        return
+
+    match = re.search(r"^!?run\s+sound\s+effects?\s+(.+)", message["text"], re.IGNORECASE)
+    if not match:
+        await say(":x: Usage: `run sound effects <video title>`")
+        return
+
+    title_query = match.group(1).strip()
+    current_task_name = "sound effects"
+
+    try:
+        from clients.airtable_client import AirtableClient
+        from clients.google_client import GoogleClient
+        from bots.sound_bot import SoundBot
+
+        airtable = AirtableClient()
+        idea = airtable.find_idea_by_title(title_query)
+        if not idea:
+            await say(f":x: No video found matching *{title_query}*")
+            return
+
+        video_title = idea.get("Video Title", title_query)
+        await say(f":loud_sound: Generating sound effects for *{video_title}*...")
+
+        google = GoogleClient()
+        bot = SoundBot(airtable=airtable, google=google)
+        result = await bot.process_video(video_title)
+
+        if result.get("error"):
+            await say(f":x: Sound effects failed: {result['error']}")
+        else:
+            total = result.get("total_generated", 0)
+            cost = result.get("estimated_cost", 0)
+            await say(
+                f":white_check_mark: Sound effects complete for *{video_title}*!\n"
+                f"Generated {total} audio files (~${cost:.2f})."
+            )
+
+    except Exception as e:
+        await say(f":x: Sound effects error: {e}")
+        _record_failure("sound effects")
+    finally:
+        current_task_name = None
+
+
+@app.message(re.compile(r"^!?run\s+sound\s+all\s+(.+)", re.IGNORECASE))
+async def handle_sound_all(message, say):
+    """Run both sound design and sound effects sequentially for a video."""
+    global current_task_name
+    if current_process or current_task_name:
+        await say(f":x: Already running `{current_task_name}`. Use `stop` to cancel it first.")
+        return
+
+    match = re.search(r"^!?run\s+sound\s+all\s+(.+)", message["text"], re.IGNORECASE)
+    if not match:
+        await say(":x: Usage: `run sound all <video title>`")
+        return
+
+    title_query = match.group(1).strip()
+    current_task_name = "sound all"
+
+    try:
+        from clients.airtable_client import AirtableClient
+        from clients.google_client import GoogleClient
+        from bots.sound_prompt_bot import SoundPromptBot
+        from bots.sound_bot import SoundBot
+
+        airtable = AirtableClient()
+        idea = airtable.find_idea_by_title(title_query)
+        if not idea:
+            await say(f":x: No video found matching *{title_query}*")
+            return
+
+        video_title = idea.get("Video Title", title_query)
+        await say(f":headphones: Starting full sound pipeline for *{video_title}*...")
+
+        # Step 1: Sound design (prompts)
+        await say(":headphones: Step 1/2 — Generating sound maps via Claude...")
+        prompt_bot = SoundPromptBot(airtable=airtable)
+        prompt_result = await prompt_bot.process_video(video_title)
+
+        if prompt_result.get("error"):
+            await say(f":x: Sound design failed: {prompt_result['error']}")
+            return
+
+        sounds = prompt_result.get("total_sounds", 0)
+        scenes = prompt_result.get("scenes_processed", 0)
+        await say(f":white_check_mark: Sound maps done — {sounds} sounds across {scenes} scenes.")
+
+        # Step 2: Sound effects (generation)
+        await say(":loud_sound: Step 2/2 — Generating audio files...")
+        google = GoogleClient()
+        gen_bot = SoundBot(airtable=airtable, google=google)
+        gen_result = await gen_bot.process_video(video_title)
+
+        if gen_result.get("error"):
+            await say(f":x: Sound effects failed: {gen_result['error']}")
+            return
+
+        total = gen_result.get("total_generated", 0)
+        cost = gen_result.get("estimated_cost", 0)
+        await say(
+            f":white_check_mark: *Full sound pipeline complete for {video_title}!*\n"
+            f"• {sounds} sound descriptions generated\n"
+            f"• {total} audio files created (~${cost:.2f})"
+        )
+
+    except Exception as e:
+        await say(f":x: Sound pipeline error: {e}")
+        _record_failure("sound all")
+    finally:
+        current_task_name = None
 
 
 @app.message(re.compile(r"run thumbnail", re.IGNORECASE))
@@ -1787,6 +1959,9 @@ Available commands (return one of these EXACTLY):
 - "run" — auto-continue the pipeline from its current status
 - "script" — generate a script for the next video
 - "voice" — generate voiceover audio
+- "run sound design TITLE" — generate sound maps for a video (replace TITLE with the video title from the user message)
+- "run sound effects TITLE" — generate sound effect audio files for a video (replace TITLE)
+- "run sound all TITLE" — run both sound design + sound effects for a video (replace TITLE)
 - "prompts" — generate image prompts and start image generation
 - "images" — generate scene images only
 - "end images" — generate end/outro images
@@ -1829,6 +2004,12 @@ Rules:
 "make me a thumb" → thumbnail, "what's happening" → status, \
 "pull the code" → update, "next step" → run, \
 "generate the voiceover" → voice, "create images" → images, \
+"generate sounds for TITLE" → run sound all TITLE, \
+"run sound design" → run sound design TITLE (extract TITLE from context), \
+"create sound effects for TITLE" → run sound effects TITLE, \
+"sound design for TITLE" → run sound design TITLE, \
+"add sounds to TITLE" → run sound all TITLE, \
+"do sounds for TITLE" → run sound all TITLE, \
 "how much storage" → disk, "what's in the pipeline" → queue, \
 "upload to youtube" → upload, "push to youtube" → upload, \
 "upload as draft" → upload, "youtube draft" → upload, \
@@ -1919,6 +2100,20 @@ async def handle_fallback(event, say):
         "cron status": handle_cron,
     }
 
+    # Check for "run sound design/effects/all TITLE" commands
+    if command.startswith("run sound design "):
+        fake_message = {"text": command, "user": event.get("user", "")}
+        await handle_sound_design(fake_message, say)
+        return
+    if command.startswith("run sound effects "):
+        fake_message = {"text": command, "user": event.get("user", "")}
+        await handle_sound_effects(fake_message, say)
+        return
+    if command.startswith("run sound all "):
+        fake_message = {"text": command, "user": event.get("user", "")}
+        await handle_sound_all(fake_message, say)
+        return
+
     # Check for "set env KEY=VALUE" command
     if command.startswith("set env "):
         fake_message = {"text": command, "user": event.get("user", "")}
@@ -1979,6 +2174,9 @@ async def handle_fallback(event, say):
 _TASK_HANDLER_MAP.update({
     "script": handle_script,
     "voice": handle_voice,
+    "sound design": handle_sound_design,
+    "sound effects": handle_sound_effects,
+    "sound all": handle_sound_all,
     "images": handle_images,
     "end images": handle_end_images,
     "prompts": handle_prompts,
