@@ -14,6 +14,8 @@ from .style_config import (
     ACCENT_COLOR_MAP,
     COMPOSITION_DIRECTIVES,
     DEFAULT_CONFIG,
+    SCENE_COLOR_MAP,
+    SCENE_COLOR_PRIORITY,
     STYLE_SUFFIXES,
     YOUTUBE_STYLE_PREFIX,
 )
@@ -98,6 +100,41 @@ def resolve_accent_color(
     return DEFAULT_CONFIG["default_accent_color"]
 
 
+def resolve_scene_accent_color(
+    scene_description: str,
+    video_accent_color: str,
+) -> str:
+    """Pick an accent color for a single image based on scene content.
+
+    Scans *scene_description* for keyword matches in :data:`SCENE_COLOR_MAP`.
+    Returns the color with the most hits.  Ties are broken by
+    :data:`SCENE_COLOR_PRIORITY` (crimson > amber > teal > green).
+    Falls back to *video_accent_color* when no keywords match.
+    """
+    desc_lower = scene_description.lower()
+    hits: dict[str, int] = {}
+    for color, keywords in SCENE_COLOR_MAP.items():
+        count = sum(1 for kw in keywords if kw in desc_lower)
+        if count > 0:
+            hits[color] = count
+
+    if not hits:
+        return video_accent_color
+
+    max_count = max(hits.values())
+    top_colors = [c for c, n in hits.items() if n == max_count]
+
+    if len(top_colors) == 1:
+        return top_colors[0]
+
+    # Tie-break by priority order.
+    for color in SCENE_COLOR_PRIORITY:
+        if color in top_colors:
+            return color
+
+    return video_accent_color
+
+
 def _apply_style_override(prefix: str, override: str) -> str:
     """Apply an image style override to the prefix.
 
@@ -152,14 +189,18 @@ def build_prompt(
     str
         The complete prompt string, ready for the image generation model.
     """
+    # Per-scene color rotation: pick a color based on scene content,
+    # falling back to the video-level accent_color.
+    scene_color = resolve_scene_accent_color(scene_description, accent_color)
+
     # Cinematic dossier prefix — establishes the photorealistic look
-    prefix = YOUTUBE_STYLE_PREFIX.replace("[ACCENT_COLOR]", accent_color)
+    prefix = YOUTUBE_STYLE_PREFIX.replace("[ACCENT_COLOR]", scene_color)
 
     if image_style_override and image_style_override.strip():
         prefix = _apply_style_override(prefix, image_style_override)
 
     comp_text = COMPOSITION_DIRECTIVES.get(composition, "")
-    suffix = STYLE_SUFFIXES[style].replace("[ACCENT_COLOR]", accent_color)
+    suffix = STYLE_SUFFIXES[style].replace("[ACCENT_COLOR]", scene_color)
 
     # Strip any style/lighting/camera language that leaked into the scene
     # description to avoid duplicating what the prefix and suffix provide.
@@ -226,6 +267,9 @@ def generate_prompts(
         style = assignment["style"]
         composition = assignment["composition"]
 
+        # Per-scene color rotation: the scene content may shift the color.
+        scene_color = resolve_scene_accent_color(desc, color)
+
         prompt = build_prompt(desc, style, composition, color,
                               image_style_override=image_style_override)
 
@@ -233,7 +277,7 @@ def generate_prompts(
             "prompt": prompt,
             "style": style,
             "composition": composition,
-            "accent_color": color,
+            "accent_color": scene_color,
             "act": assignment["act"],
             "index": assignment["index"],
             "ken_burns": assignment["ken_burns"],
