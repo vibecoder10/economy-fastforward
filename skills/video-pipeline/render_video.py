@@ -16,13 +16,101 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from clients.airtable_client import AirtableClient
-from clients.google_client import GoogleClient
+from clients.google_client import GoogleClient, get_direct_drive_url
 
 def sanitize_filename(title: str) -> str:
     """Convert title to safe filename."""
     clean = re.sub(r'[^\w\s-]', '', title)
     clean = re.sub(r'[-\s]+', '_', clean)
     return clean[:50]
+
+def _extract_drive_file_id(url: str) -> str | None:
+    """Extract Google Drive file ID from various URL formats."""
+    if not url:
+        return None
+    try:
+        if "/file/d/" in url:
+            return url.split("/file/d/")[1].split("/")[0]
+        if "id=" in url:
+            return url.split("id=")[1].split("&")[0]
+        if "/open?id=" in url:
+            return url.split("/open?id=")[1].split("&")[0]
+    except (IndexError, AttributeError):
+        pass
+    return None
+
+
+def _build_sound_layers(
+    script: dict,
+    scene_number: int,
+    sfx_dir: Path,
+    google: GoogleClient,
+) -> list[dict]:
+    """Build sound_layers array from a script's Sound Map JSON.
+
+    Downloads SFX files from Google Drive to the local sfx directory.
+    Returns an empty list if no sound map or SFX status is not Done.
+    """
+    sfx_status = script.get("SFX Status", "")
+    if sfx_status != "Done":
+        return []
+
+    sound_map_raw = script.get("Sound Map", "")
+    if not sound_map_raw:
+        return []
+
+    try:
+        sound_map = json.loads(sound_map_raw)
+    except (json.JSONDecodeError, TypeError):
+        print(f"  Scene {scene_number}: Invalid Sound Map JSON, skipping")
+        return []
+
+    sounds = sound_map.get("sounds", [])
+    if not sounds:
+        return []
+
+    layers = []
+    for sound in sounds:
+        file_url = sound.get("file_url", "")
+        filename = sound.get("filename", "")
+        if not file_url or not filename:
+            continue
+
+        # Download SFX file to local sfx dir (skip if already exists)
+        local_path = sfx_dir / filename
+        if not local_path.exists():
+            file_id = _extract_drive_file_id(file_url)
+            if file_id:
+                try:
+                    google.download_file_to_local(file_id, str(local_path))
+                    print(f"  Downloaded: {filename}")
+                except Exception as e:
+                    print(f"  Warning: Failed to download {filename}: {e}")
+                    continue
+            else:
+                print(f"  Warning: Cannot extract file ID from {file_url[:60]}")
+                continue
+
+        # Map segments array to start/end segment
+        segments = sound.get("segments", [])
+        if not segments:
+            continue
+
+        layers.append({
+            "file": f"sfx/{filename}",
+            "start_segment": min(segments),
+            "end_segment": max(segments),
+            "volume": sound.get("volume", 0.1),
+            "loop": sound.get("loop", False),
+            "fade_in": sound.get("fade_in", 0.5),
+            "fade_out": sound.get("fade_out", 0.5),
+        })
+
+    if layers:
+        print(f"  Scene {scene_number}: {len(layers)} sound layers loaded")
+
+    return layers
+
 
 def main():
     if len(sys.argv) < 2:
@@ -69,28 +157,18 @@ def main():
     scripts = airtable.get_scripts_by_title(title)
     images = airtable.get_all_images_for_video(title)
     
+    # Ensure SFX directory exists for sound layer downloads
+    remotion_dir = Path(__file__).parent.parent.parent / "remotion-video"
+    sfx_dir = remotion_dir / "public" / "sfx"
+    sfx_dir.mkdir(parents=True, exist_ok=True)
+
     scenes = []
     for script in scripts:
         scene_number = script.get("scene", 0)
         scene_images = [img for img in images if img.get("Scene") == scene_number]
         
-        # TODO Phase 2: Read "Sound Map" JSON from script, download SFX files
-        # from Google Drive to remotion-video/public/sfx/, and build a
-        # "sound_layers" array for each scene in render_config.json:
-        #
-        # "sound_layers": [
-        #     {
-        #         "file": "sfx/sfx_scene_1_0.mp3",
-        #         "start_segment": 1,
-        #         "end_segment": 2,
-        #         "volume": 0.12,
-        #         "loop": true,
-        #         "fade_in": 0.5,
-        #         "fade_out": 0.5
-        #     }
-        # ]
-        #
-        # If a scene has no sound map or no SFX files, set "sound_layers": [].
+        # Build sound_layers from Sound Map JSON (if available)
+        sound_layers = _build_sound_layers(script, scene_number, sfx_dir, google)
 
         scenes.append({
             "sceneNumber": scene_number,
@@ -103,7 +181,7 @@ def main():
                 }
                 for img in sorted(scene_images, key=lambda x: x.get("Image Index", 0))
             ],
-            "sound_layers": [],  # Phase 2: populated from Sound Map
+            "sound_layers": sound_layers,
         })
     
     props = {
@@ -113,7 +191,6 @@ def main():
     }
     
     # Save props
-    remotion_dir = Path(__file__).parent.parent.parent / "remotion-video"
     props_file = remotion_dir / "props.json"
     with open(props_file, "w") as f:
         json.dump(props, f, indent=2)

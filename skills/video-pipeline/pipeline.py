@@ -2636,6 +2636,37 @@ class VideoPipeline:
 
         print(f"  ✅ Assets downloaded from Google Drive")
 
+        # Download SFX files for sound layers
+        sfx_dir = public_dir / "sfx"
+        sfx_dir.mkdir(exist_ok=True)
+        sfx_count = 0
+        for scene in props.get("scenes", []):
+            for layer in scene.get("sound_layers", []):
+                filename = layer.get("file", "").removeprefix("sfx/")
+                if not filename:
+                    continue
+                dest = sfx_dir / filename
+                if dest.exists():
+                    sfx_count += 1
+                    continue
+                # Find the file in Drive by searching all folders
+                for folder_id, _ in asset_folders:
+                    drive_files = self.google.list_files_in_folder(folder_id)
+                    for df in drive_files:
+                        if df["name"] == filename:
+                            try:
+                                content = self.google.download_file(df["id"])
+                                dest.write_bytes(content)
+                                sfx_count += 1
+                            except Exception as e:
+                                print(f"    ⚠️ SFX download failed: {filename}: {e}")
+                            break
+                    else:
+                        continue
+                    break
+        if sfx_count > 0:
+            print(f"  🔊 {sfx_count} SFX files ready in public/sfx/")
+
         # Verify every scene has its audio file (Remotion will 404 without it)
         scene_count = len(props.get("scenes", []))
         missing_audio = []
@@ -3434,11 +3465,15 @@ class VideoPipeline:
 
                 processed_images.append(asset)
 
+            # Build sound layers from Sound Map JSON
+            sound_layers = self._extract_sound_layers(script)
+
             scenes.append({
                 "sceneNumber": scene_number,
                 "text": script.get("Scene text", ""),
                 "voiceUrl": script.get("Voice Over", [{}])[0].get("url", "") if script.get("Voice Over") else "",
                 "images": processed_images,
+                "sound_layers": sound_layers,
             })
 
         props = {
@@ -3449,6 +3484,43 @@ class VideoPipeline:
         }
 
         return props
+
+    @staticmethod
+    def _extract_sound_layers(script: dict) -> list[dict]:
+        """Extract sound_layers from a script's Sound Map JSON.
+
+        Returns an empty list if no sound map or SFX not done.
+        """
+        if script.get("SFX Status") != "Done":
+            return []
+
+        sound_map_raw = script.get("Sound Map", "")
+        if not sound_map_raw:
+            return []
+
+        try:
+            sound_map = json.loads(sound_map_raw)
+        except (json.JSONDecodeError, TypeError):
+            return []
+
+        layers = []
+        for sound in sound_map.get("sounds", []):
+            filename = sound.get("filename", "")
+            segments = sound.get("segments", [])
+            if not filename or not segments:
+                continue
+
+            layers.append({
+                "file": f"sfx/{filename}",
+                "start_segment": min(segments),
+                "end_segment": max(segments),
+                "volume": sound.get("volume", 0.1),
+                "loop": sound.get("loop", False),
+                "fade_in": sound.get("fade_in", 0.5),
+                "fade_out": sound.get("fade_out", 0.5),
+            })
+
+        return layers
 
     def generate_segment_data_ts(self, remotion_dir: Path = None) -> str:
         """DEPRECATED: Use audio_sync.render_config_writer instead.
