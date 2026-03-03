@@ -2474,8 +2474,8 @@ class VideoPipeline:
             if removed:
                 print(f"  🧹 Cleaned {removed} stale assets from public/")
 
-        # CLEAN CAPTION FILES — stale captions from a previous video cause
-        # wrong karaoke text and timing in the rendered video.
+        # CLEAN CAPTION FILES — audio_sync still writes these for legacy
+        # compatibility. Remove stale ones to avoid confusion between renders.
         captions_dir = remotion_dir / "src" / "captions"
         if captions_dir.exists():
             import glob as glob_mod
@@ -2587,10 +2587,11 @@ class VideoPipeline:
                 fname = df["name"]
                 fid = df["id"]
 
-                # Only download Scene audio (.mp3) and image (.png) files
+                # Download Scene audio (.mp3), image (.png), and video (.mp4) files
                 is_audio = fname.startswith("Scene ") and fname.endswith(".mp3")
                 is_image = fname.startswith("Scene_") and fname.endswith(".png")
-                if not is_audio and not is_image:
+                is_video = fname.startswith("Scene_") and fname.endswith(".mp4")
+                if not is_audio and not is_image and not is_video:
                     continue
 
                 dest = public_dir / fname
@@ -2669,12 +2670,14 @@ class VideoPipeline:
             print(f"  🔊 {sfx_count} SFX files ready in public/sfx/")
 
         # Verify every scene has its audio file (Remotion will 404 without it)
-        scene_count = len(props.get("scenes", []))
+        # Use actual scene numbers from props — NOT sequential range(1, N+1)
+        # which breaks when scene numbers have gaps or don't start at 1.
         missing_audio = []
-        for i in range(1, scene_count + 1):
-            audio_path = public_dir / f"Scene {i}.mp3"
+        for scene in props.get("scenes", []):
+            scene_num = scene.get("sceneNumber", 0)
+            audio_path = public_dir / f"Scene {scene_num}.mp3"
             if not audio_path.exists():
-                missing_audio.append(f"Scene {i}.mp3")
+                missing_audio.append(f"Scene {scene_num}.mp3")
 
         if missing_audio:
             missing_list = ", ".join(missing_audio[:10])
@@ -2686,6 +2689,7 @@ class VideoPipeline:
             )
             return {"error": f"Missing audio: {missing_list}", "bot": "Render Bot"}
 
+        scene_count = len(props.get("scenes", []))
         self.slack.notify(
             f"⬇️ *Assets ready:* _{self.video_title}_\n"
             f"{scene_count} scenes, all audio verified. Starting Remotion render now..."
