@@ -43,8 +43,11 @@ from clients.elevenlabs_client import ElevenLabsClient
 from clients.image_client import ImageClient
 from clients.gemini_client import GeminiClient
 from clients.apify_client import ApifyYouTubeClient
+from clients.sound_client import SoundClient
 from bots.idea_bot import IdeaBot
 from bots.trending_idea_bot import TrendingIdeaBot
+from bots.sound_prompt_bot import SoundPromptBot
+from bots.sound_bot import SoundBot
 
 
 class VideoPipeline:
@@ -60,6 +63,8 @@ class VideoPipeline:
     STATUS_IDEA_LOGGED = "Idea Logged"
     STATUS_READY_SCRIPTING = "Ready For Scripting"
     STATUS_READY_VOICE = "Ready For Voice"
+    STATUS_READY_SOUND_DESIGN = "Ready For Sound Design"
+    STATUS_READY_SOUND_EFFECTS = "Ready For Sound Effects"
     STATUS_READY_IMAGE_PROMPTS = "Ready For Image Prompts"
     STATUS_READY_IMAGES = "Ready For Images"
     STATUS_READY_VIDEO_SCRIPTS = "Ready For Video Scripts"
@@ -81,6 +86,11 @@ class VideoPipeline:
         self.gemini = GeminiClient()
         # Pass google client for proxy logic
         self.image_client = ImageClient(google_client=self.google)
+        # Sound effect client (optional — may not have API key configured)
+        try:
+            self.sound_client = SoundClient()
+        except ValueError:
+            self.sound_client = None
         # Apify for YouTube scraping (optional - may not have API key)
         try:
             self.apify = ApifyYouTubeClient()
@@ -563,6 +573,18 @@ class VideoPipeline:
 
             return await self._run_step_safe("Voice Bot", self.run_voice_bot)
 
+        # 2b. Check for Ready For Sound Design
+        idea = self.get_idea_by_status(self.STATUS_READY_SOUND_DESIGN)
+        if idea:
+            self._load_idea(idea)
+            return await self._run_step_safe("Sound Prompt Bot", self.run_sound_prompt_bot)
+
+        # 2c. Check for Ready For Sound Effects
+        idea = self.get_idea_by_status(self.STATUS_READY_SOUND_EFFECTS)
+        if idea:
+            self._load_idea(idea)
+            return await self._run_step_safe("Sound Bot", self.run_sound_bot)
+
         # 3. Check for Ready For Image Prompts (use styled prompts as primary path)
         idea = self.get_idea_by_status(self.STATUS_READY_IMAGE_PROMPTS)
         if idea:
@@ -918,18 +940,100 @@ class VideoPipeline:
                 self.airtable.mark_script_finished(script["id"], audio_url)
                 voice_count += 1
         
-        # UPDATE STATUS to Ready For Image Prompts
-        self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_IMAGE_PROMPTS)
-        print(f"  ✅ Status updated to: {self.STATUS_READY_IMAGE_PROMPTS}")
-        
+        # UPDATE STATUS to Ready For Sound Design
+        self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_SOUND_DESIGN)
+        print(f"  ✅ Status updated to: {self.STATUS_READY_SOUND_DESIGN}")
+
         self.slack.notify_voice_done()
-        
+
         return {
             "bot": "Voice Bot",
             "video_title": self.video_title,
             "voice_count": voice_count,
-            "new_status": self.STATUS_READY_IMAGE_PROMPTS,
+            "new_status": self.STATUS_READY_SOUND_DESIGN,
         }
+
+    async def run_sound_prompt_bot(self) -> dict:
+        """Generate sound design maps for all scenes via Claude.
+
+        REQUIRES: Ideas status = "Ready For Sound Design"
+        UPDATES TO: "Ready For Sound Effects" when complete
+        """
+        if not self.current_idea:
+            idea = self.get_idea_by_status(self.STATUS_READY_SOUND_DESIGN)
+            if not idea:
+                return {"error": "No idea with status 'Ready For Sound Design'"}
+            self._load_idea(idea)
+
+        if self.current_idea.get("Status") != self.STATUS_READY_SOUND_DESIGN:
+            return {"error": f"Idea status is '{self.current_idea.get('Status')}', expected 'Ready For Sound Design'"}
+
+        self.slack.notify("🎧 Starting sound design for: " + self.video_title)
+        print(f"\n🎧 SOUND PROMPT BOT: Processing '{self.video_title}'")
+
+        bot = SoundPromptBot(anthropic=self.anthropic, airtable=self.airtable)
+        result = await bot.process_video(self.video_title)
+
+        if result.get("error"):
+            return result
+
+        # Update status
+        self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_SOUND_EFFECTS)
+        print(f"  ✅ Status updated to: {self.STATUS_READY_SOUND_EFFECTS}")
+
+        self.slack.notify(
+            f"✅ Sound design complete for *{self.video_title}*: "
+            f"{result.get('total_sounds', 0)} sounds across {result.get('scenes_processed', 0)} scenes"
+        )
+
+        result["new_status"] = self.STATUS_READY_SOUND_EFFECTS
+        return result
+
+    async def run_sound_bot(self) -> dict:
+        """Generate sound effect audio files from sound maps.
+
+        REQUIRES: Ideas status = "Ready For Sound Effects"
+        UPDATES TO: "Ready For Image Prompts" when complete
+        """
+        if not self.current_idea:
+            idea = self.get_idea_by_status(self.STATUS_READY_SOUND_EFFECTS)
+            if not idea:
+                return {"error": "No idea with status 'Ready For Sound Effects'"}
+            self._load_idea(idea)
+
+        if self.current_idea.get("Status") != self.STATUS_READY_SOUND_EFFECTS:
+            return {"error": f"Idea status is '{self.current_idea.get('Status')}', expected 'Ready For Sound Effects'"}
+
+        self.slack.notify("🔊 Generating sound effects for: " + self.video_title)
+        print(f"\n🔊 SOUND BOT: Processing '{self.video_title}'")
+
+        # Get or create project folder
+        if not self.project_folder_id:
+            folder = self.google.get_or_create_folder(self.video_title)
+            self.project_folder_id = folder["id"]
+
+        bot = SoundBot(
+            sound_client=self.sound_client or SoundClient(),
+            airtable=self.airtable,
+            google=self.google,
+            slack=self.slack,
+        )
+        result = await bot.process_video(self.video_title, folder_id=self.project_folder_id)
+
+        if result.get("error"):
+            return result
+
+        # Update status
+        self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_IMAGE_PROMPTS)
+        print(f"  ✅ Status updated to: {self.STATUS_READY_IMAGE_PROMPTS}")
+
+        self.slack.notify(
+            f"✅ Generated {result.get('total_generated', 0)} sound effects for *{self.video_title}* "
+            f"(~${result.get('estimated_cost', 0):.2f})"
+        )
+
+        result["new_status"] = self.STATUS_READY_IMAGE_PROMPTS
+        return result
 
     async def run_image_prompt_bot_legacy(self) -> dict:
         """Generate image prompts based on voiceover duration (LEGACY PATH).
@@ -2119,6 +2223,8 @@ class VideoPipeline:
         stage_to_status = {
             "scripting": self.STATUS_READY_SCRIPTING,
             "voice": self.STATUS_READY_VOICE,
+            "sound_design": self.STATUS_READY_SOUND_DESIGN,
+            "sound_effects": self.STATUS_READY_SOUND_EFFECTS,
             "image_prompts": self.STATUS_READY_IMAGE_PROMPTS,
             "images": self.STATUS_READY_IMAGES,
             "video_scripts": self.STATUS_READY_VIDEO_SCRIPTS,
@@ -4351,6 +4457,8 @@ async def main():
             for status_name in [
                 pipeline.STATUS_READY_SCRIPTING,
                 pipeline.STATUS_READY_VOICE,
+                pipeline.STATUS_READY_SOUND_DESIGN,
+                pipeline.STATUS_READY_SOUND_EFFECTS,
                 pipeline.STATUS_READY_IMAGE_PROMPTS,
                 pipeline.STATUS_READY_IMAGES,
                 pipeline.STATUS_READY_THUMBNAIL,
