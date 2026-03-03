@@ -16,11 +16,14 @@ from image_prompt_engine.prompt_builder import (
     build_prompt,
     generate_prompts,
     resolve_accent_color,
+    resolve_scene_accent_color,
 )
 from image_prompt_engine.style_config import (
     ACCENT_COLOR_MAP,
     COMPOSITION_DIRECTIVES,
     DEFAULT_CONFIG,
+    SCENE_COLOR_MAP,
+    VALID_ACCENT_COLORS,
     YOUTUBE_STYLE_PREFIX,
 )
 
@@ -108,11 +111,20 @@ class TestPromptFormat:
 # ---------------------------------------------------------------------------
 
 class TestAccentColor:
-    def test_accent_color_consistency(self):
-        """All prompts in a video use the same accent color."""
+    def test_accent_colors_are_valid(self):
+        """All per-scene accent colors are recognized valid colors."""
+        valid = VALID_ACCENT_COLORS | set(SCENE_COLOR_MAP.keys())
+        results = _generate_full_video()
+        for r in results:
+            assert r["accent_color"] in valid, (
+                f"Invalid accent color '{r['accent_color']}' at index {r['index']}"
+            )
+
+    def test_per_scene_color_rotation_produces_variety(self):
+        """Per-scene rotation generates more than one accent color across a full video."""
         results = _generate_full_video()
         colors = {r["accent_color"] for r in results}
-        assert len(colors) == 1, f"Multiple accent colors found: {colors}"
+        assert len(colors) > 1, "Expected per-scene color variety across 136 images"
 
     def test_geopolitical_gets_cold_teal(self):
         color = resolve_accent_color(topic_category="geopolitical")
@@ -139,7 +151,7 @@ class TestAccentColor:
         assert color == DEFAULT_CONFIG["default_accent_color"]
 
     def test_accent_color_appears_in_dossier_prompt(self):
-        """Dossier prompts contain the chosen accent color string."""
+        """Dossier prompts contain their per-scene resolved accent color."""
         results = generate_prompts(
             _sample_scenes(10),
             accent_color="warm amber",
@@ -148,10 +160,12 @@ class TestAccentColor:
         dossier = [r for r in results if r["style"] == "dossier"]
         assert len(dossier) > 0
         for r in dossier:
-            assert "warm amber" in r["prompt"]
+            assert r["accent_color"] in r["prompt"], (
+                f"Accent color '{r['accent_color']}' not in prompt at index {r['index']}"
+            )
 
     def test_accent_color_appears_in_schema_prompt(self):
-        """Schema prompts contain the chosen accent color string."""
+        """Schema prompts contain their per-scene resolved accent color."""
         results = generate_prompts(
             _sample_scenes(136),
             accent_color="muted crimson",
@@ -160,7 +174,61 @@ class TestAccentColor:
         schema = [r for r in results if r["style"] == "schema"]
         assert len(schema) > 0
         for r in schema:
-            assert "muted crimson" in r["prompt"]
+            assert r["accent_color"] in r["prompt"], (
+                f"Accent color '{r['accent_color']}' not in prompt at index {r['index']}"
+            )
+
+
+# ---------------------------------------------------------------------------
+# Per-scene accent color resolution tests
+# ---------------------------------------------------------------------------
+
+class TestSceneAccentColor:
+    def test_crimson_keyword_match(self):
+        color = resolve_scene_accent_color("A drone strike on the military base", "cold teal")
+        assert color == "muted crimson"
+
+    def test_amber_keyword_match(self):
+        color = resolve_scene_accent_color("The king sits on his golden throne in the palace", "cold teal")
+        assert color == "warm amber"
+
+    def test_teal_keyword_match(self):
+        color = resolve_scene_accent_color("A satellite surveillance command center with radar screens", "warm amber")
+        assert color == "cold teal"
+
+    def test_green_keyword_match(self):
+        color = resolve_scene_accent_color("Wall Street traders watch the stock market crash on Bloomberg", "cold teal")
+        assert color == "muted green"
+
+    def test_no_keywords_falls_back_to_video_color(self):
+        color = resolve_scene_accent_color("A quiet room with soft light", "warm amber")
+        assert color == "warm amber"
+
+    def test_most_hits_wins(self):
+        """Color with the most keyword matches wins."""
+        # 3 crimson keywords vs 1 teal keyword
+        color = resolve_scene_accent_color(
+            "A military assault with weapons destroying the surveillance post", "cold teal"
+        )
+        assert color == "muted crimson"
+
+    def test_tie_broken_by_priority(self):
+        """Ties broken by crimson > amber > teal > green."""
+        # 1 crimson ("war") vs 1 amber ("power") → crimson wins
+        color = resolve_scene_accent_color("A war for power", "cold teal")
+        assert color == "muted crimson"
+
+    def test_case_insensitive(self):
+        color = resolve_scene_accent_color("MILITARY DRONE STRIKE", "cold teal")
+        assert color == "muted crimson"
+
+    def test_multi_word_keyword(self):
+        """Multi-word keywords like 'command center' and 'wall street' match."""
+        color = resolve_scene_accent_color("Inside the command center", "warm amber")
+        assert color == "cold teal"
+
+        color = resolve_scene_accent_color("The traders on Wall Street panic", "cold teal")
+        assert color == "muted green"
 
 
 # ---------------------------------------------------------------------------
@@ -238,7 +306,8 @@ class TestBuildPrompt:
         assert prompt.startswith("Cinematic photorealistic editorial photograph")
         assert "City at night with data overlay" in prompt
         assert "overhead" in prompt.lower() or "surveillance perspective" in prompt
-        assert "warm amber" in prompt
+        # "data" keyword triggers per-scene rotation to cold teal
+        assert "cold teal" in prompt
         assert "Bloomberg" in prompt
         assert "16:9" in prompt
 
@@ -393,7 +462,8 @@ class TestIntegration:
         ("financial", "warm amber"),
         ("conflict", "muted crimson"),
     ])
-    def test_topic_category_sets_accent_color(self, category, expected_color):
-        scenes = _sample_scenes(20)
+    def test_topic_category_sets_fallback_color(self, category, expected_color):
+        """Scenes without keyword matches fall back to the topic category color."""
+        scenes = [{"scene_description": "A neutral empty room with no keywords"}] * 20
         results = generate_prompts(scenes, topic_category=category, seed=42)
         assert all(r["accent_color"] == expected_color for r in results)

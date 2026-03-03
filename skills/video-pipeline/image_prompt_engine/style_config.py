@@ -109,6 +109,37 @@ ACCENT_COLOR_MAP = {
 VALID_ACCENT_COLORS = {"cold teal", "muted crimson", "warm amber", "muted green"}
 
 # ---------------------------------------------------------------------------
+# Per-Scene Accent Color Rotation
+# ---------------------------------------------------------------------------
+# Maps content keywords in scene descriptions to accent colors. When a scene
+# description contains these keywords, the accent color shifts to match the
+# content — giving visual variety across 120 images instead of one flat color.
+
+SCENE_COLOR_MAP = {
+    "muted crimson": [
+        "strike", "attack", "drone", "missile", "destroy", "bomb", "fire",
+        "explosion", "military", "war", "kill", "dead", "weapon", "assault",
+    ],
+    "warm amber": [
+        "power", "wealth", "oil", "palace", "king", "prince", "empire",
+        "gold", "throne", "control", "dominance", "historical",
+        "1941", "1953", "roosevelt",
+    ],
+    "cold teal": [
+        "surveillance", "data", "intelligence", "command center", "monitor",
+        "screen", "radar", "satellite", "strategic", "analysis", "map",
+        "strait", "chokepoint",
+    ],
+    "muted green": [
+        "market", "trade", "price", "stock", "economy", "recession",
+        "inflation", "wall street", "bloomberg", "gdp", "dollar", "currency",
+    ],
+}
+
+# Tie-breaking priority: crimson > amber > teal > green (conflict-heavy bias).
+SCENE_COLOR_PRIORITY = ["muted crimson", "warm amber", "cold teal", "muted green"]
+
+# ---------------------------------------------------------------------------
 # Act Style Weights
 # ---------------------------------------------------------------------------
 # Probability weights for style selection per act, before sequencing rule

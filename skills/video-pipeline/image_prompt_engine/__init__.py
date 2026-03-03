@@ -27,7 +27,12 @@ Usage
         print(p["style"], p["composition"], p["prompt"][:80])
 """
 
-from .prompt_builder import build_prompt, generate_prompts, resolve_accent_color
+from .prompt_builder import (
+    build_prompt,
+    generate_prompts,
+    resolve_accent_color,
+    resolve_scene_accent_color,
+)
 from .sequencer import assign_styles
 from .style_config import (
     ACCENT_COLOR_MAP,
@@ -37,6 +42,8 @@ from .style_config import (
     DEFAULT_CONFIG,
     KEN_BURNS_PAN_ALTERNATES,
     KEN_BURNS_RULES,
+    SCENE_COLOR_MAP,
+    SCENE_COLOR_PRIORITY,
     STYLE_SUFFIXES,
     VALID_ACCENT_COLORS,
     YOUTUBE_STYLE_PREFIX,
@@ -47,6 +54,7 @@ __all__ = [
     "generate_prompts",
     "build_prompt",
     "resolve_accent_color",
+    "resolve_scene_accent_color",
     "assign_styles",
     # Configuration
     "STYLE_SUFFIXES",
@@ -59,4 +67,6 @@ __all__ = [
     "KEN_BURNS_PAN_ALTERNATES",
     "DEFAULT_CONFIG",
     "VALID_ACCENT_COLORS",
+    "SCENE_COLOR_MAP",
+    "SCENE_COLOR_PRIORITY",
 ]
