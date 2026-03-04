@@ -798,7 +798,7 @@ async def handle_voice(message, say):
 
 @app.message(re.compile(r"^!?run\s+sound\s+design\s+(.+)", re.IGNORECASE))
 async def handle_sound_design(message, say):
-    """Generate sound maps for a video via Claude."""
+    """Generate per-image sound prompts via Claude Haiku."""
     global current_task_name
     if current_process or current_task_name:
         await say(f":x: Already running `{current_task_name}`. Use `stop` to cancel it first.")
@@ -823,7 +823,7 @@ async def handle_sound_design(message, say):
             return
 
         video_title = idea.get("Video Title", title_query)
-        await say(f":headphones: Starting sound design for *{video_title}*...")
+        await say(f":headphones: Generating sound prompts for *{video_title}* (per-image)...")
 
         bot = SoundPromptBot(airtable=airtable)
         result = await bot.process_video(video_title)
@@ -831,11 +831,11 @@ async def handle_sound_design(message, say):
         if result.get("error"):
             await say(f":x: Sound design failed: {result['error']}")
         else:
-            scenes = result.get("scenes_processed", 0)
-            sounds = result.get("total_sounds", 0)
+            generated = result.get("prompts_generated", 0)
+            total = result.get("total_images", 0)
             await say(
-                f":white_check_mark: Sound design complete for *{video_title}*!\n"
-                f"Generated {sounds} sound descriptions across {scenes} scenes."
+                f":white_check_mark: Sound prompts complete for *{video_title}*!\n"
+                f"{generated}/{total} image rows now have sound prompts."
             )
 
     except Exception as e:
@@ -847,7 +847,7 @@ async def handle_sound_design(message, say):
 
 @app.message(re.compile(r"^!?run\s+sound\s+effects?\s+(.+)", re.IGNORECASE))
 async def handle_sound_effects(message, say):
-    """Generate sound effect audio files from sound maps."""
+    """Generate sound effect audio files per image row."""
     global current_task_name
     if current_process or current_task_name:
         await say(f":x: Already running `{current_task_name}`. Use `stop` to cancel it first.")
@@ -873,7 +873,7 @@ async def handle_sound_effects(message, say):
             return
 
         video_title = idea.get("Video Title", title_query)
-        await say(f":loud_sound: Generating sound effects for *{video_title}*...")
+        await say(f":loud_sound: Generating sound effects for *{video_title}* (per-image)...")
 
         google = GoogleClient()
         bot = SoundBot(airtable=airtable, google=google)
@@ -898,7 +898,7 @@ async def handle_sound_effects(message, say):
 
 @app.message(re.compile(r"^!?run\s+sound\s+all\s+(.+)", re.IGNORECASE))
 async def handle_sound_all(message, say):
-    """Run both sound design and sound effects sequentially for a video."""
+    """Run both sound prompts and sound effects sequentially for a video."""
     global current_task_name
     if current_process or current_task_name:
         await say(f":x: Already running `{current_task_name}`. Use `stop` to cancel it first.")
@@ -925,10 +925,10 @@ async def handle_sound_all(message, say):
             return
 
         video_title = idea.get("Video Title", title_query)
-        await say(f":headphones: Starting full sound pipeline for *{video_title}*...")
+        await say(f":headphones: Starting full sound pipeline for *{video_title}* (per-image)...")
 
-        # Step 1: Sound design (prompts)
-        await say(":headphones: Step 1/2 — Generating sound maps via Claude...")
+        # Step 1: Sound prompts (one per image via Claude Haiku)
+        await say(":headphones: Step 1/2 — Generating sound prompts per image...")
         prompt_bot = SoundPromptBot(airtable=airtable)
         prompt_result = await prompt_bot.process_video(video_title)
 
@@ -936,12 +936,12 @@ async def handle_sound_all(message, say):
             await say(f":x: Sound design failed: {prompt_result['error']}")
             return
 
-        sounds = prompt_result.get("total_sounds", 0)
-        scenes = prompt_result.get("scenes_processed", 0)
-        await say(f":white_check_mark: Sound maps done — {sounds} sounds across {scenes} scenes.")
+        generated = prompt_result.get("prompts_generated", 0)
+        total_images = prompt_result.get("total_images", 0)
+        await say(f":white_check_mark: Sound prompts done — {generated}/{total_images} images.")
 
-        # Step 2: Sound effects (generation)
-        await say(":loud_sound: Step 2/2 — Generating audio files...")
+        # Step 2: Sound effects (generate audio per image)
+        await say(":loud_sound: Step 2/2 — Generating audio files per image...")
         google = GoogleClient()
         gen_bot = SoundBot(airtable=airtable, google=google)
         gen_result = await gen_bot.process_video(video_title)
@@ -954,7 +954,7 @@ async def handle_sound_all(message, say):
         cost = gen_result.get("estimated_cost", 0)
         await say(
             f":white_check_mark: *Full sound pipeline complete for {video_title}!*\n"
-            f"• {sounds} sound descriptions generated\n"
+            f"• {generated}/{total_images} sound prompts generated\n"
             f"• {total} audio files created (~${cost:.2f})"
         )
 

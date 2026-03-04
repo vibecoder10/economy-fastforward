@@ -222,8 +222,8 @@ class VideoPipeline:
             # Prompts done, but Scene 1 videos missing
             suggested_status = self.STATUS_READY_VIDEO_GENERATION
         elif all_images and not pending_images:
-            # All images done (and video steps satisfied for Scene 1)
-            suggested_status = self.STATUS_READY_THUMBNAIL
+            # All images done — sound design comes next (reads Image Prompt from Images table)
+            suggested_status = self.STATUS_READY_SOUND_DESIGN
         
         return {
             "scripts_exist": len(scripts) > 0,
@@ -573,18 +573,6 @@ class VideoPipeline:
 
             return await self._run_step_safe("Voice Bot", self.run_voice_bot)
 
-        # 2b. Check for Ready For Sound Design
-        idea = self.get_idea_by_status(self.STATUS_READY_SOUND_DESIGN)
-        if idea:
-            self._load_idea(idea)
-            return await self._run_step_safe("Sound Prompt Bot", self.run_sound_prompt_bot)
-
-        # 2c. Check for Ready For Sound Effects
-        idea = self.get_idea_by_status(self.STATUS_READY_SOUND_EFFECTS)
-        if idea:
-            self._load_idea(idea)
-            return await self._run_step_safe("Sound Bot", self.run_sound_bot)
-
         # 3. Check for Ready For Image Prompts (use styled prompts as primary path)
         idea = self.get_idea_by_status(self.STATUS_READY_IMAGE_PROMPTS)
         if idea:
@@ -614,6 +602,18 @@ class VideoPipeline:
                 return await self.run_next_step()
 
             return await self._run_step_safe("Image Bot", self.run_image_bot)
+
+        # 4b. Check for Ready For Sound Design (AFTER images — needs Image Prompt field)
+        idea = self.get_idea_by_status(self.STATUS_READY_SOUND_DESIGN)
+        if idea:
+            self._load_idea(idea)
+            return await self._run_step_safe("Sound Prompt Bot", self.run_sound_prompt_bot)
+
+        # 4c. Check for Ready For Sound Effects
+        idea = self.get_idea_by_status(self.STATUS_READY_SOUND_EFFECTS)
+        if idea:
+            self._load_idea(idea)
+            return await self._run_step_safe("Sound Bot", self.run_sound_bot)
 
         # 5. SKIPPED - Video Scripts (manual only, costly at $0.10/image)
         # idea = self.get_idea_by_status(self.STATUS_READY_VIDEO_SCRIPTS)
@@ -940,9 +940,10 @@ class VideoPipeline:
                 self.airtable.mark_script_finished(script["id"], audio_url)
                 voice_count += 1
         
-        # UPDATE STATUS to Ready For Sound Design
-        self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_SOUND_DESIGN)
-        print(f"  ✅ Status updated to: {self.STATUS_READY_SOUND_DESIGN}")
+        # UPDATE STATUS to Ready For Image Prompts
+        # Sound design runs AFTER images exist (needs Image Prompt + Sentence Text)
+        self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_IMAGE_PROMPTS)
+        print(f"  ✅ Status updated to: {self.STATUS_READY_IMAGE_PROMPTS}")
 
         self.slack.notify_voice_done()
 
@@ -950,14 +951,18 @@ class VideoPipeline:
             "bot": "Voice Bot",
             "video_title": self.video_title,
             "voice_count": voice_count,
-            "new_status": self.STATUS_READY_SOUND_DESIGN,
+            "new_status": self.STATUS_READY_IMAGE_PROMPTS,
         }
 
     async def run_sound_prompt_bot(self) -> dict:
-        """Generate sound design maps for all scenes via Claude.
+        """Generate sound prompts for all image rows via Claude Haiku.
 
         REQUIRES: Ideas status = "Ready For Sound Design"
         UPDATES TO: "Ready For Sound Effects" when complete
+
+        Sound prompts are per-image (not per-scene). Each image in the
+        Images table gets one ambient sound description based on its
+        narration text and visual description.
         """
         if not self.current_idea:
             idea = self.get_idea_by_status(self.STATUS_READY_SOUND_DESIGN)
@@ -982,18 +987,21 @@ class VideoPipeline:
         print(f"  ✅ Status updated to: {self.STATUS_READY_SOUND_EFFECTS}")
 
         self.slack.notify(
-            f"✅ Sound design complete for *{self.video_title}*: "
-            f"{result.get('total_sounds', 0)} sounds across {result.get('scenes_processed', 0)} scenes"
+            f"✅ Sound prompts complete for *{self.video_title}*: "
+            f"{result.get('prompts_generated', 0)}/{result.get('total_images', 0)} images"
         )
 
         result["new_status"] = self.STATUS_READY_SOUND_EFFECTS
         return result
 
     async def run_sound_bot(self) -> dict:
-        """Generate sound effect audio files from sound maps.
+        """Generate sound effect audio for all image rows.
 
         REQUIRES: Ideas status = "Ready For Sound Effects"
         UPDATES TO: "Ready For Image Prompts" when complete
+
+        For each image with a Sound Prompt but no Sound Effect,
+        generates an 8-second MP3 and attaches it to the image row.
         """
         if not self.current_idea:
             idea = self.get_idea_by_status(self.STATUS_READY_SOUND_EFFECTS)
@@ -1023,16 +1031,16 @@ class VideoPipeline:
         if result.get("error"):
             return result
 
-        # Update status
-        self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_IMAGE_PROMPTS)
-        print(f"  ✅ Status updated to: {self.STATUS_READY_IMAGE_PROMPTS}")
+        # Update status — sound is done, move to thumbnail
+        self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_THUMBNAIL)
+        print(f"  ✅ Status updated to: {self.STATUS_READY_THUMBNAIL}")
 
         self.slack.notify(
             f"✅ Generated {result.get('total_generated', 0)} sound effects for *{self.video_title}* "
             f"(~${result.get('estimated_cost', 0):.2f})"
         )
 
-        result["new_status"] = self.STATUS_READY_IMAGE_PROMPTS
+        result["new_status"] = self.STATUS_READY_THUMBNAIL
         return result
 
     async def run_image_prompt_bot_legacy(self) -> dict:
@@ -1300,15 +1308,17 @@ class VideoPipeline:
                 "images_total": total,
             }
 
-        # ALL images verified complete — safe to advance status
-        self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_THUMBNAIL)
-        print(f"  ✅ All {total} images verified complete. Status updated to: {self.STATUS_READY_THUMBNAIL}")
+        # ALL images verified complete — advance to sound design
+        # Sound stages run AFTER images because sound_prompt_bot reads Image Prompt
+        # and Sentence Text from the Images table rows.
+        self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_SOUND_DESIGN)
+        print(f"  ✅ All {total} images verified complete. Status updated to: {self.STATUS_READY_SOUND_DESIGN}")
 
         return {
             "bot": "Image Bot",
             "video_title": self.video_title,
             "image_count": result.get("image_count", 0),
-            "new_status": self.STATUS_READY_THUMBNAIL,
+            "new_status": self.STATUS_READY_SOUND_DESIGN,
         }
 
     async def run_visuals_pipeline(self) -> dict:
@@ -1359,16 +1369,16 @@ class VideoPipeline:
                 "error": error_msg,
             }
 
-        # ALL images verified complete — safe to advance status
-        self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_THUMBNAIL)
-        print(f"  ✅ All {total} images verified complete. Status updated to: {self.STATUS_READY_THUMBNAIL}")
+        # ALL images verified complete — advance to sound design
+        self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_SOUND_DESIGN)
+        print(f"  ✅ All {total} images verified complete. Status updated to: {self.STATUS_READY_SOUND_DESIGN}")
 
         return {
             "bot": "Visuals Pipeline",
             "video_title": self.video_title,
             "prompt_count": prompt_result.get("prompt_count", 0),
             "image_count": image_result.get("image_count", 0),
-            "new_status": self.STATUS_READY_THUMBNAIL,
+            "new_status": self.STATUS_READY_SOUND_DESIGN,
         }
     
     async def _run_image_bot(self) -> dict:
@@ -2638,39 +2648,38 @@ class VideoPipeline:
 
         print(f"  ✅ Assets downloaded from Google Drive")
 
-        # Download SFX files for sound layers
+        # Download per-image SFX files
         sfx_dir = public_dir / "sfx"
         sfx_dir.mkdir(exist_ok=True)
         sfx_count = 0
+        sfx_total = 0
         for scene in props.get("scenes", []):
-            for layer in scene.get("sound_layers", []):
-                filename = layer.get("file", "").removeprefix("sfx/")
-                if not filename:
+            for image in scene.get("images", []):
+                sfx_path = image.get("sfx")
+                sfx_url = image.pop("sfxUrl", None)  # Remove URL from props (not needed by Remotion)
+                if not sfx_path or not sfx_url:
                     continue
+                sfx_total += 1
+                filename = sfx_path.removeprefix("sfx/")
                 dest = sfx_dir / filename
                 if dest.exists():
                     sfx_count += 1
                     continue
-                # Find the file in Drive by searching all folders
-                for folder_id, _ in asset_folders:
-                    drive_files = self.google.list_files_in_folder(folder_id)
-                    for df in drive_files:
-                        if df["name"] == filename:
-                            try:
-                                content = self.google.download_file(df["id"])
-                                dest.write_bytes(content)
-                                sfx_count += 1
-                            except Exception as e:
-                                print(f"    ⚠️ SFX download failed: {filename}: {e}")
-                            break
-                    else:
-                        continue
-                    break
-        # Sound layer diagnostics
-        scenes_with_sl = sum(1 for s in props.get("scenes", []) if s.get("sound_layers"))
-        total_layers = sum(len(s.get("sound_layers", [])) for s in props.get("scenes", []))
-        print(f"  🔊 Sound design: {scenes_with_sl}/{len(props.get('scenes', []))} scenes, "
-              f"{total_layers} layers, {sfx_count} SFX files ready")
+                # Download from Drive/Airtable URL
+                try:
+                    async with _httpx.AsyncClient() as http:
+                        resp = await http.get(sfx_url, timeout=60.0, follow_redirects=True)
+                        resp.raise_for_status()
+                    dest.write_bytes(resp.content)
+                    sfx_count += 1
+                    print(f"    ✅ {filename} ({len(resp.content) // 1024} KB)")
+                except Exception as e:
+                    print(f"    ⚠️ SFX download failed: {filename}: {e}")
+                    # Remove sfx from props so Remotion doesn't try to play a missing file
+                    image.pop("sfx", None)
+                    image.pop("sfxVolume", None)
+        # Sound diagnostics
+        print(f"  🔊 Sound effects: {sfx_count}/{sfx_total} SFX files downloaded")
 
         # Verify every scene has its audio file (Remotion will 404 without it)
         # Use actual scene numbers from props — NOT sequential range(1, N+1)
@@ -2734,10 +2743,12 @@ class VideoPipeline:
 
         scene_count = len(props.get("scenes", []))
         sound_info = ""
-        if total_layers > 0:
-            sound_info = f"\n🔊 Sound design: {scenes_with_sl}/{scene_count} scenes, {total_layers} layers, {sfx_count} SFX files"
+        if sfx_count > 0:
+            sound_info = f"\n🔊 Sound effects: {sfx_count}/{sfx_total} SFX files ready"
+        elif sfx_total > 0:
+            sound_info = f"\n⚠️ {sfx_total} SFX expected but 0 downloaded"
         else:
-            sound_info = "\n🔇 No sound layers found"
+            sound_info = "\n🔇 No sound effects"
         self.slack.notify(
             f"⬇️ *Assets ready:* _{self.video_title}_\n"
             f"{scene_count} scenes, all audio verified.{sound_info}\n"
@@ -3517,17 +3528,23 @@ class VideoPipeline:
                     asset["playbackRate"] = 1.0
                     asset["trimEnd"] = clip_duration - voiceover_duration
 
-                processed_images.append(asset)
+                # Per-image sound effect (new image-level system)
+                sfx_attachment = img.get("Sound Effect")
+                if sfx_attachment and isinstance(sfx_attachment, list) and sfx_attachment:
+                    sfx_url = sfx_attachment[0].get("url", "")
+                    if sfx_url:
+                        sfx_filename = f"sfx_{scene_number}_{img.get('Image Index', 0)}.mp3"
+                        asset["sfx"] = f"sfx/{sfx_filename}"
+                        asset["sfxVolume"] = img.get("Sound Volume", 0.15)
+                        asset["sfxUrl"] = sfx_url  # For download during render
 
-            # Build sound layers from Sound Map JSON
-            sound_layers = self._extract_sound_layers(script)
+                processed_images.append(asset)
 
             scenes.append({
                 "sceneNumber": scene_number,
                 "text": script.get("Scene text", ""),
                 "voiceUrl": script.get("Voice Over", [{}])[0].get("url", "") if script.get("Voice Over") else "",
                 "images": processed_images,
-                "sound_layers": sound_layers,
             })
 
         props = {
@@ -3539,42 +3556,8 @@ class VideoPipeline:
 
         return props
 
-    @staticmethod
-    def _extract_sound_layers(script: dict) -> list[dict]:
-        """Extract sound_layers from a script's Sound Map JSON.
-
-        Returns an empty list if no sound map or SFX not done.
-        """
-        if script.get("SFX Status") != "Done":
-            return []
-
-        sound_map_raw = script.get("Sound Map", "")
-        if not sound_map_raw:
-            return []
-
-        try:
-            sound_map = json.loads(sound_map_raw)
-        except (json.JSONDecodeError, TypeError):
-            return []
-
-        layers = []
-        for sound in sound_map.get("sounds", []):
-            filename = sound.get("filename", "")
-            segments = sound.get("segments", [])
-            if not filename or not segments:
-                continue
-
-            layers.append({
-                "file": f"sfx/{filename}",
-                "start_segment": min(segments),
-                "end_segment": max(segments),
-                "volume": sound.get("volume", 0.1),
-                "loop": sound.get("loop", False),
-                "fade_in": sound.get("fade_in", 0.5),
-                "fade_out": sound.get("fade_out", 0.5),
-            })
-
-        return layers
+    # _extract_sound_layers removed — sound effects now live on image rows,
+    # not in the Script table's Sound Map JSON.
 
     def generate_segment_data_ts(self, remotion_dir: Path = None) -> str:
         """DEPRECATED: Use audio_sync.render_config_writer instead.

@@ -713,6 +713,45 @@ class AirtableClient:
         )
         return [{"id": r["id"], **r["fields"]} for r in records]
 
+    def update_image_sound_prompt(self, record_id: str, sound_prompt: str) -> dict:
+        """Write a sound prompt to an image record."""
+        updates = {"Sound Prompt": sound_prompt}
+        try:
+            record = self.images_table.update(record_id, updates, typecast=True)
+            return {"id": record["id"], **record["fields"]}
+        except Exception as e:
+            if "UNKNOWN_FIELD_NAME" in str(e):
+                print(f"      ⚠️ 'Sound Prompt' field not found in Images table — add it in Airtable")
+                return {"id": record_id, "warning": "Sound Prompt field missing"}
+            raise
+
+    def update_image_sound_effect(
+        self,
+        record_id: str,
+        sound_url: str,
+        volume: float = 0.15,
+    ) -> dict:
+        """Attach a generated sound effect to an image record."""
+        updates = {
+            "Sound Effect": [{"url": sound_url}],
+            "Sound Volume": volume,
+        }
+        try:
+            record = self.images_table.update(record_id, updates, typecast=True)
+            return {"id": record["id"], **record["fields"]}
+        except Exception as e:
+            error_str = str(e)
+            if "UNKNOWN_FIELD_NAME" in error_str:
+                # Try fields individually (graceful degradation)
+                print(f"      ⚠️ Some sound fields missing, trying individually...")
+                for field, value in updates.items():
+                    try:
+                        self.images_table.update(record_id, {field: value}, typecast=True)
+                    except Exception:
+                        print(f"      ⚠️ '{field}' field not found in Images table — add it in Airtable")
+                return {"id": record_id, "warning": "Some sound fields missing"}
+            raise
+
     def update_record(self, table_name: str, record_id: str, fields: dict) -> dict:
         """Generic update for any table record.
 

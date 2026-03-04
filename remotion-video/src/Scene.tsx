@@ -7,7 +7,6 @@ import {
     interpolate,
     OffthreadVideo,
     Sequence,
-    Loop,
 } from "remotion";
 import { Audio } from "@remotion/media";
 import { useMemo, useCallback } from "react";
@@ -18,22 +17,11 @@ import {
     getSegmentsForScene,
 } from "./segments";
 
-interface SoundLayer {
-    file: string;
-    start_segment: number;
-    end_segment: number;
-    volume: number;
-    loop: boolean;
-    fade_in: number;
-    fade_out: number;
-}
-
 interface SceneProps {
     sceneNumber: number;
     audioFile: string;
-    images: Array<{ index: number; file: string }>;
+    images: Array<{ index: number; file: string; sfx?: string; sfxVolume?: number }>;
     transcript?: TranscriptData;
-    soundLayers?: SoundLayer[];
 }
 
 interface TranscriptData {
@@ -50,7 +38,6 @@ export const Scene: React.FC<SceneProps> = ({
     audioFile,
     images,
     transcript,
-    soundLayers,
 }) => {
     const frame = useCurrentFrame();
     const { fps, durationInFrames } = useVideoConfig();
@@ -148,124 +135,68 @@ export const Scene: React.FC<SceneProps> = ({
         });
     }, [segments, fps, CROSSFADE_FRAMES]);
 
-    // Map sound layers to frame ranges using segmentTimings
-    const soundLayerTimings = useMemo(() => {
-        if (!soundLayers || soundLayers.length === 0 || segmentTimings.length === 0) {
-            if (sceneNumber <= 3) {
-                console.log(`Scene ${sceneNumber}: 0 sound layers (soundLayers=${soundLayers?.length ?? 0}, segments=${segmentTimings.length})`);
-            }
-            return [];
-        }
-
-        const timings = soundLayers.map((layer) => {
-            // Segments are 1-based, segmentTimings is 0-based
-            const startIdx = Math.max(0, Math.min(layer.start_segment - 1, segmentTimings.length - 1));
-            const endIdx = Math.max(0, Math.min(layer.end_segment - 1, segmentTimings.length - 1));
-
-            const startFrame = segmentTimings[startIdx].startFrame;
-            const endTiming = segmentTimings[endIdx];
-            const endFrame = endTiming.startFrame + endTiming.durationFrames;
-            const durationFrames = Math.max(1, endFrame - startFrame);
-
-            return { layer, startFrame, durationFrames };
-        });
-
-        console.log(`Scene ${sceneNumber}: ${timings.length} sound layers mapped to frames`);
-        timings.forEach((t, i) => {
-            console.log(`  SFX ${i+1}: ${t.layer.file} frames ${t.startFrame}-${t.startFrame + t.durationFrames} (${(t.durationFrames / fps).toFixed(1)}s) vol=${t.layer.volume} loop=${t.layer.loop}`);
-        });
-
-        return timings;
-    }, [soundLayers, segmentTimings, sceneNumber, fps]);
+    // SFX fade duration in frames (0.3s)
+    const SFX_FADE_FRAMES = Math.floor(fps * 0.3);
 
     return (
         <AbsoluteFill>
             {/* Audio for this scene */}
             <Audio src={staticFile(audioFile)} />
 
-            {/* Sound effect layers — play underneath voiceover */}
-            {soundLayerTimings.map(({ layer, startFrame, durationFrames }, idx) => (
-                <Sequence
-                    key={`sfx-${sceneNumber}-${idx}`}
-                    from={startFrame}
-                    durationInFrames={durationFrames}
-                >
-                    <SoundLayerAudio
-                        layer={layer}
-                        durationFrames={durationFrames}
-                    />
-                </Sequence>
-            ))}
-
             {/* Render all clips in Sequences - proper Remotion pattern for sequential video */}
-            {segmentTimings.map((timing, index) => (
-                <Sequence
-                    key={timing.imageFile}
-                    from={timing.startFrame}
-                    durationInFrames={timing.durationFrames}
-                >
-                    <DynamicImage
-                        imageFile={timing.imageFile}
-                        motionIndex={index}
-                        segmentDurationFrames={timing.durationFrames}
-                    />
-                </Sequence>
-            ))}
+            {segmentTimings.map((timing, index) => {
+                const img = images[index];
+                return (
+                    <Sequence
+                        key={timing.imageFile}
+                        from={timing.startFrame}
+                        durationInFrames={timing.durationFrames}
+                    >
+                        <DynamicImage
+                            imageFile={timing.imageFile}
+                            motionIndex={index}
+                            segmentDurationFrames={timing.durationFrames}
+                        />
+                        {/* Per-image sound effect — plays for exactly the image duration */}
+                        {img?.sfx && (
+                            <ImageSfxAudio
+                                sfxFile={img.sfx}
+                                volume={img.sfxVolume ?? 0.15}
+                                durationFrames={timing.durationFrames}
+                                fadeFrames={SFX_FADE_FRAMES}
+                            />
+                        )}
+                    </Sequence>
+                );
+            })}
 
         </AbsoluteFill>
     );
 };
 
-// Sound layer audio component — handles volume fades and looping
-const SoundLayerAudio: React.FC<{
-    layer: SoundLayer;
+// Per-image sound effect — simple fade in/out at the image's volume
+const ImageSfxAudio: React.FC<{
+    sfxFile: string;
+    volume: number;
     durationFrames: number;
-}> = ({ layer, durationFrames }) => {
-    const { fps } = useVideoConfig();
-
-    const fadeInFrames = Math.round(layer.fade_in * fps);
-    const fadeOutFrames = Math.round(layer.fade_out * fps);
-
-    // Build volume callback with fade in/out
+    fadeFrames: number;
+}> = ({ sfxFile, volume, durationFrames, fadeFrames }) => {
     const getVolume = useCallback(
         (f: number) => {
-            // Safety: if duration is very short, just use flat volume
-            if (durationFrames < fadeInFrames + fadeOutFrames + 2) {
-                return layer.volume;
+            if (durationFrames < fadeFrames * 2 + 2) {
+                return volume;
             }
-
             return interpolate(
                 f,
-                [
-                    0,
-                    Math.max(1, fadeInFrames),
-                    Math.max(fadeInFrames + 1, durationFrames - fadeOutFrames),
-                    durationFrames,
-                ],
-                [0, layer.volume, layer.volume, 0],
+                [0, fadeFrames, durationFrames - fadeFrames, durationFrames],
+                [0, volume, volume, 0],
                 { extrapolateLeft: "clamp", extrapolateRight: "clamp" },
             );
         },
-        [durationFrames, fadeInFrames, fadeOutFrames, layer.volume],
+        [durationFrames, fadeFrames, volume],
     );
 
-    const audioElement = (
-        <Audio
-            src={staticFile(layer.file)}
-            startFrom={0}
-            volume={getVolume}
-        />
-    );
-
-    if (layer.loop) {
-        return (
-            <Loop durationInFrames={durationFrames}>
-                {audioElement}
-            </Loop>
-        );
-    }
-
-    return audioElement;
+    return <Audio src={staticFile(sfxFile)} volume={getVolume} />;
 };
 
 // Check if a video file was explicitly provided for this segment
