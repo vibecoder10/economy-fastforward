@@ -224,6 +224,31 @@ lens. Act 1 reveals the framework through shock. Act 4 proves the framework \
 through historical dread. Act 6 delivers the framework as empowerment.
 """
 
+_STRICT_GROUNDING_RULE = """\
+=== STRICT FACTUAL GROUNDING RULE — NON-NEGOTIABLE ===
+
+Every factual claim, entity name, company name, person name, event, date, \
+and dollar amount in the script MUST come directly from the research payload \
+provided. You may NOT introduce:
+- Companies, people, or events not mentioned in the research
+- Dollar amounts or statistics not in the fact sheet
+- Historical events not in the historical parallels section
+- Dates or timelines not supported by the source material
+
+If you need a transition, analogy, or rhetorical device, use only the \
+entities and events from the research payload. Do NOT substitute \
+similar-sounding companies (e.g. DeepSeek for Anthropic) or similar topics \
+(e.g. tariffs for Pentagon contracts).
+
+Before finalizing each act, verify: is every proper noun, date, statistic, \
+and event traceable to the research payload? If not, remove it or replace \
+it with something from the research.
+
+The ONLY exception is well-known historical figures or events used in \
+framework references (e.g. Machiavelli, Sun Tzu, Athens vs Sparta) that \
+are part of the analytical framework, NOT part of the factual narrative.
+"""
+
 _ACT_SPECIFIC_RULES = """\
 === ACT-SPECIFIC RULES (UPDATED) ===
 
@@ -256,8 +281,27 @@ they can't unsee.
 
 Act 6 (The Lesson):
 The prediction must be specific and falsifiable — not 'things will change' \
-but 'watch for X within Y months.' The final payoff should feel like a \
-permanent upgrade to how the viewer sees power. Last line should linger.
+but 'watch for X within Y months.'
+
+The final scene MUST end on EMPOWERMENT, not fear or cynicism. The viewer \
+just spent 15-20 minutes learning frameworks. The close should:
+1. Name the specific frameworks taught in the video (e.g. 'regulatory \
+capture, sovereign exception, the panopticon effect')
+2. Give the viewer a concrete detection tool: 'When you see X, ask Y. \
+When you see A, look for B.'
+3. Frame knowledge as power: the viewer now has X-ray vision that most \
+people lack
+4. End with agency: 'Now that you see the pattern, you can't unsee it. \
+And that's the first step to changing it.'
+
+BAD close: 'The cage is closing and you're trapped.' (leaves viewer \
+feeling helpless)
+GOOD close: 'Now you see it. Regulatory capture. Sovereign exception. \
+The panopticon effect. Three frameworks that explain how power really \
+moves. When a company gets designated, ask who benefits within 48 hours. \
+When you see all lawful purposes in any contract, find the loopholes. \
+When one player gets punished, watch who self-censors. You just learned \
+to read the game. Most people never will.'
 """
 
 
@@ -580,6 +624,7 @@ def build_script_prompt(brief: dict) -> str:
     rendered += "\n\n" + _FRAMEWORK_REVELATION_ENGINE
     rendered += "\n\n" + _FRAMEWORK_PSYCH_SEPARATION
     rendered += "\n\n" + _ACT_SPECIFIC_RULES
+    rendered += "\n\n" + _STRICT_GROUNDING_RULE
 
     return rendered
 

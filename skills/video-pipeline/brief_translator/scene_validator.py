@@ -5,7 +5,11 @@ it enters the pipeline. Supports both the unified scene format (20-30 scenes)
 and the legacy flat format (~136 scenes).
 """
 
+import logging
+import re
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 
 # Required fields for each scene (unified format with backward-compat aliases)
@@ -265,3 +269,172 @@ def auto_fix_minor_issues(scenes: list[dict]) -> list[dict]:
                 fixed[mid][style_field] = "schema"
 
     return fixed
+
+
+# ---------------------------------------------------------------------------
+# Entity consistency checking — catches hallucinated proper nouns
+# ---------------------------------------------------------------------------
+
+# Well-known framework authors / historical figures that are always allowed
+# because the script engine references them as part of analytical frameworks.
+_FRAMEWORK_ENTITIES = {
+    "machiavelli", "greene", "robert greene", "sun tzu", "thucydides",
+    "taleb", "nassim taleb", "brzezinski", "mackinder", "spykman",
+    "kindleberger", "schelling", "olson", "mancur olson", "nye",
+    "joseph nye", "jung", "kahneman", "tversky", "thaler", "gramsci",
+    "bernays", "chomsky", "marcus aurelius", "seneca", "graham allison",
+    "athens", "sparta", "rome", "ottoman", "british empire",
+}
+
+# Multiple regex patterns to catch different proper noun styles:
+# 1. Multi-word proper nouns: "Sam Altman", "Goldman Sachs"
+_MULTI_WORD_PN_RE = re.compile(r"\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\b")
+# 2. CamelCase / mixed-case: "DeepSeek", "OpenAI", "iPhone"
+_CAMEL_CASE_RE = re.compile(r"\b([A-Z][a-z]+[A-Z][A-Za-z]*)\b")
+# 3. Single capitalized words (4+ chars to skip "The", "And", etc.)
+_SINGLE_CAP_RE = re.compile(r"\b([A-Z][a-z]{3,})\b")
+# 4. All-caps acronyms (2+ chars): "IBM", "NATO", "OPEC"
+_ACRONYM_RE = re.compile(r"\b([A-Z]{2,})\b")
+
+# Common English words that start with a capital letter at sentence starts.
+# We skip these to reduce false positives.
+_COMMON_WORDS = {
+    "this", "that", "these", "those", "there", "their", "they",
+    "what", "when", "where", "which", "while", "with", "will",
+    "from", "have", "here", "been", "being", "before", "after",
+    "about", "above", "also", "always", "another", "because",
+    "between", "both", "could", "does", "done", "during", "each",
+    "either", "enough", "even", "every", "first", "found", "gave",
+    "give", "goes", "going", "gone", "good", "great", "just",
+    "keep", "know", "last", "like", "long", "look", "made", "make",
+    "many", "might", "more", "most", "much", "must", "never", "next",
+    "once", "only", "other", "over", "part", "past", "same", "should",
+    "show", "since", "some", "still", "such", "take", "tell", "than",
+    "then", "them", "think", "thought", "through", "time", "turn",
+    "under", "used", "very", "want", "well", "were", "would", "your",
+    "into", "back", "came", "come", "down", "face", "fact", "five",
+    "four", "hand", "head", "high", "home", "kind", "left", "life",
+    "line", "move", "name", "need", "news", "note", "number", "open",
+    "play", "point", "power", "real", "right", "room", "rule", "seem",
+    "side", "small", "stand", "start", "state", "story", "sure",
+    "thing", "three", "today", "true", "until", "upon", "watch",
+    "week", "work", "world", "year", "years",
+    # Script-specific common words that often get capitalized
+    "hook", "build", "payoff", "bridge", "lesson", "stakes",
+    "framework", "mechanism", "mirror", "foundation", "history",
+    "dark", "revelation", "pattern", "system", "empire", "stage",
+}
+
+
+def _extract_entities_from_text(text: str) -> set[str]:
+    """Extract likely proper nouns from a block of text.
+
+    Returns a set of lowercased entity strings for easy comparison.
+    """
+    entities: set[str] = set()
+
+    for pattern in (_MULTI_WORD_PN_RE, _CAMEL_CASE_RE, _SINGLE_CAP_RE, _ACRONYM_RE):
+        for m in pattern.findall(text):
+            lowered = m.lower()
+            # Skip very short matches and common English words
+            if len(m) <= 2 or lowered in _COMMON_WORDS:
+                continue
+            entities.add(lowered)
+
+    return entities
+
+
+def _extract_research_entities(brief: dict) -> set[str]:
+    """Extract all proper nouns / entity names from the research payload.
+
+    Combines entities from headline, thesis, fact_sheet, character_dossier,
+    historical_parallels, and other research fields.
+    """
+    research_fields = [
+        "headline", "thesis", "executive_hook", "fact_sheet",
+        "historical_parallels", "framework_analysis", "character_dossier",
+        "narrative_arc", "counter_arguments", "visual_seeds",
+        "source_bibliography", "source_urls",
+    ]
+    all_text = " ".join(str(brief.get(f, "")) for f in research_fields)
+    return _extract_entities_from_text(all_text)
+
+
+# Regex to strip act marker lines before entity extraction
+_ACT_MARKER_LINE_RE = re.compile(
+    r"\[ACT\s+\d+\s*[—–\-].*?\]", re.IGNORECASE
+)
+
+
+def check_entity_consistency(
+    script: str,
+    brief: dict,
+    slack_client=None,
+    video_title: str = "",
+) -> list[str]:
+    """Check that entities in the script are grounded in the research payload.
+
+    This is a WARNING-level check, not a blocker. It extracts proper nouns
+    from both the research payload and the script, then flags any script
+    entities that don't appear in the research.
+
+    Args:
+        script: The full generated script text.
+        brief: The research brief dict.
+        slack_client: Optional SlackClient for sending warnings.
+        video_title: Video title for Slack messages.
+
+    Returns:
+        List of warning strings for any ungrounded entities found.
+    """
+    research_entities = _extract_research_entities(brief)
+
+    # Strip act marker lines so their titles don't generate false positives
+    cleaned_script = _ACT_MARKER_LINE_RE.sub("", script)
+    script_entities = _extract_entities_from_text(cleaned_script)
+
+    # Also add the headline words as allowed (the title itself is fair game)
+    headline = brief.get("headline", "")
+    research_entities |= _extract_entities_from_text(headline)
+
+    # Framework entities are always allowed
+    allowed = research_entities | _FRAMEWORK_ENTITIES
+
+    # Find entities in script that are NOT in the research
+    ungrounded = script_entities - allowed
+
+    warnings = []
+    if ungrounded:
+        # Try to locate which scene/act each ungrounded entity appears in
+        # by scanning the script with act markers
+        from .script_generator import extract_acts
+        acts = extract_acts(script)
+
+        for entity in sorted(ungrounded):
+            # Find which act(s) reference this entity
+            locations = []
+            for act_num, act_text in acts.items():
+                if entity in act_text.lower():
+                    locations.append(f"Act {act_num}")
+
+            location_str = ", ".join(locations) if locations else "unknown location"
+            warning = (
+                f"WARNING: '{entity}' found in script ({location_str}) "
+                f"but not in research payload. Possible hallucination."
+            )
+            warnings.append(warning)
+            logger.warning(warning)
+
+        # Send summary to Slack if available
+        if slack_client and warnings:
+            title_label = video_title or brief.get("headline", "Untitled")
+            slack_msg = (
+                f"⚠️ Entity consistency check for '{title_label}':\n"
+                + "\n".join(warnings[:10])  # Cap at 10 to avoid spam
+            )
+            try:
+                slack_client.send_message(slack_msg)
+            except Exception:
+                pass
+
+    return warnings
