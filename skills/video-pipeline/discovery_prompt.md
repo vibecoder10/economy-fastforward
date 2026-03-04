@@ -9,26 +9,28 @@ news — the power dynamics, hidden systems, historical cycles, and strategic
 maneuvers that shape the world. They want to feel like insiders who see what
 the masses cannot.
 
+**Most importantly: your audience clicks because they see THEMSELVES in the
+title.** The geopolitical event is the CASE STUDY. The power lesson is the HOOK.
+
 ---
 
 ## YOUR MISSION
 
 Scan the provided headlines and select the **2-3 stories** with the highest
 potential to become a viral Economy FastForward video. For each story, generate
-**2 title variants** using proven formula structures from the title pattern
-library.
+**4 viewer-first title options** using the Power Doctrine formula system, each
+with a complementary thumbnail text.
 
 ---
 
 ## CHANNEL IDENTITY
 
 - Economy FastForward reveals hidden power systems, cycles, and patterns
-- We bridge **geopolitical analysis** (Economy Rewind style) with **Machiavellian
-  framing** (Mindplicit style)
-- Our audience wants to feel like they're seeing what others can't
+- We bridge **geopolitical analysis** with **Machiavellian framing**
+- Our audience wants to feel like they're learning power lessons that protect them
 - Tone: **dark, authoritative, revelatory** — never clickbait without substance
-- We are NOT a news channel. We don't report events. We reveal the **systems
-  and strategies** behind events.
+- We are NOT a news channel. We don't report events. We reveal the **power
+  lessons** behind events that the viewer can apply to their own life.
 
 ---
 
@@ -82,6 +84,7 @@ Score each headline on these 6 dimensions (1-10 each):
 - A clear power dynamics angle (not just news reporting)
 - Potential for historical parallels or cyclical framing
 - An angle that feels like a REVELATION, not a summary
+- A power lesson the VIEWER can internalize
 
 **MUST EXCLUDE stories that are:**
 - Surface-level news everyone already knows
@@ -92,32 +95,68 @@ Score each headline on these 6 dimensions (1-10 each):
 
 ---
 
-## TITLE GENERATION RULES
+## TITLE GENERATION — POWER DOCTRINE SYSTEM
 
-For each selected story, generate **2 title variants** using formulas from the
-title pattern library.
+Generate 4 title options for each story. Each must use a different formula from
+the Power Doctrine title system:
 
-### Title Requirements:
-1. **Always use formulas** from title_patterns.json (EFF-1 through EFF-9 preferred,
-   competitor formulas acceptable)
-2. Every title must imply the viewer will learn something **hidden**
-3. Numbers in titles perform well (stages, laws, rules, dollar amounts)
-4. Include implied personal threat where applicable ("Your X is next")
-5. Never use generic clickbait that doesn't deliver substance
-6. Titles should be **decomposable into the formula variables** — if you can't
-   map it back to a formula, rewrite it
-7. CAPS words should be limited to ONE per title for visual emphasis
+### PD-1: Dark Command + Framework Tag
+Start with a DARK COMMAND in caps (NEVER, STOP, DON'T). Follow with the
+consequence. End with a framework tag (Machiavelli, Law of Power, The Pentagon
+Playbook, etc.)
+- Example: "NEVER Let Them See Your Strategy. Here's Why — Law 3 of Power"
+- Example: "STOP Trusting Allies. This Is What Happens — The Pentagon Just Proved It"
 
-### Formula Priority (use EFF formulas first):
-1. **EFF-1**: N-Stage Power Play Pattern (for cyclical/staged stories)
-2. **EFF-2**: Entity's Dark Strategy (for named actor stories)
-3. **EFF-7**: Country's Machiavellian Trap (for country-level economic stories)
-4. **EFF-4**: Trusted Entity Betrayal (for betrayal/secret action stories)
-5. **EFF-8**: Country Is Xer Than You Think (for contrarian takes)
-6. **EFF-9**: Slow Death + Who Benefits (for declining system stories)
-7. **EFF-5**: System Death + Personal Threat (for urgent/breaking stories)
-8. **EFF-3**: Machiavellian Laws of Geopolitics (for analytical/framework stories)
-9. **EFF-6**: Counterintuitive System Reveal (for "why" explainer stories)
+### PD-2: How To Power Move Using Real Event as Proof
+Start with 'How to' plus a power verb (destroy, control, kill, weaponize,
+trap). The real-world event is proof/example, not the subject.
+- Example: "How to Destroy Your Competition Using the Government as Your Weapon"
+- Example: "How to Kill a Company in 4 Hours (OpenAI Just Showed You)"
+
+### PD-3: The Power Principle That Consequence
+Start with 'The' plus a named principle, trap, or weapon. Follow with a
+shocking consequence. Include a specific number ($400B, 4 hours, $20,000).
+- Example: "The Chokepoint Trap That Holds $400 Billion Hostage"
+- Example: "The $20,000 Weapon That Makes Billion-Dollar Defenses Useless"
+
+### PD-4: Why Thing You Trust Is Actually Dark Truth
+Start with 'Why' plus something the viewer trusts or takes for granted.
+Reveal it is actually a weapon, trap, or lie. End with framework tag.
+- Example: "Why 'National Security' Is Actually a Weapon to Pick Winners"
+- Example: "Why Your AI Subscription Is Actually Funding Military Intelligence"
+
+### PD-5: Number Signs Dark Pattern
+Start with a number (3-9) plus 'Signs' plus a dark pattern the viewer
+might be subject to. End with framework tag.
+- Example: "5 Signs Your Government Is Rigging the Market — Machiavelli Warned You"
+- Example: "4 Signs You're in Someone's Trap and Don't Know It"
+
+### CRITICAL TITLE RULES:
+- The VIEWER must see themselves in every title. The event is the case study, not the subject.
+- Every title must make the viewer think "I need to learn this to protect myself" or "I need to understand this power dynamic."
+- **Never lead with a country name or company name.** Lead with the POWER LESSON.
+- Include at least one specific number in 3 of the 4 titles.
+- Each of the 4 titles MUST use a different PD formula. You may skip one formula but never repeat one.
+
+---
+
+## THUMBNAIL YIN-YANG SYSTEM
+
+For each title, also generate a 2-5 word ALL CAPS thumbnail text that is
+DIFFERENT from the title but complements it emotionally.
+
+### Thumbnail Rules:
+- 2-5 words maximum, ALL CAPS
+- Must be readable at mobile thumbnail size
+- Should trigger an emotional reaction BEFORE the viewer reads the title
+- If the title is analytical, the thumbnail is emotional
+- If the title is emotional, the thumbnail is specific
+
+### Examples:
+- Title: "How to Destroy Your Competition Using the Government" / Thumbnail: "KILLED IN 4 HOURS"
+- Title: "The Chokepoint Trap That Holds $400B Hostage" / Thumbnail: "ECONOMIC HOSTAGE"
+- Title: "Why 'National Security' Is Actually a Weapon to Pick Winners" / Thumbnail: "RIGGED GAME"
+- Title: "STOP Trusting Allies. This Is What Happens" / Thumbnail: "BETRAYED BY DESIGN"
 
 ---
 
@@ -131,6 +170,7 @@ Apply this analytical framework to every story:
 3. **What historical playbook is being used?** — Has this been done before?
 4. **What are the second-order effects?** — What happens AFTER this headline?
 5. **Who is being deceived?** — Is public perception being managed?
+6. **What power lesson can the VIEWER learn?** — How does this apply to them?
 
 ### Machiavellian Frameworks to Apply:
 - **Strategic Patience**: Long-term plans disguised as short-term events
@@ -160,17 +200,31 @@ For each of the 2-3 selected stories, output:
   "ideas": [
     {
       "headline_source": "Original headline text — Source Name (URL if available)",
-      "our_angle": "2-3 sentences on the Machiavellian/power dynamics angle we'd take. This is NOT a summary of the news — it's our UNIQUE SPIN.",
+      "our_angle": "2-3 sentences on the Machiavellian/power dynamics angle we'd take. This is NOT a summary of the news — it's our UNIQUE SPIN framed as a power lesson the viewer can learn.",
       "title_options": [
         {
-          "title": "The generated title using a formula",
-          "formula_id": "EFF-2",
-          "formula_name": "Entity's Dark Strategy"
+          "title": "STOP Trusting Your AI Company. They Just Chose the Pentagon Over You",
+          "formula_id": "PD-1",
+          "formula_name": "Dark Command + Framework Tag",
+          "thumbnail_text": "THEY CHOSE WEAPONS"
         },
         {
-          "title": "Second title variant using a different formula",
-          "formula_id": "EFF-7",
-          "formula_name": "Country's Machiavellian Trap"
+          "title": "How to Kill a Company in 4 Hours (OpenAI Just Showed You)",
+          "formula_id": "PD-2",
+          "formula_name": "How To Power Move",
+          "thumbnail_text": "KILLED IN 4 HOURS"
+        },
+        {
+          "title": "The 4-Hour Power Play That Assassinated America's Best AI Company",
+          "formula_id": "PD-3",
+          "formula_name": "The Power Principle That Consequence",
+          "thumbnail_text": "CORPORATE ASSASSINATION"
+        },
+        {
+          "title": "Why Your Favorite AI Company Just Got Weaponized by the Government",
+          "formula_id": "PD-4",
+          "formula_name": "Why Thing You Trust Is Actually Dark Truth",
+          "thumbnail_text": "GOVERNMENT HIT JOB"
         }
       ],
       "hook": "2-3 sentence pitch for the video opening. Must create immediate curiosity gap.",
@@ -193,11 +247,14 @@ For each of the 2-3 selected stories, output:
 
 ## QUALITY CHECKLIST (verify before outputting)
 
+- [ ] Every title makes the VIEWER see themselves — not a news headline about a country
+- [ ] Every idea has 4 title options, each using a DIFFERENT PD formula
+- [ ] Every title has a complementary thumbnail text (2-5 words, ALL CAPS)
+- [ ] At least 3 of the 4 titles per idea include a specific number
+- [ ] No title leads with a country name or company name
 - [ ] Every idea has a clear **power dynamics** angle (not generic news)
-- [ ] Every title follows a **formula structure** from the pattern library
 - [ ] Every idea has a **Machiavellian framing** (not just economic analysis)
 - [ ] The hook creates an **irresistible curiosity gap**
 - [ ] Ideas feel like they belong on **Economy FastForward** (not CNN, not WSJ)
 - [ ] Historical parallels are **illuminating** (not forced or superficial)
 - [ ] No more than **3 ideas** total (quality over quantity)
-- [ ] Each idea has **2 distinct title variants** using different formulas
