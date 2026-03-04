@@ -21,7 +21,7 @@ The visual system uses 3 cinematic styles distributed across 6 narrative acts:
 - **Animation pipeline** (`clients/style_engine.py`): 3D clay render mannequin style (faceless, matte gray, golden chest glow)
 - The style engine has 9 SceneTypes: WIDE_ESTABLISHING, ISOMETRIC_DIORAMA, MEDIUM_HUMAN_STORY, CLOSE_UP_VIGNETTE, DATA_LANDSCAPE, SPLIT_SCREEN, PULL_BACK_REVEAL, OVERHEAD_MAP, JOURNEY_SHOT
 - `get_documentary_pattern()` returns camera rotation for N images
-- Image prompt word count: 100-155 words per prompt (30-75 word descriptions + prefix/suffix)
+- Image prompt word count: 62-84 words per prompt (~20 word prefix + 30-50 word description + ~10 word composition + ~10 word suffix). Optimized for Nano Banana 2's 30-75 word sweet spot.
 
 ## Rules
 

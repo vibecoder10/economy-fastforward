@@ -29,34 +29,33 @@ from .sequencer import assign_styles
 _STYLE_STRIP_PATTERNS: list[re.Pattern[str]] = [
     re.compile(p, re.IGNORECASE)
     for p in [
-        # Lighting
-        r"\bRembrandt lighting\b",
+        # Lighting (duplicates prefix/suffix terms)
+        r"\bRembrandt(?:\s+lighting|\s+shadows)?\b",
         r"\bdramatic (?:side |back )?lighting\b",
         r"\bchiaroscuro\b",
-        r"\bcandlelight lighting\b",
+        r"\bcandlelit?\s+lighting\b",
         r"\bsingle dramatic light source\b",
-        # Camera / lens
-        r"\bshot on Arri Alexa\b",
-        r"\b\d{2,3}\s?mm lens\b",
+        # Camera / lens (keyword-style language to avoid)
+        r"\bshot on [\w\s]+(?:lens|camera)\b",
+        r"\b\d{2,3}\s?mm\s*(?:lens|prime)?\b",
         r"\b16:\s?9\b",
-        # Color grading
-        r"\bdesaturated (?:color )?palette\b",
+        r"\b8K\s+resolution\b",
+        # Color grading (duplicates prefix terms)
+        r"\bdesaturated (?:color |tones? )?(?:palette)?\b",
         r"\bcold teal accent(?:\s*lighting)?\b",
         r"\bwarm amber (?:tones|accent)\b",
         r"\bmuted crimson accent\b",
         # Depth of field / film stock
         r"\bshallow depth of field\b",
         r"\bbokeh\b",
-        r"\bsubtle film grain\b",
-        r"\bheavy film grain\b",
         r"\bfilm grain\b",
-        # Style / mood meta-language
+        # Style / mood meta-language (keyword-style to strip)
         r"\bcinematic(?:\s+photorealistic)?\b",
         r"\bphotorealistic\b",
         r"\bdocumentary(?:\s+photography)?\s+style\b",
         r"\bdark moody atmosphere\b",
         r"\bepic scale\b",
-        # Composition terminology (handled by suffix)
+        # Composition terminology (handled by directives)
         r"\brule of thirds\b",
         r"\bleading lines\b",
     ]

@@ -59,22 +59,22 @@ def _generate_full_video(seed: int = 42) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 class TestPromptFormat:
-    def test_all_prompts_contain_16_9(self):
-        """Every prompt contains '16:9' (from the prefix)."""
+    def test_all_prompts_contain_rembrandt(self):
+        """Every prompt contains 'Rembrandt' (from the prefix)."""
         results = _generate_full_video()
         for r in results:
-            assert "16:9" in r["prompt"], (
-                f"Prompt at index {r['index']} does not contain '16:9': "
+            assert "Rembrandt" in r["prompt"], (
+                f"Prompt at index {r['index']} does not contain 'Rembrandt': "
                 f"...{r['prompt'][-60:]}"
             )
 
-    def test_dossier_prompts_contain_arri_alexa(self):
-        """All Dossier prompts include 'shot on Arri Alexa'."""
+    def test_dossier_prompts_contain_halation(self):
+        """All Dossier prompts include halation reference."""
         results = _generate_full_video()
         for r in results:
             if r["style"] == "dossier":
-                assert "shot on Arri Alexa" in r["prompt"], (
-                    f"Dossier prompt at index {r['index']} missing 'shot on Arri Alexa'"
+                assert "halation" in r["prompt"], (
+                    f"Dossier prompt at index {r['index']} missing 'halation'"
                 )
 
     def test_echo_prompts_contain_candlelight(self):
@@ -83,18 +83,18 @@ class TestPromptFormat:
         for r in results:
             if r["style"] == "echo":
                 prompt_lower = r["prompt"].lower()
-                assert "candlelight" in prompt_lower or "chiaroscuro" in prompt_lower, (
-                    f"Echo prompt at index {r['index']} missing candlelight/chiaroscuro"
+                assert "candlelit" in prompt_lower or "chiaroscuro" in prompt_lower, (
+                    f"Echo prompt at index {r['index']} missing candlelit/chiaroscuro"
                 )
 
-    def test_schema_prompts_contain_bloomberg(self):
-        """All Schema prompts include Bloomberg/surveillance reference."""
+    def test_schema_prompts_contain_data_nodes(self):
+        """All Schema prompts include data nodes/connection lines reference."""
         results = _generate_full_video()
         for r in results:
             if r["style"] == "schema":
                 prompt_lower = r["prompt"].lower()
-                assert "bloomberg" in prompt_lower or "surveillance" in prompt_lower, (
-                    f"Schema prompt at index {r['index']} missing Bloomberg/surveillance"
+                assert "data nodes" in prompt_lower or "connection lines" in prompt_lower, (
+                    f"Schema prompt at index {r['index']} missing data nodes/connection lines"
                 )
 
     def test_accent_color_substituted(self):
@@ -292,9 +292,9 @@ class TestBuildPrompt:
         assert "A figure in shadows" in prompt
         assert "wide establishing shot" in prompt
         assert "cold teal" in prompt
-        assert "shot on Arri Alexa" in prompt
-        assert "16:9" in prompt
-        assert "single dramatic light source" in prompt
+        assert "Rembrandt" in prompt
+        assert "dramatic light source" in prompt
+        assert "halation" in prompt
 
     def test_schema_basic(self):
         prompt = build_prompt(
@@ -308,8 +308,7 @@ class TestBuildPrompt:
         assert "overhead" in prompt.lower() or "surveillance perspective" in prompt
         # "data" keyword triggers per-scene rotation to cold teal
         assert "cold teal" in prompt
-        assert "Bloomberg" in prompt
-        assert "16:9" in prompt
+        assert "data nodes" in prompt or "connection lines" in prompt
 
     def test_echo_basic(self):
         prompt = build_prompt(
@@ -321,46 +320,28 @@ class TestBuildPrompt:
         assert prompt.startswith("Cinematic photorealistic editorial photograph")
         assert "Renaissance ruler at a desk" in prompt
         assert "figure from waist up" in prompt
-        assert "candlelight" in prompt
+        assert "candlelit" in prompt.lower() or "chiaroscuro" in prompt.lower()
         assert "oil painting texture" in prompt
-        assert "16:9" in prompt
 
     def test_strips_trailing_comma_from_description(self):
         """Scene descriptions with trailing commas don't create double commas."""
         prompt = build_prompt("A test scene, ,", "dossier", "wide", "cold teal")
         assert ", , ," not in prompt
 
-    def test_echo_always_has_warm_amber_tones(self):
-        """Echo suffix includes 'warm amber tones' regardless of chosen accent."""
+    def test_echo_always_has_warm_candlelit(self):
+        """Echo suffix includes warm candlelit reference regardless of chosen accent."""
         prompt = build_prompt("Historical scene", "echo", "wide", "cold teal")
-        assert "warm amber tones" in prompt
+        assert "warm candlelit" in prompt
 
     def test_dossier_no_duplicate_rembrandt(self):
-        """Dossier prompts should not duplicate 'Rembrandt lighting' (prefix provides it once)."""
+        """Dossier prompts should not duplicate 'Rembrandt' (prefix provides it once)."""
         prompt = build_prompt("A test scene", "dossier", "wide", "cold teal")
-        count = prompt.lower().count("rembrandt lighting")
-        assert count == 1, f"'Rembrandt lighting' appears {count} times (expected 1)"
-
-    def test_dossier_no_duplicate_film_grain(self):
-        """Dossier prompts should not duplicate 'film grain' (prefix provides it once)."""
-        prompt = build_prompt("A test scene", "dossier", "wide", "cold teal")
-        count = prompt.lower().count("film grain")
-        assert count == 1, f"'film grain' appears {count} times (expected 1)"
-
-    def test_dossier_no_duplicate_arri_alexa(self):
-        """Dossier prompts should not duplicate 'shot on Arri Alexa' (prefix provides it once)."""
-        prompt = build_prompt("A test scene", "dossier", "wide", "cold teal")
-        count = prompt.lower().count("shot on arri alexa")
-        assert count == 1, f"'shot on Arri Alexa' appears {count} times (expected 1)"
-
-    def test_prefix_contains_8k_resolution(self):
-        """The prefix includes 8K resolution downsampled for density."""
-        assert "8K resolution" in YOUTUBE_STYLE_PREFIX
+        count = prompt.lower().count("rembrandt")
+        assert count == 1, f"'Rembrandt' appears {count} times (expected 1)"
 
     def test_dossier_suffix_has_halation(self):
-        """Dossier suffix includes chromatic aberration and halation."""
+        """Dossier suffix includes halation."""
         from image_prompt_engine.style_config import STYLE_SUFFIXES
-        assert "chromatic aberration" in STYLE_SUFFIXES["dossier"]
         assert "halation" in STYLE_SUFFIXES["dossier"]
 
 
@@ -402,13 +383,8 @@ class TestCinematicDossierStyle:
         """The cinematic prefix has all required style elements."""
         assert "Cinematic photorealistic editorial photograph" in YOUTUBE_STYLE_PREFIX
         assert "dark moody atmosphere" in YOUTUBE_STYLE_PREFIX
-        assert "Rembrandt lighting" in YOUTUBE_STYLE_PREFIX
-        assert "deep shadows" in YOUTUBE_STYLE_PREFIX
+        assert "Rembrandt" in YOUTUBE_STYLE_PREFIX
         assert "shallow depth of field" in YOUTUBE_STYLE_PREFIX
-        assert "film grain" in YOUTUBE_STYLE_PREFIX
-        assert "documentary photography style" in YOUTUBE_STYLE_PREFIX
-        assert "shot on Arri Alexa" in YOUTUBE_STYLE_PREFIX
-        assert "epic scale" in YOUTUBE_STYLE_PREFIX
         assert "[ACCENT_COLOR]" in YOUTUBE_STYLE_PREFIX
 
     def test_accent_color_substituted_in_prefix(self):

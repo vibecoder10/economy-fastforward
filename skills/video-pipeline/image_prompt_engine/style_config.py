@@ -9,21 +9,17 @@ composition directives, Ken Burns zoom rules, and default configuration.
 # YouTube Pipeline Style Prefix — Cinematic Dossier
 # ---------------------------------------------------------------------------
 # Applied at the BEGINNING of every YouTube pipeline image prompt.
-# Models weight early tokens more heavily, so the prefix establishes
-# the photorealistic cinematic look before scene-specific content.
+# Kept to ~20 words of natural language (not keyword tags) to stay within
+# Nano Banana 2's 30-75 word optimum when combined with the scene
+# description (~30-50 words), composition directive (~10 words), and
+# style suffix (~10 words) = ~70-90 total assembled words.
 #
 # The placeholder [ACCENT_COLOR] is replaced at build time.
-#
-# Both pipelines (YouTube and Animation) now share the same unified
-# cinematic photorealistic documentary visual identity.
 
 YOUTUBE_STYLE_PREFIX = (
-    "Cinematic photorealistic editorial photograph, dark moody atmosphere, "
-    "desaturated color palette with [ACCENT_COLOR] accent lighting, "
-    "Rembrandt lighting, deep shadows, shallow depth of field, subtle film grain, "
-    "documentary photography style, shot on Arri Alexa 65 with 35mm Master Prime lens, "
-    "16:9 cinematic composition, epic scale, 8K resolution downsampled for extreme "
-    "cinematic density."
+    "Cinematic photorealistic editorial photograph in a dark moody atmosphere "
+    "with desaturated tones and [ACCENT_COLOR] accent lighting, "
+    "deep Rembrandt shadows and shallow depth of field."
 )
 
 # ---------------------------------------------------------------------------
@@ -37,24 +33,18 @@ STYLE_SUFFIXES = {
     # Dossier IS the base look established by the prefix. The suffix adds only
     # what differentiates dossier from the generic cinematic base.
     "dossier": (
-        ", single dramatic light source, high contrast, "
-        "distinct chromatic aberration, organic halation effects around glowing elements"
+        ", lit by a single dramatic light source with high contrast "
+        "and subtle lens halation"
     ),
-    # Schema extends the base with data-overlay aesthetics. Prefix already
-    # covers cinematic/film grain/16:9 so those are not repeated here.
+    # Schema extends the base with data-overlay aesthetics.
     "schema": (
-        ", translucent glowing data overlay, "
-        "thin luminous [ACCENT_COLOR] connection lines and node points, Bloomberg "
-        "terminal meets surveillance system aesthetic, minimal and "
-        "elegant, deep blacks with light-emitting data elements"
+        ", overlaid with translucent glowing data nodes "
+        "and thin [ACCENT_COLOR] connection lines against deep blacks"
     ),
-    # Echo overrides the base with painterly/historical aesthetics. Only
-    # style-defining elements that DIFFER from the prefix are listed.
+    # Echo overrides the base with painterly/historical aesthetics.
     "echo": (
-        ", subtle oil painting texture, dramatic chiaroscuro "
-        "candlelight lighting, warm amber tones, period-accurate costume and "
-        "architecture detail, slightly soft focus with painterly grain, "
-        "historical documentary style, heavy film grain, atmospheric and evocative"
+        ", rendered with oil painting texture and warm candlelit chiaroscuro, "
+        "period-accurate details in soft painterly focus"
     ),
 }
 
