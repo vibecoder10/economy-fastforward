@@ -36,9 +36,9 @@ STYLE_DISTRIBUTION = {
 
 # Concept count range by words in scene text
 MIN_CONCEPTS = 6
-MAX_CONCEPTS = 10
-MIN_WORDS_PER_CONCEPT = 12   # ~5s at 2.5 wps — prevents flash images
-MAX_WORDS_PER_CONCEPT = 35   # ~14s at 2.5 wps — allows natural sentence groupings
+MAX_CONCEPTS = 12
+MIN_WORDS_PER_CONCEPT = 10   # ~4s at 2.5 wps — prevents flash images
+MAX_WORDS_PER_CONCEPT = 25   # ~10s at 2.5 wps — keeps pacing engaging
 
 
 def _estimate_concept_count(scene_text: str) -> int:
@@ -49,7 +49,7 @@ def _estimate_concept_count(scene_text: str) -> int:
     word_count = len(scene_text.split())
     # Need at least ceil(word_count / MAX_WORDS_PER_CONCEPT) concepts
     min_needed = max(MIN_CONCEPTS, -(-word_count // MAX_WORDS_PER_CONCEPT))
-    ideal = max(min_needed, min(MAX_CONCEPTS, round(word_count / 20)))
+    ideal = max(min_needed, min(MAX_CONCEPTS, round(word_count / 15)))
     return ideal
 
 
@@ -172,7 +172,7 @@ def _validate_concepts(
         # Allow up to 40 words — only reject truly oversized concepts.
         # _validate_concept_durations() will split anything over MAX_WORDS
         # (35) after validation passes, so 36-40 words get fixed downstream.
-        HARD_REJECT_WORDS = 40
+        HARD_REJECT_WORDS = 30
         if wc > HARD_REJECT_WORDS:
             return False, (
                 f"Concept {i + 1} has {wc} words (max {HARD_REJECT_WORDS}): "
@@ -191,6 +191,42 @@ def _validate_concepts(
             return False, f"Concept {i + 1} has no visual_description"
 
     return True, ""
+
+
+def _split_at_clause_boundary(text: str) -> tuple[str, str]:
+    """Split text at the nearest clause boundary (period, comma, semicolon, dash) near the midpoint.
+
+    Falls back to midpoint word split if no suitable boundary produces
+    two halves that both meet MIN_WORDS_PER_CONCEPT.
+    """
+    mid_char = len(text) // 2
+    boundary_chars = ".,:;—–-"
+
+    # Search outward from midpoint for nearest boundary character
+    best_pos = None
+    for offset in range(mid_char):
+        for delta in [offset, -offset]:
+            pos = mid_char + delta
+            if 0 < pos < len(text) - 1 and text[pos] in boundary_chars:
+                candidate = pos + 1
+                part1 = text[:candidate].strip()
+                part2 = text[candidate:].strip()
+                if (
+                    len(part1.split()) >= MIN_WORDS_PER_CONCEPT
+                    and len(part2.split()) >= MIN_WORDS_PER_CONCEPT
+                ):
+                    best_pos = candidate
+                    break
+        if best_pos is not None:
+            break
+
+    if best_pos is not None:
+        return text[:best_pos].strip(), text[best_pos:].strip()
+
+    # No good boundary — fall back to midpoint word split
+    words = text.split()
+    mid = len(words) // 2
+    return " ".join(words[:mid]), " ".join(words[mid:])
 
 
 def _validate_concept_durations(concepts: list[dict]) -> list[dict]:
@@ -219,17 +255,17 @@ def _validate_concept_durations(concepts: list[dict]) -> list[dict]:
             # Regenerate visual description for the merged concept
             concept["needs_new_prompt"] = True
             i += 2
-        # Too long — split into two
+        # Too long — split at nearest clause boundary
         elif wc > MAX_WORDS_PER_CONCEPT:
-            words = concept["sentence_text"].split()
-            mid = len(words) // 2
+            text = concept["sentence_text"]
+            part1_text, part2_text = _split_at_clause_boundary(text)
 
             part1 = dict(concept)
-            part1["sentence_text"] = " ".join(words[:mid])
+            part1["sentence_text"] = part1_text
             part1["needs_new_prompt"] = True
 
             part2 = dict(concept)
-            part2["sentence_text"] = " ".join(words[mid:])
+            part2["sentence_text"] = part2_text
             part2["needs_new_prompt"] = True
 
             validated.extend([part1, part2])
