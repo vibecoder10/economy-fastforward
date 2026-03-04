@@ -90,23 +90,23 @@ def _build_headline_scan_prompt(
 ) -> str:
     """Build the user prompt for the discovery scanner LLM call.
 
-    Combines the gathered headlines with the title pattern library
-    and instructions for analysis.
+    Combines the gathered headlines with the Power Doctrine formula library
+    and instructions for viewer-first title generation.
     """
-    # Extract EFF formulas for inline reference
-    eff_section = title_patterns.get("economy_fastforward", {})
-    eff_formulas = eff_section.get("hybrid_formulas", [])
+    # Extract PD formulas for inline reference
+    pd_formulas = title_patterns.get("formulas", [])
     formulas_summary = "\n".join(
         f"- {f['id']}: {f['name']} — Template: \"{f['template']}\""
-        for f in eff_formulas
+        for f in pd_formulas
     )
 
-    # Extract ARCH architectures for inline reference
-    arch_architectures = eff_section.get("title_architectures", [])
-    arch_summary = "\n".join(
-        f"- {a['id']}: {a['name']} — Principle: \"{a['principle']}\" — Example: \"{a['example']}\""
-        for a in arch_architectures
-    )
+    # Extract critical rules
+    critical_rules = title_patterns.get("critical_rules", [])
+    rules_text = "\n".join(f"- {r}" for r in critical_rules)
+
+    # Extract thumbnail system rules
+    thumbnail_rules = title_patterns.get("thumbnail_system", {}).get("rules", [])
+    thumbnail_text = "\n".join(f"- {r}" for r in thumbnail_rules)
 
     focus_instruction = ""
     if focus:
@@ -124,37 +124,46 @@ def _build_headline_scan_prompt(
     return f"""\
 Analyze these current headlines and select the 2-3 best stories for
 Economy FastForward videos. Apply the Machiavellian lens and generate
-title variants using the formula library AND the architecture library.
+4 VIEWER-FIRST title options per story using the Power Doctrine formula system.
 
 === CURRENT HEADLINES ===
 {headlines}
 
-=== AVAILABLE TITLE FORMULAS (EFF — template-based) ===
+=== POWER DOCTRINE TITLE FORMULAS ===
 {formulas_summary}
 
-=== AVAILABLE TITLE ARCHITECTURES (ARCH — principle-based, non-template) ===
-{arch_summary}
+=== FULL FORMULA LIBRARY (for variable reference and examples) ===
+{json.dumps(pd_formulas, indent=2)}
 
-=== FULL FORMULA LIBRARY (for variable reference) ===
-{json.dumps(eff_formulas, indent=2)}
+=== CRITICAL TITLE RULES ===
+{rules_text}
 
-=== FULL ARCHITECTURE LIBRARY (for principle reference) ===
-{json.dumps(arch_architectures, indent=2)}
+=== THUMBNAIL YIN-YANG SYSTEM ===
+{thumbnail_text}
 {focus_instruction}
 
 INSTRUCTIONS:
 1. Select exactly 2-3 stories (not more, not less)
 2. Each story must pass the power dynamics filter (minimum 6/10)
-3. Generate 2 title variants per story:
-   a. One title MUST use an EFF formula (include formula_id like "EFF-2")
-   b. One title MUST use an ARCH architecture (include formula_id like "ARCH-3")
-   c. The two titles must use DIFFERENT structural approaches — never both numbered, never both use parentheticals
-4. NEVER use EFF-1 (N-Stage Pattern) more than once across the entire batch
-5. Titles must be under 60 characters when possible (mobile-safe)
-6. No colons followed by long subtitle lists
-7. Rate each story's appeal (1-10) with breakdown by criterion
-8. Suggest a historical parallel for the research phase
-9. Write a 2-3 sentence hook that creates a curiosity gap
+3. Generate 4 title options per story. Each must use a DIFFERENT PD formula:
+
+   PD-1: Start with a DARK COMMAND in caps (NEVER, STOP, DON'T). Follow with the consequence. End with a framework tag (Machiavelli, Law of Power, The Pentagon Playbook, etc.)
+
+   PD-2: Start with 'How to' plus a power verb (destroy, control, kill, weaponize, trap). The real-world event is proof/example, not the subject.
+
+   PD-3: Start with 'The' plus a named principle, trap, or weapon. Follow with a shocking consequence. Include a specific number ($400B, 4 hours, $20,000).
+
+   PD-4: Start with 'Why' plus something the viewer trusts or takes for granted. Reveal it is actually a weapon, trap, or lie. End with framework tag.
+
+   PD-5: Start with a number (3-9) plus 'Signs' plus a dark pattern the viewer might be subject to. End with framework tag.
+
+4. For EACH title, also generate a 2-5 word ALL CAPS thumbnail text that is DIFFERENT from the title but complements it emotionally
+5. The VIEWER must see themselves in every title — the event is the case study, not the subject
+6. Never lead with a country name or company name — lead with the POWER LESSON
+7. Include at least one specific number in 3 of the 4 titles
+8. Rate each story's appeal (1-10) with breakdown by criterion
+9. Suggest a historical parallel for the research phase
+10. Write a 2-3 sentence hook that creates a curiosity gap
 
 Return your response as valid JSON following the output format specified
 in your system prompt. No markdown code blocks — raw JSON only.
@@ -207,11 +216,21 @@ def _parse_scanner_output(response_text: str) -> dict:
         if missing:
             logger.warning(f"Idea {i+1} missing fields: {missing}")
 
-        # Validate title_options have formula_id
-        for j, title_opt in enumerate(idea.get("title_options", [])):
+        # Validate title_options have formula_id and thumbnail_text
+        title_opts = idea.get("title_options", [])
+        if len(title_opts) < 4:
+            logger.warning(
+                f"Idea {i+1} has {len(title_opts)} title options "
+                f"(expected 4, one per PD formula)"
+            )
+        for j, title_opt in enumerate(title_opts):
             if "formula_id" not in title_opt:
                 logger.warning(
                     f"Idea {i+1}, title option {j+1} missing formula_id"
+                )
+            if "thumbnail_text" not in title_opt:
+                logger.warning(
+                    f"Idea {i+1}, title option {j+1} missing thumbnail_text"
                 )
 
     return result
@@ -415,10 +434,11 @@ async def run_discovery(
 def format_ideas_for_slack(result: dict) -> str:
     """Format discovery results as a readable Slack message.
 
-    Each title option gets its own number so the user can select
+    Each idea shows 4 title options (one per PD formula) with thumbnail
+    text. Each title option gets its own number so the user can select
     both the idea AND the specific title they want.
 
-    For 3 ideas with 2 titles each, generates up to 6 numbered options.
+    For 3 ideas with 4 titles each, generates up to 12 numbered options.
 
     Args:
         result: Output from DiscoveryScanner.scan()
@@ -430,7 +450,7 @@ def format_ideas_for_slack(result: dict) -> str:
     if not ideas:
         return "No ideas found. Try running with a different focus keyword."
 
-    # Number emojis for up to 9 options
+    # Number emojis for up to 12 options (3 ideas x 4 titles)
     number_emojis = [
         "1\ufe0f\u20e3", "2\ufe0f\u20e3", "3\ufe0f\u20e3",
         "4\ufe0f\u20e3", "5\ufe0f\u20e3", "6\ufe0f\u20e3",
@@ -455,8 +475,10 @@ def format_ideas_for_slack(result: dict) -> str:
                 emoji = f"({option_num + 1})"
             formula_id = title_opt.get("formula_id", "?")
             title = title_opt.get("title", "Untitled")
+            thumbnail = title_opt.get("thumbnail_text", "")
             lines.append(f"{emoji}  *{title}*")
-            lines.append(f"      _Formula: {formula_id}_")
+            thumb_display = f" | Thumbnail: {thumbnail}" if thumbnail else ""
+            lines.append(f"      _Formula: {formula_id}{thumb_display}_")
             option_num += 1
 
         lines.append("")
