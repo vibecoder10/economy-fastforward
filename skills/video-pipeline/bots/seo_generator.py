@@ -13,9 +13,9 @@ Description architecture:
     {estimated_time} - {chapter_2_title}
     ...
 
-    Subscribe for more: https://www.youtube.com/@EconomyFastForward
+    Subscribe for more: https://www.youtube.com/@Power_Doctrine
 
-    #{dynamic_hashtag_1} #{dynamic_hashtag_2} #{dynamic_hashtag_3} #EconomyFastForward #Economy
+    #{dynamic_hashtag_1} #{dynamic_hashtag_2} #{dynamic_hashtag_3} #PowerDoctrine #Power_Doctrine
 """
 
 import json
@@ -23,11 +23,11 @@ from typing import Optional
 
 
 # Static hashtags (always appended)
-STATIC_HASHTAGS = ["#EconomyFastForward", "#Economy"]
+STATIC_HASHTAGS = ["#PowerDoctrine", "#Power_Doctrine"]
 
 # Channel subscribe line
 SUBSCRIBE_LINE = (
-    "Subscribe for more: https://www.youtube.com/@EconomyFastForward"
+    "Subscribe for more: https://www.youtube.com/@Power_Doctrine"
 )
 
 # YouTube category IDs
@@ -36,7 +36,7 @@ CATEGORY_EDUCATION = "27"
 
 # Prompt for Anthropic API to generate SEO metadata
 SEO_PROMPT = """\
-You are a YouTube SEO specialist for a finance/economics channel called Economy FastForward.
+You are a YouTube SEO specialist for a geopolitics and power analysis channel called Power Doctrine.
 
 Given the video title, hook, and script excerpt below, generate YouTube metadata.
 
@@ -45,7 +45,7 @@ RULES:
 - summary: 2-3 sentences with natural keyword integration. NOT keyword stuffing. Reads like a human wrote it.
 - keywords: 5-8 primary keywords extracted from the content.
 - hashtags: Exactly 3 dynamic hashtags relevant to THIS video's topic (no # prefix, just the word). These will appear above the title on YouTube.
-- tags: 10-15 YouTube tags. Mix of broad niche tags ("economy", "finance", "geopolitics") and specific video tags. These are metadata, not visible to viewers.
+- tags: 10-15 YouTube tags. Mix of broad niche tags ("geopolitics", "power", "politics", "news") and specific video tags. These are metadata, not visible to viewers.
 - chapter_titles: One title per chapter (group every 3-4 scenes). Short, compelling chapter titles for timestamps.
 
 VIDEO TITLE: {title}
@@ -205,7 +205,7 @@ class SEOGenerator:
         if timestamps:
             parts.extend(["", "Timestamps", timestamps])
 
-        parts.extend(["", f"Subscribe for more: https://www.youtube.com/@EconomyFastForward"])
+        parts.extend(["", f"Subscribe for more: https://www.youtube.com/@Power_Doctrine"])
 
         parts.extend(["", " ".join(hashtags)])
 

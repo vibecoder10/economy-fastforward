@@ -38,7 +38,7 @@ SCOPES = [
 ]
 
 # Default category
-DEFAULT_CATEGORY_ID = "27"  # Education
+DEFAULT_CATEGORY_ID = "25"  # News & Politics
 
 
 class YouTubeUploader:
