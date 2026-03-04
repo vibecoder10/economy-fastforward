@@ -23,33 +23,42 @@ function getSceneDurationSeconds(sceneNumber: number): number | null {
     return null;
 }
 
-interface SoundLayerData {
-    file: string;
-    start_segment: number;
-    end_segment: number;
-    volume: number;
-    loop: boolean;
-    fade_in: number;
-    fade_out: number;
+// Per-image SFX data from pipeline props
+interface ImageSfxData {
+    sfx?: string;       // e.g. "sfx/sfx_1_1.mp3"
+    sfxVolume?: number;  // 0.0-1.0, default 0.15
+}
+
+interface PropsImage {
+    index: number;
+    sfx?: string;
+    sfxVolume?: number;
 }
 
 interface PropsScene {
     sceneNumber: number;
-    sound_layers?: SoundLayerData[];
+    images?: PropsImage[];
 }
 
 export const Main: React.FC<MainProps> = ({ totalScenes }) => {
     const { fps } = useVideoConfig();
 
-    // Load sound layers from inputProps (embedded by pipeline.py)
-    const soundLayersByScene = useMemo(() => {
-        const map: Record<number, SoundLayerData[]> = {};
+    // Load per-image SFX data from inputProps (embedded by pipeline.py)
+    const sfxByScene = useMemo(() => {
+        const map: Record<number, Record<number, ImageSfxData>> = {};
         try {
             const inputProps = getInputProps() as Record<string, unknown>;
             const propsScenes = (inputProps?.scenes ?? []) as PropsScene[];
             for (const s of propsScenes) {
-                if (s.sceneNumber && s.sound_layers && s.sound_layers.length > 0) {
-                    map[s.sceneNumber] = s.sound_layers;
+                if (!s.sceneNumber || !s.images) continue;
+                const imageMap: Record<number, ImageSfxData> = {};
+                for (const img of s.images) {
+                    if (img.sfx) {
+                        imageMap[img.index] = { sfx: img.sfx, sfxVolume: img.sfxVolume ?? 0.15 };
+                    }
+                }
+                if (Object.keys(imageMap).length > 0) {
+                    map[s.sceneNumber] = imageMap;
                 }
             }
         } catch {
@@ -75,21 +84,27 @@ export const Main: React.FC<MainProps> = ({ totalScenes }) => {
         return sceneNumberList.map((sceneNumber) => {
             // Get image count from render_config.json, fallback to 6
             const imageCount = getImageCountForScene(sceneNumber) || 6;
+            const sceneSfx = sfxByScene[sceneNumber] ?? {};
 
             return {
                 sceneNumber,
                 audioFile: `Scene ${sceneNumber}.mp3`,
-                images: Array.from({ length: imageCount }, (_, j) => ({
-                    index: j + 1,
-                    file: `Scene_${String(sceneNumber).padStart(2, "0")}_${String(j + 1).padStart(2, "0")}.png`,
-                })),
+                images: Array.from({ length: imageCount }, (_, j) => {
+                    const imgIndex = j + 1;
+                    const sfxData = sceneSfx[imgIndex];
+                    return {
+                        index: imgIndex,
+                        file: `Scene_${String(sceneNumber).padStart(2, "0")}_${String(imgIndex).padStart(2, "0")}.png`,
+                        sfx: sfxData?.sfx,
+                        sfxVolume: sfxData?.sfxVolume,
+                    };
+                }),
                 transcript: {
                     words: getWordsForScene(sceneNumber),
                 },
-                soundLayers: soundLayersByScene[sceneNumber] ?? [],
             };
         });
-    }, [sceneNumberList, soundLayersByScene]);
+    }, [sceneNumberList, sfxByScene]);
 
     // Calculate cumulative start frames using actual audio durations per scene.
     // Scenes missing from render_config are skipped (they had no audio data).
@@ -125,7 +140,6 @@ export const Main: React.FC<MainProps> = ({ totalScenes }) => {
                         audioFile={scene.audioFile}
                         images={scene.images}
                         transcript={scene.transcript}
-                        soundLayers={scene.soundLayers}
                     />
                 </Sequence>
             ))}

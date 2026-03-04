@@ -1,11 +1,10 @@
-"""Sound Bot — generates sound effect audio files from sound maps.
+"""Sound Bot — generates sound effect audio files per image row.
 
-Reads the Sound Map JSON from each scene's Script record, generates audio
-via Kie.ai ElevenLabs Sound Effect V2, uploads to Google Drive, and updates
-Airtable with file URLs.
+For each image in the Images table that has a Sound Prompt but no Sound Effect,
+generates an 8-second MP3 via Kie.ai, uploads to Google Drive, and attaches
+to the image row. This replaces the old scene-level Sound Map approach.
 """
 
-import json
 import asyncio
 from typing import Optional
 
@@ -15,12 +14,15 @@ from clients.google_client import GoogleClient
 from clients.slack_client import SlackClient
 
 
-# Safety limit — max generations per video before pausing
-MAX_GENERATIONS_PER_VIDEO = 100
+# Safety limit — max generations per video
+MAX_GENERATIONS_PER_VIDEO = 200
 
 
 class SoundBot:
-    """Generates sound effect audio files from sound map prompts."""
+    """Generates sound effect audio files from per-image sound prompts."""
+
+    DEFAULT_DURATION = 8.0
+    DEFAULT_VOLUME = 0.15
 
     def __init__(
         self,
@@ -34,199 +36,158 @@ class SoundBot:
         self.google = google or GoogleClient()
         self.slack = slack
 
-    async def _generate_scene_sounds(
-        self,
-        script_record: dict,
-        scene_number: int,
-        folder_id: str,
-        dry_run: bool = False,
-    ) -> dict:
-        """Generate all sound effects for a single scene.
-
-        Args:
-            script_record: Airtable script record with Sound Map
-            scene_number: Scene number for naming files
-            folder_id: Google Drive folder ID for uploads
-            dry_run: If True, skip actual generation
-
-        Returns:
-            Dict with generation results
-        """
-        sound_map_raw = script_record.get("Sound Map", "")
-        if not sound_map_raw:
-            return {"scene": scene_number, "generated": 0, "error": "No sound map"}
-
-        try:
-            sound_map = json.loads(sound_map_raw)
-        except (json.JSONDecodeError, TypeError) as e:
-            return {"scene": scene_number, "generated": 0, "error": f"Invalid JSON: {e}"}
-
-        sounds = sound_map.get("sounds", [])
-        if not sounds:
-            return {"scene": scene_number, "generated": 0, "error": "Empty sound map"}
-
-        generated = 0
-        for idx, sound in enumerate(sounds):
-            prompt = sound.get("prompt", "")
-            duration = sound.get("duration")
-            loop = sound.get("loop", False)
-
-            # Skip if already has a file URL (re-run safe)
-            if sound.get("file_url"):
-                print(f"    Scene {scene_number} sound {idx}: already generated, skipping")
-                generated += 1
-                continue
-
-            if dry_run:
-                print(f"    [DRY RUN] Scene {scene_number} sound {idx}: {prompt[:60]}...")
-                continue
-
-            # Check cost safety limit
-            if self.sound_client.generation_count >= MAX_GENERATIONS_PER_VIDEO:
-                msg = f"Hit {MAX_GENERATIONS_PER_VIDEO} generation limit for this video"
-                print(f"    {msg}")
-                if self.slack:
-                    self.slack.notify(f"Warning: {msg}. Pausing sound generation.")
-                return {
-                    "scene": scene_number,
-                    "generated": generated,
-                    "error": msg,
-                    "limit_reached": True,
-                }
-
-            print(f"    Scene {scene_number} sound {idx} ({sound.get('type', '?')}): {prompt[:60]}...")
-
-            audio_url = await self.sound_client.generate_sound_effect(
-                text=prompt,
-                duration_seconds=duration,
-                loop=loop,
-            )
-
-            if audio_url:
-                # Download and upload to Google Drive
-                try:
-                    audio_content = await self.sound_client.download_audio(audio_url)
-                    filename = f"sfx_scene_{scene_number}_{idx}.mp3"
-                    drive_file = self.google.upload_audio(audio_content, filename, folder_id)
-                    drive_url = self.google.make_file_public(drive_file["id"])
-
-                    # Update sound map entry with file info
-                    sound["file_url"] = drive_url
-                    sound["filename"] = filename
-                    generated += 1
-                except Exception as e:
-                    print(f"    Upload failed for scene {scene_number} sound {idx}: {e}")
-                    # Store the raw URL as fallback
-                    sound["file_url"] = audio_url
-                    sound["filename"] = f"sfx_scene_{scene_number}_{idx}.mp3"
-                    generated += 1
-            else:
-                print(f"    Generation failed for scene {scene_number} sound {idx}")
-
-        # Write updated sound map (with file URLs) back to Airtable
-        if not dry_run and generated > 0:
-            updated_json = json.dumps(sound_map)
-            try:
-                self.airtable.update_script_record(
-                    script_record["id"],
-                    {"Sound Map": updated_json, "SFX Status": "Done"},
-                )
-            except Exception as e:
-                print(f"    Warning: batch update failed ({e}), trying individually...")
-                try:
-                    self.airtable.update_script_record(script_record["id"], {"Sound Map": updated_json})
-                except Exception:
-                    pass
-                try:
-                    self.airtable.update_script_record(script_record["id"], {"SFX Status": "Done"})
-                except Exception:
-                    pass
-
-        return {"scene": scene_number, "generated": generated}
-
     async def process_video(
         self,
         video_title: str,
         folder_id: Optional[str] = None,
         dry_run: bool = False,
-        max_concurrent_scenes: int = 3,
+        max_concurrent: int = 3,
     ) -> dict:
-        """Generate sound effects for all scenes of a video.
+        """Generate sound effects for all images of a video.
 
         Args:
             video_title: Title of the video
-            folder_id: Google Drive folder for uploads (auto-created if None)
+            folder_id: Google Drive folder for uploads
             dry_run: If True, log prompts without generating audio
-            max_concurrent_scenes: Max scenes to process in parallel
+            max_concurrent: Max concurrent generations
 
         Returns:
             Dict with processing results
         """
         print(f"\n  SOUND BOT: Processing '{video_title}' {'[DRY RUN]' if dry_run else ''}")
 
-        scripts = self.airtable.get_scripts_by_title(video_title)
-        if not scripts:
-            return {"error": f"No scripts found for: {video_title}"}
+        images = self.airtable.get_all_images_for_video(video_title)
+        if not images:
+            return {"error": f"No images found for: {video_title}"}
 
-        # Filter to scripts with sound maps (Prompts Ready or already Done)
-        scripts_with_maps = [
-            s for s in scripts
-            if s.get("Sound Map") and s.get("SFX Status") in ("Prompts Ready", "Done", None)
+        # Filter to images with Sound Prompt but no Sound Effect
+        needs_generation = [
+            img for img in images
+            if img.get("Sound Prompt") and not img.get("Sound Effect")
         ]
 
-        if not scripts_with_maps:
-            return {"error": "No scripts with sound maps found. Run sound_prompt_bot first."}
+        if not needs_generation:
+            already_done = sum(1 for img in images if img.get("Sound Effect"))
+            if already_done > 0:
+                return {
+                    "bot": "Sound Bot",
+                    "video_title": video_title,
+                    "total_generated": already_done,
+                    "message": f"All {already_done} sound effects already generated",
+                }
+            return {"error": "No images with Sound Prompt found. Run sound_prompt_bot first."}
 
-        # Get Drive folder from Airtable idea record (same folder as voice/images)
+        # Get Drive folder
         if not folder_id:
             idea = self.airtable.find_idea_by_title(video_title)
             if idea:
-                folder_id = idea.get("Drive Folder ID")
+                folder_id = idea.get("Google Drive Folder ID") or idea.get("Drive Folder ID")
             if not folder_id:
-                return {"error": f"No Drive Folder ID found in Airtable for: {video_title}"}
+                return {"error": f"No Drive folder found for: {video_title}"}
 
-        scripts_with_maps = sorted(scripts_with_maps, key=lambda s: s.get("scene", 0))
+        needs_generation = sorted(
+            needs_generation,
+            key=lambda i: (i.get("Scene", 0), i.get("Image Index", 0)),
+        )
 
         total_generated = 0
-        scene_count = 0
         limit_reached = False
 
-        # Process scenes in batches for controlled concurrency
-        for batch_start in range(0, len(scripts_with_maps), max_concurrent_scenes):
+        # Process in batches
+        for batch_start in range(0, len(needs_generation), max_concurrent):
             if limit_reached:
                 break
 
-            batch = scripts_with_maps[batch_start:batch_start + max_concurrent_scenes]
+            batch = needs_generation[batch_start:batch_start + max_concurrent]
             tasks = [
-                self._generate_scene_sounds(
-                    script_record=script,
-                    scene_number=script.get("scene", 0),
-                    folder_id=folder_id,
-                    dry_run=dry_run,
-                )
-                for script in batch
+                self._generate_for_image(img, folder_id, dry_run)
+                for img in batch
             ]
-
             results = await asyncio.gather(*tasks)
 
-            for result in results:
-                total_generated += result.get("generated", 0)
-                if result.get("generated", 0) > 0 or result.get("error") is None:
-                    scene_count += 1
-                if result.get("limit_reached"):
+            for success in results:
+                if success:
+                    total_generated += 1
+
+                if self.sound_client.generation_count >= MAX_GENERATIONS_PER_VIDEO:
+                    msg = f"Hit {MAX_GENERATIONS_PER_VIDEO} generation limit"
+                    print(f"    ⚠️ {msg}")
+                    if self.slack:
+                        self.slack.notify(f"⚠️ {msg}. Pausing sound generation.")
                     limit_reached = True
+                    break
 
         estimated_cost = self.sound_client.estimated_total_cost
 
-        print(f"\n  Sound generation complete: {total_generated} effects across {scene_count} scenes")
+        print(f"\n  Sound effects complete: {total_generated}/{len(needs_generation)} generated")
         print(f"  Estimated cost: ~${estimated_cost:.2f}")
 
         return {
             "bot": "Sound Bot",
             "video_title": video_title,
             "total_generated": total_generated,
-            "scene_count": scene_count,
+            "total_images": len(needs_generation),
             "estimated_cost": round(estimated_cost, 2),
             "dry_run": dry_run,
             "limit_reached": limit_reached,
         }
+
+    async def _generate_for_image(
+        self,
+        img: dict,
+        folder_id: str,
+        dry_run: bool = False,
+    ) -> bool:
+        """Generate a sound effect for a single image row.
+
+        Returns True if successful.
+        """
+        record_id = img["id"]
+        scene = img.get("Scene", 0)
+        idx = img.get("Image Index", 0)
+        prompt = img.get("Sound Prompt", "")
+
+        if dry_run:
+            print(f"    [DRY RUN] Scene {scene} img {idx}: {prompt[:60]}...")
+            return False
+
+        print(f"    Scene {scene} img {idx}: {prompt[:60]}...")
+
+        audio_url = await self.sound_client.generate_sound_effect(
+            text=prompt,
+            duration_seconds=self.DEFAULT_DURATION,
+            loop=False,
+        )
+
+        if not audio_url:
+            print(f"    ❌ Generation failed for scene {scene} img {idx}")
+            return False
+
+        # Download and upload to Google Drive
+        filename = f"sfx_{scene}_{idx}.mp3"
+        try:
+            audio_content = await self.sound_client.download_audio(audio_url)
+            drive_file = self.google.upload_audio(audio_content, filename, folder_id)
+            drive_url = self.google.make_file_public(drive_file["id"])
+
+            # Attach to image row in Airtable
+            self.airtable.update_image_sound_effect(
+                record_id=record_id,
+                sound_url=drive_url,
+                volume=self.DEFAULT_VOLUME,
+            )
+            print(f"    ✅ {filename} uploaded")
+            return True
+
+        except Exception as e:
+            print(f"    ❌ Upload/attach failed for {filename}: {e}")
+            # Try attaching the raw URL as fallback
+            try:
+                self.airtable.update_image_sound_effect(
+                    record_id=record_id,
+                    sound_url=audio_url,
+                    volume=self.DEFAULT_VOLUME,
+                )
+                return True
+            except Exception:
+                return False
