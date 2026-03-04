@@ -1087,7 +1087,7 @@ class VideoPipeline:
 
         for scene in scenes:
             scene_number = scene.get("scene") or scene.get("Scene") or 1
-            
+
             # Check if this scene already has prompts
             scene_prompts = [img for img in existing_images if img.get("Scene") == scene_number]
             if scene_prompts:
