@@ -1087,7 +1087,8 @@ class VideoPipeline:
 
         for scene in scenes:
             scene_number = scene.get("scene") or scene.get("Scene") or 1
-            
+            scene_psych_angle = scene.get("Psych Angle", "") or scene.get("psych_angle", "")
+
             # Check if this scene already has prompts
             scene_prompts = [img for img in existing_images if img.get("Scene") == scene_number]
             if scene_prompts:
@@ -1160,6 +1161,7 @@ class VideoPipeline:
                     image_prompt=concept.get("image_prompt", ""),
                     composition=shot_type or "medium",
                     video_title=self.video_title,
+                    psych_angle=scene_psych_angle,
                 )
                 cumulative_start += concept_duration
                 total_prompts += 1
@@ -1979,6 +1981,7 @@ class VideoPipeline:
         for script in scripts:
             scene_num = script.get("scene", 0)
             scene_text = script.get("Scene text", "") or script.get("Script", "")
+            script_psych_angle = script.get("Psych Angle", "") or script.get("psych_angle", "")
 
             if not scene_text:
                 print(f"  Scene {scene_num}: empty text, skipping")
@@ -2048,6 +2051,7 @@ class VideoPipeline:
                     image_prompt=prompt,
                     composition=composition,
                     video_title=self.video_title,
+                    psych_angle=script_psych_angle,
                 )
 
                 style_counts[visual_style] = style_counts.get(visual_style, 0) + 1
