@@ -29,7 +29,7 @@ from .supplementer import (
 )
 from .script_generator import generate_script
 from .scene_expander import expand_scene_concepts
-from .scene_validator import validate_scene_list, auto_fix_minor_issues
+from .scene_validator import validate_scene_list, auto_fix_minor_issues, check_entity_consistency
 from .pipeline_writer import graduate_to_pipeline
 from .psych_angle_assigner import (
     assign_angles_to_scenes,
@@ -162,23 +162,38 @@ class BriefTranslator:
 
             # === STEP 2a: Extract and persist framework ===
             selected_framework = extract_framework_from_script(script)
+            if not selected_framework:
+                # Fallback: use the framework_angle from the research brief
+                selected_framework = brief.get("framework_angle", "")
             if selected_framework:
                 logger.info(f"Selected framework: {selected_framework}")
                 brief["_selected_framework"] = selected_framework
-                # Write to Airtable "Framework" field (graceful degradation)
+                # Write to Airtable "Framework Angle" field (graceful degradation)
                 try:
                     self.airtable.update_idea_fields(
-                        idea_record_id, {"Framework": selected_framework}
+                        idea_record_id, {"Framework Angle": selected_framework}
                     )
                 except Exception as fw_err:
                     logger.warning(
-                        f"Could not write Framework field to Airtable "
-                        f"(field may not exist yet): {fw_err}"
+                        f"Could not write Framework Angle to Airtable: {fw_err}"
                     )
             else:
-                logger.info("No PRIMARY FRAMEWORK line found in script output")
+                logger.info("No framework found in script output or research brief")
 
-            # === STEP 2b: Assign Psychological Angles ===
+            # === STEP 2b: Entity consistency check ===
+            entity_warnings = check_entity_consistency(
+                script=script,
+                brief=brief,
+                slack_client=self.slack,
+                video_title=brief.get("headline", ""),
+            )
+            if entity_warnings:
+                logger.warning(
+                    f"Entity consistency: {len(entity_warnings)} potential "
+                    f"hallucination(s) detected"
+                )
+
+            # === STEP 2c: Assign Psychological Angles ===
             from .script_generator import extract_acts
             acts = extract_acts(script)
             if not acts:
