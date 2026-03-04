@@ -527,7 +527,6 @@ class AirtableClient:
         composition: str,
         video_title: str,
         aspect_ratio: str = "16:9",
-        psych_angle: str = "",
     ) -> dict:
         """Create an image record from a visual concept expansion.
 
@@ -542,7 +541,6 @@ class AirtableClient:
             composition: wide / medium / closeup / etc.
             video_title: Title linking to Ideas table
             aspect_ratio: Image aspect ratio
-            psych_angle: Psychological angle for this scene (from psych_angle_assigner)
 
         Returns:
             Created record dict with id + fields
@@ -558,8 +556,6 @@ class AirtableClient:
             "Status": "Pending",
             "Sentence Index": concept_index,
         }
-        if psych_angle:
-            fields["Psych Angle"] = psych_angle
         record = self.images_table.create(fields, typecast=True)
         return {"id": record["id"], **record["fields"]}
     

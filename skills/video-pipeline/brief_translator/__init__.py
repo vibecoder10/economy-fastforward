@@ -178,12 +178,6 @@ class BriefTranslator:
             logger.info("Step 3: Expanding script into visual concepts (scene by scene)...")
             self._notify(f"🎬 Expanding script scenes into visual concepts...")
 
-            # Build psych angle lookup: act_number → angle string
-            angle_lookup: dict[int, str] = {}
-            if psych_assignments:
-                for pa in psych_assignments:
-                    angle_lookup[pa["scene"]] = pa["angle"]
-
             scenes = []
             visual_seeds = brief.get("visual_seeds", "")
             scene_counter = 0
@@ -199,7 +193,6 @@ class BriefTranslator:
                     act_number=act_num,
                     total_scenes=len(acts),
                 )
-                act_psych_angle = angle_lookup.get(act_num, "")
                 for c in concepts:
                     scenes.append({
                         "scene_number": scene_counter,
@@ -210,7 +203,6 @@ class BriefTranslator:
                         "composition": c.get("composition", "medium"),
                         "mood": c.get("mood", ""),
                         "parent_act": act_num,
-                        "psych_angle": act_psych_angle,
                     })
 
             logger.info(f"Expanded {len(acts)} acts into {len(scenes)} visual concepts")
