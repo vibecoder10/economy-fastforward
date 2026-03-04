@@ -6,7 +6,6 @@ with six-act structure, micro-payoff architecture, and act markers.
 
 import re
 from pathlib import Path
-from typing import Optional
 
 PROMPT_TEMPLATE_PATH = Path(__file__).parent / "prompts" / "script.txt"
 
@@ -99,25 +98,23 @@ the Strait isn't worth the risk."
 _FRAMEWORK_REVELATION_ENGINE = """\
 === FRAMEWORK INTEGRATION — THE FRAMEWORK IS THE PAYOFF ===
 
-The psychological/strategic framework isn't decoration. It IS the insight. \
+The selected framework isn't decoration. It IS the insight. \
 Every micro-payoff should be a framework revelation applied to the story.
 
 The pattern for every scene:
 1. Present the EVENT (what happened)
-2. Apply the FRAMEWORK (why it happened — through the lens)
+2. Apply the FRAMEWORK (why it happened — through the selected lens)
 3. Deliver the PAYOFF (what this reveals about power/human nature)
 
 BAD: "Iran struck Ras Tanura. This is an example of asymmetric warfare."
 (Framework as label — boring, academic, forgettable)
 
-GOOD: "Iran struck Ras Tanura with a twenty-thousand-dollar drone. Robert \
-Greene calls this Law 28: Enter Action with Boldness. But here's what \
-Greene didn't tell you — boldness only works when your enemy's strength is \
-also their weakness. Saudi Arabia's four hundred billion dollars in oil \
-infrastructure isn't power. It's a hostage. The richer they got, the more \
-vulnerable they became. And Iran figured that out decades ago."
-(Framework as revelation — the law EXPLAINS the deeper truth the viewer \
-didn't see)
+GOOD: "Iran struck Ras Tanura with a twenty-thousand-dollar drone. The \
+selected framework explains WHY this specific move was inevitable — and \
+reveals a deeper truth the viewer didn't see. The framework doesn't just \
+describe what happened, it shows the hidden logic that MADE it happen."
+(Framework as revelation — the framework EXPLAINS the deeper truth the \
+viewer didn't see)
 
 The framework should make the viewer feel like they've been given X-ray \
 vision. They're not just learning what happened — they're learning HOW TO \
@@ -128,13 +125,14 @@ EVERY ACT must have at least one moment where the framework creates an \
 viewers screenshot and share.
 
 Framework escalation across acts:
-- Act 1: Introduce the framework as a surprising lens on the headline event
-- Act 2: Apply it to the factual foundation — "now watch what happens when \
-you see these facts through this lens"
+- Act 1: Introduce the selected framework as a surprising lens on the \
+headline event
+- Act 2: Apply the framework to the factual foundation — "now watch what \
+happens when you see these facts through this lens"
 - Act 3: The framework reveals the HIDDEN MECHANISM — the thing nobody \
 else is explaining
 - Act 4: The historical parallel PROVES the framework — "this exact pattern \
-played out in 1941 because the same law of power was operating"
+played out before because the same dynamic was operating"
 - Act 5: Turn the framework on the VIEWER — "and here's the uncomfortable \
 truth: you're subject to this same dynamic in your own life. When your boss \
 does X, when markets do Y, when you feel Z — that's this exact pattern \
@@ -148,9 +146,82 @@ pair of glasses. The framework IS the product. The geopolitical story is \
 just the case study.
 
 CRITICAL: Do NOT name-drop frameworks without applying them. Every framework \
-reference must REVEAL something the viewer didn't see before. If you mention \
-"Law 3: Conceal Your Intentions" it must be followed by showing HOW that \
-law explains a specific hidden move in the story that the viewer missed.
+reference must REVEAL something the viewer didn't see before. The framework \
+must be followed by showing HOW it explains a specific hidden move in the \
+story that the viewer missed.
+
+CRITICAL: The framework must feel like a REVELATION, not an academic label. \
+Do not say 'This is an example of the Thucydides Trap.' Say 'There is a \
+pattern that has preceded every major war for 2,500 years. Athens and Sparta. \
+Britain and Germany. And right now, the same pattern is playing out between \
+Washington and Beijing and we are at the exact stage where Thucydides says \
+the trap becomes inescapable.'
+
+The viewer should leave every video having LEARNED A FRAMEWORK they can apply \
+to other situations. That is the product. The geopolitical story is just the \
+delivery vehicle.
+"""
+
+_FRAMEWORK_SELECTION_RULES = """\
+=== FRAMEWORK SELECTION — DYNAMIC PER-VIDEO ===
+
+Before writing the outline, select 1-2 primary frameworks that BEST explain \
+the power dynamics in this story. Do not default to Machiavelli. Choose the \
+framework that creates the most powerful revelation.
+
+Available frameworks (select 1-2):
+1. Machiavelli / 48 Laws of Power — political maneuvering, deception, betrayal
+2. Thucydides Trap — rising power vs established power, inevitable conflict
+3. Taleb (Antifragile/Black Swan) — asymmetric risk, fragility, hidden tail risks
+4. Game Theory — deterrence, prisoner's dilemma, Nash equilibrium, commitment
+5. Sun Tzu (Art of War) — indirect warfare, winning without fighting, deception
+6. Brzezinski / Grand Chessboard / Mackinder — geographic control, pivot states
+7. Kindleberger Trap — hegemon withdrawal, public goods vacuum, systemic collapse
+8. Schelling (Focal Points/Commitment) — brinkmanship, credible threats, red lines
+9. Mancur Olson (Collective Action) — organized minorities vs disorganized majorities
+10. Joseph Nye (Soft Power/Sharp Power) — influence without coercion, cultural dominance
+
+Selection criteria:
+- Which framework makes the viewer see a HIDDEN MECHANISM they did not know \
+was operating?
+- Which framework connects this specific event to a UNIVERSAL PATTERN the \
+viewer will see everywhere?
+- Which framework gives the viewer a TOOL they can use to predict what happens next?
+
+State your framework selection at the top of the outline:
+PRIMARY FRAMEWORK: [Name] — [One sentence on why this framework cracks open \
+this story]
+SECONDARY FRAMEWORK: [Name] — [One sentence on what additional dimension \
+this adds]
+
+The primary framework drives Acts 1-4. The secondary framework enriches \
+Acts 4-6.
+"""
+
+_FRAMEWORK_PSYCH_SEPARATION = """\
+=== FRAMEWORK vs PSYCHOLOGICAL ANGLE — TWO DIFFERENT TOOLS ===
+
+FRAMEWORK (constant across entire video): The intellectual lens that \
+explains WHY. Selected once during outline. Every act analyzes through this \
+same lens, building deeper understanding with each act.
+
+PSYCHOLOGICAL ANGLE (varies per act): The emotional lever that makes each \
+act FEEL different. Creates an emotional arc across the video. Use different \
+angles per act:
+- Act 1: Shock, betrayal, or pattern interrupt
+- Act 2: Paranoia, curiosity, or revelation
+- Act 3: Fascination with the hidden mechanism
+- Act 4: Historical dread or recognition
+- Act 5: Personal vulnerability or anger
+- Act 6: Empowerment, clarity, or permanent reframe
+
+The framework is the WHAT (intellectual). The psych angle is the HOW \
+(emotional). Together they create videos where the viewer both LEARNS \
+something and FEELS something every 60 seconds.
+
+Each act should apply the SAME framework but through a DIFFERENT emotional \
+lens. Act 1 reveals the framework through shock. Act 4 proves the framework \
+through historical dread. Act 6 delivers the framework as empowerment.
 """
 
 _ACT_SPECIFIC_RULES = """\
@@ -200,161 +271,231 @@ def _build_framework_lens_section(framework_angle: str) -> str:
 
     Each framework gets detailed instructions on HOW to apply it throughout
     every act of the script. This is the analytical backbone.
+
+    The 10-framework toolkit gives the channel its identity: 'there is ALWAYS
+    a hidden playbook operating behind world events and we are the channel
+    that shows you which one.'
     """
     framework_instructions = {
+        "Machiavelli": (
+            "=== PRIMARY ANALYTICAL LENS: MACHIAVELLI / 48 LAWS OF POWER ===\n\n"
+            "Use for: Political maneuvering, deception, betrayal, alliance manipulation, "
+            "strategic theater.\n\n"
+            "Frame the entire narrative through Machiavelli and Robert Greene's Laws of "
+            "Power. The corporate and political actors ARE princes managing their "
+            "principalities. Reference specific concepts throughout:\n\n"
+            "- Conceal intentions, use selective honesty, crush enemies totally\n"
+            "- Court attention at all costs, appear as a friend while working as a spy\n"
+            "- The Fox and the Lion — cunning to recognize traps, fierce to terrify wolves\n"
+            "- Fortune vs Virtù — strategic skill vs circumstances\n"
+            "- Whether it's better to be feared or loved\n"
+            "- New principalities vs hereditary — market entrants vs incumbents\n\n"
+            "Reference specific Laws by number or quote Machiavelli/Greene directly at "
+            "least 3-4 times. Every major actor should be analyzed AS a Machiavellian "
+            "prince executing a deliberate strategy."
+        ),
         "48 Laws": (
             "=== PRIMARY ANALYTICAL LENS: THE 48 LAWS OF POWER (Robert Greene) ===\n\n"
+            "Use for: Political maneuvering, deception, betrayal, alliance manipulation, "
+            "strategic theater.\n\n"
             "You MUST explicitly reference specific Laws of Power throughout the entire\n"
             "script. Each act should tie to a specific law. The laws are the analytical\n"
             "backbone — they explain WHY the actors are behaving as they are.\n\n"
-            "Examples of how to weave laws into narration:\n"
-            '- "This is Law 3: Conceal Your Intentions. And [actor] has mastered it."\n'
-            '- "Law 15: Crush Your Enemy Totally — and [actor] learned this lesson early."\n'
-            '- "Robert Greene wrote: \'Never outshine the master.\' Law 1. [Actor] violated\n'
-            '  this principle and paid the price."\n'
-            '- "This is textbook Law 6: Court Attention at All Costs."\n\n'
+            "Key concepts: Conceal intentions, use selective honesty, crush enemies totally, "
+            "court attention, appear as a friend while working as a spy.\n\n"
             "Reference at least 4-5 DIFFERENT laws across the 6 acts. Name the law number\n"
             "and title every time. The viewer should feel like they're getting a masterclass\n"
             "in power dynamics while watching current events unfold."
         ),
-        "Machiavelli": (
-            "=== PRIMARY ANALYTICAL LENS: THE PRINCE (Niccolò Machiavelli) ===\n\n"
-            "Frame the entire narrative through Machiavelli's The Prince. The corporate\n"
-            "and political actors ARE princes managing their principalities. Reference\n"
-            "specific chapters and concepts throughout:\n\n"
-            '- The Fox and the Lion: "A prince must be both fox and lion — cunning enough\n'
-            '  to recognize traps, and fierce enough to terrify wolves."\n'
-            '- Fortune vs Virtù: Frame success/failure as the interplay between strategic\n'
-            '  skill (virtù) and circumstances (fortuna)\n'
-            '- Whether it\'s better to be feared or loved: Apply this to corporate/national\n'
-            '  actors directly\n'
-            '- New Principalities vs Hereditary: Frame market entrants vs incumbents\n'
-            '- Armed prophets vs unarmed: Those who back vision with force succeed\n\n'
-            "Every major actor should be analyzed AS a Machiavellian prince. Their moves\n"
-            "should be compared to specific passages from The Prince. Reference Machiavelli\n"
-            "by name at least 3-4 times."
+        "Thucydides Trap": (
+            "=== PRIMARY ANALYTICAL LENS: THE THUCYDIDES TRAP ===\n\n"
+            "Use for: Rising power vs established power dynamics, inevitable conflict "
+            "between status quo and challenger.\n\n"
+            "Frame the entire narrative through the structural tension between a rising "
+            "power and the established power that fears it. Key concepts:\n\n"
+            "- The established power fears the rising one — preventive action becomes rational\n"
+            "- Security dilemma: defensive moves by one side look offensive to the other\n"
+            "- Structural inevitability: the trap is NOT about individual leaders but about\n"
+            "  the position of the powers relative to each other\n"
+            "- Historical cases: Athens/Sparta, Britain/Germany, Portugal/Spain, US/USSR\n"
+            "- The question is not WHETHER conflict comes but WHAT FORM it takes\n\n"
+            "Reference Thucydides and Graham Allison by name. Show how the same structural\n"
+            "dynamic has produced the same results for 2,500 years. The viewer should feel\n"
+            "the weight of historical inevitability."
+        ),
+        "Antifragile": (
+            "=== PRIMARY ANALYTICAL LENS: TALEB — ANTIFRAGILE / BLACK SWAN / SKIN IN THE GAME ===\n\n"
+            "Use for: Asymmetric risk, fragility of complex systems, things that gain from "
+            "disorder, hidden tail risks.\n\n"
+            "Frame the entire narrative through Nassim Taleb's framework of fragility:\n\n"
+            "- Fragile vs Robust vs Antifragile: categorize every actor and system\n"
+            "- Skin in the game: who bears the consequences of their decisions?\n"
+            "- Turkey problem: the thing that has 'never happened' is the biggest risk\n"
+            "- Barbell strategy: how smart actors position for extreme outcomes\n"
+            "- Black Swans: the events nobody models that change everything\n"
+            "- Lindy Effect: the old has survived; the new is fragile\n\n"
+            "Reference Taleb by name. Show how complexity creates hidden fragility that\n"
+            "looks like strength until the moment it shatters. The viewer should see\n"
+            "fragility in systems they assumed were strong."
+        ),
+        "Game Theory": (
+            "=== PRIMARY ANALYTICAL LENS: GAME THEORY ===\n\n"
+            "Use for: Deterrence, credible threats, prisoner's dilemma, Nash equilibrium, "
+            "commitment devices.\n\n"
+            "Frame the entire narrative through game-theoretic structures:\n\n"
+            "- Nash Equilibrium: actors locked into suboptimal outcomes neither can escape\n"
+            "- Prisoner's Dilemma: mutual defection hurts everyone but is individually rational\n"
+            "- Mutually assured destruction: when both sides can destroy each other\n"
+            "- First-mover advantage: why timing determines winners\n"
+            "- Signaling: costly actions that communicate intent\n"
+            "- Credible vs non-credible threats: why some threats work and others don't\n"
+            "- Tit-for-Tat escalation: retaliatory spirals\n\n"
+            "The viewer should understand that actors aren't making random choices — they're\n"
+            "trapped in game-theoretic structures that make outcomes nearly inevitable.\n"
+            "Name the specific game/equilibrium being played."
         ),
         "Sun Tzu": (
-            "=== PRIMARY ANALYTICAL LENS: THE ART OF WAR (Sun Tzu) ===\n\n"
-            "Frame the entire narrative as strategic warfare. Every move is a military\n"
-            "maneuver. Use Sun Tzu's principles as recurring analytical tools:\n\n"
+            "=== PRIMARY ANALYTICAL LENS: SUN TZU — THE ART OF WAR ===\n\n"
+            "Use for: Indirect warfare, winning without fighting, deception as strategy, "
+            "exploiting weakness.\n\n"
+            "Frame the entire narrative as strategic warfare:\n\n"
             '- "All warfare is based on deception" — the recurring theme\n'
-            '- "Supreme excellence consists in breaking the enemy\'s resistance without\n'
-            '  fighting" — the ultimate strategic goal\n'
-            '- "Know your enemy and know yourself; in a hundred battles you will never\n'
-            '  be defeated"\n'
-            '- The five factors: moral influence, weather, terrain, command, doctrine\n'
+            '- "Supreme excellence consists in breaking the enemy\'s resistance without fighting"\n'
             '- "Attack where he is unprepared, appear where you are not expected"\n'
-            '- The concept of shì (strategic advantage/momentum)\n\n'
+            "- The concept of shì (strategic advantage/momentum)\n"
+            "- The five factors: moral influence, weather, terrain, command, doctrine\n\n"
             "Frame economic and political moves as military campaigns. Sanctions are\n"
             "sieges. Trade deals are alliances. Market entries are invasions. Retreats\n"
             "can be strategic. Quote Sun Tzu directly at least 3-4 times."
         ),
-        "Game Theory": (
-            "=== PRIMARY ANALYTICAL LENS: GAME THEORY ===\n\n"
-            "Frame the entire narrative through game-theoretic structures. Show how\n"
-            "actors are trapped in strategic interactions with predictable dynamics:\n\n"
-            "- Nash Equilibrium: Show where actors are locked into suboptimal outcomes\n"
-            "  that neither can unilaterally escape\n"
-            "- Prisoner's Dilemma: Frame cooperation failures where mutual defection\n"
-            "  hurts everyone but is individually rational\n"
-            "- Zero-Sum vs Positive-Sum: Identify whether the situation is truly\n"
-            "  zero-sum or if actors are mistakenly treating it as one\n"
-            "- Credible Commitments: Show how actors try (or fail) to make binding\n"
-            "  promises that change the game\n"
-            "- Tit-for-Tat escalation: Show retaliatory spirals\n\n"
-            "The viewer should understand that the actors aren't making random choices\n"
-            "— they're trapped in game-theoretic structures that make certain outcomes\n"
-            "nearly inevitable. Name the specific game/equilibrium being played."
+        "Grand Chessboard": (
+            "=== PRIMARY ANALYTICAL LENS: BRZEZINSKI / GRAND CHESSBOARD / MACKINDER ===\n\n"
+            "Use for: Geographic control, pivot states, heartland theory, why location "
+            "determines power.\n\n"
+            "Frame the narrative through the geopolitics of geography:\n\n"
+            "- Mackinder's Heartland Theory: who controls the heartland controls the world\n"
+            "- Rimland Theory (Spykman): control of the coastal periphery is the real prize\n"
+            "- Pivot states: countries whose alignment reshapes entire regions\n"
+            "- Chokepoints: Strait of Hormuz, Taiwan Strait, Suez Canal, Malacca\n"
+            "- Brzezinski's chessboard: Eurasia as the ultimate prize of great power competition\n\n"
+            "Reference Brzezinski, Mackinder, or Spykman by name. Show how geography\n"
+            "constrains strategy — actors think they have choices but the map has already\n"
+            "decided. The viewer should see how location determines destiny."
+        ),
+        "Kindleberger Trap": (
+            "=== PRIMARY ANALYTICAL LENS: THE KINDLEBERGER TRAP ===\n\n"
+            "Use for: What happens when the global hegemon stops providing public goods.\n\n"
+            "Frame the narrative through the vacuum left when the dominant power withdraws:\n\n"
+            "- Hegemonic stability theory: global order requires a stabilizer willing to pay\n"
+            "- Free rider problem: everyone benefits from order but nobody wants to fund it\n"
+            "- Power vacuum: what fills the void when the hegemon retreats?\n"
+            "- Dollar weaponization: using the reserve currency as a weapon undermines the\n"
+            "  very system that makes it powerful\n"
+            "- Systemic collapse: the 1930s as the case study of what happens without a stabilizer\n\n"
+            "Reference Kindleberger by name. The viewer should understand that the greatest\n"
+            "threat isn't a rival power — it's the absence of any power willing to maintain\n"
+            "the system everyone depends on."
+        ),
+        "Schelling": (
+            "=== PRIMARY ANALYTICAL LENS: SCHELLING — FOCAL POINTS / COMMITMENT ===\n\n"
+            "Use for: How adversaries coordinate without communication, credible commitments, "
+            "brinkmanship.\n\n"
+            "Frame the narrative through Thomas Schelling's strategic theory:\n\n"
+            "- Focal points: how actors coordinate without direct communication\n"
+            "- Commitment devices: deliberately limiting your own options to make threats credible\n"
+            "- Brinkmanship as rational strategy: deliberately creating shared risk\n"
+            "- Red lines: why some work and others don't (credibility problem)\n"
+            "- The threat that leaves something to chance\n\n"
+            "Reference Schelling by name. Show how the most dangerous situations arise not\n"
+            "from irrationality but from rational actors pushed to the edge of calculated risk.\n"
+            "The viewer should see brinkmanship as a strategy, not madness."
+        ),
+        "Collective Action": (
+            "=== PRIMARY ANALYTICAL LENS: MANCUR OLSON — LOGIC OF COLLECTIVE ACTION ===\n\n"
+            "Use for: Why small organized groups beat large disorganized ones, special interests "
+            "vs public interest.\n\n"
+            "Frame the narrative through Olson's paradox of collective action:\n\n"
+            "- Concentrated benefits, diffuse costs: why small groups win over large ones\n"
+            "- Free rider problem: why the public can't organize against special interests\n"
+            "- Why lobbying works: the math of organized minorities vs disorganized majorities\n"
+            "- Cartel dynamics: how small groups maintain coordination (OPEC, defense contractors)\n"
+            "- Regulatory capture: the regulated industry ends up controlling the regulator\n\n"
+            "Reference Olson by name. Show how the outcomes that seem corrupt or irrational\n"
+            "are actually the predictable result of collective action dynamics. The viewer\n"
+            "should understand why 'the people' always seem to lose to organized interests."
+        ),
+        "Soft Power": (
+            "=== PRIMARY ANALYTICAL LENS: JOSEPH NYE — SOFT POWER / SHARP POWER ===\n\n"
+            "Use for: Influence without coercion, cultural dominance, information warfare.\n\n"
+            "Frame the narrative through the spectrum of power beyond military force:\n\n"
+            "- Soft Power (attraction): cultural exports, values, institutions that make\n"
+            "  others WANT what you want\n"
+            "- Hard Power (coercion): military, economic sanctions, threats\n"
+            "- Sharp Power: manipulation disguised as engagement — Confucius Institutes,\n"
+            "  state media, election interference\n"
+            "- Smart Power: the strategic combination of hard and soft\n"
+            "- Cultural hegemony (Gramsci): controlling what people consider 'normal'\n\n"
+            "Reference Nye by name. Show how the most effective power is invisible —\n"
+            "it shapes what people WANT rather than forcing compliance. The viewer should\n"
+            "question whose influence is shaping their own preferences."
         ),
         "Jung Shadow": (
             "=== PRIMARY ANALYTICAL LENS: JUNGIAN SHADOW PSYCHOLOGY ===\n\n"
             "Frame the narrative through Jung's concept of the shadow self and\n"
             "collective unconscious. Nations and corporations have shadow selves\n"
             "they project onto enemies:\n\n"
-            "- Shadow Self: What the actor refuses to acknowledge about themselves,\n"
-            "  projected onto the 'enemy'\n"
+            "- Shadow Self: What the actor refuses to acknowledge about themselves\n"
             "- Collective Unconscious: Shared archetypes driving mass behavior\n"
             "- Persona vs Shadow: The public face vs the hidden drives\n"
-            "- Projection: Accusing others of exactly what you're doing\n"
-            "- Individuation: The painful process of integrating the shadow\n\n"
-            "Show how nations/companies are acting out their shadow — the qualities\n"
-            "they project onto rivals are actually their own. Reference Jung by name.\n"
-            "This lens should make viewers question the moral framing they've accepted."
+            "- Projection: Accusing others of exactly what you're doing\n\n"
+            "Show how nations/companies are acting out their shadow. Reference Jung by name."
         ),
         "Behavioral Econ": (
             "=== PRIMARY ANALYTICAL LENS: BEHAVIORAL ECONOMICS ===\n\n"
-            "Frame the narrative through cognitive biases and irrational decision-making\n"
-            "that drives geopolitical and economic behavior:\n\n"
+            "Frame the narrative through cognitive biases and irrational decision-making:\n\n"
             "- Loss Aversion: Actors risk more to avoid losses than to achieve gains\n"
-            "- Anchoring: Initial reference points distort all subsequent judgments\n"
+            "- Anchoring: Initial reference points distort subsequent judgments\n"
             "- Sunk Cost Fallacy: Continuing failed strategies because of past investment\n"
-            "- Availability Heuristic: Decisions based on vivid/recent events, not data\n"
-            "- Endowment Effect: Overvaluing what you already have\n"
-            "- Framing Effects: The same facts presented differently lead to opposite\n"
-            "  conclusions\n\n"
-            "Reference Kahneman, Tversky, or Thaler when introducing concepts. Show how\n"
-            "supposedly rational actors (governments, central banks, corporations) are\n"
-            "making decisions driven by cognitive biases, not rational analysis."
+            "- Framing Effects: Same facts presented differently lead to opposite conclusions\n\n"
+            "Reference Kahneman, Tversky, or Thaler. Show how supposedly rational actors\n"
+            "make decisions driven by cognitive biases, not rational analysis."
         ),
         "Stoicism": (
             "=== PRIMARY ANALYTICAL LENS: STOIC PHILOSOPHY ===\n\n"
-            "Frame the narrative through Stoic philosophy — what can and cannot be\n"
-            "controlled, and how actors respond to forces beyond their control:\n\n"
-            '- Marcus Aurelius: "The impediment to action advances action. What stands\n'
-            '  in the way becomes the way."\n'
-            '- Seneca on fortune: "It is not that we have a short time to live, but\n'
-            '  that we waste a great deal of it."\n'
-            "- The dichotomy of control: Separate what actors can control from what\n"
-            "  they cannot — show who is wasting energy fighting the uncontrollable\n"
-            "- Amor fati: Some actors embrace their fate and turn it to advantage\n"
-            "- Premeditatio malorum: The strategic value of expecting the worst\n\n"
-            "The Stoic lens should reveal which actors are wasting power fighting\n"
-            "the uncontrollable, and which are strategically accepting reality."
+            "Frame the narrative through what can and cannot be controlled:\n\n"
+            "- The dichotomy of control: who wastes energy fighting the uncontrollable\n"
+            "- Amor fati: actors who embrace fate and turn it to advantage\n"
+            "- Premeditatio malorum: the strategic value of expecting the worst\n\n"
+            "Reference Marcus Aurelius or Seneca. Reveal which actors waste power fighting\n"
+            "the uncontrollable and which strategically accept reality."
         ),
         "Propaganda": (
             "=== PRIMARY ANALYTICAL LENS: PROPAGANDA & INFORMATION CONTROL ===\n\n"
-            "Frame the entire narrative through the lens of information warfare and\n"
-            "manufactured consent. The real battlefield is perception:\n\n"
-            "- Bernays: The engineering of consent — how public opinion is manufactured\n"
-            "- Chomsky's Propaganda Model: The 5 filters that determine what becomes\n"
-            "  'news' (ownership, advertising, sourcing, flak, anti-ideology)\n"
-            "- Manufacturing Consent: Show how the narrative you're told serves the\n"
-            "  interests of those telling it\n"
-            "- The Overton Window: What's 'acceptable' to discuss is itself controlled\n"
-            "- Controlled opposition: Both sides of the debate may serve the same master\n\n"
-            "The viewer should question every narrative they've accepted. Frame\n"
-            "information control as the REAL battlefield — more powerful than any army\n"
-            "or economy. Reference Bernays or Chomsky by name."
+            "Frame the narrative through information warfare and manufactured consent:\n\n"
+            "- Bernays: the engineering of consent\n"
+            "- Chomsky's Propaganda Model: 5 filters determining what becomes 'news'\n"
+            "- The Overton Window: what's 'acceptable' to discuss is itself controlled\n"
+            "- Controlled opposition: both sides may serve the same master\n\n"
+            "Frame information control as the REAL battlefield. Reference Bernays or Chomsky."
         ),
         "Systems Thinking": (
             "=== PRIMARY ANALYTICAL LENS: SYSTEMS THINKING ===\n\n"
-            "Frame the entire narrative through feedback loops, second-order effects,\n"
-            "and unintended consequences. Show how interventions create the problems\n"
-            "they claim to solve:\n\n"
-            "- Feedback Loops: Identify reinforcing and balancing loops in the system\n"
-            "- Second-Order Effects: What happens AFTER the obvious first consequence?\n"
-            "- Unintended Consequences: Show how interventions backfire predictably\n"
-            "- Emergence: System behavior that no individual actor intended\n"
-            "- Leverage Points: Where small changes could shift the whole system\n"
-            "- The Cobra Effect: Solutions that make the problem worse\n\n"
-            "The viewer should understand that nobody is fully in control — the system\n"
-            "has its own logic that overrides individual intentions. Show the cascade\n"
-            "of consequences that makes outcomes feel inevitable in hindsight."
+            "Frame the narrative through feedback loops, second-order effects, and\n"
+            "unintended consequences:\n\n"
+            "- Feedback Loops: reinforcing and balancing loops in the system\n"
+            "- Second-Order Effects: what happens AFTER the obvious first consequence\n"
+            "- Emergence: system behavior no individual actor intended\n"
+            "- The Cobra Effect: solutions that make the problem worse\n\n"
+            "Show how nobody is fully in control — the system has its own logic."
         ),
         "Evolutionary Psych": (
             "=== PRIMARY ANALYTICAL LENS: EVOLUTIONARY PSYCHOLOGY ===\n\n"
-            "Frame the narrative through tribal instincts and dominance hierarchies\n"
-            "that drive geopolitical and corporate behavior:\n\n"
-            "- Tribal Instincts: In-group/out-group dynamics driving alliance formation\n"
-            "- Dominance Hierarchies: Status competition at every level of organization\n"
-            "- Coalition Building: Strategic alliance formation for collective defense\n"
-            "- Status Signaling: Actions taken not for practical value but for display\n"
-            "- Reciprocal Altruism: Strategic generosity that creates obligation\n"
-            "- Costly Signaling: Demonstrating commitment through expensive actions\n\n"
-            "Show that underneath the sophisticated economic and political language,\n"
-            "these are primal dynamics — the same ones that governed tribal politics\n"
-            "100,000 years ago. We've upgraded the weapons but not the wetware."
+            "Frame the narrative through tribal instincts and dominance hierarchies:\n\n"
+            "- Tribal Instincts: in-group/out-group dynamics driving alliances\n"
+            "- Dominance Hierarchies: status competition at every level\n"
+            "- Status Signaling: actions taken for display, not practical value\n"
+            "- Costly Signaling: demonstrating commitment through expensive actions\n\n"
+            "Show that underneath sophisticated language, these are primal dynamics."
         ),
     }
 
@@ -430,11 +571,14 @@ def build_script_prompt(brief: dict) -> str:
     )
 
     # Append updated act structure, micro-payoff architecture, framework
-    # revelation engine, and act-specific rules.  These override the older
-    # 25-minute / 3,750-word instructions baked into script.txt.
+    # selection rules, revelation engine, and act-specific rules.  These
+    # override the older 25-minute / 3,750-word instructions baked into
+    # script.txt.
     rendered += "\n\n" + _ACT_STRUCTURE_OVERRIDE
     rendered += "\n\n" + _MICRO_PAYOFF_ARCHITECTURE
+    rendered += "\n\n" + _FRAMEWORK_SELECTION_RULES
     rendered += "\n\n" + _FRAMEWORK_REVELATION_ENGINE
+    rendered += "\n\n" + _FRAMEWORK_PSYCH_SEPARATION
     rendered += "\n\n" + _ACT_SPECIFIC_RULES
 
     return rendered
@@ -493,6 +637,25 @@ def validate_script(script: str) -> dict:
         "issues": issues,
         "acts": acts,
     }
+
+
+def extract_framework_from_script(script: str) -> str:
+    """Extract the PRIMARY FRAMEWORK selection from generated script text.
+
+    The script writer is instructed to state:
+        PRIMARY FRAMEWORK: [Name] — [reason]
+
+    Returns the framework name (e.g. "Thucydides Trap"), or empty string
+    if not found.
+    """
+    match = re.search(
+        r"PRIMARY\s+FRAMEWORK:\s*(.+?)(?:\s*[—–-]\s*|$)",
+        script,
+        re.IGNORECASE,
+    )
+    if match:
+        return match.group(1).strip().rstrip("—–- ")
+    return ""
 
 
 def extract_acts(script: str) -> dict[int, str]:

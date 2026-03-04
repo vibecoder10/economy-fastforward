@@ -2328,6 +2328,7 @@ class VideoPipeline:
             "Summary": video_summary,
             "topic": self.current_idea.get("Headline", ""),
             "Framework Angle": self.current_idea.get("Framework Angle", ""),
+            "Framework": self.current_idea.get("Framework", ""),
             "tags": [],
         }
 
