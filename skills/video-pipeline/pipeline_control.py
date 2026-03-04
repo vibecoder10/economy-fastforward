@@ -1235,6 +1235,7 @@ async def handle_reaction_added(event, client):
             selected["idea_index"],
             selected_title=selected["title"],
             selected_formula_id=selected.get("formula_id", ""),
+            selected_thumbnail_text=selected.get("thumbnail_text", ""),
         )
         return
 
@@ -1258,6 +1259,7 @@ async def handle_reaction_added(event, client):
             selected["idea_index"], ideas, airtable_ids,
             selected_title=selected["title"],
             selected_formula_id=selected.get("formula_id", ""),
+            selected_thumbnail_text=selected.get("thumbnail_text", ""),
         )
         remove_discovery_message(item_ts)
         return
@@ -1267,6 +1269,7 @@ async def _handle_discovery_approval(
     client, channel: str, ts: str, idea_index: int,
     selected_title: str = None,
     selected_formula_id: str = "",
+    selected_thumbnail_text: str = "",
 ):
     """Approve a discovery idea and auto-trigger deep research.
 
@@ -1316,6 +1319,7 @@ async def _handle_discovery_approval(
                 "future_prediction": "",
             },
             "writer_guidance": idea.get("our_angle", ""),
+            "Thumbnail Text": selected_thumbnail_text,
             "original_dna": json.dumps({
                 "source": "discovery_scanner",
                 "headline_source": idea.get("headline_source", ""),
@@ -1393,6 +1397,7 @@ async def _handle_cron_discovery_approval(
     ideas: list[dict], airtable_record_ids: list,
     selected_title: str = None,
     selected_formula_id: str = "",
+    selected_thumbnail_text: str = "",
 ):
     """Approve a discovery idea from the cron job's tracked messages.
 
@@ -1453,6 +1458,12 @@ async def _handle_cron_discovery_approval(
                     airtable.update_idea_field(record_id, "Title Formula", selected_formula_id)
                 except Exception as e:
                     log.warning(f"Could not write Title Formula: {e}")
+            # Save thumbnail text for yin-yang overlay
+            if selected_thumbnail_text:
+                try:
+                    airtable.update_idea_field(record_id, "Thumbnail Text", selected_thumbnail_text)
+                except Exception as e:
+                    log.warning(f"Could not write Thumbnail Text: {e}")
             log.info(f"Updated existing Airtable record: {record_id} — {title} (formula: {selected_formula_id})")
         else:
             # Fallback: create a new record (shouldn't normally happen)
@@ -1465,6 +1476,7 @@ async def _handle_cron_discovery_approval(
                     "future_prediction": "",
                 },
                 "writer_guidance": idea.get("our_angle", ""),
+                "Thumbnail Text": selected_thumbnail_text,
                 "original_dna": json.dumps({
                     "source": "discovery_scanner",
                     "headline_source": idea.get("headline_source", ""),

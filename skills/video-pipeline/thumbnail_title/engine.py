@@ -3,14 +3,19 @@
 This is the main entry point for the thumbnail/title system. It:
 1. Selects the appropriate template based on video metadata
 2. Generates a title using proven formula patterns
-3. Builds a thumbnail prompt with the title's CAPS word as the red highlight
+3. Builds a thumbnail prompt with text overlay (either independent thumbnail_text
+   or the title's CAPS word as fallback)
 4. Generates the thumbnail image via Nano Banana Pro
 5. Validates the result
 6. Returns a complete package ready for pipeline integration
 
+The yin-yang system: when thumbnail_text is provided, the thumbnail overlay is
+INDEPENDENT from the title — they complement each other without repeating.
+When thumbnail_text is absent, falls back to extracting the CAPS word from the title.
+
 Usage from pipeline.py:
     engine = ThumbnailTitleEngine(anthropic_client, image_client)
-    result = await engine.generate(video_metadata)
+    result = await engine.generate(video_metadata, thumbnail_text="KILLED IN 4 HOURS")
 """
 
 from typing import Optional
@@ -24,12 +29,29 @@ from thumbnail_title.validator import validate_thumbnail, validate_title_thumbna
 # Maximum generation attempts before flagging for manual review
 MAX_GENERATION_ATTEMPTS = 3
 
+# Words that trigger visceral emotional reactions — used to pick the red_word
+# when parsing independent thumbnail text. Ordered roughly by impact.
+EMOTIONALLY_CHARGED_WORDS = {
+    "KILLED", "DEAD", "DEATH", "DYING", "DIE", "MURDER", "PURGE", "PURGED",
+    "TRAP", "TRAPPED", "CRUSHED", "WEAPONIZED", "BLACKLISTED", "BANNED",
+    "BETRAYED", "RIGGED", "DOOMED", "BROKE", "BROKEN", "SWALLOWED",
+    "COLLAPSE", "COLLAPSED", "DESTROYED", "STOLEN", "TOXIC", "FATAL",
+    "EXPOSED", "ERASED", "SILENCED", "ENSLAVED", "OWNED", "DEVOURED",
+    "CONQUERED", "RUINED", "LOST", "BURNED", "FALLEN", "FAILED",
+    "CRASHED", "WIPED", "GUTTED", "BLEEDING", "WAR", "CRISIS",
+    "CHAOS", "LIED", "FRAUD", "SCAM", "LIES", "VICTIM", "BURIED",
+    "STRANGLED", "LOOTED", "HIJACKED", "BANKRUPT", "WRECKED",
+}
+
 
 class ThumbnailTitleEngine:
     """Orchestrates matched title + thumbnail generation.
 
-    Produces title/thumbnail pairs where the CAPS word in the title
-    matches the red_word in the thumbnail, creating a unified visual hook.
+    Supports two modes:
+    - Yin-yang mode (preferred): thumbnail_text is provided independently,
+      creating a complementary but different overlay from the title.
+    - Legacy mode: extracts the CAPS word from the title as the red_word
+      in the thumbnail.
     """
 
     def __init__(self, anthropic_client, image_client):
@@ -42,6 +64,46 @@ class ThumbnailTitleEngine:
         self.title_gen = TitleGenerator(anthropic_client)
         self.prompt_builder = ThumbnailPromptBuilder(anthropic_client)
         self.image_client = image_client
+
+    @staticmethod
+    def _parse_thumbnail_text(thumbnail_text: str) -> dict:
+        """Parse independent thumbnail text into line_1, line_2, and red_word.
+
+        Splits 2-5 word ALL CAPS text into two display lines and picks the
+        most emotionally charged word as the red highlight.
+
+        Args:
+            thumbnail_text: 2-5 word ALL CAPS overlay text, e.g. "KILLED IN 4 HOURS"
+
+        Returns:
+            Dict with line_1, line_2, caps_word (red_word).
+        """
+        text = thumbnail_text.strip().upper()
+        words = text.split()
+
+        # Pick the red word: first emotionally charged word, or first word
+        red_word = words[0]  # default fallback
+        for word in words:
+            if word in EMOTIONALLY_CHARGED_WORDS:
+                red_word = word
+                break
+
+        # Split into line_1 / line_2 based on word count
+        if len(words) <= 3:
+            line_1 = text
+            line_2 = ""
+        elif len(words) == 4:
+            line_1 = " ".join(words[:2])
+            line_2 = " ".join(words[2:])
+        else:  # 5 words
+            line_1 = " ".join(words[:3])
+            line_2 = " ".join(words[3:])
+
+        return {
+            "line_1": line_1,
+            "line_2": line_2,
+            "caps_word": red_word,
+        }
 
     @staticmethod
     def _apply_thumbnail_override(
@@ -114,6 +176,7 @@ class ThumbnailTitleEngine:
         preferred_formula: Optional[str] = None,
         preferred_template: Optional[str] = None,
         thumbnail_style_override: Optional[str] = None,
+        thumbnail_text: Optional[str] = None,
     ) -> dict:
         """Generate a matched title + thumbnail pair.
 
@@ -132,6 +195,10 @@ class ThumbnailTitleEngine:
                   placeholders still substituted).
                 - "APPEND: ..." — append to selected template.
                 - Otherwise — append to selected template.
+            thumbnail_text: Independent thumbnail overlay text (2-5 words, ALL CAPS).
+                When provided, used as the thumbnail text instead of extracting
+                the CAPS word from the title (yin-yang mode). Falls back to
+                title-based extraction when None or empty.
 
         Returns:
             Dict with:
@@ -167,8 +234,20 @@ class ThumbnailTitleEngine:
             preferred_formula=preferred_formula,
         )
         print(f"  Title: {title_data['title']}")
-        print(f"  CAPS word: {title_data['caps_word']}")
-        print(f"  Thumbnail text: {title_data['line_1']} / {title_data['line_2']}")
+        print(f"  CAPS word (from title): {title_data['caps_word']}")
+
+        # Step 2b: Override thumbnail overlay with independent text (yin-yang mode)
+        if thumbnail_text:
+            parsed = self._parse_thumbnail_text(thumbnail_text)
+            title_data["line_1"] = parsed["line_1"]
+            title_data["line_2"] = parsed["line_2"]
+            title_data["caps_word"] = parsed["caps_word"]
+            print(f"  Yin-yang mode: using independent thumbnail text")
+            print(f"  Thumbnail text: {parsed['line_1']}" + (f" / {parsed['line_2']}" if parsed['line_2'] else ""))
+            print(f"  Red word: {parsed['caps_word']}")
+        else:
+            print(f"  Legacy mode: thumbnail text derived from title")
+            print(f"  Thumbnail text: {title_data['line_1']} / {title_data['line_2']}")
 
         # Step 3: Validate title-thumbnail pairing
         pair_valid, pair_issues = validate_title_thumbnail_pair(title_data, template_key)
