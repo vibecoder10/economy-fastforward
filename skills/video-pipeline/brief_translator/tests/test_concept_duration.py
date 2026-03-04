@@ -3,6 +3,7 @@
 import pytest
 from brief_translator.scene_expander import (
     _validate_concept_durations,
+    _split_at_clause_boundary,
     MIN_WORDS_PER_CONCEPT,
     MAX_WORDS_PER_CONCEPT,
 )
@@ -97,3 +98,55 @@ class TestValidateConceptDurations:
         concepts = [_make_concept("word " * 15, index=i) for i in range(1, 8)]
         result = _validate_concept_durations(concepts)
         assert len(result) == 7
+
+    def test_concept_at_old_max_now_splits(self):
+        """A 30-word concept (previously fine at max=35) now splits at max=25."""
+        text = " ".join(f"word{i}" for i in range(30))
+        concepts = [_make_concept(text, index=1)]
+        result = _validate_concept_durations(concepts)
+        assert len(result) == 2
+        assert result[0]["needs_new_prompt"] is True
+
+    def test_pacing_constants(self):
+        """Verify pacing constants enforce 5-10s display times."""
+        assert MIN_WORDS_PER_CONCEPT == 10, "MIN should be 10 words (~4s)"
+        assert MAX_WORDS_PER_CONCEPT == 25, "MAX should be 25 words (~10s)"
+
+
+class TestSplitAtClauseBoundary:
+    """Test that splitting respects sentence/clause boundaries."""
+
+    def test_splits_at_period(self):
+        """Should split at a period near the midpoint."""
+        text = (
+            "The government announced sweeping new sanctions on several foreign entities and state actors. "
+            "This marks a dramatic and unprecedented shift in official policy toward broader economic isolation and trade barriers"
+        )
+        part1, part2 = _split_at_clause_boundary(text)
+        assert part1.rstrip().endswith(".")
+        assert len(part1.split()) >= MIN_WORDS_PER_CONCEPT
+        assert len(part2.split()) >= MIN_WORDS_PER_CONCEPT
+
+    def test_splits_at_comma(self):
+        """Should split at a comma when no period is near midpoint."""
+        text = (
+            "The president walked slowly through the long imposing corridors of unchecked power, "
+            "surrounded by dozens of advisors carrying thick folders of highly classified briefings and intelligence reports"
+        )
+        part1, part2 = _split_at_clause_boundary(text)
+        assert part1.rstrip().endswith(",")
+        assert len(part1.split()) >= MIN_WORDS_PER_CONCEPT
+
+    def test_fallback_to_midpoint_when_no_boundary(self):
+        """Should fall back to midpoint word split when no boundary found."""
+        text = " ".join(f"word{i}" for i in range(30))  # no punctuation
+        part1, part2 = _split_at_clause_boundary(text)
+        # Should split roughly in half
+        assert abs(len(part1.split()) - len(part2.split())) <= 1
+
+    def test_combined_equals_original(self):
+        """Split parts should recombine to original text."""
+        text = "The market crashed suddenly. Investors scrambled to sell their positions before the close"
+        part1, part2 = _split_at_clause_boundary(text)
+        recombined = part1 + " " + part2
+        assert recombined == text
