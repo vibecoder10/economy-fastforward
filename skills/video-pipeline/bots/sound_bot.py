@@ -177,10 +177,13 @@ class SoundBot:
         if not scripts_with_maps:
             return {"error": "No scripts with sound maps found. Run sound_prompt_bot first."}
 
-        # Get or create Drive folder
+        # Get Drive folder from Airtable idea record (same folder as voice/images)
         if not folder_id:
-            folder = self.google.get_or_create_folder(video_title)
-            folder_id = folder["id"]
+            idea = self.airtable.find_idea_by_title(video_title)
+            if idea:
+                folder_id = idea.get("Drive Folder ID")
+            if not folder_id:
+                return {"error": f"No Drive Folder ID found in Airtable for: {video_title}"}
 
         scripts_with_maps = sorted(scripts_with_maps, key=lambda s: s.get("scene", 0))
 
