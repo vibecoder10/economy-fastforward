@@ -1,17 +1,46 @@
 """Psychological Angle Assignment.
 
-Distributes psychological angles from the research payload across script
-scenes, ensuring variety through a rotation constraint (max 3 uses per
-angle in a 20-scene video).
+Assigns psychological angles per act to create a deliberate EMOTIONAL ARC
+across the 6-act video structure.
+
+FRAMEWORK vs PSYCH ANGLE (two different things):
+- FRAMEWORK = the intellectual lens (constant across the entire video).
+  Selected once during outline generation. Lives on Idea Concepts table.
+- PSYCHOLOGICAL ANGLE = the emotional lever per act. Creates an arc from
+  shock to empowerment. Different angle per act. Lives on Script table.
+
+The emotional arc generally moves from negative emotions (shock, fear,
+paranoia) in acts 1-3 toward empowerment and clarity in acts 5-6, with
+act 4 as the pivot point (historical pattern recognition).
 """
 
 import re
 import logging
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-# Maximum times a single angle can appear across all scenes
-MAX_ANGLE_REPEATS = 3
+# Default emotional arc when research payload angles are unavailable.
+# Maps act number → (angle name, emotional category).
+DEFAULT_ARC = {
+    1: "Shock/Betrayal",
+    2: "Paranoia/Revelation",
+    3: "Fascination with Hidden Mechanism",
+    4: "Historical Dread/Recognition",
+    5: "Personal Vulnerability",
+    6: "Empowerment/Clarity",
+}
+
+# Emotional categories for matching research angles to arc positions.
+# Each list is ordered by preference — first match wins.
+_ARC_SLOT_KEYWORDS = {
+    1: ["shock", "betray", "outrage", "disbelief", "pattern interrupt", "alarm"],
+    2: ["paranoi", "curiosi", "suspici", "revelat", "unease", "conspira"],
+    3: ["fascinat", "intrigue", "mechanism", "hidden", "secret", "schadenfreude"],
+    4: ["dread", "histor", "recogni", "forebod", "déjà vu", "pattern", "cycle"],
+    5: ["vulnerab", "personal", "anger", "fear", "anxiety", "your", "wallet"],
+    6: ["empower", "clarity", "reframe", "tool", "agency", "control", "permanent"],
+}
 
 
 def parse_psych_angles(psychological_angles: str) -> list[str]:
@@ -50,55 +79,86 @@ def parse_psych_angles(psychological_angles: str) -> list[str]:
     return angles
 
 
+def _match_angle_to_slot(angle: str, slot: int) -> float:
+    """Score how well a research angle matches an arc slot (0.0-1.0)."""
+    lower = angle.lower()
+    keywords = _ARC_SLOT_KEYWORDS.get(slot, [])
+    for i, keyword in enumerate(keywords):
+        if keyword in lower:
+            # Earlier keywords = stronger match
+            return 1.0 - (i * 0.1)
+    return 0.0
+
+
 def assign_angles_to_scenes(
     num_scenes: int,
     psychological_angles: str,
-    max_repeats: int = MAX_ANGLE_REPEATS,
+    max_repeats: int = 3,
 ) -> list[dict]:
-    """Assign a psychological angle to each scene with rotation.
+    """Assign a psychological angle to each act with a deliberate emotional arc.
 
-    Cycles through available angles round-robin, skipping any that have
-    hit ``max_repeats``.  If all angles are exhausted (rare edge case for
-    very long videos with few angles), usage counts are reset and the
-    cycle restarts.
+    Instead of round-robin rotation, maps research angles to arc positions:
+    - Act 1: Shock, betrayal, or pattern interrupt
+    - Act 2: Paranoia, curiosity, or revelation
+    - Act 3: Fascination with the hidden mechanism
+    - Act 4: Historical dread or recognition (pivot point)
+    - Act 5: Personal vulnerability or anger
+    - Act 6: Empowerment, clarity, or permanent reframe
+
+    If research angles are available, best-matches them to slots.
+    Otherwise falls back to the default arc.
 
     Args:
-        num_scenes: Number of scenes to assign angles to.
-        psychological_angles: Raw text from ``research_payload["psychological_angles"]``.
-        max_repeats: Maximum times any single angle can appear.
+        num_scenes: Number of acts/scenes to assign angles to (typically 6).
+        psychological_angles: Raw text from research payload.
+        max_repeats: Unused, kept for API compatibility.
 
     Returns:
-        List of dicts ``[{"scene": 1, "angle": "Fear of Economic Collapse"}, ...]``.
+        List of dicts ``[{"scene": 1, "angle": "Shock/Betrayal"}, ...]``.
     """
     angles = parse_psych_angles(psychological_angles)
 
     if not angles:
-        logger.warning("No psychological angles found in research payload")
-        return [{"scene": i + 1, "angle": ""} for i in range(num_scenes)]
+        logger.warning("No psychological angles found — using default emotional arc")
+        return [
+            {"scene": act, "angle": DEFAULT_ARC.get(act, "")}
+            for act in range(1, num_scenes + 1)
+        ]
 
+    # Match research angles to arc slots using keyword scoring
     assignments = []
-    usage_count = {a: 0 for a in angles}
-    angle_index = 0
+    used_angles: set[str] = set()
 
-    for scene_num in range(1, num_scenes + 1):
-        # Find the next available angle under the repeat cap
-        assigned = False
-        for _ in range(len(angles)):
-            candidate = angles[angle_index % len(angles)]
-            if usage_count[candidate] < max_repeats:
-                assignments.append({"scene": scene_num, "angle": candidate})
-                usage_count[candidate] += 1
-                angle_index += 1
-                assigned = True
-                break
-            angle_index += 1
+    for act_num in range(1, num_scenes + 1):
+        if act_num > 6:
+            # Beyond 6 acts (rare), cycle through defaults
+            assignments.append({
+                "scene": act_num,
+                "angle": DEFAULT_ARC.get(((act_num - 1) % 6) + 1, ""),
+            })
+            continue
 
-        if not assigned:
-            # All angles hit the cap — pick the least-used angle to keep
-            # distribution as even as possible.
-            least_used = min(angles, key=lambda a: usage_count[a])
-            assignments.append({"scene": scene_num, "angle": least_used})
-            usage_count[least_used] += 1
+        # Score all unused angles against this slot
+        best_angle: Optional[str] = None
+        best_score = -1.0
+
+        for angle in angles:
+            if angle in used_angles:
+                continue
+            score = _match_angle_to_slot(angle, act_num)
+            if score > best_score:
+                best_score = score
+                best_angle = angle
+
+        if best_angle and best_score > 0.0:
+            assignments.append({"scene": act_num, "angle": best_angle})
+            used_angles.add(best_angle)
+        else:
+            # No good match — use default arc label for this slot
+            assignments.append({
+                "scene": act_num,
+                "angle": DEFAULT_ARC.get(act_num, ""),
+            })
 
     return assignments
 
@@ -106,36 +166,12 @@ def assign_angles_to_scenes(
 def format_psych_arc_summary(assignments: list[dict]) -> str:
     """Format assignments into a readable arc summary for Slack.
 
-    Groups consecutive scenes that share the same angle.
-
     Example output::
 
-        Scene 1-3: Fear of Economic Collapse → Scene 4-6: Schadenfreude → ...
+        Act 1: Shock → Act 2: Paranoia → Act 3: Fascination → ...
     """
     if not assignments or all(not a["angle"] for a in assignments):
         return ""
 
-    groups: list[str] = []
-    current_angle = assignments[0]["angle"]
-    start_scene = assignments[0]["scene"]
-    end_scene = start_scene
-
-    for a in assignments[1:]:
-        if a["angle"] == current_angle:
-            end_scene = a["scene"]
-        else:
-            if start_scene == end_scene:
-                groups.append(f"Scene {start_scene}: {current_angle}")
-            else:
-                groups.append(f"Scene {start_scene}-{end_scene}: {current_angle}")
-            current_angle = a["angle"]
-            start_scene = a["scene"]
-            end_scene = a["scene"]
-
-    # Last group
-    if start_scene == end_scene:
-        groups.append(f"Scene {start_scene}: {current_angle}")
-    else:
-        groups.append(f"Scene {start_scene}-{end_scene}: {current_angle}")
-
-    return " → ".join(groups)
+    parts = [f"Act {a['scene']}: {a['angle']}" for a in assignments if a["angle"]]
+    return " -> ".join(parts)

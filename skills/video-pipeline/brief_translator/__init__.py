@@ -35,6 +35,7 @@ from .psych_angle_assigner import (
     assign_angles_to_scenes,
     format_psych_arc_summary,
 )
+from .script_generator import extract_framework_from_script
 
 logger = logging.getLogger(__name__)
 
@@ -159,6 +160,24 @@ class BriefTranslator:
                 f"{script_result['validation']['act_count']} acts"
             )
 
+            # === STEP 2a: Extract and persist framework ===
+            selected_framework = extract_framework_from_script(script)
+            if selected_framework:
+                logger.info(f"Selected framework: {selected_framework}")
+                brief["_selected_framework"] = selected_framework
+                # Write to Airtable "Framework" field (graceful degradation)
+                try:
+                    self.airtable.update_idea_fields(
+                        idea_record_id, {"Framework": selected_framework}
+                    )
+                except Exception as fw_err:
+                    logger.warning(
+                        f"Could not write Framework field to Airtable "
+                        f"(field may not exist yet): {fw_err}"
+                    )
+            else:
+                logger.info("No PRIMARY FRAMEWORK line found in script output")
+
             # === STEP 2b: Assign Psychological Angles ===
             from .script_generator import extract_acts
             acts = extract_acts(script)
@@ -229,11 +248,15 @@ class BriefTranslator:
             result["scene_filepath"] = graduation["scene_filepath"]
             result["video_id"] = graduation["video_id"]
 
-            # Log psychological arc to Slack
-            if psych_arc_summary:
-                self._notify(
-                    f"📝 Script complete. Psychological arc: {psych_arc_summary}"
-                )
+            # Log framework + psychological arc to Slack
+            framework_label = selected_framework or brief.get("framework_angle", "")
+            if psych_arc_summary or framework_label:
+                parts = ["📝 Script complete."]
+                if framework_label:
+                    parts.append(f"Framework: {framework_label}.")
+                if psych_arc_summary:
+                    parts.append(f"Psychological arc: {psych_arc_summary}")
+                self._notify(" ".join(parts))
 
             logger.info(
                 f"Translation complete: {graduation['video_id']} → "
