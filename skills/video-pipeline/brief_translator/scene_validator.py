@@ -203,7 +203,12 @@ def validate_scene_list(scenes: list[dict], config: Optional[dict] = None) -> di
             if total_words < 2000:
                 issues.append(f"Total narration too short: {total_words} words (min 2000)")
             elif total_words > 3500:
-                issues.append(f"Total narration too long: {total_words} words (max 3500)")
+                issues.append(f"REJECT: Total narration too long: {total_words} words (hard max 3500)")
+            elif total_words > 3200:
+                # Warning level — log but don't block
+                logger.warning(
+                    f"Total narration over target: {total_words} words (target max 3200)"
+                )
 
     return {
         "valid": len(issues) == 0,
@@ -215,6 +220,68 @@ def validate_scene_list(scenes: list[dict], config: Optional[dict] = None) -> di
             "schema": f"{schema_pct:.0%}",
             "echo": f"{echo_pct:.0%}",
         },
+    }
+
+
+def validate_act6_empowerment(act6_text: str) -> dict:
+    """Check that Act 6 ends with empowerment, not dread.
+
+    Looks for explicit framework names and detection instructions.
+    Returns {"valid": bool, "issues": list[str]}.
+    """
+    issues: list[str] = []
+    if not act6_text:
+        return {"valid": True, "issues": []}
+
+    text_lower = act6_text.lower()
+
+    # Check for dread/helpless close patterns
+    _DREAD_PATTERNS = [
+        "nobody will notice",
+        "no one will notice",
+        "before it's too late",
+        "before the window closes",
+        "whether anyone will notice",
+        "the cage is closing",
+        "you're trapped",
+        "there's nothing you can do",
+    ]
+    for pattern in _DREAD_PATTERNS:
+        if pattern in text_lower:
+            issues.append(
+                f"Act 6 contains dread/helpless language: '{pattern}'. "
+                "The close MUST be empowerment, not fear."
+            )
+
+    # Check for framework name mentions (at least one explicit naming)
+    # Look for patterns like "you just learned X", "X, Y, and Z", quoted names
+    _EMPOWERMENT_SIGNALS = [
+        "you just learned",
+        "you now ",
+        "you now know",
+        "you now see",
+        "you now read",
+        "pattern recognition",
+        "x-ray vision",
+        "when you see",
+        "when you notice",
+        "look for",
+        "ask who",
+        "ask why",
+        "watch who",
+        "watch what",
+        "watch for",
+    ]
+    empowerment_count = sum(1 for s in _EMPOWERMENT_SIGNALS if s in text_lower)
+    if empowerment_count < 2:
+        issues.append(
+            f"Act 6 lacks empowerment signals (found {empowerment_count}, need >=2). "
+            "Must contain framework names + detection instructions."
+        )
+
+    return {
+        "valid": len(issues) == 0,
+        "issues": issues,
     }
 
 

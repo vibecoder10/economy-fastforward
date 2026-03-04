@@ -283,25 +283,44 @@ Act 6 (The Lesson):
 The prediction must be specific and falsifiable — not 'things will change' \
 but 'watch for X within Y months.'
 
-The final scene MUST end on EMPOWERMENT, not fear or cynicism. The viewer \
-just spent 15-20 minutes learning frameworks. The close should:
-1. Name the specific frameworks taught in the video (e.g. 'regulatory \
-capture, sovereign exception, the panopticon effect')
-2. Give the viewer a concrete detection tool: 'When you see X, ask Y. \
-When you see A, look for B.'
-3. Frame knowledge as power: the viewer now has X-ray vision that most \
-people lack
-4. End with agency: 'Now that you see the pattern, you can't unsee it. \
-And that's the first step to changing it.'
+Act 6 MUST end with EMPOWERMENT. The final scene is where the viewer \
+receives their permanent toolkit. This is NON-NEGOTIABLE. The close must:
 
-BAD close: 'The cage is closing and you're trapped.' (leaves viewer \
-feeling helpless)
-GOOD close: 'Now you see it. Regulatory capture. Sovereign exception. \
-The panopticon effect. Three frameworks that explain how power really \
-moves. When a company gets designated, ask who benefits within 48 hours. \
-When you see all lawful purposes in any contract, find the loopholes. \
-When one player gets punished, watch who self-censors. You just learned \
-to read the game. Most people never will.'
+1. NAME the specific frameworks taught in this video by name (e.g. \
+'regulatory capture', 'sovereign exception', 'the panopticon effect'). \
+List them explicitly — the viewer must hear the framework names repeated \
+so they stick.
+
+2. Give DETECTION INSTRUCTIONS: 'When you see X, ask Y. When A happens, \
+look for B within 48 hours.' Concrete, actionable, specific to the \
+frameworks taught. At least 2-3 detection rules.
+
+3. Frame knowledge as POWER: the viewer now sees what 99% of people miss. \
+They have X-ray vision for power dynamics. They are now part of the small \
+minority who understand how the game actually works.
+
+4. End on AGENCY: 'Now that you see the pattern, you can't unsee it. \
+That's not paranoia. That's pattern recognition.' The viewer must leave \
+feeling SMARTER and MORE POWERFUL than when they started. NOT scared. \
+NOT helpless. NOT cynical. NOT passive.
+
+BAD close (DO NOT WRITE ANYTHING LIKE THIS):
+'The window is closing and nobody will notice.' (passive, fearful, helpless)
+'Whether anyone will notice before it's too late.' (dread, no agency)
+'The cage is closing and you're trapped.' (helpless)
+
+GOOD close (THIS IS THE MODEL — study its structure):
+'You just learned regulatory capture, sovereign exception, and the \
+panopticon effect. When a company gets designated, ask who signs a \
+contract within 48 hours. When you see all lawful purposes in any \
+agreement, find the classified interpretation. When one player gets \
+punished, watch who self-censors without being told. You now read the \
+game better than most people in Washington. The question isn't whether \
+the system is rigged. You now know how. The question is what you do \
+with that.'
+
+If the final scene does NOT contain explicit framework names AND at least \
+2 concrete detection instructions, the script has FAILED this requirement.
 """
 
 
@@ -774,6 +793,39 @@ async def generate_script(
             temperature=0.8,
         )
         validation = validate_script(script)
+
+    # If script is too long, try once more with explicit compression instruction
+    if not validation["valid"] and validation["word_count"] > SCRIPT_MAX_WORDS:
+        compression_prompt = (
+            f"{prompt}\n\n"
+            f"CRITICAL: Your previous attempt was {validation['word_count']} words. "
+            f"The script MUST NOT exceed {SCRIPT_MAX_WORDS} words. Target: {SCRIPT_TARGET_WORDS} words. "
+            f"Cut unnecessary examples, reduce redundant transitions, and tighten each act. "
+            f"Do NOT cut framework references or detection instructions from Act 6."
+        )
+        script = await anthropic_client.generate(
+            prompt=compression_prompt,
+            model=model,
+            max_tokens=8000,
+            temperature=0.7,
+        )
+        validation = validate_script(script)
+
+    # Validate Act 6 empowerment close
+    from .scene_validator import validate_act6_empowerment
+
+    acts = extract_acts(script)
+    act6_text = acts.get(6, "")
+    empowerment_check = validate_act6_empowerment(act6_text)
+    if not empowerment_check["valid"]:
+        validation["act6_empowerment_issues"] = empowerment_check["issues"]
+        # Log but don't block — the issues list in validation already
+        # drives downstream decisions
+        for issue in empowerment_check["issues"]:
+            if "issues" not in validation:
+                validation["issues"] = []
+            validation["issues"].append(issue)
+            validation["valid"] = False
 
     return {
         "script": script,

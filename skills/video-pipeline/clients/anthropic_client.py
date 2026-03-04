@@ -190,36 +190,39 @@ class AnthropicClient:
         return "\n".join(text_parts)
     
     async def generate_beat_sheet(self, video_data: dict) -> dict:
-        """Generate a 20-scene beat sheet for a video (legacy path).
+        """Generate a 14-scene beat sheet for a video (legacy path).
 
         Uses the Script Architect prompt from the n8n workflow.
         For the unified pipeline, use brief_translator's scene expansion instead.
         """
         system_prompt = """You are a Master Storyteller and Narrative Architect.
 
-Your task is to create a 20-scene Beat Sheet for documentary videos.
+Your task is to create a 14-scene Beat Sheet for documentary videos.
+Target: 15-20 minutes (~2,800 words total, ~200 words per scene).
 
 INSTRUCTIONS:
 1. Analyze the input. Is it raw video DNA or a rejection?
 2. Generate the beat sheet following this narrative arc:
-   - INTRO (Scenes 1-4): Introduce the hook, the stakes, and the main question.
-   - BUILD-UP (Scenes 5-16): Escalate tension. Reveal the Past Context and Modern Shift. Show cause-and-effect.
-   - CONCLUSION (Scenes 17-20): Resolve the conflict with the Future Prediction. Echo the intro hook.
+   - INTRO (Scenes 1-3): Introduce the hook, the stakes, and the main question.
+   - BUILD-UP (Scenes 4-11): Escalate tension. Reveal the Past Context and Modern Shift. Show cause-and-effect.
+   - CONCLUSION (Scenes 12-14): Resolve the conflict with the Future Prediction. Echo the intro hook. End on EMPOWERMENT — the viewer leaves with frameworks and detection tools, feeling smarter, NOT scared or helpless.
 
 CRITICAL OUTPUT RULES:
 - You must output valid JSON only.
 - No markdown formatting.
+- EXACTLY 14 scenes. Not 20. Not 17. Fourteen.
 
 REQUIRED JSON STRUCTURE:
 {
   "script_outline": [
     { "scene_number": 1, "beat": "Description of scene 1..." },
     { "scene_number": 2, "beat": "Description of scene 2..." }
-    // ... continues to 20
+    // ... continues to 14
   ]
 }"""
-        
-        prompt = f"""Create a 20-scene Beat Sheet for a documentary video titled: "{video_data['Video Title']}".
+
+        prompt = f"""Create a 14-scene Beat Sheet for a documentary video titled: "{video_data['Video Title']}".
+Target: 15-20 minutes (~2,800 words total). Do NOT exceed 14 scenes.
 
 CONTEXT:
 Here is the core Narrative DNA (Past/Present/Future):
@@ -242,8 +245,16 @@ Here is the Writer Guidance/Tone:
         # Parse JSON response
         import json
         clean_response = response.replace("```json", "").replace("```", "").strip()
-        return json.loads(clean_response)
-    
+        result = json.loads(clean_response)
+
+        # Hard ceiling: cap at 14 scenes regardless of what the LLM returns
+        MAX_SCENES = 14
+        outline = result.get("script_outline", [])
+        if len(outline) > MAX_SCENES:
+            result["script_outline"] = outline[:MAX_SCENES]
+
+        return result
+
     async def write_scene(
         self,
         scene_number: int,
