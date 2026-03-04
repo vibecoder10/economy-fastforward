@@ -2680,12 +2680,52 @@ class VideoPipeline:
                 missing_audio.append(f"Scene {scene_num}.mp3")
 
         if missing_audio:
+            # Fallback: fetch voice files from Airtable Script table attachments
+            print(f"  ⚠️ {len(missing_audio)} audio files not found in Drive, trying Airtable fallback...")
+            import httpx as _httpx
+            scripts = self.airtable.get_scripts_by_title(self.video_title)
+            scripts_by_scene = {s.get("scene", 0): s for s in scripts}
+
+            still_missing = []
+            for fname in missing_audio:
+                # Parse scene number from "Scene N.mp3"
+                scene_num = int(fname.split("Scene ")[1].split(".mp3")[0])
+                script = scripts_by_scene.get(scene_num)
+                if not script:
+                    still_missing.append(fname)
+                    continue
+
+                voice_over = script.get("Voice Over")
+                voice_url = None
+                if isinstance(voice_over, list) and voice_over:
+                    voice_url = voice_over[0].get("url")
+                elif isinstance(voice_over, str):
+                    voice_url = voice_over
+
+                if not voice_url:
+                    still_missing.append(fname)
+                    continue
+
+                try:
+                    async with _httpx.AsyncClient() as http:
+                        resp = await http.get(voice_url, timeout=60.0, follow_redirects=True)
+                        resp.raise_for_status()
+                    dest = public_dir / fname
+                    dest.write_bytes(resp.content)
+                    print(f"    ✅ {fname} (from Airtable, {len(resp.content) // 1024} KB)")
+                except Exception as e:
+                    print(f"    ❌ {fname} Airtable fallback failed: {e}")
+                    still_missing.append(fname)
+
+            missing_audio = still_missing
+
+        if missing_audio:
             missing_list = ", ".join(missing_audio[:10])
             print(f"  ❌ Missing audio files: {missing_list}")
             self.slack.notify(
                 f"❌ *Render ABORTED:* _{self.video_title}_\n"
                 f"Missing audio: {missing_list}\n"
-                f"Searched {len(asset_folders)} Drive folder(s) — these files were not found anywhere."
+                f"Searched Drive + Airtable — these files were not found anywhere."
             )
             return {"error": f"Missing audio: {missing_list}", "bot": "Render Bot"}
 

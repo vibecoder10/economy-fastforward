@@ -593,23 +593,38 @@ class GoogleClient:
     def list_files_in_folder(self, folder_id: str) -> list:
         """List all files in a Google Drive folder.
 
+        Paginates through all results using pageToken — the Drive API
+        defaults to 100 results per page (max 1000), so a single request
+        can silently truncate large folders.
+
         Args:
             folder_id: The folder ID to list files from
 
         Returns:
-            List of dicts with id, name, and mimeType
+            List of dicts with id, name, mimeType, and size
         """
         query = f"'{folder_id}' in parents and trashed = false"
+        all_files = []
+        page_token = None
 
-        def _list():
-            return self.drive_service.files().list(
-                q=query,
-                fields="files(id, name, mimeType, size)",
-                pageSize=200,
-            ).execute()
+        while True:
+            def _list(pt=page_token):
+                kwargs = {
+                    "q": query,
+                    "fields": "nextPageToken, files(id, name, mimeType, size)",
+                    "pageSize": 1000,
+                }
+                if pt:
+                    kwargs["pageToken"] = pt
+                return self.drive_service.files().list(**kwargs).execute()
 
-        results = self._retry_with_backoff(_list)
-        return results.get("files", [])
+            results = self._retry_with_backoff(_list)
+            all_files.extend(results.get("files", []))
+            page_token = results.get("nextPageToken")
+            if not page_token:
+                break
+
+        return all_files
 
     def download_file(self, file_id: str) -> bytes:
         """Download a file's content from Google Drive.
