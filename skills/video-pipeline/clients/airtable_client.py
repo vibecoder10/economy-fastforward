@@ -203,7 +203,7 @@ class AirtableClient:
             "Framework Angle", "Headline", "Timeliness Score",
             "Audience Fit Score", "Content Gap Score", "Monetization Risk",
             "Source URLs", "Executive Hook", "Thesis", "Date Surfaced",
-            "Research Payload", "Thematic Framework",
+            "Research Payload", "Thematic Framework", "Thumbnail Text",
         ]
         for key in rich_field_keys:
             if key in idea_data and idea_data[key]:

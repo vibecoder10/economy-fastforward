@@ -529,6 +529,7 @@ def build_option_map(ideas: list[dict]) -> list[dict]:
                 "idea": idea,
                 "title": title_opt.get("title", "Untitled"),
                 "formula_id": title_opt.get("formula_id", ""),
+                "thumbnail_text": title_opt.get("thumbnail_text", ""),
             })
     return options
 
@@ -628,6 +629,11 @@ def build_idea_record_from_discovery(idea: dict, idea_number: int = 1) -> dict:
     headline_source = idea.get("headline_source", "")
     source_urls = headline_source  # includes source publication and URL if available
 
+    # Extract thumbnail text from the selected title option
+    thumbnail_text = ""
+    if title_options:
+        thumbnail_text = title_options[0].get("thumbnail_text", "")
+
     record = {
         "viral_title": best_title or f"Discovery Idea {idea_number}",
         "hook_script": idea.get("hook", ""),
@@ -647,6 +653,8 @@ def build_idea_record_from_discovery(idea: dict, idea_number: int = 1) -> dict:
         "Executive Hook": idea.get("hook", ""),
         "Thesis": idea.get("our_angle", ""),
         "Date Surfaced": date.today().isoformat(),
+        # Thumbnail text for yin-yang overlay (independent from title)
+        "Thumbnail Text": thumbnail_text,
         # Store full discovery data as Original DNA for downstream use
         "original_dna": json.dumps({
             "source": "discovery_scanner",

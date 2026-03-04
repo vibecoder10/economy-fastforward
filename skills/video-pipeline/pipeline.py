@@ -2322,6 +2322,13 @@ class VideoPipeline:
         if thumbnail_style_override:
             print(f"  🎨 Thumbnail style override active: {thumbnail_style_override[:80]}...")
 
+        # Read independent thumbnail text (yin-yang: different from title)
+        thumbnail_text = (self.current_idea.get("Thumbnail Text") or "").strip()
+        if thumbnail_text:
+            print(f"  📝 Thumbnail Text from Airtable: {thumbnail_text}")
+        else:
+            print(f"  📝 No Thumbnail Text set — will extract from title (legacy behavior)")
+
         # Build metadata for template selection
         video_metadata = {
             "Video Title": video_title,
@@ -2342,6 +2349,7 @@ class VideoPipeline:
             result = await engine.generate(
                 video_metadata,
                 thumbnail_style_override=thumbnail_style_override or None,
+                thumbnail_text=thumbnail_text or None,
             )
         except Exception as e:
             error_msg = f"Thumbnail/title generation failed for '{self.video_title}': {e}"
