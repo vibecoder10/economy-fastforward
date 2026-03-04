@@ -38,15 +38,14 @@ from .style_config import (
     ACCENT_COLOR_MAP,
     ACT_STYLE_WEIGHTS,
     COMPOSITION_CYCLE,
-    COMPOSITION_DIRECTIVES,
     DEFAULT_CONFIG,
     KEN_BURNS_PAN_ALTERNATES,
     KEN_BURNS_RULES,
     SCENE_COLOR_MAP,
     SCENE_COLOR_PRIORITY,
-    STYLE_SUFFIXES,
+    STYLE_CAMERAS,
+    STYLE_ENVIRONMENTS,
     VALID_ACCENT_COLORS,
-    YOUTUBE_STYLE_PREFIX,
 )
 
 __all__ = [
@@ -57,9 +56,8 @@ __all__ = [
     "resolve_scene_accent_color",
     "assign_styles",
     # Configuration
-    "STYLE_SUFFIXES",
-    "YOUTUBE_STYLE_PREFIX",
-    "COMPOSITION_DIRECTIVES",
+    "STYLE_ENVIRONMENTS",
+    "STYLE_CAMERAS",
     "COMPOSITION_CYCLE",
     "ACCENT_COLOR_MAP",
     "ACT_STYLE_WEIGHTS",

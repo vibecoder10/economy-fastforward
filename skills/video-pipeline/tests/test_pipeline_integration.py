@@ -306,15 +306,15 @@ class TestStyledPromptsToNanoBanana:
             assert isinstance(p["prompt"], str)
             assert len(p["prompt"]) > 50  # Not empty/trivial
 
-    def test_prompts_contain_cinematic_prefix(self):
-        """All prompts start with cinematic photorealistic prefix."""
+    def test_prompts_contain_cinematic_camera_layer(self):
+        """All prompts contain cinematic camera layer (art style/camera)."""
         from image_prompt_engine import generate_prompts
 
         prompts = generate_prompts(SAMPLE_SCENE_LIST, accent_color="cold teal", seed=42)
 
         for p in prompts:
-            assert p["prompt"].startswith("Cinematic photorealistic editorial photograph"), (
-                f"Missing cinematic prefix in prompt index {p['index']}"
+            assert "Cinematic photorealistic editorial" in p["prompt"], (
+                f"Missing cinematic camera layer in prompt index {p['index']}"
             )
 
 

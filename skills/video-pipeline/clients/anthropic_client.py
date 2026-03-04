@@ -23,9 +23,8 @@ from clients.style_engine import (
 
 # YouTube pipeline style constants — cinematic dossier
 from image_prompt_engine.style_config import (
-    YOUTUBE_STYLE_PREFIX,
-    STYLE_SUFFIXES as YOUTUBE_STYLE_SUFFIXES,
-    COMPOSITION_DIRECTIVES as YOUTUBE_COMPOSITION_DIRECTIVES,
+    STYLE_ENVIRONMENTS,
+    STYLE_CAMERAS,
 )
 
 # Web search tool for real-time headline gathering and fact verification.
@@ -929,8 +928,8 @@ Start with style engine prefix, end with style engine suffix + lighting + text r
 
         # Select style constants based on pipeline
         if is_youtube:
-            style_prefix = YOUTUBE_STYLE_PREFIX.replace("[ACCENT_COLOR]", "cold teal")
-            style_suffix = YOUTUBE_STYLE_SUFFIXES["dossier"].replace("[ACCENT_COLOR]", "cold teal")
+            style_prefix = STYLE_ENVIRONMENTS["dossier"].replace("[ACCENT_COLOR]", "cold teal")
+            style_suffix = STYLE_CAMERAS.get("wide", "")
         else:
             style_prefix = STYLE_ENGINE_PREFIX
             style_suffix = STYLE_ENGINE_SUFFIX

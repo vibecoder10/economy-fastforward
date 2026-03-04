@@ -8,12 +8,13 @@ The visual system uses 3 cinematic styles distributed across 6 narrative acts:
 | **Schema** | 22% | Data overlay, glowing nodes, HUD aesthetics | Systems, networks, data |
 | **Echo** | 18% | Painterly, historical, candlelit | Backstory, historical context |
 
-## Prompt Architecture (4 Layers)
+## Prompt Architecture (Nano Banana 2 Structure)
 
-1. `YOUTUBE_STYLE_PREFIX` - Cinematic photorealism foundation
-2. Scene description - Narrative content from script
-3. `COMPOSITION_DIRECTIVES` - Camera angles (7 types cycle for variety)
-4. `STYLE_SUFFIXES` - Style-specific atmosphere
+Prompts follow the Nano Banana 2 optimum: `[Subject] + [Environment] + [Camera]`
+
+1. **Scene description** (Subject + Action) — narrative content FIRST (~30-50 words)
+2. `STYLE_ENVIRONMENTS` — per-style mood/lighting (~14 words)
+3. `STYLE_CAMERAS` — per-composition art style/framing (~10 words)
 
 ## Two Style Systems (YouTube vs Animation)
 

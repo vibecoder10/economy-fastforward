@@ -12,12 +12,11 @@ from typing import Optional
 
 from .style_config import (
     ACCENT_COLOR_MAP,
-    COMPOSITION_DIRECTIVES,
     DEFAULT_CONFIG,
     SCENE_COLOR_MAP,
     SCENE_COLOR_PRIORITY,
-    STYLE_SUFFIXES,
-    YOUTUBE_STYLE_PREFIX,
+    STYLE_CAMERAS,
+    STYLE_ENVIRONMENTS,
 )
 from .sequencer import assign_styles
 
@@ -65,8 +64,8 @@ _STYLE_STRIP_PATTERNS: list[re.Pattern[str]] = [
 def _strip_style_language(description: str) -> str:
     """Remove style/lighting/camera language from a scene description.
 
-    This prevents duplication with the style suffix and YouTube prefix that
-    are appended by :func:`build_prompt`.
+    This prevents duplication with the environment and camera layers
+    appended by :func:`build_prompt`.
     """
     cleaned = description
     for pat in _STYLE_STRIP_PATTERNS:
@@ -134,22 +133,22 @@ def resolve_scene_accent_color(
     return video_accent_color
 
 
-def _apply_style_override(prefix: str, override: str) -> str:
-    """Apply an image style override to the prefix.
+def _apply_style_override(environment: str, override: str) -> str:
+    """Apply an image style override to the environment/lighting layer.
 
-    - ``"REPLACE: ..."`` — use the override as the entire prefix.
-    - ``"+" or "APPEND: ..."`` — append the override to the default prefix.
-    - Otherwise — append the override to the default prefix (additive default).
+    - ``"REPLACE: ..."`` — use the override as the entire environment.
+    - ``"+" or "APPEND: ..."`` — append the override to the default environment.
+    - Otherwise — append the override to the default environment (additive default).
     """
     stripped = override.strip()
     if stripped.upper().startswith("REPLACE:"):
         return stripped[len("REPLACE:"):].strip()
     if stripped.startswith("+"):
-        return prefix + " " + stripped[1:].strip()
+        return environment + " " + stripped[1:].strip()
     if stripped.upper().startswith("APPEND:"):
-        return prefix + " " + stripped[len("APPEND:"):].strip()
+        return environment + " " + stripped[len("APPEND:"):].strip()
     # Default: additive
-    return prefix + " " + stripped
+    return environment + " " + stripped
 
 
 def build_prompt(
@@ -161,11 +160,14 @@ def build_prompt(
 ) -> str:
     """Assemble a complete image generation prompt.
 
-    Structure: ``[YOUTUBE_STYLE_PREFIX] [SCENE_DESCRIPTION], [COMPOSITION_DIRECTIVE], [STYLE_SUFFIX]``
+    Follows the Nano Banana 2 optimum structure::
 
-    The cinematic dossier prefix is placed FIRST because image generation
-    models weight early tokens more heavily, establishing the photorealistic
-    cinematic look before scene-specific content.
+        [Subject + Action]  (scene description — FIRST, ~30-50 words)
+        [Environment/Lighting]  (per-style mood, ~14 words)
+        [Art Style/Camera]  (per-composition framing, ~10 words)
+
+    Subject leads because Nano Banana 2 weights the subject description
+    most heavily for visual coherence.
 
     Parameters
     ----------
@@ -174,14 +176,14 @@ def build_prompt(
     style : str
         One of ``"dossier"``, ``"schema"``, ``"echo"``.
     composition : str
-        A key from :data:`COMPOSITION_DIRECTIVES`.
+        A key from :data:`STYLE_CAMERAS`.
     accent_color : str
         The accent color string (e.g. ``"cold teal"``).
     image_style_override : str, optional
         Per-video style override from Airtable. If provided:
-        - ``"REPLACE: ..."`` replaces the default prefix entirely.
-        - ``"+" or "APPEND: ..."`` appends to the default prefix.
-        - Otherwise appends to the default prefix (additive default).
+        - ``"REPLACE: ..."`` replaces the environment layer entirely.
+        - ``"+" or "APPEND: ..."`` appends to the environment layer.
+        - Otherwise appends to the environment layer (additive default).
 
     Returns
     -------
@@ -192,26 +194,21 @@ def build_prompt(
     # falling back to the video-level accent_color.
     scene_color = resolve_scene_accent_color(scene_description, accent_color)
 
-    # Cinematic dossier prefix — establishes the photorealistic look
-    prefix = YOUTUBE_STYLE_PREFIX.replace("[ACCENT_COLOR]", scene_color)
+    # Strip any style/lighting/camera language that leaked into the scene
+    # description to avoid duplicating what the environment and camera provide.
+    clean_desc = _strip_style_language(scene_description).rstrip(". ")
+
+    # Layer 2: Environment/Lighting (per-style mood)
+    environment = STYLE_ENVIRONMENTS[style].replace("[ACCENT_COLOR]", scene_color)
 
     if image_style_override and image_style_override.strip():
-        prefix = _apply_style_override(prefix, image_style_override)
+        environment = _apply_style_override(environment, image_style_override)
 
-    comp_text = COMPOSITION_DIRECTIVES.get(composition, "")
-    suffix = STYLE_SUFFIXES[style].replace("[ACCENT_COLOR]", scene_color)
+    # Layer 3: Art Style/Camera (per-composition framing)
+    camera = STYLE_CAMERAS.get(composition, "")
 
-    # Strip any style/lighting/camera language that leaked into the scene
-    # description to avoid duplicating what the prefix and suffix provide.
-    clean_desc = _strip_style_language(scene_description)
-
-    parts = [prefix + " " + clean_desc.rstrip(", ")]
-    if comp_text:
-        parts.append(comp_text)
-    parts_str = ", ".join(parts)
-
-    # The suffix already starts with ", " so we just concatenate.
-    return parts_str + suffix
+    # Assemble: [Subject+Action]. [Environment/Lighting] [Art Style/Camera]
+    return f"{clean_desc}. {environment} {camera}"
 
 
 def generate_prompts(

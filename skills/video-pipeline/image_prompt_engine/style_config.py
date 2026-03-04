@@ -2,66 +2,79 @@
 Visual identity style configuration for the NanoBanana pipeline.
 
 Defines the three visual styles (Dossier, Schema, Echo), accent colors,
-composition directives, Ken Burns zoom rules, and default configuration.
+camera/art style directives, Ken Burns zoom rules, and default configuration.
 """
 
 # ---------------------------------------------------------------------------
-# YouTube Pipeline Style Prefix — Cinematic Dossier
+# Nano Banana 2 Prompt Structure
 # ---------------------------------------------------------------------------
-# Applied at the BEGINNING of every YouTube pipeline image prompt.
-# Kept to ~20 words of natural language (not keyword tags) to stay within
-# Nano Banana 2's 30-75 word optimum when combined with the scene
-# description (~30-50 words), composition directive (~10 words), and
-# style suffix (~10 words) = ~70-90 total assembled words.
+# Prompts follow the Nano Banana 2 optimum structure:
 #
+#   [Subject + Action]  ~30-50 words  (scene description — FIRST)
+#   [Environment/Lighting]  ~14 words  (per-style mood)
+#   [Art Style/Camera]  ~10 words  (per-composition framing)
+#   ────────────────────────────────
+#   Total: ~54-74 words  (within the 30-75 word sweet spot)
+#
+# Natural language sentences, not keyword tags. Subject leads.
 # The placeholder [ACCENT_COLOR] is replaced at build time.
 
-YOUTUBE_STYLE_PREFIX = (
-    "Cinematic photorealistic editorial photograph in a dark moody atmosphere "
-    "with desaturated tones and [ACCENT_COLOR] accent lighting, "
-    "deep Rembrandt shadows and shallow depth of field."
-)
-
 # ---------------------------------------------------------------------------
-# Style Prompt Suffixes
+# Environment/Lighting — per-style mood layer
 # ---------------------------------------------------------------------------
-# Each style has a prompt suffix appended to every image prompt of that type.
-# The placeholder [ACCENT_COLOR] is replaced at build time with the video's
-# chosen accent color string (e.g. "cold teal").
+# Describes atmosphere and lighting. Differentiates Dossier / Schema / Echo.
 
-STYLE_SUFFIXES = {
-    # Dossier IS the base look established by the prefix. The suffix adds only
-    # what differentiates dossier from the generic cinematic base.
+STYLE_ENVIRONMENTS = {
     "dossier": (
-        ", lit by a single dramatic light source with high contrast "
-        "and subtle lens halation"
+        "Dark moody atmosphere with [ACCENT_COLOR] accent lighting "
+        "and deep Rembrandt shadows from a single dramatic light source "
+        "with subtle halation."
     ),
-    # Schema extends the base with data-overlay aesthetics.
     "schema": (
-        ", overlaid with translucent glowing data nodes "
-        "and thin [ACCENT_COLOR] connection lines against deep blacks"
+        "Dark atmosphere with translucent glowing [ACCENT_COLOR] data nodes "
+        "and thin connection lines against deep blacks."
     ),
-    # Echo overrides the base with painterly/historical aesthetics.
     "echo": (
-        ", rendered with oil painting texture and warm candlelit chiaroscuro, "
-        "period-accurate details in soft painterly focus"
+        "Warm candlelit chiaroscuro with oil painting texture, "
+        "period-accurate details in soft painterly focus."
     ),
 }
 
 # ---------------------------------------------------------------------------
-# Composition Directives
+# Art Style / Camera — per-composition framing layer
 # ---------------------------------------------------------------------------
-# Controls framing / camera angle for each image. Cycled through for
+# Controls framing, camera angle, and visual identity. Cycled through for
 # consecutive same-style images to ensure visual variety.
 
-COMPOSITION_DIRECTIVES = {
-    "wide": "wide establishing shot, full environment visible, figure small in frame",
-    "medium": "medium shot, figure from waist up in context of environment",
-    "closeup": "close-up detail shot, shallow depth of field, object or hands filling frame",
-    "environmental": "environmental detail, no human figure, architecture or objects telling the story",
-    "portrait": "medium close-up, figure from chest up, face partially in shadow",
-    "overhead": "high angle overhead view, looking down on scene, surveillance perspective",
-    "low_angle": "low angle looking up, figure or structure appearing powerful and imposing",
+STYLE_CAMERAS = {
+    "wide": (
+        "Cinematic photorealistic editorial photograph, "
+        "wide establishing shot, shallow depth of field."
+    ),
+    "medium": (
+        "Cinematic photorealistic editorial photograph, "
+        "medium shot, figure from waist up."
+    ),
+    "closeup": (
+        "Cinematic photorealistic editorial close-up, "
+        "shallow depth of field, detail filling frame."
+    ),
+    "environmental": (
+        "Cinematic photorealistic editorial photograph, "
+        "environmental detail, no human figure."
+    ),
+    "portrait": (
+        "Cinematic photorealistic editorial photograph, "
+        "medium close-up, face partially in shadow."
+    ),
+    "overhead": (
+        "Cinematic photorealistic editorial photograph, "
+        "high angle overhead, surveillance perspective."
+    ),
+    "low_angle": (
+        "Cinematic photorealistic editorial photograph, "
+        "low angle looking up, powerful and imposing."
+    ),
 }
 
 # Ordered rotation list for cycling compositions within consecutive same-style runs.
