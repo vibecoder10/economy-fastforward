@@ -189,7 +189,64 @@ def main():
         "folderId": folder_id,
         "scenes": scenes,
     }
-    
+
+    # Embed renderConfig from audio_sync timing directory.
+    # Without this, Remotion's renderConfig.ts returns null for all timing
+    # functions and scenes fall back to even distribution.
+    pipeline_dir = Path(__file__).parent
+    video_id = idea.get("id", "unknown")
+    audio_sync_config = pipeline_dir / "timing" / video_id / "render_config.json"
+    public_dir = remotion_dir / "public"
+    public_dir.mkdir(parents=True, exist_ok=True)
+
+    # Check timing dir first, then fall back to public/ (may already be there)
+    rc_path = public_dir / "render_config.json"
+    if audio_sync_config.exists():
+        import shutil
+        shutil.copy2(audio_sync_config, rc_path)
+        print(f"   renderConfig copied from timing/{video_id}/")
+    elif rc_path.exists():
+        print(f"   renderConfig found in public/ (using existing)")
+
+    if rc_path.exists():
+        rc_data = json.loads(rc_path.read_text())
+        props["renderConfig"] = rc_data
+        rc_scene_count = len(rc_data.get("scenes", []))
+        rc_total = rc_data.get("total_duration_seconds", 0)
+        print(f"   renderConfig embedded: {rc_scene_count} images, {rc_total:.1f}s total")
+    else:
+        print(f"   Warning: render_config.json not found")
+        print(f"     Checked: {audio_sync_config}")
+        print(f"     Checked: {rc_path}")
+        print(f"   Rendering will use fallback timing (no Whisper alignment)")
+
+    # Print sound layer diagnostics
+    scenes_with_sl = sum(1 for s in scenes if s.get("sound_layers"))
+    total_layers = sum(len(s.get("sound_layers", [])) for s in scenes)
+    sfx_files = set()
+    for s in scenes:
+        for layer in s.get("sound_layers", []):
+            sfx_files.add(layer.get("file", ""))
+    print(f"\n   Sound design diagnostics:")
+    print(f"     Scenes with sound_layers: {scenes_with_sl}/{len(scenes)}")
+    print(f"     Total sound layer entries: {total_layers}")
+    print(f"     Unique SFX files referenced: {len(sfx_files)}")
+
+    # Verify SFX files exist on disk
+    missing_sfx = []
+    for f in sfx_files:
+        sfx_path = remotion_dir / "public" / f
+        if not sfx_path.exists():
+            missing_sfx.append(f)
+    if missing_sfx:
+        print(f"     Missing SFX files: {len(missing_sfx)}")
+        for f in missing_sfx[:5]:
+            print(f"       - {f}")
+        if len(missing_sfx) > 5:
+            print(f"       ... and {len(missing_sfx) - 5} more")
+    else:
+        print(f"     All SFX files present on disk")
+
     # Save props
     props_file = remotion_dir / "props.json"
     with open(props_file, "w") as f:
