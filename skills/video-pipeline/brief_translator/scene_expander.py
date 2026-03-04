@@ -325,7 +325,7 @@ async def expand_scene_concepts(
     visual_seeds: str,
     accent_color: str,
     act_number: int,
-    total_scenes: int = 20,
+    total_scenes: int = 17,
 ) -> list[dict]:
     """Expand one scene's narration into 6-10 visual concepts.
 

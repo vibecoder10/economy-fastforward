@@ -1,7 +1,7 @@
 """Script Generation (Step 2).
 
-Transforms a validated research brief into a full 25-minute narration script
-with six-act structure and act markers.
+Transforms a validated research brief into a 15-20 minute narration script
+with six-act structure, micro-payoff architecture, and act markers.
 """
 
 import re
@@ -10,10 +10,10 @@ from typing import Optional
 
 PROMPT_TEMPLATE_PATH = Path(__file__).parent / "prompts" / "script.txt"
 
-# Word count bounds for the full script
-SCRIPT_MIN_WORDS = 3000
-SCRIPT_MAX_WORDS = 4500
-SCRIPT_TARGET_WORDS = 3750
+# Word count bounds for the full script (15-20 min at ~160 wpm)
+SCRIPT_MIN_WORDS = 2200
+SCRIPT_MAX_WORDS = 3200
+SCRIPT_TARGET_WORDS = 2800
 
 # Expected act count
 EXPECTED_ACT_COUNT = 6
@@ -30,6 +30,164 @@ ACT_MARKER_SIMPLE_PATTERN = re.compile(
     r"\[ACT\s+(\d+)\s*\]",
     re.IGNORECASE,
 )
+
+
+# ---------------------------------------------------------------------------
+# Prompt overrides — appended after the base template to update act structure,
+# inject micro-payoff architecture, framework revelation engine, and
+# per-act rules.  Keeps script.txt untouched.
+# ---------------------------------------------------------------------------
+
+_ACT_STRUCTURE_OVERRIDE = """\
+=== UPDATED SCRIPT PARAMETERS — THESE OVERRIDE THE ACT STRUCTURE ABOVE ===
+
+This is a 15-20 minute video, NOT a 25-minute video. Follow these targets:
+
+Target total: ~2,800 words (~17 minutes at 160 words/min)
+Minimum: 2,200 words (~14 min). Maximum: 3,200 words (~20 min).
+
+Act word targets:
+- Act 1 (The Hook): ~350 words (0:00-2:10) — Immediate revelation, pattern interrupt, personal stakes
+- Act 2 (The Foundation): ~450 words (2:10-5:00) — First historical parallel, factual foundation with insights woven in
+- Act 3 (The Mechanism): ~500 words (5:00-8:10) — How the system actually works, the hidden machinery
+- Act 4 (The Mirror): ~500 words (8:10-11:20) — Historical parallel deepened, framework analysis peak
+- Act 5 (The Stakes): ~500 words (11:20-14:30) — Personal implications, counter-arguments addressed
+- Act 6 (The Lesson): ~500 words (14:30-17:30) — Prediction, actionable insight, lingering close
+"""
+
+_MICRO_PAYOFF_ARCHITECTURE = """\
+=== MICRO-PAYOFF ARCHITECTURE — NON-NEGOTIABLE ===
+
+Every scene (60-90 seconds of narration) must follow this structure:
+
+HOOK (first 1-2 sentences): Open with a question, a bold claim, or a \
+"wait what?" moment that makes the viewer need to hear the next 60 seconds. \
+This hooks them into THIS scene specifically.
+
+BUILD (middle): Develop the point with evidence, examples, or narrative. \
+Each fact should reframe what the viewer thought they knew.
+
+PAYOFF (last 1-2 sentences): Deliver a genuine micro-revelation — a \
+"holy shit" insight, a counterintuitive conclusion, or a reframe that \
+changes how they see the topic. This is NOT a cliffhanger — it's a \
+REWARD for watching this scene.
+
+BRIDGE (final sentence): The payoff naturally raises a NEW question that \
+pulls them into the next scene. "But that raises an even darker \
+question..." or "And that's exactly what made the next move inevitable."
+
+The viewer should feel REWARDED every 60-90 seconds. Not teased — rewarded. \
+Each micro-payoff is a genuine insight they can take away even if they stop \
+watching. But the bridge makes them unable to stop.
+
+Think of it like chapters in a thriller — each one delivers a satisfying \
+conclusion while making the next chapter irresistible.
+
+BAD example (tease without payoff):
+"And what happened next would change everything. But first, let's \
+understand the background..."
+
+GOOD example (payoff + bridge):
+"Iran didn't strike Ras Tanura to destroy it. They struck it to prove \
+that every dollar of Saudi oil wealth now exists at their mercy — and the \
+cost of that proof was twenty thousand dollars. One drone. That's the \
+asymmetry that breaks empires. But the real question isn't whether Iran \
+can do it again. It's what happens when the insurance companies decide \
+the Strait isn't worth the risk."
+"""
+
+_FRAMEWORK_REVELATION_ENGINE = """\
+=== FRAMEWORK INTEGRATION — THE FRAMEWORK IS THE PAYOFF ===
+
+The psychological/strategic framework isn't decoration. It IS the insight. \
+Every micro-payoff should be a framework revelation applied to the story.
+
+The pattern for every scene:
+1. Present the EVENT (what happened)
+2. Apply the FRAMEWORK (why it happened — through the lens)
+3. Deliver the PAYOFF (what this reveals about power/human nature)
+
+BAD: "Iran struck Ras Tanura. This is an example of asymmetric warfare."
+(Framework as label — boring, academic, forgettable)
+
+GOOD: "Iran struck Ras Tanura with a twenty-thousand-dollar drone. Robert \
+Greene calls this Law 28: Enter Action with Boldness. But here's what \
+Greene didn't tell you — boldness only works when your enemy's strength is \
+also their weakness. Saudi Arabia's four hundred billion dollars in oil \
+infrastructure isn't power. It's a hostage. The richer they got, the more \
+vulnerable they became. And Iran figured that out decades ago."
+(Framework as revelation — the law EXPLAINS the deeper truth the viewer \
+didn't see)
+
+The framework should make the viewer feel like they've been given X-ray \
+vision. They're not just learning what happened — they're learning HOW TO \
+SEE power dynamics everywhere.
+
+EVERY ACT must have at least one moment where the framework creates an \
+"I'll never see the world the same way" insight. These are the moments \
+viewers screenshot and share.
+
+Framework escalation across acts:
+- Act 1: Introduce the framework as a surprising lens on the headline event
+- Act 2: Apply it to the factual foundation — "now watch what happens when \
+you see these facts through this lens"
+- Act 3: The framework reveals the HIDDEN MECHANISM — the thing nobody \
+else is explaining
+- Act 4: The historical parallel PROVES the framework — "this exact pattern \
+played out in 1941 because the same law of power was operating"
+- Act 5: Turn the framework on the VIEWER — "and here's the uncomfortable \
+truth: you're subject to this same dynamic in your own life. When your boss \
+does X, when markets do Y, when you feel Z — that's this exact pattern \
+operating on you"
+- Act 6: The framework becomes a PERMANENT TOOL — "now that you see it, you \
+can't unsee it. Watch for X. When you see Y happening, you'll know Z is \
+coming. That's not prediction — that's pattern recognition."
+
+The viewer should leave every video feeling like they've been handed a new \
+pair of glasses. The framework IS the product. The geopolitical story is \
+just the case study.
+
+CRITICAL: Do NOT name-drop frameworks without applying them. Every framework \
+reference must REVEAL something the viewer didn't see before. If you mention \
+"Law 3: Conceal Your Intentions" it must be followed by showing HOW that \
+law explains a specific hidden move in the story that the viewer missed.
+"""
+
+_ACT_SPECIFIC_RULES = """\
+=== ACT-SPECIFIC RULES (UPDATED) ===
+
+Act 1 (The Hook):
+This act must contain at least 2 micro-payoffs. The viewer must have \
+learned something genuinely surprising within the first 60 seconds AND \
+again before the act ends.
+
+Act 2 (The Foundation):
+Every paragraph must contain at least one 'wait, what?' fact. Do not dump \
+context without insight. If you're explaining background, frame it as a \
+revelation: not 'Iran has proxies' but 'Iran built a shadow empire across \
+4 countries that costs less to maintain than a single US aircraft carrier.'
+
+Act 3 (The Mechanism):
+This is the MECHANISM act — explain HOW the hidden system works. Each \
+paragraph should make the viewer feel like they're being let in on a \
+secret. End with a payoff that makes them see the mechanism in everything.
+
+Act 4 (The Mirror):
+The historical parallel should feel like proof that this is a PATTERN, \
+not coincidence. The payoff should be the moment the viewer realizes \
+'this has happened before and the outcome was...' Bridge to stakes.
+
+Act 5 (The Stakes):
+Make it personal. The viewer should feel this in their wallet, their \
+career, their daily life. Counter-arguments should be steel-manned then \
+dismantled through the framework. Payoff: the viewer now sees something \
+they can't unsee.
+
+Act 6 (The Lesson):
+The prediction must be specific and falsifiable — not 'things will change' \
+but 'watch for X within Y months.' The final payoff should feel like a \
+permanent upgrade to how the viewer sees power. Last line should linger.
+"""
 
 
 def load_script_prompt() -> str:
@@ -256,7 +414,7 @@ def build_script_prompt(brief: dict) -> str:
     # Build source citations section
     source_citations = _build_source_citations_section(brief)
 
-    return template.format(
+    rendered = template.format(
         HEADLINE=brief.get("headline", ""),
         THESIS=brief.get("thesis", ""),
         EXECUTIVE_HOOK=brief.get("executive_hook", ""),
@@ -270,6 +428,16 @@ def build_script_prompt(brief: dict) -> str:
         FRAMEWORK_LENS_SECTION=framework_lens,
         SOURCE_CITATIONS_SECTION=source_citations,
     )
+
+    # Append updated act structure, micro-payoff architecture, framework
+    # revelation engine, and act-specific rules.  These override the older
+    # 25-minute / 3,750-word instructions baked into script.txt.
+    rendered += "\n\n" + _ACT_STRUCTURE_OVERRIDE
+    rendered += "\n\n" + _MICRO_PAYOFF_ARCHITECTURE
+    rendered += "\n\n" + _FRAMEWORK_REVELATION_ENGINE
+    rendered += "\n\n" + _ACT_SPECIFIC_RULES
+
+    return rendered
 
 
 def validate_script(script: str) -> dict:

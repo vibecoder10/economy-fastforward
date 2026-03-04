@@ -190,16 +190,16 @@ def validate_scene_list(scenes: list[dict], config: Optional[dict] = None) -> di
                     f"Scene {scene.get('scene_number', i + 1)}: Isolated Echo single"
                 )
 
-    # 10. Word count check (unified format: total narration should hit 3000-4500 words)
+    # 10. Word count check (unified format: total narration should hit 2200-3200 words)
     if is_unified:
         total_words = sum(
             len((s.get("narration_text") or "").split()) for s in scenes
         )
         if total_words > 0:
-            if total_words < 2500:
-                issues.append(f"Total narration too short: {total_words} words (min 2500)")
-            elif total_words > 5000:
-                issues.append(f"Total narration too long: {total_words} words (max 5000)")
+            if total_words < 2000:
+                issues.append(f"Total narration too short: {total_words} words (min 2000)")
+            elif total_words > 3500:
+                issues.append(f"Total narration too long: {total_words} words (max 3500)")
 
     return {
         "valid": len(issues) == 0,

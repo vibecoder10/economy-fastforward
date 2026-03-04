@@ -12,7 +12,7 @@ Pipeline:
     Step 1: Production Readiness Validation
     Step 1b: Supplemental Research — targeted gap-filling (if needed)
     Step 2: Script Generation
-    Step 3: Scene Expansion (~140 scenes)
+    Step 3: Scene Expansion (~120-150 concepts)
     Step 4: Pipeline Table Write
 """
 
@@ -136,7 +136,7 @@ class BriefTranslator:
 
             # === STEP 2: Script Generation ===
             logger.info("Step 2: Generating script...")
-            self._notify("📝 Generating 25-minute narration script...")
+            self._notify("📝 Generating 15-20 minute narration script...")
 
             script_result = await generate_script(
                 self.anthropic, brief, model=self.script_model
