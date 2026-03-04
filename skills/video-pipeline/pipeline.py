@@ -2733,9 +2733,15 @@ class VideoPipeline:
             return {"error": f"Missing audio: {missing_list}", "bot": "Render Bot"}
 
         scene_count = len(props.get("scenes", []))
+        sound_info = ""
+        if total_layers > 0:
+            sound_info = f"\n🔊 Sound design: {scenes_with_sl}/{scene_count} scenes, {total_layers} layers, {sfx_count} SFX files"
+        else:
+            sound_info = "\n🔇 No sound layers found"
         self.slack.notify(
             f"⬇️ *Assets ready:* _{self.video_title}_\n"
-            f"{scene_count} scenes, all audio verified. Starting Remotion render now..."
+            f"{scene_count} scenes, all audio verified.{sound_info}\n"
+            f"Starting Remotion render now..."
         )
 
         # Sanitize filename
