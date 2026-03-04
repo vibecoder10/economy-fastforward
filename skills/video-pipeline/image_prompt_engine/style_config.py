@@ -2,76 +2,79 @@
 Visual identity style configuration for the NanoBanana pipeline.
 
 Defines the three visual styles (Dossier, Schema, Echo), accent colors,
-composition directives, Ken Burns zoom rules, and default configuration.
+camera/art style directives, Ken Burns zoom rules, and default configuration.
 """
 
 # ---------------------------------------------------------------------------
-# YouTube Pipeline Style Prefix — Cinematic Dossier
+# Nano Banana 2 Prompt Structure
 # ---------------------------------------------------------------------------
-# Applied at the BEGINNING of every YouTube pipeline image prompt.
-# Models weight early tokens more heavily, so the prefix establishes
-# the photorealistic cinematic look before scene-specific content.
+# Prompts follow the Nano Banana 2 optimum structure:
 #
+#   [Subject + Action]  ~30-50 words  (scene description — FIRST)
+#   [Environment/Lighting]  ~14 words  (per-style mood)
+#   [Art Style/Camera]  ~10 words  (per-composition framing)
+#   ────────────────────────────────
+#   Total: ~54-74 words  (within the 30-75 word sweet spot)
+#
+# Natural language sentences, not keyword tags. Subject leads.
 # The placeholder [ACCENT_COLOR] is replaced at build time.
-#
-# Both pipelines (YouTube and Animation) now share the same unified
-# cinematic photorealistic documentary visual identity.
-
-YOUTUBE_STYLE_PREFIX = (
-    "Cinematic photorealistic editorial photograph, dark moody atmosphere, "
-    "desaturated color palette with [ACCENT_COLOR] accent lighting, "
-    "Rembrandt lighting, deep shadows, shallow depth of field, subtle film grain, "
-    "documentary photography style, shot on Arri Alexa 65 with 35mm Master Prime lens, "
-    "16:9 cinematic composition, epic scale, 8K resolution downsampled for extreme "
-    "cinematic density."
-)
 
 # ---------------------------------------------------------------------------
-# Style Prompt Suffixes
+# Environment/Lighting — per-style mood layer
 # ---------------------------------------------------------------------------
-# Each style has a prompt suffix appended to every image prompt of that type.
-# The placeholder [ACCENT_COLOR] is replaced at build time with the video's
-# chosen accent color string (e.g. "cold teal").
+# Describes atmosphere and lighting. Differentiates Dossier / Schema / Echo.
 
-STYLE_SUFFIXES = {
-    # Dossier IS the base look established by the prefix. The suffix adds only
-    # what differentiates dossier from the generic cinematic base.
+STYLE_ENVIRONMENTS = {
     "dossier": (
-        ", single dramatic light source, high contrast, "
-        "distinct chromatic aberration, organic halation effects around glowing elements"
+        "Dark moody atmosphere with [ACCENT_COLOR] accent lighting "
+        "and deep Rembrandt shadows from a single dramatic light source "
+        "with subtle halation."
     ),
-    # Schema extends the base with data-overlay aesthetics. Prefix already
-    # covers cinematic/film grain/16:9 so those are not repeated here.
     "schema": (
-        ", translucent glowing data overlay, "
-        "thin luminous [ACCENT_COLOR] connection lines and node points, Bloomberg "
-        "terminal meets surveillance system aesthetic, minimal and "
-        "elegant, deep blacks with light-emitting data elements"
+        "Dark atmosphere with translucent glowing [ACCENT_COLOR] data nodes "
+        "and thin connection lines against deep blacks."
     ),
-    # Echo overrides the base with painterly/historical aesthetics. Only
-    # style-defining elements that DIFFER from the prefix are listed.
     "echo": (
-        ", subtle oil painting texture, dramatic chiaroscuro "
-        "candlelight lighting, warm amber tones, period-accurate costume and "
-        "architecture detail, slightly soft focus with painterly grain, "
-        "historical documentary style, heavy film grain, atmospheric and evocative"
+        "Warm candlelit chiaroscuro with oil painting texture, "
+        "period-accurate details in soft painterly focus."
     ),
 }
 
 # ---------------------------------------------------------------------------
-# Composition Directives
+# Art Style / Camera — per-composition framing layer
 # ---------------------------------------------------------------------------
-# Controls framing / camera angle for each image. Cycled through for
+# Controls framing, camera angle, and visual identity. Cycled through for
 # consecutive same-style images to ensure visual variety.
 
-COMPOSITION_DIRECTIVES = {
-    "wide": "wide establishing shot, full environment visible, figure small in frame",
-    "medium": "medium shot, figure from waist up in context of environment",
-    "closeup": "close-up detail shot, shallow depth of field, object or hands filling frame",
-    "environmental": "environmental detail, no human figure, architecture or objects telling the story",
-    "portrait": "medium close-up, figure from chest up, face partially in shadow",
-    "overhead": "high angle overhead view, looking down on scene, surveillance perspective",
-    "low_angle": "low angle looking up, figure or structure appearing powerful and imposing",
+STYLE_CAMERAS = {
+    "wide": (
+        "Cinematic photorealistic editorial photograph, "
+        "wide establishing shot, shallow depth of field."
+    ),
+    "medium": (
+        "Cinematic photorealistic editorial photograph, "
+        "medium shot, figure from waist up."
+    ),
+    "closeup": (
+        "Cinematic photorealistic editorial close-up, "
+        "shallow depth of field, detail filling frame."
+    ),
+    "environmental": (
+        "Cinematic photorealistic editorial photograph, "
+        "environmental detail, no human figure."
+    ),
+    "portrait": (
+        "Cinematic photorealistic editorial photograph, "
+        "medium close-up, face partially in shadow."
+    ),
+    "overhead": (
+        "Cinematic photorealistic editorial photograph, "
+        "high angle overhead, surveillance perspective."
+    ),
+    "low_angle": (
+        "Cinematic photorealistic editorial photograph, "
+        "low angle looking up, powerful and imposing."
+    ),
 }
 
 # Ordered rotation list for cycling compositions within consecutive same-style runs.

@@ -238,7 +238,7 @@ class TestSceneListToImagePromptEngine:
             assert required_keys.issubset(p.keys()), f"Missing keys: {required_keys - p.keys()}"
 
     def test_styled_prompts_contain_identity_markers(self):
-        """Dossier → Arri Alexa, Schema → Bloomberg, Echo → candlelight."""
+        """Dossier → halation, Schema → data nodes, Echo → candlelit."""
         from image_prompt_engine import generate_prompts
 
         prompts = generate_prompts(SAMPLE_SCENE_LIST, accent_color="cold teal", seed=42)
@@ -249,13 +249,15 @@ class TestSceneListToImagePromptEngine:
 
         # Check style suffixes are applied
         for dp in dossier_prompts[:5]:
-            assert "Arri Alexa" in dp["prompt"], f"Dossier prompt missing Arri Alexa: {dp['prompt'][:80]}"
+            assert "halation" in dp["prompt"], f"Dossier prompt missing halation: {dp['prompt'][:80]}"
 
         for sp in schema_prompts[:5]:
-            assert "Bloomberg" in sp["prompt"], f"Schema prompt missing Bloomberg: {sp['prompt'][:80]}"
+            assert "data nodes" in sp["prompt"] or "connection lines" in sp["prompt"], (
+                f"Schema prompt missing data nodes/connection lines: {sp['prompt'][:80]}"
+            )
 
         for ep in echo_prompts[:5]:
-            assert "candlelight" in ep["prompt"], f"Echo prompt missing candlelight: {ep['prompt'][:80]}"
+            assert "candlelit" in ep["prompt"], f"Echo prompt missing candlelit: {ep['prompt'][:80]}"
 
     def test_accent_color_applied_to_dossier_and_schema(self):
         """The accent color appears in Dossier and Schema prompts.
@@ -304,14 +306,16 @@ class TestStyledPromptsToNanoBanana:
             assert isinstance(p["prompt"], str)
             assert len(p["prompt"]) > 50  # Not empty/trivial
 
-    def test_prompts_end_with_aspect_ratio(self):
-        """All prompts end with 16:9 aspect ratio marker."""
+    def test_prompts_contain_cinematic_camera_layer(self):
+        """All prompts contain cinematic camera layer (art style/camera)."""
         from image_prompt_engine import generate_prompts
 
         prompts = generate_prompts(SAMPLE_SCENE_LIST, accent_color="cold teal", seed=42)
 
         for p in prompts:
-            assert "16:9" in p["prompt"], f"Missing 16:9 in prompt index {p['index']}"
+            assert "Cinematic photorealistic editorial" in p["prompt"], (
+                f"Missing cinematic camera layer in prompt index {p['index']}"
+            )
 
 
 # ---------------------------------------------------------------------------

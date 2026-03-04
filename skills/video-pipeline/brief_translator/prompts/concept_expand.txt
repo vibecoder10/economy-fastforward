@@ -33,7 +33,7 @@ For EACH concept, provide:
 2. sentence_text (the EXACT consecutive words from the narration that this
    concept covers — must be a verbatim, character-for-character substring
    of the narration above. Do NOT edit, rephrase, or fix any text.)
-3. visual_description (20-35 words describing a specific, filmable scene)
+3. visual_description (30-75 words — a rich, cinematic scene description)
 4. visual_style ("dossier" | "schema" | "echo")
 5. composition ("wide" | "medium" | "closeup" | "environmental" |
    "portrait" | "overhead" | "low_angle")
@@ -87,22 +87,51 @@ SUBSTITUTION TABLE — show the concrete reality:
 | Systemic risk           | Chart on screen, emergency meeting, empty trading floor   |
 | Secrecy/corruption      | Locked door, shredder, burner phone, unusual meeting      |
 
-SCENE DESCRIPTIONS must ONLY contain:
-- WHAT is in the scene (people, objects, environment)
-- WHERE it takes place (specific location)
-- WHAT is happening (action)
-- KEY VISUAL DETAILS (objects, textures, materials, weather)
+SCENE DESCRIPTIONS must contain:
+- WHAT is in the scene (people, objects, environment — or NONE of these if the
+  scene is a landscape, building exterior, data display, chart, or empty space)
+- WHERE it takes place (specific, named or implied location)
+- WHAT is happening (action, gesture, or state)
+- SENSORY DETAILS that make the image feel real: specific materials (brushed
+  steel, cracked leather, rain-slicked asphalt), textures (peeling paint,
+  condensation on glass, ink-stained paper), spatial relationships (foreground/
+  midground/background layers), scale cues (a figure dwarfed by architecture,
+  a phone screen glowing in a dark room), and environmental atmosphere
+  (steam rising from grates, dust motes in a shaft of light, fog rolling
+  across a harbor)
 
-Keep descriptions 20-35 words. Be specific but concise.
+NOT EVERY SCENE NEEDS A PERSON. Many of the strongest images are:
+- An empty environment that tells a story (abandoned trading floor, locked
+  vault door, fog-shrouded port with idle tankers)
+- A data display or chart on a screen in context (monitor bank in a dim
+  operations center showing price curves)
+- An object in isolation (a classified folder on a desk, a cracked pipeline
+  valve leaking into soil, stacked shipping containers)
+- An aerial or satellite perspective (port from above, city grid at night,
+  convoy on a desert highway)
+
+Write 30-75 words per description. Mine the narration for concrete specifics —
+numbers, place names, objects mentioned — and translate them into visible,
+tangible details. The narration is your raw material; extract every visual cue
+it contains rather than summarizing generically.
 
 MATCH DESCRIPTION TO COMPOSITION:
-- "wide": Full environment, figure small in frame
-- "medium": Person from waist up in context
-- "closeup": Specific detail, hands, objects, documents
-- "environmental": No human figure, architecture/objects only
-- "portrait": Person from chest up, face partially in shadow
-- "overhead": Bird's-eye view, looking down
-- "low_angle": Looking up at something imposing
+- "wide": Full environment, layered depth — foreground detail, midground
+  subject, background context. Figure small in frame if present.
+- "medium": Subject from waist up, surrounded by environment details that
+  establish context. Hands, desk objects, wall details all visible.
+- "closeup": Tight on a specific detail — hands gripping a document, a screen
+  displaying data, condensation on a glass, ink on a signature line. No wide
+  context.
+- "environmental": NO human figure. Architecture, objects, weather, or
+  landscape telling the story alone. The emptiness or fullness of the space
+  IS the subject.
+- "portrait": Subject from chest up, expression and posture conveying intent.
+  Background softened but identifiable.
+- "overhead": Bird's-eye or satellite view looking straight down. Maps,
+  layouts, formations, or patterns visible from above.
+- "low_angle": Looking up at something imposing — a building facade, a figure
+  on a balcony, the underside of a bridge, a ship's hull from waterline.
 
 --- DIVERSITY RULES ---
 

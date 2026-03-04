@@ -2,7 +2,7 @@
 Tests for prompt construction and formatting.
 
 Verifies that the prompt builder produces correctly structured prompts
-with all required style markers, accent colors, and aspect ratios.
+following the Nano Banana 2 structure: [Subject+Action] [Environment] [Camera].
 """
 
 import sys
@@ -20,11 +20,11 @@ from image_prompt_engine.prompt_builder import (
 )
 from image_prompt_engine.style_config import (
     ACCENT_COLOR_MAP,
-    COMPOSITION_DIRECTIVES,
     DEFAULT_CONFIG,
     SCENE_COLOR_MAP,
+    STYLE_CAMERAS,
+    STYLE_ENVIRONMENTS,
     VALID_ACCENT_COLORS,
-    YOUTUBE_STYLE_PREFIX,
 )
 
 
@@ -55,46 +55,83 @@ def _generate_full_video(seed: int = 42) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
+# Nano Banana 2 structure tests
+# ---------------------------------------------------------------------------
+
+class TestNanoBananaStructure:
+    """Verify prompts follow [Subject+Action]. [Environment]. [Camera] order."""
+
+    def test_description_comes_first(self):
+        """Scene description is at the start of the prompt (subject leads)."""
+        prompt = build_prompt("A golden eagle perched on a cliff", "dossier", "wide", "cold teal")
+        assert prompt.startswith("A golden eagle perched on a cliff")
+
+    def test_environment_comes_after_description(self):
+        """Environment/lighting layer follows the scene description."""
+        prompt = build_prompt("A unique test subject", "dossier", "wide", "cold teal")
+        desc_pos = prompt.index("A unique test subject")
+        env_pos = prompt.index("Dark moody atmosphere")
+        assert desc_pos < env_pos, "Description must come before environment"
+
+    def test_camera_comes_last(self):
+        """Art style/camera layer is the final part of the prompt."""
+        prompt = build_prompt("A unique test subject", "dossier", "wide", "cold teal")
+        env_pos = prompt.index("Dark moody atmosphere")
+        camera_pos = prompt.index("Cinematic photorealistic editorial photograph")
+        assert env_pos < camera_pos, "Environment must come before camera"
+
+    def test_all_three_layers_present(self):
+        """Every prompt contains all three layers."""
+        prompt = build_prompt("A figure in shadows", "dossier", "wide", "cold teal")
+        # Layer 1: Subject (description)
+        assert "A figure in shadows" in prompt
+        # Layer 2: Environment (style-specific)
+        assert "Rembrandt shadows" in prompt
+        # Layer 3: Camera (composition-specific)
+        assert "Cinematic photorealistic editorial photograph" in prompt
+
+
+# ---------------------------------------------------------------------------
 # Prompt format tests
 # ---------------------------------------------------------------------------
 
 class TestPromptFormat:
-    def test_all_prompts_contain_16_9(self):
-        """Every prompt contains '16:9' (from the prefix)."""
-        results = _generate_full_video()
-        for r in results:
-            assert "16:9" in r["prompt"], (
-                f"Prompt at index {r['index']} does not contain '16:9': "
-                f"...{r['prompt'][-60:]}"
-            )
-
-    def test_dossier_prompts_contain_arri_alexa(self):
-        """All Dossier prompts include 'shot on Arri Alexa'."""
+    def test_dossier_prompts_contain_rembrandt(self):
+        """All Dossier prompts include Rembrandt reference."""
         results = _generate_full_video()
         for r in results:
             if r["style"] == "dossier":
-                assert "shot on Arri Alexa" in r["prompt"], (
-                    f"Dossier prompt at index {r['index']} missing 'shot on Arri Alexa'"
+                assert "Rembrandt" in r["prompt"], (
+                    f"Dossier prompt at index {r['index']} missing Rembrandt"
                 )
 
-    def test_echo_prompts_contain_candlelight(self):
-        """All Echo prompts include candlelight/chiaroscuro reference."""
+    def test_dossier_prompts_contain_halation(self):
+        """All Dossier prompts include halation reference."""
+        results = _generate_full_video()
+        for r in results:
+            if r["style"] == "dossier":
+                assert "halation" in r["prompt"], (
+                    f"Dossier prompt at index {r['index']} missing 'halation'"
+                )
+
+    def test_echo_prompts_contain_candlelit(self):
+        """All Echo prompts include candlelit/chiaroscuro reference."""
         results = _generate_full_video()
         for r in results:
             if r["style"] == "echo":
                 prompt_lower = r["prompt"].lower()
-                assert "candlelight" in prompt_lower or "chiaroscuro" in prompt_lower, (
-                    f"Echo prompt at index {r['index']} missing candlelight/chiaroscuro"
+                assert "candlelit" in prompt_lower or "chiaroscuro" in prompt_lower, (
+                    f"Echo prompt at index {r['index']} missing candlelit/chiaroscuro"
                 )
 
-    def test_schema_prompts_contain_bloomberg(self):
-        """All Schema prompts include Bloomberg/surveillance reference."""
+    def test_schema_prompts_contain_data_nodes(self):
+        """All Schema prompts include data nodes/connection lines reference."""
         results = _generate_full_video()
         for r in results:
             if r["style"] == "schema":
                 prompt_lower = r["prompt"].lower()
-                assert "bloomberg" in prompt_lower or "surveillance" in prompt_lower, (
-                    f"Schema prompt at index {r['index']} missing Bloomberg/surveillance"
+                assert "data nodes" in prompt_lower or "connection lines" in prompt_lower, (
+                    f"Schema prompt at index {r['index']} missing data nodes/connection lines"
                 )
 
     def test_accent_color_substituted(self):
@@ -103,6 +140,15 @@ class TestPromptFormat:
         for r in results:
             assert "[ACCENT_COLOR]" not in r["prompt"], (
                 f"Unsubstituted [ACCENT_COLOR] in prompt at index {r['index']}"
+            )
+
+    def test_all_prompts_contain_cinematic_camera(self):
+        """Every prompt contains the cinematic camera layer."""
+        results = _generate_full_video()
+        for r in results:
+            assert "Cinematic photorealistic editorial photograph" in r["prompt"] or \
+                   "Cinematic photorealistic editorial close-up" in r["prompt"], (
+                f"Prompt at index {r['index']} missing camera layer"
             )
 
 
@@ -237,18 +283,18 @@ class TestSceneAccentColor:
 
 class TestPromptStructure:
     def test_prompt_contains_scene_description(self):
-        """Each prompt contains the scene description (after the cinematic prefix)."""
+        """Each prompt starts with the scene description (subject first)."""
         scenes = [{"scene_description": "A unique test scene with a golden eagle"}]
         results = generate_prompts(scenes, accent_color="cold teal", seed=42)
-        assert "A unique test scene with a golden eagle" in results[0]["prompt"]
+        assert results[0]["prompt"].startswith("A unique test scene with a golden eagle")
 
-    def test_prompt_contains_composition_directive(self):
-        """Each prompt includes the composition directive text."""
+    def test_prompt_contains_camera_text(self):
+        """Each prompt includes the camera/art style text for its composition."""
         results = _generate_full_video()
         for r in results:
-            comp_text = COMPOSITION_DIRECTIVES[r["composition"]]
-            assert comp_text in r["prompt"], (
-                f"Composition '{r['composition']}' text not found in prompt at index {r['index']}"
+            camera_text = STYLE_CAMERAS[r["composition"]]
+            assert camera_text in r["prompt"], (
+                f"Camera '{r['composition']}' text not found in prompt at index {r['index']}"
             )
 
     def test_output_has_required_keys(self):
@@ -267,8 +313,8 @@ class TestPromptStructure:
             assert r["style"] in valid, f"Invalid style '{r['style']}' at index {r['index']}"
 
     def test_composition_values_are_valid(self):
-        """Composition field is always a recognized composition key."""
-        valid = set(COMPOSITION_DIRECTIVES.keys())
+        """Composition field is always a recognized camera key."""
+        valid = set(STYLE_CAMERAS.keys())
         results = _generate_full_video()
         for r in results:
             assert r["composition"] in valid, (
@@ -288,13 +334,13 @@ class TestBuildPrompt:
             "wide",
             "cold teal",
         )
-        assert prompt.startswith("Cinematic photorealistic editorial photograph")
-        assert "A figure in shadows" in prompt
+        assert prompt.startswith("A figure in shadows")
         assert "wide establishing shot" in prompt
         assert "cold teal" in prompt
-        assert "shot on Arri Alexa" in prompt
-        assert "16:9" in prompt
-        assert "single dramatic light source" in prompt
+        assert "Rembrandt" in prompt
+        assert "dramatic light source" in prompt
+        assert "halation" in prompt
+        assert "Cinematic photorealistic editorial photograph" in prompt
 
     def test_schema_basic(self):
         prompt = build_prompt(
@@ -303,13 +349,11 @@ class TestBuildPrompt:
             "overhead",
             "warm amber",
         )
-        assert prompt.startswith("Cinematic photorealistic editorial photograph")
-        assert "City at night with data overlay" in prompt
+        assert prompt.startswith("City at night with data overlay")
         assert "overhead" in prompt.lower() or "surveillance perspective" in prompt
         # "data" keyword triggers per-scene rotation to cold teal
         assert "cold teal" in prompt
-        assert "Bloomberg" in prompt
-        assert "16:9" in prompt
+        assert "data nodes" in prompt or "connection lines" in prompt
 
     def test_echo_basic(self):
         prompt = build_prompt(
@@ -318,67 +362,38 @@ class TestBuildPrompt:
             "medium",
             "cold teal",
         )
-        assert prompt.startswith("Cinematic photorealistic editorial photograph")
-        assert "Renaissance ruler at a desk" in prompt
+        assert prompt.startswith("Renaissance ruler at a desk")
         assert "figure from waist up" in prompt
-        assert "candlelight" in prompt
+        assert "candlelit" in prompt.lower() or "chiaroscuro" in prompt.lower()
         assert "oil painting texture" in prompt
-        assert "16:9" in prompt
 
     def test_strips_trailing_comma_from_description(self):
         """Scene descriptions with trailing commas don't create double commas."""
         prompt = build_prompt("A test scene, ,", "dossier", "wide", "cold teal")
         assert ", , ," not in prompt
 
-    def test_echo_always_has_warm_amber_tones(self):
-        """Echo suffix includes 'warm amber tones' regardless of chosen accent."""
+    def test_echo_always_has_warm_candlelit(self):
+        """Echo environment includes warm candlelit reference regardless of chosen accent."""
         prompt = build_prompt("Historical scene", "echo", "wide", "cold teal")
-        assert "warm amber tones" in prompt
+        assert "Warm candlelit" in prompt
 
     def test_dossier_no_duplicate_rembrandt(self):
-        """Dossier prompts should not duplicate 'Rembrandt lighting' (prefix provides it once)."""
+        """Dossier prompts should not duplicate 'Rembrandt' (environment provides it once)."""
         prompt = build_prompt("A test scene", "dossier", "wide", "cold teal")
-        count = prompt.lower().count("rembrandt lighting")
-        assert count == 1, f"'Rembrandt lighting' appears {count} times (expected 1)"
+        count = prompt.lower().count("rembrandt")
+        assert count == 1, f"'Rembrandt' appears {count} times (expected 1)"
 
-    def test_dossier_no_duplicate_film_grain(self):
-        """Dossier prompts should not duplicate 'film grain' (prefix provides it once)."""
-        prompt = build_prompt("A test scene", "dossier", "wide", "cold teal")
-        count = prompt.lower().count("film grain")
-        assert count == 1, f"'film grain' appears {count} times (expected 1)"
-
-    def test_dossier_no_duplicate_arri_alexa(self):
-        """Dossier prompts should not duplicate 'shot on Arri Alexa' (prefix provides it once)."""
-        prompt = build_prompt("A test scene", "dossier", "wide", "cold teal")
-        count = prompt.lower().count("shot on arri alexa")
-        assert count == 1, f"'shot on Arri Alexa' appears {count} times (expected 1)"
-
-    def test_prefix_contains_8k_resolution(self):
-        """The prefix includes 8K resolution downsampled for density."""
-        assert "8K resolution" in YOUTUBE_STYLE_PREFIX
-
-    def test_dossier_suffix_has_halation(self):
-        """Dossier suffix includes chromatic aberration and halation."""
-        from image_prompt_engine.style_config import STYLE_SUFFIXES
-        assert "chromatic aberration" in STYLE_SUFFIXES["dossier"]
-        assert "halation" in STYLE_SUFFIXES["dossier"]
+    def test_dossier_environment_has_halation(self):
+        """Dossier environment includes halation."""
+        assert "halation" in STYLE_ENVIRONMENTS["dossier"]
 
 
 # ---------------------------------------------------------------------------
-# Cinematic Dossier Style tests (YouTube pipeline)
+# Visual identity tests
 # ---------------------------------------------------------------------------
 
-class TestCinematicDossierStyle:
-    """Verify YouTube pipeline uses cinematic dossier style."""
-
-    def test_all_prompts_start_with_cinematic_prefix(self):
-        """Every prompt starts with the cinematic photorealistic prefix."""
-        results = _generate_full_video()
-        for r in results:
-            assert r["prompt"].startswith("Cinematic photorealistic editorial photograph"), (
-                f"Prompt at index {r['index']} does not start with cinematic prefix: "
-                f"{r['prompt'][:80]}..."
-            )
+class TestVisualIdentity:
+    """Verify the visual identity system is intact."""
 
     def test_no_legacy_style_in_any_prompt(self):
         """No prompt contains legacy mannequin/clay/department store language."""
@@ -398,31 +413,37 @@ class TestCinematicDossierStyle:
                     f"{r['prompt'][:100]}..."
                 )
 
-    def test_cinematic_prefix_contains_key_elements(self):
-        """The cinematic prefix has all required style elements."""
-        assert "Cinematic photorealistic editorial photograph" in YOUTUBE_STYLE_PREFIX
-        assert "dark moody atmosphere" in YOUTUBE_STYLE_PREFIX
-        assert "Rembrandt lighting" in YOUTUBE_STYLE_PREFIX
-        assert "deep shadows" in YOUTUBE_STYLE_PREFIX
-        assert "shallow depth of field" in YOUTUBE_STYLE_PREFIX
-        assert "film grain" in YOUTUBE_STYLE_PREFIX
-        assert "documentary photography style" in YOUTUBE_STYLE_PREFIX
-        assert "shot on Arri Alexa" in YOUTUBE_STYLE_PREFIX
-        assert "epic scale" in YOUTUBE_STYLE_PREFIX
-        assert "[ACCENT_COLOR]" in YOUTUBE_STYLE_PREFIX
+    def test_style_environments_have_key_elements(self):
+        """Each style environment contains its defining visual elements."""
+        assert "Rembrandt" in STYLE_ENVIRONMENTS["dossier"]
+        assert "halation" in STYLE_ENVIRONMENTS["dossier"]
+        assert "[ACCENT_COLOR]" in STYLE_ENVIRONMENTS["dossier"]
 
-    def test_accent_color_substituted_in_prefix(self):
-        """The [ACCENT_COLOR] placeholder in the prefix is replaced."""
+        assert "data nodes" in STYLE_ENVIRONMENTS["schema"]
+        assert "[ACCENT_COLOR]" in STYLE_ENVIRONMENTS["schema"]
+
+        assert "candlelit" in STYLE_ENVIRONMENTS["echo"]
+        assert "oil painting" in STYLE_ENVIRONMENTS["echo"]
+
+    def test_all_cameras_have_cinematic_prefix(self):
+        """Every camera directive starts with 'Cinematic photorealistic editorial'."""
+        for comp, text in STYLE_CAMERAS.items():
+            assert "Cinematic photorealistic editorial" in text, (
+                f"Camera '{comp}' missing cinematic prefix: {text}"
+            )
+
+    def test_accent_color_substituted_in_environment(self):
+        """The [ACCENT_COLOR] placeholder in the environment is replaced."""
         prompt = build_prompt("Test scene", "dossier", "wide", "cold teal")
         assert "cold teal accent lighting" in prompt
         assert "[ACCENT_COLOR]" not in prompt
 
-    def test_prefix_before_scene_description(self):
-        """The cinematic prefix comes before the scene description in the prompt."""
+    def test_description_before_environment(self):
+        """Scene description comes before the environment layer in all prompts."""
         prompt = build_prompt("A specific unique scene", "dossier", "wide", "cold teal")
-        prefix_pos = prompt.index("Cinematic photorealistic")
         scene_pos = prompt.index("A specific unique scene")
-        assert prefix_pos < scene_pos, "Cinematic prefix must come before scene description"
+        env_pos = prompt.index("Dark moody atmosphere")
+        assert scene_pos < env_pos, "Scene description must come before environment"
 
 
 # ---------------------------------------------------------------------------
