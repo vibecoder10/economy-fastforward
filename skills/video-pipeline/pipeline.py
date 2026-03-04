@@ -222,8 +222,8 @@ class VideoPipeline:
             # Prompts done, but Scene 1 videos missing
             suggested_status = self.STATUS_READY_VIDEO_GENERATION
         elif all_images and not pending_images:
-            # All images done (and video steps satisfied for Scene 1)
-            suggested_status = self.STATUS_READY_THUMBNAIL
+            # All images done — sound design comes next (reads Image Prompt from Images table)
+            suggested_status = self.STATUS_READY_SOUND_DESIGN
         
         return {
             "scripts_exist": len(scripts) > 0,
@@ -573,18 +573,6 @@ class VideoPipeline:
 
             return await self._run_step_safe("Voice Bot", self.run_voice_bot)
 
-        # 2b. Check for Ready For Sound Design
-        idea = self.get_idea_by_status(self.STATUS_READY_SOUND_DESIGN)
-        if idea:
-            self._load_idea(idea)
-            return await self._run_step_safe("Sound Prompt Bot", self.run_sound_prompt_bot)
-
-        # 2c. Check for Ready For Sound Effects
-        idea = self.get_idea_by_status(self.STATUS_READY_SOUND_EFFECTS)
-        if idea:
-            self._load_idea(idea)
-            return await self._run_step_safe("Sound Bot", self.run_sound_bot)
-
         # 3. Check for Ready For Image Prompts (use styled prompts as primary path)
         idea = self.get_idea_by_status(self.STATUS_READY_IMAGE_PROMPTS)
         if idea:
@@ -614,6 +602,18 @@ class VideoPipeline:
                 return await self.run_next_step()
 
             return await self._run_step_safe("Image Bot", self.run_image_bot)
+
+        # 4b. Check for Ready For Sound Design (AFTER images — needs Image Prompt field)
+        idea = self.get_idea_by_status(self.STATUS_READY_SOUND_DESIGN)
+        if idea:
+            self._load_idea(idea)
+            return await self._run_step_safe("Sound Prompt Bot", self.run_sound_prompt_bot)
+
+        # 4c. Check for Ready For Sound Effects
+        idea = self.get_idea_by_status(self.STATUS_READY_SOUND_EFFECTS)
+        if idea:
+            self._load_idea(idea)
+            return await self._run_step_safe("Sound Bot", self.run_sound_bot)
 
         # 5. SKIPPED - Video Scripts (manual only, costly at $0.10/image)
         # idea = self.get_idea_by_status(self.STATUS_READY_VIDEO_SCRIPTS)
@@ -940,9 +940,10 @@ class VideoPipeline:
                 self.airtable.mark_script_finished(script["id"], audio_url)
                 voice_count += 1
         
-        # UPDATE STATUS to Ready For Sound Design
-        self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_SOUND_DESIGN)
-        print(f"  ✅ Status updated to: {self.STATUS_READY_SOUND_DESIGN}")
+        # UPDATE STATUS to Ready For Image Prompts
+        # Sound design runs AFTER images exist (needs Image Prompt + Sentence Text)
+        self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_IMAGE_PROMPTS)
+        print(f"  ✅ Status updated to: {self.STATUS_READY_IMAGE_PROMPTS}")
 
         self.slack.notify_voice_done()
 
@@ -950,7 +951,7 @@ class VideoPipeline:
             "bot": "Voice Bot",
             "video_title": self.video_title,
             "voice_count": voice_count,
-            "new_status": self.STATUS_READY_SOUND_DESIGN,
+            "new_status": self.STATUS_READY_IMAGE_PROMPTS,
         }
 
     async def run_sound_prompt_bot(self) -> dict:
@@ -1030,16 +1031,16 @@ class VideoPipeline:
         if result.get("error"):
             return result
 
-        # Update status
-        self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_IMAGE_PROMPTS)
-        print(f"  ✅ Status updated to: {self.STATUS_READY_IMAGE_PROMPTS}")
+        # Update status — sound is done, move to thumbnail
+        self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_THUMBNAIL)
+        print(f"  ✅ Status updated to: {self.STATUS_READY_THUMBNAIL}")
 
         self.slack.notify(
             f"✅ Generated {result.get('total_generated', 0)} sound effects for *{self.video_title}* "
             f"(~${result.get('estimated_cost', 0):.2f})"
         )
 
-        result["new_status"] = self.STATUS_READY_IMAGE_PROMPTS
+        result["new_status"] = self.STATUS_READY_THUMBNAIL
         return result
 
     async def run_image_prompt_bot_legacy(self) -> dict:
@@ -1307,15 +1308,17 @@ class VideoPipeline:
                 "images_total": total,
             }
 
-        # ALL images verified complete — safe to advance status
-        self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_THUMBNAIL)
-        print(f"  ✅ All {total} images verified complete. Status updated to: {self.STATUS_READY_THUMBNAIL}")
+        # ALL images verified complete — advance to sound design
+        # Sound stages run AFTER images because sound_prompt_bot reads Image Prompt
+        # and Sentence Text from the Images table rows.
+        self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_SOUND_DESIGN)
+        print(f"  ✅ All {total} images verified complete. Status updated to: {self.STATUS_READY_SOUND_DESIGN}")
 
         return {
             "bot": "Image Bot",
             "video_title": self.video_title,
             "image_count": result.get("image_count", 0),
-            "new_status": self.STATUS_READY_THUMBNAIL,
+            "new_status": self.STATUS_READY_SOUND_DESIGN,
         }
 
     async def run_visuals_pipeline(self) -> dict:
@@ -1366,16 +1369,16 @@ class VideoPipeline:
                 "error": error_msg,
             }
 
-        # ALL images verified complete — safe to advance status
-        self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_THUMBNAIL)
-        print(f"  ✅ All {total} images verified complete. Status updated to: {self.STATUS_READY_THUMBNAIL}")
+        # ALL images verified complete — advance to sound design
+        self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_SOUND_DESIGN)
+        print(f"  ✅ All {total} images verified complete. Status updated to: {self.STATUS_READY_SOUND_DESIGN}")
 
         return {
             "bot": "Visuals Pipeline",
             "video_title": self.video_title,
             "prompt_count": prompt_result.get("prompt_count", 0),
             "image_count": image_result.get("image_count", 0),
-            "new_status": self.STATUS_READY_THUMBNAIL,
+            "new_status": self.STATUS_READY_SOUND_DESIGN,
         }
     
     async def _run_image_bot(self) -> dict:

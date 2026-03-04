@@ -403,8 +403,8 @@ class TestStatusProgression:
         assert bot_match, "Could not find run_image_bot method"
         bot_code = bot_match.group(1)
 
-        # The status update and log message should both mention THUMBNAIL
-        # Find the status update line and log line near the end of the method
+        # The status update and log message should both mention SOUND_DESIGN
+        # (sound stages come after images, since sound_prompt_bot reads Image Prompt)
         status_line = [
             line for line in bot_code.split("\n")
             if "update_idea_status" in line and "STATUS_READY" in line
@@ -417,9 +417,9 @@ class TestStatusProgression:
         assert status_line, "No status update found in run_image_bot"
         assert log_line, "No status log found in run_image_bot"
 
-        # Both should reference THUMBNAIL, not VIDEO_SCRIPTS
-        assert "THUMBNAIL" in status_line[0], f"Status update wrong: {status_line[0]}"
-        assert "THUMBNAIL" in log_line[0], f"Status log wrong: {log_line[0]}"
+        # Both should reference SOUND_DESIGN (sound comes after images)
+        assert "SOUND_DESIGN" in status_line[0], f"Status update wrong: {status_line[0]}"
+        assert "SOUND_DESIGN" in log_line[0], f"Status log wrong: {log_line[0]}"
 
 
 # ---------------------------------------------------------------------------
