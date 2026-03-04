@@ -2666,8 +2666,11 @@ class VideoPipeline:
                     else:
                         continue
                     break
-        if sfx_count > 0:
-            print(f"  🔊 {sfx_count} SFX files ready in public/sfx/")
+        # Sound layer diagnostics
+        scenes_with_sl = sum(1 for s in props.get("scenes", []) if s.get("sound_layers"))
+        total_layers = sum(len(s.get("sound_layers", [])) for s in props.get("scenes", []))
+        print(f"  🔊 Sound design: {scenes_with_sl}/{len(props.get('scenes', []))} scenes, "
+              f"{total_layers} layers, {sfx_count} SFX files ready")
 
         # Verify every scene has its audio file (Remotion will 404 without it)
         # Use actual scene numbers from props — NOT sequential range(1, N+1)

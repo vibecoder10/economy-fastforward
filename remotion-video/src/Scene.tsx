@@ -151,10 +151,13 @@ export const Scene: React.FC<SceneProps> = ({
     // Map sound layers to frame ranges using segmentTimings
     const soundLayerTimings = useMemo(() => {
         if (!soundLayers || soundLayers.length === 0 || segmentTimings.length === 0) {
+            if (sceneNumber <= 3) {
+                console.log(`Scene ${sceneNumber}: 0 sound layers (soundLayers=${soundLayers?.length ?? 0}, segments=${segmentTimings.length})`);
+            }
             return [];
         }
 
-        return soundLayers.map((layer) => {
+        const timings = soundLayers.map((layer) => {
             // Segments are 1-based, segmentTimings is 0-based
             const startIdx = Math.max(0, Math.min(layer.start_segment - 1, segmentTimings.length - 1));
             const endIdx = Math.max(0, Math.min(layer.end_segment - 1, segmentTimings.length - 1));
@@ -166,7 +169,14 @@ export const Scene: React.FC<SceneProps> = ({
 
             return { layer, startFrame, durationFrames };
         });
-    }, [soundLayers, segmentTimings]);
+
+        console.log(`Scene ${sceneNumber}: ${timings.length} sound layers mapped to frames`);
+        timings.forEach((t, i) => {
+            console.log(`  SFX ${i+1}: ${t.layer.file} frames ${t.startFrame}-${t.startFrame + t.durationFrames} (${(t.durationFrames / fps).toFixed(1)}s) vol=${t.layer.volume} loop=${t.layer.loop}`);
+        });
+
+        return timings;
+    }, [soundLayers, segmentTimings, sceneNumber, fps]);
 
     return (
         <AbsoluteFill>
