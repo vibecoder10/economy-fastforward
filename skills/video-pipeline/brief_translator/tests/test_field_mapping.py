@@ -25,6 +25,7 @@ SAMPLE_BRIEF = {
     "visual_seeds": "Modern boardroom, historical trading floor, data network",
     "character_dossier": "Central figure: CEO profile...",
     "date_deep_dived": "2026-02-14",
+    "themes": "Power consolidation, corporate sovereignty, historical cycles",
 }
 
 
@@ -144,6 +145,26 @@ class TestBuildPipelineRecord:
             SAMPLE_BRIEF, "script", scenes, "cold_teal", "rec123", "/tmp/scenes.json", "vid_001"
         )
         assert record["Scene Count"] == 136
+
+    def test_includes_framework_angle(self):
+        record = build_pipeline_record(
+            SAMPLE_BRIEF, "script text", [], "cold_teal", "rec123", "/tmp/scenes.json", "vid_001"
+        )
+        assert record["Framework Angle"] == "Machiavelli's The Prince"
+
+    def test_includes_thematic_framework(self):
+        record = build_pipeline_record(
+            SAMPLE_BRIEF, "script text", [], "cold_teal", "rec123", "/tmp/scenes.json", "vid_001"
+        )
+        assert "Power consolidation" in record["Thematic Framework"]
+
+    def test_framework_angle_prefers_selected_framework(self):
+        brief = dict(SAMPLE_BRIEF)
+        brief["_selected_framework"] = "Systems Thinking"
+        record = build_pipeline_record(
+            brief, "script text", [], "cold_teal", "rec123", "/tmp/scenes.json", "vid_001"
+        )
+        assert record["Framework Angle"] == "Systems Thinking"
 
     def test_original_dna_is_valid_json(self):
         record = build_pipeline_record(
