@@ -548,6 +548,7 @@ def infer_framework_angle(idea: dict) -> str:
     ]).lower()
 
     # Keyword-to-framework mapping (ordered by specificity)
+    # Must match all 17 frameworks in script_generator._build_framework_lens_section()
     framework_signals = [
         ("48 Laws", ["law of power", "48 laws", "robert greene", "conceal",
                       "crush your enemy", "court power", "law 3", "law 15",
@@ -558,6 +559,28 @@ def infer_framework_angle(idea: dict) -> str:
         ("Machiavelli", ["machiavelli", "the prince", "prince", "virtù",
                           "fortuna", "feared or loved", "fox and lion",
                           "principality", "sovereignty"]),
+        ("Thucydides Trap", ["thucydides", "rising power", "established power",
+                              "security dilemma", "power transition",
+                              "athens and sparta", "inevitable conflict",
+                              "graham allison", "hegemonic war", "challenger"]),
+        ("Antifragile", ["antifragile", "black swan", "nassim taleb", "taleb",
+                          "fragility", "tail risk", "skin in the game",
+                          "barbell strategy", "fat tail", "lindy effect"]),
+        ("Grand Chessboard", ["brzezinski", "grand chessboard", "mackinder",
+                               "heartland", "rimland", "spykman", "pivot state",
+                               "chokepoint", "strait of hormuz", "eurasia"]),
+        ("Kindleberger Trap", ["kindleberger", "hegemonic stability", "public goods",
+                                "power vacuum", "stabilizer", "reserve currency",
+                                "dollar weaponization", "bretton woods"]),
+        ("Schelling", ["schelling", "focal point", "brinkmanship", "credible threat",
+                        "commitment device", "red line", "escalation dominance",
+                        "deterrence", "coercive diplomacy"]),
+        ("Collective Action", ["collective action", "mancur olson", "free rider",
+                                "concentrated benefits", "diffuse costs", "lobbying",
+                                "regulatory capture", "cartel", "special interest"]),
+        ("Soft Power", ["soft power", "joseph nye", "sharp power", "cultural hegemony",
+                         "gramsci", "influence operation", "confucius institute",
+                         "smart power", "cultural dominance"]),
         ("Game Theory", ["game theory", "nash equilibrium", "prisoner",
                           "dilemma", "zero-sum", "incentive", "payoff",
                           "dominant strategy", "tit for tat"]),
@@ -593,12 +616,18 @@ def infer_framework_angle(idea: dict) -> str:
     if best_score == 0:
         if any(w in text for w in ["corporate", "company", "ceo", "merger", "monopoly"]):
             best_framework = "48 Laws"
+        elif any(w in text for w in ["china", "beijing", "superpower", "rival", "overtake"]):
+            best_framework = "Thucydides Trap"
         elif any(w in text for w in ["sanction", "tariff", "trade war", "embargo"]):
             best_framework = "Game Theory"
         elif any(w in text for w in ["currency", "dollar", "debt", "inflation", "fed"]):
             best_framework = "Systems Thinking"
         elif any(w in text for w in ["army", "nato", "defense", "missile", "nuclear"]):
             best_framework = "Sun Tzu"
+        elif any(w in text for w in ["strait", "canal", "pipeline", "arctic", "corridor"]):
+            best_framework = "Grand Chessboard"
+        elif any(w in text for w in ["lobby", "regulation", "subsidy", "bail"]):
+            best_framework = "Collective Action"
 
     return best_framework
 
