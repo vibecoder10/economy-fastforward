@@ -32,7 +32,7 @@ class SoundClient:
         text: str,
         duration_seconds: Optional[float] = None,
         loop: bool = False,
-        prompt_influence: float = 0.3,
+        prompt_influence: float = 0.8,
     ) -> Optional[str]:
         """Generate a sound effect and wait for completion.
 

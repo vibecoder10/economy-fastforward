@@ -38,14 +38,16 @@ Return ONLY a JSON array, one entry per image:
 
 
 SOUND_PROMPT_SYSTEM = """\
-You are a cinematic sound designer. Given the narration text and visual description for one moment in a documentary, generate a single ambient sound effect description (max 450 characters, max 30 words).
+You are a cinematic sound designer. Given the narration text and visual description for one moment in a documentary, generate ONE specific sound effect.
 
 Rules:
-- Describe 2-3 layered sound elements that match both what's being said AND what's being shown
-- This plays underneath narration at low volume — atmosphere only, NOT music
-- Be specific: 'distant artillery rumble with crackling fire and faint radio chatter' not 'war sounds'
-- Match emotional tone to content
-- Output ONLY the sound description, nothing else."""
+- Describe exactly ONE distinct, recognizable sound — not a mix or layers
+- Pick the single most impactful sound for the moment
+- Be concrete and physical: 'heavy steel door slamming shut' not 'industrial atmosphere'
+- Good examples: 'crowd cheering in a stadium', 'thunder crack', 'cash register opening', 'helicopter rotor spinning up', 'glass shattering on concrete', 'courtroom gavel strike'
+- Bad examples: 'ambient tension with subtle undertones', 'eerie atmosphere', 'dystopian soundscape'
+- No music, no drones, no ambience, no 'atmospheric' anything
+- Max 15 words. Output ONLY the sound description, nothing else."""
 
 # Percentage bounds for sound selection per scene
 MIN_SOUND_PERCENT = 0.25
@@ -261,8 +263,8 @@ class SoundPromptBot:
             prompt=user_prompt,
             system_prompt=SOUND_PROMPT_SYSTEM,
             model="claude-haiku-4-5-20251001",
-            max_tokens=256,
-            temperature=0.7,
+            max_tokens=128,
+            temperature=0.5,
         )
 
         if not response or len(response.strip()) < 10:
