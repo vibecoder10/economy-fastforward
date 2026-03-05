@@ -182,35 +182,53 @@ def main():
             # Extract per-image sound effect from Airtable
             sound_attachment = img.get("Sound Effect")
             if sound_attachment and isinstance(sound_attachment, list) and len(sound_attachment) > 0:
-                sound_url = sound_attachment[0].get("url", "")
-                if sound_url:
-                    sfx_filename = f"sfx_{scene_number}_{img_index}.mp3"
-                    local_sfx = sfx_dir / sfx_filename
+                sfx_filename = f"sfx_{scene_number}_{img_index}.mp3"
+                local_sfx = sfx_dir / sfx_filename
 
-                    # Download SFX file if not already on disk
-                    if not local_sfx.exists():
+                if not local_sfx.exists():
+                    downloaded = False
+
+                    # Strategy 1: Search Google Drive by filename (most reliable —
+                    # sound_bot uploads as sfx_{scene}_{idx}.mp3 to video folder)
+                    try:
+                        drive_result = google.search_file(sfx_filename, folder_id)
+                        if drive_result:
+                            drive_file_id = drive_result["id"]
+                            google.download_file_to_local(drive_file_id, str(local_sfx))
+                            print(f"  Downloaded SFX (Drive search): {sfx_filename}")
+                            downloaded = True
+                    except Exception as e:
+                        print(f"  Warning: Drive search failed for {sfx_filename}: {e}")
+
+                    # Strategy 2: Extract Drive file ID from the Airtable attachment URL
+                    if not downloaded:
+                        sound_url = sound_attachment[0].get("url", "")
                         file_id = _extract_drive_file_id(sound_url)
                         if file_id:
                             try:
                                 google.download_file_to_local(file_id, str(local_sfx))
-                                print(f"  Downloaded SFX: {sfx_filename}")
+                                print(f"  Downloaded SFX (Drive ID): {sfx_filename}")
+                                downloaded = True
                             except Exception as e:
-                                print(f"  Warning: Failed to download SFX {sfx_filename}: {e}")
-                                file_id = None
-                        if not file_id:
-                            # Fallback: try downloading directly via URL (Airtable CDN)
+                                print(f"  Warning: Drive ID download failed for {sfx_filename}: {e}")
+
+                    # Strategy 3: Direct HTTP download from Airtable CDN (may expire)
+                    if not downloaded:
+                        sound_url = sound_attachment[0].get("url", "")
+                        if sound_url:
                             try:
                                 import httpx
                                 resp = httpx.get(sound_url, follow_redirects=True, timeout=30)
                                 resp.raise_for_status()
                                 local_sfx.write_bytes(resp.content)
-                                print(f"  Downloaded SFX (direct): {sfx_filename}")
+                                print(f"  Downloaded SFX (CDN): {sfx_filename}")
+                                downloaded = True
                             except Exception as e:
-                                print(f"  Warning: Failed to download SFX directly {sfx_filename}: {e}")
+                                print(f"  Warning: CDN download failed for {sfx_filename}: {e}")
 
-                    if local_sfx.exists():
-                        img_data["sfx"] = f"sfx/{sfx_filename}"
-                        img_data["sfxVolume"] = img.get("Sound Volume", 0.15)
+                if local_sfx.exists():
+                    img_data["sfx"] = f"sfx/{sfx_filename}"
+                    img_data["sfxVolume"] = img.get("Sound Volume", 0.15)
 
             image_props.append(img_data)
 
