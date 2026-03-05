@@ -238,7 +238,7 @@ def infer_framework_from_research(payload: dict) -> str:
     which voice to write the script in.
 
     Returns:
-        One of the 10 valid Framework Angle values.
+        One of the 17 valid Framework Angle values.
     """
     # Combine all rich text fields for analysis
     text = " ".join([
@@ -250,6 +250,7 @@ def infer_framework_from_research(payload: dict) -> str:
     ]).lower()
 
     # Score each framework based on keyword presence
+    # Must match all 17 frameworks in script_generator._build_framework_lens_section()
     framework_signals = {
         "48 Laws": ["law of power", "48 laws", "robert greene", "conceal your intentions",
                      "crush your enemy", "court power", "appear weak",
@@ -257,12 +258,38 @@ def infer_framework_from_research(payload: dict) -> str:
         "Machiavelli": ["machiavelli", "the prince", "virtù", "fortuna",
                          "feared or loved", "fox and lion", "principality",
                          "statecraft", "political realism"],
-        "Sun Tzu": ["sun tzu", "art of war", "all warfare is deception",
-                     "supreme excellence", "know your enemy", "terrain",
-                     "military strategy", "flanking", "strategic retreat"],
+        "Thucydides Trap": ["thucydides", "rising power", "established power",
+                             "security dilemma", "power transition", "athens and sparta",
+                             "inevitable conflict", "graham allison", "hegemonic war",
+                             "challenger", "status quo power"],
+        "Antifragile": ["antifragile", "black swan", "nassim taleb", "taleb",
+                         "fragility", "tail risk", "skin in the game",
+                         "barbell strategy", "fat tail", "lindy effect",
+                         "robust", "convexity"],
         "Game Theory": ["game theory", "nash equilibrium", "prisoner's dilemma",
                          "zero-sum", "positive-sum", "dominant strategy",
                          "payoff matrix", "incentive structure", "tit for tat"],
+        "Sun Tzu": ["sun tzu", "art of war", "all warfare is deception",
+                     "supreme excellence", "know your enemy", "terrain",
+                     "military strategy", "flanking", "strategic retreat"],
+        "Grand Chessboard": ["brzezinski", "grand chessboard", "mackinder",
+                              "heartland", "rimland", "spykman", "pivot state",
+                              "chokepoint", "strait of hormuz", "eurasia",
+                              "geopolitics of geography", "great game"],
+        "Kindleberger Trap": ["kindleberger", "hegemonic stability", "public goods",
+                               "power vacuum", "stabilizer", "reserve currency",
+                               "dollar weaponization", "bretton woods",
+                               "systemic collapse", "hegemon withdrawal"],
+        "Schelling": ["schelling", "focal point", "brinkmanship", "credible threat",
+                       "commitment device", "red line", "escalation dominance",
+                       "mutual assured destruction", "deterrence", "coercive diplomacy"],
+        "Collective Action": ["collective action", "mancur olson", "free rider",
+                               "concentrated benefits", "diffuse costs", "lobbying",
+                               "regulatory capture", "cartel", "special interest",
+                               "organized minority"],
+        "Soft Power": ["soft power", "joseph nye", "sharp power", "cultural hegemony",
+                        "gramsci", "influence operation", "confucius institute",
+                        "smart power", "cultural dominance", "narrative warfare"],
         "Jung Shadow": ["shadow self", "jung", "collective unconscious", "projection",
                          "persona", "archetype", "individuation", "shadow work"],
         "Behavioral Econ": ["behavioral economics", "loss aversion", "anchoring",

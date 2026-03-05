@@ -26,6 +26,7 @@ SAMPLE_BRIEF = {
     "visual_seeds": "Boardroom, trading floor, network diagram",
     "character_dossier": "CEO profile with background",
     "date_deep_dived": "2026-02-14",
+    "themes": "Power consolidation, corporate sovereignty, historical cycles",
 }
 
 SAMPLE_SCRIPT = """[ACT 1 — THE HOOK | 0:00-1:30 | ~225 words]
@@ -96,6 +97,7 @@ class TestBuildPipelineRecord:
             "Future Prediction", "Writer Guidance", "Original DNA",
             "Status", "Script", "Scene File Path", "Accent Color",
             "Video ID", "Scene Count", "Validation Status",
+            "Framework Angle", "Thematic Framework",
         ]
         for field in required:
             assert field in record, f"Missing field: {field}"

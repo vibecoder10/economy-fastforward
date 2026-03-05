@@ -208,6 +208,9 @@ def build_pipeline_record(
         "Validation Status": "validated",
         # Source list for YouTube description / show notes
         "Sources": sources_text,
+        # Framework fields for downstream stages (thumbnail selection, performance analysis)
+        "Framework Angle": brief.get("_selected_framework", "") or brief.get("framework_angle", ""),
+        "Thematic Framework": brief.get("themes", ""),
     }
 
 
