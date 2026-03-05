@@ -147,9 +147,17 @@ def main():
         print(f"⚠️ Video status is '{idea.get('Status')}', expected 'Done'")
         print("   Proceeding anyway...")
     
-    # Get/create folder
-    folder = google.get_or_create_folder(title)
-    folder_id = folder["id"]
+    # Use existing folder from Airtable (where images/voice/SFX were uploaded)
+    folder_id = idea.get("Google Drive Folder ID") or idea.get("Drive Folder ID")
+    if not folder_id:
+        # Fallback: search for existing folder, never create a new one
+        folder = google.search_folder(title)
+        if folder:
+            folder_id = folder["id"]
+        else:
+            print(f"❌ No Google Drive folder found for this video.")
+            print(f"   Check 'Google Drive Folder ID' field in Airtable.")
+            return
     print(f"📂 Drive folder: {folder_id}")
     
     # Export Remotion props
@@ -162,11 +170,22 @@ def main():
     sfx_dir = remotion_dir / "public" / "sfx"
     sfx_dir.mkdir(parents=True, exist_ok=True)
 
+    # Pre-load all files in the Drive folder (paginated) so we can look up
+    # SFX files by name without per-file API calls.  The folder can have 200+
+    # items so we need the full paginated listing.
+    print("  Loading Drive folder contents...")
+    drive_files_list = google.list_files_in_folder(folder_id)
+    drive_file_map: dict[str, str] = {}  # filename -> file_id
+    for df in drive_files_list:
+        drive_file_map[df["name"]] = df["id"]
+    sfx_in_drive = {k: v for k, v in drive_file_map.items() if k.startswith("sfx_")}
+    print(f"  Drive folder: {len(drive_files_list)} files total, {len(sfx_in_drive)} SFX files")
+
     scenes = []
     for script in scripts:
         scene_number = script.get("scene", 0)
         scene_images = [img for img in images if img.get("Scene") == scene_number]
-        
+
         # Build sound_layers from Sound Map JSON (if available)
         sound_layers = _build_sound_layers(script, scene_number, sfx_dir, google)
 
@@ -188,31 +207,39 @@ def main():
                 if not local_sfx.exists():
                     downloaded = False
 
-                    # Strategy 1: Search Google Drive by filename (most reliable —
-                    # sound_bot uploads as sfx_{scene}_{idx}.mp3 to video folder)
-                    try:
-                        drive_result = google.search_file(sfx_filename, folder_id)
-                        if drive_result:
-                            drive_file_id = drive_result["id"]
-                            google.download_file_to_local(drive_file_id, str(local_sfx))
-                            print(f"  Downloaded SFX (Drive search): {sfx_filename}")
+                    # Strategy 1: Use pre-loaded Drive file map (no extra API calls)
+                    if sfx_filename in drive_file_map:
+                        try:
+                            google.download_file_to_local(drive_file_map[sfx_filename], str(local_sfx))
+                            print(f"  Downloaded SFX: {sfx_filename}")
                             downloaded = True
-                    except Exception as e:
-                        print(f"  Warning: Drive search failed for {sfx_filename}: {e}")
+                        except Exception as e:
+                            print(f"  Warning: Drive download failed for {sfx_filename}: {e}")
 
-                    # Strategy 2: Extract Drive file ID from the Airtable attachment URL
+                    # Strategy 2: Direct Drive API search (in case filename differs)
+                    if not downloaded:
+                        try:
+                            drive_result = google.search_file(sfx_filename, folder_id)
+                            if drive_result:
+                                google.download_file_to_local(drive_result["id"], str(local_sfx))
+                                print(f"  Downloaded SFX (search): {sfx_filename}")
+                                downloaded = True
+                        except Exception as e:
+                            print(f"  Warning: Drive search failed for {sfx_filename}: {e}")
+
+                    # Strategy 3: Extract Drive file ID from Airtable attachment URL
                     if not downloaded:
                         sound_url = sound_attachment[0].get("url", "")
                         file_id = _extract_drive_file_id(sound_url)
                         if file_id:
                             try:
                                 google.download_file_to_local(file_id, str(local_sfx))
-                                print(f"  Downloaded SFX (Drive ID): {sfx_filename}")
+                                print(f"  Downloaded SFX (ID): {sfx_filename}")
                                 downloaded = True
                             except Exception as e:
                                 print(f"  Warning: Drive ID download failed for {sfx_filename}: {e}")
 
-                    # Strategy 3: Direct HTTP download from Airtable CDN (may expire)
+                    # Strategy 4: Direct HTTP from Airtable CDN (may expire after 2h)
                     if not downloaded:
                         sound_url = sound_attachment[0].get("url", "")
                         if sound_url:
@@ -225,6 +252,9 @@ def main():
                                 downloaded = True
                             except Exception as e:
                                 print(f"  Warning: CDN download failed for {sfx_filename}: {e}")
+
+                    if not downloaded:
+                        print(f"  ❌ Could not download {sfx_filename} via any method")
 
                 if local_sfx.exists():
                     img_data["sfx"] = f"sfx/{sfx_filename}"
