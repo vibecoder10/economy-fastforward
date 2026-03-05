@@ -42,6 +42,32 @@ detect_python() {
 
 PYTHON3=$(detect_python)
 
+# Detect system timezone to determine correct cron schedule hours
+# CRON_TZ is NOT supported on Debian/Ubuntu (vixie-cron), so we must
+# convert Pacific times to system-local times.
+SYS_TZ=$(cat /etc/timezone 2>/dev/null || timedatectl show --property=Timezone --value 2>/dev/null || echo "unknown")
+
+# Check if system timezone is Pacific — if so, use times as-is
+if echo "$SYS_TZ" | grep -qiE "america/los_angeles|US/Pacific"; then
+    TZ_MODE="pacific"
+    DISCOVER_HOUR=5
+    PERF_HOUR=7
+    QUEUE_HOUR=8
+elif echo "$SYS_TZ" | grep -qiE "UTC|Etc/UTC|Etc/GMT"; then
+    TZ_MODE="utc"
+    # Pacific to UTC: PST = UTC-8, PDT = UTC-7
+    # Use PST offsets (conservative — jobs run 1h later in summer)
+    DISCOVER_HOUR=13   # 5 AM PT = 1 PM UTC (PST)
+    PERF_HOUR=15       # 7 AM PT = 3 PM UTC (PST)
+    QUEUE_HOUR=16      # 8 AM PT = 4 PM UTC (PST)
+else
+    # Unknown timezone — default to UTC offsets and warn
+    TZ_MODE="other ($SYS_TZ)"
+    DISCOVER_HOUR=13
+    PERF_HOUR=15
+    QUEUE_HOUR=16
+fi
+
 echo "=================================================="
 echo "  Pipeline Cron Job Setup"
 echo "=================================================="
@@ -50,6 +76,8 @@ echo "  Repo dir:     $REPO_DIR"
 echo "  Pipeline dir: $PIPELINE_DIR"
 echo "  Python:       $PYTHON3"
 echo "  Wrapper:      $WRAPPER"
+echo "  System TZ:    $SYS_TZ (mode: $TZ_MODE)"
+echo "  Schedule:     discover=$DISCOVER_HOUR:00, perf=$PERF_HOUR:00, queue=$QUEUE_HOUR:00"
 echo ""
 
 # Verify wrapper exists
@@ -61,9 +89,12 @@ fi
 chmod +x "$WRAPPER"
 
 # Build the crontab entries
+# Hours are computed above based on system timezone (Pacific direct or UTC-converted)
+# MAX_LOCK_AGE prevents stale locks from blocking jobs forever
 CRON_ENTRIES=$(cat <<EOF
 # Economy FastForward Pipeline Cron Jobs
 # Installed by setup_cron.sh — $(date)
+# System timezone: $SYS_TZ (mode: $TZ_MODE)
 
 # Force bash shell (cron defaults to /bin/sh which may not handle our syntax)
 SHELL=/bin/bash
@@ -71,26 +102,23 @@ SHELL=/bin/bash
 # Ensure standard tools (timeout, git, curl, jq) are on PATH
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
-# Timezone for schedule times — requires cronie (RHEL/CentOS/Fedora).
-# On Debian/Ubuntu (vixie-cron), CRON_TZ is ignored and system tz is used.
-# The TZ variable ensures date output in logs shows Pacific time regardless.
-CRON_TZ=America/Los_Angeles
+# TZ for log timestamps — shows Pacific time in logs regardless of system tz
 TZ=America/Los_Angeles
 
-# 5:00 AM PT — Daily idea discovery scan
+# $DISCOVER_HOUR:00 (~5 AM PT) — Daily idea discovery scan
 # Finds new video ideas and posts interactive Slack message for approval
-# Timeout: 10 minutes max (discovery should take <2 min)
-0 5 * * * $WRAPPER discovery /tmp/pipeline-discover.log timeout 600 python pipeline.py --discover
+# Timeout: 10 min max | Lock expires after 15 min
+0 $DISCOVER_HOUR * * * MAX_LOCK_AGE=900 $WRAPPER discovery /tmp/pipeline-discover.log timeout 600 python pipeline.py --discover
 
-# 7:00 AM PT — Daily YouTube performance tracker
+# $PERF_HOUR:00 (~7 AM PT) — Daily YouTube performance tracker
 # Syncs YouTube metrics (views, CTR, retention, snapshots) to Airtable
-# Timeout: 10 minutes max
-0 7 * * * $WRAPPER performance /tmp/performance-tracker.log timeout 600 python performance_tracker.py --recent
+# Timeout: 10 min max | Lock expires after 15 min
+0 $PERF_HOUR * * * MAX_LOCK_AGE=900 $WRAPPER performance /tmp/performance-tracker.log timeout 600 python performance_tracker.py --recent
 
-# 8:00 AM PT — Daily pipeline queue run
+# $QUEUE_HOUR:00 (~8 AM PT) — Daily pipeline queue run
 # Processes all stages: Script → Voice → Image Prompts → Images → Thumbnail → Render → Upload
-# Timeout: 4 hours max (image generation can be slow)
-0 8 * * * $WRAPPER pipeline-queue /tmp/pipeline-queue.log timeout 14400 python pipeline.py --run-queue
+# Timeout: 4 hours max | Lock expires after 5 hours
+0 $QUEUE_HOUR * * * MAX_LOCK_AGE=18000 $WRAPPER pipeline-queue /tmp/pipeline-queue.log timeout 14400 python pipeline.py --run-queue
 
 # Every 15 min — Slack bot health check
 # Verifies pipeline_control.py is running. If it died, restarts it and sends alert.
@@ -98,7 +126,8 @@ TZ=America/Los_Angeles
 
 # Every 30 min — Approval watcher
 # Catches ideas manually approved in Airtable (status set to "Approved")
-*/30 * * * * $WRAPPER approvals /tmp/pipeline-approval.log timeout 600 python approval_watcher.py
+# Lock expires after 15 min
+*/30 * * * * MAX_LOCK_AGE=900 $WRAPPER approvals /tmp/pipeline-approval.log timeout 600 python approval_watcher.py
 EOF
 )
 
@@ -114,12 +143,12 @@ fi
 
 echo "  Cron jobs installed!"
 echo ""
-echo "  Scheduled:"
-echo "    5:00 AM PT daily  ->  Discovery scan (post ideas to Slack)"
-echo "    7:00 AM PT daily  ->  YouTube performance tracker (sync analytics)"
-echo "    8:00 AM PT daily  ->  Pipeline queue (process all stages to render)"
-echo "    Every 15 min      ->  Bot health check (auto-restart if down)"
-echo "    Every 30 min      ->  Approval watcher (catch manual approvals)"
+echo "  Scheduled (system time $SYS_TZ → ~Pacific equivalent):"
+echo "    $DISCOVER_HOUR:00 daily (~5 AM PT) ->  Discovery scan (post ideas to Slack)"
+echo "    $PERF_HOUR:00 daily (~7 AM PT)     ->  YouTube performance tracker (sync analytics)"
+echo "    $QUEUE_HOUR:00 daily (~8 AM PT)    ->  Pipeline queue (process all stages to render)"
+echo "    Every 15 min            ->  Bot health check (auto-restart if down)"
+echo "    Every 30 min            ->  Approval watcher (catch manual approvals)"
 echo ""
 echo "  Failure alerts:"
 echo "    All jobs (except healthcheck) send Slack notifications on failure."
@@ -138,5 +167,17 @@ echo "    /tmp/pipeline-queue.log"
 echo "    /tmp/pipeline-bot-health.log"
 echo "    /tmp/pipeline-approval.log"
 echo ""
+# ── Verify cron daemon is running ─────────────────────────────────────
+if pgrep -x "cron" > /dev/null 2>&1 || pgrep -x "crond" > /dev/null 2>&1; then
+    echo "  Cron daemon: RUNNING"
+else
+    echo "  ⚠️  WARNING: Cron daemon is NOT running!"
+    echo "     Jobs are installed but will NOT fire until cron is started."
+    echo "     Start it with:"
+    echo "       sudo systemctl start cron && sudo systemctl enable cron"
+    echo ""
+fi
+
 echo "  Verify with: crontab -l"
+echo "  Diagnose:    bash diagnose_cron.sh"
 echo "=================================================="

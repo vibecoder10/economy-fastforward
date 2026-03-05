@@ -40,16 +40,37 @@ cleanup_lock() {
 
 if [ -f "$LOCK_FILE" ]; then
     LOCK_PID=$(cat "$LOCK_FILE" 2>/dev/null)
-    if [ -n "$LOCK_PID" ] && kill -0 "$LOCK_PID" 2>/dev/null; then
-        echo "[$(date)] SKIPPED: $JOB_NAME already running (PID $LOCK_PID)" >> "$LOG_FILE"
-        exit 0
+
+    # Check lock age — any lock older than MAX_LOCK_AGE is stale regardless of PID
+    LOCK_AGE=$(( $(date +%s) - $(stat -c %Y "$LOCK_FILE" 2>/dev/null || echo 0) ))
+    MAX_LOCK_AGE=${MAX_LOCK_AGE:-14400}  # Default 4 hours, overridable per job
+    if [ "$LOCK_AGE" -gt "$MAX_LOCK_AGE" ]; then
+        echo "[$(date)] Stale lock detected (age: ${LOCK_AGE}s > ${MAX_LOCK_AGE}s), removing" >> "$LOG_FILE"
+        rm -f "$LOCK_FILE"
+    elif [ -n "$LOCK_PID" ] && kill -0 "$LOCK_PID" 2>/dev/null; then
+        # PID is alive — but verify it's actually a pipeline process, not a reused PID
+        LOCK_PROC=$(ps -p "$LOCK_PID" -o comm= 2>/dev/null || echo "")
+        if echo "$LOCK_PROC" | grep -qE "python|bash|pipeline"; then
+            echo "[$(date)] SKIPPED: $JOB_NAME already running (PID $LOCK_PID, proc: $LOCK_PROC)" >> "$LOG_FILE"
+            exit 0
+        else
+            echo "[$(date)] Stale lock: PID $LOCK_PID is '$LOCK_PROC' (not a pipeline process), removing" >> "$LOG_FILE"
+            rm -f "$LOCK_FILE"
+        fi
+    else
+        # PID is dead — stale lock
+        echo "[$(date)] Cleaning stale lock (PID $LOCK_PID is dead)" >> "$LOG_FILE"
+        rm -f "$LOCK_FILE"
     fi
-    # Stale lock — clean it up
-    rm -f "$LOCK_FILE"
 fi
 
 echo $$ > "$LOCK_FILE"
 trap cleanup_lock EXIT
+
+# ── Heartbeat — log immediately so we know cron fired ────────────────
+echo "" >> "$LOG_FILE"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >> "$LOG_FILE"
+echo "[$(date)] CRON FIRED: $JOB_NAME (PID $$)" >> "$LOG_FILE"
 
 # ── Environment ──────────────────────────────────────────────────────
 # Ensure standard tools are on PATH (cron has minimal PATH)
@@ -116,10 +137,6 @@ MSG
 }
 
 # ── Git pull (best-effort) ───────────────────────────────────────────
-echo "" >> "$LOG_FILE"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >> "$LOG_FILE"
-echo "[$(date)] START: $JOB_NAME" >> "$LOG_FILE"
-
 cd "$REPO_DIR" || {
     echo "[$(date)] FATAL: Cannot cd to $REPO_DIR" >> "$LOG_FILE"
     send_failure_alert 1 "Cannot cd to $REPO_DIR"
@@ -127,8 +144,9 @@ cd "$REPO_DIR" || {
 }
 
 # Pull latest code — non-fatal if it fails (stale code is better than no run)
-if ! git pull origin main --ff-only >> "$LOG_FILE" 2>&1; then
-    echo "[$(date)] WARNING: git pull failed — running with existing code" >> "$LOG_FILE"
+# Timeout prevents hangs from git prompts or network issues
+if ! timeout 30 git pull origin main --ff-only >> "$LOG_FILE" 2>&1; then
+    echo "[$(date)] WARNING: git pull failed or timed out — running with existing code" >> "$LOG_FILE"
 fi
 
 # ── Run the command ──────────────────────────────────────────────────
