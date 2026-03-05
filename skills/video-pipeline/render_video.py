@@ -170,17 +170,55 @@ def main():
         # Build sound_layers from Sound Map JSON (if available)
         sound_layers = _build_sound_layers(script, scene_number, sfx_dir, google)
 
+        # Build per-image data including SFX
+        image_props = []
+        for img in sorted(scene_images, key=lambda x: x.get("Image Index", 0)):
+            img_index = img.get("Image Index", 0)
+            img_data: dict = {
+                "index": img_index,
+                "url": img.get("Image", [{}])[0].get("url", "") if img.get("Image") else "",
+            }
+
+            # Extract per-image sound effect from Airtable
+            sound_attachment = img.get("Sound Effect")
+            if sound_attachment and isinstance(sound_attachment, list) and len(sound_attachment) > 0:
+                sound_url = sound_attachment[0].get("url", "")
+                if sound_url:
+                    sfx_filename = f"sfx_{scene_number}_{img_index}.mp3"
+                    local_sfx = sfx_dir / sfx_filename
+
+                    # Download SFX file if not already on disk
+                    if not local_sfx.exists():
+                        file_id = _extract_drive_file_id(sound_url)
+                        if file_id:
+                            try:
+                                google.download_file_to_local(file_id, str(local_sfx))
+                                print(f"  Downloaded SFX: {sfx_filename}")
+                            except Exception as e:
+                                print(f"  Warning: Failed to download SFX {sfx_filename}: {e}")
+                                file_id = None
+                        if not file_id:
+                            # Fallback: try downloading directly via URL (Airtable CDN)
+                            try:
+                                import httpx
+                                resp = httpx.get(sound_url, follow_redirects=True, timeout=30)
+                                resp.raise_for_status()
+                                local_sfx.write_bytes(resp.content)
+                                print(f"  Downloaded SFX (direct): {sfx_filename}")
+                            except Exception as e:
+                                print(f"  Warning: Failed to download SFX directly {sfx_filename}: {e}")
+
+                    if local_sfx.exists():
+                        img_data["sfx"] = f"sfx/{sfx_filename}"
+                        img_data["sfxVolume"] = img.get("Sound Volume", 0.15)
+
+            image_props.append(img_data)
+
         scenes.append({
             "sceneNumber": scene_number,
             "text": script.get("Scene text", ""),
             "voiceUrl": script.get("Voice Over", [{}])[0].get("url", "") if script.get("Voice Over") else "",
-            "images": [
-                {
-                    "index": img.get("Image Index", 0),
-                    "url": img.get("Image", [{}])[0].get("url", "") if img.get("Image") else "",
-                }
-                for img in sorted(scene_images, key=lambda x: x.get("Image Index", 0))
-            ],
+            "images": image_props,
             "sound_layers": sound_layers,
         })
     
@@ -246,6 +284,31 @@ def main():
             print(f"       ... and {len(missing_sfx) - 5} more")
     else:
         print(f"     All SFX files present on disk")
+
+    # Per-image SFX diagnostics
+    per_image_sfx_count = 0
+    per_image_sfx_files = set()
+    for s in scenes:
+        for img in s.get("images", []):
+            if img.get("sfx"):
+                per_image_sfx_count += 1
+                per_image_sfx_files.add(img["sfx"])
+    total_images = sum(len(s.get("images", [])) for s in scenes)
+    print(f"\n   Per-image SFX diagnostics:")
+    print(f"     Images with SFX: {per_image_sfx_count}/{total_images}")
+    print(f"     Unique per-image SFX files: {len(per_image_sfx_files)}")
+
+    # Verify per-image SFX files exist on disk
+    missing_per_image = []
+    for f in per_image_sfx_files:
+        if not (remotion_dir / "public" / f).exists():
+            missing_per_image.append(f)
+    if missing_per_image:
+        print(f"     ⚠️ Missing per-image SFX: {len(missing_per_image)}")
+        for f in missing_per_image[:5]:
+            print(f"       - {f}")
+    else:
+        print(f"     All per-image SFX files present on disk")
 
     # Save props
     props_file = remotion_dir / "props.json"
