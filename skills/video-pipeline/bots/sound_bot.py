@@ -60,10 +60,12 @@ class SoundBot:
         if not images:
             return {"error": f"No images found for: {video_title}"}
 
-        # Filter to images with Sound Prompt but no Sound Effect
+        # Filter to images with Sound Prompt (not SKIP) but no Sound Effect
         needs_generation = [
             img for img in images
-            if img.get("Sound Prompt") and not img.get("Sound Effect")
+            if img.get("Sound Prompt")
+            and img.get("Sound Prompt") != "SKIP"
+            and not img.get("Sound Effect")
         ]
 
         if not needs_generation:
