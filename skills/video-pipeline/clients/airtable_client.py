@@ -50,6 +50,7 @@ class AirtableClient:
     Style overrides (written via Slack !style commands):
         - Image Style Override    : Long Text — custom instructions for image prompt prefix
         - Thumbnail Style Override: Long Text — custom instructions for thumbnail template
+        - Image Model Override    : Text     — hot-swap scene image model (e.g. "z-image")
 
     Pipeline-only fields (written by later stages, not discovery/research):
         - Script            : Long Text      — written by brief_translator

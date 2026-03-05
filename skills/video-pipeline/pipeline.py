@@ -1415,10 +1415,21 @@ class VideoPipeline:
             self.slack.notify(f"⚠️ Image Bot: 0 pending images found for *{self.video_title}*. Nothing to generate.")
             return {"image_count": 0, "failed_count": 0}
 
+        # Check for image model override (hot-swap via Slack !model command)
+        from clients.image_client import ImageClient
+        model_override = (self.current_idea.get("Image Model Override") or "").strip().lower()
+        if model_override and model_override not in ImageClient.VALID_SCENE_MODELS:
+            print(f"     ⚠️ Invalid model override '{model_override}', falling back to default")
+            model_override = ""
+        if model_override:
+            print(f"     🔄 Model override active: {model_override} ({ImageClient.VALID_SCENE_MODELS[model_override]})")
+
         # YouTube pipeline: Core Image is optional (uses text-to-image without reference)
         # Animation pipeline: Core Image is required (uses Seed Dream 4.5 Edit with reference)
-        use_reference = bool(self.core_image_url)
-        if use_reference:
+        use_reference = bool(self.core_image_url) and model_override != "z-image"
+        if model_override == "z-image":
+            print(f"     🎨 Using Z Image model (text-to-image, no reference)")
+        elif use_reference:
             print(f"     🖼️ Using Core Image reference (Seed Dream 4.5 Edit)")
         else:
             print(f"     📸 Using text-to-image generation (no Core Image reference)")
@@ -1453,9 +1464,10 @@ class VideoPipeline:
                     prompt_preview = prompt[:120] + "..." if len(prompt) > 120 else prompt
 
                     try:
-                        # Generate image: use Core Image reference if available,
-                        # otherwise use text-to-image (YouTube pipeline path)
-                        if use_reference:
+                        # Generate image: route based on model override, then reference availability
+                        if model_override == "z-image":
+                            result = await self.image_client.generate_scene_image_zimage(prompt, aspect_ratio="16:9")
+                        elif use_reference:
                             result = await self.image_client.generate_scene_image(prompt, self.core_image_url)
                         else:
                             result_urls = await self.image_client.generate_and_wait(prompt, aspect_ratio="16:9")
@@ -1556,7 +1568,9 @@ class VideoPipeline:
                     
                     prompt_preview = prompt[:120] + "..." if len(prompt) > 120 else prompt
                     try:
-                        if use_reference:
+                        if model_override == "z-image":
+                            result = await self.image_client.generate_scene_image_zimage(prompt, aspect_ratio="16:9")
+                        elif use_reference:
                             result = await self.image_client.generate_scene_image(prompt, self.core_image_url)
                         else:
                             result_urls = await self.image_client.generate_and_wait(prompt, aspect_ratio="16:9")

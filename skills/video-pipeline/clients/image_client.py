@@ -22,6 +22,15 @@ class ImageClient:
     SCENE_MODEL = "nano-banana-2"  # Nano Banana 2 — scene images (cheaper, reference support)
     THUMBNAIL_MODEL = "nano-banana-pro"  # Nano Banana Pro for thumbnails - text rendering
 
+    # Alternative scene image models (hot-swappable via Slack !model command)
+    ZIMAGE_MODEL = "z-image"  # Z Image — high-quality image generation
+
+    # Valid scene image models for hot-swap validation
+    VALID_SCENE_MODELS = {
+        "nano-banana-2": "Nano Banana 2 (default — reference support, $0.025/img)",
+        "z-image": "Z Image (high-quality, $0.025/img)",
+    }
+
     # Veo 3.1 models
     VEO_MODEL_FAST = "veo3_fast"  # Faster, lower cost
     VEO_MODEL_QUALITY = "veo3"  # Higher quality, slower
@@ -461,6 +470,85 @@ class ImageClient:
         """
         # Delegates to generate_scene_image which uses Nano Banana 2
         return await self.generate_scene_image(prompt, reference_image_url, seed)
+
+    async def generate_scene_image_zimage(
+        self,
+        prompt: str,
+        aspect_ratio: str = "16:9",
+    ) -> Optional[dict]:
+        """Generate a scene image using Z Image model.
+
+        Z Image is a text-to-image model (no reference image support).
+        Uses the same Kie.ai task/poll API pattern.
+
+        Args:
+            prompt: Image generation prompt
+            aspect_ratio: Aspect ratio (16:9, 9:16, 1:1, 4:3, 3:4)
+
+        Returns:
+            Dict with 'url' and 'seed' keys, or None if failed
+        """
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+
+        payload = {
+            "model": self.ZIMAGE_MODEL,
+            "input": {
+                "prompt": prompt,
+                "aspect_ratio": aspect_ratio,
+            },
+        }
+
+        prompt_preview = prompt[:100] + "..." if len(prompt) > 100 else prompt
+        print(f"      🎨 Generating scene image with Z Image...")
+
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    self.CREATE_TASK_URL,
+                    headers=headers,
+                    json=payload,
+                    timeout=60.0,
+                )
+                if response.status_code != 200:
+                    print(f"      ❌ Z Image API error: {response.status_code}")
+                    print(f"         Response: {response.text[:500]}")
+                    print(f"         Prompt: {prompt_preview}")
+                    return None
+
+                task_data = response.json()
+                task_id = task_data.get("data", {}).get("taskId")
+
+                if not task_id:
+                    print(f"      ❌ No task ID returned")
+                    print(f"         API response: {task_data}")
+                    print(f"         Prompt: {prompt_preview}")
+                    return None
+
+                print(f"      🎯 Z Image task: {task_id}")
+
+                # Wait and poll — Z Image uses state-based polling (waiting/success/fail)
+                await asyncio.sleep(5)
+                result_urls = await self.poll_for_completion(task_id, max_attempts=60, poll_interval=2.0)
+
+                if result_urls:
+                    return {
+                        "url": result_urls[0],
+                        "seed": None,
+                    }
+
+                print(f"      ❌ Z Image generation failed (task: {task_id})")
+                print(f"         Prompt: {prompt_preview}")
+                return None
+
+        except Exception as e:
+            print(f"      ❌ Z Image error: {e}")
+            print(f"         Prompt: {prompt_preview}")
+            import traceback
+            traceback.print_exc()
+            return None
 
     async def generate_thumbnail(self, prompt: str) -> Optional[list[str]]:
         """Generate a thumbnail using Nano Banana Pro.

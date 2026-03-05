@@ -173,6 +173,11 @@ async def handle_help(message, say):
 - `style color <title>: <color>` - Set accent color (cold teal, muted crimson, warm amber, muted green)
 - `style reset <title>` - Clear all style overrides and accent color for a video
 
+*Image Model*
+- `model <title>: <model>` - Switch image generation model for a video (e.g. `model My Video: z-image`)
+- `model reset <title>` - Revert to default model (nano-banana-2)
+- `models` - List all available image generation models
+
 *System & DevOps*
 - `stop` / `kill` - Stop the currently running pipeline
 - `status` / `check` - Check current project status (both pipelines)
@@ -1950,11 +1955,86 @@ async def handle_style_reset(message, say):
             "Image Style Override": "",
             "Thumbnail Style Override": "",
             "Accent Color": "",
+            "Image Model Override": "",
         })
         video_title = idea.get("Video Title", title)
         await say(f":white_check_mark: Style overrides cleared for *{video_title}*")
     except Exception as e:
         await say(f":x: Error resetting style overrides: {e}")
+
+
+# ---------------------------------------------------------------------------
+# !model — hot-swap image generation model for a video
+# ---------------------------------------------------------------------------
+
+@app.message(re.compile(r"^!?model\s+(.+?):\s*(.+)", re.IGNORECASE))
+async def handle_model_set(message, say):
+    """Set the image generation model override for a specific video."""
+    match = re.search(r"^!?model\s+(.+?):\s*(.+)", message["text"], re.IGNORECASE)
+    if not match:
+        await say(":x: Usage: `model <video_title>: <model_name>`")
+        return
+
+    title = match.group(1).strip()
+    model_name = match.group(2).strip().lower()
+
+    from clients.image_client import ImageClient
+    if model_name not in ImageClient.VALID_SCENE_MODELS:
+        valid = "\n".join(f"  • `{k}` — {v}" for k, v in ImageClient.VALID_SCENE_MODELS.items())
+        await say(f":x: Invalid model *{model_name}*. Available models:\n{valid}")
+        return
+
+    try:
+        from clients.airtable_client import AirtableClient
+        airtable = AirtableClient()
+        idea = airtable.find_idea_by_title(title)
+        if not idea:
+            await say(f":x: No video found matching *{title}*")
+            return
+
+        airtable.update_idea_fields(idea["id"], {"Image Model Override": model_name})
+        video_title = idea.get("Video Title", title)
+        desc = ImageClient.VALID_SCENE_MODELS[model_name]
+        await say(f":arrows_counterclockwise: Image model set for *{video_title}*: `{model_name}` ({desc})")
+    except Exception as e:
+        await say(f":x: Error setting image model: {e}")
+
+
+@app.message(re.compile(r"^!?model\s+reset\s+(.+)", re.IGNORECASE))
+async def handle_model_reset(message, say):
+    """Clear the image model override for a specific video (revert to default)."""
+    match = re.search(r"^!?model\s+reset\s+(.+)", message["text"], re.IGNORECASE)
+    if not match:
+        await say(":x: Usage: `model reset <video_title>`")
+        return
+
+    title = match.group(1).strip()
+
+    try:
+        from clients.airtable_client import AirtableClient
+        airtable = AirtableClient()
+        idea = airtable.find_idea_by_title(title)
+        if not idea:
+            await say(f":x: No video found matching *{title}*")
+            return
+
+        airtable.update_idea_fields(idea["id"], {"Image Model Override": ""})
+        video_title = idea.get("Video Title", title)
+        await say(f":white_check_mark: Image model reset to default (nano-banana-2) for *{video_title}*")
+    except Exception as e:
+        await say(f":x: Error resetting image model: {e}")
+
+
+@app.message(re.compile(r"^!?models$", re.IGNORECASE))
+async def handle_model_list(message, say):
+    """List all available image generation models."""
+    from clients.image_client import ImageClient
+    lines = [":camera: *Available Image Generation Models:*\n"]
+    for model_id, desc in ImageClient.VALID_SCENE_MODELS.items():
+        default = " _(default)_" if model_id == ImageClient.SCENE_MODEL else ""
+        lines.append(f"  • `{model_id}` — {desc}{default}")
+    lines.append("\n_Use `model <title>: <model>` to set, `model reset <title>` to revert._")
+    await say("\n".join(lines))
 
 
 # ---------------------------------------------------------------------------
@@ -2006,6 +2086,9 @@ Available commands (return one of these EXACTLY):
 - "style thumbnail TITLE: INSTRUCTIONS" — set thumbnail style override for a video (keep TITLE and INSTRUCTIONS)
 - "style color TITLE: COLOR" — set accent color for a video (valid colors: cold teal, muted crimson, warm amber, muted green). Keep TITLE and COLOR from user message.
 - "style reset TITLE" — clear style overrides for a video (keep TITLE from user message)
+- "model TITLE: MODEL" — set image generation model for a video (valid models: nano-banana-2, z-image). Keep TITLE and MODEL from user message.
+- "model reset TITLE" — reset image model to default for a video (keep TITLE from user message)
+- "models" — list available image generation models
 - "help" — show available commands
 - "unknown" — message is not a bot command (casual chat, question, etc.)
 
@@ -2039,7 +2122,13 @@ Rules:
 "use teal for VIDEO" → style color VIDEO: cold teal, \
 "make VIDEO amber" → style color VIDEO: warm amber, \
 "green accent for VIDEO" → style color VIDEO: muted green, \
-"reset the style for VIDEO" → style reset VIDEO
+"reset the style for VIDEO" → style reset VIDEO, \
+"switch VIDEO to z-image" → model VIDEO: z-image, \
+"use z image for VIDEO" → model VIDEO: z-image, \
+"change model for VIDEO to z-image" → model VIDEO: z-image, \
+"reset model for VIDEO" → model reset VIDEO, \
+"what models are available" → models, \
+"list models" → models
 4. If they mention an API key or secret key, return: set key KEY
 5. If truly ambiguous, return: unknown"""
 
@@ -2107,6 +2196,7 @@ async def handle_fallback(event, say):
         "restart": handle_restart,
         "update": handle_update,
         "help": handle_help,
+        "models": handle_model_list,
         "cron on": handle_cron,
         "cron off": handle_cron,
         "cron status": handle_cron,
@@ -2162,6 +2252,20 @@ async def handle_fallback(event, say):
         await handle_style_reset(fake_message, say)
         return
 
+    # Check for "model" commands (hot-swap image generation model)
+    if command.startswith("model reset "):
+        fake_message = {"text": command, "user": event.get("user", "")}
+        await handle_model_reset(fake_message, say)
+        return
+    if command.startswith("model ") and ":" in command:
+        fake_message = {"text": command, "user": event.get("user", "")}
+        await handle_model_set(fake_message, say)
+        return
+    if command == "models":
+        fake_message = {"text": command, "user": event.get("user", "")}
+        await handle_model_list(fake_message, say)
+        return
+
     # Check for "discover" with focus keyword
     if command.startswith("discover"):
         fake_message = {"text": command, "user": event.get("user", ""),
@@ -2212,6 +2316,7 @@ async def main():
     print("  animate / discover / research")
     print("  queue / skip / retry    - Pipeline management")
     print("  style image/thumbnail/color/reset - Per-video style overrides")
+    print("  model <title>: <model> / models   - Hot-swap image generation model")
     print("  stop / status / logs / disk / show env / restart / update")
     print("  set env KEY=VALUE       - Set any env var in .env")
     print("  cron on/off/status      - Manage scheduled cron jobs")
