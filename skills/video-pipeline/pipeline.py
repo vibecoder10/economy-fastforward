@@ -4078,12 +4078,11 @@ async def main():
             print(f"  - {formula_display} (seen {seen}x)")
         
         load_dotenv()
-        from clients.anthropic_client import AnthropicClient
-        from clients.airtable_client import AirtableClient
-        from clients.slack_client import SlackClient
+        from clients.anthropic_client import AnthropicClient as _AnthropicClient
+        from clients.airtable_client import AirtableClient as _AirtableClient
 
-        anthropic = AnthropicClient()
-        airtable = AirtableClient()
+        anthropic = _AnthropicClient()
+        airtable = _AirtableClient()
         slack = SlackClient()
 
         async def run_more_ideas():
