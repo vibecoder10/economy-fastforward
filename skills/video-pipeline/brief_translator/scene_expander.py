@@ -108,28 +108,43 @@ def _validate_concepts(
     concepts: list[dict],
     scene_text: str,
     expected_count: int,
+    relaxed: bool = False,
 ) -> tuple[bool, str]:
     """Validate that concepts cover the full narration text exactly.
+
+    Args:
+        relaxed: When True, auto-fix minor issues (gaps, word counts) instead
+            of rejecting. Used on later retry attempts — a slightly imperfect
+            LLM result is far better than a mechanical fallback.
 
     Returns (is_valid, error_message).
     """
     if not concepts:
         return False, "No concepts returned"
 
-    if len(concepts) < MIN_CONCEPTS:
-        return False, f"Only {len(concepts)} concepts (minimum {MIN_CONCEPTS})"
+    # Relaxed mode: accept fewer concepts (min 3) — longer image durations
+    # are better than wrong/duplicate images from a mechanical fallback.
+    min_concepts = 3 if relaxed else MIN_CONCEPTS
+    if len(concepts) < min_concepts:
+        return False, f"Only {len(concepts)} concepts (minimum {min_concepts})"
 
-    if len(concepts) > MAX_CONCEPTS + 2:
-        return False, f"Too many concepts: {len(concepts)} (maximum {MAX_CONCEPTS})"
+    max_allowed = MAX_CONCEPTS + (4 if relaxed else 2)
+    if len(concepts) > max_allowed:
+        return False, f"Too many concepts: {len(concepts)} (maximum {max_allowed})"
 
     # Normalize whitespace for comparison
     normalized_source = " ".join(scene_text.split())
 
     # Check that each concept's sentence_text is a substring in order
     search_start = 0
+    # In relaxed mode, allow larger gaps and auto-absorb them
+    max_gap_words = 10 if relaxed else 3
     for i, concept in enumerate(concepts):
         text = concept.get("sentence_text", "")
         if not text:
+            if relaxed:
+                # Drop empty concepts instead of failing
+                continue
             return False, f"Concept {i + 1} has empty sentence_text"
 
         normalized_text = " ".join(text.split())
@@ -138,44 +153,66 @@ def _validate_concepts(
             # Try case-insensitive as a fallback
             pos = normalized_source.lower().find(normalized_text.lower(), search_start)
             if pos == -1:
+                if relaxed:
+                    # Skip this concept — the others may still be valid
+                    continue
                 return False, (
                     f"Concept {i + 1} sentence_text not found in narration "
                     f"(starting from position {search_start}): "
                     f"'{normalized_text[:60]}...'"
                 )
 
-        # Check for gaps — there shouldn't be large unaccounted text
+        # Check for gaps — absorb small gaps into preceding concept
         gap = normalized_source[search_start:pos].strip()
-        if gap and len(gap.split()) > 3:
-            return False, (
-                f"Gap of {len(gap.split())} words between concepts {i} and {i + 1}: "
-                f"'{gap[:60]}...'"
-            )
+        if gap:
+            gap_wc = len(gap.split())
+            if gap_wc <= max_gap_words:
+                # Auto-absorb gap into previous concept (or current if first)
+                if i > 0 and concepts[i - 1].get("sentence_text"):
+                    concepts[i - 1]["sentence_text"] = (
+                        concepts[i - 1]["sentence_text"] + " " + gap
+                    ).strip()
+                else:
+                    concept["sentence_text"] = (gap + " " + concept["sentence_text"]).strip()
+            elif not relaxed:
+                return False, (
+                    f"Gap of {gap_wc} words between concepts {i} and {i + 1}: "
+                    f"'{gap[:60]}...'"
+                )
+            # In relaxed mode with large gaps, absorb into previous anyway
+            elif i > 0 and concepts[i - 1].get("sentence_text"):
+                concepts[i - 1]["sentence_text"] = (
+                    concepts[i - 1]["sentence_text"] + " " + gap
+                ).strip()
 
         search_start = pos + len(normalized_text)
 
-    # Check trailing text — auto-fix small amounts by appending to last concept
+    # Remove concepts that were marked for skipping (empty sentence_text)
+    if relaxed:
+        concepts[:] = [c for c in concepts if c.get("sentence_text")]
+        if not concepts:
+            return False, "All concepts had invalid sentence_text"
+
+    # Check trailing text — auto-fix by appending to last concept
     trailing = normalized_source[search_start:].strip()
     if trailing:
         trailing_wc = len(trailing.split())
-        if trailing_wc <= 20:
-            # Small trailing text — append to last concept instead of failing
+        # In relaxed mode, always absorb trailing text
+        if trailing_wc <= 20 or relaxed:
             last = concepts[-1]
             last["sentence_text"] = (last.get("sentence_text", "") + " " + trailing).strip()
         elif trailing_wc > 20:
             return False, f"Uncovered trailing text ({trailing_wc} words): '{trailing[:60]}...'"
 
     # Validate word count and visual fields
+    # Relaxed mode: accept up to 50 words (downstream split handles it)
+    hard_reject_words = 50 if relaxed else 30
     for i, concept in enumerate(concepts):
         text = concept.get("sentence_text", "")
         wc = len(text.split())
-        # Allow up to 40 words — only reject truly oversized concepts.
-        # _validate_concept_durations() will split anything over MAX_WORDS
-        # (35) after validation passes, so 36-40 words get fixed downstream.
-        HARD_REJECT_WORDS = 30
-        if wc > HARD_REJECT_WORDS:
+        if wc > hard_reject_words:
             return False, (
-                f"Concept {i + 1} has {wc} words (max {HARD_REJECT_WORDS}): "
+                f"Concept {i + 1} has {wc} words (max {hard_reject_words}): "
                 f"'{text[:60]}...'"
             )
 
@@ -188,7 +225,12 @@ def _validate_concepts(
             concept["composition"] = "medium"
 
         if not concept.get("visual_description"):
-            return False, f"Concept {i + 1} has no visual_description"
+            if relaxed:
+                # Use sentence text as a placeholder — marked for regeneration
+                concept["visual_description"] = concept.get("sentence_text", "")
+                concept["needs_new_prompt"] = True
+            else:
+                return False, f"Concept {i + 1} has no visual_description"
 
     return True, ""
 
@@ -283,13 +325,15 @@ def _validate_concept_durations(concepts: list[dict]) -> list[dict]:
     return validated
 
 
-def _mechanical_split(scene_text: str, target_count: int) -> list[dict]:
-    """Fallback: split scene text into concepts at sentence boundaries.
+def _sentence_boundary_split(scene_text: str) -> list[dict]:
+    """Last-resort split when ALL LLM attempts fail (e.g. network errors).
 
-    Used when the LLM fails to produce valid concepts after all retries.
-    Groups sentences into chunks of 12-35 words each, never cutting
-    mid-sentence. Returns concepts with keyword-matched visual descriptions
-    that downstream prompt generation can still work with.
+    Splits at sentence boundaries using the narration text itself as the
+    visual description placeholder. Every concept is marked needs_new_prompt
+    so downstream prompt generation will create proper descriptions.
+
+    This produces fewer, longer-duration concepts — which is always better
+    than generic keyword-matched templates that don't match the narration.
     """
     import importlib.util
     spec = importlib.util.spec_from_file_location(
@@ -304,27 +348,22 @@ def _mechanical_split(scene_text: str, target_count: int) -> list[dict]:
     if not sentences:
         sentences = [scene_text]
 
-    # Group sentences into chunks that respect word count bounds.
-    # Accumulate sentences until adding the next one would exceed MAX.
-    # If a single sentence exceeds MAX, it becomes its own chunk (no mid-sentence cuts).
+    # Group sentences into chunks, allowing up to 40 words per chunk.
+    # Longer chunks = longer image durations, which is fine.
+    max_chunk_words = 40
     chunks: list[str] = []
     current_chunk: list[str] = []
     current_wc = 0
 
     for sentence in sentences:
         swc = len(sentence.split())
-
-        # If adding this sentence would exceed MAX and we already have
-        # enough words, flush the current chunk first.
-        if current_chunk and current_wc + swc > MAX_WORDS_PER_CONCEPT:
+        if current_chunk and current_wc + swc > max_chunk_words:
             chunks.append(" ".join(current_chunk))
             current_chunk = []
             current_wc = 0
-
         current_chunk.append(sentence)
         current_wc += swc
 
-    # Flush remaining
     if current_chunk:
         chunks.append(" ".join(current_chunk))
 
@@ -333,189 +372,23 @@ def _mechanical_split(scene_text: str, target_count: int) -> list[dict]:
         chunks[-2] = chunks[-2] + " " + chunks[-1]
         chunks.pop()
 
+    compositions = [
+        "wide", "medium", "closeup", "environmental",
+        "portrait", "overhead", "low_angle",
+    ]
     concepts = []
-    compositions = ["wide", "medium", "closeup", "environmental", "portrait", "overhead", "low_angle"]
-
     for i, chunk in enumerate(chunks):
-        # Use full scene text for context — the chunk alone may be too
-        # abstract (rhetorical questions, etc.) to match keywords, but
-        # the surrounding sentences in the scene often contain concrete
-        # topics that tell us what kind of visual to generate.
-        desc = _fallback_visual_description(chunk, compositions[i % len(compositions)],
-                                            scene_context=scene_text)
-
         concepts.append({
             "concept_index": i + 1,
             "sentence_text": chunk,
-            "visual_description": desc,
+            "visual_description": chunk,  # Use narration as placeholder
             "visual_style": "dossier",
             "composition": compositions[i % len(compositions)],
             "mood": "tension",
+            "needs_new_prompt": True,
         })
 
-    return concepts
-
-
-# ---------------------------------------------------------------------------
-# Fallback visual descriptions — used when LLM expansion fails
-# ---------------------------------------------------------------------------
-# Maps topic keywords to concrete, filmable visual descriptions.
-# Each entry is a list so we can rotate through them.
-
-_KEYWORD_VISUALS: list[tuple[list[str], list[str]]] = [
-    (
-        ["surveillance", "spy", "monitor", "watching", "tracking", "camera"],
-        [
-            "A dark surveillance room with a wall of glowing monitors showing camera feeds, a lone figure watching from a swivel chair",
-            "Security cameras mounted on a concrete wall, red recording lights blinking in the darkness",
-            "An operator seated before a curved bank of screens in a dimly lit intelligence center",
-        ],
-    ),
-    (
-        ["data", "algorithm", "ai ", "artificial intelligence", "digital", "cyber", "computer"],
-        [
-            "Server racks stretching into the distance inside a cold data center, blue LEDs reflecting off the polished floor",
-            "A wall of monitors displaying scrolling data streams in a dark control room",
-            "Rows of server cabinets behind a glass partition, cables snaking across the floor",
-        ],
-    ),
-    (
-        ["negotiat", "diplomat", "treaty", "deal", "agreement", "talk"],
-        [
-            "Two groups of figures seated across a long polished conference table in a dim government chamber",
-            "A closed-door meeting room with heavy curtains drawn, documents spread across the table",
-            "Officials in dark suits shaking hands across a mahogany desk, flags standing in the background",
-        ],
-    ),
-    (
-        ["military", "weapon", "army", "soldier", "drone", "strike", "missile", "war ", "warfare"],
-        [
-            "A military command center with tactical maps and glowing screens, officers studying a wall display",
-            "A row of military vehicles parked in formation on a vast concrete tarmac at dusk",
-            "A dimly lit briefing room with a large projected map, uniformed figures seated around it",
-        ],
-    ),
-    (
-        ["money", "dollar", "currency", "debt", "loan", "bank", "financial", "fund"],
-        [
-            "Stacks of currency bundled on a metal table inside an institutional vault with thick steel doors",
-            "A trading floor with hundreds of screens showing financial data, traders in shirtsleeves watching the numbers",
-            "A bank vault door standing half-open, revealing rows of safety deposit boxes stretching into shadow",
-        ],
-    ),
-    (
-        ["government", "congress", "senate", "parliament", "law", "legislation", "constitution"],
-        [
-            "An imposing government building entrance with marble columns and wide stone steps at dusk",
-            "A legislative chamber with rows of dark wooden desks and a single podium illuminated by overhead light",
-            "A long institutional corridor with tall windows casting geometric shadows on the stone floor",
-        ],
-    ),
-    (
-        ["trade", "tariff", "export", "import", "shipping", "cargo", "supply chain"],
-        [
-            "A massive container port at twilight, cranes silhouetted against the sky, cargo ships at anchor",
-            "Shipping containers stacked high in a port yard, a lone figure walking between the rows",
-            "A freight train loaded with containers stretching into the distance across a flat landscape",
-        ],
-    ),
-    (
-        ["power", "control", "dominat", "authorit", "regime", "ruler", "king", "empire"],
-        [
-            "A lone figure standing at the head of a long empty table in a grand hall, light streaming through tall windows",
-            "A throne-like chair at the end of a vast marble room, shadows pooling in the corners",
-            "A figure silhouetted in the doorway of an imposing building, looking out over a sprawling city",
-        ],
-    ),
-    (
-        ["secret", "classified", "hidden", "covert", "leak", "whistleblow"],
-        [
-            "A hand sliding a sealed manila envelope across a desk under harsh overhead light",
-            "A locked filing cabinet in a dim basement archive, folders marked with redacted labels",
-            "A figure reading documents in a pool of desk lamp light, the rest of the room in darkness",
-        ],
-    ),
-    (
-        ["market", "stock", "invest", "wall street", "trading", "crash", "bubble"],
-        [
-            "A trading floor at closing bell, screens glowing red and green in a cavernous room",
-            "A massive stock ticker board on the side of a financial district building, pedestrians below",
-            "An empty trading desk with multiple monitors left on overnight, charts frozen on screen",
-        ],
-    ),
-    (
-        ["oil", "energy", "pipeline", "fuel", "gas", "petrol"],
-        [
-            "An oil refinery at dusk with towers and pipes silhouetted against an orange sky, steam rising",
-            "A pipeline stretching across a barren landscape toward the horizon",
-            "An offshore oil platform seen from sea level, waves crashing against the steel legs",
-        ],
-    ),
-    (
-        ["china", "beijing", "chinese"],
-        [
-            "A vast government plaza at dusk with monumental buildings and wide empty avenues",
-            "A modern skyline with skyscrapers disappearing into smog, construction cranes visible on the horizon",
-        ],
-    ),
-    (
-        ["russia", "moscow", "kremlin", "putin"],
-        [
-            "An imposing stone government building with a long facade, lit by floodlights at night",
-            "A grand hall with ornate ceiling and chandeliers, a long table stretching into the distance",
-        ],
-    ),
-]
-
-# Generic fallback descriptions when no keywords match — rotate through these
-_GENERIC_VISUALS = [
-    "A dimly lit institutional corridor with tall windows, documents stacked on a desk at the far end",
-    "An empty conference room with a long table and a single chair pulled back, overhead light casting a pool of white",
-    "A figure in a dark suit walking through a marble lobby, briefcase in hand, footsteps echoing",
-    "A large wall map with pins and connecting threads in a dim office, papers scattered below",
-    "A rain-slicked city street at night, reflections of building lights stretching across the wet asphalt",
-    "An archive room with floor-to-ceiling shelving filled with labeled boxes, a single reading lamp on",
-    "A rooftop view of a city skyline at dusk, lights beginning to flicker on across the buildings",
-]
-
-
-def _fallback_visual_description(
-    sentence_text: str,
-    composition: str,
-    scene_context: str = "",
-) -> str:
-    """Generate a filmable visual description from sentence text using keyword matching.
-
-    First scans the sentence chunk for topic keywords. If no keywords match
-    (common with rhetorical questions or abstract narration), falls back to
-    scanning the full scene context — neighboring sentences often contain
-    concrete topics that indicate what kind of visual to generate.
-
-    Falls back to generic documentary scenes when nothing matches.
-    """
-    # Try the chunk first, then the full scene context
-    for text in [sentence_text, scene_context]:
-        if not text:
-            continue
-        text_lower = text.lower()
-
-        best_score = 0
-        best_visuals: list[str] | None = None
-
-        for keywords, visuals in _KEYWORD_VISUALS:
-            score = sum(1 for kw in keywords if kw in text_lower)
-            if score > best_score:
-                best_score = score
-                best_visuals = visuals
-
-        if best_visuals:
-            # Use hash of sentence (not context) to pick consistently
-            idx = hash(sentence_text) % len(best_visuals)
-            return best_visuals[idx]
-
-    # No keyword match anywhere — use generic descriptions
-    idx = hash(sentence_text) % len(_GENERIC_VISUALS)
-    return _GENERIC_VISUALS[idx]
+    return _validate_concept_durations(concepts)
 
 
 async def expand_scene_concepts(
@@ -532,6 +405,10 @@ async def expand_scene_concepts(
     This is the core function of the new pipeline. It takes a single scene's
     text directly from the Script table and produces concepts ready to be
     written to the Airtable Images table.
+
+    Uses 5 LLM attempts with progressively relaxed validation. A slightly
+    imperfect LLM result (longer image durations, small gaps auto-absorbed)
+    is always better than a mechanical fallback with generic templates.
 
     Args:
         anthropic_client: AnthropicClient instance with generate() method
@@ -565,10 +442,19 @@ async def expand_scene_concepts(
         total_scenes=total_scenes,
     )
 
-    max_attempts = 3
+    max_attempts = 5
     last_error = ""
+    # Track the best LLM result across all attempts so we can use it
+    # even if it didn't pass strict validation.
+    best_concepts: list[dict] | None = None
+    best_error: str = ""
 
     for attempt in range(1, max_attempts + 1):
+        # Use relaxed validation on attempts 4+ — auto-fix minor issues
+        # instead of rejecting. A longer-duration image is better than
+        # a wrong image.
+        use_relaxed = attempt >= 4
+
         extra = ""
         if attempt == 2:
             extra = (
@@ -580,11 +466,29 @@ async def expand_scene_concepts(
             )
         elif attempt == 3:
             extra = (
-                "\n\nCRITICAL — LAST ATTEMPT. Previous issue: "
+                "\n\nCRITICAL: Previous issue: "
                 f"{last_error}\n"
                 "You MUST copy sentence_text EXACTLY from the narration. "
                 "Do not edit, rephrase, or fix anything. Character-for-character copy. "
                 "Return ONLY a JSON object, no markdown fences."
+            )
+        elif attempt == 4:
+            extra = (
+                "\n\nPrevious issue: "
+                f"{last_error}\n"
+                "SIMPLIFY: Use FEWER, LONGER concepts if needed. "
+                "It is better to have 4-5 longer concepts than to fail. "
+                "Each concept can cover up to 40 words. "
+                "Copy sentence_text EXACTLY from the narration."
+            )
+        elif attempt == 5:
+            extra = (
+                "\n\nFINAL ATTEMPT. Previous issue: "
+                f"{last_error}\n"
+                "Use as FEW concepts as needed (minimum 3). "
+                "Each concept can be long — up to 50 words. "
+                "Split at the most obvious sentence boundaries (periods). "
+                "Copy sentence_text EXACTLY. Return ONLY JSON."
             )
 
         try:
@@ -592,7 +496,7 @@ async def expand_scene_concepts(
                 prompt=prompt + extra,
                 model="claude-sonnet-4-5-20250929",
                 max_tokens=6000,
-                temperature=max(0.3, 0.6 - 0.1 * attempt),
+                temperature=max(0.3, 0.7 - 0.1 * attempt),
             )
 
             parsed = _parse_response(response)
@@ -602,11 +506,19 @@ async def expand_scene_concepts(
             for i, c in enumerate(concepts):
                 c["concept_index"] = i + 1
 
-            is_valid, error = _validate_concepts(concepts, scene_text, concept_count)
+            is_valid, error = _validate_concepts(
+                concepts, scene_text, concept_count, relaxed=use_relaxed,
+            )
 
             if is_valid:
                 concepts = _validate_concept_durations(concepts)
                 return concepts
+
+            # Track the best result — prefer the one with more valid concepts
+            if concepts and (best_concepts is None or len(concepts) > len(best_concepts)):
+                # Deep copy so subsequent relaxed validation doesn't mutate
+                best_concepts = [dict(c) for c in concepts]
+                best_error = error
 
             last_error = error
             print(f"    Scene {scene_number} attempt {attempt}/{max_attempts}: {error}")
@@ -621,7 +533,38 @@ async def expand_scene_concepts(
         if attempt < max_attempts:
             await asyncio.sleep(2)
 
-    # All attempts failed — use mechanical fallback
-    print(f"    Scene {scene_number}: LLM failed after {max_attempts} attempts, "
-          f"using mechanical split")
-    return _mechanical_split(scene_text, concept_count)
+    # All 5 attempts failed strict+relaxed validation.
+    # Use the best LLM result we got — it's always better than a
+    # mechanical fallback with generic keyword templates.
+    if best_concepts:
+        print(
+            f"    Scene {scene_number}: using best LLM result "
+            f"({len(best_concepts)} concepts, issue: {best_error})"
+        )
+        # Force-fix: ensure every concept has required fields
+        compositions = [
+            "wide", "medium", "closeup", "environmental",
+            "portrait", "overhead", "low_angle",
+        ]
+        for i, c in enumerate(best_concepts):
+            c["concept_index"] = i + 1
+            if not c.get("visual_style") or c["visual_style"] not in VALID_STYLES:
+                c["visual_style"] = "dossier"
+            if not c.get("composition") or c["composition"] not in VALID_COMPOSITIONS:
+                c["composition"] = compositions[i % len(compositions)]
+            if not c.get("visual_description"):
+                c["visual_description"] = c.get("sentence_text", "")
+                c["needs_new_prompt"] = True
+            if not c.get("mood"):
+                c["mood"] = "tension"
+        return _validate_concept_durations(best_concepts)
+
+    # Absolute last resort: no LLM response at all (network errors on all
+    # 5 attempts). Split at sentence boundaries with the sentence text as
+    # the visual description placeholder — downstream prompt generation
+    # will create proper descriptions. Never use static keyword templates.
+    print(
+        f"    Scene {scene_number}: no LLM response after {max_attempts} "
+        f"attempts, creating sentence-boundary concepts"
+    )
+    return _sentence_boundary_split(scene_text)
