@@ -1,71 +1,71 @@
 """Thumbnail prompt builder for Economy FastForward.
 
-Takes title generation output (caps_word, line_1, line_2) and video metadata,
-then uses Claude to fill template variables and produce the final Nano Banana Pro
-prompt from one of the two cinematic photorealistic templates.
+Takes title generation output (line_1, line_2) and video metadata,
+then uses Claude to fill template variables and produce the final
+Nano Banana Pro prompt from one of the four editorial illustration templates.
 
-Optionally injects a Machiavellian visual element (~50% of thumbnails) for
-thematic consistency across the channel brand.
+Style: BRIGHT editorial illustration — high saturation, bold text,
+simple recognizable backgrounds, 3-4 color palettes.
+
+IMPORTANT: This is the THUMBNAIL system. The cinematic photorealistic
+style is for SCENE IMAGES ONLY (style_engine.py). Never mix them.
 """
 
 import json
-import random
 from typing import Optional
 
-from thumbnail_title.templates import TEMPLATES
-from thumbnail_title.selector import select_template
+from thumbnail_title.templates import (
+    TEMPLATES,
+    THUMBNAIL_PALETTES,
+    detect_palette,
+)
 
 
 # ---------------------------------------------------------------------------
-# Machiavellian visual elements — injected ~50% of the time
-# Updated for cinematic photorealistic style.
+# System prompt for Claude to fill editorial template variables
 # ---------------------------------------------------------------------------
-MACHIAVELLIAN_ELEMENTS = [
-    "puppet strings descending from darkness above",
-    "chess pieces scattered on a polished dark floor",
-    "a crown lying discarded in shadow",
-    "a dagger embedded in a world map",
-    "a cracked golden scale of justice half-hidden in darkness",
-    "a single red chess king toppled on black marble",
-]
-
-
-# System prompt for Claude to fill template variables
 VARIABLE_FILL_SYSTEM_PROMPT = """\
-You are the visual director for Economy FastForward cinematic thumbnails.
+You are the visual director for Economy FastForward bright editorial thumbnails.
 
-Your job: Fill in the template variables to produce a compelling thumbnail that pairs
-with the given title. The thumbnail should evoke CINEMATIC TENSION — like a movie poster
-frame that makes viewers feel they're about to witness something powerful.
+Your job: Fill in the template variables to produce a HIGH CTR YouTube thumbnail.
+The thumbnail must be BRIGHT, BOLD, and INSTANTLY READABLE at phone size (160x90px).
 
-STYLE RULES:
-- Cinematic photorealistic, shot on Arri Alexa look
-- Deep crushed blacks, single dramatic light source, film grain
-- Shallow depth of field, desaturated palette with ONE vivid accent color
+STYLE RULES (MANDATORY — violating any of these kills CTR):
+- BRIGHT editorial illustration style. NOT photorealistic. NOT cinematic.
+- High saturation, bright lighting, NO shadows, NO atmospheric effects, NO film grain
+- Simple, instantly recognizable visuals (maps, symbols, objects)
+- Maximum 3-4 dominant colors from the provided palette
+- Must tell the story at a glance — one clear visual concept
 - 16:9 landscape, 1280x720
-- Maximum 3 colors: dark background, bright accent, white text
-- Must be readable at 120x68 (YouTube mobile thumbnail size)
 
-ACCENT COLOR GUIDE (match to topic):
-- Teal (#00BFA5) for tech, AI, innovation
-- Amber/Gold (#FFB800) for power, money, authority
-- Red (#E63946) for military, conflict, crisis
-- Green (#22C55E) for economics, growth, markets
+ANTI-PATTERNS — NEVER include these words or concepts:
+- "cinematic", "photorealistic", "film grain", "shallow depth of field"
+- "dark", "moody", "atmospheric", "shadows", "chiaroscuro"
+- "Sicario", "Zero Dark Thirty", any film/camera reference
+- "ARRI", "RED", "ISO", any camera/film stock reference
+- Complex multi-layer compositions with more than 3-4 visual elements
+- Any lighting description suggesting darkness or moodiness
 
-TEXT RULES (already in template, but guide your choices):
+TEXT RULES:
 - line_1 and line_2 are PROVIDED — use them exactly as given
-- red_word is PROVIDED — use it exactly as given
-- All text ALL CAPS, bold condensed sans-serif, heavy black outline
+- Text is YELLOW (#FFD700), bold, black outline, heavy drop shadow
+- Text is the SINGLE LARGEST element (60-70% of frame width)
+
+PERSONAL STAKES (build into visuals):
+- Dollar amounts, threat imagery, "YOUR" framing
+- Power words: CHECKMATE, TRAP, COLLAPSE, BANNED, WEAPONIZED
+- The viewer must feel PERSONALLY affected
 
 OUTPUT FORMAT (JSON only, no markdown):
 Return a JSON object with ALL required variable names as keys.
+Keep descriptions vivid but concise (10-25 words per variable).
 """
 
 
 class ThumbnailPromptBuilder:
-    """Builds thumbnail generation prompts from templates + AI-filled variables.
+    """Builds bright editorial thumbnail prompts from templates + AI-filled variables.
 
-    Uses Claude to intelligently fill template variables based on video content,
+    Uses Claude to fill template variables based on video content,
     then formats the final prompt for Nano Banana Pro image generation.
     """
 
@@ -83,15 +83,18 @@ class ThumbnailPromptBuilder:
         title_data: dict,
         video_title: str,
         video_summary: str,
+        palette_override: Optional[str] = None,
     ) -> str:
-        """Build a complete thumbnail prompt.
+        """Build a complete editorial thumbnail prompt.
 
         Args:
-            template_key: One of 'template_a', 'template_b'.
+            template_key: One of 'template_a', 'template_b', 'template_c', 'template_d'.
             title_data: Output from TitleGenerator.generate() containing
-                caps_word, line_1, line_2.
+                line_1, line_2.
             video_title: The video's working title.
             video_summary: Brief video description.
+            palette_override: Optional palette key to force (middle_east, finance,
+                tech, military, global). If None, auto-detected from topic.
 
         Returns:
             Complete prompt string ready for Nano Banana Pro.
@@ -99,11 +102,16 @@ class ThumbnailPromptBuilder:
         template_info = TEMPLATES[template_key]
         variables_needed = template_info["variables"]
 
-        # Pre-fill the text variables from title_data
+        # Auto-detect or use override for color palette
+        palette_key = palette_override or detect_palette(f"{video_title} {video_summary}")
+        palette = THUMBNAIL_PALETTES.get(palette_key, THUMBNAIL_PALETTES["global"])
+        print(f"  Color palette: {palette_key} — {palette['description']}")
+
+        # Pre-fill the text variables + palette
         prefilled = {
             "line_1": title_data["line_1"],
             "line_2": title_data["line_2"],
-            "red_word": title_data["caps_word"],
+            "palette_suffix": palette["prompt_suffix"],
         }
 
         # Determine which variables still need to be filled by Claude
@@ -117,6 +125,7 @@ class ThumbnailPromptBuilder:
                 video_title=video_title,
                 video_summary=video_summary,
                 title_data=title_data,
+                palette_key=palette_key,
             )
             prefilled.update(filled)
 
@@ -131,31 +140,7 @@ class ThumbnailPromptBuilder:
                 f"Required: {variables_needed}"
             )
 
-        # Inject a Machiavellian visual element ~50% of the time
-        prompt = self._maybe_inject_machiavellian_element(prompt)
-
         return prompt
-
-    @staticmethod
-    def _maybe_inject_machiavellian_element(prompt: str) -> str:
-        """Inject a Machiavellian visual element with ~50% probability.
-
-        Inserts a thematic detail sentence before the final style description
-        line (the last paragraph) to reinforce the channel's power-dynamics brand.
-        """
-        if random.random() > 0.5:
-            return prompt
-
-        element = random.choice(MACHIAVELLIAN_ELEMENTS)
-        # Insert before the last paragraph (the style footer)
-        last_break = prompt.rfind("\n\n")
-        if last_break == -1:
-            return prompt
-        return (
-            prompt[:last_break]
-            + f",\n\n{element.capitalize()},\n"
-            + prompt[last_break:]
-        )
 
     async def _fill_variables(
         self,
@@ -165,6 +150,7 @@ class ThumbnailPromptBuilder:
         video_title: str,
         video_summary: str,
         title_data: dict,
+        palette_key: str,
     ) -> dict:
         """Use Claude to fill remaining template variables.
 
@@ -175,11 +161,11 @@ class ThumbnailPromptBuilder:
             video_title: Video title for context.
             video_summary: Video summary for context.
             title_data: Title generation data for context.
+            palette_key: Detected/override color palette key.
 
         Returns:
             Dict mapping variable name -> value.
         """
-        # Build variable descriptions based on template
         var_descriptions = self._get_variable_descriptions(template_key)
 
         var_guidance = "\n".join([
@@ -187,17 +173,22 @@ class ThumbnailPromptBuilder:
             for v in variables
         ])
 
+        palette = THUMBNAIL_PALETTES.get(palette_key, THUMBNAIL_PALETTES["global"])
+
         user_prompt = (
             f"Fill the thumbnail template variables for this video:\n\n"
             f'VIDEO TITLE: "{video_title}"\n'
             f'VIDEO SUMMARY: {video_summary}\n'
-            f'YOUTUBE TITLE: "{title_data["title"]}"\n'
-            f'CAPS WORD: {title_data["caps_word"]}\n'
             f'THUMBNAIL TEXT LINE 1: {title_data["line_1"]}\n'
-            f'THUMBNAIL TEXT LINE 2: {title_data["line_2"]}\n\n'
+            f'THUMBNAIL TEXT LINE 2: {title_data["line_2"]}\n'
+            f'COLOR PALETTE: {palette_key} — {palette["description"]}\n'
+            f'PALETTE COLORS: {palette["prompt_suffix"]}\n\n'
             f'TEMPLATE: {template_name} ({template_key})\n\n'
             f'Fill these variables (return JSON object with these exact keys):\n'
             f'{var_guidance}\n\n'
+            f'REMEMBER: Bright editorial illustration style. NO dark/moody/cinematic '
+            f'descriptions. Every element should be vivid, colorful, and readable at '
+            f'160x90px phone thumbnail size.\n\n'
             f'Return JSON only.'
         )
 
@@ -225,45 +216,126 @@ class ThumbnailPromptBuilder:
         """Return human-readable descriptions for each template's variables."""
         if template_key == "template_a":
             return {
-                "scene_description": (
-                    "A dramatic cinematic environment that tells the story visually. "
-                    "Must feel like a movie poster frame — epic scale, single focal "
-                    "point, storytelling through setting. Examples: 'military command "
-                    "bunker with glowing screens and a single empty chair under a "
-                    "spotlight', 'massive oil tanker in dark ocean with a single red "
-                    "warning light', 'Wall Street trading floor frozen mid-crash with "
-                    "papers suspended in air'"
+                "region": (
+                    "The geographic region shown on the map. Examples: "
+                    "'Middle East and Persian Gulf region', 'East Asia and "
+                    "South China Sea', 'Eastern Europe and Black Sea region'"
                 ),
-                "accent_color": (
-                    "The single vivid accent color matching the topic. Use: teal for "
-                    "tech/AI, amber/gold for power/money, red for military/conflict, "
-                    "green for economics. Return just the color name (e.g., 'amber')."
+                "country_labels": (
+                    "Small white country labels to place on the map. Examples: "
+                    "'small white labels for Iran Iraq Saudi Arabia Kuwait UAE', "
+                    "'labels for China Taiwan Japan South Korea Philippines'"
+                ),
+                "barrier_description": (
+                    "The visual barrier or obstruction blocking the route/flow. "
+                    "Must be dramatic and immediately recognizable. Examples: "
+                    "'the Strait of Hormuz blocked by a massive steel wall with "
+                    "red X marks', 'a giant chain stretching across the Taiwan "
+                    "Strait with padlocks'"
+                ),
+                "consequence_elements": (
+                    "Visual consequences of the barrier — what's affected. "
+                    "Examples: 'oil tankers piled up unable to pass with dollar "
+                    "bills and smoke', 'cargo ships backed up with red warning "
+                    "lights flashing'"
                 ),
             }
         elif template_key == "template_b":
             return {
-                "close_up_subject": (
-                    "An extreme close-up of an object or detail that represents the "
-                    "person or power figure. NOT a face — use symbolic objects instead. "
-                    "Examples: 'a weathered hand gripping a nuclear launch key', "
-                    "'a cracked military medal on a dark wooden desk', 'classified "
-                    "documents stamped TOP SECRET under harsh desk lamp light'"
+                "character_description": (
+                    "A recognizable figure or symbolic character (NOT a specific "
+                    "real person's face). Examples: 'a figure in a sharp suit "
+                    "with an American flag pin', 'a young person in a hoodie "
+                    "surrounded by screens', 'a shadowy figure on a throne of "
+                    "gold bars'"
                 ),
-                "emotion_detail": (
-                    "Textural detail that conveys emotion through the close-up subject. "
-                    "Examples: 'sweat visible, tension in every detail', 'dust and "
-                    "scratches showing age and use', 'the weight of consequence visible "
-                    "in every texture'"
+                "pose": (
+                    "The character's pose — conveys power or action. Examples: "
+                    "'confidently with arms crossed', 'pointing forward "
+                    "dramatically', 'holding up a glowing object'"
                 ),
-                "background_element": (
-                    "A subtle element visible in the bokeh background that adds context. "
-                    "Examples: 'a blurred war room map', 'out-of-focus city skyline at "
-                    "night', 'soft glow of multiple monitor screens'"
+                "thematic_elements": (
+                    "Elements that surround the character telling the story. "
+                    "Examples: 'flying money and breaking institutions', "
+                    "'crumbling buildings and rising graphs', 'military "
+                    "equipment and diplomatic seals'"
                 ),
-                "accent_color": (
-                    "The single vivid accent color matching the topic. Use: teal for "
-                    "tech/AI, amber/gold for power/money, red for military/conflict, "
-                    "green for economics. Return just the color name (e.g., 'red')."
+                "brand_elements": (
+                    "Recognizable logos, flags, or brand imagery if relevant. "
+                    "Examples: 'American and Chinese flags clashing', "
+                    "'tech company logos falling like dominoes', "
+                    "'oil barrel logos cracking'. Use 'no specific brand elements' "
+                    "if not applicable."
+                ),
+                "floating_elements": (
+                    "Items floating around the character for visual energy. "
+                    "Examples: 'money and gold coins', 'data streams and "
+                    "circuit boards', 'broken chains and documents'"
+                ),
+                "text_position": (
+                    "Where the text sits relative to the character. Options: "
+                    "'upper half', 'upper-right', 'center'. Choose based on "
+                    "where the character leaves space."
+                ),
+            }
+        elif template_key == "template_c":
+            return {
+                "loser_element": (
+                    "The losing side of the split — visual of damage/loss. "
+                    "Examples: 'a crumbling building with red X marks and "
+                    "banned stamps', 'a deflating dollar sign with cracks', "
+                    "'a broken pipeline leaking oil with danger tape'"
+                ),
+                "winner_element": (
+                    "The winning side of the split — visual of power/success. "
+                    "Examples: 'a glowing golden crown with green checkmarks', "
+                    "'a rising graph with celebration confetti', 'a fortified "
+                    "vault door with gold bars visible'"
+                ),
+                "connecting_element": (
+                    "A power figure or object between the two sides. Examples: "
+                    "'a hand pulling a lever', 'a figure pointing from loser "
+                    "to winner', 'a giant scissors cutting a rope'"
+                ),
+                "scattered_elements": (
+                    "Items scattered around both sides for visual interest. "
+                    "Examples: 'dollar bills and documents', 'sparks and debris', "
+                    "'broken chains and falling coins'"
+                ),
+                "text_position": (
+                    "Where the text sits. Options: 'upper half', 'center', "
+                    "'upper-right'. Choose based on composition balance."
+                ),
+            }
+        elif template_key == "template_d":
+            return {
+                "region": (
+                    "The geographic region for the map background. Examples: "
+                    "'the Middle East', 'East Asia', 'Europe and North Africa'"
+                ),
+                "highlight_country": (
+                    "The key country highlighted on the map. Examples: "
+                    "'Iran highlighted in bold red', 'China outlined in "
+                    "bright gold', 'Russia highlighted in deep red'"
+                ),
+                "metaphor_description": (
+                    "The dramatic symbolic action — the core visual metaphor. "
+                    "Must be INSTANTLY recognizable. Examples: 'A massive red "
+                    "fist punching into a giant steel bear trap with sparks "
+                    "flying', 'A giant hand turning a valve wheel shut on a "
+                    "pipeline with oil backing up', 'A golden cage slamming "
+                    "shut around a pile of money'"
+                ),
+                "consequence_elements": (
+                    "Visual fallout from the metaphor action. Examples: "
+                    "'sparks and debris and dollar bills flying from the "
+                    "impact', 'broken missiles scattered nearby', 'smoke "
+                    "and cracking ground spreading outward'"
+                ),
+                "geographic_labels": (
+                    "Small white country labels on the map. Examples: "
+                    "'small white labels for Iran Iraq Saudi Arabia Kuwait', "
+                    "'labels for Russia Ukraine Poland Germany'"
                 ),
             }
         return {}
