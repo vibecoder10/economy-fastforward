@@ -753,6 +753,30 @@ class AirtableClient:
                 return {"id": record_id, "warning": "Some sound fields missing"}
             raise
 
+    def delete_scripts_for_video(self, video_title: str) -> int:
+        """Delete all script records for a video title.
+
+        Returns the number of records deleted.
+        """
+        records = self.get_scripts_by_title(video_title)
+        if not records:
+            return 0
+        record_ids = [r["id"] for r in records]
+        self.script_table.batch_delete(record_ids)
+        return len(record_ids)
+
+    def delete_images_for_video(self, video_title: str) -> int:
+        """Delete all image/concept records for a video title.
+
+        Returns the number of records deleted.
+        """
+        records = self.get_all_images_for_video(video_title)
+        if not records:
+            return 0
+        record_ids = [r["id"] for r in records]
+        self.images_table.batch_delete(record_ids)
+        return len(record_ids)
+
     def update_record(self, table_name: str, record_id: str, fields: dict) -> dict:
         """Generic update for any table record.
 

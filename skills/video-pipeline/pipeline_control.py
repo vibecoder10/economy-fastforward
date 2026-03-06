@@ -178,6 +178,11 @@ async def handle_help(message, say):
 - `model reset <title>` - Revert to default model (nano-banana-2)
 - `models` - List all available image generation models
 
+*Delete & Redo*
+- `delete <title> scripts` - Delete all scripts for a video, reset to Ready For Scripting
+- `delete <title> prompts` - Delete all image prompts/concepts for a video, reset to Ready For Image Prompts
+- `delete <title> images` - Same as delete prompts (alias)
+
 *System & DevOps*
 - `stop` / `kill` - Stop the currently running pipeline
 - `status` / `check` - Check current project status (both pipelines)
@@ -2038,6 +2043,82 @@ async def handle_model_list(message, say):
 
 
 # ---------------------------------------------------------------------------
+# !delete — wipe scripts or image prompts for a video (for re-generation)
+# ---------------------------------------------------------------------------
+
+@app.message(re.compile(r"^!?delete\s+[\"']?(.+?)[\"']?\s+scripts?$", re.IGNORECASE))
+async def handle_delete_scripts(message, say):
+    """Delete all script records for a video so they can be regenerated."""
+    match = re.search(r"^!?delete\s+[\"']?(.+?)[\"']?\s+scripts?$", message["text"], re.IGNORECASE)
+    if not match:
+        await say(":x: Usage: `delete <video_title> scripts`")
+        return
+
+    title = match.group(1).strip()
+
+    try:
+        from clients.airtable_client import AirtableClient
+        airtable = AirtableClient()
+        idea = airtable.find_idea_by_title(title)
+        if not idea:
+            await say(f":x: No video found matching *{title}*")
+            return
+
+        video_title = idea.get("Video Title", title)
+        count = airtable.delete_scripts_for_video(video_title)
+        if count == 0:
+            await say(f":warning: No script records found for *{video_title}*")
+            return
+
+        # Reset status so scripts can be regenerated
+        airtable.update_idea_fields(idea["id"], {"Status": "Ready For Scripting"})
+        await say(
+            f":wastebasket: Deleted *{count}* script records for *{video_title}*\n"
+            f"Status reset to *Ready For Scripting* — run `script` to regenerate"
+        )
+    except Exception as e:
+        await say(f":x: Error deleting scripts: {e}")
+
+
+@app.message(re.compile(r"^!?delete\s+[\"']?(.+?)[\"']?\s+(?:prompts?|images?)$", re.IGNORECASE))
+async def handle_delete_images(message, say):
+    """Delete all image prompt/concept records for a video so they can be regenerated."""
+    match = re.search(
+        r"^!?delete\s+[\"']?(.+?)[\"']?\s+(?:prompts?|images?)$",
+        message["text"],
+        re.IGNORECASE,
+    )
+    if not match:
+        await say(":x: Usage: `delete <video_title> prompts` or `delete <video_title> images`")
+        return
+
+    title = match.group(1).strip()
+
+    try:
+        from clients.airtable_client import AirtableClient
+        airtable = AirtableClient()
+        idea = airtable.find_idea_by_title(title)
+        if not idea:
+            await say(f":x: No video found matching *{title}*")
+            return
+
+        video_title = idea.get("Video Title", title)
+        count = airtable.delete_images_for_video(video_title)
+        if count == 0:
+            await say(f":warning: No image records found for *{video_title}*")
+            return
+
+        # Reset status so image prompts can be regenerated
+        airtable.update_idea_fields(idea["id"], {"Status": "Ready For Image Prompts"})
+        await say(
+            f":wastebasket: Deleted *{count}* image records for *{video_title}*\n"
+            f"Status reset to *Ready For Image Prompts* — run `prompts` to regenerate"
+        )
+    except Exception as e:
+        await say(f":x: Error deleting images: {e}")
+
+
+# ---------------------------------------------------------------------------
 # AI-powered fallback — catches messages that no regex handler matched
 # ---------------------------------------------------------------------------
 
@@ -2089,6 +2170,9 @@ Available commands (return one of these EXACTLY):
 - "model TITLE: MODEL" — set image generation model for a video (valid models: nano-banana-2, z-image). Keep TITLE and MODEL from user message.
 - "model reset TITLE" — reset image model to default for a video (keep TITLE from user message)
 - "models" — list available image generation models
+- "delete TITLE scripts" — delete all script records for a video and reset to Ready For Scripting (keep TITLE from user message)
+- "delete TITLE prompts" — delete all image prompt/concept records for a video and reset to Ready For Image Prompts (keep TITLE from user message)
+- "delete TITLE images" — same as "delete TITLE prompts" (alias)
 - "help" — show available commands
 - "unknown" — message is not a bot command (casual chat, question, etc.)
 
@@ -2128,7 +2212,15 @@ Rules:
 "change model for VIDEO to z-image" → model VIDEO: z-image, \
 "reset model for VIDEO" → model reset VIDEO, \
 "what models are available" → models, \
-"list models" → models
+"list models" → models, \
+"wipe scripts for VIDEO" → delete VIDEO scripts, \
+"clear scripts VIDEO" → delete VIDEO scripts, \
+"redo scripts for VIDEO" → delete VIDEO scripts, \
+"wipe prompts for VIDEO" → delete VIDEO prompts, \
+"clear images VIDEO" → delete VIDEO images, \
+"redo prompts for VIDEO" → delete VIDEO prompts, \
+"remove images for VIDEO" → delete VIDEO images, \
+"start over images VIDEO" → delete VIDEO images
 4. If they mention an API key or secret key, return: set key KEY
 5. If truly ambiguous, return: unknown"""
 
