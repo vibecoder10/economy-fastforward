@@ -800,8 +800,8 @@ class VideoPipeline:
         self.slack.notify_script_start()
         print(f"\n📝 SCRIPT BOT: Processing '{self.video_title}'")
         
-        # Create project folder in Google Drive
-        folder = self.google.create_folder(self.video_title)
+        # Get or create project folder in Google Drive (avoid duplicates on re-runs)
+        folder = self.google.get_or_create_folder(self.video_title)
         self.project_folder_id = folder["id"]
 
         # Store Drive folder link and ID in Airtable for all subsequent stages
@@ -2693,7 +2693,17 @@ class VideoPipeline:
 
         print(f"  ✅ Assets downloaded from Google Drive")
 
-        # Download per-image SFX files
+        # Build a map of SFX files already in Drive (sfx_*.mp3)
+        # so we can download them directly instead of relying on
+        # Airtable CDN URLs which expire after 2 hours.
+        drive_sfx_map: dict[str, str] = {}  # filename → Drive file ID
+        for folder_id, _desc in asset_folders:
+            drive_files = self.google.list_files_in_folder(folder_id)
+            for df in drive_files:
+                if df["name"].startswith("sfx_") and df["name"].endswith(".mp3"):
+                    drive_sfx_map[df["name"]] = df["id"]
+
+        # Download per-image SFX files (4-strategy fallback)
         sfx_dir = public_dir / "sfx"
         sfx_dir.mkdir(exist_ok=True)
         sfx_count = 0
@@ -2707,20 +2717,72 @@ class VideoPipeline:
                 sfx_total += 1
                 filename = sfx_path.removeprefix("sfx/")
                 dest = sfx_dir / filename
-                if dest.exists():
+                if dest.exists() and dest.stat().st_size > 100:
                     sfx_count += 1
                     continue
-                # Download from Drive/Airtable URL
-                try:
-                    async with _httpx.AsyncClient() as http:
-                        resp = await http.get(sfx_url, timeout=60.0, follow_redirects=True)
-                        resp.raise_for_status()
-                    dest.write_bytes(resp.content)
+
+                downloaded = False
+
+                # Strategy 1: Download from Drive file map (most reliable)
+                if filename in drive_sfx_map:
+                    try:
+                        content = self.google.download_file(drive_sfx_map[filename])
+                        dest.write_bytes(content)
+                        print(f"    ✅ {filename} ({len(content) // 1024} KB) [Drive map]")
+                        downloaded = True
+                    except Exception as e:
+                        print(f"    ⚠️ Drive map download failed for {filename}: {e}")
+
+                # Strategy 2: Search Drive by filename
+                if not downloaded and self.project_folder_id:
+                    try:
+                        result = self.google.search_file(filename, self.project_folder_id)
+                        if result:
+                            content = self.google.download_file(result["id"])
+                            dest.write_bytes(content)
+                            print(f"    ✅ {filename} ({len(content) // 1024} KB) [Drive search]")
+                            downloaded = True
+                    except Exception as e:
+                        print(f"    ⚠️ Drive search failed for {filename}: {e}")
+
+                # Strategy 3: Extract Drive file ID from Airtable attachment URL
+                if not downloaded and sfx_url:
+                    drive_id = None
+                    if "/file/d/" in sfx_url:
+                        try:
+                            drive_id = sfx_url.split("/file/d/")[1].split("/")[0]
+                        except (IndexError, AttributeError):
+                            pass
+                    elif "id=" in sfx_url:
+                        try:
+                            drive_id = sfx_url.split("id=")[1].split("&")[0]
+                        except (IndexError, AttributeError):
+                            pass
+                    if drive_id:
+                        try:
+                            content = self.google.download_file(drive_id)
+                            dest.write_bytes(content)
+                            print(f"    ✅ {filename} ({len(content) // 1024} KB) [Drive ID]")
+                            downloaded = True
+                        except Exception as e:
+                            print(f"    ⚠️ Drive ID download failed for {filename}: {e}")
+
+                # Strategy 4: Direct HTTP from Airtable CDN (may be expired)
+                if not downloaded and sfx_url:
+                    try:
+                        async with _httpx.AsyncClient() as http:
+                            resp = await http.get(sfx_url, timeout=60.0, follow_redirects=True)
+                            resp.raise_for_status()
+                        dest.write_bytes(resp.content)
+                        print(f"    ✅ {filename} ({len(resp.content) // 1024} KB) [CDN]")
+                        downloaded = True
+                    except Exception as e:
+                        print(f"    ⚠️ CDN download failed for {filename}: {e}")
+
+                if downloaded:
                     sfx_count += 1
-                    print(f"    ✅ {filename} ({len(resp.content) // 1024} KB)")
-                except Exception as e:
-                    print(f"    ⚠️ SFX download failed: {filename}: {e}")
-                    # Remove sfx from props so Remotion doesn't try to play a missing file
+                else:
+                    print(f"    ❌ {filename}: all download strategies failed")
                     image.pop("sfx", None)
                     image.pop("sfxVolume", None)
         # Sound diagnostics
