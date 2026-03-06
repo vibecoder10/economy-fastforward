@@ -2521,8 +2521,9 @@ class VideoPipeline:
             stale_images = glob_mod.glob(str(public_dir / "Scene_*.png"))
             stale_videos = glob_mod.glob(str(public_dir / "Scene_*.mp4"))
             stale_config = glob_mod.glob(str(public_dir / "render_config.json"))
+            stale_sfx = glob_mod.glob(str(public_dir / "sfx" / "*.mp3"))
             removed = 0
-            for f in stale_audio + stale_images + stale_videos + stale_config:
+            for f in stale_audio + stale_images + stale_videos + stale_config + stale_sfx:
                 os.remove(f)
                 removed += 1
             if removed:
@@ -2724,6 +2725,31 @@ class VideoPipeline:
                     image.pop("sfxVolume", None)
         # Sound diagnostics
         print(f"  🔊 Sound effects: {sfx_count}/{sfx_total} SFX files downloaded")
+
+        # Final SFX verification: remove sfx props for any files that don't
+        # actually exist on disk (guards against silent download failures,
+        # expired URLs, or corrupt writes).
+        sfx_removed = 0
+        for scene in props.get("scenes", []):
+            for image in scene.get("images", []):
+                sfx_path = image.get("sfx")
+                if not sfx_path:
+                    continue
+                full_path = public_dir / sfx_path
+                if not full_path.exists() or full_path.stat().st_size < 100:
+                    print(f"    ⚠️ SFX missing/empty on disk, removing from props: {sfx_path}")
+                    image.pop("sfx", None)
+                    image.pop("sfxVolume", None)
+                    sfx_removed += 1
+        if sfx_removed:
+            print(f"  ⚠️ Removed {sfx_removed} SFX references (files not on disk)")
+
+        # Re-save props.json — the SFX download loop may have removed sfxUrl
+        # keys and the verification above may have removed sfx props for
+        # files that failed to download.  Without this re-save, Remotion reads
+        # the stale props.json that still references missing SFX files → 404.
+        with open(props_file, "w") as f:
+            json.dump(props, f, indent=2)
 
         # Verify every scene has its audio file (Remotion will 404 without it)
         # Use actual scene numbers from props — NOT sequential range(1, N+1)
