@@ -335,14 +335,21 @@ def _mechanical_split(scene_text: str, target_count: int) -> list[dict]:
 
     concepts = []
     compositions = ["wide", "medium", "closeup", "environmental", "portrait", "overhead", "low_angle"]
+    used_visuals: set[str] = set()
 
     for i, chunk in enumerate(chunks):
         # Use full scene text for context — the chunk alone may be too
         # abstract (rhetorical questions, etc.) to match keywords, but
         # the surrounding sentences in the scene often contain concrete
         # topics that tell us what kind of visual to generate.
-        desc = _fallback_visual_description(chunk, compositions[i % len(compositions)],
-                                            scene_context=scene_text)
+        desc = _fallback_visual_description(
+            chunk,
+            compositions[i % len(compositions)],
+            scene_context=scene_text,
+            concept_index=i,
+            used_visuals=used_visuals,
+        )
+        used_visuals.add(desc)
 
         concepts.append({
             "concept_index": i + 1,
@@ -369,6 +376,7 @@ _KEYWORD_VISUALS: list[tuple[list[str], list[str]]] = [
             "A dark surveillance room with a wall of glowing monitors showing camera feeds, a lone figure watching from a swivel chair",
             "Security cameras mounted on a concrete wall, red recording lights blinking in the darkness",
             "An operator seated before a curved bank of screens in a dimly lit intelligence center",
+            "A satellite dish array on a rooftop at night, blinking status lights reflecting off wet concrete",
         ],
     ),
     (
@@ -377,6 +385,7 @@ _KEYWORD_VISUALS: list[tuple[list[str], list[str]]] = [
             "Server racks stretching into the distance inside a cold data center, blue LEDs reflecting off the polished floor",
             "A wall of monitors displaying scrolling data streams in a dark control room",
             "Rows of server cabinets behind a glass partition, cables snaking across the floor",
+            "A single terminal screen glowing in a dark room, lines of code reflected in the operator's glasses",
         ],
     ),
     (
@@ -385,46 +394,60 @@ _KEYWORD_VISUALS: list[tuple[list[str], list[str]]] = [
             "Two groups of figures seated across a long polished conference table in a dim government chamber",
             "A closed-door meeting room with heavy curtains drawn, documents spread across the table",
             "Officials in dark suits shaking hands across a mahogany desk, flags standing in the background",
+            "A round table in a secure diplomatic chamber, translation headsets at each seat, water glasses untouched",
         ],
     ),
     (
-        ["military", "weapon", "army", "soldier", "drone", "strike", "missile", "war ", "warfare"],
+        ["military", "weapon", "army", "soldier", "drone", "strike", "missile", "war ", "warfare",
+         "pentagon", "defense", "naval", "carrier", "fleet", "troops"],
         [
             "A military command center with tactical maps and glowing screens, officers studying a wall display",
             "A row of military vehicles parked in formation on a vast concrete tarmac at dusk",
             "A dimly lit briefing room with a large projected map, uniformed figures seated around it",
+            "An aircraft carrier seen from above on dark ocean water, jets lined up on the flight deck",
+            "A Pentagon-style corridor with polished floors stretching into the distance, briefcases carried by figures in uniform",
         ],
     ),
     (
-        ["money", "dollar", "currency", "debt", "loan", "bank", "financial", "fund"],
+        ["money", "dollar", "currency", "debt", "loan", "bank", "financial", "fund",
+         "economy", "economic", "gdp", "budget", "fiscal", "spending"],
         [
             "Stacks of currency bundled on a metal table inside an institutional vault with thick steel doors",
             "A trading floor with hundreds of screens showing financial data, traders in shirtsleeves watching the numbers",
             "A bank vault door standing half-open, revealing rows of safety deposit boxes stretching into shadow",
+            "A central bank lobby with marble floors and gold-lettered signage, security guards flanking the entrance",
+            "An economist's desk covered in spreadsheets and charts, a calculator and coffee cup beside stacked reports",
         ],
     ),
     (
-        ["government", "congress", "senate", "parliament", "law", "legislation", "constitution"],
+        ["government", "congress", "senate", "parliament", "law", "legislation", "constitution",
+         "capitol", "policy", "regulation"],
         [
             "An imposing government building entrance with marble columns and wide stone steps at dusk",
             "A legislative chamber with rows of dark wooden desks and a single podium illuminated by overhead light",
             "A long institutional corridor with tall windows casting geometric shadows on the stone floor",
+            "A committee hearing room with microphones on a curved dais, empty chairs awaiting witnesses",
         ],
     ),
     (
-        ["trade", "tariff", "export", "import", "shipping", "cargo", "supply chain"],
+        ["trade", "tariff", "export", "import", "shipping", "cargo", "supply chain",
+         "sanctions", "embargo", "blockade"],
         [
             "A massive container port at twilight, cranes silhouetted against the sky, cargo ships at anchor",
             "Shipping containers stacked high in a port yard, a lone figure walking between the rows",
             "A freight train loaded with containers stretching into the distance across a flat landscape",
+            "An empty port berth with idle cranes, no ships in dock, a chain stretched across the entrance",
         ],
     ),
     (
-        ["power", "control", "dominat", "authorit", "regime", "ruler", "king", "empire"],
+        ["power", "control", "dominat", "authorit", "regime", "ruler", "king", "empire",
+         "leverage", "influence", "grip"],
         [
             "A lone figure standing at the head of a long empty table in a grand hall, light streaming through tall windows",
             "A throne-like chair at the end of a vast marble room, shadows pooling in the corners",
             "A figure silhouetted in the doorway of an imposing building, looking out over a sprawling city",
+            "A heavy oak desk in a wood-paneled office, a single pen resting on an unsigned document",
+            "A hand resting on a globe in a dimly lit private study, bookshelves lining the walls",
         ],
     ),
     (
@@ -433,6 +456,7 @@ _KEYWORD_VISUALS: list[tuple[list[str], list[str]]] = [
             "A hand sliding a sealed manila envelope across a desk under harsh overhead light",
             "A locked filing cabinet in a dim basement archive, folders marked with redacted labels",
             "A figure reading documents in a pool of desk lamp light, the rest of the room in darkness",
+            "A paper shredder beside a stack of documents in a dimly lit office, red 'classified' stamps visible",
         ],
     ),
     (
@@ -441,14 +465,17 @@ _KEYWORD_VISUALS: list[tuple[list[str], list[str]]] = [
             "A trading floor at closing bell, screens glowing red and green in a cavernous room",
             "A massive stock ticker board on the side of a financial district building, pedestrians below",
             "An empty trading desk with multiple monitors left on overnight, charts frozen on screen",
+            "A broker staring at a screen showing a steep downward graph, the trading floor empty behind him",
         ],
     ),
     (
-        ["oil", "energy", "pipeline", "fuel", "gas", "petrol"],
+        ["oil", "energy", "pipeline", "fuel", "gas", "petrol", "refinery", "opec", "barrel"],
         [
             "An oil refinery at dusk with towers and pipes silhouetted against an orange sky, steam rising",
             "A pipeline stretching across a barren landscape toward the horizon",
             "An offshore oil platform seen from sea level, waves crashing against the steel legs",
+            "Oil storage tanks lined up in rows at a coastal terminal, tanker ships visible in the harbor",
+            "A gas flare burning bright orange against a twilight desert sky, industrial pipes running below",
         ],
     ),
     (
@@ -456,6 +483,7 @@ _KEYWORD_VISUALS: list[tuple[list[str], list[str]]] = [
         [
             "A vast government plaza at dusk with monumental buildings and wide empty avenues",
             "A modern skyline with skyscrapers disappearing into smog, construction cranes visible on the horizon",
+            "A high-speed rail line cutting through dense urban sprawl, glass towers reflecting the setting sun",
         ],
     ),
     (
@@ -463,6 +491,53 @@ _KEYWORD_VISUALS: list[tuple[list[str], list[str]]] = [
         [
             "An imposing stone government building with a long facade, lit by floodlights at night",
             "A grand hall with ornate ceiling and chandeliers, a long table stretching into the distance",
+            "Snow-covered government buildings behind iron gates, guards standing at attention in the cold",
+        ],
+    ),
+    (
+        ["iran", "tehran", "persian", "strait of hormuz", "hormuz", "ayatollah", "revolutionary guard"],
+        [
+            "A Middle Eastern government compound at dusk, concrete barriers and guard posts along the perimeter",
+            "A narrow waterway between rocky coastlines, a tanker ship passing through under watchful military presence",
+            "A desert military installation with radar dishes and communications towers silhouetted against a sunset",
+            "A crowded bazaar street transitioning into a modern government district, old and new architecture side by side",
+        ],
+    ),
+    (
+        ["asymmetr", "disproportion", "outsiz", "smaller than", "larger than", "compared to",
+         "relative to", "mismatch"],
+        [
+            "A small figure standing before a massive institutional building, the scale difference stark and dramatic",
+            "Two buildings side by side — a modest low-rise dwarfed by a gleaming corporate tower, both casting long shadows",
+            "A single chess piece on a vast empty board, a wall of pieces crowded on the opposite side",
+            "A narrow strait between two landmasses seen from above, tiny patrol boats against enormous tanker ships",
+        ],
+    ),
+    (
+        ["geography", "map", "border", "territory", "region", "strait", "chokepoint", "passage"],
+        [
+            "A large wall-mounted military map with colored pins and boundary lines in a dimly lit operations room",
+            "An aerial view of coastline where land narrows to a thin strip between two bodies of water",
+            "A topographic map spread across a table, fingers tracing a route through mountainous terrain",
+            "Satellite imagery displayed on a large screen showing shipping lanes and territorial boundaries",
+        ],
+    ),
+    (
+        ["threat", "risk", "danger", "vulnerab", "exposure", "crisis", "emergency", "alarm"],
+        [
+            "A red warning light flashing in a dark control room, operators rushing to their stations",
+            "A cracked dam holding back dark water, stress fractures visible in the concrete under floodlights",
+            "An emergency operations center with phones ringing and screens showing alert notifications",
+            "A bridge with visible structural damage, warning barriers blocking vehicle access",
+        ],
+    ),
+    (
+        ["nation", "country", "state", "sovereign", "independen", "republic", "homeland"],
+        [
+            "A row of flags hanging limp in front of an international organization headquarters at dusk",
+            "A border checkpoint at dawn, barriers and guard booths stretching across a divided highway",
+            "A foreign ministry building with its national emblem above the entrance, dark sedan parked outside",
+            "An embassy row with different architectural styles side by side, security bollards lining the sidewalk",
         ],
     ),
 ]
@@ -476,6 +551,8 @@ _GENERIC_VISUALS = [
     "A rain-slicked city street at night, reflections of building lights stretching across the wet asphalt",
     "An archive room with floor-to-ceiling shelving filled with labeled boxes, a single reading lamp on",
     "A rooftop view of a city skyline at dusk, lights beginning to flicker on across the buildings",
+    "A parking garage at night with a single car under a buzzing fluorescent light, concrete pillars receding into darkness",
+    "An abandoned factory floor with rusted machinery and broken windows letting in pale moonlight",
 ]
 
 
@@ -483,6 +560,8 @@ def _fallback_visual_description(
     sentence_text: str,
     composition: str,
     scene_context: str = "",
+    concept_index: int = 0,
+    used_visuals: set[str] | None = None,
 ) -> str:
     """Generate a filmable visual description from sentence text using keyword matching.
 
@@ -491,31 +570,54 @@ def _fallback_visual_description(
     scanning the full scene context — neighboring sentences often contain
     concrete topics that indicate what kind of visual to generate.
 
+    Uses *concept_index* (not hash) to rotate through available visuals,
+    and checks *used_visuals* to avoid picking a description already used
+    by another concept in the same scene.
+
     Falls back to generic documentary scenes when nothing matches.
     """
-    # Try the chunk first, then the full scene context
+    if used_visuals is None:
+        used_visuals = set()
+
+    def _pick_unused(visuals: list[str], start_idx: int) -> str:
+        """Pick a visual starting from start_idx, skipping already-used ones."""
+        n = len(visuals)
+        for offset in range(n):
+            candidate = visuals[(start_idx + offset) % n]
+            if candidate not in used_visuals:
+                return candidate
+        # All used — pick by index anyway (better than no description)
+        return visuals[start_idx % n]
+
+    # Try the chunk first, then the full scene context.
+    # When falling through to scene_context, collect ALL matching keyword
+    # groups ranked by score so we can try a different group if the best
+    # one's visuals are all already used.
     for text in [sentence_text, scene_context]:
         if not text:
             continue
         text_lower = text.lower()
 
-        best_score = 0
-        best_visuals: list[str] | None = None
-
+        scored: list[tuple[int, list[str]]] = []
         for keywords, visuals in _KEYWORD_VISUALS:
             score = sum(1 for kw in keywords if kw in text_lower)
-            if score > best_score:
-                best_score = score
-                best_visuals = visuals
+            if score > 0:
+                scored.append((score, visuals))
 
-        if best_visuals:
-            # Use hash of sentence (not context) to pick consistently
-            idx = hash(sentence_text) % len(best_visuals)
-            return best_visuals[idx]
+        # Sort by score descending
+        scored.sort(key=lambda x: x[0], reverse=True)
+
+        for _score, visuals in scored:
+            pick = _pick_unused(visuals, concept_index)
+            if pick not in used_visuals:
+                return pick
+
+        # If all top picks are used, just return the best group's next unused
+        if scored:
+            return _pick_unused(scored[0][1], concept_index)
 
     # No keyword match anywhere — use generic descriptions
-    idx = hash(sentence_text) % len(_GENERIC_VISUALS)
-    return _GENERIC_VISUALS[idx]
+    return _pick_unused(_GENERIC_VISUALS, concept_index)
 
 
 async def expand_scene_concepts(
