@@ -249,7 +249,9 @@ For each of the 2-3 selected stories, output:
 
 - [ ] Every title makes the VIEWER see themselves — not a news headline about a country
 - [ ] Every idea has 4 title options, each using a DIFFERENT PD formula
-- [ ] Every title has a complementary thumbnail text (2-5 words, ALL CAPS)
+- [ ] Every title has a complementary thumbnail text (2-4 words, ALL CAPS, DIFFERENT from title)
+- [ ] Thumbnail text uses personal stakes language ($amounts, YOUR, power words like TRAP/CHECKMATE/COLLAPSE)
+- [ ] Thumbnail text is the emotional gut punch; title is the intellectual framework (yin-yang)
 - [ ] At least 3 of the 4 titles per idea include a specific number
 - [ ] No title leads with a country name or company name
 - [ ] Every idea has a clear **power dynamics** angle (not generic news)
