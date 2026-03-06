@@ -2358,6 +2358,18 @@ async def handle_fallback(event, say):
         await handle_model_list(fake_message, say)
         return
 
+    # Check for "delete TITLE scripts/prompts/images" commands
+    if command.startswith("delete ") and command.endswith((" scripts", " script")):
+        fake_message = {"text": command, "user": event.get("user", "")}
+        await handle_delete_scripts(fake_message, say)
+        return
+    if command.startswith("delete ") and command.endswith(
+        (" prompts", " prompt", " images", " image")
+    ):
+        fake_message = {"text": command, "user": event.get("user", "")}
+        await handle_delete_images(fake_message, say)
+        return
+
     # Check for "discover" with focus keyword
     if command.startswith("discover"):
         fake_message = {"text": command, "user": event.get("user", ""),
