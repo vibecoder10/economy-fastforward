@@ -1,20 +1,26 @@
 """Script Generation (Step 2).
 
-Transforms a validated research brief into a 15-20 minute narration script
-with six-act structure, micro-payoff architecture, and act markers.
+Transforms a validated research brief into a narration script
+with dynamic act structure, micro-payoff architecture, and act markers.
+
+Word counts and act counts are driven by VideoConfig (pipeline_config.py).
+Legacy constants are kept as defaults for backward compatibility when no
+config is provided.
 """
 
 import re
 from pathlib import Path
+from typing import Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from pipeline_config import VideoConfig
 
 PROMPT_TEMPLATE_PATH = Path(__file__).parent / "prompts" / "script.txt"
 
-# Word count bounds for the full script (15-20 min at ~160 wpm)
+# Legacy defaults — used when no VideoConfig is provided
 SCRIPT_MIN_WORDS = 2200
 SCRIPT_MAX_WORDS = 3200
 SCRIPT_TARGET_WORDS = 2800
-
-# Expected act count
 EXPECTED_ACT_COUNT = 6
 
 # Act marker regex pattern — full format: [ACT 1 — Title | 0:00 - 4:10 | ~500 words]
@@ -37,7 +43,7 @@ ACT_MARKER_SIMPLE_PATTERN = re.compile(
 # per-act rules.  Keeps script.txt untouched.
 # ---------------------------------------------------------------------------
 
-_ACT_STRUCTURE_OVERRIDE = """\
+_ACT_STRUCTURE_OVERRIDE_LEGACY = """\
 === UPDATED SCRIPT PARAMETERS — THESE OVERRIDE THE ACT STRUCTURE ABOVE ===
 
 This is a 15-20 minute video, NOT a 25-minute video. Follow these targets:
@@ -53,6 +59,39 @@ Act word targets:
 - Act 5 (The Stakes): ~500 words (11:20-14:30) — Personal implications, counter-arguments addressed
 - Act 6 (The Lesson): ~500 words (14:30-17:30) — Prediction, actionable insight, lingering close
 """
+
+
+def _build_act_structure_override(config: Optional["VideoConfig"] = None) -> str:
+    """Build act structure override dynamically from VideoConfig."""
+    if config is None:
+        return _ACT_STRUCTURE_OVERRIDE_LEGACY
+
+    from pipeline_config import ACT_TEMPLATES, get_act_word_targets
+
+    act_targets = get_act_word_targets(config)
+    duration_min = config.video_length_minutes
+
+    lines = [
+        "=== UPDATED SCRIPT PARAMETERS — THESE OVERRIDE THE ACT STRUCTURE ABOVE ===\n",
+        f"This is a {duration_min}-minute video. Follow these targets:\n",
+        f"Target total: ~{config.total_script_words} words (~{duration_min} minutes at 150 words/min)",
+        f"Minimum: {config.script_min_words} words. Maximum: {config.script_max_words} words.\n",
+        f"This video has {config.act_count} acts (NOT 6 unless specified).\n",
+        "Act word targets:",
+    ]
+
+    cumulative_seconds = 0
+    for at in act_targets:
+        act_seconds = int(config.total_seconds * at["pct"])
+        start_ts = f"{cumulative_seconds // 60}:{cumulative_seconds % 60:02d}"
+        cumulative_seconds += act_seconds
+        end_ts = f"{cumulative_seconds // 60}:{cumulative_seconds % 60:02d}"
+        lines.append(
+            f"- Act {at['act_number']} ({at['name']}): ~{at['word_target']} words "
+            f"({start_ts}-{end_ts}) — {at['purpose']}"
+        )
+
+    return "\n".join(lines) + "\n"
 
 _MICRO_PAYOFF_ARCHITECTURE = """\
 === MICRO-PAYOFF ARCHITECTURE — NON-NEGOTIABLE ===
@@ -603,11 +642,13 @@ def _build_source_citations_section(brief: dict) -> str:
     )
 
 
-def build_script_prompt(brief: dict) -> str:
+def build_script_prompt(brief: dict, config: Optional["VideoConfig"] = None) -> str:
     """Build the script generation prompt from a research brief.
 
-    Now includes Framework Angle as the primary analytical lens and
-    source citations section.
+    Args:
+        brief: Validated research brief dict.
+        config: Optional VideoConfig for dynamic word counts and act structure.
+            When None, falls back to legacy 6-act / 2800-word defaults.
     """
     template = load_script_prompt()
 
@@ -633,11 +674,10 @@ def build_script_prompt(brief: dict) -> str:
         SOURCE_CITATIONS_SECTION=source_citations,
     )
 
-    # Append updated act structure, micro-payoff architecture, framework
-    # selection rules, revelation engine, and act-specific rules.  These
-    # override the older 25-minute / 3,750-word instructions baked into
-    # script.txt.
-    rendered += "\n\n" + _ACT_STRUCTURE_OVERRIDE
+    # Append updated act structure (dynamic from config or legacy),
+    # micro-payoff architecture, framework selection rules, revelation
+    # engine, and act-specific rules.
+    rendered += "\n\n" + _build_act_structure_override(config)
     rendered += "\n\n" + _MICRO_PAYOFF_ARCHITECTURE
     rendered += "\n\n" + _FRAMEWORK_SELECTION_RULES
     rendered += "\n\n" + _FRAMEWORK_REVELATION_ENGINE
@@ -648,8 +688,13 @@ def build_script_prompt(brief: dict) -> str:
     return rendered
 
 
-def validate_script(script: str) -> dict:
+def validate_script(script: str, config: Optional["VideoConfig"] = None) -> dict:
     """Validate script structure and word count.
+
+    Args:
+        script: Generated script text.
+        config: Optional VideoConfig for dynamic thresholds. Falls back to
+            legacy constants when None.
 
     Returns:
         {
@@ -660,17 +705,21 @@ def validate_script(script: str) -> dict:
             "acts": list[dict],  # parsed act info
         }
     """
+    min_words = config.script_min_words if config else SCRIPT_MIN_WORDS
+    max_words = config.script_max_words if config else SCRIPT_MAX_WORDS
+    expected_acts = config.act_count if config else EXPECTED_ACT_COUNT
+
     issues = []
     word_count = len(script.split())
 
     # Check word count
-    if word_count < SCRIPT_MIN_WORDS:
+    if word_count < min_words:
         issues.append(
-            f"Script too short: {word_count} words (minimum {SCRIPT_MIN_WORDS})"
+            f"Script too short: {word_count} words (minimum {min_words})"
         )
-    elif word_count > SCRIPT_MAX_WORDS:
+    elif word_count > max_words:
         issues.append(
-            f"Script too long: {word_count} words (maximum {SCRIPT_MAX_WORDS})"
+            f"Script too long: {word_count} words (maximum {max_words})"
         )
 
     # Parse act markers
@@ -683,14 +732,14 @@ def validate_script(script: str) -> dict:
             "target_words": int(match.group(4)) if match.group(4) else None,
         })
 
-    if len(acts) < EXPECTED_ACT_COUNT:
+    if len(acts) < expected_acts:
         issues.append(
-            f"Only {len(acts)} act markers found (expected {EXPECTED_ACT_COUNT})"
+            f"Only {len(acts)} act markers found (expected {expected_acts})"
         )
 
     # Check act numbers are sequential
     act_numbers = [a["number"] for a in acts]
-    expected_numbers = list(range(1, EXPECTED_ACT_COUNT + 1))
+    expected_numbers = list(range(1, expected_acts + 1))
     if act_numbers != expected_numbers[: len(act_numbers)]:
         issues.append(f"Act numbers not sequential: {act_numbers}")
 
@@ -753,6 +802,7 @@ async def generate_script(
     anthropic_client,
     brief: dict,
     model: str = "claude-sonnet-4-5-20250929",
+    config: Optional["VideoConfig"] = None,
 ) -> dict:
     """Generate a full narration script from a validated research brief.
 
@@ -760,6 +810,7 @@ async def generate_script(
         anthropic_client: AnthropicClient instance
         brief: Validated research brief dict
         model: Model to use (defaults to Sonnet, can use Opus for higher quality)
+        config: Optional VideoConfig for dynamic word counts and act structure.
 
     Returns:
         {
@@ -767,7 +818,11 @@ async def generate_script(
             "validation": dict,
         }
     """
-    prompt = build_script_prompt(brief)
+    min_words = config.script_min_words if config else SCRIPT_MIN_WORDS
+    max_words = config.script_max_words if config else SCRIPT_MAX_WORDS
+    target_words = config.total_script_words if config else SCRIPT_TARGET_WORDS
+
+    prompt = build_script_prompt(brief, config=config)
 
     script = await anthropic_client.generate(
         prompt=prompt,
@@ -776,14 +831,14 @@ async def generate_script(
         temperature=0.8,
     )
 
-    validation = validate_script(script)
+    validation = validate_script(script, config=config)
 
     # If script is too short, try once more with explicit expansion instruction
-    if not validation["valid"] and validation["word_count"] < SCRIPT_MIN_WORDS:
+    if not validation["valid"] and validation["word_count"] < min_words:
         expansion_prompt = (
             f"{prompt}\n\n"
             f"CRITICAL: Your previous attempt was only {validation['word_count']} words. "
-            f"The script MUST be at least {SCRIPT_MIN_WORDS} words. "
+            f"The script MUST be at least {min_words} words. "
             f"Expand the thinner acts with more specific details and examples."
         )
         script = await anthropic_client.generate(
@@ -792,16 +847,16 @@ async def generate_script(
             max_tokens=8000,
             temperature=0.8,
         )
-        validation = validate_script(script)
+        validation = validate_script(script, config=config)
 
     # If script is too long, try once more with explicit compression instruction
-    if not validation["valid"] and validation["word_count"] > SCRIPT_MAX_WORDS:
+    if not validation["valid"] and validation["word_count"] > max_words:
         compression_prompt = (
             f"{prompt}\n\n"
             f"CRITICAL: Your previous attempt was {validation['word_count']} words. "
-            f"The script MUST NOT exceed {SCRIPT_MAX_WORDS} words. Target: {SCRIPT_TARGET_WORDS} words. "
+            f"The script MUST NOT exceed {max_words} words. Target: {target_words} words. "
             f"Cut unnecessary examples, reduce redundant transitions, and tighten each act. "
-            f"Do NOT cut framework references or detection instructions from Act 6."
+            f"Do NOT cut framework references or detection instructions from the final act."
         )
         script = await anthropic_client.generate(
             prompt=compression_prompt,
@@ -809,18 +864,17 @@ async def generate_script(
             max_tokens=8000,
             temperature=0.7,
         )
-        validation = validate_script(script)
+        validation = validate_script(script, config=config)
 
-    # Validate Act 6 empowerment close
+    # Validate empowerment close on the final act
     from .scene_validator import validate_act6_empowerment
 
     acts = extract_acts(script)
-    act6_text = acts.get(6, "")
-    empowerment_check = validate_act6_empowerment(act6_text)
+    final_act_num = config.act_count if config else 6
+    final_act_text = acts.get(final_act_num, "")
+    empowerment_check = validate_act6_empowerment(final_act_text)
     if not empowerment_check["valid"]:
         validation["act6_empowerment_issues"] = empowerment_check["issues"]
-        # Log but don't block — the issues list in validation already
-        # drives downstream decisions
         for issue in empowerment_check["issues"]:
             if "issues" not in validation:
                 validation["issues"] = []
