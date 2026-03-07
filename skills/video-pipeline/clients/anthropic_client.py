@@ -4,7 +4,25 @@ import os
 from anthropic import Anthropic
 from typing import Optional, List, Dict, Tuple
 
-from clients.style_engine import (
+from .style_engine import (
+    # New holographic system
+    ContentType,
+    DisplayFormat,
+    ColorMood,
+    CONTENT_TYPE_CONFIG,
+    CONTENT_TYPE_KEYWORDS,
+    DISPLAY_FORMAT_CONFIG,
+    CONTENT_FORMAT_AFFINITY,
+    COLOR_MOOD_CONFIG,
+    COLOR_MOOD_KEYWORDS,
+    HOLOGRAPHIC_SUFFIX,
+    PROMPT_MIN_WORDS,
+    PROMPT_MAX_WORDS,
+    EXAMPLE_PROMPTS,
+    resolve_content_type,
+    resolve_color_mood,
+    resolve_display_format,
+    # Legacy compatibility (animation pipeline)
     STYLE_ENGINE,
     STYLE_ENGINE_PREFIX,
     STYLE_ENGINE_SUFFIX,
@@ -16,15 +34,6 @@ from clients.style_engine import (
     SCENE_TYPE_CONFIG,
     get_documentary_pattern,
     get_scene_type_for_segment,
-    PROMPT_MIN_WORDS,
-    PROMPT_MAX_WORDS,
-    EXAMPLE_PROMPTS,
-)
-
-# YouTube pipeline style constants — cinematic dossier
-from image_prompt_engine.style_config import (
-    STYLE_ENVIRONMENTS,
-    STYLE_CAMERAS,
 )
 
 # Web search tool for real-time headline gathering and fact verification.
@@ -292,123 +301,141 @@ Current Scene Goal: "{scene_beat}\""""
         scene_number: int,
         scene_text: str,
         video_title: str,
+        research_payload: str = "",
     ) -> list[str]:
-        """Generate 6 image prompts for a scene using cinematic photorealistic documentary style.
+        """Generate 6 image prompts for a scene using holographic intelligence display style.
 
-        Uses the 5-layer architecture with scene type rotation and documentary camera pattern.
-        Style engine goes at BEGINNING of prompt (models weight early tokens more heavily).
+        Uses the 3-variable architecture: Display Content + Display Format + Color Mood.
+        Every frame is a holographic projection in a dark intelligence operations center.
+        Zero human figures — only data, maps, charts, and analytical visualizations.
+
+        Args:
+            scene_number: The scene number in the video
+            scene_text: The narration text for this scene
+            video_title: The video title
+            research_payload: Optional research payload JSON for extracting real data points
         """
-        # Get documentary pattern for 6 images
-        camera_pattern = get_documentary_pattern(6)
-
-        # Build scene type assignments with rotation
-        scene_assignments = []
-        previous_scene_type = None
-        for i in range(6):
-            scene_type, camera_role = get_scene_type_for_segment(i, 6, previous_scene_type)
-            scene_assignments.append({
-                "index": i + 1,
-                "shot_prefix": SCENE_TYPE_CONFIG[scene_type]["shot_prefix"],
-                "camera_role": camera_role.value,
-            })
-            previous_scene_type = scene_type
-
-        shot_guidance = "\n".join([
-            f"Image {a['index']}: {a['camera_role'].upper()} → \"{a['shot_prefix']}...\""
-            for a in scene_assignments
+        # Build content type descriptions for the system prompt
+        content_type_ref = "\n".join([
+            f"Type {chr(65+i)} — {cfg['label']}: {cfg['use_for']}\n  Key elements: {cfg['key_elements']}"
+            for i, (ct, cfg) in enumerate(CONTENT_TYPE_CONFIG.items())
         ])
 
-        system_prompt = f"""You are a visual director creating cinematic photorealistic documentary image prompts for AI animation.
+        # Build format descriptions
+        format_ref = "\n".join([
+            f"Format {i+1} — {cfg['label']}: {cfg['framing']}"
+            for i, (fmt, cfg) in enumerate(DISPLAY_FORMAT_CONFIG.items())
+        ])
 
-=== STYLE: CINEMATIC PHOTOREALISTIC DOCUMENTARY ===
-Dark moody atmosphere, desaturated color palette, Rembrandt lighting, deep shadows.
-Anonymous human figures with faces always obscured by shadow, silhouette, backlighting,
-or camera angle. Documentary photography where identities are protected.
-Think Sicario meets Zero Dark Thirty meets The Big Short.
+        # Build color mood descriptions
+        mood_ref = "\n".join([
+            f"Palette {i+1} — {cfg['label']}: {cfg['use_for']}\n  Prompt language: \"{cfg['prompt_language']}\""
+            for i, (mood, cfg) in enumerate(COLOR_MOOD_CONFIG.items())
+        ])
 
-=== 5-LAYER PROMPT ARCHITECTURE ({PROMPT_MIN_WORDS}-{PROMPT_MAX_WORDS} words) ===
-CRITICAL: Style engine prefix goes FIRST - models weight early tokens more heavily.
+        system_prompt = f"""You are a visual director creating HOLOGRAPHIC INTELLIGENCE DISPLAY image prompts.
 
-[STYLE_ENGINE_PREFIX] + [SHOT TYPE] + [SCENE COMPOSITION] + [FOCAL SUBJECT] + [ENVIRONMENTAL STORYTELLING] + [STYLE_ENGINE_SUFFIX + LIGHTING] + [TEXT RULE]
+=== CORE AESTHETIC ===
+Every image exists inside a dark, high-security intelligence operations center.
+The room is barely visible — dark walls, subtle ambient equipment glow.
+The star of every frame is the HOLOGRAPHIC PROJECTION SURFACE — a table, wall display,
+or floating mid-air projection showing analytical content.
 
-1. STYLE_ENGINE_PREFIX (always first, ~35 words):
-   "{STYLE_ENGINE_PREFIX}"
+Think: war room from Tom Clancy crossed with Bloomberg Terminal crossed with Minority Report.
+Clinical. Precise. Authoritative.
 
-2. SHOT TYPE (~6 words): Use the assigned shot prefix
+=== ABSOLUTE RULES ===
+1. NEVER include human figures, faces, hands, or human silhouettes
+2. NEVER include real flags or government seals (analytical references OK)
+3. ALL text must be analytical labels, data readouts, classification stamps
+4. Room is barely visible (10-15% of frame max)
+5. Every image MUST contain at least one quantitative data element (number, %, date)
+6. Text must be data-formatted ("$148.20", "21 MILES", "70% DECLINE"), NOT narrative
+7. Holographic projection MUST have visible depth/dimensionality (floating, projected, wireframe)
+8. Scale and proportion matter — include distance markers, size labels, specific numbers
 
-3. SCENE COMPOSITION (~25 words): Real-world environment with cinematic lighting
-   - Real places: boardrooms, trading floors, government vaults, military facilities
-   - Be concrete: "a darkened boardroom with mahogany table and leather chairs"
+=== 3-VARIABLE PROMPT ARCHITECTURE ({PROMPT_MIN_WORDS}-{PROMPT_MAX_WORDS} words) ===
 
-4. FOCAL SUBJECT (~30 words): Anonymous human figures
-   - Faces ALWAYS hidden: shadow, silhouette, backlighting, turned away
-   - Specify count and framing: "a lone figure silhouetted against monitors"
-   - Include BODY LANGUAGE: "shoulders slumped", "arms crossed", "leaning forward"
-   - Include action: "signing documents", "walking through corridor"
+[DISPLAY FORMAT framing] + [DISPLAY CONTENT with specific data] + [COLOR MOOD palette] + [UNIVERSAL SUFFIX]
 
-5. ENVIRONMENTAL STORYTELLING (~40 words): Background details
-   - Objects that tell stories: classified documents, trading terminals, empty chairs
-   - Visual metaphors using real objects: "a bridge with missing sections"
-   - Data made tangible: "Bloomberg screens with red tickers", "stacks of currency"
+Variable 1 — DISPLAY CONTENT TYPES:
+{content_type_ref}
 
-6. STYLE_ENGINE_SUFFIX + LIGHTING (~45 words):
-   "{STYLE_ENGINE_SUFFIX}, [warm description] vs [cool description]"
+Variable 2 — DISPLAY FORMAT TEMPLATES:
+{format_ref}
 
-7. TEXT RULE (always last):
-   - If no text: "{TEXT_RULE_NO_TEXT}"
-   - If text (max 3 elements, 3 words each): "{TEXT_RULE_WITH_TEXT}"
+Variable 3 — COLOR MOOD PALETTES:
+{mood_ref}
 
-=== DOCUMENTARY CAMERA PATTERN ===
-{shot_guidance}
+=== UNIVERSAL SUFFIX (append to EVERY prompt) ===
+"{HOLOGRAPHIC_SUFFIX}"
 
-=== DO NOT ===
-- Use illustration, 2D, or stylized references
-- Show clear facial features (faces always obscured)
-- Explain economics abstractly
-- Use double quotes (use single quotes)
-
-=== DO ===
-- Describe real cinematic environments with dramatic lighting
-- Use body language for emotion (shoulders, posture, hands)
-- Use spatial relationships: "left side dark decay, right side warm polished mahogany"
-- Include atmospheric details: dust, haze, lens flare, film grain
-- Accent colors: teal=tech/geopolitical, amber=power/money, red=military/conflict
+=== ROTATION RULES ===
+- Never use the same content type for more than 2 consecutive images
+- Never use the same format for more than 2 consecutive images
+- Never use the same color palette for more than 3 consecutive images
+- Vary formats across the 6 images for visual variety
 
 === EXAMPLE GOOD PROMPT ===
 "{EXAMPLE_PROMPTS[0]}"
 
-OUTPUT FORMAT (JSON only, no markdown):
+=== OUTPUT FORMAT (JSON only, no markdown) ===
 {{
   "scene": {scene_number},
-  "prompts": ["prompt 1...", "prompt 2...", ...]
+  "prompts": [
+    {{
+      "content_type": "geographic_map",
+      "display_format": "war_table",
+      "color_mood": "strategic",
+      "prompt": "the full prompt text..."
+    }}
+  ]
 }}"""
 
-        prompt = f"""Create 6 image prompts for this scene using cinematic photorealistic documentary style:
+        research_context = ""
+        if research_payload:
+            research_context = f"""
+
+RESEARCH DATA (use specific numbers, dates, and facts from this in your prompts):
+{research_payload[:3000]}"""
+
+        prompt = f"""Create 6 holographic intelligence display image prompts for this scene:
 
 Video Title: {video_title}
 Scene Number: {scene_number}
 
 SCENE TEXT:
 {scene_text}
+{research_context}
 
-SHOT ASSIGNMENTS:
-{shot_guidance}
+For each prompt:
+1. Analyze the scene text for analytical content and data points
+2. Select the best content type (A-H), format (1-5), and color mood (1-6)
+3. Write a {PROMPT_MIN_WORDS}-{PROMPT_MAX_WORDS} word prompt describing the holographic display
+4. Include SPECIFIC data points from the scene text and research
+5. End every prompt with the universal suffix
 
-Generate exactly 6 prompts, {PROMPT_MIN_WORDS}-{PROMPT_MAX_WORDS} words each.
-Every prompt MUST start with the style engine prefix.
-Every word must describe something VISUAL."""
+Generate exactly 6 prompts. Every prompt describes a holographic projection, NOT a real scene."""
 
         response = await self.generate(
             prompt=prompt,
             system_prompt=system_prompt,
             model="claude-sonnet-4-5-20250929",
-            max_tokens=4000,
+            max_tokens=6000,
         )
 
         import json
         clean_response = response.replace("```json", "").replace("```", "").strip()
         data = json.loads(clean_response)
-        prompts = data.get("prompts", [])
+        prompt_entries = data.get("prompts", [])
+
+        # Extract just the prompt strings, handling both formats
+        prompts = []
+        for entry in prompt_entries:
+            if isinstance(entry, dict):
+                prompts.append(entry.get("prompt", ""))
+            else:
+                prompts.append(str(entry))
 
         # Validate word counts
         for i, p in enumerate(prompts):
@@ -900,14 +927,9 @@ Start with style engine prefix, end with style engine suffix + lighting + text r
         words_per_segment: int = 20,
         scene_number: int = 1,
         pipeline_type: str = "animation",
+        research_payload: str = "",
     ) -> list[dict]:
-        """Segment scene text into visual concepts with pipeline-aware style.
-
-        Supports two visual styles based on pipeline_type:
-        - "youtube": Cinematic photorealistic dossier style (desaturated,
-          Rembrandt lighting, documentary photography, Arri Alexa look).
-        - "animation": Cinematic photorealistic documentary style (anonymous
-          figures, faces obscured, deep shadows, film grain).
+        """Segment scene text into visual concepts using holographic intelligence display style.
 
         Args:
             scene_text: Full scene narration text
@@ -915,249 +937,90 @@ Start with style engine prefix, end with style engine suffix + lighting + text r
             min_count: Minimum allowed segments
             max_count: Maximum allowed segments
             words_per_segment: Target words per segment for duration
-            scene_number: The scene number (for documentary pattern)
-            pipeline_type: "youtube" or "animation" — controls style prefix
+            scene_number: The scene number
+            pipeline_type: "youtube" or "animation" (both now use holographic style)
+            research_payload: Optional research data for extracting specific data points
 
         Returns:
             List of dicts with:
                 - text: str (the narration text for this segment)
                 - image_prompt: str (the generated image prompt)
-                - shot_type: str (the shot type for animation)
+                - shot_type: str (the display format for this segment)
         """
-        is_youtube = pipeline_type == "youtube"
-
-        # Select style constants based on pipeline
-        if is_youtube:
-            style_prefix = STYLE_ENVIRONMENTS["dossier"].replace("[ACCENT_COLOR]", "cold teal")
-            style_suffix = STYLE_CAMERAS.get("wide", "")
-        else:
-            style_prefix = STYLE_ENGINE_PREFIX
-            style_suffix = STYLE_ENGINE_SUFFIX
-
-        # Get documentary pattern for this scene
-        camera_pattern = get_documentary_pattern(target_count)
-
-        # Build scene type assignments with rotation
-        scene_type_assignments = []
-        previous_scene_type = None
-        for i in range(target_count):
-            scene_type, camera_role = get_scene_type_for_segment(
-                i, target_count, previous_scene_type
-            )
-            scene_type_assignments.append({
-                "index": i + 1,
-                "scene_type": scene_type,
-                "camera_role": camera_role,
-                "shot_prefix": SCENE_TYPE_CONFIG[scene_type]["shot_prefix"],
-            })
-            previous_scene_type = scene_type
-
-        # Format scene type guidance for the prompt
-        scene_type_guidance = "\n".join([
-            f"Segment {a['index']}: {a['camera_role'].value.upper()} → Use \"{a['shot_prefix']}...\""
-            for a in scene_type_assignments
+        # Build display format guidance
+        format_guidance = "\n".join([
+            f"Segment {i+1}: Use \"{DISPLAY_FORMAT_CONFIG[list(DISPLAY_FORMAT_CONFIG.keys())[i % len(DISPLAY_FORMAT_CONFIG)]]['framing']}...\""
+            for i in range(target_count)
         ])
 
-        # Build system prompt based on pipeline type
-        if is_youtube:
-            system_prompt = f"""You are a visual director creating cinematic photorealistic image prompts for a YouTube documentary channel.
+        system_prompt = f"""You are a visual director creating HOLOGRAPHIC INTELLIGENCE DISPLAY image prompts.
 
 YOUR TASK: Divide this scene into {target_count} visual segments ({min_count}-{max_count} range) and create image prompts.
 
-=== STYLE: CINEMATIC PHOTOREALISTIC DOSSIER ===
-Dark moody atmosphere, desaturated color palette, Rembrandt lighting, deep shadows,
-shallow depth of field, subtle film grain, documentary photography style, shot on Arri Alexa,
-16:9 cinematic composition, epic scale. Think investigative documentary meets editorial photography.
+=== CORE AESTHETIC ===
+Every image exists inside a dark, high-security intelligence operations center.
+The room is barely visible. The star of every frame is the HOLOGRAPHIC PROJECTION.
+Think: war room from Tom Clancy crossed with Bloomberg Terminal crossed with Minority Report.
+
+=== ABSOLUTE RULES ===
+1. NEVER include human figures, faces, hands, or human silhouettes
+2. ALL text must be analytical labels, data readouts, or classification stamps
+3. Every image MUST contain at least one quantitative data element
+4. Holographic projection MUST have visible depth/dimensionality
 
 === CRITICAL DURATION RULE ===
 - Each segment: ~{words_per_segment} words (±5 words)
 - Ensures 6-10 second display per image
-- Balance word counts - no segment 2x longer than another
+- Balance word counts — no segment 2x longer than another
 
-=== PROMPT ARCHITECTURE (120-150 words) ===
-CRITICAL: Style prefix goes FIRST - models weight early tokens more heavily.
+=== PROMPT ARCHITECTURE ({PROMPT_MIN_WORDS}-{PROMPT_MAX_WORDS} words) ===
 
-[STYLE_PREFIX] + [SHOT TYPE] + [SCENE COMPOSITION] + [SUBJECT] + [ENVIRONMENTAL DETAIL] + [STYLE_SUFFIX]
+[DISPLAY FORMAT framing] + [DISPLAY CONTENT with specific data] + [COLOR MOOD palette] + [UNIVERSAL SUFFIX]
 
-1. STYLE PREFIX (always first, ~25 words):
-   "{style_prefix}"
+Content Types: geographic_map, data_terminal, object_comparison, document_display, network_diagram, timeline, satellite_recon, concept_viz
+Display Formats: war_table, wall_display, floating, multi_panel, close_up_detail
+Color Moods: strategic (teal), alert (red), archive (gold), contagion (green-to-red), power (navy), personal (orange)
 
-2. SHOT TYPE (~6 words): Use the assigned shot prefix
+=== UNIVERSAL SUFFIX (append to EVERY prompt) ===
+"{HOLOGRAPHIC_SUFFIX}"
 
-3. SCENE COMPOSITION (~20 words): Real-world environment
-   - Describe a REAL place: "a dimly lit trading floor", "a cavernous government vault"
-   - Use photorealistic settings, NOT stylized 3D worlds
-
-4. SUBJECT (~25 words): Anonymous figures, faces obscured by shadow/silhouette/backlighting
-   - Silhouetted figures, partially lit faces, hands on documents
-   - Groups of people in institutional settings
-   - Objects that tell stories: stacks of currency, sealed documents, empty chairs
-
-5. ENVIRONMENTAL DETAIL (~35 words): Background that reinforces the story
-   - Monitors displaying data, stacks of files, institutional architecture
-   - Visual metaphors using real objects: "an empty vault", "a bridge with missing sections"
-   - Scale and atmosphere: vast halls, narrow corridors, towering stacks
-
-6. STYLE SUFFIX (~30 words):
-   "{style_suffix}"
-
-=== DOCUMENTARY CAMERA PATTERN ===
-{scene_type_guidance}
-
-=== DO NOT ===
-- Use illustration, 2D, or stylized references
-- Include text or labels in images
-- Describe abstract economic concepts — make them VISUAL
-- Use double quotes inside prompts (use single quotes)
-
-=== DO ===
-- Describe photorealistic environments with cinematic lighting
-- Use real-world visual metaphors: vaults, bridges, corridors, trading floors
-- Include atmospheric details: dust, haze, lens flare, film grain
-- Focus on dramatic lighting contrasts: warm vs cold, shadow vs highlight
+=== DISPLAY FORMAT ROTATION ===
+{format_guidance}
 
 === OUTPUT FORMAT (JSON only, no markdown) ===
 {{
   "segments": [
     {{
       "text": "The narration text for this segment...",
-      "image_prompt": "{style_prefix} [shot type] [scene composition], [subject], [environmental detail]{style_suffix}",
-      "shot_type": "wide_establishing"
+      "image_prompt": "[format framing] [content description with data] [color mood]{HOLOGRAPHIC_SUFFIX}",
+      "shot_type": "war_table"
     }}
   ]
 }}
 
-=== SHOT TYPE VALUES ===
-- wide_establishing (aerial, overhead, establishing shots)
-- isometric_diorama (3/4 angle miniature world view)
-- medium_human_story (subject at medium distance)
-- close_up_vignette (tight focus on object/detail)
-- data_landscape (charts, graphs as physical objects)
-- split_screen (divided frame comparison)
-- pull_back_reveal (starts close, reveals wider context)
-- overhead_map (top-down view)
-- journey_shot (movement through space)"""
+=== SHOT TYPE VALUES (display formats) ===
+- war_table (overhead angled, holographic table)
+- wall_display (front-facing wall screen)
+- floating (objects floating in dark space)
+- multi_panel (multiple display panels)
+- close_up_detail (tight crop on data point)"""
 
-        else:
-            system_prompt = f"""You are a visual director creating cinematic photorealistic documentary image prompts for AI animation.
+        research_context = ""
+        if research_payload:
+            research_context = f"""
 
-YOUR TASK: Divide this scene into {target_count} visual segments ({min_count}-{max_count} range) and create image prompts.
+RESEARCH DATA (use specific numbers, dates, and facts from this):
+{research_payload[:2000]}"""
 
-=== STYLE: CINEMATIC PHOTOREALISTIC DOCUMENTARY ===
-Dark moody atmosphere, desaturated palette, Rembrandt lighting, deep shadows.
-Anonymous human figures with faces obscured by shadow, silhouette, or backlighting.
-Documentary photography where identities are protected.
-Think Sicario meets Zero Dark Thirty meets The Big Short.
-
-=== CRITICAL DURATION RULE ===
-- Each segment: ~{words_per_segment} words (±5 words)
-- Ensures 6-10 second display per image
-- Balance word counts - no segment 2x longer than another
-
-=== 5-LAYER PROMPT ARCHITECTURE ({PROMPT_MIN_WORDS}-{PROMPT_MAX_WORDS} words) ===
-CRITICAL: Style engine prefix goes FIRST - models weight early tokens more heavily.
-
-[STYLE_ENGINE_PREFIX] + [SHOT TYPE] + [SCENE COMPOSITION] + [FOCAL SUBJECT] + [ENVIRONMENTAL STORYTELLING] + [STYLE_ENGINE_SUFFIX + LIGHTING] + [TEXT RULE]
-
-1. STYLE_ENGINE_PREFIX (always first, ~35 words):
-   "{style_prefix}"
-
-2. SHOT TYPE (~6 words): Use the assigned shot prefix
-
-3. SCENE COMPOSITION (~25 words): Real-world environment with cinematic lighting
-   - Real places: boardrooms, trading floors, government vaults, military facilities
-   - Be CONCRETE: "a darkened boardroom with mahogany table", NOT "economic stagnation"
-
-4. FOCAL SUBJECT (~30 words): Anonymous human figures
-   - Faces ALWAYS hidden: shadow, silhouette, backlighting, turned away
-   - Specify count and framing: "a lone figure silhouetted against monitors"
-   - Include BODY LANGUAGE: "shoulders slumped", "arms crossed", "leaning forward"
-   - Include action: "signing documents", "walking through corridor"
-
-5. ENVIRONMENTAL STORYTELLING (~40 words): Background details
-   - Objects that tell stories: classified documents, trading terminals, empty chairs
-   - Visual metaphors: "a bridge with missing sections", "a vault door left ajar"
-   - Data made tangible: "Bloomberg screens with red tickers", "stacks of currency"
-
-6. STYLE_ENGINE_SUFFIX + LIGHTING (~45 words):
-   "{style_suffix}, [warm description] vs [cool description]"
-
-7. TEXT RULE (always last):
-   - Default: "{TEXT_RULE_NO_TEXT}"
-   - If text needed (max 3 elements, 3 words each): specify surface
-
-=== DOCUMENTARY CAMERA PATTERN ===
-{scene_type_guidance}
-
-=== DO NOT ===
-- Use illustration, 2D, or stylized references
-- Show clear facial features (faces always obscured)
-- Explain economics abstractly
-- Use double quotes inside prompts (use single quotes)
-
-=== DO ===
-- Describe real cinematic environments with dramatic lighting
-- Body language for emotion: shoulders slumped, arms crossed, leaning forward
-- Use spatial relationships: "left side dark decay, right side warm polished mahogany"
-- Include atmospheric details: dust, haze, lens flare, film grain
-- Camera: Arri Alexa 65, 35mm Master Prime lens, Kodak Vision3 500T
-
-=== EXAMPLE GOOD PROMPTS ===
-
-Example 1 (WIDE ESTABLISHING):
-"{EXAMPLE_PROMPTS[0][:350]}..."
-
-Example 2 (MEDIUM HUMAN STORY):
-"{EXAMPLE_PROMPTS[1][:350]}..."
-
-=== OUTPUT FORMAT (JSON only, no markdown) ===
-{{
-  "segments": [
-    {{
-      "text": "The narration text for this segment...",
-      "image_prompt": "{style_prefix} [shot type] [scene composition], [focal subject with body language], [environmental storytelling], {style_suffix}, [lighting], {TEXT_RULE_NO_TEXT}",
-      "shot_type": "wide_establishing"
-    }}
-  ]
-}}
-
-=== SHOT TYPE VALUES ===
-- wide_establishing (aerial, overhead, establishing shots)
-- isometric_diorama (3/4 angle miniature world view)
-- medium_human_story (anonymous figure at medium distance)
-- close_up_vignette (tight focus on object/detail)
-- data_landscape (charts, graphs as physical objects)
-- split_screen (divided frame comparison)
-- pull_back_reveal (starts close, reveals wider context)
-- overhead_map (top-down view)
-- journey_shot (movement through space)"""
-
-        # Build user prompt based on pipeline type
-        if is_youtube:
-            prompt = f"""Segment this scene narration into {target_count} visual concepts using cinematic photorealistic dossier style:
+        prompt = f"""Segment this scene into {target_count} holographic intelligence display visualizations:
 
 SCENE TEXT:
 {scene_text}
-
-REQUIRED SHOT ASSIGNMENTS:
-{scene_type_guidance}
+{research_context}
 
 Return JSON with segments array. Each segment has text, image_prompt, and shot_type.
-CRITICAL: Every prompt MUST start with "{style_prefix}"
-REMEMBER: 120-150 words per prompt. Every word must describe something VISUAL.
-Cinematic photorealistic documentary style ONLY. Faces always obscured."""
-        else:
-            prompt = f"""Segment this scene narration into {target_count} visual concepts using cinematic photorealistic documentary style:
-
-SCENE TEXT:
-{scene_text}
-
-REQUIRED SHOT ASSIGNMENTS:
-{scene_type_guidance}
-
-Return JSON with segments array. Each segment has text, image_prompt, and shot_type.
-CRITICAL: Every prompt MUST start with "{style_prefix}"
-REMEMBER: {PROMPT_MIN_WORDS}-{PROMPT_MAX_WORDS} words per prompt. Every word must describe something VISUAL."""
+REMEMBER: {PROMPT_MIN_WORDS}-{PROMPT_MAX_WORDS} words per prompt. NO human figures.
+Every prompt describes a holographic projection with specific data points."""
 
         response = await self.generate(
             prompt=prompt,
@@ -1173,11 +1036,13 @@ REMEMBER: {PROMPT_MIN_WORDS}-{PROMPT_MAX_WORDS} words per prompt. Every word mus
 
         segments = data.get("segments", [])
 
-        # Valid shot types
+        # Valid shot types (display formats)
         valid_shot_types = [
+            "war_table", "wall_display", "floating", "multi_panel", "close_up_detail",
+            # Legacy compatibility
             "wide_establishing", "isometric_diorama", "medium_human_story",
             "close_up_vignette", "data_landscape", "split_screen",
-            "pull_back_reveal", "overhead_map", "journey_shot"
+            "pull_back_reveal", "overhead_map", "journey_shot",
         ]
 
         # Validate and log word counts, ensure shot_type is valid
@@ -1192,11 +1057,7 @@ REMEMBER: {PROMPT_MIN_WORDS}-{PROMPT_MAX_WORDS} words per prompt. Every word mus
             # Validate/default shot_type
             shot_type = seg.get("shot_type", "").lower().strip()
             if shot_type not in valid_shot_types:
-                # Fallback: use scene type from pre-computed assignments
-                if i < len(scene_type_assignments):
-                    shot_type = scene_type_assignments[i]["scene_type"].value
-                else:
-                    shot_type = "medium_human_story"  # safe default
+                shot_type = "war_table"  # safe default
                 print(f"      ⚠️ Segment {i+1} missing/invalid shot_type, using: {shot_type}")
             seg["shot_type"] = shot_type
 

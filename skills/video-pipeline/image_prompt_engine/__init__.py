@@ -1,30 +1,28 @@
 """
-Image Prompt Engine — Visual Identity System for NanoBanana pipeline.
+Image Prompt Engine — Holographic Intelligence Display System.
 
-Replaces generic AI image prompts with a structured visual identity system
-producing cinematic, intelligence-briefing-aesthetic imagery across three
-styles: Dossier, Schema, and Echo.
+Produces holographic intelligence display visualizations — the aesthetic
+of a classified military/intelligence operations center where data, maps,
+documents, and analysis are projected on holographic surfaces.
+
+Zero human figures. Every frame carries actual analytical information.
 
 Usage
 -----
 ::
 
-    from image_prompt_engine import generate_prompts, resolve_accent_color
+    from image_prompt_engine import generate_prompts
 
     scenes = [
-        {"scene_description": "A figure in a dark suit walking through a corridor"},
-        {"scene_description": "Aerial city at night with glowing network lines"},
+        {"scene_description": "A detailed map of the Strait of Hormuz with shipping lanes"},
+        {"scene_description": "Oil price candlestick chart spiking with warning indicators"},
         ...
     ]
 
-    prompts = generate_prompts(
-        scenes,
-        topic_category="geopolitical",
-        seed=42,
-    )
+    prompts = generate_prompts(scenes, seed=42)
 
     for p in prompts:
-        print(p["style"], p["composition"], p["prompt"][:80])
+        print(p["content_type"], p["display_format"], p["prompt"][:80])
 """
 
 from .prompt_builder import (
@@ -32,20 +30,29 @@ from .prompt_builder import (
     generate_prompts,
     resolve_accent_color,
     resolve_scene_accent_color,
+    resolve_scene_color_mood,
 )
 from .sequencer import assign_styles
 from .style_config import (
-    ACCENT_COLOR_MAP,
-    ACT_STYLE_WEIGHTS,
-    COMPOSITION_CYCLE,
-    DEFAULT_CONFIG,
-    KEN_BURNS_PAN_ALTERNATES,
+    ContentType,
+    DisplayFormat,
+    ColorMood,
+    CONTENT_TYPE_CONFIG,
+    CONTENT_TYPE_KEYWORDS,
+    DISPLAY_FORMAT_CONFIG,
+    CONTENT_FORMAT_AFFINITY,
+    COLOR_MOOD_CONFIG,
+    COLOR_MOOD_KEYWORDS,
+    COLOR_MOOD_PRIORITY,
+    HOLOGRAPHIC_SUFFIX,
     KEN_BURNS_RULES,
-    SCENE_COLOR_MAP,
-    SCENE_COLOR_PRIORITY,
-    STYLE_CAMERAS,
-    STYLE_ENVIRONMENTS,
-    VALID_ACCENT_COLORS,
+    KEN_BURNS_PAN_ALTERNATES,
+    ACT_MOOD_WEIGHTS,
+    DEFAULT_CONFIG,
+    FORMAT_CYCLE,
+    resolve_content_type,
+    resolve_color_mood,
+    resolve_display_format,
 )
 
 __all__ = [
@@ -54,17 +61,26 @@ __all__ = [
     "build_prompt",
     "resolve_accent_color",
     "resolve_scene_accent_color",
+    "resolve_scene_color_mood",
     "assign_styles",
     # Configuration
-    "STYLE_ENVIRONMENTS",
-    "STYLE_CAMERAS",
-    "COMPOSITION_CYCLE",
-    "ACCENT_COLOR_MAP",
-    "ACT_STYLE_WEIGHTS",
+    "ContentType",
+    "DisplayFormat",
+    "ColorMood",
+    "CONTENT_TYPE_CONFIG",
+    "CONTENT_TYPE_KEYWORDS",
+    "DISPLAY_FORMAT_CONFIG",
+    "CONTENT_FORMAT_AFFINITY",
+    "COLOR_MOOD_CONFIG",
+    "COLOR_MOOD_KEYWORDS",
+    "COLOR_MOOD_PRIORITY",
+    "HOLOGRAPHIC_SUFFIX",
+    "ACT_MOOD_WEIGHTS",
+    "DEFAULT_CONFIG",
+    "FORMAT_CYCLE",
     "KEN_BURNS_RULES",
     "KEN_BURNS_PAN_ALTERNATES",
-    "DEFAULT_CONFIG",
-    "VALID_ACCENT_COLORS",
-    "SCENE_COLOR_MAP",
-    "SCENE_COLOR_PRIORITY",
+    "resolve_content_type",
+    "resolve_color_mood",
+    "resolve_display_format",
 ]

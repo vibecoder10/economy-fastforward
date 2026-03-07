@@ -18,17 +18,18 @@ class ImageClient:
     VEO_RECORD_INFO_URL = "https://api.kie.ai/api/v1/veo/record-info"
     VEO_1080P_URL = "https://api.kie.ai/api/v1/veo/get-1080p-video"
 
-    # Model routing (v2)
-    SCENE_MODEL = "nano-banana-2"  # Nano Banana 2 — scene images (cheaper, reference support)
+    # Model routing (v4 — Holographic Intelligence Display)
+    SCENE_MODEL = "z-image"  # Z Image — primary scene images ($0.004/img)
     THUMBNAIL_MODEL = "nano-banana-pro"  # Nano Banana Pro for thumbnails - text rendering
 
     # Alternative scene image models (hot-swappable via Slack !model command)
     ZIMAGE_MODEL = "z-image"  # Z Image — high-quality image generation
+    NANO_BANANA_MODEL = "nano-banana-2"  # Nano Banana 2 — legacy/reference support
 
     # Valid scene image models for hot-swap validation
     VALID_SCENE_MODELS = {
-        "nano-banana-2": "Nano Banana 2 (default — reference support, $0.025/img)",
-        "z-image": "Z Image (high-quality, $0.025/img)",
+        "z-image": "Z Image (default — holographic display, $0.004/img)",
+        "nano-banana-2": "Nano Banana 2 (legacy — reference support, $0.025/img)",
     }
 
     # Veo 3.1 models

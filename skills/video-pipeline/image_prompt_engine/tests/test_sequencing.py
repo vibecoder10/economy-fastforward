@@ -1,8 +1,8 @@
 """
-Tests for the sequencing engine.
+Tests for the Holographic Intelligence Display sequencing engine.
 
-Verifies that all global sequencing rules from the PRD are enforced across
-a full video's worth of style assignments.
+Verifies that all rotation constraints and emotional arc pacing rules are
+enforced across a full video's worth of assignments.
 """
 
 import sys
@@ -10,11 +10,10 @@ import os
 
 import pytest
 
-# Ensure the package is importable when running tests from this directory.
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
 from image_prompt_engine.sequencer import assign_styles
-from image_prompt_engine.style_config import DEFAULT_CONFIG
+from image_prompt_engine.style_config import DEFAULT_CONFIG, ContentType, DisplayFormat, ColorMood
 
 
 # ---------------------------------------------------------------------------
@@ -26,198 +25,151 @@ def _make_assignments(seed: int = 42, total: int = 136) -> list[dict]:
     return assign_styles(total, seed=seed)
 
 
-def _get_act(entry: dict) -> str:
-    return entry["act"]
-
-
-def _consecutive_runs(assignments: list[dict]) -> list[tuple[str, int]]:
-    """Return a list of (style, run_length) for consecutive same-style runs."""
+def _consecutive_runs(assignments: list[dict], key: str) -> list[tuple[str, int]]:
+    """Return a list of (value, run_length) for consecutive same-value runs."""
     if not assignments:
         return []
     runs = []
-    current_style = assignments[0]["style"]
+    current = assignments[0][key]
     count = 1
     for entry in assignments[1:]:
-        if entry["style"] == current_style:
+        if entry[key] == current:
             count += 1
         else:
-            runs.append((current_style, count))
-            current_style = entry["style"]
+            runs.append((current, count))
+            current = entry[key]
             count = 1
-    runs.append((current_style, count))
+    runs.append((current, count))
     return runs
 
 
 # ---------------------------------------------------------------------------
-# Rule 1: No more than 4 consecutive same style
+# Rule: No more than 2 consecutive same content type
 # ---------------------------------------------------------------------------
 
-class TestMaxConsecutive:
+class TestContentTypeRotation:
     @pytest.mark.parametrize("seed", [1, 42, 99, 256, 1000])
-    def test_no_more_than_4_consecutive(self, seed):
-        """No style appears more than 4 times in a row."""
+    def test_no_more_than_2_consecutive_content_type(self, seed):
+        """No content type appears more than 2 times in a row."""
         assignments = _make_assignments(seed=seed)
-        max_allowed = DEFAULT_CONFIG["max_consecutive_same_style"]
-        for style, run_len in _consecutive_runs(assignments):
+        max_allowed = DEFAULT_CONFIG["max_consecutive_content_type"]
+        for value, run_len in _consecutive_runs(assignments, "content_type"):
             assert run_len <= max_allowed, (
-                f"Style '{style}' has {run_len} consecutive images "
+                f"Content type '{value}' has {run_len} consecutive images "
                 f"(max {max_allowed}), seed={seed}"
             )
 
 
 # ---------------------------------------------------------------------------
-# Rule 2: No Echo in restricted acts
+# Rule: No more than 2 consecutive same display format
 # ---------------------------------------------------------------------------
 
-class TestEchoRestriction:
+class TestFormatRotation:
     @pytest.mark.parametrize("seed", [1, 42, 99, 256, 1000])
-    def test_no_echo_in_restricted_acts(self, seed):
-        """Echo never appears in Acts 1, 2, or 6."""
+    def test_no_more_than_2_consecutive_format(self, seed):
+        """No display format appears more than 2 times in a row."""
         assignments = _make_assignments(seed=seed)
-        restricted = {"act1", "act2", "act6"}
-        for entry in assignments:
-            if entry["act"] in restricted:
-                assert entry["style"] != "echo", (
-                    f"Echo found in {entry['act']} at index {entry['index']}, seed={seed}"
-                )
-
-
-# ---------------------------------------------------------------------------
-# Rule 3: Echo clusters minimum 2
-# ---------------------------------------------------------------------------
-
-class TestEchoClusters:
-    @pytest.mark.parametrize("seed", [1, 42, 99, 256, 1000])
-    def test_echo_clusters_minimum_2(self, seed):
-        """Echo images never appear as isolated singles."""
-        assignments = _make_assignments(seed=seed)
-        runs = _consecutive_runs(assignments)
-        for style, run_len in runs:
-            if style == "echo":
-                assert run_len >= DEFAULT_CONFIG["echo_cluster_min"], (
-                    f"Isolated echo (cluster size {run_len}), seed={seed}"
-                )
-
-    @pytest.mark.parametrize("seed", [1, 42, 99, 256, 1000])
-    def test_echo_clusters_maximum_3(self, seed):
-        """Echo clusters are at most 3 images long."""
-        assignments = _make_assignments(seed=seed)
-        runs = _consecutive_runs(assignments)
-        for style, run_len in runs:
-            if style == "echo":
-                assert run_len <= DEFAULT_CONFIG["echo_cluster_max"], (
-                    f"Echo cluster too long ({run_len}), seed={seed}"
-                )
-
-
-# ---------------------------------------------------------------------------
-# Rule 4: Echo cluster followed by Dossier
-# ---------------------------------------------------------------------------
-
-class TestEchoFollowedByDossier:
-    @pytest.mark.parametrize("seed", [1, 42, 99, 256, 1000])
-    def test_echo_followed_by_dossier(self, seed):
-        """Every Echo cluster is followed by a Dossier image."""
-        assignments = _make_assignments(seed=seed)
-        runs = _consecutive_runs(assignments)
-        for i, (style, _run_len) in enumerate(runs):
-            if style == "echo" and i + 1 < len(runs):
-                next_style = runs[i + 1][0]
-                assert next_style == "dossier", (
-                    f"Echo cluster followed by '{next_style}' instead of 'dossier', seed={seed}"
-                )
-
-
-# ---------------------------------------------------------------------------
-# Rule 5: Schema rarely clusters
-# ---------------------------------------------------------------------------
-
-class TestSchemaCluster:
-    @pytest.mark.parametrize("seed", [1, 42, 99, 256, 1000])
-    def test_schema_rarely_clusters(self, seed):
-        """Schema appears max 1 consecutive outside Act 5, max 2 in Act 5."""
-        assignments = _make_assignments(seed=seed)
-        for i, entry in enumerate(assignments):
-            if entry["style"] != "schema":
-                continue
-            # Count consecutive schema starting from this position.
-            run = 1
-            j = i + 1
-            while j < len(assignments) and assignments[j]["style"] == "schema":
-                run += 1
-                j += 1
-            # Determine the act for this run (use the first image's act).
-            act = entry["act"]
-            max_allowed = (
-                DEFAULT_CONFIG["schema_cluster_max_act5"]
-                if act == "act5"
-                else DEFAULT_CONFIG["schema_cluster_max_default"]
-            )
-            assert run <= max_allowed, (
-                f"Schema cluster of {run} in {act} at index {i} "
+        max_allowed = DEFAULT_CONFIG["max_consecutive_format"]
+        for value, run_len in _consecutive_runs(assignments, "display_format"):
+            assert run_len <= max_allowed, (
+                f"Display format '{value}' has {run_len} consecutive images "
                 f"(max {max_allowed}), seed={seed}"
             )
 
 
 # ---------------------------------------------------------------------------
-# Rule 6: First and last images are Dossier
+# Rule: No more than 3 consecutive same color palette
 # ---------------------------------------------------------------------------
 
-class TestFirstAndLast:
+class TestPaletteRotation:
     @pytest.mark.parametrize("seed", [1, 42, 99, 256, 1000])
-    def test_first_and_last_are_dossier(self, seed):
-        """First and last images are always Dossier style."""
+    def test_no_more_than_3_consecutive_palette(self, seed):
+        """No color mood appears more than 3 times in a row."""
         assignments = _make_assignments(seed=seed)
-        assert assignments[0]["style"] == "dossier", (
-            f"First image is '{assignments[0]['style']}', expected 'dossier', seed={seed}"
-        )
-        assert assignments[-1]["style"] == "dossier", (
-            f"Last image is '{assignments[-1]['style']}', expected 'dossier', seed={seed}"
-        )
-
-
-# ---------------------------------------------------------------------------
-# Distribution within tolerance
-# ---------------------------------------------------------------------------
-
-class TestDistribution:
-    @pytest.mark.parametrize("seed", [1, 42, 99, 256, 1000])
-    def test_distribution_within_tolerance(self, seed):
-        """Overall distribution is within 10% of targets (60/22/18)."""
-        assignments = _make_assignments(seed=seed)
-        total = len(assignments)
-        counts = {"dossier": 0, "schema": 0, "echo": 0}
-        for entry in assignments:
-            counts[entry["style"]] += 1
-
-        targets = DEFAULT_CONFIG["target_distribution"]
-        tolerance = 0.10  # 10 percentage points
-
-        for style, target in targets.items():
-            actual = counts[style] / total
-            assert abs(actual - target) <= tolerance, (
-                f"Style '{style}': actual {actual:.2%} vs target {target:.0%} "
-                f"(tolerance {tolerance:.0%}), seed={seed}"
+        max_allowed = DEFAULT_CONFIG["max_consecutive_palette"]
+        for value, run_len in _consecutive_runs(assignments, "color_mood"):
+            assert run_len <= max_allowed, (
+                f"Color mood '{value}' has {run_len} consecutive images "
+                f"(max {max_allowed}), seed={seed}"
             )
 
 
 # ---------------------------------------------------------------------------
-# Composition variety
+# Content type variety
 # ---------------------------------------------------------------------------
 
-class TestCompositionVariety:
-    def test_compositions_cycle_within_dossier(self):
-        """Consecutive Dossier images should not all use the same composition."""
+class TestContentTypeVariety:
+    @pytest.mark.parametrize("seed", [1, 42, 99, 256, 1000])
+    def test_uses_multiple_content_types(self, seed):
+        """A full video uses at least 5 different content types."""
+        assignments = _make_assignments(seed=seed)
+        types = {a["content_type"] for a in assignments}
+        assert len(types) >= 5, (
+            f"Only {len(types)} content types used (expected ≥5), seed={seed}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Display format variety
+# ---------------------------------------------------------------------------
+
+class TestFormatVariety:
+    @pytest.mark.parametrize("seed", [1, 42, 99, 256, 1000])
+    def test_uses_all_display_formats(self, seed):
+        """A full video uses all 5 display formats."""
+        assignments = _make_assignments(seed=seed)
+        formats = {a["display_format"] for a in assignments}
+        assert len(formats) == 5, (
+            f"Only {len(formats)} formats used (expected 5), seed={seed}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Color mood variety
+# ---------------------------------------------------------------------------
+
+class TestColorMoodVariety:
+    @pytest.mark.parametrize("seed", [1, 42, 99, 256, 1000])
+    def test_uses_multiple_color_moods(self, seed):
+        """A full video uses at least 4 different color moods."""
+        assignments = _make_assignments(seed=seed)
+        moods = {a["color_mood"] for a in assignments}
+        assert len(moods) >= 4, (
+            f"Only {len(moods)} color moods used (expected ≥4), seed={seed}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Valid values
+# ---------------------------------------------------------------------------
+
+class TestValidValues:
+    def test_all_content_types_are_valid(self):
+        """All assigned content types are valid ContentType values."""
+        valid = {ct.value for ct in ContentType}
         assignments = _make_assignments(seed=42)
-        runs = _consecutive_runs(assignments)
-        idx = 0
-        for style, run_len in runs:
-            if style == "dossier" and run_len >= 3:
-                comps = [assignments[idx + k]["composition"] for k in range(run_len)]
-                assert len(set(comps)) > 1, (
-                    f"Dossier run of {run_len} all use composition '{comps[0]}'"
-                )
-            idx += run_len
+        for a in assignments:
+            assert a["content_type"] in valid, (
+                f"Invalid content type '{a['content_type']}' at index {a['index']}"
+            )
+
+    def test_all_display_formats_are_valid(self):
+        """All assigned display formats are valid DisplayFormat values."""
+        valid = {fmt.value for fmt in DisplayFormat}
+        assignments = _make_assignments(seed=42)
+        for a in assignments:
+            assert a["display_format"] in valid, (
+                f"Invalid display format '{a['display_format']}' at index {a['index']}"
+            )
+
+    def test_all_color_moods_are_valid(self):
+        """All assigned color moods are valid ColorMood values."""
+        valid = {m.value for m in ColorMood}
+        assignments = _make_assignments(seed=42)
+        for a in assignments:
+            assert a["color_mood"] in valid, (
+                f"Invalid color mood '{a['color_mood']}' at index {a['index']}"
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -232,16 +184,19 @@ class TestKenBurns:
             assert "ken_burns" in entry
             assert entry["ken_burns"] is not None
 
-    def test_pan_directions_alternate(self):
-        """Pan-based Ken Burns directions alternate for same composition."""
+    def test_ken_burns_variety(self):
+        """Multiple Ken Burns directions are used across a video."""
         assignments = _make_assignments(seed=42)
-        # Find medium-composition entries (default pan direction).
-        mediums = [a for a in assignments if a["composition"] == "medium"]
-        if len(mediums) >= 2:
-            # Should alternate between pan_right and pan_left.
-            directions = [m["ken_burns"] for m in mediums]
-            # At least some alternation should occur.
-            assert len(set(directions)) > 1, "Medium compositions never alternate pan direction"
+        directions = {a["ken_burns"] for a in assignments}
+        assert len(directions) >= 3, "Expected at least 3 Ken Burns directions"
+
+    def test_pan_directions_alternate(self):
+        """Pan-based Ken Burns directions alternate for same format."""
+        assignments = _make_assignments(seed=42)
+        wall_displays = [a for a in assignments if a["display_format"] == "wall_display"]
+        if len(wall_displays) >= 2:
+            directions = [w["ken_burns"] for w in wall_displays]
+            assert len(set(directions)) > 1, "Wall display never alternates pan direction"
 
 
 # ---------------------------------------------------------------------------
@@ -253,24 +208,23 @@ class TestEdgeCases:
         """A video with only 5 images doesn't crash."""
         assignments = assign_styles(5, seed=42)
         assert len(assignments) == 5
-        assert assignments[0]["style"] == "dossier"
-        assert assignments[-1]["style"] == "dossier"
 
     def test_single_image(self):
-        """A video with 1 image returns Dossier."""
+        """A video with 1 image returns a valid assignment."""
         assignments = assign_styles(1, seed=42)
         assert len(assignments) == 1
-        assert assignments[0]["style"] == "dossier"
 
     def test_large_video(self):
         """A 300-image video runs without error and obeys rules."""
         assignments = assign_styles(300, seed=42)
         assert len(assignments) == 300
-        assert assignments[0]["style"] == "dossier"
-        assert assignments[-1]["style"] == "dossier"
-        # Check no more than 4 consecutive.
-        for _style, run_len in _consecutive_runs(assignments):
-            assert run_len <= DEFAULT_CONFIG["max_consecutive_same_style"]
+        # Check no more than allowed consecutive
+        for _, run_len in _consecutive_runs(assignments, "content_type"):
+            assert run_len <= DEFAULT_CONFIG["max_consecutive_content_type"]
+        for _, run_len in _consecutive_runs(assignments, "display_format"):
+            assert run_len <= DEFAULT_CONFIG["max_consecutive_format"]
+        for _, run_len in _consecutive_runs(assignments, "color_mood"):
+            assert run_len <= DEFAULT_CONFIG["max_consecutive_palette"]
 
     def test_reproducible_with_seed(self):
         """Same seed produces identical output."""
@@ -279,9 +233,17 @@ class TestEdgeCases:
         assert a == b
 
     def test_different_seeds_differ(self):
-        """Different seeds produce different sequences (with high probability)."""
+        """Different seeds produce different sequences."""
         a = assign_styles(136, seed=1)
         b = assign_styles(136, seed=2)
-        styles_a = [x["style"] for x in a]
-        styles_b = [x["style"] for x in b]
-        assert styles_a != styles_b
+        types_a = [x["content_type"] for x in a]
+        types_b = [x["content_type"] for x in b]
+        assert types_a != types_b
+
+    def test_output_has_required_keys(self):
+        """Every assignment has all required keys."""
+        required = {"index", "timestamp", "act", "content_type", "display_format", "color_mood", "ken_burns"}
+        assignments = _make_assignments(seed=42)
+        for a in assignments:
+            missing = required - set(a.keys())
+            assert not missing, f"Missing keys {missing} at index {a['index']}"

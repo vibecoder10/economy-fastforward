@@ -1,8 +1,10 @@
 """
-Prompt builder for the visual identity system.
+Prompt builder for the Holographic Intelligence Display system.
 
 Takes scene descriptions and sequencing metadata, produces fully constructed
-image generation prompts ready for NanoBanana.
+image generation prompts for the holographic intelligence display aesthetic.
+
+Version: 4.0 (Mar 2026) — Holographic Intelligence Display system
 """
 
 from __future__ import annotations
@@ -11,66 +13,45 @@ import re
 from typing import Optional
 
 from .style_config import (
-    ACCENT_COLOR_MAP,
+    ColorMood,
+    COLOR_MOOD_CONFIG,
+    COLOR_MOOD_KEYWORDS,
+    COLOR_MOOD_PRIORITY,
+    ContentType,
+    CONTENT_TYPE_KEYWORDS,
+    DisplayFormat,
+    DISPLAY_FORMAT_CONFIG,
+    HOLOGRAPHIC_SUFFIX,
     DEFAULT_CONFIG,
-    SCENE_COLOR_MAP,
-    SCENE_COLOR_PRIORITY,
-    STYLE_CAMERAS,
-    STYLE_ENVIRONMENTS,
+    resolve_color_mood,
+    resolve_content_type,
+    resolve_display_format,
 )
 from .sequencer import assign_styles
 
+
 # ---------------------------------------------------------------------------
-# Style-language patterns to strip from scene descriptions before appending
-# the style suffix.  The scene expansion prompt instructs the LLM to omit
-# these, but this acts as a safety net to prevent duplicate directives.
+# Style-language patterns to strip from scene descriptions
 # ---------------------------------------------------------------------------
 _STYLE_STRIP_PATTERNS: list[re.Pattern[str]] = [
     re.compile(p, re.IGNORECASE)
     for p in [
-        # Lighting (duplicates prefix/suffix terms)
-        r"\bRembrandt(?:\s+lighting|\s+shadows)?\b",
-        r"\bdramatic (?:side |back )?lighting\b",
-        r"\bchiaroscuro\b",
-        r"\bcandlelit?\s+lighting\b",
-        r"\bsingle dramatic light source\b",
-        # Camera / lens (keyword-style language to avoid)
-        r"\bshot on [\w\s]+(?:lens|camera)\b",
-        r"\b\d{2,3}\s?mm\s*(?:lens|prime)?\b",
-        r"\b16:\s?9\b",
-        r"\b8K\s+resolution\b",
-        # Color grading (duplicates prefix terms)
-        r"\bdesaturated (?:color |tones? )?(?:palette)?\b",
-        r"\bcold teal accent(?:\s*lighting)?\b",
-        r"\bwarm amber (?:tones|accent)\b",
-        r"\bmuted crimson accent\b",
-        # Depth of field / film stock
-        r"\bshallow depth of field\b",
-        r"\bbokeh\b",
-        r"\bfilm grain\b",
-        # Style / mood meta-language (keyword-style to strip)
         r"\bcinematic(?:\s+photorealistic)?\b",
         r"\bphotorealistic\b",
-        r"\bdocumentary(?:\s+photography)?\s+style\b",
-        r"\bdark moody atmosphere\b",
-        r"\bepic scale\b",
-        # Composition terminology (handled by directives)
-        r"\brule of thirds\b",
-        r"\bleading lines\b",
+        r"\bholographic\b",
+        r"\b16:\s?9\b",
+        r"\b8K\s+resolution\b",
+        r"\bshallow depth of field\b",
+        r"\bfilm grain\b",
     ]
 ]
 
 
 def _strip_style_language(description: str) -> str:
-    """Remove style/lighting/camera language from a scene description.
-
-    This prevents duplication with the environment and camera layers
-    appended by :func:`build_prompt`.
-    """
+    """Remove style/lighting/camera language from a scene description."""
     cleaned = description
     for pat in _STYLE_STRIP_PATTERNS:
         cleaned = pat.sub("", cleaned)
-    # Collapse leftover punctuation artifacts (double commas, leading commas).
     cleaned = re.sub(r",\s*,", ",", cleaned)
     cleaned = re.sub(r"^\s*,\s*", "", cleaned)
     cleaned = re.sub(r"\s*,\s*$", "", cleaned)
@@ -78,137 +59,103 @@ def _strip_style_language(description: str) -> str:
     return cleaned.strip()
 
 
-def resolve_accent_color(
-    accent_color: Optional[str] = None,
-    topic_category: Optional[str] = None,
-) -> str:
-    """Determine the accent color for a video.
-
-    Uses the explicit *accent_color* if provided, otherwise looks up
-    *topic_category* in :data:`ACCENT_COLOR_MAP`, falling back to the
-    default accent color.
-    """
-    if accent_color:
-        return accent_color
-    if topic_category:
-        return ACCENT_COLOR_MAP.get(
-            topic_category,
-            DEFAULT_CONFIG["default_accent_color"],
-        )
-    return DEFAULT_CONFIG["default_accent_color"]
-
-
-def resolve_scene_accent_color(
+def resolve_scene_color_mood(
     scene_description: str,
-    video_accent_color: str,
+    video_color_mood: str = "strategic",
 ) -> str:
-    """Pick an accent color for a single image based on scene content.
+    """Pick a color mood for a single image based on scene content.
 
-    Scans *scene_description* for keyword matches in :data:`SCENE_COLOR_MAP`.
-    Returns the color with the most hits.  Ties are broken by
-    :data:`SCENE_COLOR_PRIORITY` (crimson > amber > teal > green).
-    Falls back to *video_accent_color* when no keywords match.
+    Scans *scene_description* for keyword matches in COLOR_MOOD_KEYWORDS.
+    Returns the mood value with the most hits. Falls back to *video_color_mood*.
     """
-    desc_lower = scene_description.lower()
-    hits: dict[str, int] = {}
-    for color, keywords in SCENE_COLOR_MAP.items():
-        count = sum(1 for kw in keywords if kw in desc_lower)
-        if count > 0:
-            hits[color] = count
-
-    if not hits:
-        return video_accent_color
-
-    max_count = max(hits.values())
-    top_colors = [c for c, n in hits.items() if n == max_count]
-
-    if len(top_colors) == 1:
-        return top_colors[0]
-
-    # Tie-break by priority order.
-    for color in SCENE_COLOR_PRIORITY:
-        if color in top_colors:
-            return color
-
-    return video_accent_color
-
-
-def _apply_style_override(environment: str, override: str) -> str:
-    """Apply an image style override to the environment/lighting layer.
-
-    - ``"REPLACE: ..."`` — use the override as the entire environment.
-    - ``"+" or "APPEND: ..."`` — append the override to the default environment.
-    - Otherwise — append the override to the default environment (additive default).
-    """
-    stripped = override.strip()
-    if stripped.upper().startswith("REPLACE:"):
-        return stripped[len("REPLACE:"):].strip()
-    if stripped.startswith("+"):
-        return environment + " " + stripped[1:].strip()
-    if stripped.upper().startswith("APPEND:"):
-        return environment + " " + stripped[len("APPEND:"):].strip()
-    # Default: additive
-    return environment + " " + stripped
+    mood = resolve_color_mood(scene_description)
+    # If resolve_color_mood found keywords, use that; otherwise fall back
+    text_lower = scene_description.lower()
+    has_any_hit = False
+    for keywords in COLOR_MOOD_KEYWORDS.values():
+        if any(kw in text_lower for kw in keywords):
+            has_any_hit = True
+            break
+    if has_any_hit:
+        return mood.value
+    return video_color_mood
 
 
 def build_prompt(
     scene_description: str,
-    style: str,
-    composition: str,
-    accent_color: str,
+    content_type: str,
+    display_format: str,
+    color_mood: str,
     image_style_override: Optional[str] = None,
 ) -> str:
-    """Assemble a complete image generation prompt.
+    """Assemble a complete holographic intelligence display prompt.
 
-    Follows the Nano Banana 2 optimum structure::
+    Follows the master template::
 
-        [Subject + Action]  (scene description — FIRST, ~30-50 words)
-        [Environment/Lighting]  (per-style mood, ~14 words)
-        [Art Style/Camera]  (per-composition framing, ~10 words)
-
-    Subject leads because Nano Banana 2 weights the subject description
-    most heavily for visual coherence.
+        [DISPLAY FORMAT framing] [DISPLAY CONTENT] [COLOR MOOD] [UNIVERSAL SUFFIX]
 
     Parameters
     ----------
     scene_description : str
-        What the image depicts (from the script / visual seeds).
-    style : str
-        One of ``"dossier"``, ``"schema"``, ``"echo"``.
-    composition : str
-        A key from :data:`STYLE_CAMERAS`.
-    accent_color : str
-        The accent color string (e.g. ``"cold teal"``).
+        What the image depicts — the analytical content description.
+    content_type : str
+        Value from ContentType enum (e.g. ``"geographic_map"``).
+    display_format : str
+        Value from DisplayFormat enum (e.g. ``"war_table"``).
+    color_mood : str
+        Value from ColorMood enum (e.g. ``"strategic"``).
     image_style_override : str, optional
-        Per-video style override from Airtable. If provided:
-        - ``"REPLACE: ..."`` replaces the environment layer entirely.
-        - ``"+" or "APPEND: ..."`` appends to the environment layer.
-        - Otherwise appends to the environment layer (additive default).
+        Per-video style override from Airtable.
 
     Returns
     -------
     str
-        The complete prompt string, ready for the image generation model.
+        The complete prompt string, ready for image generation.
     """
-    # Per-scene color rotation: pick a color based on scene content,
-    # falling back to the video-level accent_color.
-    scene_color = resolve_scene_accent_color(scene_description, accent_color)
+    # Resolve the display format framing text
+    fmt_enum = _format_from_value(display_format)
+    framing = DISPLAY_FORMAT_CONFIG[fmt_enum]["framing"]
 
-    # Strip any style/lighting/camera language that leaked into the scene
-    # description to avoid duplicating what the environment and camera provide.
+    # Resolve color mood prompt language
+    mood_enum = _mood_from_value(color_mood)
+    mood_language = COLOR_MOOD_CONFIG[mood_enum]["prompt_language"]
+
+    # Clean scene description
     clean_desc = _strip_style_language(scene_description).rstrip(". ")
 
-    # Layer 2: Environment/Lighting (per-style mood)
-    environment = STYLE_ENVIRONMENTS[style].replace("[ACCENT_COLOR]", scene_color)
-
     if image_style_override and image_style_override.strip():
-        environment = _apply_style_override(environment, image_style_override)
+        mood_language = _apply_style_override(mood_language, image_style_override)
 
-    # Layer 3: Art Style/Camera (per-composition framing)
-    camera = STYLE_CAMERAS.get(composition, "")
+    # Assemble: [Framing] [Content] [Color Mood] [Suffix]
+    return f"{framing} {clean_desc}, {mood_language}{HOLOGRAPHIC_SUFFIX}"
 
-    # Assemble: [Subject+Action]. [Environment/Lighting] [Art Style/Camera]
-    return f"{clean_desc}. {environment} {camera}"
+
+def _format_from_value(value: str) -> DisplayFormat:
+    """Convert a string value to DisplayFormat enum."""
+    for fmt in DisplayFormat:
+        if fmt.value == value:
+            return fmt
+    return DisplayFormat.WAR_TABLE
+
+
+def _mood_from_value(value: str) -> ColorMood:
+    """Convert a string value to ColorMood enum."""
+    for mood in ColorMood:
+        if mood.value == value:
+            return mood
+    return ColorMood.STRATEGIC
+
+
+def _apply_style_override(mood_language: str, override: str) -> str:
+    """Apply an image style override to the color mood layer."""
+    stripped = override.strip()
+    if stripped.upper().startswith("REPLACE:"):
+        return stripped[len("REPLACE:"):].strip()
+    if stripped.startswith("+"):
+        return mood_language + " " + stripped[1:].strip()
+    if stripped.upper().startswith("APPEND:"):
+        return mood_language + " " + stripped[len("APPEND:"):].strip()
+    return mood_language + " " + stripped
 
 
 def generate_prompts(
@@ -227,30 +174,26 @@ def generate_prompts(
     scenes : list[dict]
         Each dict must contain at minimum:
         - ``"scene_description"`` (str): what the image depicts.
-        Optionally:
-        - ``"act"`` (str): act override; if omitted, derived from position.
     accent_color : str, optional
-        Explicit accent color for the video.
+        Explicit color mood override (maps to a ColorMood value).
     topic_category : str, optional
-        Topic category used to auto-select accent color if *accent_color*
-        is not provided.
+        Topic category (unused in v4, kept for API compatibility).
     act_timestamps : dict, optional
-        Custom act timestamp breakpoints. Falls back to defaults.
+        Custom act timestamp breakpoints.
     seed : int, optional
-        RNG seed for reproducible style sequencing.
+        RNG seed for reproducible sequencing.
     image_style_override : str, optional
-        Per-video style override applied to every prompt's prefix.
+        Per-video style override applied to every prompt.
 
     Returns
     -------
     list[dict]
-        One entry per scene with keys: ``prompt``, ``style``, ``composition``,
-        ``accent_color``, ``act``, ``index``, ``ken_burns``.
+        One entry per scene with keys: ``prompt``, ``content_type``,
+        ``display_format``, ``color_mood``, ``act``, ``index``, ``ken_burns``.
     """
-    color = resolve_accent_color(accent_color, topic_category)
     total_images = len(scenes)
 
-    # Generate the style/composition sequence.
+    # Generate the content_type/format/mood sequence
     assignments = assign_styles(
         total_images,
         act_timestamps=act_timestamps,
@@ -260,23 +203,81 @@ def generate_prompts(
     results: list[dict] = []
     for scene, assignment in zip(scenes, assignments):
         desc = scene.get("scene_description", "")
-        style = assignment["style"]
-        composition = assignment["composition"]
+        content_type = assignment["content_type"]
+        display_format = assignment["display_format"]
+        color_mood = assignment["color_mood"]
 
-        # Per-scene color rotation: the scene content may shift the color.
-        scene_color = resolve_scene_accent_color(desc, color)
+        # Per-scene color mood rotation based on content
+        scene_mood = resolve_scene_color_mood(desc, color_mood)
 
-        prompt = build_prompt(desc, style, composition, color,
-                              image_style_override=image_style_override)
+        prompt = build_prompt(
+            desc, content_type, display_format, scene_mood,
+            image_style_override=image_style_override,
+        )
 
         results.append({
             "prompt": prompt,
-            "style": style,
-            "composition": composition,
-            "accent_color": scene_color,
+            "content_type": content_type,
+            "display_format": display_format,
+            "color_mood": scene_mood,
             "act": assignment["act"],
             "index": assignment["index"],
             "ken_burns": assignment["ken_burns"],
         })
 
     return results
+
+
+# ---------------------------------------------------------------------------
+# Legacy API compatibility — resolve_accent_color
+# ---------------------------------------------------------------------------
+
+def resolve_accent_color(
+    accent_color: Optional[str] = None,
+    topic_category: Optional[str] = None,
+) -> str:
+    """Legacy API: returns a color mood value string.
+
+    Maps old accent_color/topic_category to new color mood system.
+    """
+    if accent_color:
+        # Map old accent colors to new mood values
+        accent_to_mood = {
+            "cold teal": "strategic",
+            "warm amber": "archive",
+            "muted crimson": "alert",
+            "muted green": "contagion",
+            "deep green": "contagion",
+        }
+        return accent_to_mood.get(accent_color, accent_color)
+    if topic_category:
+        category_to_mood = {
+            "geopolitical": "strategic",
+            "ai_tech": "strategic",
+            "corporate_power": "power",
+            "surveillance": "strategic",
+            "economic": "personal",
+            "financial": "personal",
+            "historical_power": "archive",
+            "old_money": "archive",
+            "conflict": "alert",
+            "warfare": "alert",
+            "political_violence": "alert",
+            "military": "power",
+            "markets": "contagion",
+            "growth": "contagion",
+            "trade": "contagion",
+        }
+        return category_to_mood.get(topic_category, "strategic")
+    return "strategic"
+
+
+def resolve_scene_accent_color(
+    scene_description: str,
+    video_accent_color: str,
+) -> str:
+    """Legacy API: resolve per-scene accent color.
+
+    Maps to the new color mood system.
+    """
+    return resolve_scene_color_mood(scene_description, video_accent_color)

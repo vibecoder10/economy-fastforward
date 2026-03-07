@@ -1,105 +1,174 @@
-"""Cinematic Photorealistic Documentary Style Engine
+"""Holographic Intelligence Display Style Engine
 
-This module defines the visual identity constants and prompt architecture
-for Economy FastForward's AI image generation pipeline.
+Re-exports all constants from image_prompt_engine.style_config and adds
+legacy compatibility constants for the animation pipeline.
 
-Visual Identity: Cinematic photorealistic documentary photography.
-Think Sicario, Zero Dark Thirty, The Big Short.
-
-Characters: Anonymous human figures with faces always obscured by shadow,
-silhouette, backlighting, or camera angle. Never show clear facial features.
-Documentary photography where identities are protected.
-
-Version: 3.0 (Mar 2026) — Unified cinematic photorealistic identity
+Version: 4.0 (Mar 2026) — Holographic Intelligence Display system
 """
 
-from enum import Enum
 from typing import List, Tuple
 
-
-# =============================================================================
-# STYLE ENGINE CONSTANTS - Cinematic Photorealistic Documentary (v3)
-# =============================================================================
-# CRITICAL: Style engine goes at BEGINNING of prompt, not end.
-# Models weight early tokens more heavily.
-#
-# CHARACTER STYLE: Anonymous human figures with faces obscured by shadow,
-# silhouette, backlighting, or camera angle. Documentary photography
-# where identities are protected.
-
-STYLE_ENGINE_PREFIX = (
-    "Cinematic photorealistic editorial photograph, dark moody atmosphere, "
-    "desaturated color palette with cold teal accent lighting, Rembrandt lighting, "
-    "deep shadows, shallow depth of field, subtle film grain, documentary photography "
-    "style, shot on Arri Alexa 65 with 35mm Master Prime lens, 16:9 cinematic "
-    "composition, epic scale."
+# Import all holographic constants from the canonical source
+from image_prompt_engine.style_config import (
+    # Enums
+    ContentType,
+    DisplayFormat,
+    ColorMood,
+    # Config dicts
+    CONTENT_TYPE_CONFIG,
+    CONTENT_TYPE_KEYWORDS,
+    DISPLAY_FORMAT_CONFIG,
+    CONTENT_FORMAT_AFFINITY,
+    COLOR_MOOD_CONFIG,
+    COLOR_MOOD_KEYWORDS,
+    COLOR_MOOD_PRIORITY,
+    # Constants
+    HOLOGRAPHIC_SUFFIX,
+    MAX_CONSECUTIVE_CONTENT_TYPE,
+    MAX_CONSECUTIVE_FORMAT,
+    MAX_CONSECUTIVE_PALETTE,
+    KEN_BURNS_RULES as _HOLOGRAPHIC_KEN_BURNS_RULES,
+    KEN_BURNS_PAN_ALTERNATES,
+    # Functions
+    resolve_content_type,
+    resolve_color_mood,
+    resolve_display_format,
 )
 
-# Anonymous human figure description (for reference in prompts)
-ANONYMOUS_FIGURE_STYLE = (
-    "anonymous human figure with face completely obscured — hidden by deep shadow, "
-    "silhouette, backlighting, or turned away from camera. Documentary photography "
-    "where identities are protected. Real clothing, real skin texture, real body "
-    "language. Never show clear facial features."
+
+# =============================================================================
+# PROMPT WORD BUDGET
+# =============================================================================
+PROMPT_MIN_WORDS = 60
+PROMPT_MAX_WORDS = 150
+
+
+# =============================================================================
+# CAMERA MOVEMENT VOCABULARY — For video animation prompts
+# =============================================================================
+
+CAMERA_MOVEMENT_BY_FORMAT = {
+    DisplayFormat.WAR_TABLE: [
+        "Slow orbit around the table surface",
+        "Gentle push-in toward the center of the projection",
+        "Slow crane upward revealing the full table layout",
+        "Subtle drift with parallax depth between table and floating panels",
+    ],
+    DisplayFormat.WALL_DISPLAY: [
+        "Slow push-in toward the central display",
+        "Gentle lateral pan across the data panels",
+        "Slow drift from left panel to right panel",
+        "Subtle crane downward from overview to detail",
+    ],
+    DisplayFormat.FLOATING_PROJECTION: [
+        "Slow orbit around the floating objects",
+        "Gentle push-in between floating elements",
+        "Slow rise from below the projection level",
+        "Subtle rotation revealing different angles of the display",
+    ],
+    DisplayFormat.MULTI_PANEL: [
+        "Slow lateral pan from left panel to right panel",
+        "Gentle pull-back revealing all panels at once",
+        "Slow drift connecting the panels visually",
+        "Subtle push-in on the central connecting element",
+    ],
+    DisplayFormat.CLOSE_UP_DETAIL: [
+        "Very slow drift to the right across the data",
+        "Gentle push-in on the key data point",
+        "Slow breathing zoom on the focal element",
+        "Subtle rack focus between foreground and background data",
+    ],
+}
+
+CAMERA_MOVEMENT_HERO = {
+    DisplayFormat.WAR_TABLE: "Slow orbit around the table with gradual push-in revealing layers of data",
+    DisplayFormat.WALL_DISPLAY: "Slow push-in toward the display with gentle lateral drift across panels",
+    DisplayFormat.FLOATING_PROJECTION: "Slow orbit around floating objects with depth reveal between elements",
+    DisplayFormat.MULTI_PANEL: "Slow lateral sweep across all panels then gentle push-in on the focal panel",
+    DisplayFormat.CLOSE_UP_DETAIL: "Very slow drift with breathing zoom revealing hidden data layers",
+}
+
+SPEED_WORDS_ALLOWED = ["slow", "subtle", "gentle", "soft", "gradual", "drifting", "easing"]
+SPEED_WORDS_FORBIDDEN = ["fast", "sudden", "dramatic", "explosive", "rapid", "intense", "quick"]
+
+MOTION_VOCABULARY = {
+    "holographic": [
+        "data nodes slowly pulse with light",
+        "connection lines gradually illuminate",
+        "holographic surface subtly ripples",
+        "floating labels gently drift into position",
+        "wireframe edges slowly glow brighter",
+    ],
+    "data": [
+        "chart bars slowly rise to full height",
+        "trend line gradually draws itself across the display",
+        "ticker tape scrolls across the bottom",
+        "percentage numbers slowly count upward",
+        "warning indicators pulse with soft rhythm",
+    ],
+    "environmental": [
+        "ambient equipment glow subtly shifts color",
+        "console lights gently flicker in the periphery",
+        "dust particles float through projection beams",
+        "faint reflection drifts across dark surfaces",
+    ],
+    "atmospheric": [
+        "holographic projection edges softly shimmer",
+        "particle effects slowly dissipate at display boundaries",
+        "ambient light subtly shifts in the background",
+        "projection beam slowly sweeps across the room",
+    ],
+}
+
+
+# =============================================================================
+# LEGACY COMPATIBILITY — For animation/image_generator.py and pipeline.py
+# =============================================================================
+
+from enum import Enum as _Enum
+
+
+STYLE_ENGINE_PREFIX = (
+    "Holographic intelligence display, dark high-security operations center, "
+    "holographic projections floating in dark space, clinical precision, "
+    "data-dense analytical visualization, photorealistic rendering, "
+    "16:9 cinematic composition."
 )
 
 STYLE_ENGINE_SUFFIX = (
-    "Real Kodak Vision3 500T 35mm film grain, silver halide noise, high contrast, "
-    "crushed blacks, organic halation effects around light sources, visible "
-    "atmospheric particulate, cinematic color grade."
+    "No people visible, no human figures, no faces, no silhouettes, "
+    "only holographic data displays and dark room environment, "
+    "cinematic depth of field, subtle ambient equipment glow."
 )
 
-# Legacy constant for backwards compatibility (combines prefix + suffix)
 STYLE_ENGINE = f"{STYLE_ENGINE_PREFIX} {STYLE_ENGINE_SUFFIX}"
 
-# =============================================================================
-# MATERIAL VOCABULARY - Cinematic photorealistic environments
-# =============================================================================
+ANONYMOUS_FIGURE_STYLE = (
+    "No human figures allowed. Use measurement icons or labeled silhouette "
+    "outlines for scale reference only."
+)
+
 MATERIAL_VOCABULARY = {
     "premium": [
-        "polished mahogany", "leather chairs", "crystal decanters",
-        "gold-framed documents", "warm tungsten light",
+        "holographic gold wireframe", "brass instrument bezels",
+        "polished console surfaces", "amber status indicators",
     ],
     "institutional": [
-        "concrete bunkers", "fluorescent corridors", "steel doors",
-        "security cameras", "industrial ventilation",
-    ],
-    "decay": [
-        "peeling paint", "water stains", "rusted infrastructure",
-        "flickering lights", "abandoned equipment",
+        "dark console banks", "security-grade displays",
+        "reinforced server racks", "military-grade equipment",
     ],
     "data": [
-        "Bloomberg terminals", "holographic displays",
-        "translucent teal data overlays", "glowing monitors in dark rooms",
-    ],
-    "division": [
-        "lighting shift warm to cold", "material change luxury to decay",
-        "barriers", "checkpoints",
+        "holographic projections", "translucent data overlays",
+        "glowing node networks", "floating analytical panels",
     ],
 }
 
-# =============================================================================
-# TEXT RULES FOR SCENE IMAGES
-# =============================================================================
-TEXT_SURFACE_EXAMPLES = {
-    "dates": "weathered ink on aged parchment",
-    "currency": "embossed numbers on a worn banknote",
-    "labels": "stenciled letters on a military crate",
-    "stamps": "red rubber stamp impression on classified document",
-    "data": "glowing numbers on a dark monitor screen",
-}
-
-# Text rules: max 3 elements, max 3 words each, must specify material surface
-TEXT_RULE_WITH_TEXT = "no additional text beyond the specified elements"
-TEXT_RULE_NO_TEXT = "no text, no words, no labels, no signs, no readable text anywhere in the scene"
+TEXT_RULE_WITH_TEXT = "text elements must be data-formatted labels, numbers, percentages, or classification stamps only"
+TEXT_RULE_NO_TEXT = "no narrative text, only analytical data labels and readouts"
 
 
-# =============================================================================
-# SCENE TYPES - Rotate through these for visual variety
-# =============================================================================
-class SceneType(Enum):
-    """6 scene types to rotate through for visual variety."""
-
+class SceneType(_Enum):
+    """Legacy scene types — mapped to new display formats."""
     ISOMETRIC_DIORAMA = "isometric_diorama"
     SPLIT_SCREEN = "split_screen"
     JOURNEY_SHOT = "journey_shot"
@@ -108,54 +177,47 @@ class SceneType(Enum):
     OVERHEAD_MAP = "overhead_map"
 
 
-# Scene type configurations with shot prefixes and use cases
-SCENE_TYPE_CONFIG = {
-    SceneType.ISOMETRIC_DIORAMA: {
-        "shot_prefix": "Overhead establishing shot of",
-        "use_when": "Showing systems, flows, economies",
-        "visual_language": "Birds-eye view, full environment visible, surveillance perspective",
-    },
-    SceneType.SPLIT_SCREEN: {
-        "shot_prefix": "Split composition showing",
-        "use_when": "Comparing two realities, before/after",
-        "visual_language": "Left/right divide, contrasting warm/cool palettes, lighting shift",
-    },
-    SceneType.JOURNEY_SHOT: {
-        "shot_prefix": "Wide tracking shot of",
-        "use_when": "Showing progression, decline, timelines",
-        "visual_language": "Path leading into distance, perspective depth, tracking movement",
-    },
-    SceneType.CLOSE_UP_VIGNETTE: {
-        "shot_prefix": "Extreme close-up of",
-        "use_when": "Emotional human moments, critical details",
-        "visual_language": "Tight crop, shallow DOF, hands/objects filling frame",
-    },
-    SceneType.DATA_LANDSCAPE: {
-        "shot_prefix": "Environmental detail, no human figure, objects telling the story",
-        "use_when": "Making statistics feel real/physical",
-        "visual_language": "Bloomberg terminals, trading floors, data screens in dark rooms",
-    },
-    SceneType.OVERHEAD_MAP: {
-        "shot_prefix": "Top-down surveillance shot of",
-        "use_when": "Geographic or systemic views",
-        "visual_language": "Top-down, security camera perspective, strategic overview",
-    },
-}
-
-
-# =============================================================================
-# DOCUMENTARY CAMERA PATTERN - Per-scene rhythm
-# =============================================================================
-class CameraRole(Enum):
-    """Documentary camera roles for narrative rhythm."""
-
+class CameraRole(_Enum):
+    """Legacy camera roles — maintained for animation pipeline."""
     WIDE_ESTABLISHING = "wide_establishing"
     MEDIUM_HUMAN_STORY = "medium_human_story"
     DATA_METAPHOR = "data_metaphor"
     PULL_BACK_REVEAL = "pull_back_reveal"
 
 
-# Camera role to scene type mappings
+SCENE_TYPE_CONFIG = {
+    SceneType.ISOMETRIC_DIORAMA: {
+        "shot_prefix": "Overhead holographic war table displaying",
+        "use_when": "Showing systems, flows, networks",
+        "visual_language": "Top-down angled view, full holographic table visible",
+    },
+    SceneType.SPLIT_SCREEN: {
+        "shot_prefix": "Multi-panel holographic command display showing",
+        "use_when": "Comparing two realities, before/after",
+        "visual_language": "Multiple panels, contrasting data, connecting elements",
+    },
+    SceneType.JOURNEY_SHOT: {
+        "shot_prefix": "Holographic timeline projection showing",
+        "use_when": "Showing progression, decline, timelines",
+        "visual_language": "Sequential panels, chronological flow, connecting threads",
+    },
+    SceneType.CLOSE_UP_VIGNETTE: {
+        "shot_prefix": "Close-up holographic detail showing",
+        "use_when": "Key data points, critical details",
+        "visual_language": "Tight crop on data, minimal surrounding context",
+    },
+    SceneType.DATA_LANDSCAPE: {
+        "shot_prefix": "Holographic data terminal displaying",
+        "use_when": "Financial data, statistics, charts",
+        "visual_language": "Wall display with charts, tickers, data readouts",
+    },
+    SceneType.OVERHEAD_MAP: {
+        "shot_prefix": "Holographic geographic map projecting",
+        "use_when": "Geographic or systemic views",
+        "visual_language": "War table map, route lines, position markers",
+    },
+}
+
 CAMERA_ROLE_SCENE_TYPES = {
     CameraRole.WIDE_ESTABLISHING: [
         SceneType.ISOMETRIC_DIORAMA,
@@ -164,7 +226,7 @@ CAMERA_ROLE_SCENE_TYPES = {
     ],
     CameraRole.MEDIUM_HUMAN_STORY: [
         SceneType.CLOSE_UP_VIGNETTE,
-        SceneType.JOURNEY_SHOT,  # Side view variant
+        SceneType.DATA_LANDSCAPE,
     ],
     CameraRole.DATA_METAPHOR: [
         SceneType.DATA_LANDSCAPE,
@@ -172,187 +234,61 @@ CAMERA_ROLE_SCENE_TYPES = {
         SceneType.JOURNEY_SHOT,
     ],
     CameraRole.PULL_BACK_REVEAL: [
-        SceneType.JOURNEY_SHOT,  # Extreme wide
+        SceneType.JOURNEY_SHOT,
         SceneType.OVERHEAD_MAP,
         SceneType.ISOMETRIC_DIORAMA,
     ],
 }
 
 
-# =============================================================================
-# CAMERA MOVEMENT VOCABULARY - For video animation prompts
-# =============================================================================
-
-# Default camera movements per scene type
-CAMERA_MOVEMENT_VOCAB = {
-    SceneType.ISOMETRIC_DIORAMA: "Slow push-in with slight rotation",
-    SceneType.SPLIT_SCREEN: "Slow lateral pan from left to right",
-    SceneType.JOURNEY_SHOT: "Slow tracking along the path",
-    SceneType.CLOSE_UP_VIGNETTE: "Very slow drift to the right",
-    SceneType.DATA_LANDSCAPE: "Slow crane upward",
-    SceneType.OVERHEAD_MAP: "Slow push-in",
-}
-
-# Hero shot camera movements (more dramatic, for 10s clips)
-CAMERA_MOVEMENT_HERO = {
-    SceneType.ISOMETRIC_DIORAMA: "Slow push-in with slight rotation gradually revealing full depth",
-    SceneType.SPLIT_SCREEN: "Slow lateral pan from left to right crossing the divide",
-    SceneType.JOURNEY_SHOT: "Slow tracking along the path with depth reveal",
-    SceneType.CLOSE_UP_VIGNETTE: "Very slow drift with subtle rack focus",
-    SceneType.DATA_LANDSCAPE: "Slow crane upward revealing the scale",
-    SceneType.OVERHEAD_MAP: "Slow push-in with slight rotation surveying the landscape",
-}
-
-# String-based camera movements for all shot types (used by video prompt generator)
-SHOT_TYPE_CAMERA_MOVEMENTS = {
-    # Establishing shots - show the world
-    "wide_establishing": [
-        "Slow crane down into the scene",
-        "Gentle drift from left to right surveying the scene",
-        "Slow pull-back revealing the full scope",
-        "Steady hold with subtle parallax shift",
-    ],
-    # Overhead establishing
-    "isometric_diorama": [
-        "Slow orbit around the scene",
-        "Gentle push-in with slight rotation",
-        "Slow crane upward revealing layers",
-        "Subtle drift with parallax depth",
-    ],
-    # Human story - emotional focus
-    "medium_human_story": [
-        "Slow drift toward the subject",
-        "Gentle lateral tracking following the figure",
-        "Very slow push-in on the silhouette",
-        "Subtle sway with atmospheric haze drifting",
-    ],
-    # Close-up - detail focus
-    "close_up_vignette": [
-        "Very slow drift to the right",
-        "Gentle rack focus between elements",
-        "Slow rotation around the object",
-        "Subtle breathing zoom",
-    ],
-    # Data viz
-    "data_landscape": [
-        "Slow crane upward",
-        "Gentle tilt down across the data",
-        "Slow tracking along the graph line",
-        "Steady hold as data animates",
-    ],
-    # Split comparison
-    "split_screen": [
-        "Slow lateral pan from left to right",
-        "Gentle drift crossing the divide",
-        "Subtle push-in on both halves",
-        "Slow wipe transition between sides",
-    ],
-    # Reveal shots - dramatic
-    "pull_back_reveal": [
-        "Slow pull-back revealing the full scale",
-        "Gradual crane upward and outward",
-        "Gentle zoom out with rotation",
-        "Slow drift backward unveiling context",
-    ],
-    # Map view
-    "overhead_map": [
-        "Slow push-in on the focal point",
-        "Gentle drift across the terrain",
-        "Slow rotation surveying the landscape",
-        "Subtle crane down into the map",
-    ],
-    # Journey/path
-    "journey_shot": [
-        "Slow tracking along the path",
-        "Gentle dolly forward into the distance",
-        "Slow lateral pan following the journey",
-        "Subtle drift with depth parallax",
-    ],
-}
-
-# Hero versions (10s clips) - add more complexity
-SHOT_TYPE_CAMERA_MOVEMENTS_HERO = {
-    "wide_establishing": "Slow crane down into the scene, then gentle drift revealing the full scope",
-    "isometric_diorama": "Slow orbit around the scene gradually revealing all layers",
-    "medium_human_story": "Slow drift toward the subject with subtle rack focus",
-    "close_up_vignette": "Very slow rotation around the object with breathing zoom",
-    "data_landscape": "Slow crane upward revealing the full scale of data",
-    "split_screen": "Slow lateral pan from left to right, crossing the divide completely",
-    "pull_back_reveal": "Slow pull-back revealing the full scale, then gentle rotation",
-    "overhead_map": "Slow push-in with rotation surveying the entire landscape",
-    "journey_shot": "Slow tracking along the path with gradual depth reveal",
-}
-
-# Motion vocabulary for cinematic documentary style (NEVER use fast/sudden/dramatic)
-MOTION_VOCABULARY = {
-    "figures": [
-        "figure subtly shifts weight",
-        "silhouette slowly turns",
-        "figure's arm gradually lifts",
-        "figure's head gently tilts down",
-        "fingers slowly close around handle",
-    ],
-    "mechanical": [
-        "gears slowly rotate",
-        "pipes subtly vibrate",
-        "gauge needles drift",
-        "lever gradually pulls down",
-        "cracks slowly spread through concrete",
-    ],
-    "environmental": [
-        "dust particles float through light beams",
-        "fog wisps curl between objects",
-        "light slowly sweeps across surface",
-        "reflections shift on wet pavement",
-    ],
-    "data": [
-        "chart bars slowly rise",
-        "trend line gradually draws itself",
-        "monitor screens gently pulse with light",
-        "ticker tape scrolls across dark screen",
-    ],
-    "atmospheric": [
-        "warm spotlight slowly brightens",
-        "shadows gradually lengthen",
-        "ambient light subtly shifts from cool to warm",
-        "lens flare drifts across frame",
-    ],
-}
-
-# Speed words - ALWAYS use these, NEVER use fast/sudden/dramatic
-SPEED_WORDS_ALLOWED = ["slow", "subtle", "gentle", "soft", "gradual", "drifting", "easing"]
-SPEED_WORDS_FORBIDDEN = ["fast", "sudden", "dramatic", "explosive", "rapid", "intense", "quick"]
-
-
 def get_camera_motion(scene_type, is_hero: bool = False) -> str:
-    """Get the appropriate camera motion for a scene/shot type.
-
-    Args:
-        scene_type: The scene type - can be SceneType enum or shot_type string
-        is_hero: If True, use hero shot motion (more dramatic)
-
-    Returns:
-        Camera motion string for video prompt
-    """
+    """Get camera motion for a scene/shot type. Supports both new and legacy types."""
     import random
 
-    # Handle string shot types (from Airtable Shot Type field)
-    if isinstance(scene_type, str):
-        shot_type = scene_type.lower().strip()
-
+    if isinstance(scene_type, DisplayFormat):
         if is_hero:
-            return SHOT_TYPE_CAMERA_MOVEMENTS_HERO.get(shot_type, "Slow push-in with depth reveal")
-
-        # Get random movement from the list for variety
-        movements = SHOT_TYPE_CAMERA_MOVEMENTS.get(shot_type)
+            return CAMERA_MOVEMENT_HERO.get(scene_type, "Slow push-in with depth reveal")
+        movements = CAMERA_MOVEMENT_BY_FORMAT.get(scene_type)
         if movements:
             return random.choice(movements)
-        return "Slow push-in"  # fallback
+        return "Slow push-in"
 
-    # Handle SceneType enum (legacy)
-    if is_hero:
-        return CAMERA_MOVEMENT_HERO.get(scene_type, CAMERA_MOVEMENT_VOCAB.get(scene_type, "Slow push-in"))
-    return CAMERA_MOVEMENT_VOCAB.get(scene_type, "Slow push-in")
+    if isinstance(scene_type, str):
+        shot_type = scene_type.lower().strip()
+        format_map = {
+            "war_table": DisplayFormat.WAR_TABLE,
+            "wall_display": DisplayFormat.WALL_DISPLAY,
+            "floating": DisplayFormat.FLOATING_PROJECTION,
+            "multi_panel": DisplayFormat.MULTI_PANEL,
+            "close_up_detail": DisplayFormat.CLOSE_UP_DETAIL,
+            "wide_establishing": DisplayFormat.WAR_TABLE,
+            "isometric_diorama": DisplayFormat.WAR_TABLE,
+            "medium_human_story": DisplayFormat.WALL_DISPLAY,
+            "close_up_vignette": DisplayFormat.CLOSE_UP_DETAIL,
+            "data_landscape": DisplayFormat.WALL_DISPLAY,
+            "split_screen": DisplayFormat.MULTI_PANEL,
+            "pull_back_reveal": DisplayFormat.WAR_TABLE,
+            "overhead_map": DisplayFormat.WAR_TABLE,
+            "journey_shot": DisplayFormat.MULTI_PANEL,
+        }
+        mapped = format_map.get(shot_type)
+        if mapped:
+            return get_camera_motion(mapped, is_hero)
+        return "Slow push-in"
+
+    if isinstance(scene_type, SceneType):
+        legacy_to_format = {
+            SceneType.ISOMETRIC_DIORAMA: DisplayFormat.WAR_TABLE,
+            SceneType.SPLIT_SCREEN: DisplayFormat.MULTI_PANEL,
+            SceneType.JOURNEY_SHOT: DisplayFormat.MULTI_PANEL,
+            SceneType.CLOSE_UP_VIGNETTE: DisplayFormat.CLOSE_UP_DETAIL,
+            SceneType.DATA_LANDSCAPE: DisplayFormat.WALL_DISPLAY,
+            SceneType.OVERHEAD_MAP: DisplayFormat.WAR_TABLE,
+        }
+        mapped = legacy_to_format.get(scene_type, DisplayFormat.WAR_TABLE)
+        return get_camera_motion(mapped, is_hero)
+
+    return "Slow push-in"
 
 
 def get_random_atmospheric_motion() -> str:
@@ -362,28 +298,15 @@ def get_random_atmospheric_motion() -> str:
 
 
 def get_documentary_pattern(segment_count: int) -> List[CameraRole]:
-    """Get the documentary camera pattern for a given number of segments.
-
-    The 4-Shot Documentary Pattern:
-    1. WIDE ESTABLISHING — Set the scene at macro level
-    2-3. MEDIUM HUMAN STORY — Zoom into person experiencing the topic
-    4-5. DATA/METAPHOR — Visualize the mechanism or data
-    6. PULL BACK REVEAL — Wide shot showing scale/consequence
-
-    Args:
-        segment_count: Number of segments/images in the scene
-
-    Returns:
-        List of CameraRole assignments for each segment
-    """
+    """Get the documentary camera pattern for a given number of segments."""
     if segment_count >= 6:
         return [
-            CameraRole.WIDE_ESTABLISHING,    # 1
-            CameraRole.MEDIUM_HUMAN_STORY,   # 2
-            CameraRole.MEDIUM_HUMAN_STORY,   # 3
-            CameraRole.DATA_METAPHOR,        # 4
-            CameraRole.DATA_METAPHOR,        # 5
-            CameraRole.PULL_BACK_REVEAL,     # 6
+            CameraRole.WIDE_ESTABLISHING,
+            CameraRole.MEDIUM_HUMAN_STORY,
+            CameraRole.MEDIUM_HUMAN_STORY,
+            CameraRole.DATA_METAPHOR,
+            CameraRole.DATA_METAPHOR,
+            CameraRole.PULL_BACK_REVEAL,
         ] + [CameraRole.PULL_BACK_REVEAL] * (segment_count - 6)
     elif segment_count == 5:
         return [
@@ -420,65 +343,23 @@ def get_scene_type_for_segment(
     total_segments: int,
     previous_scene_type: SceneType = None,
 ) -> Tuple[SceneType, CameraRole]:
-    """Get the appropriate scene type for a segment, avoiding consecutive same types.
-
-    Args:
-        segment_index: 0-based index of current segment
-        total_segments: Total number of segments in scene
-        previous_scene_type: The scene type used for the previous segment
-
-    Returns:
-        Tuple of (SceneType, CameraRole) for this segment
-    """
-    # Get documentary pattern for this scene
+    """Get the appropriate scene type for a segment, avoiding consecutive same types."""
     pattern = get_documentary_pattern(total_segments)
     camera_role = pattern[min(segment_index, len(pattern) - 1)]
-
-    # Get allowed scene types for this camera role
     allowed_types = CAMERA_ROLE_SCENE_TYPES[camera_role]
 
-    # Filter out previous scene type to avoid consecutive same-type
     if previous_scene_type and len(allowed_types) > 1:
         filtered_types = [t for t in allowed_types if t != previous_scene_type]
         if filtered_types:
             allowed_types = filtered_types
 
-    # Select scene type (rotate through allowed types based on index)
     scene_type = allowed_types[segment_index % len(allowed_types)]
-
     return scene_type, camera_role
 
 
-# =============================================================================
-# PROMPT WORD BUDGET - Hard limits (v3: increased for cinematic detail)
-# =============================================================================
-PROMPT_MIN_WORDS = 120
-PROMPT_MAX_WORDS = 200
-
-# Word budget breakdown (v3: cinematic photorealistic)
-WORD_BUDGET = {
-    "style_engine_prefix": 35,  # STYLE_ENGINE_PREFIX constant (goes FIRST)
-    "shot_type": 6,
-    "scene_composition": 25,
-    "focal_subject": 30,  # Anonymous figures with body language and environment
-    "environmental_storytelling": 40,
-    "style_engine_suffix": 25,  # STYLE_ENGINE_SUFFIX constant
-    "lighting": 20,
-    "text_rule": 10,
-}
-
-
 def validate_prompt_length(prompt: str) -> Tuple[bool, int, str]:
-    """Validate that a prompt is within the word budget.
-
-    Args:
-        prompt: The generated prompt to validate
-
-    Returns:
-        Tuple of (is_valid, word_count, message)
-    """
+    """Validate that a prompt is within the word budget."""
     word_count = len(prompt.split())
-
     if word_count < PROMPT_MIN_WORDS:
         return False, word_count, f"Too short: {word_count} words (min {PROMPT_MIN_WORDS})"
     elif word_count > PROMPT_MAX_WORDS:
@@ -488,120 +369,46 @@ def validate_prompt_length(prompt: str) -> Tuple[bool, int, str]:
 
 
 # =============================================================================
-# 5-LAYER PROMPT ARCHITECTURE (v3: Cinematic Photorealistic Documentary)
+# PROMPT ARCHITECTURE REFERENCE & EXAMPLE PROMPTS
 # =============================================================================
+
 PROMPT_ARCHITECTURE = """
-[STYLE_ENGINE_PREFIX] + [SHOT TYPE] + [SCENE COMPOSITION] + [FOCAL SUBJECT] + [ENVIRONMENTAL STORYTELLING] + [STYLE_ENGINE_SUFFIX + LIGHTING] + [TEXT RULE]
-
-CRITICAL: Style engine prefix goes FIRST - models weight early tokens more heavily.
-
-Layer Definitions:
-
-1. STYLE_ENGINE_PREFIX (locked, ~35 words) — ALWAYS FIRST:
-   "Cinematic photorealistic editorial photograph, dark moody atmosphere, desaturated
-   color palette with cold teal accent lighting, Rembrandt lighting, deep shadows,
-   shallow depth of field, subtle film grain, documentary photography style, shot on
-   Arri Alexa 65 with 35mm Master Prime lens, 16:9 cinematic composition, epic scale."
-
-2. SHOT TYPE (1 phrase, ~6 words) — Camera framing:
-   - Overhead establishing shot of...
-   - Wide tracking shot of...
-   - Extreme close-up of...
-   - Split composition showing...
-   - Top-down surveillance shot of...
-
-3. SCENE COMPOSITION (1-2 phrases, ~25 words) — Physical environment:
-   - Be concrete with real-world PLACES: "a darkened military command center"
-   - Cinematic environments: boardrooms, trading floors, government vaults,
-     abandoned facilities, war rooms, corridors of power
-   - NO abstract concepts. Describe a REAL PLACE.
-
-4. FOCAL SUBJECT (1-2 phrases, ~30 words) — Main character/object:
-   - ALWAYS anonymous human figures: faces hidden by shadow, silhouette, backlighting
-   - Specify count and framing: "a lone figure silhouetted against monitors"
-   - Include BODY LANGUAGE: "shoulders slumped", "arms crossed", "leaning forward"
-   - Include action: "signing documents", "walking through corridor"
-
-5. ENVIRONMENTAL STORYTELLING (2-3 phrases, ~40 words) — Background/middle-ground:
-   - Objects that tell stories: classified documents, trading terminals, empty chairs
-   - Visual metaphors using real objects: "a bridge with missing sections"
-   - Data made tangible: "Bloomberg screens with red tickers", "stacks of currency"
-
-6. STYLE_ENGINE_SUFFIX + LIGHTING (locked + scene-specific, ~45 words):
-   - "Real Kodak Vision3 500T 35mm film grain, silver halide noise, high contrast,
-     crushed blacks, organic halation effects around light sources, visible atmospheric
-     particulate, cinematic color grade."
-   - Plus scene lighting: "[warm description] vs [cool description]"
-
-7. TEXT RULE (always last, ~10 words):
-   - If NO text: "no text, no words, no labels, no signs, no readable text anywhere in the scene"
-   - If text included: "no additional text beyond the specified [elements]"
-   - Max 3 text elements, max 3 words each
+[DISPLAY FORMAT framing] + [DISPLAY CONTENT detailed description] + [COLOR MOOD palette] + [UNIVERSAL SUFFIX]
 """
 
-
-# =============================================================================
-# EXAMPLE PROMPTS - Reference (Cinematic Photorealistic Documentary Style)
-# =============================================================================
 EXAMPLE_PROMPTS = [
-    # Image 1 — WIDE ESTABLISHING (Overhead)
     (
-        "Cinematic photorealistic editorial photograph, dark moody atmosphere, "
-        "desaturated color palette with cold teal accent lighting, Rembrandt lighting, "
-        "deep shadows, shallow depth of field, subtle film grain, documentary photography "
-        "style, shot on Arri Alexa 65 with 35mm Master Prime lens, 16:9 cinematic "
-        "composition, epic scale. Overhead establishing shot of a darkened military "
-        "command center, banks of glowing monitors casting cold teal light across "
-        "silhouetted figures at their stations, classified documents scattered across "
-        "a central briefing table, a single red phone illuminated by a cone of warm "
-        "tungsten light. Real Kodak Vision3 500T 35mm film grain, silver halide noise, "
-        "high contrast, crushed blacks, organic halation effects around the monitor "
-        "screens, visible atmospheric particulate, cinematic color grade, cold teal "
-        "monitors vs warm tungsten desk lamp, no text no words no labels"
+        "Overhead angled view of a holographic war table surface projecting "
+        "a detailed map of the Persian Gulf and Strait of Hormuz, Iran's "
+        "coastline to the north and Oman to the south, shipping lane corridors "
+        "marked with blue directional arrows, 150 red dots representing anchored "
+        "oil tankers clustered outside the strait in the Gulf of Oman, the "
+        "chokepoint marked with a pulsing red barrier line, country labels in "
+        "clean sans-serif text for Iran Iraq Saudi Arabia Kuwait UAE Oman Qatar, "
+        "floating data panels above the table showing oil price at $148.20 and "
+        "shipping traffic down 70%, cool teal and cyan holographic light against "
+        "dark background, clinical intelligence aesthetic"
+        + HOLOGRAPHIC_SUFFIX
     ),
-    # Image 2 — MEDIUM HUMAN STORY
     (
-        "Cinematic photorealistic editorial photograph, dark moody atmosphere, "
-        "desaturated color palette with cold teal accent lighting, Rembrandt lighting, "
-        "deep shadows, shallow depth of field, subtle film grain, documentary photography "
-        "style, shot on Arri Alexa 65 with 35mm Master Prime lens, 16:9 cinematic "
-        "composition, epic scale. Medium shot of an anonymous figure in a tailored suit "
-        "seated at a mahogany desk, face completely in shadow from Rembrandt side lighting, "
-        "warm desk lamp casting amber glow on scattered financial reports, through a rain-"
-        "streaked window behind him a cold blue cityscape of distant towers. Real Kodak "
-        "Vision3 500T 35mm film grain, silver halide noise, high contrast, crushed blacks, "
-        "organic halation effects around the desk lamp, visible atmospheric particulate, "
-        "cinematic color grade, warm amber desk lamp vs cold blue window light, no text "
-        "no words no labels"
+        "Front-facing view of a massive holographic wall display showing "
+        "a financial data terminal with oil price candlestick chart spiking "
+        "violently upward with red warning indicators flashing at the peak, "
+        "scrolling ticker tape below showing WTI crude at $148.20 and Brent at "
+        "$152.40 climbing with percentage gains of +340%, side panels showing "
+        "inflation rate climbing to 9.2% and bond yield spiking to 5.8% and "
+        "currency index dropping 12%, red and amber warning colors dominating "
+        "the display, emergency alert aesthetic, pulsing warning indicators"
+        + HOLOGRAPHIC_SUFFIX
     ),
-    # Image 3 — CLOSE-UP VIGNETTE
     (
-        "Cinematic photorealistic editorial photograph, dark moody atmosphere, "
-        "desaturated color palette with cold teal accent lighting, Rembrandt lighting, "
-        "deep shadows, shallow depth of field, subtle film grain, documentary photography "
-        "style, shot on Arri Alexa 65 with 35mm Master Prime lens, 16:9 cinematic "
-        "composition, epic scale. Extreme close-up of a weathered hand hovering over a "
-        "red button on a military console, shallow depth of field blurring banks of "
-        "switches and warning lights behind, veins visible on the hand, sweat glistening "
-        "under harsh overhead fluorescent. Real Kodak Vision3 500T 35mm film grain, "
-        "silver halide noise, high contrast, crushed blacks, organic halation effects "
-        "around the red button glow, visible atmospheric particulate, cinematic color "
-        "grade, cold fluorescent overhead vs warm red button glow, no text no words "
-        "no labels"
-    ),
-    # Image 4 — DATA LANDSCAPE
-    (
-        "Cinematic photorealistic editorial photograph, dark moody atmosphere, "
-        "desaturated color palette with cold teal accent lighting, Rembrandt lighting, "
-        "deep shadows, shallow depth of field, subtle film grain, documentary photography "
-        "style, shot on Arri Alexa 65 with 35mm Master Prime lens, 16:9 cinematic "
-        "composition, epic scale. Environmental detail, no human figure, objects telling "
-        "the story, a Wall Street trading terminal in a darkened room, Bloomberg screens "
-        "displaying green spikes and red crashes, the glow of six monitors illuminating "
-        "an empty leather chair, coffee cup still steaming, papers scattered mid-sentence. "
-        "Real Kodak Vision3 500T 35mm film grain, silver halide noise, high contrast, "
-        "crushed blacks, organic halation effects around the glowing monitors, visible "
-        "atmospheric particulate, cinematic color grade, cold teal monitor glow vs warm "
-        "ambient room light, no text no words no labels"
+        "Eye-level view of holographic objects floating in dark space showing "
+        "two wireframe objects for scale comparison, on the left a small military "
+        "drone rotating slowly with floating price tag reading $2,000, on the right "
+        "a massive VLCC supertanker 330 meters long with floating price tag reading "
+        "$200,000,000, a risk calculation panel below showing cost-to-attack versus "
+        "cost-to-defend ratio at 1:100000, deep navy blue and steel holographic "
+        "wireframes with clean white labels, military precision aesthetic"
+        + HOLOGRAPHIC_SUFFIX
     ),
 ]
