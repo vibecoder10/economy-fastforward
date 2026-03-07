@@ -48,6 +48,7 @@ from bots.idea_bot import IdeaBot
 from bots.trending_idea_bot import TrendingIdeaBot
 from bots.sound_prompt_bot import SoundPromptBot
 from bots.sound_bot import SoundBot
+from pipeline_config import VideoConfig
 
 
 class VideoPipeline:
@@ -104,6 +105,7 @@ class VideoPipeline:
         self.current_idea_id: Optional[str] = None
         self.current_idea: Optional[dict] = None
         self.core_image_url: Optional[str] = None
+        self.video_config: Optional[VideoConfig] = None
     
     def get_idea_by_status(self, status: str) -> Optional[dict]:
         """Get ONE idea with the specified status."""
@@ -130,9 +132,16 @@ class VideoPipeline:
         else:
             self.core_image_url = ""
 
+        # Instantiate VideoConfig from Airtable fields (defaults to 10min/10s)
+        try:
+            self.video_config = VideoConfig.from_airtable_record(idea)
+        except (ValueError, TypeError):
+            self.video_config = VideoConfig()  # safe defaults
+
         print(f"\n📌 Loaded idea: {self.video_title}")
         print(f"   Status: {idea.get('Status')}")
         print(f"   ID: {self.current_idea_id}")
+        print(f"   🎬 {self.video_config.summary().splitlines()[0]}")
         if self.project_folder_id:
             print(f"   📂 Drive Folder: {self.project_folder_id}")
         if self.core_image_url:

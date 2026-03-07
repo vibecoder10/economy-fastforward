@@ -88,6 +88,21 @@ def build_render_config(
         if sentence_text:
             entry["sentence_text"] = sentence_text
 
+        # Video clip support — when a segment has a video clip, use it
+        # instead of (or in addition to) the static image
+        video_clip_path = scene.get("video_clip_path", "")
+        if video_clip_path:
+            entry["type"] = "video"
+            entry["video_clip_path"] = video_clip_path
+        else:
+            entry["type"] = "image"
+
+        # Segment metadata for configurable-length pipeline
+        if scene.get("segment_index") is not None:
+            entry["segment_index"] = scene["segment_index"]
+        if scene.get("animation_intensity"):
+            entry["animation_intensity"] = scene["animation_intensity"]
+
         render_scenes.append(entry)
 
     return {

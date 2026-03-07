@@ -194,20 +194,25 @@ def validate_scene_list(scenes: list[dict], config: Optional[dict] = None) -> di
                     f"Scene {scene.get('scene_number', i + 1)}: Isolated Echo single"
                 )
 
-    # 10. Word count check (unified format: total narration should hit 2200-3200 words)
+    # 10. Word count check (unified format)
+    # Use config-driven thresholds when available, else legacy defaults.
+    word_min = int(config.get("script_min_words", 2000) * 0.9) if config.get("script_min_words") else 2000
+    word_max_warn = config.get("script_max_words", 3200)
+    word_max_hard = int(word_max_warn * 1.1) if config.get("script_max_words") else 3500
+
     if is_unified:
         total_words = sum(
             len((s.get("narration_text") or "").split()) for s in scenes
         )
         if total_words > 0:
-            if total_words < 2000:
-                issues.append(f"Total narration too short: {total_words} words (min 2000)")
-            elif total_words > 3500:
-                issues.append(f"REJECT: Total narration too long: {total_words} words (hard max 3500)")
-            elif total_words > 3200:
+            if total_words < word_min:
+                issues.append(f"Total narration too short: {total_words} words (min {word_min})")
+            elif total_words > word_max_hard:
+                issues.append(f"REJECT: Total narration too long: {total_words} words (hard max {word_max_hard})")
+            elif total_words > word_max_warn:
                 # Warning level — log but don't block
                 logger.warning(
-                    f"Total narration over target: {total_words} words (target max 3200)"
+                    f"Total narration over target: {total_words} words (target max {word_max_warn})"
                 )
 
     return {
