@@ -10,6 +10,7 @@ The pipeline strictly follows Airtable Ideas table status:
 5.  Ready For Images         - Image Bot will run
 6.  Ready For Video Scripts  - Video Script Bot will run
 7.  Ready For Video Generation - Video Gen Bot will run
+7b. Ready For Animation      - Animation Bot will run (Grok Imagine clips)
 8.  Ready For Thumbnail      - Thumbnail Bot will run
 9.  Ready To Render          - Render Bot will run
 10. Done                     - All production assets complete, triggers render
@@ -48,6 +49,7 @@ from bots.idea_bot import IdeaBot
 from bots.trending_idea_bot import TrendingIdeaBot
 from bots.sound_prompt_bot import SoundPromptBot
 from bots.sound_bot import SoundBot
+from bots.animation_bot import AnimationBot
 from pipeline_config import VideoConfig
 
 
@@ -70,6 +72,7 @@ class VideoPipeline:
     STATUS_READY_IMAGES = "Ready For Images"
     STATUS_READY_VIDEO_SCRIPTS = "Ready For Video Scripts"
     STATUS_READY_VIDEO_GENERATION = "Ready For Video Generation"
+    STATUS_READY_ANIMATION = "Ready For Animation"
     STATUS_READY_THUMBNAIL = "Ready For Thumbnail"
     STATUS_DONE = "Done"
     STATUS_READY_TO_RENDER = "Ready To Render"
@@ -635,6 +638,13 @@ class VideoPipeline:
         # if idea:
         #     self._load_idea(idea)
         #     return await self.run_video_gen_bot()
+
+        # 6b. Check for Ready For Animation (Grok Imagine clips from images)
+        idea = self.get_idea_by_status(self.STATUS_READY_ANIMATION)
+        if idea:
+            self._load_idea(idea)
+            return await self._run_step_safe("Animation Bot", self.run_animation_bot)
+
         # 7. Check for Ready For Thumbnail
         idea = self.get_idea_by_status(self.STATUS_READY_THUMBNAIL)
         if idea:
@@ -1040,17 +1050,101 @@ class VideoPipeline:
         if result.get("error"):
             return result
 
-        # Update status — sound is done, move to thumbnail
-        self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_THUMBNAIL)
-        print(f"  ✅ Status updated to: {self.STATUS_READY_THUMBNAIL}")
+        # Update status — sound is done, move to animation
+        self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_ANIMATION)
+        print(f"  ✅ Status updated to: {self.STATUS_READY_ANIMATION}")
 
         self.slack.notify(
             f"✅ Generated {result.get('total_generated', 0)} sound effects for *{self.video_title}* "
             f"(~${result.get('estimated_cost', 0):.2f})"
         )
 
-        result["new_status"] = self.STATUS_READY_THUMBNAIL
+        result["new_status"] = self.STATUS_READY_ANIMATION
         return result
+
+    async def run_animation_bot(self) -> dict:
+        """Generate video clips from images via Grok Imagine.
+
+        REQUIRES: Ideas status = "Ready For Animation"
+        UPDATES TO: "Ready For Thumbnail" when all clips generated
+
+        Uses the configurable VideoConfig (clip_duration from Airtable) and
+        the animation_prompt_engine to generate per-clip motion prompts.
+        Calls the existing Grok Imagine client — no new API code.
+        """
+        if not self.current_idea:
+            idea = self.get_idea_by_status(self.STATUS_READY_ANIMATION)
+            if not idea:
+                return {"error": "No idea with status 'Ready For Animation'"}
+            self._load_idea(idea)
+
+        if self.current_idea.get("Status") != self.STATUS_READY_ANIMATION:
+            return {
+                "error": f"Idea status is '{self.current_idea.get('Status')}', "
+                f"expected 'Ready For Animation'"
+            }
+
+        print(f"\n🎬 ANIMATION BOT: Processing '{self.video_title}'")
+
+        # Load VideoConfig from Airtable record (defaults to 10min/10s)
+        config = self.video_config or VideoConfig.from_airtable_record(self.current_idea)
+        print(f"  Config: {config.clip_duration_seconds}s clips, "
+              f"~{config.total_clips} total clips")
+
+        # Ensure project folder
+        if not self.project_folder_id:
+            folder = self.google.get_or_create_folder(self.video_title)
+            self.project_folder_id = folder["id"]
+
+        # Cost estimate before starting
+        all_images = self.airtable.get_all_images_for_video(self.video_title)
+        pending = [
+            img for img in all_images
+            if img.get("Status") == "Done" and not img.get("Video Clip URL")
+        ]
+        est_cost = len(pending) * AnimationBot.COST_PER_CLIP
+        print(f"  Pending clips: {len(pending)} | Est. cost: ${est_cost:.2f}")
+
+        self.slack.notify(
+            f"🎬 Starting animation for *{self.video_title}*\n"
+            f"Clips: {len(pending)} | Duration: {config.clip_duration_seconds}s | "
+            f"Est. cost: ${est_cost:.2f}"
+        )
+
+        bot = AnimationBot(
+            image_client=self.image_client,
+            airtable_client=self.airtable,
+            google_client=self.google,
+        )
+        result = await bot.run(
+            video_title=self.video_title,
+            config=config,
+            project_folder_id=self.project_folder_id,
+        )
+
+        if result.get("clips_failed", 0) > 0 and result.get("clips_generated", 0) == 0:
+            error_msg = f"All {result['clips_failed']} clips failed for '{self.video_title}'"
+            print(f"  ❌ {error_msg}")
+            self.slack.notify(f"❌ Animation Bot STOPPED: {error_msg}")
+            return {"status": "failed", "bot": "Animation Bot", "error": error_msg}
+
+        # Advance to thumbnail
+        self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_THUMBNAIL)
+        print(f"  ✅ Status updated to: {self.STATUS_READY_THUMBNAIL}")
+
+        self.slack.notify(
+            f"✅ Animated {result['clips_generated']} clips for *{self.video_title}* "
+            f"(${result['actual_cost']:.2f})"
+        )
+
+        return {
+            "bot": "Animation Bot",
+            "video_title": self.video_title,
+            "clips_generated": result["clips_generated"],
+            "clips_failed": result.get("clips_failed", 0),
+            "actual_cost": result["actual_cost"],
+            "new_status": self.STATUS_READY_THUMBNAIL,
+        }
 
     async def run_image_prompt_bot_legacy(self) -> dict:
         """Generate image prompts based on voiceover duration (LEGACY PATH).
@@ -2263,6 +2357,7 @@ class VideoPipeline:
             "images": self.STATUS_READY_IMAGES,
             "video_scripts": self.STATUS_READY_VIDEO_SCRIPTS,
             "video_gen": self.STATUS_READY_VIDEO_GENERATION,
+            "animation": self.STATUS_READY_ANIMATION,
             "thumbnail": self.STATUS_READY_THUMBNAIL,
             "render": self.STATUS_READY_TO_RENDER,
         }
