@@ -256,11 +256,13 @@ def get_camera_motion(scene_type, is_hero: bool = False) -> str:
     if isinstance(scene_type, str):
         shot_type = scene_type.lower().strip()
         format_map = {
+            # DisplayFormat names
             "war_table": DisplayFormat.WAR_TABLE,
             "wall_display": DisplayFormat.WALL_DISPLAY,
             "floating": DisplayFormat.FLOATING_PROJECTION,
             "multi_panel": DisplayFormat.MULTI_PANEL,
             "close_up_detail": DisplayFormat.CLOSE_UP_DETAIL,
+            # SceneType names
             "wide_establishing": DisplayFormat.WAR_TABLE,
             "isometric_diorama": DisplayFormat.WAR_TABLE,
             "medium_human_story": DisplayFormat.WALL_DISPLAY,
@@ -270,6 +272,14 @@ def get_camera_motion(scene_type, is_hero: bool = False) -> str:
             "pull_back_reveal": DisplayFormat.WAR_TABLE,
             "overhead_map": DisplayFormat.WAR_TABLE,
             "journey_shot": DisplayFormat.MULTI_PANEL,
+            # Image prompt engine composition types (Shot Type in Airtable)
+            "wide": DisplayFormat.WAR_TABLE,
+            "medium": DisplayFormat.WALL_DISPLAY,
+            "closeup": DisplayFormat.CLOSE_UP_DETAIL,
+            "environmental": DisplayFormat.FLOATING_PROJECTION,
+            "portrait": DisplayFormat.WALL_DISPLAY,
+            "overhead": DisplayFormat.WAR_TABLE,
+            "low_angle": DisplayFormat.FLOATING_PROJECTION,
         }
         mapped = format_map.get(shot_type)
         if mapped:
