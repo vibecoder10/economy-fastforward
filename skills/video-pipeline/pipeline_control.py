@@ -129,74 +129,106 @@ async def handle_hello(message, say):
 @app.message(re.compile(r"help", re.IGNORECASE))
 async def handle_help(message, say):
     """Show available commands."""
-    help_text = """*Pipeline Commands:*
+    help_text = """*Economy FastForward — Pipeline Bot*
 
-*Auto-run*
-- `run` - Pick up the pipeline where it left off and keep going (one step at a time)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+*Video Production Pipeline (in order)*
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-*YouTube Pipeline*
-- `script` / `run script` - Run script bot for idea with "Ready For Scripting" status
-- `voice` / `run voice` - Run voice bot for idea with "Ready For Voice" status
-- `run sound design <title>` - Generate sound maps for a video (Claude analyzes scenes)
-- `run sound effects <title>` - Generate sound effect audio files from sound maps
-- `run sound all <title>` - Run sound design + sound effects sequentially
-- `prompts` / `run prompts` - Generate styled image prompts and images
-- `images` / `run images` - Generate scene images only (for "Ready For Images" status)
-- `sync` / `timing` - Run audio sync (Whisper alignment) to calculate scene durations
-- `end images` / `run end images` - Generate end image prompts and images
-- `thumbnail` / `run thumbnail` - Generate thumbnail for idea with "Ready For Thumbnail" status
-- `render` / `run render` - Render videos only (skips other stages, one at a time)
-- `upload` / `run upload` - Upload a rendered video to YouTube as an unlisted draft
+*1. Discovery & Research*
+- `discover` / `scan` — Scan headlines, present 2-3 video ideas
+- `discover [focus]` — Scan with focus keyword (e.g. `discover BRICS`)
+- React 1️⃣ 2️⃣ 3️⃣ on results to approve + auto-research
+- `research` — Run deep research on next approved idea
+- `research "topic"` — Research a specific topic
 
-*Animation Pipeline*
-- `animate` / `animation` / `run animation` - Run animation pipeline for project with "Create" status
+*2. Script*
+- `script` — Generate 6-act script from researched idea
 
-*Analytics*
-- `analytics` / `run analytics` - Sync YouTube metrics for all uploaded videos to Airtable
-- `analyze` / `run analyze` - Run weekly performance analysis (title formulas, topics, retention insights)
+*3. Voice*
+- `voice` — Generate voice narration via ElevenLabs
 
-*Discovery & Research*
-- `discover` / `scan` - Scan headlines and present 2-3 video ideas
-- `discover [focus]` - Scan with focus keyword (e.g., `discover BRICS`)
-- React 1️⃣ 2️⃣ 3️⃣ on discovery results to approve + auto-research
-- `research` / `run research` - Run deep research on next approved idea
-- `research "topic"` - Run deep research on a specific topic
+*4. Image Prompts & Images*
+- `prompts` — Generate styled image prompts + images (runs both steps)
+- `images` — Generate scene images only (if prompts already done)
+- `end images` — Generate end card images
 
+*5. Audio Sync*
+- `sync` / `timing` — Run Whisper alignment to calculate scene durations
+
+*6. Sound Design (optional)*
+- `run sound design <title>` — Generate per-image sound maps via Claude
+- `run sound effects <title>` — Generate sound effect audio files
+- `run sound all <title>` — Run sound design + effects sequentially
+
+*7. Video Prompts (manual, ~$0.10/clip)*
+- `video prompts` — Generate motion prompts for Scene 1 images
+
+*8. Video Generation (manual, ~$0.10/clip)*
+- `video generate` — Generate video clips from motion prompts
+
+*9. Animation*
+- `animate` / `animation` — Generate animation clips from images
+
+*10. Thumbnail*
+- `thumbnail` — Generate YouTube thumbnail
+
+*11. Render*
+- `render` — Render final MP4 via Remotion
+
+*12. Upload*
+- `upload` — Upload to YouTube as unlisted draft
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+*Auto-Run*
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- `run` — Pick up where the pipeline left off and keep going
+  _(skips video prompts & video generation — those are manual)_
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 *Pipeline Management*
-- `queue` / `pipeline` - Show all active ideas and their statuses
-- `skip` - Skip the current pipeline step (advance to next status)
-- `retry` / `try again` - Re-run the last failed command
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- `queue` / `pipeline` — Show all active ideas and statuses
+- `skip` — Skip current pipeline step
+- `retry` / `try again` — Re-run last failed command
+- `stop` / `kill` — Stop currently running task
+- `status` / `check` — Check current project status
 
-*Style Overrides*
-- `style image <title>: <instructions>` - Set image style override for a video
-- `style thumbnail <title>: <instructions>` - Set thumbnail style override for a video
-- `style color <title>: <color>` - Set accent color (cold teal, muted crimson, warm amber, muted green)
-- `style reset <title>` - Clear all style overrides and accent color for a video
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+*Style & Model Overrides*
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- `style image <title>: <instructions>` — Set image style override
+- `style thumbnail <title>: <instructions>` — Set thumbnail style override
+- `style color <title>: <color>` — Set accent color
+- `style reset <title>` — Clear all style overrides
+- `model <title>: <model>` — Switch image generation model
+- `model reset <title>` — Revert to default model
+- `models` — List available models
 
-*Image Model*
-- `model <title>: <model>` - Switch image generation model for a video (e.g. `model My Video: z-image`)
-- `model reset <title>` - Revert to default model (nano-banana-2)
-- `models` - List all available image generation models
-
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 *Delete & Redo*
-- `delete <title> scripts` - Delete all scripts for a video, reset to Ready For Scripting
-- `delete <title> prompts` - Delete all image prompts/concepts for a video, reset to Ready For Image Prompts
-- `delete <title> images` - Same as delete prompts (alias)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- `delete <title> scripts` — Delete scripts, reset to Ready For Scripting
+- `delete <title> prompts` — Delete image prompts, reset to Ready For Image Prompts
 
-*System & DevOps*
-- `stop` / `kill` - Stop the currently running pipeline
-- `status` / `check` - Check current project status (both pipelines)
-- `logs` / `tail logs` / `show logs` - Show recent pipeline log output
-- `disk` / `space` - Check VPS disk usage
-- `set env KEY=VALUE` - Set any environment variable in .env
-- `set key sk-proj-...` - Set OpenAI API key (shortcut for set env)
-- `show env` / `env vars` - Show all env vars (values masked)
-- `update` - Pull latest code from GitHub (auto-restarts if changes)
-- `restart` / `reboot` - Restart the bot process
-- `cron on` / `cron off` / `cron status` - Manage cron jobs
-- `help` - Show this message
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+*Analytics*
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- `analytics` — Sync YouTube metrics to Airtable
+- `analyze` — Run weekly performance analysis
 
-_All commands are case-insensitive. You can also use natural language — the bot uses AI to understand what you mean (e.g., "do the whisper thing", "next step", "how much disk space", "show me the queue")._
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+*System*
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- `logs` / `show logs` — Show recent log output
+- `disk` / `space` — Check VPS disk usage
+- `set env KEY=VALUE` — Set environment variable
+- `show env` — Show all env vars (masked)
+- `update` — Pull latest code from GitHub
+- `restart` — Restart the bot process
+- `cron on` / `cron off` / `cron status` — Manage cron jobs
+
+_All commands are case-insensitive. Natural language also works._
 """
     await say(help_text)
 
@@ -435,9 +467,12 @@ async def handle_queue(message, say):
 
         all_ideas = airtable.get_all_ideas()
         active_statuses = [
-            "Ready For Scripting", "Ready For Voice", "Ready For Image Prompts",
-            "Ready For Images", "Ready For Video Scripts", "Ready For Video Generation",
-            "Ready For Thumbnail", "Ready To Render", "In Que",
+            "Approved", "Ready For Scripting", "Ready For Voice",
+            "Ready For Image Prompts", "Ready For Images",
+            "Ready For Sound Design", "Ready For Sound Effects",
+            "Ready For Video Scripts", "Ready For Video Generation",
+            "Ready For Animation", "Ready For Thumbnail",
+            "Done", "Ready To Render", "Rendered", "In Que",
         ]
 
         # Group by status — get_all_ideas returns flat dicts with id + fields
@@ -478,7 +513,8 @@ async def handle_skip(message, say):
             "Idea Logged", "Ready For Scripting", "Ready For Voice",
             "Ready For Image Prompts", "Ready For Images",
             "Ready For Video Scripts", "Ready For Video Generation",
-            "Ready For Thumbnail", "Ready To Render", "Done",
+            "Ready For Animation", "Ready For Thumbnail",
+            "Ready To Render", "Done",
         ]
 
         all_ideas = airtable.get_all_ideas()
@@ -656,6 +692,64 @@ async def handle_animate(message, say):
         await say(":warning: Animation pipeline timed out after 10 minutes")
     except asyncio.CancelledError:
         await say(":stop_sign: Animation pipeline was stopped")
+    except Exception as e:
+        await say(f":x: Error: {e}")
+
+
+@app.message(re.compile(r"run video prompts", re.IGNORECASE))
+@app.message(re.compile(r"^video prompts$", re.IGNORECASE))
+async def handle_video_prompts(message, say):
+    """Generate video motion prompts for Scene 1 images."""
+    global current_process
+    if current_process:
+        await say(f":x: Already running `{current_task_name}`. Use `stop` to cancel it first.")
+        return
+
+    await say(":pencil2: Starting video prompt generation (Scene 1 motion prompts)...")
+
+    try:
+        returncode, stdout, stderr = await run_script_async("run_video_script_bot.py", "video prompts", say, timeout=600)
+
+        if returncode == 0:
+            output = stdout[-3000:] if len(stdout) > 3000 else stdout
+            await say(f":white_check_mark: Video prompts complete!\n```{output}```")
+        else:
+            error = stderr[-1500:] if len(stderr) > 1500 else stderr
+            await say(f":x: Video prompts error:\n```{error}```")
+
+    except subprocess.TimeoutExpired:
+        await say(":warning: Video prompts timed out after 10 minutes")
+    except asyncio.CancelledError:
+        await say(":stop_sign: Video prompts was stopped")
+    except Exception as e:
+        await say(f":x: Error: {e}")
+
+
+@app.message(re.compile(r"run video generate", re.IGNORECASE))
+@app.message(re.compile(r"^video generate$", re.IGNORECASE))
+async def handle_video_generate(message, say):
+    """Generate video clips from images with motion prompts."""
+    global current_process
+    if current_process:
+        await say(f":x: Already running `{current_task_name}`. Use `stop` to cancel it first.")
+        return
+
+    await say(":movie_camera: Starting video generation (Scene 1 clips)... This is costly (~$0.10/clip).")
+
+    try:
+        returncode, stdout, stderr = await run_script_async("run_video_gen_bot.py", "video generate", say, timeout=1800)
+
+        if returncode == 0:
+            output = stdout[-3000:] if len(stdout) > 3000 else stdout
+            await say(f":white_check_mark: Video generation complete!\n```{output}```")
+        else:
+            error = stderr[-1500:] if len(stderr) > 1500 else stderr
+            await say(f":x: Video generation error:\n```{error}```")
+
+    except subprocess.TimeoutExpired:
+        await say(":warning: Video generation timed out after 30 minutes")
+    except asyncio.CancelledError:
+        await say(":stop_sign: Video generation was stopped")
     except Exception as e:
         await say(f":x: Error: {e}")
 
@@ -2249,6 +2343,8 @@ async def handle_fallback(event, say):
         "render": handle_render,
         "upload": handle_upload,
         "analytics": handle_analytics,
+        "video prompts": handle_video_prompts,
+        "video generate": handle_video_generate,
         "animate": handle_animate,
         "discover": handle_discover,
         "stop": handle_stop,
@@ -2379,6 +2475,8 @@ _TASK_HANDLER_MAP.update({
     "render": handle_render,
     "upload": handle_upload,
     "analytics": handle_analytics,
+    "video prompts": handle_video_prompts,
+    "video generate": handle_video_generate,
     "animation": handle_animate,
 })
 
@@ -2388,17 +2486,15 @@ async def main():
     print("=" * 60)
     print("PIPELINE CONTROL BOT")
     print("=" * 60)
+    print("\nPipeline steps: discover > research > script > voice > prompts > images >")
+    print("  sync > video prompts > video generate > animate > thumbnail > render > upload")
     print("\nCommands (case-insensitive + natural language via AI):")
     print("  run                     - Auto-continue pipeline from current status")
-    print("  script / voice / prompts / images / sync / thumbnail / render / upload")
-    print("  animate / discover / research")
+    print("  video prompts / video generate - Manual video steps (~$0.10/clip)")
     print("  queue / skip / retry    - Pipeline management")
-    print("  style image/thumbnail/color/reset - Per-video style overrides")
-    print("  model <title>: <model> / models   - Hot-swap image generation model")
-    print("  stop / status / logs / disk / show env / restart / update")
-    print("  set env KEY=VALUE       - Set any env var in .env")
-    print("  cron on/off/status      - Manage scheduled cron jobs")
-    print("  help                    - Show all commands")
+    print("  style / model / delete  - Overrides and redo")
+    print("  stop / status / logs / help")
+    print("  cron on/off/status      - Manage cron jobs")
     print("\nListening for Slack messages (+ AI fallback for natural language)...")
 
     handler = AsyncSocketModeHandler(app, os.environ.get("SLACK_APP_TOKEN"))
