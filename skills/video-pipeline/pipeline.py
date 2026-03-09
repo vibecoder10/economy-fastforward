@@ -1990,9 +1990,15 @@ class VideoPipeline:
                 
             print(f"    [{i}/{total}] Generating video for scene {scene}, image {index}...")
             print(f"      Motion: {motion_prompt}")
-            
-            # Generate video (default 10s)
-            video_url = await self.image_client.generate_video(image_url, motion_prompt, duration=10)
+
+            # Hero selection: duration > 6s gets 10s clip, otherwise 6s
+            segment_duration = img_record.get("Duration (s)", 6.0)
+            clip_duration = 10 if segment_duration > 6.0 else 6
+
+            print(f"      Segment: {segment_duration:.1f}s → {clip_duration}s clip{'  (HERO)' if clip_duration == 10 else ''}")
+
+            # Generate video with appropriate duration
+            video_url = await self.image_client.generate_video(image_url, motion_prompt, duration=clip_duration)
             
             if video_url:
                 print("      Downloading video content...")
