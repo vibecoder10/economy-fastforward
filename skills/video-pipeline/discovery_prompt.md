@@ -239,7 +239,8 @@ For each of the 2-3 selected stories, output:
         "visual_potential": 7,
         "emotional_trigger": 8
       },
-      "historical_parallel_hint": "Suggested historical parallel for the research phase (e.g., 'British Empire's decline after Suez Crisis 1956')"
+      "historical_parallel_hint": "Suggested historical parallel for the research phase (e.g., 'British Empire's decline after Suez Crisis 1956')",
+      "framework": "The analytical framework that best fits this story. One of: 48 Laws, Sun Tzu, Machiavelli, Thucydides Trap, Antifragile, Grand Chessboard, Kindleberger Trap, Schelling, Collective Action, Soft Power, Game Theory, Systems Thinking, Propaganda, Behavioral Econ"
     }
   ]
 }
@@ -258,6 +259,7 @@ For each of the 2-3 selected stories, output:
 - [ ] Every title has a 2-word thumbnail verdict (ALL CAPS, no YOUR language)
 - [ ] Thumbnail text is a strategic judgment, not a description
 - [ ] Every idea has a clear **power dynamics** angle (not generic news)
+- [ ] Every idea has a **framework** (analytical lens for the video)
 - [ ] Every idea has a **Machiavellian framing** (not just economic analysis)
 - [ ] The hook creates an **irresistible curiosity gap**
 - [ ] Ideas feel like they belong on **Economy FastForward** (not CNN, not WSJ)
