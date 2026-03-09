@@ -53,8 +53,6 @@ class AnimationBot:
         Returns:
             Dict with clips_generated, clips_failed, actual_cost.
         """
-        clip_duration = config.clip_duration_seconds
-
         # Fetch done images that still need animation
         all_images = self.airtable.get_all_images_for_video(video_title)
         done_images = [
@@ -74,7 +72,6 @@ class AnimationBot:
         total = len(done_images)
         estimated_cost = total * self.COST_PER_CLIP
         print(f"  Images to animate: {total}")
-        print(f"  Clip duration: {clip_duration}s")
         print(f"  Estimated cost: ${estimated_cost:.2f}")
 
         clips_generated = 0
@@ -88,7 +85,14 @@ class AnimationBot:
 
             print(f"\n  [{i}/{total}] Scene {scene}, Image {index}")
 
-            # 1. Get image URL (prefer permanent Drive URL)
+            # 1. Dynamic clip duration based on segment narration length
+            #    <= 6s of narration → 6s clip, > 6s → 10s clip
+            #    Remotion trims the clip to fit actual voiceover duration
+            duration = img_record.get("Duration (s)", 8.0)
+            clip_duration = 6 if duration <= 6.0 else 10
+            print(f"    Segment: {duration:.1f}s narration → {clip_duration}s clip")
+
+            # 2. Get image URL (prefer permanent Drive URL)
             image_url = self._get_image_url(img_record)
             if not image_url:
                 print("    ⚠️ No image URL, skipping")
@@ -98,18 +102,18 @@ class AnimationBot:
             # Convert to direct download URL for Grok
             direct_url = self.google.get_direct_drive_url(image_url)
 
-            # 2. Build animation prompt from segment metadata
+            # 3. Build animation prompt from segment metadata
             animation_prompt = self._build_prompt(img_record, clip_duration)
             print(f"    Prompt: {animation_prompt[:80]}...")
 
-            # 3. Mark as processing
+            # 4. Mark as processing
             self.airtable.update_image_animation_fields(
                 record_id,
                 animation_status="Processing",
                 video_duration=clip_duration,
             )
 
-            # 4. Call Grok Imagine via the existing client
+            # 5. Call Grok Imagine via the existing client
             print(f"    Generating {clip_duration}s clip...")
             video_url = await self.image_client.generate_video(
                 direct_url,
@@ -118,7 +122,7 @@ class AnimationBot:
             )
 
             if video_url:
-                # 5. Download and upload to Drive
+                # 6. Download and upload to Drive
                 print("    Downloading clip...")
                 video_content = await self.image_client.download_image(video_url)
 
@@ -129,7 +133,7 @@ class AnimationBot:
                 )
                 drive_url = self.google.make_file_public(drive_file["id"])
 
-                # 6. Update Airtable
+                # 7. Update Airtable
                 self.airtable.update_image_animation_fields(
                     record_id,
                     video_clip_url=drive_url,

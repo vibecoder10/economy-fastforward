@@ -159,9 +159,33 @@ class TestSegmentScript:
         script = self._make_script(config.total_script_words)
         segments = segment_script(script, config)
 
-        required = {"index", "text", "word_count", "estimated_duration_seconds", "act", "scene", "intensity"}
+        required = {"index", "text", "word_count", "estimated_duration_seconds", "clip_duration", "act", "scene", "intensity"}
         for seg in segments:
             assert required.issubset(seg.keys()), f"Missing fields: {required - seg.keys()}"
+
+    def test_clip_duration_assigned_dynamically(self):
+        """Segments get 6s clips if <= 6s narration, 10s if longer."""
+        config = VideoConfig(10, 10)
+        script = self._make_script(config.total_script_words)
+        segments = segment_script(script, config)
+
+        for seg in segments:
+            assert seg["clip_duration"] in (6, 10)
+            if seg["estimated_duration_seconds"] <= 6.0:
+                assert seg["clip_duration"] == 6
+            else:
+                assert seg["clip_duration"] == 10
+
+    def test_short_segments_get_6s_clips(self):
+        """Very short segments should get 6-second clips."""
+        config = VideoConfig(5, 10)
+        # Short text that will produce short segments
+        script = "**Scene 1**\nShort line here. Another short one. Third quick one."
+        segments = segment_script(script, config)
+
+        for seg in segments:
+            if seg["estimated_duration_seconds"] <= 6.0:
+                assert seg["clip_duration"] == 6
 
     def test_act_markers_stripped(self):
         """Act markers should not appear in segment text."""

@@ -1133,8 +1133,8 @@ class VideoPipeline:
 
         # Load VideoConfig from Airtable record (defaults to 10min/10s)
         config = self.video_config or VideoConfig.from_airtable_record(self.current_idea)
-        print(f"  Config: {config.clip_duration_seconds}s clips, "
-              f"~{config.total_clips} total clips")
+        print(f"  Config: dynamic clip durations (6s/10s per segment), "
+              f"~{config.total_clips} est. total clips")
 
         # Ensure project folder
         if not self.project_folder_id:
@@ -1152,7 +1152,7 @@ class VideoPipeline:
 
         self.slack.notify(
             f"🎬 Starting animation for *{self.video_title}*\n"
-            f"Clips: {len(pending)} | Duration: {config.clip_duration_seconds}s | "
+            f"Clips: {len(pending)} | Duration: dynamic (6s/10s) | "
             f"Est. cost: ${est_cost:.2f}"
         )
 

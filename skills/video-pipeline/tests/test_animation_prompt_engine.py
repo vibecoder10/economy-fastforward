@@ -135,4 +135,17 @@ class TestGeneratePromptsForSegments:
         results = generate_prompts_for_segments(segments, clip_duration=10)
         assert "segment_index" in results[0]
         assert "intensity" in results[0]
+        assert "clip_duration" in results[0]
         assert "animation_prompt" in results[0]
+
+    def test_per_segment_clip_duration_override(self):
+        """Segments with their own clip_duration override the global default."""
+        segments = [
+            {"index": 0, "text": "Short.", "word_count": 10, "intensity": "low", "clip_duration": 6},
+            {"index": 1, "text": "Longer segment here.", "word_count": 25, "intensity": "low", "clip_duration": 10},
+        ]
+        results = generate_prompts_for_segments(segments, clip_duration=10)
+        assert "6 seconds" in results[0]["animation_prompt"]
+        assert results[0]["clip_duration"] == 6
+        assert "10 seconds" in results[1]["animation_prompt"]
+        assert results[1]["clip_duration"] == 10

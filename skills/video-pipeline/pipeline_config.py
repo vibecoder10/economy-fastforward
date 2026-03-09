@@ -1,16 +1,25 @@
 """Pipeline Configuration Layer.
 
-Computes all derived pipeline parameters from two inputs:
+Computes all derived pipeline parameters from:
 - video_length_minutes: Target video duration (3-30 minutes)
-- clip_duration_seconds: Duration of each video clip (6 or 10 seconds)
 
-Every downstream system (script, segmentation, images, animation, rendering)
-reads from VideoConfig instead of using hardcoded constants.
+Clip duration is assigned dynamically per-segment by the segmentation engine:
+- Segments with <= 6s of narration get 6s clips
+- Segments with > 6s of narration get 10s clips
+- Remotion trims each clip to fit the actual voiceover duration
+
+The planning default of 10s clips is used for estimating total clips, script
+word targets, and costs. Actual clip durations vary per segment.
 """
 
 
 class VideoConfig:
-    """All pipeline parameters derived from video_length_minutes and clip_duration_seconds."""
+    """Pipeline parameters derived from video_length_minutes.
+
+    clip_duration_seconds is a planning default (10s) used to estimate total
+    clips and script word targets. Actual clip durations are assigned per-segment
+    by the segmentation engine based on narration length.
+    """
 
     SPEAKING_RATE_WPS = 2.5  # words per second for narration
 
@@ -100,20 +109,16 @@ class VideoConfig:
     def from_airtable_record(cls, record: dict) -> "VideoConfig":
         """Create VideoConfig from an Airtable Idea Concepts record.
 
-        Reads 'Video Length (min)' and 'Clip Duration (s)' fields.
-        Falls back to defaults (10 min, 10s clips) if fields are empty.
+        Reads 'Video Length (min)' field. Falls back to 10 min if empty.
+        Clip duration is always 10s for planning estimates — actual clip
+        durations are assigned per-segment by the segmentation engine.
         """
         fields = record.get("fields", record)
         length = fields.get("Video Length (min)")
-        clip = fields.get("Clip Duration (s)")
 
         video_length = int(length) if length else 10
-        clip_duration = int(clip) if clip else 10
 
-        return cls(
-            video_length_minutes=video_length,
-            clip_duration_seconds=clip_duration,
-        )
+        return cls(video_length_minutes=video_length)
 
 
 # Act structure templates scaled by act count

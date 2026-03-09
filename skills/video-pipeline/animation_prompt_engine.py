@@ -124,12 +124,16 @@ def generate_prompts_for_segments(
 
     Args:
         segments: List of segment dicts from segmentation engine.
+            Each segment may have a "clip_duration" field (6 or 10) set
+            dynamically based on narration length. If present, it overrides
+            the global clip_duration parameter.
         content_types: Optional mapping of segment index to content type string.
             When None, defaults to B_data_terminal for all segments.
-        clip_duration: Duration in seconds (6 or 10).
+        clip_duration: Default duration in seconds (6 or 10). Used only when
+            a segment doesn't have its own clip_duration.
 
     Returns:
-        List of dicts with segment index and animation_prompt.
+        List of dicts with segment index, clip_duration, and animation_prompt.
     """
     if content_types is None:
         content_types = {}
@@ -138,10 +142,12 @@ def generate_prompts_for_segments(
     for seg in segments:
         idx = seg["index"]
         ct = content_types.get(idx, _DEFAULT_CONTENT_TYPE)
-        prompt = generate_animation_prompt(seg, ct, clip_duration)
+        seg_clip_duration = seg.get("clip_duration", clip_duration)
+        prompt = generate_animation_prompt(seg, ct, seg_clip_duration)
         results.append({
             "segment_index": idx,
             "intensity": seg.get("intensity", "low"),
+            "clip_duration": seg_clip_duration,
             "animation_prompt": prompt,
         })
     return results
