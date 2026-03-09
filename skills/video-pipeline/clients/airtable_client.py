@@ -162,6 +162,14 @@ class AirtableClient:
         records = self.idea_concepts_table.all(sort=["Status"])
         return [{"id": r["id"], **r["fields"]} for r in records]
 
+    def get_idea(self, record_id: str) -> Optional[dict]:
+        """Get a single idea by record ID."""
+        try:
+            r = self.idea_concepts_table.get(record_id)
+            return {"id": r["id"], **r["fields"]}
+        except Exception:
+            return None
+
     def create_idea(self, idea_data: dict, source: str = "url_analysis") -> dict:
         """Create a new idea record in the Idea Concepts table.
 
@@ -205,6 +213,7 @@ class AirtableClient:
             "Audience Fit Score", "Content Gap Score", "Monetization Risk",
             "Source URLs", "Executive Hook", "Thesis", "Date Surfaced",
             "Research Payload", "Thematic Framework", "Thumbnail Text",
+            "Title Candidates",
         ]
         for key in rich_field_keys:
             if key in idea_data and idea_data[key]:

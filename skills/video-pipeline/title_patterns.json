@@ -1,8 +1,14 @@
 {
-  "version": "2.0",
-  "last_updated": "2026-03-04",
-  "system": "Power Doctrine",
-  "philosophy": "Viewer-first titles. The geopolitical event is the CASE STUDY. The power lesson is the HOOK. The viewer clicks because they see THEMSELVES.",
+  "version": "3.0",
+  "last_updated": "2026-03-08",
+  "meta": {
+    "description": "Title formula library derived from competitive analysis of 8 top faceless geopolitical/economics channels",
+    "channels_analyzed": [
+      "Jake Tran", "CaspianReport", "Economics Explained",
+      "ColdFusion", "How Money Works", "RealLifeLore",
+      "MagnatesMedia", "Moon"
+    ]
+  },
   "thumbnail_system": {
     "name": "Yin-Yang Thumbnail Text",
     "rules": [
@@ -14,193 +20,243 @@
       "Thumbnail text and title must be DIFFERENT but complementary"
     ]
   },
-  "formulas": [
-    {
-      "id": "PD-1",
-      "name": "Dark Command + Framework Tag",
-      "template": "[DARK COMMAND]. [Consequence] — [Framework]",
-      "variables": {
-        "DARK COMMAND": {
-          "type": "string",
-          "note": "Always ALL CAPS imperative. Must start with NEVER, STOP, or DON'T.",
-          "examples": ["NEVER Let Them See Your Strategy", "STOP Trusting Allies", "NEVER Show Your Wealth", "DON'T Reveal Your Next Move"]
-        },
-        "Consequence": {
-          "type": "string",
-          "note": "What happens if you break the command. Short, punchy.",
-          "examples": ["Here's Why", "This Is What Happens", "It Makes You a Target", "They Will Destroy You"]
-        },
-        "Framework": {
-          "type": "string",
-          "note": "Attribution to a power framework or real-world proof.",
-          "examples": ["Law 3 of Power", "Machiavelli", "The Pentagon Just Proved It", "The Pentagon Playbook", "Sun Tzu", "Robert Greene"]
-        }
+  "title_thumbnail_pairing": {
+    "rule": "Title and thumbnail text must cover different parts of the curiosity gap. Title carries the 'what' and 'who'. Thumbnail text carries the emotional reaction or consequence.",
+    "examples": [
+      {
+        "title": "Why Germany Is Quietly Falling Apart",
+        "thumbnail_text": "THE HIDDEN CRISIS"
       },
+      {
+        "title": "How Saudi Arabia Is Secretly Reshaping Global Finance",
+        "thumbnail_text": "THE $3T PLAY"
+      },
+      {
+        "title": "Something Strange Is Happening to China's Economy",
+        "thumbnail_text": "NOBODY'S READY"
+      }
+    ]
+  },
+  "master_formulas": [
+    {
+      "id": "MF-1",
+      "name": "Hidden Mechanism Exposé",
+      "template": "How [Powerful Entity] [Secret/Evil Action] [Surprising Mechanism]",
+      "psychology": "Names villain + implies wrongdoing + specific 'how' creates irresistible curiosity gap",
+      "trigger_words": ["secretly", "quietly", "really", "actually"],
+      "performance_tier": "S",
+      "avg_views": "2M-4M",
+      "best_for": "Corporate power plays, government manipulation, financial engineering",
+      "source_channels": ["Jake Tran", "How Money Works"],
       "examples": [
-        {
-          "title": "NEVER Let Them See Your Strategy. Here's Why — Law 3 of Power",
-          "thumbnail_text": "THEY'RE WATCHING"
-        },
-        {
-          "title": "STOP Trusting Allies. This Is What Happens — The Pentagon Just Proved It",
-          "thumbnail_text": "BETRAYED BY DESIGN"
-        },
-        {
-          "title": "NEVER Show Your Wealth. It Makes You a Target — Machiavelli",
-          "thumbnail_text": "SILENT TARGET"
-        }
+        "How the Ultra Wealthy Evade Taxes with Fine Art",
+        "How BlackRock Quietly Bought Every Government on Earth",
+        "How Saudi Arabia Is Secretly Reshaping Global Finance"
+      ],
+      "power_doctrine_adaptations": [
+        "How [Country] Is Secretly [Action] Using [Framework-Specific Mechanism]",
+        "How [Entity] Quietly [Built/Destroyed] [System] — The [Framework] Playbook"
       ]
     },
     {
-      "id": "PD-2",
-      "name": "How To Power Move Using Real Event as Proof",
-      "template": "How to [Power Verb] [Target] Using [Weapon They Don't Expect]",
-      "variables": {
-        "Power Verb": {
-          "type": "string",
-          "note": "Aggressive action verb.",
-          "examples": ["Destroy", "Control", "Kill", "Weaponize", "Trap", "Dominate", "Eliminate"]
-        },
-        "Target": {
-          "type": "string",
-          "note": "What the viewer could target or learn to target. Not a country name — a concept.",
-          "examples": ["Your Competition", "a $400 Billion Economy", "a Company in 4 Hours", "an Entire Industry"]
-        },
-        "Weapon They Don't Expect": {
-          "type": "string",
-          "note": "The unexpected tool, method, or mechanism. Real-world event is proof.",
-          "examples": ["the Government as Your Weapon", "a $20,000 Tool", "(OpenAI Just Showed You)", "One Executive Order"]
-        }
-      },
+      "id": "MF-2",
+      "name": "Causal Authority ('Why' Opener)",
+      "template": "Why [Country/Entity] [Dramatic Present-Tense Claim]",
+      "psychology": "Promises causal explanation, not just facts. Viewer will UNDERSTAND something.",
+      "trigger_words": ["is", "can't", "won't", "will never", "keeps"],
+      "performance_tier": "S",
+      "avg_views": "1M-3M",
+      "best_for": "Country-level analysis, structural economic problems, geopolitical positioning",
+      "source_channels": ["CaspianReport", "Economics Explained", "How Money Works"],
       "examples": [
-        {
-          "title": "How to Destroy Your Competition Using the Government as Your Weapon",
-          "thumbnail_text": "GOVERNMENT WEAPON"
-        },
-        {
-          "title": "How to Control a $400 Billion Economy With a $20,000 Tool",
-          "thumbnail_text": "$20K CONTROLS $400B"
-        },
-        {
-          "title": "How to Kill a Company in 4 Hours (OpenAI Just Showed You)",
-          "thumbnail_text": "KILLED IN 4 HOURS"
-        }
+        "Why Russia Thinks It Needs To Restore The Old Soviet Borders",
+        "Why Argentina Is Doomed To Fail Over and Over Again",
+        "Why Middle Class Americans Can't Afford Anything"
+      ],
+      "power_doctrine_adaptations": [
+        "Why [Country] Is [Dramatic Claim] — The [Framework] Trap",
+        "Why [Country] Will [Never/Always] [Outcome] (The Hidden Doctrine)"
       ]
     },
     {
-      "id": "PD-3",
-      "name": "The Power Principle That Consequence",
-      "template": "The [Named Principle/Trap/Weapon] That [Shocking Outcome]",
-      "variables": {
-        "Named Principle/Trap/Weapon": {
-          "type": "string",
-          "note": "Give the mechanism a NAME. Include a specific number when possible.",
-          "examples": ["Chokepoint Trap", "4-Hour Power Play", "$20,000 Weapon", "Debt Bomb Strategy", "Silent Embargo"]
-        },
-        "Shocking Outcome": {
-          "type": "string",
-          "note": "The consequence. Must be specific and visceral.",
-          "examples": ["Holds $400 Billion Hostage", "Killed America's Best AI Company", "Makes Billion-Dollar Defenses Useless", "Controls Who Eats and Who Starves"]
-        }
-      },
+      "id": "MF-3",
+      "name": "Vague Alarm + Location",
+      "template": "Something [Alarming Adjective] Is Happening in [Place]",
+      "psychology": "Maximum curiosity from vagueness of 'something' + grounding specificity of location",
+      "trigger_words": ["weird", "terrible", "strange", "disturbing", "unprecedented"],
+      "performance_tier": "S",
+      "avg_views": "1M-2M",
+      "best_for": "Breaking/emerging economic shifts, country-level crises, paradigm changes",
+      "source_channels": ["Economics Explained"],
       "examples": [
-        {
-          "title": "The Chokepoint Trap That Holds $400 Billion Hostage",
-          "thumbnail_text": "ECONOMIC HOSTAGE"
-        },
-        {
-          "title": "The 4-Hour Power Play That Killed America's Best AI Company",
-          "thumbnail_text": "CORPORATE ASSASSINATION"
-        },
-        {
-          "title": "The $20,000 Weapon That Makes Billion-Dollar Defenses Useless",
-          "thumbnail_text": "USELESS BILLIONS"
-        }
+        "Something Weird Is Happening In Japan",
+        "Something Terrible Is Happening in Italy",
+        "Something Weird is Happening in California"
+      ],
+      "power_doctrine_adaptations": [
+        "Something [Adjective] Is Happening to [Country]'s [Economy/Military/Power]",
+        "Something [Adjective] Is Happening in [Country] (And Nobody's Talking About It)"
       ]
     },
     {
-      "id": "PD-4",
-      "name": "Why Thing You Trust Is Actually Dark Truth",
-      "template": "Why [Trusted Thing] Is Actually [Weapon/Trap/Lie] — [Framework]",
-      "variables": {
-        "Trusted Thing": {
-          "type": "string",
-          "note": "Something the viewer trusts, uses, or takes for granted.",
-          "examples": ["'National Security'", "Your AI Subscription", "Oil Wealth", "Free Trade", "'Democracy Promotion'", "Your Bank's Safety Rating"]
-        },
-        "Weapon/Trap/Lie": {
-          "type": "string",
-          "note": "The dark reality behind the trusted thing.",
-          "examples": ["a Weapon to Pick Winners", "Funding Military Intelligence", "a Hostage Asset", "a Cover for Economic Warfare", "a Trap for the Middle Class"]
-        },
-        "Framework": {
-          "type": "string",
-          "note": "Power framework attribution.",
-          "examples": ["Law 48 of Power", "Machiavelli", "The Pentagon Playbook", "Game Theory", "Sun Tzu"]
-        }
-      },
+      "id": "MF-4",
+      "name": "Superlative Drama Noun",
+      "template": "[Entity] — The [Superlative] [Drama Noun] in History",
+      "psychology": "Mini-movie title card effect. Superlatives signal definitive, deep-dive content.",
+      "trigger_words": ["biggest", "greatest", "most evil", "worst", "most dangerous"],
+      "performance_tier": "A",
+      "avg_views": "1M-4M",
+      "best_for": "Corporate scandals, historical parallels, institutional failures",
+      "source_channels": ["ColdFusion", "MagnatesMedia"],
       "examples": [
-        {
-          "title": "Why 'National Security' Is Actually a Weapon to Pick Winners",
-          "thumbnail_text": "RIGGED GAME"
-        },
-        {
-          "title": "Why Your AI Subscription Is Actually Funding Military Intelligence",
-          "thumbnail_text": "YOU'RE FUNDING WAR"
-        },
-        {
-          "title": "Why Oil Wealth Is Actually a Hostage Asset — Law 48 of Power",
-          "thumbnail_text": "HOSTAGE WEALTH"
-        }
+        "Enron - The Biggest Fraud in History",
+        "Builder.ai - The Greatest AI Scam in History",
+        "Theranos: The Most Evil Business In The World"
+      ],
+      "power_doctrine_adaptations": [
+        "[Entity] — The [Superlative] [Power Play/Trap/Betrayal] in [Domain]",
+        "The [Superlative] [Economic/Geopolitical] [Drama Noun] Nobody Survived"
       ]
     },
     {
-      "id": "PD-5",
-      "name": "Number Signs Dark Pattern",
-      "template": "[N] Signs [Someone/System] Is [Dark Action] You — [Framework Tag]",
-      "variables": {
-        "N": {
-          "type": "integer",
-          "range": [3, 9],
-          "sweet_spot": [4, 7]
-        },
-        "Someone/System": {
-          "type": "string",
-          "note": "An entity or system the viewer interacts with.",
-          "examples": ["Your Government", "a Company", "Your Employer", "The Market", "an Ally", "Someone"]
-        },
-        "Dark Action": {
-          "type": "string",
-          "note": "A dark action being done TO the viewer.",
-          "examples": ["Rigging the Market Against", "About to Get Assassinated", "Setting a Trap For", "Manipulating", "Weaponizing Your Data Against"]
-        },
-        "Framework Tag": {
-          "type": "string",
-          "note": "Power framework attribution. Optional but preferred.",
-          "examples": ["Machiavelli Warned You", "The Pentagon Playbook", "Law 6 of Power", "Sun Tzu Predicted This"]
-        }
-      },
+      "id": "MF-5",
+      "name": "Worse Than You Thought",
+      "template": "[Thing] Is [Worse/Deeper/Bigger] Than You Thought",
+      "psychology": "Direct second-person address + implication viewer's understanding is dangerously incomplete",
+      "trigger_words": ["worse", "deeper", "bigger", "scarier", "more dangerous"],
+      "performance_tier": "A",
+      "avg_views": "1M-5M",
+      "best_for": "Tech platforms, economic crises, geopolitical threats viewers already know about",
+      "source_channels": ["Moon", "ColdFusion"],
       "examples": [
-        {
-          "title": "5 Signs Your Government Is Rigging the Market — Machiavelli Warned You",
-          "thumbnail_text": "RIGGED MARKETS"
-        },
-        {
-          "title": "7 Signs a Company Is About to Get Assassinated — The Pentagon Playbook",
-          "thumbnail_text": "CORPORATE HIT LIST"
-        },
-        {
-          "title": "4 Signs You're in Someone's Trap and Don't Know It",
-          "thumbnail_text": "YOU'RE TRAPPED"
-        }
+        "TikTok Is Worse Than You Thought",
+        "The FTX Disaster is Deeper Than you Think",
+        "The Metaverse Is Worse Than You Thought"
+      ],
+      "power_doctrine_adaptations": [
+        "[Country]'s [Crisis] Is [Worse] Than You Think (The [Framework] Explanation)",
+        "The [Known Event] Is [Deeper] Than Anyone Realizes"
+      ]
+    },
+    {
+      "id": "MF-6",
+      "name": "Ominous Possessive Decline",
+      "template": "[Country]'s [Ominous Adjective] [Decline Noun]",
+      "psychology": "Compact, authoritative. Possessive signals deep-dive specificity. Adjective adds emotional dimension.",
+      "trigger_words": ["quiet", "slow", "silent", "invisible", "crumbling", "unexpected"],
+      "performance_tier": "A",
+      "avg_views": "700K-1.5M",
+      "best_for": "Slow-burn economic decline, structural weakness stories, country profiles",
+      "source_channels": ["How Money Works", "Economics Explained", "CaspianReport"],
+      "examples": [
+        "Australia's Quiet Collapse",
+        "China's Crumbling Economic Story",
+        "Germany's Unexpected Economic Crisis"
+      ],
+      "power_doctrine_adaptations": [
+        "[Country]'s [Adjective] [Decline Noun] (The [Framework] Pattern)",
+        "[Country]'s [Adjective] [Power/Economic] Collapse — And Who Benefits"
+      ]
+    },
+    {
+      "id": "MF-7",
+      "name": "Parenthetical Stakes Escalation",
+      "template": "[Country] is [dramatic state] ([escalated consequence])",
+      "psychology": "CaspianReport innovation. Main clause hooks, parenthetical escalates stakes and adds personal relevance.",
+      "trigger_words": ["and that's", "and it's", "and nobody", "and you're next"],
+      "performance_tier": "A",
+      "avg_views": "500K-1M",
+      "best_for": "Geopolitical cascading effects, connecting distant events to viewer's life",
+      "source_channels": ["CaspianReport"],
+      "examples": [
+        "Pakistan is dying (and that is a global problem)",
+        "America is already at war with Venezuela (open war is next)",
+        "The dollar is losing power (and your savings are exposed)"
+      ],
+      "power_doctrine_adaptations": [
+        "[Country] is [state] (and [Framework] explains why [viewer consequence])",
+        "[System] is [failing] (and [who] is already positioning for what comes next)"
       ]
     }
   ],
-  "critical_rules": [
-    "The VIEWER must see themselves in every title. The event is the case study, not the subject.",
-    "Every title must make the viewer think 'I need to learn this to protect myself' or 'I need to understand this power dynamic.'",
-    "Never lead with a country name or company name. Lead with the POWER LESSON.",
-    "Include at least one specific number in 3 of the 4 title options per idea.",
-    "For each title, generate a 2-5 word ALL CAPS thumbnail text that is DIFFERENT from the title but complements it emotionally."
-  ]
+  "legacy_formulas": {
+    "note": "Original Power Doctrine formulas from v2. Still valid, use as supplementary options.",
+    "formulas": [
+      {
+        "id": "PD-1",
+        "name": "Dark Command + Framework Tag",
+        "template": "[DARK COMMAND]. [Consequence] — [Framework]"
+      },
+      {
+        "id": "PD-2",
+        "name": "How To Power Move Using Real Event as Proof",
+        "template": "How to [Power Verb] [Target] Using [Weapon They Don't Expect]"
+      },
+      {
+        "id": "PD-3",
+        "name": "The Power Principle That Consequence",
+        "template": "The [Named Principle/Trap/Weapon] That [Shocking Outcome]"
+      },
+      {
+        "id": "PD-4",
+        "name": "Why Thing You Trust Is Actually Dark Truth",
+        "template": "Why [Trusted Thing] Is Actually [Weapon/Trap/Lie] — [Framework]"
+      },
+      {
+        "id": "PD-5",
+        "name": "Number Signs Dark Pattern",
+        "template": "[N] Signs [Someone/System] Is [Dark Action] You — [Framework Tag]"
+      }
+    ]
+  },
+  "scoring_rules": {
+    "description": "Score each title candidate 0-100 using these weighted criteria",
+    "criteria": [
+      {
+        "name": "proper_noun_present",
+        "weight": 25,
+        "rule": "Title MUST contain at least one proper noun (country, company, institution, person). No proper noun = automatic 0 score.",
+        "rationale": "Across all 8 channels, specificity of entity is the strongest predictor of views. Vague subjects kill performance."
+      },
+      {
+        "name": "emotional_stakes_clear",
+        "weight": 20,
+        "rule": "Stakes must be immediately obvious within first 50 characters. Words like 'collapse', 'trap', 'crisis', 'secretly' signal stakes.",
+        "rationale": "Titles that telegraph consequences outperform those that merely describe topics."
+      },
+      {
+        "name": "curiosity_gap_calibrated",
+        "weight": 20,
+        "rule": "Title promises something specific the viewer doesn't know but wants to. Gap must be between what viewer currently knows and what title promises.",
+        "rationale": "Too vague = no click. Too specific = no need to click. The gap must be answerable but surprising."
+      },
+      {
+        "name": "front_loaded_hook",
+        "weight": 15,
+        "rule": "Primary entity name and emotional hook must appear in first 50 characters (mobile truncation point).",
+        "rationale": "Mobile truncation occurs at 45-50 characters. The hook must survive truncation."
+      },
+      {
+        "name": "negative_framing",
+        "weight": 10,
+        "rule": "Negative framing outperforms positive by 63%. Prefer crisis/threat/decline language over opportunity/growth.",
+        "rationale": "Outbrain study of 65,000 headlines. Amplified in geopolitics niche where viewers are threat-aware."
+      },
+      {
+        "name": "power_doctrine_alignment",
+        "weight": 10,
+        "rule": "Title should imply a hidden strategy, playbook, or power dynamic being revealed. Bonus for framework references (Thucydides Trap, Machiavellian, etc.)",
+        "rationale": "Channel brand differentiation. 'There's ALWAYS a hidden playbook operating.'"
+      }
+    ],
+    "hard_rules": [
+      "Total length: 50-90 characters (sweet spot for CTR + mobile visibility)",
+      "NEVER use all-caps for entire title (1-2 words max for emphasis)",
+      "ALWAYS include a proper noun — no exceptions",
+      "Front-load the entity: first 50 chars must contain the main subject",
+      "Prefer 'Why' as opener when the video explains causation",
+      "Use numbers/dollar amounts when available (15-25% CTR boost)",
+      "Thumbnail text must be DIFFERENT from title (yin-yang system)"
+    ]
+  }
 }

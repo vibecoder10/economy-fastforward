@@ -885,6 +885,9 @@ class VideoPipeline:
         self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_VOICE)
         print(f"  ✅ Status updated to: {self.STATUS_READY_VOICE}")
 
+        # Phase 2: Refine title with script content (non-blocking)
+        await self._refine_title_post_script()
+
         doc_url = self.google.get_document_url(self.google_doc_id)
         self.slack.notify_script_done(doc_url)
 
@@ -901,6 +904,48 @@ class VideoPipeline:
             result["warning"] = "Google Docs API unavailable - scripts saved to Airtable only"
         return result
     
+    async def _refine_title_post_script(self):
+        """Phase 2 title refinement — non-blocking post-script step.
+
+        Reads the actual script content and regenerates title candidates
+        using the formula library + specific details from the script.
+        Updates Video Title if a better option is found.
+
+        Has a 30-second timeout to prevent pipeline stalls.
+        """
+        from research_agent import refine_title_post_script
+
+        try:
+            result = await asyncio.wait_for(
+                refine_title_post_script(
+                    anthropic_client=self.anthropic,
+                    airtable_client=self.airtable,
+                    record_id=self.current_idea_id,
+                ),
+                timeout=30.0,
+            )
+            if result.get("should_switch"):
+                old_title = result["old_title"]
+                new_title = result["new_title"]
+                self.video_title = new_title
+                print(
+                    f"  📝 Title refined: '{old_title}' → '{new_title}' "
+                    f"(score: {result.get('score', '?')})"
+                )
+                try:
+                    self.slack.send_message(
+                        f"📝 Title refined for *{old_title}*\n"
+                        f"→ New title: *{new_title}* (score: {result.get('score', '?')})\n"
+                        f"→ Thumbnail: {result.get('thumbnail_text', '')}"
+                    )
+                except Exception:
+                    pass  # Slack notification is non-blocking
+            else:
+                print(f"  📝 Title refinement: kept current title (no better option found)")
+        except Exception as e:
+            # Non-blocking — title refinement failure should NOT stop the pipeline
+            print(f"  ⚠️ Title refinement failed (non-blocking): {e}")
+
     async def run_voice_bot(self) -> dict:
         """Generate voice overs for all scenes.
 
@@ -1976,6 +2021,9 @@ class VideoPipeline:
             )
             print(f"  ✅ Status updated to: {self.STATUS_READY_VOICE}")
             print(f"  📂 Scene file: {self._scene_filepath}")
+
+            # Phase 2: Refine title with script content (non-blocking)
+            await self._refine_title_post_script()
 
             self.slack.notify(
                 f"📜 Brief translated: *{self.video_title}*\n"

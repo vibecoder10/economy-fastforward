@@ -26,6 +26,410 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
+
+# === Title Intelligence System ===
+
+def _load_title_patterns() -> dict:
+    """Load the title pattern library from title_patterns.json."""
+    patterns_path = Path(__file__).parent / "title_patterns.json"
+    if not patterns_path.exists():
+        raise FileNotFoundError(f"title_patterns.json not found at {patterns_path}")
+    with open(patterns_path) as f:
+        return json.load(f)
+
+
+def _build_title_formulas_text(patterns: dict) -> str:
+    """Build a text summary of all formulas for the title generation prompt."""
+    lines = []
+    for f in patterns.get("master_formulas", []):
+        lines.append(
+            f"- {f['id']}: {f['name']} — Template: \"{f['template']}\" "
+            f"(Tier: {f.get('performance_tier', '?')}, Best for: {f.get('best_for', '?')})"
+        )
+        examples = f.get("examples", [])
+        if examples:
+            lines.append(f"  Examples: {'; '.join(examples[:2])}")
+    for f in patterns.get("legacy_formulas", {}).get("formulas", []):
+        lines.append(
+            f"- {f['id']}: {f['name']} — Template: \"{f['template']}\" (Legacy)"
+        )
+    return "\n".join(lines)
+
+
+def _build_scoring_rules_text(patterns: dict) -> str:
+    """Build a text summary of the scoring rules for prompts."""
+    rules = patterns.get("scoring_rules", {})
+    lines = []
+    for c in rules.get("criteria", []):
+        lines.append(f"- {c['name']} (weight: {c['weight']}): {c['rule']}")
+    hard_rules = rules.get("hard_rules", [])
+    if hard_rules:
+        lines.append("\nHARD RULES:")
+        for r in hard_rules:
+            lines.append(f"- {r}")
+    return "\n".join(lines)
+
+
+TITLE_GENERATION_PROMPT = """\
+You are the title strategist for Power Doctrine / Economy FastForward, a faceless \
+YouTube channel producing 15-20 minute geopolitical and economic analysis videos.
+
+TOPIC DATA:
+- Headline: {headline}
+- Key Entities: {entities}
+- Hook/Thesis: {thesis}
+- Analytical Framework: {framework}
+
+TITLE FORMULA LIBRARY:
+{formulas}
+
+SCORING CRITERIA:
+{scoring_rules}
+
+TASK:
+Generate exactly 3 title candidates. Each must use a DIFFERENT formula from the library. For each:
+1. Write the title (50-90 characters)
+2. Identify which formula ID you used (e.g., MF-2)
+3. Score it 0-100 using the weighted criteria
+4. Write 1 sentence explaining why this angle works
+5. Generate matching thumbnail text (2-4 words, DIFFERENT from title)
+
+HARD RULES:
+- Every title MUST contain at least one proper noun
+- Front-load the entity in the first 50 characters
+- Default to negative/crisis framing
+- The 3 titles should offer genuinely different angles, not variations of the same idea
+
+Respond ONLY in this JSON format (no markdown, raw JSON):
+{{
+  "candidates": [
+    {{
+      "title": "...",
+      "formula_id": "MF-X",
+      "score": 85,
+      "rationale": "...",
+      "thumbnail_text": "..."
+    }}
+  ],
+  "recommended_winner": 0
+}}
+"""
+
+
+TITLE_REFINEMENT_PROMPT = """\
+You are refining the title for a Power Doctrine / Economy FastForward video. \
+The script is now written and you have access to the actual content.
+
+CURRENT TITLE: {current_title}
+ANALYTICAL FRAMEWORK: {framework}
+
+SCRIPT CONTENT (all scenes):
+{script_text}
+
+TITLE FORMULA LIBRARY:
+{formulas}
+
+SCORING CRITERIA:
+{scoring_rules}
+
+YOUR TASK:
+The current title was a working title generated before the script existed. \
+Now that the script is written, you can see the ACTUAL most compelling details.
+
+Step 1: Extract from the script:
+- The single most surprising statistic or data point
+- The most specific mechanism or strategy described
+- The strongest emotional hook or consequence
+- All proper nouns (countries, companies, people, institutions)
+- The core "hidden playbook" being revealed
+
+Step 2: Generate 3 NEW title candidates that leverage these specific details. \
+Each must use a DIFFERENT formula. The new titles should be MORE specific than \
+the working title because you now know what the video actually contains.
+
+Step 3: Score all titles (including the current one) using the criteria.
+
+Step 4: If any new title scores higher than the current title, recommend the switch. \
+If the current title is already optimal, say so.
+
+CRITICAL: The #1 reason titles underperform is vagueness. The script gives you \
+specific numbers, names, and mechanisms — USE THEM.
+Example: "China's Economic Problems" (vague, score: 35) → \
+"Why China Is Quietly Dumping $800B in US Treasuries" (specific, score: 82)
+
+Respond ONLY in this JSON format (no markdown, raw JSON):
+{{
+  "script_extractions": {{
+    "best_statistic": "...",
+    "best_mechanism": "...",
+    "best_hook": "...",
+    "proper_nouns": ["..."],
+    "hidden_playbook": "..."
+  }},
+  "candidates": [
+    {{
+      "title": "...",
+      "formula_id": "MF-X",
+      "score": 85,
+      "rationale": "...",
+      "thumbnail_text": "..."
+    }}
+  ],
+  "current_title_score": 70,
+  "recommended_winner": 0,
+  "should_switch": true
+}}
+"""
+
+
+def _parse_title_response(response_text: str) -> dict:
+    """Parse JSON title generation response with fallback chain.
+
+    Handles: markdown fences, prose before/after JSON, partial JSON.
+    Returns empty dict on parse failure (never crashes).
+    """
+    text = response_text.strip()
+
+    # Strip markdown code block if present
+    if "```" in text:
+        # Remove opening ```json or ```
+        import re
+        fenced = re.search(r"```(?:json)?\s*\n(.*?)```", text, re.DOTALL)
+        if fenced:
+            text = fenced.group(1).strip()
+        else:
+            # Just strip the markers
+            text = text.replace("```json", "").replace("```", "").strip()
+
+    # Find JSON object (handles prose before/after)
+    brace_start = text.find("{")
+    brace_end = text.rfind("}")
+    if brace_start != -1 and brace_end != -1:
+        text = text[brace_start:brace_end + 1]
+
+    try:
+        return json.loads(text)
+    except (json.JSONDecodeError, ValueError) as e:
+        logger.warning(f"Title response JSON parse failed: {e}")
+        # Try fixing common issues: trailing commas
+        try:
+            import re
+            cleaned = re.sub(r",\s*([}\]])", r"\1", text)
+            return json.loads(cleaned)
+        except (json.JSONDecodeError, ValueError):
+            pass
+        logger.warning(f"Title response parse failed completely, returning empty dict")
+        return {}
+
+
+async def generate_title_candidates(
+    anthropic_client,
+    topic_data: dict,
+    framework: str,
+    model: str = "claude-sonnet-4-5-20250929",
+) -> dict:
+    """Generate 3 title candidates using the master formula library.
+
+    Phase 1 of the Title Intelligence System — called at idea generation time.
+
+    Args:
+        anthropic_client: AnthropicClient instance
+        topic_data: Dict with keys 'headline', 'entities', 'hook', 'thesis'
+        framework: The analytical framework selected (e.g., 'Thucydides Trap')
+        model: LLM model to use
+
+    Returns:
+        dict with 'winner' (str), 'winner_thumbnail' (str),
+        'candidates' (list of dicts with title + score + formula_id)
+    """
+    patterns = _load_title_patterns()
+    formulas_text = _build_title_formulas_text(patterns)
+    scoring_text = _build_scoring_rules_text(patterns)
+
+    # Extract entities from topic data
+    entities = topic_data.get("entities", "")
+    if not entities:
+        # Try to infer entities from headline and thesis
+        entities = ", ".join(filter(None, [
+            topic_data.get("headline", ""),
+            topic_data.get("hook", ""),
+        ]))
+
+    prompt = TITLE_GENERATION_PROMPT.format(
+        headline=topic_data.get("headline", ""),
+        entities=entities,
+        thesis=topic_data.get("thesis", topic_data.get("hook", "")),
+        framework=framework,
+        formulas=formulas_text,
+        scoring_rules=scoring_text,
+    )
+
+    response = await anthropic_client.generate(
+        prompt=prompt,
+        system_prompt="You are a YouTube title optimization expert. Respond only in valid JSON.",
+        model=model,
+        max_tokens=2000,
+        temperature=0.7,
+    )
+
+    result = _parse_title_response(response)
+    candidates = result.get("candidates", [])
+    winner_idx = result.get("recommended_winner", 0)
+
+    if not candidates:
+        logger.warning("Title generation returned no candidates")
+        return {
+            "winner": topic_data.get("headline", ""),
+            "winner_thumbnail": "",
+            "candidates": [],
+        }
+
+    # Clamp winner index
+    winner_idx = max(0, min(winner_idx, len(candidates) - 1))
+    winner = candidates[winner_idx]
+
+    return {
+        "winner": winner.get("title", ""),
+        "winner_thumbnail": winner.get("thumbnail_text", ""),
+        "candidates": candidates,
+    }
+
+
+async def refine_title_post_script(
+    anthropic_client,
+    airtable_client,
+    record_id: str,
+    model: str = "claude-sonnet-4-5-20250929",
+) -> dict:
+    """Phase 2: Refine title using actual script content.
+
+    Fires after script is complete (status = Ready For Voice).
+
+    1. Read the full script from Script table (all scenes for this title)
+    2. Extract most surprising details from the actual content
+    3. Regenerate 3 titles using the formula library + script specifics
+    4. Score and pick winner
+    5. Update Video Title if better, archive in Title Candidates
+
+    Args:
+        anthropic_client: AnthropicClient instance
+        airtable_client: AirtableClient instance
+        record_id: Airtable record ID of the idea
+        model: LLM model to use
+
+    Returns:
+        dict with 'should_switch', 'old_title', 'new_title', 'score',
+        'thumbnail_text', 'candidates'
+    """
+    # Read the idea record
+    idea = airtable_client.get_idea(record_id)
+    if not idea:
+        raise ValueError(f"Idea record {record_id} not found")
+
+    current_title = idea.get("Video Title", "")
+    framework = idea.get("Framework Angle", "48 Laws")
+
+    # Get all script scenes for this video
+    scripts = airtable_client.get_scripts_by_title(current_title)
+    if not scripts:
+        logger.warning(f"No scripts found for '{current_title}', skipping refinement")
+        return {"should_switch": False, "old_title": current_title, "candidates": []}
+
+    # Combine all scene text
+    script_text = "\n\n".join(
+        f"Scene {s.get('scene', '?')}: {s.get('scene_text', '')}"
+        for s in sorted(scripts, key=lambda s: s.get("scene", 0))
+    )
+
+    # Truncate if too long (keep prompt under token limits)
+    if len(script_text) > 15000:
+        script_text = script_text[:15000] + "\n\n[... truncated for length ...]"
+
+    patterns = _load_title_patterns()
+    formulas_text = _build_title_formulas_text(patterns)
+    scoring_text = _build_scoring_rules_text(patterns)
+
+    prompt = TITLE_REFINEMENT_PROMPT.format(
+        current_title=current_title,
+        framework=framework,
+        script_text=script_text,
+        formulas=formulas_text,
+        scoring_rules=scoring_text,
+    )
+
+    response = await anthropic_client.generate(
+        prompt=prompt,
+        system_prompt="You are a YouTube title optimization expert. Respond only in valid JSON.",
+        model=model,
+        max_tokens=2000,
+        temperature=0.7,
+    )
+
+    result = _parse_title_response(response)
+    candidates = result.get("candidates", [])
+    should_switch = result.get("should_switch", False)
+    winner_idx = result.get("recommended_winner", 0)
+    current_score = result.get("current_title_score", 0)
+
+    if not candidates:
+        logger.warning("Title refinement returned no candidates")
+        return {"should_switch": False, "old_title": current_title, "candidates": []}
+
+    winner_idx = max(0, min(winner_idx, len(candidates) - 1))
+    winner = candidates[winner_idx]
+
+    # Load existing title candidates from Airtable
+    existing_candidates_json = idea.get("Title Candidates", "")
+    existing_candidates = []
+    if existing_candidates_json:
+        try:
+            existing_candidates = json.loads(existing_candidates_json)
+        except (json.JSONDecodeError, TypeError):
+            existing_candidates = []
+
+    # Build updated candidates list
+    # Archive the current title with its score
+    archived_entry = {
+        "title": current_title,
+        "formula_id": "original",
+        "score": current_score,
+        "rationale": "Original/Phase 1 title",
+        "thumbnail_text": idea.get("Thumbnail Text", ""),
+        "phase": "phase_1",
+    }
+    # Tag new candidates as phase 2
+    for c in candidates:
+        c["phase"] = "phase_2"
+
+    all_candidates = existing_candidates + [archived_entry] + candidates
+
+    # Write to Airtable
+    update_fields = {
+        "Title Candidates": json.dumps(all_candidates),
+    }
+
+    if should_switch:
+        update_fields["Video Title"] = winner.get("title", "")
+        update_fields["Thumbnail Text"] = winner.get("thumbnail_text", "")
+
+    airtable_client.update_idea_fields(record_id, update_fields)
+
+    new_title = winner.get("title", "") if should_switch else current_title
+    logger.info(
+        f"Title refinement for '{current_title}': "
+        f"{'SWITCHED to' if should_switch else 'kept'} '{new_title}' "
+        f"(score: {winner.get('score', '?')})"
+    )
+
+    return {
+        "should_switch": should_switch,
+        "old_title": current_title,
+        "new_title": new_title,
+        "score": winner.get("score", 0),
+        "thumbnail_text": winner.get("thumbnail_text", ""),
+        "candidates": candidates,
+    }
+
 # Research prompt template
 RESEARCH_SYSTEM_PROMPT = """\
 You are a deep research analyst for Economy FastForward, a documentary-style
@@ -321,7 +725,12 @@ def infer_framework_from_research(payload: dict) -> str:
     return best_framework
 
 
-def write_to_airtable(airtable_client, payload: dict, record_id: str = None) -> dict:
+def write_to_airtable(
+    airtable_client,
+    payload: dict,
+    record_id: str = None,
+    title_candidates: dict = None,
+) -> dict:
     """Write a research payload to the Idea Concepts table.
 
     When record_id is provided, updates the existing record (e.g. after
@@ -332,6 +741,8 @@ def write_to_airtable(airtable_client, payload: dict, record_id: str = None) -> 
         airtable_client: AirtableClient instance
         payload: Structured research_payload dict from ResearchAgent
         record_id: Optional existing Airtable record ID to update
+        title_candidates: Optional title intelligence output from
+                          generate_title_candidates()
 
     Returns:
         Airtable record dict with id
@@ -350,6 +761,11 @@ def write_to_airtable(airtable_client, payload: dict, record_id: str = None) -> 
     framework_angle = infer_framework_from_research(payload)
     logger.info(f"Inferred Framework Angle: {framework_angle}")
 
+    # Use title intelligence winner if available, else fall back to headline
+    video_title = payload.get("headline", "")
+    if title_candidates and title_candidates.get("winner"):
+        video_title = title_candidates["winner"]
+
     if record_id:
         # Update existing record — don't create a duplicate
         research_fields = {
@@ -360,7 +776,16 @@ def write_to_airtable(airtable_client, payload: dict, record_id: str = None) -> 
             "Framework Angle": framework_angle,
             "Thematic Framework": payload.get("themes", ""),
             "Headline": payload.get("headline", ""),
+            "Video Title": video_title,
         }
+        # Add title candidates if generated
+        if title_candidates and title_candidates.get("candidates"):
+            research_fields["Title Candidates"] = json.dumps(
+                title_candidates["candidates"]
+            )
+        if title_candidates and title_candidates.get("winner_thumbnail"):
+            research_fields["Thumbnail Text"] = title_candidates["winner_thumbnail"]
+
         airtable_client.update_idea_fields(record_id, research_fields)
         logger.info(f"Research updated on existing record: {record_id}")
         return {"id": record_id}
@@ -368,7 +793,7 @@ def write_to_airtable(airtable_client, payload: dict, record_id: str = None) -> 
     # No record_id — create a brand-new record
     # Build the idea data dict compatible with AirtableClient.create_idea()
     idea_data = {
-        "viral_title": payload.get("headline", ""),
+        "viral_title": video_title,
         "hook_script": payload.get("executive_hook", ""),
         "narrative_logic": {
             "past_context": payload.get("historical_parallels", ""),
@@ -395,6 +820,12 @@ def write_to_airtable(airtable_client, payload: dict, record_id: str = None) -> 
         "Research Payload": research_payload_json,
         "Thematic Framework": payload.get("themes", ""),
     }
+
+    # Add title candidates if generated
+    if title_candidates and title_candidates.get("candidates"):
+        idea_data["Title Candidates"] = json.dumps(title_candidates["candidates"])
+    if title_candidates and title_candidates.get("winner_thumbnail"):
+        idea_data["Thumbnail Text"] = title_candidates["winner_thumbnail"]
 
     # Create the record with source="research_agent"
     record = airtable_client.create_idea(idea_data, source="research_agent")
@@ -434,10 +865,41 @@ async def run_research(
     agent = ResearchAgent(anthropic_client, model=model)
     payload = await agent.research(topic, seed_urls, context)
 
+    # Phase 1: Generate title candidates using the formula library
+    title_candidates = None
+    try:
+        framework = infer_framework_from_research(payload)
+        topic_data = {
+            "headline": payload.get("headline", ""),
+            "entities": ", ".join(
+                payload.get("character_dossier", "").split("\n")[:3]
+            ),
+            "hook": payload.get("executive_hook", ""),
+            "thesis": payload.get("thesis", ""),
+        }
+        title_candidates = await generate_title_candidates(
+            anthropic_client, topic_data, framework, model=model,
+        )
+        logger.info(
+            f"Title intelligence: winner='{title_candidates.get('winner', '')}' "
+            f"({len(title_candidates.get('candidates', []))} candidates)"
+        )
+    except Exception as e:
+        # Non-blocking — title generation failure should NOT stop research
+        logger.warning(f"Title candidate generation failed: {e}")
+
     # Write to Airtable if client provided
     if airtable_client is not None:
-        record = write_to_airtable(airtable_client, payload, record_id=record_id)
+        record = write_to_airtable(
+            airtable_client, payload,
+            record_id=record_id,
+            title_candidates=title_candidates,
+        )
         payload["_airtable_record_id"] = record["id"]
+
+    # Attach title candidates to payload for callers
+    if title_candidates:
+        payload["_title_candidates"] = title_candidates
 
     return payload
 
@@ -486,6 +948,10 @@ Examples:
         action="store_true",
         help="Save research payload to Airtable Idea Concepts table",
     )
+    parser.add_argument(
+        "--test-title",
+        help="Test title generation only (skip full research). Provide a headline.",
+    )
 
     args = parser.parse_args()
 
@@ -496,6 +962,31 @@ Examples:
     from clients.anthropic_client import AnthropicClient
 
     anthropic = AnthropicClient()
+
+    # Title-only test mode
+    if args.test_title:
+        print(f"\n{'=' * 60}")
+        print("TITLE INTELLIGENCE — Test Mode")
+        print(f"{'=' * 60}")
+        print(f"Headline: {args.test_title}")
+        print(f"Model: {args.model}")
+        print(f"{'=' * 60}\n")
+
+        topic_data = {
+            "headline": args.test_title,
+            "entities": "",
+            "hook": args.test_title,
+            "thesis": args.test_title,
+        }
+        result = await generate_title_candidates(
+            anthropic, topic_data, framework="48 Laws", model=args.model,
+        )
+        print(json.dumps(result, indent=2))
+        print(f"\n{'=' * 60}")
+        print(f"Winner: {result.get('winner', 'N/A')}")
+        print(f"Thumbnail: {result.get('winner_thumbnail', 'N/A')}")
+        print(f"{'=' * 60}")
+        return
 
     # Optionally initialize Airtable client
     airtable = None

@@ -93,14 +93,34 @@ def _build_headline_scan_prompt(
     Combines the gathered headlines with the Power Doctrine formula library
     and instructions for viewer-first title generation.
     """
-    # Extract PD formulas for inline reference
-    pd_formulas = title_patterns.get("formulas", [])
+    # Extract master formulas (v3) with fallback to legacy formulas (v2)
+    master_formulas = title_patterns.get("master_formulas", [])
+    legacy_formulas = title_patterns.get("legacy_formulas", {}).get("formulas", [])
+    # Also support old v2 format where formulas are under "formulas" key
+    if not master_formulas:
+        master_formulas = title_patterns.get("formulas", [])
+
+    all_formulas = master_formulas + legacy_formulas
     formulas_summary = "\n".join(
         f"- {f['id']}: {f['name']} — Template: \"{f['template']}\""
-        for f in pd_formulas
+        for f in all_formulas
     )
 
-    # Extract critical rules
+    # Extract scoring rules if available (v3 feature)
+    scoring_rules = title_patterns.get("scoring_rules", {})
+    scoring_text = ""
+    if scoring_rules:
+        criteria = scoring_rules.get("criteria", [])
+        scoring_text = "\n\n=== TITLE SCORING CRITERIA ===\n"
+        scoring_text += "\n".join(
+            f"- {c['name']} (weight: {c['weight']}): {c['rule']}"
+            for c in criteria
+        )
+        hard_rules = scoring_rules.get("hard_rules", [])
+        if hard_rules:
+            scoring_text += "\nHard rules:\n" + "\n".join(f"- {r}" for r in hard_rules)
+
+    # Extract critical rules (v2 compat)
     critical_rules = title_patterns.get("critical_rules", [])
     rules_text = "\n".join(f"- {r}" for r in critical_rules)
 
@@ -124,16 +144,17 @@ def _build_headline_scan_prompt(
     return f"""\
 Analyze these current headlines and select the 2-3 best stories for
 Economy FastForward videos. Apply the Machiavellian lens and generate
-4 VIEWER-FIRST title options per story using the Power Doctrine formula system.
+4 VIEWER-FIRST title options per story using the title formula system.
 
 === CURRENT HEADLINES ===
 {headlines}
 
-=== POWER DOCTRINE TITLE FORMULAS ===
+=== TITLE FORMULA LIBRARY ===
 {formulas_summary}
 
 === FULL FORMULA LIBRARY (for variable reference and examples) ===
-{json.dumps(pd_formulas, indent=2)}
+{json.dumps(all_formulas, indent=2)}
+{scoring_text}
 
 === CRITICAL TITLE RULES ===
 {rules_text}
@@ -145,25 +166,24 @@ Economy FastForward videos. Apply the Machiavellian lens and generate
 INSTRUCTIONS:
 1. Select exactly 2-3 stories (not more, not less)
 2. Each story must pass the power dynamics filter (minimum 6/10)
-3. Generate 4 title options per story. Each must use a DIFFERENT PD formula:
+3. Generate 4 title options per story. Each must use a DIFFERENT formula from the library (prefer MF-1 through MF-7 master formulas, but legacy PD formulas are also valid):
 
-   PD-1: Start with a DARK COMMAND in caps (NEVER, STOP, DON'T). Follow with the consequence. End with a framework tag (Machiavelli, Law of Power, The Pentagon Playbook, etc.)
+   MF-1 (Hidden Mechanism Exposé): "How [Entity] [Secretly/Quietly] [Action] [Mechanism]"
+   MF-2 (Causal Authority): "Why [Country/Entity] [Dramatic Present-Tense Claim]"
+   MF-3 (Vague Alarm): "Something [Alarming Adjective] Is Happening in [Place]"
+   MF-4 (Superlative Drama): "[Entity] — The [Superlative] [Drama Noun] in History"
+   MF-5 (Worse Than You Thought): "[Thing] Is [Worse/Deeper] Than You Thought"
+   MF-6 (Ominous Decline): "[Country]'s [Ominous Adjective] [Decline Noun]"
+   MF-7 (Stakes Escalation): "[Country] is [dramatic state] ([escalated consequence])"
 
-   PD-2: Start with 'How to' plus a power verb (destroy, control, kill, weaponize, trap). The real-world event is proof/example, not the subject.
-
-   PD-3: Start with 'The' plus a named principle, trap, or weapon. Follow with a shocking consequence. Include a specific number ($400B, 4 hours, $20,000).
-
-   PD-4: Start with 'Why' plus something the viewer trusts or takes for granted. Reveal it is actually a weapon, trap, or lie. End with framework tag.
-
-   PD-5: Start with a number (3-9) plus 'Signs' plus a dark pattern the viewer might be subject to. End with framework tag.
-
-4. For EACH title, also generate a 2-5 word ALL CAPS thumbnail text that is DIFFERENT from the title but complements it emotionally
-5. The VIEWER must see themselves in every title — the event is the case study, not the subject
-6. Never lead with a country name or company name — lead with the POWER LESSON
-7. Include at least one specific number in 3 of the 4 titles
-8. Rate each story's appeal (1-10) with breakdown by criterion
-9. Suggest a historical parallel for the research phase
-10. Write a 2-3 sentence hook that creates a curiosity gap
+4. Every title MUST contain at least one proper noun (country, company, person)
+5. For EACH title, also generate a 2-5 word ALL CAPS thumbnail text that is DIFFERENT from the title but complements it emotionally
+6. Score each title 0-100 using the scoring criteria if available
+7. Front-load the entity in the first 50 characters (mobile truncation)
+8. Include at least one specific number in 3 of the 4 titles
+9. Rate each story's appeal (1-10) with breakdown by criterion
+10. Suggest a historical parallel for the research phase
+11. Write a 2-3 sentence hook that creates a curiosity gap
 
 Return your response as valid JSON following the output format specified
 in your system prompt. No markdown code blocks — raw JSON only.
@@ -638,6 +658,9 @@ def build_idea_record_from_discovery(idea: dict, idea_number: int = 1) -> dict:
     Maps all discovery fields to the rich Idea Concepts schema including
     Framework Angle, scores, Source URLs, and more.
 
+    Uses the title scoring system to pick the best title from the options
+    (highest score wins, falling back to first option if no scores).
+
     Args:
         idea: Single idea dict from discovery scanner output
         idea_number: Which idea was selected (1, 2, or 3)
@@ -645,11 +668,20 @@ def build_idea_record_from_discovery(idea: dict, idea_number: int = 1) -> dict:
     Returns:
         Dict ready for AirtableClient.create_idea()
     """
-    # Pick the best title from title_options
+    # Pick the best title from title_options (highest score, or first)
     title_options = idea.get("title_options", [])
     best_title = ""
+    best_thumbnail = ""
     if title_options:
-        best_title = title_options[0].get("title", "")
+        # Sort by score if available, pick highest
+        scored_options = [t for t in title_options if t.get("score")]
+        if scored_options:
+            scored_options.sort(key=lambda t: t.get("score", 0), reverse=True)
+            best_title = scored_options[0].get("title", "")
+            best_thumbnail = scored_options[0].get("thumbnail_text", "")
+        else:
+            best_title = title_options[0].get("title", "")
+            best_thumbnail = title_options[0].get("thumbnail_text", "")
 
     # Extract appeal scores
     appeal_breakdown = idea.get("appeal_breakdown", {})
@@ -657,11 +689,6 @@ def build_idea_record_from_discovery(idea: dict, idea_number: int = 1) -> dict:
     # Build source URLs from headline_source
     headline_source = idea.get("headline_source", "")
     source_urls = headline_source  # includes source publication and URL if available
-
-    # Extract thumbnail text from the selected title option
-    thumbnail_text = ""
-    if title_options:
-        thumbnail_text = title_options[0].get("thumbnail_text", "")
 
     record = {
         "viral_title": best_title or f"Discovery Idea {idea_number}",
@@ -683,7 +710,9 @@ def build_idea_record_from_discovery(idea: dict, idea_number: int = 1) -> dict:
         "Thesis": idea.get("our_angle", ""),
         "Date Surfaced": date.today().isoformat(),
         # Thumbnail text for yin-yang overlay (independent from title)
-        "Thumbnail Text": thumbnail_text,
+        "Thumbnail Text": best_thumbnail,
+        # Title Candidates — full JSON array of all title options with scores
+        "Title Candidates": json.dumps(title_options) if title_options else "",
         # Store full discovery data as Original DNA for downstream use
         "original_dna": json.dumps({
             "source": "discovery_scanner",
