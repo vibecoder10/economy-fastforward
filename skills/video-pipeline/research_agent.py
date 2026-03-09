@@ -183,23 +183,43 @@ Respond ONLY in this JSON format (no markdown, raw JSON):
 
 
 def _parse_title_response(response_text: str) -> dict:
-    """Parse JSON title generation response with fallback chain."""
+    """Parse JSON title generation response with fallback chain.
+
+    Handles: markdown fences, prose before/after JSON, partial JSON.
+    Returns empty dict on parse failure (never crashes).
+    """
     text = response_text.strip()
 
     # Strip markdown code block if present
-    if text.startswith("```"):
-        first_newline = text.index("\n")
-        text = text[first_newline + 1:]
-    if text.endswith("```"):
-        text = text[:-3].rstrip()
+    if "```" in text:
+        # Remove opening ```json or ```
+        import re
+        fenced = re.search(r"```(?:json)?\s*\n(.*?)```", text, re.DOTALL)
+        if fenced:
+            text = fenced.group(1).strip()
+        else:
+            # Just strip the markers
+            text = text.replace("```json", "").replace("```", "").strip()
 
-    # Find JSON object
+    # Find JSON object (handles prose before/after)
     brace_start = text.find("{")
     brace_end = text.rfind("}")
     if brace_start != -1 and brace_end != -1:
         text = text[brace_start:brace_end + 1]
 
-    return json.loads(text)
+    try:
+        return json.loads(text)
+    except (json.JSONDecodeError, ValueError) as e:
+        logger.warning(f"Title response JSON parse failed: {e}")
+        # Try fixing common issues: trailing commas
+        try:
+            import re
+            cleaned = re.sub(r",\s*([}\]])", r"\1", text)
+            return json.loads(cleaned)
+        except (json.JSONDecodeError, ValueError):
+            pass
+        logger.warning(f"Title response parse failed completely, returning empty dict")
+        return {}
 
 
 async def generate_title_candidates(

@@ -910,14 +910,19 @@ class VideoPipeline:
         Reads the actual script content and regenerates title candidates
         using the formula library + specific details from the script.
         Updates Video Title if a better option is found.
+
+        Has a 30-second timeout to prevent pipeline stalls.
         """
         from research_agent import refine_title_post_script
 
         try:
-            result = await refine_title_post_script(
-                anthropic_client=self.anthropic,
-                airtable_client=self.airtable,
-                record_id=self.current_idea_id,
+            result = await asyncio.wait_for(
+                refine_title_post_script(
+                    anthropic_client=self.anthropic,
+                    airtable_client=self.airtable,
+                    record_id=self.current_idea_id,
+                ),
+                timeout=30.0,
             )
             if result.get("should_switch"):
                 old_title = result["old_title"]
