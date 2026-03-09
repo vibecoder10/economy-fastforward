@@ -27,7 +27,7 @@ from .supplementer import (
     merge_supplement_into_brief,
     MAX_SUPPLEMENT_PASSES,
 )
-from .script_generator import generate_script
+from .script_generator import generate_script, verify_script_claims
 from .scene_expander import expand_scene_concepts
 from .scene_validator import validate_scene_list, auto_fix_minor_issues, check_entity_consistency
 from .pipeline_writer import graduate_to_pipeline
@@ -193,7 +193,30 @@ class BriefTranslator:
                     f"hallucination(s) detected"
                 )
 
-            # === STEP 2c: Assign Psychological Angles ===
+            # === STEP 2c: Verify factual claims (non-blocking) ===
+            unverified_claims = ""
+            try:
+                unverified_claims = await verify_script_claims(
+                    self.anthropic, script, brief
+                )
+                if unverified_claims:
+                    logger.warning(
+                        f"Claim verification flagged potential issues:\n"
+                        f"{unverified_claims[:500]}"
+                    )
+                    self._notify(
+                        f"⚠️ Claim verification flagged unverified claims "
+                        f"for '{brief.get('headline', 'Untitled')}'. "
+                        f"Check 'Unverified Claims' field in Script table."
+                    )
+                else:
+                    logger.info("Claim verification: all claims grounded")
+            except Exception as cv_err:
+                logger.warning(
+                    f"Claim verification skipped (non-blocking): {cv_err}"
+                )
+
+            # === STEP 2d: Assign Psychological Angles ===
             from .script_generator import extract_acts
             acts = extract_acts(script)
             if not acts:
@@ -256,6 +279,7 @@ class BriefTranslator:
                 slack_client=self.slack,
                 acts=acts,
                 psych_assignments=psych_assignments,
+                unverified_claims=unverified_claims,
             )
 
             result["status"] = "success"
