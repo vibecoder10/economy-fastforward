@@ -9,8 +9,9 @@ news — the power dynamics, hidden systems, historical cycles, and strategic
 maneuvers that shape the world. They want to feel like insiders who see what
 the masses cannot.
 
-**Most importantly: your audience clicks because they see THEMSELVES in the
-title.** The geopolitical event is the CASE STUDY. The power lesson is the HOOK.
+**Most importantly: your audience clicks because the TITLE tells them exactly
+what they'll learn.** Short. Direct. Proper noun first. No cleverness — the
+EVENT is inherently interesting.
 
 ---
 
@@ -18,8 +19,8 @@ title.** The geopolitical event is the CASE STUDY. The power lesson is the HOOK.
 
 Scan the provided headlines and select the **2-3 stories** with the highest
 potential to become a viral Economy FastForward video. For each story, generate
-**4 viewer-first title options** using the Power Doctrine formula system, each
-with a complementary thumbnail text.
+**3 title options** using the Master Formula (MF) title system, each with a
+complementary 2-word thumbnail verdict.
 
 ---
 
@@ -27,10 +28,11 @@ with a complementary thumbnail text.
 
 - Economy FastForward reveals hidden power systems, cycles, and patterns
 - We bridge **geopolitical analysis** with **Machiavellian framing**
-- Our audience wants to feel like they're learning power lessons that protect them
-- Tone: **dark, authoritative, revelatory** — never clickbait without substance
-- We are NOT a news channel. We don't report events. We reveal the **power
-  lessons** behind events that the viewer can apply to their own life.
+- Tone: **authoritative, analytical, revelatory** — like a military briefing, not clickbait
+- We are NOT a news channel. We don't report events. We explain the **mechanisms and strategies** behind events.
+- MODEL THESE CHANNELS for title style:
+  - **CaspianReport** (1.8M subs): "How the Iran War set off a regional conflict" — short, declarative, proper noun first
+  - **AiTelly** (2M subs): "How Iran Breached US Israeli Air Defenses" — direct mechanism, tells you exactly what you'll learn
 
 ---
 
@@ -71,10 +73,10 @@ Score each headline on these 6 dimensions (1-10 each):
 - Geographic scope: world maps, trade routes, pipelines, borders
 
 ### 6. Emotional Trigger (PREFERRED)
-- Fear: "This threatens YOUR money/savings/retirement"
-- Outrage: "They did this SECRETLY and nobody noticed"
-- Curiosity: "I had no idea this was happening"
-- Vindication: "You were right to be suspicious"
+- Curiosity: "I need to understand how this works"
+- Stakes: "This mechanism affects global stability"
+- Revelation: "There's a hidden strategy at play here"
+- Pattern recognition: "This has happened before"
 
 ---
 
@@ -95,68 +97,71 @@ Score each headline on these 6 dimensions (1-10 each):
 
 ---
 
-## TITLE GENERATION — POWER DOCTRINE SYSTEM
+## TITLE GENERATION — MASTER FORMULA (MF) SYSTEM
 
-Generate 4 title options for each story. Each must use a different formula from
-the Power Doctrine title system:
+Generate 3 title options for each story. Each must use a DIFFERENT formula.
 
-### PD-1: Dark Command + Framework Tag
-Start with a DARK COMMAND in caps (NEVER, STOP, DON'T). Follow with the
-consequence. End with a framework tag (Machiavelli, Law of Power, The Pentagon
-Playbook, etc.)
-- Example: "NEVER Let Them See Your Strategy. Here's Why — Law 3 of Power"
-- Example: "STOP Trusting Allies. This Is What Happens — The Pentagon Just Proved It"
+### HARD RULES (STRICT):
+1. MAXIMUM 55 characters. Ideal is 35-50. Count every character.
+2. Start with "How" or "Why" — these are the two highest-performing openers in this niche.
+3. First word after How/Why MUST be a proper noun (country, company, institution, person).
+4. NEVER use "YOU" or "YOUR" — this is analysis, not self-help.
+5. NEVER use commands (NEVER, STOP, DON'T) — this is not Mindplicit.
+6. NEVER use ALL CAPS words except acronyms (US, NATO, PBOC, LNG).
+7. No em dashes (—), no parenthetical asides, no pipe separators (|).
+8. No cleverness. The event itself is interesting. Just state what the video explains.
+9. Declarative statements only. No question marks unless genuinely unanswered.
+10. The title should read like a military briefing header or CaspianReport episode title.
 
-### PD-2: How To Power Move Using Real Event as Proof
-Start with 'How to' plus a power verb (destroy, control, kill, weaponize,
-trap). The real-world event is proof/example, not the subject.
-- Example: "How to Destroy Your Competition Using the Government as Your Weapon"
-- Example: "How to Kill a Company in 4 Hours (OpenAI Just Showed You)"
+### FORMULA OPTIONS (pick the best fit):
 
-### PD-3: The Power Principle That Consequence
-Start with 'The' plus a named principle, trap, or weapon. Follow with a
-shocking consequence. Include a specific number ($400B, 4 hours, $20,000).
-- Example: "The Chokepoint Trap That Holds $400 Billion Hostage"
-- Example: "The $20,000 Weapon That Makes Billion-Dollar Defenses Useless"
+#### MF-0: Direct Mechanism (Search-First)
+"How [Entity] [Clear Action] [Target]" — for breaking events, mechanisms.
+- Example: "How Iran Breached US Israeli Air Defenses"
+- Example: "How US & Israel Tracked Down Ayatollah Khamenei"
+- Example: "How the Iran War set off a regional conflict"
 
-### PD-4: Why Thing You Trust Is Actually Dark Truth
-Start with 'Why' plus something the viewer trusts or takes for granted.
-Reveal it is actually a weapon, trap, or lie. End with framework tag.
-- Example: "Why 'National Security' Is Actually a Weapon to Pick Winners"
-- Example: "Why Your AI Subscription Is Actually Funding Military Intelligence"
+#### MF-1: Hidden Mechanism Exposé
+"How [Entity] [Secretly/Quietly] [Action] [Mechanism]" — for hidden strategies.
+- Example: "How BlackRock Quietly Bought Every Government"
+- Example: "How Saudi Arabia Is Secretly Reshaping Finance"
 
-### PD-5: Number Signs Dark Pattern
-Start with a number (3-9) plus 'Signs' plus a dark pattern the viewer
-might be subject to. End with framework tag.
-- Example: "5 Signs Your Government Is Rigging the Market — Machiavelli Warned You"
-- Example: "4 Signs You're in Someone's Trap and Don't Know It"
+#### MF-2: Causal Authority
+"Why [Country/Entity] [Dramatic Present-Tense Claim]" — for causal analysis.
+- Example: "Why the US Navy Can't Stop Houthi Rebels"
+- Example: "Why Argentina Is Doomed To Fail Over and Over"
 
-### CRITICAL TITLE RULES:
-- The VIEWER must see themselves in every title. The event is the case study, not the subject.
-- Every title must make the viewer think "I need to learn this to protect myself" or "I need to understand this power dynamic."
-- **Never lead with a country name or company name.** Lead with the POWER LESSON.
-- Include at least one specific number in 3 of the 4 titles.
-- Each of the 4 titles MUST use a different PD formula. You may skip one formula but never repeat one.
+#### MF-6: Ominous Possessive Decline
+"[Country]'s [Adjective] [Crisis/Collapse/Trap]" — for decline stories (shortest format).
+- Example: "Australia's Quiet Collapse"
+- Example: "Germany's Unexpected Economic Crisis"
 
 ---
 
-## THUMBNAIL YIN-YANG SYSTEM
+## THUMBNAIL TEXT — STRATEGIC VERDICT SYSTEM
 
-For each title, also generate a 2-5 word ALL CAPS thumbnail text that is
-DIFFERENT from the title but complements it emotionally.
+For each title, generate a 2-word ALL CAPS thumbnail text that reads like
+a classified document stamp or intelligence assessment.
 
 ### Thumbnail Rules:
-- 2-5 words maximum, ALL CAPS
-- Must be readable at mobile thumbnail size
-- Should trigger an emotional reaction BEFORE the viewer reads the title
-- If the title is analytical, the thumbnail is emotional
-- If the title is emotional, the thumbnail is specific
+- EXACTLY 2 words. Maximum 3 words only if absolutely necessary.
+- No "YOUR" or "YOU" language — ever.
+- Must be a JUDGMENT about the situation, not a description or consequence.
+- Think: what would a general say in a briefing room after seeing the evidence?
 
-### Examples:
-- Title: "How to Destroy Your Competition Using the Government" / Thumbnail: "KILLED IN 4 HOURS"
-- Title: "The Chokepoint Trap That Holds $400B Hostage" / Thumbnail: "ECONOMIC HOSTAGE"
-- Title: "Why 'National Security' Is Actually a Weapon to Pick Winners" / Thumbnail: "RIGGED GAME"
-- Title: "STOP Trusting Allies. This Is What Happens" / Thumbnail: "BETRAYED BY DESIGN"
+### Good Examples:
+- CHOKE POINT, PROXY WAR, DRONE WALL, ART OF WAR, DESIGNED TO FAIL
+- EXITS LOCKED, MISSILE STRATEGY, FORCED WAR, POWER VACUUM
+
+### Bad Examples (DO NOT USE):
+- YOUR MONEY GETS LOCKED (too long, uses YOUR)
+- $9 GAS IS COMING (prediction, not verdict)
+- YOUR BANK IS NEXT (uses YOUR)
+
+### Pairing Examples:
+- Title: "How Vietnam Is Beating China at Its Own Game" / Thumbnail: "RIGGED GAME"
+- Title: "Why the US Navy Can't Stop Houthi Rebels" / Thumbnail: "DRONE WALL"
+- Title: "How France Is Becoming a Third-World Economy" / Thumbnail: "DESIGNED TO FAIL"
 
 ---
 
@@ -200,31 +205,28 @@ For each of the 2-3 selected stories, output:
   "ideas": [
     {
       "headline_source": "Original headline text — Source Name (URL if available)",
-      "our_angle": "2-3 sentences on the Machiavellian/power dynamics angle we'd take. This is NOT a summary of the news — it's our UNIQUE SPIN framed as a power lesson the viewer can learn.",
+      "our_angle": "2-3 sentences on the Machiavellian/power dynamics angle we'd take. This is NOT a summary of the news — it's our UNIQUE analytical SPIN.",
       "title_options": [
         {
-          "title": "STOP Trusting Your AI Company. They Just Chose the Pentagon Over You",
-          "formula_id": "PD-1",
-          "formula_name": "Dark Command + Framework Tag",
-          "thumbnail_text": "THEY CHOSE WEAPONS"
+          "title": "How OpenAI Became a Pentagon Contractor",
+          "formula_id": "MF-0",
+          "formula_name": "Direct Mechanism (Search-First)",
+          "thumbnail_text": "POWER GRAB",
+          "score": 88
         },
         {
-          "title": "How to Kill a Company in 4 Hours (OpenAI Just Showed You)",
-          "formula_id": "PD-2",
-          "formula_name": "How To Power Move",
-          "thumbnail_text": "KILLED IN 4 HOURS"
+          "title": "Why OpenAI Can't Escape the Military",
+          "formula_id": "MF-2",
+          "formula_name": "Causal Authority",
+          "thumbnail_text": "NO EXIT",
+          "score": 82
         },
         {
-          "title": "The 4-Hour Power Play That Assassinated America's Best AI Company",
-          "formula_id": "PD-3",
-          "formula_name": "The Power Principle That Consequence",
-          "thumbnail_text": "CORPORATE ASSASSINATION"
-        },
-        {
-          "title": "Why Your Favorite AI Company Just Got Weaponized by the Government",
-          "formula_id": "PD-4",
-          "formula_name": "Why Thing You Trust Is Actually Dark Truth",
-          "thumbnail_text": "GOVERNMENT HIT JOB"
+          "title": "How the Pentagon Quietly Captured Silicon Valley",
+          "formula_id": "MF-1",
+          "formula_name": "Hidden Mechanism Exposé",
+          "thumbnail_text": "SILENT CONQUEST",
+          "score": 85
         }
       ],
       "hook": "2-3 sentence pitch for the video opening. Must create immediate curiosity gap.",
@@ -247,13 +249,14 @@ For each of the 2-3 selected stories, output:
 
 ## QUALITY CHECKLIST (verify before outputting)
 
-- [ ] Every title makes the VIEWER see themselves — not a news headline about a country
-- [ ] Every idea has 4 title options, each using a DIFFERENT PD formula
-- [ ] Every title has a complementary thumbnail text (2-4 words, ALL CAPS, DIFFERENT from title)
-- [ ] Thumbnail text uses personal stakes language ($amounts, YOUR, power words like TRAP/CHECKMATE/COLLAPSE)
-- [ ] Thumbnail text is the emotional gut punch; title is the intellectual framework (yin-yang)
-- [ ] At least 3 of the 4 titles per idea include a specific number
-- [ ] No title leads with a country name or company name
+- [ ] Every title is UNDER 55 characters. Ideal is 35-50.
+- [ ] Every title starts with "How" or "Why" (or MF-6 possessive format)
+- [ ] First word after How/Why is a proper noun (country, company, person)
+- [ ] NO title uses "YOU", "YOUR", "NEVER", "STOP", or ALL CAPS words (except acronyms)
+- [ ] NO em dashes, parenthetical asides, or pipe separators in titles
+- [ ] Every idea has 3 title options, each using a DIFFERENT MF formula
+- [ ] Every title has a 2-word thumbnail verdict (ALL CAPS, no YOUR language)
+- [ ] Thumbnail text is a strategic judgment, not a description
 - [ ] Every idea has a clear **power dynamics** angle (not generic news)
 - [ ] Every idea has a **Machiavellian framing** (not just economic analysis)
 - [ ] The hook creates an **irresistible curiosity gap**
