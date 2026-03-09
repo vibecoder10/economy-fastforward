@@ -4396,7 +4396,7 @@ async def main():
 
     # === DISCOVERY SCANNER ===
     if len(sys.argv) > 1 and sys.argv[1] == "--discover":
-        from discovery_scanner import run_discovery, format_ideas_for_slack, build_option_map
+        from discovery_scanner import run_discovery, format_ideas_for_slack, build_option_map, build_idea_record_from_discovery
         from discovery_tracker import save_discovery_message
 
         focus = " ".join(sys.argv[2:]).strip() if len(sys.argv) > 2 else None
@@ -4451,23 +4451,8 @@ async def main():
         print("Saving to Airtable (Idea Concepts)...")
         saved_record_ids = []
         for i, idea in enumerate(ideas, 1):
-            title_opts = idea.get("title_options", [])
-            title = title_opts[0]["title"] if title_opts else "Untitled"
-            idea_data = {
-                "viral_title": title,
-                "hook_script": idea.get("hook", ""),
-                "narrative_logic": {
-                    "past_context": idea.get("historical_parallel_hint", ""),
-                    "present_parallel": idea.get("our_angle", ""),
-                    "future_prediction": "",
-                },
-                "writer_guidance": idea.get("our_angle", ""),
-                "original_dna": json.dumps({
-                    "source": "discovery_scanner",
-                    "headline_source": idea.get("headline_source", ""),
-                    "estimated_appeal": idea.get("estimated_appeal", 0),
-                }),
-            }
+            idea_data = build_idea_record_from_discovery(idea, idea_number=i)
+            title = idea_data.get("viral_title", "Untitled")
             try:
                 record = pipeline.airtable.create_idea(idea_data, source="discovery_scanner")
                 saved_record_ids.append(record.get("id"))
