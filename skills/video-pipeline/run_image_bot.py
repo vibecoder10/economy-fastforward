@@ -3,15 +3,13 @@ Run the Image Bot on an idea marked "Ready For Images" in Airtable.
 
 Called by: pipeline_control.py (Slack bot)
 Commands: images, run images
-
-Generates all scene images using Seed Dream 4.5 Edit with Core Image reference,
-uploads to Google Drive, and advances status to "Ready For Thumbnail" only when
-ALL images are verified complete.
+Supports: --scene N --image N to only generate specific images
 """
 
 import os
 import sys
 import asyncio
+import argparse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -22,11 +20,18 @@ from pipeline import VideoPipeline
 
 
 async def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--scene", type=int, default=None, help="Only process this scene number")
+    parser.add_argument("--image", type=int, default=None, help="Only process this image index")
+    args = parser.parse_args()
+
     print("=" * 60)
     print("🖼️ RUNNING IMAGE BOT")
     print("=" * 60)
 
     pipeline = VideoPipeline()
+    pipeline.scene_filter = args.scene
+    pipeline.image_filter = args.image
 
     try:
         result = await pipeline.run_image_bot()
@@ -40,7 +45,10 @@ async def main():
         print("=" * 60)
         print(f"\n🎬 Video: {result.get('video_title')}")
         print(f"🖼️  Images generated: {result.get('image_count')}")
-        print(f"📋 New status: {result.get('new_status')}")
+        if result.get("targeted"):
+            print("🎯 Targeted run — status not advanced")
+        else:
+            print(f"📋 New status: {result.get('new_status')}")
 
     except Exception as e:
         print(f"\n❌ Error: {e}")

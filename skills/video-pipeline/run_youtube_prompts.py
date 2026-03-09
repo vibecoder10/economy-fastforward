@@ -3,17 +3,13 @@ Generate image prompts and images for the YouTube pipeline.
 
 Called by: pipeline_control.py (Slack bot)
 Commands: prompts (when used in YouTube pipeline context)
-
-This runs against the YouTube Airtable base (appCIcC58YSTwK3CE),
-generating scene image prompts for ideas with status "Ready For Image Prompts".
-
-NOT to be confused with run_prompts_and_images.py which runs against
-the Animation pipeline base (appB9RWwCgywdwYrT).
+Supports: --scene N to only generate prompts/images for a specific scene
 """
 
 import os
 import sys
 import asyncio
+import argparse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -24,11 +20,18 @@ from pipeline import VideoPipeline
 
 
 async def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--scene", type=int, default=None, help="Only process this scene number")
+    parser.add_argument("--image", type=int, default=None, help="Only process this image index")
+    args = parser.parse_args()
+
     print("=" * 60)
     print("🎨 RUNNING YOUTUBE PROMPTS & IMAGES")
     print("=" * 60)
 
     pipeline = VideoPipeline()
+    pipeline.scene_filter = args.scene
+    pipeline.image_filter = args.image
 
     try:
         # First generate image prompts (styled) — resumable: skips scenes with existing prompts
@@ -63,7 +66,10 @@ async def main():
         print(f"\n🎬 Video: {prompt_result.get('video_title', image_result.get('video_title'))}")
         print(f"📝 Prompts created: {created}")
         print(f"🖼️  Images generated: {image_result.get('image_count', 0)}")
-        print(f"📋 New status: {image_result.get('new_status', prompt_result.get('new_status'))}")
+        if prompt_result.get("targeted") or image_result.get("targeted"):
+            print("🎯 Targeted run — status not advanced")
+        else:
+            print(f"📋 New status: {image_result.get('new_status', prompt_result.get('new_status'))}")
 
     except Exception as e:
         print(f"\n❌ Error: {e}")

@@ -73,15 +73,56 @@ def _record_failure(task_name: str) -> None:
     _last_failed_handler = _TASK_HANDLER_MAP.get(task_name)
 
 
-async def run_script_async(script_name: str, task_name: str, say, timeout: int = 600) -> tuple[int, str, str]:
+def _parse_target(text: str, command_prefix: str) -> tuple[int | None, int | None]:
+    """Parse scene,image targeting from command text.
+
+    Examples:
+        "video prompts 3,2" -> (3, 2)
+        "images 5" -> (5, None)
+        "script" -> (None, None)
+    """
+    # Strip the command prefix to get the trailing argument
+    suffix = re.sub(rf"^!?(run\s+)?{re.escape(command_prefix)}\s*", "", text, flags=re.IGNORECASE).strip()
+    if not suffix:
+        return None, None
+    # Match "N" or "N,M"
+    m = re.match(r"^(\d+)(?:\s*,\s*(\d+))?$", suffix)
+    if m:
+        scene = int(m.group(1))
+        image = int(m.group(2)) if m.group(2) else None
+        return scene, image
+    return None, None
+
+
+def _format_target_msg(scene: int | None, image: int | None) -> str:
+    """Format a human-readable targeting suffix for Slack messages."""
+    if scene is not None and image is not None:
+        return f" (scene {scene}, image {image})"
+    elif scene is not None:
+        return f" (scene {scene})"
+    return ""
+
+
+def _target_args(scene: int | None, image: int | None) -> list[str]:
+    """Build CLI args list for --scene/--image."""
+    args = []
+    if scene is not None:
+        args.extend(["--scene", str(scene)])
+    if image is not None:
+        args.extend(["--image", str(image)])
+    return args
+
+
+async def run_script_async(script_name: str, task_name: str, say, timeout: int = 600, extra_args: list[str] = None) -> tuple[int, str, str]:
     """Run a Python script asynchronously and return (returncode, stdout, stderr)."""
     global current_process, current_task_name
 
     script_path = os.path.join(BASE_DIR, script_name)
     current_task_name = task_name
 
+    cmd = ["python3", script_path] + (extra_args or [])
     current_process = await asyncio.create_subprocess_exec(
-        "python3", script_path,
+        *cmd,
         cwd=BASE_DIR,
         env=os.environ.copy(),
         stdout=asyncio.subprocess.PIPE,
@@ -144,13 +185,17 @@ async def handle_help(message, say):
 
 *2. Script*
 - `script` — Generate 6-act script from researched idea
+- `script 3` — Generate only scene 3
 
 *3. Voice*
 - `voice` — Generate voice narration via ElevenLabs
+- `voice 3` — Generate only scene 3
 
 *4. Image Prompts & Images*
 - `prompts` — Generate styled image prompts + images (runs both steps)
+- `prompts 3` — Only scene 3
 - `images` — Generate scene images only (if prompts already done)
+- `images 3,2` — Only scene 3, image 2
 - `end images` — Generate end card images
 
 *5. Audio Sync*
@@ -162,13 +207,16 @@ async def handle_help(message, say):
 - `run sound all <title>` — Run sound design + effects sequentially
 
 *7. Video Prompts (manual, ~$0.10/clip)*
-- `video prompts` — Generate motion prompts for Scene 1 images
+- `video prompts` — Generate motion prompts for all pending images
+- `video prompts 1,1` — Only scene 1, image 1
 
 *8. Video Generation (manual, ~$0.10/clip)*
 - `video generate` — Generate video clips from motion prompts
+- `video generate 1,1` — Only scene 1, image 1
 
-*9. Animation*
-- `animate` / `animation` — Generate animation clips from images
+*9. Animation (~$0.10/clip)*
+- `animation` / `animate` — Generate animation clips from images
+- `animation 3,2` — Only scene 3, image 2
 
 *10. Thumbnail*
 - `thumbnail` — Generate YouTube thumbnail
@@ -178,6 +226,9 @@ async def handle_help(message, say):
 
 *12. Upload*
 - `upload` — Upload to YouTube as unlisted draft
+
+_Targeting: Add `[scene]` or `[scene],[image]` to any generation command._
+_Targeted runs do NOT advance the pipeline status (safe for testing)._
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 *Auto-Run*
@@ -638,7 +689,7 @@ async def handle_run(message, say):
 
 
 @app.message(re.compile(r"run script", re.IGNORECASE))
-@app.message(re.compile(r"script", re.IGNORECASE))
+@app.message(re.compile(r"^script(?:\s+\d+)?$", re.IGNORECASE))
 async def handle_script(message, say):
     """Run the script bot."""
     global current_process
@@ -646,10 +697,15 @@ async def handle_script(message, say):
         await say(f":x: Already running `{current_task_name}`. Use `stop` to cancel it first.")
         return
 
-    await say(":clapper: Starting script bot...")
+    scene, _ = _parse_target(message.get("text", ""), "script")
+    target_msg = f" (scene {scene})" if scene else ""
+    await say(f":clapper: Starting script bot{target_msg}...")
 
     try:
-        returncode, stdout, stderr = await run_script_async("run_script_bot.py", "script", say, timeout=300)
+        returncode, stdout, stderr = await run_script_async(
+            "run_script_bot.py", "script", say, timeout=300,
+            extra_args=_target_args(scene, None),
+        )
 
         if returncode == 0:
             output = stdout[-3000:] if len(stdout) > 3000 else stdout
@@ -667,48 +723,61 @@ async def handle_script(message, say):
 
 
 @app.message(re.compile(r"run animation", re.IGNORECASE))
-@app.message(re.compile(r"animation", re.IGNORECASE))
-@app.message(re.compile(r"animate", re.IGNORECASE))
+@app.message(re.compile(r"^animation(?:\s+[\d,]+)?$", re.IGNORECASE))
+@app.message(re.compile(r"^animate(?:\s+[\d,]+)?$", re.IGNORECASE))
 async def handle_animate(message, say):
-    """Run the animation pipeline."""
+    """Run the animation bot (YouTube pipeline — generates video clips from images)."""
     global current_process
     if current_process:
         await say(f":x: Already running `{current_task_name}`. Use `stop` to cancel it first.")
         return
 
-    await say(":movie_camera: Starting animation pipeline...")
+    scene, image = _parse_target(message.get("text", ""), "animation")
+    if scene is None and image is None:
+        # Try parsing "animate X,Y" as well
+        scene, image = _parse_target(message.get("text", ""), "animate")
+    target_msg = _format_target_msg(scene, image)
+    await say(f":movie_camera: Starting animation bot{target_msg}... (~$0.10/clip)")
 
     try:
-        returncode, stdout, stderr = await run_script_async("run_animation.py", "animation", say, timeout=600)
+        returncode, stdout, stderr = await run_script_async(
+            "run_animation_bot.py", "animation", say, timeout=3600,
+            extra_args=_target_args(scene, image),
+        )
 
         if returncode == 0:
             output = stdout[-3000:] if len(stdout) > 3000 else stdout
-            await say(f":white_check_mark: Animation pipeline complete!\n```{output}```")
+            await say(f":white_check_mark: Animation complete!\n```{output}```")
         else:
             error = stderr[-1500:] if len(stderr) > 1500 else stderr
             await say(f":x: Animation error:\n```{error}```")
 
     except subprocess.TimeoutExpired:
-        await say(":warning: Animation pipeline timed out after 10 minutes")
+        await say(":warning: Animation timed out after 60 minutes")
     except asyncio.CancelledError:
-        await say(":stop_sign: Animation pipeline was stopped")
+        await say(":stop_sign: Animation was stopped")
     except Exception as e:
         await say(f":x: Error: {e}")
 
 
 @app.message(re.compile(r"run video prompts", re.IGNORECASE))
-@app.message(re.compile(r"^video prompts$", re.IGNORECASE))
+@app.message(re.compile(r"^video prompts(?:\s+[\d,]+)?$", re.IGNORECASE))
 async def handle_video_prompts(message, say):
-    """Generate video motion prompts for Scene 1 images."""
+    """Generate video motion prompts for images."""
     global current_process
     if current_process:
         await say(f":x: Already running `{current_task_name}`. Use `stop` to cancel it first.")
         return
 
-    await say(":pencil2: Starting video prompt generation (Scene 1 motion prompts)...")
+    scene, image = _parse_target(message.get("text", ""), "video prompts")
+    target_msg = _format_target_msg(scene, image)
+    await say(f":pencil2: Starting video prompt generation{target_msg}...")
 
     try:
-        returncode, stdout, stderr = await run_script_async("run_video_script_bot.py", "video prompts", say, timeout=600)
+        returncode, stdout, stderr = await run_script_async(
+            "run_video_script_bot.py", "video prompts", say, timeout=600,
+            extra_args=_target_args(scene, image),
+        )
 
         if returncode == 0:
             output = stdout[-3000:] if len(stdout) > 3000 else stdout
@@ -726,7 +795,7 @@ async def handle_video_prompts(message, say):
 
 
 @app.message(re.compile(r"run video generate", re.IGNORECASE))
-@app.message(re.compile(r"^video generate$", re.IGNORECASE))
+@app.message(re.compile(r"^video generate(?:\s+[\d,]+)?$", re.IGNORECASE))
 async def handle_video_generate(message, say):
     """Generate video clips from images with motion prompts."""
     global current_process
@@ -734,10 +803,15 @@ async def handle_video_generate(message, say):
         await say(f":x: Already running `{current_task_name}`. Use `stop` to cancel it first.")
         return
 
-    await say(":movie_camera: Starting video generation (Scene 1 clips)... This is costly (~$0.10/clip).")
+    scene, image = _parse_target(message.get("text", ""), "video generate")
+    target_msg = _format_target_msg(scene, image)
+    await say(f":movie_camera: Starting video generation{target_msg}... (~$0.10/clip)")
 
     try:
-        returncode, stdout, stderr = await run_script_async("run_video_gen_bot.py", "video generate", say, timeout=1800)
+        returncode, stdout, stderr = await run_script_async(
+            "run_video_gen_bot.py", "video generate", say, timeout=1800,
+            extra_args=_target_args(scene, image),
+        )
 
         if returncode == 0:
             output = stdout[-3000:] if len(stdout) > 3000 else stdout
@@ -755,7 +829,7 @@ async def handle_video_generate(message, say):
 
 
 @app.message(re.compile(r"run prompts", re.IGNORECASE))
-@app.message(re.compile(r"prompts", re.IGNORECASE))
+@app.message(re.compile(r"^prompts(?:\s+[\d,]+)?$", re.IGNORECASE))
 async def handle_prompts(message, say):
     """Run prompts and start images generation."""
     global current_process
@@ -763,10 +837,15 @@ async def handle_prompts(message, say):
         await say(f":x: Already running `{current_task_name}`. Use `stop` to cancel it first.")
         return
 
-    await say(":art: Starting prompts and images generation...")
+    scene, image = _parse_target(message.get("text", ""), "prompts")
+    target_msg = _format_target_msg(scene, image)
+    await say(f":art: Starting prompts and images generation{target_msg}...")
 
     try:
-        returncode, stdout, stderr = await run_script_async("run_youtube_prompts.py", "prompts", say, timeout=3600)
+        returncode, stdout, stderr = await run_script_async(
+            "run_youtube_prompts.py", "prompts", say, timeout=3600,
+            extra_args=_target_args(scene, image),
+        )
 
         if returncode == 0:
             output = stdout[-3000:] if len(stdout) > 3000 else stdout
@@ -813,7 +892,7 @@ async def handle_end_images(message, say):
 
 
 @app.message(re.compile(r"run images", re.IGNORECASE))
-@app.message(re.compile(r"^images$", re.IGNORECASE))
+@app.message(re.compile(r"^images(?:\s+[\d,]+)?$", re.IGNORECASE))
 async def handle_images(message, say):
     """Run the image bot only (generates scene images for 'Ready For Images' idea)."""
     global current_process
@@ -821,10 +900,15 @@ async def handle_images(message, say):
         await say(f":x: Already running `{current_task_name}`. Use `stop` to cancel it first.")
         return
 
-    await say(":frame_with_picture: Starting image bot... This will take several minutes.")
+    scene, image = _parse_target(message.get("text", ""), "images")
+    target_msg = _format_target_msg(scene, image)
+    await say(f":frame_with_picture: Starting image bot{target_msg}...")
 
     try:
-        returncode, stdout, stderr = await run_script_async("run_image_bot.py", "images", say, timeout=1800)
+        returncode, stdout, stderr = await run_script_async(
+            "run_image_bot.py", "images", say, timeout=1800,
+            extra_args=_target_args(scene, image),
+        )
 
         if returncode == 0:
             output = stdout[-3000:] if len(stdout) > 3000 else stdout
@@ -872,7 +956,7 @@ async def handle_audio_sync(message, say):
 
 
 @app.message(re.compile(r"run voice", re.IGNORECASE))
-@app.message(re.compile(r"voice", re.IGNORECASE))
+@app.message(re.compile(r"^voice(?:\s+\d+)?$", re.IGNORECASE))
 async def handle_voice(message, say):
     """Run the voice bot."""
     global current_process
@@ -880,10 +964,15 @@ async def handle_voice(message, say):
         await say(f":x: Already running `{current_task_name}`. Use `stop` to cancel it first.")
         return
 
-    await say(":studio_microphone: Starting voice bot...")
+    scene, _ = _parse_target(message.get("text", ""), "voice")
+    target_msg = f" (scene {scene})" if scene else ""
+    await say(f":studio_microphone: Starting voice bot{target_msg}...")
 
     try:
-        returncode, stdout, stderr = await run_script_async("run_voice_bot.py", "voice", say, timeout=600)
+        returncode, stdout, stderr = await run_script_async(
+            "run_voice_bot.py", "voice", say, timeout=600,
+            extra_args=_target_args(scene, None),
+        )
 
         if returncode == 0:
             output = stdout[-3000:] if len(stdout) > 3000 else stdout

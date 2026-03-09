@@ -2,15 +2,14 @@
 Run the Animation Bot on an idea marked "Ready For Animation" in Airtable.
 
 Called by: pipeline_control.py (Slack bot)
-Commands: animate, run animation
-
-Generates video clips from holographic display images using Grok Imagine,
-uploads to Google Drive, and advances status to "Ready For Thumbnail".
+Commands: animation, run animation
+Supports: --scene N --image N to only animate specific clips
 """
 
 import os
 import sys
 import asyncio
+import argparse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -21,11 +20,18 @@ from pipeline import VideoPipeline
 
 
 async def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--scene", type=int, default=None, help="Only process this scene number")
+    parser.add_argument("--image", type=int, default=None, help="Only process this image index")
+    args = parser.parse_args()
+
     print("=" * 60)
     print("🎬 RUNNING ANIMATION BOT")
     print("=" * 60)
 
     pipeline = VideoPipeline()
+    pipeline.scene_filter = args.scene
+    pipeline.image_filter = args.image
 
     try:
         result = await pipeline.run_animation_bot()
@@ -41,7 +47,10 @@ async def main():
         print(f"🎥 Clips generated: {result.get('clips_generated')}")
         print(f"❌ Clips failed: {result.get('clips_failed', 0)}")
         print(f"💰 Cost: ${result.get('actual_cost', 0):.2f}")
-        print(f"📋 New status: {result.get('new_status')}")
+        if result.get("targeted"):
+            print("🎯 Targeted run — status not advanced")
+        else:
+            print(f"📋 New status: {result.get('new_status')}")
 
     except Exception as e:
         print(f"\n❌ Error: {e}")
