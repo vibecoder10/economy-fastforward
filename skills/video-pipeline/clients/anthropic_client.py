@@ -1109,6 +1109,7 @@ Every prompt describes a holographic projection with specific data points."""
         sentence_text: str = "",
         scene_type: str = None,
         is_hero_shot: bool = False,
+        prev_cameras: list[str] | None = None,
     ) -> str:
         """Generate a motion prompt for image-to-video animation.
 
@@ -1120,6 +1121,7 @@ Every prompt describes a holographic projection with specific data points."""
             sentence_text: The narration being spoken during this image (for alignment).
             scene_type: Scene type string (e.g., "isometric_diorama", "split_screen").
             is_hero_shot: If True, generate a richer prompt for 10s duration (vs 6s standard).
+            prev_cameras: Recent camera movements (most recent last) for rotation enforcement.
 
         Returns:
             Motion prompt (max 40 words for 6s, max 55 words for 10s hero).
@@ -1202,6 +1204,34 @@ DOMINANCE / POWER: override, flood, overwhelm, lock on, absorb, eclipse, tower o
 TENSION / STANDOFF: hold unnaturally still, vibrate, strain, pull apart slowly, hover, suspend, balance on edge
 LOSS / ABSENCE: extinguish, fade to nothing, leave empty, hollow out, strip away, erode, scatter
 
+## CAMERA MOVEMENT ROTATION — MANDATORY
+
+Never use the same camera movement on consecutive clips. Pick a DIFFERENT one from the previous clip.
+
+Available camera movements and when to use each:
+
+| Movement | Use When | Feel |
+|---|---|---|
+| Slow push-in | Revelation, focus, intimacy | Drawing viewer into a detail |
+| Pull-back / zoom out | Scale, overwhelm, isolation | Showing vastness or emptiness |
+| Lateral pan / tracking shot | Comparison, progression, timeline | Moving through information side to side |
+| Static / locked-off | Tension, stillness, dread | Something is deeply wrong — camera won't move |
+| Tilt up | Power, dominance, discovery | Something looms or is being revealed vertically |
+| Tilt down | Collapse, loss, submission | Falling, declining, ground-level consequence |
+| Snap zoom (fast push-in) | Shock, urgency, sudden alarm | A number spikes, a target locks, something breaks |
+| Slow orbital / rotation | Surveillance, encirclement, inevitability | Circling a subject like a predator |
+
+Match camera to the narration's dominant emotion:
+- Collapse → pull-back or static
+- Escalation → snap zoom or push-in
+- Revelation → slow push-in or tilt up
+- Comparison → lateral pan
+- Dominance → tilt up or slow orbital
+- Absence/Loss → pull-back or static
+- Tension/Standoff → static or slow orbital
+
+CRITICAL: "Slow push-in" is NOT the default. It is ONE of eight options. If you catch yourself defaulting to push-in, stop and ask: what does this sentence's emotion actually call for?
+
 REQUIRED CAMERA MOVEMENT (START your response with this exact movement):
 "{camera_motion}"
 
@@ -1213,9 +1243,18 @@ OUTPUT: Return ONLY the motion prompt text. No explanations, no formatting, no l
         if sentence_text:
             narration_context = f"\n\nNarration being spoken during this image: \"{sentence_text}\""
 
+        # Camera history context for rotation enforcement
+        camera_history_context = ""
+        if prev_cameras:
+            recent = prev_cameras[-2:]
+            camera_history_context = (
+                f"\n\nPREVIOUS CAMERA MOVEMENTS (do NOT repeat the most recent): "
+                f"{', '.join(recent)}"
+            )
+
         prompt = f"""Image Prompt (for context, do NOT repeat scene descriptions):
 {image_prompt}
-{narration_context}
+{narration_context}{camera_history_context}
 
 The camera movement is ALREADY DECIDED: "{camera_motion}"
 Generate ONLY the subject motion + ambient motion ({word_limit - 10} words max).

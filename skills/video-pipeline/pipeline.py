@@ -52,7 +52,11 @@ from bots.sound_bot import SoundBot
 from bots.animation_bot import AnimationBot
 from pipeline_config import VideoConfig
 from segmentation_engine import enforce_duration_caps, recalculate_durations
-from image_prompt_engine.prompt_builder import validate_video_prompt
+from image_prompt_engine.prompt_builder import (
+    CAMERA_MOVEMENTS,
+    detect_camera_movement,
+    validate_video_prompt,
+)
 
 
 class VideoPipeline:
@@ -1870,6 +1874,14 @@ class VideoPipeline:
 
         prompt_count = 0
         hero_count = 0
+        camera_history: list[str] = []
+
+        # Pre-populate camera history from images that already have prompts
+        for img_record in done_images:
+            existing_prompt = img_record.get("Video Prompt", "")
+            if existing_prompt:
+                camera_history.append(detect_camera_movement(existing_prompt))
+
         for img_record in done_images:
             scene = img_record.get("Scene", 0)
 
@@ -1902,12 +1914,24 @@ class VideoPipeline:
                 sentence_text=sentence_text,
                 scene_type=shot_type,
                 is_hero_shot=is_hero,
+                prev_cameras=camera_history,
             )
 
             # Validate video prompt quality — regenerate if it fails
-            validation = validate_video_prompt(motion_prompt, sentence_text)
+            validation = validate_video_prompt(motion_prompt, sentence_text, prev_cameras=camera_history)
             if not validation["valid"]:
                 print(f"    ⚠️ Video prompt failed validation: {validation['issues']}")
+
+                # Build camera-aware regeneration prompt
+                camera_block = ""
+                if camera_history:
+                    blocked = camera_history[-1]
+                    allowed = ", ".join(k for k in CAMERA_MOVEMENTS if k != blocked)
+                    camera_block = (
+                        f"\n\nCAMERA ROTATION: You MUST NOT use '{blocked}'. "
+                        f"Pick from: {allowed}"
+                    )
+
                 regen_prompt = (
                     f'This video prompt failed quality validation: {validation["issues"]}\n\n'
                     f'Sentence text: "{sentence_text}"\n'
@@ -1918,6 +1942,7 @@ class VideoPipeline:
                     "3. Sequence motions to mirror the narration timeline\n"
                     "4. End with a strong payoff line that lands emotionally\n"
                     "5. Zero filler — every motion must serve the story"
+                    f"{camera_block}"
                 )
                 motion_prompt = await self.anthropic.generate(
                     prompt=regen_prompt,
@@ -1927,6 +1952,9 @@ class VideoPipeline:
                 )
                 motion_prompt = motion_prompt.strip()
                 print(f"    ✅ Regenerated video prompt for [{idx}]")
+
+            # Track camera movement for rotation enforcement
+            camera_history.append(detect_camera_movement(motion_prompt))
 
             # Update Airtable with video prompt
             self.airtable.update_image_video_prompt(img_record["id"], motion_prompt)
