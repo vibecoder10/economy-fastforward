@@ -10,34 +10,78 @@
     ]
   },
   "thumbnail_system": {
-    "name": "Yin-Yang Thumbnail Text",
+    "name": "Strategic Verdict Thumbnail Text",
     "rules": [
-      "2-5 words maximum, ALL CAPS",
-      "Must be readable at mobile thumbnail size",
-      "Should trigger an emotional reaction BEFORE the viewer reads the title",
-      "If the title is analytical, the thumbnail is emotional",
-      "If the title is emotional, the thumbnail is specific",
-      "Thumbnail text and title must be DIFFERENT but complementary"
-    ]
+      "EXACTLY 2 words. Maximum 3 words only if absolutely necessary.",
+      "No YOUR or YOU language — ever.",
+      "Must be a JUDGMENT about the situation, not a description or consequence.",
+      "Think: what would a general say in a briefing room after seeing the evidence?",
+      "White or yellow bold text with thick black outline.",
+      "Must be readable at mobile thumbnail size (160x90px)."
+    ],
+    "good_examples": [
+      "CHOKE POINT", "PROXY WAR", "DRONE WALL", "ART OF WAR",
+      "DESIGNED TO FAIL", "EXITS LOCKED", "MISSILE STRATEGY",
+      "FORCED WAR", "POWER VACUUM"
+    ],
+    "bad_examples": [
+      "YOUR MONEY GETS LOCKED (too long, uses YOUR)",
+      "$9 GAS IS COMING (prediction, not verdict)",
+      "YOUR AI JUST GOT WEAPONIZED (too long, uses YOUR)",
+      "YOUR BANK IS NEXT (uses YOUR)"
+    ],
+    "framework_to_verdict": {
+      "Thucydides Trap": ["FORCED WAR", "COLLISION COURSE", "NO EXIT"],
+      "Machiavelli": ["POWER GRAB", "RIGGED GAME", "PUPPET MASTER"],
+      "Antifragile": ["HOUSE OF CARDS", "ONE SPARK", "FRAGILE"],
+      "Game Theory": ["TRAPPED", "NO GOOD MOVES", "LOSE-LOSE"],
+      "Sun Tzu": ["INVISIBLE ARMY", "DECOY", "AMBUSH"],
+      "Grand Chessboard": ["CHECKMATE", "GRAND PLAY", "CHOKE POINT"],
+      "Kindleberger Trap": ["POWER VACUUM", "NO LEADER", "LEADERLESS"],
+      "Schelling": ["BLUFF CALLED", "RED LINE", "ULTIMATUM"],
+      "Collective Action": ["ROTTING EMPIRE", "PARALYSIS", "DEAD WEIGHT"],
+      "Soft Power": ["SILENT CONQUEST", "SOFT KILL", "INFLUENCE WAR"]
+    }
   },
   "title_thumbnail_pairing": {
-    "rule": "Title and thumbnail text must cover different parts of the curiosity gap. Title carries the 'what' and 'who'. Thumbnail text carries the emotional reaction or consequence.",
+    "rule": "Title and thumbnail text must cover different parts of the curiosity gap. Title carries the 'what' and 'who'. Thumbnail text is a 2-word strategic verdict — a judgment, not a description.",
     "examples": [
       {
-        "title": "Why Germany Is Quietly Falling Apart",
-        "thumbnail_text": "THE HIDDEN CRISIS"
+        "title": "How Vietnam Is Beating China at Its Own Game",
+        "thumbnail_text": "RIGGED GAME"
       },
       {
-        "title": "How Saudi Arabia Is Secretly Reshaping Global Finance",
-        "thumbnail_text": "THE $3T PLAY"
+        "title": "Why the US Navy Can't Stop Houthi Rebels",
+        "thumbnail_text": "DRONE WALL"
       },
       {
-        "title": "Something Strange Is Happening to China's Economy",
-        "thumbnail_text": "NOBODY'S READY"
+        "title": "How France Is Becoming a Third-World Economy",
+        "thumbnail_text": "DESIGNED TO FAIL"
       }
     ]
   },
   "master_formulas": [
+    {
+      "id": "MF-0",
+      "name": "Direct Mechanism (Search-First)",
+      "template": "How [Entity] [Clear Action] [Target/Object]",
+      "psychology": "Maximum clarity. Tells viewer exactly what they'll learn. Optimized for YouTube Search ranking. No cleverness — the EVENT is inherently interesting.",
+      "trigger_words": [],
+      "performance_tier": "S",
+      "avg_views": "1M-4M (AiTelly proof)",
+      "best_for": "Breaking/recent events, military/geopolitical actions, mechanism explanations",
+      "source_channels": ["AiTelly", "CaspianReport"],
+      "examples": [
+        "How Iran Breached US Israeli Air Defenses",
+        "How US & Israel Tracked Down Ayatollah Khamenei",
+        "How the Iran War set off a regional conflict",
+        "How Vietnam is beating China at its own game"
+      ],
+      "power_doctrine_adaptations": [
+        "How [Country] [Action] [Target/System]",
+        "Why [Country] [Can't/Won't] [Action]"
+      ]
+    },
     {
       "id": "MF-1",
       "name": "Hidden Mechanism Exposé",
@@ -180,7 +224,7 @@
     }
   ],
   "legacy_formulas": {
-    "note": "Original Power Doctrine formulas from v2. Still valid, use as supplementary options.",
+    "note": "Original Power Doctrine formulas from v2. LEGACY ONLY — do not use as primary generation formulas. Kept for backward compatibility and edge cases.",
     "formulas": [
       {
         "id": "PD-1",
@@ -250,13 +294,15 @@
       }
     ],
     "hard_rules": [
-      "Total length: 50-90 characters (sweet spot for CTR + mobile visibility)",
-      "NEVER use all-caps for entire title (1-2 words max for emphasis)",
+      "Total length: 30-55 characters. HARD CEILING of 55 characters. Under 45 is ideal. Mobile truncation occurs at 45-50 characters — the ENTIRE title must be visible on mobile.",
+      "NEVER use second-person 'YOU/YOUR' language in titles. No commands ('NEVER trust...', 'STOP doing...'). No imperatives. Titles are declarative statements or 'How/Why' questions about entities, not instructions to the viewer.",
+      "NEVER use ALL CAPS words in titles except for acronyms (US, NATO, PBOC). No 'NEVER', 'STOP', 'ACTUALLY'. These signal clickbait and reduce CTR on analytical content.",
+      "No question marks unless the question is genuinely unanswered. Declarative titles outperform questions.",
       "ALWAYS include a proper noun — no exceptions",
-      "Front-load the entity: first 50 chars must contain the main subject",
-      "Prefer 'Why' as opener when the video explains causation",
+      "Front-load the entity: proper noun must appear within first 5 words",
+      "Prefer 'How' or 'Why' as opener — these are the two highest-performing openers in this niche",
       "Use numbers/dollar amounts when available (15-25% CTR boost)",
-      "Thumbnail text must be DIFFERENT from title (yin-yang system)"
+      "Thumbnail text must be DIFFERENT from title — 2-word strategic verdict"
     ]
   }
 }

@@ -44,73 +44,84 @@ WEB_SEARCH_TOOL = {
     "max_uses": 5,
 }
 
-# Thumbnail System v2 - Locked House Style
+# Thumbnail System v3 - Map + Strategic Verdict (default) with editorial illustration fallback
 ANTHROPIC_THUMBNAIL_SYSTEM_PROMPT = """You are the thumbnail prompt engineer for Economy FastForward, \
-a finance/economics YouTube channel.
+a geopolitical/economics YouTube channel.
 
 Your job: Generate a detailed image generation prompt for Nano Banana Pro that produces \
 a click-worthy, on-brand thumbnail.
 
-HOUSE STYLE (always enforce these rules):
+DETERMINE TEMPLATE FIRST:
+- If the topic is about a COUNTRY, REGION, TRADE ROUTE, MILITARY ACTION, or GEOPOLITICAL EVENT → use MAP TEMPLATE (default)
+- If the topic is about FINANCE, TECH, CORPORATE, or has no clear geographic element → use EDITORIAL ILLUSTRATION TEMPLATE (fallback)
 
-COMPOSITION:
-- Left 60% = THE TENSION (dramatic scene, emotional figure, the problem)
-- Right 40% = THE PAYOFF (the answer, protection, opportunity — brightest element)
-- Clean diagonal divide line or contrast shift between sides
-- Bold red arrow pointing from tension to payoff
+=== MAP TEMPLATE (DEFAULT — for all geopolitical content) ===
 
-FIGURE:
-- ONE central human figure in left 60%, comic/editorial illustration style
-- Thick bold black outlines, expressive face readable at small size
-- Upper body minimum, professional clothing (suit/tie)
-- Body language matches the topic's emotion (shock, reaching, stumbling, pointing)
+Bright editorial illustration of a top-down map of [REGION], \
+clean cartographic style with warm tan landmasses and light blue water, \
+[ONE strategic overlay: thick red barrier/arrows/zone marking], \
+[relevant icons: ships/military assets/infrastructure clustered near key area], \
+bold white block capital text reading "[2-WORD VERDICT]" in the bottom-left \
+corner at roughly 35% of frame width with thick black outline and heavy \
+drop shadow, country name labels in smaller black text on landmasses, \
+the map geography should be clearly visible and not obscured by text, \
+clean minimal composition, no people no faces no figures, \
+must be readable at 160x90 pixels, 16:9 aspect ratio.
 
-BACKGROUND:
-- Maximum THREE elements total (one environmental, one scattered object, one atmospheric)
-- ONE dominant mood color (deep navy, dark red, or dark green gradient)
+COMPOSITION RULES (MAP):
+- Map is the PRIMARY visual element (60%+ of frame)
+- ONE strategic overlay only (red barrier, arrows, or zone)
+- Text in bottom-left corner, ~35% of frame width
+- Country labels in small black text on landmasses
+- Maximum 3-4 colors total (tan, blue, red, white/yellow text)
+- No people, no faces, no comic illustrations
+- Must read at phone thumbnail size (160x90px)
 
-PAYOFF:
-- Glowing dome/shield/bubble OR upward growth element
-- BRIGHTEST element in entire thumbnail
-- Radiating golden or green light
-- Contains clear visual symbols of the topic's "answer"
+=== EDITORIAL ILLUSTRATION TEMPLATE (FALLBACK — non-geographic topics) ===
 
-COLOR:
-- 2+1 rule: one dark background color, one bright pop accent, white text
-- Right side always brighter than left side
+Bright editorial illustration, 16:9 landscape aspect ratio, \
+high contrast, high saturation, thick black outlines on all figures, \
+flat cel-shaded coloring, bold composition.
 
-TEXT (critical — include in every prompt):
-- Position: Upper 20% of frame, two lines stacked
-- Line 1 (larger): The hook — year, number, or dramatic claim, max 5 words
-- Line 2 (slightly smaller): The question or tension, max 5 words
-- Style: Bold white condensed sans-serif, ALL CAPS, thick black outline stroke + drop shadow
-- ONE word highlighted in bright red (the curiosity trigger word)
-- Text must NOT overlap the figure's face or the payoff element
+- ONE central visual metaphor for the topic (system, machine, institution)
+- Clean background with ONE dominant mood color
+- Bold white block capital text reading "[2-WORD VERDICT]" \
+  with thick black outline and heavy drop shadow
+- No faces, no figures when possible — focus on systems and symbols
+- Must be readable at 160x90 pixels
 
-TECHNICAL:
-- Thick black outlines on all figures and objects
-- Flat cel-shaded coloring, high contrast, high saturation
-- Bright overall luminance (dark thumbnails disappear on YouTube)
-- 16:9 aspect ratio
+=== THUMBNAIL TEXT RULES (BOTH TEMPLATES) ===
 
-WHEN A REFERENCE SPEC IS PROVIDED:
-Incorporate specific style cues from the reference (pose, color choices, separator style) \
-BUT always enforce the house style rules above. The house style overrides any reference \
-element that conflicts with it.
+Thumbnail text is a 2-word STRATEGIC VERDICT stamped on the image.
 
-WHEN NO REFERENCE SPEC IS PROVIDED:
-Generate the thumbnail prompt purely from the house style rules and video topic. \
-This is the normal operating mode. The house style is sufficient to produce on-brand thumbnails.
+RULES:
+1. EXACTLY 2 words. Maximum 3 words only if absolutely necessary.
+2. No "YOUR" or "YOU" language — ever.
+3. Must be a JUDGMENT about the situation, not a description or consequence.
+4. Think: what would a general say in a briefing room after seeing the evidence?
+5. White or yellow bold text with thick black outline.
+
+GOOD EXAMPLES: CHOKE POINT, PROXY WAR, DRONE WALL, ART OF WAR, \
+DESIGNED TO FAIL, EXITS LOCKED, MISSILE STRATEGY, FORCED WAR, POWER VACUUM
+
+BAD EXAMPLES (DO NOT USE): YOUR MONEY GETS LOCKED, $9 GAS IS COMING, \
+YOUR AI JUST GOT WEAPONIZED, YOUR BANK IS NEXT
+
+FRAMEWORK-TO-VERDICT MAPPING (use when framework is known):
+- Thucydides Trap → FORCED WAR, COLLISION COURSE, NO EXIT
+- Machiavelli → POWER GRAB, RIGGED GAME, PUPPET MASTER
+- Antifragile → HOUSE OF CARDS, ONE SPARK, FRAGILE
+- Game Theory → TRAPPED, NO GOOD MOVES, LOSE-LOSE
+- Sun Tzu → INVISIBLE ARMY, DECOY, AMBUSH
+- Grand Chessboard → CHECKMATE, GRAND PLAY, CHOKE POINT
+- Kindleberger → POWER VACUUM, NO LEADER, LEADERLESS
+- Schelling → BLUFF CALLED, RED LINE, ULTIMATUM
+- Collective Action → ROTTING EMPIRE, PARALYSIS, DEAD WEIGHT
+- Soft Power → SILENT CONQUEST, SOFT KILL, INFLUENCE WAR
 
 OUTPUT FORMAT:
 Return ONLY the image generation prompt. No explanations, no JSON, no labels. \
-The prompt should be 150-200 words and follow this structure:
-1. Style declaration
-2. Left tension scene (figure + background)
-3. Right payoff scene (dome/element + contents)
-4. Separator description
-5. Text block (exact text, placement, styling, highlight word)
-6. Technical style rules"""
+The prompt should be 100-150 words."""
 
 
 class AnthropicClient:
@@ -899,10 +910,9 @@ Start with style engine prefix, end with style engine suffix + lighting + text r
         prompt_parts.extend([
             f'',
             f'THUMBNAIL TEXT TO INCLUDE:',
-            f'Generate two lines of text for the thumbnail based on the video title.',
-            f'Line 1: The hook (year/number/dramatic claim) — max 5 words, ALL CAPS',
-            f'Line 2: The question/tension — max 5 words, ALL CAPS',
-            f'Pick ONE word to highlight in red (the curiosity trigger).',
+            f'Generate a 2-word STRATEGIC VERDICT for the thumbnail based on the video topic.',
+            f'This should be a judgment about the situation (like CHOKE POINT, PROXY WAR, POWER VACUUM).',
+            f'EXACTLY 2 words, ALL CAPS. No YOUR/YOU language. No descriptions — a verdict.',
             f'',
             f'Generate the complete image prompt now.',
         ])

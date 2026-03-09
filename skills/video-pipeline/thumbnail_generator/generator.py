@@ -22,7 +22,7 @@ import time
 import requests
 from pathlib import Path
 
-from .templates import TEMPLATE_A, TEMPLATE_B, select_template
+from .templates import TEMPLATE_A, TEMPLATE_B, TEMPLATE_MAP, select_template
 from .titles import TITLE_FORMULAS, generate_title
 from .validator import validate_thumbnail
 from .config import (
@@ -201,6 +201,7 @@ def produce_thumbnail_and_title(
 
     # 2. Fill prompt template
     templates = {
+        "template_map": TEMPLATE_MAP,
         "template_a": TEMPLATE_A,
         "template_b": TEMPLATE_B,
     }

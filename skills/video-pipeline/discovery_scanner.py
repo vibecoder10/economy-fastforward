@@ -93,17 +93,15 @@ def _build_headline_scan_prompt(
     Combines the gathered headlines with the Power Doctrine formula library
     and instructions for viewer-first title generation.
     """
-    # Extract master formulas (v3) with fallback to legacy formulas (v2)
+    # Extract master formulas only (v3) — legacy PD formulas excluded from primary generation
     master_formulas = title_patterns.get("master_formulas", [])
-    legacy_formulas = title_patterns.get("legacy_formulas", {}).get("formulas", [])
     # Also support old v2 format where formulas are under "formulas" key
     if not master_formulas:
         master_formulas = title_patterns.get("formulas", [])
 
-    all_formulas = master_formulas + legacy_formulas
     formulas_summary = "\n".join(
         f"- {f['id']}: {f['name']} — Template: \"{f['template']}\""
-        for f in all_formulas
+        for f in master_formulas
     )
 
     # Extract scoring rules if available (v3 feature)
@@ -120,13 +118,17 @@ def _build_headline_scan_prompt(
         if hard_rules:
             scoring_text += "\nHard rules:\n" + "\n".join(f"- {r}" for r in hard_rules)
 
-    # Extract critical rules (v2 compat)
-    critical_rules = title_patterns.get("critical_rules", [])
-    rules_text = "\n".join(f"- {r}" for r in critical_rules)
-
     # Extract thumbnail system rules
-    thumbnail_rules = title_patterns.get("thumbnail_system", {}).get("rules", [])
+    thumbnail_system = title_patterns.get("thumbnail_system", {})
+    thumbnail_rules = thumbnail_system.get("rules", [])
     thumbnail_text = "\n".join(f"- {r}" for r in thumbnail_rules)
+    # Include good/bad examples if available
+    good_examples = thumbnail_system.get("good_examples", [])
+    bad_examples = thumbnail_system.get("bad_examples", [])
+    if good_examples:
+        thumbnail_text += "\nGood examples: " + ", ".join(good_examples)
+    if bad_examples:
+        thumbnail_text += "\nBad examples (DO NOT USE): " + ", ".join(bad_examples)
 
     focus_instruction = ""
     if focus:
@@ -143,47 +145,61 @@ def _build_headline_scan_prompt(
 
     return f"""\
 Analyze these current headlines and select the 2-3 best stories for
-Economy FastForward videos. Apply the Machiavellian lens and generate
-4 VIEWER-FIRST title options per story using the title formula system.
+Economy FastForward videos. Apply the analytical lens and generate
+3 title options per story using the Master Formula (MF) title system.
 
 === CURRENT HEADLINES ===
 {headlines}
 
-=== TITLE FORMULA LIBRARY ===
+=== TITLE FORMULA LIBRARY (MF system — use ONLY these) ===
 {formulas_summary}
 
 === FULL FORMULA LIBRARY (for variable reference and examples) ===
-{json.dumps(all_formulas, indent=2)}
+{json.dumps(master_formulas, indent=2)}
 {scoring_text}
 
-=== CRITICAL TITLE RULES ===
-{rules_text}
-
-=== THUMBNAIL YIN-YANG SYSTEM ===
+=== THUMBNAIL STRATEGIC VERDICT SYSTEM ===
 {thumbnail_text}
 {focus_instruction}
+
+TITLE GENERATION RULES (STRICT):
+
+You are generating titles for Economy FastForward, a geopolitical analysis YouTube channel.
+
+MODEL THESE CHANNELS (study their title patterns):
+- CaspianReport (1.8M subs): "How the Iran War set off a regional conflict" — short, declarative, proper noun first
+- AiTelly (2M subs): "How Iran Breached US Israeli Air Defenses" — direct mechanism, tells you exactly what you'll learn
+
+HARD RULES:
+1. MAXIMUM 55 characters. Ideal is 35-50. Count every character.
+2. Start with "How" or "Why" — these are the two highest-performing openers in this niche
+3. First word after How/Why MUST be a proper noun (country, company, institution, person)
+4. NEVER use "YOU" or "YOUR" — this is analysis, not self-help
+5. NEVER use commands (NEVER, STOP, DON'T) — this is not Mindplicit
+6. NEVER use ALL CAPS words except acronyms (US, NATO, PBOC, LNG)
+7. No em dashes (—), no parenthetical asides, no pipe separators (|)
+8. No cleverness. The event itself is interesting. Just state what the video explains.
+9. Declarative statements only. No question marks unless genuinely unanswered.
+10. The title should read like a military briefing header or CaspianReport episode title.
+
+FORMULA OPTIONS (pick the best fit):
+- MF-0: "How [Entity] [Clear Action] [Target]" — for breaking events, mechanisms
+- MF-1: "How [Entity] [Secret Action] [Surprising Detail]" — for hidden strategies
+- MF-2: "Why [Country/Entity] [Dramatic Present-Tense Claim]" — for causal analysis
+- MF-6: "[Country]'s [Adjective] [Crisis/Collapse/Trap]" — for decline stories (shortest format)
+
+Generate exactly 3 title candidates per story. Each must use a DIFFERENT formula. Score each 0-100.
 
 INSTRUCTIONS:
 1. Select exactly 2-3 stories (not more, not less)
 2. Each story must pass the power dynamics filter (minimum 6/10)
-3. Generate 4 title options per story. Each must use a DIFFERENT formula from the library (prefer MF-1 through MF-7 master formulas, but legacy PD formulas are also valid):
-
-   MF-1 (Hidden Mechanism Exposé): "How [Entity] [Secretly/Quietly] [Action] [Mechanism]"
-   MF-2 (Causal Authority): "Why [Country/Entity] [Dramatic Present-Tense Claim]"
-   MF-3 (Vague Alarm): "Something [Alarming Adjective] Is Happening in [Place]"
-   MF-4 (Superlative Drama): "[Entity] — The [Superlative] [Drama Noun] in History"
-   MF-5 (Worse Than You Thought): "[Thing] Is [Worse/Deeper] Than You Thought"
-   MF-6 (Ominous Decline): "[Country]'s [Ominous Adjective] [Decline Noun]"
-   MF-7 (Stakes Escalation): "[Country] is [dramatic state] ([escalated consequence])"
-
+3. Generate 3 title options per story, each using a DIFFERENT MF formula
 4. Every title MUST contain at least one proper noun (country, company, person)
-5. For EACH title, also generate a 2-5 word ALL CAPS thumbnail text that is DIFFERENT from the title but complements it emotionally
-6. Score each title 0-100 using the scoring criteria if available
-7. Front-load the entity in the first 50 characters (mobile truncation)
-8. Include at least one specific number in 3 of the 4 titles
-9. Rate each story's appeal (1-10) with breakdown by criterion
-10. Suggest a historical parallel for the research phase
-11. Write a 2-3 sentence hook that creates a curiosity gap
+5. For EACH title, generate a 2-word ALL CAPS thumbnail verdict (strategic judgment, no YOUR language)
+6. Score each title 0-100 using the scoring criteria
+7. Rate each story's appeal (1-10) with breakdown by criterion
+8. Suggest a historical parallel for the research phase
+9. Write a 2-3 sentence hook that creates a curiosity gap
 
 Return your response as valid JSON following the output format specified
 in your system prompt. No markdown code blocks — raw JSON only.
@@ -238,10 +254,10 @@ def _parse_scanner_output(response_text: str) -> dict:
 
         # Validate title_options have formula_id and thumbnail_text
         title_opts = idea.get("title_options", [])
-        if len(title_opts) < 4:
+        if len(title_opts) < 3:
             logger.warning(
                 f"Idea {i+1} has {len(title_opts)} title options "
-                f"(expected 4, one per PD formula)"
+                f"(expected 3, one per MF formula)"
             )
         for j, title_opt in enumerate(title_opts):
             if "formula_id" not in title_opt:
@@ -454,11 +470,11 @@ async def run_discovery(
 def format_ideas_for_slack(result: dict) -> str:
     """Format discovery results as a readable Slack message.
 
-    Each idea shows 4 title options (one per PD formula) with thumbnail
+    Each idea shows 3 title options (one per MF formula) with thumbnail
     text. Each title option gets its own number so the user can select
     both the idea AND the specific title they want.
 
-    For 3 ideas with 4 titles each, generates up to 12 numbered options.
+    For 3 ideas with 3 titles each, generates up to 9 numbered options.
 
     Args:
         result: Output from DiscoveryScanner.scan()
@@ -470,7 +486,7 @@ def format_ideas_for_slack(result: dict) -> str:
     if not ideas:
         return "No ideas found. Try running with a different focus keyword."
 
-    # Number emojis for up to 12 options (3 ideas x 4 titles)
+    # Number emojis for up to 9 options (3 ideas x 3 titles)
     number_emojis = [
         "1\ufe0f\u20e3", "2\ufe0f\u20e3", "3\ufe0f\u20e3",
         "4\ufe0f\u20e3", "5\ufe0f\u20e3", "6\ufe0f\u20e3",

@@ -39,7 +39,10 @@ def _load_title_patterns() -> dict:
 
 
 def _build_title_formulas_text(patterns: dict) -> str:
-    """Build a text summary of all formulas for the title generation prompt."""
+    """Build a text summary of master formulas for the title generation prompt.
+
+    Legacy PD formulas are excluded from primary generation — only MF formulas are used.
+    """
     lines = []
     for f in patterns.get("master_formulas", []):
         lines.append(
@@ -49,10 +52,6 @@ def _build_title_formulas_text(patterns: dict) -> str:
         examples = f.get("examples", [])
         if examples:
             lines.append(f"  Examples: {'; '.join(examples[:2])}")
-    for f in patterns.get("legacy_formulas", {}).get("formulas", []):
-        lines.append(
-            f"- {f['id']}: {f['name']} — Template: \"{f['template']}\" (Legacy)"
-        )
     return "\n".join(lines)
 
 
@@ -71,7 +70,7 @@ def _build_scoring_rules_text(patterns: dict) -> str:
 
 
 TITLE_GENERATION_PROMPT = """\
-You are the title strategist for Power Doctrine / Economy FastForward, a faceless \
+You are the title strategist for Economy FastForward, a faceless \
 YouTube channel producing 15-20 minute geopolitical and economic analysis videos.
 
 TOPIC DATA:
@@ -86,19 +85,35 @@ TITLE FORMULA LIBRARY:
 SCORING CRITERIA:
 {scoring_rules}
 
+MODEL THESE CHANNELS (study their title patterns):
+- CaspianReport (1.8M subs): "How the Iran War set off a regional conflict" — short, declarative, proper noun first
+- AiTelly (2M subs): "How Iran Breached US Israeli Air Defenses" — direct mechanism, tells you exactly what you'll learn
+
 TASK:
 Generate exactly 3 title candidates. Each must use a DIFFERENT formula from the library. For each:
-1. Write the title (50-90 characters)
-2. Identify which formula ID you used (e.g., MF-2)
+1. Write the title (MAXIMUM 55 characters. Ideal is 35-50. Count every character.)
+2. Identify which formula ID you used (e.g., MF-0, MF-2)
 3. Score it 0-100 using the weighted criteria
 4. Write 1 sentence explaining why this angle works
-5. Generate matching thumbnail text (2-4 words, DIFFERENT from title)
+5. Generate matching 2-word thumbnail verdict (strategic judgment, no YOUR language)
 
 HARD RULES:
-- Every title MUST contain at least one proper noun
-- Front-load the entity in the first 50 characters
-- Default to negative/crisis framing
-- The 3 titles should offer genuinely different angles, not variations of the same idea
+1. MAXIMUM 55 characters. HARD CEILING. Under 45 is ideal.
+2. Start with "How" or "Why" — the two highest-performing openers in this niche
+3. First word after How/Why MUST be a proper noun (country, company, institution, person)
+4. NEVER use "YOU" or "YOUR" — this is analysis, not self-help
+5. NEVER use commands (NEVER, STOP, DON'T) — no imperatives
+6. NEVER use ALL CAPS words except acronyms (US, NATO, PBOC, LNG)
+7. No em dashes (—), no parenthetical asides, no pipe separators (|)
+8. No cleverness. The event itself is interesting. Just state what the video explains.
+9. Declarative statements only. No question marks unless genuinely unanswered.
+10. The 3 titles should offer genuinely different angles, not variations of the same idea
+
+PREFERRED FORMULAS:
+- MF-0: "How [Entity] [Clear Action] [Target]" — for breaking events, mechanisms
+- MF-1: "How [Entity] [Secret Action] [Surprising Detail]" — for hidden strategies
+- MF-2: "Why [Country/Entity] [Dramatic Present-Tense Claim]" — for causal analysis
+- MF-6: "[Country]'s [Adjective] [Crisis/Collapse/Trap]" — for decline stories
 
 Respond ONLY in this JSON format (no markdown, raw JSON):
 {{
@@ -117,7 +132,7 @@ Respond ONLY in this JSON format (no markdown, raw JSON):
 
 
 TITLE_REFINEMENT_PROMPT = """\
-You are refining the title for a Power Doctrine / Economy FastForward video. \
+You are refining the title for an Economy FastForward video. \
 The script is now written and you have access to the actual content.
 
 CURRENT TITLE: {current_title}
@@ -131,6 +146,10 @@ TITLE FORMULA LIBRARY:
 
 SCORING CRITERIA:
 {scoring_rules}
+
+MODEL THESE CHANNELS for title style:
+- CaspianReport (1.8M subs): "How the Iran War set off a regional conflict" — short, declarative
+- AiTelly (2M subs): "How Iran Breached US Israeli Air Defenses" — direct mechanism
 
 YOUR TASK:
 The current title was a working title generated before the script existed. \
@@ -152,10 +171,24 @@ Step 3: Score all titles (including the current one) using the criteria.
 Step 4: If any new title scores higher than the current title, recommend the switch. \
 If the current title is already optimal, say so.
 
+HARD RULES:
+1. MAXIMUM 55 characters. HARD CEILING. Under 45 is ideal.
+2. Start with "How" or "Why" — the two highest-performing openers
+3. First word after How/Why MUST be a proper noun
+4. NEVER use "YOU" or "YOUR" — this is analysis, not self-help
+5. NEVER use commands (NEVER, STOP, DON'T) — no imperatives
+6. NEVER use ALL CAPS words except acronyms (US, NATO, PBOC, LNG)
+7. No em dashes (—), no parenthetical asides, no pipe separators (|)
+8. Declarative statements only. No question marks unless genuinely unanswered.
+
+When refining the title post-script, prefer SHORTER over LONGER. \
+If the working title is 50 characters and a refinement is 55 characters \
+but only slightly better, keep the shorter one. Brevity wins.
+
 CRITICAL: The #1 reason titles underperform is vagueness. The script gives you \
-specific numbers, names, and mechanisms — USE THEM.
+specific numbers, names, and mechanisms — USE THEM. But keep it SHORT.
 Example: "China's Economic Problems" (vague, score: 35) → \
-"Why China Is Quietly Dumping $800B in US Treasuries" (specific, score: 82)
+"Why China Is Dumping $800B in US Treasuries" (specific + short, score: 88)
 
 Respond ONLY in this JSON format (no markdown, raw JSON):
 {{
