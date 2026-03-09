@@ -16,6 +16,7 @@ Quota:
 
 import os
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -299,11 +300,12 @@ class YouTubeUploader:
             self._cleanup(local_video, tmp_dir)
             return {"error": f"YouTube upload failed: {e}"}
 
-        # Update Airtable with YouTube info
+        # Update Airtable with YouTube info (including Upload Date for performance snapshots)
         airtable_client.update_idea_fields(record_id, {
             "YouTube Video ID": result["video_id"],
             "YouTube URL": result["video_url"],
             "Upload Status": "uploaded",
+            "Upload Date": datetime.now(timezone.utc).isoformat(),
         })
 
         # Cleanup temp files

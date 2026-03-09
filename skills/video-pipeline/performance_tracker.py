@@ -126,16 +126,16 @@ def get_uploaded_videos(airtable_client, recent_only: bool = False) -> list[dict
 
 
 def fetch_video_stats(youtube_service, video_id: str) -> dict | None:
-    """Fetch lifetime stats from YouTube Data API v3.
+    """Fetch lifetime stats and publish date from YouTube Data API v3.
 
-    Uses 1 quota unit per call (videos.list with part=statistics).
+    Uses 3 quota units per call (videos.list with part=statistics,snippet).
 
     Returns:
-        dict with views, likes, comments or None on failure
+        dict with views, likes, comments, published_at or None on failure
     """
     try:
         response = youtube_service.videos().list(
-            part="statistics",
+            part="statistics,snippet",
             id=video_id,
         ).execute()
 
@@ -143,11 +143,14 @@ def fetch_video_stats(youtube_service, video_id: str) -> dict | None:
         if not items:
             return None
 
-        stats = items[0]["statistics"]
+        item = items[0]
+        stats = item["statistics"]
+        published_at = item.get("snippet", {}).get("publishedAt")
         return {
             "views": int(stats.get("viewCount", 0)),
             "likes": int(stats.get("likeCount", 0)),
             "comments": int(stats.get("commentCount", 0)),
+            "published_at": published_at,
         }
     except Exception as e:
         print(f"     Stats fetch failed: {e}")
@@ -631,6 +634,11 @@ def main(recent_only: bool = False, dry_run: bool = False):
         else:
             print("    No stats available")
 
+        # Backfill Upload Date from YouTube publishedAt if missing in Airtable
+        if not upload_date and stats and stats.get("published_at"):
+            upload_date = stats["published_at"]
+            print(f"    Backfilling Upload Date: {upload_date}")
+
         # Fetch analytics (YouTube Analytics API)
         analytics = fetch_video_analytics(yt_analytics, video_id, upload_date)
         if analytics:
@@ -674,6 +682,10 @@ def main(recent_only: bool = False, dry_run: bool = False):
             update_fields.update(snapshots)
             for field_name in snapshots:
                 print(f"    Snapshot: {field_name} = {snapshots[field_name]}")
+
+        # Backfill Upload Date if it was missing and we got it from YouTube
+        if not video.get("Upload Date") and upload_date:
+            update_fields["Upload Date"] = upload_date
 
         update_fields["Last Analytics Sync"] = datetime.now(timezone.utc).isoformat()
 
