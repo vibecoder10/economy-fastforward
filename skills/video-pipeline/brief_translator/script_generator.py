@@ -286,6 +286,46 @@ it with something from the research.
 The ONLY exception is well-known historical figures or events used in \
 framework references (e.g. Machiavelli, Sun Tzu, Athens vs Sparta) that \
 are part of the analytical framework, NOT part of the factual narrative.
+
+=== CRITICAL — FACTUAL GROUNDING (EXTENDED) ===
+
+1. Every specific claim (names, numbers, dates, events, tactics, weapons, \
+quotes) MUST come from the research payload provided. If a fact is not in \
+the payload, DO NOT USE IT.
+
+2. You may describe HOW something happened cinematically, but you MUST NOT \
+invent WHAT happened. Example: You can describe a missile strike \
+dramatically. You CANNOT invent a cyber attack that is not in the sources.
+
+3. Never fabricate technical details (weapon systems, military tactics, \
+operational specifics) to fill narrative gaps. If the payload does not \
+explain HOW something happened, say "analysts believe" or "evidence \
+suggests" — do not present speculation as confirmed fact.
+
+4. Historical parallels must come from the research payload's \
+historical_parallels field. Do not invent additional parallels.
+
+5. If a scene needs content the payload does not provide, use the \
+framework analysis to EXPLAIN the event rather than inventing new events. \
+The analytical framework is your gap-filler, not fabricated details.
+
+6. After writing each scene, mentally verify: "Could I cite a specific \
+source from the payload for every factual claim in this scene?" If not, \
+rewrite.
+
+WHAT YOU CAN CREATE:
+- Dramatic pacing, sentence structure, rhetorical questions
+- Emotional framing of sourced facts
+- Analytical connections between sourced facts using the framework
+- Metaphors and analogies that illustrate sourced concepts
+
+WHAT YOU CANNOT CREATE:
+- Events that did not happen
+- Technical details not in the payload (cyber attacks, specific weapon \
+deployments, operational sequences)
+- Quotes from people unless quoted in the payload
+- Statistics, percentages, or numbers not in the payload
+- Specific military tactics or operations not documented in sources
 """
 
 _ACT_SPECIFIC_RULES = """\
@@ -885,3 +925,94 @@ async def generate_script(
         "script": script,
         "validation": validation,
     }
+
+
+async def verify_script_claims(
+    anthropic_client,
+    script: str,
+    brief: dict,
+) -> str:
+    """Verify factual claims in the script against the research payload.
+
+    Uses a fast model (Haiku) to compare each scene's factual claims against
+    the research payload and flag any claim that cannot be traced back.
+
+    This is a NON-BLOCKING check — the script still advances to the next
+    pipeline stage regardless of the result. The output is stored in Airtable
+    for manual review.
+
+    Args:
+        anthropic_client: AnthropicClient instance.
+        script: The full generated script text.
+        brief: The research brief dict containing the source material.
+
+    Returns:
+        A string summarizing unverified claims, or empty string if all clean.
+    """
+    import logging
+
+    logger = logging.getLogger(__name__)
+
+    # Build a condensed version of the research payload for comparison
+    payload_sections = []
+    for field in [
+        "fact_sheet", "historical_parallels", "character_dossier",
+        "narrative_arc", "counter_arguments", "thesis",
+        "executive_hook", "framework_analysis", "headline",
+    ]:
+        value = brief.get(field, "")
+        if value:
+            payload_sections.append(f"=== {field} ===\n{value}")
+
+    research_text = "\n\n".join(payload_sections)
+
+    system_prompt = (
+        "You are a fact-checking assistant. Your job is to compare a video "
+        "script against the research payload that was used to write it, and "
+        "flag any specific factual claims in the script that CANNOT be traced "
+        "to the research payload.\n\n"
+        "Focus on:\n"
+        "- Named events, operations, or incidents not in the research\n"
+        "- Specific technical details (weapons, cyber attacks, tactics) not sourced\n"
+        "- Statistics, numbers, dates, or percentages not in the research\n"
+        "- Quotes attributed to people that don't appear in the research\n"
+        "- Historical parallels not from the historical_parallels field\n\n"
+        "IGNORE:\n"
+        "- Dramatic phrasing, rhetorical questions, metaphors\n"
+        "- Analytical connections using the framework (these are allowed)\n"
+        "- Well-known framework references (Machiavelli, Sun Tzu, etc.)\n"
+        "- General knowledge that doesn't constitute a specific factual claim\n\n"
+        "Output format:\n"
+        "If claims are unverified, list each one as:\n"
+        "- [Act N] \"<the claim>\" — not found in research payload\n\n"
+        "If all claims are grounded, respond with exactly: ALL CLAIMS VERIFIED"
+    )
+
+    prompt = (
+        f"<research_payload>\n{research_text}\n</research_payload>\n\n"
+        f"<script>\n{script}\n</script>\n\n"
+        "Compare the script against the research payload. List any specific "
+        "factual claims in the script that cannot be traced to the research "
+        "payload."
+    )
+
+    try:
+        result = await anthropic_client.generate(
+            prompt=prompt,
+            system_prompt=system_prompt,
+            model="claude-haiku-4-5-20251001",
+            max_tokens=2000,
+            temperature=0.0,
+        )
+    except Exception as e:
+        logger.warning(f"Claim verification failed (non-blocking): {e}")
+        return ""
+
+    if not result or "ALL CLAIMS VERIFIED" in result.upper():
+        return ""
+
+    # Truncate if extremely long (Airtable Long Text field)
+    if len(result) > 5000:
+        result = result[:4950] + "\n\n[truncated]"
+
+    return result

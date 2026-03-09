@@ -254,6 +254,7 @@ async def graduate_to_pipeline(
     slack_client=None,
     acts: Optional[dict] = None,
     psych_assignments: Optional[list[dict]] = None,
+    unverified_claims: str = "",
 ) -> dict:
     """Full graduation: Ideas Bank -> Pipeline Table + Scene File + Script Records.
 
@@ -268,6 +269,7 @@ async def graduate_to_pipeline(
         slack_client: SlackClient instance for notifications (optional)
         acts: Dict mapping act number to act text (for Script table records)
         psych_assignments: List of {"scene": N, "angle": str} (from psych_angle_assigner)
+        unverified_claims: Flagged claims from claim verification (written to scene 1)
 
     Returns:
         {
@@ -327,19 +329,32 @@ async def graduate_to_pipeline(
             for pa in psych_assignments:
                 angle_lookup[pa["scene"]] = pa["angle"]
 
+        first_record_id = None
         for act_num in sorted(acts.keys()):
             act_text = acts[act_num]
             psych_angle = angle_lookup.get(act_num, "")
             try:
-                airtable_client.create_script_record(
+                record = airtable_client.create_script_record(
                     scene_number=act_num,
                     scene_text=act_text,
                     title=video_title,
                     psych_angle=psych_angle,
                     sources=sources_text if act_num == 1 else "",
                 )
+                if act_num == min(acts.keys()):
+                    first_record_id = record.get("id")
             except Exception as e:
                 print(f"  ⚠️ Could not create Script record for scene {act_num}: {e}")
+
+        # Write unverified claims to the first script record (non-blocking)
+        if unverified_claims and first_record_id:
+            try:
+                airtable_client.update_script_record(
+                    first_record_id,
+                    {"Unverified Claims": unverified_claims},
+                )
+            except Exception as e:
+                print(f"  ⚠️ Could not write Unverified Claims: {e}")
 
     # 5. Update Idea Concepts record status  (was step 4)
     try:

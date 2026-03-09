@@ -292,6 +292,18 @@ STYLE GUIDE:
 - FORMAT: Spoken word only. No "Scene 1" labels. No "Camera pans".
 - CONTINUITY: If this is Scene 1, start with a hook. If it is Scene 20, conclude the thought.
 
+CRITICAL — FACTUAL GROUNDING:
+- Every specific claim (names, numbers, dates, events, tactics, quotes) MUST \
+come from the scene beat provided. Do NOT invent facts, technical details, \
+or events not present in the source material.
+- You may describe events cinematically, but you MUST NOT invent WHAT happened. \
+Only dramatize HOW sourced events unfolded.
+- Never fabricate technical details (weapon systems, cyber attacks, operational \
+specifics) to fill narrative gaps. Use hedging language ("analysts believe", \
+"evidence suggests") instead of presenting speculation as fact.
+- Do not invent quotes, statistics, or specific military/political operations \
+not present in the scene beat.
+
 INSTRUCTION:
 Write the script for the scene provided. Return ONLY the narration text."""
         
