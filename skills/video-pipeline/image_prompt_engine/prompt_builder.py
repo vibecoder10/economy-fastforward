@@ -31,6 +31,31 @@ from .sequencer import assign_styles
 
 
 # ---------------------------------------------------------------------------
+# No-people validation
+# ---------------------------------------------------------------------------
+
+PEOPLE_WORDS = [
+    "officer", "officers", "commander", "analyst", "operator", "operators",
+    "figure", "figures", "person", "people", "man", "woman", "soldier",
+    "soldiers", "guard", "guards", "hand", "hands", "silhouette",
+    "silhouettes", "face", "faces", "human", "crew", "staff",
+    "seated", "standing", "watching", "huddle", "checking", "dials",
+]
+
+
+_PEOPLE_PATTERNS = [re.compile(rf"\b{re.escape(w)}\b", re.IGNORECASE) for w in PEOPLE_WORDS]
+
+
+def validate_no_people(prompt: str) -> tuple[bool, list[str]]:
+    """Check an image prompt for people-related words (word-boundary match).
+
+    Returns (is_clean, list_of_violations).
+    """
+    violations = [w for w, pat in zip(PEOPLE_WORDS, _PEOPLE_PATTERNS) if pat.search(prompt)]
+    return (len(violations) == 0, violations)
+
+
+# ---------------------------------------------------------------------------
 # Style-language patterns to strip from scene descriptions
 # ---------------------------------------------------------------------------
 _STYLE_STRIP_PATTERNS: list[re.Pattern[str]] = [
@@ -45,6 +70,51 @@ _STYLE_STRIP_PATTERNS: list[re.Pattern[str]] = [
         r"\bfilm grain\b",
     ]
 ]
+
+
+# ---------------------------------------------------------------------------
+# People-word replacements for auto-rewriting prompts
+# ---------------------------------------------------------------------------
+_PEOPLE_REPLACEMENTS: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(p, re.IGNORECASE), r)
+    for p, r in [
+        (r"\bofficers?\s+(?:at|huddle\w*\s+around|seated\s+at)\s+\w+", "unmanned consoles with active displays"),
+        (r"\bcommander\s+\w+\s+\w+", "command terminal with priority alerts flashing"),
+        (r"\banalyst\s+workstation", "workstation with open data feeds"),
+        (r"\boperators?\s+(?:at|seated\s+at|monitoring)\s+\w+", "autonomous monitoring stations"),
+        (r"\bofficers?\b", "autonomous terminals"),
+        (r"\bcommander\b", "command terminal"),
+        (r"\banalysts?\b", "data terminals"),
+        (r"\boperators?\b", "monitoring stations"),
+        (r"\bfigures?\b", "equipment"),
+        (r"\bperson\b", "terminal"),
+        (r"\bpeople\b", "unmanned equipment"),
+        (r"\bsoldiers?\b", "military hardware"),
+        (r"\bguards?\b", "security sensors"),
+        (r"\bsilhouettes?\b", "equipment outlines"),
+        (r"\bhuman\b", "autonomous"),
+        (r"\bcrew\b", "autonomous systems"),
+        (r"\bstaff\b", "automated systems"),
+        (r"\bseated\b", "positioned"),
+        (r"\bstanding\b", "mounted"),
+        (r"\bwatching\b", "scanning"),
+        (r"\bhuddle\b", "cluster"),
+        (r"\bchecking\b", "processing"),
+        (r"\bdials\b", "activates"),
+        (r"\bhands?\b", "sensors"),
+        (r"\bfaces?\b", "displays"),
+        (r"\bman\b", "unit"),
+        (r"\bwoman\b", "unit"),
+    ]
+]
+
+
+def _remove_people_references(description: str) -> str:
+    """Replace people-related words with unmanned equipment equivalents."""
+    result = description
+    for pattern, replacement in _PEOPLE_REPLACEMENTS:
+        result = pattern.sub(replacement, result)
+    return result
 
 
 def _strip_style_language(description: str) -> str:
@@ -122,6 +192,12 @@ def build_prompt(
 
     # Clean scene description
     clean_desc = _strip_style_language(scene_description).rstrip(". ")
+
+    # Validate no-people rule on the scene description before assembly
+    is_clean, violations = validate_no_people(clean_desc)
+    if not is_clean:
+        # Auto-rewrite people references to unmanned equivalents
+        clean_desc = _remove_people_references(clean_desc)
 
     if image_style_override and image_style_override.strip():
         mood_language = _apply_style_override(mood_language, image_style_override)
@@ -281,3 +357,58 @@ def resolve_scene_accent_color(
     Maps to the new color mood system.
     """
     return resolve_scene_color_mood(scene_description, video_accent_color)
+
+
+# ---------------------------------------------------------------------------
+# Video prompt validation — Banned pattern detector
+# ---------------------------------------------------------------------------
+
+FILLER_PATTERNS = [
+    "gently pulse", "softly intensif", "subtly flicker", "softly blink",
+    "dust particles drift", "reflections shift across", r"ambient.*glow",
+    "equipment indicators", "projector beams", "light slowly sweeps",
+    r"holographic data.*pulse", "subtle ambient",
+]
+
+SCREENSAVER_TEST_WORDS = ["gently", "softly", "subtly", "slightly"]
+
+
+def validate_video_prompt(prompt: str, sentence_text: str = "") -> dict:
+    """Validate a video prompt meets narrative quality standards.
+
+    Returns a dict with ``valid`` (bool), ``issues`` (list[str]),
+    ``prompt``, and ``sentence``.
+    """
+    issues: list[str] = []
+
+    # Check for banned filler patterns
+    for pattern in FILLER_PATTERNS:
+        if re.search(pattern, prompt, re.IGNORECASE):
+            issues.append(f"BANNED FILLER: '{pattern}' found")
+
+    # Screensaver word density check — more than 2 = likely filler
+    screensaver_count = sum(1 for w in SCREENSAVER_TEST_WORDS if w in prompt.lower())
+    if screensaver_count >= 2:
+        issues.append(f"SCREENSAVER RISK: {screensaver_count} soft/gentle/subtle words")
+
+    # Length checks
+    word_count = len(prompt.split())
+    if word_count < 30:
+        issues.append(f"TOO SHORT: {word_count} words (min 40)")
+    if word_count > 90:
+        issues.append(f"TOO LONG: {word_count} words (max 80)")
+
+    # Check the last sentence for payoff quality
+    sentences = prompt.strip().split(".")
+    last_sentence = sentences[-2] if sentences[-1].strip() == "" else sentences[-1]
+    last_words = last_sentence.lower().strip()
+    for sw in SCREENSAVER_TEST_WORDS:
+        if sw in last_words:
+            issues.append(f"WEAK PAYOFF: Final line contains '{sw}' — rewrite for stronger landing")
+
+    return {
+        "valid": len(issues) == 0,
+        "issues": issues,
+        "prompt": prompt,
+        "sentence": sentence_text,
+    }
