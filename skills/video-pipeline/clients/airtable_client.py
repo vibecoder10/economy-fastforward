@@ -580,8 +580,17 @@ class AirtableClient:
             "Image": [{"url": image_url}],
             "Status": "Done",
         }
-        # Note: Drive Image URL field removed - not in Airtable schema
-        record = self.images_table.update(record_id, updates, typecast=True)
+        if drive_url:
+            updates["Drive Image URL"] = drive_url
+        try:
+            record = self.images_table.update(record_id, updates, typecast=True)
+        except Exception as e:
+            # If Drive Image URL field doesn't exist yet, retry without it
+            if "UNKNOWN_FIELD_NAME" in str(e) and drive_url:
+                del updates["Drive Image URL"]
+                record = self.images_table.update(record_id, updates, typecast=True)
+            else:
+                raise
         return {"id": record["id"], **record["fields"]}
 
     def update_image_video_url(
