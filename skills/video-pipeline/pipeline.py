@@ -1872,6 +1872,12 @@ class VideoPipeline:
         # Apply scene/image filters
         done_images = self._filter_by_scene(done_images)
 
+        # Sort by scene and image index for proper camera history ordering
+        done_images = sorted(
+            done_images,
+            key=lambda x: (x.get("Scene", 0), x.get("Image Index", 0)),
+        )
+
         prompt_count = 0
         hero_count = 0
         camera_history: list[str] = []
