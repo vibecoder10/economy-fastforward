@@ -1630,10 +1630,10 @@ class VideoPipeline:
                             # Upload to Google Drive
                             filename = f"Scene_{str(scene_num).zfill(2)}_{str(index).zfill(2)}.png"
                             drive_file = self.google.upload_image(image_content, filename, self.project_folder_id)
-                            self.google.make_file_public(drive_file["id"])
+                            drive_download_url = self.google.make_file_public(drive_file["id"])
 
-                            # CHECKPOINT: Update Airtable immediately
-                            self.airtable.update_image_record(record_id, image_url)
+                            # CHECKPOINT: Update Airtable immediately (with Drive URL for animation)
+                            self.airtable.update_image_record(record_id, image_url, drive_url=drive_download_url)
                             image_count += 1
                             print(f"      ✅ Scene {scene_num}, Image {index} → Done ({image_count}/{total_pending})")
 
@@ -1730,9 +1730,10 @@ class VideoPipeline:
                             image_content = await self.image_client.download_image(image_url)
                             filename = f"Scene_{str(scene_num).zfill(2)}_{str(index).zfill(2)}.png"
                             drive_file = self.google.upload_image(image_content, filename, self.project_folder_id)
+                            drive_download_url = self.google.make_file_public(drive_file["id"])
 
-                            # Update Airtable
-                            self.airtable.update_image_record(record_id, image_url)
+                            # Update Airtable (with Drive URL for animation)
+                            self.airtable.update_image_record(record_id, image_url, drive_url=drive_download_url)
                             retry_count += 1
                             image_count += 1
                             print(f"        ✅ Scene {scene_num}, Image {index} → Done (retry)")
@@ -4061,8 +4062,8 @@ class VideoPipeline:
                     drive_file = self.google.upload_image(image_content, filename, self.project_folder_id)
                     drive_url = self.google.make_file_public(drive_file["id"])
 
-                    # Update Airtable (include seed for reproducibility)
-                    self.airtable.update_image_record(record_id, image_url)
+                    # Update Airtable (with Drive URL for animation)
+                    self.airtable.update_image_record(record_id, image_url, drive_url=drive_url)
                     regenerated += 1
                     print(f"    ✅ Scene {scene_num}, Image {index} → regenerated")
 
