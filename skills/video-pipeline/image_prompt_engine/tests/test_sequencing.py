@@ -247,3 +247,53 @@ class TestEdgeCases:
         for a in assignments:
             missing = required - set(a.keys())
             assert not missing, f"Missing keys {missing} at index {a['index']}"
+
+
+# ---------------------------------------------------------------------------
+# User-requested format rotation tests
+# ---------------------------------------------------------------------------
+
+class TestCloseUpNeverConsecutive:
+    """close_up_detail must never appear consecutively."""
+
+    @pytest.mark.parametrize("seed", [1, 42, 99, 256, 500, 777, 1000])
+    def test_close_up_detail_never_consecutive(self, seed):
+        """close_up_detail should never appear 2+ times in a row."""
+        assignments = _make_assignments(seed=seed)
+        for value, run_len in _consecutive_runs(assignments, "display_format"):
+            if value == "close_up_detail":
+                assert run_len <= 1, (
+                    f"close_up_detail has {run_len} consecutive images (max 1), seed={seed}"
+                )
+
+
+class TestAllFormatsAppearIn20:
+    """All 5 formats must appear at least once in a 20-image sequence."""
+
+    @pytest.mark.parametrize("seed", [1, 42, 99, 256, 1000])
+    def test_all_5_formats_in_20_images(self, seed):
+        """All 5 display formats appear in a 20-image sequence."""
+        assignments = assign_styles(20, seed=seed)
+        formats = {a["display_format"] for a in assignments}
+        assert len(formats) == 5, (
+            f"Only {len(formats)} formats in 20 images (expected 5), seed={seed}: {formats}"
+        )
+
+
+class TestFirstImageOfActIsEstablishing:
+    """First image of each act should be war_table or wall_display."""
+
+    @pytest.mark.parametrize("seed", [1, 42, 99, 256, 1000])
+    def test_first_image_of_each_act_is_establishing(self, seed):
+        """First image of each act is war_table or wall_display."""
+        assignments = _make_assignments(seed=seed)
+        establishing = {"war_table", "wall_display"}
+        seen_acts = set()
+        for a in assignments:
+            act = a["act"]
+            if act not in seen_acts:
+                seen_acts.add(act)
+                assert a["display_format"] in establishing, (
+                    f"First image of {act} is '{a['display_format']}' "
+                    f"(expected war_table or wall_display), seed={seed}"
+                )

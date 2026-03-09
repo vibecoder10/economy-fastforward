@@ -291,6 +291,13 @@ HOLOGRAPHIC_SUFFIX = (
 MAX_CONSECUTIVE_CONTENT_TYPE = 2
 MAX_CONSECUTIVE_FORMAT = 2
 MAX_CONSECUTIVE_PALETTE = 3
+MAX_CONSECUTIVE_CLOSE_UP = 1  # close_up_detail should never appear consecutively
+
+# Establishing shot formats — preferred for first image of each act/scene
+ESTABLISHING_FORMATS = [
+    DisplayFormat.WAR_TABLE,
+    DisplayFormat.WALL_DISPLAY,
+]
 
 
 # =============================================================================
@@ -391,6 +398,7 @@ DEFAULT_CONFIG = {
     "max_consecutive_content_type": MAX_CONSECUTIVE_CONTENT_TYPE,
     "max_consecutive_format": MAX_CONSECUTIVE_FORMAT,
     "max_consecutive_palette": MAX_CONSECUTIVE_PALETTE,
+    "max_consecutive_close_up": MAX_CONSECUTIVE_CLOSE_UP,
 }
 
 

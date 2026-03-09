@@ -18,6 +18,7 @@ from .style_config import (
     DisplayFormat,
     ColorMood,
     CONTENT_FORMAT_AFFINITY,
+    ESTABLISHING_FORMATS,
     KEN_BURNS_PAN_ALTERNATES,
     KEN_BURNS_RULES,
     ACT_MOOD_WEIGHTS,
@@ -66,8 +67,15 @@ def assign_styles(
         timestamp = i * image_duration
         act = _get_act(timestamp, act_timestamps)
 
+        # Detect act transitions for establishing shot preference
+        prev_act = assignments[-1]["act"] if assignments else None
+        first_of_act = (i == 0) or (act != prev_act)
+
         content_type = _select_content_type(act, i, total_images, assignments, rng)
-        display_format = _select_display_format(content_type, i, assignments, rng)
+        display_format = _select_display_format(
+            content_type, i, assignments, rng,
+            is_first_of_act=first_of_act,
+        )
         color_mood = _select_color_mood(act, i, total_images, assignments, rng)
         ken_burns = _select_ken_burns(display_format, assignments)
 
@@ -143,13 +151,36 @@ def _select_content_type(
 # Display format selection
 # ---------------------------------------------------------------------------
 
+def _is_first_of_act(index: int, history: list[dict]) -> bool:
+    """Return True if this is the first image in a new act."""
+    if index == 0:
+        return True
+    if not history:
+        return True
+    # We don't know the current act yet at this point, but the caller
+    # has already computed it — so we check if the previous entry's act
+    # differs.  However, this function is called before the act is
+    # stored, so we rely on the caller passing the right context.
+    return False
+
+
 def _select_display_format(
     content_type: ContentType,
     index: int,
     history: list[dict],
     rng: random.Random,
+    *,
+    is_first_of_act: bool = False,
 ) -> DisplayFormat:
-    """Select display format based on content type affinity, enforcing max 2 consecutive."""
+    """Select display format based on content type affinity, enforcing rotation rules.
+
+    Rules enforced:
+    - Max 2 consecutive same format (general)
+    - close_up_detail never consecutive (max 1)
+    - First image of each act prefers war_table or wall_display (establishing shots)
+    - war_table and wall_display get higher weight (workhorses)
+    - close_up_detail gets reduced weight (~1 per scene for punctuation)
+    """
     # Preferred formats for this content type
     preferred = list(CONTENT_FORMAT_AFFINITY.get(
         content_type,
@@ -158,7 +189,7 @@ def _select_display_format(
     # Add remaining formats as fallback options
     all_formats = preferred + [f for f in FORMAT_CYCLE if f not in preferred]
 
-    # Filter out formats that have hit max consecutive
+    # --- Constraint: max 2 consecutive same format ---
     max_consec = DEFAULT_CONFIG["max_consecutive_format"]
     if history:
         last_format = history[-1]["display_format"]
@@ -168,13 +199,43 @@ def _select_display_format(
             if not all_formats:
                 all_formats = list(FORMAT_CYCLE)
 
-    # Weight preferred formats higher
+    # --- Constraint: close_up_detail never consecutive (max 1) ---
+    max_close_up = DEFAULT_CONFIG.get("max_consecutive_close_up", 1)
+    if history:
+        last_format = history[-1]["display_format"]
+        if last_format == DisplayFormat.CLOSE_UP_DETAIL.value:
+            run = _count_trailing(history, "display_format", last_format)
+            if run >= max_close_up:
+                all_formats = [f for f in all_formats if f != DisplayFormat.CLOSE_UP_DETAIL]
+                if not all_formats:
+                    all_formats = list(FORMAT_CYCLE)
+
+    # --- Preference: first image of act → establishing shot ---
+    if is_first_of_act and any(f in all_formats for f in ESTABLISHING_FORMATS):
+        all_formats = [f for f in all_formats if f in ESTABLISHING_FORMATS]
+
+    # --- Diversity boost: unseen formats get a weight bonus after 8 images ---
+    seen_formats = {h["display_format"] for h in history} if history else set()
+    diversity_threshold = 8  # start boosting unseen formats after this many images
+
+    # --- Weights: workhorse formats higher, close_up lower ---
+    workhorse = {DisplayFormat.WAR_TABLE, DisplayFormat.WALL_DISPLAY}
     weights = []
     for f in all_formats:
         if f in preferred:
-            weights.append(3.0)
+            w = 3.0
+        elif f in workhorse:
+            w = 2.0
+        elif f == DisplayFormat.CLOSE_UP_DETAIL:
+            w = 1.0  # visual punctuation — lower frequency than workhorses
         else:
-            weights.append(1.0)
+            w = 1.0
+
+        # Boost unseen formats to ensure variety
+        if len(history) >= diversity_threshold and f.value not in seen_formats:
+            w *= 5.0
+
+        weights.append(w)
 
     return rng.choices(all_formats, weights=weights, k=1)[0]
 
