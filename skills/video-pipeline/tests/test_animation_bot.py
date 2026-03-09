@@ -19,7 +19,7 @@ def _make_image_record(
     scene=1, index=1, status="Done", has_clip=False,
     drive_url="https://drive.google.com/file/d/abc123/view",
     intensity="low", content_type="B_data_terminal",
-    video_prompt=None,
+    video_prompt=None, duration=8.0,
 ):
     rec = {
         "id": f"rec_{scene}_{index}",
@@ -29,6 +29,7 @@ def _make_image_record(
         "Drive Image URL": drive_url,
         "Intensity": intensity,
         "Content Type": content_type,
+        "Duration (s)": duration,
     }
     if has_clip:
         rec["Video Clip URL"] = "https://drive.google.com/already_done"
@@ -83,13 +84,13 @@ class TestAnimationBotRun:
     def test_generates_clips_for_pending_images(self):
         """Pending images get animated via Grok Imagine."""
         records = [
-            _make_image_record(scene=1, index=1),
-            _make_image_record(scene=1, index=2),
-            _make_image_record(scene=2, index=1),
+            _make_image_record(scene=1, index=1, duration=8.0),
+            _make_image_record(scene=1, index=2, duration=5.0),
+            _make_image_record(scene=2, index=1, duration=12.0),
         ]
         image_client, airtable, google = _mock_clients(records)
         bot = AnimationBot(image_client, airtable, google)
-        config = VideoConfig(video_length_minutes=5, clip_duration_seconds=6)
+        config = VideoConfig(video_length_minutes=5)
 
         result = asyncio.get_event_loop().run_until_complete(
             bot.run("Test Video", config, "folder_id")
@@ -100,24 +101,40 @@ class TestAnimationBotRun:
         assert result["actual_cost"] == pytest.approx(0.30, abs=0.01)
         assert image_client.generate_video.call_count == 3
 
-        # Verify clip duration passed to Grok
-        for call in image_client.generate_video.call_args_list:
-            assert call.kwargs.get("duration") == 6 or call.args[2] == 6
+        # Verify clip duration is dynamic per-segment:
+        # 8.0s → 10s clip, 5.0s → 6s clip, 12.0s → 10s clip
+        calls = image_client.generate_video.call_args_list
+        assert calls[0].kwargs.get("duration") == 10
+        assert calls[1].kwargs.get("duration") == 6
+        assert calls[2].kwargs.get("duration") == 10
 
-    def test_respects_10s_clip_duration(self):
-        """Config with 10s clips passes duration=10 to Grok."""
-        records = [_make_image_record(scene=1, index=1)]
+    def test_short_segment_gets_6s_clip(self):
+        """Segments with <= 6s narration get 6s clips."""
+        records = [_make_image_record(scene=1, index=1, duration=4.5)]
         image_client, airtable, google = _mock_clients(records)
         bot = AnimationBot(image_client, airtable, google)
-        config = VideoConfig(video_length_minutes=10, clip_duration_seconds=10)
+        config = VideoConfig(video_length_minutes=10)
 
         asyncio.get_event_loop().run_until_complete(
             bot.run("Test Video", config, "folder_id")
         )
 
         call_args = image_client.generate_video.call_args
-        # duration is the 3rd positional arg or keyword
-        assert call_args[1].get("duration") == 10 or call_args[0][2] == 10
+        assert call_args.kwargs.get("duration") == 6
+
+    def test_long_segment_gets_10s_clip(self):
+        """Segments with > 6s narration get 10s clips."""
+        records = [_make_image_record(scene=1, index=1, duration=9.0)]
+        image_client, airtable, google = _mock_clients(records)
+        bot = AnimationBot(image_client, airtable, google)
+        config = VideoConfig(video_length_minutes=10)
+
+        asyncio.get_event_loop().run_until_complete(
+            bot.run("Test Video", config, "folder_id")
+        )
+
+        call_args = image_client.generate_video.call_args
+        assert call_args.kwargs.get("duration") == 10
 
     def test_handles_generation_failure(self):
         """Failed Grok calls mark the record as Failed."""

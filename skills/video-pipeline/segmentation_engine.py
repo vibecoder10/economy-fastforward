@@ -290,12 +290,21 @@ def segment_script(script_text: str, config: VideoConfig) -> list[dict]:
 
 
 def _make_segment(text: str, word_count: int, scene: int, index: int) -> dict:
-    """Create a segment dict with computed fields."""
+    """Create a segment dict with computed fields.
+
+    clip_duration is assigned dynamically based on estimated narration time:
+    - <= 6 seconds of narration → 6s clip
+    - > 6 seconds of narration → 10s clip
+    Remotion trims the clip to fit the actual voiceover duration.
+    """
+    estimated_duration = word_count / VideoConfig.SPEAKING_RATE_WPS
+    clip_duration = 6 if estimated_duration <= 6.0 else 10
     return {
         "index": index,
         "text": text.strip(),
         "word_count": word_count,
-        "estimated_duration_seconds": word_count / VideoConfig.SPEAKING_RATE_WPS,
+        "estimated_duration_seconds": estimated_duration,
+        "clip_duration": clip_duration,
         "act": 0,  # assigned later
         "scene": scene,
         "intensity": "low",  # assigned later
