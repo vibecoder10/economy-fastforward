@@ -674,7 +674,12 @@ def infer_framework_angle(idea: dict) -> str:
     return best_framework
 
 
-def build_idea_record_from_discovery(idea: dict, idea_number: int = 1) -> dict:
+def build_idea_record_from_discovery(
+    idea: dict,
+    idea_number: int = 1,
+    title_override: str = "",
+    thumbnail_text_override: str = "",
+) -> dict:
     """Build a full Airtable record from a discovery scanner idea.
 
     Maps all discovery fields to the rich Idea Concepts schema including
@@ -686,6 +691,8 @@ def build_idea_record_from_discovery(idea: dict, idea_number: int = 1) -> dict:
     Args:
         idea: Single idea dict from discovery scanner output
         idea_number: Which idea was selected (1, 2, or 3)
+        title_override: If set, use this title instead of auto-selecting
+        thumbnail_text_override: If set, use this thumbnail text instead of auto-selecting
 
     Returns:
         Dict ready for AirtableClient.create_idea()
@@ -704,6 +711,12 @@ def build_idea_record_from_discovery(idea: dict, idea_number: int = 1) -> dict:
         else:
             best_title = title_options[0].get("title", "")
             best_thumbnail = title_options[0].get("thumbnail_text", "")
+
+    # Apply overrides
+    if title_override:
+        best_title = title_override
+    if thumbnail_text_override:
+        best_thumbnail = thumbnail_text_override
 
     # Extract appeal scores
     appeal_breakdown = idea.get("appeal_breakdown", {})

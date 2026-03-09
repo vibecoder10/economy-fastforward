@@ -1314,31 +1314,18 @@ async def _handle_discovery_approval(
     try:
         from clients.anthropic_client import AnthropicClient
         from clients.airtable_client import AirtableClient
+        from discovery_scanner import build_idea_record_from_discovery
         from research_agent import run_research
 
         anthropic = AnthropicClient()
         airtable = AirtableClient()
 
         # Write idea to Airtable as Approved
-        idea_data = {
-            "viral_title": title,
-            "hook_script": idea.get("hook", ""),
-            "narrative_logic": {
-                "past_context": idea.get("historical_parallel_hint", ""),
-                "present_parallel": idea.get("our_angle", ""),
-                "future_prediction": "",
-            },
-            "writer_guidance": idea.get("our_angle", ""),
-            "Thumbnail Text": selected_thumbnail_text,
-            "original_dna": json.dumps({
-                "source": "discovery_scanner",
-                "headline_source": idea.get("headline_source", ""),
-                "formula_ids": [
-                    t.get("formula_id", "") for t in title_options
-                ],
-                "estimated_appeal": idea.get("estimated_appeal", 0),
-            }),
-        }
+        idea_data = build_idea_record_from_discovery(
+            idea,
+            title_override=title,
+            thumbnail_text_override=selected_thumbnail_text,
+        )
 
         record = airtable.create_idea(idea_data, source="discovery_scanner")
         record_id = record["id"]
@@ -1448,6 +1435,7 @@ async def _handle_cron_discovery_approval(
     try:
         from clients.anthropic_client import AnthropicClient
         from clients.airtable_client import AirtableClient
+        from discovery_scanner import build_idea_record_from_discovery
         from research_agent import run_research
 
         anthropic = AnthropicClient()
@@ -1477,25 +1465,11 @@ async def _handle_cron_discovery_approval(
             log.info(f"Updated existing Airtable record: {record_id} — {title} (formula: {selected_formula_id})")
         else:
             # Fallback: create a new record (shouldn't normally happen)
-            idea_data = {
-                "viral_title": title,
-                "hook_script": idea.get("hook", ""),
-                "narrative_logic": {
-                    "past_context": idea.get("historical_parallel_hint", ""),
-                    "present_parallel": idea.get("our_angle", ""),
-                    "future_prediction": "",
-                },
-                "writer_guidance": idea.get("our_angle", ""),
-                "Thumbnail Text": selected_thumbnail_text,
-                "original_dna": json.dumps({
-                    "source": "discovery_scanner",
-                    "headline_source": idea.get("headline_source", ""),
-                    "formula_ids": [
-                        t.get("formula_id", "") for t in title_options
-                    ],
-                    "estimated_appeal": idea.get("estimated_appeal", 0),
-                }),
-            }
+            idea_data = build_idea_record_from_discovery(
+                idea,
+                title_override=title,
+                thumbnail_text_override=selected_thumbnail_text,
+            )
             record = airtable.create_idea(idea_data, source="discovery_scanner")
             record_id = record["id"]
             airtable.update_idea_status(record_id, "Approved")
