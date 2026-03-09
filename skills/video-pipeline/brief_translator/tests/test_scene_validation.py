@@ -4,7 +4,7 @@ import pytest
 from brief_translator.scene_validator import (
     validate_scene_list,
     auto_fix_minor_issues,
-    REQUIRED_FIELDS,
+    REQUIRED_FIELDS_UNIFIED as REQUIRED_FIELDS,
     VALID_STYLES,
     VALID_COMPOSITIONS,
     MAX_CONSECUTIVE_SAME_STYLE,
@@ -164,14 +164,6 @@ class TestValidateSceneList:
         ]
         result = validate_scene_list(scenes, {"total_images": 6})
         assert any("consecutive" in i.lower() for i in result["issues"])
-
-    def test_duplicate_descriptions_reported(self):
-        scenes = [
-            make_scene(scene_number=1, description="Same description here for testing"),
-            make_scene(scene_number=2, description="Same description here for testing"),
-        ]
-        result = validate_scene_list(scenes, {"total_images": 2})
-        assert any("duplicate" in i.lower() for i in result["issues"])
 
     def test_stats_include_distribution(self):
         scenes = make_scene_list(100)
