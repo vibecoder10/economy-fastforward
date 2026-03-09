@@ -233,47 +233,36 @@ class TestSceneListToImagePromptEngine:
 
         prompts = generate_prompts(SAMPLE_SCENE_LIST, accent_color="cold teal", seed=42)
 
-        required_keys = {"prompt", "style", "composition", "accent_color", "act", "index", "ken_burns"}
+        required_keys = {"prompt", "content_type", "display_format", "color_mood", "act", "index", "ken_burns"}
         for p in prompts:
             assert required_keys.issubset(p.keys()), f"Missing keys: {required_keys - p.keys()}"
 
     def test_styled_prompts_contain_identity_markers(self):
-        """Dossier → halation, Schema → data nodes, Echo → candlelit."""
+        """All prompts contain holographic suffix markers."""
         from image_prompt_engine import generate_prompts
 
         prompts = generate_prompts(SAMPLE_SCENE_LIST, accent_color="cold teal", seed=42)
 
-        dossier_prompts = [p for p in prompts if p["style"] == "dossier"]
-        schema_prompts = [p for p in prompts if p["style"] == "schema"]
-        echo_prompts = [p for p in prompts if p["style"] == "echo"]
-
-        # Check style suffixes are applied
-        for dp in dossier_prompts[:5]:
-            assert "halation" in dp["prompt"], f"Dossier prompt missing halation: {dp['prompt'][:80]}"
-
-        for sp in schema_prompts[:5]:
-            assert "data nodes" in sp["prompt"] or "connection lines" in sp["prompt"], (
-                f"Schema prompt missing data nodes/connection lines: {sp['prompt'][:80]}"
+        # All prompts should contain the holographic suffix
+        for p in prompts[:10]:
+            assert "16:9 aspect ratio" in p["prompt"], (
+                f"Prompt missing aspect ratio marker: {p['prompt'][:80]}"
+            )
+            assert "no people visible" in p["prompt"] or "photorealistic" in p["prompt"], (
+                f"Prompt missing holographic identity marker: {p['prompt'][:80]}"
             )
 
-        for ep in echo_prompts[:5]:
-            assert "candlelit" in ep["prompt"], f"Echo prompt missing candlelit: {ep['prompt'][:80]}"
-
-    def test_accent_color_applied_to_dossier_and_schema(self):
-        """The accent color appears in Dossier and Schema prompts.
-
-        Echo style uses fixed warm amber tones per the PRD, so accent color
-        is not substituted there — only in Dossier and Schema.
-        """
+    def test_color_mood_applied_to_prompts(self):
+        """Every prompt has a valid color_mood value."""
         from image_prompt_engine import generate_prompts
 
         prompts = generate_prompts(SAMPLE_SCENE_LIST, accent_color="cold teal", seed=42)
 
+        valid_moods = {"strategic", "alert", "archive", "contagion", "power", "personal"}
         for p in prompts:
-            if p["style"] in ("dossier", "schema"):
-                assert "cold teal" in p["prompt"], (
-                    f"Missing accent color in {p['style']} prompt index {p['index']}"
-                )
+            assert p["color_mood"] in valid_moods, (
+                f"Invalid color_mood '{p['color_mood']}' at index {p['index']}"
+            )
 
     def test_scene_list_roundtrip_through_file(self):
         """Scene list survives save → load → generate_prompts cycle."""
@@ -306,15 +295,15 @@ class TestStyledPromptsToNanoBanana:
             assert isinstance(p["prompt"], str)
             assert len(p["prompt"]) > 50  # Not empty/trivial
 
-    def test_prompts_contain_cinematic_camera_layer(self):
-        """All prompts contain cinematic camera layer (art style/camera)."""
+    def test_prompts_contain_holographic_suffix(self):
+        """All prompts contain holographic system suffix."""
         from image_prompt_engine import generate_prompts
 
         prompts = generate_prompts(SAMPLE_SCENE_LIST, accent_color="cold teal", seed=42)
 
         for p in prompts:
-            assert "Cinematic photorealistic editorial" in p["prompt"], (
-                f"Missing cinematic camera layer in prompt index {p['index']}"
+            assert "photorealistic rendering" in p["prompt"] or "photorealistic" in p["prompt"], (
+                f"Missing photorealistic marker in prompt index {p['index']}"
             )
 
 
@@ -460,43 +449,43 @@ class TestSceneOutputDir:
 # ---------------------------------------------------------------------------
 
 class TestStyleDistribution:
-    """Visual identity styles are distributed correctly across the video."""
+    """Holographic content types are distributed correctly across the video."""
 
-    def test_first_and_last_images_are_dossier(self):
-        """First and last images must be Dossier style."""
+    def test_content_types_are_valid(self):
+        """All content types are valid ContentType enum values."""
         from image_prompt_engine import generate_prompts
 
         prompts = generate_prompts(SAMPLE_SCENE_LIST, accent_color="cold teal", seed=42)
-        assert prompts[0]["style"] == "dossier"
-        assert prompts[-1]["style"] == "dossier"
-
-    def test_no_echo_in_acts_1_2_6(self):
-        """Echo style should not appear in Acts 1, 2, or 6."""
-        from image_prompt_engine import generate_prompts
-
-        prompts = generate_prompts(SAMPLE_SCENE_LIST, accent_color="cold teal", seed=42)
+        valid_types = {
+            "geographic_map", "data_terminal", "object_comparison",
+            "document_display", "network_diagram", "timeline",
+            "satellite_recon", "concept_viz",
+        }
         for p in prompts:
-            if p["act"] in ("act1", "act2", "act6"):
-                assert p["style"] != "echo", (
-                    f"Echo found in {p['act']} at index {p['index']}"
-                )
+            assert p["content_type"] in valid_types, (
+                f"Invalid content_type '{p['content_type']}' at index {p['index']}"
+            )
 
-    def test_distribution_roughly_matches_targets(self):
-        """Style distribution should be approximately 60/22/18."""
+    def test_no_excessive_consecutive_repeats(self):
+        """No more than 4 consecutive images with the same content_type."""
         from image_prompt_engine import generate_prompts
 
         prompts = generate_prompts(SAMPLE_SCENE_LIST, accent_color="cold teal", seed=42)
-        total = len(prompts)
-        styles = [p["style"] for p in prompts]
+        for i in range(len(prompts) - 4):
+            run = [prompts[j]["content_type"] for j in range(i, i + 5)]
+            assert len(set(run)) > 1, (
+                f"5+ consecutive '{run[0]}' starting at index {i}"
+            )
 
-        dossier_pct = styles.count("dossier") / total
-        schema_pct = styles.count("schema") / total
-        echo_pct = styles.count("echo") / total
+    def test_distribution_has_variety(self):
+        """At least 4 different content types are used across the video."""
+        from image_prompt_engine import generate_prompts
 
-        # Allow generous tolerance (±15%)
-        assert 0.40 <= dossier_pct <= 0.80, f"Dossier: {dossier_pct:.0%}"
-        assert 0.10 <= schema_pct <= 0.40, f"Schema: {schema_pct:.0%}"
-        assert echo_pct <= 0.35, f"Echo: {echo_pct:.0%}"
+        prompts = generate_prompts(SAMPLE_SCENE_LIST, accent_color="cold teal", seed=42)
+        unique_types = set(p["content_type"] for p in prompts)
+        assert len(unique_types) >= 4, (
+            f"Only {len(unique_types)} content types used: {unique_types}"
+        )
 
 
 # ---------------------------------------------------------------------------
