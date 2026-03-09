@@ -42,13 +42,17 @@ class AnimationBot:
         video_title: str,
         config: VideoConfig,
         project_folder_id: str,
+        scene_filter: int = None,
+        image_filter: int = None,
     ) -> dict:
-        """Animate all pending images for a video.
+        """Animate pending images for a video.
 
         Args:
             video_title: Airtable Video Title to match image records.
             config: VideoConfig with clip_duration_seconds.
             project_folder_id: Google Drive folder for uploads.
+            scene_filter: Only process this scene number (None = all).
+            image_filter: Only process this image index (None = all).
 
         Returns:
             Dict with clips_generated, clips_failed, actual_cost.
@@ -59,6 +63,12 @@ class AnimationBot:
             img for img in all_images
             if img.get("Status") == "Done" and not img.get("Video Clip URL")
         ]
+
+        # Apply scene/image filters
+        if scene_filter is not None:
+            done_images = [img for img in done_images if img.get("Scene") == scene_filter]
+        if image_filter is not None:
+            done_images = [img for img in done_images if img.get("Image Index") == image_filter]
 
         if not done_images:
             print("  ✅ All images already animated (or none ready)")

@@ -110,7 +110,33 @@ class VideoPipeline:
         self.current_idea: Optional[dict] = None
         self.core_image_url: Optional[str] = None
         self.video_config: Optional[VideoConfig] = None
+
+        # Targeting filters — when set, bots only process matching records
+        # and do NOT advance status (partial run for testing)
+        self.scene_filter: Optional[int] = None
+        self.image_filter: Optional[int] = None
     
+    @property
+    def _is_targeted_run(self) -> bool:
+        """True if scene/image filters are set (partial run, don't advance status)."""
+        return self.scene_filter is not None or self.image_filter is not None
+
+    def _log_filters(self):
+        """Print active targeting filters."""
+        if self.scene_filter is not None and self.image_filter is not None:
+            print(f"  🎯 TARGETED RUN: Scene {self.scene_filter}, Image {self.image_filter}")
+        elif self.scene_filter is not None:
+            print(f"  🎯 TARGETED RUN: Scene {self.scene_filter} (all images)")
+        # No filter = process everything (normal behavior)
+
+    def _filter_by_scene(self, records: list, scene_key: str = "Scene") -> list:
+        """Filter records by scene_filter and image_filter if set."""
+        if self.scene_filter is not None:
+            records = [r for r in records if r.get(scene_key) == self.scene_filter]
+        if self.image_filter is not None:
+            records = [r for r in records if r.get("Image Index") == self.image_filter]
+        return records
+
     def get_idea_by_status(self, status: str) -> Optional[dict]:
         """Get ONE idea with the specified status."""
         ideas = self.airtable.get_ideas_by_status(status, limit=1)
@@ -819,7 +845,8 @@ class VideoPipeline:
         
         self.slack.notify_script_start()
         print(f"\n📝 SCRIPT BOT: Processing '{self.video_title}'")
-        
+        self._log_filters()
+
         # Get or create project folder in Google Drive (avoid duplicates on re-runs)
         folder = self.google.get_or_create_folder(self.video_title)
         self.project_folder_id = folder["id"]
@@ -837,15 +864,19 @@ class VideoPipeline:
         docs_available = not doc.get("unavailable", False)
         if not docs_available:
             print("  ⚠️  Google Docs unavailable - scripts will be saved to Airtable only")
-        
+
         # Generate beat sheet
         beat_sheet = await self.anthropic.generate_beat_sheet(self.current_idea)
         scenes = beat_sheet.get("script_outline", [])
-        
+
+        # Apply scene filter if set
+        if self.scene_filter is not None:
+            scenes = [s for s in scenes if s.get("scene_number") == self.scene_filter]
+
         # Get existing scripts for this video
         existing_scripts = self.airtable.get_scripts_by_title(self.video_title)
         existing_scenes = {s.get("scene"): s for s in existing_scripts}
-        
+
         # Write each scene
         for scene in scenes:
             scene_number = scene.get("scene_number", 0)
@@ -882,7 +913,17 @@ class VideoPipeline:
                 f"**Scene {scene_number}**\n\n{scene_text}",
             )
         
-        # UPDATE STATUS to Ready For Voice
+        # UPDATE STATUS (skip if targeted run)
+        if self._is_targeted_run:
+            print(f"  🎯 Targeted run — status NOT advanced")
+            doc_url = self.google.get_document_url(self.google_doc_id)
+            return {
+                "bot": "Script Bot",
+                "video_title": self.video_title,
+                "scene_count": len(scenes),
+                "targeted": True,
+            }
+
         self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_VOICE)
         print(f"  ✅ Status updated to: {self.STATUS_READY_VOICE}")
 
@@ -965,18 +1006,23 @@ class VideoPipeline:
         
         self.slack.notify_voice_start()
         print(f"\n🗣️ VOICE BOT: Processing '{self.video_title}'")
-        
+        self._log_filters()
+
         # Get or create project folder
         if not self.project_folder_id:
             folder = self.google.get_or_create_folder(self.video_title)
             self.project_folder_id = folder["id"]
-        
+
         # Get scripts for this video
         scripts = self.airtable.get_scripts_by_title(self.video_title)
-        
+
         if not scripts:
             return {"error": f"No scripts found for: {self.video_title}"}
-        
+
+        # Apply scene filter
+        if self.scene_filter is not None:
+            scripts = [s for s in scripts if s.get("scene") == self.scene_filter]
+
         voice_count = 0
         for script in scripts:
             scene_number = script.get("scene", 0)
@@ -1005,7 +1051,11 @@ class VideoPipeline:
                 self.airtable.mark_script_finished(script["id"], audio_url)
                 voice_count += 1
         
-        # UPDATE STATUS to Ready For Image Prompts
+        # UPDATE STATUS (skip if targeted run)
+        if self._is_targeted_run:
+            print(f"  🎯 Targeted run — status NOT advanced")
+            return {"bot": "Voice Bot", "video_title": self.video_title, "voice_count": voice_count, "targeted": True}
+
         # Sound design runs AFTER images exist (needs Image Prompt + Sentence Text)
         self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_IMAGE_PROMPTS)
         print(f"  ✅ Status updated to: {self.STATUS_READY_IMAGE_PROMPTS}")
@@ -1131,6 +1181,7 @@ class VideoPipeline:
             }
 
         print(f"\n🎬 ANIMATION BOT: Processing '{self.video_title}'")
+        self._log_filters()
 
         # Load VideoConfig from Airtable record (defaults to 10min/10s)
         config = self.video_config or VideoConfig.from_airtable_record(self.current_idea)
@@ -1166,6 +1217,8 @@ class VideoPipeline:
             video_title=self.video_title,
             config=config,
             project_folder_id=self.project_folder_id,
+            scene_filter=self.scene_filter,
+            image_filter=self.image_filter,
         )
 
         if result.get("clips_failed", 0) > 0 and result.get("clips_generated", 0) == 0:
@@ -1173,6 +1226,17 @@ class VideoPipeline:
             print(f"  ❌ {error_msg}")
             self.slack.notify(f"❌ Animation Bot STOPPED: {error_msg}")
             return {"status": "failed", "bot": "Animation Bot", "error": error_msg}
+
+        if self._is_targeted_run:
+            print(f"  🎯 Targeted run — status NOT advanced")
+            return {
+                "bot": "Animation Bot",
+                "video_title": self.video_title,
+                "clips_generated": result["clips_generated"],
+                "clips_failed": result.get("clips_failed", 0),
+                "actual_cost": result["actual_cost"],
+                "targeted": True,
+            }
 
         # Advance to thumbnail
         self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_THUMBNAIL)
@@ -1425,6 +1489,7 @@ class VideoPipeline:
             return {"error": f"Idea status is '{self.current_idea.get('Status')}', expected 'Ready For Images'"}
 
         print(f"\n🖼️ IMAGE BOT: Processing '{self.video_title}'")
+        self._log_filters()
 
         # Get or create project folder
         if not self.project_folder_id:
@@ -1433,6 +1498,16 @@ class VideoPipeline:
 
         # Run the internal image bot
         result = await self._run_image_bot()
+
+        # Targeted run — don't verify or advance status
+        if self._is_targeted_run:
+            print(f"  🎯 Targeted run — status NOT advanced")
+            return {
+                "bot": "Image Bot",
+                "video_title": self.video_title,
+                "image_count": result.get("image_count", 0),
+                "targeted": True,
+            }
 
         # VERIFY all images are actually complete before advancing status
         all_images = self.airtable.get_all_images_for_video(self.video_title)
@@ -1560,6 +1635,9 @@ class VideoPipeline:
         all_images = self.airtable.get_all_images_for_video(self.video_title)
         done_count = len([img for img in all_images if img.get("Status") == "Done"])
         pending_images = [img for img in all_images if img.get("Status") == "Pending" and img.get("Image Prompt")]
+
+        # Apply scene/image filters
+        pending_images = self._filter_by_scene(pending_images)
         total_pending = len(pending_images)
 
         if done_count > 0:
@@ -1777,21 +1855,22 @@ class VideoPipeline:
         return {"image_count": image_count, "failed_count": failed_count}
 
     async def run_video_script_bot(self) -> dict:
-        """Generate video prompts for Scene 1 only (Constraint)."""
-        print(f"\n  📝 VIDEO SCRIPT BOT: Generating prompts for Scene 1...")
+        """Generate video motion prompts for images."""
+        target = f"Scene {self.scene_filter}" if self.scene_filter else "all scenes"
+        print(f"\n  📝 VIDEO SCRIPT BOT: Generating prompts for {target}...")
+        self._log_filters()
 
         # Get pending images
         existing_images = self.airtable.get_all_images_for_video(self.video_title)
         done_images = [img for img in existing_images if img.get("Status") == "Done"]
 
+        # Apply scene/image filters
+        done_images = self._filter_by_scene(done_images)
+
         prompt_count = 0
         hero_count = 0
         for img_record in done_images:
             scene = img_record.get("Scene", 0)
-
-            # CONSTRAINT: Only Scene 1
-            if scene != 1:
-                continue
 
             # Check if prompt already exists
             if img_record.get("Video Prompt"):
@@ -1829,38 +1908,41 @@ class VideoPipeline:
             prompt_count += 1
 
         print(f"    ✅ Generated {prompt_count} video prompts ({hero_count} hero shots @ 10s)")
-        
+
+        if self._is_targeted_run:
+            print(f"  🎯 Targeted run — status NOT advanced")
+            return {"bot": "Video Script Bot", "prompt_count": prompt_count, "targeted": True}
+
         # Update Status to Ready For Video Generation
         self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_VIDEO_GENERATION)
         print(f"  ✅ Status updated to: {self.STATUS_READY_VIDEO_GENERATION}")
-        
+
         return {"bot": "Video Script Bot", "prompt_count": prompt_count, "new_status": self.STATUS_READY_VIDEO_GENERATION}
 
     async def run_video_gen_bot(self) -> dict:
-        """Generate videos logic."""
+        """Generate video clips from images with motion prompts."""
         print(f"\n  🎥 VIDEO GEN BOT: Generating videos...")
-        
-        # Get images ready for video (Done (implicit), Video Pending (field check handled internally))
-        # Note: get_images_ready_for_video_generation filters for missing Video field
+        self._log_filters()
+
+        # Get images ready for video generation (with Video Prompt, no Video yet)
         pending_videos = self.airtable.get_images_ready_for_video_generation(self.video_title)
-        
-        # We also only want those with a Video Prompt!
+
+        # Only those with a Video Prompt
         pending_videos = [v for v in pending_videos if v.get("Video Prompt")]
-        
-        # CONSTRAINT: Only Scene 1 (Implicit via prompt generation, but double check)
-        pending_videos = [v for v in pending_videos if v.get("Scene") == 1]
+
+        # Apply scene/image filters
+        pending_videos = self._filter_by_scene(pending_videos)
         
         if not pending_videos:
             print("    No pending videos to generate.")
-            # If we are here but no videos pending, maybe we are done?
-            # Update status to Thumbnail
-            print(f"    All Scene 1 videos done. Moving to Thumbnail.")
-            self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_THUMBNAIL)
+            if not self._is_targeted_run:
+                print(f"    All videos done. Moving to Thumbnail.")
+                self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_THUMBNAIL)
             return {"video_count": 0, "new_status": self.STATUS_READY_THUMBNAIL}
 
         video_count = 0
         total = len(pending_videos)
-        print(f"    Found {total} Scene 1 images needing video generation.")
+        print(f"    Found {total} images needing video generation.")
         
         for i, img_record in enumerate(pending_videos, 1):
             scene = img_record.get("Scene", 0)
@@ -1903,16 +1985,18 @@ class VideoPipeline:
                 print("      ❌ Video generation failed.")
                 
         print(f"    ✅ Generated {video_count} videos")
-        
-        # Check if really done (loop again or just return active status to let next run catch it)
-        # We'll return active status, let next run move to Thumbnail if empty.
-        # Or check here.
-        remaining = [v for v in self.airtable.get_images_ready_for_video_generation(self.video_title) if v.get("Video Prompt") and v.get("Scene") == 1]
+
+        if self._is_targeted_run:
+            print(f"  🎯 Targeted run — status NOT advanced")
+            return {"bot": "Video Gen Bot", "video_count": video_count, "targeted": True}
+
+        # Check if all videos are done
+        remaining = [v for v in self.airtable.get_images_ready_for_video_generation(self.video_title) if v.get("Video Prompt")]
         if not remaining:
-             self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_THUMBNAIL)
-             print(f"  ✅ Status updated to: {self.STATUS_READY_THUMBNAIL}")
-             
-        return {"video_count": video_count}
+            self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_THUMBNAIL)
+            print(f"  ✅ Status updated to: {self.STATUS_READY_THUMBNAIL}")
+
+        return {"bot": "Video Gen Bot", "video_count": video_count}
     
     # ==========================================================================
     # BRIEF TRANSLATOR INTEGRATION — Research Brief → Script + Scenes
@@ -2104,6 +2188,7 @@ class VideoPipeline:
             self._load_idea(idea)
 
         print(f"\n🎨 STYLED IMAGE PROMPTS: Processing '{self.video_title}'")
+        self._log_filters()
 
         # Read per-video image style override (set via Slack !style command)
         image_style_override = (self.current_idea.get("Image Style Override") or "").strip()
@@ -2145,7 +2230,12 @@ class VideoPipeline:
         # ---------------------------------------------------------------
         # Expand each script record into visual concepts + styled prompts
         # ---------------------------------------------------------------
-        print(f"\n  --- Expanding {total_scripts} scenes into visual concepts + prompts ---")
+        # Apply scene filter if set
+        if self.scene_filter is not None:
+            scripts = [s for s in scripts if s.get("scene") == self.scene_filter]
+            print(f"  🎯 Filtered to scene {self.scene_filter}: {len(scripts)} script(s)")
+
+        print(f"\n  --- Expanding {len(scripts)} scenes into visual concepts + prompts ---")
 
         total_concepts = 0
         scenes_expanded = 0
@@ -2267,7 +2357,17 @@ class VideoPipeline:
             print(f"  Audio sync failed (non-blocking): {e}")
             audio_sync_summary = f" | Audio sync error: {e}"
 
-        # Update status
+        # Update status (skip if targeted run)
+        if self._is_targeted_run:
+            print(f"  🎯 Targeted run — status NOT advanced")
+            return {
+                "bot": "Styled Image Prompt Engine",
+                "video_title": self.video_title,
+                "scenes_expanded": scenes_expanded,
+                "total_concepts": total_concepts,
+                "targeted": True,
+            }
+
         self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_IMAGES)
         print(f"  Status updated to: {self.STATUS_READY_IMAGES}")
 
