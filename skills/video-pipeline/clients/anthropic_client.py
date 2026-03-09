@@ -990,9 +990,12 @@ Think: war room from Tom Clancy crossed with Bloomberg Terminal crossed with Min
 3. Every image MUST contain at least one quantitative data element
 4. Holographic projection MUST have visible depth/dimensionality
 
-=== CRITICAL DURATION RULE ===
+=== CRITICAL DURATION RULE (HARD CEILING) ===
 - Each segment: ~{words_per_segment} words (±5 words)
-- Ensures 6-10 second display per image
+- ABSOLUTE MAXIMUM: {words_per_segment + 5} words per segment. NO exceptions.
+- If a concept naturally runs longer, split it into two visual beats.
+- A {words_per_segment + 10}-word concept MUST become two segments.
+- Ensures 6-10 second display per image at 2.5 words/sec speaking rate.
 - Balance word counts — no segment 2x longer than another
 
 === PROMPT ARCHITECTURE ({PROMPT_MIN_WORDS}-{PROMPT_MAX_WORDS} words) ===

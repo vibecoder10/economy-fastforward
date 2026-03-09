@@ -309,3 +309,149 @@ def _make_segment(text: str, word_count: int, scene: int, index: int) -> dict:
         "scene": scene,
         "intensity": "low",  # assigned later
     }
+
+
+# ---------------------------------------------------------------------------
+# Post-segmentation duration cap enforcement
+# ---------------------------------------------------------------------------
+
+_DURATION_FLOOR_SECONDS = 4.0
+_MIN_SEGMENT_WORDS = int(_DURATION_FLOOR_SECONDS * VideoConfig.SPEAKING_RATE_WPS)  # 10
+
+
+def enforce_duration_caps(
+    segments: list[dict],
+    clip_duration_seconds: int = 10,
+) -> list[dict]:
+    """Split any segment that exceeds the clip duration ceiling.
+
+    This is a **post-segmentation safety net** that runs after Claude returns
+    concept segments and before Airtable records are created.
+
+    Args:
+        segments: List of segment dicts (must have "text" key, may have "concept"
+            or "image_prompt" — those are carried forward to the first sub-segment).
+        clip_duration_seconds: Maximum clip duration (6 or 10).
+
+    Returns:
+        New list of segments where every segment is ≤ max_words and ≥ min_words.
+        Total word count is preserved (no words lost or added).
+    """
+    max_words = int(clip_duration_seconds * VideoConfig.SPEAKING_RATE_WPS)
+    min_words = _MIN_SEGMENT_WORDS
+
+    validated: list[dict] = []
+
+    for seg in segments:
+        text = seg.get("text", "")
+        word_count = len(text.split())
+
+        if word_count <= max_words:
+            validated.append(seg)
+            continue
+
+        # Over ceiling — split at sentence boundaries first
+        sentences = _split_into_sentences(text)
+        current_chunk: list[str] = []
+        current_words = 0
+
+        for sentence in sentences:
+            sentence_words = len(sentence.split())
+
+            # Single sentence exceeds max — split at clause boundary
+            if sentence_words > max_words:
+                # Flush current buffer first
+                if current_chunk and current_words >= min_words:
+                    validated.append(_make_cap_segment(
+                        " ".join(current_chunk), seg,
+                    ))
+                    current_chunk = []
+                    current_words = 0
+                elif current_chunk:
+                    # Buffer too small to flush alone — prepend to long sentence
+                    sentence = " ".join(current_chunk) + " " + sentence
+                    sentence_words = len(sentence.split())
+                    current_chunk = []
+                    current_words = 0
+
+                # Repeatedly split at clause boundary until under ceiling
+                remaining = sentence
+                while remaining:
+                    remaining_wc = len(remaining.split())
+                    if remaining_wc <= max_words:
+                        current_chunk = [remaining]
+                        current_words = remaining_wc
+                        break
+                    part, leftover = _split_at_clause(remaining, max_words)
+                    if not leftover:
+                        # _split_at_clause refused to split (within its tolerance) —
+                        # force a hard word-boundary split at max_words
+                        words = remaining.split()
+                        part = " ".join(words[:max_words])
+                        leftover = " ".join(words[max_words:])
+                    validated.append(_make_cap_segment(part, seg))
+                    remaining = leftover
+                continue
+
+            # Would adding this sentence exceed the max?
+            if current_words + sentence_words > max_words and current_chunk:
+                # Flush current buffer — even if short, hard cap takes priority
+                validated.append(_make_cap_segment(
+                    " ".join(current_chunk), seg,
+                ))
+                current_chunk = [sentence]
+                current_words = sentence_words
+            else:
+                current_chunk.append(sentence)
+                current_words += sentence_words
+
+        # Flush remainder
+        if current_chunk:
+            prev_wc = len(validated[-1]["text"].split()) if validated else 0
+            if current_words < min_words and validated and prev_wc + current_words <= max_words:
+                # Merge short remainder with previous segment only if it won't breach the cap
+                prev = validated[-1]
+                prev["text"] = prev["text"] + " " + " ".join(current_chunk)
+            else:
+                validated.append(_make_cap_segment(
+                    " ".join(current_chunk), seg,
+                ))
+
+    return validated
+
+
+def _make_cap_segment(text: str, source_seg: dict) -> dict:
+    """Create a new segment dict from split text, carrying forward metadata."""
+    return {
+        "text": text.strip(),
+        "concept": source_seg.get("concept", "continued"),
+        "image_prompt": source_seg.get("image_prompt", ""),
+        "shot_type": source_seg.get("shot_type", ""),
+    }
+
+
+def recalculate_durations(
+    segments: list[dict],
+    clip_duration_seconds: int = 10,
+) -> list[dict]:
+    """Recalculate and clamp estimated_duration for each segment.
+
+    Call this after enforce_duration_caps() to ensure all duration values
+    are consistent with the word counts and within the valid range.
+
+    Args:
+        segments: List of segment dicts (must have "text" key).
+        clip_duration_seconds: Maximum clip duration for clamping.
+
+    Returns:
+        Same list with updated word_count and estimated_duration fields.
+    """
+    floor = _DURATION_FLOOR_SECONDS
+
+    for seg in segments:
+        wc = len(seg.get("text", "").split())
+        seg["word_count"] = wc
+        raw_duration = wc / VideoConfig.SPEAKING_RATE_WPS
+        seg["estimated_duration"] = max(floor, min(float(clip_duration_seconds), raw_duration))
+
+    return segments

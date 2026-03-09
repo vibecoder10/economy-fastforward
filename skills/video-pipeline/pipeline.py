@@ -51,6 +51,7 @@ from bots.sound_prompt_bot import SoundPromptBot
 from bots.sound_bot import SoundBot
 from bots.animation_bot import AnimationBot
 from pipeline_config import VideoConfig
+from segmentation_engine import enforce_duration_caps, recalculate_durations
 
 
 class VideoPipeline:
@@ -1283,15 +1284,24 @@ class VideoPipeline:
                 pipeline_type="youtube",
             )
 
-            # Create records with calculated durations (capped at 6-10s range)
+            # Enforce hard duration caps before creating records
+            config = self.video_config or VideoConfig.from_airtable_record(self.current_idea or {})
+            clip_dur = config.clip_duration_seconds
+            pre_count = len(concepts)
+            concepts = enforce_duration_caps(concepts, clip_duration_seconds=clip_dur)
+            concepts = recalculate_durations(concepts, clip_duration_seconds=clip_dur)
+            if len(concepts) != pre_count:
+                print(f"    Duration cap: {pre_count} → {len(concepts)} segments (max {clip_dur}s)")
+
+            # Create records with calculated durations (capped at clip_dur range)
             cumulative_start = 0.0
             for i, concept in enumerate(concepts):
                 concept_text = concept.get("text", "")
                 concept_words = len(concept_text.split())
                 concept_duration = concept_words / words_per_second if words_per_second > 0 else 8.0
 
-                # ENFORCE 6-10s range - cap at 10s max, floor at 6s min
-                concept_duration = max(6.0, min(10.0, concept_duration))
+                # ENFORCE duration range — floor 4s, ceiling = clip_duration
+                concept_duration = max(4.0, min(float(clip_dur), concept_duration))
 
                 # Get shot_type from segment (now included in output)
                 shot_type = concept.get("shot_type", "medium_human_story")

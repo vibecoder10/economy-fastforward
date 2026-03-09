@@ -7,7 +7,10 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from pipeline_config import VideoConfig
-from segmentation_engine import segment_script, _split_into_sentences, _score_intensity
+from segmentation_engine import (
+    segment_script, _split_into_sentences, _score_intensity,
+    enforce_duration_caps, recalculate_durations,
+)
 
 
 class TestSentenceSplitting:
@@ -199,3 +202,161 @@ class TestSegmentScript:
         segments = segment_script(script, config)
         for seg in segments:
             assert "[ACT" not in seg["text"]
+
+
+# ---------------------------------------------------------------------------
+# Duration cap enforcement
+# ---------------------------------------------------------------------------
+
+class TestEnforceDurationCaps:
+    """Post-segmentation hard cap on segment duration."""
+
+    def _words(self, n: int) -> str:
+        """Generate n words of text as a single sentence."""
+        return " ".join(["word"] * n) + "."
+
+    def _multi_sentence(self, word_counts: list[int]) -> str:
+        """Generate text with multiple sentences of specified word counts."""
+        return " ".join(
+            " ".join(["word"] * wc) + "." for wc in word_counts
+        )
+
+    def test_under_cap_unchanged(self):
+        """Segments within the cap pass through unchanged."""
+        segments = [
+            {"text": self._words(20), "concept": "intro"},
+            {"text": self._words(15), "concept": "middle"},
+        ]
+        result = enforce_duration_caps(segments, clip_duration_seconds=10)
+        assert len(result) == 2
+        assert result[0]["concept"] == "intro"
+
+    def test_over_cap_gets_split(self):
+        """A 40-word segment with 10s cap (25 words max) gets split."""
+        text = self._multi_sentence([12, 12, 12])  # 3 sentences of 12 words = 36 words
+        segments = [{"text": text, "concept": "long_one"}]
+        result = enforce_duration_caps(segments, clip_duration_seconds=10)  # 25 word max
+        assert len(result) >= 2
+        # No segment should exceed 25 words
+        for seg in result:
+            assert len(seg["text"].split()) <= 25
+
+    def test_no_words_lost(self):
+        """Total word count is preserved after splitting."""
+        text = self._multi_sentence([10, 15, 10, 12])
+        original_words = len(text.split())
+        segments = [{"text": text, "concept": "big"}]
+        result = enforce_duration_caps(segments, clip_duration_seconds=6)  # 15 word max
+        total = sum(len(s["text"].split()) for s in result)
+        assert total == original_words
+
+    def test_no_segment_exceeds_cap_10s(self):
+        """After enforcement, no segment exceeds 10s * 2.5 = 25 words."""
+        max_words = 25
+        segments = [
+            {"text": self._multi_sentence([8, 8, 8, 8, 8])},  # 40 words
+            {"text": self._words(20)},  # ok
+            {"text": self._multi_sentence([10, 10, 10])},  # 30 words
+        ]
+        result = enforce_duration_caps(segments, clip_duration_seconds=10)
+        for seg in result:
+            wc = len(seg["text"].split())
+            assert wc <= max_words, f"Segment has {wc} words, max is {max_words}"
+
+    def test_no_segment_exceeds_cap_6s(self):
+        """After enforcement, no segment exceeds 6s * 2.5 = 15 words."""
+        max_words = 15
+        segments = [
+            {"text": self._multi_sentence([7, 7, 7])},  # 21 words
+            {"text": self._words(10)},  # ok
+        ]
+        result = enforce_duration_caps(segments, clip_duration_seconds=6)
+        for seg in result:
+            wc = len(seg["text"].split())
+            assert wc <= max_words, f"Segment has {wc} words, max is {max_words}"
+
+    def test_min_segment_remainder_merges_when_possible(self):
+        """Short remainder merges with previous if it fits within the cap."""
+        # 18 + 5 = 23 words. Max 25 for 10s. First chunk=18, remainder=5.
+        # 18 + 5 = 23 <= 25 so remainder merges back → single 23-word segment.
+        segments = [
+            {"text": self._multi_sentence([18, 5])},
+        ]
+        result = enforce_duration_caps(segments, clip_duration_seconds=10)
+        assert len(result) == 1
+        assert len(result[0]["text"].split()) == 23
+
+    def test_tiny_remainder_stays_separate_when_merge_would_breach(self):
+        """Short remainder stays separate if merging would exceed the cap."""
+        # 24 + 3 = 27 words. Max 25 for 10s. Can't merge.
+        segments = [
+            {"text": self._multi_sentence([12, 12, 3])},
+        ]
+        result = enforce_duration_caps(segments, clip_duration_seconds=10)
+        assert len(result) == 2
+        # Hard cap is always respected
+        for seg in result:
+            assert len(seg["text"].split()) <= 25
+
+    def test_single_long_sentence_split_at_clause(self):
+        """A single sentence over the cap splits at clause boundary."""
+        # Build a sentence with a comma near the middle
+        text = "The market experienced a significant downturn, which impacted all major indices and caused widespread panic among retail investors."
+        segments = [{"text": text}]
+        result = enforce_duration_caps(segments, clip_duration_seconds=6)  # 15 word max
+        assert len(result) >= 2
+        # Words preserved
+        original_wc = len(text.split())
+        total_wc = sum(len(s["text"].split()) for s in result)
+        assert total_wc == original_wc
+
+    def test_preserves_metadata(self):
+        """concept and shot_type carry through to first sub-segment."""
+        segments = [
+            {
+                "text": self._multi_sentence([15, 15]),
+                "concept": "the_crash",
+                "image_prompt": "holographic data wall",
+                "shot_type": "war_table",
+            }
+        ]
+        result = enforce_duration_caps(segments, clip_duration_seconds=10)
+        assert result[0]["concept"] == "the_crash"
+        assert result[0]["shot_type"] == "war_table"
+
+    def test_empty_segments_handled(self):
+        result = enforce_duration_caps([], clip_duration_seconds=10)
+        assert result == []
+
+    def test_all_within_cap_passthrough(self):
+        """If nothing exceeds the cap, output == input."""
+        segments = [
+            {"text": self._words(20)},
+            {"text": self._words(22)},
+        ]
+        result = enforce_duration_caps(segments, clip_duration_seconds=10)
+        assert len(result) == 2
+
+
+class TestRecalculateDurations:
+    """Duration recalculation and clamping."""
+
+    def test_duration_clamped_to_ceiling(self):
+        segments = [{"text": " ".join(["w"] * 30)}]  # 30 words = 12s raw
+        result = recalculate_durations(segments, clip_duration_seconds=10)
+        assert result[0]["estimated_duration"] == 10.0
+
+    def test_duration_clamped_to_floor(self):
+        segments = [{"text": "short text"}]  # 2 words = 0.8s raw
+        result = recalculate_durations(segments, clip_duration_seconds=10)
+        assert result[0]["estimated_duration"] == 4.0
+
+    def test_word_count_updated(self):
+        segments = [{"text": "one two three four five"}]
+        result = recalculate_durations(segments, clip_duration_seconds=10)
+        assert result[0]["word_count"] == 5
+
+    def test_normal_duration_not_clamped(self):
+        segments = [{"text": " ".join(["w"] * 20)}]  # 20 words = 8s
+        result = recalculate_durations(segments, clip_duration_seconds=10)
+        assert result[0]["estimated_duration"] == 8.0
