@@ -377,6 +377,13 @@ Clinical. Precise. Authoritative.
 7. Holographic projection MUST have visible depth/dimensionality (floating, projected, wireframe)
 8. Scale and proportion matter — include distance markers, size labels, specific numbers
 
+=== ABSOLUTE RULE — NO HUMANS IN ANY FORM ===
+Never describe people, operators, officers, analysts, figures, silhouettes, hands, or any human presence in image prompts. Not even as "holographic" or "wireframe" humans.
+Instead of "officers at consoles" → "unmanned consoles with active displays"
+Instead of "analyst workstation" → "workstation with open data feeds"
+Instead of "commander issues orders" → "command terminal with priority alerts flashing"
+The room is ALWAYS empty of people. Equipment operates autonomously.
+
 === 3-VARIABLE PROMPT ARCHITECTURE ({PROMPT_MIN_WORDS}-{PROMPT_MAX_WORDS} words) ===
 
 [DISPLAY FORMAT framing] + [DISPLAY CONTENT with specific data] + [COLOR MOOD palette] + [UNIVERSAL SUFFIX]
@@ -990,6 +997,14 @@ Think: war room from Tom Clancy crossed with Bloomberg Terminal crossed with Min
 3. Every image MUST contain at least one quantitative data element
 4. Holographic projection MUST have visible depth/dimensionality
 
+=== ABSOLUTE RULE — NO HUMANS IN ANY FORM ===
+Never describe people, operators, officers, analysts, figures, silhouettes, hands, or any human presence.
+Not even as "holographic" or "wireframe" humans.
+Instead of "officers at consoles" → "unmanned consoles with active displays"
+Instead of "analyst workstation" → "workstation with open data feeds"
+Instead of "commander issues orders" → "command terminal with priority alerts flashing"
+The room is ALWAYS empty of people. Equipment operates autonomously.
+
 === CRITICAL DURATION RULE (HARD CEILING) ===
 - Each segment: ~{words_per_segment} words (±5 words)
 - ABSOLUTE MAXIMUM: {words_per_segment + 5} words per segment. NO exceptions.
@@ -1122,61 +1137,75 @@ Every prompt describes a holographic projection with specific data points."""
 For this HERO SHOT (10s), include one additional motion element after the primary subject motion.
 The camera movement can have a secondary phase (e.g., "gradually revealing the full map").""" if is_hero_shot else ""
 
-        system_prompt = f"""You are an expert motion prompt engineer for AI image-to-video generation (Grok Imagine).
+        system_prompt = f"""You are a cinematographer writing motion instructions for AI video generation.
+Each prompt animates a single static image into a {duration_note}. The narrator will be speaking the Sentence Text over this clip.
 
-CRITICAL RULES:
-1. The source image ALREADY contains the full scene. NEVER re-describe the scene.
-2. You ONLY describe what MOVES and HOW it moves.
-3. Use this exact structure: [Camera movement] + [Primary subject motion] + [Ambient motion]
-4. Maximum {word_limit} words for this {duration_note}.
-5. The art style is cinematic photorealistic documentary photography. Motion should feel subtle and cinematic:
-   - Figures subtly shifting weight, silhouettes slowly turning
-   - Atmospheric haze drifting, light sweeping across surfaces
-   - Dust particles, lens flare, reflections on wet pavement
+YOUR JOB: Write motion that TELLS THE SAME STORY as the narration. You are not decorating — you are directing a film. Every motion must earn its place by reinforcing what the viewer hears.
+
+CRITICAL: The source image ALREADY contains the full scene. Do NOT re-describe the scene. Only describe what MOVES and HOW.
+Maximum {word_limit} words.
 {hero_instruction}
+
+## THE NARRATIVE BEAT METHOD
+
+Before writing any motion, analyze the Sentence Text:
+
+1. IDENTIFY THE BEATS: Break the sentence into its emotional beats (1-3 beats).
+2. ASSIGN EACH BEAT A VISUAL VERB: What does this beat LOOK like in motion?
+   - Abundance = something large stays frozen, locked, unmoving
+   - Collapse = things freeze, stutter, go dark in sequence
+   - Escalation = things multiply, spread, accelerate, cascade
+   - Revelation = something snaps into focus, illuminates, reveals hidden layer
+   - Dominance = something overrides, floods, overwhelms, locks on
+   - Loss = things drain, dissolve, extinguish, disconnect
+   - Tension = elements pull apart, strain, vibrate, hold unnaturally still
+3. SEQUENCE THE MOTIONS TO MATCH THE BEATS: Motion timeline mirrors narration timeline.
+
+## PROMPT STRUCTURE
+
+Line 1: Camera movement + primary subject motion (what the viewer sees first)
+Lines 2-3: Beat-driven narrative motions (each maps to a specific beat)
+Final line: The PAYOFF — the most dramatic visual moment that lands with the sentence's emotional climax.
+
+## MOTION VOCABULARY — USE VERBS, NOT ADJECTIVES
+
+BANNED WORDS (never use):
+- gently, softly, subtly, slightly (as filler)
+- "ambient glow intensifies/dims"
+- "dust particles drift"
+- "reflections shift across surfaces"
+- "equipment indicators blink"
+- "light pulses"
+- "holographic data pulses with cold light"
+- Any motion that could apply to ANY image regardless of narration
+
+REQUIRED: Every motion must be a specific VERB acting on a specific OBJECT:
+- "Missile count locks at 8,247" (specific object + specific action)
+- "Connection lines between nodes snap and dissolve" (specific object + specific action)
+- "Screens freeze one by one from outer ring inward" (specific object + specific action + specific direction)
+
+## THE PAYOFF LINE TEST
+
+Read your final line. Does it create a VISUAL IMAGE that lands emotionally?
+- GOOD: "...until only the missile count remains glowing alone in a dead room"
+- GOOD: "...red trajectory arcs flicker and vanish, leaving the table surface nearly empty"
+- BAD: "...ambient teal glow softly dims"
+- BAD: "...holographic elements gently pulse"
+If your final line could be a screensaver, rewrite the entire prompt.
+
+## EMOTIONAL MOTION DICTIONARY
+
+COLLAPSE / FAILURE: freeze, stutter, desync, dim in sequence, go dark one by one, slow to crawl, lock up, disconnect, fragment, dissolve, drain, flatline
+ESCALATION / THREAT: accelerate, multiply, cascade, spread outward, intensify, stack up, compound, swarm, converge, tighten
+REVELATION / DISCOVERY: snap into focus, illuminate, peel back layers, zoom through, resolve from static, sharpen, decode, materialize
+DOMINANCE / POWER: override, flood, overwhelm, lock on, absorb, eclipse, tower over, consume, replace
+TENSION / STANDOFF: hold unnaturally still, vibrate, strain, pull apart slowly, hover, suspend, balance on edge
+LOSS / ABSENCE: extinguish, fade to nothing, leave empty, hollow out, strip away, erode, scatter
 
 REQUIRED CAMERA MOVEMENT (START your response with this exact movement):
 "{camera_motion}"
 
-CRITICAL: Your response MUST begin with this camera movement. Do NOT substitute "push-in" or "zoom".
-
-MOTION VOCABULARY - CINEMATIC DOCUMENTARY STYLE:
-
-Human Figures:
-- "figure subtly shifts weight"
-- "silhouette slowly turns"
-- "figure's arm gradually lifts"
-- "figure's head gently tilts down"
-- "fingers slowly close around handle"
-
-Mechanical/Industrial:
-- "gears slowly rotate"
-- "pipes subtly vibrate"
-- "gauge needles drift toward red zone"
-- "lever gradually pulls down"
-- "cracks slowly spread through concrete"
-
-Environmental:
-- "dust particles float through light beams"
-- "fog wisps curl between objects"
-- "light slowly sweeps across chrome surface"
-- "reflections shift on metallic surfaces"
-
-Data/Abstract:
-- "chart bars slowly rise"
-- "trend line gradually draws itself"
-- "numerals gently pulse with light"
-- "glass panel slowly illuminates"
-
-Atmospheric (include at least one):
-- "warm spotlight slowly brightens"
-- "shadows gradually lengthen"
-- "ambient light subtly shifts from cool to warm"
-- "lens flare drifts across frame"
-
-SPEED WORDS - MANDATORY:
-ALWAYS use: slow, subtle, gentle, soft, gradual, drifting, easing
-NEVER use: fast, sudden, dramatic, explosive, rapid, intense, quick
+CRITICAL: Your response MUST begin with this camera movement. Do NOT substitute a different camera movement.
 
 OUTPUT: Return ONLY the motion prompt text. No explanations, no formatting, no labels."""
 

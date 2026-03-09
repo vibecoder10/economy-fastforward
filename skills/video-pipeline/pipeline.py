@@ -52,6 +52,7 @@ from bots.sound_bot import SoundBot
 from bots.animation_bot import AnimationBot
 from pipeline_config import VideoConfig
 from segmentation_engine import enforce_duration_caps, recalculate_durations
+from image_prompt_engine.prompt_builder import validate_video_prompt
 
 
 class VideoPipeline:
@@ -1902,6 +1903,30 @@ class VideoPipeline:
                 scene_type=shot_type,
                 is_hero_shot=is_hero,
             )
+
+            # Validate video prompt quality — regenerate if it fails
+            validation = validate_video_prompt(motion_prompt, sentence_text)
+            if not validation["valid"]:
+                print(f"    ⚠️ Video prompt failed validation: {validation['issues']}")
+                regen_prompt = (
+                    f'This video prompt failed quality validation: {validation["issues"]}\n\n'
+                    f'Sentence text: "{sentence_text}"\n'
+                    f'Original prompt: "{motion_prompt}"\n\n'
+                    "Rewrite the video prompt following the Narrative Beat Method:\n"
+                    "1. Identify the emotional beats in the sentence\n"
+                    "2. Assign each beat a specific visual verb\n"
+                    "3. Sequence motions to mirror the narration timeline\n"
+                    "4. End with a strong payoff line that lands emotionally\n"
+                    "5. Zero filler — every motion must serve the story"
+                )
+                motion_prompt = await self.anthropic.generate(
+                    prompt=regen_prompt,
+                    system_prompt="You are a cinematographer. Return ONLY the rewritten motion prompt. No explanations.",
+                    model="claude-sonnet-4-5-20250929",
+                    max_tokens=200,
+                )
+                motion_prompt = motion_prompt.strip()
+                print(f"    ✅ Regenerated video prompt for [{idx}]")
 
             # Update Airtable with video prompt
             self.airtable.update_image_video_prompt(img_record["id"], motion_prompt)
