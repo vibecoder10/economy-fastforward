@@ -447,6 +447,12 @@ class VideoPipeline:
             done_images = [img for img in done_images if img["id"] in hero_ids]
             print(f"  Heroes-only mode: {len(done_images)} images")
 
+        # Sort by scene and image index for proper camera history ordering
+        done_images = sorted(
+            done_images,
+            key=lambda x: (x.get("Scene", 0), x.get("Image Index", 0)),
+        )
+
         # Skip images that already have video clips
         images_to_process = [img for img in done_images if not img.get("Video")]
         print(f"  Images needing video: {len(images_to_process)}")
@@ -462,6 +468,15 @@ class VideoPipeline:
 
         videos_generated = 0
         actual_cost = 0.0
+
+        # Track camera history for movement rotation
+        camera_history = []
+
+        # Pre-populate camera history from images that already have prompts
+        for img_record in done_images:
+            existing_prompt = img_record.get("Video Prompt", "")
+            if existing_prompt:
+                camera_history.append(detect_camera_movement(existing_prompt))
 
         for i, img_record in enumerate(images_to_process, 1):
             scene = img_record.get("Scene", 0)
@@ -495,7 +510,8 @@ class VideoPipeline:
                     None
                 )
                 scene_type_str = scene_type.value
-            except Exception:
+            except Exception as e:
+                print(f"    ⚠️ Scene type detection failed: {e}")
                 scene_type_str = None
                 camera_role = None
 
@@ -511,7 +527,25 @@ class VideoPipeline:
                     sentence_text=sentence_text,
                     scene_type=scene_type_str,
                     is_hero_shot=is_hero,
+                    prev_cameras=camera_history,
                 )
+
+                # Validate and enforce camera rotation
+                validation = validate_video_prompt(video_prompt, sentence_text, prev_cameras=camera_history)
+                if not validation["camera_ok"]:
+                    blocked = validation.get("camera")
+                    allowed = ", ".join(k for k in CAMERA_MOVEMENTS if k != blocked)
+                    print(f"    ⚠️ Camera repeat detected ({blocked}), regenerating...")
+                    video_prompt = await self.anthropic.generate_video_prompt(
+                        image_prompt=image_prompt,
+                        sentence_text=sentence_text,
+                        scene_type=scene_type_str,
+                        is_hero_shot=is_hero,
+                        prev_cameras=camera_history,
+                    )
+
+                # Track camera for rotation enforcement
+                camera_history.append(detect_camera_movement(video_prompt))
 
                 # Save prompt to Airtable
                 self.airtable.update_image_video_prompt(img_record["id"], video_prompt)
