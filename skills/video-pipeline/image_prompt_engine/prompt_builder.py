@@ -360,6 +360,37 @@ def resolve_scene_accent_color(
 
 
 # ---------------------------------------------------------------------------
+# Camera movement detection — used for rotation enforcement
+# ---------------------------------------------------------------------------
+
+CAMERA_MOVEMENTS: dict[str, list[str]] = {
+    "push-in": ["push-in", "push in", "pushing in", "dolly in", "move closer"],
+    "pull-back": ["pull-back", "pull back", "pulling back", "zoom out", "dolly out", "pulling away"],
+    "lateral-pan": ["lateral pan", "tracking shot", "pan across", "pan left", "pan right", "horizontal track"],
+    "static": ["static shot", "locked-off", "locked off", "fixed camera", "steady shot", "stationary"],
+    "tilt-up": ["tilt up", "tilting up", "crane up", "rising shot"],
+    "tilt-down": ["tilt down", "tilting down", "crane down", "descending shot"],
+    "snap-zoom": ["snap zoom", "fast push", "rapid zoom", "quick zoom", "crash zoom"],
+    "orbital": ["orbital", "rotation", "circling", "orbiting", "rotating around", "arc around", "orbit around"],
+}
+
+
+def detect_camera_movement(prompt: str) -> str:
+    """Detect which camera movement a video prompt uses.
+
+    Scans the prompt text for keywords matching the 8 canonical camera
+    movement types.  Returns the movement key (e.g. ``"push-in"``) or
+    ``"unknown"`` if nothing matches.
+    """
+    prompt_lower = prompt.lower()
+    for movement, keywords in CAMERA_MOVEMENTS.items():
+        for keyword in keywords:
+            if keyword in prompt_lower:
+                return movement
+    return "unknown"
+
+
+# ---------------------------------------------------------------------------
 # Video prompt validation — Banned pattern detector
 # ---------------------------------------------------------------------------
 
@@ -373,11 +404,15 @@ FILLER_PATTERNS = [
 SCREENSAVER_TEST_WORDS = ["gently", "softly", "subtly", "slightly"]
 
 
-def validate_video_prompt(prompt: str, sentence_text: str = "") -> dict:
+def validate_video_prompt(
+    prompt: str,
+    sentence_text: str = "",
+    prev_cameras: list[str] | None = None,
+) -> dict:
     """Validate a video prompt meets narrative quality standards.
 
     Returns a dict with ``valid`` (bool), ``issues`` (list[str]),
-    ``prompt``, and ``sentence``.
+    ``prompt``, ``sentence``, and ``camera`` (detected movement).
     """
     issues: list[str] = []
 
@@ -406,9 +441,21 @@ def validate_video_prompt(prompt: str, sentence_text: str = "") -> dict:
         if sw in last_words:
             issues.append(f"WEAK PAYOFF: Final line contains '{sw}' — rewrite for stronger landing")
 
+    # Camera movement detection and repeat check
+    current_camera = detect_camera_movement(prompt)
+
+    if current_camera == "unknown":
+        issues.append("NO CAMERA MOVEMENT DETECTED: Prompt must open with a clear camera direction")
+
+    if prev_cameras and len(prev_cameras) >= 1 and current_camera == prev_cameras[-1]:
+        issues.append(
+            f"CAMERA REPEAT: '{current_camera}' used on consecutive clips — pick a different movement"
+        )
+
     return {
         "valid": len(issues) == 0,
         "issues": issues,
         "prompt": prompt,
         "sentence": sentence_text,
+        "camera": current_camera,
     }
