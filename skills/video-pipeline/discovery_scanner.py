@@ -200,6 +200,7 @@ INSTRUCTIONS:
 7. Rate each story's appeal (1-10) with breakdown by criterion
 8. Suggest a historical parallel for the research phase
 9. Write a 2-3 sentence hook that creates a curiosity gap
+10. Pick the best-fit analytical framework for each idea from: 48 Laws, Sun Tzu, Machiavelli, Thucydides Trap, Antifragile, Grand Chessboard, Kindleberger Trap, Schelling, Collective Action, Soft Power, Game Theory, Systems Thinking, Propaganda, Behavioral Econ
 
 Return your response as valid JSON following the output format specified
 in your system prompt. No markdown code blocks — raw JSON only.
@@ -529,6 +530,11 @@ def format_ideas_for_slack(result: dict) -> str:
         if angle:
             lines.append(f"  *Angle:* {angle}")
 
+        # Framework
+        framework = idea.get("framework", "")
+        if framework:
+            lines.append(f"  *Framework:* {framework}")
+
         # Historical parallel hint
         parallel = idea.get("historical_parallel_hint", "")
         if parallel:
@@ -716,7 +722,7 @@ def build_idea_record_from_discovery(idea: dict, idea_number: int = 1) -> dict:
             "future_prediction": "",
         },
         # Rich schema fields
-        "Framework Angle": infer_framework_angle(idea),
+        "Framework Angle": idea.get("framework") or infer_framework_angle(idea),
         "Headline": headline_source.split(" — ")[0] if " — " in headline_source else headline_source,
         "Timeliness Score": min(10, max(1, idea.get("estimated_appeal", 7))),
         "Audience Fit Score": min(10, max(1, appeal_breakdown.get("emotional_trigger", 7))),
