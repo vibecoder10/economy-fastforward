@@ -1728,69 +1728,89 @@ class VideoPipeline:
             return {"video_count": 0, "new_status": self.STATUS_READY_THUMBNAIL}
 
         video_count = 0
+        failed_count = 0
         total = len(pending_videos)
         print(f"    Found {total} images needing video generation.")
-        
-        for i, img_record in enumerate(pending_videos, 1):
+
+        # Concurrent generation with semaphore-based rate limiting
+        MAX_CONCURRENT_VIDEOS = 3
+        semaphore = asyncio.Semaphore(MAX_CONCURRENT_VIDEOS)
+        print(f"    Concurrency: {MAX_CONCURRENT_VIDEOS} parallel video generations")
+
+        async def generate_single_video(i, img_record):
+            """Generate, download, upload, and checkpoint a single video clip."""
+            nonlocal video_count, failed_count
+
             scene = img_record.get("Scene", 0)
             index = img_record.get("Image Index", 0)
-            
+
             # Use permanent Drive URL instead of expiring Airtable attachment
             drive_url = img_record.get("Drive Image URL")
             if not drive_url:
                 # Fallback to attachment URL if Drive URL missing (legacy records)
                 image_url_list = img_record.get("Image", [])
                 drive_url = image_url_list[0].get("url") if image_url_list else None
-            
+
             motion_prompt = img_record.get("Video Prompt")
 
             if not drive_url or not motion_prompt:
-                continue
+                return
 
             # Convert to direct download URL for Grok Imagine
             image_url = self.google.get_direct_drive_url(drive_url)
-                
-            print(f"    [{i}/{total}] Generating video for scene {scene}, image {index}...")
-            print(f"      Motion: {motion_prompt}")
 
             # Hero selection: duration > 6s gets 10s clip, otherwise 6s
             segment_duration = img_record.get("Duration (s)", 6.0)
             clip_duration = 10 if segment_duration > 6.0 else 6
 
-            print(f"      Segment: {segment_duration:.1f}s → {clip_duration}s clip{'  (HERO)' if clip_duration == 10 else ''}")
+            async with semaphore:
+                print(f"    [{i}/{total}] Scene {scene}, Image {index} "
+                      f"({segment_duration:.1f}s → {clip_duration}s clip"
+                      f"{'  HERO' if clip_duration == 10 else ''})")
+                print(f"      Motion: {motion_prompt}")
 
-            # Generate video with appropriate duration
-            video_url = await self.image_client.generate_video(image_url, motion_prompt, duration=clip_duration)
-            
-            if video_url:
-                print("      Downloading video content...")
-                video_content = await self.image_client.download_image(video_url)
+                # Generate video with appropriate duration
+                video_url = await self.image_client.generate_video(
+                    image_url, motion_prompt, duration=clip_duration
+                )
 
-                filename = f"Clip_S{str(scene).zfill(2)}_{str(index).zfill(2)}.mp4"
-                print(f"      Uploading {filename} to Drive...")
-                drive_file = self.google.upload_video(
-                    video_content, filename, self.project_folder_id
-                )
-                video_drive_url = self.google.make_file_public(drive_file["id"])
+                if video_url:
+                    print(f"      [{i}/{total}] Downloading video content...")
+                    video_content = await self.image_client.download_image(video_url)
 
-                # Update Airtable — write persistent Drive URL + animation status
-                self.airtable.update_image_video_url(img_record["id"], video_url)
-                self.airtable.update_image_animation_fields(
-                    img_record["id"],
-                    video_clip_url=video_drive_url,
-                    animation_status="Done",
-                    video_duration=clip_duration,
-                )
-                print(f"      ✅ Video saved to Drive ({filename}) and synced!")
-                video_count += 1
-            else:
-                self.airtable.update_image_animation_fields(
-                    img_record["id"],
-                    animation_status="Failed",
-                )
-                print("      ❌ Video generation failed.")
-                
-        print(f"    ✅ Generated {video_count} videos")
+                    filename = f"Clip_S{str(scene).zfill(2)}_{str(index).zfill(2)}.mp4"
+                    print(f"      [{i}/{total}] Uploading {filename} to Drive...")
+                    drive_file = self.google.upload_video(
+                        video_content, filename, self.project_folder_id
+                    )
+                    video_drive_url = self.google.make_file_public(drive_file["id"])
+
+                    # Update Airtable — write persistent Drive URL + animation status
+                    self.airtable.update_image_video_url(img_record["id"], video_url)
+                    self.airtable.update_image_animation_fields(
+                        img_record["id"],
+                        video_clip_url=video_drive_url,
+                        animation_status="Done",
+                        video_duration=clip_duration,
+                    )
+                    print(f"      ✅ [{i}/{total}] Video saved ({filename})")
+                    video_count += 1
+                    del video_content
+                else:
+                    self.airtable.update_image_animation_fields(
+                        img_record["id"],
+                        animation_status="Failed",
+                    )
+                    failed_count += 1
+                    print(f"      ❌ [{i}/{total}] Video generation failed.")
+
+        # Fire all tasks — semaphore limits to MAX_CONCURRENT_VIDEOS at a time
+        await asyncio.gather(
+            *[generate_single_video(i, img) for i, img in enumerate(pending_videos, 1)]
+        )
+
+        print(f"    ✅ Generated {video_count}/{total} videos"
+              f"{f' ({failed_count} failed)' if failed_count else ''}")
 
         if self._is_targeted_run:
             print(f"  🎯 Targeted run — status NOT advanced")
