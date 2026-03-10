@@ -2576,6 +2576,54 @@ class VideoPipeline:
             "thumbnail_text_auto_generated": result.get("thumbnail_text_auto_generated", False),
         }
     
+    def _clean_render_assets(self, label: str = "stale") -> int:
+        """Remove all render assets from disk (public/, captions/, out/).
+
+        Called before each render (to start fresh) and after upload
+        (to free disk space).  Returns the number of files removed.
+        """
+        import glob as glob_mod
+        from pathlib import Path
+
+        remotion_dir = Path(__file__).parent.parent.parent / "remotion-video"
+        public_dir = remotion_dir / "public"
+        captions_dir = remotion_dir / "src" / "captions"
+        out_dir = remotion_dir / "out"
+
+        to_remove: list[str] = []
+
+        if public_dir.exists():
+            to_remove += glob_mod.glob(str(public_dir / "Scene *.mp3"))
+            to_remove += glob_mod.glob(str(public_dir / "Scene_*.png"))
+            to_remove += glob_mod.glob(str(public_dir / "Scene_*.mp4"))
+            to_remove += glob_mod.glob(str(public_dir / "render_config.json"))
+            to_remove += glob_mod.glob(str(public_dir / "props.json"))
+            to_remove += glob_mod.glob(str(public_dir / "sfx" / "*.mp3"))
+
+        if captions_dir.exists():
+            to_remove += glob_mod.glob(str(captions_dir / "Scene *.json"))
+
+        if out_dir.exists():
+            to_remove += glob_mod.glob(str(out_dir / "*.mp4"))
+
+        # Also remove props.json at remotion root
+        props_file = remotion_dir / "props.json"
+        if props_file.exists():
+            to_remove.append(str(props_file))
+
+        removed = 0
+        for f in to_remove:
+            try:
+                os.remove(f)
+                removed += 1
+            except OSError:
+                pass
+
+        if removed:
+            print(f"  🧹 Cleaned {removed} {label} assets from disk")
+
+        return removed
+
     async def run_render_bot(self) -> dict:
         """Render video with Remotion and upload to Google Drive.
 
@@ -2598,35 +2646,10 @@ class VideoPipeline:
             f"Running pre-flight checks, downloading assets, then rendering (concurrency=1, ~60-90 min)..."
         )
 
-        # CLEAN PUBLIC/ DIR — prevents asset contamination between renders
-        # Each video needs its own Scene_XX_XX.png files; stale files from
-        # a previous render would produce wrong visuals or WRONG AUDIO.
+        # CLEAN ALL RENDER ASSETS — start fresh every render
         remotion_dir = Path(__file__).parent.parent.parent / "remotion-video"
         public_dir = remotion_dir / "public"
-        if public_dir.exists():
-            import glob as glob_mod
-            stale_audio = glob_mod.glob(str(public_dir / "Scene *.mp3"))
-            stale_images = glob_mod.glob(str(public_dir / "Scene_*.png"))
-            stale_videos = glob_mod.glob(str(public_dir / "Scene_*.mp4"))
-            stale_config = glob_mod.glob(str(public_dir / "render_config.json"))
-            stale_sfx = glob_mod.glob(str(public_dir / "sfx" / "*.mp3"))
-            removed = 0
-            for f in stale_audio + stale_images + stale_videos + stale_config + stale_sfx:
-                os.remove(f)
-                removed += 1
-            if removed:
-                print(f"  🧹 Cleaned {removed} stale assets from public/")
-
-        # CLEAN CAPTION FILES — audio_sync still writes these for legacy
-        # compatibility. Remove stale ones to avoid confusion between renders.
-        captions_dir = remotion_dir / "src" / "captions"
-        if captions_dir.exists():
-            import glob as glob_mod
-            stale_captions = glob_mod.glob(str(captions_dir / "Scene *.json"))
-            for f in stale_captions:
-                os.remove(f)
-            if stale_captions:
-                print(f"  🧹 Cleaned {len(stale_captions)} stale caption files")
+        self._clean_render_assets(label="pre-render")
 
         # PRE-FLIGHT CHECK: Regenerate any missing/pending images before render
         # This prevents render failures due to missing image files
@@ -3187,6 +3210,12 @@ class VideoPipeline:
             "Final Video URL": drive_url,
         })
         self.airtable.update_idea_status(self.current_idea_id, self.STATUS_RENDERED)
+
+        # Free video content from memory before cleanup
+        del video_content
+
+        # CLEAN ALL RENDER ASSETS — video is safely on Drive now
+        self._clean_render_assets(label="post-upload")
 
         print(f"  ✅ Status updated to: {self.STATUS_RENDERED}")
         print(f"  🔗 Video: {drive_url}")
