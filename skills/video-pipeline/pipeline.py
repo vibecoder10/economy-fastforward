@@ -2734,13 +2734,27 @@ class VideoPipeline:
                 fid = df["id"]
 
                 # Download Scene audio (.mp3), image (.png), and video (.mp4) files
+                # Video clips may use any prefix (Scene_, Clip_S, etc.) — we
+                # detect all .mp4 files and normalize to Scene_XX_YY.mp4 for Remotion.
                 is_audio = fname.startswith("Scene ") and fname.endswith(".mp3")
                 is_image = fname.startswith("Scene_") and fname.endswith(".png")
-                is_video = fname.startswith("Scene_") and fname.endswith(".mp4")
+                is_video = fname.endswith(".mp4")
                 if not is_audio and not is_image and not is_video:
                     continue
 
-                dest = public_dir / fname
+                # Normalize mp4 filenames to Scene_XX_YY.mp4 for Remotion
+                local_fname = fname
+                if is_video and not fname.startswith("Scene_"):
+                    # Extract scene/index numbers from any naming pattern
+                    # e.g. Clip_S01_01.mp4, clip_01_02.mp4, etc.
+                    nums = re.findall(r"(\d+)", fname)
+                    if len(nums) >= 2:
+                        local_fname = f"Scene_{int(nums[0]):02d}_{int(nums[1]):02d}.mp4"
+                    else:
+                        # Can't parse scene/index — skip this mp4
+                        continue
+
+                dest = public_dir / local_fname
                 if dest.exists():
                     # Already downloaded from a previous folder
                     continue
@@ -2792,9 +2806,10 @@ class VideoPipeline:
 
         # ── Patch render_config with video clip data ──────────────────
         # The render_config from audio_sync marks all entries as type="image".
-        # For any downloaded .mp4 files, patch the matching render_config entry
-        # to type="video" so Remotion uses <OffthreadVideo> instead of <Img>.
-        if video_clip_count > 0 and "renderConfig" in props:
+        # For any .mp4 files on disk (newly downloaded OR from a previous run),
+        # patch the matching render_config entry to type="video" so Remotion
+        # uses <OffthreadVideo> instead of <Img>.
+        if "renderConfig" in props:
             rc_data = props["renderConfig"]
             import glob as _glob_mod
             downloaded_mp4s = _glob_mod.glob(str(public_dir / "Scene_*.mp4"))
@@ -3007,11 +3022,15 @@ class VideoPipeline:
 
         scene_count = len(props.get("scenes", []))
 
-        # Video clip status line
-        if video_clip_count > 0:
-            video_info = f"\n🎬 Video clips: {video_clip_count} animated, {image_count} static images"
-        elif image_count > 0:
-            video_info = f"\n🖼️ {image_count} static images (no video clips)"
+        # Video clip status line — count from render_config (includes
+        # pre-existing mp4s on disk, not just newly downloaded ones)
+        rc_scenes = props.get("renderConfig", {}).get("scenes", [])
+        actual_video_count = sum(1 for s in rc_scenes if s.get("type") == "video")
+        actual_image_count = sum(1 for s in rc_scenes if s.get("type") != "video")
+        if actual_video_count > 0:
+            video_info = f"\n🎬 Video clips: {actual_video_count} animated, {actual_image_count} static images"
+        elif actual_image_count > 0:
+            video_info = f"\n🖼️ {actual_image_count} static images (no video clips)"
         else:
             video_info = ""
 
