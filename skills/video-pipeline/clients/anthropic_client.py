@@ -1,6 +1,7 @@
 """Anthropic Claude API client for script and prompt generation."""
 
 import os
+import re
 from anthropic import Anthropic
 from typing import Optional, List, Dict, Tuple
 
@@ -1151,6 +1152,7 @@ Each prompt animates a single static image into a {duration_note}. The narrator 
 YOUR JOB: Write motion that LITERALLY ENACTS the verb in the narration. You are not decorating — you are directing a film.
 
 CRITICAL: The source image ALREADY contains the full scene. Do NOT re-describe the scene. Only describe what MOVES and HOW.
+CRITICAL: NEVER include human figures, faces, hands, fingers, silhouettes, or any body parts. All motion must be on data displays, charts, indicators, maps, and holographic elements — NEVER on people.
 Maximum {word_limit} words.
 {hero_instruction}
 
@@ -1268,8 +1270,23 @@ If camera is "Static shot", you may have up to 2 subject actions."""
             max_tokens=200,
         )
 
-        # Prepend the camera motion to guarantee format
+        # Prepend the camera motion to guarantee format.
+        # Strip any leading camera prefix Claude may have included to avoid
+        # duplication like "Static shot. Static wide shot."
         subject_motion = response.strip()
+        subject_motion = re.sub(
+            r"^(?:Static\s+(?:wide\s+)?shot|Camera\s+(?:is\s+)?static)[.,:]?\s*",
+            "",
+            subject_motion,
+            flags=re.IGNORECASE,
+        )
         if camera_motion == "Static shot":
             return f"Static shot. {subject_motion}"
+        # Also strip if Claude echoed the non-static camera direction
+        subject_motion = re.sub(
+            r"^" + re.escape(camera_motion) + r"[.,:]?\s*",
+            "",
+            subject_motion,
+            flags=re.IGNORECASE,
+        )
         return f"{camera_motion}. {subject_motion}"

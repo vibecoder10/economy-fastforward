@@ -162,9 +162,23 @@ class TestAnimatedElementCount:
         assert count <= 2
 
     def test_camera_plus_one_action(self):
-        prompt = "Slow push-in toward the central node. Connection lines snap and dissolve."
+        prompt = "Slow push-in toward the central node. Connection lines snap apart."
         count = count_animated_elements(prompt)
-        assert count <= 2
+        assert count == 2  # 1 camera (push-in) + 1 subject (snap)
+
+    def test_compound_prompt_over_limit(self):
+        """Compound prompts with 3+ camera motions and multiple actions should exceed 2."""
+        prompt = (
+            "Push-in on dormant OODA diagram as first node—Observe—flares electric blue, "
+            "camera drifting right as Orient ignites amber, continuing lateral-pan as "
+            "Decide burns white-hot, accelerating into Act glowing crimson, then feedback "
+            "arrows explode outward in synchronized pulse, snapping connections tight, "
+            "completing the circuit as camera punches forward into the loop's blazing core"
+        )
+        count = count_animated_elements(prompt)
+        assert count > 2
+        valid, _ = validate_max_actions(prompt)
+        assert valid is False
 
     def test_validate_max_actions_passes(self):
         prompt = "Static wide shot. Route lines draw themselves across the map."
