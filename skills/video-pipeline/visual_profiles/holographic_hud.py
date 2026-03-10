@@ -17,6 +17,7 @@ from visual_profiles.schema import (
     RotationConfig,
     SceneDescriptionConfig,
     StyleSystemConfig,
+    TemplateMetadata,
     ThumbnailConfig,
     VisualProfile,
 )
@@ -693,6 +694,54 @@ _RAW = {
 
 
 # =============================================================================
+# Section 11: Template Metadata (StoryEngine)
+# =============================================================================
+
+_TEMPLATE_METADATA = TemplateMetadata(
+    display_name="Holographic Intelligence Display",
+    category="documentary",
+    tags=["dark", "holographic", "data", "intelligence", "geopolitics", "military", "HUD"],
+    description=(
+        "Dark high-security intelligence operations center with holographic "
+        "projections. War room meets Bloomberg Terminal meets Minority Report. "
+        "Zero human figures — every frame is pure analytical data visualization. "
+        "8 content types, 5 display formats, 6 color moods create infinite "
+        "visual variety. Best for: geopolitics, military analysis, economic data, "
+        "investigative journalism."
+    ),
+    preview_prompts=[
+        (
+            "Overhead angled view of a holographic war table surface projecting "
+            "a geographic map of the South China Sea with route lines and position "
+            "markers, cool teal and cyan holographic light against dark background, "
+            "clinical intelligence aesthetic, no people visible, dark operations "
+            "room, photorealistic, 16:9"
+        ),
+        (
+            "Front-facing view of a massive holographic wall display showing "
+            "financial terminal data with candlestick charts spiking violently, "
+            "red and amber warning colors dominating, emergency alert aesthetic, "
+            "pulsing warning indicators, dark operations room, 16:9"
+        ),
+        (
+            "Eye-level view of holographic objects floating in dark space showing "
+            "two military assets in wireframe comparison, deep navy blue and steel "
+            "holographic wireframes with clean white labels, military precision "
+            "aesthetic, dark operations room, 16:9"
+        ),
+    ],
+    best_for=["geopolitics", "military analysis", "economic data", "investigative journalism"],
+    cost_tier="low",
+    estimated_cost_per_video={
+        "10min_no_animation": 1.20,
+        "10min_with_animation": 5.00,
+        "20min_no_animation": 2.00,
+        "20min_with_animation": 10.00,
+    },
+)
+
+
+# =============================================================================
 # PROFILE — the single export
 # =============================================================================
 
@@ -706,5 +755,6 @@ PROFILE = VisualProfile(
     animation=_ANIMATION,
     thumbnail=_THUMBNAIL,
     ken_burns=_KEN_BURNS,
+    template_metadata=_TEMPLATE_METADATA,
     raw=_RAW,
 )

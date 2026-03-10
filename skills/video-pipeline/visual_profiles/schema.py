@@ -198,6 +198,19 @@ class KenBurnsConfig:
 
 
 @dataclass
+class TemplateMetadata:
+    """StoryEngine template metadata — what customers see during onboarding."""
+    display_name: str = ""
+    category: str = "documentary"
+    tags: list[str] = field(default_factory=list)
+    description: str = ""
+    preview_prompts: list[str] = field(default_factory=list)
+    best_for: list[str] = field(default_factory=list)
+    cost_tier: str = "mid"  # "low" ($2-4), "mid" ($8-12), "high" ($15-20)
+    estimated_cost_per_video: dict[str, float] = field(default_factory=dict)
+
+
+@dataclass
 class VisualProfile:
     """Complete visual identity profile for a channel/style.
 
@@ -220,6 +233,7 @@ class VisualProfile:
     animation: AnimationConfig = field(default_factory=AnimationConfig)
     thumbnail: ThumbnailConfig = field(default_factory=ThumbnailConfig)
     ken_burns: KenBurnsConfig = field(default_factory=KenBurnsConfig)
+    template_metadata: TemplateMetadata = field(default_factory=TemplateMetadata)
 
     # Raw profile data for sections that need enum-based configs
     # (e.g. content types, display formats, color moods with their
