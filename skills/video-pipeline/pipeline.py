@@ -2079,16 +2079,29 @@ class VideoPipeline:
             if video_url:
                 print("      Downloading video content...")
                 video_content = await self.image_client.download_image(video_url)
-                
-                filename = f"Scene_{str(scene).zfill(2)}_{str(index).zfill(2)}.mp4"
+
+                filename = f"Clip_S{str(scene).zfill(2)}_{str(index).zfill(2)}.mp4"
                 print(f"      Uploading {filename} to Drive...")
-                self.google.upload_video(video_content, filename, self.project_folder_id)
-                
-                # Update Airtable
+                drive_file = self.google.upload_video(
+                    video_content, filename, self.project_folder_id
+                )
+                video_drive_url = self.google.make_file_public(drive_file["id"])
+
+                # Update Airtable — write persistent Drive URL + animation status
                 self.airtable.update_image_video_url(img_record["id"], video_url)
-                print("      ✅ Video saved and synced!")
+                self.airtable.update_image_animation_fields(
+                    img_record["id"],
+                    video_clip_url=video_drive_url,
+                    animation_status="Done",
+                    video_duration=clip_duration,
+                )
+                print(f"      ✅ Video saved to Drive ({filename}) and synced!")
                 video_count += 1
             else:
+                self.airtable.update_image_animation_fields(
+                    img_record["id"],
+                    animation_status="Failed",
+                )
                 print("      ❌ Video generation failed.")
                 
         print(f"    ✅ Generated {video_count} videos")
