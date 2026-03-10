@@ -3,10 +3,26 @@
 Re-exports all constants from image_prompt_engine.style_config and adds
 legacy compatibility constants for the animation pipeline.
 
+When a visual profile is loaded, style constants are read from the profile.
+Falls back to hardcoded defaults when no profile is available.
+
 Version: 4.0 (Mar 2026) — Holographic Intelligence Display system
 """
 
 from typing import List, Tuple
+
+
+# ---------------------------------------------------------------------------
+# Profile integration — thin adapter with hardcoded fallbacks
+# ---------------------------------------------------------------------------
+
+def _get_profile():
+    """Return the active visual profile, or None."""
+    try:
+        from visual_profiles import load_profile
+        return load_profile()
+    except Exception:
+        return None
 
 # Import all holographic constants from the canonical source
 from image_prompt_engine.style_config import (
@@ -142,6 +158,22 @@ STYLE_ENGINE_SUFFIX = (
 )
 
 STYLE_ENGINE = f"{STYLE_ENGINE_PREFIX} {STYLE_ENGINE_SUFFIX}"
+
+
+def get_style_engine_prefix() -> str:
+    """Get style prefix from active profile or hardcoded default."""
+    profile = _get_profile()
+    if profile and profile.raw.get("style_engine_prefix"):
+        return profile.raw["style_engine_prefix"]
+    return STYLE_ENGINE_PREFIX
+
+
+def get_style_engine_suffix() -> str:
+    """Get style suffix from active profile or hardcoded default."""
+    profile = _get_profile()
+    if profile and profile.raw.get("style_engine_suffix"):
+        return profile.raw["style_engine_suffix"]
+    return STYLE_ENGINE_SUFFIX
 
 ANONYMOUS_FIGURE_STYLE = (
     "No human figures allowed. Use measurement icons or labeled silhouette "

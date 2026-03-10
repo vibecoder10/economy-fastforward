@@ -3,7 +3,23 @@ Configuration constants for the audio sync pipeline.
 
 Timing rules, thresholds, and Ken Burns defaults used across
 all audio_sync submodules.
+
+When a visual profile is loaded, Ken Burns config reads from the profile.
+Falls back to hardcoded defaults when no profile is available.
 """
+
+
+# ---------------------------------------------------------------------------
+# Profile integration — thin adapter with hardcoded fallbacks
+# ---------------------------------------------------------------------------
+
+def _get_profile():
+    """Return the active visual profile, or None."""
+    try:
+        from visual_profiles import load_profile
+        return load_profile()
+    except Exception:
+        return None
 
 # ---------------------------------------------------------------------------
 # Timing rules (seconds)
@@ -63,6 +79,31 @@ COMPOSITION_DIRECTION_MAP: dict[str, str] = {
     "overhead":      "slow_zoom_in",
     "low_angle":     "slow_tilt_up",
 }
+
+
+def get_ken_burns_presets() -> dict[str, dict]:
+    """Get Ken Burns presets from active profile or hardcoded default."""
+    profile = _get_profile()
+    if profile:
+        return profile.ken_burns.presets
+    return KEN_BURNS_PRESETS
+
+
+def get_composition_direction_map() -> dict[str, str]:
+    """Get composition direction map from active profile or hardcoded default."""
+    profile = _get_profile()
+    if profile:
+        return profile.ken_burns.direction_map
+    return COMPOSITION_DIRECTION_MAP
+
+
+def get_ken_burns_base_duration() -> float:
+    """Get Ken Burns base duration from active profile or hardcoded default."""
+    profile = _get_profile()
+    if profile:
+        return profile.ken_burns.base_duration
+    return KEN_BURNS_BASE_DURATION
+
 
 # ---------------------------------------------------------------------------
 # Render defaults

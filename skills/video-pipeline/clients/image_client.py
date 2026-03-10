@@ -1,9 +1,49 @@
-"""Image generation client using Kie.ai API."""
+"""Image generation client using Kie.ai API.
+
+When a visual profile is loaded, model selection reads from the profile.
+Falls back to hardcoded defaults when no profile is available.
+"""
 
 import os
 import httpx
 from typing import Optional
 import asyncio
+
+
+def _get_profile():
+    """Return the active visual profile, or None."""
+    try:
+        from visual_profiles import load_profile
+        return load_profile()
+    except Exception:
+        return None
+
+
+def _scene_model_from_profile() -> str:
+    """Get scene model from active profile or hardcoded default."""
+    profile = _get_profile()
+    if profile:
+        return profile.image_gen.scene_model
+    return "z-image"
+
+
+def _thumbnail_model_from_profile() -> str:
+    """Get thumbnail model from active profile or hardcoded default."""
+    profile = _get_profile()
+    if profile:
+        return profile.image_gen.thumbnail_model
+    return "nano-banana-pro"
+
+
+def _valid_scene_models_from_profile() -> dict:
+    """Get valid scene models from active profile or hardcoded default."""
+    profile = _get_profile()
+    if profile and profile.raw.get("valid_scene_models"):
+        return profile.raw["valid_scene_models"]
+    return {
+        "z-image": "Z Image (default — holographic display, $0.004/img)",
+        "nano-banana-2": "Nano Banana 2 (legacy — reference support, $0.025/img)",
+    }
 
 
 class ImageClient:
@@ -18,19 +58,16 @@ class ImageClient:
     VEO_RECORD_INFO_URL = "https://api.kie.ai/api/v1/veo/record-info"
     VEO_1080P_URL = "https://api.kie.ai/api/v1/veo/get-1080p-video"
 
-    # Model routing (v4 — Holographic Intelligence Display)
-    SCENE_MODEL = "z-image"  # Z Image — primary scene images ($0.004/img)
-    THUMBNAIL_MODEL = "nano-banana-pro"  # Nano Banana Pro for thumbnails - text rendering
+    # Model routing — reads from profile with hardcoded fallbacks
+    SCENE_MODEL = _scene_model_from_profile()
+    THUMBNAIL_MODEL = _thumbnail_model_from_profile()
 
     # Alternative scene image models (hot-swappable via Slack !model command)
     ZIMAGE_MODEL = "z-image"  # Z Image — high-quality image generation
     NANO_BANANA_MODEL = "nano-banana-2"  # Nano Banana 2 — legacy/reference support
 
     # Valid scene image models for hot-swap validation
-    VALID_SCENE_MODELS = {
-        "z-image": "Z Image (default — holographic display, $0.004/img)",
-        "nano-banana-2": "Nano Banana 2 (legacy — reference support, $0.025/img)",
-    }
+    VALID_SCENE_MODELS = _valid_scene_models_from_profile()
 
     # Veo 3.1 models
     VEO_MODEL_FAST = "veo3_fast"  # Faster, lower cost
