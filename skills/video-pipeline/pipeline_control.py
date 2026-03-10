@@ -214,11 +214,7 @@ async def handle_help(message, say):
 - `video generate` — Generate video clips from motion prompts
 - `video generate 1,1` — Only scene 1, image 1
 
-*9. Animation (~$0.10/clip)*
-- `animation` / `animate` — Generate animation clips from images
-- `animation 3,2` — Only scene 3, image 2
-
-*10. Thumbnail*
+*9. Thumbnail*
 - `thumbnail` — Generate YouTube thumbnail
 
 *11. Render*
@@ -522,7 +518,7 @@ async def handle_queue(message, say):
             "Ready For Image Prompts", "Ready For Images",
             "Ready For Sound Design", "Ready For Sound Effects",
             "Ready For Video Scripts", "Ready For Video Generation",
-            "Ready For Animation", "Ready For Thumbnail",
+            "Ready For Thumbnail",
             "Done", "Ready To Render", "Rendered", "In Que",
         ]
 
@@ -564,7 +560,7 @@ async def handle_skip(message, say):
             "Idea Logged", "Ready For Scripting", "Ready For Voice",
             "Ready For Image Prompts", "Ready For Images",
             "Ready For Video Scripts", "Ready For Video Generation",
-            "Ready For Animation", "Ready For Thumbnail",
+            "Ready For Thumbnail",
             "Ready To Render", "Done",
         ]
 
@@ -724,43 +720,6 @@ async def handle_script(message, say):
     except Exception as e:
         await say(f":x: Error: {e}")
 
-
-@app.message(re.compile(r"run animation", re.IGNORECASE))
-@app.message(re.compile(r"^animation(?:\s+[\d,]+)?$", re.IGNORECASE))
-@app.message(re.compile(r"^animate(?:\s+[\d,]+)?$", re.IGNORECASE))
-async def handle_animate(message, say):
-    """Run the animation bot (YouTube pipeline — generates video clips from images)."""
-    global current_process
-    if current_process:
-        await say(f":x: Already running `{current_task_name}`. Use `stop` to cancel it first.")
-        return
-
-    scene, image = _parse_target(message.get("text", ""), "animation")
-    if scene is None and image is None:
-        # Try parsing "animate X,Y" as well
-        scene, image = _parse_target(message.get("text", ""), "animate")
-    target_msg = _format_target_msg(scene, image)
-    await say(f":movie_camera: Starting animation bot{target_msg}... (~$0.10/clip)")
-
-    try:
-        returncode, stdout, stderr = await run_script_async(
-            "run_animation_bot.py", "animation", say, timeout=3600,
-            extra_args=_target_args(scene, image),
-        )
-
-        if returncode == 0:
-            output = stdout[-3000:] if len(stdout) > 3000 else stdout
-            await say(f":white_check_mark: Animation complete!\n```{output}```")
-        else:
-            error = stderr[-1500:] if len(stderr) > 1500 else stderr
-            await say(f":x: Animation error:\n```{error}```")
-
-    except subprocess.TimeoutExpired:
-        await say(":warning: Animation timed out after 60 minutes")
-    except asyncio.CancelledError:
-        await say(":stop_sign: Animation was stopped")
-    except Exception as e:
-        await say(f":x: Error: {e}")
 
 
 @app.message(re.compile(r"run video prompts", re.IGNORECASE))
@@ -2302,7 +2261,6 @@ Available commands (return one of these EXACTLY):
 - "thumbnail" — generate a thumbnail
 - "render" — render the video
 - "upload" — upload a rendered video to YouTube as unlisted draft
-- "animate" — run animation pipeline
 - "analytics" — sync YouTube performance metrics (views, CTR, retention) to Airtable
 - "analyze" — run weekly performance analysis (title formulas, topics, velocity, retention insights)
 - "discover" — scan headlines for new video ideas
@@ -2437,7 +2395,6 @@ async def handle_fallback(event, say):
         "analytics": handle_analytics,
         "video prompts": handle_video_prompts,
         "video generate": handle_video_generate,
-        "animate": handle_animate,
         "discover": handle_discover,
         "stop": handle_stop,
         "status": handle_status,
@@ -2569,7 +2526,6 @@ _TASK_HANDLER_MAP.update({
     "analytics": handle_analytics,
     "video prompts": handle_video_prompts,
     "video generate": handle_video_generate,
-    "animation": handle_animate,
 })
 
 
@@ -2579,7 +2535,7 @@ async def main():
     print("PIPELINE CONTROL BOT")
     print("=" * 60)
     print("\nPipeline steps: discover > research > script > voice > prompts > images >")
-    print("  sync > video prompts > video generate > animate > thumbnail > render > upload")
+    print("  sync > video prompts > video generate > thumbnail > render > upload")
     print("\nCommands (case-insensitive + natural language via AI):")
     print("  run                     - Auto-continue pipeline from current status")
     print("  video prompts / video generate - Manual video steps (~$0.10/clip)")
