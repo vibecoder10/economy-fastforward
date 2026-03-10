@@ -203,5 +203,12 @@ class AnimationBot:
 
         content_type = img_record.get("Content Type", "")
 
-        segment = {"intensity": intensity, "index": img_record.get("Image Index", 0)}
+        # Include Sentence Text for verb-first motion extraction (Rule 1)
+        sentence_text = img_record.get("Sentence Text", "")
+
+        segment = {
+            "intensity": intensity,
+            "index": img_record.get("Image Index", 0),
+            "text": sentence_text,
+        }
         return generate_animation_prompt(segment, content_type, clip_duration)

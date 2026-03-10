@@ -42,7 +42,11 @@ RULE 3 — TWO ACTIONS MAXIMUM PER CLIP
 
 from __future__ import annotations
 
+import logging
 import re
+from typing import Callable, Awaitable, Optional
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -502,6 +506,169 @@ _VERB_MOTION_MAP: dict[str, str] = {
 }
 
 
+# ---------------------------------------------------------------------------
+# Claude Haiku fallback for unknown verbs — long tail coverage
+# ---------------------------------------------------------------------------
+# The _VERB_MOTION_MAP handles common verbs fast. For verbs not in the map,
+# a single Claude Haiku call turns {verb + sentence} into a concrete motion.
+# Cost: ~$0.001 per call. Results are cached per-video so repeat verbs are free.
+# ---------------------------------------------------------------------------
+
+_HAIKU_VERB_PROMPT = (
+    "Given the sentence '{sentence}' and the action verb '{verb}', "
+    "describe ONE concrete visual motion in under 20 words that literally "
+    "enacts this verb on a holographic data display. No camera movement, "
+    "no metaphors, no people. Just the physical motion."
+)
+
+# Per-run cache: verb -> motion description (avoids repeat API calls within one video)
+_verb_motion_cache: dict[str, str] = {}
+
+# Track total Haiku fallback calls for cost logging
+_haiku_call_count: int = 0
+_haiku_input_tokens: int = 0
+_haiku_output_tokens: int = 0
+
+
+def clear_verb_motion_cache() -> None:
+    """Clear the per-run verb motion cache. Call between videos."""
+    global _haiku_call_count, _haiku_input_tokens, _haiku_output_tokens
+    _verb_motion_cache.clear()
+    _haiku_call_count = 0
+    _haiku_input_tokens = 0
+    _haiku_output_tokens = 0
+
+
+def get_verb_motion_cache_stats() -> dict:
+    """Return stats on Haiku fallback usage for cost logging."""
+    return {
+        "cache_size": len(_verb_motion_cache),
+        "haiku_calls": _haiku_call_count,
+        "haiku_input_tokens": _haiku_input_tokens,
+        "haiku_output_tokens": _haiku_output_tokens,
+        "estimated_cost_usd": round(_haiku_call_count * 0.001, 4),
+    }
+
+
+async def resolve_verb_motion_async(
+    verb: str,
+    sentence_text: str,
+    anthropic_client: Optional[object] = None,
+) -> str:
+    """Resolve a verb to a motion description, using Claude Haiku for unknown verbs.
+
+    Lookup order:
+    1. _VERB_MOTION_MAP (instant, free)
+    2. _verb_motion_cache (instant, previously resolved)
+    3. Claude Haiku API call (async, ~$0.001)
+
+    Args:
+        verb: The extracted verb from sentence text.
+        sentence_text: Full sentence for context.
+        anthropic_client: An AnthropicClient instance with a generate() method.
+            If None, falls back to empty string (no API call).
+
+    Returns:
+        A concrete motion description string, or empty string if resolution fails.
+    """
+    global _haiku_call_count, _haiku_input_tokens, _haiku_output_tokens
+
+    if not verb:
+        return ""
+
+    # 1. Check static map
+    motion = _VERB_MOTION_MAP.get(verb, "")
+    if motion:
+        return motion
+
+    # 2. Check per-run cache
+    if verb in _verb_motion_cache:
+        return _verb_motion_cache[verb]
+
+    # 3. Claude Haiku fallback
+    if anthropic_client is None:
+        logger.debug("No anthropic_client provided, skipping Haiku fallback for verb '%s'", verb)
+        return ""
+
+    try:
+        prompt = _HAIKU_VERB_PROMPT.format(sentence=sentence_text, verb=verb)
+        response = await anthropic_client.generate(
+            prompt=prompt,
+            system_prompt="You describe visual motion for holographic data displays. Return ONLY the motion description, nothing else.",
+            model="claude-haiku-4-5-20251001",
+            max_tokens=60,
+            temperature=0.3,
+        )
+        motion = response.strip().rstrip(".")  + "."
+        # Cache for this run
+        _verb_motion_cache[verb] = motion
+        _haiku_call_count += 1
+        # Rough token estimate for cost tracking
+        _haiku_input_tokens += len(prompt.split()) + 20  # ~system prompt
+        _haiku_output_tokens += len(motion.split())
+        logger.info(
+            "Haiku verb fallback: '%s' -> '%s' (call #%d, ~$%.4f total)",
+            verb, motion, _haiku_call_count, _haiku_call_count * 0.001,
+        )
+        return motion
+    except Exception as e:
+        logger.warning("Haiku verb fallback failed for '%s': %s", verb, e)
+        return ""
+
+
+# ---------------------------------------------------------------------------
+# Verbless streak detection — quality warning
+# ---------------------------------------------------------------------------
+# When 3+ consecutive clips extract no verb, it means the script isn't
+# giving the engine enough action language. Log a warning and return
+# the streak info so callers can notify via Slack.
+# ---------------------------------------------------------------------------
+
+VERBLESS_STREAK_THRESHOLD = 3
+
+
+def detect_verbless_streaks(
+    results: list[dict],
+) -> list[dict]:
+    """Find runs of 3+ consecutive clips with no extracted verb.
+
+    Args:
+        results: Output of generate_prompts_for_segments.
+
+    Returns:
+        List of dicts with "start_index", "end_index", "length" for each streak.
+    """
+    streaks: list[dict] = []
+    streak_start: int | None = None
+    streak_len = 0
+
+    for r in results:
+        if not r.get("core_verb"):
+            if streak_start is None:
+                streak_start = r["segment_index"]
+            streak_len += 1
+        else:
+            if streak_len >= VERBLESS_STREAK_THRESHOLD and streak_start is not None:
+                streaks.append({
+                    "start_index": streak_start,
+                    "end_index": r["segment_index"] - 1,
+                    "length": streak_len,
+                })
+            streak_start = None
+            streak_len = 0
+
+    # Handle streak at end of results
+    if streak_len >= VERBLESS_STREAK_THRESHOLD and streak_start is not None:
+        last_idx = results[-1]["segment_index"] if results else 0
+        streaks.append({
+            "start_index": streak_start,
+            "end_index": last_idx,
+            "length": streak_len,
+        })
+
+    return streaks
+
+
 def generate_animation_prompt(
     segment: dict,
     image_content_type: str = "",
@@ -580,7 +747,10 @@ def generate_prompts_for_segments(
     content_types: dict[int, str] | None = None,
     clip_duration: int = 10,
 ) -> list[dict]:
-    """Generate animation prompts for all segments.
+    """Generate animation prompts for all segments (sync, map-only).
+
+    Uses only _VERB_MOTION_MAP for verb resolution. For Claude Haiku fallback
+    on unknown verbs, use generate_prompts_for_segments_async() instead.
 
     Args:
         segments: List of segment dicts from segmentation engine.
@@ -596,7 +766,7 @@ def generate_prompts_for_segments(
 
     Returns:
         List of dicts with segment index, clip_duration, camera_purpose,
-        core_verb, and animation_prompt.
+        core_verb, verb_source, and animation_prompt.
     """
     if content_types is None:
         content_types = {}
@@ -609,12 +779,144 @@ def generate_prompts_for_segments(
         prompt = generate_animation_prompt(seg, ct, seg_clip_duration)
 
         sentence_text = seg.get("text", "")
+        verb = extract_core_verb(sentence_text)
+        verb_source = "map" if (verb and verb in _VERB_MOTION_MAP) else ("extracted" if verb else "none")
         results.append({
             "segment_index": idx,
             "intensity": seg.get("intensity", "low"),
             "clip_duration": seg_clip_duration,
             "animation_prompt": prompt,
             "camera_purpose": classify_camera_purpose(sentence_text),
-            "core_verb": extract_core_verb(sentence_text),
+            "core_verb": verb,
+            "verb_source": verb_source,
         })
     return results
+
+
+async def generate_prompts_for_segments_async(
+    segments: list[dict],
+    content_types: dict[int, str] | None = None,
+    clip_duration: int = 10,
+    anthropic_client: Optional[object] = None,
+) -> tuple[list[dict], list[dict]]:
+    """Generate animation prompts with Claude Haiku fallback for unknown verbs.
+
+    Like generate_prompts_for_segments but resolves unknown verbs via a single
+    Claude Haiku API call (~$0.001 each). Results are cached per-run so
+    the same verb doesn't trigger multiple calls.
+
+    Call clear_verb_motion_cache() between videos to reset the cache.
+
+    Args:
+        segments: Segment dicts (see generate_prompts_for_segments).
+        content_types: Content type mapping (see generate_prompts_for_segments).
+        clip_duration: Default clip duration.
+        anthropic_client: AnthropicClient instance for Haiku fallback.
+
+    Returns:
+        Tuple of (results, verbless_streaks).
+        results: List of prompt dicts (same as sync version + verb_source field).
+        verbless_streaks: List of streaks where 3+ clips had no verb.
+    """
+    if content_types is None:
+        content_types = {}
+
+    results = []
+    for seg in segments:
+        idx = seg["index"]
+        ct = content_types.get(idx, _DEFAULT_CONTENT_TYPE)
+        seg_clip_duration = seg.get("clip_duration", clip_duration)
+        sentence_text = seg.get("text", "")
+
+        # Extract verb
+        verb = extract_core_verb(sentence_text)
+
+        # Check if verb has a map entry
+        verb_motion = _VERB_MOTION_MAP.get(verb, "") if verb else ""
+        verb_source = "none"
+
+        if verb and not verb_motion:
+            # Verb extracted but not in map — try Haiku fallback
+            verb_motion = await resolve_verb_motion_async(
+                verb, sentence_text, anthropic_client
+            )
+            if verb_motion:
+                verb_source = "haiku"
+            else:
+                verb_source = "extracted"
+        elif verb_motion:
+            verb_source = "map"
+
+        # Generate the prompt (will use map if verb is in _VERB_MOTION_MAP)
+        prompt = generate_animation_prompt(seg, ct, seg_clip_duration)
+
+        # If Haiku resolved a motion not in the map, patch the prompt
+        if verb_source == "haiku" and verb_motion:
+            # Replace the generic template motion with Haiku's motion
+            prompt = _patch_prompt_with_verb_motion(prompt, verb_motion)
+
+        results.append({
+            "segment_index": idx,
+            "intensity": seg.get("intensity", "low"),
+            "clip_duration": seg_clip_duration,
+            "animation_prompt": prompt,
+            "camera_purpose": classify_camera_purpose(sentence_text),
+            "core_verb": verb,
+            "verb_source": verb_source,
+        })
+
+    # Detect verbless streaks
+    streaks = detect_verbless_streaks(results)
+    if streaks:
+        for streak in streaks:
+            logger.warning(
+                "VERBLESS STREAK: %d consecutive clips (segments %d-%d) extracted "
+                "no action verb. Script may need stronger action language.",
+                streak["length"], streak["start_index"], streak["end_index"],
+            )
+
+    # Log cache stats
+    stats = get_verb_motion_cache_stats()
+    if stats["haiku_calls"] > 0:
+        logger.info(
+            "Haiku verb fallback stats: %d calls, %d cached, ~$%.4f total cost",
+            stats["haiku_calls"], stats["cache_size"], stats["estimated_cost_usd"],
+        )
+
+    return results, streaks
+
+
+def _patch_prompt_with_verb_motion(prompt: str, verb_motion: str) -> str:
+    """Replace the generic template motion in a prompt with a Haiku-resolved motion.
+
+    Keeps the camera note (if any), boilerplate suffix, and universal rules.
+    Only swaps the content-type template body.
+    """
+    # The prompt structure is:
+    # [camera_note?] Static wide shot. [TEMPLATE MOTION]. [boilerplate]...
+    # We want to replace [TEMPLATE MOTION] with verb_motion.
+
+    # Find where the boilerplate starts
+    boilerplate_marker = "Data labels and text remain stable"
+    marker_pos = prompt.find(boilerplate_marker)
+    if marker_pos < 0:
+        return prompt
+
+    prefix_part = prompt[:marker_pos].strip()
+    suffix_part = prompt[marker_pos:]
+
+    # In the prefix, keep any camera note and "Static wide shot." but replace the rest
+    static_marker = "Static wide shot."
+    static_pos = prefix_part.find(static_marker)
+    if static_pos >= 0:
+        camera_prefix = prefix_part[:static_pos + len(static_marker)]
+        return f"{camera_prefix} {verb_motion} {suffix_part}"
+
+    # If no static marker (camera was added), keep the camera note
+    # and just replace everything after the first sentence
+    first_period = prefix_part.find(". ")
+    if first_period >= 0:
+        camera_prefix = prefix_part[:first_period + 1]
+        return f"{camera_prefix} {verb_motion} {suffix_part}"
+
+    return prompt
