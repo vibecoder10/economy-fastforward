@@ -6,12 +6,19 @@ lectures, missing numbers, absent personal stakes, and weak closes.
 
 Each check returns a ValidationResult. Failed checks produce targeted
 retry prompts that fix the specific issue without full regeneration.
+
+When a ScriptProfile is available, thresholds are read from the profile's
+``validation``, ``number_density``, and ``framework_integration`` sections
+via ``ScriptValidationConfig.from_profile()``.
 """
 
 import logging
 import re
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from script_profiles.schema import ScriptProfile
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +31,8 @@ logger = logging.getLogger(__name__)
 class ScriptValidationConfig:
     """Thresholds for post-generation script validation.
 
-    Can be customized per profile. Defaults match Power Doctrine v2 voice.
+    Defaults match Power Doctrine v2 voice. Use ``from_profile()`` to
+    populate from a loaded ScriptProfile at runtime.
     """
 
     # Check 1: Number density
@@ -49,6 +57,27 @@ class ScriptValidationConfig:
     # Retry settings
     retry_on_fail: bool = True
     max_retries: int = 2
+
+    @classmethod
+    def from_profile(cls, profile: "ScriptProfile") -> "ScriptValidationConfig":
+        """Build config from a ScriptProfile, pulling thresholds from
+        ``profile.validation``, ``profile.number_density``, and
+        ``profile.framework_integration``.
+        """
+        v = profile.validation
+        return cls(
+            number_density_check=v.number_density_check,
+            number_density_min=profile.number_density.minimum_total,
+            framework_density_check=v.framework_max_pct_check,
+            framework_max_pct=profile.framework_integration.max_runtime_pct,
+            personal_stakes_check=v.personal_stakes_presence,
+            personal_stakes_min_score=3,  # no profile field yet — keep default
+            actionable_close_check=v.actionable_ending_check,
+            actionable_close_min_score=2,  # no profile field yet — keep default
+            cliffhanger_check=v.cliffhanger_check,
+            retry_on_fail=v.retry_on_fail,
+            max_retries=v.max_retries,
+        )
 
 
 # Default config instance

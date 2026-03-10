@@ -1043,7 +1043,11 @@ async def generate_script(
         ScriptValidationConfig,
     )
 
-    editorial_config = ScriptValidationConfig()
+    editorial_config = (
+        ScriptValidationConfig.from_profile(profile)
+        if profile is not None
+        else ScriptValidationConfig()
+    )
     if not acts:
         acts = extract_acts(script)
 

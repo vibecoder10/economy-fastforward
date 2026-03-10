@@ -492,3 +492,48 @@ class TestConfig:
         assert config.number_density_min == 10
         assert config.framework_max_pct == 0.25
         assert config.max_retries == 1
+
+    def test_from_profile(self):
+        from script_profiles.schema import (
+            ScriptProfile,
+            ValidationConfig,
+            NumberDensityConfig,
+            FrameworkIntegrationConfig,
+        )
+
+        profile = ScriptProfile(
+            validation=ValidationConfig(
+                number_density_check=True,
+                framework_max_pct_check=False,
+                personal_stakes_presence=True,
+                actionable_ending_check=False,
+                cliffhanger_check=True,
+                retry_on_fail=False,
+                max_retries=5,
+            ),
+            number_density=NumberDensityConfig(minimum_total=25),
+            framework_integration=FrameworkIntegrationConfig(max_runtime_pct=0.10),
+        )
+
+        config = ScriptValidationConfig.from_profile(profile)
+        assert config.number_density_check is True
+        assert config.number_density_min == 25
+        assert config.framework_density_check is False
+        assert config.framework_max_pct == 0.10
+        assert config.personal_stakes_check is True
+        assert config.actionable_close_check is False
+        assert config.cliffhanger_check is True
+        assert config.retry_on_fail is False
+        assert config.max_retries == 5
+
+    def test_from_production_profile(self):
+        """Ensure the production power_doctrine_v2 profile loads correctly."""
+        from script_profiles import load_script_profile
+
+        profile = load_script_profile("power_doctrine_v2")
+        assert profile is not None
+        config = ScriptValidationConfig.from_profile(profile)
+        assert config.number_density_min == 19
+        assert config.framework_max_pct == 0.15
+        assert config.retry_on_fail is True
+        assert config.max_retries == 2
