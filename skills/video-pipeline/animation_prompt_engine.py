@@ -293,11 +293,50 @@ _ELEMENT_COUNT_VERBS = re.compile(
 )
 
 
+# Words that signal a new subject (articles, pronouns, demonstratives).
+# If a clause after "and" starts with one of these + a noun, it's a new
+# subject and counts as a separate action. If the clause starts with a
+# bare verb, it shares the previous subject → compound verb → 1 action.
+_SUBJECT_STARTERS = re.compile(
+    r"^(?:the|a|an|its|their|his|her|our|my|your|this|that|these|those|"
+    r"all|each|every|some|no|any|another|other|"
+    r"[A-Z][a-z]"  # Capitalized noun (proper noun or sentence start)
+    r")\s",
+    re.IGNORECASE,
+)
+
+
+def _is_compound_verb_clause(clause: str) -> bool:
+    """Check if a clause is a bare verb phrase sharing the previous subject.
+
+    "dissolve into fragments" → True (bare verb, shares previous subject)
+    "the display dissolves" → False (has its own subject "the display")
+    "alarms begin pulsing" → False (has its own subject "alarms")
+    """
+    clause = clause.strip()
+    if not clause:
+        return False
+    # If it starts with a subject starter (article/pronoun/demonstrative + noun),
+    # it has its own subject → not a compound verb
+    if _SUBJECT_STARTERS.match(clause):
+        return False
+    # If the first word IS an action verb (or verb form), it's a bare verb
+    # sharing the previous subject
+    first_word = clause.split()[0] if clause.split() else ""
+    if _ELEMENT_COUNT_VERBS.match(first_word):
+        return True
+    return False
+
+
 def count_animated_elements(prompt: str) -> int:
     """Count the number of distinct animated elements in an animation prompt.
 
     Counts each distinct camera motion + each distinct subject action.
     A prompt should have at most 2 animated elements per Rule 3.
+
+    Compound verbs sharing a subject ("snap and dissolve") count as ONE
+    action, not two. A clause after "and" that starts with a bare verb
+    (no new subject) is merged with the previous action.
     """
     if not prompt:
         return 0
@@ -310,8 +349,9 @@ def count_animated_elements(prompt: str) -> int:
     # Split into clauses on conjunctions, em-dashes, semicolons, etc.
     clauses = _ACTION_CLAUSE_SPLIT.split(prompt)
 
-    # Count subject actions: each clause with a non-camera action verb
+    # Count subject actions, merging compound verbs on the same subject
     subject_actions = 0
+    prev_was_subject_action = False
     for clause in clauses:
         clause_stripped = clause.strip()
         if not clause_stripped:
@@ -322,10 +362,18 @@ def count_animated_elements(prompt: str) -> int:
             and len(clause_stripped.split()) < 8
         )
         if is_camera_clause:
+            prev_was_subject_action = False
             continue
         # Check for subject action verbs
         if _ELEMENT_COUNT_VERBS.search(clause_stripped):
+            # If this clause is a bare verb sharing the previous subject,
+            # don't count it as a new action
+            if prev_was_subject_action and _is_compound_verb_clause(clause_stripped):
+                continue  # compound verb — already counted with previous
             subject_actions += 1
+            prev_was_subject_action = True
+        else:
+            prev_was_subject_action = False
 
     total = camera_count + subject_actions
     return max(total, 1) if prompt.strip() else 0

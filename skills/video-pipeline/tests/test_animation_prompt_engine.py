@@ -180,6 +180,29 @@ class TestAnimatedElementCount:
         valid, _ = validate_max_actions(prompt)
         assert valid is False
 
+    def test_compound_verb_same_subject(self):
+        """Two verbs on the same subject via 'and' = 1 action, not 2."""
+        assert count_animated_elements("Connection lines snap and dissolve.") == 1
+
+    def test_compound_verb_flicker_and_fade(self):
+        assert count_animated_elements("Lights flicker and fade to black.") == 1
+
+    def test_compound_verb_freeze_and_shatter(self):
+        assert count_animated_elements("Data streams freeze and shatter into fragments.") == 1
+
+    def test_different_subjects_via_and(self):
+        """Two verbs with different subjects via 'and' = 2 actions."""
+        assert count_animated_elements("Lights flicker and alarms begin pulsing.") == 2
+
+    def test_different_subjects_via_article(self):
+        """'the display dissolves' introduces a new subject."""
+        assert count_animated_elements("Connection lines snap and the display dissolves.") == 2
+
+    def test_camera_plus_compound_verb(self):
+        """1 camera + compound verb = 2 total."""
+        prompt = "Slow push-in toward the central node. Connection lines snap and dissolve."
+        assert count_animated_elements(prompt) == 2
+
     def test_validate_max_actions_passes(self):
         prompt = "Static wide shot. Route lines draw themselves across the map."
         valid, count = validate_max_actions(prompt)
