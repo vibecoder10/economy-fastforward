@@ -230,3 +230,72 @@ class TestCameraRotationVariety:
                 assert detected == movement, (
                     f"Keyword '{keyword}' should detect as '{movement}' but got '{detected}'"
                 )
+
+
+# ---------------------------------------------------------------------------
+# Duration-scaled word count validation
+# ---------------------------------------------------------------------------
+
+
+class TestDurationScaledWordCount:
+    """Minimum word count scales by clip duration to prevent false TOO SHORT rejections."""
+
+    @staticmethod
+    def _words(n: int) -> str:
+        """Generate a prompt with exactly n words, including an action verb."""
+        base = "Static shot. Chart line draws itself from left to right across the display surface"
+        words = base.split()
+        filler = ["with", "steady", "motion", "toward", "the", "edge", "of", "frame",
+                  "revealing", "each", "data", "point", "along", "the", "trajectory", "path"]
+        while len(words) < n:
+            words.append(filler[len(words) % len(filler)])
+        return " ".join(words[:n])
+
+    def test_6s_clip_26_words_passes(self):
+        """6s clip: 26 words should pass (min ~25)."""
+        prompt = self._words(26)
+        result = validate_video_prompt(prompt, clip_duration_seconds=6)
+        too_short = [i for i in result["issues"] if "TOO SHORT" in i]
+        assert len(too_short) == 0, f"26 words should pass for 6s clip: {too_short}"
+
+    def test_6s_clip_20_words_fails(self):
+        """6s clip: 20 words should fail (min ~25)."""
+        prompt = self._words(20)
+        result = validate_video_prompt(prompt, clip_duration_seconds=6)
+        too_short = [i for i in result["issues"] if "TOO SHORT" in i]
+        assert len(too_short) == 1, "20 words should fail for 6s clip"
+        assert "6s clip" in too_short[0]
+
+    def test_10s_clip_42_words_passes(self):
+        """10s clip: 42 words should pass (min ~42)."""
+        prompt = self._words(42)
+        result = validate_video_prompt(prompt, clip_duration_seconds=10)
+        too_short = [i for i in result["issues"] if "TOO SHORT" in i]
+        assert len(too_short) == 0, f"42 words should pass for 10s clip: {too_short}"
+
+    def test_10s_clip_35_words_fails(self):
+        """10s clip: 35 words should fail (min ~42)."""
+        prompt = self._words(35)
+        result = validate_video_prompt(prompt, clip_duration_seconds=10)
+        too_short = [i for i in result["issues"] if "TOO SHORT" in i]
+        assert len(too_short) == 1, "35 words should fail for 10s clip"
+        assert "10s clip" in too_short[0]
+
+    def test_no_duration_35_words_fails(self):
+        """No duration: 35 words should fail (falls back to 40-word min)."""
+        prompt = self._words(35)
+        result = validate_video_prompt(prompt)
+        too_short = [i for i in result["issues"] if "TOO SHORT" in i]
+        assert len(too_short) == 1, "35 words should fail with no duration (default 40)"
+
+    def test_no_duration_42_words_passes(self):
+        """No duration: 42 words should pass (default 40-word min)."""
+        prompt = self._words(42)
+        result = validate_video_prompt(prompt)
+        too_short = [i for i in result["issues"] if "TOO SHORT" in i]
+        assert len(too_short) == 0, f"42 words should pass with no duration: {too_short}"
+
+    def test_formula_values(self):
+        """Verify the formula: min_words = round(duration * 4.2)."""
+        assert round(6 * 4.2) == 25
+        assert round(10 * 4.2) == 42

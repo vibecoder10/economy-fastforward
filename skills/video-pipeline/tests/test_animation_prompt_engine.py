@@ -162,9 +162,46 @@ class TestAnimatedElementCount:
         assert count <= 2
 
     def test_camera_plus_one_action(self):
-        prompt = "Slow push-in toward the central node. Connection lines snap and dissolve."
+        prompt = "Slow push-in toward the central node. Connection lines snap apart."
         count = count_animated_elements(prompt)
-        assert count <= 2
+        assert count == 2  # 1 camera (push-in) + 1 subject (snap)
+
+    def test_compound_prompt_over_limit(self):
+        """Compound prompts with 3+ camera motions and multiple actions should exceed 2."""
+        prompt = (
+            "Push-in on dormant OODA diagram as first node—Observe—flares electric blue, "
+            "camera drifting right as Orient ignites amber, continuing lateral-pan as "
+            "Decide burns white-hot, accelerating into Act glowing crimson, then feedback "
+            "arrows explode outward in synchronized pulse, snapping connections tight, "
+            "completing the circuit as camera punches forward into the loop's blazing core"
+        )
+        count = count_animated_elements(prompt)
+        assert count > 2
+        valid, _ = validate_max_actions(prompt)
+        assert valid is False
+
+    def test_compound_verb_same_subject(self):
+        """Two verbs on the same subject via 'and' = 1 action, not 2."""
+        assert count_animated_elements("Connection lines snap and dissolve.") == 1
+
+    def test_compound_verb_flicker_and_fade(self):
+        assert count_animated_elements("Lights flicker and fade to black.") == 1
+
+    def test_compound_verb_freeze_and_shatter(self):
+        assert count_animated_elements("Data streams freeze and shatter into fragments.") == 1
+
+    def test_different_subjects_via_and(self):
+        """Two verbs with different subjects via 'and' = 2 actions."""
+        assert count_animated_elements("Lights flicker and alarms begin pulsing.") == 2
+
+    def test_different_subjects_via_article(self):
+        """'the display dissolves' introduces a new subject."""
+        assert count_animated_elements("Connection lines snap and the display dissolves.") == 2
+
+    def test_camera_plus_compound_verb(self):
+        """1 camera + compound verb = 2 total."""
+        prompt = "Slow push-in toward the central node. Connection lines snap and dissolve."
+        assert count_animated_elements(prompt) == 2
 
     def test_validate_max_actions_passes(self):
         prompt = "Static wide shot. Route lines draw themselves across the map."

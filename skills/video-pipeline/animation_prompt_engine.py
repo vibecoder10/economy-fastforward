@@ -249,62 +249,134 @@ def classify_camera_purpose(sentence_text: str) -> str:
 # Patterns that indicate a distinct animated element
 _ANIMATION_ACTION_PATTERNS = [
     re.compile(r"\b(?:push[- ]in|pull[- ]back|zoom (?:in|out)|dolly (?:in|out))\b", re.IGNORECASE),
-    re.compile(r"\b(?:pan (?:left|right|across)|lateral pan|tracking shot)\b", re.IGNORECASE),
+    re.compile(r"\b(?:pan (?:left|right|across)|lateral[- ]pan|tracking shot)\b", re.IGNORECASE),
     re.compile(r"\b(?:tilt (?:up|down)|crane (?:up|down))\b", re.IGNORECASE),
     re.compile(r"\b(?:snap zoom|crash zoom|fast push)\b", re.IGNORECASE),
     re.compile(r"\b(?:orbit(?:al|s|ing)?|rotat(?:e[sd]?|ing|ion))\b", re.IGNORECASE),
+    re.compile(r"\b(?:punch(?:es|ed|ing)?\s+(?:forward|in|out|through))\b", re.IGNORECASE),
+    re.compile(r"\bcamera\s+(?:drift(?:s|ing)?|mov(?:es?|ing)|sweep(?:s|ing)?)\b", re.IGNORECASE),
 ]
 
-# Sentence-splitting pattern to count independent actions
-_ACTION_SENTENCE_SPLIT = re.compile(r"[.;,]\s+(?=[A-Z])")
+# Split on clause boundaries: punctuation, conjunctions, em-dashes, "as", "then", "while"
+_ACTION_CLAUSE_SPLIT = re.compile(
+    r"[.;]\s+"                      # Period or semicolon + space
+    r"|,\s+(?:and\s+|then\s+|as\s+|while\s+|but\s+)?"  # Comma (optionally + conjunction)
+    r"|(?<=[a-z])\s+(?:as|then|while)\s+(?=[a-z])"      # Mid-sentence conjunctions
+    r"|\s*—\s*"                     # Em-dash
+    r"|\s*--\s*"                    # Double-hyphen as em-dash
+    r"|\s+(?:and then|and)\s+(?=[a-z])",                 # "and then" / "and" between clauses
+    re.IGNORECASE,
+)
+
+# Subject action verbs for element counting (broader than _ACTION_VERB_PATTERN)
+_ELEMENT_COUNT_VERBS = re.compile(
+    r"\b(?:"
+    r"extinguish|dissolve|spread|multiply|freeze|lock|snap|sever|cascade|ripple|"
+    r"collapse|explode|shatter|surge|spike|plunge|drain|flood|ignite|crack|tear|"
+    r"burn|melt|assemble|materialize|illuminate|activate|deactivate|"
+    r"draw|scroll|appear|flash|slam|drop|retract|expand|contract|accelerate|"
+    r"decelerate|pulse|flicker|shimmer|glow|flare|"
+    r"snapping|completing|continuing|accelerating|"
+    r"break|sever|detach|fragment|scatter|overwhelm|consume|override|"
+    r"ignit|blaz|erupt|detonate|burst|swarm|converge|"
+    # -s, -ed, -ing forms
+    r"(?:extinguish|dissolv|spread|multipl|freez|lock|snap|sever|cascad|"
+    r"collapse|explod|shatter|surg|spike|plung|drain|flood|ignit|crack|tear|"
+    r"burn|melt|assembl|materializ|illuminat|activat|deactivat|"
+    r"draw|scroll|appear|flash|slam|drop|retract|expand|contract|accelerat|"
+    r"decelerat|puls|flicker|shimmer|glow|flar|"
+    r"break|sever|detach|fragment|scatter|overwhelm|consum|overrid|"
+    r"blaz|erupt|detonat|burst|swarm|converg"
+    r")(?:e[sd]?|s|ing|ed)"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+# Words that signal a new subject (articles, pronouns, demonstratives).
+# If a clause after "and" starts with one of these + a noun, it's a new
+# subject and counts as a separate action. If the clause starts with a
+# bare verb, it shares the previous subject → compound verb → 1 action.
+_SUBJECT_STARTERS = re.compile(
+    r"^(?:the|a|an|its|their|his|her|our|my|your|this|that|these|those|"
+    r"all|each|every|some|no|any|another|other|"
+    r"[A-Z][a-z]"  # Capitalized noun (proper noun or sentence start)
+    r")\s",
+    re.IGNORECASE,
+)
+
+
+def _is_compound_verb_clause(clause: str) -> bool:
+    """Check if a clause is a bare verb phrase sharing the previous subject.
+
+    "dissolve into fragments" → True (bare verb, shares previous subject)
+    "the display dissolves" → False (has its own subject "the display")
+    "alarms begin pulsing" → False (has its own subject "alarms")
+    """
+    clause = clause.strip()
+    if not clause:
+        return False
+    # If it starts with a subject starter (article/pronoun/demonstrative + noun),
+    # it has its own subject → not a compound verb
+    if _SUBJECT_STARTERS.match(clause):
+        return False
+    # If the first word IS an action verb (or verb form), it's a bare verb
+    # sharing the previous subject
+    first_word = clause.split()[0] if clause.split() else ""
+    if _ELEMENT_COUNT_VERBS.match(first_word):
+        return True
+    return False
 
 
 def count_animated_elements(prompt: str) -> int:
     """Count the number of distinct animated elements in an animation prompt.
 
-    Counts camera motions + subject actions. Returns total count.
+    Counts each distinct camera motion + each distinct subject action.
     A prompt should have at most 2 animated elements per Rule 3.
+
+    Compound verbs sharing a subject ("snap and dissolve") count as ONE
+    action, not two. A clause after "and" that starts with a bare verb
+    (no new subject) is merged with the previous action.
     """
     if not prompt:
         return 0
 
-    count = 0
-
-    # Count camera motions (any non-static camera direction counts as 1)
-    has_camera = False
+    # Count ALL camera motions (each distinct camera motion = 1 element)
+    camera_count = 0
     for pattern in _ANIMATION_ACTION_PATTERNS:
-        if pattern.search(prompt):
-            has_camera = True
-            break
-    if has_camera:
-        count += 1
+        camera_count += len(pattern.findall(prompt))
 
-    # Count subject actions by splitting on sentence boundaries
-    # Each clause with an action verb is one animated element
-    clauses = _ACTION_SENTENCE_SPLIT.split(prompt)
+    # Split into clauses on conjunctions, em-dashes, semicolons, etc.
+    clauses = _ACTION_CLAUSE_SPLIT.split(prompt)
+
+    # Count subject actions, merging compound verbs on the same subject
     subject_actions = 0
+    prev_was_subject_action = False
     for clause in clauses:
-        clause_lower = clause.lower().strip()
-        # Skip camera-only clauses
-        if any(p.search(clause) for p in _ANIMATION_ACTION_PATTERNS):
-            if len(clause.split()) < 8:  # Short clause = camera-only
-                continue
-        # Check if clause has a subject action verb
-        action_verbs = [
-            "extinguish", "dissolve", "spread", "multiply", "freeze",
-            "lock", "snap", "sever", "cascade", "ripple", "collapse",
-            "explode", "shatter", "surge", "spike", "plunge", "drain",
-            "flood", "ignite", "crack", "tear", "burn", "melt",
-            "assemble", "materialize", "illuminate", "activate",
-            "draw", "scroll", "appear", "flash", "slam", "drop",
-            "retract", "expand", "contract", "accelerate", "decelerate",
-            "pulse", "flicker", "shimmer", "glow",
-        ]
-        if any(v in clause_lower for v in action_verbs):
+        clause_stripped = clause.strip()
+        if not clause_stripped:
+            continue
+        # Skip clauses that are purely camera descriptions (short + camera pattern)
+        is_camera_clause = (
+            any(p.search(clause_stripped) for p in _ANIMATION_ACTION_PATTERNS)
+            and len(clause_stripped.split()) < 8
+        )
+        if is_camera_clause:
+            prev_was_subject_action = False
+            continue
+        # Check for subject action verbs
+        if _ELEMENT_COUNT_VERBS.search(clause_stripped):
+            # If this clause is a bare verb sharing the previous subject,
+            # don't count it as a new action
+            if prev_was_subject_action and _is_compound_verb_clause(clause_stripped):
+                continue  # compound verb — already counted with previous
             subject_actions += 1
+            prev_was_subject_action = True
+        else:
+            prev_was_subject_action = False
 
-    count += subject_actions
-    return max(count, 1)  # At least 1 if prompt is non-empty
+    total = camera_count + subject_actions
+    return max(total, 1) if prompt.strip() else 0
 
 
 def validate_max_actions(prompt: str, max_actions: int = 2) -> tuple[bool, int]:

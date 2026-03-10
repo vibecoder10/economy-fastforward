@@ -408,6 +408,7 @@ def validate_video_prompt(
     prompt: str,
     sentence_text: str = "",
     prev_cameras: list[str] | None = None,
+    clip_duration_seconds: int | None = None,
 ) -> dict:
     """Validate a video prompt meets narrative quality standards.
 
@@ -415,6 +416,14 @@ def validate_video_prompt(
     - Rule 1: Verb-first motion design (verb from sentence drives animation)
     - Rule 2: Camera static by default (only REVEAL/SCALE/ISOLATION justify motion)
     - Rule 3: Maximum 2 animated elements per clip
+
+    Args:
+        prompt: The video animation prompt to validate.
+        sentence_text: The narrative text this clip supports.
+        prev_cameras: History of previously used camera movements.
+        clip_duration_seconds: Clip duration (6 or 10). Scales the minimum
+            word count: ~25 words for 6s clips, ~42 for 10s. Falls back to
+            40-word minimum when not provided.
 
     Returns a dict with ``valid`` (bool), ``issues`` (list[str]),
     ``prompt``, ``sentence``, ``camera`` (detected movement),
@@ -438,12 +447,18 @@ def validate_video_prompt(
     if screensaver_count >= 2:
         issues.append(f"SCREENSAVER RISK: {screensaver_count} soft/gentle/subtle words")
 
-    # Length checks
+    # Length checks — scale minimum by clip duration
+    # 6s clips need ~25 words, 10s clips need ~42 words.
+    # Formula: round(duration * 4.2). Falls back to 40 when duration unknown.
     word_count = len(prompt.split())
-    if word_count < 30:
-        issues.append(f"TOO SHORT: {word_count} words (min 40)")
+    if clip_duration_seconds is not None:
+        min_words = round(clip_duration_seconds * 4.2)
+    else:
+        min_words = 40
+    if word_count < min_words:
+        issues.append(f"TOO SHORT: {word_count} words (min {min_words} for {clip_duration_seconds or '?'}s clip)")
     if word_count > 90:
-        issues.append(f"TOO LONG: {word_count} words (max 80)")
+        issues.append(f"TOO LONG: {word_count} words (max 90)")
 
     # Check the last sentence for payoff quality
     sentences = prompt.strip().split(".")

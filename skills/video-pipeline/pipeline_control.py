@@ -590,11 +590,15 @@ async def handle_skip(message, say):
         await say(f":x: Error skipping: {e}")
 
 
-@app.message(re.compile(r"stop", re.IGNORECASE))
-@app.message(re.compile(r"kill", re.IGNORECASE))
+@app.message(re.compile(r"^!?(?:stop|kill)$", re.IGNORECASE))
 async def handle_stop(message, say):
-    """Stop the currently running pipeline."""
+    """Stop the currently running pipeline immediately."""
     global current_process, current_task_name
+
+    # Always set the stop event so auto-pipeline loops break too.
+    # Without this, killing a subprocess during "!run" would just
+    # advance to the next step instead of stopping the whole pipeline.
+    _stop_event.set()
 
     # Case 1: A subprocess is running (script, voice, images, etc.)
     if current_process is not None:
@@ -612,10 +616,9 @@ async def handle_stop(message, say):
         return
 
     # Case 2: An in-process async task is running (e.g. "run" auto-pipeline,
-    # inline research). Signal it to stop at the next safe point.
+    # inline research). The stop event is already set above.
     if current_task_name is not None:
         task = current_task_name
-        _stop_event.set()
         await say(f":stop_sign: Stopping `{task}` — will halt after current step finishes.")
         return
 
@@ -775,7 +778,7 @@ async def handle_video_prompts(message, say):
 
     try:
         returncode, stdout, stderr = await run_script_async(
-            "run_video_script_bot.py", "video prompts", say, timeout=600,
+            "run_video_script_bot.py", "video prompts", say, timeout=2700,
             extra_args=_target_args(scene, image),
         )
 
@@ -787,7 +790,7 @@ async def handle_video_prompts(message, say):
             await say(f":x: Video prompts error:\n```{error}```")
 
     except subprocess.TimeoutExpired:
-        await say(":warning: Video prompts timed out after 10 minutes")
+        await say(":warning: Video prompts timed out after 45 minutes")
     except asyncio.CancelledError:
         await say(":stop_sign: Video prompts was stopped")
     except Exception as e:
@@ -809,7 +812,7 @@ async def handle_video_generate(message, say):
 
     try:
         returncode, stdout, stderr = await run_script_async(
-            "run_video_gen_bot.py", "video generate", say, timeout=1800,
+            "run_video_gen_bot.py", "video generate", say, timeout=3600,
             extra_args=_target_args(scene, image),
         )
 
@@ -821,7 +824,7 @@ async def handle_video_generate(message, say):
             await say(f":x: Video generation error:\n```{error}```")
 
     except subprocess.TimeoutExpired:
-        await say(":warning: Video generation timed out after 30 minutes")
+        await say(":warning: Video generation timed out after 60 minutes")
     except asyncio.CancelledError:
         await say(":stop_sign: Video generation was stopped")
     except Exception as e:

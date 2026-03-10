@@ -531,8 +531,12 @@ class VideoPipeline:
                 )
 
                 # Validate and enforce camera rotation
-                validation = validate_video_prompt(video_prompt, sentence_text, prev_cameras=camera_history)
-                if not validation["camera_ok"]:
+                validation = validate_video_prompt(
+                    video_prompt, sentence_text,
+                    prev_cameras=camera_history,
+                    clip_duration_seconds=duration,
+                )
+                if not validation["valid"]:
                     blocked = validation.get("camera")
                     allowed = ", ".join(k for k in CAMERA_MOVEMENTS if k != blocked)
                     print(f"    ⚠️ Camera repeat detected ({blocked}), regenerating...")
@@ -1958,7 +1962,11 @@ class VideoPipeline:
             )
 
             # Validate video prompt quality — regenerate if it fails
-            validation = validate_video_prompt(motion_prompt, sentence_text, prev_cameras=camera_history)
+            validation = validate_video_prompt(
+                motion_prompt, sentence_text,
+                prev_cameras=camera_history,
+                clip_duration_seconds=clip_duration,
+            )
             if not validation["valid"]:
                 print(f"    ⚠️ Video prompt failed validation: {validation['issues']}")
 
