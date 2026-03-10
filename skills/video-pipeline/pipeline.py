@@ -2743,13 +2743,10 @@ class VideoPipeline:
         # Download assets from ALL matching Drive folders to public/
         # First file wins — if Scene 1.mp3 is in folder A, we skip it in folder B
         print(f"  ⬇️ Downloading assets from Google Drive...")
-        download_ok = 0
-        download_fail = 0
-        failed_assets = []
-        audio_count = 0
-        image_count = 0
-        video_clip_count = 0
 
+        # First pass: collect all downloadable files and compute totals
+        download_queue: list[dict] = []
+        seen_local: set[str] = set()
         for folder_id, folder_desc in asset_folders:
             drive_files = self.google.list_files_in_folder(folder_id)
             for df in drive_files:
@@ -2768,37 +2765,81 @@ class VideoPipeline:
                 # Normalize mp4 filenames to Scene_XX_YY.mp4 for Remotion
                 local_fname = fname
                 if is_video and not fname.startswith("Scene_"):
-                    # Extract scene/index numbers from any naming pattern
-                    # e.g. Clip_S01_01.mp4, clip_01_02.mp4, etc.
                     nums = re.findall(r"(\d+)", fname)
                     if len(nums) >= 2:
                         local_fname = f"Scene_{int(nums[0]):02d}_{int(nums[1]):02d}.mp4"
                     else:
-                        # Can't parse scene/index — skip this mp4
                         continue
 
                 dest = public_dir / local_fname
-                if dest.exists():
-                    # Already downloaded from a previous folder
+                if dest.exists() or local_fname in seen_local:
                     continue
 
-                try:
-                    content = self.google.download_file(fid)
-                    if len(content) < 1000:
-                        raise ValueError(f"File too small ({len(content)} bytes)")
-                    dest.write_bytes(content)
-                    print(f"    ✅ {fname} ({len(content) // 1024} KB)")
-                    download_ok += 1
-                    if is_audio:
-                        audio_count += 1
-                    elif is_video:
-                        video_clip_count += 1
-                    elif is_image:
-                        image_count += 1
-                except Exception as e:
-                    print(f"    ❌ {fname} FAILED: {e}")
-                    failed_assets.append(fname)
-                    download_fail += 1
+                seen_local.add(local_fname)
+                asset_type = "audio" if is_audio else ("video" if is_video else "image")
+                download_queue.append({
+                    "fname": fname, "fid": fid,
+                    "dest": dest, "type": asset_type,
+                })
+
+        total_assets = len(download_queue)
+        download_ok = 0
+        download_fail = 0
+        failed_assets = []
+        audio_count = 0
+        image_count = 0
+        video_clip_count = 0
+
+        import time as _dl_time
+        SLACK_UPDATE_INTERVAL = 30  # seconds between Slack progress updates
+        last_slack_update = _dl_time.time()
+
+        self.slack.notify(
+            f"⬇️ *Downloading assets:* _{self.video_title}_\n"
+            f"`░░░░░░░░░░` *0%* — 0/{total_assets} files"
+        )
+
+        # Second pass: download with progress tracking
+        for item in download_queue:
+            try:
+                content = self.google.download_file(item["fid"])
+                if len(content) < 1000:
+                    raise ValueError(f"File too small ({len(content)} bytes)")
+                item["dest"].write_bytes(content)
+                print(f"    ✅ {item['fname']} ({len(content) // 1024} KB)")
+                download_ok += 1
+                if item["type"] == "audio":
+                    audio_count += 1
+                elif item["type"] == "video":
+                    video_clip_count += 1
+                else:
+                    image_count += 1
+            except Exception as e:
+                print(f"    ❌ {item['fname']} FAILED: {e}")
+                failed_assets.append(item["fname"])
+                download_fail += 1
+
+            # Send Slack progress update at intervals
+            completed = download_ok + download_fail
+            now = _dl_time.time()
+            if now - last_slack_update >= SLACK_UPDATE_INTERVAL and completed < total_assets:
+                pct = (completed / total_assets * 100) if total_assets > 0 else 0
+                bar = "█" * int(pct // 10) + "░" * (10 - int(pct // 10))
+                self.slack.notify(
+                    f"⬇️ *Downloading assets:* _{self.video_title}_\n"
+                    f"`{bar}` *{pct:.1f}%* — {completed}/{total_assets} files "
+                    f"({audio_count} audio, {image_count} images, {video_clip_count} clips)"
+                )
+                last_slack_update = now
+
+        # Final download summary to Slack
+        if total_assets > 0:
+            self.slack.notify(
+                f"⬇️ *Downloads complete:* _{self.video_title}_\n"
+                f"`██████████` *100%* — {download_ok}/{total_assets} files "
+                f"({audio_count} audio, {image_count} images, {video_clip_count} clips)"
+                + (f"\n⚠️ {download_fail} failed" if download_fail > 0 else "")
+            )
 
         # Validate downloads — abort if critical assets are missing
         print(f"  📊 Downloads: {download_ok} OK, {download_fail} failed")
