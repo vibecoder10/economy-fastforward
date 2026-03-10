@@ -239,11 +239,14 @@ class TestGenerateAnimationPrompt:
             prompt = generate_animation_prompt(seg, ct, 10)
             assert len(prompt) > 50, f"Empty prompt for {ct}"
 
-    def test_verb_extracted_in_prompt(self):
-        """Rule 1: Verb from sentence text should appear in the prompt."""
+    def test_verb_drives_motion_in_prompt(self):
+        """Rule 1: Verb from sentence text should drive the motion description."""
         seg = self._make_segment("medium", text="Oil prices surge past $200")
         prompt = generate_animation_prompt(seg, "B_data_terminal", 10)
-        assert "surge" in prompt.lower()
+        # The verb "surge" maps to spike/rockets motion, NOT the generic template
+        assert "spike" in prompt.lower() or "rocket" in prompt.lower()
+        # Should NOT contain the generic medium/B_data_terminal template text
+        assert "draws itself from left to right" not in prompt.lower()
 
     def test_static_camera_default(self):
         """Rule 2: Default prompt should have static camera."""
@@ -263,6 +266,34 @@ class TestGenerateAnimationPrompt:
         seg = self._make_segment("medium", text="Thousands of missiles across the entire globe")
         prompt = generate_animation_prompt(seg, "A_geographic_map", 10)
         assert "pull-back" in prompt.lower() or "scale" in prompt.lower()
+
+    def test_verb_motion_overrides_generic_template(self):
+        """Rule 1: Verb-driven motion replaces the generic content-type template."""
+        seg = self._make_segment("high", text="The network collapses overnight")
+        prompt = generate_animation_prompt(seg, "E_network_diagram", 10)
+        # Should use verb motion ("buckles inward") not generic HIGH/E template
+        assert "buckles" in prompt.lower() or "flatline" in prompt.lower()
+        # Should NOT contain the generic high/E_network_diagram text
+        assert "explosion of particles" not in prompt.lower()
+
+    def test_going_dark_produces_extinguish_motion(self):
+        """Rule 1: 'going dark' = lights extinguishing, not generic satellite template."""
+        seg = self._make_segment("high", text="Launch site after launch site going dark")
+        prompt = generate_animation_prompt(seg, "G_satellite", 10)
+        assert "extinguish" in prompt.lower()
+
+    def test_dont_matter_produces_dissolve_motion(self):
+        """Rule 1: 'don't matter' = dissolving to nothing, not generic comparison."""
+        seg = self._make_segment("high", text="Your missiles don't matter")
+        prompt = generate_animation_prompt(seg, "C_object_comparison", 10)
+        assert "dissolve" in prompt.lower() or "fade" in prompt.lower()
+
+    def test_no_verb_uses_content_type_template(self):
+        """Rule 1 fallback: when no verb found, generic template is used."""
+        seg = self._make_segment("medium", text="The big red chart.")
+        prompt = generate_animation_prompt(seg, "B_data_terminal", 10)
+        # Should use the generic medium/B_data_terminal template
+        assert "chart line draws itself" in prompt.lower() or "draws itself" in prompt.lower()
 
 
 class TestGeneratePromptsForSegments:

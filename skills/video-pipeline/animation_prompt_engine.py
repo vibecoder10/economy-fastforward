@@ -76,6 +76,15 @@ _PHRASAL_VERB_PATTERNS = [
     re.compile(r"\b(don'?t\s+matter)\b", re.IGNORECASE),
     re.compile(r"\b(wip(?:e[sd]?|ing)\s+out)\b", re.IGNORECASE),
     re.compile(r"\b(spread(?:s|ing)?\s+(?:across|out))\b", re.IGNORECASE),
+    re.compile(r"\b(turn(?:s|ed|ing)?\s+on)\b", re.IGNORECASE),
+    re.compile(r"\b(turn(?:s|ed|ing)?\s+off)\b", re.IGNORECASE),
+    re.compile(r"\b(kick(?:s|ed|ing)?\s+in)\b", re.IGNORECASE),
+    re.compile(r"\b(pull(?:s|ed|ing)?\s+(?:back|away|out))\b", re.IGNORECASE),
+    re.compile(r"\b(zero(?:s|ed|ing)?\s+(?:in|out))\b", re.IGNORECASE),
+    re.compile(r"\b(cut(?:ting|s)?\s+off)\b", re.IGNORECASE),
+    re.compile(r"\b(snap(?:s|ped|ping)?\s+(?:shut|open|back))\b", re.IGNORECASE),
+    re.compile(r"\b(open(?:s|ed|ing)?\s+up)\b", re.IGNORECASE),
+    re.compile(r"\b(peel(?:s|ed|ing)?\s+(?:back|away))\b", re.IGNORECASE),
 ]
 
 # Single-word action verbs (gerunds, past tense, base forms) that drive motion
@@ -115,6 +124,27 @@ _ACTION_VERB_PATTERN = re.compile(
 )
 
 
+# Common words that look verb-like but aren't (prepositions, adverbs, nouns)
+_NON_VERB_WORDS = frozenset({
+    "the", "and", "but", "for", "not", "its", "this", "that", "these",
+    "those", "their", "them", "his", "her", "from", "with", "into",
+    "across", "between", "after", "before", "about", "against", "over",
+    "under", "every", "each", "most", "more", "less", "other", "another",
+    "some", "all", "many", "much", "behind", "around", "along", "among",
+    "during", "through", "within", "without", "toward", "towards",
+    "beside", "besides", "beyond", "despite", "until", "unless",
+    "since", "while", "where", "when", "then", "than", "thus",
+    "hence", "once", "twice", "here", "there", "never", "ever",
+    "often", "always", "already", "also", "just", "still", "even",
+    "only", "very", "quite", "rather", "really", "almost", "enough",
+    "indeed", "perhaps", "maybe", "however", "although", "because",
+    "three", "thousand", "hundred", "million", "billion",
+    "real", "closed", "doors", "designed", "hardened",
+    "money", "printer", "missiles", "bunkers", "launchers",
+    "numbers", "troop", "tanks",
+})
+
+
 def extract_core_verb(sentence_text: str) -> str:
     """Extract the core action verb or phrasal verb from sentence text.
 
@@ -135,18 +165,14 @@ def extract_core_verb(sentence_text: str) -> str:
     if match:
         return match.group(1).lower().strip()
 
-    # Fallback: scan all words for any verb-like word not in stop list
-    words = re.findall(r"\b[a-z]+(?:ing|ed|es|s)?\b", sentence_text.lower())
+    # Fallback: only accept words ending in verb-like suffixes (-ing, -ed, -es)
+    # to avoid catching prepositions, adverbs, and nouns.
+    # We require the -ing/-ed/-es suffix to be confident it's actually a verb form.
+    words = re.findall(r"\b([a-z]+(?:ing|ed|es))\b", sentence_text.lower())
     for word in words:
-        base = re.sub(r"(ing|ed|es|s)$", "", word)
+        base = re.sub(r"(ing|ed|es)$", "", word)
         if len(base) >= 3 and word not in _STOP_VERBS and base not in _STOP_VERBS:
-            # Skip common non-verbs
-            if word not in {"the", "and", "but", "for", "not", "its", "this",
-                            "that", "these", "those", "their", "them", "his",
-                            "her", "from", "with", "into", "across", "between",
-                            "after", "before", "about", "against", "over",
-                            "under", "every", "each", "most", "more", "less",
-                            "other", "another", "some", "all", "many", "much"}:
+            if word not in _NON_VERB_WORDS:
                 return word
 
     return ""
@@ -369,6 +395,112 @@ _CAMERA_BY_PURPOSE = {
     CAMERA_PURPOSE_ISOLATION: "Slow push-in isolating",
 }
 
+# ---------------------------------------------------------------------------
+# Verb-to-motion mapping — Rule 1: the verb IS the animation
+# ---------------------------------------------------------------------------
+# Maps extracted verbs (or verb categories) to concrete motion descriptions
+# that literally enact the verb. When a verb matches, this REPLACES the
+# generic content-type template motion, ensuring the animation is driven
+# by what the sentence says, not by what content type the image happens to be.
+# ---------------------------------------------------------------------------
+
+_VERB_MOTION_MAP: dict[str, str] = {
+    # Phrasal verbs
+    "going dark": "Lights and indicator points extinguish one by one across the display until the screen is nearly black.",
+    "shutting down": "Systems deactivate in sequence — screens go black, indicators flatline, power drains from the edges inward.",
+    "shut down": "Systems deactivate in sequence — screens go black, indicators flatline, power drains from the edges inward.",
+    "turning on": "Elements activate in rapid sequence — displays ignite, numbers spin up from zero, power surges outward from center.",
+    "turned on": "Elements activate in rapid sequence — displays ignite, numbers spin up from zero, power surges outward from center.",
+    "turn on": "Elements activate in rapid sequence — displays ignite, numbers spin up from zero, power surges outward from center.",
+    "breaking apart": "Structure fractures along stress lines, sections separate and drift apart, fragments dissolve at the edges.",
+    "falling apart": "Components detach and drift downward, connections sever, pieces separate and scatter.",
+    "don't matter": "Asset icons dissolve to static noise, then fade to blank one by one.",
+    "wiped out": "Elements are erased in a sweep from one side to the other, leaving empty black space.",
+    "spread across": "A single point multiplies and dots spread outward across the surface in all directions.",
+    "spreading across": "A single point multiplies and dots spread outward across the surface in all directions.",
+    "blown up": "Central element detonates outward — fragments scatter radially, shockwave ripples through surrounding data.",
+    "blowing up": "Central element detonates outward — fragments scatter radially, shockwave ripples through surrounding data.",
+    "locks frozen": "Number or counter stops mid-increment and holds completely still, all motion ceases.",
+    "locked in": "Elements snap into fixed positions and hold rigid, all motion ceases.",
+    "piling up": "Items stack vertically, each new element landing on top of the last with increasing speed.",
+    "turned off": "Displays go dark in sequence, indicators flatline, ambient light drains to black.",
+    "kicked in": "Elements slam into active state — numbers jump, indicators spike, displays flash to life.",
+    "cut off": "Connection lines sever sharply, separated sections drift apart, data flow stops.",
+    "cutting off": "Connection lines sever sharply, separated sections drift apart, data flow stops.",
+
+    # Single-word verbs
+    "scattered": "A single dot multiplies and spreads across the terrain, points appearing in dispersed positions.",
+    "scattering": "A single dot multiplies and spreads across the terrain, points appearing in dispersed positions.",
+    "scatter": "A single dot multiplies and spreads across the terrain, points appearing in dispersed positions.",
+    "collapsed": "Structure buckles inward, data lines flatline, elements compress and go dark from the edges.",
+    "collapsing": "Structure buckles inward, data lines flatline, elements compress and go dark from the edges.",
+    "collapse": "Structure buckles inward, data lines flatline, elements compress and go dark from the edges.",
+    "collapses": "Structure buckles inward, data lines flatline, elements compress and go dark from the edges.",
+    "surging": "Values spike upward violently, chart line rockets past thresholds, warning indicators flood on.",
+    "surge": "Values spike upward violently, chart line rockets past thresholds, warning indicators flood on.",
+    "surges": "Values spike upward violently, chart line rockets past thresholds, warning indicators flood on.",
+    "surged": "Values spike upward violently, chart line rockets past thresholds, warning indicators flood on.",
+    "frozen": "All motion ceases — counter stops mid-digit, indicators freeze in place, complete stillness.",
+    "freeze": "All motion ceases — counter stops mid-digit, indicators freeze in place, complete stillness.",
+    "freezes": "All motion ceases — counter stops mid-digit, indicators freeze in place, complete stillness.",
+    "exploded": "Central element detonates outward, shockwave ripples through surrounding elements, fragments scatter.",
+    "explodes": "Central element detonates outward, shockwave ripples through surrounding elements, fragments scatter.",
+    "exploding": "Central element detonates outward, shockwave ripples through surrounding elements, fragments scatter.",
+    "dissolved": "Elements lose opacity and fade to nothing, leaving empty space where data once was.",
+    "dissolving": "Elements lose opacity and fade to nothing, leaving empty space where data once was.",
+    "dissolves": "Elements lose opacity and fade to nothing, leaving empty space where data once was.",
+    "cascading": "Effect triggers from one element to the next in rapid sequence, each activation triggering the next.",
+    "cascade": "Effect triggers from one element to the next in rapid sequence, each activation triggering the next.",
+    "cascades": "Effect triggers from one element to the next in rapid sequence, each activation triggering the next.",
+    "flooding": "Data or color washes across the display in a wave, overwhelming existing elements.",
+    "floods": "Data or color washes across the display in a wave, overwhelming existing elements.",
+    "flooded": "Data or color washes across the display in a wave, overwhelming existing elements.",
+    "draining": "Values count down, levels drop, elements empty from top to bottom.",
+    "drains": "Values count down, levels drop, elements empty from top to bottom.",
+    "drained": "Values count down, levels drop, elements empty from top to bottom.",
+    "shattering": "Element fractures into angular fragments that scatter outward, cracks propagate through the structure.",
+    "shatters": "Element fractures into angular fragments that scatter outward, cracks propagate through the structure.",
+    "shattered": "Element fractures into angular fragments that scatter outward, cracks propagate through the structure.",
+    "accelerating": "Motion speeds up — elements move faster, numbers increment more rapidly, pace builds.",
+    "accelerates": "Motion speeds up — elements move faster, numbers increment more rapidly, pace builds.",
+    "multiplying": "Elements duplicate — one becomes two, two becomes four, copies spread outward.",
+    "multiply": "Elements duplicate — one becomes two, two becomes four, copies spread outward.",
+    "ignited": "Element blazes to life — light erupts, color saturates, energy radiates outward.",
+    "ignites": "Element blazes to life — light erupts, color saturates, energy radiates outward.",
+    "extinguished": "Light dies — element dims to black, glow fades, surrounding area darkens.",
+    "extinguishes": "Light dies — element dims to black, glow fades, surrounding area darkens.",
+    "severed": "Connection line snaps apart cleanly, separated ends recoil, data flow between nodes stops.",
+    "severs": "Connection line snaps apart cleanly, separated ends recoil, data flow between nodes stops.",
+    "snapped": "Element breaks with sudden force, fragments fly apart, sharp discontinuity appears.",
+    "snaps": "Element breaks with sudden force, fragments fly apart, sharp discontinuity appears.",
+    "overwhelmed": "Dominant element grows to fill the frame, pushing all other elements to the margins.",
+    "overwhelms": "Dominant element grows to fill the frame, pushing all other elements to the margins.",
+    "spreading": "Effect or mark expands outward from its origin point, covering more area with each moment.",
+    "spreads": "Effect or mark expands outward from its origin point, covering more area with each moment.",
+    "rising": "Elements lift upward — values climb, chart lines ascend, indicators move toward the top of frame.",
+    "rises": "Elements lift upward — values climb, chart lines ascend, indicators move toward the top of frame.",
+    "sinking": "Elements descend — values drop, chart lines fall, indicators move toward the bottom of frame.",
+    "sinks": "Elements descend — values drop, chart lines fall, indicators toward the bottom of frame.",
+    "burning": "Element glows hot, edges char and curl, material consumed from the outside in.",
+    "burns": "Element glows hot, edges char and curl, material consumed from the outside in.",
+    "melting": "Structure loses rigidity, edges soften and drip downward, form distorts and pools.",
+    "melts": "Structure loses rigidity, edges soften and drip downward, form distorts and pools.",
+    "tearing": "Material rips apart along a line, edges fray, separated halves pull away from each other.",
+    "tears": "Material rips apart along a line, edges fray, separated halves pull away from each other.",
+    "cracking": "Fracture lines propagate across the surface, spreading from impact point outward.",
+    "cracks": "Fracture lines propagate across the surface, spreading from impact point outward.",
+    "expanding": "Element grows outward in all directions, boundaries push further, space fills.",
+    "expands": "Element grows outward in all directions, boundaries push further, space fills.",
+    "contracting": "Element shrinks inward from all edges, boundaries tighten, space compresses.",
+    "contracts": "Element shrinks inward from all edges, boundaries tighten, space compresses.",
+    "dropping": "Element falls from its position, descending through the frame with increasing speed.",
+    "drops": "Element falls from its position, descending through the frame with increasing speed.",
+    "spiking": "Value shoots upward sharply, chart line goes vertical, threshold indicators trip.",
+    "spikes": "Value shoots upward sharply, chart line goes vertical, threshold indicators trip.",
+    "plunging": "Value drops sharply downward, chart line nosedives, floor indicators trip.",
+    "plunges": "Value drops sharply downward, chart line nosedives, floor indicators trip.",
+}
+
 
 def generate_animation_prompt(
     segment: dict,
@@ -403,11 +535,14 @@ def generate_animation_prompt(
     )
     content_motion = template["motion_by_type"][content_type]
 
-    # Rule 1: Extract verb and build verb-driven motion note
+    # Rule 1: Extract verb and use verb-driven motion if available
     verb = extract_core_verb(sentence_text)
-    verb_note = ""
-    if verb:
-        verb_note = f"Primary motion driven by verb: \"{verb}\". "
+    verb_motion = _VERB_MOTION_MAP.get(verb, "") if verb else ""
+
+    if verb_motion:
+        # Verb-driven motion REPLACES the generic content-type template.
+        # The verb IS the animation — the template is just the fallback.
+        content_motion = f"Static wide shot. {verb_motion}"
 
     # Rule 2: Camera purpose — static by default
     camera_purpose = classify_camera_purpose(sentence_text)
@@ -424,7 +559,6 @@ def generate_animation_prompt(
             )
 
     parts = [
-        verb_note,
         camera_note if camera_note else "",
         content_motion,
         "Data labels and text remain stable and legible throughout.",
