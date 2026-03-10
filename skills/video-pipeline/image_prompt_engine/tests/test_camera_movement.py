@@ -157,7 +157,8 @@ class TestValidateVideoPromptCameraChecks:
         camera_issues = [i for i in result["issues"] if "CAMERA REPEAT" in i]
         assert len(camera_issues) == 0
 
-    def test_missing_camera_detected(self):
+    def test_missing_camera_is_valid_static(self):
+        """No camera movement is valid — static is the default (Rule 2)."""
         prompt = (
             "Data nodes illuminate one by one from left to right. "
             "The central figure locks into position as surrounding data cascades "
@@ -166,8 +167,9 @@ class TestValidateVideoPromptCameraChecks:
             "glowing alone in a dead room."
         )
         result = validate_video_prompt(prompt)
+        # Static/unknown camera should NOT be flagged as an issue
         no_camera_issues = [i for i in result["issues"] if "NO CAMERA MOVEMENT" in i]
-        assert len(no_camera_issues) == 1
+        assert len(no_camera_issues) == 0
 
     def test_camera_returned_in_result(self):
         prompt = self._make_prompt("Lateral pan across the data wall")
