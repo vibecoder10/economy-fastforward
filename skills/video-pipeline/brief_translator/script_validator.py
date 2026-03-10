@@ -159,6 +159,7 @@ def _extract_numbers_from_research(brief: dict) -> list[str]:
     """Extract all specific numbers from the research payload.
 
     Used to suggest unused numbers in retry prompts.
+    Covers dollars, percentages, counts with units, years, and dates.
     """
     research_fields = [
         "fact_sheet", "historical_parallels", "character_dossier",
@@ -173,6 +174,12 @@ def _extract_numbers_from_research(brief: dict) -> list[str]:
         numbers.add(match.group())
     for match in _COUNT_UNIT_RE.finditer(all_text):
         numbers.add(match.group().strip())
+    for match in _YEAR_RE.finditer(all_text):
+        numbers.add(match.group())
+    for match in _DATE_MONTH_RE.finditer(all_text):
+        numbers.add(match.group())
+    for match in _DATE_DMY_RE.finditer(all_text):
+        numbers.add(match.group())
 
     return sorted(numbers)
 
@@ -324,6 +331,43 @@ _CLIFFHANGER_PATTERNS = re.compile(
 )
 
 
+def _measure_per_act_framework(acts: dict[int, str]) -> dict[int, tuple[float, int, int]]:
+    """Measure framework density per act.
+
+    Returns dict mapping act_num -> (percentage, fw_sentences, total_sentences).
+    """
+    return {
+        act_num: _measure_framework_density(act_text)
+        for act_num, act_text in acts.items()
+    }
+
+
+def _extract_personal_stakes_figures(brief: dict) -> dict[str, list[str]]:
+    """Extract specific figures relevant to personal financial impact from research.
+
+    Returns dict with categories of figures: prices, percentages, job/wage figures.
+    """
+    fields = ["fact_sheet", "thesis", "counter_arguments", "narrative_arc"]
+    all_text = " ".join(str(brief.get(f, "")) for f in fields)
+
+    prices: list[str] = []
+    percentages: list[str] = []
+    counts: list[str] = []
+
+    for match in _DOLLAR_RE.finditer(all_text):
+        prices.append(match.group())
+    for match in _PERCENT_RE.finditer(all_text):
+        percentages.append(match.group())
+    for match in _COUNT_UNIT_RE.finditer(all_text):
+        counts.append(match.group().strip())
+
+    return {
+        "prices": sorted(set(prices)),
+        "percentages": sorted(set(percentages)),
+        "counts": sorted(set(counts)),
+    }
+
+
 def _count_cliffhangers_at_transitions(script: str, acts: dict[int, str]) -> tuple[int, int]:
     """Count cliffhangers at act transitions.
 
@@ -436,16 +480,22 @@ def validate_script_editorial(
             research_numbers = _extract_numbers_from_research(brief)
             script_lower = script.lower()
             unused = [n for n in research_numbers if n.lower() not in script_lower]
-            unused_sample = unused[:10]
+            needed = config.number_density_min - count
 
             retry_prompt = (
-                f"Your script contains only {count} specific numbers. "
-                f"The minimum is {config.number_density_min}. "
-                f"The research payload contains these unused numbers: "
-                f"{', '.join(unused_sample)}. "
-                f"Rewrite incorporating at least {config.number_density_min - count} "
-                f"more specific figures from the research. Replace vague language "
-                f"like 'significant' or 'massive' with actual numbers."
+                f"NUMBERS: Your script contains {count} specific numbers. "
+                f"Minimum is {config.number_density_min}. "
+                f"You need {needed} more.\n\n"
+                f"ALREADY IN SCRIPT: {', '.join(found_numbers[:15])}\n\n"
+                f"UNUSED NUMBERS FROM RESEARCH — you MUST integrate at least "
+                f"{needed} of these:\n{', '.join(unused)}\n\n"
+                f"INSTRUCTIONS:\n"
+                f"- Replace every instance of 'significant', 'massive', "
+                f"'substantial', 'major', 'considerable' with a specific "
+                f"number from the list above.\n"
+                f"- Every claim needs a number: not 'oil prices rose' but "
+                f"'oil prices rose 300% to $X/barrel'.\n"
+                f"- Distribute numbers across all 6 acts, not just Acts 1-2."
             )
 
         result.checks.append(CheckResult(
@@ -466,14 +516,34 @@ def validate_script_editorial(
 
         retry_prompt = ""
         if not passed:
+            # Identify which acts are framework-heavy
+            per_act = _measure_per_act_framework(acts) if acts else {}
+            heavy_acts = [
+                (act_num, act_pct, act_fw, act_total)
+                for act_num, (act_pct, act_fw, act_total) in sorted(per_act.items())
+                if act_pct > config.framework_max_pct
+            ]
+            heavy_detail = "\n".join(
+                f"  - Act {a}: {p:.0%} framework ({f}/{t} sentences)"
+                for a, p, f, t in heavy_acts
+            )
+
             retry_prompt = (
-                f"Your script spends {pct:.0%} on framework explanation. "
-                f"Maximum allowed is {config.framework_max_pct:.0%}. "
-                f"Compress framework sections — show the pattern through "
-                f"events and money trails, don't explain the doctrine. Move "
-                f"the freed space to personal financial stakes (Act 5) and "
-                f"the incentive chain (Acts 2-3). Remember: the framework "
-                f"should be INVISIBLE in Acts 1-3 and only NAMED in Act 4."
+                f"FRAMEWORK OVERLOAD: {pct:.0%} of sentences reference "
+                f"frameworks/doctrines ({fw_sentences}/{total_sentences}). "
+                f"Maximum is {config.framework_max_pct:.0%}.\n\n"
+                f"WORST OFFENDERS:\n{heavy_detail}\n\n"
+                f"FIX INSTRUCTIONS:\n"
+                f"- Acts 1-3 must contain ZERO framework names. Show the "
+                f"pattern through events, money flows, and specific actions. "
+                f"Instead of 'Thucydides Trap explains this', write 'The "
+                f"last five times a rising power challenged trade routes, "
+                f"the incumbent spent 3x on military within 18 months.'\n"
+                f"- Act 4 can NAME the framework ONCE as a reveal.\n"
+                f"- For each framework sentence you cut, add a specific "
+                f"money trail, dollar figure, or personal impact sentence.\n"
+                f"- DELETE sentences that explain what a framework IS. "
+                f"The viewer doesn't need a political science lecture."
             )
 
         result.checks.append(CheckResult(
@@ -493,13 +563,33 @@ def validate_script_editorial(
 
         retry_prompt = ""
         if not passed:
+            # Extract actual figures from research for the template
+            figures = _extract_personal_stakes_figures(brief)
+            price_examples = ", ".join(figures["prices"][:5]) or "N/A"
+            pct_examples = ", ".join(figures["percentages"][:5]) or "N/A"
+            count_examples = ", ".join(figures["counts"][:5]) or "N/A"
+
             retry_prompt = (
-                "Your script lacks personal financial stakes. "
-                "Add specific dollar impact on the viewer in Act 5: "
-                "gas price increase, portfolio exposure percentage, "
-                "annual cost increase, job sector implications. Use "
-                "'your wallet', 'your 401k', 'you pay', with specific "
-                "numbers from the research."
+                f"PERSONAL STAKES MISSING: Score {score}/{config.personal_stakes_min_score}. "
+                f"The script talks ABOUT consequences but never addresses the "
+                f"viewer directly with specific dollar impacts.\n\n"
+                f"AVAILABLE FIGURES FROM RESEARCH:\n"
+                f"  Prices: {price_examples}\n"
+                f"  Percentages: {pct_examples}\n"
+                f"  Quantities: {count_examples}\n\n"
+                f"ADD THIS STRUCTURE TO ACT 5 (adapt with real figures above):\n"
+                f"  1. 'Here's what this means for your wallet.'\n"
+                f"  2. Gas/energy impact: '$X per gallon means $Y more per year "
+                f"for the average American household.'\n"
+                f"  3. Portfolio exposure: 'X% of the S&P 500 is [sector]. "
+                f"Your 401k has more exposure to [risk] than you think.'\n"
+                f"  4. Job/wage impact: 'If [scenario], your real wages decline "
+                f"X% — that's $Y less purchasing power per month.'\n"
+                f"  5. Direct address: 'You pay more at the pump, your "
+                f"retirement fund drops, your grocery bill rises.'\n\n"
+                f"REQUIRED PHRASES (use at least 3): 'your wallet', 'your 401k', "
+                f"'you pay', 'your savings', 'your retirement', "
+                f"'what this means for you'."
             )
 
         result.checks.append(CheckResult(
@@ -522,13 +612,29 @@ def validate_script_editorial(
 
         retry_prompt = ""
         if not passed:
+            # Pull historical data from research for the template
+            hist_text = str(brief.get("historical_parallels", ""))
+            counter_text = str(brief.get("counter_arguments", ""))
+
             retry_prompt = (
-                "Your script ends with insight, not action. "
-                "The final act must give the viewer a specific strategy: "
-                "investment thesis, risk to hedge, market signal to watch, "
-                "or historical pattern for timing. Include data: 'Smart "
-                "money moved X days after similar events.' Use 'position "
-                "yourself', 'watch for', 'the play is', 'here's what you do'."
+                f"WEAK CLOSE: Score {score}/{config.actionable_close_min_score}. "
+                f"The final act reads like a conclusion, not a strategy briefing.\n\n"
+                f"HISTORICAL DATA FROM RESEARCH (use for timing):\n"
+                f"  {hist_text[:300]}\n\n"
+                f"REWRITE THE FINAL ACT WITH THIS 3-PHASE STRUCTURE:\n"
+                f"  Phase 1 — THE SHOCK: 'When [event] hits, do NOT [panic "
+                f"sell/buy]. Smart money didn't move for X days after "
+                f"[historical parallel].'\n"
+                f"  Phase 2 — THE REPRICING WINDOW: 'X days after [shock], "
+                f"the repricing window opens. Watch for [specific signal: "
+                f"insurance premium, VIX level, yield curve]. That's when "
+                f"smart money moved in [year].'\n"
+                f"  Phase 3 — THE ROTATION: 'The sectors that benefit are "
+                f"[specific names]. The play is [specific position]. Position "
+                f"yourself before the repricing, not during it.'\n\n"
+                f"REQUIRED PHRASES (use at least 2): 'position yourself', "
+                f"'watch for', 'the play is', 'here's what you do', "
+                f"'smart money', 'when you see'."
             )
 
         result.checks.append(CheckResult(
@@ -547,12 +653,35 @@ def validate_script_editorial(
         retry_prompt = ""
         if not passed:
             missing = expected - found
+            # Identify which specific act endings are missing cliffhangers
+            sorted_acts = sorted(acts.keys())
+            missing_acts = []
+            for act_num in sorted_acts[:-1]:
+                act_text = acts[act_num]
+                words = act_text.split()
+                tail = " ".join(words[-150:]) if len(words) > 150 else act_text
+                if not _CLIFFHANGER_PATTERNS.search(tail):
+                    missing_acts.append(act_num)
+
+            act_list = ", ".join(str(a) for a in missing_acts)
+
             retry_prompt = (
-                f"Your script is missing explicit cliffhangers at act "
-                f"transitions. At the end of each act (except the last), "
-                f"add a forward sell: 'And what you'll see in [next section] "
-                f"is [specific teaser]. That's where [payoff preview].' "
-                f"You need {missing} more cliffhangers at act boundaries."
+                f"MISSING CLIFFHANGERS: {found}/{expected} act transitions "
+                f"have forward sells. Need {missing} more.\n\n"
+                f"ACTS MISSING CLIFFHANGERS: {act_list}\n\n"
+                f"ADD TO THE FINAL 1-2 SENTENCES OF EACH LISTED ACT:\n"
+                f"  Act end template: 'And [what the next section reveals]. "
+                f"That's where [specific payoff the viewer wants to hear].'\n\n"
+                f"EXAMPLES:\n"
+                f"  - 'But here's what none of this explains — why did [X] "
+                f"happen? And that's where the next section changes everything.'\n"
+                f"  - 'And there's one more layer. The part that affects you "
+                f"directly.'\n"
+                f"  - 'And that brings us to the question nobody is asking.'\n\n"
+                f"RULES:\n"
+                f"  - Each cliffhanger must tease SPECIFIC content from the "
+                f"next act, not generic 'stay tuned' language.\n"
+                f"  - Do NOT add cliffhangers to the final act."
             )
 
         result.checks.append(CheckResult(

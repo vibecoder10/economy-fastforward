@@ -468,6 +468,86 @@ class TestRetryPrompt:
         # Should suggest unused numbers from research
         assert "$" in retry or "%" in retry
 
+    def test_number_retry_lists_unused_research_numbers(self):
+        """Number density retry should list specific unused numbers from research."""
+        script = _make_bad_script()
+        brief = _make_brief()
+        import re
+        act_pattern = re.compile(r"\[ACT\s+(\d+).*?\]")
+        parts = act_pattern.split(script)
+        acts = {}
+        for i in range(1, len(parts), 2):
+            acts[int(parts[i])] = parts[i + 1] if i + 1 < len(parts) else ""
+
+        result = validate_script_editorial(script, brief, acts)
+        number_check = next(c for c in result.checks if c.name == "number_density")
+        assert not number_check.passed
+        # Retry should contain actual dollar amounts from research
+        assert "$2 trillion" in number_check.retry_prompt or "$847 billion" in number_check.retry_prompt
+        assert "UNUSED NUMBERS FROM RESEARCH" in number_check.retry_prompt
+        assert "ALREADY IN SCRIPT" in number_check.retry_prompt
+
+    def test_framework_retry_identifies_heavy_acts(self):
+        """Framework density retry should name specific acts that are heavy."""
+        script = _make_bad_script()
+        brief = _make_brief()
+        import re
+        act_pattern = re.compile(r"\[ACT\s+(\d+).*?\]")
+        parts = act_pattern.split(script)
+        acts = {}
+        for i in range(1, len(parts), 2):
+            acts[int(parts[i])] = parts[i + 1] if i + 1 < len(parts) else ""
+
+        result = validate_script_editorial(script, brief, acts)
+        fw_check = next(c for c in result.checks if c.name == "framework_density")
+        assert not fw_check.passed
+        assert "WORST OFFENDERS" in fw_check.retry_prompt
+        # Acts 2, 3, 4 are all framework-heavy in the bad script
+        assert "Act 2" in fw_check.retry_prompt or "Act 3" in fw_check.retry_prompt
+
+    def test_personal_stakes_retry_includes_research_figures(self):
+        """Personal stakes retry should pull actual figures from research."""
+        script = _make_bad_script()
+        brief = _make_brief()
+        result = validate_script_editorial(script, brief, {})
+        stakes_check = next(c for c in result.checks if c.name == "personal_stakes")
+        assert not stakes_check.passed
+        # Should include actual prices/percentages from research
+        assert "Prices:" in stakes_check.retry_prompt
+        assert "Percentages:" in stakes_check.retry_prompt
+        assert "$" in stakes_check.retry_prompt
+        assert "your wallet" in stakes_check.retry_prompt
+
+    def test_actionable_close_retry_has_3_phase_structure(self):
+        """Actionable close retry should include 3-phase market template."""
+        script = _make_bad_script()
+        brief = _make_brief()
+        result = validate_script_editorial(script, brief, {})
+        close_check = next(c for c in result.checks if c.name == "actionable_close")
+        assert not close_check.passed
+        assert "Phase 1" in close_check.retry_prompt
+        assert "Phase 2" in close_check.retry_prompt
+        assert "Phase 3" in close_check.retry_prompt
+        assert "HISTORICAL DATA FROM RESEARCH" in close_check.retry_prompt
+
+    def test_cliffhanger_retry_names_specific_acts(self):
+        """Cliffhanger retry should identify exact acts missing cliffhangers."""
+        acts = {
+            1: "The official story is simple. Nothing more to see here.",
+            2: "The background is straightforward. Moving on.",
+            3: "The mechanism is clear. That's all.",
+            4: "The proof is evident.",
+        }
+        brief = _make_brief()
+        result = validate_script_editorial("", brief, acts)
+        cliff_check = next(c for c in result.checks if c.name == "cliffhanger_presence")
+        assert not cliff_check.passed
+        assert "ACTS MISSING CLIFFHANGERS" in cliff_check.retry_prompt
+        # All non-final acts should be listed
+        assert "1" in cliff_check.retry_prompt
+        assert "2" in cliff_check.retry_prompt
+        assert "3" in cliff_check.retry_prompt
+
 
 # ---------------------------------------------------------------------------
 # Test: Config defaults
