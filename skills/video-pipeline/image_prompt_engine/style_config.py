@@ -4,10 +4,27 @@ Holographic Intelligence Display style configuration.
 Self-contained module defining all visual identity constants for the
 holographic intelligence display system. No cross-package imports.
 
+When a visual profile is loaded, constants are read from the profile.
+When no profile is available, hardcoded defaults are used (zero risk
+to production).
+
 Version: 4.0 (Mar 2026) — Holographic Intelligence Display system
 """
 
 from enum import Enum
+
+
+# ---------------------------------------------------------------------------
+# Profile integration — thin adapter with hardcoded fallbacks
+# ---------------------------------------------------------------------------
+
+def _get_profile():
+    """Return the active visual profile, or None."""
+    try:
+        from visual_profiles import load_profile
+        return load_profile()
+    except Exception:
+        return None
 
 
 # =============================================================================

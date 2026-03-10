@@ -50,6 +50,54 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
+# Profile integration — thin adapter with hardcoded fallbacks
+# ---------------------------------------------------------------------------
+
+def _get_profile():
+    """Return the active visual profile, or None."""
+    try:
+        from visual_profiles import load_profile
+        return load_profile()
+    except Exception:
+        return None
+
+
+def get_universal_rules() -> str:
+    """Get universal rules from active profile or hardcoded default."""
+    profile = _get_profile()
+    if profile and profile.animation.universal_rules:
+        return " ".join(profile.animation.universal_rules)
+    # Defer to module-level UNIVERSAL_RULES (defined below)
+    return UNIVERSAL_RULES
+
+
+def get_animation_templates() -> dict:
+    """Get animation templates from active profile or hardcoded default."""
+    profile = _get_profile()
+    if profile and profile.animation.motion_templates:
+        # Reconstruct the template dict from profile's flat motion_templates
+        templates = {}
+        for intensity in ("low", "medium", "high"):
+            desc = profile.animation.intensity_levels.get(intensity, "")
+            motion_by_type = {}
+            for key, val in profile.animation.motion_templates.items():
+                if key.startswith(f"{intensity}_"):
+                    content_key = key[len(f"{intensity}_"):]
+                    motion_by_type[content_key] = val
+            if motion_by_type:
+                templates[intensity] = {
+                    "description": desc,
+                    "prefix": "Static shot.",
+                    "suffix": "No camera movement.",
+                    "motion_by_type": motion_by_type,
+                }
+        if templates:
+            return templates
+    # Defer to module-level ANIMATION_TEMPLATES (defined below)
+    return ANIMATION_TEMPLATES
+
+
+# ---------------------------------------------------------------------------
 # Verb extraction — Rule 1 support
 # ---------------------------------------------------------------------------
 

@@ -14,6 +14,9 @@ from .config import (
     KEN_BURNS_PRESETS,
     COMPOSITION_DIRECTION_MAP,
     MIN_DISPLAY_SECONDS,
+    get_ken_burns_presets,
+    get_composition_direction_map,
+    get_ken_burns_base_duration,
 )
 
 
@@ -36,7 +39,12 @@ def calculate_ken_burns(
         Dict with ``direction``, ``speed_multiplier``, and the
         scale/offset keys from :data:`KEN_BURNS_PRESETS`.
     """
-    direction = COMPOSITION_DIRECTION_MAP.get(
+    # Use profile-aware getters (falls back to hardcoded defaults)
+    direction_map = get_composition_direction_map()
+    presets = get_ken_burns_presets()
+    base_duration = get_ken_burns_base_duration()
+
+    direction = direction_map.get(
         composition.lower() if composition else "",
         "slow_zoom_in",
     )
@@ -49,9 +57,9 @@ def calculate_ken_burns(
 
     # Speed multiplier — slower zoom for longer scenes
     safe_duration = max(display_duration, MIN_DISPLAY_SECONDS)
-    speed_multiplier = round(KEN_BURNS_BASE_DURATION / safe_duration, 3)
+    speed_multiplier = round(base_duration / safe_duration, 3)
 
-    config = KEN_BURNS_PRESETS.get(direction, KEN_BURNS_PRESETS["slow_zoom_in"]).copy()
+    config = presets.get(direction, presets.get("slow_zoom_in", {})).copy()
     config["direction"] = direction
     config["speed_multiplier"] = speed_multiplier
 
@@ -65,13 +73,14 @@ def assign_ken_burns(scenes: list[dict[str, Any]]) -> list[dict[str, Any]]:
     Reads ``composition`` (or ``composition_hint``) and
     ``display_duration`` from each scene dict.
     """
+    base_duration = get_ken_burns_base_duration()
     for i, scene in enumerate(scenes):
         composition = (
             scene.get("composition")
             or scene.get("composition_hint")
             or "wide"
         )
-        display_duration = scene.get("display_duration", KEN_BURNS_BASE_DURATION)
+        display_duration = scene.get("display_duration", base_duration)
 
         scene["ken_burns"] = calculate_ken_burns(
             composition=composition,

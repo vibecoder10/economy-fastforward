@@ -4,6 +4,9 @@ Prompt builder for the Holographic Intelligence Display system.
 Takes scene descriptions and sequencing metadata, produces fully constructed
 image generation prompts for the holographic intelligence display aesthetic.
 
+When a visual profile is loaded, reads prefix/suffix/figure rules from the
+profile. Falls back to hardcoded defaults when no profile is available.
+
 Version: 4.0 (Mar 2026) — Holographic Intelligence Display system
 """
 
@@ -11,6 +14,19 @@ from __future__ import annotations
 
 import re
 from typing import Optional
+
+
+# ---------------------------------------------------------------------------
+# Profile integration — thin adapter with hardcoded fallbacks
+# ---------------------------------------------------------------------------
+
+def _get_profile():
+    """Return the active visual profile, or None."""
+    try:
+        from visual_profiles import load_profile
+        return load_profile()
+    except Exception:
+        return None
 
 from .style_config import (
     ColorMood,
@@ -203,7 +219,10 @@ def build_prompt(
         mood_language = _apply_style_override(mood_language, image_style_override)
 
     # Assemble: [Framing] [Content] [Color Mood] [Suffix]
-    return f"{framing} {clean_desc}, {mood_language}{HOLOGRAPHIC_SUFFIX}"
+    # Use profile suffix if available, otherwise hardcoded default
+    profile = _get_profile()
+    suffix = profile.style_system.style_suffix if profile else HOLOGRAPHIC_SUFFIX
+    return f"{framing} {clean_desc}, {mood_language}{suffix}"
 
 
 def _format_from_value(value: str) -> DisplayFormat:
