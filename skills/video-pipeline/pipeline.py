@@ -2723,6 +2723,9 @@ class VideoPipeline:
         download_ok = 0
         download_fail = 0
         failed_assets = []
+        audio_count = 0
+        image_count = 0
+        video_clip_count = 0
 
         for folder_id, folder_desc in asset_folders:
             drive_files = self.google.list_files_in_folder(folder_id)
@@ -2749,6 +2752,12 @@ class VideoPipeline:
                     dest.write_bytes(content)
                     print(f"    ✅ {fname} ({len(content) // 1024} KB)")
                     download_ok += 1
+                    if is_audio:
+                        audio_count += 1
+                    elif is_video:
+                        video_clip_count += 1
+                    elif is_image:
+                        image_count += 1
                 except Exception as e:
                     print(f"    ❌ {fname} FAILED: {e}")
                     failed_assets.append(fname)
@@ -2779,7 +2788,7 @@ class VideoPipeline:
             )
             return {"error": f"{download_fail} asset downloads failed", "bot": "Render Bot"}
 
-        print(f"  ✅ Assets downloaded from Google Drive")
+        print(f"  ✅ Assets downloaded: {audio_count} audio, {image_count} images, {video_clip_count} video clips")
 
         # Build a map of SFX files already in Drive (sfx_*.mp3)
         # so we can download them directly instead of relying on
@@ -2962,6 +2971,16 @@ class VideoPipeline:
             return {"error": f"Missing audio: {missing_list}", "bot": "Render Bot"}
 
         scene_count = len(props.get("scenes", []))
+
+        # Video clip status line
+        if video_clip_count > 0:
+            video_info = f"\n🎬 Video clips: {video_clip_count} animated, {image_count} static images"
+        elif image_count > 0:
+            video_info = f"\n🖼️ {image_count} static images (no video clips)"
+        else:
+            video_info = ""
+
+        # Sound effects status line
         sound_info = ""
         if sfx_count > 0:
             sound_info = f"\n🔊 Sound effects: {sfx_count}/{sfx_total} SFX files ready"
@@ -2971,7 +2990,8 @@ class VideoPipeline:
             sound_info = "\n🔇 No sound effects"
         self.slack.notify(
             f"⬇️ *Assets ready:* _{self.video_title}_\n"
-            f"{scene_count} scenes, all audio verified.{sound_info}\n"
+            f"{scene_count} scenes, {audio_count} audio files verified."
+            f"{video_info}{sound_info}\n"
             f"Starting Remotion render now..."
         )
 
