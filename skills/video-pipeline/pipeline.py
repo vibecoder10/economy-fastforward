@@ -10,7 +10,6 @@ The pipeline strictly follows Airtable Ideas table status:
 5.  Ready For Images         - Image Bot will run
 6.  Ready For Video Scripts  - Video Script Bot will run
 7.  Ready For Video Generation - Video Gen Bot will run
-7b. Ready For Animation      - Animation Bot will run (Grok Imagine clips)
 8.  Ready For Thumbnail      - Thumbnail Bot will run
 9.  Ready To Render          - Render Bot will run
 10. Done                     - All production assets complete, triggers render
@@ -49,7 +48,6 @@ from bots.idea_bot import IdeaBot
 from bots.trending_idea_bot import TrendingIdeaBot
 from bots.sound_prompt_bot import SoundPromptBot
 from bots.sound_bot import SoundBot
-from bots.animation_bot import AnimationBot
 from pipeline_config import VideoConfig
 from segmentation_engine import enforce_duration_caps, recalculate_durations
 from image_prompt_engine.prompt_builder import (
@@ -78,7 +76,6 @@ class VideoPipeline:
     STATUS_READY_IMAGES = "Ready For Images"
     STATUS_READY_VIDEO_SCRIPTS = "Ready For Video Scripts"
     STATUS_READY_VIDEO_GENERATION = "Ready For Video Generation"
-    STATUS_READY_ANIMATION = "Ready For Animation"
     STATUS_READY_THUMBNAIL = "Ready For Thumbnail"
     STATUS_DONE = "Done"
     STATUS_READY_TO_RENDER = "Ready To Render"
@@ -286,7 +283,7 @@ class VideoPipeline:
     # ==========================================================================
 
     # Animation pipeline configuration
-    MANUAL_ONLY_VIDEO_GEN = True  # Requires explicit --animate command (cost control)
+    MANUAL_ONLY_VIDEO_GEN = True  # Video prompts + generation run via Slack commands (cost control)
     COST_PER_VIDEO_CLIP = 0.10    # $0.10 per clip via Kie.ai
 
     def identify_hero_shots(self, images: list[dict], max_heroes: int = 3) -> list[str]:
@@ -404,213 +401,6 @@ class VideoPipeline:
             "hero_ids": hero_ids,
         }
 
-    async def run_video_animation_pipeline(
-        self,
-        scene_filter: int = None,
-        heroes_only: bool = False,
-    ) -> dict:
-        """Generate video clips for images with full animation workflow.
-
-        This unified method handles:
-        1. Identifying hero shots (10s duration vs 6s standard)
-        2. Generating shot-type-aware video prompts
-        3. Generating video clips via Grok Imagine
-        4. Uploading to Google Drive
-        5. Updating Airtable with results
-
-        Args:
-            scene_filter: If set, only process this scene number
-            heroes_only: If True, only generate hero shot videos (max 3, cost-effective testing)
-
-        Returns:
-            Dict with generation results
-        """
-        from clients.style_engine import SceneType, get_scene_type_for_segment
-
-        print(f"\n🎬 VIDEO ANIMATION PIPELINE: Processing '{self.video_title}'")
-
-        # Get all done images
-        all_images = self.airtable.get_all_images_for_video(self.video_title)
-        done_images = [img for img in all_images if img.get("Status") == "Done"]
-
-        # Apply scene filter
-        if scene_filter:
-            done_images = [img for img in done_images if img.get("Scene") == scene_filter]
-            print(f"  Filtered to Scene {scene_filter}: {len(done_images)} images")
-
-        # Identify hero shots
-        hero_ids = self.identify_hero_shots(done_images)
-        print(f"  Hero shots identified: {len(hero_ids)}")
-
-        # Filter to heroes only if requested
-        if heroes_only:
-            done_images = [img for img in done_images if img["id"] in hero_ids]
-            print(f"  Heroes-only mode: {len(done_images)} images")
-
-        # Sort by scene and image index for proper camera history ordering
-        done_images = sorted(
-            done_images,
-            key=lambda x: (x.get("Scene", 0), x.get("Image Index", 0)),
-        )
-
-        # Skip images that already have video clips
-        images_to_process = [img for img in done_images if not img.get("Video")]
-        print(f"  Images needing video: {len(images_to_process)}")
-
-        if not images_to_process:
-            print("  ✅ All images already have videos")
-            return {"videos_generated": 0, "actual_cost": 0, "status": "complete"}
-
-        # Ensure project folder exists
-        if not self.project_folder_id:
-            folder = self.google.get_or_create_folder(self.video_title)
-            self.project_folder_id = folder["id"]
-
-        videos_generated = 0
-        actual_cost = 0.0
-
-        # Track camera history for movement rotation
-        camera_history = []
-
-        # Pre-populate camera history from images that already have prompts
-        for img_record in done_images:
-            existing_prompt = img_record.get("Video Prompt", "")
-            if existing_prompt:
-                camera_history.append(detect_camera_movement(existing_prompt))
-
-        for i, img_record in enumerate(images_to_process, 1):
-            scene = img_record.get("Scene", 0)
-            index = img_record.get("Image Index", 0)
-            is_hero = img_record["id"] in hero_ids
-            duration = 10 if is_hero else 6
-
-            hero_marker = " (HERO 10s)" if is_hero else " (6s)"
-            print(f"\n  [{i}/{len(images_to_process)}] Scene {scene}, Image {index}{hero_marker}")
-
-            # Get image URL - prefer Drive URL (permanent)
-            drive_url = img_record.get("Drive Image URL")
-            if not drive_url:
-                image_attachments = img_record.get("Image", [])
-                drive_url = image_attachments[0].get("url") if image_attachments else None
-
-            if not drive_url:
-                print("    ⚠️ No image URL found, skipping")
-                continue
-
-            # Convert to direct download URL for Grok Imagine
-            direct_url = self.google.get_direct_drive_url(drive_url)
-
-            # Determine shot type from segment position
-            scene_images = [im for im in done_images if im.get("Scene") == scene]
-            total_in_scene = len(scene_images)
-            try:
-                scene_type, camera_role = get_scene_type_for_segment(
-                    index - 1,  # 0-based
-                    total_in_scene,
-                    None
-                )
-                scene_type_str = scene_type.value
-            except Exception as e:
-                print(f"    ⚠️ Scene type detection failed: {e}")
-                scene_type_str = None
-                camera_role = None
-
-            # Generate video prompt if not exists
-            video_prompt = img_record.get("Video Prompt")
-            if not video_prompt:
-                print("    Generating video prompt...")
-                image_prompt = img_record.get("Image Prompt", "")
-                sentence_text = img_record.get("Sentence Text", "")
-
-                video_prompt = await self.anthropic.generate_video_prompt(
-                    image_prompt=image_prompt,
-                    sentence_text=sentence_text,
-                    scene_type=scene_type_str,
-                    is_hero_shot=is_hero,
-                    prev_cameras=camera_history,
-                )
-
-                # Validate and enforce camera rotation
-                validation = validate_video_prompt(
-                    video_prompt, sentence_text,
-                    prev_cameras=camera_history,
-                    clip_duration_seconds=duration,
-                )
-                if not validation["valid"]:
-                    blocked = validation.get("camera")
-                    allowed = ", ".join(k for k in CAMERA_MOVEMENTS if k != blocked)
-                    print(f"    ⚠️ Camera repeat detected ({blocked}), regenerating...")
-                    video_prompt = await self.anthropic.generate_video_prompt(
-                        image_prompt=image_prompt,
-                        sentence_text=sentence_text,
-                        scene_type=scene_type_str,
-                        is_hero_shot=is_hero,
-                        prev_cameras=camera_history,
-                    )
-
-                # Track camera for rotation enforcement
-                camera_history.append(detect_camera_movement(video_prompt))
-
-                # Save prompt to Airtable
-                self.airtable.update_image_video_prompt(img_record["id"], video_prompt)
-
-            print(f"    Motion: {video_prompt[:60]}...")
-            print(f"    Generating {duration}s video...")
-
-            # Update status to processing
-            self.airtable.update_image_animation_fields(
-                img_record["id"],
-                shot_type=scene_type_str.upper() if scene_type_str else None,
-                is_hero_shot=is_hero,
-                animation_status="Processing",
-                video_duration=duration,
-            )
-
-            # Generate video via Grok Imagine
-            video_url = await self.image_client.generate_video(
-                direct_url,
-                video_prompt,
-                duration=duration,
-            )
-
-            if video_url:
-                # Download and upload to Drive
-                print("    Downloading video...")
-                video_content = await self.image_client.download_image(video_url)
-
-                filename = f"Scene_{str(scene).zfill(2)}_{str(index).zfill(2)}.mp4"
-                print(f"    Uploading {filename} to Drive...")
-                drive_file = self.google.upload_video(video_content, filename, self.project_folder_id)
-                video_drive_url = self.google.make_file_public(drive_file["id"])
-
-                # Update Airtable
-                self.airtable.update_image_video_url(img_record["id"], video_url)
-                self.airtable.update_image_animation_fields(
-                    img_record["id"],
-                    video_clip_url=video_drive_url,
-                    animation_status="Done",
-                )
-
-                videos_generated += 1
-                actual_cost += self.COST_PER_VIDEO_CLIP
-                print("    ✅ Video saved!")
-            else:
-                self.airtable.update_image_animation_fields(
-                    img_record["id"],
-                    animation_status="Failed",
-                )
-                print("    ❌ Video generation failed")
-
-        print(f"\n✅ Generated {videos_generated} videos")
-        print(f"   Actual cost: ${actual_cost:.2f}")
-
-        return {
-            "videos_generated": videos_generated,
-            "actual_cost": round(actual_cost, 2),
-            "total_attempted": len(images_to_process),
-            "status": "complete",
-        }
-
     async def run_next_step(self) -> dict:
         """Run the next step based on what's in the Ideas table.
 
@@ -697,23 +487,17 @@ class VideoPipeline:
             self._load_idea(idea)
             return await self._run_step_safe("Sound Bot", self.run_sound_bot)
 
-        # 5. SKIPPED - Video Scripts (manual only, costly at $0.10/image)
-        # idea = self.get_idea_by_status(self.STATUS_READY_VIDEO_SCRIPTS)
-        # if idea:
-        #     self._load_idea(idea)
-        #     return await self.run_video_script_bot()
-
-        # 6. SKIPPED - Video Generation (manual only, costly at $0.10/image)
-        # idea = self.get_idea_by_status(self.STATUS_READY_VIDEO_GENERATION)
-        # if idea:
-        #     self._load_idea(idea)
-        #     return await self.run_video_gen_bot()
-
-        # 6b. Check for Ready For Animation (Grok Imagine clips from images)
-        idea = self.get_idea_by_status(self.STATUS_READY_ANIMATION)
+        # 5. Video Scripts (generates motion prompts, ~$0.10/image)
+        idea = self.get_idea_by_status(self.STATUS_READY_VIDEO_SCRIPTS)
         if idea:
             self._load_idea(idea)
-            return await self._run_step_safe("Animation Bot", self.run_animation_bot)
+            return await self._run_step_safe("Video Script Bot", self.run_video_script_bot)
+
+        # 6. Video Generation (generates clips from motion prompts, ~$0.10/clip)
+        idea = self.get_idea_by_status(self.STATUS_READY_VIDEO_GENERATION)
+        if idea:
+            self._load_idea(idea)
+            return await self._run_step_safe("Video Gen Bot", self.run_video_gen_bot)
 
         # 7. Check for Ready For Thumbnail
         idea = self.get_idea_by_status(self.STATUS_READY_THUMBNAIL)
@@ -1189,115 +973,17 @@ class VideoPipeline:
         if result.get("error"):
             return result
 
-        # Update status — sound is done, move to animation
-        self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_ANIMATION)
-        print(f"  ✅ Status updated to: {self.STATUS_READY_ANIMATION}")
+        # Update status — sound is done, move to video prompts
+        self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_VIDEO_SCRIPTS)
+        print(f"  ✅ Status updated to: {self.STATUS_READY_VIDEO_SCRIPTS}")
 
         self.slack.notify(
             f"✅ Generated {result.get('total_generated', 0)} sound effects for *{self.video_title}* "
             f"(~${result.get('estimated_cost', 0):.2f})"
         )
 
-        result["new_status"] = self.STATUS_READY_ANIMATION
+        result["new_status"] = self.STATUS_READY_VIDEO_SCRIPTS
         return result
-
-    async def run_animation_bot(self) -> dict:
-        """Generate video clips from images via Grok Imagine.
-
-        REQUIRES: Ideas status = "Ready For Animation"
-        UPDATES TO: "Ready For Thumbnail" when all clips generated
-
-        Uses the configurable VideoConfig (clip_duration from Airtable) and
-        the animation_prompt_engine to generate per-clip motion prompts.
-        Calls the existing Grok Imagine client — no new API code.
-        """
-        if not self.current_idea:
-            idea = self.get_idea_by_status(self.STATUS_READY_ANIMATION)
-            if not idea:
-                return {"error": "No idea with status 'Ready For Animation'"}
-            self._load_idea(idea)
-
-        if self.current_idea.get("Status") != self.STATUS_READY_ANIMATION:
-            return {
-                "error": f"Idea status is '{self.current_idea.get('Status')}', "
-                f"expected 'Ready For Animation'"
-            }
-
-        print(f"\n🎬 ANIMATION BOT: Processing '{self.video_title}'")
-        self._log_filters()
-
-        # Load VideoConfig from Airtable record (defaults to 10min/10s)
-        config = self.video_config or VideoConfig.from_airtable_record(self.current_idea)
-        print(f"  Config: dynamic clip durations (6s/10s per segment), "
-              f"~{config.total_clips} est. total clips")
-
-        # Ensure project folder
-        if not self.project_folder_id:
-            folder = self.google.get_or_create_folder(self.video_title)
-            self.project_folder_id = folder["id"]
-
-        # Cost estimate before starting
-        all_images = self.airtable.get_all_images_for_video(self.video_title)
-        pending = [
-            img for img in all_images
-            if img.get("Status") == "Done" and not img.get("Video Clip URL")
-        ]
-        est_cost = len(pending) * AnimationBot.COST_PER_CLIP
-        print(f"  Pending clips: {len(pending)} | Est. cost: ${est_cost:.2f}")
-
-        self.slack.notify(
-            f"🎬 Starting animation for *{self.video_title}*\n"
-            f"Clips: {len(pending)} | Duration: dynamic (6s/10s) | "
-            f"Est. cost: ${est_cost:.2f}"
-        )
-
-        bot = AnimationBot(
-            image_client=self.image_client,
-            airtable_client=self.airtable,
-            google_client=self.google,
-        )
-        result = await bot.run(
-            video_title=self.video_title,
-            config=config,
-            project_folder_id=self.project_folder_id,
-            scene_filter=self.scene_filter,
-            image_filter=self.image_filter,
-        )
-
-        if result.get("clips_failed", 0) > 0 and result.get("clips_generated", 0) == 0:
-            error_msg = f"All {result['clips_failed']} clips failed for '{self.video_title}'"
-            print(f"  ❌ {error_msg}")
-            self.slack.notify(f"❌ Animation Bot STOPPED: {error_msg}")
-            return {"status": "failed", "bot": "Animation Bot", "error": error_msg}
-
-        if self._is_targeted_run:
-            print(f"  🎯 Targeted run — status NOT advanced")
-            return {
-                "bot": "Animation Bot",
-                "video_title": self.video_title,
-                "clips_generated": result["clips_generated"],
-                "clips_failed": result.get("clips_failed", 0),
-                "actual_cost": result["actual_cost"],
-                "targeted": True,
-            }
-
-        # Advance to thumbnail
-        self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_THUMBNAIL)
-        print(f"  ✅ Status updated to: {self.STATUS_READY_THUMBNAIL}")
-
-        self.slack.notify(
-            f"✅ Animated {result['clips_generated']} clips for *{self.video_title}* "
-            f"(${result['actual_cost']:.2f})"
-        )
-
-        return {
-            "bot": "Animation Bot",
-            "video_title": self.video_title,
-            "clips_generated": result["clips_generated"],
-            "clips_failed": result.get("clips_failed", 0),
-            "actual_cost": result["actual_cost"],
-            "new_status": self.STATUS_READY_THUMBNAIL,
-        }
 
     async def run_image_prompt_bot_legacy(self) -> dict:
         """Generate image prompts based on voiceover duration (LEGACY PATH).
@@ -2636,7 +2322,6 @@ class VideoPipeline:
             "images": self.STATUS_READY_IMAGES,
             "video_scripts": self.STATUS_READY_VIDEO_SCRIPTS,
             "video_gen": self.STATUS_READY_VIDEO_GENERATION,
-            "animation": self.STATUS_READY_ANIMATION,
             "thumbnail": self.STATUS_READY_THUMBNAIL,
             "render": self.STATUS_READY_TO_RENDER,
         }
@@ -4458,7 +4143,6 @@ async def main():
         print("  --sync            Sync assets to Google Drive")
         print("  --remotion        Export Remotion props for rendering")
         print('  --regenerate      Regenerate missing images (fixes render failures)')
-        print('  --animate         Generate video clips from images (Grok Imagine)')
         print("  --render          Render only — skip other stages, process one at a time")
         print("  --run-queue       Process all videos until queue is empty")
         print("  --help, -h        Show this help message")
@@ -4470,8 +4154,6 @@ async def main():
         print("  python pipeline.py --trending")
         print('  python pipeline.py --trending "crypto crash,bitcoin ETF"')
         print('  python pipeline.py --regenerate "Video Title" --images 3:4,4:7')
-        print('  python pipeline.py --animate "Video Title" --estimate')
-        print('  python pipeline.py --animate "Video Title" --heroes-only')
         print("  python pipeline.py --render")
         return
 
@@ -4852,85 +4534,6 @@ async def main():
 
         result = await pipeline.regenerate_images(scene_list=scene_list, image_indices=image_indices)
         print(f"\n✅ Regeneration complete: {result.get('regenerated', 0)} images")
-        return
-
-    if len(sys.argv) > 1 and sys.argv[1] == "--animate":
-        # Generate video clips from images using Grok Imagine
-        print("=" * 60)
-        print("🎬 ANIMATION PIPELINE - Video Generation")
-        print("=" * 60)
-
-        if len(sys.argv) < 3:
-            print("\nUsage:")
-            print('  python pipeline.py --animate "Video Title"')
-            print('  python pipeline.py --animate "Video Title" --estimate')
-            print('  python pipeline.py --animate "Video Title" --scene 1')
-            print('  python pipeline.py --animate "Video Title" --heroes-only')
-            print("\nOptions:")
-            print("  --estimate     Show cost estimate only (no generation)")
-            print("  --scene N      Only process images from scene N")
-            print("  --heroes-only  Only generate hero shots (max 3, 10s each)")
-            print("\nExamples:")
-            print('  python pipeline.py --animate "The 2030 Currency Collapse"')
-            print('  python pipeline.py --animate "Title" --estimate')
-            print('  python pipeline.py --animate "Title" --heroes-only')
-            return
-
-        title = sys.argv[2]
-
-        # Find and load the video
-        ideas = pipeline.airtable.get_all_ideas()
-        for idea in ideas:
-            if idea.get("Video Title") == title:
-                pipeline._load_idea(idea)
-                break
-
-        if not pipeline.video_title:
-            print(f"❌ Video not found: {title}")
-            return
-
-        # Cost estimation
-        estimate = pipeline.estimate_video_generation_cost()
-        print(f"\n📊 Cost Estimate for '{title}':")
-        print(f"   Total images: {estimate['total_images']}")
-        print(f"   Hero shots (10s): {estimate['hero_shots']}")
-        print(f"   Standard shots (6s): {estimate['standard_shots']}")
-        print(f"   ─────────────────────")
-        print(f"   TOTAL COST: ${estimate['total_cost']:.2f}")
-
-        if "--estimate" in sys.argv:
-            print("\n   (Estimate only - no generation performed)")
-            if estimate.get('hero_ids'):
-                print(f"\n   Hero shot IDs: {estimate['hero_ids']}")
-            return
-
-        # Confirmation for high cost
-        if estimate['total_cost'] > 5.0:
-            print(f"\n⚠️ Cost exceeds $5. Type 'yes' to proceed:")
-            confirm = input("   > ").strip().lower()
-            if confirm != "yes":
-                print("   Cancelled.")
-                return
-
-        # Parse filter options
-        scene_filter = None
-        heroes_only = "--heroes-only" in sys.argv
-
-        if "--scene" in sys.argv:
-            idx = sys.argv.index("--scene")
-            if idx + 1 < len(sys.argv):
-                scene_filter = int(sys.argv[idx + 1])
-                print(f"\n   Scene filter: {scene_filter}")
-
-        # Run video generation
-        print(f"\n🎬 Starting video generation...")
-        result = await pipeline.run_video_animation_pipeline(
-            scene_filter=scene_filter,
-            heroes_only=heroes_only,
-        )
-
-        print(f"\n✅ Generated {result.get('videos_generated', 0)} video clips")
-        print(f"   Actual cost: ${result.get('actual_cost', 0):.2f}")
         return
 
     # === BRIEF TRANSLATOR ===
