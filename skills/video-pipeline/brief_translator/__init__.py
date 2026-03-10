@@ -160,7 +160,7 @@ class BriefTranslator:
                 f"{script_result['validation']['act_count']} acts"
             )
 
-            # Log editorial validation results
+            # Check editorial validation results — block pipeline on failure
             editorial = script_result["validation"].get("editorial", {})
             if editorial:
                 editorial_passed = editorial.get("passed", True)
@@ -169,14 +169,24 @@ class BriefTranslator:
                         c["name"] for c in editorial.get("checks", [])
                         if not c["passed"]
                     ]
-                    logger.warning(
-                        f"Editorial validation failed checks: {failed}"
+                    failed_details = [
+                        f"{c['name']}: {c['detail']}"
+                        for c in editorial.get("checks", [])
+                        if not c["passed"]
+                    ]
+                    logger.error(
+                        f"Editorial validation BLOCKED pipeline: {failed}"
                     )
                     self._notify(
-                        f"⚠️ Script editorial checks failed for "
+                        f"🚫 Script BLOCKED by editorial validation for "
                         f"'{brief.get('headline', 'Untitled')}': "
                         f"{', '.join(failed)}"
                     )
+                    result["error"] = (
+                        f"Editorial validation failed after retries: "
+                        f"{'; '.join(failed_details)}"
+                    )
+                    return result
                 else:
                     logger.info("Editorial validation: all checks passed")
 
