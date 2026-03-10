@@ -1104,6 +1104,16 @@ async def generate_script(
     # Attach editorial validation results to the validation dict
     validation["editorial"] = editorial_result.to_dict()
 
+    # Gate the pipeline: if editorial checks still fail after retries,
+    # mark the overall validation as failed so the caller blocks.
+    if not editorial_result.passed:
+        validation["valid"] = False
+        failed_names = [c.name for c in editorial_result.failed_checks]
+        editorial_issue = f"Editorial validation failed: {', '.join(failed_names)}"
+        if "issues" not in validation:
+            validation["issues"] = []
+        validation["issues"].append(editorial_issue)
+
     return {
         "script": script,
         "validation": validation,
