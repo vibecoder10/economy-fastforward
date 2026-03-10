@@ -143,8 +143,8 @@ cliffhanger: "And there's one more layer that affects you directly."
 [ACT 4 — THE PROOF | 11:00-15:00 | ~500 words]
 Historical parallel in vivid detail — specific dates, figures, events, outcomes.
 Point-by-point mapping to the present: "In 1973, [X]. In 2026, [X]." NOW name
-the framework: "What you're watching is what {FRAMEWORK_AUTHOR} identified as
-{CONCEPT}." Use the framework to explain what the historical precedent PREDICTS
+the framework: "What you're watching is what [Author] identified as
+[Concept]." Use the framework to explain what the historical precedent PREDICTS
 for the current situation. The framework name arrives as confirmation of what the
 viewer already sees, not as a new concept. Include cliffhanger about personal
 stakes.
