@@ -901,6 +901,70 @@ async def generate_script(
             validation["issues"].append(issue)
             validation["valid"] = False
 
+    # === Editorial Voice v2: Post-Generation Validation ===
+    from .script_validator import (
+        validate_script_editorial,
+        build_retry_prompt,
+        ScriptValidationConfig,
+    )
+
+    editorial_config = ScriptValidationConfig()
+    if not acts:
+        acts = extract_acts(script)
+
+    editorial_result = validate_script_editorial(
+        script=script, brief=brief, acts=acts, config=editorial_config,
+    )
+
+    # Retry loop for failed editorial checks
+    if not editorial_result.passed and editorial_config.retry_on_fail:
+        original_prompt = build_script_prompt(brief, config=config)
+        for retry_num in range(1, editorial_config.max_retries + 1):
+            import logging
+            _logger = logging.getLogger(__name__)
+            failed_names = [c.name for c in editorial_result.failed_checks]
+            _logger.info(
+                f"Editorial validation retry {retry_num}/{editorial_config.max_retries}: "
+                f"failed checks: {failed_names}"
+            )
+
+            retry_prompt = build_retry_prompt(
+                original_prompt, script, editorial_result,
+            )
+
+            script = await anthropic_client.generate(
+                prompt=retry_prompt,
+                model=model,
+                max_tokens=8000,
+                temperature=0.7,
+            )
+
+            # Re-run structural validation
+            validation = validate_script(script, config=config)
+            acts = extract_acts(script)
+
+            # Re-run editorial validation
+            editorial_result = validate_script_editorial(
+                script=script, brief=brief, acts=acts, config=editorial_config,
+            )
+
+            if editorial_result.passed:
+                _logger.info(
+                    f"Editorial validation passed after {retry_num} retry(s)"
+                )
+                break
+        else:
+            import logging
+            _logger = logging.getLogger(__name__)
+            _logger.warning(
+                f"Editorial validation still failing after "
+                f"{editorial_config.max_retries} retries: "
+                f"{editorial_result.summary}"
+            )
+
+    # Attach editorial validation results to the validation dict
+    validation["editorial"] = editorial_result.to_dict()
+
     return {
         "script": script,
         "validation": validation,
