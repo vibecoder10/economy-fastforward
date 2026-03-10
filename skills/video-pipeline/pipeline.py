@@ -2790,6 +2790,41 @@ class VideoPipeline:
 
         print(f"  ✅ Assets downloaded: {audio_count} audio, {image_count} images, {video_clip_count} video clips")
 
+        # ── Patch render_config with video clip data ──────────────────
+        # The render_config from audio_sync marks all entries as type="image".
+        # For any downloaded .mp4 files, patch the matching render_config entry
+        # to type="video" so Remotion uses <OffthreadVideo> instead of <Img>.
+        if video_clip_count > 0 and "renderConfig" in props:
+            rc_data = props["renderConfig"]
+            import glob as _glob_mod
+            downloaded_mp4s = _glob_mod.glob(str(public_dir / "Scene_*.mp4"))
+            # Build set of (scene_number, image_index) from downloaded mp4 filenames
+            mp4_lookup: dict[tuple[int, int], str] = {}
+            for mp4_path in downloaded_mp4s:
+                mp4_name = os.path.basename(mp4_path)
+                # Parse Scene_XX_YY.mp4
+                match = re.match(r"Scene_(\d+)_(\d+)\.mp4", mp4_name)
+                if match:
+                    mp4_lookup[(int(match.group(1)), int(match.group(2)))] = mp4_name
+
+            patched = 0
+            for rc_entry in rc_data.get("scenes", []):
+                sn = rc_entry.get("scene_number", 0)
+                ii = rc_entry.get("image_index", 0)
+                mp4_name = mp4_lookup.get((sn, ii))
+                if mp4_name:
+                    rc_entry["type"] = "video"
+                    rc_entry["video_clip_path"] = mp4_name
+                    patched += 1
+
+            if patched:
+                # Rewrite render_config.json on disk and re-embed in props
+                rc_path = public_dir / "render_config.json"
+                with open(rc_path, "w") as f:
+                    json.dump(rc_data, f, indent=2)
+                props["renderConfig"] = rc_data
+                print(f"  🎬 Patched render_config: {patched} entries marked as video clips")
+
         # Build a map of SFX files already in Drive (sfx_*.mp3)
         # so we can download them directly instead of relying on
         # Airtable CDN URLs which expire after 2 hours.

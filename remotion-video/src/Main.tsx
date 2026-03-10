@@ -3,7 +3,7 @@ import { Audio } from "@remotion/media";
 import { Scene } from "./Scene";
 import { useMemo } from "react";
 import { getWordsForScene } from "./transcripts";
-import { getSceneNumbers, getImageCountForScene, getSceneDurationFromConfig } from "./renderConfig";
+import { getSceneNumbers, getImageCountForScene, getSceneDurationFromConfig, getRenderScenesForScene } from "./renderConfig";
 
 interface MainProps {
     totalScenes?: number;
@@ -86,15 +86,25 @@ export const Main: React.FC<MainProps> = ({ totalScenes }) => {
             const imageCount = getImageCountForScene(sceneNumber) || 6;
             const sceneSfx = sfxByScene[sceneNumber] ?? {};
 
+            // Get render_config entries for this scene to detect video clips
+            const renderScenes = getRenderScenesForScene(sceneNumber);
+
             return {
                 sceneNumber,
                 audioFile: `Scene ${sceneNumber}.mp3`,
                 images: Array.from({ length: imageCount }, (_, j) => {
                     const imgIndex = j + 1;
                     const sfxData = sceneSfx[imgIndex];
+                    const padScene = String(sceneNumber).padStart(2, "0");
+                    const padIndex = String(imgIndex).padStart(2, "0");
+                    // Use .mp4 extension if render_config marks this entry as a video clip
+                    const rs = renderScenes.find(
+                        (s) => s.scene_number === sceneNumber && s.image_index === imgIndex,
+                    );
+                    const ext = rs?.type === "video" && rs.video_clip_path ? "mp4" : "png";
                     return {
                         index: imgIndex,
-                        file: `Scene_${String(sceneNumber).padStart(2, "0")}_${String(imgIndex).padStart(2, "0")}.png`,
+                        file: `Scene_${padScene}_${padIndex}.${ext}`,
                         sfx: sfxData?.sfx,
                         sfxVolume: sfxData?.sfxVolume,
                     };
