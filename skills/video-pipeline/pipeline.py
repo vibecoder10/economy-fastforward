@@ -1778,7 +1778,7 @@ class VideoPipeline:
                     print(f"      [{i}/{total}] Downloading video content...")
                     video_content = await self.image_client.download_image(video_url)
 
-                    filename = f"Clip_S{str(scene).zfill(2)}_{str(index).zfill(2)}.mp4"
+                    filename = f"Scene_{str(scene).zfill(2)}_{str(index).zfill(2)}.mp4"
                     print(f"      [{i}/{total}] Uploading {filename} to Drive...")
                     drive_file = self.google.upload_video(
                         video_content, filename, self.project_folder_id
