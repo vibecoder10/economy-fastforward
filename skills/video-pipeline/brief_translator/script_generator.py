@@ -4,8 +4,11 @@ Transforms a validated research brief into a narration script
 with dynamic act structure, micro-payoff architecture, and act markers.
 
 Word counts and act counts are driven by VideoConfig (pipeline_config.py).
+Script profiles (script_profiles/) control the editorial voice — tone,
+structural laws, act structure, validation rules, and language constraints.
+
 Legacy constants are kept as defaults for backward compatibility when no
-config is provided.
+config or profile is provided.
 """
 
 import re
@@ -14,6 +17,7 @@ from typing import Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from pipeline_config import VideoConfig
+    from script_profiles.schema import ScriptProfile
 
 PROMPT_TEMPLATE_PATH = Path(__file__).parent / "prompts" / "script.txt"
 
@@ -662,22 +666,119 @@ def _build_source_citations_section(brief: dict) -> str:
     )
 
 
-def build_script_prompt(brief: dict, config: Optional["VideoConfig"] = None) -> str:
+def build_script_prompt(
+    brief: dict,
+    config: Optional["VideoConfig"] = None,
+    profile: Optional["ScriptProfile"] = None,
+) -> str:
     """Build the script generation prompt from a research brief.
 
     Args:
         brief: Validated research brief dict.
         config: Optional VideoConfig for dynamic word counts and act structure.
             When None, falls back to legacy 6-act / 2800-word defaults.
+        profile: Optional ScriptProfile for editorial voice. When provided,
+            the voice/tone preamble is assembled from the profile instead of
+            the static ``prompts/script.txt`` template.
     """
-    template = load_script_prompt()
-
     # Build framework lens section based on Framework Angle field
     framework_angle = brief.get("framework_angle", "")
     framework_lens = _build_framework_lens_section(framework_angle)
 
     # Build source citations section
     source_citations = _build_source_citations_section(brief)
+
+    if profile is not None:
+        # Assemble the voice preamble from the profile
+        from script_profiles.schema import build_script_system_prompt
+
+        preamble = build_script_system_prompt(profile)
+
+        # Insert the framework lens and research brief
+        rendered = preamble + "\n\n"
+        if framework_lens:
+            rendered += framework_lens + "\n\n"
+
+        rendered += (
+            "<research_brief>\n"
+            f"Headline: {brief.get('headline', '')}\n"
+            f"Thesis: {brief.get('thesis', '')}\n"
+            f"Executive Hook: {brief.get('executive_hook', '')}\n"
+            f"Fact Sheet: {brief.get('fact_sheet', '')}\n"
+            f"Historical Parallels: {brief.get('historical_parallels', '')}\n"
+            f"Framework Analysis: {brief.get('framework_analysis', '')}\n"
+            f"Character Dossier: {brief.get('character_dossier', '')}\n"
+            f"Narrative Arc: {brief.get('narrative_arc', '')}\n"
+            f"Counter Arguments: {brief.get('counter_arguments', '')}\n"
+            f"Visual Seeds: {brief.get('visual_seeds', '')}\n"
+            "</research_brief>"
+        )
+
+        if source_citations:
+            rendered += "\n\n" + source_citations
+
+        # Use profile's word count targets or fall back to config/legacy
+        v = profile.validation
+        min_w = config.script_min_words if config else v.min_words
+        max_w = config.script_max_words if config else v.max_words
+        target_w = config.total_script_words if config else (min_w + max_w) // 2
+        act_count = config.act_count if config else profile.act_structure.get("act_count", 6)
+
+        rendered += (
+            f"\n\nWrite a complete narration script (~{target_w} words). "
+            f"Minimum: {min_w} words. Maximum: {max_w} words.\n"
+            f"Structure it in {act_count} acts with clear markers:\n"
+            "[ACT X — TITLE | TIMESTAMP | ~WORD COUNT]\n\n"
+            "IMPORTANT FORMATTING RULES:\n"
+            "- Mark each act clearly: [ACT X — TITLE | TIMESTAMP | WORD COUNT]\n"
+            "- Write as continuous narration — no stage directions, no \"[pause]\" markers\n"
+            "- Do NOT include image descriptions in the script\n"
+            "- Every factual claim must be verifiable from the research brief\n"
+            "- Source citations must appear at least 4-6 times across the script\n"
+            "- Historical parallels must appear in at least 3 different acts\n"
+            "- Direct audience address (\"you\", \"your\") must appear at least 3-4 times\n"
+        )
+
+        # Append profile-specific text blocks
+        rendered += "\n\n" + _build_act_structure_override(config)
+        if profile.micro_payoff_architecture:
+            rendered += "\n\n" + profile.micro_payoff_architecture
+        else:
+            rendered += "\n\n" + _MICRO_PAYOFF_ARCHITECTURE
+
+        if profile.framework_selection_rules:
+            rendered += "\n\n" + profile.framework_selection_rules
+        else:
+            rendered += "\n\n" + _FRAMEWORK_SELECTION_RULES
+
+        if profile.framework_revelation_engine:
+            rendered += "\n\n" + profile.framework_revelation_engine
+        else:
+            rendered += "\n\n" + _FRAMEWORK_REVELATION_ENGINE
+
+        # Emotional arc (profile-specific, replaces _FRAMEWORK_PSYCH_SEPARATION)
+        if profile.emotional_arc:
+            arc_lines = ["=== EMOTIONAL ARC — THE INVESTIGATIVE JOURNEY ===\n"]
+            for act_num in sorted(profile.emotional_arc.keys()):
+                arc_lines.append(f"- Act {act_num}: {profile.emotional_arc[act_num]}")
+            rendered += "\n\n" + "\n".join(arc_lines)
+        else:
+            rendered += "\n\n" + _FRAMEWORK_PSYCH_SEPARATION
+
+        if profile.act_specific_rules:
+            rendered += "\n\n" + profile.act_specific_rules
+        else:
+            rendered += "\n\n" + _ACT_SPECIFIC_RULES
+
+        if profile.strict_grounding_rule:
+            rendered += "\n\n" + profile.strict_grounding_rule
+        else:
+            rendered += "\n\n" + _STRICT_GROUNDING_RULE
+
+        return rendered
+
+    # --- Legacy path: no profile, use static template ---
+    template = load_script_prompt()
 
     rendered = template.format(
         HEADLINE=brief.get("headline", ""),
@@ -708,13 +809,20 @@ def build_script_prompt(brief: dict, config: Optional["VideoConfig"] = None) -> 
     return rendered
 
 
-def validate_script(script: str, config: Optional["VideoConfig"] = None) -> dict:
+def validate_script(
+    script: str,
+    config: Optional["VideoConfig"] = None,
+    profile: Optional["ScriptProfile"] = None,
+) -> dict:
     """Validate script structure and word count.
 
     Args:
         script: Generated script text.
         config: Optional VideoConfig for dynamic thresholds. Falls back to
             legacy constants when None.
+        profile: Optional ScriptProfile for editorial-voice-aware validation.
+            When provided, uses profile's validation rules for word count
+            thresholds and kill phrase checking.
 
     Returns:
         {
@@ -725,9 +833,18 @@ def validate_script(script: str, config: Optional["VideoConfig"] = None) -> dict
             "acts": list[dict],  # parsed act info
         }
     """
-    min_words = config.script_min_words if config else SCRIPT_MIN_WORDS
-    max_words = config.script_max_words if config else SCRIPT_MAX_WORDS
-    expected_acts = config.act_count if config else EXPECTED_ACT_COUNT
+    if config:
+        min_words = config.script_min_words
+        max_words = config.script_max_words
+        expected_acts = config.act_count
+    elif profile:
+        min_words = profile.validation.min_words
+        max_words = profile.validation.max_words
+        expected_acts = profile.act_structure.get("act_count", EXPECTED_ACT_COUNT)
+    else:
+        min_words = SCRIPT_MIN_WORDS
+        max_words = SCRIPT_MAX_WORDS
+        expected_acts = EXPECTED_ACT_COUNT
 
     issues = []
     word_count = len(script.split())
@@ -762,6 +879,13 @@ def validate_script(script: str, config: Optional["VideoConfig"] = None) -> dict
     expected_numbers = list(range(1, expected_acts + 1))
     if act_numbers != expected_numbers[: len(act_numbers)]:
         issues.append(f"Act numbers not sequential: {act_numbers}")
+
+    # Profile-aware validation: kill phrase check
+    if profile and profile.validation.kill_phrase_check:
+        script_lower = script.lower()
+        for phrase in profile.language.kill_phrases:
+            if phrase.lower() in script_lower:
+                issues.append(f"Kill phrase detected: '{phrase}'")
 
     return {
         "valid": len(issues) == 0,
@@ -823,6 +947,7 @@ async def generate_script(
     brief: dict,
     model: str = "claude-sonnet-4-5-20250929",
     config: Optional["VideoConfig"] = None,
+    profile: Optional["ScriptProfile"] = None,
 ) -> dict:
     """Generate a full narration script from a validated research brief.
 
@@ -831,6 +956,7 @@ async def generate_script(
         brief: Validated research brief dict
         model: Model to use (defaults to Sonnet, can use Opus for higher quality)
         config: Optional VideoConfig for dynamic word counts and act structure.
+        profile: Optional ScriptProfile for editorial voice control.
 
     Returns:
         {
@@ -838,11 +964,20 @@ async def generate_script(
             "validation": dict,
         }
     """
-    min_words = config.script_min_words if config else SCRIPT_MIN_WORDS
-    max_words = config.script_max_words if config else SCRIPT_MAX_WORDS
-    target_words = config.total_script_words if config else SCRIPT_TARGET_WORDS
+    if config:
+        min_words = config.script_min_words
+        max_words = config.script_max_words
+        target_words = config.total_script_words
+    elif profile:
+        min_words = profile.validation.min_words
+        max_words = profile.validation.max_words
+        target_words = (min_words + max_words) // 2
+    else:
+        min_words = SCRIPT_MIN_WORDS
+        max_words = SCRIPT_MAX_WORDS
+        target_words = SCRIPT_TARGET_WORDS
 
-    prompt = build_script_prompt(brief, config=config)
+    prompt = build_script_prompt(brief, config=config, profile=profile)
 
     script = await anthropic_client.generate(
         prompt=prompt,
@@ -851,7 +986,7 @@ async def generate_script(
         temperature=0.8,
     )
 
-    validation = validate_script(script, config=config)
+    validation = validate_script(script, config=config, profile=profile)
 
     # If script is too short, try once more with explicit expansion instruction
     if not validation["valid"] and validation["word_count"] < min_words:
@@ -867,7 +1002,7 @@ async def generate_script(
             max_tokens=8000,
             temperature=0.8,
         )
-        validation = validate_script(script, config=config)
+        validation = validate_script(script, config=config, profile=profile)
 
     # If script is too long, try once more with explicit compression instruction
     if not validation["valid"] and validation["word_count"] > max_words:
@@ -884,7 +1019,7 @@ async def generate_script(
             max_tokens=8000,
             temperature=0.7,
         )
-        validation = validate_script(script, config=config)
+        validation = validate_script(script, config=config, profile=profile)
 
     # Validate empowerment close on the final act
     from .scene_validator import validate_act6_empowerment
