@@ -46,18 +46,18 @@ ACT_MARKER_SIMPLE_PATTERN = re.compile(
 _ACT_STRUCTURE_OVERRIDE_LEGACY = """\
 === UPDATED SCRIPT PARAMETERS — THESE OVERRIDE THE ACT STRUCTURE ABOVE ===
 
-This is a 15-20 minute video, NOT a 25-minute video. Follow these targets:
+This is a 15-20 minute video. Follow these targets:
 
 Target total: ~2,800 words (~17 minutes at 160 words/min)
 Minimum: 2,200 words (~14 min). Maximum: 3,200 words (~20 min).
 
 Act word targets:
-- Act 1 (The Hook): ~350 words (0:00-2:10) — Immediate revelation, pattern interrupt, personal stakes
-- Act 2 (The Foundation): ~450 words (2:10-5:00) — First historical parallel, factual foundation with insights woven in
-- Act 3 (The Mechanism): ~500 words (5:00-8:10) — How the system actually works, the hidden machinery
-- Act 4 (The Mirror): ~500 words (8:10-11:20) — Historical parallel deepened, framework analysis peak
-- Act 5 (The Stakes): ~500 words (11:20-14:30) — Personal implications, counter-arguments addressed
-- Act 6 (The Lesson): ~500 words (14:30-17:30) — Prediction, actionable insight, lingering close
+- Act 1 (The Lie): ~350 words (0:00-2:00) — State the official narrative and break it with one contradicting fact
+- Act 2 (The Setup): ~500 words (2:00-6:00) — Key players, incentives, incentive chain with specific numbers
+- Act 3 (The Hidden Mechanism): ~550 words (6:00-11:00) — Money trail / power flow with evidence, framework invisible
+- Act 4 (The Proof): ~500 words (11:00-15:00) — Historical parallel + NOW name the framework
+- Act 5 (The Personal Stakes): ~500 words (15:00-18:00) — Dollar impact on the viewer, steel-man counter-arguments
+- Act 6 (The Play): ~400 words (18:00-20:00) — Specific actionable strategy with historical data
 """
 
 
@@ -94,119 +94,96 @@ def _build_act_structure_override(config: Optional["VideoConfig"] = None) -> str
     return "\n".join(lines) + "\n"
 
 _MICRO_PAYOFF_ARCHITECTURE = """\
-=== MICRO-PAYOFF ARCHITECTURE — NON-NEGOTIABLE ===
+=== MICRO-REVELATION ARCHITECTURE — NON-NEGOTIABLE ===
 
-Every scene (60-90 seconds of narration) must follow this structure:
+Every 90 seconds of narration must deliver a specific revelation — a fact, \
+number, or connection the viewer didn't know. The viewer should never go \
+more than 90 seconds without learning something specific and new.
 
-HOOK (first 1-2 sentences): Open with a question, a bold claim, or a \
-"wait what?" moment that makes the viewer need to hear the next 60 seconds. \
-This hooks them into THIS scene specifically.
+Structure within each scene (60-90 seconds):
 
-BUILD (middle): Develop the point with evidence, examples, or narrative. \
-Each fact should reframe what the viewer thought they knew.
+CLAIM (first 1-2 sentences): State a specific, verifiable claim with a \
+number. "54% of all PE funding for the top 30 US AI companies comes from \
+three Gulf sovereign wealth funds." This is not a question — it's insider \
+intelligence.
 
-PAYOFF (last 1-2 sentences): Deliver a genuine micro-revelation — a \
-"holy shit" insight, a counterintuitive conclusion, or a reframe that \
-changes how they see the topic. This is NOT a cliffhanger — it's a \
-REWARD for watching this scene.
+EVIDENCE (middle): Build the case with more specific data. Each fact should \
+connect to the incentive chain — WHO benefits, HOW MUCH, and WHY this \
+matters. Every paragraph must contain at least one specific number.
 
-BRIDGE (final sentence): The payoff naturally raises a NEW question that \
-pulls them into the next scene. "But that raises an even darker \
-question..." or "And that's exactly what made the next move inevitable."
+REVELATION (last 1-2 sentences): The "oh shit" moment — a connection the \
+viewer didn't see. This is NOT a cliffhanger — it's a REWARD.
 
-The viewer should feel REWARDED every 60-90 seconds. Not teased — rewarded. \
-Each micro-payoff is a genuine insight they can take away even if they stop \
-watching. But the bridge makes them unable to stop.
+BRIDGE (final sentence): The revelation naturally raises a NEW question \
+that pulls them into the next scene. This is the explicit forward sell.
 
-Think of it like chapters in a thriller — each one delivers a satisfying \
-conclusion while making the next chapter irresistible.
-
-BAD example (tease without payoff):
+BAD example (vague, no numbers):
 "And what happened next would change everything. But first, let's \
 understand the background..."
 
-GOOD example (payoff + bridge):
+GOOD example (specific, number-dense, investigative):
 "Iran didn't strike Ras Tanura to destroy it. They struck it to prove \
 that every dollar of Saudi oil wealth now exists at their mercy — and the \
-cost of that proof was twenty thousand dollars. One drone. That's the \
-asymmetry that breaks empires. But the real question isn't whether Iran \
-can do it again. It's what happens when the insurance companies decide \
-the Strait isn't worth the risk."
+cost of that proof was twenty thousand dollars. One drone against a \
+facility processing 7 million barrels a day. That's the asymmetry that \
+breaks empires. But the real question isn't whether Iran can do it again. \
+It's what happens when Lloyd's of London decides the Strait isn't worth \
+the $14 billion premium."
 """
 
 _FRAMEWORK_REVELATION_ENGINE = """\
-=== FRAMEWORK INTEGRATION — THE FRAMEWORK IS THE PAYOFF ===
+=== FRAMEWORK INTEGRATION — INVISIBLE ENGINE, NOT THE HEADLINE ===
 
-The selected framework isn't decoration. It IS the insight. \
-Every micro-payoff should be a framework revelation applied to the story.
+The selected framework is the analytical engine that structures the \
+investigation. But it is INVISIBLE SCAFFOLDING until Act 4. The viewer \
+sees the pattern playing out in real events BEFORE you name it.
 
-The pattern for every scene:
-1. Present the EVENT (what happened)
-2. Apply the FRAMEWORK (why it happened — through the selected lens)
-3. Deliver the PAYOFF (what this reveals about power/human nature)
+FRAMEWORK VISIBILITY RULES:
+- Acts 1-3: The framework operates SILENTLY. Show the pattern through \
+events, money trails, and incentive chains. NEVER name the framework, \
+the author, or use academic terminology. The viewer should feel "something \
+deeper is going on" without being told what it is.
+- Act 4: NOW name the framework. "What you're watching is what [Author] \
+identified as [Concept]." This lands as CONFIRMATION of what the viewer \
+already intuited, not as new information being introduced.
+- Acts 5-6: Reference the framework by name at most once more. Use it \
+as a predictive tool: "If this follows the [framework] pattern, then..."
 
-BAD: "Iran struck Ras Tanura. This is an example of asymmetric warfare."
-(Framework as label — boring, academic, forgettable)
+BAD (framework as lecture — kills the investigative tone):
+"Machiavelli wrote in The Prince that consolidating power requires \
+eliminating rival factions. What we're seeing with this company is \
+a textbook application of Chapter 7..."
 
-GOOD: "Iran struck Ras Tanura with a twenty-thousand-dollar drone. The \
-selected framework explains WHY this specific move was inevitable — and \
-reveals a deeper truth the viewer didn't see. The framework doesn't just \
-describe what happened, it shows the hidden logic that MADE it happen."
-(Framework as revelation — the framework EXPLAINS the deeper truth the \
-viewer didn't see)
+GOOD (framework invisible, pattern visible):
+"Three weeks after the acquisition, every executive who opposed the \
+deal was gone. Not fired — reassigned to roles with no budget and no \
+staff. The board members who voted against? Their committee seats were \
+quietly redistributed. Within 90 days, every voice of dissent had been \
+neutralized without a single public confrontation."
+(The viewer FEELS the Machiavellian pattern without being told about it.)
 
-The framework should make the viewer feel like they've been given X-ray \
-vision. They're not just learning what happened — they're learning HOW TO \
-SEE power dynamics everywhere.
+GOOD (framework revealed in Act 4):
+"What you've been watching play out — the quiet purge, the strategic \
+appointments, the controlled elimination of opposition — is what \
+Machiavelli identified 500 years ago as the consolidation phase. And \
+the historical record shows what comes next."
 
-EVERY ACT must have at least one moment where the framework creates an \
-"I'll never see the world the same way" insight. These are the moments \
-viewers screenshot and share.
+CRITICAL: If the framework/tactical/military mechanics section exceeds \
+15% of total script time, the script has drifted into documentary mode. \
+The incentive chain (WHO benefits, HOW MUCH, WHY) must always be the \
+dominant content. The framework EXPLAINS the incentive chain — it does \
+not replace it.
 
-Framework escalation across acts:
-- Act 1: Introduce the selected framework as a surprising lens on the \
-headline event
-- Act 2: Apply the framework to the factual foundation — "now watch what \
-happens when you see these facts through this lens"
-- Act 3: The framework reveals the HIDDEN MECHANISM — the thing nobody \
-else is explaining
-- Act 4: The historical parallel PROVES the framework — "this exact pattern \
-played out before because the same dynamic was operating"
-- Act 5: Turn the framework on the VIEWER — "and here's the uncomfortable \
-truth: you're subject to this same dynamic in your own life. When your boss \
-does X, when markets do Y, when you feel Z — that's this exact pattern \
-operating on you"
-- Act 6: The framework becomes a PERMANENT TOOL — "now that you see it, you \
-can't unsee it. Watch for X. When you see Y happening, you'll know Z is \
-coming. That's not prediction — that's pattern recognition."
-
-The viewer should leave every video feeling like they've been handed a new \
-pair of glasses. The framework IS the product. The geopolitical story is \
-just the case study.
-
-CRITICAL: Do NOT name-drop frameworks without applying them. Every framework \
-reference must REVEAL something the viewer didn't see before. The framework \
-must be followed by showing HOW it explains a specific hidden move in the \
-story that the viewer missed.
-
-CRITICAL: The framework must feel like a REVELATION, not an academic label. \
-Do not say 'This is an example of the Thucydides Trap.' Say 'There is a \
-pattern that has preceded every major war for 2,500 years. Athens and Sparta. \
-Britain and Germany. And right now, the same pattern is playing out between \
-Washington and Beijing and we are at the exact stage where Thucydides says \
-the trap becomes inescapable.'
-
-The viewer should leave every video having LEARNED A FRAMEWORK they can apply \
-to other situations. That is the product. The geopolitical story is just the \
-delivery vehicle.
+Maximum 2 direct references to the framework by name in the entire script. \
+The rest is showing, not telling.
 """
 
 _FRAMEWORK_SELECTION_RULES = """\
 === FRAMEWORK SELECTION — DYNAMIC PER-VIDEO ===
 
 Before writing the outline, select 1-2 primary frameworks that BEST explain \
-the power dynamics in this story. Do not default to Machiavelli. Choose the \
-framework that creates the most powerful revelation.
+the incentive chain in this story. Do not default to Machiavelli. Choose the \
+framework that creates the most powerful "who benefits" revelation.
 
 Available frameworks (select 1-2):
 1. Machiavelli / 48 Laws of Power — political maneuvering, deception, betrayal
@@ -221,46 +198,45 @@ Available frameworks (select 1-2):
 10. Joseph Nye (Soft Power/Sharp Power) — influence without coercion, cultural dominance
 
 Selection criteria:
-- Which framework makes the viewer see a HIDDEN MECHANISM they did not know \
-was operating?
-- Which framework connects this specific event to a UNIVERSAL PATTERN the \
-viewer will see everywhere?
-- Which framework gives the viewer a TOOL they can use to predict what happens next?
+- Which framework best explains the INCENTIVE CHAIN — who benefits and why?
+- Which framework connects this specific event to a MONEY TRAIL the viewer \
+can follow?
+- Which framework gives the viewer a TOOL they can use to predict financial \
+impact and position themselves?
 
 State your framework selection at the top of the outline:
 PRIMARY FRAMEWORK: [Name] — [One sentence on why this framework cracks open \
-this story]
+this story's incentive chain]
 SECONDARY FRAMEWORK: [Name] — [One sentence on what additional dimension \
 this adds]
 
-The primary framework drives Acts 1-4. The secondary framework enriches \
-Acts 4-6.
+REMEMBER: The framework is INVISIBLE in Acts 1-3. It structures your \
+analysis silently. It is only NAMED in Act 4.
 """
 
 _FRAMEWORK_PSYCH_SEPARATION = """\
-=== FRAMEWORK vs PSYCHOLOGICAL ANGLE — TWO DIFFERENT TOOLS ===
+=== EMOTIONAL ARC — THE INVESTIGATIVE JOURNEY ===
 
-FRAMEWORK (constant across entire video): The intellectual lens that \
-explains WHY. Selected once during outline. Every act analyzes through this \
-same lens, building deeper understanding with each act.
+Each act has a specific emotional function in the investigative journey. \
+The viewer goes from deceived → suspicious → enlightened → alarmed → empowered.
 
-PSYCHOLOGICAL ANGLE (varies per act): The emotional lever that makes each \
-act FEEL different. Creates an emotional arc across the video. Use different \
-angles per act:
-- Act 1: Shock, betrayal, or pattern interrupt
-- Act 2: Paranoia, curiosity, or revelation
-- Act 3: Fascination with the hidden mechanism
-- Act 4: Historical dread or recognition
-- Act 5: Personal vulnerability or anger
-- Act 6: Empowerment, clarity, or permanent reframe
+Emotional arc per act:
+- Act 1 (The Lie): DECEPTION → SUSPICION. The viewer realizes they've been \
+lied to. They feel betrayed by the official narrative. Curiosity gap opened.
+- Act 2 (The Setup): CURIOSITY → RECOGNITION. The viewer starts seeing the \
+incentive chain. "Oh, so THAT'S why..." Each fact adds to the picture.
+- Act 3 (The Hidden Mechanism): RECOGNITION → REVELATION. The money trail \
+clicks into place. The viewer feels like they're seeing behind the curtain.
+- Act 4 (The Proof): REVELATION → CONVICTION. The historical parallel proves \
+this is a PATTERN, not coincidence. The framework name confirms what they \
+already intuited. "I knew something was off."
+- Act 5 (The Personal Stakes): CONVICTION → ALARM. The abstract becomes \
+personal. Dollar amounts hit the viewer's life directly. Genuine unsettlement.
+- Act 6 (The Play): ALARM → EMPOWERMENT. The viewer receives specific tools \
+and actions. They leave feeling SMARTER and MORE CAPABLE. Not scared — armed.
 
-The framework is the WHAT (intellectual). The psych angle is the HOW \
-(emotional). Together they create videos where the viewer both LEARNS \
-something and FEELS something every 60 seconds.
-
-Each act should apply the SAME framework but through a DIFFERENT emotional \
-lens. Act 1 reveals the framework through shock. Act 4 proves the framework \
-through historical dread. Act 6 delivers the framework as empowerment.
+CRITICAL: The arc must end on EMPOWERMENT. The viewer must leave every video \
+feeling like they gained an advantage, not like they lost hope.
 """
 
 _STRICT_GROUNDING_RULE = """\
@@ -329,77 +305,81 @@ deployments, operational sequences)
 """
 
 _ACT_SPECIFIC_RULES = """\
-=== ACT-SPECIFIC RULES (UPDATED) ===
+=== ACT-SPECIFIC RULES (V2 — INVESTIGATIVE VOICE) ===
 
-Act 1 (The Hook):
-This act must contain at least 2 micro-payoffs. The viewer must have \
-learned something genuinely surprising within the first 60 seconds AND \
-again before the act ends.
+Act 1 (The Lie):
+Open with the headline event (one sentence, present tense, specific date). \
+State what "everyone" is being told. Drop ONE fact that contradicts the \
+narrative (with a specific number). If multiple official rationales exist, \
+walk through each and let them contradict each other — this is more \
+devastating than breaking one narrative. End with: "When you follow the \
+[money/data/contracts], you find something completely different." \
+Minimum 2 specific numbers. Explicit cliffhanger teasing Act 3.
 
-Act 2 (The Foundation):
-Every paragraph must contain at least one 'wait, what?' fact. Do not dump \
-context without insight. If you're explaining background, frame it as a \
-revelation: not 'Iran has proxies' but 'Iran built a shadow empire across \
-4 countries that costs less to maintain than a single US aircraft carrier.'
+Act 2 (The Setup):
+Introduce key players by their POSITIONS and INCENTIVES, not biographies. \
+Build the incentive chain: Player A needs X → requires Y → depends on Z. \
+Every paragraph must contain at least one specific number or date. Name \
+sources: "according to the Congressional Budget Office" not "experts say." \
+NO framework language yet — pure facts and observable patterns. End with: \
+"But here's what none of this explains..." Minimum 5 specific numbers. \
+Explicit cliffhanger teasing the hidden mechanism.
 
-Act 3 (The Mechanism):
-This is the MECHANISM act — explain HOW the hidden system works. Each \
-paragraph should make the viewer feel like they're being let in on a \
-secret. End with a payoff that makes them see the mechanism in everything.
+Act 3 (The Hidden Mechanism):
+Reveal the real dynamic through EVIDENCE, not theory. This is the money \
+trail / power flow / strategic logic with specific data. Connect dots the \
+mainstream coverage missed. Introduce the first historical parallel as \
+PROOF the pattern is real. The framework principles operate here but are \
+NOT named — show don't tell. Each sub-section must have a mini-revelation. \
+Minimum 4 specific numbers. Cliffhanger: "And there's one more layer \
+that affects you directly."
 
-Act 4 (The Mirror):
-The historical parallel should feel like proof that this is a PATTERN, \
-not coincidence. The payoff should be the moment the viewer realizes \
-'this has happened before and the outcome was...' Bridge to stakes.
+Act 4 (The Proof):
+Historical parallel in vivid detail — specific dates, figures, events, \
+outcomes. Point-by-point mapping: "In 1973, [X]. In 2026, [X]." \
+NOW name the framework: "What you're watching is what [Author] identified \
+as [Concept]." Use the framework to PREDICT what comes next based on \
+historical precedent. The framework arrives as CONFIRMATION of what the \
+viewer already sees. Minimum 3 specific numbers. Cliffhanger about \
+personal financial impact.
 
-Act 5 (The Stakes):
-Make it personal. The viewer should feel this in their wallet, their \
-career, their daily life. Counter-arguments should be steel-manned then \
-dismantled through the framework. Payoff: the viewer now sees something \
-they can't unsee.
+Act 5 (The Personal Stakes):
+"Here's what this means for your wallet." Use "you" and "your" heavily. \
+Specific scenarios with dollar amounts: "If [mechanism] continues, gas \
+hits $X within Y days and your 401k drops Z%." Steel-man the strongest \
+counterargument — it must be genuinely strong. Then dismantle it with \
+evidence, not opinion. The viewer should feel genuinely unsettled. \
+Minimum 3 specific numbers.
 
-Act 6 (The Lesson):
-The prediction must be specific and falsifiable — not 'things will change' \
-but 'watch for X within Y months.'
+Act 6 (The Play):
+"So what do you actually DO with this information?" This is NON-NEGOTIABLE \
+— the viewer MUST receive a specific, actionable strategy. The close must:
 
-Act 6 MUST end with EMPOWERMENT. The final scene is where the viewer \
-receives their permanent toolkit. This is NON-NEGOTIABLE. The close must:
+1. Give the SPECIFIC ACTION: investment thesis, risk to hedge, sector to \
+watch, signal to monitor. Not "diversify your portfolio" but "watch the \
+[specific index/signal]." Include historical performance data: "Smart money \
+moved [X days] after [similar events], not during."
 
-1. NAME the specific frameworks taught in this video by name (e.g. \
-'regulatory capture', 'sovereign exception', 'the panopticon effect'). \
-List them explicitly — the viewer must hear the framework names repeated \
-so they stick.
+2. NAME the frameworks and patterns taught in this video by name. The \
+viewer must hear them repeated so they stick.
 
-2. Give DETECTION INSTRUCTIONS: 'When you see X, ask Y. When A happens, \
-look for B within 48 hours.' Concrete, actionable, specific to the \
-frameworks taught. At least 2-3 detection rules.
+3. Give 2-3 DETECTION INSTRUCTIONS: "When you see X, ask Y. When A \
+happens, look for B within 48 hours." Concrete, specific.
 
-3. Frame knowledge as POWER: the viewer now sees what 99% of people miss. \
-They have X-ray vision for power dynamics. They are now part of the small \
-minority who understand how the game actually works.
+4. End on AGENCY: the final line connects back to the opening lie and \
+lingers. The viewer leaves feeling SMARTER and MORE CAPABLE. NOT scared, \
+NOT helpless, NOT cynical.
 
-4. End on AGENCY: 'Now that you see the pattern, you can't unsee it. \
-That's not paranoia. That's pattern recognition.' The viewer must leave \
-feeling SMARTER and MORE POWERFUL than when they started. NOT scared. \
-NOT helpless. NOT cynical. NOT passive.
+BAD close: "The window is closing and nobody will notice." (passive, hopeless)
+GOOD close: "The repricing window opens 11-14 days after the shock. That's \
+when smart money has moved in every conflict since Pearl Harbor. You now know \
+what [framework] looks like in real time. When [specific signal] appears, \
+you'll know the pattern has entered its final phase. The question isn't \
+whether the system works this way. You just watched it happen. The question \
+is whether you position yourself before or after everyone else figures it out."
 
-BAD close (DO NOT WRITE ANYTHING LIKE THIS):
-'The window is closing and nobody will notice.' (passive, fearful, helpless)
-'Whether anyone will notice before it's too late.' (dread, no agency)
-'The cage is closing and you're trapped.' (helpless)
-
-GOOD close (THIS IS THE MODEL — study its structure):
-'You just learned regulatory capture, sovereign exception, and the \
-panopticon effect. When a company gets designated, ask who signs a \
-contract within 48 hours. When you see all lawful purposes in any \
-agreement, find the classified interpretation. When one player gets \
-punished, watch who self-censors without being told. You now read the \
-game better than most people in Washington. The question isn't whether \
-the system is rigged. You now know how. The question is what you do \
-with that.'
-
-If the final scene does NOT contain explicit framework names AND at least \
-2 concrete detection instructions, the script has FAILED this requirement.
+If Act 6 does NOT contain a specific action AND at least 2 detection \
+instructions, the script has FAILED.
 """
 
 
