@@ -411,9 +411,21 @@ def validate_video_prompt(
 ) -> dict:
     """Validate a video prompt meets narrative quality standards.
 
+    Enforces three animation rules:
+    - Rule 1: Verb-first motion design (verb from sentence drives animation)
+    - Rule 2: Camera static by default (only REVEAL/SCALE/ISOLATION justify motion)
+    - Rule 3: Maximum 2 animated elements per clip
+
     Returns a dict with ``valid`` (bool), ``issues`` (list[str]),
-    ``prompt``, ``sentence``, and ``camera`` (detected movement).
+    ``prompt``, ``sentence``, ``camera`` (detected movement),
+    ``camera_purpose``, and ``animated_element_count``.
     """
+    from animation_prompt_engine import (
+        classify_camera_purpose,
+        count_animated_elements,
+        CAMERA_PURPOSE_STATIC,
+    )
+
     issues: list[str] = []
 
     # Check for banned filler patterns
@@ -441,15 +453,29 @@ def validate_video_prompt(
         if sw in last_words:
             issues.append(f"WEAK PAYOFF: Final line contains '{sw}' — rewrite for stronger landing")
 
-    # Camera movement detection and repeat check
+    # Camera movement detection
     current_camera = detect_camera_movement(prompt)
 
-    if current_camera == "unknown":
-        issues.append("NO CAMERA MOVEMENT DETECTED: Prompt must open with a clear camera direction")
-
-    if prev_cameras and len(prev_cameras) >= 1 and current_camera == prev_cameras[-1]:
+    # Rule 2: Camera should be static unless purpose justifies it
+    camera_purpose = classify_camera_purpose(sentence_text)
+    if current_camera not in ("static", "unknown") and camera_purpose == CAMERA_PURPOSE_STATIC:
         issues.append(
-            f"CAMERA REPEAT: '{current_camera}' used on consecutive clips — pick a different movement"
+            f"UNJUSTIFIED CAMERA: '{current_camera}' detected but sentence doesn't justify "
+            f"REVEAL, SCALE, or ISOLATION — use static shot"
+        )
+
+    # Camera repeat check (still valid when camera motion IS justified)
+    if current_camera not in ("static", "unknown") and prev_cameras and len(prev_cameras) >= 1:
+        if current_camera == prev_cameras[-1]:
+            issues.append(
+                f"CAMERA REPEAT: '{current_camera}' used on consecutive clips — pick a different movement"
+            )
+
+    # Rule 3: Max 2 animated elements
+    element_count = count_animated_elements(prompt)
+    if element_count > 2:
+        issues.append(
+            f"TOO MANY ACTIONS: {element_count} animated elements detected (max 2)"
         )
 
     return {
@@ -458,4 +484,6 @@ def validate_video_prompt(
         "prompt": prompt,
         "sentence": sentence_text,
         "camera": current_camera,
+        "camera_purpose": camera_purpose,
+        "animated_element_count": element_count,
     }

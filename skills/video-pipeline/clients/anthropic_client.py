@@ -1128,46 +1128,72 @@ Every prompt describes a holographic projection with specific data points."""
         """
         from .style_engine import get_camera_motion
 
-        # Determine camera motion based on scene type
-        # Pass string directly - get_camera_motion handles both strings and SceneType enums
-        camera_motion = get_camera_motion(scene_type, is_hero_shot) if scene_type else "Slow push-in"
+        # Determine camera purpose from sentence text
+        # Camera is STATIC by default — only moves for REVEAL, SCALE, or ISOLATION
+        from animation_prompt_engine import classify_camera_purpose, CAMERA_PURPOSE_STATIC
+        camera_purpose = classify_camera_purpose(sentence_text)
+
+        # Only request camera motion when purpose justifies it
+        if camera_purpose != CAMERA_PURPOSE_STATIC and scene_type:
+            camera_motion = get_camera_motion(scene_type, is_hero_shot)
+        else:
+            camera_motion = "Static shot"
 
         # Word limit based on duration
         word_limit = 55 if is_hero_shot else 40
         duration_note = "10-second HERO SHOT" if is_hero_shot else "6-second clip"
         hero_instruction = """
-For this HERO SHOT (10s), include one additional motion element after the primary subject motion.
-The camera movement can have a secondary phase (e.g., "gradually revealing the full map").""" if is_hero_shot else ""
+For this HERO SHOT (10s), you may use 2 subject actions instead of 1, but still no more than 2 total animated elements.""" if is_hero_shot else ""
 
         system_prompt = f"""You are a cinematographer writing motion instructions for AI video generation.
 Each prompt animates a single static image into a {duration_note}. The narrator will be speaking the Sentence Text over this clip.
 
-YOUR JOB: Write motion that TELLS THE SAME STORY as the narration. You are not decorating — you are directing a film. Every motion must earn its place by reinforcing what the viewer hears.
+YOUR JOB: Write motion that LITERALLY ENACTS the verb in the narration. You are not decorating — you are directing a film.
 
 CRITICAL: The source image ALREADY contains the full scene. Do NOT re-describe the scene. Only describe what MOVES and HOW.
 Maximum {word_limit} words.
 {hero_instruction}
 
-## THE NARRATIVE BEAT METHOD
+## RULE 1 — VERB-FIRST MOTION DESIGN
 
-Before writing any motion, analyze the Sentence Text:
+Before writing ANY motion, do this:
+1. Read the Sentence Text
+2. Identify the CORE VERB or action ("going dark", "scattered", "freeze", "don't matter")
+3. The subject animation must LITERALLY ENACT that verb
+4. Everything else in frame HOLDS STILL — the animated verb is the only motion
 
-1. IDENTIFY THE BEATS: Break the sentence into its emotional beats (1-3 beats).
-2. ASSIGN EACH BEAT A VISUAL VERB: What does this beat LOOK like in motion?
-   - Abundance = something large stays frozen, locked, unmoving
-   - Collapse = things freeze, stutter, go dark in sequence
-   - Escalation = things multiply, spread, accelerate, cascade
-   - Revelation = something snaps into focus, illuminates, reveals hidden layer
-   - Dominance = something overrides, floods, overwhelms, locks on
-   - Loss = things drain, dissolve, extinguish, disconnect
-   - Tension = elements pull apart, strain, vibrate, hold unnaturally still
-3. SEQUENCE THE MOTIONS TO MATCH THE BEATS: Motion timeline mirrors narration timeline.
+Examples:
+- "Launch site after launch site going dark" → lights/points extinguish one by one
+- "Your missiles don't matter" → asset icons dissolve to static, then blank
+- "Scattered across hardened bunkers" → single dot multiplies and spreads across terrain
+- "The count locks frozen" → number stops mid-increment, holds completely still
 
-## PROMPT STRUCTURE
+The verb IS the animation. Not a metaphor for it. Not a decoration around it.
 
-Line 1: Camera movement + primary subject motion (what the viewer sees first)
-Lines 2-3: Beat-driven narrative motions (each maps to a specific beat)
-Final line: The PAYOFF — the most dramatic visual moment that lands with the sentence's emotional climax.
+## RULE 2 — CAMERA MOVES ONLY WHEN CAMERA IS THE MEANING
+
+Camera must be STATIC by default. Only add camera motion if it serves exactly one of three purposes:
+1. REVEAL — motion uncovers something new (satellite drift exposing geography)
+2. SCALE — motion communicates size (pull-back showing quantity)
+3. ISOLATION — motion narrows focus (push-in on one critical element)
+
+If the camera move doesn't serve REVEAL, SCALE, or ISOLATION — it's a static shot.
+Remove all default orbit/drift/push-in that exists as cinematography habit.
+
+WRONG: "Slow orbit around the table with gradual push-in revealing layers of data. Left screen: bomber bay doors snap open, bombs drop in rapid sequence. Right screen: strike data timestamps accelerate..."
+→ Camera eating attention budget, 4+ simultaneous subject actions
+
+RIGHT: "Static wide shot of command center. Bomber bay doors snap open on left display, bombs drop in rapid sequence."
+→ Camera still, one meaningful motion
+
+## RULE 3 — TWO ACTIONS MAXIMUM PER CLIP
+
+Each animation prompt gets AT MOST:
+- 1 camera action (only if it passes Rule 2) + 1 subject action
+- OR 0 camera action + 2 subject actions
+- NEVER more than 2 total animated elements
+
+Count your actions before submitting. If you have more than 2, delete until you have 2.
 
 ## MOTION VOCABULARY — USE VERBS, NOT ADJECTIVES
 
@@ -1204,38 +1230,12 @@ DOMINANCE / POWER: override, flood, overwhelm, lock on, absorb, eclipse, tower o
 TENSION / STANDOFF: hold unnaturally still, vibrate, strain, pull apart slowly, hover, suspend, balance on edge
 LOSS / ABSENCE: extinguish, fade to nothing, leave empty, hollow out, strip away, erode, scatter
 
-## CAMERA MOVEMENT ROTATION — MANDATORY
+## CAMERA DECISION
 
-Never use the same camera movement on consecutive clips. Pick a DIFFERENT one from the previous clip.
+The camera purpose for this clip is: "{camera_purpose}"
+The camera direction is: "{camera_motion}"
 
-Available camera movements and when to use each:
-
-| Movement | Use When | Feel |
-|---|---|---|
-| Slow push-in | Revelation, focus, intimacy | Drawing viewer into a detail |
-| Pull-back / zoom out | Scale, overwhelm, isolation | Showing vastness or emptiness |
-| Lateral pan / tracking shot | Comparison, progression, timeline | Moving through information side to side |
-| Static / locked-off | Tension, stillness, dread | Something is deeply wrong — camera won't move |
-| Tilt up | Power, dominance, discovery | Something looms or is being revealed vertically |
-| Tilt down | Collapse, loss, submission | Falling, declining, ground-level consequence |
-| Snap zoom (fast push-in) | Shock, urgency, sudden alarm | A number spikes, a target locks, something breaks |
-| Slow orbital / rotation | Surveillance, encirclement, inevitability | Circling a subject like a predator |
-
-Match camera to the narration's dominant emotion:
-- Collapse → pull-back or static
-- Escalation → snap zoom or push-in
-- Revelation → slow push-in or tilt up
-- Comparison → lateral pan
-- Dominance → tilt up or slow orbital
-- Absence/Loss → pull-back or static
-- Tension/Standoff → static or slow orbital
-
-CRITICAL: "Slow push-in" is NOT the default. It is ONE of eight options. If you catch yourself defaulting to push-in, stop and ask: what does this sentence's emotion actually call for?
-
-REQUIRED CAMERA MOVEMENT (START your response with this exact movement):
-"{camera_motion}"
-
-CRITICAL: Your response MUST begin with this camera movement. Do NOT substitute a different camera movement.
+If camera is "Static shot", do NOT add any camera motion. Your entire budget is for subject action.
 
 OUTPUT: Return ONLY the motion prompt text. No explanations, no formatting, no labels."""
 
@@ -1256,9 +1256,10 @@ OUTPUT: Return ONLY the motion prompt text. No explanations, no formatting, no l
 {image_prompt}
 {narration_context}{camera_history_context}
 
-The camera movement is ALREADY DECIDED: "{camera_motion}"
-Generate ONLY the subject motion + ambient motion ({word_limit - 10} words max).
-Do NOT include any camera movement - I will prepend it."""
+Camera decision: "{camera_motion}" (purpose: {camera_purpose})
+Generate the subject motion ({word_limit - 10} words max).
+RULE 3 CHECK: Your response + camera = MAX 2 animated elements total.
+If camera is "Static shot", you may have up to 2 subject actions."""
 
         response = await self.generate(
             prompt=prompt,
@@ -1267,6 +1268,8 @@ Do NOT include any camera movement - I will prepend it."""
             max_tokens=200,
         )
 
-        # Prepend the camera motion to guarantee variety
+        # Prepend the camera motion to guarantee format
         subject_motion = response.strip()
+        if camera_motion == "Static shot":
+            return f"Static shot. {subject_motion}"
         return f"{camera_motion}. {subject_motion}"
