@@ -255,6 +255,7 @@ async def graduate_to_pipeline(
     acts: Optional[dict] = None,
     psych_assignments: Optional[list[dict]] = None,
     unverified_claims: str = "",
+    editorial_validation: str = "",
 ) -> dict:
     """Full graduation: Ideas Bank -> Pipeline Table + Scene File + Script Records.
 
@@ -270,6 +271,7 @@ async def graduate_to_pipeline(
         acts: Dict mapping act number to act text (for Script table records)
         psych_assignments: List of {"scene": N, "angle": str} (from psych_angle_assigner)
         unverified_claims: Flagged claims from claim verification (written to scene 1)
+        editorial_validation: Editorial voice validation summary (written to scene 1)
 
     Returns:
         {
@@ -355,6 +357,16 @@ async def graduate_to_pipeline(
                 )
             except Exception as e:
                 print(f"  ⚠️ Could not write Unverified Claims: {e}")
+
+        # Write editorial validation results to the first script record (non-blocking)
+        if editorial_validation and first_record_id:
+            try:
+                airtable_client.update_script_record(
+                    first_record_id,
+                    {"Script Validation": editorial_validation},
+                )
+            except Exception as e:
+                print(f"  ⚠️ Could not write Script Validation: {e}")
 
     # 5. Update Idea Concepts record status  (was step 4)
     try:

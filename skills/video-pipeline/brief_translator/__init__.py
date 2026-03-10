@@ -160,6 +160,26 @@ class BriefTranslator:
                 f"{script_result['validation']['act_count']} acts"
             )
 
+            # Log editorial validation results
+            editorial = script_result["validation"].get("editorial", {})
+            if editorial:
+                editorial_passed = editorial.get("passed", True)
+                if not editorial_passed:
+                    failed = [
+                        c["name"] for c in editorial.get("checks", [])
+                        if not c["passed"]
+                    ]
+                    logger.warning(
+                        f"Editorial validation failed checks: {failed}"
+                    )
+                    self._notify(
+                        f"⚠️ Script editorial checks failed for "
+                        f"'{brief.get('headline', 'Untitled')}': "
+                        f"{', '.join(failed)}"
+                    )
+                else:
+                    logger.info("Editorial validation: all checks passed")
+
             # === STEP 2a: Extract and persist framework ===
             selected_framework = extract_framework_from_script(script)
             if not selected_framework:
@@ -268,6 +288,15 @@ class BriefTranslator:
             logger.info("Step 4: Writing to pipeline...")
             self._notify("💾 Writing to pipeline table...")
 
+            # Build editorial validation summary for Airtable
+            editorial_summary = ""
+            if editorial and not editorial.get("passed", True):
+                lines = []
+                for c in editorial.get("checks", []):
+                    status = "PASS" if c["passed"] else "FAIL"
+                    lines.append(f"[{status}] {c['name']}: {c['detail']}")
+                editorial_summary = "\n".join(lines)
+
             graduation = await graduate_to_pipeline(
                 airtable_client=self.airtable,
                 idea_record_id=idea_record_id,
@@ -280,6 +309,7 @@ class BriefTranslator:
                 acts=acts,
                 psych_assignments=psych_assignments,
                 unverified_claims=unverified_claims,
+                editorial_validation=editorial_summary,
             )
 
             result["status"] = "success"
