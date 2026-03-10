@@ -2,7 +2,11 @@
 """
 Render a completed video using Remotion and upload to Google Drive.
 
-Usage: python render_video.py "Video Title"
+Usage: python render_video.py "Video Title" [--dry-run]
+
+Flags:
+    --dry-run   Generate render_config.json and log asset manifest without
+                downloading assets or calling Remotion.
 """
 
 import os
@@ -10,6 +14,8 @@ import sys
 import json
 import subprocess
 import re
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -36,6 +42,62 @@ def _extract_drive_file_id(url: str) -> str | None:
         if "/open?id=" in url:
             return url.split("/open?id=")[1].split("&")[0]
     except (IndexError, AttributeError):
+        pass
+    return None
+
+
+def _validate_mp4(path: Path) -> bool:
+    """Check that a file is a non-zero valid mp4 using ffprobe."""
+    if not path.exists() or path.stat().st_size == 0:
+        return False
+    try:
+        result = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0",
+             "-show_entries", "stream=codec_type", "-of", "csv=p=0",
+             str(path)],
+            capture_output=True, text=True, timeout=15,
+        )
+        return result.returncode == 0 and "video" in result.stdout
+    except Exception:
+        return False
+
+
+def _download_video_clip(
+    google: GoogleClient,
+    file_id: str,
+    local_path: Path,
+    label: str,
+) -> bool:
+    """Download a single video clip with 3 retries + exponential backoff.
+
+    Returns True on success (file downloaded and validated), False otherwise.
+    """
+    for attempt in range(3):
+        try:
+            google.download_file_to_local(file_id, str(local_path))
+            if _validate_mp4(local_path):
+                return True
+            print(f"  Warning: {label} failed validation (attempt {attempt + 1})")
+            if local_path.exists():
+                local_path.unlink()
+        except Exception as e:
+            print(f"  Warning: {label} download failed (attempt {attempt + 1}): {e}")
+        if attempt < 2:
+            time.sleep(2 ** (attempt + 1))  # 2s, 4s
+    return False
+
+
+def _get_mp4_duration(path: Path) -> float | None:
+    """Get video duration in seconds via ffprobe."""
+    try:
+        result = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "csv=p=0", str(path)],
+            capture_output=True, text=True, timeout=15,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return float(result.stdout.strip())
+    except Exception:
         pass
     return None
 
@@ -113,8 +175,11 @@ def _build_sound_layers(
 
 
 def main():
-    if len(sys.argv) < 2:
-        print("Usage: python render_video.py \"Video Title\"")
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    dry_run = "--dry-run" in sys.argv
+
+    if not args:
+        print("Usage: python render_video.py \"Video Title\" [--dry-run]")
         print("\nVideos at Done status:")
         airtable = AirtableClient()
         ideas = airtable.get_all_ideas()
@@ -122,8 +187,10 @@ def main():
             if idea.get("Status") == "Done":
                 print(f"  • {idea.get('Video Title')}")
         return
-    
-    title = " ".join(sys.argv[1:])
+
+    title = " ".join(args)
+    if dry_run:
+        print("\n[DRY RUN] — will generate config and log manifest only")
     print(f"\n🎬 RENDERING: {title}")
     print("=" * 60)
     
@@ -296,15 +363,163 @@ def main():
 
     if rc_path.exists():
         rc_data = json.loads(rc_path.read_text())
-        props["renderConfig"] = rc_data
         rc_scene_count = len(rc_data.get("scenes", []))
         rc_total = rc_data.get("total_duration_seconds", 0)
-        print(f"   renderConfig embedded: {rc_scene_count} images, {rc_total:.1f}s total")
+        print(f"   renderConfig loaded: {rc_scene_count} images, {rc_total:.1f}s total")
     else:
+        rc_data = None
         print(f"   Warning: render_config.json not found")
         print(f"     Checked: {audio_sync_config}")
         print(f"     Checked: {rc_path}")
         print(f"   Rendering will use fallback timing (no Whisper alignment)")
+
+    # ── Video clip downloads ──────────────────────────────────────────
+    # For each image record with a completed video clip, download the mp4
+    # and patch the render_config entry to type=video.
+    clip_stats = {"mp4": 0, "image": 0, "atempo": 0, "atempo_ratios": []}
+    video_clip_dir = public_dir  # mp4s go alongside PNGs in public/
+
+    # Build lookup: (scene_number, image_index) -> image record
+    image_lookup: dict[tuple[int, int], dict] = {}
+    for img in images:
+        key = (img.get("Scene", 0), img.get("Image Index", 0))
+        image_lookup[key] = img
+
+    # Collect clips to download
+    clips_to_download: list[dict] = []
+    for img in images:
+        clip_url = img.get("Video Clip URL", "")
+        anim_status = img.get("Animation Status", "")
+        if clip_url and anim_status == "Done":
+            scene_num = img.get("Scene", 0)
+            img_idx = img.get("Image Index", 0)
+            file_id = _extract_drive_file_id(clip_url)
+            if file_id:
+                mp4_name = f"Scene_{scene_num:02d}_{img_idx:02d}.mp4"
+                clips_to_download.append({
+                    "file_id": file_id,
+                    "mp4_name": mp4_name,
+                    "local_path": video_clip_dir / mp4_name,
+                    "scene_number": scene_num,
+                    "image_index": img_idx,
+                    "video_duration": img.get("Video Duration"),
+                    "label": f"Scene {scene_num} img {img_idx}",
+                })
+
+    if clips_to_download:
+        print(f"\n   Downloading {len(clips_to_download)} video clips...")
+        # Track which clips succeeded: (scene_number, image_index) -> local path
+        successful_clips: dict[tuple[int, int], dict] = {}
+
+        if dry_run:
+            for clip in clips_to_download:
+                key = (clip["scene_number"], clip["image_index"])
+                successful_clips[key] = clip
+                print(f"  [DRY RUN] Would download: {clip['mp4_name']}")
+        else:
+            # Concurrent downloads (up to 6 at a time to not overwhelm Drive)
+            def _do_download(clip: dict) -> tuple[dict, bool]:
+                ok = _download_video_clip(
+                    google, clip["file_id"], clip["local_path"], clip["label"],
+                )
+                return clip, ok
+
+            with ThreadPoolExecutor(max_workers=6) as pool:
+                futures = {pool.submit(_do_download, c): c for c in clips_to_download}
+                for future in as_completed(futures):
+                    clip, ok = future.result()
+                    key = (clip["scene_number"], clip["image_index"])
+                    if ok:
+                        successful_clips[key] = clip
+                        print(f"  Downloaded: {clip['mp4_name']}")
+                    else:
+                        print(f"  Falling back to PNG: {clip['label']}")
+
+        # ── Patch render_config entries with video clip data ──────────
+        if rc_data and successful_clips:
+            for rc_entry in rc_data.get("scenes", []):
+                sn = rc_entry.get("scene_number", 0)
+                ii = rc_entry.get("image_index", 0)
+                clip_info = successful_clips.get((sn, ii))
+                if not clip_info:
+                    clip_stats["image"] += 1
+                    continue
+
+                mp4_name = clip_info["mp4_name"]
+                rc_entry["type"] = "video"
+                rc_entry["video_clip_path"] = mp4_name
+
+                # ── Voice duration matching ───────────────────────
+                # If the video clip has a fixed duration, check against
+                # the Whisper-calculated display_duration.
+                clip_dur = clip_info.get("video_duration")
+                if clip_dur and not dry_run:
+                    # Also check actual mp4 duration via ffprobe
+                    actual_dur = _get_mp4_duration(clip_info["local_path"])
+                    if actual_dur:
+                        clip_dur = actual_dur
+                voice_dur = rc_entry.get("display_duration", 0)
+
+                if clip_dur and voice_dur and voice_dur > clip_dur:
+                    ratio = voice_dur / clip_dur
+                    if ratio <= 1.25:
+                        # Speed up is acceptable
+                        clip_stats["atempo"] += 1
+                        clip_stats["atempo_ratios"].append(ratio)
+                        if ratio > 1.15:
+                            print(f"  ⚠️ {mp4_name}: voice {voice_dur:.1f}s > clip {clip_dur:.1f}s (atempo={ratio:.2f}, flagged for review)")
+                    else:
+                        # Ratio too extreme — let voice overflow
+                        print(f"  ⚠️ {mp4_name}: voice {voice_dur:.1f}s >> clip {clip_dur:.1f}s (ratio {ratio:.2f} > 1.25, voice will overflow)")
+                        clip_stats["atempo_ratios"].append(ratio)
+                        clip_stats["atempo"] += 1
+
+                    # Use clip duration as display_duration for video entries
+                    rc_entry["display_duration"] = round(clip_dur, 4)
+                    rc_entry["display_end"] = round(
+                        rc_entry.get("display_start", 0) + clip_dur, 4
+                    )
+                elif clip_dur:
+                    # Voice fits within clip — use clip duration
+                    rc_entry["display_duration"] = round(clip_dur, 4)
+                    rc_entry["display_end"] = round(
+                        rc_entry.get("display_start", 0) + clip_dur, 4
+                    )
+
+                clip_stats["mp4"] += 1
+
+            # Recompute total duration after patching
+            all_scenes = rc_data.get("scenes", [])
+            if all_scenes:
+                rc_data["total_duration_seconds"] = round(
+                    max(s.get("display_end", 0) for s in all_scenes), 4
+                )
+
+            # Write updated render_config back to disk
+            if not dry_run:
+                with open(rc_path, "w") as f:
+                    json.dump(rc_data, f, indent=2)
+                print(f"   renderConfig updated with {clip_stats['mp4']} video clips")
+        else:
+            # No clips or no render_config — count all as image
+            clip_stats["image"] = rc_scene_count if rc_data else 0
+    else:
+        clip_stats["image"] = len(rc_data.get("scenes", [])) if rc_data else 0
+        print(f"\n   No video clips found in Airtable (all entries are static images)")
+
+    # Embed (potentially updated) render_config into props
+    if rc_data:
+        props["renderConfig"] = rc_data
+
+    # ── Video render summary ──────────────────────────────────────────
+    avg_ratio = (
+        sum(clip_stats["atempo_ratios"]) / len(clip_stats["atempo_ratios"])
+        if clip_stats["atempo_ratios"] else 0
+    )
+    print(f"\n   Video render: {clip_stats['mp4']} clips as mp4, "
+          f"{clip_stats['image']} clips as static image"
+          + (f", {clip_stats['atempo']} voice segments adjusted "
+             f"(avg ratio: {avg_ratio:.2f}x)" if clip_stats["atempo"] else ""))
 
     # Print sound layer diagnostics
     scenes_with_sl = sum(1 for s in scenes if s.get("sound_layers"))
@@ -363,7 +578,15 @@ def main():
     with open(props_file, "w") as f:
         json.dump(props, f, indent=2)
     print(f"   Saved to: {props_file}")
-    
+
+    if dry_run:
+        print("\n[DRY RUN] Asset manifest and render_config.json generated.")
+        print(f"   Props: {props_file}")
+        if rc_path.exists():
+            print(f"   Config: {rc_path}")
+        print("   Skipping Remotion render and upload.")
+        return
+
     # Ensure node_modules are installed
     if not (remotion_dir / "node_modules").exists():
         print("\n📦 Installing Remotion dependencies...")

@@ -29,6 +29,8 @@ export interface RenderScene {
     transition_out: Record<string, unknown>;
     sentence_text?: string;
     image_index?: number;
+    type?: "image" | "video";
+    video_clip_path?: string;
 }
 
 export interface RenderConfig {
