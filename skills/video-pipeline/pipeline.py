@@ -934,8 +934,13 @@ class VideoPipeline:
     async def run_image_prompt_bot_legacy(self) -> dict:
         """Generate image prompts based on voiceover duration (LEGACY PATH).
 
-        Deprecated: Use run_styled_image_prompts() instead, which uses the
-        Visual Identity System (Dossier/Schema/Echo) with the unified scene format.
+        DEPRECATED: Use run_styled_image_prompts() instead, which uses:
+        - Visual Identity System (Dossier/Schema/Echo)
+        - Deterministic word-duration-aware splitting (hard 10s cap)
+        - Unified scene format
+
+        This legacy function uses LLM-based semantic segmentation and is no longer
+        actively maintained. Kept for reference only.
 
         Rule: ONE image per 6-10 seconds of voiceover.
 
@@ -1856,54 +1861,47 @@ class VideoPipeline:
                 "idea Script field. Ensure scripts exist and the video title matches."
             }
 
-        # Expand scenes for image generation: each scene with duration_seconds
-        # produces multiple image slots (~1 image per 8-11 seconds of narration)
-        IMAGE_INTERVAL_SECONDS = 9  # ~1 image per 9 seconds
+        # Split scenes into segments using deterministic word-duration-aware splitter
+        # Hard cap: 10s max per segment (for animation clip limits)
+        # Target: ~7s per segment with mid-sentence splitting when needed
+        from clients.deterministic_splitter import segment_scene_deterministic
+
+        IMAGE_INTERVAL_SECONDS = 9  # LEGACY constant - kept for backward compatibility, not used in new path
+
         expanded_scenes = []
-        for scene in raw_scenes:
-            duration = scene.get("duration_seconds", 60)
-            image_count = max(1, round(duration / IMAGE_INTERVAL_SECONDS))
-            for img_idx in range(image_count):
-                expanded = dict(scene)
-                expanded["_source_scene_number"] = scene.get("scene_number", 1)
-                expanded["_image_index"] = img_idx + 1
-                expanded["_images_in_scene"] = image_count
-                expanded_scenes.append(expanded)
+        segment_metadata_map: dict[tuple[int, int], dict] = {}  # (scene_num, segment_idx) -> segment metadata
 
-        print(f"  Expanded to {len(expanded_scenes)} image slots from {len(raw_scenes)} scenes")
-
-        # Pre-compute per-image sentence text so each image slot gets its
-        # portion of the narration instead of the full scene description.
-        from clients.sentence_utils import split_into_sentences
-
-        _scene_sentence_map: dict[int, list[str]] = {}
         for scene in raw_scenes:
             scene_num = scene.get("scene_number", 1)
             scene_desc_full = scene.get("scene_description", scene.get("description", ""))
-            duration = scene.get("duration_seconds", 60)
-            image_count = max(1, round(duration / IMAGE_INTERVAL_SECONDS))
+            voice_duration = scene.get("duration_seconds")  # None if not available
 
-            sentences = split_into_sentences(scene_desc_full)
+            # Use deterministic splitter with word-based duration and hard 10s cap
+            segments = segment_scene_deterministic(scene_desc_full, voice_duration)
 
-            # Distribute sentences across image slots
-            chunks: list[str] = []
-            if not sentences:
-                chunks = [scene_desc_full] * image_count
-            elif len(sentences) <= image_count:
-                # Fewer sentences than slots: one sentence per slot, reuse last for extras
-                for i in range(image_count):
-                    chunks.append(sentences[min(i, len(sentences) - 1)])
-            else:
-                # More sentences than slots: distribute evenly
-                base = len(sentences) // image_count
-                remainder = len(sentences) % image_count
-                idx = 0
-                for i in range(image_count):
-                    count = base + (1 if i < remainder else 0)
-                    chunks.append(" ".join(sentences[idx:idx + count]))
-                    idx += count
+            if not segments:
+                # Fallback: create one segment for empty scene
+                segments = [{
+                    'text': scene_desc_full,
+                    'duration': voice_duration or 9.0,
+                    'cumulative_start': 0.0,
+                    'segment_index': 1,
+                    'word_count': len(scene_desc_full.split()),
+                }]
 
-            _scene_sentence_map[scene_num] = chunks
+            # Create expanded scene entry for each segment
+            for seg in segments:
+                expanded = dict(scene)
+                expanded["_source_scene_number"] = scene_num
+                expanded["_image_index"] = seg["segment_index"]
+                expanded["_images_in_scene"] = len(segments)
+                expanded["scene_description"] = seg["text"]  # Override with segment text
+                expanded_scenes.append(expanded)
+
+                # Store segment metadata for later use
+                segment_metadata_map[(scene_num, seg["segment_index"])] = seg
+
+        print(f"  Split into {len(expanded_scenes)} segments from {len(raw_scenes)} scenes (word-duration-aware, 10s cap)")
 
         # FRESH START: Delete any existing image records for this video so
         # every run generates clean prompts (no stale/bad cached prompts).
@@ -1919,17 +1917,9 @@ class VideoPipeline:
         scenes_needing_prompts = expanded_scenes
         scenes_needing_prompts_indices = list(range(len(expanded_scenes)))
 
-        print(f"  Generating prompts for {len(scenes_needing_prompts)} scenes")
+        print(f"  Generating prompts for {len(scenes_needing_prompts)} segments")
 
-        # Replace each expanded scene's scene_description with its per-image
-        # sentence chunk so prompts describe ONE visual moment, not the full
-        # narration paragraph.
-        for scene in scenes_needing_prompts:
-            scene_num = scene.get("_source_scene_number", scene.get("scene_number", 1))
-            img_idx = scene.get("_image_index", 1) - 1  # 0-based
-            sentence_chunks = _scene_sentence_map.get(scene_num, [])
-            if sentence_chunks and img_idx < len(sentence_chunks):
-                scene["scene_description"] = sentence_chunks[img_idx]
+        # Note: scene_description is already set to segment text in the new splitter logic above
 
         # Determine accent color from idea or default
         accent_color = self.current_idea.get("Accent Color") or "cold teal"
@@ -1956,20 +1946,21 @@ class VideoPipeline:
             scene_num = scene_data.get("_source_scene_number", scene_data.get("scene_number", original_index + 1))
             segment_index = scene_data.get("_image_index", 1)
 
-            # Per-image sentence text (split from full scene description)
-            scene_desc = scene_data.get("scene_description", scene_data.get("description", ""))
-            sentence_chunks = _scene_sentence_map.get(scene_num, [])
-            img_idx = scene_data.get("_image_index", 1) - 1  # 0-based
-            sentence_text = sentence_chunks[img_idx] if img_idx < len(sentence_chunks) else scene_desc
+            # Get segment metadata (duration, text, cumulative_start)
+            segment_meta = segment_metadata_map.get((scene_num, segment_index), {})
+            segment_text = segment_meta.get("text", scene_data.get("scene_description", ""))
+            segment_duration = segment_meta.get("duration", 9.0)  # Fallback to 9.0 if metadata missing
+            cumulative_start = segment_meta.get("cumulative_start", 0.0)
 
             self.airtable.create_sentence_image_record(
                 scene_number=scene_num,
                 sentence_index=segment_index,
-                sentence_text=sentence_text,
-                duration_seconds=IMAGE_INTERVAL_SECONDS,
+                sentence_text=segment_text,
+                duration_seconds=segment_duration,  # Actual duration from word-based calculation
                 image_prompt=sp["prompt"],
                 video_title=self.video_title,
                 shot_type=sp.get("composition", "wide"),
+                cumulative_start=cumulative_start,  # Pass cumulative start time
             )
             created += 1
 

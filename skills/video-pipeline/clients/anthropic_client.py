@@ -553,6 +553,12 @@ Start with style engine prefix, end with style engine suffix + lighting + text r
     ) -> list[dict]:
         """Generate image prompts based on semantic visual segments.
 
+        DEPRECATED: This LLM-based semantic segmentation is no longer used by the active pipeline.
+        The current system uses deterministic word-duration-aware splitting in
+        clients/deterministic_splitter.py with a hard 10s cap.
+
+        This function is kept for reference but not actively maintained.
+
         This is the smart segmentation approach that:
         1. Groups sentences by visual concept (not mechanical splitting)
         2. Only creates new images when the visual needs to shift
@@ -613,6 +619,9 @@ Start with style engine prefix, end with style engine suffix + lighting + text r
         max_duration: float = 10.0,
     ) -> list[dict]:
         """Use Claude to semantically segment a scene into visual concepts.
+
+        DEPRECATED: LLM-based segmentation replaced by deterministic word-duration-aware
+        splitting in clients/deterministic_splitter.py. Not used by active pipeline.
 
         Returns list of segments, each with:
             - text: the narration for this segment
@@ -840,6 +849,12 @@ Start with style engine prefix, end with style engine suffix + lighting + text r
         pipeline_type: str = "animation",
     ) -> list[dict]:
         """Segment scene text into visual concepts with pipeline-aware style.
+
+        DEPRECATED: LLM-based segmentation used by run_image_prompt_bot_legacy().
+        The active pipeline (run_styled_image_prompts) uses deterministic word-duration-aware
+        splitting in clients/deterministic_splitter.py with a hard 10s cap.
+
+        This function is kept for reference but not actively maintained.
 
         Supports two visual styles based on pipeline_type:
         - "youtube": Cinematic photorealistic dossier style (desaturated,
