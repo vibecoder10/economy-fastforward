@@ -371,7 +371,19 @@ _ACRONYM_RE = re.compile(r"\b([A-Z]{2,})\b")
 # Common English words that start with a capital letter at sentence starts.
 # We skip these to reduce false positives.
 _COMMON_WORDS = {
-    # Pronouns, determiners, conjunctions, prepositions
+    # Articles, pronouns, determiners, conjunctions, prepositions (including
+    # SHORT words — critical for multi-word phrase filtering like "The House")
+    "a", "an", "the", "and", "or", "but", "nor", "for", "yet", "so",
+    "in", "on", "at", "to", "by", "of", "up", "if", "it", "is", "as",
+    "be", "he", "we", "do", "no", "my", "am", "us", "me", "go",
+    "his", "her", "its", "our", "who", "how", "all", "any", "not",
+    "was", "are", "has", "had", "can", "may", "did", "got", "get",
+    "own", "let", "say", "see", "use", "way", "set", "new", "old",
+    "day", "end", "big", "own", "put", "run", "try", "ask", "far",
+    "few", "ago", "act", "cut", "hit", "pay", "top", "low", "oil",
+    "war", "age", "era", "tax", "law", "aid", "bit", "led", "won",
+    "two", "ten", "man", "men", "one", "red", "raw",
+    # Pronouns, determiners — longer
     "this", "that", "these", "those", "there", "their", "they",
     "what", "when", "where", "which", "while", "with", "will",
     "from", "have", "here", "been", "being", "before", "after",
@@ -400,7 +412,7 @@ _COMMON_WORDS = {
     "increasingly", "effectively", "significantly", "approximately",
     "except", "despite", "besides", "toward", "across", "within",
     "whether", "rather", "already", "perhaps", "actually", "simply",
-    # Common descriptive / generic words (not named entities)
+    # Common descriptive / generic nouns that appear capitalized
     "budget", "eastern", "western", "northern", "southern", "central",
     "federal", "national", "global", "domestic", "foreign", "military",
     "political", "economic", "financial", "industrial", "commercial",
@@ -411,7 +423,27 @@ _COMMON_WORDS = {
     "hook", "build", "payoff", "bridge", "lesson", "stakes",
     "framework", "mechanism", "mirror", "foundation", "history",
     "dark", "revelation", "pattern", "system", "empire", "stage",
+    # Common nouns frequently capitalized in geopolitical / economic scripts
+    # that trigger false positives as "entity hallucinations"
+    "cold", "house", "white", "street", "deal", "plan", "market",
+    "game", "race", "trade", "bank", "bond", "debt", "fund",
+    "peak", "boom", "bust", "rise", "fall", "wave", "shift",
+    "block", "chain", "belt", "road", "iron", "steel", "gold",
+    "land", "free", "rich", "poor", "middle", "class", "rate",
+    "price", "cost", "loss", "gain", "growth", "crisis", "reform",
+    "party", "group", "force", "front", "order", "union", "league",
+    "council", "court", "board", "office", "agency", "committee",
+    "congress", "parliament", "senate", "assembly", "ministry",
+    "republic", "kingdom", "island", "valley", "mountain", "river",
+    "north", "south", "east", "west", "great", "little", "long",
+    "modern", "ancient", "royal", "civil", "total", "general",
+    "special", "final", "chief", "prime", "senior", "junior",
 }
+
+# Minimum word count for multi-word phrases to be considered entities.
+# Two-word phrases where ALL words are common (e.g. "Cold War", "The House")
+# are almost never hallucinated entities — they're common English.
+_MIN_MULTIWORD_ENTITY_WORDS = 3
 
 # Minimum character length for single-word entities to be checked.
 # Shorter words are almost always common English, not named entities.
@@ -425,12 +457,22 @@ def _extract_entities_from_text(text: str) -> set[str]:
     """
     entities: set[str] = set()
 
-    # Multi-word proper nouns (high confidence — but skip if all words are common)
+    # Multi-word proper nouns — skip if all words are common English OR if
+    # the phrase is short (2 words) and all words are in the stopword list.
+    # Phrases like "Cold War", "The House", "The Iraq War" are almost never
+    # hallucinations; they're common English phrases that appear capitalized.
     for m in _MULTI_WORD_PN_RE.findall(text):
         lowered = m.lower()
         words = lowered.split()
         if all(w in _COMMON_WORDS for w in words):
             continue
+        # For 2-word phrases, require at least one word NOT in common words
+        # AND that uncommon word must be >= _MIN_ENTITY_LENGTH chars.
+        # This filters "Cold War" (war=3 chars), "The House" (all common now).
+        if len(words) <= 2:
+            uncommon = [w for w in words if w not in _COMMON_WORDS]
+            if not uncommon or all(len(w) < _MIN_ENTITY_LENGTH for w in uncommon):
+                continue
         entities.add(lowered)
 
     # CamelCase always included (high confidence: "DeepSeek", "OpenAI")

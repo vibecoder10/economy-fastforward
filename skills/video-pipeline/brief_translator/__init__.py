@@ -30,7 +30,7 @@ from .supplementer import (
 from .script_generator import generate_script, verify_script_claims
 from .scene_expander import expand_scene_concepts
 from .scene_validator import validate_scene_list, auto_fix_minor_issues, check_entity_consistency
-from .pipeline_writer import graduate_to_pipeline
+from .pipeline_writer import graduate_to_pipeline, select_video_title, build_sources_list
 from .psych_angle_assigner import (
     assign_angles_to_scenes,
     format_psych_arc_summary,
@@ -247,6 +247,7 @@ class BriefTranslator:
                     logger.warning(
                         f"Could not write Framework Angle to Airtable: {fw_err}"
                     )
+                    self._notify(f"⚠️ Framework Angle write failed: {fw_err}")
             else:
                 logger.info("No framework found in script output or research brief")
 
@@ -300,6 +301,18 @@ class BriefTranslator:
             psych_arc_summary = format_psych_arc_summary(psych_assignments)
             if psych_arc_summary:
                 logger.info(f"Psychological arc: {psych_arc_summary}")
+
+            # === STEP 2e: Write Script records progressively ===
+            # Write each act to the Scripts table BEFORE scene expansion so
+            # records are saved even if expansion times out or fails.
+            script_record_ids = self._write_script_records(
+                acts=acts,
+                brief=brief,
+                psych_assignments=psych_assignments,
+                unverified_claims=unverified_claims,
+                editorial_summary=editorial_summary,
+            )
+            result["script_record_ids"] = script_record_ids
 
             # === STEP 3: Scene Expansion (per-scene concept expansion) ===
             logger.info("Step 3: Expanding script into visual concepts (scene by scene)...")
@@ -468,6 +481,76 @@ class BriefTranslator:
             self._notify(
                 f"⚠️ Script Validation field write failed: {e}"
             )
+
+    def _write_script_records(
+        self,
+        acts: dict,
+        brief: dict,
+        psych_assignments: list | None = None,
+        unverified_claims: str = "",
+        editorial_summary: str = "",
+    ) -> list[str]:
+        """Write script records to the Scripts table progressively (one per act).
+
+        Called BEFORE scene expansion so records exist even if expansion
+        times out or fails. Returns list of created record IDs.
+        """
+        video_title = select_video_title(brief)
+        sources_text = build_sources_list(brief)
+
+        angle_lookup = {}
+        if psych_assignments:
+            for pa in psych_assignments:
+                angle_lookup[pa["scene"]] = pa["angle"]
+
+        record_ids: list[str] = []
+        first_record_id = None
+
+        for act_num in sorted(acts.keys()):
+            act_text = acts[act_num]
+            psych_angle = angle_lookup.get(act_num, "")
+            try:
+                record = self.airtable.create_script_record(
+                    scene_number=act_num,
+                    scene_text=act_text,
+                    title=video_title,
+                    psych_angle=psych_angle,
+                    sources=sources_text if act_num == 1 else "",
+                )
+                rid = record.get("id", "")
+                record_ids.append(rid)
+                if act_num == min(acts.keys()):
+                    first_record_id = rid
+                logger.info(f"Script record written: act {act_num}")
+            except Exception as e:
+                logger.error(f"Failed to write Script record for act {act_num}: {e}")
+                self._notify(
+                    f"⚠️ Script record write FAILED for act {act_num}: {e}"
+                )
+
+        # Write unverified claims to the first script record
+        if unverified_claims and first_record_id:
+            try:
+                self.airtable.update_script_record(
+                    first_record_id,
+                    {"Unverified Claims": unverified_claims},
+                )
+            except Exception as e:
+                logger.warning(f"Could not write Unverified Claims: {e}")
+                self._notify(f"⚠️ Unverified Claims write failed: {e}")
+
+        # Write editorial validation to the first script record
+        if editorial_summary and first_record_id:
+            try:
+                self.airtable.update_script_record(
+                    first_record_id,
+                    {"Script Validation": editorial_summary},
+                )
+            except Exception as e:
+                logger.warning(f"Could not write Script Validation to Script table: {e}")
+                self._notify(f"⚠️ Script Validation write (Script table) failed: {e}")
+
+        return record_ids
 
     def _notify(self, message: str):
         """Send a Slack notification if client is available."""
