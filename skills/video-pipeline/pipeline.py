@@ -2100,7 +2100,11 @@ class VideoPipeline:
                 continue
 
             if scene_num in existing_scenes:
+                # Scene already has images - count them and advance image_index
+                existing_image_count = sum(1 for img in existing_images if img.get("Scene") == scene_num)
+                image_index += existing_image_count
                 scenes_skipped += 1
+                print(f"  Scene {scene_num}: Skipped (has {existing_image_count} images), advanced index to {image_index}")
                 continue
 
             act_number = min(6, (scene_num - 1) * 6 // total_scripts + 1) if total_scripts > 0 else 1
