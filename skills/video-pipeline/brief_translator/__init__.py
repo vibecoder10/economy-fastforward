@@ -2,7 +2,7 @@
 
 Middleware that bridges the Research Agent's Ideas Bank output with the
 video production pipeline. Transforms analytical research briefs into
-production-ready creative assets.
+production-ready scripts.
 
 Deep research is handled by the standalone research_agent module
 (research_agent.py). This module consumes its output and handles:
@@ -11,13 +11,11 @@ Pipeline:
     Step 0: Deep Research (via research_agent.ResearchAgent — standalone module)
     Step 1: Production Readiness Validation
     Step 1b: Supplemental Research — targeted gap-filling (if needed)
-    Step 2: Script Generation
-    Step 3: Scene Expansion (~120-150 concepts)
-    Step 4: Pipeline Table Write
+    Step 2: Script Generation + Airtable/Drive/Slack writes
+
+Scene expansion is a SEPARATE pipeline stage triggered by a different status.
 """
 
-import asyncio
-import json
 import logging
 from typing import Optional
 
@@ -28,9 +26,8 @@ from .supplementer import (
     MAX_SUPPLEMENT_PASSES,
 )
 from .script_generator import generate_script, verify_script_claims
-from .scene_expander import expand_scene_concepts
-from .scene_validator import validate_scene_list, auto_fix_minor_issues, check_entity_consistency
-from .pipeline_writer import graduate_to_pipeline, select_video_title, build_sources_list
+from .scene_validator import check_entity_consistency
+from .pipeline_writer import select_video_title, build_sources_list
 from .psych_angle_assigner import (
     assign_angles_to_scenes,
     format_psych_arc_summary,
@@ -46,7 +43,11 @@ logger = logging.getLogger(__name__)
 
 
 class BriefTranslator:
-    """Orchestrates the full brief-to-pipeline translation process.
+    """Orchestrates script generation from a research brief.
+
+    Generates the script, saves it to Airtable and Google Drive, runs
+    advisory validation, and writes results. Does NOT run scene expansion
+    — that is a separate pipeline stage.
 
     Usage:
         translator = BriefTranslator(anthropic_client, airtable_client, slack_client)
@@ -58,27 +59,14 @@ class BriefTranslator:
         anthropic_client,
         airtable_client,
         slack_client=None,
-        total_images: int = 25,
-        scene_output_dir: Optional[str] = None,
+        google_client=None,
         script_model: str = "claude-sonnet-4-5-20250929",
         video_config=None,
     ):
-        """Initialize the translator.
-
-        Args:
-            anthropic_client: AnthropicClient instance for LLM calls
-            airtable_client: AirtableClient instance for database ops
-            slack_client: SlackClient instance for notifications (optional)
-            total_images: Target number of scenes (unused, kept for compat)
-            scene_output_dir: Directory for scene JSON files
-            script_model: Model for script generation (Opus for quality, Sonnet for cost)
-            video_config: VideoConfig for dynamic word counts and act structure
-        """
         self.anthropic = anthropic_client
         self.airtable = airtable_client
         self.slack = slack_client
-        self.total_images = total_images or 25
-        self.scene_output_dir = scene_output_dir
+        self.google = google_client
         self.script_model = script_model
         self.video_config = video_config
 
@@ -98,22 +86,30 @@ class BriefTranslator:
         self,
         idea_record_id: str,
         brief: dict,
+        project_folder_id: str = None,
     ) -> dict:
-        """Run the full translation pipeline.
+        """Generate a script and save to Airtable + Google Drive.
 
-        Args:
-            idea_record_id: Airtable record ID from the Ideas Bank
-            brief: Research brief dict with all fields from the Ideas Bank
+        This is script generation ONLY. Scene expansion is a separate
+        pipeline stage triggered by a different status.
+
+        Steps:
+            1. Validate brief
+            2. Generate script (single LLM call)
+            3. Save script to Airtable Script field
+            4. Save script to Google Drive as a Doc
+            5. Run editorial validation (advisory, no retries)
+            6. Write validation results to Script Validation field
+            7. Write Script table records (one per act)
+            8. Entity check + claim verification (non-blocking)
 
         Returns:
             {
                 "status": "success" | "rejected" | "error",
-                "pipeline_record_id": str (if success),
-                "scene_filepath": str (if success),
-                "video_id": str (if success),
+                "script": str,
                 "validation": dict,
                 "script_validation": dict,
-                "scene_validation": dict,
+                "doc_url": str (if Drive available),
                 "error": str (if error),
             }
         """
@@ -131,7 +127,6 @@ class BriefTranslator:
             result["validation"] = validation
             logger.info(format_validation_summary(validation))
 
-            # Handle validation result
             if validation["decision"] == "REJECT":
                 logger.warning("Brief rejected — insufficient material")
                 self._notify(
@@ -146,13 +141,12 @@ class BriefTranslator:
             if validation["decision"] == "NEEDS_SUPPLEMENT":
                 brief = await self._run_supplement_loop(brief, validation)
                 if brief is None:
-                    # Supplement loop exhausted, still failing
                     logger.warning("Brief still failing after supplemental research")
                     self._mark_rejected(idea_record_id, validation)
                     result["status"] = "rejected"
                     return result
 
-            # === STEP 2: Script Generation ===
+            # === STEP 2: Script Generation (single LLM call) ===
             logger.info("Step 2: Generating script...")
             if self.video_config:
                 dur = self.video_config.video_length_minutes
@@ -171,12 +165,20 @@ class BriefTranslator:
                 profile=self.profile,
             )
             script = script_result["script"]
+            result["script"] = script
             result["script_validation"] = script_result["validation"]
 
-            # --- PERSIST SCRIPT IMMEDIATELY (before validation/expansion) ---
+            # === STEP 3: Save script to Airtable immediately ===
             self._save_script_to_ideas(idea_record_id, script)
 
-            # --- VALIDATION IS ADVISORY — report to Airtable + Slack, never block ---
+            # === STEP 4: Save script to Google Drive as a Doc ===
+            doc_url = self._save_script_to_drive(
+                script, brief, project_folder_id,
+            )
+            if doc_url:
+                result["doc_url"] = doc_url
+
+            # === STEP 5: Advisory validation — report, never block ===
             word_count = script_result["validation"]["word_count"]
             act_count = script_result["validation"]["act_count"]
             issues = script_result["validation"].get("issues", [])
@@ -186,15 +188,14 @@ class BriefTranslator:
             if issues:
                 logger.warning(f"Script validation issues (advisory): {issues}")
 
-            # Editorial validation results (already run inside generate_script)
             editorial = script_result["validation"].get("editorial", {})
             editorial_summary = self._build_editorial_summary(editorial)
 
-            # Persist editorial results immediately
+            # === STEP 6: Write validation results ===
             if editorial:
                 self._write_editorial_to_ideas(idea_record_id, editorial_summary)
 
-            # Build Slack quality report
+            # Slack quality report
             editorial_passed = editorial.get("passed", True) if editorial else True
             if not editorial_passed:
                 failed_details = [
@@ -212,15 +213,13 @@ class BriefTranslator:
             else:
                 logger.info("Editorial validation: all checks passed")
 
-            # === STEP 2a: Extract and persist framework ===
+            # === STEP 7: Extract framework, assign psych angles, write Script records ===
             selected_framework = extract_framework_from_script(script)
             if not selected_framework:
-                # Fallback: use the framework_angle from the research brief
                 selected_framework = brief.get("framework_angle", "")
             if selected_framework:
                 logger.info(f"Selected framework: {selected_framework}")
                 brief["_selected_framework"] = selected_framework
-                # Write to Airtable "Framework Angle" field (graceful degradation)
                 try:
                     self.airtable.update_idea_fields(
                         idea_record_id, {"Framework Angle": selected_framework}
@@ -230,10 +229,32 @@ class BriefTranslator:
                         f"Could not write Framework Angle to Airtable: {fw_err}"
                     )
                     self._notify(f"⚠️ Framework Angle write failed: {fw_err}")
-            else:
-                logger.info("No framework found in script output or research brief")
 
-            # === STEP 2b: Entity consistency check ===
+            from .script_generator import extract_acts
+            acts = extract_acts(script)
+            if not acts:
+                acts = {1: script}
+
+            psych_angles_raw = brief.get("psychological_angles", "")
+            psych_assignments = assign_angles_to_scenes(
+                num_scenes=len(acts),
+                psychological_angles=psych_angles_raw,
+            )
+            psych_arc_summary = format_psych_arc_summary(psych_assignments)
+            if psych_arc_summary:
+                logger.info(f"Psychological arc: {psych_arc_summary}")
+
+            # Write Script table records (one per act)
+            script_record_ids = self._write_script_records(
+                acts=acts,
+                brief=brief,
+                psych_assignments=psych_assignments,
+                unverified_claims="",  # Claims verified below (async)
+                editorial_summary=editorial_summary,
+            )
+            result["script_record_ids"] = script_record_ids
+
+            # === STEP 8: Entity check + claim verification (non-blocking) ===
             entity_warnings = check_entity_consistency(
                 script=script,
                 brief=brief,
@@ -246,7 +267,6 @@ class BriefTranslator:
                     f"hallucination(s) detected"
                 )
 
-            # === STEP 2c: Verify factual claims (non-blocking) ===
             unverified_claims = ""
             try:
                 unverified_claims = await verify_script_claims(
@@ -262,6 +282,15 @@ class BriefTranslator:
                         f"for '{brief.get('headline', 'Untitled')}'. "
                         f"Check 'Unverified Claims' field in Script table."
                     )
+                    # Write claims to first script record
+                    if script_record_ids:
+                        try:
+                            self.airtable.update_script_record(
+                                script_record_ids[0],
+                                {"Unverified Claims": unverified_claims},
+                            )
+                        except Exception as e:
+                            logger.warning(f"Could not write Unverified Claims: {e}")
                 else:
                     logger.info("Claim verification: all claims grounded")
             except Exception as cv_err:
@@ -269,106 +298,18 @@ class BriefTranslator:
                     f"Claim verification skipped (non-blocking): {cv_err}"
                 )
 
-            # === STEP 2d: Assign Psychological Angles ===
-            from .script_generator import extract_acts
-            acts = extract_acts(script)
-            if not acts:
-                acts = {1: script}
-
-            psych_angles_raw = brief.get("psychological_angles", "")
-            psych_assignments = assign_angles_to_scenes(
-                num_scenes=len(acts),
-                psychological_angles=psych_angles_raw,
-            )
-            psych_arc_summary = format_psych_arc_summary(psych_assignments)
-            if psych_arc_summary:
-                logger.info(f"Psychological arc: {psych_arc_summary}")
-
-            # === STEP 2e: Write Script records progressively ===
-            # Write each act to the Scripts table BEFORE scene expansion so
-            # records are saved even if expansion times out or fails.
-            script_record_ids = self._write_script_records(
-                acts=acts,
-                brief=brief,
-                psych_assignments=psych_assignments,
-                unverified_claims=unverified_claims,
-                editorial_summary=editorial_summary,
-            )
-            result["script_record_ids"] = script_record_ids
-
-            # === STEP 3: Scene Expansion (per-scene concept expansion) ===
-            logger.info("Step 3: Expanding script into visual concepts (scene by scene)...")
-            self._notify(f"🎬 Expanding script scenes into visual concepts...")
-
-            scenes = []
-            visual_seeds = brief.get("visual_seeds", "")
-            scene_counter = 0
-            for act_num in sorted(acts.keys()):
-                act_text = acts[act_num]
-                scene_counter += 1
-                concepts = await expand_scene_concepts(
-                    anthropic_client=self.anthropic,
-                    scene_number=scene_counter,
-                    scene_text=act_text,
-                    visual_seeds=visual_seeds,
-                    accent_color="cold_teal",
-                    act_number=act_num,
-                    total_scenes=len(acts),
-                )
-                for c in concepts:
-                    scenes.append({
-                        "scene_number": scene_counter,
-                        "concept_index": c["concept_index"],
-                        "sentence_text": c["sentence_text"],
-                        "visual_description": c["visual_description"],
-                        "visual_style": c.get("visual_style", "dossier"),
-                        "composition": c.get("composition", "medium"),
-                        "mood": c.get("mood", ""),
-                        "parent_act": act_num,
-                    })
-
-            logger.info(f"Expanded {len(acts)} acts into {len(scenes)} visual concepts")
-
-            # === STEP 4: Pipeline Table Write ===
-            logger.info("Step 4: Writing to pipeline...")
-            self._notify("💾 Writing to pipeline table...")
-
-            # editorial_summary was already built and written to Ideas table above
-
-            graduation = await graduate_to_pipeline(
-                airtable_client=self.airtable,
-                idea_record_id=idea_record_id,
-                brief=brief,
-                script=script,
-                scene_list=scenes,
-                accent_color="cold_teal",
-                scene_output_dir=self.scene_output_dir,
-                slack_client=self.slack,
-                acts=acts,
-                psych_assignments=psych_assignments,
-                unverified_claims=unverified_claims,
-                editorial_validation=editorial_summary,
-            )
-
+            # === Done — report success ===
             result["status"] = "success"
-            result["pipeline_record_id"] = graduation["pipeline_record_id"]
-            result["scene_filepath"] = graduation["scene_filepath"]
-            result["video_id"] = graduation["video_id"]
 
-            # Log framework + psychological arc to Slack
             framework_label = selected_framework or brief.get("framework_angle", "")
-            if psych_arc_summary or framework_label:
-                parts = ["📝 Script complete."]
-                if framework_label:
-                    parts.append(f"Framework: {framework_label}.")
-                if psych_arc_summary:
-                    parts.append(f"Psychological arc: {psych_arc_summary}")
-                self._notify(" ".join(parts))
-
-            logger.info(
-                f"Translation complete: {graduation['video_id']} → "
-                f"{graduation['pipeline_record_id']}"
-            )
+            parts = [f"📝 Script complete ({word_count} words, {act_count} acts)."]
+            if framework_label:
+                parts.append(f"Framework: {framework_label}.")
+            if psych_arc_summary:
+                parts.append(f"Psychological arc: {psych_arc_summary}")
+            if doc_url:
+                parts.append(f"📄 {doc_url}")
+            self._notify(" ".join(parts))
 
             return result
 
@@ -381,11 +322,7 @@ class BriefTranslator:
             return result
 
     async def _run_supplement_loop(self, brief: dict, validation: dict) -> Optional[dict]:
-        """Run supplemental research loop up to MAX_SUPPLEMENT_PASSES times.
-
-        Returns:
-            Updated brief if validation passes, None if all attempts exhausted.
-        """
+        """Run supplemental research loop up to MAX_SUPPLEMENT_PASSES times."""
         current_brief = brief
 
         for attempt in range(1, MAX_SUPPLEMENT_PASSES + 1):
@@ -400,35 +337,63 @@ class BriefTranslator:
                 current_brief, supplement_text, validation["gaps"]
             )
 
-            # Re-validate
             validation = await validate_brief(self.anthropic, current_brief)
             logger.info(format_validation_summary(validation))
 
             if validation["decision"] == "READY":
                 return current_brief
-
             if validation["decision"] == "REJECT":
                 return None
 
-        # Exhausted all attempts
         return None
 
     def _save_script_to_ideas(self, idea_record_id: str, script: str):
-        """Persist script text to the Ideas table immediately after generation.
-
-        This ensures the script is saved even if validation, scene expansion,
-        or downstream steps fail or time out.
-        """
+        """Persist script text to the Idea Concepts table immediately."""
         if not script:
             return
         try:
             self.airtable.update_idea_fields(
                 idea_record_id, {"Script": script}
             )
-            logger.info("Script saved to Ideas table")
+            logger.info("Script saved to Idea Concepts table")
         except Exception as e:
             logger.warning(f"Could not save script to Ideas: {e}")
             self._notify(f"⚠️ Script field write failed: {e}")
+
+    def _save_script_to_drive(
+        self,
+        script: str,
+        brief: dict,
+        project_folder_id: str = None,
+    ) -> Optional[str]:
+        """Save script as a Google Doc in the project's Drive folder.
+
+        Mirrors the legacy run_script_bot() behavior: creates a Doc titled
+        with the video title, appends the full script text, returns the URL.
+
+        Returns:
+            Google Doc URL, or None if Drive is unavailable.
+        """
+        if not self.google or not script:
+            return None
+
+        video_title = select_video_title(brief)
+
+        try:
+            doc = self.google.create_document(video_title, project_folder_id)
+            if doc.get("unavailable"):
+                logger.warning("Google Docs unavailable — script saved to Airtable only")
+                return None
+
+            doc_id = doc["id"]
+            self.google.append_to_document(doc_id, script)
+            doc_url = self.google.get_document_url(doc_id)
+            logger.info(f"Script saved to Google Doc: {doc_url}")
+            return doc_url
+        except Exception as e:
+            logger.warning(f"Could not save script to Google Drive: {e}")
+            self._notify(f"⚠️ Google Drive doc write failed: {e}")
+            return None
 
     def _build_editorial_summary(self, editorial: dict) -> str:
         """Build editorial validation summary string from result dict."""
@@ -441,17 +406,10 @@ class BriefTranslator:
             lines.append(f"[{status}] {c['name']}: {c['detail']}")
         if self.profile:
             lines.append(f"Profile: {self.profile.profile_id}")
-        retries = editorial.get("retries_used", 0)
-        if retries:
-            lines.append(f"Retries used: {retries}")
         return "\n".join(lines)
 
     def _write_editorial_to_ideas(self, idea_record_id: str, summary: str):
-        """Write editorial validation summary to the Ideas table.
-
-        This writes to the Ideas table (not Scripts) so it persists even
-        when the pipeline blocks and no script records are created.
-        """
+        """Write editorial validation summary to the Idea Concepts table."""
         if not summary:
             return
         try:
@@ -460,9 +418,7 @@ class BriefTranslator:
             )
         except Exception as e:
             logger.warning(f"Could not write Script Validation to Ideas: {e}")
-            self._notify(
-                f"⚠️ Script Validation field write failed: {e}"
-            )
+            self._notify(f"⚠️ Script Validation field write failed: {e}")
 
     def _write_script_records(
         self,
@@ -472,11 +428,7 @@ class BriefTranslator:
         unverified_claims: str = "",
         editorial_summary: str = "",
     ) -> list[str]:
-        """Write script records to the Scripts table progressively (one per act).
-
-        Called BEFORE scene expansion so records exist even if expansion
-        times out or fails. Returns list of created record IDs.
-        """
+        """Write script records to the Scripts table progressively (one per act)."""
         video_title = select_video_title(brief)
         sources_text = build_sources_list(brief)
 
@@ -509,17 +461,6 @@ class BriefTranslator:
                 self._notify(
                     f"⚠️ Script record write FAILED for act {act_num}: {e}"
                 )
-
-        # Write unverified claims to the first script record
-        if unverified_claims and first_record_id:
-            try:
-                self.airtable.update_script_record(
-                    first_record_id,
-                    {"Unverified Claims": unverified_claims},
-                )
-            except Exception as e:
-                logger.warning(f"Could not write Unverified Claims: {e}")
-                self._notify(f"⚠️ Unverified Claims write failed: {e}")
 
         # Write editorial validation to the first script record
         if editorial_summary and first_record_id:
@@ -556,7 +497,6 @@ class BriefTranslator:
             except Exception as e:
                 logger.warning(f"Could not mark idea as rejected: {e}")
 
-        # Add rejection reason as a note
         try:
             gaps = validation.get("gaps", "Multiple production criteria failed")
             self.airtable.update_idea_field(
@@ -574,12 +514,15 @@ async def translate_brief(
     idea_record_id: str,
     brief: dict,
     slack_client=None,
-    total_images: int = 25,
-    scene_output_dir: Optional[str] = None,
+    google_client=None,
+    project_folder_id: str = None,
     script_model: str = "claude-sonnet-4-5-20250929",
     video_config=None,
+    # Legacy params kept for backward compat — ignored
+    total_images: int = 25,
+    scene_output_dir: Optional[str] = None,
 ) -> dict:
-    """Convenience function to run the full translation pipeline.
+    """Convenience function to run script generation.
 
     This is the main entry point for external callers.
     """
@@ -587,9 +530,11 @@ async def translate_brief(
         anthropic_client=anthropic_client,
         airtable_client=airtable_client,
         slack_client=slack_client,
-        total_images=total_images,
-        scene_output_dir=scene_output_dir,
+        google_client=google_client,
         script_model=script_model,
         video_config=video_config,
     )
-    return await translator.translate(idea_record_id, brief)
+    return await translator.translate(
+        idea_record_id, brief,
+        project_folder_id=project_folder_id,
+    )
