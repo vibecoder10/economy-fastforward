@@ -428,7 +428,7 @@ class VideoPipeline:
                 # Restart loop to pick up new status
                 return await self.run_next_step()
 
-            return await self._run_step_safe("Script Bot", self.run_script_bot)
+            return await self._run_step_safe("Brief Translator", self.run_brief_translator)
 
         # 2. Check for Ready For Voice
         idea = self.get_idea_by_status(self.STATUS_READY_VOICE)
@@ -654,9 +654,11 @@ class VideoPipeline:
             "ideas": [idea.get("viral_title") for idea in result.get("ideas", [])],
         }
 
-    async def run_script_bot(self) -> dict:
-        """Write the full script (legacy 20-scene path).
-        
+    async def run_script_bot_legacy(self) -> dict:
+        """Write the full script (legacy 20-scene beat-sheet path).
+
+        DEPRECATED: Use run_brief_translator() instead. Kept for reference.
+
         REQUIRES: Ideas status = "Ready For Scripting"
         UPDATES TO: "Ready For Voice" when complete
         """
@@ -2246,7 +2248,7 @@ class VideoPipeline:
         self._load_idea(first_idea)
 
         # Step 2: Script
-        script_result = await self.run_script_bot()
+        script_result = await self.run_script_bot_legacy()
         steps_completed.append(("Script Bot", script_result))
 
         # Step 3: Voice

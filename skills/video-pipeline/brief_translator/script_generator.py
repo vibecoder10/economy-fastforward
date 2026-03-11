@@ -1057,7 +1057,7 @@ async def generate_script(
 
     # Retry loop for failed editorial checks
     if not editorial_result.passed and editorial_config.retry_on_fail:
-        original_prompt = build_script_prompt(brief, config=config)
+        original_prompt = build_script_prompt(brief, config=config, profile=profile)
         for retry_num in range(1, editorial_config.max_retries + 1):
             import logging
             _logger = logging.getLogger(__name__)
@@ -1079,7 +1079,7 @@ async def generate_script(
             )
 
             # Re-run structural validation
-            validation = validate_script(script, config=config)
+            validation = validate_script(script, config=config, profile=profile)
             acts = extract_acts(script)
 
             # Re-run editorial validation
