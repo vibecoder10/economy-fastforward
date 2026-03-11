@@ -688,35 +688,32 @@ async def handle_run(message, say):
 
 
 @app.message(re.compile(r"run script", re.IGNORECASE))
-@app.message(re.compile(r"^script(?:\s+\d+)?$", re.IGNORECASE))
+@app.message(re.compile(r"^script$", re.IGNORECASE))
 async def handle_script(message, say):
-    """Run the script bot."""
+    """Run the brief translator (script generation with validation)."""
     global current_process
     if current_process:
         await say(f":x: Already running `{current_task_name}`. Use `stop` to cancel it first.")
         return
 
-    scene, _ = _parse_target(message.get("text", ""), "script")
-    target_msg = f" (scene {scene})" if scene else ""
-    await say(f":clapper: Starting script bot{target_msg}...")
+    await say(":clapper: Starting brief translator (script generation)...")
 
     try:
         returncode, stdout, stderr = await run_script_async(
-            "run_script_bot.py", "script", say, timeout=300,
-            extra_args=_target_args(scene, None),
+            "run_script_bot.py", "script", say, timeout=600,
         )
 
         if returncode == 0:
             output = stdout[-3000:] if len(stdout) > 3000 else stdout
-            await say(f":white_check_mark: Script bot complete!\n```{output}```")
+            await say(f":white_check_mark: Script generation complete!\n```{output}```")
         else:
             error = stderr[-1500:] if len(stderr) > 1500 else stderr
-            await say(f":x: Script bot error:\n```{error}```")
+            await say(f":x: Script generation error:\n```{error}```")
 
     except subprocess.TimeoutExpired:
-        await say(":warning: Script bot timed out after 5 minutes")
+        await say(":warning: Script generation timed out after 10 minutes")
     except asyncio.CancelledError:
-        await say(":stop_sign: Script bot was stopped")
+        await say(":stop_sign: Script generation was stopped")
     except Exception as e:
         await say(f":x: Error: {e}")
 

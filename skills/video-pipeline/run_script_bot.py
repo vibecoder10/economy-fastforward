@@ -1,15 +1,16 @@
 """
-Run the Script Bot on an idea marked "Ready For Scripting" in Airtable.
+Run the Brief Translator (script generation) on an idea marked "Ready For Scripting".
 
 Called by: pipeline_control.py (Slack bot)
 Commands: script, run script
-Supports: --scene N to only generate a specific scene
+
+This is the production script generation path. It uses the brief translator
+with ScriptProfile-driven validation, editorial checks, and retry logic.
 """
 
 import os
 import sys
 import asyncio
-import argparse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -20,30 +21,26 @@ from pipeline import VideoPipeline
 
 
 async def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--scene", type=int, default=None, help="Only process this scene number")
-    args = parser.parse_args()
-
     print("=" * 60)
-    print("🎬 RUNNING SCRIPT BOT")
+    print("📜 RUNNING BRIEF TRANSLATOR (Script Generation)")
     print("=" * 60)
 
     pipeline = VideoPipeline()
-    pipeline.scene_filter = args.scene
 
     try:
-        result = await pipeline.run_script_bot()
+        result = await pipeline.run_brief_translator()
 
-        if result.get("error"):
-            print(f"\n❌ {result['error']}")
+        status = result.get("status", "unknown")
+        if status == "error" or result.get("error"):
+            print(f"\n❌ {result.get('error', status)}")
             sys.exit(1)
 
         print("\n" + "=" * 60)
-        print("✅ SCRIPT BOT COMPLETE!")
+        print("✅ SCRIPT GENERATION COMPLETE!")
         print("=" * 60)
-        print(f"\n📝 Scenes written: {result.get('scene_count')}")
-        if result.get("targeted"):
-            print("🎯 Targeted run — status not advanced")
+        print(f"\n📝 Status: {status}")
+        if result.get("scene_filepath"):
+            print(f"📂 Scene file: {result['scene_filepath']}")
 
     except Exception as e:
         print(f"\n❌ Error: {e}")

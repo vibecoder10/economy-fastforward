@@ -37,6 +37,11 @@ from .psych_angle_assigner import (
 )
 from .script_generator import extract_framework_from_script
 
+try:
+    from script_profiles import load_script_profile
+except ImportError:
+    load_script_profile = None
+
 logger = logging.getLogger(__name__)
 
 
@@ -53,7 +58,6 @@ class BriefTranslator:
         anthropic_client,
         airtable_client,
         slack_client=None,
-        accent_color: str = "cold_teal",
         total_images: int = 25,
         scene_output_dir: Optional[str] = None,
         script_model: str = "claude-sonnet-4-5-20250929",
@@ -64,7 +68,6 @@ class BriefTranslator:
             anthropic_client: AnthropicClient instance for LLM calls
             airtable_client: AirtableClient instance for database ops
             slack_client: SlackClient instance for notifications (optional)
-            accent_color: Visual accent color (cold_teal | warm_amber | muted_crimson)
             total_images: Target number of scenes (unused, kept for compat)
             scene_output_dir: Directory for scene JSON files
             script_model: Model for script generation (Opus for quality, Sonnet for cost)
@@ -72,10 +75,21 @@ class BriefTranslator:
         self.anthropic = anthropic_client
         self.airtable = airtable_client
         self.slack = slack_client
-        self.accent_color = accent_color
         self.total_images = total_images or 25
         self.scene_output_dir = scene_output_dir
         self.script_model = script_model
+
+        # Load script profile (editorial voice, validation thresholds)
+        self.profile = None
+        if load_script_profile is not None:
+            try:
+                self.profile = load_script_profile()
+                if self.profile:
+                    logger.info(
+                        f"Script profile loaded: {self.profile.profile_id}"
+                    )
+            except Exception as e:
+                logger.warning(f"Could not load script profile: {e}")
 
     async def translate(
         self,
@@ -139,8 +153,14 @@ class BriefTranslator:
             logger.info("Step 2: Generating script...")
             self._notify("📝 Generating 15-20 minute narration script...")
 
+            if self.profile:
+                self._notify(
+                    f"🎭 Profile: {self.profile.profile_id} "
+                    f"(v{self.profile.version})"
+                )
             script_result = await generate_script(
-                self.anthropic, brief, model=self.script_model
+                self.anthropic, brief, model=self.script_model,
+                profile=self.profile,
             )
             script = script_result["script"]
             result["script_validation"] = script_result["validation"]
@@ -276,7 +296,7 @@ class BriefTranslator:
                     scene_number=scene_counter,
                     scene_text=act_text,
                     visual_seeds=visual_seeds,
-                    accent_color=self.accent_color,
+                    accent_color="cold_teal",
                     act_number=act_num,
                     total_scenes=len(acts),
                 )
@@ -298,13 +318,18 @@ class BriefTranslator:
             logger.info("Step 4: Writing to pipeline...")
             self._notify("💾 Writing to pipeline table...")
 
-            # Build editorial validation summary for Airtable
+            # Build editorial validation summary for Airtable (always, not just on failure)
             editorial_summary = ""
-            if editorial and not editorial.get("passed", True):
-                lines = []
+            if editorial and editorial.get("checks"):
+                overall = "PASSED" if editorial.get("passed", True) else "FAILED"
+                lines = [f"Editorial validation: {overall}"]
                 for c in editorial.get("checks", []):
                     status = "PASS" if c["passed"] else "FAIL"
                     lines.append(f"[{status}] {c['name']}: {c['detail']}")
+                if self.profile:
+                    lines.append(
+                        f"Profile: {self.profile.profile_id}"
+                    )
                 editorial_summary = "\n".join(lines)
 
             graduation = await graduate_to_pipeline(
@@ -313,7 +338,7 @@ class BriefTranslator:
                 brief=brief,
                 script=script,
                 scene_list=scenes,
-                accent_color=self.accent_color,
+                accent_color="cold_teal",
                 scene_output_dir=self.scene_output_dir,
                 slack_client=self.slack,
                 acts=acts,
@@ -425,7 +450,6 @@ async def translate_brief(
     idea_record_id: str,
     brief: dict,
     slack_client=None,
-    accent_color: str = "cold_teal",
     total_images: int = 25,
     scene_output_dir: Optional[str] = None,
     script_model: str = "claude-sonnet-4-5-20250929",
@@ -438,7 +462,6 @@ async def translate_brief(
         anthropic_client=anthropic_client,
         airtable_client=airtable_client,
         slack_client=slack_client,
-        accent_color=accent_color,
         total_images=total_images,
         scene_output_dir=scene_output_dir,
         script_model=script_model,
