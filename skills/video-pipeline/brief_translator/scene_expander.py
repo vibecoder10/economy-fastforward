@@ -11,6 +11,7 @@ scene at a time — if one fails, only that scene retries.
 
 import json
 import re
+from difflib import SequenceMatcher
 from pathlib import Path
 
 PROMPT_TEMPLATE_PATH = Path(__file__).parent / "prompts" / "concept_expand.txt"
@@ -104,6 +105,168 @@ def _parse_response(response_text: str) -> dict:
     raise ValueError("No JSON found in response")
 
 
+def _repair_concept_text(
+    concept_text: str,
+    scene_text: str,
+    search_start: int = 0,
+) -> tuple[str | None, int]:
+    """Find the closest verbatim substring in scene_text for a non-matching concept.
+
+    Uses difflib.SequenceMatcher to find the longest matching block between
+    the concept's (possibly rewritten) text and the original scene text,
+    then expands to cover approximately the same word count.
+
+    Args:
+        concept_text: The concept's sentence_text (may be rewritten by LLM).
+        scene_text: The full scene narration (normalized whitespace).
+        search_start: Position in scene_text to start searching from.
+
+    Returns:
+        (repaired_text, end_position) if a match is found with >=50% similarity,
+        or (None, search_start) if no reasonable match exists.
+    """
+    if not concept_text or not scene_text:
+        return None, search_start
+
+    normalized_concept = " ".join(concept_text.split())
+    search_region = scene_text[search_start:]
+
+    # Find longest matching block in the search region
+    matcher = SequenceMatcher(None, normalized_concept.lower(), search_region.lower())
+    match = matcher.find_longest_match(0, len(normalized_concept), 0, len(search_region))
+
+    if match.size < 10:  # Need at least 10 chars of matching text
+        return None, search_start
+
+    # Expand around the matching block to cover ~ the same word count
+    target_words = len(normalized_concept.split())
+    match_start_in_region = match.b
+
+    # Find word boundaries around the match
+    abs_start = search_start + match_start_in_region
+
+    # Walk backwards to a word boundary
+    while abs_start > search_start and scene_text[abs_start - 1] != " ":
+        abs_start -= 1
+
+    # Extract words from abs_start and take target_words count
+    remaining = scene_text[abs_start:]
+    words = remaining.split()
+    if not words:
+        return None, search_start
+
+    # Take the target number of words
+    extract_words = words[:target_words]
+    candidate = " ".join(extract_words)
+    end_pos = abs_start + len(candidate)
+
+    # Verify the repair has reasonable similarity to the original concept
+    similarity = SequenceMatcher(
+        None, normalized_concept.lower(), candidate.lower()
+    ).ratio()
+
+    if similarity < 0.40:
+        return None, search_start
+
+    return candidate, end_pos
+
+
+def _repair_all_concepts(concepts: list[dict], scene_text: str) -> list[dict]:
+    """Re-validate and repair all concepts to ensure verbatim text.
+
+    Every concept's sentence_text is checked against the scene_text.
+    Non-matching concepts are repaired via fuzzy matching. Concepts that
+    can't be repaired are dropped. Gaps in coverage are absorbed.
+
+    Returns a new list of concepts with guaranteed verbatim sentence_text.
+    """
+    normalized_source = " ".join(scene_text.split())
+    repaired: list[dict] = []
+    search_start = 0
+    repairs_made = 0
+
+    for concept in concepts:
+        text = concept.get("sentence_text", "")
+        if not text:
+            continue
+
+        normalized_text = " ".join(text.split())
+
+        # Check if already verbatim
+        pos = normalized_source.find(normalized_text, search_start)
+        if pos == -1:
+            pos = normalized_source.lower().find(normalized_text.lower(), search_start)
+
+        if pos != -1:
+            # Verbatim match — absorb any gap before it
+            gap = normalized_source[search_start:pos].strip()
+            if gap and repaired:
+                repaired[-1]["sentence_text"] = (
+                    repaired[-1]["sentence_text"] + " " + gap
+                ).strip()
+            elif gap:
+                concept["sentence_text"] = (gap + " " + normalized_text).strip()
+                normalized_text = concept["sentence_text"]
+                pos = search_start
+
+            search_start = pos + len(normalized_text)
+            repaired.append(dict(concept))
+        else:
+            # Not verbatim — attempt repair
+            fixed_text, end_pos = _repair_concept_text(
+                normalized_text, normalized_source, search_start
+            )
+            if fixed_text:
+                # Absorb any gap
+                gap = normalized_source[search_start:normalized_source.find(fixed_text, search_start)].strip()
+                if gap and repaired:
+                    repaired[-1]["sentence_text"] = (
+                        repaired[-1]["sentence_text"] + " " + gap
+                    ).strip()
+                elif gap:
+                    fixed_text = gap + " " + fixed_text
+
+                concept_copy = dict(concept)
+                concept_copy["sentence_text"] = fixed_text.strip()
+                concept_copy["needs_new_prompt"] = True
+                repaired.append(concept_copy)
+                search_start = end_pos
+                repairs_made += 1
+                print(f"      Repaired concept: '{text[:50]}...' → '{fixed_text[:50]}...'")
+            else:
+                # Can't repair — drop this concept, its coverage will be
+                # absorbed as a gap by the next concept or trailing handler
+                print(f"      Dropped unrepairable concept: '{text[:50]}...'")
+
+    # Absorb any trailing text
+    trailing = normalized_source[search_start:].strip()
+    if trailing:
+        if repaired:
+            repaired[-1]["sentence_text"] = (
+                repaired[-1]["sentence_text"] + " " + trailing
+            ).strip()
+        else:
+            # No concepts survived — create one covering everything
+            repaired.append({
+                "concept_index": 1,
+                "sentence_text": normalized_source,
+                "visual_description": normalized_source,
+                "visual_style": "dossier",
+                "composition": "wide",
+                "mood": "tension",
+                "needs_new_prompt": True,
+            })
+
+    # Re-index
+    for i, c in enumerate(repaired):
+        c["concept_index"] = i + 1
+
+    if repairs_made:
+        print(f"      Verbatim repair: {repairs_made} concept(s) repaired")
+
+    return repaired
+
+
 def _validate_concepts(
     concepts: list[dict],
     scene_text: str,
@@ -154,13 +317,30 @@ def _validate_concepts(
             pos = normalized_source.lower().find(normalized_text.lower(), search_start)
             if pos == -1:
                 if relaxed:
-                    # Skip this concept — the others may still be valid
-                    continue
-                return False, (
-                    f"Concept {i + 1} sentence_text not found in narration "
-                    f"(starting from position {search_start}): "
-                    f"'{normalized_text[:60]}...'"
-                )
+                    # Repair via fuzzy matching instead of dropping
+                    fixed_text, end_pos = _repair_concept_text(
+                        normalized_text, normalized_source, search_start
+                    )
+                    if fixed_text:
+                        concept["sentence_text"] = fixed_text
+                        concept["needs_new_prompt"] = True
+                        pos = normalized_source.find(fixed_text, search_start)
+                        if pos == -1:
+                            pos = search_start
+                        print(
+                            f"      Repaired concept {i + 1} to verbatim: "
+                            f"'{fixed_text[:50]}...'"
+                        )
+                    else:
+                        # Mark for removal — will be absorbed as gap
+                        concept["sentence_text"] = ""
+                        continue
+                else:
+                    return False, (
+                        f"Concept {i + 1} sentence_text not found in narration "
+                        f"(starting from position {search_start}): "
+                        f"'{normalized_text[:60]}...'"
+                    )
 
         # Check for gaps — absorb small gaps into preceding concept
         gap = normalized_source[search_start:pos].strip()
@@ -534,13 +714,16 @@ async def expand_scene_concepts(
             await asyncio.sleep(2)
 
     # All 5 attempts failed strict+relaxed validation.
-    # Use the best LLM result we got — it's always better than a
-    # mechanical fallback with generic keyword templates.
+    # Use the best LLM result we got — but ONLY after repairing all
+    # sentence_text fields to be verbatim substrings of the source.
     if best_concepts:
         print(
             f"    Scene {scene_number}: using best LLM result "
             f"({len(best_concepts)} concepts, issue: {best_error})"
         )
+        # Repair all concepts to guarantee verbatim sentence_text
+        best_concepts = _repair_all_concepts(best_concepts, scene_text)
+
         # Force-fix: ensure every concept has required fields
         compositions = [
             "wide", "medium", "closeup", "environmental",
