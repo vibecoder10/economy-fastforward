@@ -61,6 +61,7 @@ class BriefTranslator:
         total_images: int = 25,
         scene_output_dir: Optional[str] = None,
         script_model: str = "claude-sonnet-4-5-20250929",
+        video_config=None,
     ):
         """Initialize the translator.
 
@@ -71,6 +72,7 @@ class BriefTranslator:
             total_images: Target number of scenes (unused, kept for compat)
             scene_output_dir: Directory for scene JSON files
             script_model: Model for script generation (Opus for quality, Sonnet for cost)
+            video_config: VideoConfig for dynamic word counts and act structure
         """
         self.anthropic = anthropic_client
         self.airtable = airtable_client
@@ -78,6 +80,7 @@ class BriefTranslator:
         self.total_images = total_images or 25
         self.scene_output_dir = scene_output_dir
         self.script_model = script_model
+        self.video_config = video_config
 
         # Load script profile (editorial voice, validation thresholds)
         self.profile = None
@@ -151,7 +154,11 @@ class BriefTranslator:
 
             # === STEP 2: Script Generation ===
             logger.info("Step 2: Generating script...")
-            self._notify("📝 Generating 15-20 minute narration script...")
+            if self.video_config:
+                dur = self.video_config.video_length_minutes
+                self._notify(f"📝 Generating {dur}-minute narration script...")
+            else:
+                self._notify("📝 Generating narration script...")
 
             if self.profile:
                 self._notify(
@@ -160,6 +167,7 @@ class BriefTranslator:
                 )
             script_result = await generate_script(
                 self.anthropic, brief, model=self.script_model,
+                config=self.video_config,
                 profile=self.profile,
             )
             script = script_result["script"]
@@ -453,6 +461,7 @@ async def translate_brief(
     total_images: int = 25,
     scene_output_dir: Optional[str] = None,
     script_model: str = "claude-sonnet-4-5-20250929",
+    video_config=None,
 ) -> dict:
     """Convenience function to run the full translation pipeline.
 
@@ -465,5 +474,6 @@ async def translate_brief(
         total_images=total_images,
         scene_output_dir=scene_output_dir,
         script_model=script_model,
+        video_config=video_config,
     )
     return await translator.translate(idea_record_id, brief)

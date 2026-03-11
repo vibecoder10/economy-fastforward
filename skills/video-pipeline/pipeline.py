@@ -1931,6 +1931,7 @@ class VideoPipeline:
             brief=brief,
             slack_client=self.slack,
             scene_output_dir=scene_output_dir,
+            video_config=self.video_config,
         )
 
         if result["status"] == "success":
