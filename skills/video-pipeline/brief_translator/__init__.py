@@ -190,7 +190,12 @@ class BriefTranslator:
 
             # Check editorial validation results — block pipeline on failure
             editorial = script_result["validation"].get("editorial", {})
+            editorial_summary = self._build_editorial_summary(editorial)
+
             if editorial:
+                # Always write editorial summary to Ideas table (survives blocks)
+                self._write_editorial_to_ideas(idea_record_id, editorial_summary)
+
                 editorial_passed = editorial.get("passed", True)
                 if not editorial_passed:
                     failed = [
@@ -202,12 +207,15 @@ class BriefTranslator:
                         for c in editorial.get("checks", [])
                         if not c["passed"]
                     ]
+                    retries_used = editorial.get("retries_used", 0)
                     logger.error(
-                        f"Editorial validation BLOCKED pipeline: {failed}"
+                        f"Editorial validation BLOCKED pipeline: {failed} "
+                        f"(after {retries_used} retries)"
                     )
                     self._notify(
                         f"🚫 Script BLOCKED by editorial validation for "
-                        f"'{brief.get('headline', 'Untitled')}': "
+                        f"'{brief.get('headline', 'Untitled')}' "
+                        f"(after {retries_used} retries):\n"
                         f"{', '.join(failed)}"
                     )
                     result["error"] = (
@@ -216,6 +224,12 @@ class BriefTranslator:
                     )
                     return result
                 else:
+                    retries_used = editorial.get("retries_used", 0)
+                    if retries_used:
+                        self._notify(
+                            f"✅ Editorial validation passed after "
+                            f"{retries_used} retry(s)"
+                        )
                     logger.info("Editorial validation: all checks passed")
 
             # === STEP 2a: Extract and persist framework ===
@@ -326,19 +340,7 @@ class BriefTranslator:
             logger.info("Step 4: Writing to pipeline...")
             self._notify("💾 Writing to pipeline table...")
 
-            # Build editorial validation summary for Airtable (always, not just on failure)
-            editorial_summary = ""
-            if editorial and editorial.get("checks"):
-                overall = "PASSED" if editorial.get("passed", True) else "FAILED"
-                lines = [f"Editorial validation: {overall}"]
-                for c in editorial.get("checks", []):
-                    status = "PASS" if c["passed"] else "FAIL"
-                    lines.append(f"[{status}] {c['name']}: {c['detail']}")
-                if self.profile:
-                    lines.append(
-                        f"Profile: {self.profile.profile_id}"
-                    )
-                editorial_summary = "\n".join(lines)
+            # editorial_summary was already built and written to Ideas table above
 
             graduation = await graduate_to_pipeline(
                 airtable_client=self.airtable,
@@ -417,6 +419,40 @@ class BriefTranslator:
 
         # Exhausted all attempts
         return None
+
+    def _build_editorial_summary(self, editorial: dict) -> str:
+        """Build editorial validation summary string from result dict."""
+        if not editorial or not editorial.get("checks"):
+            return ""
+        overall = "PASSED" if editorial.get("passed", True) else "FAILED"
+        lines = [f"Editorial validation: {overall}"]
+        for c in editorial.get("checks", []):
+            status = "PASS" if c["passed"] else "FAIL"
+            lines.append(f"[{status}] {c['name']}: {c['detail']}")
+        if self.profile:
+            lines.append(f"Profile: {self.profile.profile_id}")
+        retries = editorial.get("retries_used", 0)
+        if retries:
+            lines.append(f"Retries used: {retries}")
+        return "\n".join(lines)
+
+    def _write_editorial_to_ideas(self, idea_record_id: str, summary: str):
+        """Write editorial validation summary to the Ideas table.
+
+        This writes to the Ideas table (not Scripts) so it persists even
+        when the pipeline blocks and no script records are created.
+        """
+        if not summary:
+            return
+        try:
+            self.airtable.update_idea_fields(
+                idea_record_id, {"Script Validation": summary}
+            )
+        except Exception as e:
+            logger.warning(f"Could not write Script Validation to Ideas: {e}")
+            self._notify(
+                f"⚠️ Script Validation field write failed: {e}"
+            )
 
     def _notify(self, message: str):
         """Send a Slack notification if client is available."""
