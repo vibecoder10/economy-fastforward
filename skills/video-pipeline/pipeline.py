@@ -2088,7 +2088,7 @@ class VideoPipeline:
         total_concepts = 0
         scenes_expanded = 0
         scenes_skipped = 0
-        style_counts = {"dossier": 0, "schema": 0, "echo": 0}
+        style_counts = {}  # Tracks display_format distribution (e.g. war_table, floating)
         image_index = 0  # Global image index across all scenes for style sequencing
 
         for script in scripts:
@@ -2267,10 +2267,15 @@ class VideoPipeline:
         print(f"  Status updated to: {self.STATUS_READY_IMAGES}")
 
         skip_note = f" ({scenes_skipped} resumed)" if scenes_skipped else ""
+        total_styled = sum(style_counts.values()) or 1
+        style_summary = " | ".join(
+            f"{fmt}: {cnt} ({cnt / total_styled * 100:.0f}%)"
+            for fmt, cnt in sorted(style_counts.items(), key=lambda x: -x[1])
+        )
         self.slack.notify(
             f"Styled prompts done: {total_concepts} concepts from {scenes_expanded} scenes{skip_note} "
             f"for *{self.video_title}*\n"
-            f"D:{dossier_pct:.0f}% S:{schema_pct:.0f}% E:{echo_pct:.0f}%"
+            f"{style_summary}"
             f"{audio_sync_summary}"
         )
 
