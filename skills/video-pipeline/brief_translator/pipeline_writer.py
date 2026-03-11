@@ -320,55 +320,20 @@ async def graduate_to_pipeline(
         result = airtable_client.create_idea(core_fields)
         pipeline_record_id = result["id"]
         print(f"  ⚠️ Some new fields not yet in Airtable: {e}")
-
-    # 4. Create Script table records (one per act) with Psych Angle
-    if acts:
-        video_title = select_video_title(brief)
-        sources_text = build_sources_list(brief)
-        # Build a lookup: scene_number → psych_angle
-        angle_lookup = {}
-        if psych_assignments:
-            for pa in psych_assignments:
-                angle_lookup[pa["scene"]] = pa["angle"]
-
-        first_record_id = None
-        for act_num in sorted(acts.keys()):
-            act_text = acts[act_num]
-            psych_angle = angle_lookup.get(act_num, "")
+        if slack_client:
             try:
-                record = airtable_client.create_script_record(
-                    scene_number=act_num,
-                    scene_text=act_text,
-                    title=video_title,
-                    psych_angle=psych_angle,
-                    sources=sources_text if act_num == 1 else "",
+                slack_client.send_message(
+                    f"⚠️ Pipeline record created with core fields only "
+                    f"(some fields dropped): {e}"
                 )
-                if act_num == min(acts.keys()):
-                    first_record_id = record.get("id")
-            except Exception as e:
-                print(f"  ⚠️ Could not create Script record for scene {act_num}: {e}")
+            except Exception:
+                pass
 
-        # Write unverified claims to the first script record (non-blocking)
-        if unverified_claims and first_record_id:
-            try:
-                airtable_client.update_script_record(
-                    first_record_id,
-                    {"Unverified Claims": unverified_claims},
-                )
-            except Exception as e:
-                print(f"  ⚠️ Could not write Unverified Claims: {e}")
+    # 4. Script table records are now written progressively by
+    #    BriefTranslator._write_script_records() BEFORE scene expansion.
+    #    This ensures records exist even if expansion fails or times out.
 
-        # Write editorial validation results to the first script record (non-blocking)
-        if editorial_validation and first_record_id:
-            try:
-                airtable_client.update_script_record(
-                    first_record_id,
-                    {"Script Validation": editorial_validation},
-                )
-            except Exception as e:
-                print(f"  ⚠️ Could not write Script Validation: {e}")
-
-    # 5. Update Idea Concepts record status  (was step 4)
+    # 5. Update Idea Concepts record status
     try:
         airtable_client.update_idea_status(idea_record_id, "sent_to_pipeline")
     except Exception as e:
@@ -381,6 +346,13 @@ async def graduate_to_pipeline(
             )
         except Exception:
             print(f"  ⚠️ Could not update Idea Concepts status: {e}")
+            if slack_client:
+                try:
+                    slack_client.send_message(
+                        f"⚠️ Airtable status update FAILED for {idea_record_id}: {e}"
+                    )
+                except Exception:
+                    pass
 
     # 6. Notify via Slack
     if slack_client:
