@@ -654,34 +654,51 @@ def validate_script_editorial(
         if not passed:
             missing = expected - found
             # Identify which specific act endings are missing cliffhangers
+            # AND extract the opening of the next act for teaser material
             sorted_acts = sorted(acts.keys())
             missing_acts = []
+            per_act_instructions = []
             for act_num in sorted_acts[:-1]:
                 act_text = acts[act_num]
                 words = act_text.split()
                 tail = " ".join(words[-150:]) if len(words) > 150 else act_text
                 if not _CLIFFHANGER_PATTERNS.search(tail):
                     missing_acts.append(act_num)
+                    # Get the next act's opening content for teaser material
+                    next_act_num = sorted_acts[sorted_acts.index(act_num) + 1]
+                    next_act_text = acts.get(next_act_num, "")
+                    next_act_opening = " ".join(next_act_text.split()[:80])
+                    per_act_instructions.append(
+                        f"  ACT {act_num} → ACT {next_act_num}:\n"
+                        f"    Next act opens with: \"{next_act_opening}...\"\n"
+                        f"    Add to end of Act {act_num}: 'And what you'll see "
+                        f"in the next section is [specific teaser from the "
+                        f"content above]. That's where [payoff preview].'"
+                    )
 
             act_list = ", ".join(str(a) for a in missing_acts)
+            act_details = "\n\n".join(per_act_instructions)
 
             retry_prompt = (
-                f"MISSING CLIFFHANGERS: {found}/{expected} act transitions "
-                f"have forward sells. Need {missing} more.\n\n"
-                f"ACTS MISSING CLIFFHANGERS: {act_list}\n\n"
-                f"ADD TO THE FINAL 1-2 SENTENCES OF EACH LISTED ACT:\n"
-                f"  Act end template: 'And [what the next section reveals]. "
-                f"That's where [specific payoff the viewer wants to hear].'\n\n"
-                f"EXAMPLES:\n"
-                f"  - 'But here's what none of this explains — why did [X] "
-                f"happen? And that's where the next section changes everything.'\n"
-                f"  - 'And there's one more layer. The part that affects you "
-                f"directly.'\n"
-                f"  - 'And that brings us to the question nobody is asking.'\n\n"
+                f"MISSING CLIFFHANGERS: Your script has cliffhangers at "
+                f"{found}/{expected} act transitions. Missing after "
+                f"Acts {act_list}.\n\n"
+                f"At the end of each missing act, add an explicit forward "
+                f"sell using this template:\n"
+                f"  'And what you'll see in the next section is [specific "
+                f"teaser pulled from the next act's actual content]. "
+                f"That's where [payoff preview].'\n\n"
+                f"HERE IS WHAT EACH NEXT ACT CONTAINS — use this for "
+                f"your teasers:\n\n"
+                f"{act_details}\n\n"
                 f"RULES:\n"
-                f"  - Each cliffhanger must tease SPECIFIC content from the "
-                f"next act, not generic 'stay tuned' language.\n"
-                f"  - Do NOT add cliffhangers to the final act."
+                f"  - Do NOT use generic language like 'things get "
+                f"interesting' or 'stay tuned.'\n"
+                f"  - Reference SPECIFIC content from the next act — "
+                f"a number, a player, a revelation.\n"
+                f"  - Do NOT add cliffhangers to the final act.\n"
+                f"  - Do NOT increase the overall word count significantly. "
+                f"Replace weak closing sentences rather than adding new ones."
             )
 
         result.checks.append(CheckResult(
