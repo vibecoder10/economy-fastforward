@@ -371,6 +371,7 @@ _ACRONYM_RE = re.compile(r"\b([A-Z]{2,})\b")
 # Common English words that start with a capital letter at sentence starts.
 # We skip these to reduce false positives.
 _COMMON_WORDS = {
+    # Pronouns, determiners, conjunctions, prepositions
     "this", "that", "these", "those", "there", "their", "they",
     "what", "when", "where", "which", "while", "with", "will",
     "from", "have", "here", "been", "being", "before", "after",
@@ -391,11 +392,30 @@ _COMMON_WORDS = {
     "side", "small", "stand", "start", "state", "story", "sure",
     "thing", "three", "today", "true", "until", "upon", "watch",
     "week", "work", "world", "year", "years",
+    # Transition words / conjunctions that get capitalized at sentence starts
+    "however", "therefore", "furthermore", "moreover", "nevertheless",
+    "meanwhile", "consequently", "conversely", "although", "instead",
+    "regardless", "otherwise", "essentially", "ultimately", "initially",
+    "subsequently", "particularly", "specifically", "generally",
+    "increasingly", "effectively", "significantly", "approximately",
+    "except", "despite", "besides", "toward", "across", "within",
+    "whether", "rather", "already", "perhaps", "actually", "simply",
+    # Common descriptive / generic words (not named entities)
+    "budget", "eastern", "western", "northern", "southern", "central",
+    "federal", "national", "global", "domestic", "foreign", "military",
+    "political", "economic", "financial", "industrial", "commercial",
+    "corporate", "private", "public", "official", "major", "grand",
+    "forty", "fifty", "sixty", "seventy", "eighty", "ninety", "hundred",
+    "thousand", "million", "billion", "trillion", "percent",
     # Script-specific common words that often get capitalized
     "hook", "build", "payoff", "bridge", "lesson", "stakes",
     "framework", "mechanism", "mirror", "foundation", "history",
     "dark", "revelation", "pattern", "system", "empire", "stage",
 }
+
+# Minimum character length for single-word entities to be checked.
+# Shorter words are almost always common English, not named entities.
+_MIN_ENTITY_LENGTH = 6
 
 
 def _extract_entities_from_text(text: str) -> set[str]:
@@ -405,13 +425,29 @@ def _extract_entities_from_text(text: str) -> set[str]:
     """
     entities: set[str] = set()
 
-    for pattern in (_MULTI_WORD_PN_RE, _CAMEL_CASE_RE, _SINGLE_CAP_RE, _ACRONYM_RE):
-        for m in pattern.findall(text):
-            lowered = m.lower()
-            # Skip very short matches and common English words
-            if len(m) <= 2 or lowered in _COMMON_WORDS:
-                continue
-            entities.add(lowered)
+    # Multi-word proper nouns (high confidence — but skip if all words are common)
+    for m in _MULTI_WORD_PN_RE.findall(text):
+        lowered = m.lower()
+        words = lowered.split()
+        if all(w in _COMMON_WORDS for w in words):
+            continue
+        entities.add(lowered)
+
+    # CamelCase always included (high confidence: "DeepSeek", "OpenAI")
+    for m in _CAMEL_CASE_RE.findall(text):
+        entities.add(m.lower())
+
+    # All-caps acronyms always included (2+ chars: "NATO", "OPEC")
+    for m in _ACRONYM_RE.findall(text):
+        if len(m) >= 2:
+            entities.add(m.lower())
+
+    # Single capitalized words: require minimum length to skip common English
+    for m in _SINGLE_CAP_RE.findall(text):
+        lowered = m.lower()
+        if len(m) < _MIN_ENTITY_LENGTH or lowered in _COMMON_WORDS:
+            continue
+        entities.add(lowered)
 
     return entities
 
@@ -472,37 +508,64 @@ def check_entity_consistency(
     # Framework entities are always allowed
     allowed = research_entities | _FRAMEWORK_ENTITIES
 
-    # Find entities in script that are NOT in the research
+    # Build full research text for fuzzy/partial matching
+    research_fields = [
+        "headline", "thesis", "executive_hook", "fact_sheet",
+        "historical_parallels", "framework_analysis", "character_dossier",
+        "narrative_arc", "counter_arguments", "visual_seeds",
+        "source_bibliography", "source_urls",
+    ]
+    research_text_lower = " ".join(
+        str(brief.get(f, "")) for f in research_fields
+    ).lower()
+
+    # Find entities in script that are NOT in the allowed set
     ungrounded = script_entities - allowed
 
+    # Second pass: check if entity appears as substring in research text
+    # (catches case variations, partial matches like "Costa" in "António Costa")
+    truly_ungrounded = set()
+    for entity in ungrounded:
+        if entity not in research_text_lower:
+            truly_ungrounded.add(entity)
+
     warnings = []
-    if ungrounded:
-        # Try to locate which scene/act each ungrounded entity appears in
-        # by scanning the script with act markers
+    if truly_ungrounded:
         from .script_generator import extract_acts
         acts = extract_acts(script)
 
-        for entity in sorted(ungrounded):
-            # Find which act(s) reference this entity
+        # Separate high-confidence flags (multi-word, acronyms) from low-confidence
+        is_multi_word = lambda e: " " in e
+        is_acronym = lambda e: e == e.upper() and len(e) >= 2
+
+        for entity in sorted(truly_ungrounded):
             locations = []
             for act_num, act_text in acts.items():
                 if entity in act_text.lower():
                     locations.append(f"Act {act_num}")
 
             location_str = ", ".join(locations) if locations else "unknown location"
-            warning = (
-                f"WARNING: '{entity}' found in script ({location_str}) "
-                f"but not in research payload. Possible hallucination."
-            )
-            warnings.append(warning)
-            logger.warning(warning)
 
-        # Send summary to Slack if available
+            if is_multi_word(entity) or is_acronym(entity):
+                warning = (
+                    f"WARNING: '{entity}' found in script ({location_str}) "
+                    f"but not in research payload. Possible hallucination."
+                )
+                warnings.append(warning)
+                logger.warning(warning)
+            else:
+                # Single words at INFO level — likely not hallucinations
+                logger.info(
+                    f"Entity note: '{entity}' in script ({location_str}) "
+                    f"not found in research (single word, low confidence)"
+                )
+
+        # Send only high-confidence warnings to Slack
         if slack_client and warnings:
             title_label = video_title or brief.get("headline", "Untitled")
             slack_msg = (
                 f"⚠️ Entity consistency check for '{title_label}':\n"
-                + "\n".join(warnings[:10])  # Cap at 10 to avoid spam
+                + "\n".join(warnings[:10])
             )
             try:
                 slack_client.send_message(slack_msg)

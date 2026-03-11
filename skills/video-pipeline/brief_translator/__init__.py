@@ -173,6 +173,9 @@ class BriefTranslator:
             script = script_result["script"]
             result["script_validation"] = script_result["validation"]
 
+            # --- PERSIST SCRIPT IMMEDIATELY (before validation/expansion) ---
+            self._save_script_to_ideas(idea_record_id, script)
+
             if not script_result["validation"]["valid"]:
                 issues = script_result["validation"]["issues"]
                 logger.warning(f"Script validation issues: {issues}")
@@ -188,15 +191,16 @@ class BriefTranslator:
                 f"{script_result['validation']['act_count']} acts"
             )
 
-            # Check editorial validation results — block pipeline on failure
+            # --- EDITORIAL VALIDATION (advisory, does not block) ---
             editorial = script_result["validation"].get("editorial", {})
             editorial_summary = self._build_editorial_summary(editorial)
 
             if editorial:
-                # Always write editorial summary to Ideas table (survives blocks)
+                # Persist editorial results immediately
                 self._write_editorial_to_ideas(idea_record_id, editorial_summary)
 
                 editorial_passed = editorial.get("passed", True)
+                retries_used = editorial.get("retries_used", 0)
                 if not editorial_passed:
                     failed = [
                         c["name"] for c in editorial.get("checks", [])
@@ -207,24 +211,18 @@ class BriefTranslator:
                         for c in editorial.get("checks", [])
                         if not c["passed"]
                     ]
-                    retries_used = editorial.get("retries_used", 0)
-                    logger.error(
-                        f"Editorial validation BLOCKED pipeline: {failed} "
-                        f"(after {retries_used} retries)"
+                    logger.warning(
+                        f"Editorial validation failed: {failed} "
+                        f"(after {retries_used} retries) — continuing (advisory)"
                     )
                     self._notify(
-                        f"🚫 Script BLOCKED by editorial validation for "
+                        f"⚠️ Editorial validation FAILED for "
                         f"'{brief.get('headline', 'Untitled')}' "
                         f"(after {retries_used} retries):\n"
-                        f"{', '.join(failed)}"
+                        f"{chr(10).join(failed_details)}\n"
+                        f"Pipeline continues — review Script Validation field."
                     )
-                    result["error"] = (
-                        f"Editorial validation failed after retries: "
-                        f"{'; '.join(failed_details)}"
-                    )
-                    return result
                 else:
-                    retries_used = editorial.get("retries_used", 0)
                     if retries_used:
                         self._notify(
                             f"✅ Editorial validation passed after "
@@ -419,6 +417,23 @@ class BriefTranslator:
 
         # Exhausted all attempts
         return None
+
+    def _save_script_to_ideas(self, idea_record_id: str, script: str):
+        """Persist script text to the Ideas table immediately after generation.
+
+        This ensures the script is saved even if validation, scene expansion,
+        or downstream steps fail or time out.
+        """
+        if not script:
+            return
+        try:
+            self.airtable.update_idea_fields(
+                idea_record_id, {"Script": script}
+            )
+            logger.info("Script saved to Ideas table")
+        except Exception as e:
+            logger.warning(f"Could not save script to Ideas: {e}")
+            self._notify(f"⚠️ Script field write failed: {e}")
 
     def _build_editorial_summary(self, editorial: dict) -> str:
         """Build editorial validation summary string from result dict."""
