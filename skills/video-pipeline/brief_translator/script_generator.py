@@ -11,6 +11,7 @@ Legacy constants are kept as defaults for backward compatibility when no
 config or profile is provided.
 """
 
+import logging
 import re
 from pathlib import Path
 from typing import Optional, TYPE_CHECKING
@@ -18,6 +19,8 @@ from typing import Optional, TYPE_CHECKING
 if TYPE_CHECKING:
     from pipeline_config import VideoConfig
     from script_profiles.schema import ScriptProfile
+
+logger = logging.getLogger(__name__)
 
 PROMPT_TEMPLATE_PATH = Path(__file__).parent / "prompts" / "script.txt"
 
@@ -1056,13 +1059,12 @@ async def generate_script(
     )
 
     # Retry loop for failed editorial checks
+    retries_used = 0
     if not editorial_result.passed and editorial_config.retry_on_fail:
         original_prompt = build_script_prompt(brief, config=config, profile=profile)
         for retry_num in range(1, editorial_config.max_retries + 1):
-            import logging
-            _logger = logging.getLogger(__name__)
             failed_names = [c.name for c in editorial_result.failed_checks]
-            _logger.info(
+            logger.info(
                 f"Editorial validation retry {retry_num}/{editorial_config.max_retries}: "
                 f"failed checks: {failed_names}"
             )
@@ -1077,6 +1079,7 @@ async def generate_script(
                 max_tokens=8000,
                 temperature=0.7,
             )
+            retries_used = retry_num
 
             # Re-run structural validation
             validation = validate_script(script, config=config, profile=profile)
@@ -1088,21 +1091,21 @@ async def generate_script(
             )
 
             if editorial_result.passed:
-                _logger.info(
+                logger.info(
                     f"Editorial validation passed after {retry_num} retry(s)"
                 )
                 break
         else:
-            import logging
-            _logger = logging.getLogger(__name__)
-            _logger.warning(
+            logger.warning(
                 f"Editorial validation still failing after "
                 f"{editorial_config.max_retries} retries: "
                 f"{editorial_result.summary}"
             )
 
     # Attach editorial validation results to the validation dict
-    validation["editorial"] = editorial_result.to_dict()
+    editorial_dict = editorial_result.to_dict()
+    editorial_dict["retries_used"] = retries_used
+    validation["editorial"] = editorial_dict
 
     # Gate the pipeline: if editorial checks still fail after retries,
     # mark the overall validation as failed so the caller blocks.
