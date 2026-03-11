@@ -43,8 +43,8 @@ class VideoConfig:
         # Computed: script
         self.words_per_clip = int(clip_duration_seconds * self.SPEAKING_RATE_WPS)
         self.total_script_words = self.total_clips * self.words_per_clip
-        self.script_min_words = int(self.total_script_words * 0.9)
-        self.script_max_words = int(self.total_script_words * 1.1)
+        self.script_min_words = self.total_script_words - 150
+        self.script_max_words = self.total_script_words + 150
 
         # Computed: structure
         self.act_count = max(3, min(6, video_length_minutes // 2))

@@ -542,11 +542,13 @@ class TestRetryPrompt:
         result = validate_script_editorial("", brief, acts)
         cliff_check = next(c for c in result.checks if c.name == "cliffhanger_presence")
         assert not cliff_check.passed
-        assert "ACTS MISSING CLIFFHANGERS" in cliff_check.retry_prompt
+        assert "Missing after Acts" in cliff_check.retry_prompt
         # All non-final acts should be listed
-        assert "1" in cliff_check.retry_prompt
-        assert "2" in cliff_check.retry_prompt
-        assert "3" in cliff_check.retry_prompt
+        assert "Act 1" in cliff_check.retry_prompt
+        assert "Act 2" in cliff_check.retry_prompt
+        assert "Act 3" in cliff_check.retry_prompt
+        # Should include next-act content for teasers
+        assert "Next act opens with" in cliff_check.retry_prompt
 
 
 # ---------------------------------------------------------------------------
