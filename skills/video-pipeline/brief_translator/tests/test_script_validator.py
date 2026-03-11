@@ -562,8 +562,8 @@ class TestConfig:
         assert config.framework_max_pct == 0.15
         assert config.personal_stakes_min_score == 3
         assert config.actionable_close_min_score == 2
-        assert config.max_retries == 2
-        assert config.retry_on_fail is True
+        assert config.max_retries == 0
+        assert config.retry_on_fail is False
 
     def test_custom_values(self):
         config = ScriptValidationConfig(

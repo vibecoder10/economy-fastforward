@@ -176,59 +176,41 @@ class BriefTranslator:
             # --- PERSIST SCRIPT IMMEDIATELY (before validation/expansion) ---
             self._save_script_to_ideas(idea_record_id, script)
 
-            if not script_result["validation"]["valid"]:
-                issues = script_result["validation"]["issues"]
-                logger.warning(f"Script validation issues: {issues}")
-                # Continue if the issues are minor (word count slightly off)
-                # but fail on structural issues
-                if script_result["validation"]["act_count"] < 6:
-                    result["error"] = f"Script generation failed: {issues}"
-                    self._notify(f"❌ Script failed: {issues}")
-                    return result
+            # --- VALIDATION IS ADVISORY — report to Airtable + Slack, never block ---
+            word_count = script_result["validation"]["word_count"]
+            act_count = script_result["validation"]["act_count"]
+            issues = script_result["validation"].get("issues", [])
 
-            logger.info(
-                f"Script generated: {script_result['validation']['word_count']} words, "
-                f"{script_result['validation']['act_count']} acts"
-            )
+            logger.info(f"Script generated: {word_count} words, {act_count} acts")
 
-            # --- EDITORIAL VALIDATION (advisory, does not block) ---
+            if issues:
+                logger.warning(f"Script validation issues (advisory): {issues}")
+
+            # Editorial validation results (already run inside generate_script)
             editorial = script_result["validation"].get("editorial", {})
             editorial_summary = self._build_editorial_summary(editorial)
 
+            # Persist editorial results immediately
             if editorial:
-                # Persist editorial results immediately
                 self._write_editorial_to_ideas(idea_record_id, editorial_summary)
 
-                editorial_passed = editorial.get("passed", True)
-                retries_used = editorial.get("retries_used", 0)
-                if not editorial_passed:
-                    failed = [
-                        c["name"] for c in editorial.get("checks", [])
-                        if not c["passed"]
-                    ]
-                    failed_details = [
-                        f"{c['name']}: {c['detail']}"
-                        for c in editorial.get("checks", [])
-                        if not c["passed"]
-                    ]
-                    logger.warning(
-                        f"Editorial validation failed: {failed} "
-                        f"(after {retries_used} retries) — continuing (advisory)"
-                    )
-                    self._notify(
-                        f"⚠️ Editorial validation FAILED for "
-                        f"'{brief.get('headline', 'Untitled')}' "
-                        f"(after {retries_used} retries):\n"
-                        f"{chr(10).join(failed_details)}\n"
-                        f"Pipeline continues — review Script Validation field."
-                    )
-                else:
-                    if retries_used:
-                        self._notify(
-                            f"✅ Editorial validation passed after "
-                            f"{retries_used} retry(s)"
-                        )
-                    logger.info("Editorial validation: all checks passed")
+            # Build Slack quality report
+            editorial_passed = editorial.get("passed", True) if editorial else True
+            if not editorial_passed:
+                failed_details = [
+                    f"{c['name']}: {c['detail']}"
+                    for c in editorial.get("checks", [])
+                    if not c["passed"]
+                ]
+                self._notify(
+                    f"📋 Script quality report for "
+                    f"'{brief.get('headline', 'Untitled')}' "
+                    f"({word_count} words, {act_count} acts):\n"
+                    f"{chr(10).join(failed_details)}\n"
+                    f"Pipeline continues — review Script Validation field."
+                )
+            else:
+                logger.info("Editorial validation: all checks passed")
 
             # === STEP 2a: Extract and persist framework ===
             selected_framework = extract_framework_from_script(script)
