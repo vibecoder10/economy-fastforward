@@ -1831,22 +1831,24 @@ class VideoPipeline:
     # ==========================================================================
 
     async def run_brief_translator(self, brief: dict = None) -> dict:
-        """Translate a research brief into a production-ready script and scene list.
+        """Generate a script from a research brief.
 
-        This is the NEW pipeline path for research-backed videos. It replaces
-        the beat-sheet approach with a validated, 6-act narration script and
-        ~140 scene descriptions tagged with visual identity metadata.
+        Script generation ONLY — does NOT run scene expansion.
+        Scene expansion is a separate pipeline stage.
 
-        If no brief is provided, reads the current idea's fields as the brief.
+        Steps:
+            1. Create/find Google Drive folder
+            2. Generate script (single LLM call)
+            3. Save to Airtable Script field + Google Doc
+            4. Run editorial validation (advisory)
+            5. Write validation + Script table records
+            6. Update status to Ready For Voice
 
         REQUIRES: Ideas status = "Idea Logged" or "Ready For Scripting"
-        UPDATES TO: "Ready For Voice" when complete (script + scenes saved)
+        UPDATES TO: "Ready For Voice" when complete
 
         Args:
             brief: Research brief dict. If None, builds from current idea fields.
-
-        Returns:
-            Dict with translation results including scene_filepath and video_id.
         """
         from brief_translator import translate_brief
 
@@ -1861,6 +1863,18 @@ class VideoPipeline:
 
         print(f"\n📜 BRIEF TRANSLATOR: Processing '{self.video_title}'")
 
+        # --- Google Drive folder (same as legacy script bot) ---
+        folder = self.google.get_or_create_folder(self.video_title)
+        self.project_folder_id = folder["id"]
+        folder_url = f"https://drive.google.com/drive/folders/{self.project_folder_id}"
+        try:
+            self.airtable.update_idea_fields(self.current_idea_id, {
+                "Drive Folder Link": folder_url,
+                "Drive Folder ID": self.project_folder_id,
+            })
+        except Exception as e:
+            print(f"  ⚠️ Could not save Drive folder to Airtable: {e}")
+
         # Build brief from Airtable idea fields if not provided
         if brief is None:
             idea = self.current_idea
@@ -1871,8 +1885,6 @@ class VideoPipeline:
                 try:
                     research_payload = json.loads(research_payload_raw)
                     print("  📚 Found research payload — using as primary source material")
-                    # Read Framework Angle from Airtable record (set by research agent
-                    # or discovery scanner). Falls back to themes if not set.
                     framework_angle = idea.get("Framework Angle", "") or research_payload.get("themes", "")
                     brief = {
                         "headline": research_payload.get("headline", idea.get("Video Title", "")),
@@ -1891,16 +1903,14 @@ class VideoPipeline:
                         "thumbnail_concepts": research_payload.get("thumbnail_concepts", ""),
                         "source_urls": idea.get("Source URLs", "") or research_payload.get("source_bibliography", ""),
                         "psychological_angles": research_payload.get("psychological_angles", ""),
-                        # Pass through research enrichment flag
                         "_research_enriched": True,
                     }
                     print(f"  🎯 Framework Angle: {framework_angle or '(not set)'}")
                 except (json.JSONDecodeError, TypeError) as e:
                     print(f"  ⚠️ Could not parse research payload: {e}")
-                    research_payload_raw = ""  # Fall through to legacy path
+                    research_payload_raw = ""
 
             if not research_payload_raw:
-                # Legacy path: build brief from standard idea fields
                 framework_angle = idea.get("Framework Angle", "")
                 brief = {
                     "headline": idea.get("Video Title", ""),
@@ -1921,37 +1931,33 @@ class VideoPipeline:
                 }
                 print(f"  🎯 Framework Angle: {framework_angle or '(not set — legacy idea)'}")
 
-        # Scene output directory (project-relative)
-        scene_output_dir = str(Path(__file__).parent / "scenes")
-
         result = await translate_brief(
             anthropic_client=self.anthropic,
             airtable_client=self.airtable,
             idea_record_id=self.current_idea_id,
             brief=brief,
             slack_client=self.slack,
-            scene_output_dir=scene_output_dir,
+            google_client=self.google,
+            project_folder_id=self.project_folder_id,
             video_config=self.video_config,
         )
 
         if result["status"] == "success":
-            # Store scene filepath for downstream use
-            self._scene_filepath = result.get("scene_filepath")
-            self._video_id = result.get("video_id")
-
             # Update status to Ready For Voice
             self.airtable.update_idea_status(
                 self.current_idea_id, self.STATUS_READY_VOICE
             )
             print(f"  ✅ Status updated to: {self.STATUS_READY_VOICE}")
-            print(f"  📂 Scene file: {self._scene_filepath}")
+
+            if result.get("doc_url"):
+                print(f"  📄 Google Doc: {result['doc_url']}")
 
             # Phase 2: Refine title with script content (non-blocking)
             await self._refine_title_post_script()
 
             self.slack.notify(
-                f"📜 Brief translated: *{self.video_title}*\n"
-                f"Scenes: {result.get('scene_validation', {}).get('stats', {}).get('total_scenes', '?')}"
+                f"📜 Script complete: *{self.video_title}*\n"
+                f"Status: Ready For Voice"
             )
         else:
             print(f"  ❌ Translation failed: {result.get('error', result['status'])}")
@@ -1960,8 +1966,7 @@ class VideoPipeline:
             "bot": "Brief Translator",
             "video_title": self.video_title,
             "status": result["status"],
-            "scene_filepath": result.get("scene_filepath"),
-            "video_id": result.get("video_id"),
+            "doc_url": result.get("doc_url"),
             "new_status": self.STATUS_READY_VOICE if result["status"] == "success" else None,
         }
 

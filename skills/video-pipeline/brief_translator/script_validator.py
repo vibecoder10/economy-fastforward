@@ -54,9 +54,10 @@ class ScriptValidationConfig:
     # Check 5: Cliffhanger presence
     cliffhanger_check: bool = True
 
-    # Retry settings
-    retry_on_fail: bool = True
-    max_retries: int = 2
+    # Retry settings — disabled. Validation is advisory (report-only).
+    # Generate once → validate → report → move on.
+    retry_on_fail: bool = False
+    max_retries: int = 0
 
     @classmethod
     def from_profile(cls, profile: "ScriptProfile") -> "ScriptValidationConfig":

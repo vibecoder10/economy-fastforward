@@ -991,38 +991,19 @@ async def generate_script(
 
     validation = validate_script(script, config=config, profile=profile)
 
-    # If script is too short, try once more with explicit expansion instruction
-    if not validation["valid"] and validation["word_count"] < min_words:
-        expansion_prompt = (
-            f"{prompt}\n\n"
-            f"CRITICAL: Your previous attempt was only {validation['word_count']} words. "
-            f"The script MUST be at least {min_words} words. "
-            f"Expand the thinner acts with more specific details and examples."
-        )
-        script = await anthropic_client.generate(
-            prompt=expansion_prompt,
-            model=model,
-            max_tokens=8000,
-            temperature=0.8,
-        )
-        validation = validate_script(script, config=config, profile=profile)
-
-    # If script is too long, try once more with explicit compression instruction
-    if not validation["valid"] and validation["word_count"] > max_words:
-        compression_prompt = (
-            f"{prompt}\n\n"
-            f"CRITICAL: Your previous attempt was {validation['word_count']} words. "
-            f"The script MUST NOT exceed {max_words} words. Target: {target_words} words. "
-            f"Cut unnecessary examples, reduce redundant transitions, and tighten each act. "
-            f"Do NOT cut framework references or detection instructions from the final act."
-        )
-        script = await anthropic_client.generate(
-            prompt=compression_prompt,
-            model=model,
-            max_tokens=8000,
-            temperature=0.7,
-        )
-        validation = validate_script(script, config=config, profile=profile)
+    # Word-count validation is advisory — log but never regenerate.
+    # The validator is a quality report, not a gatekeeper.
+    if not validation["valid"]:
+        if validation["word_count"] < min_words:
+            logger.warning(
+                f"Script under target: {validation['word_count']}/{min_words} words "
+                f"— continuing (no retry)"
+            )
+        elif validation["word_count"] > max_words:
+            logger.warning(
+                f"Script over target: {validation['word_count']}/{max_words} words "
+                f"— continuing (no retry)"
+            )
 
     # Validate empowerment close on the final act
     from .scene_validator import validate_act6_empowerment
@@ -1042,7 +1023,6 @@ async def generate_script(
     # === Editorial Voice v2: Post-Generation Validation ===
     from .script_validator import (
         validate_script_editorial,
-        build_retry_prompt,
         ScriptValidationConfig,
     )
 
@@ -1058,64 +1038,18 @@ async def generate_script(
         script=script, brief=brief, acts=acts, config=editorial_config,
     )
 
-    # Retry loop for failed editorial checks
-    retries_used = 0
-    if not editorial_result.passed and editorial_config.retry_on_fail:
-        original_prompt = build_script_prompt(brief, config=config, profile=profile)
-        for retry_num in range(1, editorial_config.max_retries + 1):
-            failed_names = [c.name for c in editorial_result.failed_checks]
-            logger.info(
-                f"Editorial validation retry {retry_num}/{editorial_config.max_retries}: "
-                f"failed checks: {failed_names}"
-            )
-
-            retry_prompt = build_retry_prompt(
-                original_prompt, script, editorial_result,
-            )
-
-            script = await anthropic_client.generate(
-                prompt=retry_prompt,
-                model=model,
-                max_tokens=8000,
-                temperature=0.7,
-            )
-            retries_used = retry_num
-
-            # Re-run structural validation
-            validation = validate_script(script, config=config, profile=profile)
-            acts = extract_acts(script)
-
-            # Re-run editorial validation
-            editorial_result = validate_script_editorial(
-                script=script, brief=brief, acts=acts, config=editorial_config,
-            )
-
-            if editorial_result.passed:
-                logger.info(
-                    f"Editorial validation passed after {retry_num} retry(s)"
-                )
-                break
-        else:
-            logger.warning(
-                f"Editorial validation still failing after "
-                f"{editorial_config.max_retries} retries: "
-                f"{editorial_result.summary}"
-            )
-
-    # Attach editorial validation results to the validation dict
+    # Editorial validation is advisory — report results, never retry or block.
+    # Generate once → validate → report → move on.
     editorial_dict = editorial_result.to_dict()
-    editorial_dict["retries_used"] = retries_used
+    editorial_dict["retries_used"] = 0
     validation["editorial"] = editorial_dict
 
-    # Gate the pipeline: if editorial checks still fail after retries,
-    # mark the overall validation as failed so the caller blocks.
     if not editorial_result.passed:
-        validation["valid"] = False
         failed_names = [c.name for c in editorial_result.failed_checks]
-        editorial_issue = f"Editorial validation failed: {', '.join(failed_names)}"
-        if "issues" not in validation:
-            validation["issues"] = []
-        validation["issues"].append(editorial_issue)
+        logger.warning(
+            f"Editorial validation failed: {', '.join(failed_names)} "
+            f"— continuing (advisory, no retry)"
+        )
 
     return {
         "script": script,
