@@ -2013,6 +2013,7 @@ class VideoPipeline:
             Dict with prompt generation results.
         """
         from image_prompt_engine.prompt_builder import build_prompt
+        from image_prompt_engine.sequencer import assign_styles
         from brief_translator.scene_expander import expand_scene_concepts, expand_scene_concepts_deterministic
 
         if not self.current_idea:
@@ -2062,6 +2063,19 @@ class VideoPipeline:
             print(f"  Found existing records for scenes {sorted(existing_scenes)} — will skip")
 
         # ---------------------------------------------------------------
+        # Pre-generate style assignments for all images using sequencer
+        # ---------------------------------------------------------------
+        # Estimate total images: ~7 images per scene average (range 6-10)
+        estimated_total_images = total_scripts * 7
+        print(f"  Generating style assignments for ~{estimated_total_images} images...")
+
+        style_assignments = assign_styles(
+            total_images=estimated_total_images,
+            seed=hash(self.video_title) % (2**32),  # Deterministic seed per video
+        )
+        print(f"  ✓ Style rotation configured: {len(style_assignments)} assignments ready")
+
+        # ---------------------------------------------------------------
         # Expand each script record into visual concepts + styled prompts
         # ---------------------------------------------------------------
         # Apply scene filter if set
@@ -2075,6 +2089,7 @@ class VideoPipeline:
         scenes_expanded = 0
         scenes_skipped = 0
         style_counts = {"dossier": 0, "schema": 0, "echo": 0}
+        image_index = 0  # Global image index across all scenes for style sequencing
 
         for script in scripts:
             scene_num = script.get("scene", 0)
@@ -2143,36 +2158,57 @@ class VideoPipeline:
 
             for concept in concepts:
                 visual_desc = concept["visual_description"]
-                visual_style = concept.get("visual_style", "dossier")
-                composition = concept.get("composition", "medium")
 
-                # Build styled prompt immediately — no intermediate storage
-                prompt = build_prompt(visual_desc, visual_style, composition, accent_color,
-                                      image_style_override=image_style_override)
+                # Get style assignment from sequencer (with bounds check)
+                if image_index < len(style_assignments):
+                    style = style_assignments[image_index]
+                    content_type = style["content_type"]
+                    display_format = style["display_format"]
+                    color_mood = style["color_mood"]
+                else:
+                    # Fallback if we exceed estimate (shouldn't happen often)
+                    print(f"      ⚠️ Image index {image_index} exceeds assignments, using defaults")
+                    content_type = "geographic_map"
+                    display_format = "war_table"
+                    color_mood = "strategic"
+
+                # Build styled prompt using sequencer-assigned styles
+                prompt = build_prompt(
+                    scene_description=visual_desc,
+                    content_type=content_type,
+                    display_format=display_format,
+                    color_mood=color_mood,
+                    image_style_override=image_style_override,
+                )
 
                 self.airtable.create_concept_record(
                     scene_number=scene_num,
                     concept_index=concept["concept_index"],
                     sentence_text=concept["sentence_text"],
                     image_prompt=prompt,
-                    composition=composition,
+                    composition=display_format,  # Store display_format in composition field
                     video_title=self.video_title,
                 )
 
-                style_counts[visual_style] = style_counts.get(visual_style, 0) + 1
+                # Track style distribution for reporting
+                style_counts[display_format] = style_counts.get(display_format, 0) + 1
+                image_index += 1  # Increment global image counter
 
             total_concepts += len(concepts)
             scenes_expanded += 1
             print(f"    {len(concepts)} concepts + prompts written to Airtable")
 
         skip_note = f" ({scenes_skipped} resumed)" if scenes_skipped else ""
-        total_styled = sum(style_counts.values()) or 1
-        dossier_pct = style_counts["dossier"] / total_styled * 100
-        schema_pct = style_counts["schema"] / total_styled * 100
-        echo_pct = style_counts["echo"] / total_styled * 100
         print(f"\n  Done: {scenes_expanded} scenes expanded, "
               f"{total_concepts} concepts created{skip_note}")
-        print(f"  Style mix: Dossier {dossier_pct:.0f}% | Schema {schema_pct:.0f}% | Echo {echo_pct:.0f}%")
+
+        # Report display format distribution
+        if style_counts:
+            total_styled = sum(style_counts.values())
+            print(f"  Display format variety:")
+            for fmt, count in sorted(style_counts.items(), key=lambda x: -x[1]):
+                pct = count / total_styled * 100
+                print(f"    {fmt}: {count} ({pct:.0f}%)")
 
         # ---------------------------------------------------------------
         # Audio Sync: Whisper-aligned durations
