@@ -571,6 +571,137 @@ def _sentence_boundary_split(scene_text: str) -> list[dict]:
     return _validate_concept_durations(concepts)
 
 
+async def expand_scene_concepts_deterministic(
+    anthropic_client,
+    scene_number: int,
+    scene_text: str,
+    visual_seeds: str,
+    accent_color: str,
+    act_number: int,
+    total_scenes: int = 14,
+    voice_duration: float | None = None,
+) -> list[dict]:
+    """Expand one scene's narration into visual concepts using deterministic word-duration-aware splitting.
+
+    Replaces LLM-based text segmentation with a deterministic splitter that:
+    - Guarantees hard 10s cap per concept (for animation clip limits)
+    - Uses word-based duration calculation (not sentence count)
+    - Performs mid-sentence splitting at natural boundaries when needed
+    - Merges orphan segments < 4s
+
+    Still uses LLM for generating visual_description per segment, but the text
+    splitting is deterministic and duration-guaranteed.
+
+    Args:
+        anthropic_client: AnthropicClient instance with generate() method
+        scene_number: Scene number from the Script table
+        scene_text: Exact narration text from the Script table
+        visual_seeds: Visual seed concepts from research brief
+        accent_color: Accent color for this video (e.g. "cold_teal")
+        act_number: Which act this scene belongs to (1-6)
+        total_scenes: Total number of scenes in the video
+        voice_duration: Optional actual voice duration in seconds (for accurate WPS)
+
+    Returns:
+        List of concept dicts, each with:
+        - concept_index (int, 1-based)
+        - sentence_text (str, exact substring of scene_text)
+        - visual_description (str, 20-35 word filmable description)
+        - visual_style (str, dossier/schema/echo)
+        - composition (str, wide/medium/closeup/etc.)
+        - mood (str)
+    """
+    import sys
+    from pathlib import Path
+
+    # Import deterministic splitter
+    sys.path.insert(0, str(Path(__file__).parent.parent / "clients"))
+    from deterministic_splitter import segment_scene_deterministic
+
+    # Step 1: Use deterministic splitter to get text segments with guaranteed durations
+    segments = segment_scene_deterministic(scene_text, voice_duration)
+
+    if not segments:
+        # Empty scene - return minimal concept
+        return [{
+            "concept_index": 1,
+            "sentence_text": scene_text,
+            "visual_description": "Empty scene",
+            "visual_style": "dossier",
+            "composition": "medium",
+            "mood": "neutral",
+        }]
+
+    # Step 2: Assign visual styles based on act distribution
+    dist = STYLE_DISTRIBUTION.get(act_number, STYLE_DISTRIBUTION[1])
+    echo_allowed = dist.get("echo", 0) > 0
+
+    styles_pool = []
+    # Build pool based on distribution percentages
+    styles_pool.extend(["dossier"] * dist["dossier"])
+    styles_pool.extend(["schema"] * dist["schema"])
+    if echo_allowed:
+        styles_pool.extend(["echo"] * dist["echo"])
+
+    # Assign styles in rotation
+    import random
+    random.seed(scene_number)  # Deterministic based on scene number
+    random.shuffle(styles_pool)
+
+    # Step 3: Assign compositions in rotation
+    compositions = ["wide", "medium", "closeup", "environmental", "portrait", "overhead", "low_angle"]
+
+    # Step 4: Generate visual_description for each segment using LLM
+    concepts = []
+
+    for i, seg in enumerate(segments):
+        style_idx = i % len(styles_pool) if styles_pool else 0
+        comp_idx = i % len(compositions)
+
+        visual_style = styles_pool[style_idx] if styles_pool else "dossier"
+        composition = compositions[comp_idx]
+
+        # Generate visual description via LLM
+        try:
+            visual_desc_prompt = (
+                "You are a visual director for a documentary. "
+                "Write a 20-35 word description of a specific, filmable scene "
+                "that illustrates this narration text. "
+                "Describe WHAT is in the scene, WHERE it takes place, "
+                "and WHAT is happening. No metaphors, no abstract imagery. "
+                "Return ONLY the description, nothing else.\n\n"
+                f"Narration: \"{seg['text']}\"\n"
+                f"Visual seeds for context: {visual_seeds[:200] if visual_seeds else 'none'}"
+            )
+
+            visual_description = await anthropic_client.generate(
+                prompt=visual_desc_prompt,
+                model="claude-sonnet-4-5-20250929",
+                max_tokens=200,
+                temperature=0.4,
+            )
+            visual_description = visual_description.strip()
+
+        except Exception as e:
+            print(f"      ⚠️ LLM visual description failed for segment {i+1}: {e}")
+            # Fallback: use the narration text as placeholder
+            visual_description = seg['text']
+
+        concepts.append({
+            "concept_index": i + 1,
+            "sentence_text": seg['text'],
+            "visual_description": visual_description,
+            "visual_style": visual_style,
+            "composition": composition,
+            "mood": "tension",  # Default mood, could be enhanced later
+        })
+
+    print(f"    Scene {scene_number}: {len(concepts)} concepts from deterministic splitter "
+          f"(max duration: {max(s['duration'] for s in segments):.1f}s)")
+
+    return concepts
+
+
 async def expand_scene_concepts(
     anthropic_client,
     scene_number: int,
