@@ -2013,7 +2013,7 @@ class VideoPipeline:
             Dict with prompt generation results.
         """
         from image_prompt_engine.prompt_builder import build_prompt
-        from brief_translator.scene_expander import expand_scene_concepts
+        from brief_translator.scene_expander import expand_scene_concepts, expand_scene_concepts_deterministic
 
         if not self.current_idea:
             idea = self.get_idea_by_status(self.STATUS_READY_IMAGE_PROMPTS)
@@ -2093,7 +2093,15 @@ class VideoPipeline:
             print(f"  Scene {scene_num} (Act {act_number}): "
                   f"{len(scene_text.split())} words — expanding...")
 
-            concepts = await expand_scene_concepts(
+            # Get voice duration if available for accurate word-per-second calculation
+            voice_duration = None
+            voice_over = script.get("Voice Over")
+            if voice_over and isinstance(voice_over, list) and len(voice_over) > 0:
+                # Voice duration will be calculated by audio_sync later
+                # For now, estimate from word count as fallback
+                pass  # deterministic_splitter will use DEFAULT_WPS if None
+
+            concepts = await expand_scene_concepts_deterministic(
                 anthropic_client=self.anthropic,
                 scene_number=scene_num,
                 scene_text=scene_text,
@@ -2101,11 +2109,12 @@ class VideoPipeline:
                 accent_color=accent_color,
                 act_number=act_number,
                 total_scenes=total_scripts,
+                voice_duration=voice_duration,
             )
 
-            # Regenerate visual_description for concepts that were merged
-            # or split by _validate_concept_durations(). Their sentence_text
-            # changed, so the original description no longer matches.
+            # Note: deterministic splitter doesn't set needs_new_prompt since it
+            # generates visual_description immediately after segmentation.
+            # Kept for compatibility if we switch back to LLM-based expansion.
             needs_regen = [c for c in concepts if c.get("needs_new_prompt")]
             if needs_regen:
                 print(f"    Regenerating {len(needs_regen)} visual descriptions "
