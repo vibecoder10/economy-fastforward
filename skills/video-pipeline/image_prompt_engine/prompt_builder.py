@@ -261,14 +261,146 @@ def build_prompt(
         suffix = profile.style_system.style_suffix if profile else HOLOGRAPHIC_SUFFIX
         return f"{framing} {clean_desc}, {mood_language}{suffix}"
     else:
-        # --- Profile path: prefix + content + suffix ---
+        # --- Profile path: prefix + content + substyle suffix + global suffix ---
         prefix = profile.style_system.style_prefix if profile.style_system.style_prefix else ""
-        suffix = profile.style_system.style_suffix if profile.style_system.style_suffix else ""
+        global_suffix = profile.style_system.style_suffix if profile.style_system.style_suffix else ""
+
+        # Look up substyle-specific suffix (e.g. power_move, lone_figure)
+        substyle_suffix = ""
+        substyle = profile.style_system.substyles.get(display_format)
+        if substyle and substyle.suffix:
+            substyle_suffix = f", {substyle.suffix}"
 
         if image_style_override and image_style_override.strip():
-            suffix = _apply_style_override(suffix, image_style_override)
+            global_suffix = _apply_style_override(global_suffix, image_style_override)
 
-        return f"{prefix} {clean_desc}{suffix}"
+        return f"{prefix} {clean_desc}{substyle_suffix}{global_suffix}"
+
+
+def assign_profile_styles(
+    total_images: int,
+    profile,
+    *,
+    seed: Optional[int] = None,
+) -> list[dict]:
+    """Profile-aware style assignment using the profile's substyles.
+
+    Replaces the holographic ``assign_styles()`` for non-holographic profiles.
+    Uses the profile's substyle weights for distribution and rotation config
+    for anti-clustering constraints.
+
+    Returns a list of dicts with keys: ``display_format`` (substyle key),
+    ``content_type`` (same as display_format for profiles), ``color_mood``,
+    ``composition``, ``ken_burns``.
+    """
+    import random as _random
+
+    rng = _random.Random(seed)
+
+    substyles = profile.style_system.substyles
+    if not substyles:
+        # Fallback: no substyles defined, return empty-ish assignments
+        return [{"display_format": "unknown", "content_type": "unknown",
+                 "color_mood": "strategic", "composition": "wide",
+                 "ken_burns": "slow_zoom_in"} for _ in range(total_images)]
+
+    # Build weighted pool from substyle weights
+    substyle_keys = list(substyles.keys())
+    substyle_weights = [substyles[k].weight for k in substyle_keys]
+
+    # Composition affinity from profile raw config
+    composition_affinity = {}
+    if profile.raw and "composition_affinity" in profile.raw:
+        composition_affinity = profile.raw["composition_affinity"]
+
+    # Ken Burns direction map from profile
+    direction_map = {}
+    if profile.ken_burns and profile.ken_burns.direction_map:
+        direction_map = profile.ken_burns.direction_map
+
+    # Rotation constraints
+    max_consecutive = 3
+    if profile.rotation:
+        max_consecutive = profile.rotation.max_consecutive_same_content_type
+
+    compositions = ["wide", "medium", "closeup", "environmental",
+                    "portrait", "overhead", "low_angle"]
+    if profile.rotation and profile.rotation.compositions:
+        compositions = profile.rotation.compositions
+
+    # Default color mood
+    default_mood = "cold teal"
+    if profile.style_system.accent_colors:
+        default_mood = profile.style_system.accent_colors.get("default", "cold teal")
+
+    assignments: list[dict] = []
+    recent_substyles: list[str] = []
+    recent_compositions: list[str] = []
+
+    for i in range(total_images):
+        # Select substyle with weighted random, respecting anti-clustering
+        chosen = _weighted_choice_with_constraint(
+            rng, substyle_keys, substyle_weights,
+            recent_substyles, max_consecutive,
+        )
+        recent_substyles.append(chosen)
+        if len(recent_substyles) > max_consecutive + 1:
+            recent_substyles.pop(0)
+
+        # Select composition based on affinity for this substyle
+        affinity = composition_affinity.get(chosen, compositions)
+        comp = _composition_with_constraint(
+            rng, affinity, compositions, recent_compositions,
+            max_consecutive=2,
+        )
+        recent_compositions.append(comp)
+        if len(recent_compositions) > 3:
+            recent_compositions.pop(0)
+
+        # Ken Burns from direction map
+        ken_burns = direction_map.get(comp, "slow_zoom_in")
+
+        assignments.append({
+            "display_format": chosen,
+            "content_type": chosen,
+            "color_mood": default_mood,
+            "composition": comp,
+            "ken_burns": ken_burns,
+        })
+
+    return assignments
+
+
+def _weighted_choice_with_constraint(
+    rng, keys: list[str], weights: list[float],
+    recent: list[str], max_consecutive: int,
+) -> str:
+    """Weighted random choice that avoids exceeding max_consecutive same value."""
+    # Check if constraint applies
+    if len(recent) >= max_consecutive and all(r == recent[-1] for r in recent[-max_consecutive:]):
+        # Must avoid the repeated value
+        excluded = recent[-1]
+        filtered_keys = [k for k in keys if k != excluded]
+        filtered_weights = [w for k, w in zip(keys, weights) if k != excluded]
+        if filtered_keys:
+            return rng.choices(filtered_keys, weights=filtered_weights, k=1)[0]
+
+    return rng.choices(keys, weights=weights, k=1)[0]
+
+
+def _composition_with_constraint(
+    rng, affinity: list[str], all_compositions: list[str],
+    recent: list[str], max_consecutive: int,
+) -> str:
+    """Pick composition from affinity list, avoiding repetition."""
+    if recent and len(recent) >= max_consecutive and all(r == recent[-1] for r in recent[-max_consecutive:]):
+        excluded = recent[-1]
+        candidates = [c for c in affinity if c != excluded]
+        if not candidates:
+            candidates = [c for c in all_compositions if c != excluded]
+        return rng.choice(candidates) if candidates else affinity[0]
+
+    return rng.choices(affinity, k=1)[0]
 
 
 def _format_from_value(value: str) -> DisplayFormat:

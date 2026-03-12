@@ -2030,7 +2030,7 @@ class VideoPipeline:
         Returns:
             Dict with prompt generation results.
         """
-        from image_prompt_engine.prompt_builder import build_prompt
+        from image_prompt_engine.prompt_builder import build_prompt, assign_profile_styles
         from image_prompt_engine.sequencer import assign_styles
         from brief_translator.scene_expander import expand_scene_concepts, expand_scene_concepts_deterministic
 
@@ -2042,6 +2042,20 @@ class VideoPipeline:
 
         print(f"\n🎨 STYLED IMAGE PROMPTS: Processing '{self.video_title}'")
         self._log_filters()
+
+        # Detect active visual profile for profile-aware sequencing
+        try:
+            from visual_profiles import load_profile as _load_vp_seq
+            _active_profile = _load_vp_seq()
+        except Exception:
+            _active_profile = None
+        _use_profile_sequencer = (
+            _active_profile is not None
+            and _active_profile.profile_id != "holographic_hud"
+            and _active_profile.style_system.substyles
+        )
+        if _use_profile_sequencer:
+            print(f"  🎨 Using profile-aware sequencer: {_active_profile.profile_id}")
 
         # Read per-video image style override (set via Slack !style command)
         image_style_override = (self.current_idea.get("Image Style Override") or "").strip()
@@ -2089,10 +2103,17 @@ class VideoPipeline:
         style_seed = hash(self.video_title) % (2**32)  # Deterministic seed per video
         print(f"  Generating style assignments for ~{estimated_total_images} images...")
 
-        style_assignments = assign_styles(
-            total_images=estimated_total_images,
-            seed=style_seed,
-        )
+        if _use_profile_sequencer:
+            style_assignments = assign_profile_styles(
+                total_images=estimated_total_images,
+                profile=_active_profile,
+                seed=style_seed,
+            )
+        else:
+            style_assignments = assign_styles(
+                total_images=estimated_total_images,
+                seed=style_seed,
+            )
         print(f"  ✓ Style rotation configured: {len(style_assignments)} assignments ready")
 
         # ---------------------------------------------------------------
@@ -2212,6 +2233,14 @@ class VideoPipeline:
                               f"{concept['concept_index']}: {e}")
                     concept.pop("needs_new_prompt", None)
 
+            # If image_filter is set, only generate the specific concept
+            if self.image_filter is not None:
+                concepts = [c for c in concepts if c["concept_index"] == self.image_filter]
+                if not concepts:
+                    print(f"    ⚠️ No concept with index {self.image_filter} in scene {scene_num}, skipping")
+                    continue
+                print(f"    🎯 Filtered to concept {self.image_filter}: {len(concepts)} concept(s)")
+
             for concept in concepts:
                 visual_desc = concept["visual_description"]
 
@@ -2222,9 +2251,16 @@ class VideoPipeline:
                     new_total = image_index + total_scripts * 10
                     print(f"      ↻ Extending style assignments: "
                           f"{len(style_assignments)} → {new_total}")
-                    style_assignments = assign_styles(
-                        total_images=new_total, seed=style_seed,
-                    )
+                    if _use_profile_sequencer:
+                        style_assignments = assign_profile_styles(
+                            total_images=new_total,
+                            profile=_active_profile,
+                            seed=style_seed,
+                        )
+                    else:
+                        style_assignments = assign_styles(
+                            total_images=new_total, seed=style_seed,
+                        )
                 style = style_assignments[image_index]
                 content_type = style["content_type"]
                 display_format = style["display_format"]
