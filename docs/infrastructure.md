@@ -11,6 +11,7 @@
 | Time | Job | Timeout |
 |------|-----|---------|
 | 5:00 AM | `pipeline.py --discover` (idea discovery) | 10 min |
+| 5:30 AM | `pipeline.py --competitors` (competitor channel scraper) | 10 min |
 | 7:00 AM | `performance_tracker.py --recent` (YouTube metrics sync) | 10 min |
 | 8:00 AM | `pipeline.py --run-queue` (process pipeline) | 4 hours |
 | Every 15 min | `bot_healthcheck.sh` (restart Slack bot if dead) | - |
@@ -18,7 +19,7 @@
 
 ## Slack Bot Commands
 
-`!status`, `!run`, `!update`, `!logs`, `!health`, `!queue`, `!approve`, `!reject`
+`!status`, `!run`, `!update`, `!logs`, `!health`, `!queue`, `!approve`, `!reject`, `competitors`
 
 ## Rules
 
