@@ -15,6 +15,8 @@ Style override fields (set via Slack `!style` commands):
 - `Image Style Override` (Long Text) — custom instructions for image prompt prefix. Supports `REPLACE:`, `APPEND:`, or `+` prefixes.
 - `Thumbnail Style Override` (Long Text) — custom instructions for thumbnail template. Supports `REPLACE:`, `APPEND:`, or `+` prefixes.
 - `Accent Color` (Single Line Text) — per-video accent color override. If set, used directly instead of topic category mapping. Valid values: `cold teal`, `muted crimson`, `warm amber`, `muted green`.
+- `Image Model Override` (Multiple Select) — hot-swap scene image model. Options: `z-image`, `Nano Banana`. Set via Slack `!model` command.
+- `Visual Style` (Single Select) — visual profile override. Options: `mannequin_storytelling`, `holographic_hud`, `cinematic_dossier`, `clay_mannequin`. Default: `mannequin_storytelling`. Set via Slack `!visualstyle` command.
 
 Optional fields:
 - `Reference URL`, `Idea Reasoning`, `Source Views`, `Source Channel`

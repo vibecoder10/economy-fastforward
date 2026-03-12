@@ -112,6 +112,7 @@ class VideoPipeline:
         self.current_idea: Optional[dict] = None
         self.core_image_url: Optional[str] = None
         self.video_config: Optional[VideoConfig] = None
+        self.visual_style: Optional[str] = None
 
         # Targeting filters — when set, bots only process matching records
         # and do NOT advance status (partial run for testing)
@@ -181,10 +182,15 @@ class VideoPipeline:
         except (ValueError, TypeError):
             self.video_config = VideoConfig()  # safe defaults
 
+        # Load visual style from Airtable (for visual profile selection)
+        from clients.airtable_client import get_visual_style
+        self.visual_style = get_visual_style(idea)
+
         print(f"\n📌 Loaded idea: {self.video_title}")
         print(f"   Status: {idea.get('Status')}")
         print(f"   ID: {self.current_idea_id}")
         print(f"   🎬 {self.video_config.summary().splitlines()[0]}")
+        print(f"   🎨 Visual style: {self.visual_style}")
         if self.project_folder_id:
             print(f"   📂 Drive Folder: {self.project_folder_id}")
         if self.core_image_url:
@@ -1395,7 +1401,8 @@ class VideoPipeline:
 
         # Check for image model override (hot-swap via Slack !model command)
         from clients.image_client import ImageClient
-        model_override = (self.current_idea.get("Image Model Override") or "").strip().lower()
+        from clients.airtable_client import get_image_model_override
+        model_override = get_image_model_override(self.current_idea)
         if model_override and model_override not in ImageClient.VALID_SCENE_MODELS:
             print(f"     ⚠️ Invalid model override '{model_override}', falling back to default")
             model_override = ""
@@ -4552,6 +4559,38 @@ async def main():
         result = await pipeline.run_trending_idea_bot(
             search_queries=search_queries,
             num_ideas=3,
+        )
+        return
+
+    # === COMPETITOR SCRAPER ===
+    if len(sys.argv) > 1 and sys.argv[1] == "--competitors":
+        from bots.competitor_scraper import CompetitorScraper
+
+        if not pipeline.apify:
+            print("ERROR: APIFY_API_KEY not configured. Add it to .env")
+            return
+
+        # Parse optional VPH threshold
+        vph_threshold = None
+        if len(sys.argv) > 2:
+            try:
+                vph_threshold = float(sys.argv[2])
+                print(f"  Using VPH threshold: {vph_threshold}")
+            except ValueError:
+                pass
+
+        scraper = CompetitorScraper(
+            apify_client=pipeline.apify,
+            anthropic_client=pipeline.anthropic,
+            airtable_client=pipeline.airtable,
+            slack_client=pipeline.slack,
+        )
+
+        result = await scraper.run(
+            vph_threshold=vph_threshold,
+            num_ideas=3,
+            save_to_airtable=True,
+            notify_slack=True,
         )
         return
 

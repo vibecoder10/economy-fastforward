@@ -5,6 +5,112 @@ from pyairtable import Api, Table
 from typing import Optional, Any
 
 
+# ---------------------------------------------------------------------------
+# Field value normalization for style/model overrides
+# ---------------------------------------------------------------------------
+
+# Airtable Multiple Select display names → internal model IDs
+# Multiple Select returns array like ["Nano Banana"], we need "nano-banana-2"
+AIRTABLE_MODEL_NAME_MAP: dict[str, str] = {
+    "z-image": "z-image",
+    "Nano Banana": "nano-banana-2",
+    "nano-banana-2": "nano-banana-2",
+}
+
+# Valid visual styles (maps to visual_profiles module names)
+VALID_VISUAL_STYLES: set[str] = {
+    "mannequin_storytelling",
+    "holographic_hud",
+    "cinematic_dossier",
+    "clay_mannequin",
+}
+DEFAULT_VISUAL_STYLE = "mannequin_storytelling"
+
+# Default model when no override specified (empty = use profile default)
+DEFAULT_IMAGE_MODEL = ""
+
+
+def get_image_model_override(record: dict) -> str:
+    """Extract image model override from an Airtable record.
+
+    Handles both old text format ("z-image") and new Multiple Select
+    format (["z-image"] or ["Nano Banana"]).
+
+    Args:
+        record: Airtable record dict with fields
+
+    Returns:
+        Normalized model ID (e.g. "z-image", "nano-banana-2") or empty string
+        if no valid override is set.
+    """
+    raw_value = record.get("Image Model Override")
+
+    if not raw_value:
+        return DEFAULT_IMAGE_MODEL
+
+    # Handle Multiple Select format: ["z-image"] or ["Nano Banana"]
+    if isinstance(raw_value, list):
+        if len(raw_value) == 0:
+            return DEFAULT_IMAGE_MODEL
+        raw_value = raw_value[0]  # Take first selection
+
+    # Normalize to string and clean
+    model_name = str(raw_value).strip()
+    if not model_name:
+        return DEFAULT_IMAGE_MODEL
+
+    # Map display name to internal ID
+    normalized = AIRTABLE_MODEL_NAME_MAP.get(model_name)
+    if normalized:
+        return normalized
+
+    # Try lowercase match as fallback
+    normalized = AIRTABLE_MODEL_NAME_MAP.get(model_name.lower())
+    if normalized:
+        return normalized
+
+    # Unknown model - log warning and return empty (use default)
+    print(f"    ⚠️ Unknown image model override '{model_name}', ignoring")
+    return DEFAULT_IMAGE_MODEL
+
+
+def get_visual_style(record: dict) -> str:
+    """Extract visual style from an Airtable record.
+
+    Visual Style is a Single Select field that maps to visual profile names.
+    Single Select returns a plain string, not an array.
+
+    Args:
+        record: Airtable record dict with fields
+
+    Returns:
+        Visual style profile ID (e.g. "mannequin_storytelling") or default if
+        not set or invalid.
+    """
+    raw_value = record.get("Visual Style")
+
+    if not raw_value:
+        return DEFAULT_VISUAL_STYLE
+
+    # Single Select returns string directly, but handle array just in case
+    if isinstance(raw_value, list):
+        if len(raw_value) == 0:
+            return DEFAULT_VISUAL_STYLE
+        raw_value = raw_value[0]
+
+    style_name = str(raw_value).strip().lower().replace(" ", "_")
+
+    if not style_name:
+        return DEFAULT_VISUAL_STYLE
+
+    if style_name in VALID_VISUAL_STYLES:
+        return style_name
+
+    # Unknown style - log warning and return default
+    print(f"    ⚠️ Unknown visual style '{raw_value}', using default '{DEFAULT_VISUAL_STYLE}'")
+    return DEFAULT_VISUAL_STYLE
+
+
 class AirtableClient:
     """Client for Airtable API operations.
 
@@ -48,9 +154,10 @@ class AirtableClient:
                               Candidate for manual editorial use or removal.
 
     Style overrides (written via Slack !style commands):
-        - Image Style Override    : Long Text — custom instructions for image prompt prefix
-        - Thumbnail Style Override: Long Text — custom instructions for thumbnail template
-        - Image Model Override    : Text     — hot-swap scene image model (e.g. "z-image")
+        - Image Style Override    : Long Text       — custom instructions for image prompt prefix
+        - Thumbnail Style Override: Long Text       — custom instructions for thumbnail template
+        - Image Model Override    : Multiple Select — hot-swap scene image model (options: z-image, Nano Banana)
+        - Visual Style            : Single Select   — visual profile (options: mannequin_storytelling, holographic_hud, cinematic_dossier, clay_mannequin)
 
     Pipeline-only fields (written by later stages, not discovery/research):
         - Script            : Long Text      — written by brief_translator
@@ -74,6 +181,9 @@ class AirtableClient:
     # Idea Concepts — single source of truth for ALL new ideas
     IDEA_CONCEPTS_TABLE_ID = "tblrAsJglokZSkC8m"  # Hardcoded default
 
+    # Competitor Channels — tracks competitor YouTube channels for scraping
+    COMPETITOR_CHANNELS_TABLE_ID = "tblXXXXXXXXXXXXXX"  # Set in .env after table creation
+
     def __init__(self, api_key: Optional[str] = None, base_id: Optional[str] = None):
         self.api_key = api_key or os.getenv("AIRTABLE_API_KEY")
         if not self.api_key:
@@ -93,6 +203,7 @@ class AirtableClient:
         self._idea_concepts_table = None
         self._script_table = None
         self._images_table = None
+        self._competitor_channels_table = None
 
     @property
     def idea_concepts_table(self) -> Table:
@@ -123,7 +234,18 @@ class AirtableClient:
         if self._images_table is None:
             self._images_table = self.api.table(self.base_id, self.IMAGES_TABLE_ID)
         return self._images_table
-    
+
+    @property
+    def competitor_channels_table(self) -> Table:
+        """Get the Competitor Channels table."""
+        if self._competitor_channels_table is None:
+            table_id = os.getenv(
+                "AIRTABLE_COMPETITOR_CHANNELS_TABLE_ID",
+                self.COMPETITOR_CHANNELS_TABLE_ID,
+            )
+            self._competitor_channels_table = self.api.table(self.base_id, table_id)
+        return self._competitor_channels_table
+
     @staticmethod
     def _extract_bad_field(error_msg: str) -> Optional[str]:
         """Extract the unknown field name from an Airtable error message."""
@@ -401,7 +523,38 @@ class AirtableClient:
 
         print(f"    Note: Could not save thumbnail URL to Airtable (tried multiple field names)")
         return {"id": record_id}
-    
+
+    # ==================== COMPETITOR CHANNELS TABLE ====================
+
+    def get_active_competitor_channels(self) -> list[dict]:
+        """Get all active competitor channels for scraping.
+
+        Returns:
+            List of channel records with fields: Channel Name, Channel URL, Category, etc.
+        """
+        records = self.competitor_channels_table.all(
+            formula="{Active} = TRUE()",
+        )
+        return [{"id": r["id"], **r["fields"]} for r in records]
+
+    def update_channel_last_scraped(self, record_id: str) -> dict:
+        """Update the Last Scraped date for a channel.
+
+        Args:
+            record_id: Airtable record ID for the channel
+
+        Returns:
+            Updated record dict
+        """
+        from datetime import date
+
+        record = self.competitor_channels_table.update(
+            record_id,
+            {"Last Scraped": date.today().isoformat()},
+            typecast=True,
+        )
+        return {"id": record["id"], **record["fields"]}
+
     # ==================== SCRIPT TABLE ====================
     
     def get_scripts_to_create(self) -> list[dict]:
