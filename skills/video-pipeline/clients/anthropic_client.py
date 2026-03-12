@@ -5,6 +5,15 @@ import re
 from anthropic import Anthropic
 from typing import Optional, List, Dict, Tuple
 
+
+def _get_profile():
+    """Return the active visual profile, or None."""
+    try:
+        from visual_profiles import load_profile
+        return load_profile()
+    except Exception:
+        return None
+
 from .style_engine import (
     # New holographic system
     ContentType,
@@ -327,11 +336,11 @@ Current Scene Goal: "{scene_beat}\""""
         video_title: str,
         research_payload: str = "",
     ) -> list[str]:
-        """Generate 6 image prompts for a scene using holographic intelligence display style.
+        """Generate 6 image prompts for a scene.
 
-        Uses the 3-variable architecture: Display Content + Display Format + Color Mood.
-        Every frame is a holographic projection in a dark intelligence operations center.
-        Zero human figures — only data, maps, charts, and analytical visualizations.
+        When a visual profile is active, reads the system prompt from the
+        profile's scene_description config. Falls back to the holographic
+        intelligence display system when no profile or holographic profile.
 
         Args:
             scene_number: The scene number in the video
@@ -339,6 +348,10 @@ Current Scene Goal: "{scene_beat}\""""
             video_title: The video title
             research_payload: Optional research payload JSON for extracting real data points
         """
+        # Check active visual profile
+        profile = _get_profile()
+        is_holographic = profile is None or profile.profile_id == "holographic_hud"
+
         # Build content type descriptions for the system prompt
         content_type_ref = "\n".join([
             f"Type {chr(65+i)} — {cfg['label']}: {cfg['use_for']}\n  Key elements: {cfg['key_elements']}"
@@ -357,7 +370,33 @@ Current Scene Goal: "{scene_beat}\""""
             for i, (mood, cfg) in enumerate(COLOR_MOOD_CONFIG.items())
         ])
 
-        system_prompt = f"""You are a visual director creating HOLOGRAPHIC INTELLIGENCE DISPLAY image prompts.
+        if not is_holographic and profile and profile.scene_description.system_prompt:
+            # Profile-driven system prompt
+            profile_suffix = profile.style_system.style_suffix or ""
+            system_prompt = f"""{profile.scene_description.system_prompt}
+
+=== PROMPT ARCHITECTURE ({PROMPT_MIN_WORDS}-{PROMPT_MAX_WORDS} words) ===
+
+[STYLE PREFIX] + [SCENE CONTENT description] + [STYLE SUFFIX]
+
+Style prefix: "{profile.style_system.style_prefix}"
+Style suffix: "{profile_suffix}"
+
+=== OUTPUT FORMAT (JSON only, no markdown) ===
+{{
+  "scene": {scene_number},
+  "prompts": [
+    {{
+      "content_type": "scene",
+      "display_format": "medium",
+      "color_mood": "neutral",
+      "prompt": "the full prompt text..."
+    }}
+  ]
+}}"""
+        else:
+            # Holographic default system prompt
+            system_prompt = f"""You are a visual director creating HOLOGRAPHIC INTELLIGENCE DISPLAY image prompts.
 
 === CORE AESTHETIC ===
 Every image exists inside a dark, high-security intelligence operations center.
@@ -430,7 +469,25 @@ Variable 3 — COLOR MOOD PALETTES:
 RESEARCH DATA (use specific numbers, dates, and facts from this in your prompts):
 {research_payload[:3000]}"""
 
-        prompt = f"""Create 6 holographic intelligence display image prompts for this scene:
+        if not is_holographic and profile:
+            prompt = f"""Create 6 image prompts for this scene using the {profile.profile_name} visual style:
+
+Video Title: {video_title}
+Scene Number: {scene_number}
+
+SCENE TEXT:
+{scene_text}
+{research_context}
+
+For each prompt:
+1. Analyze the scene text for visual storytelling opportunities
+2. Write a {PROMPT_MIN_WORDS}-{PROMPT_MAX_WORDS} word prompt
+3. Start each prompt with the style prefix and end with the style suffix
+4. Include visual details that serve the narrative
+
+Generate exactly 6 prompts."""
+        else:
+            prompt = f"""Create 6 holographic intelligence display image prompts for this scene:
 
 Video Title: {video_title}
 Scene Number: {scene_number}
@@ -959,7 +1016,10 @@ Start with style engine prefix, end with style engine suffix + lighting + text r
         pipeline_type: str = "animation",
         research_payload: str = "",
     ) -> list[dict]:
-        """Segment scene text into visual concepts using holographic intelligence display style.
+        """Segment scene text into visual concepts.
+
+        When a visual profile is active, uses the profile's system prompt.
+        Falls back to holographic intelligence display style by default.
 
         Args:
             scene_text: Full scene narration text
@@ -968,7 +1028,7 @@ Start with style engine prefix, end with style engine suffix + lighting + text r
             max_count: Maximum allowed segments
             words_per_segment: Target words per segment for duration
             scene_number: The scene number
-            pipeline_type: "youtube" or "animation" (both now use holographic style)
+            pipeline_type: "youtube" or "animation"
             research_payload: Optional research data for extracting specific data points
 
         Returns:
@@ -977,13 +1037,51 @@ Start with style engine prefix, end with style engine suffix + lighting + text r
                 - image_prompt: str (the generated image prompt)
                 - shot_type: str (the display format for this segment)
         """
-        # Build display format guidance
-        format_guidance = "\n".join([
-            f"Segment {i+1}: Use \"{DISPLAY_FORMAT_CONFIG[list(DISPLAY_FORMAT_CONFIG.keys())[i % len(DISPLAY_FORMAT_CONFIG)]]['framing']}...\""
-            for i in range(target_count)
-        ])
+        profile = _get_profile()
+        is_holographic = profile is None or profile.profile_id == "holographic_hud"
 
-        system_prompt = f"""You are a visual director creating HOLOGRAPHIC INTELLIGENCE DISPLAY image prompts.
+        if not is_holographic and profile and profile.scene_description.system_prompt:
+            # Profile-driven system prompt
+            profile_suffix = profile.style_system.style_suffix or ""
+            compositions = ", ".join(profile.rotation.compositions) if profile.rotation.compositions else "wide, medium, closeup"
+            system_prompt = f"""{profile.scene_description.system_prompt}
+
+YOUR TASK: Divide this scene into {target_count} visual segments ({min_count}-{max_count} range) and create image prompts.
+
+=== CRITICAL DURATION RULE (HARD CEILING) ===
+- Each segment: ~{words_per_segment} words (±5 words)
+- ABSOLUTE MAXIMUM: {words_per_segment + 5} words per segment. NO exceptions.
+- If a concept naturally runs longer, split it into two visual beats.
+- Balance word counts — no segment 2x longer than another
+
+=== PROMPT ARCHITECTURE ({PROMPT_MIN_WORDS}-{PROMPT_MAX_WORDS} words) ===
+
+[STYLE PREFIX] + [SCENE CONTENT] + [STYLE SUFFIX]
+
+Style prefix: "{profile.style_system.style_prefix}"
+Style suffix: "{profile_suffix}"
+
+=== OUTPUT FORMAT (JSON only, no markdown) ===
+{{
+  "segments": [
+    {{
+      "text": "The narration text for this segment...",
+      "image_prompt": "the full styled prompt...",
+      "shot_type": "wide"
+    }}
+  ]
+}}
+
+=== SHOT TYPE VALUES (compositions) ===
+{compositions}"""
+        else:
+            # Holographic default
+            format_guidance = "\n".join([
+                f"Segment {i+1}: Use \"{DISPLAY_FORMAT_CONFIG[list(DISPLAY_FORMAT_CONFIG.keys())[i % len(DISPLAY_FORMAT_CONFIG)]]['framing']}...\""
+                for i in range(target_count)
+            ])
+
+            system_prompt = f"""You are a visual director creating HOLOGRAPHIC INTELLIGENCE DISPLAY image prompts.
 
 YOUR TASK: Divide this scene into {target_count} visual segments ({min_count}-{max_count} range) and create image prompts.
 
@@ -1053,7 +1151,17 @@ Color Moods: strategic (teal), alert (red), archive (gold), contagion (green-to-
 RESEARCH DATA (use specific numbers, dates, and facts from this):
 {research_payload[:2000]}"""
 
-        prompt = f"""Segment this scene into {target_count} holographic intelligence display visualizations:
+        if not is_holographic and profile:
+            prompt = f"""Segment this scene into {target_count} visual concepts using the {profile.profile_name} style:
+
+SCENE TEXT:
+{scene_text}
+{research_context}
+
+Return JSON with segments array. Each segment has text, image_prompt, and shot_type.
+REMEMBER: {PROMPT_MIN_WORDS}-{PROMPT_MAX_WORDS} words per prompt."""
+        else:
+            prompt = f"""Segment this scene into {target_count} holographic intelligence display visualizations:
 
 SCENE TEXT:
 {scene_text}

@@ -16,17 +16,27 @@ from pathlib import Path
 
 PROMPT_TEMPLATE_PATH = Path(__file__).parent / "prompts" / "concept_expand.txt"
 
+
+def _get_profile():
+    """Return the active visual profile, or None."""
+    try:
+        from visual_profiles import load_profile
+        return load_profile()
+    except Exception:
+        return None
+
+
 # Valid styles
 VALID_STYLES = {"dossier", "schema", "echo"}
 
-# Valid compositions
-VALID_COMPOSITIONS = {
+# Hardcoded fallback compositions
+_DEFAULT_COMPOSITIONS = {
     "wide", "medium", "closeup", "environmental",
     "portrait", "overhead", "low_angle",
 }
 
-# Style distribution targets by act number
-STYLE_DISTRIBUTION = {
+# Hardcoded fallback style distribution
+_DEFAULT_STYLE_DISTRIBUTION = {
     1: {"dossier": 90, "schema": 10, "echo": 0},
     2: {"dossier": 70, "schema": 30, "echo": 0},
     3: {"dossier": 45, "schema": 20, "echo": 35},
@@ -34,6 +44,27 @@ STYLE_DISTRIBUTION = {
     5: {"dossier": 50, "schema": 35, "echo": 15},
     6: {"dossier": 65, "schema": 35, "echo": 0},
 }
+
+
+def get_valid_compositions() -> set:
+    """Get valid compositions from profile or default."""
+    profile = _get_profile()
+    if profile and profile.rotation.compositions:
+        return set(profile.rotation.compositions)
+    return _DEFAULT_COMPOSITIONS
+
+
+def get_style_distribution() -> dict:
+    """Get style distribution by act from profile or default."""
+    profile = _get_profile()
+    if profile and profile.rotation.scene_expander_style_distribution:
+        return profile.rotation.scene_expander_style_distribution
+    return _DEFAULT_STYLE_DISTRIBUTION
+
+
+# Legacy names — callers should use getters above
+VALID_COMPOSITIONS = _DEFAULT_COMPOSITIONS
+STYLE_DISTRIBUTION = _DEFAULT_STYLE_DISTRIBUTION
 
 # Concept count range by words in scene text
 MIN_CONCEPTS = 6
@@ -56,12 +87,14 @@ def _estimate_concept_count(scene_text: str) -> int:
 
 def _build_style_weights_text(act_number: int) -> str:
     """Build human-readable style weight text for the prompt."""
-    dist = STYLE_DISTRIBUTION.get(act_number, STYLE_DISTRIBUTION[1])
+    style_dist = get_style_distribution()
+    dist = style_dist.get(act_number, style_dist.get(1, {}))
+    if not dist:
+        return "- Single style (no substyle distribution)"
     lines = []
-    lines.append(f"- Dossier: {dist['dossier']}%")
-    lines.append(f"- Schema: {dist['schema']}%")
-    lines.append(f"- Echo: {dist['echo']}%")
-    if act_number in (1, 2, 6):
+    for style_name, pct in dist.items():
+        lines.append(f"- {style_name.title()}: {pct}%")
+    if act_number in (1, 2, 6) and dist.get("echo", 0) == 0:
         lines.append("- Echo is NOT allowed in this act")
     return "\n".join(lines)
 
@@ -401,7 +434,7 @@ def _validate_concepts(
             concept["visual_style"] = "dossier"
 
         comp = concept.get("composition", "")
-        if comp not in VALID_COMPOSITIONS:
+        if comp not in get_valid_compositions():
             concept["composition"] = "medium"
 
         if not concept.get("visual_description"):
@@ -632,16 +665,22 @@ async def expand_scene_concepts_deterministic(
             "mood": "neutral",
         }]
 
-    # Step 2: Assign visual styles based on act distribution
-    dist = STYLE_DISTRIBUTION.get(act_number, STYLE_DISTRIBUTION[1])
-    echo_allowed = dist.get("echo", 0) > 0
+    # Step 2: Assign visual styles based on profile or legacy act distribution
+    profile = _get_profile()
+    is_holographic = profile is None or profile.profile_id == "holographic_hud"
 
-    styles_pool = []
-    # Build pool based on distribution percentages
-    styles_pool.extend(["dossier"] * dist["dossier"])
-    styles_pool.extend(["schema"] * dist["schema"])
-    if echo_allowed:
-        styles_pool.extend(["echo"] * dist["echo"])
+    if not is_holographic and profile and not profile.style_system.substyles:
+        # Single-style profiles (e.g. clay_mannequin): all concepts use the same style
+        styles_pool = [profile.profile_id] * max(len(segments), 10)
+    else:
+        # Holographic or multi-substyle profiles: use profile act distribution
+        style_dist = get_style_distribution()
+        dist = style_dist.get(act_number, style_dist.get(1, {"dossier": 100}))
+
+        styles_pool = []
+        for style_name, pct in dist.items():
+            if pct > 0:
+                styles_pool.extend([style_name] * pct)
 
     # Assign styles in rotation
     import random
@@ -661,31 +700,42 @@ async def expand_scene_concepts_deterministic(
         visual_style = styles_pool[style_idx] if styles_pool else "dossier"
         composition = compositions[comp_idx]
 
-        # Generate visual description via LLM
+        # Generate visual description via LLM — profile-driven prompt
         try:
-            visual_desc_prompt = (
-                "You are creating visual descriptions for HOLOGRAPHIC DATA DISPLAYS "
-                "in an intelligence operations center — not camera shots of real events.\n\n"
-                "NEVER describe:\n"
-                "- People (no politicians, officials, reporters, soldiers, analysts, or any human figures)\n"
-                "- Physical rooms or buildings as if a camera is there\n"
-                "- Events as if photographing them\n\n"
-                "ALWAYS describe:\n"
-                "- What DATA, DOCUMENTS, MAPS, or CHARTS would appear on a holographic screen analyzing this topic\n"
-                "- Information visualizations (price charts, treaty text, flow diagrams, network maps, timelines)\n"
-                "- At least one specific number, date, or percentage from the narration\n"
-                "- Data elements must come from THIS segment's text only, not from the broader script context\n\n"
-                "EXAMPLES:\n"
-                "BAD: 'Kremlin hall, Putin and Pezeshkian at long table with treaty document'\n"
-                "GOOD: 'Holographic treaty document floating in space, 47 articles visible with Section 12: Military Cooperation highlighted'\n\n"
-                "BAD: 'White House briefing room, reporters holding phones'\n"
-                "GOOD: 'Bloomberg terminal display showing headline with oil price ticker dropping from $120 to $68'\n\n"
-                "The subject is ALWAYS information/data being displayed, never the physical event itself.\n\n"
-                "Write a 20-35 word description of what DATA DISPLAY would visualize this narration. "
-                "Return ONLY the description, nothing else.\n\n"
-                f"Narration: \"{seg['text']}\"\n"
-                f"Visual seeds for context: {visual_seeds[:200] if visual_seeds else 'none'}"
-            )
+            if not is_holographic and profile and profile.scene_description.system_prompt:
+                # Use the profile's scene description system prompt
+                visual_desc_prompt = (
+                    f"{profile.scene_description.system_prompt}\n\n"
+                    "Write a 20-35 word visual description for this narration segment. "
+                    "Return ONLY the description, nothing else.\n\n"
+                    f"Narration: \"{seg['text']}\"\n"
+                    f"Visual seeds for context: {visual_seeds[:200] if visual_seeds else 'none'}"
+                )
+            else:
+                # Holographic default prompt
+                visual_desc_prompt = (
+                    "You are creating visual descriptions for HOLOGRAPHIC DATA DISPLAYS "
+                    "in an intelligence operations center — not camera shots of real events.\n\n"
+                    "NEVER describe:\n"
+                    "- People (no politicians, officials, reporters, soldiers, analysts, or any human figures)\n"
+                    "- Physical rooms or buildings as if a camera is there\n"
+                    "- Events as if photographing them\n\n"
+                    "ALWAYS describe:\n"
+                    "- What DATA, DOCUMENTS, MAPS, or CHARTS would appear on a holographic screen analyzing this topic\n"
+                    "- Information visualizations (price charts, treaty text, flow diagrams, network maps, timelines)\n"
+                    "- At least one specific number, date, or percentage from the narration\n"
+                    "- Data elements must come from THIS segment's text only, not from the broader script context\n\n"
+                    "EXAMPLES:\n"
+                    "BAD: 'Kremlin hall, Putin and Pezeshkian at long table with treaty document'\n"
+                    "GOOD: 'Holographic treaty document floating in space, 47 articles visible with Section 12: Military Cooperation highlighted'\n\n"
+                    "BAD: 'White House briefing room, reporters holding phones'\n"
+                    "GOOD: 'Bloomberg terminal display showing headline with oil price ticker dropping from $120 to $68'\n\n"
+                    "The subject is ALWAYS information/data being displayed, never the physical event itself.\n\n"
+                    "Write a 20-35 word description of what DATA DISPLAY would visualize this narration. "
+                    "Return ONLY the description, nothing else.\n\n"
+                    f"Narration: \"{seg['text']}\"\n"
+                    f"Visual seeds for context: {visual_seeds[:200] if visual_seeds else 'none'}"
+                )
 
             visual_description = await anthropic_client.generate(
                 prompt=visual_desc_prompt,
@@ -877,7 +927,7 @@ async def expand_scene_concepts(
             c["concept_index"] = i + 1
             if not c.get("visual_style") or c["visual_style"] not in VALID_STYLES:
                 c["visual_style"] = "dossier"
-            if not c.get("composition") or c["composition"] not in VALID_COMPOSITIONS:
+            if not c.get("composition") or c["composition"] not in get_valid_compositions():
                 c["composition"] = compositions[i % len(compositions)]
             if not c.get("visual_description"):
                 c["visual_description"] = c.get("sentence_text", "")

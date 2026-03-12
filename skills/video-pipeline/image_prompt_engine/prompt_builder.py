@@ -42,6 +42,8 @@ from .style_config import (
     resolve_color_mood,
     resolve_content_type,
     resolve_display_format,
+    get_accent_color_to_mood,
+    get_category_to_mood,
 )
 from .sequencer import assign_styles
 
@@ -133,6 +135,21 @@ def _remove_people_references(description: str) -> str:
     return result
 
 
+def _apply_profile_people_replacements(description: str, figure_rules) -> str:
+    """Apply profile-specific people-word replacements.
+
+    Reads ``people_replacements`` from the profile's FigureRulesConfig and
+    applies them as regex substitutions.
+    """
+    result = description
+    for pattern_str, replacement in (figure_rules.people_replacements or []):
+        try:
+            result = re.sub(pattern_str, replacement, result, flags=re.IGNORECASE)
+        except re.error:
+            pass
+    return result
+
+
 def _strip_style_language(description: str) -> str:
     """Remove style/lighting/camera language from a scene description."""
     cleaned = description
@@ -174,11 +191,19 @@ def build_prompt(
     color_mood: str,
     image_style_override: Optional[str] = None,
 ) -> str:
-    """Assemble a complete holographic intelligence display prompt.
+    """Assemble a complete image generation prompt.
 
-    Follows the master template::
+    When a visual profile is active, reads framing, suffix, and figure rules
+    from the profile. Falls back to holographic defaults when no profile is
+    loaded or the profile is ``holographic_hud``.
+
+    Template (holographic)::
 
         [DISPLAY FORMAT framing] [DISPLAY CONTENT] [COLOR MOOD] [UNIVERSAL SUFFIX]
+
+    Template (other profiles)::
+
+        [STYLE PREFIX] [DISPLAY CONTENT] [STYLE SUFFIX]
 
     Parameters
     ----------
@@ -198,31 +223,52 @@ def build_prompt(
     str
         The complete prompt string, ready for image generation.
     """
-    # Resolve the display format framing text
-    fmt_enum = _format_from_value(display_format)
-    framing = DISPLAY_FORMAT_CONFIG[fmt_enum]["framing"]
-
-    # Resolve color mood prompt language
-    mood_enum = _mood_from_value(color_mood)
-    mood_language = COLOR_MOOD_CONFIG[mood_enum]["prompt_language"]
+    profile = _get_profile()
+    is_holographic = (
+        profile is None
+        or profile.profile_id == "holographic_hud"
+    )
 
     # Clean scene description
     clean_desc = _strip_style_language(scene_description).rstrip(". ")
 
-    # Validate no-people rule on the scene description before assembly
-    is_clean, violations = validate_no_people(clean_desc)
-    if not is_clean:
-        # Auto-rewrite people references to unmanned equivalents
-        clean_desc = _remove_people_references(clean_desc)
+    # --- Figure rules: profile-driven ---
+    if is_holographic:
+        # Holographic: no people at all — replace with unmanned equipment
+        is_clean, violations = validate_no_people(clean_desc)
+        if not is_clean:
+            clean_desc = _remove_people_references(clean_desc)
+    elif profile and profile.figure_rules:
+        fr = profile.figure_rules
+        if fr.allow_mannequins:
+            # Mannequin style: replace human words with mannequin equivalents
+            clean_desc = _apply_profile_people_replacements(clean_desc, fr)
+        elif not fr.allow_human_figures:
+            # Other no-people profiles: use profile-specific word list
+            clean_desc = _apply_profile_people_replacements(clean_desc, fr)
 
-    if image_style_override and image_style_override.strip():
-        mood_language = _apply_style_override(mood_language, image_style_override)
+    if is_holographic:
+        # --- Holographic path: framing + content + mood + suffix ---
+        fmt_enum = _format_from_value(display_format)
+        framing = DISPLAY_FORMAT_CONFIG[fmt_enum]["framing"]
 
-    # Assemble: [Framing] [Content] [Color Mood] [Suffix]
-    # Use profile suffix if available, otherwise hardcoded default
-    profile = _get_profile()
-    suffix = profile.style_system.style_suffix if profile else HOLOGRAPHIC_SUFFIX
-    return f"{framing} {clean_desc}, {mood_language}{suffix}"
+        mood_enum = _mood_from_value(color_mood)
+        mood_language = COLOR_MOOD_CONFIG[mood_enum]["prompt_language"]
+
+        if image_style_override and image_style_override.strip():
+            mood_language = _apply_style_override(mood_language, image_style_override)
+
+        suffix = profile.style_system.style_suffix if profile else HOLOGRAPHIC_SUFFIX
+        return f"{framing} {clean_desc}, {mood_language}{suffix}"
+    else:
+        # --- Profile path: prefix + content + suffix ---
+        prefix = profile.style_system.style_prefix if profile.style_system.style_prefix else ""
+        suffix = profile.style_system.style_suffix if profile.style_system.style_suffix else ""
+
+        if image_style_override and image_style_override.strip():
+            suffix = _apply_style_override(suffix, image_style_override)
+
+        return f"{prefix} {clean_desc}{suffix}"
 
 
 def _format_from_value(value: str) -> DisplayFormat:
@@ -331,39 +377,17 @@ def resolve_accent_color(
     accent_color: Optional[str] = None,
     topic_category: Optional[str] = None,
 ) -> str:
-    """Legacy API: returns a color mood value string.
+    """Returns a color mood value string from profile mappings.
 
-    Maps old accent_color/topic_category to new color mood system.
+    Maps accent_color/topic_category to mood using profile's
+    accent_color_to_mood and category_to_mood mappings.
     """
     if accent_color:
-        # Map old accent colors to new mood values
-        accent_to_mood = {
-            "cold teal": "strategic",
-            "warm amber": "archive",
-            "muted crimson": "alert",
-            "muted green": "contagion",
-            "deep green": "contagion",
-        }
+        accent_to_mood = get_accent_color_to_mood()
         return accent_to_mood.get(accent_color, accent_color)
     if topic_category:
-        category_to_mood = {
-            "geopolitical": "strategic",
-            "ai_tech": "strategic",
-            "corporate_power": "power",
-            "surveillance": "strategic",
-            "economic": "personal",
-            "financial": "personal",
-            "historical_power": "archive",
-            "old_money": "archive",
-            "conflict": "alert",
-            "warfare": "alert",
-            "political_violence": "alert",
-            "military": "power",
-            "markets": "contagion",
-            "growth": "contagion",
-            "trade": "contagion",
-        }
-        return category_to_mood.get(topic_category, "strategic")
+        cat_to_mood = get_category_to_mood()
+        return cat_to_mood.get(topic_category, "strategic")
     return "strategic"
 
 

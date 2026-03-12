@@ -61,10 +61,10 @@ async def main():
         return
     
     idea = ideas[0]
-    pipeline.video_title = idea.get("Video Title", "Untitled")
-    pipeline.current_idea_id = idea.get("id")
-    pipeline.project_folder_id = "1dF0p5iMgUa04oArBvAnHswHJKSckacmS"  # Your existing folder
-    
+    # Use _load_idea to set visual style, env vars, and all pipeline state
+    pipeline._load_idea(idea)
+    pipeline.project_folder_id = pipeline.project_folder_id or "1dF0p5iMgUa04oArBvAnHswHJKSckacmS"
+
     print(f"\n✅ Processing: {pipeline.video_title}")
     print(f"   Idea ID: {pipeline.current_idea_id}")
     

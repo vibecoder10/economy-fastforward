@@ -10,13 +10,11 @@ from __future__ import annotations
 from typing import Any
 
 from .config import (
-    KEN_BURNS_BASE_DURATION,
-    KEN_BURNS_PRESETS,
-    COMPOSITION_DIRECTION_MAP,
     MIN_DISPLAY_SECONDS,
     get_ken_burns_presets,
     get_composition_direction_map,
     get_ken_burns_base_duration,
+    get_ken_burns_pan_alternates,
 )
 
 
@@ -50,10 +48,9 @@ def calculate_ken_burns(
     )
 
     # Alternate pan direction for variety (every other medium/environmental)
-    if direction in ("slow_pan_right", "slow_pan_left") and scene_index % 2 == 0:
-        direction = (
-            "slow_pan_left" if direction == "slow_pan_right" else "slow_pan_right"
-        )
+    pan_alts = get_ken_burns_pan_alternates()
+    if direction in pan_alts and scene_index % 2 == 0:
+        direction = pan_alts[direction]
 
     # Speed multiplier — slower zoom for longer scenes
     safe_duration = max(display_duration, MIN_DISPLAY_SECONDS)

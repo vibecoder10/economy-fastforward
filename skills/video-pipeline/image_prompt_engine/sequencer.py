@@ -19,11 +19,16 @@ from .style_config import (
     ColorMood,
     CONTENT_FORMAT_AFFINITY,
     ESTABLISHING_FORMATS,
-    KEN_BURNS_PAN_ALTERNATES,
-    KEN_BURNS_RULES,
-    ACT_MOOD_WEIGHTS,
-    DEFAULT_CONFIG,
     FORMAT_CYCLE,
+    # Profile-aware getters
+    get_max_consecutive_content_type,
+    get_max_consecutive_format,
+    get_max_consecutive_palette,
+    get_max_consecutive_close_up,
+    get_act_mood_weights,
+    get_default_config,
+    get_ken_burns_rules,
+    get_ken_burns_pan_alternates,
 )
 
 
@@ -54,8 +59,9 @@ def assign_styles(
         One entry per image with keys: ``index``, ``timestamp``, ``act``,
         ``content_type``, ``display_format``, ``color_mood``, ``ken_burns``.
     """
+    config = get_default_config()
     if act_timestamps is None:
-        act_timestamps = DEFAULT_CONFIG["act_timestamps"]
+        act_timestamps = config["act_timestamps"]
 
     rng = random.Random(seed)
     total_seconds = act_timestamps["act6_end"]
@@ -133,11 +139,11 @@ def _select_content_type(
     history: list[dict],
     rng: random.Random,
 ) -> ContentType:
-    """Select content type, enforcing max 2 consecutive same type."""
+    """Select content type, enforcing max consecutive constraint from profile."""
     all_types = list(ContentType)
 
     # Filter out types that have hit max consecutive
-    max_consec = DEFAULT_CONFIG["max_consecutive_content_type"]
+    max_consec = get_max_consecutive_content_type()
     if history:
         last_type = history[-1]["content_type"]
         run = _count_trailing(history, "content_type", last_type)
@@ -189,8 +195,8 @@ def _select_display_format(
     # Add remaining formats as fallback options
     all_formats = preferred + [f for f in FORMAT_CYCLE if f not in preferred]
 
-    # --- Constraint: max 2 consecutive same format ---
-    max_consec = DEFAULT_CONFIG["max_consecutive_format"]
+    # --- Constraint: max consecutive same format ---
+    max_consec = get_max_consecutive_format()
     if history:
         last_format = history[-1]["display_format"]
         run = _count_trailing(history, "display_format", last_format)
@@ -199,8 +205,8 @@ def _select_display_format(
             if not all_formats:
                 all_formats = list(FORMAT_CYCLE)
 
-    # --- Constraint: close_up_detail never consecutive (max 1) ---
-    max_close_up = DEFAULT_CONFIG.get("max_consecutive_close_up", 1)
+    # --- Constraint: close_up_detail never consecutive ---
+    max_close_up = get_max_consecutive_close_up()
     if history:
         last_format = history[-1]["display_format"]
         if last_format == DisplayFormat.CLOSE_UP_DETAIL.value:
@@ -251,11 +257,12 @@ def _select_color_mood(
     history: list[dict],
     rng: random.Random,
 ) -> ColorMood:
-    """Select color mood based on act weights, enforcing max 3 consecutive same palette."""
-    weights = dict(ACT_MOOD_WEIGHTS.get(act, ACT_MOOD_WEIGHTS["act1"]))
+    """Select color mood based on act weights, enforcing max consecutive palette constraint."""
+    mood_weights = get_act_mood_weights()
+    weights = dict(mood_weights.get(act, mood_weights.get("act1", {})))
 
     # Enforce max consecutive palette constraint
-    max_consec = DEFAULT_CONFIG["max_consecutive_palette"]
+    max_consec = get_max_consecutive_palette()
     if history:
         last_mood = history[-1]["color_mood"]
         run = _count_trailing(history, "color_mood", last_mood)
@@ -281,11 +288,13 @@ def _select_color_mood(
 
 def _select_ken_burns(display_format: DisplayFormat, history: list[dict]) -> str:
     """Choose a Ken Burns zoom/pan direction, alternating pans to avoid monotony."""
-    base = KEN_BURNS_RULES.get(display_format, "slow_zoom_in")
+    kb_rules = get_ken_burns_rules()
+    pan_alts = get_ken_burns_pan_alternates()
+    base = kb_rules.get(display_format, "slow_zoom_in")
 
     # For pan-based directions, alternate with previous same-format entries
-    if base in KEN_BURNS_PAN_ALTERNATES:
+    if base in pan_alts:
         same_format = [h for h in history if h["display_format"] == display_format.value]
         if same_format and same_format[-1]["ken_burns"] == base:
-            return KEN_BURNS_PAN_ALTERNATES[base]
+            return pan_alts[base]
     return base

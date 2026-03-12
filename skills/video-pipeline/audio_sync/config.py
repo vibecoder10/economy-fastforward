@@ -105,6 +105,14 @@ def get_ken_burns_base_duration() -> float:
     return KEN_BURNS_BASE_DURATION
 
 
+def get_ken_burns_pan_alternates() -> dict:
+    """Get Ken Burns pan alternates from active profile or hardcoded default."""
+    profile = _get_profile()
+    if profile and profile.ken_burns.pan_alternates:
+        return profile.ken_burns.pan_alternates
+    return {"slow_pan_right": "slow_pan_left", "slow_pan_left": "slow_pan_right"}
+
+
 # ---------------------------------------------------------------------------
 # Render defaults
 # ---------------------------------------------------------------------------
