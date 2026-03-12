@@ -146,6 +146,17 @@ class VideoPipeline:
             return ideas[0]
         return None
     
+    def _update_status(self, new_status: str):
+        """Update idea status in Airtable AND sync the in-memory cache.
+
+        Every status transition MUST go through this method so that
+        chained stages (e.g. prompts → images on the same pipeline
+        instance) see the correct status.
+        """
+        self.airtable.update_idea_status(self.current_idea_id, new_status)
+        if self.current_idea:
+            self.current_idea["Status"] = new_status
+
     def _load_idea(self, idea: dict):
         """Load idea data into pipeline state."""
         self.current_idea = idea
@@ -424,7 +435,7 @@ class VideoPipeline:
 
             if suggested and suggested != self.STATUS_READY_SCRIPTING:
                 print(f"  ⚠️ Found existing work! Fast-forwarding status to: {suggested}")
-                self.airtable.update_idea_status(self.current_idea_id, suggested)
+                self._update_status(suggested)
                 # Restart loop to pick up new status
                 return await self.run_next_step()
 
@@ -440,7 +451,7 @@ class VideoPipeline:
 
             if suggested and suggested != self.STATUS_READY_VOICE:
                 print(f"  ⚠️ Found existing work! Fast-forwarding status to: {suggested}")
-                self.airtable.update_idea_status(self.current_idea_id, suggested)
+                self._update_status(suggested)
                 return await self.run_next_step()
 
             return await self._run_step_safe("Voice Bot", self.run_voice_bot)
@@ -455,7 +466,7 @@ class VideoPipeline:
 
             if suggested and suggested != self.STATUS_READY_IMAGE_PROMPTS:
                 print(f"  ⚠️ Found existing work! Fast-forwarding status to: {suggested}")
-                self.airtable.update_idea_status(self.current_idea_id, suggested)
+                self._update_status(suggested)
                 return await self.run_next_step()
 
             return await self._run_step_safe("Image Prompt Bot", self.run_styled_image_prompts)
@@ -470,7 +481,7 @@ class VideoPipeline:
 
             if suggested and suggested != self.STATUS_READY_IMAGES:
                 print(f"  ⚠️ Found existing work! Fast-forwarding status to: {suggested}")
-                self.airtable.update_idea_status(self.current_idea_id, suggested)
+                self._update_status(suggested)
                 return await self.run_next_step()
 
             return await self._run_step_safe("Image Bot", self.run_image_bot)
@@ -509,7 +520,7 @@ class VideoPipeline:
 
             if suggested and suggested != self.STATUS_READY_THUMBNAIL:
                 print(f"  ⚠️ Found existing work! Fast-forwarding status to: {suggested}")
-                self.airtable.update_idea_status(self.current_idea_id, suggested)
+                self._update_status(suggested)
                 return await self.run_next_step()
 
             return await self._run_step_safe("Thumbnail Bot", self.run_thumbnail_bot)
@@ -519,7 +530,7 @@ class VideoPipeline:
         if idea:
             self._load_idea(idea)
             print(f"  Video at 'Done', transitioning to 'Ready To Render': {self.video_title}")
-            self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_TO_RENDER)
+            self._update_status(self.STATUS_READY_TO_RENDER)
             return await self.run_next_step()
 
         # 9. Render Bot — one at a time, cleans assets between renders
@@ -753,7 +764,7 @@ class VideoPipeline:
                 "targeted": True,
             }
 
-        self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_VOICE)
+        self._update_status(self.STATUS_READY_VOICE)
         print(f"  ✅ Status updated to: {self.STATUS_READY_VOICE}")
 
         # Phase 2: Refine title with script content (non-blocking)
@@ -886,7 +897,7 @@ class VideoPipeline:
             return {"bot": "Voice Bot", "video_title": self.video_title, "voice_count": voice_count, "targeted": True}
 
         # Sound design runs AFTER images exist (needs Image Prompt + Sentence Text)
-        self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_IMAGE_PROMPTS)
+        self._update_status(self.STATUS_READY_IMAGE_PROMPTS)
         print(f"  ✅ Status updated to: {self.STATUS_READY_IMAGE_PROMPTS}")
 
         self.slack.notify_voice_done()
@@ -927,7 +938,7 @@ class VideoPipeline:
             return result
 
         # Update status
-        self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_SOUND_EFFECTS)
+        self._update_status(self.STATUS_READY_SOUND_EFFECTS)
         print(f"  ✅ Status updated to: {self.STATUS_READY_SOUND_EFFECTS}")
 
         self.slack.notify(
@@ -976,7 +987,7 @@ class VideoPipeline:
             return result
 
         # Update status — sound is done, move to video prompts
-        self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_VIDEO_SCRIPTS)
+        self._update_status(self.STATUS_READY_VIDEO_SCRIPTS)
         print(f"  ✅ Status updated to: {self.STATUS_READY_VIDEO_SCRIPTS}")
 
         self.slack.notify(
@@ -1127,7 +1138,7 @@ class VideoPipeline:
         hero_count = await self._flag_hero_shots()
         print(f"  🌟 Flagged {hero_count} hero shots")
 
-        self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_IMAGES)
+        self._update_status(self.STATUS_READY_IMAGES)
 
         print(f"\n  ✅ Total: {total_prompts} image prompts created")
 
@@ -1275,7 +1286,7 @@ class VideoPipeline:
         # ALL images verified complete — advance to sound design
         # Sound stages run AFTER images because sound_prompt_bot reads Image Prompt
         # and Sentence Text from the Images table rows.
-        self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_SOUND_DESIGN)
+        self._update_status(self.STATUS_READY_SOUND_DESIGN)
         print(f"  ✅ All {total} images verified complete. Status updated to: {self.STATUS_READY_SOUND_DESIGN}")
 
         return {
@@ -1334,7 +1345,7 @@ class VideoPipeline:
             }
 
         # ALL images verified complete — advance to sound design
-        self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_SOUND_DESIGN)
+        self._update_status(self.STATUS_READY_SOUND_DESIGN)
         print(f"  ✅ All {total} images verified complete. Status updated to: {self.STATUS_READY_SOUND_DESIGN}")
 
         return {
@@ -1703,7 +1714,7 @@ class VideoPipeline:
             return {"bot": "Video Script Bot", "prompt_count": prompt_count, "targeted": True}
 
         # Update Status to Ready For Video Generation
-        self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_VIDEO_GENERATION)
+        self._update_status(self.STATUS_READY_VIDEO_GENERATION)
         print(f"  ✅ Status updated to: {self.STATUS_READY_VIDEO_GENERATION}")
 
         return {"bot": "Video Script Bot", "prompt_count": prompt_count, "new_status": self.STATUS_READY_VIDEO_GENERATION}
@@ -1726,7 +1737,7 @@ class VideoPipeline:
             print("    No pending videos to generate.")
             if not self._is_targeted_run:
                 print(f"    All videos done. Moving to Thumbnail.")
-                self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_THUMBNAIL)
+                self._update_status(self.STATUS_READY_THUMBNAIL)
             return {"video_count": 0, "new_status": self.STATUS_READY_THUMBNAIL}
 
         video_count = 0
@@ -1821,7 +1832,7 @@ class VideoPipeline:
         # Check if all videos are done
         remaining = [v for v in self.airtable.get_images_ready_for_video_generation(self.video_title) if v.get("Video Prompt")]
         if not remaining:
-            self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_THUMBNAIL)
+            self._update_status(self.STATUS_READY_THUMBNAIL)
             print(f"  ✅ Status updated to: {self.STATUS_READY_THUMBNAIL}")
 
         return {"bot": "Video Gen Bot", "video_count": video_count}
@@ -1944,9 +1955,7 @@ class VideoPipeline:
 
         if result["status"] == "success":
             # Update status to Ready For Voice
-            self.airtable.update_idea_status(
-                self.current_idea_id, self.STATUS_READY_VOICE
-            )
+            self._update_status(self.STATUS_READY_VOICE)
             print(f"  ✅ Status updated to: {self.STATUS_READY_VOICE}")
 
             if result.get("doc_url"):
@@ -2263,7 +2272,7 @@ class VideoPipeline:
                 "targeted": True,
             }
 
-        self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_IMAGES)
+        self._update_status(self.STATUS_READY_IMAGES)
         print(f"  Status updated to: {self.STATUS_READY_IMAGES}")
 
         skip_note = f" ({scenes_skipped} resumed)" if scenes_skipped else ""
@@ -2380,9 +2389,7 @@ class VideoPipeline:
         # Ensure status is at least Ready For Scripting
         current_status = idea.get("Status")
         if current_status in [self.STATUS_IDEA_LOGGED, self.STATUS_IN_QUE]:
-            self.airtable.update_idea_status(
-                self.current_idea_id, self.STATUS_READY_SCRIPTING
-            )
+            self._update_status(self.STATUS_READY_SCRIPTING)
 
         # Run through pipeline using status-driven loop
         max_steps = 20
@@ -2441,7 +2448,7 @@ class VideoPipeline:
                 return {"error": "No active idea found"}
 
         # Force the status
-        self.airtable.update_idea_status(self.current_idea_id, target_status)
+        self._update_status(target_status)
 
         # Run from there
         max_steps = 20
@@ -2614,7 +2621,7 @@ class VideoPipeline:
         print("  Saved primary thumbnail to Airtable")
 
         # --- Update status ---
-        self.airtable.update_idea_status(self.current_idea_id, self.STATUS_READY_TO_RENDER)
+        self._update_status(self.STATUS_READY_TO_RENDER)
         print(f"  Status updated to: {self.STATUS_READY_TO_RENDER}")
 
         template_info = result['template_name']
@@ -3324,7 +3331,7 @@ class VideoPipeline:
             "Final Video": drive_url,
             "Final Video URL": drive_url,
         })
-        self.airtable.update_idea_status(self.current_idea_id, self.STATUS_RENDERED)
+        self._update_status(self.STATUS_RENDERED)
 
         # Free video content from memory before cleanup
         del video_content
@@ -3846,9 +3853,7 @@ class VideoPipeline:
             }
 
         # --- STEP 3: Update status and notify ---
-        self.airtable.update_idea_status(
-            self.current_idea_id, self.STATUS_UPLOADED_DRAFT
-        )
+        self._update_status(self.STATUS_UPLOADED_DRAFT)
 
         video_url = upload_result.get("video_url", "")
         folder_id = self.current_idea.get("Drive Folder ID", "")

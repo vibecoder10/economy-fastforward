@@ -46,8 +46,8 @@ async def main():
                 print(f"\n❌ Prompt generation error: {prompt_result['error']}", file=sys.stderr)
                 sys.exit(1)
 
-        skipped = prompt_result.get('skipped', 0)
-        created = prompt_result.get('prompt_count', 0)
+        skipped = prompt_result.get('scenes_skipped', 0)
+        created = prompt_result.get('total_concepts', 0)
         if skipped:
             print(f"\n📝 Image prompts: {created} new, {skipped} already existed (resumed)")
         else:

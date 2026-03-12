@@ -400,7 +400,7 @@ class TestStatusProgression:
         # (sound stages come after images, since sound_prompt_bot reads Image Prompt)
         status_line = [
             line for line in bot_code.split("\n")
-            if "update_idea_status" in line and "STATUS_READY" in line
+            if ("update_idea_status" in line or "_update_status" in line) and "STATUS_READY" in line
         ]
         log_line = [
             line for line in bot_code.split("\n")
