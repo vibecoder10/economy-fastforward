@@ -79,17 +79,15 @@ _IMAGE_GEN = ImageGenConfig(
 # Section 3: Style System — 5 scene types
 # =============================================================================
 
-# The prefix is empty because scene-type-specific openings are controlled
-# by the system_prompt. Character scenes open with "3D rendered faceless
-# mannequin...", environment scenes open with "Cinematic wide shot...",
-# data/HUD scenes open with "Dark operations room...", etc.
-_PREFIX = ""
+# Style anchor — always prepended. For non-character scenes (environment,
+# data_hud, object_closeup), the system_prompt guides Claude to generate
+# descriptions that contextually override the mannequin reference.
+_PREFIX = "3D rendered faceless mannequin with smooth white oval head"
 
-# Universal suffix per prompt construction rule #6:
-# "End every prompt with this."
+# Universal suffix per prompt construction rule #6.
 _SUFFIX = (
     ", Cinematic 3D documentary style, smooth matte mannequin surfaces, "
-    "no facial features, 16:9"
+    "no facial features."
 )
 
 _STYLE_SYSTEM = StyleSystemConfig(
@@ -745,6 +743,16 @@ _RAW = {
         "environment": {"min_pct": 15, "max_pct": 20},
         "data_hud": {"min_pct": 10, "max_pct": 15},
         "object_closeup": {"min_pct": 10, "max_pct": 15},
+    },
+    # Composition affinity: preferred compositions per scene type.
+    # First item is most preferred. Falls back to full rotation if
+    # preferred would violate anti-repetition (3+ consecutive same).
+    "composition_affinity": {
+        "power_move": ["low_angle", "medium", "wide"],
+        "lone_figure": ["portrait", "medium", "closeup"],
+        "environment": ["wide", "environmental", "overhead"],
+        "data_hud": ["medium", "closeup"],
+        "object_closeup": ["closeup", "overhead"],
     },
     # Default config values
     "default_config": {
