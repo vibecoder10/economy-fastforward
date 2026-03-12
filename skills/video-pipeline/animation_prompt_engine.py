@@ -62,15 +62,6 @@ def _get_profile():
         return None
 
 
-def get_universal_rules() -> str:
-    """Get universal rules from active profile or hardcoded default."""
-    profile = _get_profile()
-    if profile and profile.animation.universal_rules:
-        return " ".join(profile.animation.universal_rules)
-    # Defer to module-level UNIVERSAL_RULES (defined below)
-    return UNIVERSAL_RULES
-
-
 def get_animation_templates() -> dict:
     """Get animation templates from active profile or hardcoded default."""
     profile = _get_profile()
@@ -440,12 +431,24 @@ def validate_max_actions(prompt: str, max_actions: int = 2) -> tuple[bool, int]:
 # Universal rules appended to every animation prompt
 # ---------------------------------------------------------------------------
 
-UNIVERSAL_RULES = (
+_HOLOGRAPHIC_UNIVERSAL_RULES = (
     "Maintain the full original frame composition. "
     "No human figures, faces, or hands should appear at any point during the animation. "
     "All text and data labels must remain legible throughout the animation. "
     "Holographic elements maintain their established color palette."
 )
+
+
+def get_universal_rules() -> str:
+    """Get animation universal rules from profile or holographic default."""
+    profile = _get_profile()
+    if profile and profile.animation.universal_rules:
+        return " ".join(profile.animation.universal_rules)
+    return _HOLOGRAPHIC_UNIVERSAL_RULES
+
+
+# Legacy name — use get_universal_rules() for profile-aware access
+UNIVERSAL_RULES = _HOLOGRAPHIC_UNIVERSAL_RULES
 
 
 # ---------------------------------------------------------------------------
@@ -634,12 +637,28 @@ _VERB_MOTION_MAP: dict[str, str] = {
 # Cost: ~$0.001 per call. Results are cached per-video so repeat verbs are free.
 # ---------------------------------------------------------------------------
 
-_HAIKU_VERB_PROMPT = (
+_HOLOGRAPHIC_VERB_PROMPT = (
     "Given the sentence '{sentence}' and the action verb '{verb}', "
     "describe ONE concrete visual motion in under 20 words that literally "
     "enacts this verb on a holographic data display. No camera movement, "
     "no metaphors, no people. Just the physical motion."
 )
+
+
+def _get_verb_prompt() -> str:
+    """Get verb motion prompt template from profile or holographic default."""
+    profile = _get_profile()
+    if profile and profile.profile_id != "holographic_hud" and profile.animation.motion_base_rule:
+        display_type = profile.profile_name or profile.profile_id
+        return (
+            "Given the sentence '{sentence}' and the action verb '{verb}', "
+            f"describe ONE concrete visual motion in under 20 words for a {display_type} scene. "
+            "No camera movement, no metaphors. Just the physical motion."
+        )
+    return _HOLOGRAPHIC_VERB_PROMPT
+
+
+_HAIKU_VERB_PROMPT = _HOLOGRAPHIC_VERB_PROMPT
 
 # Per-run cache: verb -> motion description (avoids repeat API calls within one video)
 _verb_motion_cache: dict[str, str] = {}
@@ -711,10 +730,16 @@ async def resolve_verb_motion_async(
         return ""
 
     try:
-        prompt = _HAIKU_VERB_PROMPT.format(sentence=sentence_text, verb=verb)
+        verb_prompt_template = _get_verb_prompt()
+        prompt = verb_prompt_template.format(sentence=sentence_text, verb=verb)
+        _vp = _get_profile()
+        if _vp and _vp.profile_id != "holographic_hud":
+            _haiku_sys = f"You describe visual motion for {_vp.profile_name or _vp.profile_id} scenes. Return ONLY the motion description, nothing else."
+        else:
+            _haiku_sys = "You describe visual motion for holographic data displays. Return ONLY the motion description, nothing else."
         response = await anthropic_client.generate(
             prompt=prompt,
-            system_prompt="You describe visual motion for holographic data displays. Return ONLY the motion description, nothing else.",
+            system_prompt=_haiku_sys,
             model="claude-haiku-4-5-20251001",
             max_tokens=60,
             temperature=0.3,

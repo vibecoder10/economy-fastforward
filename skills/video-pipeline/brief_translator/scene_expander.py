@@ -16,6 +16,16 @@ from pathlib import Path
 
 PROMPT_TEMPLATE_PATH = Path(__file__).parent / "prompts" / "concept_expand.txt"
 
+
+def _get_profile():
+    """Return the active visual profile, or None."""
+    try:
+        from visual_profiles import load_profile
+        return load_profile()
+    except Exception:
+        return None
+
+
 # Valid styles
 VALID_STYLES = {"dossier", "schema", "echo"}
 
@@ -632,16 +642,23 @@ async def expand_scene_concepts_deterministic(
             "mood": "neutral",
         }]
 
-    # Step 2: Assign visual styles based on act distribution
-    dist = STYLE_DISTRIBUTION.get(act_number, STYLE_DISTRIBUTION[1])
-    echo_allowed = dist.get("echo", 0) > 0
+    # Step 2: Assign visual styles based on profile or legacy act distribution
+    profile = _get_profile()
+    is_holographic = profile is None or profile.profile_id == "holographic_hud"
 
-    styles_pool = []
-    # Build pool based on distribution percentages
-    styles_pool.extend(["dossier"] * dist["dossier"])
-    styles_pool.extend(["schema"] * dist["schema"])
-    if echo_allowed:
-        styles_pool.extend(["echo"] * dist["echo"])
+    if not is_holographic and profile and not profile.style_system.substyles:
+        # Single-style profiles (e.g. clay_mannequin): all concepts use the same style
+        styles_pool = [profile.profile_id] * max(len(segments), 10)
+    else:
+        # Holographic or multi-substyle profiles: use legacy act distribution
+        dist = STYLE_DISTRIBUTION.get(act_number, STYLE_DISTRIBUTION[1])
+        echo_allowed = dist.get("echo", 0) > 0
+
+        styles_pool = []
+        styles_pool.extend(["dossier"] * dist["dossier"])
+        styles_pool.extend(["schema"] * dist["schema"])
+        if echo_allowed:
+            styles_pool.extend(["echo"] * dist["echo"])
 
     # Assign styles in rotation
     import random
@@ -661,31 +678,42 @@ async def expand_scene_concepts_deterministic(
         visual_style = styles_pool[style_idx] if styles_pool else "dossier"
         composition = compositions[comp_idx]
 
-        # Generate visual description via LLM
+        # Generate visual description via LLM — profile-driven prompt
         try:
-            visual_desc_prompt = (
-                "You are creating visual descriptions for HOLOGRAPHIC DATA DISPLAYS "
-                "in an intelligence operations center — not camera shots of real events.\n\n"
-                "NEVER describe:\n"
-                "- People (no politicians, officials, reporters, soldiers, analysts, or any human figures)\n"
-                "- Physical rooms or buildings as if a camera is there\n"
-                "- Events as if photographing them\n\n"
-                "ALWAYS describe:\n"
-                "- What DATA, DOCUMENTS, MAPS, or CHARTS would appear on a holographic screen analyzing this topic\n"
-                "- Information visualizations (price charts, treaty text, flow diagrams, network maps, timelines)\n"
-                "- At least one specific number, date, or percentage from the narration\n"
-                "- Data elements must come from THIS segment's text only, not from the broader script context\n\n"
-                "EXAMPLES:\n"
-                "BAD: 'Kremlin hall, Putin and Pezeshkian at long table with treaty document'\n"
-                "GOOD: 'Holographic treaty document floating in space, 47 articles visible with Section 12: Military Cooperation highlighted'\n\n"
-                "BAD: 'White House briefing room, reporters holding phones'\n"
-                "GOOD: 'Bloomberg terminal display showing headline with oil price ticker dropping from $120 to $68'\n\n"
-                "The subject is ALWAYS information/data being displayed, never the physical event itself.\n\n"
-                "Write a 20-35 word description of what DATA DISPLAY would visualize this narration. "
-                "Return ONLY the description, nothing else.\n\n"
-                f"Narration: \"{seg['text']}\"\n"
-                f"Visual seeds for context: {visual_seeds[:200] if visual_seeds else 'none'}"
-            )
+            if not is_holographic and profile and profile.scene_description.system_prompt:
+                # Use the profile's scene description system prompt
+                visual_desc_prompt = (
+                    f"{profile.scene_description.system_prompt}\n\n"
+                    "Write a 20-35 word visual description for this narration segment. "
+                    "Return ONLY the description, nothing else.\n\n"
+                    f"Narration: \"{seg['text']}\"\n"
+                    f"Visual seeds for context: {visual_seeds[:200] if visual_seeds else 'none'}"
+                )
+            else:
+                # Holographic default prompt
+                visual_desc_prompt = (
+                    "You are creating visual descriptions for HOLOGRAPHIC DATA DISPLAYS "
+                    "in an intelligence operations center — not camera shots of real events.\n\n"
+                    "NEVER describe:\n"
+                    "- People (no politicians, officials, reporters, soldiers, analysts, or any human figures)\n"
+                    "- Physical rooms or buildings as if a camera is there\n"
+                    "- Events as if photographing them\n\n"
+                    "ALWAYS describe:\n"
+                    "- What DATA, DOCUMENTS, MAPS, or CHARTS would appear on a holographic screen analyzing this topic\n"
+                    "- Information visualizations (price charts, treaty text, flow diagrams, network maps, timelines)\n"
+                    "- At least one specific number, date, or percentage from the narration\n"
+                    "- Data elements must come from THIS segment's text only, not from the broader script context\n\n"
+                    "EXAMPLES:\n"
+                    "BAD: 'Kremlin hall, Putin and Pezeshkian at long table with treaty document'\n"
+                    "GOOD: 'Holographic treaty document floating in space, 47 articles visible with Section 12: Military Cooperation highlighted'\n\n"
+                    "BAD: 'White House briefing room, reporters holding phones'\n"
+                    "GOOD: 'Bloomberg terminal display showing headline with oil price ticker dropping from $120 to $68'\n\n"
+                    "The subject is ALWAYS information/data being displayed, never the physical event itself.\n\n"
+                    "Write a 20-35 word description of what DATA DISPLAY would visualize this narration. "
+                    "Return ONLY the description, nothing else.\n\n"
+                    f"Narration: \"{seg['text']}\"\n"
+                    f"Visual seeds for context: {visual_seeds[:200] if visual_seeds else 'none'}"
+                )
 
             visual_description = await anthropic_client.generate(
                 prompt=visual_desc_prompt,

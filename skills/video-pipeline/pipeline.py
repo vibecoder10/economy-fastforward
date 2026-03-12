@@ -2158,10 +2158,27 @@ class VideoPipeline:
             if needs_regen:
                 print(f"    Regenerating {len(needs_regen)} visual descriptions "
                       f"(duration-adjusted concepts)...")
+                # Build profile-driven regen prompt
+                try:
+                    from visual_profiles import load_profile as _load_vp
+                    _regen_profile = _load_vp()
+                except Exception:
+                    _regen_profile = None
+                _regen_is_holographic = (
+                    _regen_profile is None
+                    or _regen_profile.profile_id == "holographic_hud"
+                )
                 for concept in needs_regen:
                     try:
-                        new_desc = await self.anthropic.generate(
-                            prompt=(
+                        if not _regen_is_holographic and _regen_profile and _regen_profile.scene_description.system_prompt:
+                            regen_prompt = (
+                                f"{_regen_profile.scene_description.system_prompt}\n\n"
+                                "Write a 20-35 word visual description for this narration segment. "
+                                "Return ONLY the description, nothing else.\n\n"
+                                f"Narration: \"{concept['sentence_text']}\""
+                            )
+                        else:
+                            regen_prompt = (
                                 "You are creating visual descriptions for HOLOGRAPHIC DATA DISPLAYS "
                                 "in an intelligence operations center — not camera shots of real events.\n\n"
                                 "NEVER describe:\n"
@@ -2182,7 +2199,9 @@ class VideoPipeline:
                                 "Write a 20-35 word description of what DATA DISPLAY would visualize this narration. "
                                 "Return ONLY the description, nothing else.\n\n"
                                 f"Narration: \"{concept['sentence_text']}\""
-                            ),
+                            )
+                        new_desc = await self.anthropic.generate(
+                            prompt=regen_prompt,
                             model="claude-sonnet-4-5-20250929",
                             max_tokens=200,
                             temperature=0.4,

@@ -107,7 +107,7 @@ CAMERA_MOVEMENT_HERO = {
 SPEED_WORDS_ALLOWED = ["slow", "subtle", "gentle", "soft", "gradual", "drifting", "easing"]
 SPEED_WORDS_FORBIDDEN = ["fast", "sudden", "dramatic", "explosive", "rapid", "intense", "quick"]
 
-MOTION_VOCABULARY = {
+_HOLOGRAPHIC_MOTION_VOCABULARY = {
     "holographic": [
         "data nodes slowly pulse with light",
         "connection lines gradually illuminate",
@@ -135,6 +135,18 @@ MOTION_VOCABULARY = {
         "projection beam slowly sweeps across the room",
     ],
 }
+
+
+def get_motion_vocabulary() -> dict:
+    """Get motion vocabulary from profile or holographic default."""
+    profile = _get_profile()
+    if profile and profile.animation.emotional_motion_dict:
+        return profile.animation.emotional_motion_dict
+    return _HOLOGRAPHIC_MOTION_VOCABULARY
+
+
+# Legacy name — callers should migrate to get_motion_vocabulary()
+MOTION_VOCABULARY = _HOLOGRAPHIC_MOTION_VOCABULARY
 
 
 # =============================================================================
@@ -175,12 +187,12 @@ def get_style_engine_suffix() -> str:
         return profile.raw["style_engine_suffix"]
     return STYLE_ENGINE_SUFFIX
 
-ANONYMOUS_FIGURE_STYLE = (
+_HOLOGRAPHIC_FIGURE_STYLE = (
     "No human figures allowed. Use measurement icons or labeled silhouette "
     "outlines for scale reference only."
 )
 
-MATERIAL_VOCABULARY = {
+_HOLOGRAPHIC_MATERIAL_VOCABULARY = {
     "premium": [
         "holographic gold wireframe", "brass instrument bezels",
         "polished console surfaces", "amber status indicators",
@@ -194,6 +206,27 @@ MATERIAL_VOCABULARY = {
         "glowing node networks", "floating analytical panels",
     ],
 }
+
+
+def get_anonymous_figure_style() -> str:
+    """Get figure style rules from profile or holographic default."""
+    profile = _get_profile()
+    if profile and profile.figure_rules.negative_prompt_suffix:
+        return profile.figure_rules.negative_prompt_suffix
+    return _HOLOGRAPHIC_FIGURE_STYLE
+
+
+def get_material_vocabulary() -> dict:
+    """Get material vocabulary from profile or holographic default."""
+    profile = _get_profile()
+    if profile and profile.raw.get("material_vocabulary"):
+        return profile.raw["material_vocabulary"]
+    return _HOLOGRAPHIC_MATERIAL_VOCABULARY
+
+
+# Legacy names — callers should migrate to functions above
+ANONYMOUS_FIGURE_STYLE = _HOLOGRAPHIC_FIGURE_STYLE
+MATERIAL_VOCABULARY = _HOLOGRAPHIC_MATERIAL_VOCABULARY
 
 TEXT_RULE_WITH_TEXT = "text elements must be data-formatted labels, numbers, percentages, or classification stamps only"
 TEXT_RULE_NO_TEXT = "no narrative text, only analytical data labels and readouts"
@@ -217,7 +250,7 @@ class CameraRole(_Enum):
     PULL_BACK_REVEAL = "pull_back_reveal"
 
 
-SCENE_TYPE_CONFIG = {
+_HOLOGRAPHIC_SCENE_TYPE_CONFIG = {
     SceneType.ISOMETRIC_DIORAMA: {
         "shot_prefix": "Overhead holographic war table displaying",
         "use_when": "Showing systems, flows, networks",
@@ -249,6 +282,55 @@ SCENE_TYPE_CONFIG = {
         "visual_language": "War table map, route lines, position markers",
     },
 }
+
+
+def get_scene_type_config() -> dict:
+    """Get scene type config from profile or holographic default.
+
+    For non-holographic profiles, generates scene type config from the
+    profile's style prefix instead of hardcoded holographic prefixes.
+    """
+    profile = _get_profile()
+    if profile and profile.profile_id != "holographic_hud" and profile.style_system.style_prefix:
+        # Build profile-driven config: use style prefix as shot prefix base
+        prefix = profile.style_system.style_prefix.rstrip(". ")
+        return {
+            SceneType.ISOMETRIC_DIORAMA: {
+                "shot_prefix": f"{prefix}, overhead diorama view showing",
+                "use_when": "Showing systems, flows, networks",
+                "visual_language": "Top-down angled view, full scene visible",
+            },
+            SceneType.SPLIT_SCREEN: {
+                "shot_prefix": f"{prefix}, split composition showing",
+                "use_when": "Comparing two realities, before/after",
+                "visual_language": "Multiple areas, contrasting elements",
+            },
+            SceneType.JOURNEY_SHOT: {
+                "shot_prefix": f"{prefix}, sequential composition showing",
+                "use_when": "Showing progression, decline, timelines",
+                "visual_language": "Sequential flow, connecting threads",
+            },
+            SceneType.CLOSE_UP_VIGNETTE: {
+                "shot_prefix": f"{prefix}, close-up detail showing",
+                "use_when": "Key details, critical moments",
+                "visual_language": "Tight crop, minimal surrounding context",
+            },
+            SceneType.DATA_LANDSCAPE: {
+                "shot_prefix": f"{prefix}, wide environmental view showing",
+                "use_when": "Environmental context, scale",
+                "visual_language": "Wide scene with environmental detail",
+            },
+            SceneType.OVERHEAD_MAP: {
+                "shot_prefix": f"{prefix}, overhead view showing",
+                "use_when": "Geographic or systemic views",
+                "visual_language": "Top-down perspective, spatial layout",
+            },
+        }
+    return _HOLOGRAPHIC_SCENE_TYPE_CONFIG
+
+
+# Legacy name — callers should migrate to get_scene_type_config()
+SCENE_TYPE_CONFIG = _HOLOGRAPHIC_SCENE_TYPE_CONFIG
 
 CAMERA_ROLE_SCENE_TYPES = {
     CameraRole.WIDE_ESTABLISHING: [
