@@ -26,8 +26,8 @@ VALID_VISUAL_STYLES: set[str] = {
 }
 DEFAULT_VISUAL_STYLE = "mannequin_storytelling"
 
-# Default model when no override specified (empty = use profile default)
-DEFAULT_IMAGE_MODEL = ""
+# Default model for video/scene images (z-image), thumbnails use nano-banana-2
+DEFAULT_IMAGE_MODEL = "z-image"
 
 
 def get_image_model_override(record: dict) -> str:
