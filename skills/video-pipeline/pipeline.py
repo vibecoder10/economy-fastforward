@@ -2074,13 +2074,15 @@ class VideoPipeline:
         # ---------------------------------------------------------------
         # Pre-generate style assignments for all images using sequencer
         # ---------------------------------------------------------------
-        # Estimate total images: ~7 images per scene average (range 6-10)
-        estimated_total_images = total_scripts * 7
+        # Over-allocate: scenes average 7-8 images but can hit 10.
+        # Use 10 per scene so the sequencer covers the worst case.
+        estimated_total_images = total_scripts * 10
+        style_seed = hash(self.video_title) % (2**32)  # Deterministic seed per video
         print(f"  Generating style assignments for ~{estimated_total_images} images...")
 
         style_assignments = assign_styles(
             total_images=estimated_total_images,
-            seed=hash(self.video_title) % (2**32),  # Deterministic seed per video
+            seed=style_seed,
         )
         print(f"  ✓ Style rotation configured: {len(style_assignments)} assignments ready")
 
@@ -2184,18 +2186,20 @@ class VideoPipeline:
             for concept in concepts:
                 visual_desc = concept["visual_description"]
 
-                # Get style assignment from sequencer (with bounds check)
-                if image_index < len(style_assignments):
-                    style = style_assignments[image_index]
-                    content_type = style["content_type"]
-                    display_format = style["display_format"]
-                    color_mood = style["color_mood"]
-                else:
-                    # Fallback if we exceed estimate (shouldn't happen often)
-                    print(f"      ⚠️ Image index {image_index} exceeds assignments, using defaults")
-                    content_type = "geographic_map"
-                    display_format = "war_table"
-                    color_mood = "strategic"
+                # Get style assignment from sequencer (extend if needed)
+                if image_index >= len(style_assignments):
+                    # Actual image count exceeded estimate — regenerate with
+                    # the real count so rotation constraints stay intact.
+                    new_total = image_index + total_scripts * 10
+                    print(f"      ↻ Extending style assignments: "
+                          f"{len(style_assignments)} → {new_total}")
+                    style_assignments = assign_styles(
+                        total_images=new_total, seed=style_seed,
+                    )
+                style = style_assignments[image_index]
+                content_type = style["content_type"]
+                display_format = style["display_format"]
+                color_mood = style["color_mood"]
 
                 # Build styled prompt using sequencer-assigned styles
                 prompt = build_prompt(
