@@ -26,8 +26,8 @@ def _get_profile():
         return None
 
 
-# Valid styles
-VALID_STYLES = {"dossier", "schema", "echo"}
+# Hardcoded fallback valid styles
+_DEFAULT_VALID_STYLES = {"dossier", "schema", "echo"}
 
 # Hardcoded fallback compositions
 _DEFAULT_COMPOSITIONS = {
@@ -46,6 +46,18 @@ _DEFAULT_STYLE_DISTRIBUTION = {
 }
 
 
+def get_valid_styles() -> set:
+    """Get valid visual styles from profile substyles or default."""
+    profile = _get_profile()
+    if profile and profile.style_system.substyles:
+        return set(profile.style_system.substyles.keys())
+    return _DEFAULT_VALID_STYLES
+
+
+# Legacy name — callers should use get_valid_styles()
+VALID_STYLES = _DEFAULT_VALID_STYLES
+
+
 def get_valid_compositions() -> set:
     """Get valid compositions from profile or default."""
     profile = _get_profile()
@@ -60,6 +72,61 @@ def get_style_distribution() -> dict:
     if profile and profile.rotation.scene_expander_style_distribution:
         return profile.rotation.scene_expander_style_distribution
     return _DEFAULT_STYLE_DISTRIBUTION
+
+
+def get_default_style() -> str:
+    """Get the default/fallback visual style name from profile or 'dossier'."""
+    profile = _get_profile()
+    if profile and profile.style_system.substyles:
+        # Return the highest-weight substyle as default
+        return max(
+            profile.style_system.substyles,
+            key=lambda k: profile.style_system.substyles[k].weight,
+        )
+    return "dossier"
+
+
+def _pick_composition(visual_style: str, index: int, recent_compositions: list[str]) -> str:
+    """Pick a composition using affinity mapping with anti-repetition.
+
+    If the profile has a composition_affinity for the given visual_style,
+    prefer those compositions. Fall back to full rotation if preferred
+    options would violate the anti-repetition constraint (3+ consecutive).
+    """
+    all_compositions = list(get_valid_compositions())
+    profile = _get_profile()
+    affinity = None
+    if profile and profile.raw.get("composition_affinity"):
+        affinity = profile.raw["composition_affinity"].get(visual_style)
+
+    # Count trailing repetitions
+    max_consecutive = 3
+
+    def _would_repeat(comp: str) -> bool:
+        if len(recent_compositions) < max_consecutive - 1:
+            return False
+        return all(c == comp for c in recent_compositions[-(max_consecutive - 1):])
+
+    if affinity:
+        # Try preferred compositions in order
+        for comp in affinity:
+            if not _would_repeat(comp):
+                return comp
+        # All preferred would repeat — try remaining compositions
+        remaining = [c for c in all_compositions if c not in affinity]
+        for comp in remaining:
+            if not _would_repeat(comp):
+                return comp
+
+    # No affinity or all options exhausted — modulo rotation
+    comp = all_compositions[index % len(all_compositions)]
+    if _would_repeat(comp):
+        # Shift to next option
+        for offset in range(1, len(all_compositions)):
+            alt = all_compositions[(index + offset) % len(all_compositions)]
+            if not _would_repeat(alt):
+                return alt
+    return comp
 
 
 # Legacy names — callers should use getters above
@@ -284,8 +351,8 @@ def _repair_all_concepts(concepts: list[dict], scene_text: str) -> list[dict]:
                 "concept_index": 1,
                 "sentence_text": normalized_source,
                 "visual_description": normalized_source,
-                "visual_style": "dossier",
-                "composition": "wide",
+                "visual_style": get_default_style(),
+                "composition": _pick_composition(get_default_style(), 0, []),
                 "mood": "tension",
                 "needs_new_prompt": True,
             })
@@ -430,8 +497,8 @@ def _validate_concepts(
             )
 
         style = concept.get("visual_style", "")
-        if style not in VALID_STYLES:
-            concept["visual_style"] = "dossier"
+        if style not in get_valid_styles():
+            concept["visual_style"] = get_default_style()
 
         comp = concept.get("composition", "")
         if comp not in get_valid_compositions():
@@ -585,18 +652,18 @@ def _sentence_boundary_split(scene_text: str) -> list[dict]:
         chunks[-2] = chunks[-2] + " " + chunks[-1]
         chunks.pop()
 
-    compositions = [
-        "wide", "medium", "closeup", "environmental",
-        "portrait", "overhead", "low_angle",
-    ]
+    default_style = get_default_style()
+    recent_comps: list[str] = []
     concepts = []
     for i, chunk in enumerate(chunks):
+        comp = _pick_composition(default_style, i, recent_comps)
+        recent_comps.append(comp)
         concepts.append({
             "concept_index": i + 1,
             "sentence_text": chunk,
             "visual_description": chunk,  # Use narration as placeholder
-            "visual_style": "dossier",
-            "composition": compositions[i % len(compositions)],
+            "visual_style": default_style,
+            "composition": comp,
             "mood": "tension",
             "needs_new_prompt": True,
         })
@@ -640,7 +707,7 @@ async def expand_scene_concepts_deterministic(
         - concept_index (int, 1-based)
         - sentence_text (str, exact substring of scene_text)
         - visual_description (str, 20-35 word filmable description)
-        - visual_style (str, dossier/schema/echo)
+        - visual_style (str, profile substyle name)
         - composition (str, wide/medium/closeup/etc.)
         - mood (str)
     """
@@ -660,8 +727,8 @@ async def expand_scene_concepts_deterministic(
             "concept_index": 1,
             "sentence_text": scene_text,
             "visual_description": "Empty scene",
-            "visual_style": "dossier",
-            "composition": "medium",
+            "visual_style": get_default_style(),
+            "composition": _pick_composition(get_default_style(), 0, []),
             "mood": "neutral",
         }]
 
@@ -687,18 +754,19 @@ async def expand_scene_concepts_deterministic(
     random.seed(scene_number)  # Deterministic based on scene number
     random.shuffle(styles_pool)
 
-    # Step 3: Assign compositions in rotation
-    compositions = ["wide", "medium", "closeup", "environmental", "portrait", "overhead", "low_angle"]
+    # Step 3: Assign compositions using affinity mapping
+    default_fallback_style = get_default_style()
+    recent_comps: list[str] = []
 
     # Step 4: Generate visual_description for each segment using LLM
     concepts = []
 
     for i, seg in enumerate(segments):
         style_idx = i % len(styles_pool) if styles_pool else 0
-        comp_idx = i % len(compositions)
 
-        visual_style = styles_pool[style_idx] if styles_pool else "dossier"
-        composition = compositions[comp_idx]
+        visual_style = styles_pool[style_idx] if styles_pool else default_fallback_style
+        composition = _pick_composition(visual_style, i, recent_comps)
+        recent_comps.append(composition)
 
         # Generate visual description via LLM — profile-driven prompt
         try:
@@ -798,7 +866,7 @@ async def expand_scene_concepts(
         - concept_index (int, 1-based)
         - sentence_text (str, exact substring of scene_text)
         - visual_description (str, 20-35 word filmable description)
-        - visual_style (str, dossier/schema/echo)
+        - visual_style (str, profile substyle name)
         - composition (str, wide/medium/closeup/etc.)
         - mood (str)
     """
@@ -919,16 +987,16 @@ async def expand_scene_concepts(
         best_concepts = _repair_all_concepts(best_concepts, scene_text)
 
         # Force-fix: ensure every concept has required fields
-        compositions = [
-            "wide", "medium", "closeup", "environmental",
-            "portrait", "overhead", "low_angle",
-        ]
+        valid_styles = get_valid_styles()
+        fallback_style = get_default_style()
+        repair_comps: list[str] = []
         for i, c in enumerate(best_concepts):
             c["concept_index"] = i + 1
-            if not c.get("visual_style") or c["visual_style"] not in VALID_STYLES:
-                c["visual_style"] = "dossier"
+            if not c.get("visual_style") or c["visual_style"] not in valid_styles:
+                c["visual_style"] = fallback_style
             if not c.get("composition") or c["composition"] not in get_valid_compositions():
-                c["composition"] = compositions[i % len(compositions)]
+                c["composition"] = _pick_composition(c["visual_style"], i, repair_comps)
+            repair_comps.append(c["composition"])
             if not c.get("visual_description"):
                 c["visual_description"] = c.get("sentence_text", "")
                 c["needs_new_prompt"] = True
