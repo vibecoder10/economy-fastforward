@@ -29,8 +29,7 @@ _PROFILE_MODULES: dict[str, str] = {
     "holographic_hud": "visual_profiles.holographic_hud",
     "cinematic_dossier": "visual_profiles.cinematic_dossier",
     "clay_mannequin": "visual_profiles.clay_mannequin",
-    # Alias: mannequin_storytelling → clay_mannequin (until dedicated profile is built)
-    "mannequin_storytelling": "visual_profiles.clay_mannequin",
+    "mannequin_storytelling": "visual_profiles.mannequin_storytelling",
 }
 
 DEFAULT_PROFILE_ID = "holographic_hud"
