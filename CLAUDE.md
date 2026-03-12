@@ -118,3 +118,48 @@ python -m ruff check .
 4. **Explain Changes**: High-level summary at each step
 5. **Document Results**: Add review section to `tasks/todo.md`
 6. **Capture Lessons**: Update `tasks/lessons.md` after corrections
+
+---
+
+## ⚠️ MANDATORY WIRING AUDIT PROTOCOL
+
+**This applies to EVERY task. No exceptions.**
+
+Building a module is 50% of the work. Wiring it into the live system is the other 50%. A module that exists but isn't called by anything is dead code. This has been a recurring failure pattern — features get built, tests pass, PRs merge, and then the feature sits disconnected because nobody wired the entry points.
+
+### Before marking ANY task as complete, verify ALL of these:
+
+**Entry Points:**
+- How does this code get triggered? (pipeline.py flag? cron? Slack command? status change?)
+- Is the trigger ACTUALLY wired? (not just the module existing, but the caller invoking it)
+- Run the trigger on VPS and confirm it reaches the new code
+
+**Data Flow:**
+- Do Airtable field names in code EXACTLY match the real Airtable fields? (case-sensitive, spaces matter)
+- Test one real Airtable read AND one real write — not mocks
+- Are any new env vars needed? Verify they exist in `.env` on VPS: `grep VAR_NAME .env`
+
+**Integration:**
+- Are new imports added to all files that call the new code?
+- Are new pip packages installed on VPS?
+- Do Slack notifications actually fire? Test live, don't assume.
+
+**Smoke Test:**
+- Run the actual command on VPS with real data
+- Check Airtable for expected records
+- Check Slack for expected messages
+- Check `/tmp/pipeline-*.log` for errors
+
+**Documentation:**
+- Update CLAUDE.md if new CLI flags or Slack commands were added
+- Update setup_cron.sh if new cron jobs were added (AND run `bash setup_cron.sh` to install)
+
+### If the task instruction file includes a specific `## ⚠️ WIRING AUDIT` section, complete BOTH this general checklist AND the task-specific one.
+
+### Common Failure Modes to Watch For:
+- `Image Model Override` is a Multiple Select (returns list, not string)
+- `Visual Style` is a Single Select (returns string)
+- Airtable UNKNOWN_FIELD_NAME errors are silent — the write appears to succeed but drops the field
+- Apify actor schemas vary — always print raw response on first call to verify field names
+- Cron jobs written to setup_cron.sh are NOT automatically installed — must run `bash setup_cron.sh`
+- pipeline_control.py Slack commands require both the command handler AND the import of the new module
