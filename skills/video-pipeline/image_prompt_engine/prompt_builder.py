@@ -42,6 +42,8 @@ from .style_config import (
     resolve_color_mood,
     resolve_content_type,
     resolve_display_format,
+    get_accent_color_to_mood,
+    get_category_to_mood,
 )
 from .sequencer import assign_styles
 
@@ -375,39 +377,17 @@ def resolve_accent_color(
     accent_color: Optional[str] = None,
     topic_category: Optional[str] = None,
 ) -> str:
-    """Legacy API: returns a color mood value string.
+    """Returns a color mood value string from profile mappings.
 
-    Maps old accent_color/topic_category to new color mood system.
+    Maps accent_color/topic_category to mood using profile's
+    accent_color_to_mood and category_to_mood mappings.
     """
     if accent_color:
-        # Map old accent colors to new mood values
-        accent_to_mood = {
-            "cold teal": "strategic",
-            "warm amber": "archive",
-            "muted crimson": "alert",
-            "muted green": "contagion",
-            "deep green": "contagion",
-        }
+        accent_to_mood = get_accent_color_to_mood()
         return accent_to_mood.get(accent_color, accent_color)
     if topic_category:
-        category_to_mood = {
-            "geopolitical": "strategic",
-            "ai_tech": "strategic",
-            "corporate_power": "power",
-            "surveillance": "strategic",
-            "economic": "personal",
-            "financial": "personal",
-            "historical_power": "archive",
-            "old_money": "archive",
-            "conflict": "alert",
-            "warfare": "alert",
-            "political_violence": "alert",
-            "military": "power",
-            "markets": "contagion",
-            "growth": "contagion",
-            "trade": "contagion",
-        }
-        return category_to_mood.get(topic_category, "strategic")
+        cat_to_mood = get_category_to_mood()
+        return cat_to_mood.get(topic_category, "strategic")
     return "strategic"
 
 

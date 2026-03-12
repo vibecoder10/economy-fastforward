@@ -59,11 +59,27 @@ PROMPT_MIN_WORDS = 60
 PROMPT_MAX_WORDS = 150
 
 
+def get_prompt_min_words() -> int:
+    """Get minimum prompt word count from profile or default."""
+    profile = _get_profile()
+    if profile and profile.raw.get("prompt_min_words"):
+        return profile.raw["prompt_min_words"]
+    return PROMPT_MIN_WORDS
+
+
+def get_prompt_max_words() -> int:
+    """Get maximum prompt word count from profile or default."""
+    profile = _get_profile()
+    if profile and profile.raw.get("prompt_max_words"):
+        return profile.raw["prompt_max_words"]
+    return PROMPT_MAX_WORDS
+
+
 # =============================================================================
 # CAMERA MOVEMENT VOCABULARY — For video animation prompts
 # =============================================================================
 
-CAMERA_MOVEMENT_BY_FORMAT = {
+_HOLOGRAPHIC_CAMERA_MOVEMENT_BY_FORMAT = {
     DisplayFormat.WAR_TABLE: [
         "Slow orbit around the table surface",
         "Gentle push-in toward the center of the projection",
@@ -95,6 +111,20 @@ CAMERA_MOVEMENT_BY_FORMAT = {
         "Subtle rack focus between foreground and background data",
     ],
 }
+
+
+def get_camera_movement_by_format() -> dict:
+    """Get camera movement vocabulary by format from profile or default."""
+    profile = _get_profile()
+    if profile and profile.raw.get("camera_movement_by_format"):
+        raw = profile.raw["camera_movement_by_format"]
+        fmt_map = {f.value: f for f in DisplayFormat}
+        return {fmt_map[k]: v for k, v in raw.items() if k in fmt_map}
+    return _HOLOGRAPHIC_CAMERA_MOVEMENT_BY_FORMAT
+
+
+# Legacy name
+CAMERA_MOVEMENT_BY_FORMAT = _HOLOGRAPHIC_CAMERA_MOVEMENT_BY_FORMAT
 
 CAMERA_MOVEMENT_HERO = {
     DisplayFormat.WAR_TABLE: "Slow orbit around the table with gradual push-in revealing layers of data",
@@ -232,6 +262,14 @@ TEXT_RULE_WITH_TEXT = "text elements must be data-formatted labels, numbers, per
 TEXT_RULE_NO_TEXT = "no narrative text, only analytical data labels and readouts"
 
 
+def get_text_in_image_rules() -> str:
+    """Get text-in-image rules from profile or holographic default."""
+    profile = _get_profile()
+    if profile and profile.scene_description.text_in_image_rules:
+        return profile.scene_description.text_in_image_rules
+    return TEXT_RULE_WITH_TEXT
+
+
 class SceneType(_Enum):
     """Legacy scene types — mapped to new display formats."""
     ISOMETRIC_DIORAMA = "isometric_diorama"
@@ -362,7 +400,8 @@ def get_camera_motion(scene_type, is_hero: bool = False) -> str:
     if isinstance(scene_type, DisplayFormat):
         if is_hero:
             return CAMERA_MOVEMENT_HERO.get(scene_type, "Slow push-in with depth reveal")
-        movements = CAMERA_MOVEMENT_BY_FORMAT.get(scene_type)
+        cam_by_fmt = get_camera_movement_by_format()
+        movements = cam_by_fmt.get(scene_type)
         if movements:
             return random.choice(movements)
         return "Slow push-in"
@@ -418,7 +457,10 @@ def get_camera_motion(scene_type, is_hero: bool = False) -> str:
 def get_random_atmospheric_motion() -> str:
     """Get a random atmospheric motion element for video prompts."""
     import random
-    return random.choice(MOTION_VOCABULARY["atmospheric"])
+    vocab = get_motion_vocabulary()
+    # Use "atmospheric" key if present, otherwise pick from first available category
+    options = vocab.get("atmospheric", next(iter(vocab.values()), ["Subtle ambient motion"]))
+    return random.choice(options)
 
 
 def get_documentary_pattern(segment_count: int) -> List[CameraRole]:
@@ -483,11 +525,13 @@ def get_scene_type_for_segment(
 
 def validate_prompt_length(prompt: str) -> Tuple[bool, int, str]:
     """Validate that a prompt is within the word budget."""
+    min_w = get_prompt_min_words()
+    max_w = get_prompt_max_words()
     word_count = len(prompt.split())
-    if word_count < PROMPT_MIN_WORDS:
-        return False, word_count, f"Too short: {word_count} words (min {PROMPT_MIN_WORDS})"
-    elif word_count > PROMPT_MAX_WORDS:
-        return False, word_count, f"Too long: {word_count} words (max {PROMPT_MAX_WORDS})"
+    if word_count < min_w:
+        return False, word_count, f"Too short: {word_count} words (min {min_w})"
+    elif word_count > max_w:
+        return False, word_count, f"Too long: {word_count} words (max {max_w})"
     else:
         return True, word_count, f"Valid: {word_count} words"
 

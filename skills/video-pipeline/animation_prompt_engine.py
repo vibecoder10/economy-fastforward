@@ -451,6 +451,30 @@ def get_universal_rules() -> str:
 UNIVERSAL_RULES = _HOLOGRAPHIC_UNIVERSAL_RULES
 
 
+def get_banned_motion_words() -> list:
+    """Get banned motion words from profile or empty default."""
+    profile = _get_profile()
+    if profile and profile.animation.banned_motion_words:
+        return profile.animation.banned_motion_words
+    return []
+
+
+def get_emotional_motion_dict() -> dict:
+    """Get emotional motion dictionary from profile or empty default."""
+    profile = _get_profile()
+    if profile and profile.animation.emotional_motion_dict:
+        return profile.animation.emotional_motion_dict
+    return {}
+
+
+def get_motion_base_rule() -> str:
+    """Get motion base rule from profile or holographic default."""
+    profile = _get_profile()
+    if profile and profile.animation.motion_base_rule:
+        return profile.animation.motion_base_rule
+    return "Maintain the full original frame composition and camera angle, do not zoom or reframe"
+
+
 # ---------------------------------------------------------------------------
 # Content-specific motion templates — VERB-FIRST, STATIC CAMERA, 2-ACTION MAX
 # ---------------------------------------------------------------------------
@@ -870,13 +894,20 @@ def generate_animation_prompt(
                 content_motion,
             )
 
+    # Profile-aware background and rules
+    _profile = _get_profile()
+    if _profile and _profile.profile_id != "holographic_hud":
+        bg_note = ""  # Non-holographic profiles don't need "dark room" note
+    else:
+        bg_note = "Dark room background unchanged."
+
     parts = [
         camera_note if camera_note else "",
         content_motion,
         "Data labels and text remain stable and legible throughout.",
-        "Dark room background unchanged.",
+        bg_note,
         f"{clip_duration} seconds.",
-        UNIVERSAL_RULES,
+        get_universal_rules(),
     ]
 
     # Filter empty parts and join

@@ -302,6 +302,14 @@ HOLOGRAPHIC_SUFFIX = (
 )
 
 
+def get_style_suffix() -> str:
+    """Get universal style suffix from profile or holographic default."""
+    profile = _get_profile()
+    if profile and profile.style_system.style_suffix:
+        return profile.style_system.style_suffix
+    return HOLOGRAPHIC_SUFFIX
+
+
 # =============================================================================
 # ROTATION CONSTRAINTS
 # =============================================================================
@@ -315,6 +323,38 @@ ESTABLISHING_FORMATS = [
     DisplayFormat.WAR_TABLE,
     DisplayFormat.WALL_DISPLAY,
 ]
+
+
+def get_max_consecutive_content_type() -> int:
+    """Get max consecutive same content type from profile or default."""
+    profile = _get_profile()
+    if profile:
+        return profile.rotation.max_consecutive_same_content_type
+    return MAX_CONSECUTIVE_CONTENT_TYPE
+
+
+def get_max_consecutive_format() -> int:
+    """Get max consecutive same format from profile or default."""
+    profile = _get_profile()
+    if profile:
+        return profile.rotation.max_consecutive_same_format
+    return MAX_CONSECUTIVE_FORMAT
+
+
+def get_max_consecutive_palette() -> int:
+    """Get max consecutive same palette from profile or default."""
+    profile = _get_profile()
+    if profile:
+        return profile.rotation.max_consecutive_same_palette
+    return MAX_CONSECUTIVE_PALETTE
+
+
+def get_max_consecutive_close_up() -> int:
+    """Get max consecutive close-up from profile or default."""
+    profile = _get_profile()
+    if profile:
+        return profile.rotation.max_consecutive_close_up
+    return MAX_CONSECUTIVE_CLOSE_UP
 
 
 # =============================================================================
@@ -333,6 +373,29 @@ KEN_BURNS_PAN_ALTERNATES = {
     "slow_pan_right": "slow_pan_left",
     "slow_pan_left": "slow_pan_right",
 }
+
+
+def get_ken_burns_rules() -> dict:
+    """Get Ken Burns rules from profile or holographic default.
+
+    Profile stores rules by format string key; this converts back to
+    DisplayFormat enum keys for backward compatibility.
+    """
+    profile = _get_profile()
+    if profile and profile.raw.get("ken_burns_rules_by_format"):
+        raw = profile.raw["ken_burns_rules_by_format"]
+        # Convert string keys to DisplayFormat enums
+        fmt_map = {f.value: f for f in DisplayFormat}
+        return {fmt_map[k]: v for k, v in raw.items() if k in fmt_map}
+    return KEN_BURNS_RULES
+
+
+def get_ken_burns_pan_alternates() -> dict:
+    """Get Ken Burns pan alternates from profile or default."""
+    profile = _get_profile()
+    if profile and profile.ken_burns.pan_alternates:
+        return profile.ken_burns.pan_alternates
+    return KEN_BURNS_PAN_ALTERNATES
 
 
 # =============================================================================
@@ -389,6 +452,42 @@ ACT_MOOD_WEIGHTS = {
         ColorMood.PERSONAL: 0.15,
     },
 }
+
+def get_act_mood_weights() -> dict:
+    """Get act mood weights from profile or holographic default.
+
+    Profile stores weights with string mood keys; this converts back to
+    ColorMood enum keys for backward compatibility.
+    """
+    profile = _get_profile()
+    if profile and profile.rotation.act_weights:
+        raw = profile.rotation.act_weights
+        mood_map = {m.value: m for m in ColorMood}
+        result = {}
+        for act_key, mood_weights in raw.items():
+            result[act_key] = {
+                mood_map.get(mk, mk): w for mk, w in mood_weights.items()
+                if mk in mood_map
+            }
+        return result
+    return ACT_MOOD_WEIGHTS
+
+
+def get_default_config() -> dict:
+    """Get default config from profile or holographic default."""
+    profile = _get_profile()
+    if profile and profile.raw.get("default_config"):
+        raw_config = dict(profile.raw["default_config"])
+        # Merge rotation constraints from profile
+        raw_config.setdefault("max_consecutive_content_type", profile.rotation.max_consecutive_same_content_type)
+        raw_config.setdefault("max_consecutive_format", profile.rotation.max_consecutive_same_format)
+        raw_config.setdefault("max_consecutive_palette", profile.rotation.max_consecutive_same_palette)
+        raw_config.setdefault("max_consecutive_close_up", profile.rotation.max_consecutive_close_up)
+        # Ensure act_timestamps exists (some profiles may not have it)
+        raw_config.setdefault("act_timestamps", DEFAULT_CONFIG["act_timestamps"])
+        return raw_config
+    return DEFAULT_CONFIG
+
 
 # Display Format rotation cycle
 FORMAT_CYCLE = [
@@ -470,3 +569,54 @@ def resolve_display_format(content_type: ContentType, index: int = 0) -> Display
         [DisplayFormat.WAR_TABLE, DisplayFormat.WALL_DISPLAY],
     )
     return formats[index % len(formats)]
+
+
+def get_accent_color_to_mood() -> dict:
+    """Get accent-color-to-mood mapping from profile or holographic default."""
+    profile = _get_profile()
+    if profile and profile.style_system.accent_color_to_mood:
+        return profile.style_system.accent_color_to_mood
+    return {
+        "cold teal": "strategic",
+        "warm amber": "archive",
+        "muted crimson": "alert",
+        "muted green": "contagion",
+        "deep green": "contagion",
+    }
+
+
+def get_category_to_mood() -> dict:
+    """Get topic-category-to-mood mapping from profile or holographic default."""
+    profile = _get_profile()
+    if profile and profile.style_system.category_to_mood:
+        return profile.style_system.category_to_mood
+    return {
+        "geopolitical": "strategic",
+        "ai_tech": "strategic",
+        "corporate_power": "power",
+        "surveillance": "strategic",
+        "economic": "personal",
+        "financial": "personal",
+        "historical_power": "archive",
+        "old_money": "archive",
+        "conflict": "alert",
+        "warfare": "alert",
+        "political_violence": "alert",
+        "military": "power",
+        "markets": "contagion",
+        "growth": "contagion",
+        "trade": "contagion",
+    }
+
+
+def get_accent_colors() -> dict:
+    """Get accent color mapping (topic → color) from profile or holographic default."""
+    profile = _get_profile()
+    if profile and profile.style_system.accent_colors:
+        return profile.style_system.accent_colors
+    return {
+        "geopolitical": "strategic",
+        "financial": "personal",
+        "conflict": "alert",
+        "default": "strategic",
+    }
