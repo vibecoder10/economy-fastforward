@@ -2141,12 +2141,26 @@ class VideoPipeline:
                 continue
 
             if scene_num in existing_scenes:
-                # Scene already has images - count them and advance image_index
                 existing_image_count = sum(1 for img in existing_images if img.get("Scene") == scene_num)
-                image_index += existing_image_count
-                scenes_skipped += 1
-                print(f"  Scene {scene_num}: Skipped (has {existing_image_count} images), advanced index to {image_index}")
-                continue
+                if self.image_filter is not None:
+                    # Targeted run: only skip if this SPECIFIC image index exists
+                    has_target = any(
+                        img.get("Scene") == scene_num and img.get("Image Index") == self.image_filter
+                        for img in existing_images
+                    )
+                    if has_target:
+                        image_index += existing_image_count
+                        scenes_skipped += 1
+                        print(f"  Scene {scene_num}, Image {self.image_filter}: Skipped (already exists)")
+                        continue
+                    # Target doesn't exist yet — proceed with generation
+                    print(f"  Scene {scene_num}: {existing_image_count} images exist, but index {self.image_filter} missing — generating")
+                else:
+                    # Full run: skip entire scene if it has any images
+                    image_index += existing_image_count
+                    scenes_skipped += 1
+                    print(f"  Scene {scene_num}: Skipped (has {existing_image_count} images), advanced index to {image_index}")
+                    continue
 
             act_number = min(6, (scene_num - 1) * 6 // total_scripts + 1) if total_scripts > 0 else 1
 
@@ -2308,27 +2322,30 @@ class VideoPipeline:
         # Audio Sync: Whisper-aligned durations
         # ---------------------------------------------------------------
         audio_sync_summary = ""
-        try:
-            print(f"\n  Running audio sync for scene durations...")
-            sync_result = await self.run_audio_sync()
+        if self._is_targeted_run:
+            print(f"\n  🎯 Targeted run — skipping audio sync (needs all images)")
+        else:
+            try:
+                print(f"\n  Running audio sync for scene durations...")
+                sync_result = await self.run_audio_sync()
 
-            if sync_result.get("error"):
-                print(f"  Audio sync skipped: {sync_result['error']}")
-                audio_sync_summary = f" | Audio sync skipped: {sync_result['error']}"
-            else:
-                # run_audio_sync() already wrote per-image durations to
-                # Airtable (at line ~2907) and render_config.json to both
-                # timing/ and remotion-video/public/.  No second write needed.
-                avg_dur = sync_result["total_duration"] / max(sync_result["scene_count"], 1)
-                print(f"  Audio sync: {sync_result['scene_count']} scenes aligned, "
-                      f"avg {avg_dur:.1f}s, {sync_result.get('image_count', 0)} records updated")
-                audio_sync_summary = (
-                    f" | Audio sync: {sync_result['scene_count']} scenes, "
-                    f"avg {avg_dur:.1f}s"
-                )
-        except Exception as e:
-            print(f"  Audio sync failed (non-blocking): {e}")
-            audio_sync_summary = f" | Audio sync error: {e}"
+                if sync_result.get("error"):
+                    print(f"  Audio sync skipped: {sync_result['error']}")
+                    audio_sync_summary = f" | Audio sync skipped: {sync_result['error']}"
+                else:
+                    # run_audio_sync() already wrote per-image durations to
+                    # Airtable (at line ~2907) and render_config.json to both
+                    # timing/ and remotion-video/public/.  No second write needed.
+                    avg_dur = sync_result["total_duration"] / max(sync_result["scene_count"], 1)
+                    print(f"  Audio sync: {sync_result['scene_count']} scenes aligned, "
+                          f"avg {avg_dur:.1f}s, {sync_result.get('image_count', 0)} records updated")
+                    audio_sync_summary = (
+                        f" | Audio sync: {sync_result['scene_count']} scenes, "
+                        f"avg {avg_dur:.1f}s"
+                    )
+            except Exception as e:
+                print(f"  Audio sync failed (non-blocking): {e}")
+                audio_sync_summary = f" | Audio sync error: {e}"
 
         # Update status (skip if targeted run)
         if self._is_targeted_run:
