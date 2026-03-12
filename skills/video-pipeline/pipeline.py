@@ -185,6 +185,8 @@ class VideoPipeline:
         # Load visual style from Airtable (for visual profile selection)
         from clients.airtable_client import get_visual_style
         self.visual_style = get_visual_style(idea)
+        # Set env var so load_profile() picks it up everywhere in the pipeline
+        os.environ["VISUAL_PROFILE"] = self.visual_style
 
         print(f"\n📌 Loaded idea: {self.video_title}")
         print(f"   Status: {idea.get('Status')}")
@@ -4389,6 +4391,7 @@ async def main():
         print('  --idea "..."      Generate 3 video ideas from URL or concept')
         print('  --research "..."  Run deep research on a topic (saves to Idea Concepts)')
         print("  --trending        Generate ideas from trending YouTube videos (Apify)")
+        print("  --competitors     Scrape competitor channels and generate modeled ideas")
         print("  --discover        Scan headlines for video ideas and save to Airtable")
         print("  --translate       Run brief translator (research brief → script + scenes)")
         print("  --styled-prompts  Run image prompt engine with visual identity system")
