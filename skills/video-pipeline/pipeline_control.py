@@ -1333,6 +1333,77 @@ async def handle_discover(message, say, client):
         await say(f":x: Discovery scan failed: {e}")
 
 
+@app.message(re.compile(r"run competitors", re.IGNORECASE))
+@app.message(re.compile(r"competitors", re.IGNORECASE))
+@app.message(re.compile(r"competitor scraper", re.IGNORECASE))
+async def handle_competitors(message, say, client):
+    """Scrape competitor channels and generate modeled ideas."""
+    global current_process
+    if current_process:
+        await say(f":x: Already running `{current_task_name}`. Use `stop` to cancel it first.")
+        return
+
+    channel = message.get("channel", "")
+    await say(":mag: Scraping competitor channels... This may take a moment.")
+
+    try:
+        from clients.apify_client import ApifyYouTubeClient
+        from clients.anthropic_client import AnthropicClient
+        from clients.airtable_client import AirtableClient
+        from bots.competitor_scraper import CompetitorScraper
+
+        apify = ApifyYouTubeClient()
+        anthropic = AnthropicClient()
+        airtable = AirtableClient()
+
+        scraper = CompetitorScraper(
+            apify_client=apify,
+            anthropic_client=anthropic,
+            airtable_client=airtable,
+            slack_client=None,  # We'll handle Slack output manually
+        )
+
+        result = await scraper.run(
+            num_ideas=3,
+            save_to_airtable=True,
+            notify_slack=False,  # We'll format our own message
+        )
+
+        # Format results for Slack
+        winners = result.get("winners", [])
+        ideas = result.get("ideas", [])
+
+        msg = f":dart: *Competitor Intelligence Report*\n"
+        msg += f"_Scraped channels, found {len(winners)} winning videos_\n\n"
+
+        if winners:
+            msg += "*Top Performers:*\n"
+            for i, w in enumerate(winners[:3], 1):
+                title = w.get("title", "")[:50]
+                msg += f"{i}. \"{title}...\" — @{w.get('channel', 'Unknown')}\n"
+                msg += f"   ({w.get('views', 0):,} views, {w.get('vph', 0):.0f} VPH)\n"
+            msg += "\n"
+
+        if ideas:
+            msg += "*Generated Ideas (Power Doctrine Angles):*\n\n"
+            for i, idea in enumerate(ideas, 1):
+                msg += f":bulb: *Idea {i}:* \"{idea.get('viral_title', 'Untitled')}\"\n"
+                hook = idea.get("hook_script", "")[:100]
+                if hook:
+                    msg += f":hook: Hook: {hook}...\n"
+                source = idea.get("source_title", "")
+                if source:
+                    msg += f":chart_with_upwards_trend: Modeled from: \"{source[:40]}...\"\n"
+                msg += "\n"
+
+        await client.chat_postMessage(channel=channel, text=msg)
+
+    except ValueError as e:
+        await say(f":x: Configuration error: {e}\nMake sure APIFY_API_KEY is set in .env")
+    except Exception as e:
+        await say(f":x: Competitor scraper failed: {e}")
+
+
 @app.event("reaction_added")
 async def handle_reaction_added(event, client):
     """Handle emoji reactions — approve discovery ideas when a number is reacted.

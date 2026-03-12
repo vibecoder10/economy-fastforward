@@ -110,6 +110,11 @@ TZ=America/Los_Angeles
 # Timeout: 10 min max | Lock expires after 15 min
 0 $DISCOVER_HOUR * * * MAX_LOCK_AGE=900 $WRAPPER discovery /tmp/pipeline-discover.log timeout 600 python pipeline.py --discover
 
+# $DISCOVER_HOUR:30 (~5:30 AM PT) — Daily competitor channel scraper
+# Scrapes competitor YouTube channels, identifies winners by VPH, generates modeled ideas
+# Timeout: 10 min max | Lock expires after 15 min
+30 $DISCOVER_HOUR * * * MAX_LOCK_AGE=900 $WRAPPER competitors /tmp/pipeline-competitors.log timeout 600 python pipeline.py --competitors
+
 # $PERF_HOUR:00 (~7 AM PT) — Daily YouTube performance tracker
 # Syncs YouTube metrics (views, CTR, retention, snapshots) to Airtable
 # Timeout: 10 min max | Lock expires after 15 min
