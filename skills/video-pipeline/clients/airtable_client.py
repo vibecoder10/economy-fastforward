@@ -841,6 +841,36 @@ class AirtableClient:
                 return {"id": record_id, "warning": "Animation fields not found in Airtable"}
             raise
 
+    def update_image_prompt_fields(
+        self,
+        record_id: str,
+        image_prompt: str = None,
+        shot_type: str = None,
+    ) -> dict:
+        """Update prompt-related fields on an image record.
+
+        Used by prompt_validator to auto-fix issues before image generation.
+
+        Args:
+            record_id: Airtable record ID
+            image_prompt: Updated prompt text
+            shot_type: Camera composition (wide/medium/closeup)
+
+        Returns:
+            Updated record dict
+        """
+        updates = {}
+        if image_prompt is not None:
+            updates["Image Prompt"] = image_prompt
+        if shot_type is not None:
+            updates["Shot Type"] = shot_type
+
+        if not updates:
+            return {"id": record_id}
+
+        record = self.images_table.update(record_id, updates, typecast=True)
+        return {"id": record["id"], **record["fields"]}
+
     def get_images_ready_for_video_generation(self, video_title: str) -> list[dict]:
         """Get image records that are Done but missing a Video URL."""
         from pyairtable.formulas import match, AND

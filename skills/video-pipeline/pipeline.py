@@ -48,6 +48,7 @@ from bots.idea_bot import IdeaBot
 from bots.trending_idea_bot import TrendingIdeaBot
 from bots.sound_prompt_bot import SoundPromptBot
 from bots.sound_bot import SoundBot
+from bots.prompt_validator import PromptValidator, format_validation_report
 from pipeline_config import VideoConfig
 from segmentation_engine import enforce_duration_caps, recalculate_durations
 from image_prompt_engine.prompt_builder import (
@@ -2451,6 +2452,110 @@ class VideoPipeline:
                 print(f"  Audio sync failed (non-blocking): {e}")
                 audio_sync_summary = f" | Audio sync error: {e}"
 
+        # ---------------------------------------------------------------
+        # Prompt Validation: Check sequencing rules before image generation
+        # ---------------------------------------------------------------
+        validation_summary = ""
+        has_critical_violations = False
+        if not self._is_targeted_run:
+            try:
+                print(f"\n  Running prompt validation...")
+                prompts = self.airtable.get_all_images_for_video(self.video_title)
+
+                if prompts:
+                    validator = PromptValidator()
+                    violations = validator.validate(prompts)
+
+                    if violations:
+                        auto_fixed = []
+                        needs_regen = []
+
+                        for v in violations:
+                            if v.fix == "swap_camera_distance":
+                                fix = validator.auto_fix_camera_distance(prompts, v)
+                                if fix:
+                                    # Write fix to Airtable
+                                    self.airtable.update_image_prompt_fields(
+                                        record_id=fix["record_id"],
+                                        shot_type=fix["new_shot_type"],
+                                    )
+                                    auto_fixed.append(fix)
+                                    print(f"    Auto-fixed: Image {fix['image_index']} camera distance {fix['old_shot_type']} → {fix['new_shot_type']}")
+                                else:
+                                    needs_regen.append(v)
+                            elif v.fix == "add_mannequin_hand_description":
+                                fix = validator.auto_fix_mannequin_hands(prompts, v)
+                                if fix:
+                                    # Write fix to Airtable
+                                    self.airtable.update_image_prompt_fields(
+                                        record_id=fix["record_id"],
+                                        image_prompt=fix["new_prompt"],
+                                    )
+                                    auto_fixed.append(fix)
+                                    print(f"    Auto-fixed: Image {fix['image_index']} added mannequin hand reinforcement")
+                                else:
+                                    needs_regen.append(v)
+                            else:
+                                needs_regen.append(v)
+
+                        # Report to Slack
+                        report = format_validation_report(
+                            video_title=self.video_title,
+                            total_prompts=len(prompts),
+                            violations=violations,
+                            auto_fixed=auto_fixed,
+                            needs_regen=needs_regen,
+                        )
+                        self.slack.notify_prompt_validation(report)
+
+                        # Log to file for debugging
+                        try:
+                            with open("/tmp/pipeline-validation.log", "a") as f:
+                                from datetime import datetime
+                                f.write(f"\n{'='*60}\n")
+                                f.write(f"[{datetime.now().isoformat()}] {self.video_title}\n")
+                                f.write(f"{'='*60}\n")
+                                f.write(f"Total prompts: {len(prompts)}\n")
+                                f.write(f"Violations: {len(violations)}\n")
+                                f.write(f"Auto-fixed: {len(auto_fixed)}\n")
+                                f.write(f"Needs regeneration: {len(needs_regen)}\n\n")
+                                for v in violations:
+                                    f.write(f"  [{v.severity.upper()}] {v.type}: Image {v.image_index} - {v.issue}\n")
+                        except Exception as log_err:
+                            print(f"    Warning: Could not write to validation log: {log_err}")
+
+                        # Check for critical violations
+                        critical = [v for v in needs_regen if v.severity == "critical"]
+                        if critical:
+                            has_critical_violations = True
+                            print(f"  ⚠️ {len(critical)} critical violations need manual review")
+                            validation_summary = f" | ⚠️ {len(critical)} critical violations"
+                        elif needs_regen:
+                            print(f"  ⚠️ {len(needs_regen)} prompts flagged for review")
+                            validation_summary = f" | ⚠️ {len(needs_regen)} flagged"
+                        else:
+                            print(f"  ✅ Validation passed ({len(auto_fixed)} auto-fixed)")
+                            validation_summary = f" | ✅ {len(auto_fixed)} auto-fixed"
+                    else:
+                        print(f"  ✅ Validation passed - no issues found")
+                else:
+                    print(f"  ⚠️ No prompts found for validation")
+            except Exception as e:
+                print(f"  Prompt validation failed (non-blocking): {e}")
+                validation_summary = f" | Validation error: {e}"
+
+        # If critical violations exist, don't advance status
+        if has_critical_violations:
+            print(f"\n  ❌ Cannot advance status - critical violations need manual review")
+            return {
+                "bot": "Styled Image Prompt Engine",
+                "video_title": self.video_title,
+                "scenes_expanded": scenes_expanded,
+                "total_concepts": total_concepts,
+                "validation_blocked": True,
+                "error": "Critical violations need manual review before image generation",
+            }
+
         # Update status (skip if targeted run)
         if self._is_targeted_run:
             print(f"  🎯 Targeted run — status NOT advanced")
@@ -2476,6 +2581,7 @@ class VideoPipeline:
             f"for *{self.video_title}*\n"
             f"{style_summary}"
             f"{audio_sync_summary}"
+            f"{validation_summary}"
         )
 
         return {

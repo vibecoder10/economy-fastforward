@@ -196,6 +196,14 @@ class SlackClient:
             "✅ Image prompts are Done!\n\n"
             "Now generating images... 🖼️"
         )
+
+    def notify_prompt_validation(self, report: str) -> dict:
+        """Notify prompt validation results.
+
+        Args:
+            report: Formatted validation report from prompt_validator.format_validation_report()
+        """
+        return self.send_message(f"🔍 {report}")
     
     def notify_images_start(self) -> dict:
         """Notify that image generation has started."""
