@@ -1,9 +1,12 @@
 """
-Generate image prompts and images for the YouTube pipeline.
+Generate image prompts for the YouTube pipeline.
 
 Called by: pipeline_control.py (Slack bot)
 Commands: prompts (when used in YouTube pipeline context)
-Supports: --scene N to only generate prompts/images for a specific scene
+Supports: --scene N to only generate prompts for a specific scene
+
+NOTE: This only generates prompts. Use `images` command (run_image_bot.py)
+to generate actual images, or `run` to advance through pipeline steps.
 """
 
 import os
@@ -26,7 +29,7 @@ async def main():
     args = parser.parse_args()
 
     print("=" * 60)
-    print("🎨 RUNNING YOUTUBE PROMPTS & IMAGES")
+    print("🎨 RUNNING YOUTUBE PROMPTS")
     print("=" * 60)
 
     pipeline = VideoPipeline()
@@ -34,17 +37,12 @@ async def main():
     pipeline.image_filter = args.image
 
     try:
-        # First generate image prompts (styled) — resumable: skips scenes with existing prompts
+        # Generate image prompts (styled) — resumable: skips scenes with existing prompts
         prompt_result = await pipeline.run_styled_image_prompts()
 
         if prompt_result.get("error"):
-            # If prompts already completed (idea at "Ready For Images"), skip to image generation
-            if "No idea" in prompt_result["error"]:
-                print(f"\n♻️ Prompts already done — resuming with image generation...")
-                prompt_result = {"prompt_count": 0, "skipped": "all"}
-            else:
-                print(f"\n❌ Prompt generation error: {prompt_result['error']}", file=sys.stderr)
-                sys.exit(1)
+            print(f"\n❌ Prompt generation error: {prompt_result['error']}", file=sys.stderr)
+            sys.exit(1)
 
         skipped = prompt_result.get('scenes_skipped', 0)
         created = prompt_result.get('total_concepts', 0)
@@ -53,23 +51,15 @@ async def main():
         else:
             print(f"\n📝 Image prompts created: {created}")
 
-        # Then generate actual images — resumable: skips images with Status="Done"
-        image_result = await pipeline.run_image_bot()
-
-        if image_result.get("error"):
-            print(f"\n⚠️ Image generation error: {image_result['error']}")
-            # Don't exit — prompts were still created successfully
-
         print("\n" + "=" * 60)
-        print("✅ YOUTUBE PROMPTS & IMAGES COMPLETE!")
+        print("✅ YOUTUBE PROMPTS COMPLETE!")
         print("=" * 60)
-        print(f"\n🎬 Video: {prompt_result.get('video_title', image_result.get('video_title'))}")
+        print(f"\n🎬 Video: {prompt_result.get('video_title', 'N/A')}")
         print(f"📝 Prompts created: {created}")
-        print(f"🖼️  Images generated: {image_result.get('image_count', 0)}")
-        if prompt_result.get("targeted") or image_result.get("targeted"):
+        if prompt_result.get("targeted"):
             print("🎯 Targeted run — status not advanced")
         else:
-            print(f"📋 New status: {image_result.get('new_status', prompt_result.get('new_status'))}")
+            print(f"📋 New status: {prompt_result.get('new_status', 'N/A')}")
 
     except Exception as e:
         print(f"\n❌ Error: {e}")

@@ -790,7 +790,7 @@ async def handle_video_generate(message, say):
 @app.message(re.compile(r"run prompts", re.IGNORECASE))
 @app.message(re.compile(r"^prompts(?:\s+[\d,]+)?$", re.IGNORECASE))
 async def handle_prompts(message, say):
-    """Run prompts and start images generation."""
+    """Run image prompt generation only (no image generation)."""
     global current_process
     if current_process:
         await say(f":x: Already running `{current_task_name}`. Use `stop` to cancel it first.")
@@ -798,7 +798,7 @@ async def handle_prompts(message, say):
 
     scene, image = _parse_target(message.get("text", ""), "prompts")
     target_msg = _format_target_msg(scene, image)
-    await say(f":art: Starting prompts and images generation{target_msg}...")
+    await say(f":art: Starting prompt generation{target_msg}...")
 
     try:
         returncode, stdout, stderr = await run_script_async(
