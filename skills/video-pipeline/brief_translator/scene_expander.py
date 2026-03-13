@@ -769,17 +769,36 @@ async def expand_scene_concepts_deterministic(
             scene_arc = {}
 
     # Get camera distance from visual arc if available
-    arc_camera = scene_arc.get("camera_distance", "").lower() if scene_arc else ""
-    # Map arc camera distance to composition
+    arc_camera = scene_arc.get("camera_distance", "").lower().strip() if scene_arc else ""
+    # Map arc camera distance to composition (Airtable Shot Type values)
     arc_composition_map = {
+        # Wide shots
         "wide": "wide",
+        "extreme-wide": "wide",
+        "extreme wide": "wide",
+        "establishing": "wide",
+        # Medium shots
         "medium": "medium",
+        "mid": "medium",
+        # Close-up shots
         "close-up": "closeup",
         "close up": "closeup",
         "closeup": "closeup",
+        "close": "closeup",
         "extreme-close-up": "closeup",
         "extreme close-up": "closeup",
+        "extreme closeup": "closeup",
+        # Other compositions
+        "overhead": "overhead",
+        "low-angle": "low_angle",
+        "low angle": "low_angle",
+        "portrait": "portrait",
     }
+
+    # Debug: Log what we're getting from the arc
+    if scene_arc:
+        print(f"      📐 Scene {scene_number} arc: camera_distance='{arc_camera}' "
+              f"→ mapped={arc_composition_map.get(arc_camera, 'FALLBACK')}")
 
     # Step 4: Generate visual_description for each segment using LLM
     concepts = []
@@ -790,6 +809,8 @@ async def expand_scene_concepts_deterministic(
             composition = arc_composition_map[arc_camera]
         else:
             composition = _pick_composition(default_fallback_style, i, recent_comps)
+            if arc_camera:
+                print(f"      ⚠️ Unknown camera_distance '{arc_camera}', using fallback: {composition}")
         recent_comps.append(composition)
 
         # Generate visual description via LLM — NO SCENE TYPE CONSTRAINTS
