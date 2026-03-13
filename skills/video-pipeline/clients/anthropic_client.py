@@ -1,5 +1,7 @@
 """Anthropic Claude API client for script and prompt generation."""
 
+from __future__ import annotations
+
 import os
 import re
 from anthropic import Anthropic

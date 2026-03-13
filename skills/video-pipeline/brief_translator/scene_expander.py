@@ -9,10 +9,13 @@ one big script and re-split them via LLM. The new system processes one
 scene at a time — if one fails, only that scene retries.
 """
 
+from __future__ import annotations
+
 import json
 import re
 from difflib import SequenceMatcher
 from pathlib import Path
+from typing import Optional
 
 PROMPT_TEMPLATE_PATH = Path(__file__).parent / "prompts" / "concept_expand.txt"
 
@@ -679,7 +682,8 @@ async def expand_scene_concepts_deterministic(
     accent_color: str,
     act_number: int,
     total_scenes: int = 14,
-    voice_duration: float | None = None,
+    voice_duration: Optional[float] = None,
+    story_bible: Optional[dict] = None,
 ) -> list[dict]:
     """Expand one scene's narration into visual concepts using deterministic word-duration-aware splitting.
 
@@ -692,6 +696,10 @@ async def expand_scene_concepts_deterministic(
     Still uses LLM for generating visual_description per segment, but the text
     splitting is deterministic and duration-guaranteed.
 
+    Claude writes whatever prompt best tells the story moment. NO scene type
+    constraints are applied — Claude reads the narration, consults the Story
+    Bible for character/location consistency, and writes the best visual.
+
     Args:
         anthropic_client: AnthropicClient instance with generate() method
         scene_number: Scene number from the Script table
@@ -701,13 +709,14 @@ async def expand_scene_concepts_deterministic(
         act_number: Which act this scene belongs to (1-6)
         total_scenes: Total number of scenes in the video
         voice_duration: Optional actual voice duration in seconds (for accurate WPS)
+        story_bible: Optional Story Bible dict with characters, locations, visual_arc
 
     Returns:
         List of concept dicts, each with:
         - concept_index (int, 1-based)
         - sentence_text (str, exact substring of scene_text)
         - visual_description (str, 20-35 word filmable description)
-        - visual_style (str, profile substyle name)
+        - visual_style (str, profile substyle name - DESCRIPTIVE, not prescriptive)
         - composition (str, wide/medium/closeup/etc.)
         - mood (str)
     """
@@ -717,6 +726,12 @@ async def expand_scene_concepts_deterministic(
     # Import deterministic splitter
     sys.path.insert(0, str(Path(__file__).parent.parent / "clients"))
     from deterministic_splitter import segment_scene_deterministic
+
+    # Import Story Bible formatter
+    try:
+        from bots.story_bible import format_bible_for_prompt
+    except ImportError:
+        def format_bible_for_prompt(bible, scene): return ""
 
     # Step 1: Use deterministic splitter to get text segments with guaranteed durations
     segments = segment_scene_deterministic(scene_text, voice_duration)
@@ -732,68 +747,60 @@ async def expand_scene_concepts_deterministic(
             "mood": "neutral",
         }]
 
-    # Step 2: Assign visual styles based on profile or legacy act distribution
+    # Step 2: Get profile for styling decisions
     profile = _get_profile()
     is_holographic = profile is None or profile.profile_id == "holographic_hud"
 
-    if not is_holographic and profile and not profile.style_system.substyles:
-        # Single-style profiles (e.g. clay_mannequin): all concepts use the same style
-        styles_pool = [profile.profile_id] * max(len(segments), 10)
-    else:
-        # Holographic or multi-substyle profiles: use profile act distribution
-        style_dist = get_style_distribution()
-        dist = style_dist.get(act_number, style_dist.get(1, {"dossier": 100}))
-
-        styles_pool = []
-        for style_name, pct in dist.items():
-            if pct > 0:
-                styles_pool.extend([style_name] * pct)
-
-    # Assign styles in rotation
-    import random
-    random.seed(scene_number)  # Deterministic based on scene number
-    random.shuffle(styles_pool)
-
-    # Step 3: Assign compositions using affinity mapping
+    # For non-holographic profiles, we still assign styles for tracking/analytics
+    # but they are DESCRIPTIVE (post-hoc classification), not PRESCRIPTIVE
     default_fallback_style = get_default_style()
     recent_comps: list[str] = []
+
+    # Step 3: Format Story Bible context for this scene
+    bible_context = ""
+    if story_bible:
+        bible_context = format_bible_for_prompt(story_bible, scene_number)
 
     # Step 4: Generate visual_description for each segment using LLM
     concepts = []
 
     for i, seg in enumerate(segments):
-        style_idx = i % len(styles_pool) if styles_pool else 0
-
-        visual_style = styles_pool[style_idx] if styles_pool else default_fallback_style
-        composition = _pick_composition(visual_style, i, recent_comps)
+        composition = _pick_composition(default_fallback_style, i, recent_comps)
         recent_comps.append(composition)
 
-        # Generate visual description via LLM — profile-driven prompt
+        # Generate visual description via LLM — NO SCENE TYPE CONSTRAINTS
         try:
             if not is_holographic and profile and profile.scene_description.system_prompt:
-                # Build scene type guidance so Claude writes content matching the type
-                scene_type_guidance = ""
-                if profile.style_system.substyles and visual_style in profile.style_system.substyles:
-                    substyle_info = profile.style_system.substyles[visual_style]
-                    scene_type_guidance = (
-                        f"\nSCENE TYPE: {substyle_info.name}\n"
-                        f"Description: {substyle_info.description}\n"
-                        f"Write a visual description that fits this scene type. "
-                    )
-
-                # Use the profile's scene description system prompt
+                # Build prompt with Story Bible context but NO scene type constraints
+                # Claude decides what to write based on narration content
                 visual_desc_prompt = (
                     f"{profile.scene_description.system_prompt}\n\n"
-                    f"{scene_type_guidance}\n"
+                )
+
+                # Add Story Bible context if available
+                if bible_context:
+                    visual_desc_prompt += (
+                        f"{bible_context}\n\n"
+                        "CRITICAL: If any character or location from the bible appears in this "
+                        "narration, use their EXACT description from the bible above. "
+                        "Same character = identical clothing. Same location = identical details.\n\n"
+                    )
+
+                # Add clothing requirement for characters
+                visual_desc_prompt += (
+                    "CLOTHING RULE: Every mannequin figure MUST have specific clothing described. "
+                    "Never describe a mannequin without clothing. If unsure, use 'wearing dark formal suit with white shirt.'\n\n"
                     "Write a 20-35 word visual description for this narration segment. "
+                    "You decide whether this moment needs characters, environment, data, or objects — "
+                    "write whatever best tells THIS story moment.\n\n"
                     "Do NOT start with the style prefix (e.g. '3D rendered faceless mannequin...') — "
-                    "that will be added automatically. Just describe the scene content.\n"
+                    "that will be added automatically based on what you write.\n"
                     "Return ONLY the description, nothing else.\n\n"
                     f"Narration: \"{seg['text']}\"\n"
                     f"Visual seeds for context: {visual_seeds[:200] if visual_seeds else 'none'}"
                 )
             else:
-                # Holographic default prompt
+                # Holographic default prompt (unchanged)
                 visual_desc_prompt = (
                     "You are creating visual descriptions for HOLOGRAPHIC DATA DISPLAYS "
                     "in an intelligence operations center — not camera shots of real events.\n\n"
@@ -831,11 +838,13 @@ async def expand_scene_concepts_deterministic(
             # Fallback: use the narration text as placeholder
             visual_description = seg['text']
 
+        # Scene type is now DESCRIPTIVE — assigned based on what Claude wrote
+        # (detected by prompt_builder.py when assembling final prompt)
         concepts.append({
             "concept_index": i + 1,
             "sentence_text": seg['text'],
             "visual_description": visual_description,
-            "visual_style": visual_style,
+            "visual_style": default_fallback_style,  # Default; actual type detected later
             "composition": composition,
             "mood": "tension",  # Default mood, could be enhanced later
         })

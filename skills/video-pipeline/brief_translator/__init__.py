@@ -16,6 +16,8 @@ Pipeline:
 Scene expansion is a SEPARATE pipeline stage triggered by a different status.
 """
 
+from __future__ import annotations
+
 import logging
 from typing import Optional
 

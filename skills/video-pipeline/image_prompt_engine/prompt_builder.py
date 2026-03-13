@@ -184,6 +184,112 @@ def resolve_scene_color_mood(
     return video_color_mood
 
 
+"""Content-driven prefix detection.
+
+Simplified approach: Claude writes whatever prompt best tells the story moment.
+The system detects whether characters are present by looking for character
+indicator words in the visual description, then:
+
+1. If characters ARE present: prepend mannequin prefix
+2. If characters are NOT present: no prefix (description stands alone)
+3. Universal suffix for ALL scenes
+
+Scene type labels become DESCRIPTIVE (assigned after prompt is written
+based on content) not PRESCRIPTIVE (assigned before, constraining output).
+"""
+
+# Universal prefix for scenes WITH mannequin characters
+_MANNEQUIN_PREFIX = "3D rendered faceless mannequin with smooth white oval head"
+
+# Universal suffix for ALL scenes (mannequin profiles)
+_UNIVERSAL_SUFFIX = ", Cinematic 3D documentary style, no facial features on any figures."
+
+# Words that indicate character presence in the visual description
+# If ANY of these appear, the scene has characters and needs mannequin prefix
+_CHARACTER_INDICATOR_WORDS = [
+    # Direct mannequin references
+    "mannequin", "mannequins", "figure", "figures",
+    # Clothing (implies character wearing it)
+    "wearing", "suit", "suits", "uniform", "uniforms", "robes", "robe",
+    "jacket", "coat", "dress", "shirt", "tie", "turban", "keffiyeh",
+    "thobe", "vest", "costume", "clothes", "clothing", "attire",
+    # Postures (implies character doing action)
+    "standing", "sitting", "seated", "leaning", "kneeling", "crouching",
+    "walking", "running", "pointing", "holding", "reaching", "gesturing",
+    "turning", "facing", "looking", "watching", "signing", "reading",
+    "writing", "typing", "slamming", "pushing", "pulling",
+    # Body parts (implies character presence)
+    "hands", "hand", "gloved", "arm", "arms", "shoulder", "shoulders",
+    "head", "heads", "posture", "stance", "silhouette",
+    # Role/position words (implies character)
+    "leader", "official", "general", "diplomat", "officer", "banker",
+    "trader", "analyst", "soldier", "guard", "agent", "citizen",
+]
+
+# Compile patterns for efficient matching
+import re as _re
+_CHARACTER_PATTERNS = [
+    _re.compile(rf"\b{_re.escape(w)}\b", _re.IGNORECASE)
+    for w in _CHARACTER_INDICATOR_WORDS
+]
+
+
+def _has_character_indicators(description: str) -> bool:
+    """Check if a visual description contains character indicators.
+
+    Returns True if ANY character indicator word is found, meaning
+    the scene has mannequin characters and needs the mannequin prefix.
+    """
+    for pattern in _CHARACTER_PATTERNS:
+        if pattern.search(description):
+            return True
+    return False
+
+
+def _detect_scene_type(description: str) -> str:
+    """Detect scene type from content for analytics/tracking.
+
+    This is DESCRIPTIVE - assigned based on what's in the prompt,
+    not prescriptive.
+
+    Returns one of: power_move, lone_figure, environment, data_hud, object_closeup
+    """
+    desc_lower = description.lower()
+
+    # Check for data/HUD indicators
+    data_words = ["holographic", "chart", "graph", "data", "display", "terminal",
+                  "ticker", "percentage", "statistics", "map overlay", "network"]
+    if any(w in desc_lower for w in data_words) and not _has_character_indicators(description):
+        return "data_hud"
+
+    # Check for object close-up indicators
+    object_words = ["close-up", "closeup", "close up", "document", "treaty",
+                    "weapon", "currency", "stamp", "seal", "key", "phone",
+                    "folder", "photograph", "object"]
+    if any(w in desc_lower for w in object_words) and not _has_character_indicators(description):
+        return "object_closeup"
+
+    # Check for environment indicators
+    env_words = ["wide shot", "establishing", "cityscape", "landscape", "skyline",
+                 "port", "harbor", "street", "building", "architecture", "aerial",
+                 "no people", "empty", "deserted"]
+    if any(w in desc_lower for w in env_words) and not _has_character_indicators(description):
+        return "environment"
+
+    # Character scenes
+    has_chars = _has_character_indicators(description)
+    if has_chars:
+        # Count character indicators to distinguish lone_figure vs power_move
+        multi_char_words = ["figures", "mannequins", "two", "three", "four",
+                           "group", "both", "each other", "confrontation"]
+        if any(w in desc_lower for w in multi_char_words):
+            return "power_move"
+        return "lone_figure"
+
+    # Default: treat as environment if no characters detected
+    return "environment"
+
+
 def build_prompt(
     scene_description: str,
     content_type: str,
@@ -193,26 +299,36 @@ def build_prompt(
 ) -> str:
     """Assemble a complete image generation prompt.
 
-    When a visual profile is active, reads framing, suffix, and figure rules
-    from the profile. Falls back to holographic defaults when no profile is
-    loaded or the profile is ``holographic_hud``.
+    When a visual profile is active, uses content-driven prefix detection:
+    - If characters are present in description: prepend mannequin prefix
+    - If no characters: no prefix (description stands alone)
+    - Universal suffix for all scenes
+
+    Falls back to holographic defaults when no profile is loaded or
+    the profile is ``holographic_hud``.
 
     Template (holographic)::
 
         [DISPLAY FORMAT framing] [DISPLAY CONTENT] [COLOR MOOD] [UNIVERSAL SUFFIX]
 
-    Template (other profiles)::
+    Template (mannequin profiles with characters)::
 
-        [STYLE PREFIX] [DISPLAY CONTENT] [STYLE SUFFIX]
+        [MANNEQUIN PREFIX] [DISPLAY CONTENT] [UNIVERSAL SUFFIX]
+
+    Template (mannequin profiles without characters)::
+
+        [DISPLAY CONTENT] [UNIVERSAL SUFFIX]
 
     Parameters
     ----------
     scene_description : str
-        What the image depicts — the analytical content description.
+        What the image depicts — the visual content description from Claude.
     content_type : str
         Value from ContentType enum (e.g. ``"geographic_map"``).
+        For profile-based systems, may be scene type (now DESCRIPTIVE).
     display_format : str
         Value from DisplayFormat enum (e.g. ``"war_table"``).
+        For profile-based systems, same as content_type.
     color_mood : str
         Value from ColorMood enum (e.g. ``"strategic"``).
     image_style_override : str, optional
@@ -261,25 +377,44 @@ def build_prompt(
         suffix = profile.style_system.style_suffix if profile else HOLOGRAPHIC_SUFFIX
         return f"{framing} {clean_desc}, {mood_language}{suffix}"
     else:
-        # --- Profile path: prefix + content + global suffix ---
-        prefix = profile.style_system.style_prefix if profile.style_system.style_prefix else ""
-        global_suffix = profile.style_system.style_suffix if profile.style_system.style_suffix else ""
+        # --- Profile path: CONTENT-DRIVEN prefix detection ---
 
-        # Strip prefix from description if Claude already included it
-        # (the system prompt instructs Claude to open with the style anchor)
-        if prefix and clean_desc.lower().startswith(prefix.lower()):
-            clean_desc = clean_desc[len(prefix):].strip().lstrip(",").strip()
+        # Check if profile has mannequin-style prefix
+        default_prefix = profile.style_system.style_prefix if profile.style_system.style_prefix else ""
+        is_mannequin_profile = "mannequin" in default_prefix.lower()
 
-        # NOTE: substyle.suffix (e.g. "two or more mannequin figures in tension...")
-        # is intentionally NOT appended here. Those are scene type INSTRUCTIONS
-        # that guide Claude's prompt writing (via system prompt), not literal
-        # text for the image model. Scene type is classified BEFORE writing
-        # and passed to Claude as guidance in scene_expander.py.
+        # Strip any existing prefix from description if Claude already included it
+        if default_prefix and clean_desc.lower().startswith(default_prefix.lower()):
+            clean_desc = clean_desc[len(default_prefix):].strip().lstrip(",").strip()
+        # Also strip our standard mannequin prefix
+        if clean_desc.lower().startswith(_MANNEQUIN_PREFIX.lower()):
+            clean_desc = clean_desc[len(_MANNEQUIN_PREFIX):].strip().lstrip(",").strip()
+
+        if is_mannequin_profile:
+            # Content-driven: detect if characters are present
+            has_characters = _has_character_indicators(clean_desc)
+
+            if has_characters:
+                # Characters present: use mannequin prefix
+                prefix = _MANNEQUIN_PREFIX
+            else:
+                # No characters: no prefix needed
+                prefix = ""
+
+            suffix = _UNIVERSAL_SUFFIX
+        else:
+            # Non-mannequin profile: use profile defaults
+            prefix = default_prefix
+            suffix = profile.style_system.style_suffix if profile.style_system.style_suffix else ""
 
         if image_style_override and image_style_override.strip():
-            global_suffix = _apply_style_override(global_suffix, image_style_override)
+            suffix = _apply_style_override(suffix, image_style_override)
 
-        return f"{prefix} {clean_desc}{global_suffix}"
+        # Build final prompt
+        if prefix:
+            return f"{prefix} {clean_desc}{suffix}"
+        else:
+            return f"{clean_desc}{suffix}"
 
 
 def assign_profile_styles(

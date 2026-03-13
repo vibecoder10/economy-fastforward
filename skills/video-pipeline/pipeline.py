@@ -2117,6 +2117,72 @@ class VideoPipeline:
         print(f"  ✓ Style rotation configured: {len(style_assignments)} assignments ready")
 
         # ---------------------------------------------------------------
+        # Generate or load Story Bible for visual consistency
+        # ---------------------------------------------------------------
+        story_bible = None
+        is_mannequin_profile = (
+            _active_profile is not None
+            and _active_profile.profile_id not in ("holographic_hud",)
+            and _active_profile.figure_rules.allow_mannequins
+        )
+
+        if is_mannequin_profile:
+            # Check if Story Bible already exists in Airtable
+            existing_bible_json = (self.current_idea.get("Story Bible") or "").strip()
+            if existing_bible_json:
+                try:
+                    story_bible = json.loads(existing_bible_json)
+                    char_count = len(story_bible.get("characters", []))
+                    loc_count = len(story_bible.get("locations", []))
+                    print(f"  📖 Loaded existing Story Bible: {char_count} characters, {loc_count} locations")
+                    self.slack.notify(
+                        f"📖 Using existing Story Bible for *{self.video_title}*:\n"
+                        f"• {char_count} characters, {loc_count} locations"
+                    )
+                except json.JSONDecodeError:
+                    print(f"  ⚠️ Could not parse existing Story Bible, regenerating...")
+                    story_bible = None
+
+            # Generate new Story Bible if not found
+            if not story_bible:
+                print(f"  📖 Generating Story Bible for visual consistency...")
+                try:
+                    from bots.story_bible import generate_story_bible
+
+                    # Combine all script text for bible generation
+                    full_script_text = "\n\n".join(
+                        f"[SCENE {s.get('scene', 0)}]\n{s.get('Scene text', '') or s.get('Script', '')}"
+                        for s in scripts
+                    )
+
+                    story_bible = await generate_story_bible(
+                        anthropic_client=self.anthropic,
+                        full_script_text=full_script_text,
+                        video_title=self.video_title,
+                    )
+
+                    # Store in Airtable for future runs
+                    if story_bible:
+                        self.airtable.update_idea_fields(
+                            self.current_idea_id,
+                            {"Story Bible": json.dumps(story_bible, ensure_ascii=False)}
+                        )
+                        print(f"  📖 Story Bible saved to Airtable")
+                        # Notify Slack that Story Bible was generated
+                        char_count = len(story_bible.get("characters", []))
+                        loc_count = len(story_bible.get("locations", []))
+                        arc_count = len(story_bible.get("visual_arc", []))
+                        self.slack.notify(
+                            f"📖 Story Bible generated for *{self.video_title}*:\n"
+                            f"• {char_count} characters\n"
+                            f"• {loc_count} locations\n"
+                            f"• {arc_count} scene arcs"
+                        )
+                except Exception as e:
+                    print(f"  ⚠️ Story Bible generation failed (non-blocking): {e}")
+                    story_bible = {}
+
+        # ---------------------------------------------------------------
         # Expand each script record into visual concepts + styled prompts
         # ---------------------------------------------------------------
         # Apply scene filter if set
@@ -2184,6 +2250,7 @@ class VideoPipeline:
                 act_number=act_number,
                 total_scenes=total_scripts,
                 voice_duration=voice_duration,
+                story_bible=story_bible,  # Pass Story Bible for character/location consistency
             )
 
             # Note: deterministic splitter doesn't set needs_new_prompt since it
@@ -2193,7 +2260,7 @@ class VideoPipeline:
             if needs_regen:
                 print(f"    Regenerating {len(needs_regen)} visual descriptions "
                       f"(duration-adjusted concepts)...")
-                # Build profile-driven regen prompt
+                # Build profile-driven regen prompt with Story Bible context
                 try:
                     from visual_profiles import load_profile as _load_vp
                     _regen_profile = _load_vp()
@@ -2203,25 +2270,38 @@ class VideoPipeline:
                     _regen_profile is None
                     or _regen_profile.profile_id == "holographic_hud"
                 )
+
+                # Format Story Bible context for regen
+                _regen_bible_context = ""
+                if story_bible and not _regen_is_holographic:
+                    try:
+                        from bots.story_bible import format_bible_for_prompt
+                        _regen_bible_context = format_bible_for_prompt(story_bible, scene_num)
+                    except ImportError:
+                        pass
+
                 for concept in needs_regen:
                     try:
                         if not _regen_is_holographic and _regen_profile and _regen_profile.scene_description.system_prompt:
-                            # Include scene type guidance if available
-                            _regen_type_guidance = ""
-                            _vs = concept.get("visual_style", "")
-                            if _regen_profile.style_system.substyles and _vs in _regen_profile.style_system.substyles:
-                                _sub = _regen_profile.style_system.substyles[_vs]
-                                _regen_type_guidance = (
-                                    f"\nSCENE TYPE: {_sub.name}\n"
-                                    f"Description: {_sub.description}\n"
-                                    f"Write a visual description that fits this scene type. "
+                            # NO scene type constraints — Claude decides what to write
+                            regen_prompt = f"{_regen_profile.scene_description.system_prompt}\n\n"
+
+                            # Add Story Bible context if available
+                            if _regen_bible_context:
+                                regen_prompt += (
+                                    f"{_regen_bible_context}\n\n"
+                                    "CRITICAL: If any character or location from the bible appears in this "
+                                    "narration, use their EXACT description from the bible above.\n\n"
                                 )
-                            regen_prompt = (
-                                f"{_regen_profile.scene_description.system_prompt}\n\n"
-                                f"{_regen_type_guidance}\n"
+
+                            # Add clothing requirement and instructions
+                            regen_prompt += (
+                                "CLOTHING RULE: Every mannequin figure MUST have specific clothing described. "
+                                "Never describe a mannequin without clothing. If unsure, use 'wearing dark formal suit with white shirt.'\n\n"
                                 "Write a 20-35 word visual description for this narration segment. "
+                                "You decide whether this moment needs characters, environment, data, or objects.\n\n"
                                 "Do NOT start with the style prefix (e.g. '3D rendered faceless mannequin...') — "
-                                "that will be added automatically. Just describe the scene content.\n"
+                                "that will be added automatically based on what you write.\n"
                                 "Return ONLY the description, nothing else.\n\n"
                                 f"Narration: \"{concept['sentence_text']}\""
                             )
