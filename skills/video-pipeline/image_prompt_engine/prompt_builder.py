@@ -261,20 +261,25 @@ def build_prompt(
         suffix = profile.style_system.style_suffix if profile else HOLOGRAPHIC_SUFFIX
         return f"{framing} {clean_desc}, {mood_language}{suffix}"
     else:
-        # --- Profile path: prefix + content + substyle suffix + global suffix ---
+        # --- Profile path: prefix + content + global suffix ---
         prefix = profile.style_system.style_prefix if profile.style_system.style_prefix else ""
         global_suffix = profile.style_system.style_suffix if profile.style_system.style_suffix else ""
 
-        # Look up substyle-specific suffix (e.g. power_move, lone_figure)
-        substyle_suffix = ""
-        substyle = profile.style_system.substyles.get(display_format)
-        if substyle and substyle.suffix:
-            substyle_suffix = f", {substyle.suffix}"
+        # Strip prefix from description if Claude already included it
+        # (the system prompt instructs Claude to open with the style anchor)
+        if prefix and clean_desc.lower().startswith(prefix.lower()):
+            clean_desc = clean_desc[len(prefix):].strip().lstrip(",").strip()
+
+        # NOTE: substyle.suffix (e.g. "two or more mannequin figures in tension...")
+        # is intentionally NOT appended here. Those are scene type INSTRUCTIONS
+        # that guide Claude's prompt writing (via system prompt), not literal
+        # text for the image model. Scene type is classified BEFORE writing
+        # and passed to Claude as guidance in scene_expander.py.
 
         if image_style_override and image_style_override.strip():
             global_suffix = _apply_style_override(global_suffix, image_style_override)
 
-        return f"{prefix} {clean_desc}{substyle_suffix}{global_suffix}"
+        return f"{prefix} {clean_desc}{global_suffix}"
 
 
 def assign_profile_styles(
