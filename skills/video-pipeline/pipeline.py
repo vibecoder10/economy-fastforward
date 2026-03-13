@@ -3715,10 +3715,11 @@ class VideoPipeline:
                     "word_count": wc,
                 })
 
-            # Write Whisper-calculated durations to Airtable and cache.
-            # No merging — each image keeps its own duration. If a concept
-            # is too short, that's a signal to fix concept grouping, not
-            # something audio_sync should mask by deleting images.
+            # Enforce max duration per image — prevents one long sentence
+            # from monopolising a scene (e.g. 47s, 60s instead of ~10s).
+            from audio_sync.timing_adjuster import enforce_max_image_duration
+            scene_raw = enforce_max_image_duration(scene_raw)
+
             for entry in scene_raw:
                 record_id = entry["record_id"]
                 img_index = entry["image_index"]

@@ -7,6 +7,7 @@ from audio_sync.timing_adjuster import (
     apply_post_hold,
     enforce_minimum_display,
     enforce_maximum_display,
+    enforce_max_image_duration,
     resolve_overlaps,
     compute_display_durations,
     adjust_timing,
@@ -161,3 +162,76 @@ class TestAdjustTiming:
         # No overlaps
         for i in range(len(result) - 1):
             assert result[i]["display_end"] <= result[i + 1]["display_start"] + 0.001
+
+
+# ---------------------------------------------------------------------------
+# Per-image max duration enforcement
+# ---------------------------------------------------------------------------
+
+class TestEnforceMaxImageDuration:
+    def test_no_outliers_unchanged(self):
+        """Images within the cap are left untouched."""
+        scene = [
+            {"duration": 8.0, "display_start": 0.0, "display_end": 8.0},
+            {"duration": 10.0, "display_start": 8.0, "display_end": 18.0},
+            {"duration": 7.0, "display_start": 18.0, "display_end": 25.0},
+        ]
+        result = enforce_max_image_duration(scene, max_seconds=15.0)
+        assert result[0]["duration"] == 8.0
+        assert result[1]["duration"] == 10.0
+        assert result[2]["duration"] == 7.0
+
+    def test_outlier_triggers_even_redistribution(self):
+        """One 47s image among 5 causes even split of total time."""
+        scene = [
+            {"duration": 47.5, "display_start": 0.0, "display_end": 47.5},
+            {"duration": 60.8, "display_start": 47.5, "display_end": 108.3},
+            {"duration": 3.8, "display_start": 108.3, "display_end": 112.1},
+            {"duration": 7.4, "display_start": 112.1, "display_end": 119.5},
+            {"duration": 8.4, "display_start": 119.5, "display_end": 127.9},
+        ]
+        result = enforce_max_image_duration(scene, max_seconds=15.0)
+        # Total was 127.9s, evenly = 25.58 → capped at 15s each
+        for entry in result:
+            assert entry["duration"] <= 15.0
+            assert entry["duration"] >= 1.0
+
+        # All images get the same duration
+        durations = [e["duration"] for e in result]
+        assert len(set(durations)) == 1
+
+    def test_display_start_end_are_sequential(self):
+        """After redistribution, display_start/end form a contiguous timeline."""
+        scene = [
+            {"duration": 30.0, "display_start": 5.0, "display_end": 35.0},
+            {"duration": 5.0, "display_start": 35.0, "display_end": 40.0},
+            {"duration": 5.0, "display_start": 40.0, "display_end": 45.0},
+        ]
+        result = enforce_max_image_duration(scene, max_seconds=15.0)
+        # Should start at original scene start (5.0)
+        assert result[0]["display_start"] == 5.0
+        # Each entry's end == next entry's start
+        for i in range(len(result) - 1):
+            assert abs(result[i]["display_end"] - result[i + 1]["display_start"]) < 0.01
+
+    def test_empty_list_returns_empty(self):
+        assert enforce_max_image_duration([]) == []
+
+    def test_single_image_capped(self):
+        """A lone image over the cap gets clamped."""
+        scene = [
+            {"duration": 25.0, "display_start": 0.0, "display_end": 25.0},
+        ]
+        result = enforce_max_image_duration(scene, max_seconds=15.0)
+        assert result[0]["duration"] == 15.0
+
+    def test_even_split_within_cap_not_capped(self):
+        """When even split is under max, images keep the even duration."""
+        scene = [
+            {"duration": 20.0, "display_start": 0.0, "display_end": 20.0},
+            {"duration": 4.0, "display_start": 20.0, "display_end": 24.0},
+        ]
+        result = enforce_max_image_duration(scene, max_seconds=15.0)
+        # Total 24s / 2 = 12s each → under 15s cap, so 12s
+        assert result[0]["duration"] == 12.0
+        assert result[1]["duration"] == 12.0
