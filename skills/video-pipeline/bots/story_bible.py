@@ -76,14 +76,27 @@ Map the emotional and visual progression of the ENTIRE video. For EACH scene:
 - "tension_level": 1-10 (must generally escalate across the video, with intentional dips for breathing room)
 - "visual_note": one sentence describing what makes this specific image different from the one before it. What CHANGES between this frame and the last? This is the key to avoiding repetition.
 
-Rules for the arc:
-- NEVER the same location more than 2 scenes in a row. Intercut between worlds.
-- NEVER the same camera distance more than 2 scenes in a row. Breathe: wide-medium-close-wide.
-- NEVER the same color temperature more than 3 scenes in a row. The palette must shift with the narrative.
-- Tension should generally rise but include 1-2 deliberate dips (after a revelation, before the next escalation) for rhythm.
-- The FIRST and LAST scenes should visually rhyme — same location or same composition, but the viewer now understands it differently (bookend).
-- Historical parallel scenes should visually contrast with present-day scenes (desaturated/archival vs vivid/present).
-- Personal impact scenes (wallet, gas prices) should use completely different environments from the geopolitical scenes.
+⚠️ HARD RULES FOR THE ARC (VIOLATIONS WILL BE REJECTED):
+
+1. **LOCATION INTERCUT RULE** — NEVER assign the same location_id to more than 2 consecutive scenes. If scenes 5, 6, 7 are all about data/charts, you MUST cut away: scene 5 = dark_operations_room, scene 6 = kremlin_office (reaction shot), scene 7 = dark_operations_room. This creates visual rhythm even when the narration stays on one topic.
+
+2. **CAMERA DISTANCE RULE** — NEVER the same camera_distance for more than 2 consecutive scenes. Alternate: wide → medium → close-up → wide. Breathing room.
+
+3. **COLOR TEMPERATURE RULE** — NEVER the same color_temperature for more than 3 consecutive scenes. The palette must shift with the narrative arc.
+
+4. **DATA ROOM LIMIT** — The "dark_operations_room" (holographic data displays) should appear in NO MORE than 30% of total scenes. If you have 14 scenes, max 4-5 should be data room. The rest should be physical locations with characters.
+
+5. **TENSION ESCALATION** — Tension_level should generally rise from ~3-4 at the start to ~8-9 at the climax, with 1-2 intentional dips for breathing room after major revelations.
+
+6. **BOOKEND STRUCTURE** — The FIRST and LAST scenes should use the same location_id (visual rhyme) but with different mood/tension.
+
+7. **CONTRAST HISTORICAL SCENES** — Historical parallel scenes (1973, 1979, etc.) should use "desaturated archival" color_temperature, NOT the same warm/cold as present-day scenes.
+
+8. **PERSONAL IMPACT SCENES** — When the narration mentions everyday impact (gas prices, grocery costs, heating bills), use everyday locations (gas_station, kitchen, trading_floor) NOT the operations room.
+
+Before outputting, VERIFY:
+- Count consecutive same-location scenes. If any location appears 3+ times in a row, FIX IT by inserting a reaction shot in a different location.
+- Count dark_operations_room appearances. If > 30% of total scenes, reduce by moving some data to physical locations (character looking at screen, document on desk, etc.)
 
 Respond ONLY with valid JSON. No markdown fences, no explanation, no preamble."""
 
