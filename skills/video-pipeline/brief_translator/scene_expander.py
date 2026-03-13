@@ -767,6 +767,11 @@ async def expand_scene_concepts_deterministic(
             scene_arc = get_scene_arc(story_bible, scene_number)
         except ImportError:
             scene_arc = {}
+        # Debug: Show Story Bible state
+        arc_count = len(story_bible.get("visual_arc", []))
+        print(f"      📖 Story Bible: {arc_count} arcs, scene_arc for {scene_number} = {scene_arc}")
+    else:
+        print(f"      ⚠️ No Story Bible passed to scene expander")
 
     # Get camera distance from visual arc if available
     arc_camera = scene_arc.get("camera_distance", "").lower().strip() if scene_arc else ""
@@ -796,9 +801,8 @@ async def expand_scene_concepts_deterministic(
     }
 
     # Debug: Log what we're getting from the arc
-    if scene_arc:
-        print(f"      📐 Scene {scene_number} arc: camera_distance='{arc_camera}' "
-              f"→ mapped={arc_composition_map.get(arc_camera, 'FALLBACK')}")
+    print(f"      📐 Scene {scene_number}: arc_camera='{arc_camera}' → "
+          f"mapped={arc_composition_map.get(arc_camera, 'FALLBACK (using rotation)')}")
 
     # Step 4: Generate visual_description for each segment using LLM
     concepts = []
