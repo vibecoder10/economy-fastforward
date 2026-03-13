@@ -45,13 +45,13 @@ _IDENTITY = dict(
 # =============================================================================
 
 _IMAGE_GEN = ImageGenConfig(
-    scene_model="z-image",
+    scene_model="nano-banana-2",
     scene_model_params={
         "aspect_ratio": "16:9",
         "resolution": "1K",
         "output_format": "png",
     },
-    scene_cost_per_image=0.004,
+    scene_cost_per_image=0.025,
     thumbnail_model="nano-banana-pro",
     thumbnail_model_params={
         "aspect_ratio": "16:9",
@@ -687,8 +687,8 @@ _RAW = {
     "prompt_max_words": 150,
     # Valid scene models for hot-swap
     "valid_scene_models": {
-        "z-image": "Z Image (default — holographic display, $0.004/img)",
-        "nano-banana-2": "Nano Banana 2 (legacy — reference support, $0.025/img)",
+        "nano-banana-2": "Nano Banana 2 (default — holographic display, $0.025/img)",
+        "z-image": "Z Image ($0.004/img)",
     },
 }
 

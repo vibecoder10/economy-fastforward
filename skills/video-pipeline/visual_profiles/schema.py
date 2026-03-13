@@ -17,7 +17,7 @@ from typing import Any, Optional
 @dataclass
 class ImageGenConfig:
     """Image generation model configuration."""
-    scene_model: str = "z-image"
+    scene_model: str = "nano-banana-2"
     scene_model_params: dict[str, Any] = field(default_factory=lambda: {
         "aspect_ratio": "16:9",
         "resolution": "1K",
