@@ -2389,12 +2389,16 @@ class VideoPipeline:
                     print(f"     {prompt}")
                     print()
 
+                # Use camera composition from concept (wide/medium/closeup/etc.)
+                # NOT display_format which is the scene type (power_move/lone_figure/etc.)
+                camera_composition = concept.get("composition", "medium")
+
                 self.airtable.create_concept_record(
                     scene_number=scene_num,
                     concept_index=concept["concept_index"],
                     sentence_text=concept["sentence_text"],
                     image_prompt=prompt,
-                    composition=display_format,  # Store display_format in composition field
+                    composition=camera_composition,
                     video_title=self.video_title,
                 )
 
