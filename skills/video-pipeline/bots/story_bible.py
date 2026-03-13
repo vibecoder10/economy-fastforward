@@ -364,20 +364,44 @@ def format_bible_for_prompt(story_bible: dict, current_scene: int) -> str:
 
 
 def get_scene_arc(story_bible: dict, scene_number: int) -> dict:
-    """Get the visual arc data for a specific scene.
+    """Get the FIRST visual arc entry for a specific scene.
+
+    DEPRECATED: Use get_scene_arcs() to get ALL arc entries for a scene.
+    This function only returns the first match, which loses granularity
+    when Claude generates multiple arc entries per scene (one per shot/cut).
 
     Args:
         story_bible: The full Story Bible dict
         scene_number: Scene number to look up
 
     Returns:
-        The arc dict for this scene, or empty dict if not found
+        The first arc dict for this scene, or empty dict if not found
     """
     if not story_bible:
         return {}
 
     arcs = story_bible.get("visual_arc", [])
     return next((a for a in arcs if a.get("scene") == scene_number), {})
+
+
+def get_scene_arcs(story_bible: dict, scene_number: int) -> list[dict]:
+    """Get ALL visual arc entries for a specific scene.
+
+    Claude generates multiple arc entries per scene (one per shot/location cut).
+    This function returns all of them so they can be applied per-concept.
+
+    Args:
+        story_bible: The full Story Bible dict
+        scene_number: Scene number to look up
+
+    Returns:
+        List of arc dicts for this scene (may be empty, may have 1+)
+    """
+    if not story_bible:
+        return []
+
+    arcs = story_bible.get("visual_arc", [])
+    return [a for a in arcs if a.get("scene") == scene_number]
 
 
 def get_character_by_id(story_bible: dict, char_id: str) -> Optional[dict]:
