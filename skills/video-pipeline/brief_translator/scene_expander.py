@@ -758,23 +758,23 @@ async def expand_scene_concepts_deterministic(
 
     # Step 3: Format Story Bible context for this scene
     bible_context = ""
-    scene_arc = {}
+    scene_arcs = []  # List of ALL arc entries for this scene
     if story_bible:
         bible_context = format_bible_for_prompt(story_bible, scene_number)
-        # Get the visual arc for this scene to use for camera/composition
+        # Get ALL visual arc entries for this scene (Claude generates multiple per scene)
         try:
-            from bots.story_bible import get_scene_arc
-            scene_arc = get_scene_arc(story_bible, scene_number)
+            from bots.story_bible import get_scene_arcs
+            scene_arcs = get_scene_arcs(story_bible, scene_number)
         except ImportError:
-            scene_arc = {}
+            scene_arcs = []
         # Debug: Show Story Bible state
-        arc_count = len(story_bible.get("visual_arc", []))
-        print(f"      📖 Story Bible: {arc_count} arcs, scene_arc for {scene_number} = {scene_arc}")
+        total_arc_count = len(story_bible.get("visual_arc", []))
+        print(f"      📖 Story Bible: {total_arc_count} total arcs, {len(scene_arcs)} for scene {scene_number}")
+        if scene_arcs:
+            cameras = [a.get("camera_distance", "?") for a in scene_arcs]
+            print(f"      📐 Scene {scene_number} arc cameras: {cameras}")
     else:
         print(f"      ⚠️ No Story Bible passed to scene expander")
-
-    # Get camera distance from visual arc if available
-    arc_camera = scene_arc.get("camera_distance", "").lower().strip() if scene_arc else ""
     # Map arc camera distance to composition (Airtable Shot Type values)
     arc_composition_map = {
         # Wide shots
@@ -800,21 +800,29 @@ async def expand_scene_concepts_deterministic(
         "portrait": "portrait",
     }
 
-    # Debug: Log what we're getting from the arc
-    print(f"      📐 Scene {scene_number}: arc_camera='{arc_camera}' → "
-          f"mapped={arc_composition_map.get(arc_camera, 'FALLBACK (using rotation)')}")
-
     # Step 4: Generate visual_description for each segment using LLM
     concepts = []
 
     for i, seg in enumerate(segments):
+        # Get the arc entry for THIS concept (cycle through if more concepts than arcs)
+        if scene_arcs:
+            arc_index = i % len(scene_arcs)
+            concept_arc = scene_arcs[arc_index]
+            arc_camera = concept_arc.get("camera_distance", "").lower().strip()
+        else:
+            concept_arc = {}
+            arc_camera = ""
+
         # Use visual arc camera distance if available, otherwise fall back to rotation
         if arc_camera and arc_camera in arc_composition_map:
             composition = arc_composition_map[arc_camera]
+            print(f"        Concept {i+1}: arc[{arc_index}] camera='{arc_camera}' → {composition}")
         else:
             composition = _pick_composition(default_fallback_style, i, recent_comps)
             if arc_camera:
-                print(f"      ⚠️ Unknown camera_distance '{arc_camera}', using fallback: {composition}")
+                print(f"        Concept {i+1}: ⚠️ Unknown camera '{arc_camera}', fallback={composition}")
+            elif not scene_arcs:
+                pass  # No arcs at all, silently use rotation
         recent_comps.append(composition)
 
         # Generate visual description via LLM — NO SCENE TYPE CONSTRAINTS
@@ -828,15 +836,33 @@ async def expand_scene_concepts_deterministic(
 
                 # Add Story Bible context if available
                 if bible_context:
+                    visual_desc_prompt += f"{bible_context}\n\n"
+
+                # Add specific arc data for THIS concept
+                if concept_arc:
+                    arc_location = concept_arc.get("location_id", "")
+                    arc_chars = concept_arc.get("characters_present", [])
+                    arc_mood = concept_arc.get("mood", "")
+                    arc_color = concept_arc.get("color_temperature", "")
+                    arc_note = concept_arc.get("visual_note", "")
                     visual_desc_prompt += (
-                        f"{bible_context}\n\n"
-                        "CRITICAL RULES:\n"
-                        "1. If a character from the bible appears, use their EXACT costume description. Do not change or omit clothing.\n"
-                        "2. If a location from the bible appears, use its EXACT description and signature detail.\n"
-                        "3. Match the mood, color temperature, and camera distance from the visual arc.\n"
-                        "4. If the visual arc says 'characters_present: none', do NOT include mannequin figures.\n"
-                        "5. Include the visual_note's change — what makes this image DIFFERENT from the previous one.\n\n"
+                        f"## THIS SHOT'S ARC:\n"
+                        f"- Location: {arc_location}\n"
+                        f"- Characters: {', '.join(arc_chars) if arc_chars else 'none (environment/data shot)'}\n"
+                        f"- Mood: {arc_mood}\n"
+                        f"- Color temperature: {arc_color}\n"
+                        f"- Camera: {arc_camera}\n"
+                        f"- What changes: {arc_note}\n\n"
                     )
+
+                visual_desc_prompt += (
+                    "CRITICAL RULES:\n"
+                    "1. If a character from the bible appears, use their EXACT costume description. Do not change or omit clothing.\n"
+                    "2. If a location from the bible appears, use its EXACT description and signature detail.\n"
+                    "3. Match the mood, color temperature, and camera distance from THIS SHOT'S ARC above.\n"
+                    "4. If characters_present is 'none', do NOT include mannequin figures — this is a data/environment shot.\n"
+                    "5. Include the 'what changes' note — what makes this image DIFFERENT from the previous one.\n\n"
+                )
 
                 # Add clothing requirement for characters
                 visual_desc_prompt += (
