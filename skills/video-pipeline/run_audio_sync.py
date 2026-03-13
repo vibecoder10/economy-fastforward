@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
 """
-Minimal audio_sync runner — avoids importing the full pipeline (which
-requires google-auth, slack, etc.).  Uses only pyairtable and audio_sync.
+Audio sync runner — downloads voice-over from Google Drive, transcribes with
+Whisper, and writes render_config.json.
 
 Usage:
-    python3 run_audio_sync.py
+    python3 run_audio_sync.py "Video Title"
 
-Reads audio from remotion-video/public/Scene N.mp3 (must be copied there
-first) or from the Desktop source folder.  Writes render_config.json to
-both timing/{video_id}/ and remotion-video/public/.
+Downloads Scene N.mp3 files from the video's Google Drive folder (permanent URLs),
+transcribes with OpenAI Whisper API, and writes render_config.json.
 """
 import asyncio
 import json
 import os
+import re
 import sys
 import subprocess
 from collections import defaultdict
@@ -36,6 +36,16 @@ from audio_sync.transcriber import transcribe
 from audio_sync.transition_engine import assign_transitions
 from audio_sync.ken_burns_calculator import assign_ken_burns
 from audio_sync.render_config_writer import build_render_config, write_render_config
+# Import GoogleClient directly to avoid importing the full clients package
+# (which pulls in AnthropicClient with Python 3.10+ type syntax)
+import importlib.util
+_spec = importlib.util.spec_from_file_location(
+    "google_client",
+    PIPELINE_DIR / "clients" / "google_client.py"
+)
+_google_module = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_google_module)
+GoogleClient = _google_module.GoogleClient
 
 
 def _get_video_title() -> str:
@@ -68,6 +78,7 @@ DESKTOP_SRC = Path.home() / "Desktop" / VIDEO_TITLE
 AIRTABLE_BASE_ID = "appCIcC58YSTwK3CE"
 AIRTABLE_IMAGES_TABLE_ID = "tbl3luJ0zsWu0MYYz"
 AIRTABLE_IDEAS_TABLE_ID = "tblrAsJglokZSkC8m"
+AIRTABLE_SCRIPTS_TABLE_ID = "tbluGSepeZNgb0NxG"
 
 
 def get_airtable_api():
@@ -102,23 +113,85 @@ def get_idea_from_airtable(title: str) -> dict:
     return {"id": r["id"], **r["fields"]}
 
 
-def find_audio_files() -> dict[int, Path]:
-    """Find Scene N.mp3 files — check public/ first, then Desktop source."""
-    audio: dict[int, Path] = {}
+def download_audio_from_drive(folder_id: str) -> dict[int, Path]:
+    """Download Scene N.mp3 voice-over files from Google Drive.
 
-    # Check public/ first
-    for mp3 in sorted(PUBLIC_DIR.glob("Scene *.mp3")):
+    Clears any existing Scene*.mp3 files first to prevent audio contamination
+    between videos (the #1 recurring bug in this pipeline).
+
+    Args:
+        folder_id: Google Drive folder ID for this video
+
+    Returns:
+        Dict mapping scene number -> local file path
+    """
+    # Clear existing audio files to prevent contamination
+    existing = list(PUBLIC_DIR.glob("Scene *.mp3"))
+    if existing:
+        print(f"  Clearing {len(existing)} old audio files...")
+        for f in existing:
+            f.unlink()
+
+    # Initialize Google Drive client
+    google = GoogleClient()
+
+    # List files in the video's Drive folder
+    print(f"  Listing files in Drive folder {folder_id}...")
+    files = google.list_files_in_folder(folder_id)
+
+    # Find Scene N.mp3 files
+    audio_files: dict[int, Path] = {}
+    scene_pattern = re.compile(r'^Scene (\d+)\.mp3$')
+
+    mp3_files = [f for f in files if f['name'].endswith('.mp3') and 'Scene' in f['name']]
+    print(f"  Found {len(mp3_files)} Scene*.mp3 files in Drive")
+
+    for drive_file in sorted(mp3_files, key=lambda x: x['name']):
+        name = drive_file['name']
+        match = scene_pattern.match(name)
+        if not match:
+            continue
+
+        scene_num = int(match.group(1))
+        file_id = drive_file['id']
+        output_path = PUBLIC_DIR / name
+
         try:
-            snum = int(mp3.name.replace("Scene ", "").replace(".mp3", "").strip())
-            audio[snum] = mp3
-        except ValueError:
-            pass
+            google.download_file_to_local(file_id, str(output_path))
+            size_kb = output_path.stat().st_size // 1024
+            audio_files[scene_num] = output_path
+            print(f"    Scene {scene_num}: ✅ {size_kb}KB")
+        except Exception as e:
+            print(f"    Scene {scene_num}: ❌ Download failed: {e}")
 
-    if audio:
-        print(f"  Found {len(audio)} audio files in public/")
-        return audio
+    return audio_files
 
-    # Fall back to Desktop source
+
+def find_audio_files(idea: dict) -> dict[int, Path]:
+    """Download audio from Google Drive, or fall back to local files.
+
+    Priority:
+    1. Download fresh from Google Drive (clears old files to prevent contamination)
+    2. Fall back to Desktop source folder if Drive fails
+
+    Args:
+        idea: Idea record from Airtable (must have 'Google Drive Folder ID')
+    """
+    # Get the Google Drive folder ID
+    folder_id = idea.get("Google Drive Folder ID") or idea.get("Drive Folder ID")
+
+    if folder_id:
+        print("  Downloading audio from Google Drive...")
+        audio = download_audio_from_drive(folder_id)
+
+        if audio:
+            print(f"  Downloaded {len(audio)} audio files from Google Drive")
+            return audio
+        else:
+            print("  ⚠️ No audio files found in Drive folder")
+
+    # Fall back to Desktop source (local development only)
+    audio: dict[int, Path] = {}
     if DESKTOP_SRC.exists():
         for mp3 in sorted(DESKTOP_SRC.glob("Scene *.mp3")):
             try:
@@ -130,8 +203,8 @@ def find_audio_files() -> dict[int, Path]:
             print(f"  Found {len(audio)} audio files in Desktop folder")
             return audio
 
-    print("❌ No audio files found in public/ or Desktop.")
-    print(f"   Copy audio to: {PUBLIC_DIR}/")
+    print("❌ No audio files found.")
+    print(f"   Check 'Google Drive Folder ID' field in Airtable for: {VIDEO_TITLE}")
     sys.exit(1)
 
 
@@ -139,7 +212,7 @@ async def run():
     print(f"🎵 Audio Sync: {VIDEO_TITLE}")
     print("=" * 60)
 
-    # Step 1: Load image records from Airtable
+    # Step 1: Load image records and idea from Airtable
     print("  Step 1/4: Loading image records from Airtable...")
     image_records = get_images_from_airtable(VIDEO_TITLE)
     if not image_records:
@@ -161,9 +234,9 @@ async def run():
     total_images = sum(len(imgs) for imgs in scenes_images.values())
     print(f"  Found {total_images} images across {len(scene_numbers)} scenes")
 
-    # Step 2: Find audio files
+    # Step 2: Download audio files from Google Drive
     print("  Step 2/4: Locating audio files...")
-    scene_audio_paths = find_audio_files()
+    scene_audio_paths = find_audio_files(idea)
 
     # Setup timing directory
     timing_dir = PIPELINE_DIR / "timing" / video_id
