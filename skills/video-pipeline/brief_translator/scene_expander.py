@@ -758,14 +758,38 @@ async def expand_scene_concepts_deterministic(
 
     # Step 3: Format Story Bible context for this scene
     bible_context = ""
+    scene_arc = {}
     if story_bible:
         bible_context = format_bible_for_prompt(story_bible, scene_number)
+        # Get the visual arc for this scene to use for camera/composition
+        try:
+            from bots.story_bible import get_scene_arc
+            scene_arc = get_scene_arc(story_bible, scene_number)
+        except ImportError:
+            scene_arc = {}
+
+    # Get camera distance from visual arc if available
+    arc_camera = scene_arc.get("camera_distance", "").lower() if scene_arc else ""
+    # Map arc camera distance to composition
+    arc_composition_map = {
+        "wide": "wide",
+        "medium": "medium",
+        "close-up": "closeup",
+        "close up": "closeup",
+        "closeup": "closeup",
+        "extreme-close-up": "closeup",
+        "extreme close-up": "closeup",
+    }
 
     # Step 4: Generate visual_description for each segment using LLM
     concepts = []
 
     for i, seg in enumerate(segments):
-        composition = _pick_composition(default_fallback_style, i, recent_comps)
+        # Use visual arc camera distance if available, otherwise fall back to rotation
+        if arc_camera and arc_camera in arc_composition_map:
+            composition = arc_composition_map[arc_camera]
+        else:
+            composition = _pick_composition(default_fallback_style, i, recent_comps)
         recent_comps.append(composition)
 
         # Generate visual description via LLM — NO SCENE TYPE CONSTRAINTS
@@ -781,9 +805,12 @@ async def expand_scene_concepts_deterministic(
                 if bible_context:
                     visual_desc_prompt += (
                         f"{bible_context}\n\n"
-                        "CRITICAL: If any character or location from the bible appears in this "
-                        "narration, use their EXACT description from the bible above. "
-                        "Same character = identical clothing. Same location = identical details.\n\n"
+                        "CRITICAL RULES:\n"
+                        "1. If a character from the bible appears, use their EXACT costume description. Do not change or omit clothing.\n"
+                        "2. If a location from the bible appears, use its EXACT description and signature detail.\n"
+                        "3. Match the mood, color temperature, and camera distance from the visual arc.\n"
+                        "4. If the visual arc says 'characters_present: none', do NOT include mannequin figures.\n"
+                        "5. Include the visual_note's change — what makes this image DIFFERENT from the previous one.\n\n"
                     )
 
                 # Add clothing requirement for characters
@@ -795,6 +822,7 @@ async def expand_scene_concepts_deterministic(
                     "write whatever best tells THIS story moment.\n\n"
                     "Do NOT start with the style prefix (e.g. '3D rendered faceless mannequin...') — "
                     "that will be added automatically based on what you write.\n"
+                    "End with a camera angle and lighting description that matches the arc.\n"
                     "Return ONLY the description, nothing else.\n\n"
                     f"Narration: \"{seg['text']}\"\n"
                     f"Visual seeds for context: {visual_seeds[:200] if visual_seeds else 'none'}"
