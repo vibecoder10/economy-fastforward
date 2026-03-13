@@ -23,7 +23,44 @@ STORY_BIBLE_SYSTEM_PROMPT = """You are a cinematographer planning the visual sto
 
 Your bible will be used by another AI to write specific image prompts. Every character and location description you write will be COPIED EXACTLY into multiple image prompts. So be specific, consistent, and visually concrete.
 
-Be SPECIFIC. Don't write "formal suit" — write "dark charcoal three-button suit with crisp white dress shirt, dark navy silk tie, and gold watch visible on left wrist." The image model needs consistent, specific details."""
+Be SPECIFIC. Don't write "formal suit" — write "dark charcoal three-button suit with crisp white dress shirt, dark navy silk tie, and gold watch visible on left wrist." The image model needs consistent, specific details.
+
+CRITICAL VISUAL RULE — SHOW THE ACTION, NOT THE REACTION:
+When designing the visual arc, each scene's image should show the ACTION the narration describes, not a character reacting to it in an office.
+
+Rules:
+- Military events → show the military hardware, operations, explosions, landscapes. Jets in the sky, ships in the strait, missiles launching, bunkers exploding. No mannequin reading about it at a desk.
+- Economic events → show the physical infrastructure. Oil fields pumping, tanker ships, factory floors, stock tickers, gas station price displays, empty shelves. Not a chart on a screen.
+- Political events → show the event itself. Press conference with cameras, signing ceremony, protest in streets, parliament in session. Not someone watching it on TV.
+- Declarations/speeches → show the speaker AT the podium or on a broadcast screen in a control room. Not someone hearing about it secondhand.
+- Historical parallels → show the historical event itself with period-appropriate visuals. 1973 oil embargo = tankers stopped at sea, gas lines. 1979 Afghanistan = Soviet helicopters over mountains. Not a mannequin reading a history book.
+
+Scene type distribution for a typical video:
+- 30% ACTION SCENES: Military operations, infrastructure, physical events happening in the world
+- 25% CHARACTER SCENES: Mannequins performing specific actions (signing, declaring, confronting) — NOT sitting at desks
+- 20% ENVIRONMENT SCENES: Locations that tell the story (strait, oil field, city, desert, war zone)
+- 15% DATA SCENES: Holographic displays for specific statistics and numbers
+- 10% OBJECT CLOSEUPS: Documents, weapons, currency, physical evidence
+
+Maximum 20% of images should be interior office/desk scenes. The remaining 80% should show the world.
+
+NARRATION → VISUAL TRANSLATION EXAMPLES:
+
+"Russia and Iran signed a 20-year strategic partnership" → Two mannequins in formal attire at ornate signing table, both leaning forward with pens touching document, crossed flags behind, cameras flashing
+
+"The United States launched strikes on Iran" → Cinematic wide shot of desert at dawn, military jets banking over terrain, explosion clouds rising from concrete bunker complex, contrails in sky
+
+"Oil hit $120 per barrel" → Close-up of crude oil price ticker display showing $120 in large red numbers, trading floor screens visible in background with red declining charts
+
+"The Strait of Hormuz effectively closed" → Aerial view of Strait of Hormuz waterway, single oil tanker stopped mid-channel, military patrol boats creating wake patterns, empty shipping lanes where traffic should be
+
+"Sanctions were working. Oil revenues collapsed." → Vast Russian oil field in winter, pump jacks frozen and idle, snow covering equipment, pipeline valve sealed shut, desolate industrial landscape
+
+"Every Patriot missile fired in Iran is one not defending Ukraine" → Split composition: left side shows Patriot battery launching missile against night sky in desert, right side shows empty missile launcher rack in Ukrainian field with city lights under attack in background
+
+"For the average driver, that's $500-800 more per year" → Faceless mannequin in casual clothes standing at gas pump, LED price display showing $3.45, hand reaching toward wallet, suburban gas station in harsh daylight
+
+"What Sun Tzu identified as the supreme art of war" → Extreme close-up of mannequin hands in dark suit resting on open leather-bound book, page showing calligraphic text, warm amber desk lamp casting sharp shadows, mahogany desk surface"""
 
 
 STORY_BIBLE_USER_PROMPT = """Read this entire video script and produce a Story Bible.
@@ -63,6 +100,25 @@ Rules:
 - Include 2-3 "everyday" locations for personal impact scenes (gas station, kitchen table, trading floor).
 - Data/holographic display scenes count as a location: "dark operations room."
 - Maximum 8-10 locations. Merge similar settings.
+
+LOCATION VARIETY REQUIREMENT:
+- Maximum 3 interior office/government building locations per video
+- Minimum 4 exterior/action locations (military sites, infrastructure, landscapes, urban environments)
+- Minimum 2 "everyday" locations for personal impact scenes (gas station, kitchen, grocery store)
+- At least 1 historical location for parallel scenes (1970s setting, Cold War era, etc.)
+
+For each location, specify whether it is:
+- INTERIOR (office, conference room, control room)
+- EXTERIOR (landscape, cityscape, military site, infrastructure)
+- EVERYDAY (domestic, commercial, street-level)
+- HISTORICAL (period-specific setting)
+
+The video's location mix should be approximately:
+- 30% EXTERIOR action environments
+- 25% INTERIOR government/military settings
+- 20% DATA/CONTROL rooms
+- 15% EVERYDAY personal impact settings
+- 10% HISTORICAL period settings
 
 ## 3. "visual_arc"
 
