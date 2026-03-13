@@ -24,7 +24,7 @@ def _scene_model_from_profile() -> str:
     profile = _get_profile()
     if profile:
         return profile.image_gen.scene_model
-    return "z-image"
+    return "nano-banana-2"
 
 
 def _thumbnail_model_from_profile() -> str:
@@ -41,8 +41,8 @@ def _valid_scene_models_from_profile() -> dict:
     if profile and profile.raw.get("valid_scene_models"):
         return profile.raw["valid_scene_models"]
     return {
-        "z-image": "Z Image (default — holographic display, $0.004/img)",
-        "nano-banana-2": "Nano Banana 2 (legacy — reference support, $0.025/img)",
+        "nano-banana-2": "Nano Banana 2 (default — reference support, $0.025/img)",
+        "z-image": "Z Image ($0.004/img)",
     }
 
 

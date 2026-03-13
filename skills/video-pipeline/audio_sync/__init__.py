@@ -30,7 +30,7 @@ from .aligner import (
     align_scenes_to_timestamps,
     validate_alignment,
 )
-from .timing_adjuster import adjust_timing
+from .timing_adjuster import adjust_timing, enforce_max_image_duration
 from .transition_engine import assign_transitions
 from .ken_burns_calculator import assign_ken_burns
 from .render_config_writer import (
@@ -186,6 +186,7 @@ __all__ = [
     "align_scenes_to_timestamps",
     "validate_alignment",
     "adjust_timing",
+    "enforce_max_image_duration",
     "assign_transitions",
     "assign_ken_burns",
     "build_render_config",

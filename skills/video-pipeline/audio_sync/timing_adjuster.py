@@ -12,6 +12,7 @@ from typing import Any
 from .config import (
     MIN_DISPLAY_SECONDS,
     MAX_DISPLAY_SECONDS,
+    MAX_IMAGE_DISPLAY_SECONDS,
     PRE_ROLL_SECONDS,
     POST_HOLD_SECONDS,
 )
@@ -139,6 +140,57 @@ def resolve_overlaps(scenes: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if scenes[i]["display_end"] < scenes[i]["display_start"]:
             scenes[i]["display_end"] = scenes[i]["display_start"] + MIN_DISPLAY_SECONDS
     return scenes
+
+
+# ---------------------------------------------------------------------------
+# Per-image max duration enforcement
+# ---------------------------------------------------------------------------
+
+def enforce_max_image_duration(
+    scene_raw: list[dict[str, Any]],
+    max_seconds: float = MAX_IMAGE_DISPLAY_SECONDS,
+    min_seconds: float = 1.0,
+) -> list[dict[str, Any]]:
+    """
+    Enforce a hard maximum duration per image within a single scene.
+
+    If ANY image in *scene_raw* exceeds *max_seconds*, redistribute the
+    scene's total audio time evenly across all images (clamped to
+    [min_seconds, max_seconds]).  This prevents one long sentence from
+    monopolising a scene's display time.
+
+    Args:
+        scene_raw: Per-image entries for ONE scene (must all share the
+            same scene).  Each dict must have ``duration``,
+            ``display_start``, and ``display_end``.
+        max_seconds: Hard cap per image (default 15 s).
+        min_seconds: Floor per image (default 1 s).
+
+    Returns:
+        The same list with durations, display_start, and display_end
+        adjusted in-place.
+    """
+    if not scene_raw:
+        return scene_raw
+
+    has_outlier = any(e["duration"] > max_seconds for e in scene_raw)
+    if not has_outlier:
+        return scene_raw
+
+    scene_total = sum(e["duration"] for e in scene_raw)
+    n = len(scene_raw)
+    even_dur = round(scene_total / n, 2)
+    even_dur = max(min_seconds, min(even_dur, max_seconds))
+
+    # Rebuild start/end from the scene's first display_start
+    cursor = scene_raw[0]["display_start"]
+    for entry in scene_raw:
+        entry["duration"] = even_dur
+        entry["display_start"] = round(cursor, 4)
+        entry["display_end"] = round(cursor + even_dur, 4)
+        cursor += even_dur
+
+    return scene_raw
 
 
 # ---------------------------------------------------------------------------
