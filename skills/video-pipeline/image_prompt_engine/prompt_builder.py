@@ -206,21 +206,27 @@ _UNIVERSAL_SUFFIX = ", Cinematic 3D documentary style, no facial features on any
 
 # Words that indicate character presence in the visual description
 # If ANY of these appear, the scene has characters and needs mannequin prefix
+#
+# IMPORTANT: Avoid words with common non-character uses:
+# - "standing" matches "standing poles", "standing order" - FALSE POSITIVE
+# - "head" matches "overhead", "at the head of" - FALSE POSITIVE
+# - "hand" matches "on the other hand" - FALSE POSITIVE
+# Instead rely on clothing/role words which are more reliable.
 _CHARACTER_INDICATOR_WORDS = [
-    # Direct mannequin references
+    # Direct mannequin references (most reliable)
     "mannequin", "mannequins", "figure", "figures",
-    # Clothing (implies character wearing it)
+    # Clothing (implies character wearing it - very reliable)
     "wearing", "suit", "suits", "uniform", "uniforms", "robes", "robe",
     "jacket", "coat", "dress", "shirt", "tie", "turban", "keffiyeh",
     "thobe", "vest", "costume", "clothes", "clothing", "attire",
-    # Postures (implies character doing action)
-    "standing", "sitting", "seated", "leaning", "kneeling", "crouching",
-    "walking", "running", "pointing", "holding", "reaching", "gesturing",
+    # Postures that ONLY apply to people (removed "standing" - too many false positives)
+    "sitting", "seated", "leaning", "kneeling", "crouching",
+    "walking", "running", "pointing", "reaching", "gesturing",
     "turning", "facing", "looking", "watching", "signing", "reading",
     "writing", "typing", "slamming", "pushing", "pulling",
-    # Body parts (implies character presence)
-    "hands", "hand", "gloved", "arm", "arms", "shoulder", "shoulders",
-    "head", "heads", "posture", "stance", "silhouette",
+    # Body parts (removed "head"/"hand" - too many false positives)
+    "hands", "gloved", "arms", "shoulder", "shoulders",
+    "posture", "stance", "silhouette",
     # Role/position words (implies character)
     "leader", "official", "general", "diplomat", "officer", "banker",
     "trader", "analyst", "soldier", "guard", "agent", "citizen",
@@ -233,12 +239,25 @@ _CHARACTER_PATTERNS = [
     for w in _CHARACTER_INDICATOR_WORDS
 ]
 
+# Patterns that EXCLUDE character detection (false positive filters)
+# These override any character indicator match
+_FALSE_POSITIVE_PATTERNS = [
+    _re.compile(r"\bstanding\s+(poles?|order|water|ovation|committee|army|desk|lamp)\b", _re.IGNORECASE),
+    _re.compile(r"\boverhead\b", _re.IGNORECASE),
+    _re.compile(r"\bat the head of\b", _re.IGNORECASE),
+    _re.compile(r"\bon the other hand\b", _re.IGNORECASE),
+]
+
 
 def _has_character_indicators(description: str) -> bool:
     """Check if a visual description contains character indicators.
 
     Returns True if ANY character indicator word is found, meaning
     the scene has mannequin characters and needs the mannequin prefix.
+
+    Uses a two-pass approach:
+    1. Check for character indicator words
+    2. Filter out known false positives
     """
     for pattern in _CHARACTER_PATTERNS:
         if pattern.search(description):
