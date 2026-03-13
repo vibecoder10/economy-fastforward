@@ -12,9 +12,20 @@ Python 3.11+ (async) · TypeScript · Remotion · Airtable (orchestration DB) Cl
 * tasks/ — Task scripts
 
 ## Architecture
-Status-driven pipeline where Airtable Status fields gate each stage: Research → Script → Voice → Image Prompts → Images → Video Scripts → Video Generation → Thumbnail → Render → Upload
+Status-driven pipeline where Airtable Status fields gate each stage: Research → Script → Voice → Image Prompts → **Validation** → Images → Video Scripts → Video Generation → Thumbnail → Render → Upload
 
 CRITICAL: Never skip a status. Always update via Airtable client. Check status before processing.
+
+### Prompt Validation (between Image Prompts and Images)
+After prompts are generated, `bots/prompt_validator.py` validates sequencing rules:
+- **Camera distance**: Max 2 consecutive same shot type (wide/medium/closeup)
+- **Location clustering**: Max 2 consecutive same location
+- **Data scene clustering**: Max 2 consecutive data/chart scenes
+- **Naked mannequins**: Character scenes must have clothing descriptions
+
+Auto-fixes: Camera distance swaps, mannequin hand reinforcement
+Critical violations (naked mannequins) block status advancement.
+Results logged to `/tmp/pipeline-validation.log`.
 
 ## Execution Protocol
 1. UNDERSTAND: Read relevant files. If requirements are ambiguous, ASK.

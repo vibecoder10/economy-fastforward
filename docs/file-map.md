@@ -23,6 +23,7 @@
 | `script_bot.py` | Scriptwriting | Concept from Ideas table | 6-act, 3000-4500 word script |
 | `voice_bot.py` | Voice synthesis | Script text | MP3 narration via ElevenLabs |
 | `image_prompt_bot.py` | Prompt engineering | Script scenes | 6 image prompts per scene (120 total) |
+| `prompt_validator.py` | Post-prompt validation | Generated prompts | Auto-fixes + violation report (blocks critical issues) |
 | `image_bot.py` | Image generation | Image prompts | PNG images via Seed Dream 4.5 |
 | `video_script_bot.py` | Motion prompts | Images + script | Animation motion descriptions |
 | `video_bot.py` | Animation | Images + motion prompts | Video clips via Veo 3.1 Fast |
@@ -35,7 +36,7 @@
 | Client | Service | Key Methods |
 |--------|---------|-------------|
 | `anthropic_client.py` | Claude AI | `generate()`, `generate_beat_sheet()`, `write_scene()`, `generate_image_prompts()`, `generate_video_prompt()`, `segment_scene_into_concepts()` |
-| `airtable_client.py` | Airtable | `get_ideas_by_status()`, `create_idea()`, `create_script_record()`, `update_image_record()`, `update_image_animation_fields()` |
+| `airtable_client.py` | Airtable | `get_ideas_by_status()`, `create_idea()`, `create_script_record()`, `update_image_record()`, `update_image_animation_fields()`, `update_image_prompt_fields()`, `get_all_images_for_video()` |
 | `elevenlabs_client.py` | ElevenLabs (via Wavespeed) | `generate_and_wait()` (create task + poll + return audio URL) |
 | `image_client.py` | Kie.ai | `generate_scene_image()` (Seed Dream 4.5), `generate_video()` (Grok Imagine), `generate_video_veo()` (Veo 3.1), `upgrade_veo_to_1080p()` |
 | `google_client.py` | Drive & Docs | `upload_file()`, `create_folder()`, `download_file_to_local()`, `make_file_public()`, `create_document()` |
