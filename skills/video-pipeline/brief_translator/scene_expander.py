@@ -771,10 +771,23 @@ async def expand_scene_concepts_deterministic(
         # Generate visual description via LLM — profile-driven prompt
         try:
             if not is_holographic and profile and profile.scene_description.system_prompt:
+                # Build scene type guidance so Claude writes content matching the type
+                scene_type_guidance = ""
+                if profile.style_system.substyles and visual_style in profile.style_system.substyles:
+                    substyle_info = profile.style_system.substyles[visual_style]
+                    scene_type_guidance = (
+                        f"\nSCENE TYPE: {substyle_info.name}\n"
+                        f"Description: {substyle_info.description}\n"
+                        f"Write a visual description that fits this scene type. "
+                    )
+
                 # Use the profile's scene description system prompt
                 visual_desc_prompt = (
                     f"{profile.scene_description.system_prompt}\n\n"
+                    f"{scene_type_guidance}\n"
                     "Write a 20-35 word visual description for this narration segment. "
+                    "Do NOT start with the style prefix (e.g. '3D rendered faceless mannequin...') — "
+                    "that will be added automatically. Just describe the scene content.\n"
                     "Return ONLY the description, nothing else.\n\n"
                     f"Narration: \"{seg['text']}\"\n"
                     f"Visual seeds for context: {visual_seeds[:200] if visual_seeds else 'none'}"

@@ -2206,9 +2206,22 @@ class VideoPipeline:
                 for concept in needs_regen:
                     try:
                         if not _regen_is_holographic and _regen_profile and _regen_profile.scene_description.system_prompt:
+                            # Include scene type guidance if available
+                            _regen_type_guidance = ""
+                            _vs = concept.get("visual_style", "")
+                            if _regen_profile.style_system.substyles and _vs in _regen_profile.style_system.substyles:
+                                _sub = _regen_profile.style_system.substyles[_vs]
+                                _regen_type_guidance = (
+                                    f"\nSCENE TYPE: {_sub.name}\n"
+                                    f"Description: {_sub.description}\n"
+                                    f"Write a visual description that fits this scene type. "
+                                )
                             regen_prompt = (
                                 f"{_regen_profile.scene_description.system_prompt}\n\n"
+                                f"{_regen_type_guidance}\n"
                                 "Write a 20-35 word visual description for this narration segment. "
+                                "Do NOT start with the style prefix (e.g. '3D rendered faceless mannequin...') — "
+                                "that will be added automatically. Just describe the scene content.\n"
                                 "Return ONLY the description, nothing else.\n\n"
                                 f"Narration: \"{concept['sentence_text']}\""
                             )
@@ -2288,6 +2301,13 @@ class VideoPipeline:
                     color_mood=color_mood,
                     image_style_override=image_style_override,
                 )
+
+                # Diagnostic: print first 3 assembled prompts for format verification
+                if image_index < 3:
+                    print(f"\n  📋 PROMPT DIAGNOSTIC [{image_index + 1}/3] "
+                          f"(scene {scene_num}, type={display_format}):")
+                    print(f"     {prompt}")
+                    print()
 
                 self.airtable.create_concept_record(
                     scene_number=scene_num,
