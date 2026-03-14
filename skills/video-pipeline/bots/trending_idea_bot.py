@@ -6,6 +6,7 @@ This bot:
 2. Analyzes title patterns, keywords, and performance metrics
 3. Uses Claude to model new ideas based on what's working NOW
 4. Generates clickbait-worthy titles that fit the channel's style
+5. Injects channel-specific learnings from Osiris performance analysis (Phase 2)
 """
 
 from typing import Optional
@@ -92,6 +93,7 @@ class TrendingIdeaBot:
         airtable_client,
         gemini_client=None,
         slack_client=None,
+        use_learnings: bool = True,
     ):
         """Initialize with required clients.
 
@@ -101,12 +103,22 @@ class TrendingIdeaBot:
             airtable_client: For saving ideas to Airtable
             gemini_client: Optional, for thumbnail analysis
             slack_client: Optional, for notifications
+            use_learnings: Inject Osiris learnings into prompts (default True)
         """
         self.apify = apify_client
         self.anthropic = anthropic_client
         self.airtable = airtable_client
         self.gemini = gemini_client
         self.slack = slack_client
+
+        # Initialize Osiris learnings engine (Phase 2 performance learning)
+        self._learnings_engine = None
+        if use_learnings:
+            try:
+                from osiris.learnings_engine import LearningsEngine
+                self._learnings_engine = LearningsEngine(airtable_client)
+            except ImportError:
+                pass  # Osiris not installed, skip learnings
 
     async def scrape_trending(
         self,
@@ -229,6 +241,16 @@ Return a JSON object with a "concepts" array containing exactly {num_ideas} vide
     }}
   ]
 }}"""
+
+        # Inject Osiris learnings if available (Phase 2 performance learning)
+        if self._learnings_engine:
+            try:
+                learnings_text = self._learnings_engine.get_all_learnings_for_ideation()
+                if learnings_text:
+                    system_prompt += learnings_text
+                    print("  [Osiris] Injected channel learnings into prompt")
+            except Exception as e:
+                print(f"  [Osiris] Learnings injection failed (non-blocking): {e}")
 
         user_prompt = f"""Analyze these TRENDING video patterns and generate {num_ideas} ORIGINAL video concepts:
 

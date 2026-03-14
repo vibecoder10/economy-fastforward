@@ -33,6 +33,11 @@ Performance fields (written by `performance_tracker.py`, daily cron):
 - Snapshots (written once): `Views 24h`, `Views 48h`, `Views 7d`, `Views 30d`, `CTR 48h (%)`, `Retention 48h (%)`
 - Metadata: `Last Analytics Sync`, `Upload Date`
 
+Osiris analysis fields (written by `osiris/performance_analyzer.py`):
+- `Post-Mortem 48h` (Long Text) — JSON of 48h analysis (CTR/retention verdict, recommendations)
+- `Post-Mortem 7d` (Long Text) — JSON of 7d final analysis + learnings extracted
+- `Performance Verdict` (Single Select) — Overall performance: `strong`, `average`, `weak`
+
 ## Scripts Table
 
 - `Scene`, `Scene text`, `Title`, `Voice ID`
@@ -96,6 +101,30 @@ Setup:
 2. Add the fields above
 3. Set `AIRTABLE_COMPETITOR_VIDEOS_TABLE_ID` in `.env` to the table ID
 4. Run `python -m osiris.competitor_scraper --dry-run` to verify setup
+
+## Osiris Learnings Table (Performance Learning Data)
+
+Persists learned patterns from performance analysis. After analyzing your videos at 48h and 7d milestones, Osiris extracts reusable learnings that get injected into generation prompts (titles, hooks, thumbnails).
+
+Required fields:
+- `Category` (Single Select) — Learning category: `title`, `hook`, `thumbnail`, `retention`, `framework`
+- `Pattern` (Long Text) — The learned pattern description (e.g., "Question format title: strong CTR (5.2%)")
+- `Confidence` (Number) — 0-100 confidence score based on sample size and consistency
+- `Sample Size` (Number) — How many videos this pattern is based on
+- `Avg CTR` (Number, decimal) — Average CTR for videos matching this pattern (optional)
+- `Avg Retention` (Number, decimal) — Average retention for videos matching this pattern (optional)
+- `Source Videos` (Long Text) — JSON array of video titles that inform this learning (optional)
+- `Created` (Date) — When this learning was first identified
+- `Last Updated` (Date) — When this learning was last recalculated
+- `Active` (Checkbox) — Whether to include in prompt injection (default true)
+
+Setup:
+1. Create the table in Airtable with name "Osiris Learnings"
+2. Add the fields above
+3. Set `AIRTABLE_OSIRIS_LEARNINGS_TABLE_ID` in `.env` to the table ID
+4. Run `python -m osiris analyze --dry-run` to verify setup
+
+The analyzer runs daily at 7:30 AM PT (after performance_tracker), analyzing videos at 48h/7d milestones.
 
 ## Known Schema Issues (See ANIMATION_SYSTEM_REVIEW.md Feature 4)
 

@@ -126,6 +126,12 @@ TZ=America/Los_Angeles
 # Timeout: 10 min max | Lock expires after 15 min
 0 $PERF_HOUR * * * MAX_LOCK_AGE=900 $WRAPPER performance /tmp/performance-tracker.log timeout 600 python performance_tracker.py --recent
 
+# $PERF_HOUR:30 (~7:30 AM PT) — Osiris performance analyzer (post-mortems)
+# Runs AFTER performance_tracker so metrics are fresh
+# Analyzes videos at 48h/7d milestones, extracts learnings for prompt injection
+# Timeout: 10 min max | Lock expires after 15 min
+30 $PERF_HOUR * * * MAX_LOCK_AGE=900 $WRAPPER osiris-analyze /tmp/osiris-analyze.log timeout 600 python -m osiris analyze
+
 # $QUEUE_HOUR:00 (~12 PM PT) — Daily pipeline queue run
 # Processes all stages: Script → Voice → Image Prompts → Images → Thumbnail → Render → Upload
 # Timeout: 4 hours max | Lock expires after 5 hours
@@ -143,7 +149,7 @@ EOF
 )
 
 # Preserve any existing cron entries not from this script
-EXISTING=$(crontab -l 2>/dev/null | grep -v "pipeline-discover\|pipeline-queue\|pipeline-bot-health\|pipeline-approval\|performance-tracker\|osiris-scraper\|pipeline\.log\|Pipeline Cron\|setup_cron\|Daily idea\|Daily pipeline\|performance tracker\|bot health\|Approval watcher\|run-queue\|--discover\|performance_tracker\|cron_wrapper\|osiris\.competitor" || true)
+EXISTING=$(crontab -l 2>/dev/null | grep -v "pipeline-discover\|pipeline-queue\|pipeline-bot-health\|pipeline-approval\|performance-tracker\|osiris-scraper\|osiris-analyze\|pipeline\.log\|Pipeline Cron\|setup_cron\|Daily idea\|Daily pipeline\|performance tracker\|bot health\|Approval watcher\|run-queue\|--discover\|performance_tracker\|cron_wrapper\|osiris\.competitor\|osiris analyze" || true)
 
 # Install combined crontab
 if [ -n "$EXISTING" ]; then
@@ -156,8 +162,9 @@ echo "  Cron jobs installed!"
 echo ""
 echo "  Scheduled (system time $SYS_TZ → ~Pacific equivalent):"
 echo "    $OSIRIS_HOUR:00 daily (~5 AM PT)    ->  Osiris scraper (persist competitor videos)"
-echo "    $DISCOVER_HOUR:00 daily (~9 AM PT)  ->  Discovery scan (news + competitors → Slack)"
 echo "    $PERF_HOUR:00 daily (~7 AM PT)      ->  YouTube performance tracker (sync analytics)"
+echo "    $PERF_HOUR:30 daily (~7:30 AM PT)   ->  Osiris analyzer (post-mortems + learnings)"
+echo "    $DISCOVER_HOUR:00 daily (~9 AM PT)  ->  Discovery scan (news + competitors → Slack)"
 echo "    $QUEUE_HOUR:00 daily (~12 PM PT)    ->  Pipeline queue (process all stages to render)"
 echo "    Every 15 min             ->  Bot health check (auto-restart if down)"
 echo "    Every 30 min             ->  Approval watcher (catch manual approvals)"
@@ -167,16 +174,18 @@ echo "    All jobs (except healthcheck) send Slack notifications on failure."
 echo "    Check your Slack channel if you don't see morning activity."
 echo ""
 echo "  Timeouts:"
-echo "    Osiris:       10 min max"
-echo "    Discovery:    15 min max (includes competitor scrape)"
-echo "    Performance:  10 min max"
-echo "    Pipeline:     4 hours max"
-echo "    Approval:     10 min max"
+echo "    Osiris Scraper:   10 min max"
+echo "    Performance:      10 min max"
+echo "    Osiris Analyzer:  10 min max"
+echo "    Discovery:        15 min max (includes competitor scrape)"
+echo "    Pipeline:         4 hours max"
+echo "    Approval:         10 min max"
 echo ""
 echo "  Logs:"
 echo "    /tmp/osiris-scraper.log"
-echo "    /tmp/pipeline-discover.log"
 echo "    /tmp/performance-tracker.log"
+echo "    /tmp/osiris-analyze.log"
+echo "    /tmp/pipeline-discover.log"
 echo "    /tmp/pipeline-queue.log"
 echo "    /tmp/pipeline-bot-health.log"
 echo "    /tmp/pipeline-approval.log"

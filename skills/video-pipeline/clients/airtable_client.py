@@ -187,6 +187,9 @@ class AirtableClient:
     # Competitor Videos — Osiris training data (all scraped videos, not just winners)
     COMPETITOR_VIDEOS_TABLE_ID = "tblXXXXXXXXXXXXXX"  # Set in .env after table creation
 
+    # Osiris Learnings — persists learned patterns from performance analysis
+    OSIRIS_LEARNINGS_TABLE_ID = "tblXXXXXXXXXXXXXX"  # Set in .env after table creation
+
     def __init__(self, api_key: Optional[str] = None, base_id: Optional[str] = None):
         self.api_key = api_key or os.getenv("AIRTABLE_API_KEY")
         if not self.api_key:
@@ -208,6 +211,7 @@ class AirtableClient:
         self._images_table = None
         self._competitor_channels_table = None
         self._competitor_videos_table = None
+        self._osiris_learnings_table = None
 
     @property
     def idea_concepts_table(self) -> Table:
@@ -694,6 +698,169 @@ class AirtableClient:
                 except Exception as ind_err:
                     print(f"    ⚠️ Failed to create video {video_data.get('video_id')}: {ind_err}")
             return results
+
+    # ==================== OSIRIS LEARNINGS TABLE ====================
+
+    @property
+    def osiris_learnings_table(self) -> Table:
+        """Get the Osiris Learnings table (persisted patterns from performance analysis)."""
+        if self._osiris_learnings_table is None:
+            table_id = os.getenv(
+                "AIRTABLE_OSIRIS_LEARNINGS_TABLE_ID",
+                self.OSIRIS_LEARNINGS_TABLE_ID,
+            )
+            self._osiris_learnings_table = self.api.table(self.base_id, table_id)
+        return self._osiris_learnings_table
+
+    def get_all_learnings(self, category: str = None, active_only: bool = True) -> list[dict]:
+        """Get learnings from Osiris Learnings table.
+
+        Args:
+            category: Filter by category (title, hook, thumbnail, retention, framework)
+            active_only: Only return active learnings (default True)
+
+        Returns:
+            List of learning records with fields
+        """
+        try:
+            formula_parts = []
+            if active_only:
+                formula_parts.append("{Active} = TRUE()")
+            if category:
+                formula_parts.append(f'{{Category}} = "{category}"')
+
+            formula = None
+            if len(formula_parts) == 1:
+                formula = formula_parts[0]
+            elif len(formula_parts) > 1:
+                formula = f"AND({', '.join(formula_parts)})"
+
+            records = self.osiris_learnings_table.all(
+                formula=formula,
+                sort=["-Confidence"],  # Sort by confidence descending
+            )
+            return [{"id": r["id"], **r["fields"]} for r in records]
+        except Exception as e:
+            print(f"    ⚠️ Could not fetch learnings: {e}")
+            return []
+
+    def create_learning(self, learning: dict) -> dict:
+        """Create a new learning record in the Osiris Learnings table.
+
+        Args:
+            learning: Dict with learning fields:
+                - Category: title, hook, thumbnail, retention, framework
+                - Pattern: The learned pattern description
+                - Confidence: 0-100 based on sample size and consistency
+                - Sample Size: Number of videos this pattern is based on
+                - Avg CTR: Average CTR for matching videos (optional)
+                - Avg Retention: Average retention for matching videos (optional)
+                - Source Videos: JSON array of video titles (optional)
+
+        Returns:
+            Created record dict
+        """
+        from datetime import date
+
+        fields = {
+            "Category": learning.get("category", ""),
+            "Pattern": learning.get("pattern", ""),
+            "Confidence": learning.get("confidence", 50),
+            "Sample Size": learning.get("sample_size", 1),
+            "Active": True,
+            "Created": date.today().isoformat(),
+            "Last Updated": date.today().isoformat(),
+        }
+
+        # Optional fields
+        if learning.get("avg_ctr") is not None:
+            fields["Avg CTR"] = round(learning["avg_ctr"], 2)
+        if learning.get("avg_retention") is not None:
+            fields["Avg Retention"] = round(learning["avg_retention"], 1)
+        if learning.get("source_videos"):
+            import json
+            fields["Source Videos"] = json.dumps(learning["source_videos"])
+
+        try:
+            record = self.osiris_learnings_table.create(fields, typecast=True)
+            return {"id": record["id"], **record["fields"]}
+        except Exception as e:
+            error_msg = str(e)
+            if "UNKNOWN_FIELD_NAME" not in error_msg:
+                raise
+            # Graceful degradation: drop unknown field and retry
+            bad_field = self._extract_bad_field(error_msg)
+            if bad_field and bad_field in fields:
+                print(f"    ⚠️ Field '{bad_field}' not in Osiris Learnings table, dropping it")
+                del fields[bad_field]
+                record = self.osiris_learnings_table.create(fields, typecast=True)
+                return {"id": record["id"], **record["fields"]}
+            raise
+
+    def update_learning(self, record_id: str, updates: dict) -> dict:
+        """Update an existing learning record.
+
+        Args:
+            record_id: Airtable record ID
+            updates: Dict of fields to update
+
+        Returns:
+            Updated record dict
+        """
+        from datetime import date
+
+        updates["Last Updated"] = date.today().isoformat()
+        record = self.osiris_learnings_table.update(record_id, updates, typecast=True)
+        return {"id": record["id"], **record["fields"]}
+
+    def get_videos_needing_postmortem(self) -> list[dict]:
+        """Get uploaded videos that need 48h or 7d post-mortem analysis.
+
+        Returns videos that:
+        - Have YouTube Video ID (uploaded)
+        - Have Upload Date
+        - Are at least 48 hours old
+        - Don't have Post-Mortem 48h or Post-Mortem 7d filled
+
+        Returns:
+            List of video records needing analysis
+        """
+        from datetime import datetime, timedelta, timezone
+
+        # Get all uploaded videos
+        all_ideas = self.get_all_ideas()
+        uploaded = [r for r in all_ideas if r.get("YouTube Video ID")]
+
+        needs_analysis = []
+        now = datetime.now(timezone.utc)
+
+        for video in uploaded:
+            upload_date_str = video.get("Upload Date")
+            if not upload_date_str:
+                continue
+
+            try:
+                upload_dt = datetime.fromisoformat(upload_date_str.replace("Z", "+00:00"))
+                hours_since = (now - upload_dt).total_seconds() / 3600
+            except (ValueError, TypeError):
+                continue
+
+            # Check if needs 48h analysis
+            if hours_since >= 48 and not video.get("Post-Mortem 48h"):
+                needs_analysis.append({
+                    **video,
+                    "_analysis_type": "48h",
+                    "_hours_since_upload": hours_since,
+                })
+            # Check if needs 7d analysis
+            elif hours_since >= 168 and not video.get("Post-Mortem 7d"):
+                needs_analysis.append({
+                    **video,
+                    "_analysis_type": "7d",
+                    "_hours_since_upload": hours_since,
+                })
+
+        return needs_analysis
 
     # ==================== SCRIPT TABLE ====================
     
