@@ -61,8 +61,8 @@ site. CNN called it a response to nuclear threats. The official story says
 this was about preventing weapons of mass destruction. But here's what
 doesn't add up: the targets weren't nuclear facilities. They were logistics
 corridors worth $12 billion in annual trade flow. When you follow the money
-instead of the missiles, you find an entirely different war. And what you'll
-see by Part 3 is that Iran isn't fighting a military war at all.
+instead of the missiles, you find an entirely different war. And that's
+exactly what Act 3 reveals about Iran's asymmetric strategy.
 
 [ACT 2 — THE SETUP | 2:00-6:00 | ~500 words]
 To understand what's really happening, you need to know three players and
@@ -75,7 +75,7 @@ Arabia's PIF alone deployed $847 billion in 18 months. MBS needs US
 military protection. And Iran? Tehran's entire strategy costs less than a
 single US aircraft carrier group. But here's what none of this explains —
 why would Iran strike oil infrastructure instead of military targets? And
-that's where the next section reveals something nobody is connecting.
+that's where the insurance repricing mechanism comes in.
 
 [ACT 3 — THE HIDDEN MECHANISM | 6:00-11:00 | ~550 words]
 Iran didn't strike Ras Tanura to destroy it. They struck it to prove that
@@ -85,8 +85,8 @@ asymmetry. The goal isn't destruction — it's insurance repricing. When
 Lloyd's of London raises the $14 billion premium for Strait shipping, the
 cost falls on every barrel. Gas prices don't rise because of a war — they
 rise because of a spreadsheet calculation in London. In 1973, OPEC cut
-production by 25% and gas prices quadrupled within 90 days. And there's one
-more layer that changes everything — the part that affects you directly.
+production by 25% and gas prices quadrupled within 90 days. And that's
+where historical proof of this pattern appears.
 
 [ACT 4 — THE PROOF | 11:00-15:00 | ~500 words]
 This pattern has played out five times in the last 200 years. Every time,
@@ -96,8 +96,8 @@ Brothers collapsed on September 15, Gulf sovereign wealth funds pulled
 $340 billion from Western markets in 14 days. What you're watching is what
 game theorists call a commitment device — deliberately creating shared risk
 to force the other side's hand. The historical record shows what comes next:
-a repricing window opens 11-14 days after the shock. And here's what every
-person with a savings account needs to hear.
+a repricing window opens 11-14 days after the shock. And that's where your
+wallet gets hit directly.
 
 [ACT 5 — THE PERSONAL STAKES | 15:00-18:00 | ~500 words]
 Here's what this means for your wallet. If this plays out the way the last
@@ -107,7 +107,7 @@ to Gulf capital flows than you think. The strongest case against this? Gulf
 states won't redirect $500 billion in defense spending because the returns
 on US tech investments are too high. But the evidence says otherwise — in
 every previous case, security spending won over investment returns. And
-that's where the next section gives you the specific play.
+that's where the specific play comes in.
 
 [ACT 6 — THE PLAY | 18:00-20:00 | ~400 words]
 So what do you actually do with this information? The repricing window opens
@@ -415,6 +415,8 @@ class TestFullValidation:
             personal_stakes_check=False,
             actionable_close_check=False,
             cliffhanger_check=False,
+            promise_payoff_check=False,
+            act_coherence_check=False,
         )
         result = validate_script_editorial(script, brief, {}, config=config)
         assert result.passed  # No checks = passes
@@ -615,7 +617,8 @@ class TestPromisePayoff:
         script = "\n".join(f"[ACT {i}]\n{t}" for i, t in acts.items())
         passed, broken, detail = _check_promise_payoff(script, acts)
         assert not passed
-        assert any("doesn't exist" in b["resolution_detail"] for b in broken)
+        # Act 7 doesn't exist, so the promise can't be resolved
+        assert any("Act 7" in b["resolution_detail"] for b in broken)
 
     def test_good_script_passes_promise_check(self):
         """Good script should have all promises resolved."""

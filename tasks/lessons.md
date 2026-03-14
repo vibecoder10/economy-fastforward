@@ -58,6 +58,7 @@
 - **Promise-payoff tracking**: Forward references like "what Part 3 reveals" must have matching content in the referenced act. Use `_extract_promises()` and `_check_promise_payoff()`.
 - **Act coherence**: Each act should have max 3 distinct topic shifts. Topic drift is detected by tracking proper nouns and domain terms across paragraphs.
 - **To force advance a blocked script**: Use `!approve <title>` command in Slack (requires manual review first).
+- **New validator checks need matching config flags.** When adding a new check to `validate_script_editorial()`, add a corresponding `*_check: bool = True` flag to `ScriptValidationConfig` or the "disable all checks" test will fail. Test fixtures must also be updated — cliffhangers in `_make_good_script()` must use keywords that actually appear in subsequent acts.
 
 ## Project-Specific Rules
 
