@@ -221,7 +221,7 @@ class ImageClient:
         use_model = model or self.DEFAULT_MODEL
 
         # nano-banana-pro uses aspect_ratio parameter, google/nano-banana uses image_size
-        if use_model == self.PRO_MODEL:
+        if use_model in (self.PRO_MODEL, "nano-banana-2", self.NANO_BANANA_MODEL):
             size_param = {"aspect_ratio": aspect_ratio}
         else:
             size_param = {"image_size": aspect_ratio}
