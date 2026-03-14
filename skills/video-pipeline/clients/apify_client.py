@@ -112,8 +112,9 @@ class ApifyYouTubeClient:
         run = self.client.actor(self.YOUTUBE_SCRAPER_ACTOR).call(run_input=run_input)
         items = list(self.client.dataset(run["defaultDatasetId"]).iterate_items())
 
-        for item in items:
-            video_data = self._normalize_video_data(item)
+        for i, item in enumerate(items):
+            # Debug first item to see actual field names
+            video_data = self._normalize_video_data(item, debug=(i == 0))
             if video_data:
                 all_videos.append(video_data)
 
@@ -121,11 +122,22 @@ class ApifyYouTubeClient:
 
         return all_videos
 
-    def _normalize_video_data(self, raw_item: dict) -> Optional[dict]:
+    def _normalize_video_data(self, raw_item: dict, debug: bool = False) -> Optional[dict]:
         """Normalize video data from various Apify actor formats.
 
         Returns standardized video dict or None if invalid.
         """
+        # Debug: print raw keys to identify field names
+        if debug:
+            print(f"  [DEBUG] Raw Apify fields ({len(raw_item)} total): {list(raw_item.keys())}")
+            # Print ALL non-empty fields for debugging
+            print("  [DEBUG] Non-empty field values:")
+            for key in sorted(raw_item.keys()):
+                val = raw_item.get(key)
+                if val is not None and val != "" and val != 0 and val != []:
+                    val_str = str(val)[:100]
+                    print(f"    {key}: {val_str}")
+
         # Handle different field naming conventions from various actors
         video_id = (
             raw_item.get("id") or
@@ -179,7 +191,15 @@ class ApifyYouTubeClient:
             "channel_url": raw_item.get("channelUrl") or "",
             "description": raw_item.get("description") or "",
             "duration": raw_item.get("duration") or "",
-            "published_at": raw_item.get("publishedAt") or raw_item.get("uploadDate") or "",
+            "published_at": (
+                raw_item.get("publishedAt") or
+                raw_item.get("uploadDate") or
+                raw_item.get("date") or
+                raw_item.get("datePublished") or
+                raw_item.get("publishDate") or
+                raw_item.get("uploadedAt") or
+                ""
+            ),
         }
 
     def _parse_count(self, value) -> int:

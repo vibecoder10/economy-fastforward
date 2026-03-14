@@ -69,3 +69,6 @@ storyengine/config/.env.local
 .youtube-token.json
 .reporting-job.json
 
+
+# Pipeline runtime artifacts
+skills/video-pipeline/timing/

@@ -12,6 +12,10 @@ from brief_translator.script_validator import (
     _score_actionable_close,
     _count_cliffhangers_at_transitions,
     _extract_numbers_from_research,
+    _extract_promises,
+    _check_promise_payoff,
+    _extract_topics_from_act,
+    _check_act_coherence,
 )
 
 
@@ -552,6 +556,149 @@ class TestRetryPrompt:
 
 
 # ---------------------------------------------------------------------------
+# Test: Promise-Payoff Tracking (Check 6)
+# ---------------------------------------------------------------------------
+
+class TestPromisePayoff:
+    def test_extracts_act_references(self):
+        """Should extract promises that reference specific acts."""
+        acts = {
+            1: "That's exactly what Act 3 reveals about the money trail.",
+            2: "Building context here.",
+            3: "The money trail shows $500M moved offshore.",
+        }
+        script = "\n".join(f"[ACT {i}]\n{t}" for i, t in acts.items())
+        promises = _extract_promises(script, acts)
+        assert len(promises) >= 1
+        target_3 = [p for p in promises if p.get("target_act") == 3]
+        assert len(target_3) >= 1
+
+    def test_extracts_forward_teases(self):
+        """Should extract forward-looking promises."""
+        acts = {
+            1: "What you'll see in the next section changes everything.",
+            2: "The hidden mechanism revealed.",
+        }
+        script = "\n".join(f"[ACT {i}]\n{t}" for i, t in acts.items())
+        promises = _extract_promises(script, acts)
+        assert len(promises) >= 1
+
+    def test_resolved_promise_passes(self):
+        """Promise should pass if content appears in target act."""
+        acts = {
+            1: "What you'll see next is the money trail.",
+            2: "The money trail leads to offshore accounts.",
+        }
+        script = "\n".join(f"[ACT {i}]\n{t}" for i, t in acts.items())
+        passed, broken, detail = _check_promise_payoff(script, acts)
+        assert passed
+        assert len(broken) == 0
+
+    def test_broken_promise_fails(self):
+        """Promise should fail if content doesn't appear."""
+        acts = {
+            1: "That's exactly what Act 3 reveals about the conspiracy.",
+            2: "Building context.",
+            3: "Completely unrelated content about weather patterns.",
+        }
+        script = "\n".join(f"[ACT {i}]\n{t}" for i, t in acts.items())
+        passed, broken, detail = _check_promise_payoff(script, acts)
+        assert not passed
+        assert len(broken) >= 1
+
+    def test_nonexistent_act_reference_fails(self):
+        """Promise referencing non-existent act should fail."""
+        acts = {
+            1: "That's exactly what Act 7 covers in detail.",
+            2: "More content here.",
+        }
+        script = "\n".join(f"[ACT {i}]\n{t}" for i, t in acts.items())
+        passed, broken, detail = _check_promise_payoff(script, acts)
+        assert not passed
+        assert any("doesn't exist" in b["resolution_detail"] for b in broken)
+
+    def test_good_script_passes_promise_check(self):
+        """Good script should have all promises resolved."""
+        script = _make_good_script()
+        import re
+        act_pattern = re.compile(r"\[ACT\s+(\d+).*?\]")
+        parts = act_pattern.split(script)
+        acts = {}
+        for i in range(1, len(parts), 2):
+            acts[int(parts[i])] = parts[i + 1] if i + 1 < len(parts) else ""
+
+        passed, broken, detail = _check_promise_payoff(script, acts)
+        # Good script has cliffhangers but they should be resolvable
+        if not passed:
+            for b in broken:
+                print(f"Broken: {b}")
+        assert passed, f"Good script promises should be resolved: {detail}"
+
+
+# ---------------------------------------------------------------------------
+# Test: Act Coherence / Topic Drift (Check 7)
+# ---------------------------------------------------------------------------
+
+class TestActCoherence:
+    def test_detects_topic_drift(self):
+        """Should detect multiple distinct topics in one act."""
+        drift_text = """
+        Apple's iPhone sales dropped 20% in America. Tim Cook blamed inflation.
+
+        Vladimir Putin met with Kim Jong Un in Moscow. Russia and North Korea
+        signed defense agreements.
+
+        Bitcoin crashed to $40,000. Crypto investors panicked.
+
+        SpaceX launched its Starship rocket. Elon Musk celebrated.
+        """
+        topics = _extract_topics_from_act(drift_text)
+        assert len(topics) >= 3, f"Expected 3+ topic shifts, got {len(topics)}"
+
+    def test_coherent_act_passes(self):
+        """Single-topic act should pass coherence check."""
+        coherent_text = """
+        Apple's iPhone market in China is collapsing. The company reported a 20%
+        drop in quarterly revenue. Tim Cook blamed local competition.
+
+        The iPhone 15 was supposed to reverse the trend. But Chinese consumers
+        prefer domestic brands like Huawei and Xiaomi.
+
+        Analysts predict further decline for Apple in the Chinese market. The
+        company's China strategy needs a complete overhaul.
+        """
+        topics = _extract_topics_from_act(coherent_text)
+        # Should have fewer than 3 topic shifts
+        assert len(topics) < 3
+
+    def test_check_act_coherence_flags_drifting(self):
+        """Full check should flag acts with 3+ topics."""
+        drift_text = """
+        Apple's iPhone dropped. Tim Cook blamed inflation.
+
+        Putin met with Kim Jong Un. Russia and North Korea signed deals.
+
+        Bitcoin crashed. Crypto investors panicked.
+
+        SpaceX launched Starship. Elon Musk celebrated.
+        """
+        acts = {1: drift_text}
+        passed, drifting, detail = _check_act_coherence(acts, max_topics_per_act=3)
+        assert not passed
+        assert 1 in drifting
+
+    def test_check_act_coherence_passes_coherent(self):
+        """Acts with focused content should pass."""
+        acts = {
+            1: "Iran struck the oil facility. Saudi Arabia responded. Oil prices rose.",
+            2: "The insurance industry calculated the risk. Lloyd's raised premiums.",
+        }
+        passed, drifting, detail = _check_act_coherence(acts, max_topics_per_act=3)
+        assert passed
+        assert len(drifting) == 0
+
+
+# ---------------------------------------------------------------------------
 # Test: Config defaults
 # ---------------------------------------------------------------------------
 
@@ -562,8 +709,13 @@ class TestConfig:
         assert config.framework_max_pct == 0.15
         assert config.personal_stakes_min_score == 3
         assert config.actionable_close_min_score == 2
-        assert config.max_retries == 0
-        assert config.retry_on_fail is False
+        # New defaults: validation is blocking
+        assert config.max_retries == 1
+        assert config.retry_on_fail is True
+        # New checks enabled by default
+        assert config.promise_payoff_check is True
+        assert config.act_coherence_check is True
+        assert config.act_coherence_max_topics == 3
 
     def test_custom_values(self):
         config = ScriptValidationConfig(
@@ -605,8 +757,12 @@ class TestConfig:
         assert config.personal_stakes_check is True
         assert config.actionable_close_check is False
         assert config.cliffhanger_check is True
-        assert config.retry_on_fail is False
-        assert config.max_retries == 5
+        # New checks always enabled for profiles
+        assert config.promise_payoff_check is True
+        assert config.act_coherence_check is True
+        # Validation is blocking (override profile setting)
+        assert config.retry_on_fail is True
+        assert config.max_retries == 1
 
     def test_from_production_profile(self):
         """Ensure the production power_doctrine_v2 profile loads correctly."""
@@ -617,5 +773,58 @@ class TestConfig:
         config = ScriptValidationConfig.from_profile(profile)
         assert config.number_density_min == 19
         assert config.framework_max_pct == 0.15
+        # Validation is now blocking
         assert config.retry_on_fail is True
-        assert config.max_retries == 2
+        assert config.max_retries == 1
+        # New checks enabled
+        assert config.promise_payoff_check is True
+        assert config.act_coherence_check is True
+
+
+# ---------------------------------------------------------------------------
+# Test: Full validation with new checks
+# ---------------------------------------------------------------------------
+
+class TestFullValidationWithNewChecks:
+    def test_good_script_passes_all_7_checks(self):
+        """Good script should pass all 7 validation checks."""
+        script = _make_good_script()
+        brief = _make_brief()
+        import re
+        act_pattern = re.compile(r"\[ACT\s+(\d+).*?\]")
+        parts = act_pattern.split(script)
+        acts = {}
+        for i in range(1, len(parts), 2):
+            acts[int(parts[i])] = parts[i + 1] if i + 1 < len(parts) else ""
+
+        result = validate_script_editorial(script, brief, acts)
+
+        # Should have 7 checks
+        check_names = [c.name for c in result.checks]
+        assert "promise_payoff" in check_names
+        assert "act_coherence" in check_names
+        assert len(check_names) == 7
+
+        # Good script should pass
+        if not result.passed:
+            failed = [c for c in result.checks if not c.passed]
+            for c in failed:
+                print(f"FAILED: {c.name}: {c.detail}")
+        assert result.passed, f"Good script should pass all checks:\n{result.summary}"
+
+    def test_disabling_new_checks(self):
+        """New checks can be disabled via config."""
+        script = _make_bad_script()
+        brief = _make_brief()
+        config = ScriptValidationConfig(
+            number_density_check=False,
+            framework_density_check=False,
+            personal_stakes_check=False,
+            actionable_close_check=False,
+            cliffhanger_check=False,
+            promise_payoff_check=False,
+            act_coherence_check=False,
+        )
+        result = validate_script_editorial(script, brief, {}, config=config)
+        assert result.passed  # No checks = passes
+        assert len(result.checks) == 0

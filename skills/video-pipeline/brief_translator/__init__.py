@@ -27,7 +27,7 @@ from .supplementer import (
     merge_supplement_into_brief,
     MAX_SUPPLEMENT_PASSES,
 )
-from .script_generator import generate_script, verify_script_claims
+from .script_generator import generate_script, verify_script_claims, extract_acts
 from .scene_validator import check_entity_consistency
 from .pipeline_writer import select_video_title, build_sources_list
 from .psych_angle_assigner import (
@@ -35,6 +35,12 @@ from .psych_angle_assigner import (
     format_psych_arc_summary,
 )
 from .script_generator import extract_framework_from_script
+from .script_validator import (
+    validate_script_editorial,
+    ScriptValidationConfig,
+    ScriptValidationResult,
+)
+from .senior_editor import run_senior_editor, format_editor_summary
 
 try:
     from script_profiles import load_script_profile
@@ -170,52 +176,135 @@ class BriefTranslator:
             result["script"] = script
             result["script_validation"] = script_result["validation"]
 
-            # === STEP 3: Save script to Airtable immediately ===
+            word_count = script_result["validation"]["word_count"]
+            act_count = script_result["validation"]["act_count"]
+            logger.info(f"Script generated: {word_count} words, {act_count} acts")
+
+            # === STEP 3: Blocking Validation (all 7 checks) ===
+            acts = extract_acts(script)
+            if not acts:
+                acts = {1: script}
+
+            editorial_config = (
+                ScriptValidationConfig.from_profile(self.profile)
+                if self.profile is not None
+                else ScriptValidationConfig()
+            )
+
+            validation_result = validate_script_editorial(
+                script=script, brief=brief, acts=acts, config=editorial_config
+            )
+
+            # === STEP 4: Senior Editor Pass (if validation failed) ===
+            editor_result = None
+            if not validation_result.passed:
+                failed_names = [c.name for c in validation_result.failed_checks]
+                logger.warning(
+                    f"Validation failed ({len(failed_names)} checks): {failed_names}"
+                )
+                self._notify(
+                    f"🔧 Running senior editor for "
+                    f"'{brief.get('headline', 'Untitled')}' — "
+                    f"fixing: {', '.join(failed_names)}"
+                )
+
+                editor_result = await run_senior_editor(
+                    anthropic_client=self.anthropic,
+                    script=script,
+                    acts=acts,
+                    failed_checks=validation_result.failed_checks,
+                    brief=brief,
+                    model=self.script_model,
+                )
+
+                if editor_result["success"] and editor_result["changelog"]:
+                    # Update script with editor's changes
+                    script = editor_result["script"]
+                    result["script"] = script
+                    result["editor_changelog"] = editor_result["changelog"]
+
+                    # Re-extract acts from corrected script
+                    acts = extract_acts(script)
+                    if not acts:
+                        acts = {1: script}
+
+                    # Re-validate
+                    validation_result = validate_script_editorial(
+                        script=script, brief=brief, acts=acts, config=editorial_config
+                    )
+
+                    logger.info(format_editor_summary(editor_result))
+
+            # === STEP 5: Block if Still Failing ===
+            editorial_summary = self._build_editorial_summary(
+                validation_result.to_dict()
+            )
+
+            if not validation_result.passed:
+                # Pipeline BLOCKED — requires manual approval
+                failed_names = [c.name for c in validation_result.failed_checks]
+                failed_details = [
+                    f"• {c.name}: {c.detail}"
+                    for c in validation_result.failed_checks
+                ]
+
+                logger.error(
+                    f"Script validation BLOCKED: {len(failed_names)} checks "
+                    f"still failing after senior editor"
+                )
+
+                # Save script anyway (for review)
+                self._save_script_to_ideas(idea_record_id, script)
+
+                # Write validation results
+                self._write_editorial_to_ideas(idea_record_id, editorial_summary)
+
+                # Mark as needing review
+                try:
+                    self.airtable.update_idea_fields(
+                        idea_record_id,
+                        {"Status": "Needs Script Review"},
+                    )
+                except Exception:
+                    pass  # Status field may not exist
+
+                # Send blocking notification
+                self._notify(
+                    f"🚫 SCRIPT BLOCKED: '{brief.get('headline', 'Untitled')}'\n"
+                    f"Senior editor could not fix {len(failed_names)} issue(s):\n"
+                    f"{chr(10).join(failed_details)}\n\n"
+                    f"Manual review required. Use `!approve <title>` to force "
+                    f"advance to Ready For Voice."
+                )
+
+                result["status"] = "blocked"
+                result["blocked_checks"] = failed_names
+                result["validation_summary"] = editorial_summary
+                return result
+
+            # === Validation PASSED ===
+            logger.info("Editorial validation: all checks passed")
+            if editor_result and editor_result.get("changelog"):
+                self._notify(
+                    f"✅ Senior editor fixed script: "
+                    f"'{brief.get('headline', 'Untitled')}'\n"
+                    f"{format_editor_summary(editor_result)}"
+                )
+
+            # === STEP 6: Save script to Airtable ===
             self._save_script_to_ideas(idea_record_id, script)
 
-            # === STEP 4: Save script to Google Drive as a Doc ===
+            # === STEP 7: Save script to Google Drive as a Doc ===
             doc_url = self._save_script_to_drive(
                 script, brief, project_folder_id,
             )
             if doc_url:
                 result["doc_url"] = doc_url
 
-            # === STEP 5: Advisory validation — report, never block ===
-            word_count = script_result["validation"]["word_count"]
-            act_count = script_result["validation"]["act_count"]
-            issues = script_result["validation"].get("issues", [])
+            # === STEP 8: Write validation results ===
+            self._write_editorial_to_ideas(idea_record_id, editorial_summary)
 
-            logger.info(f"Script generated: {word_count} words, {act_count} acts")
-
-            if issues:
-                logger.warning(f"Script validation issues (advisory): {issues}")
-
-            editorial = script_result["validation"].get("editorial", {})
-            editorial_summary = self._build_editorial_summary(editorial)
-
-            # === STEP 6: Write validation results ===
-            if editorial:
-                self._write_editorial_to_ideas(idea_record_id, editorial_summary)
-
-            # Slack quality report
-            editorial_passed = editorial.get("passed", True) if editorial else True
-            if not editorial_passed:
-                failed_details = [
-                    f"{c['name']}: {c['detail']}"
-                    for c in editorial.get("checks", [])
-                    if not c["passed"]
-                ]
-                self._notify(
-                    f"📋 Script quality report for "
-                    f"'{brief.get('headline', 'Untitled')}' "
-                    f"({word_count} words, {act_count} acts):\n"
-                    f"{chr(10).join(failed_details)}\n"
-                    f"Pipeline continues — review Script Validation field."
-                )
-            else:
-                logger.info("Editorial validation: all checks passed")
-
-            # === STEP 7: Extract framework, assign psych angles, write Script records ===
+            # === STEP 9: Extract framework, assign psych angles, write Script records ===
             selected_framework = extract_framework_from_script(script)
             if not selected_framework:
                 selected_framework = brief.get("framework_angle", "")
@@ -232,10 +321,7 @@ class BriefTranslator:
                     )
                     self._notify(f"⚠️ Framework Angle write failed: {fw_err}")
 
-            from .script_generator import extract_acts
-            acts = extract_acts(script)
-            if not acts:
-                acts = {1: script}
+            # Note: `acts` already extracted above during validation
 
             psych_angles_raw = brief.get("psychological_angles", "")
             psych_assignments = assign_angles_to_scenes(
