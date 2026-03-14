@@ -483,19 +483,32 @@ class PromptValidator:
             A constraint string describing what the new prompt must avoid/include
         """
         if violation.type == "consecutive_location":
-            # Find the repeated location from neighbors
-            target = self._find_prompt_by_index(prompts, violation.image_index)
-            if target:
-                location = self._detect_location(target.get("Image Prompt", ""))
-                # Get location markers for a readable name
+            # Get surrounding prompts' locations (i-2, i-1, i+1, i+2) to avoid them ALL
+            neighboring_locations = self._get_neighboring_locations(
+                prompts, violation.image_index
+            )
+            if neighboring_locations:
+                location_list = ", ".join(f"'{loc}'" for loc in neighboring_locations)
                 return (
-                    f"MUST use a DIFFERENT location than '{location}'. "
-                    f"The previous images already use this location. "
-                    f"Choose a contrasting environment that fits the narration."
+                    f"DO NOT use any of these locations: {location_list}. "
+                    f"The surrounding images already use these locations. "
+                    f"Choose a COMPLETELY DIFFERENT, visually distinct setting that fits the narration."
                 )
             return "MUST use a different location than the previous images."
 
         elif violation.type == "consecutive_data":
+            # Get surrounding prompts to describe what data types to avoid
+            neighboring_data_types = self._get_neighboring_data_types(
+                prompts, violation.image_index
+            )
+            if neighboring_data_types:
+                type_list = ", ".join(neighboring_data_types)
+                return (
+                    f"MUST NOT be a data visualization, chart, graph, or operations room scene. "
+                    f"The surrounding images already show: {type_list}. "
+                    f"Show a physical environment, character action, or concrete object instead. "
+                    f"NO holographic displays, NO floating data, NO dashboards."
+                )
             return (
                 "MUST NOT be a data visualization, chart, graph, or operations room scene. "
                 "The previous images are already data scenes. "
@@ -510,6 +523,59 @@ class PromptValidator:
             )
 
         return f"Fix the following issue: {violation.issue}"
+
+    def _get_neighboring_locations(
+        self, prompts: list[dict], target_index: int
+    ) -> list[str]:
+        """Get locations from surrounding prompts (i-2, i-1, i+1, i+2).
+
+        Returns a deduplicated list of location names that the target should avoid.
+        """
+        # Build index map for quick lookup
+        index_to_prompt = {p.get("Image Index"): p for p in prompts}
+
+        neighboring_indices = [
+            target_index - 2,
+            target_index - 1,
+            target_index + 1,
+            target_index + 2,
+        ]
+
+        locations = set()
+        for idx in neighboring_indices:
+            if idx in index_to_prompt:
+                prompt_text = index_to_prompt[idx].get("Image Prompt", "")
+                loc = self._detect_location(prompt_text)
+                if loc != "unknown":
+                    locations.add(loc)
+
+        return list(locations)
+
+    def _get_neighboring_data_types(
+        self, prompts: list[dict], target_index: int
+    ) -> list[str]:
+        """Get data visualization types from surrounding prompts.
+
+        Returns a list of detected data scene types (e.g., "bar chart", "operations room").
+        """
+        index_to_prompt = {p.get("Image Index"): p for p in prompts}
+
+        neighboring_indices = [
+            target_index - 2,
+            target_index - 1,
+            target_index + 1,
+            target_index + 2,
+        ]
+
+        data_types = set()
+        for idx in neighboring_indices:
+            if idx in index_to_prompt:
+                prompt_text = index_to_prompt[idx].get("Image Prompt", "").lower()
+                for indicator in self.DATA_INDICATORS:
+                    if indicator in prompt_text:
+                        data_types.add(indicator)
+
+        return list(data_types)
 
     def _find_prompt_by_index(
         self, prompts: list[dict], image_index: int
@@ -580,7 +646,21 @@ class PromptValidator:
             if old_prompt.endswith(self.MANNEQUIN_SUFFIX.rstrip()):
                 style_suffix = self.MANNEQUIN_SUFFIX
 
-        system_prompt = f"""You are a visual director rewriting an image prompt that violated a validation rule.
+        # Build MANDATORY rules header for clothing/hand violations (FIRST LINE)
+        # These must appear at the very top to ensure model attention
+        mandatory_header = ""
+        if violation.type == "naked_mannequin":
+            mandatory_header = """**MANDATORY - READ THIS FIRST:**
+This mannequin figure MUST wear clothing. Describe the clothing in detail: tactical vest, lab coat, military uniform, business suit, or other appropriate attire from the Story Bible. NO bare mannequin surfaces visible. Every character MUST have a specific clothing description.
+
+"""
+        elif violation.type == "realistic_hands":
+            mandatory_header = """**MANDATORY - READ THIS FIRST:**
+All hands MUST be described as smooth white mannequin hands with mitten-like fingers. NO realistic fingers, NO skin texture, NO fingernails. Use phrases like "smooth white plastic mannequin hand" or "articulated mannequin fingers with visible joint seams".
+
+"""
+
+        system_prompt = f"""{mandatory_header}You are a visual director rewriting an image prompt that violated a validation rule.
 
 Your job: rewrite the SCENE DESCRIPTION portion of the prompt to fix the violation while keeping:
 1. The same visual style (prefix/suffix stay the same)
