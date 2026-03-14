@@ -54,10 +54,19 @@ class ScriptValidationConfig:
     # Check 5: Cliffhanger presence
     cliffhanger_check: bool = True
 
-    # Retry settings — disabled. Validation is advisory (report-only).
-    # Generate once → validate → report → move on.
-    retry_on_fail: bool = False
-    max_retries: int = 0
+    # Check 6: Promise-payoff tracking
+    promise_payoff_check: bool = True
+
+    # Check 7: Act coherence (topic drift)
+    act_coherence_check: bool = True
+    act_coherence_max_topics: int = 3
+
+    # Retry settings — validation is now BLOCKING.
+    # Scripts must pass all checks before advancing to voice.
+    # Senior editor gets ONE pass to fix issues; if still failing,
+    # pipeline blocks and requires manual approval.
+    retry_on_fail: bool = True
+    max_retries: int = 1  # One senior editor pass
 
     @classmethod
     def from_profile(cls, profile: "ScriptProfile") -> "ScriptValidationConfig":
@@ -76,8 +85,13 @@ class ScriptValidationConfig:
             actionable_close_check=v.actionable_ending_check,
             actionable_close_min_score=2,  # no profile field yet — keep default
             cliffhanger_check=v.cliffhanger_check,
-            retry_on_fail=v.retry_on_fail,
-            max_retries=v.max_retries,
+            # New blocking checks — always enabled, use defaults
+            promise_payoff_check=True,
+            act_coherence_check=True,
+            act_coherence_max_topics=3,
+            # Validation is now blocking
+            retry_on_fail=True,
+            max_retries=1,
         )
 
 
@@ -312,6 +326,298 @@ def _score_actionable_close(text: str) -> tuple[int, list[str]]:
             score += 1
             matches.extend(found[:2])
     return score, matches
+
+
+# ---------------------------------------------------------------------------
+# Promise-Payoff Tracking (Check 6)
+# ---------------------------------------------------------------------------
+
+# Patterns that indicate a forward reference / promise
+_PROMISE_PATTERNS = [
+    # Explicit act/part references
+    re.compile(
+        r"(?:what\s+)?(?:part|act|section)\s+(\d+)\s+(?:reveals?|shows?|covers?|explains?|exposes?)",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"(?:that'?s\s+(?:exactly\s+)?what|that'?s\s+where)\s+(?:part|act|section)\s+(\d+)",
+        re.IGNORECASE,
+    ),
+    # Forward teases
+    re.compile(
+        r"(?:what\s+you'?ll\s+see|what\s+(?:comes|happens)\s+next|"
+        r"(?:in\s+)?the\s+next\s+(?:section|part|act))",
+        re.IGNORECASE,
+    ),
+    # Promises with specific content
+    re.compile(
+        r"(?:here'?s\s+what\s+(?:this|that|it)\s+means|"
+        r"(?:and\s+)?(?:that|this)\s+is\s+(?:exactly\s+)?(?:where|what|how)|"
+        r"(?:but\s+)?first,?\s+(?:we\s+need\s+to|let'?s|you\s+need\s+to))",
+        re.IGNORECASE,
+    ),
+    # Specific payoff promises
+    re.compile(
+        r"(?:you'?ll\s+(?:see|learn|discover|understand)|"
+        r"(?:we'?ll|I'?ll)\s+(?:show|reveal|explain|cover))",
+        re.IGNORECASE,
+    ),
+]
+
+
+def _extract_promises(script: str, acts: dict[int, str]) -> list[dict]:
+    """Extract forward references/promises from the script.
+
+    Returns list of dicts with:
+        - act: int (act number where promise appears)
+        - text: str (the promise text)
+        - target_act: int or None (if a specific act is referenced)
+        - promise_content: str (what was promised)
+    """
+    promises = []
+
+    for act_num, act_text in acts.items():
+        # Split into sentences for context
+        sentences = re.split(r'[.!?]+', act_text)
+
+        for sentence in sentences:
+            sentence = sentence.strip()
+            if len(sentence) < 10:
+                continue
+
+            for pattern in _PROMISE_PATTERNS:
+                match = pattern.search(sentence)
+                if match:
+                    # Try to extract target act number
+                    target_act = None
+                    groups = match.groups()
+                    if groups and groups[0] and groups[0].isdigit():
+                        target_act = int(groups[0])
+
+                    # Extract what was promised (rest of sentence after match)
+                    promise_content = sentence[match.end():].strip()
+                    if not promise_content:
+                        # Use the full sentence as context
+                        promise_content = sentence
+
+                    promises.append({
+                        "act": act_num,
+                        "text": sentence[:200],  # Truncate for readability
+                        "target_act": target_act,
+                        "promise_content": promise_content[:100],
+                    })
+                    break  # One match per sentence is enough
+
+    return promises
+
+
+def _verify_promise_payoff(
+    promise: dict,
+    acts: dict[int, str],
+) -> tuple[bool, str]:
+    """Verify a single promise is resolved in a later act.
+
+    Returns (is_resolved, detail_message).
+    """
+    source_act = promise["act"]
+    target_act = promise.get("target_act")
+    promise_content = promise["promise_content"].lower()
+
+    # Extract key nouns/concepts from the promise (simplified)
+    # Remove common words to get meaningful content words
+    stopwords = {
+        "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
+        "have", "has", "had", "do", "does", "did", "will", "would", "could",
+        "should", "may", "might", "must", "shall", "can", "this", "that",
+        "these", "those", "what", "where", "when", "why", "how", "which",
+        "who", "whom", "it", "its", "you", "your", "we", "our", "they",
+        "their", "and", "or", "but", "if", "then", "so", "for", "of", "to",
+        "in", "on", "at", "by", "with", "from", "about", "into", "through",
+    }
+
+    content_words = [
+        w for w in re.findall(r'\b\w{4,}\b', promise_content)
+        if w.lower() not in stopwords
+    ]
+
+    if not content_words:
+        # Can't verify, assume OK
+        return True, "No verifiable content in promise"
+
+    # Check target act specifically, or all subsequent acts
+    acts_to_check = {}
+    if target_act and target_act in acts and target_act > source_act:
+        acts_to_check = {target_act: acts[target_act]}
+    else:
+        # Check all acts after the promise
+        acts_to_check = {
+            num: text for num, text in acts.items()
+            if num > source_act
+        }
+
+    if not acts_to_check:
+        # Promise at end of script with no later acts
+        if target_act and target_act > max(acts.keys()):
+            return False, f"References Act {target_act} which doesn't exist"
+        return True, "Final act promise (no resolution expected)"
+
+    # Check if content words appear in subsequent acts
+    for act_num, act_text in acts_to_check.items():
+        act_lower = act_text.lower()
+        matches = sum(1 for w in content_words if w in act_lower)
+        # Require at least 30% of content words to appear
+        if matches >= max(1, len(content_words) * 0.3):
+            return True, f"Resolved in Act {act_num}"
+
+    # Not found
+    if target_act:
+        return False, f"Promised in Act {source_act} → Act {target_act} doesn't deliver"
+    return False, f"Promised in Act {source_act} but no resolution found"
+
+
+def _check_promise_payoff(
+    script: str,
+    acts: dict[int, str],
+) -> tuple[bool, list[dict], str]:
+    """Check all promises have payoffs.
+
+    Returns (passed, broken_promises, detail_string).
+    """
+    promises = _extract_promises(script, acts)
+
+    if not promises:
+        return True, [], "No forward references detected"
+
+    broken = []
+    for promise in promises:
+        resolved, detail = _verify_promise_payoff(promise, acts)
+        if not resolved:
+            broken.append({
+                **promise,
+                "resolution_detail": detail,
+            })
+
+    if not broken:
+        return True, [], f"{len(promises)} promises verified"
+
+    return False, broken, f"{len(broken)}/{len(promises)} promises unresolved"
+
+
+# ---------------------------------------------------------------------------
+# Act Coherence / Topic Drift Detection (Check 7)
+# ---------------------------------------------------------------------------
+
+def _extract_topics_from_act(act_text: str) -> list[str]:
+    """Extract distinct topics/subjects from an act.
+
+    Uses a simplified approach:
+    - Split into paragraphs
+    - Extract key noun phrases from each paragraph
+    - Identify when a new subject is introduced vs continuing previous
+    - Flag when proper nouns change significantly between paragraphs
+    """
+    # Split into paragraphs (double newline or significant whitespace)
+    paragraphs = re.split(r'\n\s*\n|\n{2,}', act_text)
+    paragraphs = [p.strip() for p in paragraphs if len(p.strip()) > 30]
+
+    if len(paragraphs) <= 1:
+        return []  # Single paragraph = single topic
+
+    topics = []
+    prev_proper_nouns = set()
+    prev_domain_terms = set()
+
+    # Common sentence starters to exclude
+    _STARTERS = {
+        "the", "this", "that", "these", "those", "when", "what", "where",
+        "why", "how", "but", "and", "or", "if", "so", "now", "here",
+        "there", "in", "on", "at", "for", "with", "from", "to", "by",
+        "meanwhile", "however", "analysts", "investors", "experts",
+    }
+
+    for i, para in enumerate(paragraphs):
+        # Extract multi-word proper nouns (more reliable indicator)
+        multi_word_pn = set(re.findall(
+            r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\b', para
+        ))
+
+        # Extract single-word proper nouns (4+ chars to avoid noise)
+        single_pn = set(re.findall(r'\b([A-Z][a-z]{3,})\b', para))
+        single_pn = {n for n in single_pn if n.lower() not in _STARTERS}
+
+        proper_nouns = multi_word_pn | single_pn
+
+        # Extract domain-specific terms
+        domain_terms = set(re.findall(
+            r'\b(iphone|android|tesla|bitcoin|oil|opec|nato|'
+            r'china|russia|ukraine|taiwan|iran|saudi|'
+            r'tariff|sanction|alliance|treaty|invasion|'
+            r'stock|revenue|profit|billion|trillion)\b',
+            para.lower()
+        ))
+
+        # Check for topic shift
+        if i > 0 and (prev_proper_nouns or prev_domain_terms):
+            # Calculate overlap separately for proper nouns and domain terms
+            pn_overlap = proper_nouns & prev_proper_nouns
+            domain_overlap = domain_terms & prev_domain_terms
+
+            new_pn = proper_nouns - prev_proper_nouns
+            new_domain = domain_terms - prev_domain_terms
+
+            # Topic shift if:
+            # 1. No overlap in proper nouns AND new proper nouns introduced
+            # 2. OR significant new domain terms with no overlap
+            has_pn_shift = (
+                len(pn_overlap) == 0 and
+                len(new_pn) >= 1 and
+                len(proper_nouns) >= 1
+            )
+            has_domain_shift = (
+                len(domain_overlap) == 0 and
+                len(new_domain) >= 2 and
+                len(prev_domain_terms) >= 1
+            )
+
+            if has_pn_shift or has_domain_shift:
+                # New topic detected
+                label_parts = sorted(new_pn)[:2] + sorted(new_domain)[:2]
+                topic_label = ", ".join(label_parts[:3])
+                if topic_label:
+                    topics.append(topic_label)
+
+        prev_proper_nouns = proper_nouns
+        prev_domain_terms = domain_terms
+
+    return topics
+
+
+def _check_act_coherence(
+    acts: dict[int, str],
+    max_topics_per_act: int = 3,
+) -> tuple[bool, dict[int, list[str]], str]:
+    """Check each act for topic coherence (no excessive drift).
+
+    Returns (passed, drifting_acts, detail_string).
+    drifting_acts maps act_num -> list of detected topic shifts
+    """
+    drifting_acts = {}
+
+    for act_num, act_text in acts.items():
+        topics = _extract_topics_from_act(act_text)
+        if len(topics) >= max_topics_per_act:
+            drifting_acts[act_num] = topics
+
+    if not drifting_acts:
+        return True, {}, "All acts maintain topic coherence"
+
+    act_details = [
+        f"Act {num}: {len(topics)} topic shifts ({', '.join(topics[:3])}...)"
+        for num, topics in drifting_acts.items()
+    ]
+    detail = f"Topic drift in {len(drifting_acts)} act(s): {'; '.join(act_details)}"
+
+    return False, drifting_acts, detail
 
 
 # ---------------------------------------------------------------------------
@@ -704,6 +1010,84 @@ def validate_script_editorial(
 
         result.checks.append(CheckResult(
             name="cliffhanger_presence",
+            passed=passed,
+            detail=detail,
+            retry_prompt=retry_prompt,
+        ))
+
+    # --- Check 6: Promise-Payoff Tracking ---
+    if config.promise_payoff_check:
+        passed, broken_promises, detail = _check_promise_payoff(script, acts)
+
+        retry_prompt = ""
+        if not passed and broken_promises:
+            promise_details = []
+            for bp in broken_promises[:5]:  # Cap at 5 for readability
+                promise_details.append(
+                    f"  - Act {bp['act']}: \"{bp['text'][:100]}...\"\n"
+                    f"    Issue: {bp['resolution_detail']}"
+                )
+
+            retry_prompt = (
+                f"BROKEN_PROMISE: {len(broken_promises)} forward reference(s) "
+                f"are not resolved in later acts.\n\n"
+                f"UNRESOLVED PROMISES:\n"
+                f"{chr(10).join(promise_details)}\n\n"
+                f"FIX INSTRUCTIONS:\n"
+                f"- For each broken promise, EITHER:\n"
+                f"  a) Add the promised content to the referenced act, OR\n"
+                f"  b) Remove or rewrite the promise so it doesn't tease "
+                f"content that doesn't exist\n"
+                f"- If a promise says 'Act 3 reveals...' and Act 3 doesn't "
+                f"contain that content, ADD IT to Act 3\n"
+                f"- Do NOT simply delete promises — they drive retention. "
+                f"Prefer adding the payoff content.\n"
+                f"- Each promise must have a clear payoff. Generic resolutions "
+                f"like 'as we discussed' don't count."
+            )
+
+        result.checks.append(CheckResult(
+            name="promise_payoff",
+            passed=passed,
+            detail=detail,
+            retry_prompt=retry_prompt,
+        ))
+
+    # --- Check 7: Act Coherence (Topic Drift) ---
+    if config.act_coherence_check:
+        passed, drifting_acts, detail = _check_act_coherence(
+            acts, max_topics_per_act=config.act_coherence_max_topics
+        )
+
+        retry_prompt = ""
+        if not passed and drifting_acts:
+            drift_details = []
+            for act_num, topics in drifting_acts.items():
+                drift_details.append(
+                    f"  - Act {act_num}: {len(topics)} distinct topic shifts\n"
+                    f"    Topics: {', '.join(topics[:4])}"
+                )
+
+            retry_prompt = (
+                f"PACING_DRIFT: {len(drifting_acts)} act(s) contain too many "
+                f"distinct topics (max {config.act_coherence_max_topics}).\n\n"
+                f"DRIFTING ACTS:\n"
+                f"{chr(10).join(drift_details)}\n\n"
+                f"FIX INSTRUCTIONS:\n"
+                f"- Each act should have ONE primary focus. When you introduce "
+                f"a new subject, the viewer's attention resets.\n"
+                f"- For acts with 3+ topics, choose the MOST important one "
+                f"and cut or move the others to appropriate acts.\n"
+                f"- If content must stay, bridge topics with explicit "
+                f"connections: 'This same pattern — [topic A] — is why "
+                f"[topic B] matters.'\n"
+                f"- Move standalone paragraphs to acts where they fit the "
+                f"primary narrative thread.\n"
+                f"- Do NOT pad with transitions. Cut aggressively."
+            )
+
+        result.checks.append(CheckResult(
+            name="act_coherence",
             passed=passed,
             detail=detail,
             retry_prompt=retry_prompt,
