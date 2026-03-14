@@ -112,7 +112,7 @@ that's where the specific play comes in.
 [ACT 6 — THE PLAY | 18:00-20:00 | ~400 words]
 So what do you actually do with this information? The repricing window opens
 11-14 days after the shock. That's when smart money has moved in every
-conflict since Pearl Harbor. Position yourself before the repricing, not
+conflict since Pearl Harbor. Position your wallet before the repricing, not
 during it. Watch for the Lloyd's premium announcement — when insurance
 costs spike, energy stocks follow within 48 hours. Here's the play: watch
 the energy sector ETFs and the VIX. When you see insurance premiums cross
