@@ -356,7 +356,8 @@ Specific scenarios with dollar amounts: "If [mechanism] continues, gas \
 hits $X within Y days and your 401k drops Z%." Steel-man the strongest \
 counterargument — it must be genuinely strong. Then dismantle it with \
 evidence, not opinion. The viewer should feel genuinely unsettled. \
-Minimum 3 specific numbers.
+Minimum 3 specific numbers. Cliffhanger: "So what do you actually DO \
+with this information? That's exactly what the final section reveals."
 
 Act 6 (The Play):
 "So what do you actually DO with this information?" This is NON-NEGOTIABLE \
@@ -652,21 +653,80 @@ def _build_source_citations_section(brief: dict) -> str:
         return ""
 
     return (
-        "=== SOURCE CITATIONS ===\n\n"
-        "The following sources were used in research. Weave citations naturally\n"
-        "into the narration — NOT as footnotes, but as authority-building references.\n"
-        "Aim for at least 4-6 source citations across the full script.\n\n"
-        "Examples of natural citation style:\n"
-        '- "According to Reuters reporting from January 14th..."\n'
-        '- "Internal documents obtained by the Financial Times reveal..."\n'
-        '- "Data from the Federal Reserve shows..."\n'
-        '- "A 2024 study published in Nature found..."\n'
-        '- "Bloomberg reported last week that..."\n\n'
-        "Citations add credibility and authority — this channel presents EVIDENCE,\n"
-        "not just opinion. The viewer should feel that every claim is backed by\n"
-        "real journalism and data.\n\n"
-        f"Available sources:\n{sources}\n"
+        "=== SOURCE CITATIONS — LOCKED TO RESEARCH ===\n\n"
+        "CRITICAL RULE: You may ONLY cite sources that appear in [brackets] next to "
+        "facts in the research brief. If a fact has [EIA 2024] next to it, cite it as "
+        "'According to the EIA...' — NOT another source.\n\n"
+        "FORBIDDEN:\n"
+        "- Do NOT cite a source that doesn't appear in the research brief\n"
+        "- Do NOT guess which source supports a fact if no [bracket] is present\n"
+        "- Do NOT pluralize singular sources ('one CEO' stays 'one CEO', not 'CEOs')\n"
+        "- Do NOT cross-attribute (historical fact to fact_sheet source)\n\n"
+        "If a fact has NO [Source] tag, use vague attribution: 'According to industry "
+        "reports...' or state the fact without attribution.\n\n"
+        "Aim for at least 4-6 source citations across the full script. Each citation "
+        "must match a [bracketed source] from the fact_sheet.\n\n"
+        f"Available sources from research:\n{sources}\n"
     )
+
+
+_SELF_VALIDATION_INSTRUCTION = """
+=== SELF-VALIDATION (MANDATORY) ===
+
+After writing the script, output a validation block. For EACH source citation in your
+script, verify it matches a [bracketed source] from the fact_sheet. For EACH act
+transition (Acts 1-5), verify there's a forward-selling cliffhanger.
+
+Output at the END of your response (after the full script):
+```json
+{
+  "self_validation": {
+    "source_citations_verified": true,
+    "citations_used": ["EIA 2024", "Reuters March 2026"],
+    "cliffhangers_present": {"act_1": true, "act_2": true, "act_3": true, "act_4": true, "act_5": true},
+    "all_passed": true
+  }
+}
+```
+
+If any check fails, FIX IT before outputting the final script. Do not output a script
+with unverified source attributions or missing cliffhangers.
+"""
+
+
+def _parse_self_validation(response_text: str) -> dict:
+    """Extract self-validation JSON from script response.
+
+    Returns:
+        Parsed validation dict, or empty dict if parsing fails.
+    """
+    import re
+    import json
+
+    # Look for JSON block at end of response
+    match = re.search(
+        r'```json\s*(\{.*?"self_validation".*?\})\s*```',
+        response_text,
+        re.DOTALL,
+    )
+    if match:
+        try:
+            return json.loads(match.group(1))
+        except json.JSONDecodeError:
+            pass
+    return {}
+
+
+def _strip_validation_json(script_text: str) -> str:
+    """Remove the self-validation JSON block from the script text."""
+    import re
+
+    return re.sub(
+        r'```json\s*\{.*?"self_validation".*?\}\s*```',
+        '',
+        script_text,
+        flags=re.DOTALL,
+    ).strip()
 
 
 def build_script_prompt(
@@ -778,6 +838,9 @@ def build_script_prompt(
         else:
             rendered += "\n\n" + _STRICT_GROUNDING_RULE
 
+        # Append self-validation instruction
+        rendered += "\n\n" + _SELF_VALIDATION_INSTRUCTION
+
         return rendered
 
     # --- Legacy path: no profile, use static template ---
@@ -808,6 +871,9 @@ def build_script_prompt(
     rendered += "\n\n" + _FRAMEWORK_PSYCH_SEPARATION
     rendered += "\n\n" + _ACT_SPECIFIC_RULES
     rendered += "\n\n" + _STRICT_GROUNDING_RULE
+
+    # Append self-validation instruction
+    rendered += "\n\n" + _SELF_VALIDATION_INSTRUCTION
 
     return rendered
 
@@ -989,7 +1055,17 @@ async def generate_script(
         temperature=0.8,
     )
 
+    # Parse and strip self-validation JSON from the response
+    self_validation = _parse_self_validation(script)
+    if self_validation:
+        script = _strip_validation_json(script)
+        logger.info(f"Self-validation parsed: {self_validation}")
+
     validation = validate_script(script, config=config, profile=profile)
+
+    # Add self-validation to the validation dict
+    if self_validation:
+        validation["self_validation"] = self_validation.get("self_validation", {})
 
     # Word-count validation is advisory — log but never regenerate.
     # The validator is a quality report, not a gatekeeper.
@@ -1086,9 +1162,9 @@ async def verify_script_claims(
     # Build a condensed version of the research payload for comparison
     payload_sections = []
     for field in [
-        "fact_sheet", "historical_parallels", "character_dossier",
-        "narrative_arc", "counter_arguments", "thesis",
-        "executive_hook", "framework_analysis", "headline",
+        "fact_sheet", "source_bibliography", "historical_parallels",
+        "character_dossier", "narrative_arc", "counter_arguments",
+        "thesis", "executive_hook", "framework_analysis", "headline",
     ]:
         value = brief.get(field, "")
         if value:
@@ -1099,23 +1175,33 @@ async def verify_script_claims(
     system_prompt = (
         "You are a fact-checking assistant. Your job is to compare a video "
         "script against the research payload that was used to write it, and "
-        "flag any specific factual claims in the script that CANNOT be traced "
-        "to the research payload.\n\n"
-        "Focus on:\n"
+        "flag TWO types of problems:\n\n"
+        "1. UNVERIFIED CLAIMS — factual claims that cannot be traced to the research\n"
+        "2. MISATTRIBUTED SOURCES — sources cited in the script that don't match "
+        "the [Source] tags in the research payload\n\n"
+        "For UNVERIFIED CLAIMS, check:\n"
         "- Named events, operations, or incidents not in the research\n"
         "- Specific technical details (weapons, cyber attacks, tactics) not sourced\n"
         "- Statistics, numbers, dates, or percentages not in the research\n"
         "- Quotes attributed to people that don't appear in the research\n"
         "- Historical parallels not from the historical_parallels field\n\n"
+        "For MISATTRIBUTED SOURCES, check:\n"
+        "- 'According to [Source]' where that source doesn't appear in source_bibliography\n"
+        "- A fact that has [Source A] in the research but is cited as Source B in the script\n"
+        "- A fact marked [unverified] in research but cited to a specific source in script\n"
+        "- Singular sources pluralized ('one CEO' becomes 'CEOs')\n\n"
         "IGNORE:\n"
         "- Dramatic phrasing, rhetorical questions, metaphors\n"
         "- Analytical connections using the framework (these are allowed)\n"
         "- Well-known framework references (Machiavelli, Sun Tzu, etc.)\n"
         "- General knowledge that doesn't constitute a specific factual claim\n\n"
         "Output format:\n"
-        "If claims are unverified, list each one as:\n"
+        "=== UNVERIFIED CLAIMS ===\n"
         "- [Act N] \"<the claim>\" — not found in research payload\n\n"
-        "If all claims are grounded, respond with exactly: ALL CLAIMS VERIFIED"
+        "=== MISATTRIBUTED SOURCES ===\n"
+        "- [Act N] Cited as [Source B] but research shows [Source A]\n\n"
+        "If all claims are grounded AND all sources match, respond with exactly: "
+        "ALL CLAIMS VERIFIED"
     )
 
     prompt = (

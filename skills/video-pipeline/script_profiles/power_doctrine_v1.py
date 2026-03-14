@@ -168,7 +168,7 @@ PROFILE = ScriptProfile(
                     "Address the strongest counterargument",
                     "Why the pattern is harder to escape than people think",
                 ],
-                cliffhanger_template=None,
+                cliffhanger_template="So what do you actually DO with this information? That's exactly what Part {next_act} reveals.",
                 psychological_beat="personal_stakes",
                 min_numbers=3,
                 word_pct=0.18,
