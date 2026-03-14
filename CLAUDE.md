@@ -1,5 +1,5 @@
 # Economy FastForward — AI Video Production Pipeline
-"Topic in, 25-minute video out"
+"Topic in, video out — length configured per-idea in Airtable"
 
 ## Stack
 Python 3.11+ (async) · TypeScript · Remotion · Airtable (orchestration DB) Claude (scripts) · Kie.ai (images/video) · ElevenLabs (voice) · Whisper (transcription) Google Drive (storage) · Slack (control) · Next.js (frontend)
@@ -9,7 +9,7 @@ Python 3.11+ (async) · TypeScript · Remotion · Airtable (orchestration DB) Cl
 * remotion-video/ — TypeScript/Remotion video rendering (src/, scripts/)
 * storyengine/ — Research UI (backend/, frontend/, shared/, config/)
 * animation/ — Animation assets and code
-* tasks/ — Task scripts
+* tasks/ — Task tracking, lessons learned, utility scripts
 
 ## Architecture
 Status-driven pipeline where Airtable Status fields gate each stage: Research → Script → Voice → Image Prompts → **Validation** → Images → Video Scripts → Video Generation → Thumbnail → Render → Upload
@@ -26,6 +26,29 @@ After prompts are generated, `bots/prompt_validator.py` validates sequencing rul
 Auto-fixes: Camera distance swaps, mannequin hand reinforcement
 Critical violations (naked mannequins) block status advancement.
 Results logged to `/tmp/pipeline-validation.log`.
+
+---
+
+## Session Protocol
+
+### Session Start (EVERY session, no exceptions)
+1. Check current branch and recent commits: `git log --oneline -5`
+2. Read `tasks/lessons.md` — these are hard-won patterns that prevent repeat mistakes
+3. Read `tasks/todo.md` — pick up where the last session left off
+4. Understand what pipeline stage we're working on before touching code
+
+### Session End (EVERY session, no exceptions)
+Claude Code has NO memory between sessions. Closing the terminal deletes the conversation permanently. Before ending ANY session:
+1. Update `tasks/todo.md` with current progress and what's next
+2. Update `tasks/lessons.md` if ANY corrections were made or gotchas discovered
+3. Commit all changes with a descriptive message
+4. If work is incomplete, leave a clear `## Handoff` section in `tasks/todo.md` explaining:
+   - What was accomplished
+   - What's partially done
+   - What the next session should start with
+   - Any landmines or context the next session needs
+
+---
 
 ## Execution Protocol
 1. UNDERSTAND: Read relevant files. If requirements are ambiguous, ASK.
@@ -76,11 +99,6 @@ python -m ruff check .
 ## Testing
 170+ tests across 4 test suites. Run the relevant suite after every change. Never mark a task done until tests pass.
 
-## Session Startup
-1. Check current branch and recent commits
-2. Review any open TODO items
-3. Understand what pipeline stage we're working on before touching code
-
 ---
 
 ## Working Patterns
@@ -102,12 +120,14 @@ python -m ruff check .
 - Write rules for yourself that prevent the same mistake
 - Ruthlessly iterate on these lessons until mistake rate drops
 - Review lessons at session start for relevant project
+- **This is not optional.** Every correction that isn't captured in lessons.md will be repeated by the next session.
 
 ### 4. Verification Before Done
 - Never mark a task complete without proving it works
 - Diff behavior between main and your changes when relevant
 - Ask yourself: "Would a staff engineer approve this?"
 - Run tests, check logs, demonstrate correctness
+- **Trace the full execution path.** A function that exists but is never called is dead code. Verify the caller invokes it.
 
 ### 5. Demand Elegance (Balanced)
 - For non-trivial changes: pause and ask "is there a more elegant way?"
@@ -121,6 +141,13 @@ python -m ruff check .
 - Zero context switching required from the user
 - Go fix failing CI tests without being told how
 
+### 7. Trace Before Touch (Complex Tasks)
+- For ANY audit, fix, or multi-file change: run ALL diagnostic commands FIRST
+- Document findings, present the issue catalog, THEN fix
+- After any fix: verify the change actually executes by tracing the call path
+- A feature that exists but isn't called is NOT implemented
+- **Do NOT jump to Phase 3 (fixing) when given a multi-phase task.** Complete Phase 1 (diagnostics) and Phase 2 (catalog) first. Show the user the findings before changing code.
+
 ## Task Management
 
 1. **Plan First**: Write plan to `tasks/todo.md` with checkable items
@@ -129,6 +156,7 @@ python -m ruff check .
 4. **Explain Changes**: High-level summary at each step
 5. **Document Results**: Add review section to `tasks/todo.md`
 6. **Capture Lessons**: Update `tasks/lessons.md` after corrections
+7. **Handoff**: Before session ends, write what's next so the next session has continuity
 
 ---
 
