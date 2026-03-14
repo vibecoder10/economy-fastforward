@@ -2,7 +2,7 @@
 Post-generation validation for image prompts.
 
 Runs AFTER all prompts are written to Airtable, BEFORE status advances to "Ready For Images".
-Checks sequencing rules and auto-fixes simple violations.
+Checks sequencing rules, auto-fixes simple violations, and regenerates prompts that need it.
 
 Violations checked:
 - Camera distance clustering (3+ consecutive same shot type)
@@ -10,6 +10,11 @@ Violations checked:
 - Consecutive data/chart scenes (3+ data visualizations)
 - Mannequin hands without reinforcement (closeups with hands but no mannequin qualifier)
 - Naked mannequins (character scenes without clothing descriptions)
+
+Fix strategies:
+- Camera distance: swap shot type (no regeneration needed)
+- Mannequin hands: text replacement (no regeneration needed)
+- Location/data clustering, naked mannequins: regenerate prompt via Claude with constraint
 """
 
 from dataclasses import dataclass
@@ -461,15 +466,198 @@ class PromptValidator:
 
         return None
 
+    # =========================================================================
+    # REGENERATION METHODS (Claude-powered prompt rewrite)
+    # =========================================================================
+
+    def build_regeneration_constraint(
+        self, violation: Violation, prompts: list[dict]
+    ) -> str:
+        """Build a specific constraint string for the regeneration prompt.
+
+        Args:
+            violation: The violation to fix
+            prompts: All prompts for context (neighbor detection)
+
+        Returns:
+            A constraint string describing what the new prompt must avoid/include
+        """
+        if violation.type == "consecutive_location":
+            # Find the repeated location from neighbors
+            target = self._find_prompt_by_index(prompts, violation.image_index)
+            if target:
+                location = self._detect_location(target.get("Image Prompt", ""))
+                # Get location markers for a readable name
+                return (
+                    f"MUST use a DIFFERENT location than '{location}'. "
+                    f"The previous images already use this location. "
+                    f"Choose a contrasting environment that fits the narration."
+                )
+            return "MUST use a different location than the previous images."
+
+        elif violation.type == "consecutive_data":
+            return (
+                "MUST NOT be a data visualization, chart, graph, or operations room scene. "
+                "The previous images are already data scenes. "
+                "Show a physical environment, character, or concrete object instead."
+            )
+
+        elif violation.type == "naked_mannequin":
+            return (
+                "MUST include specific clothing description for any character/mannequin figure. "
+                "Every character needs clothing (suit, uniform, robes, jacket, etc.) from the Story Bible. "
+                "Naked/unclothed mannequins are not allowed."
+            )
+
+        return f"Fix the following issue: {violation.issue}"
+
+    def _find_prompt_by_index(
+        self, prompts: list[dict], image_index: int
+    ) -> Optional[dict]:
+        """Find a prompt record by its image index."""
+        for p in prompts:
+            if p.get("Image Index") == image_index:
+                return p
+        return None
+
+    async def regenerate_prompt(
+        self,
+        anthropic_client,
+        violation: Violation,
+        prompts: list[dict],
+        story_bible: Optional[dict] = None,
+    ) -> Optional[dict]:
+        """Regenerate a single prompt that has a violation.
+
+        Calls Claude with the narration text + story bible + constraint to
+        produce a new prompt that respects the validation rules.
+
+        Args:
+            anthropic_client: AnthropicClient instance
+            violation: The violation to fix
+            prompts: All image prompts (for context/neighbors)
+            story_bible: Story Bible dict from the idea record (characters, locations, etc.)
+
+        Returns:
+            Dict with {record_id, new_prompt, image_index} if regenerated, None if failed
+        """
+        target = self._find_prompt_by_index(prompts, violation.image_index)
+        if not target:
+            logger.warning(f"Could not find prompt for image index {violation.image_index}")
+            return None
+
+        narration = target.get("Sentence Text", "")
+        old_prompt = target.get("Image Prompt", "")
+        shot_type = target.get("Shot Type", "medium")
+        scene_number = target.get("Scene", 0)
+        constraint = self.build_regeneration_constraint(violation, prompts)
+
+        # Build story bible context
+        bible_context = ""
+        if story_bible:
+            characters = story_bible.get("characters", [])
+            locations = story_bible.get("locations", [])
+            if characters:
+                bible_context += "\n\nSTORY BIBLE — CHARACTERS:\n"
+                for char in characters:
+                    if isinstance(char, dict):
+                        bible_context += f"- {char.get('name', 'Unknown')}: {char.get('appearance', '')} wearing {char.get('clothing', 'business attire')}\n"
+                    else:
+                        bible_context += f"- {char}\n"
+            if locations:
+                bible_context += "\nSTORY BIBLE — LOCATIONS:\n"
+                for loc in locations:
+                    if isinstance(loc, dict):
+                        bible_context += f"- {loc.get('name', 'Unknown')}: {loc.get('description', '')}\n"
+                    else:
+                        bible_context += f"- {loc}\n"
+
+        # Detect current style prefix/suffix to preserve it
+        style_prefix = ""
+        style_suffix = ""
+        if old_prompt.startswith("3D rendered faceless mannequin"):
+            style_prefix = self.MANNEQUIN_PREFIX
+            if old_prompt.endswith(self.MANNEQUIN_SUFFIX.rstrip()):
+                style_suffix = self.MANNEQUIN_SUFFIX
+
+        system_prompt = f"""You are a visual director rewriting an image prompt that violated a validation rule.
+
+Your job: rewrite the SCENE DESCRIPTION portion of the prompt to fix the violation while keeping:
+1. The same visual style (prefix/suffix stay the same)
+2. The same shot type ({shot_type})
+3. Faithful representation of the narration text
+4. Word count between 62-84 words total (including prefix/suffix)
+
+CONSTRAINT: {constraint}
+{bible_context}
+
+OUTPUT FORMAT:
+Return ONLY the complete image prompt text. No explanations, no JSON, no labels.
+{"The prompt MUST start with: " + repr(style_prefix) if style_prefix else ""}
+{"The prompt MUST end with: " + repr(style_suffix.strip()) if style_suffix else ""}"""
+
+        user_prompt = f"""Rewrite this image prompt to fix the violation.
+
+SCENE {scene_number}, IMAGE {violation.image_index}
+NARRATION: "{narration}"
+SHOT TYPE: {shot_type}
+
+CURRENT PROMPT (violating):
+"{old_prompt}"
+
+VIOLATION: {violation.issue}
+
+Write the fixed prompt:"""
+
+        try:
+            new_prompt = await anthropic_client.generate(
+                prompt=user_prompt,
+                system_prompt=system_prompt,
+                max_tokens=512,
+                temperature=0.7,
+            )
+
+            # Clean up response (strip quotes, whitespace)
+            new_prompt = new_prompt.strip().strip('"').strip("'").strip()
+
+            if not new_prompt or len(new_prompt) < 20:
+                logger.warning(f"Regeneration returned empty/short prompt for image {violation.image_index}")
+                return None
+
+            return {
+                "record_id": target.get("id"),
+                "new_prompt": new_prompt,
+                "image_index": violation.image_index,
+                "old_prompt": old_prompt,
+                "violation_type": violation.type,
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to regenerate prompt for image {violation.image_index}: {e}")
+            return None
+
 
 def format_validation_report(
     video_title: str,
     total_prompts: int,
     violations: list[Violation],
     auto_fixed: list[dict],
-    needs_regen: list[Violation],
+    regenerated: list[dict] = None,
+    still_failing: list[Violation] = None,
 ) -> str:
-    """Format a Slack-ready validation report."""
+    """Format a Slack-ready validation report.
+
+    Args:
+        video_title: The video title
+        total_prompts: Total number of prompts validated
+        violations: All violations found in initial pass
+        auto_fixed: List of auto-fix result dicts (camera swap, hand reinforcement)
+        regenerated: List of regeneration result dicts (Claude-rewritten prompts)
+        still_failing: Violations that still fail after regeneration + re-validation
+    """
+    regenerated = regenerated or []
+    still_failing = still_failing or []
+
     lines = [
         f"*Prompt Validation Report*",
         f"Video: {video_title}",
@@ -484,15 +672,24 @@ def format_validation_report(
                 lines.append(
                     f"  \u2022 Image {fix['image_index']}: camera distance {fix['old_shot_type']} \u2192 {fix['new_shot_type']}"
                 )
-            elif "new_prompt" in fix:
+            elif "new_prompt" in fix and "violation_type" not in fix:
                 lines.append(
                     f"  \u2022 Image {fix['image_index']}: added mannequin hand reinforcement"
                 )
         lines.append("")
 
-    if needs_regen:
-        lines.append(f"*Needs regeneration: {len(needs_regen)}*")
-        for v in needs_regen:
+    if regenerated:
+        lines.append(f"*Regenerated via Claude: {len(regenerated)}*")
+        for fix in regenerated:
+            vtype = fix.get("violation_type", "unknown")
+            lines.append(
+                f"  \u2022 Image {fix['image_index']}: {vtype} \u2192 regenerated"
+            )
+        lines.append("")
+
+    if still_failing:
+        lines.append(f"*Still failing after fix: {len(still_failing)}*")
+        for v in still_failing:
             lines.append(f"  \u2022 Image {v.image_index}: {v.issue}")
         lines.append("")
 
@@ -500,13 +697,13 @@ def format_validation_report(
         lines.append("*All prompts passed validation*")
 
     # Summary line with emoji
-    critical = [v for v in needs_regen if v.severity == "critical"]
-    if critical:
-        lines.insert(0, f"\u26a0\ufe0f *{len(critical)} critical violations need manual review*\n")
-    elif needs_regen:
-        lines.insert(0, f"\u26a0\ufe0f *{len(needs_regen)} prompts flagged for review*\n")
-    elif auto_fixed:
-        lines.insert(0, f"\u2705 *Validation passed ({len(auto_fixed)} auto-fixed)*\n")
+    if still_failing:
+        lines.insert(0, f"\u26a0\ufe0f *{len(still_failing)} violations remain after auto-fix*\n")
+    elif regenerated or auto_fixed:
+        total_fixed = len(auto_fixed) + len(regenerated)
+        lines.insert(0, f"\u2705 *Validation passed ({total_fixed} fixed)*\n")
+    elif violations:
+        lines.insert(0, "\u2705 *Validation passed - no issues found*\n")
     else:
         lines.insert(0, "\u2705 *Validation passed - no issues found*\n")
 
