@@ -1294,17 +1294,24 @@ async def handle_discover(message, say, client):
     channel = message.get("channel", "")
 
     focus_msg = f" (focus: {focus})" if focus else ""
-    await say(f":mag: Scanning headlines{focus_msg}... This may take a moment.")
+    await say(f":mag: Scanning headlines + competitors{focus_msg}... This may take a moment.")
 
     try:
         from clients.anthropic_client import AnthropicClient
+        from clients.airtable_client import AirtableClient
+        from clients.apify_client import ApifyYouTubeClient
         from discovery_scanner import run_discovery, format_ideas_for_slack, build_option_map
 
         anthropic = AnthropicClient()
+        airtable = AirtableClient()
+        apify = ApifyYouTubeClient() if os.getenv("APIFY_API_KEY") else None
 
         result = await run_discovery(
             anthropic_client=anthropic,
+            apify_client=apify,
+            airtable_client=airtable,
             focus=focus or None,
+            include_competitors=True,
         )
 
         slack_msg = format_ideas_for_slack(result)
@@ -1314,20 +1321,30 @@ async def handle_discover(message, say, client):
         ts = response.get("ts", "")
 
         if ts:
-            # Track this message for emoji reaction approval
-            _discovery_messages[ts] = result.get("ideas", [])
+            # Track this message for emoji reaction approval (store full result)
+            _discovery_messages[ts] = result
 
-            # Add one reaction emoji per title option (not per idea)
-            option_map = build_option_map(result.get("ideas", []))
-            emoji_names = ["one", "two", "three", "four", "five", "six", "seven", "eight", "nine"]
-            emojis_to_add = emoji_names[:len(option_map)]
+            # Add letter reaction emojis for all options (news + competitor)
+            option_map = build_option_map(result)
+            letter_emojis = [
+                "regional_indicator_a", "regional_indicator_b", "regional_indicator_c",
+                "regional_indicator_d", "regional_indicator_e", "regional_indicator_f",
+                "regional_indicator_g", "regional_indicator_h", "regional_indicator_i",
+                "regional_indicator_j", "regional_indicator_k", "regional_indicator_l",
+                "regional_indicator_m", "regional_indicator_n", "regional_indicator_o",
+                "regional_indicator_p", "regional_indicator_q", "regional_indicator_r",
+                "regional_indicator_s", "regional_indicator_t",
+            ]
+            emojis_to_add = letter_emojis[:len(option_map)]
             for emoji in emojis_to_add:
                 try:
                     await client.reactions_add(channel=channel, name=emoji, timestamp=ts)
                 except Exception as e:
                     log.error(f"Failed to add reaction {emoji}: {e}")
 
-            log.info(f"Discovery posted: {len(option_map)} options across {len(result.get('ideas', []))} ideas, message_ts={ts}")
+            news_count = len(result.get("ideas", []))
+            comp_count = len(result.get("competitor_ideas", []))
+            log.info(f"Discovery posted: {len(option_map)} options ({news_count} news + {comp_count} competitor), message_ts={ts}")
 
     except Exception as e:
         await say(f":x: Discovery scan failed: {e}")
@@ -1425,10 +1442,20 @@ async def handle_reaction_added(event, client):
     channel = item.get("channel", "")
 
     # Map reaction emoji names to 0-based option index
+    # Support both old number emojis and new letter emojis (regional indicators)
     reaction_to_index = {
+        # Legacy number emojis (for backward compatibility)
         "one": 0, "two": 1, "three": 2,
         "four": 3, "five": 4, "six": 5,
         "seven": 6, "eight": 7, "nine": 8,
+        # New letter emojis (A-T for news + competitor ideas)
+        "regional_indicator_a": 0, "regional_indicator_b": 1, "regional_indicator_c": 2,
+        "regional_indicator_d": 3, "regional_indicator_e": 4, "regional_indicator_f": 5,
+        "regional_indicator_g": 6, "regional_indicator_h": 7, "regional_indicator_i": 8,
+        "regional_indicator_j": 9, "regional_indicator_k": 10, "regional_indicator_l": 11,
+        "regional_indicator_m": 12, "regional_indicator_n": 13, "regional_indicator_o": 14,
+        "regional_indicator_p": 15, "regional_indicator_q": 16, "regional_indicator_r": 17,
+        "regional_indicator_s": 18, "regional_indicator_t": 19,
     }
     if reaction not in reaction_to_index:
         return
@@ -1442,14 +1469,18 @@ async def handle_reaction_added(event, client):
 
     # Check in-memory tracking first (from Slack bot discover command)
     if item_ts in _discovery_messages:
-        ideas = _discovery_messages[item_ts]
-        option_map = build_option_map(ideas)
+        result = _discovery_messages[item_ts]
+        # Handle both old format (list) and new format (dict with ideas + competitor_ideas)
+        if isinstance(result, list):
+            result = {"ideas": result}
+        option_map = build_option_map(result)
         if option_index >= len(option_map):
             return
         selected = option_map[option_index]
+        source_type = selected.get("source_type", "news")
         log.info(
             f"Discovery reaction (in-memory): {reaction} from {user} "
-            f"on {item_ts} -> idea {selected['idea_index'] + 1}, title: {selected['title']}"
+            f"on {item_ts} -> {source_type} idea {selected['idea_index'] + 1}, title: {selected['title']}"
         )
         # Mark as processed BEFORE starting work (prevents race with double-click)
         mark_reaction_processed(item_ts, reaction, selected["title"])
@@ -1459,6 +1490,7 @@ async def handle_reaction_added(event, client):
             selected_title=selected["title"],
             selected_formula_id=selected.get("formula_id", ""),
             selected_thumbnail_text=selected.get("thumbnail_text", ""),
+            source_type=source_type,
         )
         return
 
@@ -1467,13 +1499,22 @@ async def handle_reaction_added(event, client):
     if tracked:
         ideas = tracked.get("ideas", [])
         airtable_ids = tracked.get("airtable_record_ids", [])
-        option_map = build_option_map(ideas)
+        # Reconstruct result dict for build_option_map
+        # Note: The cron job stores a flat list, so we need to handle the source_type per-idea
+        result = {"ideas": [], "competitor_ideas": []}
+        for idea in ideas:
+            if idea.get("source_type") == "competitor":
+                result["competitor_ideas"].append(idea)
+            else:
+                result["ideas"].append(idea)
+        option_map = build_option_map(result)
         if option_index >= len(option_map):
             return
         selected = option_map[option_index]
+        source_type = selected.get("source_type", "news")
         log.info(
             f"Discovery reaction (cron-tracked): {reaction} from {user} "
-            f"on {item_ts} -> idea {selected['idea_index'] + 1}, title: {selected['title']}"
+            f"on {item_ts} -> {source_type} idea {selected['idea_index'] + 1}, title: {selected['title']}"
         )
         # Mark as processed BEFORE starting work
         mark_reaction_processed(item_ts, reaction, selected["title"])
@@ -1483,6 +1524,7 @@ async def handle_reaction_added(event, client):
             selected_title=selected["title"],
             selected_formula_id=selected.get("formula_id", ""),
             selected_thumbnail_text=selected.get("thumbnail_text", ""),
+            source_type=source_type,
         )
         remove_discovery_message(item_ts)
         return
@@ -1493,6 +1535,7 @@ async def _handle_discovery_approval(
     selected_title: str = None,
     selected_formula_id: str = "",
     selected_thumbnail_text: str = "",
+    source_type: str = "news",
 ):
     """Approve a discovery idea and auto-trigger deep research.
 
@@ -1505,8 +1548,18 @@ async def _handle_discovery_approval(
         ts: Message timestamp of the discovery results
         idea_index: 0-based index of the chosen idea
         selected_title: Specific title chosen by user (if None, uses first title)
+        source_type: "news" or "competitor" to indicate idea source
     """
-    ideas = _discovery_messages.get(ts, [])
+    result = _discovery_messages.get(ts, {})
+    # Handle both old format (list) and new format (dict)
+    if isinstance(result, list):
+        ideas = result
+    else:
+        # Get ideas from correct list based on source_type
+        if source_type == "competitor":
+            ideas = result.get("competitor_ideas", [])
+        else:
+            ideas = result.get("ideas", [])
     if not ideas or idea_index >= len(ideas):
         log.warning(f"No ideas found for message ts={ts} index={idea_index}")
         return
@@ -1538,9 +1591,11 @@ async def _handle_discovery_approval(
             idea,
             title_override=title,
             thumbnail_text_override=selected_thumbnail_text,
+            source_type=source_type,
         )
 
-        record = airtable.create_idea(idea_data, source="discovery_scanner")
+        source_name = "competitor_scanner" if source_type == "competitor" else "discovery_scanner"
+        record = airtable.create_idea(idea_data, source=source_name)
         record_id = record["id"]
 
         # Set status to Approved
@@ -1608,6 +1663,7 @@ async def _handle_cron_discovery_approval(
     selected_title: str = None,
     selected_formula_id: str = "",
     selected_thumbnail_text: str = "",
+    source_type: str = "news",
 ):
     """Approve a discovery idea from the cron job's tracked messages.
 
@@ -1623,6 +1679,7 @@ async def _handle_cron_discovery_approval(
         ideas: List of idea dicts from discovery scanner
         airtable_record_ids: List of Airtable record IDs (parallel to ideas)
         selected_title: Specific title chosen by user (if None, uses first title)
+        source_type: "news" or "competitor" to indicate idea source
     """
     if not ideas or idea_index >= len(ideas):
         log.warning(f"No ideas found for cron message ts={ts} index={idea_index}")
@@ -1682,8 +1739,10 @@ async def _handle_cron_discovery_approval(
                 idea,
                 title_override=title,
                 thumbnail_text_override=selected_thumbnail_text,
+                source_type=source_type,
             )
-            record = airtable.create_idea(idea_data, source="discovery_scanner")
+            source_name = "competitor_scanner" if source_type == "competitor" else "discovery_scanner"
+            record = airtable.create_idea(idea_data, source=source_name)
             record_id = record["id"]
             airtable.update_idea_status(record_id, "Approved")
             if selected_formula_id:

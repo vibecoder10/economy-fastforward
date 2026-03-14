@@ -50,22 +50,22 @@ SYS_TZ=$(cat /etc/timezone 2>/dev/null || timedatectl show --property=Timezone -
 # Check if system timezone is Pacific — if so, use times as-is
 if echo "$SYS_TZ" | grep -qiE "america/los_angeles|US/Pacific"; then
     TZ_MODE="pacific"
-    DISCOVER_HOUR=5
+    DISCOVER_HOUR=9
     PERF_HOUR=7
-    QUEUE_HOUR=8
+    QUEUE_HOUR=12
 elif echo "$SYS_TZ" | grep -qiE "UTC|Etc/UTC|Etc/GMT"; then
     TZ_MODE="utc"
     # Pacific to UTC: PST = UTC-8, PDT = UTC-7
     # Use PST offsets (conservative — jobs run 1h later in summer)
-    DISCOVER_HOUR=13   # 5 AM PT = 1 PM UTC (PST)
+    DISCOVER_HOUR=17   # 9 AM PT = 5 PM UTC (PST)
     PERF_HOUR=15       # 7 AM PT = 3 PM UTC (PST)
-    QUEUE_HOUR=16      # 8 AM PT = 4 PM UTC (PST)
+    QUEUE_HOUR=20      # 12 PM PT = 8 PM UTC (PST)
 else
     # Unknown timezone — default to UTC offsets and warn
     TZ_MODE="other ($SYS_TZ)"
-    DISCOVER_HOUR=13
+    DISCOVER_HOUR=17
     PERF_HOUR=15
-    QUEUE_HOUR=16
+    QUEUE_HOUR=20
 fi
 
 echo "=================================================="
@@ -105,22 +105,18 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 # TZ for log timestamps — shows Pacific time in logs regardless of system tz
 TZ=America/Los_Angeles
 
-# $DISCOVER_HOUR:00 (~5 AM PT) — Daily idea discovery scan
-# Finds new video ideas and posts interactive Slack message for approval
-# Timeout: 10 min max | Lock expires after 15 min
-0 $DISCOVER_HOUR * * * MAX_LOCK_AGE=900 $WRAPPER discovery /tmp/pipeline-discover.log timeout 600 python pipeline.py --discover
-
-# $DISCOVER_HOUR:30 (~5:30 AM PT) — Daily competitor channel scraper
-# Scrapes competitor YouTube channels, identifies winners by VPH, generates modeled ideas
-# Timeout: 10 min max | Lock expires after 15 min
-30 $DISCOVER_HOUR * * * MAX_LOCK_AGE=900 $WRAPPER competitors /tmp/pipeline-competitors.log timeout 600 python pipeline.py --competitors
+# $DISCOVER_HOUR:00 (~9 AM PT) — Daily idea discovery scan
+# Scans world news headlines + competitor top performers (50/50 split)
+# Posts interactive Slack message with both idea types for approval
+# Timeout: 15 min max | Lock expires after 20 min (includes competitor scrape)
+0 $DISCOVER_HOUR * * * MAX_LOCK_AGE=1200 $WRAPPER discovery /tmp/pipeline-discover.log timeout 900 python pipeline.py --discover
 
 # $PERF_HOUR:00 (~7 AM PT) — Daily YouTube performance tracker
 # Syncs YouTube metrics (views, CTR, retention, snapshots) to Airtable
 # Timeout: 10 min max | Lock expires after 15 min
 0 $PERF_HOUR * * * MAX_LOCK_AGE=900 $WRAPPER performance /tmp/performance-tracker.log timeout 600 python performance_tracker.py --recent
 
-# $QUEUE_HOUR:00 (~8 AM PT) — Daily pipeline queue run
+# $QUEUE_HOUR:00 (~12 PM PT) — Daily pipeline queue run
 # Processes all stages: Script → Voice → Image Prompts → Images → Thumbnail → Render → Upload
 # Timeout: 4 hours max | Lock expires after 5 hours
 0 $QUEUE_HOUR * * * MAX_LOCK_AGE=18000 $WRAPPER pipeline-queue /tmp/pipeline-queue.log timeout 14400 python pipeline.py --run-queue
@@ -149,18 +145,18 @@ fi
 echo "  Cron jobs installed!"
 echo ""
 echo "  Scheduled (system time $SYS_TZ → ~Pacific equivalent):"
-echo "    $DISCOVER_HOUR:00 daily (~5 AM PT) ->  Discovery scan (post ideas to Slack)"
-echo "    $PERF_HOUR:00 daily (~7 AM PT)     ->  YouTube performance tracker (sync analytics)"
-echo "    $QUEUE_HOUR:00 daily (~8 AM PT)    ->  Pipeline queue (process all stages to render)"
-echo "    Every 15 min            ->  Bot health check (auto-restart if down)"
-echo "    Every 30 min            ->  Approval watcher (catch manual approvals)"
+echo "    $DISCOVER_HOUR:00 daily (~9 AM PT)  ->  Discovery scan (news + competitors → Slack)"
+echo "    $PERF_HOUR:00 daily (~7 AM PT)      ->  YouTube performance tracker (sync analytics)"
+echo "    $QUEUE_HOUR:00 daily (~12 PM PT)    ->  Pipeline queue (process all stages to render)"
+echo "    Every 15 min             ->  Bot health check (auto-restart if down)"
+echo "    Every 30 min             ->  Approval watcher (catch manual approvals)"
 echo ""
 echo "  Failure alerts:"
 echo "    All jobs (except healthcheck) send Slack notifications on failure."
 echo "    Check your Slack channel if you don't see morning activity."
 echo ""
 echo "  Timeouts:"
-echo "    Discovery:    10 min max"
+echo "    Discovery:    15 min max (includes competitor scrape)"
 echo "    Performance:  10 min max"
 echo "    Pipeline:     4 hours max"
 echo "    Approval:     10 min max"

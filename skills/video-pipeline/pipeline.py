@@ -4938,7 +4938,7 @@ async def main():
         )
         return
 
-    # === DISCOVERY SCANNER ===
+    # === DISCOVERY SCANNER (News + Competitors) ===
     if len(sys.argv) > 1 and sys.argv[1] == "--discover":
         from discovery_scanner import run_discovery, format_ideas_for_slack, build_option_map, build_idea_record_from_discovery
         from discovery_tracker import save_discovery_message
@@ -4947,20 +4947,23 @@ async def main():
         focus_msg = f" (focus: {focus})" if focus else ""
 
         print("=" * 60)
-        print(f"🔍 DISCOVERY SCANNER — Scanning headlines{focus_msg}")
+        print(f"🔍 DISCOVERY SCANNER — Headlines + Competitors{focus_msg}")
         print("=" * 60)
 
         try:
             result = await run_discovery(
                 anthropic_client=pipeline.anthropic,
+                apify_client=pipeline.apify,
+                airtable_client=pipeline.airtable,
                 focus=focus,
+                include_competitors=True,
             )
         except Exception as e:
             error_msg = f"Discovery scanner crashed: {e}"
             print(f"\n❌ {error_msg}")
             try:
                 pipeline.slack.send_message(
-                    f"❌ *5 AM Discovery Scan FAILED*\n"
+                    f"❌ *9 AM Discovery Scan FAILED*\n"
                     f"```{error_msg}```\n"
                     f"No ideas were generated. Run `discover` manually to retry."
                 )
@@ -4968,62 +4971,98 @@ async def main():
                 pass
             return
 
-        ideas = result.get("ideas", [])
-        if not ideas:
+        news_ideas = result.get("ideas", [])
+        competitor_ideas = result.get("competitor_ideas", [])
+        all_ideas = news_ideas + competitor_ideas
+
+        if not all_ideas:
             print("\n⚠️ No ideas found. Try with a different focus keyword.")
             try:
                 pipeline.slack.send_message(
-                    "🔍 *Daily Discovery Scan* ran at 5 AM but found no strong ideas today.\n"
+                    "🔍 *Daily Discovery Scan* ran at 9 AM but found no strong ideas today.\n"
                     "Try running `discover [focus]` manually with a specific topic."
                 )
             except Exception:
                 pass
             return
 
-        print(f"\nFound {len(ideas)} ideas:\n")
-        for i, idea in enumerate(ideas, 1):
-            title_opts = idea.get("title_options", [])
-            title = title_opts[0]["title"] if title_opts else "Untitled"
-            appeal = idea.get("estimated_appeal", "?")
-            print(f"  {i}. {title} (appeal: {appeal}/10)")
-            hook = idea.get("hook", "")
-            if hook:
-                print(f"     Hook: {hook[:120]}")
-            print()
+        # Print summary
+        print(f"\nFound {len(news_ideas)} news ideas + {len(competitor_ideas)} competitor ideas:\n")
 
-        # Save to Airtable
-        print("Saving to Airtable (Idea Concepts)...")
+        if news_ideas:
+            print("NEWS IDEAS:")
+            for i, idea in enumerate(news_ideas, 1):
+                title_opts = idea.get("title_options", [])
+                title = title_opts[0]["title"] if title_opts else "Untitled"
+                appeal = idea.get("estimated_appeal", "?")
+                print(f"  {i}. {title} (appeal: {appeal}/10)")
+
+        if competitor_ideas:
+            print("\nCOMPETITOR IDEAS:")
+            for i, idea in enumerate(competitor_ideas, 1):
+                title_opts = idea.get("title_options", [])
+                title = title_opts[0]["title"] if title_opts else "Untitled"
+                comp_title = idea.get("competitor_title", "?")[:50]
+                comp_vph = idea.get("competitor_vph", 0)
+                print(f"  {i}. {title}")
+                print(f"     From: \"{comp_title}...\" ({comp_vph:.0f} VPH)")
+
+        # Save ALL ideas to Airtable (both news and competitor)
+        print("\nSaving to Airtable (Idea Concepts)...")
         saved_record_ids = []
-        for i, idea in enumerate(ideas, 1):
-            idea_data = build_idea_record_from_discovery(idea, idea_number=i)
+
+        # Save news ideas
+        for i, idea in enumerate(news_ideas, 1):
+            idea_data = build_idea_record_from_discovery(idea, idea_number=i, source_type="news")
             title = idea_data.get("viral_title", "Untitled")
             try:
                 record = pipeline.airtable.create_idea(idea_data, source="discovery_scanner")
-                saved_record_ids.append(record.get("id"))
-                print(f"  ✅ Saved idea {i}: {record.get('id')} — {title}")
+                saved_record_ids.append({"id": record.get("id"), "type": "news"})
+                print(f"  ✅ [News {i}] {record.get('id')} — {title}")
             except Exception as e:
                 saved_record_ids.append(None)
-                print(f"  ❌ Failed to save idea {i}: {e}")
+                print(f"  ❌ [News {i}] Failed: {e}")
 
-        # Post interactive Slack message with emoji reactions for idea selection
-        # This lets the user wake up and click to choose an idea
-        # Always target production-agent channel — cron runs unattended so we
-        # can't rely on SLACK_CHANNEL_ID env var which may point elsewhere.
+        # Save competitor ideas
+        for i, idea in enumerate(competitor_ideas, 1):
+            idea_data = build_idea_record_from_discovery(idea, idea_number=i, source_type="competitor")
+            title = idea_data.get("viral_title", "Untitled")
+            try:
+                record = pipeline.airtable.create_idea(idea_data, source="competitor_scanner")
+                saved_record_ids.append({"id": record.get("id"), "type": "competitor"})
+                print(f"  ✅ [Competitor {i}] {record.get('id')} — {title}")
+            except Exception as e:
+                saved_record_ids.append(None)
+                print(f"  ❌ [Competitor {i}] Failed: {e}")
+
+        # Post interactive Slack message with letter emoji reactions
+        # Always target production-agent channel — cron runs unattended
         production_channel = SlackClient.DEFAULT_CHANNEL_ID
         try:
             slack_msg = (
                 "☀️ *Good Morning! Daily Discovery Scan Complete*\n"
-                "React with 1️⃣ 2️⃣ or 3️⃣ to approve an idea — I'll auto-research it and queue it for the 8 AM pipeline run.\n\n"
+                "React with a letter emoji to approve an idea — "
+                "I'll auto-research it and queue it for the 12 PM pipeline run.\n\n"
             )
             slack_msg += format_ideas_for_slack(result)
 
             response = pipeline.slack.send_message(slack_msg, production_channel)
             msg_ts = response["ts"]
 
-            # Build option map: one emoji per title option (idea + title)
-            option_map = build_option_map(ideas)
-            emoji_names = ["one", "two", "three", "four", "five", "six", "seven", "eight", "nine"]
-            emojis_to_add = emoji_names[:len(option_map)]
+            # Build option map: one letter per title option (news + competitor)
+            option_map = build_option_map(result)
+
+            # Regional indicator letters A-T for emoji reactions
+            letter_emojis = [
+                "regional_indicator_a", "regional_indicator_b", "regional_indicator_c",
+                "regional_indicator_d", "regional_indicator_e", "regional_indicator_f",
+                "regional_indicator_g", "regional_indicator_h", "regional_indicator_i",
+                "regional_indicator_j", "regional_indicator_k", "regional_indicator_l",
+                "regional_indicator_m", "regional_indicator_n", "regional_indicator_o",
+                "regional_indicator_p", "regional_indicator_q", "regional_indicator_r",
+                "regional_indicator_s", "regional_indicator_t",
+            ]
+            emojis_to_add = letter_emojis[:len(option_map)]
 
             for emoji in emojis_to_add:
                 try:
@@ -5031,22 +5070,17 @@ async def main():
                 except Exception as e:
                     print(f"  ⚠️ Failed to add reaction {emoji}: {e}")
 
-            # Persist tracking data so the Slack bot (pipeline_control.py)
-            # can handle the reaction when the user clicks
-            save_discovery_message(msg_ts, ideas, saved_record_ids)
+            # Persist tracking data for the Slack bot to handle reactions
+            # Store the full result (with both news and competitor ideas)
+            save_discovery_message(msg_ts, all_ideas, [r.get("id") if r else None for r in saved_record_ids])
             print(f"\n✅ Interactive Slack message posted (ts={msg_ts})")
-            print(f"   {len(option_map)} options with emoji reactions — waiting for your choice!")
+            print(f"   {len(option_map)} options with letter reactions — waiting for your choice!")
 
         except Exception as e:
             print(f"\n❌ Slack notification FAILED: {e}")
             # Fallback: try a shorter plain message (no reactions/tracking)
             try:
-                # Send a compact version in case the full message was too long
-                short_msg = "☀️ *Discovery Scan Complete* — ideas saved to Airtable.\n"
-                for i, idea in enumerate(ideas, 1):
-                    title_opts = idea.get("title_options", [])
-                    title = title_opts[0]["title"] if title_opts else "Untitled"
-                    short_msg += f"{i}. {title}\n"
+                short_msg = f"☀️ *Discovery Scan Complete* — {len(news_ideas)} news + {len(competitor_ideas)} competitor ideas saved to Airtable.\n"
                 short_msg += "\nCheck Airtable to approve."
                 pipeline.slack.send_message(short_msg, production_channel)
                 print("   Sent short fallback message to Slack")
