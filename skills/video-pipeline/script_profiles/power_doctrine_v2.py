@@ -182,7 +182,7 @@ PROFILE = ScriptProfile(
                     "Steel-man the strongest counterargument",
                     "Dismantle it with evidence, not opinion",
                 ],
-                cliffhanger_template=None,
+                cliffhanger_template="So what do you actually DO with this information? That's exactly what Part {next_act} reveals.",
                 psychological_beat="personal_vulnerability",
                 min_numbers=3,
                 word_pct=0.15,
