@@ -1467,15 +1467,21 @@ class VideoPipeline:
                             # Download image
                             image_content = await self.image_client.download_image(image_url)
 
-                            # Upload to Google Drive
+                            # Upload to Google Drive (non-blocking: save to Airtable even if Drive fails)
+                            drive_download_url = None
                             filename = f"Scene_{str(scene_num).zfill(2)}_{str(index).zfill(2)}.png"
-                            drive_file = self.google.upload_image(image_content, filename, self.project_folder_id)
-                            drive_download_url = self.google.make_file_public(drive_file["id"])
+                            try:
+                                drive_file = self.google.upload_image(image_content, filename, self.project_folder_id)
+                                drive_download_url = self.google.make_file_public(drive_file["id"])
+                            except Exception as drive_err:
+                                print(f"      ⚠️ Scene {scene_num}, Image {index} → Drive upload failed: {drive_err}")
+                                print(f"         Image saved to Airtable (temp URL). Re-upload with: python upload_images_to_drive.py \"{self.video_title}\"")
 
-                            # CHECKPOINT: Update Airtable immediately (with Drive URL for animation)
+                            # CHECKPOINT: Update Airtable immediately (with Drive URL if available)
                             self.airtable.update_image_record(record_id, image_url, drive_url=drive_download_url)
                             image_count += 1
-                            print(f"      ✅ Scene {scene_num}, Image {index} → Done ({image_count}/{total_pending})")
+                            drive_status = "" if drive_download_url else " (⚠️ no Drive)"
+                            print(f"      ✅ Scene {scene_num}, Image {index} → Done{drive_status} ({image_count}/{total_pending})")
 
                             # Slack progress update for every image
                             self.slack.notify(f"🖼️ Generating images... {image_count}/{total_pending} complete")
@@ -1566,17 +1572,22 @@ class VideoPipeline:
                         if result and result.get("url"):
                             image_url = result["url"]
 
-                            # Download and upload to Drive
+                            # Download and upload to Drive (non-blocking)
                             image_content = await self.image_client.download_image(image_url)
                             filename = f"Scene_{str(scene_num).zfill(2)}_{str(index).zfill(2)}.png"
-                            drive_file = self.google.upload_image(image_content, filename, self.project_folder_id)
-                            drive_download_url = self.google.make_file_public(drive_file["id"])
+                            drive_download_url = None
+                            try:
+                                drive_file = self.google.upload_image(image_content, filename, self.project_folder_id)
+                                drive_download_url = self.google.make_file_public(drive_file["id"])
+                            except Exception as drive_err:
+                                print(f"        ⚠️ Scene {scene_num}, Image {index} → Drive upload failed (retry): {drive_err}")
 
-                            # Update Airtable (with Drive URL for animation)
+                            # Update Airtable (with Drive URL if available)
                             self.airtable.update_image_record(record_id, image_url, drive_url=drive_download_url)
                             retry_count += 1
                             image_count += 1
-                            print(f"        ✅ Scene {scene_num}, Image {index} → Done (retry)")
+                            drive_status = "" if drive_download_url else " (⚠️ no Drive)"
+                            print(f"        ✅ Scene {scene_num}, Image {index} → Done{drive_status} (retry)")
                             del image_content
                         else:
                             print(f"        ❌ Scene {scene_num}, Image {index} → No image returned (retry)")
@@ -4554,15 +4565,20 @@ class VideoPipeline:
                     # Download image
                     image_content = await self.image_client.download_image(image_url)
 
-                    # Upload to Google Drive
+                    # Upload to Google Drive (non-blocking)
                     filename = f"Scene_{str(scene_num).zfill(2)}_{str(index).zfill(2)}.png"
-                    drive_file = self.google.upload_image(image_content, filename, self.project_folder_id)
-                    drive_url = self.google.make_file_public(drive_file["id"])
+                    drive_url = None
+                    try:
+                        drive_file = self.google.upload_image(image_content, filename, self.project_folder_id)
+                        drive_url = self.google.make_file_public(drive_file["id"])
+                    except Exception as drive_err:
+                        print(f"    ⚠️ Scene {scene_num}, Image {index} → Drive upload failed: {drive_err}")
 
-                    # Update Airtable (with Drive URL for animation)
+                    # Update Airtable (with Drive URL if available)
                     self.airtable.update_image_record(record_id, image_url, drive_url=drive_url)
                     regenerated += 1
-                    print(f"    ✅ Scene {scene_num}, Image {index} → regenerated")
+                    drive_status = "" if drive_url else " (⚠️ no Drive)"
+                    print(f"    ✅ Scene {scene_num}, Image {index} → regenerated{drive_status}")
 
         print(f"\n  ✅ Regenerated {regenerated} images")
         return {"status": "ok", "regenerated": regenerated, "total_requested": len(images_to_regen)}
