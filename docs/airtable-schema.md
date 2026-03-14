@@ -47,6 +47,31 @@ Performance fields (written by `performance_tracker.py`, daily cron):
 - `Image` (attachment), `Video`, `Video Prompt`
 - Animation: `Hero Shot`, `Video Clip URL`, `Animation Status`, `Video Duration`
 
+## Competitor Channels Table
+
+Used by the discovery scanner to scrape competitor YouTube videos and generate ideas from top performers.
+
+Required fields:
+- `Channel Name` (Single Line Text) — Name of the competitor channel
+- `Channel URL` (URL) — YouTube channel URL (e.g., `https://www.youtube.com/@CaspianReport`)
+- `Category` (Single Select) — Channel category. Options: `Geopolitics`, `Finance`, `Economy`, `Tech`
+- `Active` (Checkbox) — Include in discovery scraping (only active channels are scraped)
+- `Last Scraped` (Date) — Auto-updated when channel is scraped by the discovery scanner
+- `Notes` (Long Text) — Optional notes about the channel
+
+Setup:
+1. Create the table in Airtable with name "Competitor Channels"
+2. Add the fields above
+3. Set `AIRTABLE_COMPETITOR_CHANNELS_TABLE_ID` in `.env` to the table ID
+4. Run `python setup_competitor_channels.py` to verify setup
+5. Add competitor channels and check the `Active` checkbox
+
+Example channels to add:
+- CaspianReport (1.8M subs) — Geopolitics
+- AiTelly (2M subs) — Geopolitics/Finance
+- Economics Explained (2.5M subs) — Economy
+- PolyMatter (2M subs) — Economy
+
 ## Known Schema Issues (See ANIMATION_SYSTEM_REVIEW.md Feature 4)
 
 - **CRITICAL**: Tables joined by string matching (`Title` = `Video Title`), NOT linked records. Typos break relationships.

@@ -1,10 +1,13 @@
 """
-Discovery Scanner — Scans headlines, filters through Machiavellian lens,
-and generates title variants using the pattern library.
+Discovery Scanner — Scans headlines AND competitor videos, filters through
+Machiavellian lens, and generates title variants using the pattern library.
 
-Scans current headlines across geopolitics, finance, tech, and economic
-policy, filters them through the channel's dark power dynamics lens, and
-formats the top 2-3 stories into proven title structures.
+Two idea sources (50/50 split):
+  1. WORLD NEWS: Current headlines across geopolitics, finance, tech, economic policy
+  2. COMPETITORS: Top-performing videos from competitor channels (past 7 days)
+
+Both sources are filtered through the channel's dark power dynamics lens and
+formatted into proven MF (Master Formula) title structures.
 
 Usage (standalone):
     python discovery_scanner.py
@@ -14,7 +17,7 @@ Usage (standalone):
 Usage (imported):
     from discovery_scanner import DiscoveryScanner, run_discovery
 
-    scanner = DiscoveryScanner(anthropic_client)
+    scanner = DiscoveryScanner(anthropic_client, apify_client, airtable_client)
     ideas = await scanner.scan()
 """
 
@@ -23,11 +26,14 @@ import json
 import logging
 import os
 import sys
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Optional
 
 logger = logging.getLogger(__name__)
+
+# Import competitor VPH calculation
+from bots.competitor_scraper import calculate_vph
 
 # Source categories for headline scanning
 SCAN_SOURCES = {
@@ -273,27 +279,85 @@ def _parse_scanner_output(response_text: str) -> dict:
     return result
 
 
+def _parse_competitor_output(response_text: str) -> dict:
+    """Parse the JSON output from the competitor idea generator.
+
+    Similar to _parse_scanner_output but expects 'competitor_ideas' key.
+    """
+    text = response_text.strip()
+
+    # Strip markdown code block if present
+    if text.startswith("```"):
+        first_newline = text.index("\n")
+        text = text[first_newline + 1:]
+    if text.endswith("```"):
+        text = text[:-3].rstrip()
+
+    # Find JSON object
+    brace_start = text.find("{")
+    brace_end = text.rfind("}")
+    if brace_start != -1 and brace_end != -1:
+        text = text[brace_start:brace_end + 1]
+
+    result = json.loads(text)
+
+    # Validate structure
+    ideas = result.get("competitor_ideas", [])
+    if not ideas:
+        logger.warning("Competitor output contains no ideas")
+        result["competitor_ideas"] = []
+        return result
+
+    # Validate each idea has required fields
+    required_fields = [
+        "competitor_title",
+        "title_options",
+    ]
+    for i, idea in enumerate(ideas):
+        missing = [f for f in required_fields if f not in idea]
+        if missing:
+            logger.warning(f"Competitor idea {i+1} missing fields: {missing}")
+
+        # Ensure title_options exist
+        if not idea.get("title_options"):
+            logger.warning(f"Competitor idea {i+1} has no title_options")
+
+    return result
+
+
 class DiscoveryScanner:
-    """Scans headlines and generates video ideas through the Machiavellian lens.
+    """Scans headlines AND competitor videos, generates ideas through Machiavellian lens.
 
     Usage:
-        scanner = DiscoveryScanner(anthropic_client)
+        scanner = DiscoveryScanner(anthropic_client, apify_client, airtable_client)
         result = await scanner.scan()
-        # result["ideas"] contains 2-3 curated ideas with title variants
+        # result["news_ideas"] contains 2-3 ideas from world news headlines
+        # result["competitor_ideas"] contains 3-5 ideas from competitor top performers
     """
+
+    # Competitor scanning config
+    COMPETITOR_VPH_THRESHOLD = 50  # Min views per hour
+    COMPETITOR_MAX_AGE_HOURS = 168  # 7 days
+    COMPETITOR_MAX_IDEAS = 5  # Max competitor ideas to present
 
     def __init__(
         self,
         anthropic_client,
+        apify_client=None,
+        airtable_client=None,
         model: str = "claude-sonnet-4-5-20250929",
     ):
         """Initialize the discovery scanner.
 
         Args:
             anthropic_client: AnthropicClient instance for LLM calls
+            apify_client: Optional ApifyYouTubeClient for competitor scraping
+            airtable_client: Optional AirtableClient for competitor channels
             model: Model to use (Sonnet 4.5 for cost efficiency)
         """
         self.anthropic = anthropic_client
+        self.apify = apify_client
+        self.airtable = airtable_client
         self.model = model
         self.title_patterns = _load_title_patterns()
         self.system_prompt = _load_discovery_prompt()
@@ -379,67 +443,294 @@ purely domestic politics without global economic implications.
 
         return headlines
 
+    async def _gather_competitor_winners(self) -> list[dict]:
+        """Gather top-performing videos from competitor channels.
+
+        Scrapes competitor channels via Apify and filters to winners
+        (high VPH videos from the past 7 days).
+
+        Returns:
+            List of winner video dicts with: title, url, channel, views, vph
+        """
+        if not self.apify or not self.airtable:
+            logger.info("Competitor scanning skipped (no apify/airtable client)")
+            return []
+
+        logger.info("Gathering competitor top performers...")
+
+        # Get active channels from Airtable
+        try:
+            channels = self.airtable.get_active_competitor_channels()
+        except Exception as e:
+            logger.warning(f"Could not fetch competitor channels: {e}")
+            return []
+
+        if not channels:
+            logger.info("No active competitor channels found")
+            return []
+
+        channel_urls = [
+            c.get("Channel URL") for c in channels if c.get("Channel URL")
+        ]
+        logger.info(f"Scraping {len(channel_urls)} competitor channels...")
+
+        # Scrape videos via Apify
+        try:
+            videos = await self.apify.scrape_channel_videos(
+                channel_urls=channel_urls,
+                max_videos_per_channel=10,
+            )
+        except Exception as e:
+            logger.warning(f"Competitor scrape failed: {e}")
+            return []
+
+        # Calculate VPH and filter to winners
+        winners = []
+        for video in videos:
+            vph, hours_old = calculate_vph(
+                video.get("views", 0),
+                video.get("published_at", ""),
+            )
+            video["vph"] = round(vph, 1)
+            video["hours_old"] = round(hours_old, 1)
+
+            # Apply filters
+            if vph >= self.COMPETITOR_VPH_THRESHOLD and hours_old <= self.COMPETITOR_MAX_AGE_HOURS:
+                winners.append(video)
+
+        # Sort by VPH descending
+        winners.sort(key=lambda v: v.get("vph", 0), reverse=True)
+
+        logger.info(f"Found {len(winners)} competitor winners (VPH >= {self.COMPETITOR_VPH_THRESHOLD})")
+        return winners
+
+    async def _generate_competitor_ideas(self, winners: list[dict]) -> list[dict]:
+        """Generate MF-formatted ideas from competitor winners.
+
+        Takes top competitor videos and generates our own angle + MF titles,
+        preserving the original title and URL for reference.
+
+        Args:
+            winners: List of high-VPH competitor videos
+
+        Returns:
+            List of idea dicts with title_options, original title, url, etc.
+        """
+        if not winners:
+            return []
+
+        # Limit to top performers
+        top_winners = winners[:self.COMPETITOR_MAX_IDEAS]
+
+        logger.info(f"Generating MF titles for {len(top_winners)} competitor videos...")
+
+        # Build context for Claude
+        winners_context = "\n".join(
+            f"{i+1}. \"{v.get('title', '')}\" — {v.get('channel', '')} "
+            f"({v.get('views', 0):,} views, {v.get('vph', 0):.0f} VPH)\n"
+            f"   URL: {v.get('url', '')}"
+            for i, v in enumerate(top_winners)
+        )
+
+        # Extract master formulas for the prompt
+        master_formulas = self.title_patterns.get("master_formulas", [])
+        if not master_formulas:
+            master_formulas = self.title_patterns.get("formulas", [])
+        formulas_summary = "\n".join(
+            f"- {f['id']}: {f['name']} — Template: \"{f['template']}\""
+            for f in master_formulas
+        )
+
+        prompt = f"""\
+These are the TOP PERFORMING videos from competitor YouTube channels in the past 7 days.
+For EACH video, create an Economy FastForward angle with 3 MF title options.
+
+=== COMPETITOR TOP PERFORMERS ===
+{winners_context}
+
+=== TITLE FORMULA LIBRARY (MF system — use ONLY these) ===
+{formulas_summary}
+
+=== INSTRUCTIONS ===
+For EACH competitor video above, generate:
+1. Three title options using DIFFERENT MF formulas
+2. A 2-word thumbnail verdict (ALL CAPS strategic judgment)
+3. Our unique Machiavellian/power dynamics angle
+4. A hook (first 15 seconds)
+5. The best-fit analytical framework
+
+TITLE RULES (STRICT):
+- MAXIMUM 55 characters
+- Start with "How" or "Why" (or MF-6 possessive format)
+- First word after How/Why MUST be a proper noun
+- NO "YOU" or "YOUR"
+- NO ALL CAPS except acronyms
+
+Return ONLY a JSON object with this structure:
+{{
+  "competitor_ideas": [
+    {{
+      "competitor_title": "The EXACT original competitor title",
+      "competitor_channel": "Channel name",
+      "competitor_url": "Video URL",
+      "competitor_views": 123456,
+      "competitor_vph": 500,
+      "our_angle": "Our unique Machiavellian/power dynamics spin",
+      "title_options": [
+        {{
+          "title": "How China Is Weaponizing Rare Earth Exports",
+          "formula_id": "MF-0",
+          "thumbnail_text": "CHOKE POINT",
+          "score": 85
+        }}
+      ],
+      "hook": "Opening 15 seconds creating curiosity gap",
+      "framework": "One of: 48 Laws, Sun Tzu, Machiavelli, Thucydides Trap, etc.",
+      "estimated_appeal": 8
+    }}
+  ]
+}}
+
+Generate ideas for ALL {len(top_winners)} videos. Raw JSON only, no markdown."""
+
+        response = await self.anthropic.generate(
+            prompt=prompt,
+            system_prompt=self.system_prompt,
+            model=self.model,
+            max_tokens=6000,
+            temperature=0.7,
+        )
+
+        # Parse response
+        try:
+            result = _parse_competitor_output(response)
+            ideas = result.get("competitor_ideas", [])
+
+            # Enrich with source data
+            for i, idea in enumerate(ideas):
+                idea["source_type"] = "competitor"
+                # Map back to original winner data if available
+                if i < len(top_winners):
+                    winner = top_winners[i]
+                    idea["competitor_url"] = idea.get("competitor_url") or winner.get("url", "")
+                    idea["competitor_views"] = idea.get("competitor_views") or winner.get("views", 0)
+                    idea["competitor_vph"] = idea.get("competitor_vph") or winner.get("vph", 0)
+                    idea["competitor_channel"] = idea.get("competitor_channel") or winner.get("channel", "")
+                    idea["competitor_title"] = idea.get("competitor_title") or winner.get("title", "")
+
+            logger.info(f"Generated {len(ideas)} competitor ideas")
+            return ideas
+
+        except Exception as e:
+            logger.warning(f"Failed to parse competitor ideas: {e}")
+            return []
+
     async def scan(
         self,
         focus: Optional[str] = None,
         headlines: Optional[str] = None,
+        include_competitors: bool = True,
     ) -> dict:
-        """Run the full discovery scan.
+        """Run the full discovery scan (news + competitors).
 
-        Gathers headlines (or uses provided ones), filters through the
-        Machiavellian lens, and generates title variants.
+        Gathers headlines AND competitor top performers, filters through the
+        Machiavellian lens, and generates title variants for both.
 
         Args:
-            focus: Optional niche keyword to focus the scan
-            headlines: Optional pre-gathered headlines (skips gathering step)
+            focus: Optional niche keyword to focus the news scan
+            headlines: Optional pre-gathered headlines (skips headline gathering)
+            include_competitors: Whether to include competitor scanning (default True)
 
         Returns:
-            Dict with "ideas" list containing 2-3 curated video ideas,
-            each with title_options, hook, appeal score, etc.
+            Dict with:
+              - "ideas": news headline ideas (2-3)
+              - "competitor_ideas": competitor video ideas (3-5)
+              - "_metadata": scan metadata
         """
         logger.info(
             f"Starting discovery scan"
             + (f" (focus: {focus})" if focus else "")
+            + (" (with competitors)" if include_competitors else "")
         )
 
-        # Step 1: Gather headlines
-        if headlines is None:
-            logger.info("Gathering current headlines...")
-            headlines = await self._gather_headlines(focus)
-            logger.info(
-                f"Gathered {len(headlines.splitlines())} headline lines"
+        # Run news headlines and competitor scraping in parallel
+        tasks = []
+
+        # Task 1: Gather and analyze news headlines
+        async def _news_pipeline():
+            nonlocal headlines
+            if headlines is None:
+                logger.info("Gathering current headlines...")
+                headlines = await self._gather_headlines(focus)
+                logger.info(f"Gathered {len(headlines.splitlines())} headline lines")
+
+            analysis_prompt = _build_headline_scan_prompt(
+                headlines=headlines,
+                title_patterns=self.title_patterns,
+                focus=focus,
             )
+            logger.info("Analyzing headlines through Machiavellian lens...")
+            response = await self.anthropic.generate(
+                prompt=analysis_prompt,
+                system_prompt=self.system_prompt,
+                model=self.model,
+                max_tokens=4000,
+                temperature=0.7,
+            )
+            return _parse_scanner_output(response), headlines
 
-        # Step 2: Build analysis prompt
-        analysis_prompt = _build_headline_scan_prompt(
-            headlines=headlines,
-            title_patterns=self.title_patterns,
-            focus=focus,
-        )
+        tasks.append(_news_pipeline())
 
-        # Step 3: Run through Machiavellian lens
-        logger.info("Analyzing headlines through Machiavellian lens...")
-        response = await self.anthropic.generate(
-            prompt=analysis_prompt,
-            system_prompt=self.system_prompt,
-            model=self.model,
-            max_tokens=4000,
-            temperature=0.7,
-        )
+        # Task 2: Gather and analyze competitor videos (if enabled)
+        async def _competitor_pipeline():
+            if not include_competitors:
+                return []
+            winners = await self._gather_competitor_winners()
+            if not winners:
+                return []
+            return await self._generate_competitor_ideas(winners)
 
-        # Step 4: Parse and validate output
-        result = _parse_scanner_output(response)
-        idea_count = len(result.get("ideas", []))
+        tasks.append(_competitor_pipeline())
+
+        # Run both in parallel
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Process news results
+        news_result, gathered_headlines = ({"ideas": []}, headlines)
+        if not isinstance(results[0], Exception):
+            news_result, gathered_headlines = results[0]
+        else:
+            logger.error(f"News pipeline failed: {results[0]}")
+
+        # Process competitor results
+        competitor_ideas = []
+        if not isinstance(results[1], Exception):
+            competitor_ideas = results[1]
+        else:
+            logger.error(f"Competitor pipeline failed: {results[1]}")
+
+        # Mark news ideas with source type
+        for idea in news_result.get("ideas", []):
+            idea["source_type"] = "news"
+
+        news_count = len(news_result.get("ideas", []))
+        comp_count = len(competitor_ideas)
         logger.info(
-            f"Discovery scan complete: {idea_count} ideas generated"
+            f"Discovery scan complete: {news_count} news ideas, {comp_count} competitor ideas"
         )
 
-        # Add metadata
-        result["_metadata"] = {
-            "focus": focus,
-            "model": self.model,
-            "headline_count": len(headlines.splitlines()),
-            "source_categories": list(SCAN_SOURCES.keys()),
+        # Build combined result
+        result = {
+            "ideas": news_result.get("ideas", []),
+            "competitor_ideas": competitor_ideas,
+            "_metadata": {
+                "focus": focus,
+                "model": self.model,
+                "headline_count": len(gathered_headlines.splitlines()) if gathered_headlines else 0,
+                "source_categories": list(SCAN_SOURCES.keys()),
+                "competitor_ideas_count": comp_count,
+                "include_competitors": include_competitors,
+            },
         }
 
         return result
@@ -447,35 +738,52 @@ purely domestic politics without global economic implications.
 
 async def run_discovery(
     anthropic_client,
+    apify_client=None,
+    airtable_client=None,
     focus: Optional[str] = None,
     headlines: Optional[str] = None,
+    include_competitors: bool = True,
     model: str = "claude-sonnet-4-5-20250929",
 ) -> dict:
-    """Convenience function to run discovery scan.
+    """Convenience function to run discovery scan (news + competitors).
 
     This is the main entry point for external callers (Slack bot, pipeline).
 
     Args:
         anthropic_client: AnthropicClient instance
-        focus: Optional niche keyword to focus the scan
+        apify_client: Optional ApifyYouTubeClient for competitor scraping
+        airtable_client: Optional AirtableClient for competitor channels
+        focus: Optional niche keyword to focus the news scan
         headlines: Optional pre-gathered headlines
+        include_competitors: Whether to include competitor top performers (default True)
         model: LLM model to use (default: Sonnet 4.5)
 
     Returns:
-        Dict with "ideas" list containing 2-3 curated video ideas
+        Dict with:
+          - "ideas": news headline ideas (2-3)
+          - "competitor_ideas": competitor video ideas (3-5)
     """
-    scanner = DiscoveryScanner(anthropic_client, model=model)
-    return await scanner.scan(focus=focus, headlines=headlines)
+    scanner = DiscoveryScanner(
+        anthropic_client,
+        apify_client=apify_client,
+        airtable_client=airtable_client,
+        model=model,
+    )
+    return await scanner.scan(
+        focus=focus,
+        headlines=headlines,
+        include_competitors=include_competitors,
+    )
 
 
 def format_ideas_for_slack(result: dict) -> str:
     """Format discovery results as a readable Slack message.
 
-    Each idea shows 3 title options (one per MF formula) with thumbnail
-    text. Each title option gets its own number so the user can select
-    both the idea AND the specific title they want.
+    Shows two sections:
+      1. NEWS IDEAS: From world headlines (2-3 ideas)
+      2. COMPETITOR IDEAS: From competitor top performers (3-5 ideas)
 
-    For 3 ideas with 3 titles each, generates up to 9 numbered options.
+    Each idea shows title options with emoji reactions for selection.
 
     Args:
         result: Output from DiscoveryScanner.scan()
@@ -483,87 +791,133 @@ def format_ideas_for_slack(result: dict) -> str:
     Returns:
         Formatted Slack message string
     """
-    ideas = result.get("ideas", [])
-    if not ideas:
+    news_ideas = result.get("ideas", [])
+    competitor_ideas = result.get("competitor_ideas", [])
+
+    if not news_ideas and not competitor_ideas:
         return "No ideas found. Try running with a different focus keyword."
 
-    # Number emojis for up to 9 options (3 ideas x 3 titles)
-    number_emojis = [
-        "1\ufe0f\u20e3", "2\ufe0f\u20e3", "3\ufe0f\u20e3",
-        "4\ufe0f\u20e3", "5\ufe0f\u20e3", "6\ufe0f\u20e3",
-        "7\ufe0f\u20e3", "8\ufe0f\u20e3", "9\ufe0f\u20e3",
+    # Letter emojis for A-Z options (extends beyond 9)
+    letter_emojis = [
+        "\U0001F1E6", "\U0001F1E7", "\U0001F1E8", "\U0001F1E9", "\U0001F1EA",  # A-E
+        "\U0001F1EB", "\U0001F1EC", "\U0001F1ED", "\U0001F1EE", "\U0001F1EF",  # F-J
+        "\U0001F1F0", "\U0001F1F1", "\U0001F1F2", "\U0001F1F3", "\U0001F1F4",  # K-O
+        "\U0001F1F5", "\U0001F1F6", "\U0001F1F7", "\U0001F1F8", "\U0001F1F9",  # P-T
     ]
 
-    lines = ["*Discovery Scanner Results*\n"]
-    option_num = 0  # Running count across all ideas
+    lines = []
+    option_num = 0  # Running count across ALL ideas (both sections)
 
-    for i, idea in enumerate(ideas, 1):
-        appeal = idea.get("estimated_appeal", "?")
-        source = idea.get("headline_source", "Unknown source")
+    # === NEWS IDEAS SECTION ===
+    if news_ideas:
+        lines.append("*" + "=" * 40 + "*")
+        lines.append("*NEWS IDEAS* (from world headlines)")
+        lines.append("*" + "=" * 40 + "*\n")
 
-        lines.append(f"*--- Idea {i} ---* (Appeal: {appeal}/10)")
-        lines.append(f"_{source}_\n")
+        for i, idea in enumerate(news_ideas, 1):
+            appeal = idea.get("estimated_appeal", "?")
+            source = idea.get("headline_source", "Unknown source")
 
-        # Each title option gets its own selectable number
-        for j, title_opt in enumerate(idea.get("title_options", []), 1):
-            if option_num < len(number_emojis):
-                emoji = number_emojis[option_num]
-            else:
-                emoji = f"({option_num + 1})"
-            formula_id = title_opt.get("formula_id", "?")
-            title = title_opt.get("title", "Untitled")
-            thumbnail = title_opt.get("thumbnail_text", "")
-            lines.append(f"{emoji}  *{title}*")
-            thumb_display = f" | Thumbnail: {thumbnail}" if thumbnail else ""
-            lines.append(f"      _Formula: {formula_id}{thumb_display}_")
-            option_num += 1
+            lines.append(f"*--- News {i} ---* (Appeal: {appeal}/10)")
+            lines.append(f"_{source}_\n")
 
-        lines.append("")
+            # Each title option gets its own selectable letter
+            for j, title_opt in enumerate(idea.get("title_options", []), 1):
+                if option_num < len(letter_emojis):
+                    emoji = letter_emojis[option_num]
+                else:
+                    emoji = f"({option_num + 1})"
+                formula_id = title_opt.get("formula_id", "?")
+                title = title_opt.get("title", "Untitled")
+                thumbnail = title_opt.get("thumbnail_text", "")
+                lines.append(f"{emoji}  *{title}*")
+                thumb_display = f" | {thumbnail}" if thumbnail else ""
+                lines.append(f"      _Formula: {formula_id}{thumb_display}_")
+                option_num += 1
 
-        # Hook
-        hook = idea.get("hook", "")
-        if hook:
-            lines.append(f"  *Hook:* {hook}")
+            lines.append("")
 
-        # Angle
-        angle = idea.get("our_angle", "")
-        if angle:
-            lines.append(f"  *Angle:* {angle}")
+            # Hook (truncated)
+            hook = idea.get("hook", "")
+            if hook:
+                lines.append(f"  *Hook:* {hook[:150]}...")
 
-        # Framework
-        framework = idea.get("framework", "")
-        if framework:
-            lines.append(f"  *Framework:* {framework}")
+            lines.append("\n" + "-" * 40 + "\n")
 
-        # Historical parallel hint
-        parallel = idea.get("historical_parallel_hint", "")
-        if parallel:
-            lines.append(f"  *Parallel:* {parallel}")
+    # === COMPETITOR IDEAS SECTION ===
+    if competitor_ideas:
+        lines.append("*" + "=" * 40 + "*")
+        lines.append("*COMPETITOR IDEAS* (proven performers)")
+        lines.append("*" + "=" * 40 + "*\n")
 
-        lines.append("\n" + "-" * 40 + "\n")
+        for i, idea in enumerate(competitor_ideas, 1):
+            comp_title = idea.get("competitor_title", "Unknown")
+            comp_channel = idea.get("competitor_channel", "?")
+            comp_views = idea.get("competitor_views", 0)
+            comp_vph = idea.get("competitor_vph", 0)
+            comp_url = idea.get("competitor_url", "")
+            appeal = idea.get("estimated_appeal", "?")
 
+            lines.append(f"*--- Competitor {i} ---* (Appeal: {appeal}/10)")
+            lines.append(f"_Original:_ \"{comp_title}\"")
+            lines.append(f"_Channel:_ {comp_channel} | {comp_views:,} views | {comp_vph:.0f} VPH")
+            if comp_url:
+                lines.append(f"_Link:_ {comp_url}")
+            lines.append("")
+
+            # Our MF title options
+            lines.append("*Our Angles:*")
+            for j, title_opt in enumerate(idea.get("title_options", []), 1):
+                if option_num < len(letter_emojis):
+                    emoji = letter_emojis[option_num]
+                else:
+                    emoji = f"({option_num + 1})"
+                formula_id = title_opt.get("formula_id", "?")
+                title = title_opt.get("title", "Untitled")
+                thumbnail = title_opt.get("thumbnail_text", "")
+                lines.append(f"{emoji}  *{title}*")
+                thumb_display = f" | {thumbnail}" if thumbnail else ""
+                lines.append(f"      _Formula: {formula_id}{thumb_display}_")
+                option_num += 1
+
+            lines.append("")
+
+            # Our angle
+            angle = idea.get("our_angle", "")
+            if angle:
+                lines.append(f"  *Angle:* {angle[:150]}...")
+
+            lines.append("\n" + "-" * 40 + "\n")
+
+    # Instructions
+    news_count = len(news_ideas)
+    comp_count = len(competitor_ideas)
     lines.append(
-        f"React with a number to pick your idea *and* title.\n"
-        f"I'll auto-research it and queue it for the pipeline."
+        f"*{news_count} news ideas + {comp_count} competitor ideas*\n"
+        f"React with a letter to pick your idea. "
+        f"I'll auto-research it and queue it for the 12 PM pipeline run."
     )
 
     return "\n".join(lines)
 
 
-def build_option_map(ideas: list[dict]) -> list[dict]:
-    """Build a flat list mapping option numbers to (idea_index, title_index).
+def build_option_map(result: dict) -> list[dict]:
+    """Build a flat list mapping option indices to idea + title combinations.
 
     Used by both the Slack bot and cron discovery to map emoji reactions
-    to the correct idea + title combination.
+    to the correct idea + title combination. Handles both news and competitor ideas.
 
     Args:
-        ideas: List of idea dicts from discovery scanner
+        result: Full result dict from DiscoveryScanner.scan() with 'ideas' and 'competitor_ideas'
 
     Returns:
-        List of dicts with 'idea_index', 'title_index', 'idea', 'title'
+        List of dicts with 'idea_index', 'title_index', 'idea', 'title', 'source_type'
     """
     options = []
-    for i, idea in enumerate(ideas):
+
+    # Process news ideas first
+    news_ideas = result.get("ideas", [])
+    for i, idea in enumerate(news_ideas):
         for j, title_opt in enumerate(idea.get("title_options", [])):
             options.append({
                 "idea_index": i,
@@ -572,7 +926,26 @@ def build_option_map(ideas: list[dict]) -> list[dict]:
                 "title": title_opt.get("title", "Untitled"),
                 "formula_id": title_opt.get("formula_id", ""),
                 "thumbnail_text": title_opt.get("thumbnail_text", ""),
+                "source_type": "news",
             })
+
+    # Process competitor ideas
+    competitor_ideas = result.get("competitor_ideas", [])
+    for i, idea in enumerate(competitor_ideas):
+        for j, title_opt in enumerate(idea.get("title_options", [])):
+            options.append({
+                "idea_index": i,
+                "title_index": j,
+                "idea": idea,
+                "title": title_opt.get("title", "Untitled"),
+                "formula_id": title_opt.get("formula_id", ""),
+                "thumbnail_text": title_opt.get("thumbnail_text", ""),
+                "source_type": "competitor",
+                "competitor_title": idea.get("competitor_title", ""),
+                "competitor_url": idea.get("competitor_url", ""),
+                "competitor_channel": idea.get("competitor_channel", ""),
+            })
+
     return options
 
 
@@ -679,6 +1052,7 @@ def build_idea_record_from_discovery(
     idea_number: int = 1,
     title_override: str = "",
     thumbnail_text_override: str = "",
+    source_type: str = "news",
 ) -> dict:
     """Build a full Airtable record from a discovery scanner idea.
 
@@ -688,11 +1062,14 @@ def build_idea_record_from_discovery(
     Uses the title scoring system to pick the best title from the options
     (highest score wins, falling back to first option if no scores).
 
+    Handles both news ideas (from headlines) and competitor ideas (from YouTube).
+
     Args:
         idea: Single idea dict from discovery scanner output
-        idea_number: Which idea was selected (1, 2, or 3)
+        idea_number: Which idea was selected
         title_override: If set, use this title instead of auto-selecting
         thumbnail_text_override: If set, use this thumbnail text instead of auto-selecting
+        source_type: "news" or "competitor" to indicate idea source
 
     Returns:
         Dict ready for AirtableClient.create_idea()
@@ -721,9 +1098,27 @@ def build_idea_record_from_discovery(
     # Extract appeal scores
     appeal_breakdown = idea.get("appeal_breakdown", {})
 
-    # Build source URLs from headline_source
-    headline_source = idea.get("headline_source", "")
-    source_urls = headline_source  # includes source publication and URL if available
+    # Handle different source types
+    is_competitor = source_type == "competitor" or idea.get("source_type") == "competitor"
+
+    if is_competitor:
+        # Competitor idea - use competitor fields
+        headline_source = idea.get("competitor_title", "")
+        source_urls = idea.get("competitor_url", "")
+        reference_url = idea.get("competitor_url", "")
+        source_channel = idea.get("competitor_channel", "")
+        source_views = idea.get("competitor_views", 0)
+        source_vph = idea.get("competitor_vph", 0)
+        dna_source = "competitor_scanner"
+    else:
+        # News idea - use headline fields
+        headline_source = idea.get("headline_source", "")
+        source_urls = headline_source
+        reference_url = ""
+        source_channel = ""
+        source_views = 0
+        source_vph = 0
+        dna_source = "discovery_scanner"
 
     record = {
         "viral_title": best_title or f"Discovery Idea {idea_number}",
@@ -750,14 +1145,29 @@ def build_idea_record_from_discovery(
         "Title Candidates": json.dumps(title_options) if title_options else "",
         # Store full discovery data as Original DNA for downstream use
         "original_dna": json.dumps({
-            "source": "discovery_scanner",
+            "source": dna_source,
             "idea_number": idea_number,
             "title_options": title_options,
             "appeal_breakdown": appeal_breakdown,
             "historical_parallel_hint": idea.get("historical_parallel_hint", ""),
             "headline_source": headline_source,
+            # Competitor-specific fields
+            "competitor_title": idea.get("competitor_title", "") if is_competitor else "",
+            "competitor_url": idea.get("competitor_url", "") if is_competitor else "",
+            "competitor_channel": idea.get("competitor_channel", "") if is_competitor else "",
+            "competitor_views": source_views,
+            "competitor_vph": source_vph,
         }),
     }
+
+    # Add reference URL for competitor ideas
+    if reference_url:
+        record["reference_url"] = reference_url
+
+    # Add source channel and views for competitor ideas
+    if is_competitor:
+        record["Source Channel"] = source_channel
+        record["Source Views"] = source_views
 
     return record
 
