@@ -184,6 +184,9 @@ class AirtableClient:
     # Competitor Channels — tracks competitor YouTube channels for scraping
     COMPETITOR_CHANNELS_TABLE_ID = "tblXXXXXXXXXXXXXX"  # Set in .env after table creation
 
+    # Competitor Videos — Osiris training data (all scraped videos, not just winners)
+    COMPETITOR_VIDEOS_TABLE_ID = "tblXXXXXXXXXXXXXX"  # Set in .env after table creation
+
     def __init__(self, api_key: Optional[str] = None, base_id: Optional[str] = None):
         self.api_key = api_key or os.getenv("AIRTABLE_API_KEY")
         if not self.api_key:
@@ -204,6 +207,7 @@ class AirtableClient:
         self._script_table = None
         self._images_table = None
         self._competitor_channels_table = None
+        self._competitor_videos_table = None
 
     @property
     def idea_concepts_table(self) -> Table:
@@ -554,6 +558,142 @@ class AirtableClient:
             typecast=True,
         )
         return {"id": record["id"], **record["fields"]}
+
+    # ==================== COMPETITOR VIDEOS TABLE (Osiris) ====================
+
+    @property
+    def competitor_videos_table(self) -> Table:
+        """Get the Competitor Videos table (Osiris training data)."""
+        if self._competitor_videos_table is None:
+            table_id = os.getenv(
+                "AIRTABLE_COMPETITOR_VIDEOS_TABLE_ID",
+                self.COMPETITOR_VIDEOS_TABLE_ID,
+            )
+            self._competitor_videos_table = self.api.table(self.base_id, table_id)
+        return self._competitor_videos_table
+
+    def get_all_competitor_video_ids(self) -> set[str]:
+        """Get all video IDs from Competitor Videos table for deduplication.
+
+        Returns:
+            Set of YouTube video IDs already in the table.
+        """
+        try:
+            records = self.competitor_videos_table.all(
+                fields=["Video ID"],
+            )
+            return {r["fields"].get("Video ID") for r in records if r["fields"].get("Video ID")}
+        except Exception as e:
+            print(f"    ⚠️ Could not fetch existing video IDs: {e}")
+            return set()
+
+    def create_competitor_video(self, video_data: dict) -> dict:
+        """Create a new competitor video record in the Osiris training table.
+
+        Args:
+            video_data: Dict with video fields from Apify scrape + VPH calculation:
+                - video_id: YouTube video ID (required, used for deduplication)
+                - title: Video title
+                - url: Full YouTube URL
+                - channel: Channel name
+                - channel_url: Channel URL
+                - views: View count at scrape time
+                - vph: Views per hour
+                - hours_old: Age in hours
+                - published_at: ISO date string
+
+        Returns:
+            Created record dict with id + fields
+        """
+        from datetime import date
+
+        fields = {
+            "Video ID": video_data.get("video_id", ""),
+            "Title": video_data.get("title", ""),
+            "URL": video_data.get("url", ""),
+            "Channel": video_data.get("channel", ""),
+            "Channel URL": video_data.get("channel_url", ""),
+            "Views": video_data.get("views", 0),
+            "VPH": round(video_data.get("vph", 0), 1),
+            "Hours Old": round(video_data.get("hours_old", 0), 1),
+            "Published Date": video_data.get("published_at", "")[:10] if video_data.get("published_at") else "",
+            "Scrape Date": date.today().isoformat(),
+            "Modeled": False,
+        }
+
+        try:
+            record = self.competitor_videos_table.create(fields, typecast=True)
+            return {"id": record["id"], **record["fields"]}
+        except Exception as e:
+            error_msg = str(e)
+            if "UNKNOWN_FIELD_NAME" not in error_msg:
+                raise
+            # Graceful degradation: drop unknown field and retry
+            bad_field = self._extract_bad_field(error_msg)
+            if bad_field and bad_field in fields:
+                print(f"    ⚠️ Field '{bad_field}' not in Competitor Videos table, dropping it")
+                del fields[bad_field]
+                record = self.competitor_videos_table.create(fields, typecast=True)
+                return {"id": record["id"], **record["fields"]}
+            raise
+
+    def batch_create_competitor_videos(self, videos: list[dict]) -> list[dict]:
+        """Batch create competitor video records (more efficient than individual creates).
+
+        Uses Airtable batch API for efficiency (up to 10 records per call).
+
+        Args:
+            videos: List of video data dicts (same format as create_competitor_video)
+
+        Returns:
+            List of created record dicts
+        """
+        from datetime import date
+
+        if not videos:
+            return []
+
+        # Build field dicts for all videos
+        records_to_create = []
+        today = date.today().isoformat()
+
+        for video_data in videos:
+            fields = {
+                "Video ID": video_data.get("video_id", ""),
+                "Title": video_data.get("title", ""),
+                "URL": video_data.get("url", ""),
+                "Channel": video_data.get("channel", ""),
+                "Channel URL": video_data.get("channel_url", ""),
+                "Views": video_data.get("views", 0),
+                "VPH": round(video_data.get("vph", 0), 1),
+                "Hours Old": round(video_data.get("hours_old", 0), 1),
+                "Published Date": video_data.get("published_at", "")[:10] if video_data.get("published_at") else "",
+                "Scrape Date": today,
+                "Modeled": False,
+            }
+            records_to_create.append({"fields": fields})
+
+        # Use batch_create (handles chunking into groups of 10)
+        try:
+            created = self.competitor_videos_table.batch_create(
+                [r["fields"] for r in records_to_create],
+                typecast=True,
+            )
+            return [{"id": r["id"], **r["fields"]} for r in created]
+        except Exception as e:
+            error_msg = str(e)
+            if "UNKNOWN_FIELD_NAME" not in error_msg:
+                raise
+            # Fallback to individual creates with graceful degradation
+            print(f"    ⚠️ Batch create failed, falling back to individual creates")
+            results = []
+            for video_data in videos:
+                try:
+                    result = self.create_competitor_video(video_data)
+                    results.append(result)
+                except Exception as ind_err:
+                    print(f"    ⚠️ Failed to create video {video_data.get('video_id')}: {ind_err}")
+            return results
 
     # ==================== SCRIPT TABLE ====================
     

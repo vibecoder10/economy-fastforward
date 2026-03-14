@@ -3,12 +3,13 @@
 #
 # Usage: bash setup_cron.sh
 #
-# This installs five cron jobs:
-#   1. 5:00 AM  — Daily idea discovery scan (posts ideas to Slack for approval)
-#   2. 7:00 AM  — Daily YouTube performance tracker (syncs analytics to Airtable)
-#   3. 8:00 AM  — Daily pipeline queue run (processes all stages through to Ready To Render)
-#   4. Every 15 min — Bot health check (restarts Slack bot if it died, notifies you)
-#   5. Every 30 min — Approval watcher (catches manual Airtable approvals)
+# This installs six cron jobs:
+#   1. 5:00 AM  — Osiris competitor scraper (persists ALL competitor videos to training table)
+#   2. 9:00 AM  — Daily idea discovery scan (posts ideas to Slack for approval)
+#   3. 7:00 AM  — Daily YouTube performance tracker (syncs analytics to Airtable)
+#   4. 12:00 PM — Daily pipeline queue run (processes all stages through to Ready To Render)
+#   5. Every 15 min — Bot health check (restarts Slack bot if it died, notifies you)
+#   6. Every 30 min — Approval watcher (catches manual Airtable approvals)
 #
 # Times are in US/Pacific (America/Los_Angeles) via TZ env var.
 # Logs are written to /tmp/pipeline-*.log
@@ -50,6 +51,7 @@ SYS_TZ=$(cat /etc/timezone 2>/dev/null || timedatectl show --property=Timezone -
 # Check if system timezone is Pacific — if so, use times as-is
 if echo "$SYS_TZ" | grep -qiE "america/los_angeles|US/Pacific"; then
     TZ_MODE="pacific"
+    OSIRIS_HOUR=5
     DISCOVER_HOUR=9
     PERF_HOUR=7
     QUEUE_HOUR=12
@@ -57,12 +59,14 @@ elif echo "$SYS_TZ" | grep -qiE "UTC|Etc/UTC|Etc/GMT"; then
     TZ_MODE="utc"
     # Pacific to UTC: PST = UTC-8, PDT = UTC-7
     # Use PST offsets (conservative — jobs run 1h later in summer)
+    OSIRIS_HOUR=13     # 5 AM PT = 1 PM UTC (PST)
     DISCOVER_HOUR=17   # 9 AM PT = 5 PM UTC (PST)
     PERF_HOUR=15       # 7 AM PT = 3 PM UTC (PST)
     QUEUE_HOUR=20      # 12 PM PT = 8 PM UTC (PST)
 else
     # Unknown timezone — default to UTC offsets and warn
     TZ_MODE="other ($SYS_TZ)"
+    OSIRIS_HOUR=13
     DISCOVER_HOUR=17
     PERF_HOUR=15
     QUEUE_HOUR=20
@@ -105,6 +109,12 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 # TZ for log timestamps — shows Pacific time in logs regardless of system tz
 TZ=America/Los_Angeles
 
+# $OSIRIS_HOUR:00 (~5 AM PT) — Osiris competitor video scraper
+# Scrapes ALL competitor videos and persists to Competitor Videos table
+# Builds training data for topic/title performance analysis over time
+# Timeout: 10 min max | Lock expires after 15 min
+0 $OSIRIS_HOUR * * * MAX_LOCK_AGE=900 $WRAPPER osiris /tmp/osiris-scraper.log timeout 600 python -m osiris.competitor_scraper
+
 # $DISCOVER_HOUR:00 (~9 AM PT) — Daily idea discovery scan
 # Scans world news headlines + competitor top performers (50/50 split)
 # Posts interactive Slack message with both idea types for approval
@@ -133,7 +143,7 @@ EOF
 )
 
 # Preserve any existing cron entries not from this script
-EXISTING=$(crontab -l 2>/dev/null | grep -v "pipeline-discover\|pipeline-queue\|pipeline-bot-health\|pipeline-approval\|performance-tracker\|pipeline\.log\|Pipeline Cron\|setup_cron\|Daily idea\|Daily pipeline\|performance tracker\|bot health\|Approval watcher\|run-queue\|--discover\|performance_tracker\|cron_wrapper" || true)
+EXISTING=$(crontab -l 2>/dev/null | grep -v "pipeline-discover\|pipeline-queue\|pipeline-bot-health\|pipeline-approval\|performance-tracker\|osiris-scraper\|pipeline\.log\|Pipeline Cron\|setup_cron\|Daily idea\|Daily pipeline\|performance tracker\|bot health\|Approval watcher\|run-queue\|--discover\|performance_tracker\|cron_wrapper\|osiris\.competitor" || true)
 
 # Install combined crontab
 if [ -n "$EXISTING" ]; then
@@ -145,6 +155,7 @@ fi
 echo "  Cron jobs installed!"
 echo ""
 echo "  Scheduled (system time $SYS_TZ → ~Pacific equivalent):"
+echo "    $OSIRIS_HOUR:00 daily (~5 AM PT)    ->  Osiris scraper (persist competitor videos)"
 echo "    $DISCOVER_HOUR:00 daily (~9 AM PT)  ->  Discovery scan (news + competitors → Slack)"
 echo "    $PERF_HOUR:00 daily (~7 AM PT)      ->  YouTube performance tracker (sync analytics)"
 echo "    $QUEUE_HOUR:00 daily (~12 PM PT)    ->  Pipeline queue (process all stages to render)"
@@ -156,12 +167,14 @@ echo "    All jobs (except healthcheck) send Slack notifications on failure."
 echo "    Check your Slack channel if you don't see morning activity."
 echo ""
 echo "  Timeouts:"
+echo "    Osiris:       10 min max"
 echo "    Discovery:    15 min max (includes competitor scrape)"
 echo "    Performance:  10 min max"
 echo "    Pipeline:     4 hours max"
 echo "    Approval:     10 min max"
 echo ""
 echo "  Logs:"
+echo "    /tmp/osiris-scraper.log"
 echo "    /tmp/pipeline-discover.log"
 echo "    /tmp/performance-tracker.log"
 echo "    /tmp/pipeline-queue.log"

@@ -72,6 +72,31 @@ Example channels to add:
 - Economics Explained (2.5M subs) — Economy
 - PolyMatter (2M subs) — Economy
 
+## Competitor Videos Table (Osiris Training Data)
+
+Stores ALL scraped competitor videos (not just winners) for long-term performance analysis. This is Osiris's training data — after 3 months you'll have thousands of videos with VPH scores showing which topics/titles perform best in your niche.
+
+Required fields:
+- `Video ID` (Single Line Text) — YouTube video ID (used for deduplication)
+- `Title` (Single Line Text) — Video title
+- `URL` (URL) — Full YouTube video URL
+- `Channel` (Single Line Text) — Channel name
+- `Channel URL` (URL) — Channel URL
+- `Views` (Number) — View count at scrape time
+- `VPH` (Number, decimal) — Views per hour at scrape time
+- `Hours Old` (Number, decimal) — Age in hours when scraped
+- `Published Date` (Date) — Video publish date
+- `Scrape Date` (Date) — When we scraped this video
+- `Modeled` (Checkbox) — Whether we've created an idea from this video
+- `Our Video` (Single Line Text) — Title of our video if we modeled it (optional)
+- `Topic Cluster` (Single Select) — Auto-categorized topic (Phase 2, optional)
+
+Setup:
+1. Create the table in Airtable with name "Competitor Videos"
+2. Add the fields above
+3. Set `AIRTABLE_COMPETITOR_VIDEOS_TABLE_ID` in `.env` to the table ID
+4. Run `python -m osiris.competitor_scraper --dry-run` to verify setup
+
 ## Known Schema Issues (See ANIMATION_SYSTEM_REVIEW.md Feature 4)
 
 - **CRITICAL**: Tables joined by string matching (`Title` = `Video Title`), NOT linked records. Typos break relationships.
