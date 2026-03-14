@@ -1,0 +1,41 @@
+#!/bin/bash
+# Economy FastForward — Session Quality Gates
+# Enforced on every push. Antigravity cannot skip these.
+
+CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD 2>/dev/null | wc -l)
+LESSONS_UPDATED=$(git diff --name-only HEAD~1 HEAD 2>/dev/null | grep -c "tasks/lessons.md")
+TODO_UPDATED=$(git diff --name-only HEAD~1 HEAD 2>/dev/null | grep -c "tasks/todo.md")
+
+ERRORS=0
+
+# Gate 1: Lessons enforcement (hard block at 3+ files)
+if [ "$CHANGED_FILES" -ge 3 ] && [ "$LESSONS_UPDATED" -eq 0 ]; then
+    echo ""
+    echo "❌ BLOCKED: $CHANGED_FILES files changed but tasks/lessons.md not updated."
+    echo "   Capture patterns/gotchas from this session before pushing."
+    echo "   Fix: git add tasks/lessons.md && git commit --amend --no-edit"
+    ERRORS=1
+elif [ "$CHANGED_FILES" -ge 1 ] && [ "$LESSONS_UPDATED" -eq 0 ]; then
+    echo ""
+    echo "⚡ Reminder: tasks/lessons.md not updated. Any new patterns?"
+fi
+
+# Gate 2: Handoff enforcement (hard block at 3+ files)
+if [ "$CHANGED_FILES" -ge 3 ] && [ "$TODO_UPDATED" -eq 0 ]; then
+    echo ""
+    echo "❌ BLOCKED: $CHANGED_FILES files changed but tasks/todo.md not updated."
+    echo "   Add a ## Handoff section so the next session has continuity."
+    echo "   Fix: git add tasks/todo.md && git commit --amend --no-edit"
+    ERRORS=1
+elif [ "$CHANGED_FILES" -ge 1 ] && [ "$TODO_UPDATED" -eq 0 ]; then
+    echo ""
+    echo "⚡ Reminder: tasks/todo.md not updated. Leave breadcrumbs for next session."
+fi
+
+if [ "$ERRORS" -eq 1 ]; then
+    echo ""
+    echo "Push blocked. Update the files above, amend your commit, then push again."
+    exit 1
+fi
+
+exit 0
