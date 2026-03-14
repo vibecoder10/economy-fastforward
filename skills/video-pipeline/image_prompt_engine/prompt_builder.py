@@ -162,6 +162,74 @@ def _strip_style_language(description: str) -> str:
     return cleaned.strip()
 
 
+# ---------------------------------------------------------------------------
+# Equipment integrity enforcement
+# ---------------------------------------------------------------------------
+
+# Equipment keywords that should default to "fully assembled"
+_EQUIPMENT_KEYWORDS = [
+    "drone", "drones", "quadcopter", "uav",
+    "missile", "missiles", "rocket", "rockets",
+    "fighter jet", "aircraft", "helicopter", "warplane",
+    "tank", "armored vehicle", "artillery",
+    "weapon system", "weapons system", "defense system",
+    "satellite", "radar", "launcher",
+]
+
+# Damage/destruction words that override the assembled default
+_DAMAGE_KEYWORDS = [
+    "wreckage", "debris", "destroyed", "destroyed",
+    "burning", "crashed", "crash site", "ruins",
+    "damaged", "broken", "exploded", "explosion aftermath",
+    "shot down", "shattered", "mangled",
+]
+
+# Words that indicate disassembly (should be removed unless damage context)
+_DISASSEMBLY_PATTERNS = [
+    (re.compile(r"\bdetached\b", re.IGNORECASE), ""),
+    (re.compile(r"\bdisassembled\b", re.IGNORECASE), ""),
+    (re.compile(r"\bsections removed\b", re.IGNORECASE), ""),
+    (re.compile(r"\bpartially assembled\b", re.IGNORECASE), "fully assembled"),
+    (re.compile(r"\bcomponents separated\b", re.IGNORECASE), ""),
+]
+
+
+def _enforce_equipment_integrity(description: str) -> str:
+    """Ensure military equipment is described as intact unless damage is explicit.
+
+    For drone/weapon/vehicle descriptions:
+    - If NO damage keywords are present, remove disassembly language
+    - Add "fully assembled and operational" if equipment is the focus
+    - Do NOT modify if the narration explicitly describes wreckage/destruction
+
+    Returns the modified description.
+    """
+    desc_lower = description.lower()
+
+    # Check if this is an equipment scene
+    has_equipment = any(kw in desc_lower for kw in _EQUIPMENT_KEYWORDS)
+    if not has_equipment:
+        return description
+
+    # Check if damage/destruction is explicitly mentioned
+    has_damage = any(kw in desc_lower for kw in _DAMAGE_KEYWORDS)
+    if has_damage:
+        # Damage is explicit, leave the description as-is
+        return description
+
+    # No damage mentioned: enforce integrity
+    result = description
+
+    # Remove disassembly language
+    for pattern, replacement in _DISASSEMBLY_PATTERNS:
+        result = pattern.sub(replacement, result)
+
+    # Clean up any double spaces created by removals
+    result = re.sub(r"\s{2,}", " ", result).strip()
+
+    return result
+
+
 def resolve_scene_color_mood(
     scene_description: str,
     video_color_mood: str = "strategic",
@@ -247,6 +315,49 @@ _FALSE_POSITIVE_PATTERNS = [
     _re.compile(r"\bat the head of\b", _re.IGNORECASE),
     _re.compile(r"\bon the other hand\b", _re.IGNORECASE),
 ]
+
+# Non-character scene indicators — if ANY of these appear, this is NOT a character scene
+# and should NOT receive the mannequin prefix. These take priority over character indicators.
+_NON_CHARACTER_SCENE_KEYWORDS = [
+    # Data/visualization scenes
+    "holographic display", "data visualization", "bar chart", "line graph", "pie chart",
+    "financial dashboard", "stock ticker", "operations room", "control room monitors",
+    "projected display", "glowing digits", "percentage numbers", "floating numbers",
+    "data overlay", "trend line", "infographic", "map overlay", "network diagram",
+    # Environment/landscape scenes
+    "aerial view", "cityscape", "skyline", "landscape", "establishing shot",
+    "wide establishing", "panoramic", "empty streets", "deserted", "uninhabited",
+    # Technology/infrastructure scenes (no people)
+    "factory floor", "assembly line", "production line", "industrial machinery",
+    "military base", "operations center", "refinery", "pipeline", "oil rig",
+    "cargo container", "shipyard", "warehouse", "server room", "data center",
+    # Object closeups
+    "close-up of document", "closeup of document", "close up of document",
+    "close-up of currency", "closeup of currency", "treaty document",
+    "official seal", "wax seal", "stamp closeup", "object detail",
+    # Maps and geographical
+    "world map", "regional map", "satellite view", "geographic", "topographic",
+    "trade route", "shipping lane", "flight path", "migration pattern",
+]
+
+_NON_CHARACTER_PATTERNS = [
+    _re.compile(rf"(?<!\w){_re.escape(phrase)}(?!\w)", _re.IGNORECASE)
+    for phrase in _NON_CHARACTER_SCENE_KEYWORDS
+]
+
+
+def _is_non_character_scene(description: str) -> bool:
+    """Check if scene is definitely NOT a character scene.
+
+    These scene types should NOT receive the mannequin prefix regardless
+    of any character indicator words that may appear in the description.
+
+    Returns True for: data displays, landscapes, technology, object closeups, maps
+    """
+    for pattern in _NON_CHARACTER_PATTERNS:
+        if pattern.search(description):
+            return True
+    return False
 
 
 def _has_character_indicators(description: str) -> bool:
@@ -367,6 +478,9 @@ def build_prompt(
     # Clean scene description
     clean_desc = _strip_style_language(scene_description).rstrip(". ")
 
+    # Enforce equipment integrity (drones, weapons, vehicles default to "fully assembled")
+    clean_desc = _enforce_equipment_integrity(clean_desc)
+
     # --- Figure rules: profile-driven ---
     if is_holographic:
         # Holographic: no people at all — replace with unmanned equipment
@@ -411,9 +525,14 @@ def build_prompt(
 
         if is_mannequin_profile:
             # Content-driven: detect if characters are present
+            # BUT non-character scenes (data, environment, objects) should NEVER get prefix
+            is_non_character = _is_non_character_scene(clean_desc)
             has_characters = _has_character_indicators(clean_desc)
 
-            if has_characters:
+            if is_non_character:
+                # Data/environment/object scene: no mannequin prefix needed
+                prefix = ""
+            elif has_characters:
                 # Characters present: use mannequin prefix
                 prefix = _MANNEQUIN_PREFIX
             else:

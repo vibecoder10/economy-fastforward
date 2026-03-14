@@ -71,6 +71,13 @@
 7. **Google Drive is the media store.** Images, audio, and video go to Drive. Don't store large files locally on the VPS.
 8. **When adding CLI args to a pipeline function**, make sure EVERY code path that calls it actually passes and uses those args. The `image_filter` arg was parsed correctly in 3 places but never used in the function that mattered.
 
+### Image Prompt Pipeline Patterns
+- **Mannequin prefix is conditional.** Only scenes with CHARACTER indicators (seated, walking, wearing, etc.) get the mannequin prefix. Data displays, environments, objects, and maps do NOT get the prefix. Use `_is_non_character_scene()` to check first.
+- **Non-character scene types**: holographic display, data visualization, charts, factory floor, military base, aerial view, satellite view, map overlays — these should NEVER have mannequin prefix regardless of any keywords.
+- **Regeneration needs context.** When regenerating a prompt for consecutive_location or consecutive_data violations, pass the SURROUNDING locations/types (indices i-2, i-1, i+1, i+2) so Claude doesn't regenerate with a conflicting neighbor.
+- **MANDATORY rules must come FIRST.** For naked_mannequin and realistic_hands violations, put the mandatory clothing/hand rules at the very first line of the regeneration prompt. Model attention is highest at the start.
+- **Equipment integrity default.** Drones, weapons, vehicles default to "fully assembled" unless the narration explicitly mentions wreckage/damage. Remove "detached", "disassembled" language from non-damage scenes.
+
 ## Session Review Log
 
 _After each session, add a one-line summary of what was done and any new lessons discovered._
@@ -81,3 +88,4 @@ _After each session, add a one-line summary of what was done and any new lessons
 | 2026-03-12 | Fixed image_filter ignored in prompt gen + wired mannequin_storytelling scene types into sequencer | Visual profiles wiring, filtering gotchas, profile-aware sequencing pattern |
 | 2026-03-12 | Fixed resume logic blocking targeted runs + skip audio sync for partial generation | Targeted vs full run resume logic, audio sync scope |
 | 2026-03-14 | Added blocking script validation: promise-payoff tracking, act coherence, senior editor pass | Script validation blocking flow, 7 validation checks |
+| 2026-03-14 | Image prompt pipeline fixes: conditional mannequin prefix, context-aware regeneration, MANDATORY rules first, equipment integrity | Image prompt pipeline patterns |

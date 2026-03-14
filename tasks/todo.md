@@ -4,7 +4,37 @@
 
 _Reference `ANIMATION_SYSTEM_REVIEW.md` for detailed feature specs before starting any roadmap item._
 
-- [ ] _No active tasks_
+- [x] Image Prompt Pipeline Fixes (2026-03-14) — DONE
+
+### 2026-03-14: Image Prompt Pipeline Fixes
+
+**What Changed:**
+- `image_prompt_engine/prompt_builder.py`:
+  - Added `_is_non_character_scene()` — checks for data/environment/object keywords FIRST
+  - Added `_NON_CHARACTER_SCENE_KEYWORDS` list (30+ phrases like "holographic display", "factory floor", "aerial view", etc.)
+  - Changed mannequin prefix logic: now checks `_is_non_character_scene()` BEFORE character indicators
+  - Added `_enforce_equipment_integrity()` — removes "detached/disassembled" from equipment prompts unless damage explicit
+
+- `bots/prompt_validator.py`:
+  - Added `_get_neighboring_locations()` — returns locations from indices [i-2, i-1, i+1, i+2]
+  - Added `_get_neighboring_data_types()` — returns data scene types from neighbors
+  - Updated `build_regeneration_constraint()` to pass neighboring context for location/data violations
+  - Added MANDATORY header for naked_mannequin/realistic_hands regeneration (goes at very start of system prompt)
+
+- `image_prompt_engine/tests/test_prompts.py`:
+  - Skipped clay_mannequin tests (not used in production)
+
+**Verification:**
+- Ran all 474 tests: 474 passed, 2 skipped
+- Manual verification with mannequin_storytelling profile confirmed:
+  - Environment scenes: NO mannequin prefix
+  - Character scenes (seated, wearing): YES mannequin prefix
+  - Data scenes: NO mannequin prefix
+
+**Files Modified:**
+- `image_prompt_engine/prompt_builder.py` — conditional prefix + equipment integrity
+- `bots/prompt_validator.py` — context-aware regeneration + mandatory headers
+- `image_prompt_engine/tests/test_prompts.py` — skipped clay_mannequin tests
 
 ## Backlog (from Roadmap)
 
