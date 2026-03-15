@@ -1,130 +1,163 @@
 # Task Tracking
 
-## Current Sprint
+## Active: Modular Pipeline Audit — Can Steps Become Independent Tools?
 
-_Reference `ANIMATION_SYSTEM_REVIEW.md` for detailed feature specs before starting any roadmap item._
+### The Pipeline Steps (Sequential Order)
 
-- [x] Image Prompt Pipeline Fixes (2026-03-14) — DONE
-- [x] Visual Style Overhaul: Mannequin → Cinematic Illustration (2026-03-14) — DONE
-- [x] Scene Blocking System (Story Bible V2) (2026-03-14) — DONE
+Each step reads from Airtable, does work, writes results back to Airtable, advances status.
 
-### 2026-03-14: Visual Style Overhaul — Mannequin → Cinematic Illustration
-
-**What Changed:**
-Replaced the "3D rendered faceless mannequin with smooth white oval head" visual style with "Cinematic animated illustration in muted earthy color palette with ink outlines and dramatic lighting. Stylized illustrated characters with expressive faces showing emotion."
-
-**Files Modified:**
-- `image_prompt_engine/prompt_builder.py` — New prefix/suffix constants (_CHARACTER_PREFIX, _ENVIRONMENT_PREFIX, _UNIVERSAL_SUFFIX), updated detection logic
-- `bots/prompt_validator.py` — Removed ~224 lines of mannequin-specific validation (naked mannequins, mannequin hands)
-- `pipeline.py` — Changed `is_mannequin_profile` to `uses_story_bible`, removed mannequin clothing rules
-- `visual_profiles/cinematic_illustration.py` — NEW FILE (~700 lines) - complete illustrated profile
-- `visual_profiles/__init__.py` — Added cinematic_illustration, aliased mannequin_storytelling for backwards compat
-- `clients/airtable_client.py` — Updated VALID_VISUAL_STYLES and DEFAULT_VISUAL_STYLE
-- `bots/story_bible.py` — Updated examples to use "illustrated figure" instead of "mannequin"
-- `brief_translator/scene_expander.py` — Updated prompts to use "character" instead of "mannequin"
-
-**Verification:**
-- Ran 312 tests across 3 test suites: ALL PASSED
-  - image_prompt_engine: 143 passed, 2 skipped
-  - brief_translator: 143 passed
-  - pipeline_integration: 26 passed
-- ZERO prompts should contain "mannequin", "oval head", "faceless", "no facial features"
-- Prompts should contain "animated illustration", "ink outlines", "expressive faces"
-
-**New Default Style:**
-- `cinematic_illustration` is now the default (was `mannequin_storytelling`)
-- Old videos with `mannequin_storytelling` in Airtable will load `cinematic_illustration` (alias)
-
-### 2026-03-14: Scene Blocking System (Story Bible V2) — COMPLETED
-
-**What Changed:**
-Implemented Scene Blocking system where images within a scene share environment/lighting but vary in camera angle. This creates visual continuity within narrative beats.
-
-**Files Modified:**
-- `bots/story_bible.py`:
-  - Added `SCENE_BLOCK_CONFIG` constants (min/max images per block, target blocks)
-  - Added `STORY_BIBLE_USER_PROMPT_V2` for scene_blocks output format
-  - Added `_validate_and_normalize_scene_blocks()` validation function
-  - Added helper functions: `has_scene_blocks()`, `get_story_bible_version()`, `get_block_for_image()`, `get_image_spec_by_index()`, `get_all_images_from_blocks()`
-  - Updated `generate_story_bible()` to support `use_scene_blocks=True` parameter
-
-- `brief_translator/scene_expander.py`:
-  - Added `_expand_with_scene_blocks()` for V2 format
-  - Added `_match_scene_to_images()` for fuzzy matching narration text to images
-  - Updated `expand_scene_concepts_deterministic()` to detect and route V1 vs V2
-
-- `image_prompt_engine/prompt_builder.py`:
-  - Added `build_prompt_from_block()` for block-aware prompt assembly
-
-- `pipeline.py`:
-  - Updated Story Bible generation to use V2 by default (`use_scene_blocks=True`)
-  - Updated logging to detect and report V1 vs V2 format
-  - Pass `total_images` and `video_duration_minutes` to Story Bible generation
-
-**Scene Blocks Structure:**
-```json
-{
-  "scene_blocks": [
-    {
-      "block_id": "block_1",
-      "location": "Full environment description...",
-      "lighting": "Specific lighting setup...",
-      "mood": "tense",
-      "characters_present": ["russian_leader"],
-      "images": [
-        {"image_index": 1, "camera": "wide", "action": "..."},
-        {"image_index": 2, "camera": "medium", "action": "..."}
-      ]
-    }
-  ]
-}
 ```
-
-**Key Rules:**
-- Each block has 2-5 images sharing location/lighting
-- First image of every block MUST be wide (enforced)
-- Act boundaries force new block boundaries
-- Global image_index is sequential (1, 2, 3... up to ~60-80)
-- Scene → block mapping via narration_excerpt text overlap
-
-**Verification:**
-- Ran 312 tests: ALL PASSED (286 unit + 26 integration)
-- Backward compatibility: existing V1 (visual_arc) Story Bibles continue to work
-- New videos use V2 (scene_blocks) by default
+1. IDEA           → Idea Logged
+2. SCRIPT         → Ready For Scripting → Ready For Voice
+3. VOICE          → Ready For Voice → Ready For Image Prompts
+4. IMAGE PROMPTS  → Ready For Image Prompts → Ready For Images
+5. IMAGES         → Ready For Images → Ready For Sound Design
+6. SOUND DESIGN   → Ready For Sound Design → Ready For Sound Effects
+7. SOUND EFFECTS  → Ready For Sound Effects → Ready For Video Scripts
+8. VIDEO SCRIPTS  → Ready For Video Scripts → Ready For Video Generation
+9. VIDEO GEN      → Ready For Video Generation → Ready For Thumbnail
+10. THUMBNAIL     → Ready For Thumbnail → Done
+11. RENDER        → Ready To Render → Rendered (includes audio_sync + remotion)
+12. UPLOAD        → Rendered → Uploaded (Draft)
+```
 
 ---
 
-### 2026-03-14: Image Prompt Pipeline Fixes
+### Dependency Analysis: What's Glued Together vs. Independent
 
-**What Changed:**
-- `image_prompt_engine/prompt_builder.py`:
-  - Added `_is_non_character_scene()` — checks for data/environment/object keywords FIRST
-  - Added `_NON_CHARACTER_SCENE_KEYWORDS` list (30+ phrases like "holographic display", "factory floor", "aerial view", etc.)
-  - Changed mannequin prefix logic: now checks `_is_non_character_scene()` BEFORE character indicators
-  - Added `_enforce_equipment_integrity()` — removes "detached/disassembled" from equipment prompts unless damage explicit
+#### TRULY INDEPENDENT (can be standalone tools):
+- **Step 1 - IDEA**: Creates Airtable records. No shared state with anything. Uses: `anthropic`, `airtable`, `gemini`, `slack`, `apify`. ✅ CLEAN TOOL
+- **Step 2 - SCRIPT**: Reads idea from Airtable, writes script records + Google Doc. Uses: `anthropic`, `airtable`, `google`, `slack`. The `brief_translator/` module already exists as self-contained. ✅ CLEAN TOOL
+- **Step 3 - VOICE**: Reads script records, generates audio, uploads to Drive. Uses: `elevenlabs`, `google`, `airtable`, `slack`. ✅ CLEAN TOOL
+- **Step 5 - IMAGES**: Reads image prompts from Images table, generates PNGs, uploads to Drive. Uses: `image_client`, `google`, `airtable`, `slack`. ✅ CLEAN TOOL
+- **Step 6 - SOUND DESIGN**: Reads Images table rows, generates sound prompts. Uses: `anthropic`, `airtable`. Already delegated to `SoundPromptBot`. ✅ CLEAN TOOL
+- **Step 7 - SOUND EFFECTS**: Reads sound prompts, generates audio. Uses: `sound_client`, `google`, `airtable`, `slack`. Already delegated to `SoundBot`. ✅ CLEAN TOOL
+- **Step 9 - VIDEO GEN**: Reads images + motion prompts, generates clips. Uses: `image_client`, `google`, `airtable`. ✅ CLEAN TOOL
+- **Step 10 - THUMBNAIL**: Reads idea, generates thumbnail image + title. Uses: `anthropic`, `image_client`, `google`, `airtable`, `slack`, `gemini`. ✅ CLEAN TOOL
+- **Step 12 - UPLOAD**: Reads rendered video from Drive, uploads to YouTube. Uses: `google`, `airtable`, `slack`, YouTube API. ✅ CLEAN TOOL
 
-- `bots/prompt_validator.py`:
-  - Added `_get_neighboring_locations()` — returns locations from indices [i-2, i-1, i+1, i+2]
-  - Added `_get_neighboring_data_types()` — returns data scene types from neighbors
-  - Updated `build_regeneration_constraint()` to pass neighboring context for location/data violations
-  - Added MANDATORY header for naked_mannequin/realistic_hands regeneration (goes at very start of system prompt)
+#### GLUED TOGETHER (must stay as one unit or be carefully split):
+- **Step 4 - IMAGE PROMPTS** (~600 lines): This is the **most complex step**. It does:
+  1. Read scripts from Airtable
+  2. Generate Story Bible (calls `story_bible.py`)
+  3. Expand scenes into concepts (calls `deterministic_splitter` + `scene_expander`)
+  4. Assign visual styles (calls `sequencer.assign_profile_styles()`)
+  5. Resolve accent colors
+  6. Build prompts (calls `prompt_builder.build_prompt_from_block()`)
+  7. Write to Airtable Images table
 
-- `image_prompt_engine/tests/test_prompts.py`:
-  - Skipped clay_mannequin tests (not used in production)
+  → Steps 2-4 are tightly coupled (Story Bible feeds concepts, concepts feed style assignment). Could potentially split Story Bible generation into its own step, but the rest MUST stay together. **ONE TOOL, but large.**
 
-**Verification:**
-- Ran all 474 tests: 474 passed, 2 skipped
-- Manual verification with mannequin_storytelling profile confirmed:
-  - Environment scenes: NO mannequin prefix
-  - Character scenes (seated, wearing): YES mannequin prefix
-  - Data scenes: NO mannequin prefix
+- **Step 8 - VIDEO SCRIPTS** (~120 lines): Reads images + text, generates motion prompts with camera rotation tracking. Uses `anthropic`, `airtable`, `image_prompt_engine.validate_video_prompt`. The camera history state makes it sequential. ✅ CAN be a tool (camera history is local state within the run).
 
-**Files Modified:**
-- `image_prompt_engine/prompt_builder.py` — conditional prefix + equipment integrity
-- `bots/prompt_validator.py` — context-aware regeneration + mandatory headers
-- `image_prompt_engine/tests/test_prompts.py` — skipped clay_mannequin tests
+- **Step 11 - RENDER** (~1100 lines): This is the **second most complex step**. It does:
+  1. Download all assets from Drive (images, videos, audio, sound effects)
+  2. Run audio sync (Whisper transcription → alignment → timing)
+  3. Generate render config JSON
+  4. Package for Remotion
+  5. Call Remotion render
+  6. Upload rendered video to Drive
 
-## Backlog (from Roadmap)
+  → Audio sync + render config + Remotion packaging are tightly coupled. They share local filesystem state (the working directory with downloaded assets). **Must stay as ONE TOOL.**
+
+---
+
+### What ACTUALLY Needs to Happen
+
+#### Phase 1: `pipeline_constants.py` — Central Variable Registry
+One file, all shared variables. Every other file imports from here.
+
+```python
+# Airtable field names (25+ currently hardcoded as strings across 15+ files)
+# Pipeline statuses (13 statuses, currently class constants in pipeline.py)
+# Model IDs (4 different versions scattered across 9 bot files)
+# API endpoints (5+ URLs hardcoded in client files)
+# Tuning constants (timing, word counts, thresholds — scattered across 5+ files)
+```
+
+**Impact**: Zero behavior change. Pure extract-and-reference. Every file that touches these values imports from one place.
+
+#### Phase 2: Extract 12 steps into `steps/` directory
+Each file = one pipeline step = one "tool". Contract:
+
+```python
+# steps/step_voice.py
+async def run(ctx: PipelineContext) -> dict:
+    """Generate voice overs for all scenes."""
+    ...
+```
+
+Where `PipelineContext` is a simple dataclass holding:
+```python
+@dataclass
+class PipelineContext:
+    # Clients (injected, not created)
+    anthropic: AnthropicClient
+    airtable: AirtableClient
+    google: GoogleClient
+    slack: SlackClient
+    elevenlabs: ElevenLabsClient
+    image_client: ImageClient
+    gemini: GeminiClient
+    sound_client: SoundClient | None
+    apify: ApifyYouTubeClient | None
+
+    # Current video state (set by router before calling step)
+    video_title: str
+    current_idea_id: str
+    current_idea: dict
+    project_folder_id: str | None
+    video_config: VideoConfig | None
+    visual_style: str | None
+    core_image_url: str | None
+
+    # Targeting filters
+    scene_filter: int | None
+    image_filter: int | None
+```
+
+`pipeline.py` becomes a ~300-line router:
+```python
+STEP_MAP = [
+    (Statuses.READY_SCRIPTING,       "Brief Translator",  step_script.run),
+    (Statuses.READY_VOICE,           "Voice Bot",         step_voice.run),
+    (Statuses.READY_IMAGE_PROMPTS,   "Image Prompt Bot",  step_image_prompts.run),
+    (Statuses.READY_IMAGES,          "Image Bot",         step_images.run),
+    (Statuses.READY_SOUND_DESIGN,    "Sound Prompt Bot",  step_sound_design.run),
+    (Statuses.READY_SOUND_EFFECTS,   "Sound Bot",         step_sound_effects.run),
+    (Statuses.READY_VIDEO_SCRIPTS,   "Video Script Bot",  step_video_scripts.run),
+    (Statuses.READY_VIDEO_GENERATION,"Video Gen Bot",     step_video_gen.run),
+    (Statuses.READY_THUMBNAIL,       "Thumbnail Bot",     step_thumbnail.run),
+    (Statuses.READY_TO_RENDER,       "Render Bot",        step_render.run),
+    (Statuses.RENDERED,              "Upload Bot",        step_upload.run),
+]
+```
+
+#### Phase 3: Migrate hardcoded values
+Every bot/client file that currently hardcodes field names, model IDs, or URLs → import from `pipeline_constants.py`.
+
+#### Phase 4: Shared JSON parser
+Extract duplicated pattern from 5+ bots into `clients/json_utils.py`.
+
+---
+
+### Execution Order
+1. Phase 1 (constants) — additive, zero risk
+2. Phase 2 (extract steps) — mechanical, high line count but straightforward
+3. Phase 3 (migrate hardcoded values) — each file individually
+4. Phase 4 (JSON parser) — small utility extraction
+5. Run all 312 tests after each phase
+
+---
+
+## Previous Completed Items
+
+- [x] Image Prompt Pipeline Fixes (2026-03-14) — DONE
+- [x] Visual Style Overhaul: Mannequin → Cinematic Illustration (2026-03-14) — DONE
+- [x] Scene Blocking System (Story Bible V2) — DONE (2026-03-14)
+- [x] Blocking Script Validation with Senior Editor Pass — DONE (2026-03-14)
+
+## Backlog
 
 ### Phase 2: Character Consistency
 - [ ] Feature 1: Character Reference System (BYOC) — HIGH
@@ -139,43 +172,3 @@ Implemented Scene Blocking system where images within a scene share environment/
 ### Phase 4: Animation Quality
 - [ ] Feature 8: Start/End Frame Bridging — MEDIUM
 - [ ] Feature 9: Multi-Voice & Sound Design — LOW
-
-## Completed
-
-- [x] Feature 2: Auto-Pull from GitHub on Cron — DONE
-- [x] Feature 6: Veo 3.1 Fast Integration — DONE
-- [x] Workflow orchestration rules (CLAUDE.md) — DONE
-- [x] Blocking Script Validation with Senior Editor Pass — DONE (2026-03-14)
-- [x] Image Prompt Pipeline Fixes — DONE (2026-03-14)
-- [x] Visual Style Overhaul: Mannequin → Cinematic Illustration — DONE (2026-03-14)
-- [x] Scene Blocking System (Story Bible V2) — DONE (2026-03-14)
-
-## Review Notes
-
-### 2026-03-14: Blocking Script Validation
-
-**What Changed:**
-- Added 2 new validators to `script_validator.py`:
-  - `promise_payoff` — detects forward references ("what Part 3 reveals") and verifies they're resolved
-  - `act_coherence` — detects 3+ distinct topic shifts within an act
-- Made all 7 validation checks BLOCKING (previously advisory)
-- Created `senior_editor.py` — single Claude call to fix flagged issues
-- Wired into `BriefTranslator.translate()`:
-  1. generate_script()
-  2. validate (7 checks)
-  3. IF flags → senior_editor() (ONE pass)
-  4. IF still failing → BLOCK (status="Needs Script Review", Slack notification)
-  5. IF clean → advance to "Ready For Voice"
-
-**Files Modified:**
-- `brief_translator/script_validator.py` — added new validators, made checks blocking
-- `brief_translator/senior_editor.py` — NEW file
-- `brief_translator/__init__.py` — wired senior editor flow
-- `brief_translator/tests/test_script_validator.py` — added tests for new validators
-
-**What to Verify:**
-- Run `python -m pytest brief_translator/tests/test_script_validator.py` on VPS
-- Test with a real video: generate script, verify validation runs, check Slack notifications
-- Test manual approval flow: `!approve <title>` should force advance blocked scripts
-
-**Cost Impact:** +1 Sonnet call per script (~$0.03) when validation fails
