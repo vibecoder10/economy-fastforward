@@ -786,29 +786,27 @@ async def _expand_with_scene_blocks(
 def _match_scene_to_images(scene_text: str, all_images: list[dict]) -> list[dict]:
     """Match a scene's narration text to images via narration_excerpt overlap.
 
-    Uses exact substring matching as primary strategy, with fuzzy matching as
-    fallback. Images are matched in ORDER OF APPEARANCE in the scene_text,
-    ensuring the first matching image corresponds to the earliest part of the
-    narration.
+    For V2 scene_blocks, the Story Bible already assigns image_index values in
+    the intended sequential order. This function matches images whose
+    narration_excerpt appears in the scene_text, then returns them in
+    IMAGE_INDEX order (the Story Bible's intended order).
 
-    Key insight: The image's narration_excerpt should be an exact substring of
-    the scene_text if the Story Bible was generated correctly. Fuzzy matching
-    is only used when small variations exist (whitespace, punctuation).
+    This is crucial for targeted runs (--scene N --image M) where the user
+    expects image M to correspond to image_index M from the Story Bible.
 
     Args:
         scene_text: The scene's full narration text
         all_images: All images from scene_blocks with their context (pre-sorted by image_index)
 
     Returns:
-        List of images whose narration_excerpt matches this scene, in the order
-        they appear in the scene_text (not by global image_index)
+        List of images whose narration_excerpt matches this scene, sorted by
+        image_index to preserve Story Bible ordering
     """
     # Normalize scene text for matching
     scene_text_normalized = " ".join(scene_text.split()).strip()
     scene_text_lower = scene_text_normalized.lower()
 
-    # Track match position in scene_text for ordering
-    matched_with_position: list[tuple[int, dict]] = []
+    matched: list[dict] = []
 
     for img in all_images:
         excerpt = img.get("narration_excerpt", "").strip()
@@ -819,9 +817,8 @@ def _match_scene_to_images(scene_text: str, all_images: list[dict]) -> list[dict
         excerpt_lower = excerpt_normalized.lower()
 
         # Strategy 1: Exact substring match (preferred)
-        pos = scene_text_lower.find(excerpt_lower)
-        if pos != -1:
-            matched_with_position.append((pos, img))
+        if excerpt_lower in scene_text_lower:
+            matched.append(img)
             continue
 
         # Strategy 2: Case-insensitive match with normalization
@@ -836,7 +833,7 @@ def _match_scene_to_images(scene_text: str, all_images: list[dict]) -> list[dict
 
             if first_pos != -1 and last_pos != -1 and last_pos > first_pos:
                 # Words appear in order - this is a valid match
-                matched_with_position.append((first_pos, img))
+                matched.append(img)
                 continue
 
         # Strategy 3: High confidence fuzzy match (fallback for edge cases)
@@ -846,7 +843,6 @@ def _match_scene_to_images(scene_text: str, all_images: list[dict]) -> list[dict
 
         # Find best consecutive match window
         best_overlap = 0
-        best_pos = -1
         window_size = len(excerpt_words)
 
         for i in range(max(1, len(scene_words) - window_size + 1)):
@@ -854,18 +850,15 @@ def _match_scene_to_images(scene_text: str, all_images: list[dict]) -> list[dict
             overlap = len(excerpt_words_set & window) / max(len(excerpt_words_set), 1)
             if overlap > best_overlap:
                 best_overlap = overlap
-                best_pos = i
 
-        if best_overlap >= 0.8 and best_pos >= 0:
-            # Calculate character position for ordering
-            char_pos = len(" ".join(scene_words[:best_pos]))
-            matched_with_position.append((char_pos, img))
+        if best_overlap >= 0.8:
+            matched.append(img)
 
-    # Sort by position in scene_text to maintain narration order
-    matched_with_position.sort(key=lambda x: x[0])
+    # CRITICAL: Sort by image_index to preserve Story Bible order
+    # This ensures concept_index matches image_index for targeted runs
+    matched.sort(key=lambda x: x.get("image_index", 0))
 
-    # Return images in scene order (not global image_index order)
-    return [img for _pos, img in matched_with_position]
+    return matched
 
 
 async def expand_scene_concepts_deterministic(

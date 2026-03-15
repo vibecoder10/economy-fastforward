@@ -16,7 +16,7 @@ Style override fields (set via Slack `!style` commands):
 - `Thumbnail Style Override` (Long Text) — custom instructions for thumbnail template. Supports `REPLACE:`, `APPEND:`, or `+` prefixes.
 - `Accent Color` (Single Line Text) — per-video accent color override. If set, used directly instead of topic category mapping. Valid values: `cold teal`, `muted crimson`, `warm amber`, `muted green`.
 - `Image Model Override` (Multiple Select) — hot-swap scene image model. Options: `z-image`, `Nano Banana`. Set via Slack `!model` command.
-- `Visual Style` (Single Select) — visual profile override. Options: `mannequin_storytelling`, `holographic_hud`, `cinematic_dossier`, `clay_mannequin`. Default: `mannequin_storytelling`. Set via Slack `!visualstyle` command.
+- `Visual Style` (Single Select) — visual profile override. Options: `cinematic_illustration`, `holographic_hud`, `cinematic_dossier`, `clay_mannequin`. Default: `cinematic_illustration`. Set via Slack `!visualstyle` command.
 
 Visual consistency fields (auto-generated):
 - `Story Bible` (Long Text) — JSON containing character bible, location bible, visual arc, and recurring props for consistent visuals across the video. Generated automatically before image prompts when using mannequin profiles. Structure: `{"characters": [...], "locations": [...], "visual_arc": [...], "recurring_props": [...]}`
