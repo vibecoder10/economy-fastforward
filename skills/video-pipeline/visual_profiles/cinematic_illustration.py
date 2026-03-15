@@ -312,10 +312,7 @@ _FIGURE_RULES = FigureRulesConfig(
         "identity_method": "illustrated facial features, clothing, and context",
         "archetypes": _CHARACTER_ARCHETYPES,
     },
-    negative_prompt_suffix=(
-        "no 3D render, no mannequin, no smooth oval head, no faceless figures, "
-        "no photorealistic skin, no anime, no cartoon, no chibi"
-    ),
+    negative_prompt_suffix="",
     people_words=[],  # No word replacement needed - characters have faces
     people_replacements=[],  # No replacement needed
 )
@@ -682,8 +679,7 @@ _RAW = {
     ),
     "style_engine_suffix": (
         "Stylized 2D animation aesthetic with visible ink outlines, "
-        "muted film grain texture, 16:9 cinematic composition. "
-        "No photorealistic, no 3D render, no mannequin."
+        "muted film grain texture, 16:9 cinematic composition."
     ),
     # Valid scene models
     "valid_scene_models": {

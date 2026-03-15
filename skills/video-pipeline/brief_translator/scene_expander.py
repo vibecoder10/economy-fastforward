@@ -748,6 +748,17 @@ async def _expand_with_scene_blocks(
     else:
         wps = DEFAULT_WPS
 
+    # Get profile for LLM visual description generation
+    profile = _get_profile()
+    is_holographic = profile is None or profile.profile_id == "holographic_hud"
+
+    # Format Story Bible context once for all images in this scene
+    try:
+        from bots.story_bible import format_bible_for_prompt
+        bible_context = format_bible_for_prompt(story_bible, scene_number)
+    except ImportError:
+        bible_context = ""
+
     # Convert matched images to concept dicts
     concepts = []
     for i, img in enumerate(matched_images):
@@ -768,13 +779,19 @@ async def _expand_with_scene_blocks(
         # (NOT the Story Bible's narration_excerpt which may be a paraphrase)
         verbatim_text = img.get("verbatim_text", "").strip()
 
-        # VISUAL CONTENT: Story Bible narration_excerpt describes what to SHOW
-        # This drives the image prompt — it's a visual description, not spoken words
+        # VISUAL CONTENT: Story Bible narration_excerpt — used as context for Claude,
+        # NOT as the final visual description
         visual_content = img.get("narration_excerpt", "").strip()
 
         # Get camera/composition direction from Story Bible action field
-        # This is NOT story content - it's cinematography guidance
         camera_direction = img.get("action", "").strip()
+
+        # Block context for this image
+        block_location = img.get("block_location", "")
+        block_lighting = img.get("block_lighting", "")
+        block_characters = img.get("block_characters", [])
+        block_location_id = img.get("block_location_id", "")
+        block_mood = img.get("block_mood", "neutral")
 
         # Duration from word count of sentence_text (verbatim script words)
         sentence = verbatim_text if verbatim_text else visual_content
@@ -783,26 +800,93 @@ async def _expand_with_scene_blocks(
         # Clamp to reasonable range: min 4s, max 10s (same as deterministic_splitter)
         duration = max(4.0, min(10.0, duration))
 
+        # Generate visual description via Claude API — same as V1 path
+        # The block context (location, lighting, characters) replaces V1's arc data
+        narration_text = verbatim_text if verbatim_text else visual_content
+        try:
+            if not is_holographic and profile and profile.scene_description.system_prompt:
+                visual_desc_prompt = f"{profile.scene_description.system_prompt}\n\n"
+
+                if bible_context:
+                    visual_desc_prompt += f"{bible_context}\n\n"
+
+                # Block context replaces V1's arc data — richer since it has
+                # full location descriptions and character lists
+                chars_str = ", ".join(block_characters) if block_characters else "none (environment/data shot)"
+                visual_desc_prompt += (
+                    f"## THIS SHOT'S BLOCK CONTEXT:\n"
+                    f"- Location: {block_location_id} — {block_location}\n"
+                    f"- Characters present: {chars_str}\n"
+                    f"- Lighting: {block_lighting}\n"
+                    f"- Mood: {block_mood}\n"
+                    f"- Camera: {camera}\n"
+                    f"- Action direction: {camera_direction}\n\n"
+                )
+
+                visual_desc_prompt += (
+                    "VISUAL APPROACH — Before writing this prompt, identify the PRIMARY VERB in the narration:\n"
+                    "- If the verb is an action (launched, struck, surged, collapsed, invaded, signed, declared) → show that action happening in the physical world\n"
+                    "- If the verb is internal (realized, calculated, planned, knew) → THEN show a character in a contemplative setting\n"
+                    "- If the verb describes data (cost, earned, spent, numbered) → show the physical manifestation of that data (infrastructure, currency, military hardware) OR a data display\n\n"
+                    "Ask yourself: \"What would a documentary filmmaker POINT THE CAMERA AT for this line?\" The answer is almost never \"a person sitting at a desk.\" It's the event itself.\n\n"
+                    "CRITICAL RULES:\n"
+                    "1. If a character from the bible appears, use their EXACT costume description. Do not change or omit clothing.\n"
+                    "2. Use the location description and signature detail from the block context above.\n"
+                    "3. Match the mood and camera distance from the block context.\n"
+                    "4. If characters_present is 'none', do NOT include character figures — this is a data/environment shot.\n"
+                    "5. Incorporate the action direction — what's happening in this specific frame.\n\n"
+                    "CLOTHING RULE: Every character figure MUST have specific clothing described. "
+                    "Never describe a character without clothing. If unsure, use 'wearing dark formal suit with white shirt.'\n\n"
+                    "Write a 20-35 word visual description for this narration segment. "
+                    "Do NOT start with the style prefix (e.g. 'Cinematic animated illustration...') — "
+                    "that will be added automatically.\n"
+                    "Return ONLY the description, nothing else.\n\n"
+                    f"Narration: \"{narration_text}\"\n"
+                    f"Visual seeds for context: {visual_seeds[:200] if visual_seeds else 'none'}"
+                )
+            else:
+                # Holographic path — same as V1
+                visual_desc_prompt = (
+                    "You are creating visual descriptions for HOLOGRAPHIC DATA DISPLAYS "
+                    "in an intelligence operations center — not camera shots of real events.\n\n"
+                    "ALWAYS describe:\n"
+                    "- What DATA, DOCUMENTS, MAPS, or CHARTS would appear on a holographic screen analyzing this topic\n"
+                    "- Information visualizations (price charts, treaty text, flow diagrams, network maps, timelines)\n"
+                    "- At least one specific number, date, or percentage from the narration\n\n"
+                    "Write a 20-35 word description of what DATA DISPLAY would visualize this narration. "
+                    "Return ONLY the description, nothing else.\n\n"
+                    f"Narration: \"{narration_text}\"\n"
+                    f"Visual seeds for context: {visual_seeds[:200] if visual_seeds else 'none'}"
+                )
+
+            visual_description = await anthropic_client.generate(
+                prompt=visual_desc_prompt,
+                model="claude-sonnet-4-5-20250929",
+                max_tokens=200,
+                temperature=0.4,
+            )
+            visual_description = visual_description.strip()
+
+        except Exception as e:
+            print(f"      ⚠️ LLM visual description failed for image {i+1}: {e}")
+            # Fallback: use narration_excerpt from Story Bible
+            visual_description = visual_content if visual_content else "Scene continues"
+
         concept = {
             "concept_index": i + 1,
-            # sentence_text = VERBATIM script words for Airtable Sentence Text field
             "sentence_text": verbatim_text if verbatim_text else visual_content,
-            # visual_description = Story Bible narration_excerpt (what to SHOW)
-            # NOT verbatim script text (what the narrator SAYS)
-            "visual_description": visual_content if visual_content else "Scene continues",
+            "visual_description": visual_description,
             "visual_style": get_default_style(),
             "composition": composition,
-            "mood": img.get("block_mood", "neutral"),
-            # Duration calculated from word count (pre-Whisper estimate)
+            "mood": block_mood,
             "duration": duration,
             # Block context for prompt builder
             "block_id": img.get("block_id"),
-            "block_location": img.get("block_location", ""),
-            "block_lighting": img.get("block_lighting", ""),
-            "block_characters": img.get("block_characters", []),
-            "block_location_id": img.get("block_location_id", ""),
+            "block_location": block_location,
+            "block_lighting": block_lighting,
+            "block_characters": block_characters,
+            "block_location_id": block_location_id,
             "global_image_index": img.get("image_index"),
-            # Camera direction is separate from content - used for composition guidance
             "camera_direction": camera_direction,
         }
         concepts.append(concept)
