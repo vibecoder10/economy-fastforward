@@ -114,6 +114,12 @@ class IdeaFields:
     TITLE_FORMULA = "Title Formula"
     FRAMEWORK = "Framework"
 
+    # Script / validation
+    SOURCES = "Sources"
+    SCENE_COUNT = "Scene Count"
+    VALIDATION_STATUS = "Validation Status"
+    VIDEO_ID = "Video ID"
+
     # Osiris
     POST_MORTEM_48H = "Post-Mortem 48h"
     POST_MORTEM_7D = "Post-Mortem 7d"
@@ -132,6 +138,8 @@ class ScriptFields:
     VOICE_OVER = "Voice Over"
     SOURCES = "Sources"
     PSYCH_ANGLE = "Psych Angle"
+    SFX_STATUS = "SFX Status"
+    SOUND_MAP = "Sound Map"
 
     # Script Status values
     STATUS_CREATE = "Create"
@@ -244,6 +252,8 @@ class Statuses:
     UPLOADED_DRAFT = "Uploaded (Draft)"
     IN_QUE = "In Que"
     NEEDS_SCRIPT_REVIEW = "Needs Script Review"
+    QUEUED = "Queued"
+    SENT_TO_PIPELINE = "sent_to_pipeline"
 
     # Ordered list for pipeline flow
     WORKFLOW_ORDER = [
@@ -285,6 +295,7 @@ class Models:
     IMAGE_THUMBNAIL = os.getenv("IMAGE_THUMBNAIL_MODEL", "nano-banana-pro")
 
     # Video generation (Kie.ai)
+    ANIMATION_GROK = "grok-imagine/image-to-video"
     VEO_FAST = "veo3_fast"
     VEO_QUALITY = "veo3"
 

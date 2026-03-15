@@ -120,7 +120,7 @@ class SceneDescriptionConfig:
 @dataclass
 class AnimationConfig:
     """Animation/video generation configuration."""
-    animation_model: str = "grok-imagine/image-to-video"
+    animation_model: str = Models.ANIMATION_GROK
     animation_cost_per_clip: float = 0.10
 
     # Motion templates by content_type x intensity

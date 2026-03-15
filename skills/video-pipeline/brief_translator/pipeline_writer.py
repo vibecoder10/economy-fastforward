@@ -11,7 +11,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from pipeline_constants import IdeaFields
+from pipeline_constants import IdeaFields, Statuses
 
 
 # Default scene output directory (project-relative fallback)
@@ -200,16 +200,16 @@ def build_pipeline_record(
         IdeaFields.ORIGINAL_DNA: build_original_dna(brief, idea_record_id, accent_color, scene_count),
         IdeaFields.REFERENCE_URL: reference_url,
         IdeaFields.THUMBNAIL_PROMPT: thumbnail_prompt,
-        "Status": "Queued",
+        IdeaFields.STATUS: Statuses.QUEUED,
         # New fields for the translation layer
-        "Script": script,
+        IdeaFields.SCRIPT: script,
         IdeaFields.SCENE_FILE_PATH: scene_filepath,
         IdeaFields.ACCENT_COLOR: accent_color,
-        "Video ID": video_id,
-        "Scene Count": scene_count,
-        "Validation Status": "validated",
+        IdeaFields.VIDEO_ID: video_id,
+        IdeaFields.SCENE_COUNT: scene_count,
+        IdeaFields.VALIDATION_STATUS: "validated",
         # Source list for YouTube description / show notes
-        "Sources": sources_text,
+        IdeaFields.SOURCES: sources_text,
         # Framework fields for downstream stages (thumbnail selection, performance analysis)
         IdeaFields.FRAMEWORK_ANGLE: brief.get("_selected_framework", "") or brief.get("framework_angle", ""),
         IdeaFields.THEMATIC_FRAMEWORK: brief.get("themes", ""),
@@ -312,7 +312,7 @@ async def graduate_to_pipeline(
             IdeaFields.FUTURE_PREDICTION: pipeline_record[IdeaFields.FUTURE_PREDICTION],
             IdeaFields.WRITER_GUIDANCE: pipeline_record[IdeaFields.WRITER_GUIDANCE],
             IdeaFields.ORIGINAL_DNA: pipeline_record[IdeaFields.ORIGINAL_DNA],
-            "Status": "Queued",
+            IdeaFields.STATUS: Statuses.QUEUED,
         }
         if pipeline_record.get(IdeaFields.REFERENCE_URL):
             core_fields[IdeaFields.REFERENCE_URL] = pipeline_record[IdeaFields.REFERENCE_URL]
@@ -337,13 +337,13 @@ async def graduate_to_pipeline(
 
     # 5. Update Idea Concepts record status
     try:
-        airtable_client.update_idea_status(idea_record_id, "sent_to_pipeline")
+        airtable_client.update_idea_status(idea_record_id, Statuses.SENT_TO_PIPELINE)
     except Exception as e:
         # If "sent_to_pipeline" is not a valid status option, try with typecast
         try:
             airtable_client.idea_concepts_table.update(
                 idea_record_id,
-                {"Status": "sent_to_pipeline"},
+                {IdeaFields.STATUS: Statuses.SENT_TO_PIPELINE},
                 typecast=True,
             )
         except Exception:

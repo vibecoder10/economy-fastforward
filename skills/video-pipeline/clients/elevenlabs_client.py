@@ -5,15 +5,17 @@ import httpx
 from typing import Optional
 import asyncio
 
+from pipeline_constants import Endpoints, Models
+
 
 class ElevenLabsClient:
     """Client for voice synthesis via Wavespeed API (ElevenLabs turbo)."""
-    
-    # Default voice ID from n8n workflow
-    DEFAULT_VOICE_ID = "G17SuINrv2H9FC6nvetn"
-    
-    # Wavespeed API endpoint (as used in n8n workflow)
-    WAVESPEED_API_URL = "https://api.wavespeed.ai/api/v3/elevenlabs/turbo-v2.5"
+
+    # Default voice ID
+    DEFAULT_VOICE_ID = Models.VOICE_ID
+
+    # Wavespeed API endpoint
+    WAVESPEED_API_URL = Endpoints.WAVESPEED_API
     
     def __init__(
         self,

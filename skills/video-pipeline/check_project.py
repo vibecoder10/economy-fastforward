@@ -133,7 +133,7 @@ async def get_pipeline_status():
         print("  No ideas found in Idea Concepts table")
     else:
         # Find the current active idea (most recent non-Done, non-Idea Logged)
-        active_statuses = [s for s in YOUTUBE_STATUS_ORDER if s not in ("Done", "Idea Logged")]
+        active_statuses = [s for s in YOUTUBE_STATUS_ORDER if s not in (Statuses.DONE, Statuses.IDEA_LOGGED)]
         current_idea = None
         current_status = None
 

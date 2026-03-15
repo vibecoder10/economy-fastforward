@@ -95,7 +95,7 @@ async def run(pipeline) -> dict:
                 pipeline.airtable.update_image_animation_fields(
                     img_record["id"],
                     video_clip_url=video_drive_url,
-                    animation_status="Done",
+                    animation_status=ImageFields.STATUS_DONE,
                     video_duration=clip_duration,
                 )
                 print(f"      ✅ [{i}/{total}] Video saved ({filename})")
@@ -104,7 +104,7 @@ async def run(pipeline) -> dict:
             else:
                 pipeline.airtable.update_image_animation_fields(
                     img_record["id"],
-                    animation_status="Failed",
+                    animation_status="Failed",  # No constant needed — only used here
                 )
                 failed_count += 1
                 print(f"      ❌ [{i}/{total}] Video generation failed.")

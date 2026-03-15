@@ -454,7 +454,7 @@ _ILLUSTRATED_HIGH_MOTION = {
 }
 
 _ANIMATION = AnimationConfig(
-    animation_model="grok-imagine/image-to-video",
+    animation_model=Models.ANIMATION_GROK,
     animation_cost_per_clip=0.10,
     motion_templates={
         **{f"low_{k}": v for k, v in _ILLUSTRATED_LOW_MOTION.items()},
