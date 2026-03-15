@@ -24,6 +24,8 @@ import sys
 from pathlib import Path
 from typing import Optional
 
+from clients.narrative_extractor import extract_narrative_fields
+
 logger = logging.getLogger(__name__)
 
 
@@ -819,6 +821,9 @@ def write_to_airtable(
 
     if record_id:
         # Update existing record — don't create a duplicate
+        # Extract narrative fields from research payload
+        narrative = extract_narrative_fields(payload)
+
         research_fields = {
             "Research Payload": research_payload_json,
             "Source URLs": payload.get("source_bibliography", ""),
@@ -828,6 +833,10 @@ def write_to_airtable(
             "Thematic Framework": payload.get("themes", ""),
             "Headline": payload.get("headline", ""),
             "Video Title": video_title,
+            # Narrative fields for Past → Present → Future framing
+            "Past Context": narrative["past_context"],
+            "Present Parallel": narrative["present_parallel"],
+            "Future Prediction": narrative["future_prediction"],
         }
         # Add title candidates if generated
         if title_candidates and title_candidates.get("candidates"):
@@ -842,15 +851,14 @@ def write_to_airtable(
         return {"id": record_id}
 
     # No record_id — create a brand-new record
+    # Extract narrative fields from research payload
+    narrative = extract_narrative_fields(payload)
+
     # Build the idea data dict compatible with AirtableClient.create_idea()
     idea_data = {
         "viral_title": video_title,
         "hook_script": payload.get("executive_hook", ""),
-        "narrative_logic": {
-            "past_context": payload.get("historical_parallels", ""),
-            "present_parallel": payload.get("framework_analysis", ""),
-            "future_prediction": payload.get("narrative_arc", ""),
-        },
+        "narrative_logic": narrative,  # Uses extract_narrative_fields for proper extraction
         "thumbnail_visual": (
             payload.get("thumbnail_concepts", "").split("\n")[0]
             if payload.get("thumbnail_concepts")
