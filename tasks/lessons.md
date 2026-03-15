@@ -90,6 +90,13 @@
 - **Profile detection changed.** Pipeline uses `uses_story_bible` (any profile except holographic_hud) instead of `is_mannequin_profile`. This is more accurate now that mannequin style is deprecated.
 - **Legacy code remnants cause phantom failures.** After ANY style/profile swap, do a full codebase grep to catch stragglers. Dead type hints, comments referencing removed values, and deprecated aliases will confuse validators and cause false positives. Run: `grep -rn "old_style_name" skills/video-pipeline/ --include="*.py"`
 
+### Prompt Builder Data Paths (4 separate concerns)
+- **`visual_description` = narration_excerpt** (Story Bible visual content — what to SHOW). NEVER use verbatim script text here. The 9f0093d commit accidentally set `visual_description` to `verbatim_text`, which put raw narrator dialogue into the Scene field of prompts.
+- **`sentence_text` = verbatim script text** (exact words from Script table). Used for Airtable Sentence Text field and duration calculation.
+- **Characters = costume + action, integrated.** Don't dump raw costume descriptions. Integrate: "figure in [costume], [action]". The `camera_direction` (Story Bible `action` field) tells you what the character is doing.
+- **Duration = word_count / WPS** from sentence_text. The V2 scene blocks path must calculate this the same way deterministic_splitter does (DEFAULT_WPS = 2.5, or voice_duration-based). Missing duration causes downstream clip duration decisions to use wrong defaults.
+- **These are FOUR separate data paths. Don't cross them.** A fix to one (e.g., making sentence_text verbatim) must not accidentally change another (e.g., visual_description).
+
 ### Scene Blocking System (Story Bible V2)
 - **Two Story Bible formats exist**: V1 (`visual_arc`) and V2 (`scene_blocks`). Use `has_scene_blocks()` to detect version.
 - **Scene blocks group 2-5 images** sharing location + lighting. Only camera angle, action, expression change within a block.
@@ -121,3 +128,4 @@ _After each session, add a one-line summary of what was done and any new lessons
 | 2026-03-14 | Fix 3 pipeline issues: cinematic voice prompt position, act_coherence advisory, verified progressive writes | System prompt ordering matters; advisory checks for unreliable fixes; progressive writes already worked |
 | 2026-03-14 | Debug Script field write + add !approve command for blocked scripts | Wiring audit failed — "already working" claims need ACTUAL verification with debug logs, not code reading |
 | 2026-03-14 | Fix Script field missing from Airtable setup — field documented but never created | Documentation ≠ implementation; always check setup scripts match field audit comments |
+| 2026-03-15 | Fix 3 prompt builder bugs: Scene uses narration_excerpt, duration from word count, character integration | 4 separate data paths in prompt builder — don't cross them; V2 scene blocks must match V1 deterministic_splitter capabilities |

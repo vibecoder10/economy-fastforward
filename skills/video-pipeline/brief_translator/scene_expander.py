@@ -682,6 +682,7 @@ async def _expand_with_scene_blocks(
     visual_seeds: str,
     accent_color: str,
     act_number: int,
+    voice_duration: Optional[float] = None,
 ) -> list[dict]:
     """Expand scene using V2 scene_blocks format.
 
@@ -698,6 +699,7 @@ async def _expand_with_scene_blocks(
         visual_seeds: Visual seeds for context
         accent_color: Accent color for video
         act_number: Which act this scene belongs to
+        voice_duration: Optional voice duration in seconds for WPS calculation
 
     Returns:
         List of concept dicts with block context (block_id, block_location, etc.)
@@ -737,6 +739,15 @@ async def _expand_with_scene_blocks(
     print(f"    Scene {scene_number}: {len(matched_images)} images matched from scene_blocks "
           f"(blocks: {', '.join(set(img['block_id'] for img in matched_images))})")
 
+    # Calculate words-per-second for duration estimation
+    # Same logic as deterministic_splitter.py: voice_duration → WPS, or default 2.5
+    DEFAULT_WPS = 2.5
+    total_word_count = len(scene_text.split())
+    if voice_duration and voice_duration > 0:
+        wps = total_word_count / voice_duration
+    else:
+        wps = DEFAULT_WPS
+
     # Convert matched images to concept dicts
     concepts = []
     for i, img in enumerate(matched_images):
@@ -757,23 +768,33 @@ async def _expand_with_scene_blocks(
         # (NOT the Story Bible's narration_excerpt which may be a paraphrase)
         verbatim_text = img.get("verbatim_text", "").strip()
 
-        # NARRATION CONTENT: Used for visual_description to drive image generation
-        # Prefer verbatim_text if available, fall back to narration_excerpt
-        narration_content = verbatim_text if verbatim_text else img.get("narration_excerpt", "").strip()
+        # VISUAL CONTENT: Story Bible narration_excerpt describes what to SHOW
+        # This drives the image prompt — it's a visual description, not spoken words
+        visual_content = img.get("narration_excerpt", "").strip()
 
         # Get camera/composition direction from Story Bible action field
         # This is NOT story content - it's cinematography guidance
         camera_direction = img.get("action", "").strip()
 
+        # Duration from word count of sentence_text (verbatim script words)
+        sentence = verbatim_text if verbatim_text else visual_content
+        word_count = len(sentence.split()) if sentence else 0
+        duration = round(word_count / wps, 1) if wps > 0 else round(word_count / DEFAULT_WPS, 1)
+        # Clamp to reasonable range: min 4s, max 10s (same as deterministic_splitter)
+        duration = max(4.0, min(10.0, duration))
+
         concept = {
             "concept_index": i + 1,
             # sentence_text = VERBATIM script words for Airtable Sentence Text field
-            "sentence_text": verbatim_text if verbatim_text else narration_content,
-            # visual_description = what the image should depict
-            "visual_description": narration_content if narration_content else "Scene continues",
+            "sentence_text": verbatim_text if verbatim_text else visual_content,
+            # visual_description = Story Bible narration_excerpt (what to SHOW)
+            # NOT verbatim script text (what the narrator SAYS)
+            "visual_description": visual_content if visual_content else "Scene continues",
             "visual_style": get_default_style(),
             "composition": composition,
             "mood": img.get("block_mood", "neutral"),
+            # Duration calculated from word count (pre-Whisper estimate)
+            "duration": duration,
             # Block context for prompt builder
             "block_id": img.get("block_id"),
             "block_location": img.get("block_location", ""),
@@ -976,6 +997,7 @@ async def expand_scene_concepts_deterministic(
             visual_seeds=visual_seeds,
             accent_color=accent_color,
             act_number=act_number,
+            voice_duration=voice_duration,
         )
 
     # V1 path: Use deterministic splitter + LLM visual descriptions
