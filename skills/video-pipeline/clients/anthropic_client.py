@@ -1051,28 +1051,33 @@ Start with style engine prefix, end with style engine suffix + lighting + text r
 YOUR TASK: Divide this scene into {target_count} visual segments ({min_count}-{max_count} range) and create image prompts.
 
 === CINEMATIC COVERAGE (MOST IMPORTANT RULE) ===
-Direct each scene like a FILM DIRECTOR covering a location. Stay with the scene's subject
-but vary every shot through camera distance, angle, and detail focus — like a camera crew
-circling the scene, not a slideshow of disconnected images.
+Direct each scene like a FILM DIRECTOR. The sentence text is your guide:
 
-EXAMPLE — Scene about three aircraft carriers in the Persian Gulf:
-- Wide establishing: three carriers in formation, Persian Gulf waters, distant Iranian coastline
-- Medium: flight deck of the Gerald R. Ford, jets lined up, crew activity
-- Close-up: hull number "CVN-78" on steel bow, waves crashing against hull
-- Low angle: looking up at carrier island superstructure, radar arrays against sky
-- Overhead: aerial view showing wake patterns, escort destroyers flanking
-- Environmental: the narrow Strait of Hormuz from above, tankers in single file
+RULE 1 — LET THE NARRATION LEAD:
+- Read each sentence's content. If it's still describing the same subject as the previous
+  sentence, STAY on that subject but move the camera (change distance, angle, detail focus).
+- If the narration moves to a NEW subject (different location, person, concept), follow it there.
+- The narration decides WHAT you show. Cinematic coverage decides HOW you shoot it.
 
-Each image adds NEW VISUAL INFORMATION through:
-1. CAMERA DISTANCE: wide → medium → close-up → extreme close-up (cycle, don't repeat)
-2. ANGLE: eye-level, low angle, overhead, three-quarter — vary every shot
-3. DETAIL FOCUS: each shot highlights a DIFFERENT physical detail (deck, hull, radar, wake, weaponry)
-4. The viewer should feel like they're MOVING THROUGH the scene, not seeing the same postcard 9 times
+RULE 2 — WHEN STAYING ON THE SAME SUBJECT, VARY THE SHOT:
+Think of a film crew circling one location. Each cut reveals new visual information:
+- Wide establishing → medium detail → close-up on specific element → low angle → overhead
+- NEVER repeat the same camera distance AND angle on consecutive images
+- Each shot should highlight a DIFFERENT physical detail (deck vs hull vs radar vs wake)
+
+EXAMPLE — Scene about three carriers (sentences stay on carriers for 4 beats):
+  [1] "Three carriers representing $30B in assets" → Wide: three carriers in formation, distant coastline
+  [2] "The Gerald R. Ford cost $13 billion" → Medium: Ford's flight deck, jets lined up, hull number visible
+  [3] "Each carrier displaces 100,000 tons" → Low angle: looking up at massive hull from waterline, bow wave
+  [4] "15,000 personnel aboard" → Close-up: carrier island superstructure, radar arrays, crew on deck
+  [5] "Iran calls this the opportunity of the century" → NEW SUBJECT: Iranian command center with strait map
+
+Notice: shots 1-4 stay on carriers because the narration does. Shot 5 follows the narration to Iran.
 
 WHAT TO AVOID:
-- Multiple wide shots of the same formation from roughly the same distance
+- Multiple shots at the SAME distance/angle even when the narration stays on one subject
+- Cutting away from the narration's subject to something unrelated for "variety"
 - Describing the same elements (e.g., "massive gray hulls cutting through calm blue sea") in more than one prompt
-- Ignoring specific facts in the narration — if a sentence mentions "$13 billion," show construction details, not another ocean shot
 
 === CRITICAL DURATION RULE (HARD CEILING) ===
 - Each segment: ~{words_per_segment} words (±5 words)
@@ -1191,10 +1196,11 @@ SCENE TEXT:
 
 SHOT PLAN:
 1. Group sentences into {target_count} beats (1-3 sentences each)
-2. For each beat, choose a camera distance + angle that is DIFFERENT from the previous beat
-3. Stay with the scene's subject — but each shot reveals NEW visual details (move closer, change angle, focus on a different element)
-4. If a sentence mentions a specific fact/number, let that detail drive what's VISIBLE in frame
-5. Return JSON with segments array. Each segment has text, image_prompt, and shot_type.
+2. Follow the narration: if consecutive sentences describe the same subject, STAY on it but move the camera
+3. If the narration shifts to a new subject, follow it there — don't force continuity where the text moves on
+4. Each shot must use a DIFFERENT camera distance + angle from the previous shot
+5. If a sentence mentions a specific fact/number, let that detail drive what's VISIBLE in frame
+6. Return JSON with segments array. Each segment has text, image_prompt, and shot_type.
 REMEMBER: {PROMPT_MIN_WORDS}-{PROMPT_MAX_WORDS} words per prompt."""
         else:
             prompt = f"""Segment this scene into {target_count} holographic intelligence display visualizations:
