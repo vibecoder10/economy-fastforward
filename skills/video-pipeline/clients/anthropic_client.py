@@ -1045,39 +1045,38 @@ Start with style engine prefix, end with style engine suffix + lighting + text r
         if not is_holographic and profile and profile.scene_description.system_prompt:
             # Profile-driven system prompt
             profile_suffix = profile.style_system.style_suffix or ""
-            compositions = ", ".join(profile.rotation.compositions) if profile.rotation.compositions else "wide, medium, closeup"
+            comp_list = profile.rotation.compositions if profile.rotation.compositions else ["wide", "medium", "closeup", "environmental", "portrait", "overhead", "low_angle"]
+
+            # Pre-assign shot types deterministically — rotate through compositions
+            shot_assignments = []
+            for i in range(max_count):
+                shot = comp_list[i % len(comp_list)]
+                shot_assignments.append(f"Segment {i+1}: shot_type=\"{shot}\" — compose your prompt for a {shot} shot")
+            shot_guidance = "\n".join(shot_assignments)
+
             system_prompt = f"""{profile.scene_description.system_prompt}
 
 YOUR TASK: Divide this scene into {target_count} visual segments ({min_count}-{max_count} range) and create image prompts.
 
-=== CINEMATIC COVERAGE (MOST IMPORTANT RULE) ===
-Direct each scene like a FILM DIRECTOR. The sentence text is your guide:
+=== MANDATORY SHOT ASSIGNMENTS (do NOT change these) ===
+{shot_guidance}
 
-RULE 1 — LET THE NARRATION LEAD:
-- Read each sentence's content. If it's still describing the same subject as the previous
-  sentence, STAY on that subject but move the camera (change distance, angle, detail focus).
-- If the narration moves to a NEW subject (different location, person, concept), follow it there.
-- The narration decides WHAT you show. Cinematic coverage decides HOW you shoot it.
+Each segment MUST use the assigned shot_type. This creates cinematic camera movement.
+- "wide": full scene, distant view, establishing geography
+- "medium": mid-distance, showing key details of the subject
+- "closeup": tight on a specific detail, object, or feature
+- "environmental": landscape/location, atmosphere and geography
+- "portrait": character-focused (face, expression, costume)
+- "overhead": bird's eye / top-down view
+- "low_angle": looking up at subject, dramatic perspective
 
-RULE 2 — WHEN STAYING ON THE SAME SUBJECT, VARY THE SHOT:
-Think of a film crew circling one location. Each cut reveals new visual information:
-- Wide establishing → medium detail → close-up on specific element → low angle → overhead
-- NEVER repeat the same camera distance AND angle on consecutive images
-- Each shot should highlight a DIFFERENT physical detail (deck vs hull vs radar vs wake)
-
-EXAMPLE — Scene about three carriers (sentences stay on carriers for 4 beats):
-  [1] "Three carriers representing $30B in assets" → Wide: three carriers in formation, distant coastline
-  [2] "The Gerald R. Ford cost $13 billion" → Medium: Ford's flight deck, jets lined up, hull number visible
-  [3] "Each carrier displaces 100,000 tons" → Low angle: looking up at massive hull from waterline, bow wave
-  [4] "15,000 personnel aboard" → Close-up: carrier island superstructure, radar arrays, crew on deck
-  [5] "Iran calls this the opportunity of the century" → NEW SUBJECT: Iranian command center with strait map
-
-Notice: shots 1-4 stay on carriers because the narration does. Shot 5 follows the narration to Iran.
-
-WHAT TO AVOID:
-- Multiple shots at the SAME distance/angle even when the narration stays on one subject
-- Cutting away from the narration's subject to something unrelated for "variety"
-- Describing the same elements (e.g., "massive gray hulls cutting through calm blue sea") in more than one prompt
+=== CINEMATIC COVERAGE ===
+Let the narration guide WHAT you show. The assigned shot_type guides HOW you frame it.
+- If the narration stays on the same subject across segments, STAY on it but use the assigned
+  camera angle to reveal NEW details (deck, hull, radar, crew, wake — not the same description).
+- If the narration moves to a new subject, follow it there.
+- NEVER describe the same visual elements in more than one prompt. Each shot must show
+  something the viewer hasn't seen yet.
 
 === CRITICAL DURATION RULE (HARD CEILING) ===
 - Each segment: ~{words_per_segment} words (±5 words)
@@ -1087,7 +1086,7 @@ WHAT TO AVOID:
 
 === PROMPT ARCHITECTURE ({PROMPT_MIN_WORDS}-{PROMPT_MAX_WORDS} words) ===
 
-[STYLE PREFIX] + [SCENE CONTENT] + [STYLE SUFFIX]
+[STYLE PREFIX] + [SCENE CONTENT for assigned shot_type] + [STYLE SUFFIX]
 
 Style prefix: "{profile.style_system.style_prefix}"
 Style suffix: "{profile_suffix}"
@@ -1097,14 +1096,11 @@ Style suffix: "{profile_suffix}"
   "segments": [
     {{
       "text": "The narration text for this segment...",
-      "image_prompt": "the full styled prompt...",
-      "shot_type": "wide"
+      "image_prompt": "the full styled prompt composed for the assigned shot_type...",
+      "shot_type": "the assigned shot_type from above"
     }}
   ]
-}}
-
-=== SHOT TYPE VALUES (compositions) ===
-{compositions}"""
+}}"""
         else:
             # Holographic default
             format_guidance = "\n".join([
@@ -1188,18 +1184,18 @@ RESEARCH DATA (use specific numbers, dates, and facts from this):
             _sentences = _re.split(r'(?<=[.!?])\s+', scene_text.strip())
             _numbered = "\n".join(f"  [{i+1}] {s}" for i, s in enumerate(_sentences) if s.strip())
 
-            prompt = f"""Cover this scene in {target_count} shots like a film director using the {profile.profile_name} style.
+            prompt = f"""Cover this scene in {target_count} shots. Each segment has a PRE-ASSIGNED shot_type — you MUST use it.
 
 SCENE TEXT:
 {_numbered}
 {research_context}
 
-SHOT PLAN:
+RULES:
 1. Group sentences into {target_count} beats (1-3 sentences each)
-2. Follow the narration: if consecutive sentences describe the same subject, STAY on it but move the camera
-3. If the narration shifts to a new subject, follow it there — don't force continuity where the text moves on
-4. Each shot must use a DIFFERENT camera distance + angle from the previous shot
-5. If a sentence mentions a specific fact/number, let that detail drive what's VISIBLE in frame
+2. Use the ASSIGNED shot_type for each segment (wide, medium, closeup, etc.) — do NOT override
+3. Compose the image_prompt to match the assigned camera distance/angle
+4. Follow the narration's subject — stay on it or move on as the text dictates
+5. NEVER reuse the same visual description across segments. Each shot reveals NEW details.
 6. Return JSON with segments array. Each segment has text, image_prompt, and shot_type.
 REMEMBER: {PROMPT_MIN_WORDS}-{PROMPT_MAX_WORDS} words per prompt."""
         else:
