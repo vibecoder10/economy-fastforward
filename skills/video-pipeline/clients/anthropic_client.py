@@ -1050,6 +1050,16 @@ Start with style engine prefix, end with style engine suffix + lighting + text r
 
 YOUR TASK: Divide this scene into {target_count} visual segments ({min_count}-{max_count} range) and create image prompts.
 
+=== VISUAL VARIETY (MOST IMPORTANT RULE) ===
+Each image prompt MUST depict a DIFFERENT visual subject. Do NOT repeat the same scene with minor angle changes.
+- If the narration mentions a ship, a cost figure, a geographic strait, and a military strategy — those are 4 DIFFERENT images.
+- Translate abstract concepts into CONCRETE visuals: "$13 billion cost" → shipyard with scaffolding and workers, NOT another carrier at sea.
+- "Deterrence" → war room with strategic map, NOT another carrier shot.
+- "Iran's opportunity" → Iranian military command center or Strait map, NOT another carrier shot.
+- Ask yourself: "If I showed these {target_count} images as thumbnails, could I tell them apart at a glance?" If not, rewrite.
+- NEVER use the same primary subject (e.g., "aircraft carriers") in more than 2 out of {target_count} prompts.
+- Mine each sentence for its UNIQUE visual hook — what makes this fact different from the one before it?
+
 === CRITICAL DURATION RULE (HARD CEILING) ===
 - Each segment: ~{words_per_segment} words (±5 words)
 - ABSOLUTE MAXIMUM: {words_per_segment + 5} words per segment. NO exceptions.
@@ -1154,13 +1164,22 @@ RESEARCH DATA (use specific numbers, dates, and facts from this):
 {research_payload[:2000]}"""
 
         if not is_holographic and profile:
-            prompt = f"""Segment this scene into {target_count} visual concepts using the {profile.profile_name} style:
+            # Number sentences so Claude maps each to a distinct visual concept
+            import re as _re
+            _sentences = _re.split(r'(?<=[.!?])\s+', scene_text.strip())
+            _numbered = "\n".join(f"  [{i+1}] {s}" for i, s in enumerate(_sentences) if s.strip())
 
-SCENE TEXT:
-{scene_text}
+            prompt = f"""Segment this scene into {target_count} visual concepts using the {profile.profile_name} style.
+
+SCENE TEXT (numbered sentences — each sentence suggests a DIFFERENT visual):
+{_numbered}
 {research_context}
 
-Return JSON with segments array. Each segment has text, image_prompt, and shot_type.
+INSTRUCTIONS:
+1. Map each sentence (or group of 2-3 sentences) to ONE visual concept
+2. Each image_prompt MUST show a DIFFERENT subject — no two prompts should describe the same thing
+3. Translate facts, numbers, and abstract ideas into concrete visual scenes (not just the dominant subject repeated)
+4. Return JSON with segments array. Each segment has text, image_prompt, and shot_type.
 REMEMBER: {PROMPT_MIN_WORDS}-{PROMPT_MAX_WORDS} words per prompt."""
         else:
             prompt = f"""Segment this scene into {target_count} holographic intelligence display visualizations:
