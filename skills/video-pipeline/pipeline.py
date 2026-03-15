@@ -1006,161 +1006,6 @@ class VideoPipeline:
         result["new_status"] = self.STATUS_READY_VIDEO_SCRIPTS
         return result
 
-    async def run_image_prompt_bot_legacy(self) -> dict:
-        """Generate image prompts based on voiceover duration (LEGACY PATH).
-
-        Deprecated: Use run_styled_image_prompts() instead, which uses the
-        Visual Identity System (Dossier/Schema/Echo) with the unified scene format.
-
-        Rule: ONE image per 6-10 seconds of voiceover.
-
-        REQUIRES: Ideas status = "Ready For Image Prompts"
-        UPDATES TO: "Ready For Images" when complete
-        """
-        from clients.sentence_utils import get_audio_duration
-
-        if not self.current_idea:
-            idea = self.get_idea_by_status(self.STATUS_READY_IMAGE_PROMPTS)
-            if not idea:
-                return {"status": "idle", "message": "No videos at Ready For Image Prompts"}
-            self._load_idea(idea)
-
-        if self.current_idea.get("Status") != self.STATUS_READY_IMAGE_PROMPTS:
-            return {"error": f"Status mismatch"}
-
-        print(f"\n🌉 IMAGE PROMPT BOT: Processing '{self.video_title}'")
-
-        scenes = self.airtable.get_scripts_by_title(self.video_title)
-        if not scenes:
-            return {"error": "No scenes found"}
-
-        print(f"  Found {len(scenes)} scenes")
-
-        # Check for existing image prompts to avoid duplicates
-        existing_images = self.airtable.get_all_images_for_video(self.video_title)
-        existing_scene_indices = set()
-        for img in existing_images:
-            key = (img.get("Scene"), img.get("Image Index"))
-            existing_scene_indices.add(key)
-        
-        if existing_images:
-            print(f"  Found {len(existing_images)} existing prompts - will skip completed scenes")
-
-        total_prompts = 0
-
-        for scene in scenes:
-            scene_number = scene.get("scene") or scene.get("Scene") or 1
-
-            # Check if this scene already has prompts
-            scene_prompts = [img for img in existing_images if img.get("Scene") == scene_number]
-            if scene_prompts:
-                print(f"  Scene {scene_number}: Already has {len(scene_prompts)} prompts, skipping...")
-                continue
-            scene_text = scene.get("Scene text") or scene.get("Script") or ""
-            voice_over = scene.get("Voice Over")
-
-            # Get duration from audio file
-            voice_duration = None
-            if voice_over and isinstance(voice_over, list) and len(voice_over) > 0:
-                voice_url = voice_over[0].get("url")
-                if voice_url:
-                    print(f"  Scene {scene_number}: Fetching audio duration...")
-                    voice_duration = get_audio_duration(voice_url)
-
-            # Fallback to word count estimate
-            if not voice_duration:
-                word_count = len(scene_text.split())
-                voice_duration = word_count / 2.5
-
-            # Calculate words per second for this scene
-            word_count = len(scene_text.split())
-            words_per_second = word_count / voice_duration if voice_duration > 0 else 2.5
-
-            # Target 8 seconds per image (range 6-10)
-            target_images = max(1, round(voice_duration / 8))
-            min_images = max(1, int(voice_duration / 10))
-            max_images = max(1, int(voice_duration / 6))
-
-            # Calculate target words per segment (for 8s at current speaking rate)
-            words_per_segment = int(word_count / target_images) if target_images > 0 else word_count
-
-            print(f"  Scene {scene_number}: {voice_duration:.0f}s → {target_images} images (~{words_per_segment} words each)")
-
-            # Call Anthropic to segment into concepts
-            # YouTube pipeline uses cinematic photorealistic dossier style
-            concepts = await self.anthropic.segment_scene_into_concepts(
-                scene_text=scene_text,
-                target_count=target_images,
-                min_count=min_images,
-                max_count=max_images,
-                words_per_segment=words_per_segment,
-                scene_number=scene_number,
-                pipeline_type="youtube",
-            )
-
-            # Enforce hard duration caps before creating records
-            config = self.video_config or VideoConfig.from_airtable_record(self.current_idea or {})
-            clip_dur = config.clip_duration_seconds
-            pre_count = len(concepts)
-            concepts = enforce_duration_caps(concepts, clip_duration_seconds=clip_dur)
-            concepts = recalculate_durations(concepts, clip_duration_seconds=clip_dur)
-            if len(concepts) != pre_count:
-                print(f"    Duration cap: {pre_count} → {len(concepts)} segments (max {clip_dur}s)")
-
-            # Create records with calculated durations (capped at clip_dur range)
-            cumulative_start = 0.0
-            for i, concept in enumerate(concepts):
-                concept_text = concept.get("text", "")
-                concept_words = len(concept_text.split())
-                concept_duration = concept_words / words_per_second if words_per_second > 0 else 8.0
-
-                # ENFORCE duration range — floor 4s, ceiling = clip_duration
-                concept_duration = max(4.0, min(float(clip_dur), concept_duration))
-
-                # Get shot_type from segment (now included in output)
-                shot_type = concept.get("shot_type", "medium_human_story")
-
-                # Skip if this exact (scene, index) already exists
-                if (scene_number, i + 1) in existing_scene_indices:
-                    print(f"      Skipping Scene {scene_number}, Index {i + 1} - already exists")
-                    continue
-
-                self.airtable.create_concept_record(
-                    scene_number=scene_number,
-                    concept_index=i + 1,
-                    sentence_text=concept_text,
-                    image_prompt=concept.get("image_prompt", ""),
-                    composition=shot_type or "medium",
-                    video_title=self.video_title,
-                )
-                cumulative_start += concept_duration
-                total_prompts += 1
-
-            print(f"    ✅ Created {len(concepts)} prompts for scene {scene_number}")
-
-            # Slack progress update every 5 scenes
-            if scene_number % 5 == 0:
-                self.slack.notify(f"📝 Prompt progress: {total_prompts} prompts created (through Scene {scene_number})")
-
-        # Flag hero shots after all prompts are created
-        hero_count = await self._flag_hero_shots()
-        print(f"  🌟 Flagged {hero_count} hero shots")
-
-        self._update_status(self.STATUS_READY_IMAGES)
-
-        print(f"\n  ✅ Total: {total_prompts} image prompts created")
-
-        # Slack completion
-        self.slack.notify(f"✅ Image prompts done: {total_prompts} created for *{self.video_title}*")
-
-        return {
-            "bot": "Image Prompt Bot",
-            "video_title": self.video_title,
-            "prompt_count": total_prompts,
-            "hero_count": hero_count,
-            "new_status": self.STATUS_READY_IMAGES
-        }
-
     async def _flag_hero_shots(self, max_heroes: int = 3) -> int:
         """Flag 2-3 images per video as hero shots for 10s animation.
 
@@ -2291,13 +2136,21 @@ class VideoPipeline:
             print(f"  Scene {scene_num} (Act {act_number}): "
                   f"{len(scene_text.split())} words — expanding...")
 
-            # Get voice duration if available for accurate word-per-second calculation
+            # Get voice duration for accurate words-per-second calculation
             voice_duration = None
             voice_over = script.get("Voice Over")
             if voice_over and isinstance(voice_over, list) and len(voice_over) > 0:
-                # Voice duration will be calculated by audio_sync later
-                # For now, estimate from word count as fallback
-                pass  # deterministic_splitter will use DEFAULT_WPS if None
+                voice_url = voice_over[0].get("url")
+                if voice_url:
+                    try:
+                        from clients.sentence_utils import get_audio_duration
+                        voice_duration = get_audio_duration(voice_url)
+                        if voice_duration:
+                            print(f"    Voice duration: {voice_duration:.1f}s "
+                                  f"({len(scene_text.split()) / voice_duration:.2f} WPS)")
+                    except Exception as e:
+                        print(f"    ⚠️ Could not get voice duration: {e}")
+            # deterministic_splitter uses DEFAULT_WPS (2.5) if voice_duration is None
 
             concepts = await expand_scene_concepts_deterministic(
                 anthropic_client=self.anthropic,

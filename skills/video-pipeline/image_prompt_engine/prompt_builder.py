@@ -755,11 +755,19 @@ def build_prompt_from_block(
         "closeup": "Close-up",
         "close-up": "Close-up",
         "extreme_closeup": "Extreme close-up",
+        "overhead": "Overhead shot",
+        "low_angle": "Low angle shot",
+        "portrait": "Portrait shot",
+        "environmental": "Wide establishing shot",
     }
     camera_desc = camera_map.get(camera.lower(), "Medium shot")
 
-    # 3. Substyle context (compositional direction)
-    if substyle_suffix:
+    # 3. Substyle context — only append for character-driven scene types
+    # Environment/data scene types already have their context in the visual_description
+    # from Claude. Adding "No characters... geography establish context" to every
+    # non-character prompt makes them all identical.
+    character_scene_types = {"power_move", "lone_figure"}
+    if substyle_suffix and scene_type in character_scene_types:
         style_direction = f"{camera_desc}. {substyle_suffix.rstrip('. ')}."
     else:
         style_direction = f"{camera_desc}."
