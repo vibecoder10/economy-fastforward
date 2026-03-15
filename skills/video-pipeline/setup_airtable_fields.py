@@ -102,6 +102,16 @@ REQUIRED_FIELDS = [
         "name": "Thematic Framework",
         "type": "multilineText",
     },
+    # Script field — written by brief_translator before validation
+    {
+        "name": "Script",
+        "type": "multilineText",
+    },
+    # Script validation results
+    {
+        "name": "Script Validation",
+        "type": "multilineText",
+    },
 ]
 
 # Fields to add to the Script table
