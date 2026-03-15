@@ -3,7 +3,10 @@
 import os
 from pyairtable import Api, Table
 from typing import Optional, Any
-from pipeline_constants import Models, Statuses
+from pipeline_constants import (
+    Models, Statuses, IdeaFields, ScriptFields, ImageFields,
+    CompetitorVideoFields, CompetitorChannelFields, OsirisLearningFields,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -44,7 +47,7 @@ def get_image_model_override(record: dict) -> str:
         Normalized model ID (e.g. "z-image", "nano-banana-2") or empty string
         if no valid override is set.
     """
-    raw_value = record.get("Image Model Override")
+    raw_value = record.get(IdeaFields.IMAGE_MODEL_OVERRIDE)
 
     if not raw_value:
         return DEFAULT_IMAGE_MODEL
@@ -88,7 +91,7 @@ def get_visual_style(record: dict) -> str:
         Visual style profile ID (e.g. "cinematic_illustration") or default if
         not set or invalid.
     """
-    raw_value = record.get("Visual Style")
+    raw_value = record.get(IdeaFields.VISUAL_STYLE)
 
     if not raw_value:
         return DEFAULT_VISUAL_STYLE
@@ -315,35 +318,35 @@ class AirtableClient:
         """
         # Core fields (always present in Airtable)
         core_fields = {
-            "Status": Statuses.IDEA_LOGGED,
-            "Video Title": idea_data.get("viral_title", idea_data.get("Video Title", "")),
-            "Hook Script": idea_data.get("hook_script", idea_data.get("Hook Script", "")),
-            "Past Context": idea_data.get("narrative_logic", {}).get("past_context", idea_data.get("Past Context", "")),
-            "Present Parallel": idea_data.get("narrative_logic", {}).get("present_parallel", idea_data.get("Present Parallel", "")),
-            "Future Prediction": idea_data.get("narrative_logic", {}).get("future_prediction", idea_data.get("Future Prediction", "")),
-            "Thumbnail Prompt": idea_data.get("thumbnail_visual", idea_data.get("Thumbnail Prompt", "")),
-            "Writer Guidance": idea_data.get("writer_guidance", idea_data.get("Writer Guidance", "")),
-            "Original DNA": idea_data.get("original_dna", idea_data.get("Original DNA", "")),
-            "Source": source,
+            IdeaFields.STATUS: Statuses.IDEA_LOGGED,
+            IdeaFields.VIDEO_TITLE: idea_data.get("viral_title", idea_data.get(IdeaFields.VIDEO_TITLE, "")),
+            IdeaFields.HOOK_SCRIPT: idea_data.get("hook_script", idea_data.get(IdeaFields.HOOK_SCRIPT, "")),
+            IdeaFields.PAST_CONTEXT: idea_data.get("narrative_logic", {}).get("past_context", idea_data.get(IdeaFields.PAST_CONTEXT, "")),
+            IdeaFields.PRESENT_PARALLEL: idea_data.get("narrative_logic", {}).get("present_parallel", idea_data.get(IdeaFields.PRESENT_PARALLEL, "")),
+            IdeaFields.FUTURE_PREDICTION: idea_data.get("narrative_logic", {}).get("future_prediction", idea_data.get(IdeaFields.FUTURE_PREDICTION, "")),
+            IdeaFields.THUMBNAIL_PROMPT: idea_data.get("thumbnail_visual", idea_data.get(IdeaFields.THUMBNAIL_PROMPT, "")),
+            IdeaFields.WRITER_GUIDANCE: idea_data.get("writer_guidance", idea_data.get(IdeaFields.WRITER_GUIDANCE, "")),
+            IdeaFields.ORIGINAL_DNA: idea_data.get("original_dna", idea_data.get(IdeaFields.ORIGINAL_DNA, "")),
+            IdeaFields.SOURCE: source,
         }
 
         # Optional fields (may not exist in Airtable yet)
         optional_fields = {}
-        if idea_data.get("reference_url") or idea_data.get("Reference URL"):
-            optional_fields["Reference URL"] = idea_data.get("reference_url", idea_data.get("Reference URL", ""))
+        if idea_data.get("reference_url") or idea_data.get(IdeaFields.REFERENCE_URL):
+            optional_fields[IdeaFields.REFERENCE_URL] = idea_data.get("reference_url", idea_data.get(IdeaFields.REFERENCE_URL, ""))
         if idea_data.get("modeled_from"):
-            optional_fields["Idea Reasoning"] = idea_data.get("modeled_from")
+            optional_fields[IdeaFields.IDEA_REASONING] = idea_data.get("modeled_from")
         if idea_data.get("source_views"):
-            optional_fields["Source Views"] = idea_data.get("source_views")
+            optional_fields[IdeaFields.SOURCE_VIEWS] = idea_data.get("source_views")
         if idea_data.get("source_channel"):
-            optional_fields["Source Channel"] = idea_data.get("source_channel")
+            optional_fields[IdeaFields.SOURCE_CHANNEL] = idea_data.get("source_channel")
 
         # Rich schema fields (added by setup_airtable_fields.py)
         rich_field_keys = [
-            "Framework Angle", "Headline", "Timeliness Score",
-            "Audience Fit Score", "Content Gap Score", "Monetization Risk",
-            "Source URLs", "Executive Hook", "Thesis", "Date Surfaced",
-            "Research Payload", "Thematic Framework", "Thumbnail Text",
+            IdeaFields.FRAMEWORK_ANGLE, IdeaFields.HEADLINE, IdeaFields.TIMELINESS_SCORE,
+            IdeaFields.AUDIENCE_FIT_SCORE, IdeaFields.CONTENT_GAP_SCORE, "Monetization Risk",
+            IdeaFields.SOURCE_URLS, IdeaFields.EXECUTIVE_HOOK, IdeaFields.THESIS, IdeaFields.DATE_SURFACED,
+            IdeaFields.RESEARCH_PAYLOAD, IdeaFields.THEMATIC_FRAMEWORK, "Thumbnail Text",
             "Title Candidates",
         ]
         for key in rich_field_keys:
@@ -352,7 +355,7 @@ class AirtableClient:
 
         # Also accept pipeline_writer fields passed directly in idea_data
         pipeline_keys = [
-            "Script", "Scene File Path", "Accent Color",
+            IdeaFields.SCRIPT, IdeaFields.SCENE_FILE_PATH, IdeaFields.ACCENT_COLOR,
             "Video ID", "Scene Count", "Validation Status",
         ]
         for key in pipeline_keys:
@@ -411,8 +414,8 @@ class AirtableClient:
             # Final fallback: only Status + Video Title (guaranteed Airtable fields)
             print(f"    ⚠️ Multiple fields missing, saving minimal record")
             minimal = {
-                "Status": core_fields.get("Status", Statuses.IDEA_LOGGED),
-                "Video Title": core_fields.get("Video Title", ""),
+                IdeaFields.STATUS: core_fields.get(IdeaFields.STATUS, Statuses.IDEA_LOGGED),
+                IdeaFields.VIDEO_TITLE: core_fields.get(IdeaFields.VIDEO_TITLE, ""),
             }
             record = self.idea_concepts_table.create(minimal, typecast=True)
             return {"id": record["id"], **record["fields"]}
@@ -616,17 +619,17 @@ class AirtableClient:
         from datetime import date
 
         fields = {
-            "Video ID": video_data.get("video_id", ""),
-            "Title": video_data.get("title", ""),
-            "URL": video_data.get("url", ""),
-            "Channel": video_data.get("channel", ""),
-            "Channel URL": video_data.get("channel_url", ""),
-            "Views": video_data.get("views", 0),
-            "VPH": round(video_data.get("vph", 0), 1),
-            "Hours Old": round(video_data.get("hours_old", 0), 1),
-            "Published Date": video_data.get("published_at", "")[:10] if video_data.get("published_at") else "",
-            "Scrape Date": date.today().isoformat(),
-            "Modeled": False,
+            CompetitorVideoFields.VIDEO_ID: video_data.get("video_id", ""),
+            CompetitorVideoFields.TITLE: video_data.get("title", ""),
+            CompetitorVideoFields.URL: video_data.get("url", ""),
+            CompetitorVideoFields.CHANNEL: video_data.get("channel", ""),
+            CompetitorVideoFields.CHANNEL_URL: video_data.get("channel_url", ""),
+            CompetitorVideoFields.VIEWS: video_data.get("views", 0),
+            CompetitorVideoFields.VPH: round(video_data.get("vph", 0), 1),
+            CompetitorVideoFields.HOURS_OLD: round(video_data.get("hours_old", 0), 1),
+            CompetitorVideoFields.PUBLISHED_DATE: video_data.get("published_at", "")[:10] if video_data.get("published_at") else "",
+            CompetitorVideoFields.SCRAPE_DATE: date.today().isoformat(),
+            CompetitorVideoFields.MODELED: False,
         }
 
         try:
@@ -667,17 +670,17 @@ class AirtableClient:
 
         for video_data in videos:
             fields = {
-                "Video ID": video_data.get("video_id", ""),
-                "Title": video_data.get("title", ""),
-                "URL": video_data.get("url", ""),
-                "Channel": video_data.get("channel", ""),
-                "Channel URL": video_data.get("channel_url", ""),
-                "Views": video_data.get("views", 0),
-                "VPH": round(video_data.get("vph", 0), 1),
-                "Hours Old": round(video_data.get("hours_old", 0), 1),
-                "Published Date": video_data.get("published_at", "")[:10] if video_data.get("published_at") else "",
-                "Scrape Date": today,
-                "Modeled": False,
+                CompetitorVideoFields.VIDEO_ID: video_data.get("video_id", ""),
+                CompetitorVideoFields.TITLE: video_data.get("title", ""),
+                CompetitorVideoFields.URL: video_data.get("url", ""),
+                CompetitorVideoFields.CHANNEL: video_data.get("channel", ""),
+                CompetitorVideoFields.CHANNEL_URL: video_data.get("channel_url", ""),
+                CompetitorVideoFields.VIEWS: video_data.get("views", 0),
+                CompetitorVideoFields.VPH: round(video_data.get("vph", 0), 1),
+                CompetitorVideoFields.HOURS_OLD: round(video_data.get("hours_old", 0), 1),
+                CompetitorVideoFields.PUBLISHED_DATE: video_data.get("published_at", "")[:10] if video_data.get("published_at") else "",
+                CompetitorVideoFields.SCRAPE_DATE: today,
+                CompetitorVideoFields.MODELED: False,
             }
             records_to_create.append({"fields": fields})
 
@@ -767,23 +770,23 @@ class AirtableClient:
         from datetime import date
 
         fields = {
-            "Category": learning.get("category", ""),
-            "Pattern": learning.get("pattern", ""),
-            "Confidence": learning.get("confidence", 50),
-            "Sample Size": learning.get("sample_size", 1),
-            "Active": True,
-            "Created": date.today().isoformat(),
-            "Last Updated": date.today().isoformat(),
+            OsirisLearningFields.CATEGORY: learning.get("category", ""),
+            OsirisLearningFields.PATTERN: learning.get("pattern", ""),
+            OsirisLearningFields.CONFIDENCE: learning.get("confidence", 50),
+            OsirisLearningFields.SAMPLE_SIZE: learning.get("sample_size", 1),
+            OsirisLearningFields.ACTIVE: True,
+            OsirisLearningFields.CREATED: date.today().isoformat(),
+            OsirisLearningFields.LAST_UPDATED: date.today().isoformat(),
         }
 
         # Optional fields
         if learning.get("avg_ctr") is not None:
-            fields["Avg CTR"] = round(learning["avg_ctr"], 2)
+            fields[OsirisLearningFields.AVG_CTR] = round(learning["avg_ctr"], 2)
         if learning.get("avg_retention") is not None:
-            fields["Avg Retention"] = round(learning["avg_retention"], 1)
+            fields[OsirisLearningFields.AVG_RETENTION] = round(learning["avg_retention"], 1)
         if learning.get("source_videos"):
             import json
-            fields["Source Videos"] = json.dumps(learning["source_videos"])
+            fields[OsirisLearningFields.SOURCE_VIDEOS] = json.dumps(learning["source_videos"])
 
         try:
             record = self.osiris_learnings_table.create(fields, typecast=True)
@@ -933,16 +936,16 @@ class AirtableClient:
         """Create a new script record for a scene."""
         fields = {
             "scene": scene_number,
-            "Scene text": scene_text,
-            "Title": title,
-            "Voice ID": voice_id,
-            "Script Status": "Create",  # Single select, not array
+            ScriptFields.SCENE_TEXT: scene_text,
+            ScriptFields.TITLE: title,
+            ScriptFields.VOICE_ID: voice_id,
+            ScriptFields.SCRIPT_STATUS: ScriptFields.STATUS_CREATE,  # Single select, not array
         }
         # Store full source list on scene 1 for YouTube show notes
         if sources and scene_number == 1:
-            fields["Sources"] = sources
+            fields[ScriptFields.SOURCES] = sources
         if psych_angle:
-            fields["Psych Angle"] = psych_angle
+            fields[ScriptFields.PSYCH_ANGLE] = psych_angle
         try:
             record = self.script_table.create(fields, typecast=True)
         except Exception as e:
@@ -975,11 +978,11 @@ class AirtableClient:
     ) -> dict:
         """Mark a script record as finished."""
         updates = {
-            "Script Status": "Finished",
-            "Voice Status": "Done",
+            ScriptFields.SCRIPT_STATUS: ScriptFields.STATUS_FINISHED,
+            ScriptFields.VOICE_STATUS: ImageFields.STATUS_DONE,
         }
         if voice_over_url:
-            updates["Voice Over"] = [{"url": voice_over_url}]
+            updates[ScriptFields.VOICE_OVER] = [{"url": voice_over_url}]
         return self.update_script_record(record_id, updates)
     
     # ==================== IMAGES TABLE ====================
@@ -988,7 +991,7 @@ class AirtableClient:
         """Get image records with status 'Pending', ordered by scene and index."""
         records = self.images_table.all(
             formula='{Status} = "Pending"',
-            sort=["Scene", "Image Index"],
+            sort=[ImageFields.SCENE, ImageFields.IMAGE_INDEX],
         )
         return [{"id": r["id"], **r["fields"]} for r in records]
     
@@ -1020,15 +1023,15 @@ class AirtableClient:
             Created record dict with id + fields
         """
         fields = {
-            "Scene": scene_number,
-            "Image Index": concept_index,
-            "Sentence Text": sentence_text,
-            "Image Prompt": image_prompt,
-            "Shot Type": composition,
-            "Video Title": video_title,
-            "Aspect Ratio": aspect_ratio,
-            "Status": "Pending",
-            "Sentence Index": concept_index,
+            ImageFields.SCENE: scene_number,
+            ImageFields.IMAGE_INDEX: concept_index,
+            ImageFields.SENTENCE_TEXT: sentence_text,
+            ImageFields.IMAGE_PROMPT: image_prompt,
+            ImageFields.SHOT_TYPE: composition,
+            ImageFields.VIDEO_TITLE: video_title,
+            ImageFields.ASPECT_RATIO: aspect_ratio,
+            ImageFields.STATUS: ImageFields.STATUS_PENDING,
+            ImageFields.SENTENCE_INDEX: concept_index,
         }
         record = self.images_table.create(fields, typecast=True)
         return {"id": record["id"], **record["fields"]}
@@ -1041,17 +1044,17 @@ class AirtableClient:
     ) -> dict:
         """Update an image record with the generated image."""
         updates = {
-            "Image": [{"url": image_url}],
-            "Status": "Done",
+            ImageFields.IMAGE: [{"url": image_url}],
+            ImageFields.STATUS: ImageFields.STATUS_DONE,
         }
         if drive_url:
-            updates["Drive Image URL"] = drive_url
+            updates[ImageFields.DRIVE_IMAGE_URL] = drive_url
         try:
             record = self.images_table.update(record_id, updates, typecast=True)
         except Exception as e:
             # If Drive Image URL field doesn't exist yet, retry without it
             if "UNKNOWN_FIELD_NAME" in str(e) and drive_url:
-                del updates["Drive Image URL"]
+                del updates[ImageFields.DRIVE_IMAGE_URL]
                 record = self.images_table.update(record_id, updates, typecast=True)
             else:
                 raise
@@ -1065,8 +1068,8 @@ class AirtableClient:
         """Update an image record with the generated video URL."""
         # Note: 'Video' field based on screenshot, 'Video Status' to Done
         updates = {
-            "Video": [{"url": video_url}], # Attachment field uses list of dicts
-            "Video Status": "Done",
+            ImageFields.VIDEO: [{"url": video_url}], # Attachment field uses list of dicts
+            ImageFields.VIDEO_STATUS: ImageFields.STATUS_DONE,
         }
         record = self.images_table.update(record_id, updates)
         return {"id": record["id"], **record["fields"]}
@@ -1078,8 +1081,8 @@ class AirtableClient:
     ) -> dict:
         """Update an image record with the video motion prompt."""
         updates = {
-            "Video Prompt": prompt,
-            "Video Status": "Pending",
+            ImageFields.VIDEO_PROMPT: prompt,
+            ImageFields.VIDEO_STATUS: ImageFields.STATUS_PENDING,
         }
         record = self.images_table.update(record_id, updates)
         return {"id": record["id"], **record["fields"]}
@@ -1119,15 +1122,15 @@ class AirtableClient:
         updates = {}
 
         if shot_type is not None:
-            updates["Shot Type"] = shot_type
+            updates[ImageFields.SHOT_TYPE] = shot_type
         if is_hero_shot is not None:
-            updates["Hero Shot"] = is_hero_shot
+            updates[ImageFields.HERO_SHOT] = is_hero_shot
         if video_clip_url is not None:
-            updates["Video Clip URL"] = video_clip_url
+            updates[ImageFields.VIDEO_CLIP_URL] = video_clip_url
         if animation_status is not None:
-            updates["Animation Status"] = animation_status
+            updates[ImageFields.ANIMATION_STATUS] = animation_status
         if video_duration is not None:
-            updates["Video Duration"] = video_duration
+            updates[ImageFields.VIDEO_DURATION] = video_duration
 
         if not updates:
             return {"id": record_id}
@@ -1141,7 +1144,7 @@ class AirtableClient:
                 # Some animation fields might not be added to Airtable yet
                 print(f"      ⚠️ Some animation fields missing in Airtable schema: {error_str[:100]}")
                 # Try with only the core fields that are more likely to exist
-                core_fields = ["Video Clip URL"]
+                core_fields = [ImageFields.VIDEO_CLIP_URL]
                 core_updates = {k: v for k, v in updates.items() if k in core_fields}
                 if core_updates:
                     try:
@@ -1172,9 +1175,9 @@ class AirtableClient:
         """
         updates = {}
         if image_prompt is not None:
-            updates["Image Prompt"] = image_prompt
+            updates[ImageFields.IMAGE_PROMPT] = image_prompt
         if shot_type is not None:
-            updates["Shot Type"] = shot_type
+            updates[ImageFields.SHOT_TYPE] = shot_type
 
         if not updates:
             return {"id": record_id}
@@ -1196,24 +1199,24 @@ class AirtableClient:
         
         records = self.images_table.all(
             formula=AND(
-                match({"Video Title": video_title}),
-                match({"Status": "Done"}),
+                match({ImageFields.VIDEO_TITLE: video_title}),
+                match({ImageFields.STATUS: ImageFields.STATUS_DONE}),
             ),
-            sort=["Scene", "Image Index"],
+            sort=[ImageFields.SCENE, ImageFields.IMAGE_INDEX],
         )
         # Filter python side for empty video
         # 'Video' is an attachment field, so check if it's empty or None
-        return [{"id": r["id"], **r["fields"]} for r in records if not r["fields"].get("Video")]
+        return [{"id": r["id"], **r["fields"]} for r in records if not r["fields"].get(ImageFields.VIDEO)]
     
     def get_pending_images_for_video(self, video_title: str) -> list[dict]:
         """Get pending image records for a specific video, ordered by scene and index."""
         from pyairtable.formulas import match, AND
         records = self.images_table.all(
             formula=AND(
-                match({"Video Title": video_title}),
-                match({"Status": "Pending"}),
+                match({ImageFields.VIDEO_TITLE: video_title}),
+                match({ImageFields.STATUS: ImageFields.STATUS_PENDING}),
             ),
-            sort=["Scene", "Image Index"],
+            sort=[ImageFields.SCENE, ImageFields.IMAGE_INDEX],
         )
         return [{"id": r["id"], **r["fields"]} for r in records]
     
@@ -1221,20 +1224,20 @@ class AirtableClient:
         """Get all image records for a specific video."""
         from pyairtable.formulas import match
         records = self.images_table.all(
-            formula=match({"Video Title": video_title}),
-            sort=["Scene", "Image Index"],
+            formula=match({ImageFields.VIDEO_TITLE: video_title}),
+            sort=[ImageFields.SCENE, ImageFields.IMAGE_INDEX],
         )
         return [{"id": r["id"], **r["fields"]} for r in records]
 
     def update_image_sound_prompt(self, record_id: str, sound_prompt: str) -> dict:
         """Write a sound prompt to an image record."""
-        updates = {"Sound Prompt": sound_prompt}
+        updates = {ImageFields.SOUND_PROMPT: sound_prompt}
         try:
             record = self.images_table.update(record_id, updates, typecast=True)
             return {"id": record["id"], **record["fields"]}
         except Exception as e:
             if "UNKNOWN_FIELD_NAME" in str(e):
-                print(f"      ⚠️ 'Sound Prompt' field not found in Images table — add it in Airtable")
+                print(f"      ⚠️ ImageFields.SOUND_PROMPT field not found in Images table — add it in Airtable")
                 return {"id": record_id, "warning": "Sound Prompt field missing"}
             raise
 
@@ -1246,8 +1249,8 @@ class AirtableClient:
     ) -> dict:
         """Attach a generated sound effect to an image record."""
         updates = {
-            "Sound Effect": [{"url": sound_url}],
-            "Sound Volume": volume,
+            ImageFields.SOUND_EFFECT: [{"url": sound_url}],
+            ImageFields.SOUND_VOLUME: volume,
         }
         try:
             record = self.images_table.update(record_id, updates, typecast=True)

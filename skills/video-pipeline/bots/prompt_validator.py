@@ -17,6 +17,7 @@ Fix strategies:
 from dataclasses import dataclass
 from typing import Optional
 import logging
+from pipeline_constants import ImageFields
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -106,8 +107,8 @@ class PromptValidator:
         run_start_idx = 0
 
         for i in range(1, len(prompts)):
-            current_type = prompts[i].get("Shot Type", "").lower()
-            prev_type = prompts[i - 1].get("Shot Type", "").lower()
+            current_type = prompts[i].get(ImageFields.SHOT_TYPE, "").lower()
+            prev_type = prompts[i - 1].get(ImageFields.SHOT_TYPE, "").lower()
 
             if current_type == prev_type and current_type:
                 consecutive += 1
@@ -115,7 +116,7 @@ class PromptValidator:
                     violations.append(
                         Violation(
                             type="camera_distance",
-                            image_index=prompts[i].get("Image Index", i + 1),
+                            image_index=prompts[i].get(ImageFields.IMAGE_INDEX, i + 1),
                             record_id=prompts[i].get("id", ""),
                             issue=f"{consecutive}+ consecutive '{current_type}' shots (images {prompts[run_start_idx].get('Image Index', run_start_idx+1)}-{prompts[i].get('Image Index', i+1)})",
                             fix="swap_camera_distance",
@@ -135,8 +136,8 @@ class PromptValidator:
         run_start_idx = 0
 
         for i in range(1, len(prompts)):
-            prompt_text = prompts[i].get("Image Prompt", "")
-            prev_prompt_text = prompts[i - 1].get("Image Prompt", "")
+            prompt_text = prompts[i].get(ImageFields.IMAGE_PROMPT, "")
+            prev_prompt_text = prompts[i - 1].get(ImageFields.IMAGE_PROMPT, "")
 
             loc_current = self._detect_location(prompt_text)
             loc_prev = self._detect_location(prev_prompt_text)
@@ -147,7 +148,7 @@ class PromptValidator:
                     violations.append(
                         Violation(
                             type="consecutive_location",
-                            image_index=prompts[i].get("Image Index", i + 1),
+                            image_index=prompts[i].get(ImageFields.IMAGE_INDEX, i + 1),
                             record_id=prompts[i].get("id", ""),
                             issue=f"{consecutive}+ consecutive scenes in '{loc_current}' (images {prompts[run_start_idx].get('Image Index', run_start_idx+1)}-{prompts[i].get('Image Index', i+1)})",
                             fix="needs_regeneration",
@@ -167,8 +168,8 @@ class PromptValidator:
         run_start_idx = 0
 
         for i in range(1, len(prompts)):
-            prompt_text = prompts[i].get("Image Prompt", "").lower()
-            prev_prompt_text = prompts[i - 1].get("Image Prompt", "").lower()
+            prompt_text = prompts[i].get(ImageFields.IMAGE_PROMPT, "").lower()
+            prev_prompt_text = prompts[i - 1].get(ImageFields.IMAGE_PROMPT, "").lower()
 
             is_data_current = any(ind in prompt_text for ind in self.DATA_INDICATORS)
             is_data_prev = any(ind in prev_prompt_text for ind in self.DATA_INDICATORS)
@@ -179,7 +180,7 @@ class PromptValidator:
                     violations.append(
                         Violation(
                             type="consecutive_data",
-                            image_index=prompts[i].get("Image Index", i + 1),
+                            image_index=prompts[i].get(ImageFields.IMAGE_INDEX, i + 1),
                             record_id=prompts[i].get("id", ""),
                             issue=f"{consecutive}+ consecutive data/chart scenes (images {prompts[run_start_idx].get('Image Index', run_start_idx+1)}-{prompts[i].get('Image Index', i+1)})",
                             fix="needs_regeneration",
@@ -215,14 +216,14 @@ class PromptValidator:
         # Find the prompt by image index
         target_idx = None
         for i, p in enumerate(prompts):
-            if p.get("Image Index") == violation.image_index:
+            if p.get(ImageFields.IMAGE_INDEX) == violation.image_index:
                 target_idx = i
                 break
 
         if target_idx is None:
             return None
 
-        current = prompts[target_idx].get("Shot Type", "medium").lower()
+        current = prompts[target_idx].get(ImageFields.SHOT_TYPE, "medium").lower()
 
         # Pick a different distance that contrasts with neighbors
         alternatives = {
@@ -236,9 +237,9 @@ class PromptValidator:
             "low_angle": ["medium", "wide"],
         }
 
-        prev_type = prompts[target_idx - 1].get("Shot Type", "").lower() if target_idx > 0 else None
+        prev_type = prompts[target_idx - 1].get(ImageFields.SHOT_TYPE, "").lower() if target_idx > 0 else None
         next_type = (
-            prompts[target_idx + 1].get("Shot Type", "").lower()
+            prompts[target_idx + 1].get(ImageFields.SHOT_TYPE, "").lower()
             if target_idx < len(prompts) - 1
             else None
         )
@@ -313,7 +314,7 @@ class PromptValidator:
         Returns a deduplicated list of location names that the target should avoid.
         """
         # Build index map for quick lookup
-        index_to_prompt = {p.get("Image Index"): p for p in prompts}
+        index_to_prompt = {p.get(ImageFields.IMAGE_INDEX): p for p in prompts}
 
         neighboring_indices = [
             target_index - 2,
@@ -325,7 +326,7 @@ class PromptValidator:
         locations = set()
         for idx in neighboring_indices:
             if idx in index_to_prompt:
-                prompt_text = index_to_prompt[idx].get("Image Prompt", "")
+                prompt_text = index_to_prompt[idx].get(ImageFields.IMAGE_PROMPT, "")
                 loc = self._detect_location(prompt_text)
                 if loc != "unknown":
                     locations.add(loc)
@@ -339,7 +340,7 @@ class PromptValidator:
 
         Returns a list of detected data scene types (e.g., "bar chart", "operations room").
         """
-        index_to_prompt = {p.get("Image Index"): p for p in prompts}
+        index_to_prompt = {p.get(ImageFields.IMAGE_INDEX): p for p in prompts}
 
         neighboring_indices = [
             target_index - 2,
@@ -351,7 +352,7 @@ class PromptValidator:
         data_types = set()
         for idx in neighboring_indices:
             if idx in index_to_prompt:
-                prompt_text = index_to_prompt[idx].get("Image Prompt", "").lower()
+                prompt_text = index_to_prompt[idx].get(ImageFields.IMAGE_PROMPT, "").lower()
                 for indicator in self.DATA_INDICATORS:
                     if indicator in prompt_text:
                         data_types.add(indicator)
@@ -363,7 +364,7 @@ class PromptValidator:
     ) -> Optional[dict]:
         """Find a prompt record by its image index."""
         for p in prompts:
-            if p.get("Image Index") == image_index:
+            if p.get(ImageFields.IMAGE_INDEX) == image_index:
                 return p
         return None
 
@@ -393,10 +394,10 @@ class PromptValidator:
             logger.warning(f"Could not find prompt for image index {violation.image_index}")
             return None
 
-        narration = target.get("Sentence Text", "")
-        old_prompt = target.get("Image Prompt", "")
-        shot_type = target.get("Shot Type", "medium")
-        scene_number = target.get("Scene", 0)
+        narration = target.get(ImageFields.SENTENCE_TEXT, "")
+        old_prompt = target.get(ImageFields.IMAGE_PROMPT, "")
+        shot_type = target.get(ImageFields.SHOT_TYPE, "medium")
+        scene_number = target.get(ImageFields.SCENE, 0)
         constraint = self.build_regeneration_constraint(violation, prompts)
 
         # Build story bible context

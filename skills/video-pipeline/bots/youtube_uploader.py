@@ -24,6 +24,7 @@ from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
+from pipeline_constants import IdeaFields
 
 
 # Default paths for credentials (relative to this file's directory)
@@ -220,13 +221,13 @@ class YouTubeUploader:
             dict with error key on failure
         """
         record_id = idea["id"]
-        title = idea.get("Video Title", "Untitled")
-        description = idea.get("SEO Description", "")
-        tags_str = idea.get("SEO Tags", "")
+        title = idea.get(IdeaFields.VIDEO_TITLE, "Untitled")
+        description = idea.get(IdeaFields.SEO_DESCRIPTION, "")
+        tags_str = idea.get(IdeaFields.SEO_TAGS, "")
         tags = [t.strip() for t in tags_str.split(",") if t.strip()] if tags_str else []
 
         # Get the final video from Drive
-        final_video_url = idea.get("Final Video URL") or idea.get("Final Video")
+        final_video_url = idea.get(IdeaFields.FINAL_VIDEO_URL) or idea.get(IdeaFields.FINAL_VIDEO)
         if not final_video_url:
             return {"error": "No Final Video URL in Airtable record"}
 
@@ -248,7 +249,7 @@ class YouTubeUploader:
             return {"error": f"Cannot extract Drive file ID from: {final_video_url}"}
 
         # Mark as uploading
-        airtable_client.update_idea_field(record_id, "Upload Status", "uploading")
+        airtable_client.update_idea_field(record_id, IdeaFields.UPLOAD_STATUS, "uploading")
 
         # Download to temp file
         tmp_dir = tempfile.mkdtemp(prefix="yt_upload_")
@@ -262,13 +263,13 @@ class YouTubeUploader:
             file_size_mb = os.path.getsize(local_video) / (1024 * 1024)
             print(f"    Downloaded: {file_size_mb:.0f} MB")
         except Exception as e:
-            airtable_client.update_idea_field(record_id, "Upload Status", "failed")
+            airtable_client.update_idea_field(record_id, IdeaFields.UPLOAD_STATUS, "failed")
             self._cleanup(local_video, tmp_dir)
             return {"error": f"Drive download failed: {e}"}
 
         # Download thumbnail if available
         thumbnail_path = None
-        thumbnail_url = idea.get("Thumbnail")
+        thumbnail_url = idea.get(IdeaFields.THUMBNAIL)
         if thumbnail_url:
             # Handle Airtable attachment format
             if isinstance(thumbnail_url, list) and thumbnail_url:
@@ -296,16 +297,16 @@ class YouTubeUploader:
                 thumbnail_path=thumbnail_path,
             )
         except Exception as e:
-            airtable_client.update_idea_field(record_id, "Upload Status", "failed")
+            airtable_client.update_idea_field(record_id, IdeaFields.UPLOAD_STATUS, "failed")
             self._cleanup(local_video, tmp_dir)
             return {"error": f"YouTube upload failed: {e}"}
 
         # Update Airtable with YouTube info (including Upload Date for performance snapshots)
         airtable_client.update_idea_fields(record_id, {
-            "YouTube Video ID": result["video_id"],
-            "YouTube URL": result["video_url"],
-            "Upload Status": "uploaded",
-            "Upload Date": datetime.now(timezone.utc).isoformat(),
+            IdeaFields.YOUTUBE_VIDEO_ID: result["video_id"],
+            IdeaFields.YOUTUBE_URL: result["video_url"],
+            IdeaFields.UPLOAD_STATUS: "uploaded",
+            IdeaFields.UPLOAD_DATE: datetime.now(timezone.utc).isoformat(),
         })
 
         # Cleanup temp files

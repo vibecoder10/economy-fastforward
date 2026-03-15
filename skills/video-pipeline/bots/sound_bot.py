@@ -12,6 +12,7 @@ from clients.sound_client import SoundClient
 from clients.airtable_client import AirtableClient
 from clients.google_client import GoogleClient
 from clients.slack_client import SlackClient
+from pipeline_constants import ImageFields, IdeaFields
 
 
 # Safety limit — max generations per video
@@ -63,13 +64,13 @@ class SoundBot:
         # Filter to images with Sound Prompt (not SKIP) but no Sound Effect
         needs_generation = [
             img for img in images
-            if img.get("Sound Prompt")
-            and img.get("Sound Prompt") != "SKIP"
-            and not img.get("Sound Effect")
+            if img.get(ImageFields.SOUND_PROMPT)
+            and img.get(ImageFields.SOUND_PROMPT) != "SKIP"
+            and not img.get(ImageFields.SOUND_EFFECT)
         ]
 
         if not needs_generation:
-            already_done = sum(1 for img in images if img.get("Sound Effect"))
+            already_done = sum(1 for img in images if img.get(ImageFields.SOUND_EFFECT))
             if already_done > 0:
                 return {
                     "bot": "Sound Bot",
@@ -83,13 +84,13 @@ class SoundBot:
         if not folder_id:
             idea = self.airtable.find_idea_by_title(video_title)
             if idea:
-                folder_id = idea.get("Google Drive Folder ID") or idea.get("Drive Folder ID")
+                folder_id = idea.get(IdeaFields.GOOGLE_DRIVE_FOLDER_ID) or idea.get(IdeaFields.DRIVE_FOLDER_ID)
             if not folder_id:
                 return {"error": f"No Drive folder found for: {video_title}"}
 
         needs_generation = sorted(
             needs_generation,
-            key=lambda i: (i.get("Scene", 0), i.get("Image Index", 0)),
+            key=lambda i: (i.get(ImageFields.SCENE, 0), i.get(ImageFields.IMAGE_INDEX, 0)),
         )
 
         total_generated = 0
@@ -145,9 +146,9 @@ class SoundBot:
         Returns True if successful.
         """
         record_id = img["id"]
-        scene = img.get("Scene", 0)
-        idx = img.get("Image Index", 0)
-        prompt = img.get("Sound Prompt", "")
+        scene = img.get(ImageFields.SCENE, 0)
+        idx = img.get(ImageFields.IMAGE_INDEX, 0)
+        prompt = img.get(ImageFields.SOUND_PROMPT, "")
 
         if dry_run:
             print(f"    [DRY RUN] Scene {scene} img {idx}: {prompt[:60]}...")

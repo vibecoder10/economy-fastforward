@@ -20,6 +20,7 @@ Description architecture:
 
 import json
 from typing import Optional
+from pipeline_constants import ScriptFields
 
 
 # Static hashtags (always appended)
@@ -101,7 +102,7 @@ class SEOGenerator:
         # Build script excerpt (first ~500 words)
         full_script = ""
         for script in scripts:
-            text = script.get("Scene text", "")
+            text = script.get(ScriptFields.SCENE_TEXT, "")
             full_script += text + " "
             if len(full_script.split()) > 500:
                 break
