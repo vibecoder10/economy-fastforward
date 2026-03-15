@@ -937,12 +937,31 @@ async def _expand_with_scene_blocks(
     composition_map = {
         "wide": "wide", "medium": "medium", "closeup": "closeup",
         "close-up": "closeup", "extreme_closeup": "closeup", "extreme-closeup": "closeup",
+        "overhead": "overhead", "low_angle": "low_angle", "low-angle": "low_angle",
+        "portrait": "portrait", "environmental": "environmental",
     }
 
+    # Cinematic rotation: if Story Bible repeats the same camera, cycle through alternatives
+    _ROTATION_ORDER = ["wide", "medium", "closeup", "low_angle", "overhead", "medium", "wide"]
+
+    def _enforce_composition_rotation(requested: str, prev: str | None) -> str:
+        """Prevent consecutive identical compositions — rotate to next if repeated."""
+        if prev is None or requested != prev:
+            return requested
+        # Same as previous — pick the next in rotation after the requested type
+        try:
+            idx = _ROTATION_ORDER.index(requested)
+            return _ROTATION_ORDER[(idx + 1) % len(_ROTATION_ORDER)]
+        except ValueError:
+            return "medium" if requested != "medium" else "closeup"
+
     concepts = []
+    prev_composition = None
     for i, (seg, ctx) in enumerate(zip(segments, segment_contexts)):
         camera = (ctx.get("camera", "medium") if ctx else "medium").lower()
         composition = composition_map.get(camera, "medium")
+        composition = _enforce_composition_rotation(composition, prev_composition)
+        prev_composition = composition
         camera_direction = (ctx.get("action", "") if ctx else "").strip()
         block_mood = (ctx.get("block_mood", "neutral") if ctx else "neutral")
 

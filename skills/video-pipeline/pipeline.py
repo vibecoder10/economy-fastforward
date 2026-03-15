@@ -200,38 +200,6 @@ class VideoPipeline:
         else:
             print(f"   ℹ️ No Core Image — YouTube pipeline uses text-to-image (no reference needed)")
 
-    def _extract_youtube_thumbnail(self, url: str) -> Optional[str]:
-        """Extract thumbnail image URL from a YouTube video URL.
-
-        Args:
-            url: YouTube video URL (various formats supported)
-
-        Returns:
-            Direct URL to the thumbnail image, or None if not a YouTube URL
-        """
-        import re
-
-        # Patterns to extract video ID from various YouTube URL formats
-        patterns = [
-            r'(?:youtube\.com/watch\?v=|youtu\.be/|youtube\.com/embed/)([a-zA-Z0-9_-]{11})',
-            r'youtube\.com/v/([a-zA-Z0-9_-]{11})',
-            r'youtube\.com/shorts/([a-zA-Z0-9_-]{11})',
-        ]
-
-        video_id = None
-        for pattern in patterns:
-            match = re.search(pattern, url)
-            if match:
-                video_id = match.group(1)
-                break
-
-        if not video_id:
-            return None
-
-        # Return maxresdefault thumbnail (highest quality)
-        # Falls back gracefully if not available
-        return f"https://img.youtube.com/vi/{video_id}/maxresdefault.jpg"
-
     def check_existing_work(self, video_title: str) -> dict:
         """Check what work has already been done for this video.
         
@@ -379,46 +347,6 @@ class VideoPipeline:
                     hero_ids.append(final_img["id"])
 
         return hero_ids[:max_heroes]
-
-    def estimate_video_generation_cost(self, video_title: str = None) -> dict:
-        """Estimate the cost of video generation for a video.
-
-        Args:
-            video_title: Title of video to estimate (uses current if None)
-
-        Returns:
-            Dict with cost breakdown:
-            - total_images: int
-            - hero_shots: int
-            - standard_shots: int
-            - total_cost: float
-        """
-        title = video_title or self.video_title
-        if not title:
-            return {"error": "No video title specified"}
-
-        images = self.airtable.get_all_images_for_video(title)
-        done_images = [img for img in images if img.get("Status") == "Done"]
-
-        # Identify hero shots
-        hero_ids = self.identify_hero_shots(done_images)
-
-        hero_count = len(hero_ids)
-        standard_count = len(done_images) - hero_count
-
-        # Cost calculation (same rate for 6s and 10s via Kie.ai)
-        total_cost = len(done_images) * self.COST_PER_VIDEO_CLIP
-
-        return {
-            "video_title": title,
-            "total_images": len(done_images),
-            "hero_shots": hero_count,
-            "standard_shots": standard_count,
-            "total_cost": round(total_cost, 2),
-            "hero_duration": "10s each",
-            "standard_duration": "6s each",
-            "hero_ids": hero_ids,
-        }
 
     async def run_next_step(self) -> dict:
         """Run the next step based on what's in the Ideas table.
@@ -1006,221 +934,6 @@ class VideoPipeline:
         result["new_status"] = self.STATUS_READY_VIDEO_SCRIPTS
         return result
 
-    async def run_image_prompt_bot_legacy(self) -> dict:
-        """Generate image prompts based on voiceover duration (LEGACY PATH).
-
-        Deprecated: Use run_styled_image_prompts() instead, which uses the
-        Visual Identity System (Dossier/Schema/Echo) with the unified scene format.
-
-        Rule: ONE image per 6-10 seconds of voiceover.
-
-        REQUIRES: Ideas status = "Ready For Image Prompts"
-        UPDATES TO: "Ready For Images" when complete
-        """
-        from clients.sentence_utils import get_audio_duration
-
-        if not self.current_idea:
-            idea = self.get_idea_by_status(self.STATUS_READY_IMAGE_PROMPTS)
-            if not idea:
-                return {"status": "idle", "message": "No videos at Ready For Image Prompts"}
-            self._load_idea(idea)
-
-        if self.current_idea.get("Status") != self.STATUS_READY_IMAGE_PROMPTS:
-            return {"error": f"Status mismatch"}
-
-        print(f"\n🌉 IMAGE PROMPT BOT: Processing '{self.video_title}'")
-
-        scenes = self.airtable.get_scripts_by_title(self.video_title)
-        if not scenes:
-            return {"error": "No scenes found"}
-
-        print(f"  Found {len(scenes)} scenes")
-
-        # Check for existing image prompts to avoid duplicates
-        existing_images = self.airtable.get_all_images_for_video(self.video_title)
-        existing_scene_indices = set()
-        for img in existing_images:
-            key = (img.get("Scene"), img.get("Image Index"))
-            existing_scene_indices.add(key)
-        
-        if existing_images:
-            print(f"  Found {len(existing_images)} existing prompts - will skip completed scenes")
-
-        total_prompts = 0
-
-        for scene in scenes:
-            scene_number = scene.get("scene") or scene.get("Scene") or 1
-
-            # Check if this scene already has prompts
-            scene_prompts = [img for img in existing_images if img.get("Scene") == scene_number]
-            if scene_prompts:
-                print(f"  Scene {scene_number}: Already has {len(scene_prompts)} prompts, skipping...")
-                continue
-            scene_text = scene.get("Scene text") or scene.get("Script") or ""
-            voice_over = scene.get("Voice Over")
-
-            # Get duration from audio file
-            voice_duration = None
-            if voice_over and isinstance(voice_over, list) and len(voice_over) > 0:
-                voice_url = voice_over[0].get("url")
-                if voice_url:
-                    print(f"  Scene {scene_number}: Fetching audio duration...")
-                    voice_duration = get_audio_duration(voice_url)
-
-            # Fallback to word count estimate
-            if not voice_duration:
-                word_count = len(scene_text.split())
-                voice_duration = word_count / 2.5
-
-            # Calculate words per second for this scene
-            word_count = len(scene_text.split())
-            words_per_second = word_count / voice_duration if voice_duration > 0 else 2.5
-
-            # Target 8 seconds per image (range 6-10)
-            target_images = max(1, round(voice_duration / 8))
-            min_images = max(1, int(voice_duration / 10))
-            max_images = max(1, int(voice_duration / 6))
-
-            # Calculate target words per segment (for 8s at current speaking rate)
-            words_per_segment = int(word_count / target_images) if target_images > 0 else word_count
-
-            print(f"  Scene {scene_number}: {voice_duration:.0f}s → {target_images} images (~{words_per_segment} words each)")
-
-            # Call Anthropic to segment into concepts
-            # YouTube pipeline uses cinematic photorealistic dossier style
-            concepts = await self.anthropic.segment_scene_into_concepts(
-                scene_text=scene_text,
-                target_count=target_images,
-                min_count=min_images,
-                max_count=max_images,
-                words_per_segment=words_per_segment,
-                scene_number=scene_number,
-                pipeline_type="youtube",
-            )
-
-            # Enforce hard duration caps before creating records
-            config = self.video_config or VideoConfig.from_airtable_record(self.current_idea or {})
-            clip_dur = config.clip_duration_seconds
-            pre_count = len(concepts)
-            concepts = enforce_duration_caps(concepts, clip_duration_seconds=clip_dur)
-            concepts = recalculate_durations(concepts, clip_duration_seconds=clip_dur)
-            if len(concepts) != pre_count:
-                print(f"    Duration cap: {pre_count} → {len(concepts)} segments (max {clip_dur}s)")
-
-            # Create records with calculated durations (capped at clip_dur range)
-            cumulative_start = 0.0
-            for i, concept in enumerate(concepts):
-                concept_text = concept.get("text", "")
-                concept_words = len(concept_text.split())
-                concept_duration = concept_words / words_per_second if words_per_second > 0 else 8.0
-
-                # ENFORCE duration range — floor 4s, ceiling = clip_duration
-                concept_duration = max(4.0, min(float(clip_dur), concept_duration))
-
-                # Get shot_type from segment (now included in output)
-                shot_type = concept.get("shot_type", "medium_human_story")
-
-                # Skip if this exact (scene, index) already exists
-                if (scene_number, i + 1) in existing_scene_indices:
-                    print(f"      Skipping Scene {scene_number}, Index {i + 1} - already exists")
-                    continue
-
-                self.airtable.create_concept_record(
-                    scene_number=scene_number,
-                    concept_index=i + 1,
-                    sentence_text=concept_text,
-                    image_prompt=concept.get("image_prompt", ""),
-                    composition=shot_type or "medium",
-                    video_title=self.video_title,
-                )
-                cumulative_start += concept_duration
-                total_prompts += 1
-
-            print(f"    ✅ Created {len(concepts)} prompts for scene {scene_number}")
-
-            # Slack progress update every 5 scenes
-            if scene_number % 5 == 0:
-                self.slack.notify(f"📝 Prompt progress: {total_prompts} prompts created (through Scene {scene_number})")
-
-        # Flag hero shots after all prompts are created
-        hero_count = await self._flag_hero_shots()
-        print(f"  🌟 Flagged {hero_count} hero shots")
-
-        self._update_status(self.STATUS_READY_IMAGES)
-
-        print(f"\n  ✅ Total: {total_prompts} image prompts created")
-
-        # Slack completion
-        self.slack.notify(f"✅ Image prompts done: {total_prompts} created for *{self.video_title}*")
-
-        return {
-            "bot": "Image Prompt Bot",
-            "video_title": self.video_title,
-            "prompt_count": total_prompts,
-            "hero_count": hero_count,
-            "new_status": self.STATUS_READY_IMAGES
-        }
-
-    async def _flag_hero_shots(self, max_heroes: int = 3) -> int:
-        """Flag 2-3 images per video as hero shots for 10s animation.
-
-        Criteria (flag if ANY match):
-        - Shot type is 'pull_back_reveal'
-        - Shot type is 'isometric_diorama' (complex detail worth lingering on)
-        - Last image in the video sequence
-
-        Constraints:
-        - Maximum 3 hero shots per video
-        - Never flag consecutive images
-
-        Returns:
-            Number of hero shots flagged
-        """
-        # Get all images for this video (just created)
-        all_images = self.airtable.get_all_images_for_video(self.video_title)
-
-        if not all_images:
-            return 0
-
-        # Sort by scene and index for proper ordering
-        sorted_images = sorted(
-            all_images,
-            key=lambda x: (x.get("Scene", 0), x.get("Image Index", 0))
-        )
-
-        hero_shot_types = ["pull_back_reveal", "isometric_diorama"]
-        hero_count = 0
-        last_was_hero = False
-        total_images = len(sorted_images)
-
-        for i, img in enumerate(sorted_images):
-            shot_type = (img.get("Shot Type") or "").lower().strip()
-            is_last = (i == total_images - 1)
-
-            should_flag = (
-                shot_type in hero_shot_types
-                or is_last
-            )
-
-            if should_flag and not last_was_hero and hero_count < max_heroes:
-                # Flag as hero shot
-                self.airtable.update_image_animation_fields(
-                    img["id"],
-                    is_hero_shot=True,
-                )
-                hero_count += 1
-                last_was_hero = True
-                print(f"    🌟 Hero shot: Scene {img.get('Scene')}, Image {img.get('Image Index')} ({shot_type or 'last image'})")
-            else:
-                # Ensure not flagged
-                self.airtable.update_image_animation_fields(
-                    img["id"],
-                    is_hero_shot=False,
-                )
-                last_was_hero = False
-
-        return hero_count
-
     async def run_image_bot(self) -> dict:
         """Generate images from prompts.
 
@@ -1304,66 +1017,6 @@ class VideoPipeline:
             "new_status": self.STATUS_READY_SOUND_DESIGN,
         }
 
-    async def run_visuals_pipeline(self) -> dict:
-        """Generate image prompts AND images for all scenes (combined pipeline).
-
-        REQUIRES: Ideas status = "Ready For Image Prompts"
-        UPDATES TO: "Ready For Video Scripts" when complete
-
-        Note: This is a combined pipeline. For granular control, use
-        run_styled_image_prompts() and run_image_bot() separately.
-        """
-        # Verify status
-        if not self.current_idea:
-            idea = self.get_idea_by_status(self.STATUS_READY_IMAGE_PROMPTS)
-            if not idea:
-                return {"error": "No idea with status 'Ready For Image Prompts'"}
-            self._load_idea(idea)
-
-        if self.current_idea.get("Status") != self.STATUS_READY_IMAGE_PROMPTS:
-            return {"error": f"Idea status is '{self.current_idea.get('Status')}', expected 'Ready For Image Prompts'"}
-
-        print(f"\n🖼️ VISUALS PIPELINE: Processing '{self.video_title}'")
-
-        # Get or create project folder
-        if not self.project_folder_id:
-            folder = self.google.get_or_create_folder(self.video_title)
-            self.project_folder_id = folder["id"]
-
-        # Step 1: Generate Styled Image Prompts (Visual Identity System)
-        prompt_result = await self.run_styled_image_prompts()
-
-        # Step 2: Generate Images
-        image_result = await self._run_image_bot()
-
-        # VERIFY all images are actually complete before advancing status
-        all_images = self.airtable.get_all_images_for_video(self.video_title)
-        pending = [img for img in all_images if img.get("Status") != "Done" and img.get("Image Prompt")]
-        total = len([img for img in all_images if img.get("Image Prompt")])
-
-        if len(pending) > 0:
-            error_msg = f"{len(pending)}/{total} images still pending after all retries"
-            print(f"  ❌ {error_msg}")
-            self.slack.notify(f"❌ Visuals Pipeline STOPPED: {error_msg} for *{self.video_title}*")
-            return {
-                "status": "failed",
-                "bot": "Visuals Pipeline",
-                "video_title": self.video_title,
-                "error": error_msg,
-            }
-
-        # ALL images verified complete — advance to sound design
-        self._update_status(self.STATUS_READY_SOUND_DESIGN)
-        print(f"  ✅ All {total} images verified complete. Status updated to: {self.STATUS_READY_SOUND_DESIGN}")
-
-        return {
-            "bot": "Visuals Pipeline",
-            "video_title": self.video_title,
-            "prompt_count": prompt_result.get("prompt_count", 0),
-            "image_count": image_result.get("image_count", 0),
-            "new_status": self.STATUS_READY_SOUND_DESIGN,
-        }
-    
     async def _run_image_bot(self) -> dict:
         """Generate images from prompts (internal method).
 
@@ -2291,13 +1944,21 @@ class VideoPipeline:
             print(f"  Scene {scene_num} (Act {act_number}): "
                   f"{len(scene_text.split())} words — expanding...")
 
-            # Get voice duration if available for accurate word-per-second calculation
+            # Get voice duration for accurate words-per-second calculation
             voice_duration = None
             voice_over = script.get("Voice Over")
             if voice_over and isinstance(voice_over, list) and len(voice_over) > 0:
-                # Voice duration will be calculated by audio_sync later
-                # For now, estimate from word count as fallback
-                pass  # deterministic_splitter will use DEFAULT_WPS if None
+                voice_url = voice_over[0].get("url")
+                if voice_url:
+                    try:
+                        from clients.sentence_utils import get_audio_duration
+                        voice_duration = get_audio_duration(voice_url)
+                        if voice_duration:
+                            print(f"    Voice duration: {voice_duration:.1f}s "
+                                  f"({len(scene_text.split()) / voice_duration:.2f} WPS)")
+                    except Exception as e:
+                        print(f"    ⚠️ Could not get voice duration: {e}")
+            # deterministic_splitter uses DEFAULT_WPS (2.5) if voice_duration is None
 
             concepts = await expand_scene_concepts_deterministic(
                 anthropic_client=self.anthropic,
@@ -4270,107 +3931,6 @@ class VideoPipeline:
     # _extract_sound_layers removed — sound effects now live on image rows,
     # not in the Script table's Sound Map JSON.
 
-    def generate_segment_data_ts(self, remotion_dir: Path = None) -> str:
-        """DEPRECATED: Use audio_sync.render_config_writer instead.
-
-        This method generated the old segmentData.ts file for Remotion.
-        Timing data now comes from render_config.json produced by the
-        audio_sync pipeline (Whisper-driven timestamps).
-
-        Kept for backward compatibility but is a no-op.
-        """
-        import warnings
-        warnings.warn(
-            "generate_segment_data_ts is deprecated. "
-            "Use audio_sync.render_config_writer to produce render_config.json.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return ""
-
-    def _generate_segment_data_ts_legacy(self, remotion_dir: Path = None) -> str:
-        """Legacy implementation preserved for reference. Do not call directly.
-
-        Reads segment data from Airtable Images table and creates the TypeScript file
-        that Remotion uses to align images with spoken words.
-
-        Args:
-            remotion_dir: Path to remotion-video directory. If None, uses default.
-
-        Returns:
-            Path to generated file
-        """
-        if remotion_dir is None:
-            remotion_dir = Path(__file__).parent.parent.parent / "remotion-video"
-
-        # Get all images for current video
-        images = self.airtable.get_all_images_for_video(self.video_title)
-
-        # Group images by scene
-        scenes_data: dict[int, list] = {}
-        for img in images:
-            scene_num = img.get("Scene", 0)
-            if scene_num not in scenes_data:
-                scenes_data[scene_num] = []
-
-            segment_text = img.get("Sentence Text", "")
-            duration = img.get("Duration (s)", 8.0)
-
-            if segment_text:  # Only include if we have segment text
-                scenes_data[scene_num].append({
-                    "text": segment_text,
-                    "duration": float(duration) if duration else 8.0,
-                    "index": img.get("Image Index", 0),
-                })
-
-        # Sort segments within each scene by index
-        for scene_num in scenes_data:
-            scenes_data[scene_num] = sorted(scenes_data[scene_num], key=lambda x: x["index"])
-
-        # Generate TypeScript content
-        ts_lines = [
-            "// Auto-generated segment data from Airtable",
-            f"// Video: {self.video_title}",
-            "// Generated for word-to-image alignment in Remotion",
-            "",
-            "export interface SegmentText {",
-            "    text: string;",
-            "    duration: number;",
-            "}",
-            "",
-            "export const sceneSegmentData: Record<number, SegmentText[]> = {",
-        ]
-
-        # Add each scene's segments
-        for scene_num in sorted(scenes_data.keys()):
-            segments = scenes_data[scene_num]
-            ts_lines.append(f"    {scene_num}: [")
-            for seg in segments:
-                # Escape for TypeScript double-quoted strings:
-                # backslashes first, then quotes, then newlines
-                escaped_text = (
-                    seg["text"]
-                    .replace('\\', '\\\\')
-                    .replace('"', '\\"')
-                    .replace('\n', ' ')
-                    .replace('\r', ' ')
-                    .replace('`', '\\`')
-                    .replace('${', '\\${')
-                )
-                ts_lines.append(f'        {{ text: "{escaped_text}", duration: {seg["duration"]} }},')
-            ts_lines.append("    ],")
-
-        ts_lines.append("};")
-        ts_lines.append("")
-
-        # Write to file
-        output_path = remotion_dir / "src" / "segmentData.ts"
-        output_path.write_text("\n".join(ts_lines))
-
-        print(f"  ✅ Generated segmentData.ts with {len(scenes_data)} scenes")
-        return str(output_path)
-
-
     async def regenerate_images(self, scene_list: list[int] = None, image_indices: list[tuple[int, int]] = None) -> dict:
         """Regenerate specific missing images for the current video.
 
@@ -4501,136 +4061,6 @@ class VideoPipeline:
         print(f"\n  ✅ Regenerated {regenerated} images")
         return {"status": "ok", "regenerated": regenerated, "total_requested": len(images_to_regen)}
 
-    async def sync_all_assets(self, video_title: str):
-        """Syncs all audio and images for a video to Google Drive."""
-        print(f"\n🔄 SYNC: Checking assets for '{video_title}'...")
-        
-        # Get Folder
-        folder = self.google.get_or_create_folder(video_title)
-        folder_id = folder["id"]
-        print(f"  📂 Target Folder: {video_title} ({folder_id})")
-        
-        # 1. Sync Audio
-        scripts = self.airtable.get_scripts_by_title(video_title)
-        print(f"  Found {len(scripts)} script records.")
-        
-        for script in scripts:
-            scene = script.get("scene", 0)
-            # Audio field in airtable script table is named 'Voice Over'
-            audio_attachments = script.get("Voice Over", [])
-            audio_url = None
-            if isinstance(audio_attachments, list) and audio_attachments:
-                audio_url = audio_attachments[0].get("url")
-            elif isinstance(audio_attachments, str):
-                audio_url = audio_attachments
-            
-            if not audio_url:
-                continue
-                
-            filename = f"Scene {scene}.mp3"
-            
-            # Check exist (Optimized to avoid download if exists)
-            if self.google.search_file(filename, folder_id):
-                print(f"  ✅ Audio (Scene {scene}) exists.")
-                continue
-                
-            print(f"  ⬇️  Downloading Audio (Scene {scene})...")
-            try:
-                # Use ImageClient's download (generic http) or ElevenLabs? 
-                # Better use generic or duplicate implementation. 
-                # ElevenLabs client has download_audio
-                content = await self.elevenlabs.download_audio(audio_url)
-                self.google.upload_audio(content, filename, folder_id)
-                print(f"  ✅ Uploaded Audio {filename}")
-            except Exception as e:
-                print(f"  ❌ Failed Audio {filename}: {e}")
-            
-        # 2. Sync Images
-        images = self.airtable.get_all_images_for_video(video_title)
-        print(f"  Found {len(images)} image records.")
-        
-        for img in images:
-            scene = img.get("Scene", 0)
-            index = img.get("Image Index", 0)
-            img_list = img.get("Image", [])
-            img_url = img_list[0].get("url") if img_list else None
-            
-            if not img_url:
-                continue
-                
-            filename = f"Scene_{str(scene).zfill(2)}_{str(index).zfill(2)}.png"
-            
-            if self.google.search_file(filename, folder_id):
-                print(f"  ✅ Image (Scene {scene}-{index}) exists.")
-                continue
-            
-            print(f"  ⬇️  Downloading Image ({filename})...")
-            try:
-                content = await self.image_client.download_image(img_url)
-                self.google.upload_image(content, filename, folder_id)
-                print(f"  ✅ Uploaded Image {filename}")
-            except Exception as e:
-                print(f"  ❌ Failed Image {filename}: {e}")
-                
-        print("\n✅ Sync Complete!")
-        return {"status": "synced"}
-
-    async def sync_scripts_to_google_doc(self, video_title: str) -> dict:
-        """Create Google Doc from existing Airtable scripts.
-
-        Use this to recover when Google Docs API was unavailable during script generation.
-        Scripts are already saved to Airtable, this just creates the Doc.
-
-        Args:
-            video_title: The video title to sync
-
-        Returns:
-            Dict with doc_id and doc_url if successful
-        """
-        print(f"\n📄 SYNC SCRIPTS TO GOOGLE DOC: '{video_title}'")
-
-        # Get scripts from Airtable
-        scripts = self.airtable.get_scripts_by_title(video_title)
-        if not scripts:
-            return {"error": f"No scripts found for '{video_title}'"}
-
-        print(f"  Found {len(scripts)} scenes in Airtable")
-
-        # Get or create folder
-        folder = self.google.get_or_create_folder(video_title)
-        folder_id = folder["id"]
-
-        # Create Google Doc
-        doc = self.google.create_document(video_title, folder_id)
-        if doc.get("unavailable"):
-            return {"error": "Google Docs API still unavailable"}
-
-        doc_id = doc["id"]
-        print(f"  Created Google Doc: {doc_id}")
-
-        # Append all scenes
-        for script in scripts:
-            scene_num = script.get("scene", 0)
-            scene_text = script.get("Scene text", "")
-            if scene_text:
-                success = self.google.append_to_document(
-                    doc_id,
-                    f"**Scene {scene_num}**\n\n{scene_text}",
-                )
-                if success:
-                    print(f"  ✅ Added Scene {scene_num}")
-                else:
-                    print(f"  ⚠️  Failed to add Scene {scene_num}")
-
-        doc_url = self.google.get_document_url(doc_id)
-        print(f"\n✅ Google Doc created: {doc_url}")
-
-        return {
-            "doc_id": doc_id,
-            "doc_url": doc_url,
-            "scenes_synced": len(scripts),
-        }
-
 
 async def main():
     """CLI entry point - runs the next available step."""
@@ -4640,7 +4070,7 @@ async def main():
 
     if len(sys.argv) > 1 and sys.argv[1] in ["--help", "-h"]:
         print("=" * 60)
-        print("🎬 VIDEO PIPELINE - CLI Options")
+        print("VIDEO PIPELINE - CLI Options")
         print("=" * 60)
         print("\nUsage: python pipeline.py [option]")
         print("\nOptions:")
@@ -4652,15 +4082,14 @@ async def main():
         print("  --trending        Generate ideas from trending YouTube videos (Apify)")
         print("  --competitors     Scrape competitor channels and generate modeled ideas")
         print("  --discover        Scan headlines for video ideas and save to Airtable")
-        print("  --translate       Run brief translator (research brief → script + scenes)")
+        print("  --translate       Run brief translator (research brief -> script + scenes)")
         print("  --styled-prompts  Run image prompt engine with visual identity system")
-        print('  --full "..."      Full pipeline: Idea → Script → Voice → Images → Render')
+        print('  --full "..."      Full pipeline: Idea -> Script -> Voice -> Images -> Render')
         print("  --produce [id]    Produce pipeline from a queued idea to completion")
         print("  --from-stage X    Resume pipeline from a specific stage")
-        print("  --sync            Sync assets to Google Drive")
         print("  --remotion        Export Remotion props for rendering")
         print('  --regenerate      Regenerate missing images (fixes render failures)')
-        print("  --render          Render only — skip other stages, process one at a time")
+        print("  --render          Render only - skip other stages, process one at a time")
         print("  --run-queue       Process all videos until queue is empty")
         print("  --help, -h        Show this help message")
         print("\nExamples:")
@@ -4677,7 +4106,7 @@ async def main():
     if len(sys.argv) > 1 and sys.argv[1] == "--status":
         # Show current status of all ideas
         print("=" * 60)
-        print("📋 AIRTABLE IDEAS STATUS")
+        print("AIRTABLE IDEAS STATUS")
         print("=" * 60)
         ideas = pipeline.airtable.get_all_ideas()
         for idea in ideas:
@@ -4688,7 +4117,7 @@ async def main():
         # Generate ideas from URL or concept
         if len(sys.argv) < 3:
             print("=" * 60)
-            print("💡 IDEA BOT - Generate Video Concepts")
+            print("IDEA BOT - Generate Video Concepts")
             print("=" * 60)
             print("\nUsage:")
             print('  python pipeline.py --idea "https://youtube.com/watch?v=VIDEO_ID"')
@@ -4709,7 +4138,7 @@ async def main():
 
         if len(sys.argv) < 3:
             print("=" * 60)
-            print("🔬 RESEARCH AGENT - Deep Topic Research")
+            print("RESEARCH AGENT - Deep Topic Research")
             print("=" * 60)
             print("\nUsage:")
             print('  python pipeline.py --research "Topic to research"')
@@ -4721,14 +4150,14 @@ async def main():
             return
 
         topic = " ".join(sys.argv[2:])
-        print(f"\n🔬 RESEARCH AGENT: Researching '{topic}'...")
+        print(f"\nRESEARCH AGENT: Researching '{topic}'...")
         payload = await run_research(
             anthropic_client=pipeline.anthropic,
             topic=topic,
             airtable_client=pipeline.airtable,
         )
 
-        print(f"\n✅ Research complete!")
+        print(f"\nResearch complete!")
         print(f"   Headline: {payload.get('headline', 'N/A')}")
         print(f"   Record ID: {payload.get('_airtable_record_id', 'N/A')}")
         print(f"   Fields: {len(payload)}")
@@ -4739,25 +4168,25 @@ async def main():
     if len(sys.argv) > 1 and sys.argv[1] == "--more-ideas":
         import os as os_mod
         from bots.idea_modeling import generate_modeled_ideas
-        
+
         config_path = os_mod.path.join(os_mod.path.dirname(__file__), "config", "idea_modeling_config.json")
-        
+
         if not os_mod.path.exists(config_path):
             print("No format library found. Run --trending first to build it.")
             sys.exit(1)
-        
+
         with open(config_path, "r") as f:
             config = json.load(f)
-        
+
         format_library = config.get("format_library", [])
-        
+
         if not format_library:
             print("Format library is empty. Run --trending first to populate it.")
             sys.exit(1)
-        
+
         format_library.sort(key=lambda x: x.get("times_seen", 0), reverse=True)
         top_formats = format_library[:5]
-        
+
         print("")
         print("=" * 50)
         print("IDEA ENGINE v2 - Generate from Format Library")
@@ -4767,7 +4196,7 @@ async def main():
             formula_display = fmt["formula"][:50] + "..." if len(fmt["formula"]) > 50 else fmt["formula"]
             seen = fmt.get("times_seen", 1)
             print(f"  - {formula_display} (seen {seen}x)")
-        
+
         load_dotenv()
         from clients.anthropic_client import AnthropicClient as _AnthropicClient
         from clients.airtable_client import AirtableClient as _AirtableClient
@@ -4792,9 +4221,9 @@ async def main():
                 try:
                     idea["original_dna"] = f"Idea Engine v2: format_library"
                     record = airtable.create_idea(idea, source="format_library")
-                    print(f"    ✅ Saved idea {i}: {record.get('id')}")
+                    print(f"    Saved idea {i}: {record.get('id')}")
                 except Exception as e:
-                    print(f"    ❌ Failed to save idea {i}: {e}")
+                    print(f"    Failed to save idea {i}: {e}")
 
             msg_lines = ["IDEA ENGINE v2 - From Format Library", "-" * 40]
             for i, idea in enumerate(ideas, 1):
@@ -4809,6 +4238,7 @@ async def main():
         import asyncio
         asyncio.run(run_more_ideas())
         sys.exit(0)
+
     if len(sys.argv) > 1 and sys.argv[1] == "--trending":
         # Generate ideas from trending YouTube videos
         search_queries = None
@@ -4865,7 +4295,7 @@ async def main():
         focus_msg = f" (focus: {focus})" if focus else ""
 
         print("=" * 60)
-        print(f"🔍 DISCOVERY SCANNER — Headlines + Competitors{focus_msg}")
+        print(f"DISCOVERY SCANNER - Headlines + Competitors{focus_msg}")
         print("=" * 60)
 
         try:
@@ -4878,10 +4308,10 @@ async def main():
             )
         except Exception as e:
             error_msg = f"Discovery scanner crashed: {e}"
-            print(f"\n❌ {error_msg}")
+            print(f"\n{error_msg}")
             try:
                 pipeline.slack.send_message(
-                    f"❌ *9 AM Discovery Scan FAILED*\n"
+                    f"*9 AM Discovery Scan FAILED*\n"
                     f"```{error_msg}```\n"
                     f"No ideas were generated. Run `discover` manually to retry."
                 )
@@ -4894,10 +4324,10 @@ async def main():
         all_ideas = news_ideas + competitor_ideas
 
         if not all_ideas:
-            print("\n⚠️ No ideas found. Try with a different focus keyword.")
+            print("\nNo ideas found. Try with a different focus keyword.")
             try:
                 pipeline.slack.send_message(
-                    "🔍 *Daily Discovery Scan* ran at 9 AM but found no strong ideas today.\n"
+                    "*Daily Discovery Scan* ran at 9 AM but found no strong ideas today.\n"
                     "Try running `discover [focus]` manually with a specific topic."
                 )
             except Exception:
@@ -4936,10 +4366,10 @@ async def main():
             try:
                 record = pipeline.airtable.create_idea(idea_data, source="discovery_scanner")
                 saved_record_ids.append({"id": record.get("id"), "type": "news"})
-                print(f"  ✅ [News {i}] {record.get('id')} — {title}")
+                print(f"  [News {i}] {record.get('id')} - {title}")
             except Exception as e:
                 saved_record_ids.append(None)
-                print(f"  ❌ [News {i}] Failed: {e}")
+                print(f"  [News {i}] Failed: {e}")
 
         # Save competitor ideas
         for i, idea in enumerate(competitor_ideas, 1):
@@ -4948,18 +4378,17 @@ async def main():
             try:
                 record = pipeline.airtable.create_idea(idea_data, source="competitor_scanner")
                 saved_record_ids.append({"id": record.get("id"), "type": "competitor"})
-                print(f"  ✅ [Competitor {i}] {record.get('id')} — {title}")
+                print(f"  [Competitor {i}] {record.get('id')} - {title}")
             except Exception as e:
                 saved_record_ids.append(None)
-                print(f"  ❌ [Competitor {i}] Failed: {e}")
+                print(f"  [Competitor {i}] Failed: {e}")
 
         # Post interactive Slack message with letter emoji reactions
-        # Always target production-agent channel — cron runs unattended
         production_channel = SlackClient.DEFAULT_CHANNEL_ID
         try:
             slack_msg = (
-                "☀️ *Good Morning! Daily Discovery Scan Complete*\n"
-                "React with a letter emoji to approve an idea — "
+                "*Good Morning! Daily Discovery Scan Complete*\n"
+                "React with a letter emoji to approve an idea - "
                 "I'll auto-research it and queue it for the 12 PM pipeline run.\n\n"
             )
             slack_msg += format_ideas_for_slack(result)
@@ -4986,35 +4415,26 @@ async def main():
                 try:
                     pipeline.slack.add_reaction(emoji, msg_ts, production_channel)
                 except Exception as e:
-                    print(f"  ⚠️ Failed to add reaction {emoji}: {e}")
+                    print(f"  Failed to add reaction {emoji}: {e}")
 
             # Persist tracking data for the Slack bot to handle reactions
-            # Store the full result (with both news and competitor ideas)
             save_discovery_message(msg_ts, all_ideas, [r.get("id") if r else None for r in saved_record_ids])
-            print(f"\n✅ Interactive Slack message posted (ts={msg_ts})")
-            print(f"   {len(option_map)} options with letter reactions — waiting for your choice!")
+            print(f"\nInteractive Slack message posted (ts={msg_ts})")
+            print(f"   {len(option_map)} options with letter reactions - waiting for your choice!")
 
         except Exception as e:
-            print(f"\n❌ Slack notification FAILED: {e}")
-            # Fallback: try a shorter plain message (no reactions/tracking)
+            print(f"\nSlack notification FAILED: {e}")
             try:
-                short_msg = f"☀️ *Discovery Scan Complete* — {len(news_ideas)} news + {len(competitor_ideas)} competitor ideas saved to Airtable.\n"
+                short_msg = f"*Discovery Scan Complete* - {len(news_ideas)} news + {len(competitor_ideas)} competitor ideas saved to Airtable.\n"
                 short_msg += "\nCheck Airtable to approve."
                 pipeline.slack.send_message(short_msg, production_channel)
                 print("   Sent short fallback message to Slack")
             except Exception as e2:
                 print(f"   Fallback also failed: {e2}")
-                print("   Ideas were saved to Airtable — check there manually.")
+                print("   Ideas were saved to Airtable - check there manually.")
 
         return
 
-    if len(sys.argv) > 1 and sys.argv[1] == "--sync":
-        # Sync assets for a specific video
-        # Hardcoded for now or args? User wants specific video.
-        title = "The 2030 Currency Collapse: Which Assets Will YOU Still Own?"
-        await pipeline.sync_all_assets(title)
-        return
-        
     if len(sys.argv) > 1 and sys.argv[1] == "--remotion":
         # Export Remotion props for a specific video
         from pathlib import Path
@@ -5025,7 +4445,7 @@ async def main():
         else:
             title = "The 2030 Currency Collapse: Which Assets Will YOU Still Own?"
 
-        print(f"\n📦 REMOTION EXPORT: Packaging '{title}'...")
+        print(f"\nREMOTION EXPORT: Packaging '{title}'...")
 
         # Load the idea to set video_title
         ideas = pipeline.airtable.get_all_ideas()
@@ -5035,11 +4455,9 @@ async def main():
                 break
 
         if not pipeline.video_title:
-            print(f"❌ Error: Could not find video '{title}'")
+            print(f"Error: Could not find video '{title}'")
             return
 
-        # NOTE: segmentData.ts generation removed — timing data now comes from
-        # render_config.json produced by the audio_sync pipeline.
         remotion_dir = Path(__file__).parent.parent.parent / "remotion-video"
 
         # Package props
@@ -5050,7 +4468,7 @@ async def main():
         with open(output_path, "w") as f:
             json.dump(props, f, indent=2)
 
-        print(f"\n✅ Remotion export complete!")
+        print(f"\nRemotion export complete!")
         print(f"   Props: {output_path}")
         print(f"   Scenes: {len(props.get('scenes', []))}")
 
@@ -5061,11 +4479,11 @@ async def main():
         )
         print(f"   Segments with text: {total_segments}")
         return
-    
+
     if len(sys.argv) > 1 and sys.argv[1] == "--regenerate":
         # Regenerate missing or specific images
         print("=" * 60)
-        print("🔄 REGENERATE IMAGES")
+        print("REGENERATE IMAGES")
         print("=" * 60)
 
         # Get video title (required)
@@ -5112,18 +4530,18 @@ async def main():
                 break
 
         if not pipeline.video_title:
-            print(f"❌ Error: Could not find video '{title}'")
+            print(f"Error: Could not find video '{title}'")
             return
 
         result = await pipeline.regenerate_images(scene_list=scene_list, image_indices=image_indices)
-        print(f"\n✅ Regeneration complete: {result.get('regenerated', 0)} images")
+        print(f"\nRegeneration complete: {result.get('regenerated', 0)} images")
         return
 
     # === BRIEF TRANSLATOR ===
     if len(sys.argv) > 1 and sys.argv[1] == "--translate":
         # Run brief translator on the current idea
         print("=" * 60)
-        print("📜 BRIEF TRANSLATOR - Research Brief → Script + Scenes")
+        print("BRIEF TRANSLATOR - Research Brief -> Script + Scenes")
         print("=" * 60)
         result = await pipeline.run_brief_translator()
         print(f"\nResult: {result.get('status', 'unknown')}")
@@ -5166,7 +4584,7 @@ async def main():
     # === RENDER ONLY ===
     if len(sys.argv) > 1 and sys.argv[1] == "--render":
         print("=" * 60)
-        print("🎬 RENDER MODE - Render Only (skips other stages)")
+        print("RENDER MODE - Render Only (skips other stages)")
         print("=" * 60)
 
         ideas = pipeline.airtable.get_ideas_by_status(
@@ -5174,10 +4592,10 @@ async def main():
         )
 
         if not ideas:
-            print("\n❌ No ideas with status 'Ready To Render'")
+            print("\nNo ideas with status 'Ready To Render'")
             return
 
-        print(f"\n📋 Found {len(ideas)} video(s) to render:")
+        print(f"\nFound {len(ideas)} video(s) to render:")
         for i, idea in enumerate(ideas, 1):
             print(f"   {i}. {idea.get('Video Title', 'Untitled')}")
 
@@ -5185,39 +4603,34 @@ async def main():
         for i, idea in enumerate(ideas, 1):
             title = idea.get("Video Title", "Untitled")
             print(f"\n{'=' * 60}")
-            print(f"🎬 RENDERING {i}/{len(ideas)}: {title}")
+            print(f"RENDERING {i}/{len(ideas)}: {title}")
             print(f"{'=' * 60}")
 
             pipeline._load_idea(idea)
             result = await pipeline._run_step_safe("Render Bot", pipeline.run_render_bot)
 
             if result.get("status") == "failed" or result.get("error"):
-                print(f"\n❌ Render failed for '{title}': {result.get('error')}")
-                print(f"   Stopping — fix this video before rendering the rest.")
+                print(f"\nRender failed for '{title}': {result.get('error')}")
+                print(f"   Stopping - fix this video before rendering the rest.")
                 break
 
             rendered += 1
-            print(f"\n✅ '{title}' rendered and uploaded!")
-            print(f"   🔗 {result.get('video_url', 'N/A')}")
+            print(f"\n'{title}' rendered and uploaded!")
+            print(f"   {result.get('video_url', 'N/A')}")
 
         print(f"\n{'=' * 60}")
-        print(f"📋 RENDER COMPLETE: {rendered}/{len(ideas)} video(s) rendered")
+        print(f"RENDER COMPLETE: {rendered}/{len(ideas)} video(s) rendered")
         print("=" * 60)
         return
 
     if len(sys.argv) > 1 and sys.argv[1] == "--run-queue":
         # Process ALL videos in pipeline until nothing left to do
-        # Scans all Airtable tables and processes every stage:
-        # Ready For Scripting → Script → Voice → Image Prompts → Images → Thumbnail → Ready To Render
-        # STOPS on any error — never silently advances past failures
         print("=" * 60)
-        print("🔄 PIPELINE QUEUE MODE - Processing All Stages To Render")
+        print("PIPELINE QUEUE MODE - Processing All Stages To Render")
         print("=" * 60)
 
         # PRE-FLIGHT: Process any ideas stuck at "Approved" status
-        # This catches ideas approved via Airtable or emoji reactions where
-        # research hasn't been triggered yet
-        print("\n🔍 Pre-flight: Checking for ideas needing research...")
+        print("\nPre-flight: Checking for ideas needing research...")
         try:
             from approval_watcher import ApprovalWatcher
             watcher = ApprovalWatcher(
@@ -5227,26 +4640,23 @@ async def main():
             )
             approved_results = await watcher.check_and_process()
             if approved_results:
-                print(f"  ✅ Researched {len(approved_results)} approved idea(s)")
+                print(f"  Researched {len(approved_results)} approved idea(s)")
                 for r in approved_results:
-                    print(f"     → {r.get('headline', 'N/A')}")
+                    print(f"     -> {r.get('headline', 'N/A')}")
             else:
                 print("  No pending approvals found")
         except Exception as e:
-            print(f"  ⚠️ Approval pre-flight failed: {e}")
-            # Non-fatal — continue with pipeline
+            print(f"  Approval pre-flight failed: {e}")
 
         print("\nScanning all tables for work. Processing stages:")
-        print("  Script → Voice → Image Prompts → Images → Thumbnail → Render → YouTube Upload")
+        print("  Script -> Voice -> Image Prompts -> Images -> Thumbnail -> Render -> YouTube Upload")
         print("  Videos at 'Idea Logged' are SKIPPED (awaiting your approval)\n")
 
         # Notify Slack that the daily pipeline run has started
         try:
-            # Show actual Pacific time in the notification
             now_pacific = datetime.now(ZoneInfo("America/Los_Angeles"))
             time_str = now_pacific.strftime("%-I:%M %p PT")
 
-            # Quick scan of what's in the pipeline
             status_summary = []
             for status_name in [
                 pipeline.STATUS_READY_SCRIPTING,
@@ -5263,70 +4673,68 @@ async def main():
                 ideas_at_status = pipeline.airtable.get_ideas_by_status(status_name, limit=10)
                 if ideas_at_status:
                     titles = [i.get("Video Title", "Untitled")[:40] for i in ideas_at_status]
-                    status_summary.append(f"  • *{status_name}*: {', '.join(titles)}")
+                    status_summary.append(f"  *{status_name}*: {', '.join(titles)}")
 
             if status_summary:
                 pipeline.slack.send_message(
-                    f"🔄 *{time_str} Pipeline Run Starting*\n"
+                    f"*{time_str} Pipeline Run Starting*\n"
                     "Scanning all tables and processing every stage through to YouTube upload.\n\n"
                     "*Work found:*\n" + "\n".join(status_summary)
                 )
             else:
                 pipeline.slack.send_message(
-                    f"🔄 *{time_str} Pipeline Run Starting*\n"
+                    f"*{time_str} Pipeline Run Starting*\n"
                     "Scanning tables... no videos currently queued for processing."
                 )
         except Exception:
             pass
 
         processed = 0
-        steps_log = []  # Track what was done for the summary
-        max_iterations = 100  # Safety limit
+        steps_log = []
+        max_iterations = 100
 
         while processed < max_iterations:
             try:
                 result = await pipeline.run_next_step()
             except Exception as e:
-                # Uncaught exception — stop pipeline and report
                 error_msg = f"Pipeline crashed: {e}"
-                print(f"\n❌ {error_msg}")
+                print(f"\n{error_msg}")
                 try:
-                    pipeline.slack.send_message(f"❌ *Pipeline STOPPED* after {processed} steps\n```{error_msg}```")
+                    pipeline.slack.send_message(f"*Pipeline STOPPED* after {processed} steps\n```{error_msg}```")
                 except Exception:
                     pass
                 break
 
             if result.get("status") == "idle":
-                print("\n✅ Queue empty! All approved videos processed.")
+                print("\nQueue empty! All approved videos processed.")
                 try:
                     if processed > 0:
-                        summary_lines = "\n".join(f"  • {s}" for s in steps_log[-10:])
+                        summary_lines = "\n".join(f"  {s}" for s in steps_log[-10:])
                         pipeline.slack.send_message(
-                            f"✅ *Pipeline queue complete!* {processed} steps processed.\n\n"
+                            f"*Pipeline queue complete!* {processed} steps processed.\n\n"
                             f"*Steps completed:*\n{summary_lines}\n\n"
                             f"All videos have been processed through to their next stage."
                         )
                     else:
                         pipeline.slack.send_message(
-                            "✅ *Pipeline queue complete* — nothing to process. "
+                            "*Pipeline queue complete* - nothing to process. "
                             "All videos are either at Idea Logged (awaiting approval) or already Done."
                         )
                 except Exception:
                     pass
                 break
 
-            # CHECK FOR ERRORS — stop pipeline if any step failed
             if result.get("status") == "failed" or result.get("error"):
                 error_msg = result.get("error", "Unknown error")
                 bot_name = result.get("bot", "Unknown")
                 video_title = result.get("video_title", "Unknown")
-                print(f"\n❌ PIPELINE STOPPED — {bot_name} failed for '{video_title}'")
+                print(f"\nPIPELINE STOPPED - {bot_name} failed for '{video_title}'")
                 print(f"   Error: {error_msg}")
                 print(f"   Steps completed before failure: {processed}")
                 print(f"\n   Fix the issue and run again. Status was NOT advanced.")
                 try:
                     pipeline.slack.send_message(
-                        f"❌ *Pipeline STOPPED* — {bot_name} failed\n"
+                        f"*Pipeline STOPPED* - {bot_name} failed\n"
                         f"Video: *{video_title}*\n"
                         f"Error: {error_msg}\n"
                         f"Steps completed: {processed}\n"
@@ -5340,7 +4748,7 @@ async def main():
             bot_name = result.get('bot', 'Unknown')
             video_title = result.get('video_title', 'Unknown')
             new_status = result.get('new_status', 'Unknown')
-            steps_log.append(f"{bot_name}: _{video_title}_ → {new_status}")
+            steps_log.append(f"{bot_name}: _{video_title}_ -> {new_status}")
 
             print(f"\n--- Completed step {processed} ---")
             print(f"    Video: {video_title}")
@@ -5351,18 +4759,18 @@ async def main():
             await asyncio.sleep(2)
 
         print("\n" + "=" * 60)
-        print(f"📋 QUEUE COMPLETE: {processed} steps processed")
+        print(f"QUEUE COMPLETE: {processed} steps processed")
         print("=" * 60)
         return
 
     print("=" * 60)
-    print("🎬 VIDEO PIPELINE - Running Next Step")
+    print("VIDEO PIPELINE - Running Next Step")
     print("=" * 60)
-    
+
     result = await pipeline.run_next_step()
-    
+
     print("\n" + "=" * 60)
-    print("📋 RESULT:")
+    print("RESULT:")
     for key, value in result.items():
         print(f"   {key}: {value}")
     print("=" * 60)

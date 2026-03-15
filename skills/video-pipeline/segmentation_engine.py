@@ -12,6 +12,7 @@ import re
 from typing import Optional
 
 from pipeline_config import VideoConfig, ACT_TEMPLATES
+from clients.sentence_utils import split_into_sentences as _split_into_sentences
 
 # Clause-break words for splitting long sentences
 _CLAUSE_BREAK_WORDS = {"but", "and", "because", "which", "where", "when", "while", "although", "however", "yet", "so", "then", "since", "unless"}
@@ -45,12 +46,6 @@ _MEDIUM_SIGNALS = [
     "but here's", "the key insight", "what this means",
 ]
 
-
-def _split_into_sentences(text: str) -> list[str]:
-    """Split text into sentences at period/question/exclamation boundaries."""
-    # Split on sentence-ending punctuation followed by space or end
-    parts = re.split(r'(?<=[.!?])\s+', text.strip())
-    return [p.strip() for p in parts if p.strip()]
 
 
 def _split_at_clause(text: str, target_words: int) -> tuple[str, str]:
