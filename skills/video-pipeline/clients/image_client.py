@@ -435,6 +435,7 @@ class ImageClient:
                 "aspect_ratio": "16:9",
                 "resolution": "1K",
                 "output_format": "png",
+                "google_search": True,
             },
         }
 
