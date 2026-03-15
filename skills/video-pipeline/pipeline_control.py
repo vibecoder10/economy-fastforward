@@ -614,7 +614,7 @@ async def handle_approve_script(message, say):
         airtable = AirtableClient()
 
         # Find ideas with "Needs Script Review" status
-        blocked = airtable.get_ideas_by_status("Needs Script Review")
+        blocked = airtable.get_ideas_by_status(Statuses.NEEDS_SCRIPT_REVIEW)
         if not blocked:
             await say(":shrug: No blocked scripts found with status 'Needs Script Review'")
             return
