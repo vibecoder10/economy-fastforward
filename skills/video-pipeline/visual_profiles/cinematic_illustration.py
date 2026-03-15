@@ -81,10 +81,15 @@ _IMAGE_GEN = ImageGenConfig(
 # =============================================================================
 
 # Style prefix for character scenes
-_PREFIX = (
+_CHARACTER_PREFIX = (
     "Cinematic animated illustration in muted earthy color palette "
     "with ink outlines and dramatic lighting. Stylized illustrated "
     "characters with expressive faces showing emotion."
+)
+
+_ENVIRONMENT_PREFIX = (
+    "Cinematic animated illustration in muted earthy color palette "
+    "with ink outlines and dramatic lighting."
 )
 
 # Universal suffix per prompt construction
@@ -94,7 +99,8 @@ _SUFFIX = (
 )
 
 _STYLE_SYSTEM = StyleSystemConfig(
-    style_prefix=_PREFIX,
+    style_prefix=_ENVIRONMENT_PREFIX,
+    character_prefix=_CHARACTER_PREFIX,
     style_suffix=_SUFFIX,
     substyles={
         "power_move": SubstyleConfig(
