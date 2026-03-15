@@ -22,6 +22,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from clients.airtable_client import AirtableClient
+from pipeline_constants import Statuses
 from clients.google_client import GoogleClient, get_direct_drive_url
 
 def sanitize_filename(title: str) -> str:
@@ -184,7 +185,7 @@ def main():
         airtable = AirtableClient()
         ideas = airtable.get_all_ideas()
         for idea in ideas:
-            if idea.get("Status") == "Done":
+            if idea.get("Status") == Statuses.DONE:
                 print(f"  • {idea.get('Video Title')}")
         return
 
@@ -210,7 +211,7 @@ def main():
         print(f"❌ Video not found: {title}")
         return
     
-    if idea.get("Status") != "Done":
+    if idea.get("Status") != Statuses.DONE:
         print(f"⚠️ Video status is '{idea.get('Status')}', expected 'Done'")
         print("   Proceeding anyway...")
     

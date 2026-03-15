@@ -7,6 +7,8 @@ import re
 from anthropic import Anthropic
 from typing import Optional, List, Dict, Tuple
 
+from pipeline_constants import Models
+
 
 def _get_profile():
     """Return the active visual profile, or None."""
@@ -149,7 +151,7 @@ class AnthropicClient:
         self,
         prompt: str,
         system_prompt: str = "",
-        model: str = "claude-sonnet-4-5-20250929",
+        model: str = Models.CLAUDE_SONNET,
         max_tokens: int = 4096,
         temperature: float = 1.0,
         tools: list = None,
@@ -159,7 +161,7 @@ class AnthropicClient:
         Args:
             prompt: The user prompt
             system_prompt: System instructions
-            model: Model to use (claude-sonnet-4-5-20250929, claude-opus-4-5-20251101)
+            model: Model to use (Models.CLAUDE_SONNET, Models.CLAUDE_OPUS)
             max_tokens: Maximum tokens in response
             temperature: Sampling temperature
             tools: Optional list of tool definitions (e.g. [WEB_SEARCH_TOOL])
@@ -270,7 +272,7 @@ Here is the Writer Guidance/Tone:
         response = await self.generate(
             prompt=prompt,
             system_prompt=system_prompt,
-            model="claude-opus-4-5-20251101",  # Use Opus for beat sheet
+            model=Models.CLAUDE_OPUS,  # Use Opus for beat sheet
         )
         
         # Parse JSON response
@@ -328,7 +330,7 @@ Current Scene Goal: "{scene_beat}\""""
         return await self.generate(
             prompt=prompt,
             system_prompt=system_prompt,
-            model="claude-opus-4-5-20251101",
+            model=Models.CLAUDE_OPUS,
         )
     
     async def generate_image_prompts(
@@ -510,7 +512,7 @@ Generate exactly 6 prompts. Every prompt describes a holographic projection, NOT
         response = await self.generate(
             prompt=prompt,
             system_prompt=system_prompt,
-            model="claude-sonnet-4-5-20250929",
+            model=Models.CLAUDE_SONNET,
             max_tokens=6000,
         )
 
@@ -581,7 +583,7 @@ CRITICAL TASK: You must generate exactly 3 DISTINCT video concepts. Return them 
         response = await self.generate(
             prompt=prompt,
             system_prompt=system_prompt,
-            model="claude-sonnet-4-5-20250929",
+            model=Models.CLAUDE_SONNET,
         )
         
         import json
@@ -672,7 +674,7 @@ Start with style engine prefix, end with style engine suffix + lighting + text r
         response = await self.generate(
             prompt=prompt,
             system_prompt=system_prompt,
-            model="claude-sonnet-4-5-20250929",
+            model=Models.CLAUDE_SONNET,
             max_tokens=500,
         )
 
@@ -843,7 +845,7 @@ Return JSON with segments array. Each segment groups sentences by visual concept
         response = await self.generate(
             prompt=prompt,
             system_prompt=system_prompt.format(max_duration=max_duration),
-            model="claude-sonnet-4-5-20250929",
+            model=Models.CLAUDE_SONNET,
             max_tokens=2000,
         )
 
@@ -941,7 +943,7 @@ Start with style engine prefix, end with style engine suffix + lighting + text r
         response = await self.generate(
             prompt=prompt,
             system_prompt=system_prompt,
-            model="claude-sonnet-4-5-20250929",
+            model=Models.CLAUDE_SONNET,
             max_tokens=500,
         )
 
@@ -1001,7 +1003,7 @@ Start with style engine prefix, end with style engine suffix + lighting + text r
         response = await self.generate(
             prompt=user_prompt,
             system_prompt=ANTHROPIC_THUMBNAIL_SYSTEM_PROMPT,
-            model="claude-sonnet-4-5-20250929",
+            model=Models.CLAUDE_SONNET,
             max_tokens=1200,
         )
 
@@ -1169,7 +1171,7 @@ If camera is "Static shot", you may have up to 2 subject actions."""
         response = await self.generate(
             prompt=prompt,
             system_prompt=system_prompt,
-            model="claude-sonnet-4-5-20250929",
+            model=Models.CLAUDE_SONNET,
             max_tokens=200,
         )
 

@@ -12,6 +12,7 @@ import json
 from typing import Optional
 from anthropic import Anthropic
 from dotenv import load_dotenv
+from pipeline_constants import Models
 
 load_dotenv()
 
@@ -145,7 +146,7 @@ Break this into 12-15 scenes. Return valid JSON only (no markdown).
 Each scene must include all required fields from the system prompt."""
 
         response = self.client.messages.create(
-            model="claude-sonnet-4-5-20250929",
+            model=Models.CLAUDE_SONNET,
             max_tokens=8000,
             temperature=0.7,
             system=SCENE_PLANNER_SYSTEM,

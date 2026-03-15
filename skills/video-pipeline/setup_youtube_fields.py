@@ -21,6 +21,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+from pipeline_constants import Statuses
+
 AIRTABLE_API_KEY = os.getenv("AIRTABLE_API_KEY")
 BASE_ID = os.getenv("AIRTABLE_BASE_ID", "appCIcC58YSTwK3CE")
 TABLE_ID = os.getenv(
@@ -138,7 +140,7 @@ def add_status_choices(table_id: str = TABLE_ID):
     existing_choices = {
         c["name"] for c in status_field.get("options", {}).get("choices", [])
     }
-    new_statuses = ["Ready to Render", "Rendered", "Uploaded (Draft)"]
+    new_statuses = [Statuses.READY_TO_RENDER, Statuses.RENDERED, Statuses.UPLOADED_DRAFT]
     to_add = [s for s in new_statuses if s not in existing_choices]
 
     if not to_add:

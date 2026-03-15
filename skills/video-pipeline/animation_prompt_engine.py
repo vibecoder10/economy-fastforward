@@ -45,6 +45,7 @@ from __future__ import annotations
 import logging
 import re
 from typing import Callable, Awaitable, Optional
+from pipeline_constants import Models
 
 logger = logging.getLogger(__name__)
 
@@ -764,7 +765,7 @@ async def resolve_verb_motion_async(
         response = await anthropic_client.generate(
             prompt=prompt,
             system_prompt=_haiku_sys,
-            model="claude-haiku-4-5-20251001",
+            model=Models.CLAUDE_HAIKU,
             max_tokens=60,
             temperature=0.3,
         )

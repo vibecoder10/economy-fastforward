@@ -27,6 +27,7 @@ from thumbnail_title.selector import select_template
 from thumbnail_title.title_generator import TitleGenerator
 from thumbnail_title.prompt_builder import ThumbnailPromptBuilder
 from thumbnail_title.validator import validate_thumbnail, validate_title_thumbnail_pair
+from pipeline_constants import Models
 
 
 # Maximum generation attempts per thumbnail before flagging for manual review
@@ -142,7 +143,7 @@ class ThumbnailTitleEngine:
         response = await self.anthropic.generate(
             prompt=prompt,
             system_prompt="You generate punchy YouTube thumbnail text. Return ONLY the text, no quotes, no explanation.",
-            model="claude-sonnet-4-5-20250929",
+            model=Models.CLAUDE_SONNET,
             max_tokens=50,
         )
 

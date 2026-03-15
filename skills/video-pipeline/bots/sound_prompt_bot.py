@@ -14,6 +14,7 @@ from typing import Optional
 
 from clients.anthropic_client import AnthropicClient
 from clients.airtable_client import AirtableClient
+from pipeline_constants import Models, ImageFields
 
 
 SOUND_CURATION_SYSTEM = """\
@@ -99,10 +100,10 @@ class SoundPromptBot:
         # Build the scene context for Claude
         lines = []
         for img in scene_images:
-            idx = img.get("Image Index", 0)
-            text = img.get("Sentence Text", "").strip()
-            visual = img.get("Image Prompt", "").strip()
-            shot = img.get("Shot Type", "").strip()
+            idx = img.get(ImageFields.IMAGE_INDEX, 0)
+            text = img.get(ImageFields.SENTENCE_TEXT, "").strip()
+            visual = img.get(ImageFields.IMAGE_PROMPT, "").strip()
+            shot = img.get(ImageFields.SHOT_TYPE, "").strip()
             lines.append(
                 f"Image {idx}:\n"
                 f"  Narration: {text[:200]}\n"
@@ -119,7 +120,7 @@ class SoundPromptBot:
         response = await self.anthropic.generate(
             prompt=user_prompt,
             system_prompt=SOUND_CURATION_SYSTEM,
-            model="claude-haiku-4-5-20251001",
+            model=Models.CLAUDE_HAIKU,
             max_tokens=512,
             temperature=0.4,
         )
@@ -170,7 +171,7 @@ class SoundPromptBot:
             return []
 
         # Build index set from actual images
-        valid_indices = {img.get("Image Index", 0) for img in scene_images}
+        valid_indices = {img.get(ImageFields.IMAGE_INDEX, 0) for img in scene_images}
 
         results = []
         for entry in parsed:
@@ -232,7 +233,7 @@ class SoundPromptBot:
 
         results = []
         for i, img in enumerate(scene_images):
-            idx = img.get("Image Index", 0)
+            idx = img.get(ImageFields.IMAGE_INDEX, 0)
             results.append({"image_index": idx, "sound": i in selected_positions})
 
         return results
@@ -262,7 +263,7 @@ class SoundPromptBot:
         response = await self.anthropic.generate(
             prompt=user_prompt,
             system_prompt=SOUND_PROMPT_SYSTEM,
-            model="claude-haiku-4-5-20251001",
+            model=Models.CLAUDE_HAIKU,
             max_tokens=128,
             temperature=0.5,
         )
@@ -300,13 +301,13 @@ class SoundPromptBot:
         # Sort by scene then image index
         images = sorted(
             images,
-            key=lambda i: (i.get("Scene", 0), i.get("Image Index", 0)),
+            key=lambda i: (i.get(ImageFields.SCENE, 0), i.get(ImageFields.IMAGE_INDEX, 0)),
         )
 
         # Group images by scene
         scenes: dict[int, list[dict]] = defaultdict(list)
         for img in images:
-            scene_num = img.get("Scene", 0)
+            scene_num = img.get(ImageFields.SCENE, 0)
             scenes[scene_num].append(img)
 
         total_generated = 0
@@ -349,7 +350,7 @@ class SoundPromptBot:
             # Phase 2: Generate prompts for selected, SKIP for others
             for img in needs_processing:
                 record_id = img["id"]
-                idx = img.get("Image Index", 0)
+                idx = img.get(ImageFields.IMAGE_INDEX, 0)
                 should_sound = sound_map.get(idx, False)
 
                 if not should_sound:
@@ -362,9 +363,9 @@ class SoundPromptBot:
                         print(f"    ❌ Failed to write SKIP: {e}")
                     continue
 
-                sentence_text = img.get("Sentence Text", "")
-                image_prompt = img.get("Image Prompt", "")
-                shot_type = img.get("Shot Type", "")
+                sentence_text = img.get(ImageFields.SENTENCE_TEXT, "")
+                image_prompt = img.get(ImageFields.IMAGE_PROMPT, "")
+                shot_type = img.get(ImageFields.SHOT_TYPE, "")
 
                 if not sentence_text and not image_prompt:
                     print(f"    Scene {scene_num} img {idx}: No text or prompt, skipping")

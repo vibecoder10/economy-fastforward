@@ -22,6 +22,8 @@ from pathlib import Path
 from dotenv import load_dotenv
 load_dotenv(Path(__file__).parent.parent.parent / ".env")
 
+from pipeline_constants import Statuses
+
 # Setup paths
 PIPELINE_DIR = Path(__file__).parent
 REMOTION_DIR = PIPELINE_DIR.parent.parent / "remotion-video"
@@ -64,7 +66,7 @@ def _get_video_title() -> str:
         for r in records:
             status = r["fields"].get("Status", "")
             title = r["fields"].get("Video Title", "")
-            if title and status in ("Ready To Render", "Done", "Rendered"):
+            if title and status in (Statuses.READY_TO_RENDER, Statuses.DONE, Statuses.RENDERED):
                 print(f"  • [{status}] {title}")
     except Exception:
         pass

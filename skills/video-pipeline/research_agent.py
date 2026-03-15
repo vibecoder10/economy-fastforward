@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Optional
 
 from clients.narrative_extractor import extract_narrative_fields
+from pipeline_constants import Models
 
 logger = logging.getLogger(__name__)
 
@@ -261,7 +262,7 @@ async def generate_title_candidates(
     anthropic_client,
     topic_data: dict,
     framework: str,
-    model: str = "claude-sonnet-4-5-20250929",
+    model: str = Models.CLAUDE_SONNET,
 ) -> dict:
     """Generate 3 title candidates using the master formula library.
 
@@ -334,7 +335,7 @@ async def refine_title_post_script(
     anthropic_client,
     airtable_client,
     record_id: str,
-    model: str = "claude-sonnet-4-5-20250929",
+    model: str = Models.CLAUDE_SONNET,
 ) -> dict:
     """Phase 2: Refine title using actual script content.
 
@@ -619,7 +620,7 @@ class ResearchAgent:
     def __init__(
         self,
         anthropic_client,
-        model: str = "claude-sonnet-4-5-20250929",
+        model: str = Models.CLAUDE_SONNET,
     ):
         """Initialize the research agent.
 
@@ -899,7 +900,7 @@ async def run_research(
     topic: str,
     seed_urls: Optional[list[str]] = None,
     context: Optional[str] = None,
-    model: str = "claude-sonnet-4-5-20250929",
+    model: str = Models.CLAUDE_SONNET,
     airtable_client=None,
     record_id: str = None,
 ) -> dict:
@@ -999,7 +1000,7 @@ Examples:
     )
     parser.add_argument(
         "--model",
-        default="claude-sonnet-4-5-20250929",
+        default=Models.CLAUDE_SONNET,
         help="Model to use (default: claude-sonnet-4-5-20250929)",
     )
     parser.add_argument(

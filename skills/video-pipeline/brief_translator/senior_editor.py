@@ -16,6 +16,7 @@ No retry loop — if the editor can't fix it, pipeline blocks for manual review.
 import logging
 import re
 from typing import Optional
+from pipeline_constants import Models
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +27,7 @@ async def run_senior_editor(
     acts: dict[int, str],
     failed_checks: list,
     brief: dict,
-    model: str = "claude-sonnet-4-5-20250929",
+    model: str = Models.CLAUDE_SONNET,
 ) -> dict:
     """Run a single senior editor pass to fix validation failures.
 

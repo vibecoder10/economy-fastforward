@@ -9,6 +9,7 @@ import json
 from typing import Optional
 from anthropic import Anthropic
 from dotenv import load_dotenv
+from pipeline_constants import Models
 
 load_dotenv()
 
@@ -167,7 +168,7 @@ Start with: "{STYLE_ENGINE_PREFIX}"
 End with: "{STYLE_ENGINE_SUFFIX}, {lighting_desc}, no text, no words, no labels\""""
 
         response = self.client.messages.create(
-            model="claude-sonnet-4-5-20250929",
+            model=Models.CLAUDE_SONNET,
             max_tokens=500,
             temperature=0.7,
             system=IMAGE_PROMPT_SYSTEM,
@@ -281,7 +282,7 @@ ACTION: [your one-sentence action description]
 [Complete end frame prompt in cinematic photorealistic documentary style]"""
 
         response = self.client.messages.create(
-            model="claude-sonnet-4-5-20250929",
+            model=Models.CLAUDE_SONNET,
             max_tokens=600,
             temperature=0.7,
             system=system,

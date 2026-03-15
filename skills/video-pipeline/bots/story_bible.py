@@ -34,6 +34,7 @@ SCENE_BLOCK_CONFIG = {
 
 import json
 from typing import Optional
+from pipeline_constants import Models
 
 
 # System prompt for generating the Story Bible
@@ -326,7 +327,7 @@ async def generate_story_bible(
         response = await anthropic_client.generate(
             prompt=prompt,
             system_prompt=STORY_BIBLE_SYSTEM_PROMPT,
-            model="claude-sonnet-4-5-20250929",
+            model=Models.CLAUDE_SONNET,
             max_tokens=12000 if use_scene_blocks else 8000,  # V2 needs more tokens
             temperature=0.3,  # Low temperature for consistency
         )

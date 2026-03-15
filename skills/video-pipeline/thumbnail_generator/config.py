@@ -1,4 +1,5 @@
 """Configuration constants for EFF Thumbnail Generator.
+from pipeline_constants import Models
 
 API settings, color palette, and generation parameters for Nano Banana Pro
 thumbnail generation via Kie.ai.
@@ -28,7 +29,7 @@ def _get_profile():
 API_BASE_URL = "https://api.kie.ai/api/v1/jobs"
 CREATE_TASK_URL = f"{API_BASE_URL}/createTask"
 RECORD_INFO_URL = f"{API_BASE_URL}/recordInfo"
-MODEL_NAME = "nano-banana-pro"
+MODEL_NAME = Models.IMAGE_THUMBNAIL
 
 ASPECT_RATIO = "16:9"  # NEVER change this — wrong ratio causes black bars
 RESOLUTION = "2K"

@@ -27,6 +27,7 @@ import sys
 import time
 from pathlib import Path
 from typing import Optional
+from pipeline_constants import Models, Statuses
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +80,7 @@ class ApprovalWatcher:
         anthropic_client,
         airtable_client,
         slack_client=None,
-        model: str = "claude-sonnet-4-5-20250929",
+        model: str = Models.CLAUDE_SONNET,
     ):
         """Initialize the approval watcher.
 
@@ -116,7 +117,7 @@ class ApprovalWatcher:
 
         # Find approved ideas
         try:
-            approved = self.airtable.get_ideas_by_status("Approved", limit=5)
+            approved = self.airtable.get_ideas_by_status(Statuses.APPROVED, limit=5)
         except Exception as e:
             logger.error(f"Failed to fetch approved ideas: {e}")
             return []
@@ -205,7 +206,7 @@ class ApprovalWatcher:
 
                 # Always advance status — even if some field writes failed above
                 self.airtable.update_idea_status(
-                    record_id, "Ready For Scripting"
+                    record_id, Statuses.READY_SCRIPTING
                 )
 
                 self._notify(

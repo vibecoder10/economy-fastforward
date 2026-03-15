@@ -12,12 +12,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any, Optional
+from pipeline_constants import Models
 
 
 @dataclass
 class ImageGenConfig:
     """Image generation model configuration."""
-    scene_model: str = "nano-banana-2"
+    scene_model: str = Models.IMAGE_SCENE
     scene_model_params: dict[str, Any] = field(default_factory=lambda: {
         "aspect_ratio": "16:9",
         "resolution": "1K",
@@ -25,7 +26,7 @@ class ImageGenConfig:
     })
     scene_cost_per_image: float = 0.004
 
-    thumbnail_model: str = "nano-banana-pro"
+    thumbnail_model: str = Models.IMAGE_THUMBNAIL
     thumbnail_model_params: dict[str, Any] = field(default_factory=lambda: {
         "aspect_ratio": "16:9",
         "resolution": "2K",

@@ -21,6 +21,7 @@ from visual_profiles.schema import (
     ThumbnailConfig,
     VisualProfile,
 )
+from pipeline_constants import Models
 
 
 # =============================================================================
@@ -45,14 +46,14 @@ _IDENTITY = dict(
 # =============================================================================
 
 _IMAGE_GEN = ImageGenConfig(
-    scene_model="nano-banana-2",
+    scene_model=Models.IMAGE_SCENE,
     scene_model_params={
         "aspect_ratio": "16:9",
         "resolution": "1K",
         "output_format": "png",
     },
     scene_cost_per_image=0.025,
-    thumbnail_model="nano-banana-pro",
+    thumbnail_model=Models.IMAGE_THUMBNAIL,
     thumbnail_model_params={
         "aspect_ratio": "16:9",
         "resolution": "2K",

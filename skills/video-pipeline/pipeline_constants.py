@@ -219,6 +219,7 @@ class Statuses:
     """Pipeline status values — Airtable Ideas table 'Status' field."""
 
     IDEA_LOGGED = "Idea Logged"
+    APPROVED = "Approved"
     READY_SCRIPTING = "Ready For Scripting"
     READY_VOICE = "Ready For Voice"
     READY_SOUND_DESIGN = "Ready For Sound Design"
@@ -238,6 +239,7 @@ class Statuses:
     # Ordered list for pipeline flow
     WORKFLOW_ORDER = [
         IDEA_LOGGED,
+        APPROVED,
         READY_SCRIPTING,
         READY_VOICE,
         READY_IMAGE_PROMPTS,

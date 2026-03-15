@@ -8,6 +8,7 @@ import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Optional
+from pipeline_constants import Models
 
 PROMPT_TEMPLATE_PATH = Path(__file__).parent / "prompts" / "validation.txt"
 
@@ -154,7 +155,7 @@ async def validate_brief(anthropic_client, brief: dict) -> dict:
 
     response = await anthropic_client.generate(
         prompt=prompt,
-        model="claude-sonnet-4-5-20250929",
+        model=Models.CLAUDE_SONNET,
         max_tokens=2000,
         temperature=0.3,
     )

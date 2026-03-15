@@ -15,6 +15,7 @@ import json
 import re
 from datetime import datetime, timezone
 from typing import Optional
+from pipeline_constants import Models, CompetitorChannelFields
 
 
 def calculate_vph(views: int, published_at: str) -> tuple[float, float]:
@@ -100,7 +101,7 @@ class CompetitorScraper:
             return []
 
         channel_urls = [
-            c.get("Channel URL") for c in channels if c.get("Channel URL")
+            c.get(CompetitorChannelFields.CHANNEL_URL) for c in channels if c.get(CompetitorChannelFields.CHANNEL_URL)
         ]
 
         print(f"\n  Scraping {len(channel_urls)} competitor channels...")
@@ -255,7 +256,7 @@ Return ONLY the JSON object."""
         response = await self.anthropic.generate(
             prompt=user_prompt,
             system_prompt=system_prompt,
-            model="claude-sonnet-4-5-20250929",
+            model=Models.CLAUDE_SONNET,
         )
 
         # Parse response (following existing JSON parsing pattern)

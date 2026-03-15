@@ -8,7 +8,7 @@ Clients: anthropic, airtable, google, slack
 
 import json
 
-from pipeline_constants import Statuses
+from pipeline_constants import Statuses, Models
 
 
 def _get_visual_seeds(idea: dict) -> str:
@@ -564,7 +564,7 @@ async def _regenerate_visual_descriptions(
                 )
             new_desc = await pipeline.anthropic.generate(
                 prompt=regen_prompt,
-                model="claude-sonnet-4-5-20250929",
+                model=Models.CLAUDE_SONNET,
                 max_tokens=200,
                 temperature=0.4,
             )

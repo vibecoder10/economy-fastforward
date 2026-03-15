@@ -6,6 +6,7 @@ research to fill only those gaps without re-running the entire deep dive.
 
 from pathlib import Path
 from typing import Optional
+from pipeline_constants import Models
 
 PROMPT_TEMPLATE_PATH = Path(__file__).parent / "prompts" / "supplemental.txt"
 
@@ -123,7 +124,7 @@ async def run_supplemental_research(
 
     response = await anthropic_client.generate(
         prompt=prompt,
-        model="claude-sonnet-4-5-20250929",
+        model=Models.CLAUDE_SONNET,
         max_tokens=4000,
         temperature=0.5,
     )
