@@ -2,12 +2,12 @@
 
 ## Active: Modular Pipeline Refactor
 
-### Status: Phase 2 COMPLETE — Step extraction + pipeline.py wired
+### Status: ALL PHASES COMPLETE ✅
 
-**Phase 1** ✅ `pipeline_constants.py` — Central config registry (424 lines)
+**Phase 1** ✅ `pipeline_constants.py` — Central config registry (436 lines)
 **Phase 2** ✅ 12 step files extracted + pipeline.py wired as thin router (4,599→2,533 lines)
-**Phase 3** 🔲 Migrate hardcoded values in clients/bots to use `pipeline_constants` imports
-**Phase 4** 🔲 Extract shared JSON parser into `clients/json_utils.py`
+**Phase 3** ✅ All hardcoded values in clients/bots migrated to `pipeline_constants` imports (13 files)
+**Phase 4** ✅ Shared JSON parser extracted into `json_utils.py`
 
 ### Step Files Created (`steps/`)
 | File | Lines | Extracts |
