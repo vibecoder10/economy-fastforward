@@ -384,27 +384,28 @@ class TestStatusProgression:
         """
         import re
 
-        pipeline_path = Path(__file__).parent.parent / "pipeline.py"
-        source = pipeline_path.read_text()
+        # Image bot logic now lives in steps/step_images.py
+        step_path = Path(__file__).parent.parent / "steps" / "step_images.py"
+        source = step_path.read_text()
 
-        # Extract the full run_image_bot method (up to next method definition)
+        # Extract the full run function (top-level async def)
         bot_match = re.search(
-            r'(async def run_image_bot\(self\).*?)(?=\n    async def |\n    def |\nclass |\Z)',
+            r'(async def run\(pipeline\).*?)(?=\nasync def |\ndef |\Z)',
             source,
             re.DOTALL,
         )
-        assert bot_match, "Could not find run_image_bot method"
+        assert bot_match, "Could not find run function in step_images.py"
         bot_code = bot_match.group(1)
 
         # The status update and log message should both mention SOUND_DESIGN
         # (sound stages come after images, since sound_prompt_bot reads Image Prompt)
         status_line = [
             line for line in bot_code.split("\n")
-            if ("update_idea_status" in line or "_update_status" in line) and "STATUS_READY" in line
+            if ("update_idea_status" in line or "_update_status" in line) and "SOUND_DESIGN" in line
         ]
         log_line = [
             line for line in bot_code.split("\n")
-            if "Status updated to" in line and "STATUS_READY" in line
+            if "Status updated to" in line and "SOUND_DESIGN" in line
         ]
 
         assert status_line, "No status update found in run_image_bot"
