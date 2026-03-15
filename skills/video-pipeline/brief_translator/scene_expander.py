@@ -752,8 +752,14 @@ async def _expand_with_scene_blocks(
         }
         composition = composition_map.get(camera, "medium")
 
-        # Get the actual narration content (primary visual driver)
-        narration_content = img.get("narration_excerpt", "").strip()
+        # VERBATIM TEXT: The exact words from the Script table Scene text field
+        # This is what goes into Airtable's Sentence Text field
+        # (NOT the Story Bible's narration_excerpt which may be a paraphrase)
+        verbatim_text = img.get("verbatim_text", "").strip()
+
+        # NARRATION CONTENT: Used for visual_description to drive image generation
+        # Prefer verbatim_text if available, fall back to narration_excerpt
+        narration_content = verbatim_text if verbatim_text else img.get("narration_excerpt", "").strip()
 
         # Get camera/composition direction from Story Bible action field
         # This is NOT story content - it's cinematography guidance
@@ -761,9 +767,9 @@ async def _expand_with_scene_blocks(
 
         concept = {
             "concept_index": i + 1,
-            "sentence_text": narration_content,
-            # visual_description is now the actual narration content
-            # that should drive what appears in the image
+            # sentence_text = VERBATIM script words for Airtable Sentence Text field
+            "sentence_text": verbatim_text if verbatim_text else narration_content,
+            # visual_description = what the image should depict
             "visual_description": narration_content if narration_content else "Scene continues",
             "visual_style": get_default_style(),
             "composition": composition,
@@ -791,22 +797,25 @@ def _match_scene_to_images(scene_text: str, all_images: list[dict]) -> list[dict
     narration_excerpt appears in the scene_text, then returns them in
     IMAGE_INDEX order (the Story Bible's intended order).
 
-    This is crucial for targeted runs (--scene N --image M) where the user
-    expects image M to correspond to image_index M from the Story Bible.
+    IMPORTANT: Each returned image includes a 'verbatim_text' field containing
+    the EXACT substring from scene_text that this image covers. This is used
+    for the Airtable Sentence Text field (not the Story Bible's narration_excerpt).
 
     Args:
-        scene_text: The scene's full narration text
+        scene_text: The scene's full narration text (verbatim from Script table)
         all_images: All images from scene_blocks with their context (pre-sorted by image_index)
 
     Returns:
         List of images whose narration_excerpt matches this scene, sorted by
-        image_index to preserve Story Bible ordering
+        image_index to preserve Story Bible ordering. Each image has
+        'verbatim_text' and 'match_position' fields added.
     """
-    # Normalize scene text for matching
+    # Normalize scene text for matching (preserve original for extraction)
     scene_text_normalized = " ".join(scene_text.split()).strip()
     scene_text_lower = scene_text_normalized.lower()
 
-    matched: list[dict] = []
+    # Track matches with their positions for verbatim extraction
+    matched_with_pos: list[tuple[int, int, dict]] = []  # (start_pos, end_pos, img)
 
     for img in all_images:
         excerpt = img.get("narration_excerpt", "").strip()
@@ -817,32 +826,38 @@ def _match_scene_to_images(scene_text: str, all_images: list[dict]) -> list[dict
         excerpt_lower = excerpt_normalized.lower()
 
         # Strategy 1: Exact substring match (preferred)
-        if excerpt_lower in scene_text_lower:
-            matched.append(img)
+        pos = scene_text_lower.find(excerpt_lower)
+        if pos != -1:
+            # Find the end position based on word count (not char count)
+            # to handle potential whitespace differences
+            excerpt_word_count = len(excerpt_normalized.split())
+            words_after_pos = scene_text_normalized[pos:].split()
+            end_text = " ".join(words_after_pos[:excerpt_word_count])
+            end_pos = pos + len(end_text)
+            matched_with_pos.append((pos, end_pos, img))
             continue
 
-        # Strategy 2: Case-insensitive match with normalization
-        # Handle minor whitespace/punctuation differences
+        # Strategy 2: Anchor word matching
         excerpt_words = excerpt_lower.split()
         if len(excerpt_words) >= 3:
-            # Check if first 3 and last 3 words appear in sequence
             first_three = " ".join(excerpt_words[:3])
             last_three = " ".join(excerpt_words[-3:])
             first_pos = scene_text_lower.find(first_three)
             last_pos = scene_text_lower.find(last_three)
 
             if first_pos != -1 and last_pos != -1 and last_pos > first_pos:
-                # Words appear in order - this is a valid match
-                matched.append(img)
+                # Found anchors - estimate the full span
+                end_pos = last_pos + len(last_three)
+                matched_with_pos.append((first_pos, end_pos, img))
                 continue
 
-        # Strategy 3: High confidence fuzzy match (fallback for edge cases)
-        # Only accept if >80% of excerpt words appear consecutively in scene
+        # Strategy 3: High confidence fuzzy match
         excerpt_words_set = set(excerpt_words)
         scene_words = scene_text_lower.split()
+        scene_words_normalized = scene_text_normalized.split()
 
-        # Find best consecutive match window
         best_overlap = 0
+        best_start_word_idx = -1
         window_size = len(excerpt_words)
 
         for i in range(max(1, len(scene_words) - window_size + 1)):
@@ -850,15 +865,48 @@ def _match_scene_to_images(scene_text: str, all_images: list[dict]) -> list[dict
             overlap = len(excerpt_words_set & window) / max(len(excerpt_words_set), 1)
             if overlap > best_overlap:
                 best_overlap = overlap
+                best_start_word_idx = i
 
-        if best_overlap >= 0.8:
-            matched.append(img)
+        if best_overlap >= 0.8 and best_start_word_idx >= 0:
+            # Calculate character positions from word indices
+            start_pos = len(" ".join(scene_words_normalized[:best_start_word_idx]))
+            if best_start_word_idx > 0:
+                start_pos += 1  # Account for space before this word
+            end_word_idx = min(best_start_word_idx + window_size, len(scene_words_normalized))
+            end_pos = len(" ".join(scene_words_normalized[:end_word_idx]))
+            matched_with_pos.append((start_pos, end_pos, img))
 
-    # CRITICAL: Sort by image_index to preserve Story Bible order
-    # This ensures concept_index matches image_index for targeted runs
-    matched.sort(key=lambda x: x.get("image_index", 0))
+    # Sort by image_index to preserve Story Bible order
+    matched_with_pos.sort(key=lambda x: x[2].get("image_index", 0))
 
-    return matched
+    # Extract verbatim text for each matched image
+    # Handle overlaps and gaps by partitioning the scene_text
+    result: list[dict] = []
+    last_end = 0
+
+    for i, (start_pos, end_pos, img) in enumerate(matched_with_pos):
+        # Absorb any gap from the previous segment
+        actual_start = max(last_end, 0) if i > 0 else 0
+
+        # For the last image, extend to end of scene_text
+        if i == len(matched_with_pos) - 1:
+            actual_end = len(scene_text_normalized)
+        else:
+            # Use the match position but don't overlap with next segment
+            actual_end = end_pos
+
+        # Extract verbatim text
+        verbatim = scene_text_normalized[actual_start:actual_end].strip()
+
+        # Add to result with verbatim_text field
+        img_copy = dict(img)
+        img_copy["verbatim_text"] = verbatim
+        img_copy["match_position"] = (actual_start, actual_end)
+        result.append(img_copy)
+
+        last_end = actual_end
+
+    return result
 
 
 async def expand_scene_concepts_deterministic(
