@@ -637,10 +637,40 @@ def _check_metaphor_table(text: str, profile) -> str:
     return ""
 
 
+# ── Mood clause mapping for illustrated profiles ─────────────────
+# Short tonal phrases injected before the technical suffix.  These
+# complement the substyle suffix (which describes composition) by
+# adding color/atmosphere variation from the sequencer's color_mood.
+
+_MOOD_CLAUSES: dict[str, str] = {
+    "cold teal": "Cool teal atmospheric tones",
+    "muted crimson": "Muted crimson undertones with tension",
+    "warm amber": "Warm amber and golden light",
+    "muted green": "Subdued olive and muted green tones",
+    # Holographic-path moods (in case they leak through)
+    "strategic": "Cool analytical teal tones",
+    "alert": "Urgent red and amber warning tones",
+    "archive": "Warm golden sepia tones",
+    "contagion": "Sickly green cascading to red tones",
+    "power": "Deep authoritative blue tones",
+    "personal": "Warm orange intimate tones",
+}
+
+
+def _mood_clause(color_mood: str) -> str:
+    """Return a short tonal phrase for the given color mood value."""
+    if not color_mood:
+        return ""
+    return _MOOD_CLAUSES.get(color_mood.strip().lower(), "")
+
+
 def build_prompt_from_block(
     concept: dict,
     story_bible: dict,
     image_style_override: Optional[str] = None,
+    content_type: str = "",
+    display_format: str = "",
+    color_mood: str = "",
 ) -> str:
     """Build image prompt from Claude-generated visual description + style framing.
 
@@ -652,8 +682,9 @@ def build_prompt_from_block(
     PROMPT FLOW:
     1. Style prefix (character vs environment)
     2. Claude's visual description (already contains setting, characters, action)
-    3. Camera composition + substyle suffix
-    4. Universal suffix (aspect ratio, texture)
+    3. Camera composition + substyle suffix (from sequencer's display_format)
+    4. Mood clause (from sequencer's color_mood)
+    5. Universal suffix (aspect ratio, texture)
 
     Parameters
     ----------
@@ -666,6 +697,12 @@ def build_prompt_from_block(
         Full Story Bible (used for character ID lookup)
     image_style_override : str, optional
         Per-video style override from Airtable
+    content_type : str, optional
+        Sequencer-assigned content/substyle type (e.g. "data_hud", "environment")
+    display_format : str, optional
+        Sequencer-assigned display format (same as content_type for profiles)
+    color_mood : str, optional
+        Sequencer-assigned color mood (e.g. "cold teal", "warm amber")
     """
     from bots.story_bible import get_character_by_id
 
@@ -699,16 +736,25 @@ def build_prompt_from_block(
     ).strip()
 
     # ---------------------------------------------------------------
-    # Scene type detection → substyle suffix from profile
+    # Scene type: prefer sequencer assignment, fall back to detection
     # ---------------------------------------------------------------
-    scene_type = _detect_scene_type(visual_desc)
+    # The sequencer's display_format IS the substyle key for profile-based
+    # systems (e.g. "power_move", "data_hud", "environment").  Using it
+    # instead of re-detecting from text ensures the sequencer's diversity
+    # rotation actually reaches the final prompt.
+    scene_type = display_format if display_format else _detect_scene_type(visual_desc)
 
     substyle_suffix = ""
     if profile:
         try:
             substyles = profile.style_system.substyles
+            # Try sequencer-assigned type first, fall back to text detection
             if scene_type in substyles:
                 substyle_suffix = substyles[scene_type].suffix or ""
+            else:
+                detected = _detect_scene_type(visual_desc)
+                if detected in substyles:
+                    substyle_suffix = substyles[detected].suffix or ""
         except (AttributeError, TypeError):
             pass
 
@@ -762,19 +808,23 @@ def build_prompt_from_block(
     }
     camera_desc = camera_map.get(camera.lower(), "Medium shot")
 
-    # 3. Substyle context — only append for character-driven scene types
-    # Environment/data scene types already have their context in the visual_description
-    # from Claude. Adding "No characters... geography establish context" to every
-    # non-character prompt makes them all identical.
-    character_scene_types = {"power_move", "lone_figure"}
-    if substyle_suffix and scene_type in character_scene_types:
+    # 3. Substyle context — apply for ALL scene types with a substyle suffix.
+    # The sequencer rotates substyles (power_move, environment, data_hud, etc.)
+    # and each carries a unique suffix that drives visual diversity.
+    if substyle_suffix:
         style_direction = f"{camera_desc}. {substyle_suffix.rstrip('. ')}."
     else:
         style_direction = f"{camera_desc}."
 
-    prompt_body = f"{core} {style_direction}"
+    # 4. Color mood clause — inject tonal direction from sequencer
+    mood_clause = _mood_clause(color_mood) if color_mood else ""
 
-    # 4. Technical tail (palette, texture, aspect ratio)
+    prompt_body = f"{core} {style_direction}"
+    if mood_clause:
+        # Insert mood before the technical suffix for tonal variation
+        prompt_body = f"{prompt_body} {mood_clause}."
+
+    # 5. Technical tail (palette, texture, aspect ratio)
     if image_style_override and image_style_override.strip():
         suffix = _apply_style_override(suffix, image_style_override)
 
