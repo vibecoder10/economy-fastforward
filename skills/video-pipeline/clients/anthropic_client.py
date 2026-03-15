@@ -1050,6 +1050,35 @@ Start with style engine prefix, end with style engine suffix + lighting + text r
 
 YOUR TASK: Divide this scene into {target_count} visual segments ({min_count}-{max_count} range) and create image prompts.
 
+=== CINEMATIC COVERAGE (MOST IMPORTANT RULE) ===
+Direct each scene like a FILM DIRECTOR. The sentence text is your guide:
+
+RULE 1 — LET THE NARRATION LEAD:
+- Read each sentence's content. If it's still describing the same subject as the previous
+  sentence, STAY on that subject but move the camera (change distance, angle, detail focus).
+- If the narration moves to a NEW subject (different location, person, concept), follow it there.
+- The narration decides WHAT you show. Cinematic coverage decides HOW you shoot it.
+
+RULE 2 — WHEN STAYING ON THE SAME SUBJECT, VARY THE SHOT:
+Think of a film crew circling one location. Each cut reveals new visual information:
+- Wide establishing → medium detail → close-up on specific element → low angle → overhead
+- NEVER repeat the same camera distance AND angle on consecutive images
+- Each shot should highlight a DIFFERENT physical detail (deck vs hull vs radar vs wake)
+
+EXAMPLE — Scene about three carriers (sentences stay on carriers for 4 beats):
+  [1] "Three carriers representing $30B in assets" → Wide: three carriers in formation, distant coastline
+  [2] "The Gerald R. Ford cost $13 billion" → Medium: Ford's flight deck, jets lined up, hull number visible
+  [3] "Each carrier displaces 100,000 tons" → Low angle: looking up at massive hull from waterline, bow wave
+  [4] "15,000 personnel aboard" → Close-up: carrier island superstructure, radar arrays, crew on deck
+  [5] "Iran calls this the opportunity of the century" → NEW SUBJECT: Iranian command center with strait map
+
+Notice: shots 1-4 stay on carriers because the narration does. Shot 5 follows the narration to Iran.
+
+WHAT TO AVOID:
+- Multiple shots at the SAME distance/angle even when the narration stays on one subject
+- Cutting away from the narration's subject to something unrelated for "variety"
+- Describing the same elements (e.g., "massive gray hulls cutting through calm blue sea") in more than one prompt
+
 === CRITICAL DURATION RULE (HARD CEILING) ===
 - Each segment: ~{words_per_segment} words (±5 words)
 - ABSOLUTE MAXIMUM: {words_per_segment + 5} words per segment. NO exceptions.
@@ -1154,13 +1183,24 @@ RESEARCH DATA (use specific numbers, dates, and facts from this):
 {research_payload[:2000]}"""
 
         if not is_holographic and profile:
-            prompt = f"""Segment this scene into {target_count} visual concepts using the {profile.profile_name} style:
+            # Number sentences so Claude can map each to a visual beat
+            import re as _re
+            _sentences = _re.split(r'(?<=[.!?])\s+', scene_text.strip())
+            _numbered = "\n".join(f"  [{i+1}] {s}" for i, s in enumerate(_sentences) if s.strip())
+
+            prompt = f"""Cover this scene in {target_count} shots like a film director using the {profile.profile_name} style.
 
 SCENE TEXT:
-{scene_text}
+{_numbered}
 {research_context}
 
-Return JSON with segments array. Each segment has text, image_prompt, and shot_type.
+SHOT PLAN:
+1. Group sentences into {target_count} beats (1-3 sentences each)
+2. Follow the narration: if consecutive sentences describe the same subject, STAY on it but move the camera
+3. If the narration shifts to a new subject, follow it there — don't force continuity where the text moves on
+4. Each shot must use a DIFFERENT camera distance + angle from the previous shot
+5. If a sentence mentions a specific fact/number, let that detail drive what's VISIBLE in frame
+6. Return JSON with segments array. Each segment has text, image_prompt, and shot_type.
 REMEMBER: {PROMPT_MIN_WORDS}-{PROMPT_MAX_WORDS} words per prompt."""
         else:
             prompt = f"""Segment this scene into {target_count} holographic intelligence display visualizations:
