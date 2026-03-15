@@ -36,6 +36,7 @@ logger = logging.getLogger(__name__)
 from bots.competitor_scraper import calculate_vph
 from clients.narrative_extractor import extract_narrative_fields_from_concept
 from pipeline_constants import Models
+from json_utils import parse_json_response
 
 # Source categories for headline scanning
 SCAN_SOURCES = {
@@ -220,22 +221,9 @@ def _parse_scanner_output(response_text: str) -> dict:
 
     Handles potential formatting issues (markdown code blocks, etc.)
     """
-    text = response_text.strip()
-
-    # Strip markdown code block if present
-    if text.startswith("```"):
-        first_newline = text.index("\n")
-        text = text[first_newline + 1:]
-    if text.endswith("```"):
-        text = text[:-3].rstrip()
-
-    # Find JSON object
-    brace_start = text.find("{")
-    brace_end = text.rfind("}")
-    if brace_start != -1 and brace_end != -1:
-        text = text[brace_start:brace_end + 1]
-
-    result = json.loads(text)
+    result = parse_json_response(response_text, default=None)
+    if result is None:
+        raise json.JSONDecodeError("Failed to parse scanner output", response_text, 0)
 
     # Validate structure
     ideas = result.get("ideas", [])
@@ -286,22 +274,9 @@ def _parse_competitor_output(response_text: str) -> dict:
 
     Similar to _parse_scanner_output but expects 'competitor_ideas' key.
     """
-    text = response_text.strip()
-
-    # Strip markdown code block if present
-    if text.startswith("```"):
-        first_newline = text.index("\n")
-        text = text[first_newline + 1:]
-    if text.endswith("```"):
-        text = text[:-3].rstrip()
-
-    # Find JSON object
-    brace_start = text.find("{")
-    brace_end = text.rfind("}")
-    if brace_start != -1 and brace_end != -1:
-        text = text[brace_start:brace_end + 1]
-
-    result = json.loads(text)
+    result = parse_json_response(response_text, default=None)
+    if result is None:
+        raise json.JSONDecodeError("Failed to parse competitor output", response_text, 0)
 
     # Validate structure
     ideas = result.get("competitor_ideas", [])

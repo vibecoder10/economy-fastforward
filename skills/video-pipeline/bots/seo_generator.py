@@ -21,6 +21,7 @@ Description architecture:
 import json
 from typing import Optional
 from pipeline_constants import ScriptFields
+from json_utils import parse_json_response
 
 
 # Static hashtags (always appended)
@@ -126,12 +127,9 @@ class SEOGenerator:
 
         # Parse response
         response_text = response.content[0].text.strip()
-        # Remove markdown fences if present
-        if response_text.startswith("```"):
-            response_text = response_text.split("\n", 1)[1]
-            if response_text.endswith("```"):
-                response_text = response_text[:-3]
-        seo_data = json.loads(response_text)
+        seo_data = parse_json_response(response_text, default=None)
+        if seo_data is None:
+            raise ValueError("Failed to parse SEO response as JSON")
 
         # Build timestamps from chapter titles
         chapter_titles = seo_data.get("chapter_titles", [])

@@ -5,6 +5,7 @@ import json
 import re
 from typing import Optional
 import httpx
+from json_utils import parse_json_response
 
 
 class GeminiClient:
@@ -24,46 +25,8 @@ class GeminiClient:
             raise ValueError("GEMINI_API_KEY not found in environment")
 
     def _parse_json_response(self, text: str) -> Optional[dict]:
-        """Robustly parse JSON from Gemini response.
-
-        Handles various formatting issues that Gemini might produce.
-        """
-        # Step 1: Remove markdown code blocks
-        clean = text.replace("```json", "").replace("```", "").strip()
-
-        # Step 2: Try direct parse
-        try:
-            return json.loads(clean)
-        except json.JSONDecodeError:
-            pass
-
-        # Step 3: Try to extract JSON object from the text
-        # Find the first { and last } to extract just the JSON portion
-        start_idx = clean.find("{")
-        end_idx = clean.rfind("}")
-        if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
-            json_portion = clean[start_idx : end_idx + 1]
-            try:
-                return json.loads(json_portion)
-            except json.JSONDecodeError:
-                pass
-
-            # Step 4: Try fixing common issues
-            fixed = json_portion
-
-            # Fix unescaped quotes inside strings (common issue)
-            # This is tricky - we need to be careful not to break valid JSON
-
-            # Remove trailing commas before } or ]
-            fixed = re.sub(r",\s*([}\]])", r"\1", fixed)
-
-            # Try parsing again
-            try:
-                return json.loads(fixed)
-            except json.JSONDecodeError:
-                pass
-
-        return None
+        """Robustly parse JSON from Gemini response."""
+        return parse_json_response(text, default=None)
 
     def _extract_fields_from_text(self, text: str, video_title: str) -> dict:
         """Extract thumbnail spec fields from raw text when JSON parsing fails.

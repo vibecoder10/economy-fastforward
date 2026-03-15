@@ -17,6 +17,7 @@ from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Optional
 from pipeline_constants import Models
+from json_utils import parse_json_response
 
 PROMPT_TEMPLATE_PATH = Path(__file__).parent / "prompts" / "concept_expand.txt"
 
@@ -195,18 +196,10 @@ def _build_prompt(
 
 def _parse_response(response_text: str) -> dict:
     """Extract JSON from the LLM response."""
-    # Try markdown code block first
-    json_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", response_text, re.DOTALL)
-    if json_match:
-        return json.loads(json_match.group(1))
-
-    # Try raw JSON
-    brace_start = response_text.find("{")
-    brace_end = response_text.rfind("}")
-    if brace_start != -1 and brace_end != -1:
-        return json.loads(response_text[brace_start : brace_end + 1])
-
-    raise ValueError("No JSON found in response")
+    result = parse_json_response(response_text, default=None)
+    if result is None:
+        raise ValueError("No JSON found in response")
+    return result
 
 
 def _repair_concept_text(

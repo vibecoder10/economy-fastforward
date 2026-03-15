@@ -8,6 +8,7 @@ import logging
 from typing import Optional
 from collections import defaultdict
 from pipeline_constants import Models
+from json_utils import parse_json_response
 
 logger = logging.getLogger(__name__)
 
@@ -61,24 +62,9 @@ async def decompose_title(title: str, anthropic_client) -> Optional[dict]:
         
         # Extract text content
         content = response.content[0].text.strip()
-        
-        # Parse JSON (handle potential markdown wrapping)
-        if content.startswith("```"):
-            lines = content.split("\n")
-            # Find JSON content between backticks
-            json_lines = []
-            in_json = False
-            for line in lines:
-                if line.startswith("```") and not in_json:
-                    in_json = True
-                    continue
-                elif line.startswith("```") and in_json:
-                    break
-                elif in_json:
-                    json_lines.append(line)
-            content = "\n".join(json_lines)
-        
-        data = json.loads(content)
+        data = parse_json_response(content, default=None)
+        if data is None:
+            raise json.JSONDecodeError("Failed to parse decomposition", content, 0)
         
         return {
             "original_title": title,
@@ -201,23 +187,9 @@ async def generate_modeled_ideas(
         
         # Extract text content
         content = response.content[0].text.strip()
-        
-        # Parse JSON (handle potential markdown wrapping)
-        if content.startswith("```"):
-            lines = content.split("\n")
-            json_lines = []
-            in_json = False
-            for line in lines:
-                if line.startswith("```") and not in_json:
-                    in_json = True
-                    continue
-                elif line.startswith("```") and in_json:
-                    break
-                elif in_json:
-                    json_lines.append(line)
-            content = "\n".join(json_lines)
-        
-        ideas = json.loads(content)
+        ideas = parse_json_response(content, default=None)
+        if ideas is None:
+            raise json.JSONDecodeError("Failed to parse generated ideas", content, 0)
         
         if not isinstance(ideas, list):
             logger.error(f"Expected list, got {type(ideas)}")
