@@ -258,7 +258,7 @@ Simplified approach: Claude writes whatever prompt best tells the story moment.
 The system detects whether characters are present by looking for character
 indicator words in the visual description, then:
 
-1. If characters ARE present: prepend mannequin prefix
+1. If characters ARE present: prepend character prefix
 2. If characters are NOT present: no prefix (description stands alone)
 3. Universal suffix for ALL scenes
 
@@ -266,14 +266,27 @@ Scene type labels become DESCRIPTIVE (assigned after prompt is written
 based on content) not PRESCRIPTIVE (assigned before, constraining output).
 """
 
-# Universal prefix for scenes WITH mannequin characters
-_MANNEQUIN_PREFIX = "3D rendered faceless mannequin with smooth white oval head"
+# New style prefix for scenes WITH characters
+_CHARACTER_PREFIX = (
+    "Cinematic animated illustration in muted earthy color palette "
+    "with ink outlines and dramatic lighting. Stylized illustrated "
+    "characters with expressive faces showing emotion."
+)
 
-# Universal suffix for ALL scenes (mannequin profiles)
-_UNIVERSAL_SUFFIX = ", Cinematic 3D documentary style, no facial features on any figures."
+# New style prefix for scenes WITHOUT characters (environment/object)
+_ENVIRONMENT_PREFIX = (
+    "Cinematic animated illustration in muted earthy color palette "
+    "with ink outlines and dramatic lighting."
+)
+
+# Universal suffix for ALL scenes
+_UNIVERSAL_SUFFIX = (
+    ", stylized 2D animation aesthetic with visible ink outlines, "
+    "muted film grain texture, 16:9 cinematic composition"
+)
 
 # Words that indicate character presence in the visual description
-# If ANY of these appear, the scene has characters and needs mannequin prefix
+# If ANY of these appear, the scene has characters and needs character prefix
 #
 # IMPORTANT: Avoid words with common non-character uses:
 # - "standing" matches "standing poles", "standing order" - FALSE POSITIVE
@@ -281,8 +294,8 @@ _UNIVERSAL_SUFFIX = ", Cinematic 3D documentary style, no facial features on any
 # - "hand" matches "on the other hand" - FALSE POSITIVE
 # Instead rely on clothing/role words which are more reliable.
 _CHARACTER_INDICATOR_WORDS = [
-    # Direct mannequin references (most reliable)
-    "mannequin", "mannequins", "figure", "figures",
+    # Figure references
+    "figure", "figures",
     # Clothing (implies character wearing it - very reliable)
     "wearing", "suit", "suits", "uniform", "uniforms", "robes", "robe",
     "jacket", "coat", "dress", "shirt", "tie", "turban", "keffiyeh",
@@ -317,7 +330,7 @@ _FALSE_POSITIVE_PATTERNS = [
 ]
 
 # Non-character scene indicators — if ANY of these appear, this is NOT a character scene
-# and should NOT receive the mannequin prefix. These take priority over character indicators.
+# and should NOT receive the character prefix. These take priority over character indicators.
 _NON_CHARACTER_SCENE_KEYWORDS = [
     # Data/visualization scenes
     "holographic display", "data visualization", "bar chart", "line graph", "pie chart",
@@ -349,7 +362,7 @@ _NON_CHARACTER_PATTERNS = [
 def _is_non_character_scene(description: str) -> bool:
     """Check if scene is definitely NOT a character scene.
 
-    These scene types should NOT receive the mannequin prefix regardless
+    These scene types should NOT receive the character prefix regardless
     of any character indicator words that may appear in the description.
 
     Returns True for: data displays, landscapes, technology, object closeups, maps
@@ -364,7 +377,7 @@ def _has_character_indicators(description: str) -> bool:
     """Check if a visual description contains character indicators.
 
     Returns True if ANY character indicator word is found, meaning
-    the scene has mannequin characters and needs the mannequin prefix.
+    the scene has characters and needs the character prefix.
 
     Uses a two-pass approach:
     1. Check for character indicator words
@@ -410,7 +423,7 @@ def _detect_scene_type(description: str) -> str:
     has_chars = _has_character_indicators(description)
     if has_chars:
         # Count character indicators to distinguish lone_figure vs power_move
-        multi_char_words = ["figures", "mannequins", "two", "three", "four",
+        multi_char_words = ["figures", "characters", "two", "three", "four",
                            "group", "both", "each other", "confrontation"]
         if any(w in desc_lower for w in multi_char_words):
             return "power_move"
@@ -430,8 +443,8 @@ def build_prompt(
     """Assemble a complete image generation prompt.
 
     When a visual profile is active, uses content-driven prefix detection:
-    - If characters are present in description: prepend mannequin prefix
-    - If no characters: no prefix (description stands alone)
+    - If characters are present in description: prepend character prefix
+    - If no characters: environment prefix
     - Universal suffix for all scenes
 
     Falls back to holographic defaults when no profile is loaded or
@@ -441,13 +454,13 @@ def build_prompt(
 
         [DISPLAY FORMAT framing] [DISPLAY CONTENT] [COLOR MOOD] [UNIVERSAL SUFFIX]
 
-    Template (mannequin profiles with characters)::
+    Template (illustrated profiles with characters)::
 
-        [MANNEQUIN PREFIX] [DISPLAY CONTENT] [UNIVERSAL SUFFIX]
+        [CHARACTER PREFIX] [DISPLAY CONTENT] [UNIVERSAL SUFFIX]
 
-    Template (mannequin profiles without characters)::
+    Template (illustrated profiles without characters)::
 
-        [DISPLAY CONTENT] [UNIVERSAL SUFFIX]
+        [ENVIRONMENT PREFIX] [DISPLAY CONTENT] [UNIVERSAL SUFFIX]
 
     Parameters
     ----------
@@ -490,7 +503,7 @@ def build_prompt(
     elif profile and profile.figure_rules:
         fr = profile.figure_rules
         if fr.allow_mannequins:
-            # Mannequin style: replace human words with mannequin equivalents
+            # Legacy mannequin style: replace human words with equivalents
             clean_desc = _apply_profile_people_replacements(clean_desc, fr)
         elif not fr.allow_human_figures:
             # Other no-people profiles: use profile-specific word list
@@ -512,36 +525,40 @@ def build_prompt(
     else:
         # --- Profile path: CONTENT-DRIVEN prefix detection ---
 
-        # Check if profile has mannequin-style prefix
+        # Check if profile is the cinematic illustration style
         default_prefix = profile.style_system.style_prefix if profile.style_system.style_prefix else ""
-        is_mannequin_profile = "mannequin" in default_prefix.lower()
+        is_illustrated_profile = (
+            profile and profile.profile_id == "cinematic_illustration"
+        ) or "animated illustration" in default_prefix.lower()
 
         # Strip any existing prefix from description if Claude already included it
         if default_prefix and clean_desc.lower().startswith(default_prefix.lower()):
             clean_desc = clean_desc[len(default_prefix):].strip().lstrip(",").strip()
-        # Also strip our standard mannequin prefix
-        if clean_desc.lower().startswith(_MANNEQUIN_PREFIX.lower()):
-            clean_desc = clean_desc[len(_MANNEQUIN_PREFIX):].strip().lstrip(",").strip()
+        # Also strip our standard prefixes
+        for std_prefix in [_CHARACTER_PREFIX, _ENVIRONMENT_PREFIX]:
+            if clean_desc.lower().startswith(std_prefix.lower()):
+                clean_desc = clean_desc[len(std_prefix):].strip().lstrip(",").strip()
+                break
 
-        if is_mannequin_profile:
+        if is_illustrated_profile:
             # Content-driven: detect if characters are present
-            # BUT non-character scenes (data, environment, objects) should NEVER get prefix
+            # Non-character scenes (data, environment, objects) get environment prefix
             is_non_character = _is_non_character_scene(clean_desc)
             has_characters = _has_character_indicators(clean_desc)
 
             if is_non_character:
-                # Data/environment/object scene: no mannequin prefix needed
-                prefix = ""
+                # Data/environment/object scene: use environment prefix
+                prefix = _ENVIRONMENT_PREFIX
             elif has_characters:
-                # Characters present: use mannequin prefix
-                prefix = _MANNEQUIN_PREFIX
+                # Characters present: use character prefix
+                prefix = _CHARACTER_PREFIX
             else:
-                # No characters: no prefix needed
-                prefix = ""
+                # No characters detected: use environment prefix
+                prefix = _ENVIRONMENT_PREFIX
 
             suffix = _UNIVERSAL_SUFFIX
         else:
-            # Non-mannequin profile: use profile defaults
+            # Other profile: use profile defaults
             prefix = default_prefix
             suffix = profile.style_system.style_suffix if profile.style_system.style_suffix else ""
 

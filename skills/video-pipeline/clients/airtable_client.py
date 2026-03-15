@@ -19,12 +19,13 @@ AIRTABLE_MODEL_NAME_MAP: dict[str, str] = {
 
 # Valid visual styles (maps to visual_profiles module names)
 VALID_VISUAL_STYLES: set[str] = {
-    "mannequin_storytelling",
+    "cinematic_illustration",  # New default (illustrated characters with faces)
     "holographic_hud",
     "cinematic_dossier",
     "clay_mannequin",
+    "mannequin_storytelling",  # Deprecated: alias for cinematic_illustration
 }
-DEFAULT_VISUAL_STYLE = "mannequin_storytelling"
+DEFAULT_VISUAL_STYLE = "cinematic_illustration"
 
 # Default model for video/scene images (z-image), thumbnails use nano-banana-2
 DEFAULT_IMAGE_MODEL = "z-image"
@@ -922,7 +923,7 @@ class AirtableClient:
         scene_number: int,
         scene_text: str,
         title: str,
-        voice_id: str = "G17SuINrv2H9FC6nvetn",
+        voice_id: str = "UgBBYS2sOqTuMpoF3BR0",
         sources: str = "",
         psych_angle: str = "",
     ) -> dict:

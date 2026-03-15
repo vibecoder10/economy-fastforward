@@ -29,7 +29,10 @@ _PROFILE_MODULES: dict[str, str] = {
     "holographic_hud": "visual_profiles.holographic_hud",
     "cinematic_dossier": "visual_profiles.cinematic_dossier",
     "clay_mannequin": "visual_profiles.clay_mannequin",
-    "mannequin_storytelling": "visual_profiles.mannequin_storytelling",
+    # New default illustrated style (replaces mannequin_storytelling)
+    "cinematic_illustration": "visual_profiles.cinematic_illustration",
+    # Deprecated: alias for backwards compatibility
+    "mannequin_storytelling": "visual_profiles.cinematic_illustration",
 }
 
 DEFAULT_PROFILE_ID = "holographic_hud"
