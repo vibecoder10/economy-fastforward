@@ -752,10 +752,19 @@ async def _expand_with_scene_blocks(
         }
         composition = composition_map.get(camera, "medium")
 
+        # Get the actual narration content (primary visual driver)
+        narration_content = img.get("narration_excerpt", "").strip()
+
+        # Get camera/composition direction from Story Bible action field
+        # This is NOT story content - it's cinematography guidance
+        camera_direction = img.get("action", "").strip()
+
         concept = {
             "concept_index": i + 1,
-            "sentence_text": img.get("narration_excerpt", ""),
-            "visual_description": img.get("action", "Scene continues"),
+            "sentence_text": narration_content,
+            # visual_description is now the actual narration content
+            # that should drive what appears in the image
+            "visual_description": narration_content if narration_content else "Scene continues",
             "visual_style": get_default_style(),
             "composition": composition,
             "mood": img.get("block_mood", "neutral"),
@@ -766,6 +775,8 @@ async def _expand_with_scene_blocks(
             "block_characters": img.get("block_characters", []),
             "block_location_id": img.get("block_location_id", ""),
             "global_image_index": img.get("image_index"),
+            # Camera direction is separate from content - used for composition guidance
+            "camera_direction": camera_direction,
         }
         concepts.append(concept)
 
@@ -775,45 +786,86 @@ async def _expand_with_scene_blocks(
 def _match_scene_to_images(scene_text: str, all_images: list[dict]) -> list[dict]:
     """Match a scene's narration text to images via narration_excerpt overlap.
 
-    Uses fuzzy matching to find which images' narration_excerpts are contained
-    within the scene_text. Returns images in their original order (by image_index).
+    Uses exact substring matching as primary strategy, with fuzzy matching as
+    fallback. Images are matched in ORDER OF APPEARANCE in the scene_text,
+    ensuring the first matching image corresponds to the earliest part of the
+    narration.
+
+    Key insight: The image's narration_excerpt should be an exact substring of
+    the scene_text if the Story Bible was generated correctly. Fuzzy matching
+    is only used when small variations exist (whitespace, punctuation).
 
     Args:
         scene_text: The scene's full narration text
-        all_images: All images from scene_blocks with their context
+        all_images: All images from scene_blocks with their context (pre-sorted by image_index)
 
     Returns:
-        List of images whose narration_excerpt matches this scene (in order)
+        List of images whose narration_excerpt matches this scene, in the order
+        they appear in the scene_text (not by global image_index)
     """
-    scene_text_lower = scene_text.lower().strip()
-    matched = []
+    # Normalize scene text for matching
+    scene_text_normalized = " ".join(scene_text.split()).strip()
+    scene_text_lower = scene_text_normalized.lower()
+
+    # Track match position in scene_text for ordering
+    matched_with_position: list[tuple[int, dict]] = []
 
     for img in all_images:
         excerpt = img.get("narration_excerpt", "").strip()
         if not excerpt:
             continue
 
-        excerpt_lower = excerpt.lower()
+        excerpt_normalized = " ".join(excerpt.split())
+        excerpt_lower = excerpt_normalized.lower()
 
-        # Check if excerpt is a substring of scene_text (fuzzy match)
-        # Use ratio for partial matches when exact substring fails
-        if excerpt_lower in scene_text_lower:
-            matched.append(img)
-        else:
-            # Fuzzy match for excerpts that may have minor variations
-            ratio = SequenceMatcher(None, excerpt_lower, scene_text_lower).ratio()
-            # Also check if excerpt overlaps significantly with scene_text
-            # by checking if most words from excerpt appear in scene_text
-            excerpt_words = set(excerpt_lower.split())
-            scene_words = set(scene_text_lower.split())
-            word_overlap = len(excerpt_words & scene_words) / max(len(excerpt_words), 1)
+        # Strategy 1: Exact substring match (preferred)
+        pos = scene_text_lower.find(excerpt_lower)
+        if pos != -1:
+            matched_with_position.append((pos, img))
+            continue
 
-            if ratio > 0.5 or word_overlap > 0.7:
-                matched.append(img)
+        # Strategy 2: Case-insensitive match with normalization
+        # Handle minor whitespace/punctuation differences
+        excerpt_words = excerpt_lower.split()
+        if len(excerpt_words) >= 3:
+            # Check if first 3 and last 3 words appear in sequence
+            first_three = " ".join(excerpt_words[:3])
+            last_three = " ".join(excerpt_words[-3:])
+            first_pos = scene_text_lower.find(first_three)
+            last_pos = scene_text_lower.find(last_three)
 
-    # Sort by image_index to maintain sequential order
-    matched.sort(key=lambda x: x.get("image_index", 0))
-    return matched
+            if first_pos != -1 and last_pos != -1 and last_pos > first_pos:
+                # Words appear in order - this is a valid match
+                matched_with_position.append((first_pos, img))
+                continue
+
+        # Strategy 3: High confidence fuzzy match (fallback for edge cases)
+        # Only accept if >80% of excerpt words appear consecutively in scene
+        excerpt_words_set = set(excerpt_words)
+        scene_words = scene_text_lower.split()
+
+        # Find best consecutive match window
+        best_overlap = 0
+        best_pos = -1
+        window_size = len(excerpt_words)
+
+        for i in range(max(1, len(scene_words) - window_size + 1)):
+            window = set(scene_words[i:i + window_size])
+            overlap = len(excerpt_words_set & window) / max(len(excerpt_words_set), 1)
+            if overlap > best_overlap:
+                best_overlap = overlap
+                best_pos = i
+
+        if best_overlap >= 0.8 and best_pos >= 0:
+            # Calculate character position for ordering
+            char_pos = len(" ".join(scene_words[:best_pos]))
+            matched_with_position.append((char_pos, img))
+
+    # Sort by position in scene_text to maintain narration order
+    matched_with_position.sort(key=lambda x: x[0])
+
+    # Return images in scene order (not global image_index order)
+    return [img for _pos, img in matched_with_position]
 
 
 async def expand_scene_concepts_deterministic(

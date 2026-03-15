@@ -580,18 +580,31 @@ def build_prompt_from_block(
     """Build image prompt using scene block context.
 
     For V2 scene_blocks Story Bible format, the block provides shared
-    location/lighting that applies to all images in the block. Only camera
-    angle and action change per image.
+    location/lighting that applies to all images in the block. The prompt
+    structure prioritizes the actual narration content (what the narrator
+    is saying) over abstract Story Bible metadata.
 
-    Uses the block's location and lighting descriptions directly in the
-    prompt, ensuring visual consistency within the block.
+    PROMPT STRUCTURE:
+    1. Style prefix (character or environment based on scene content)
+    2. Setting/location (from Story Bible block - provides visual continuity)
+    3. Lighting/mood (from Story Bible block)
+    4. STORY CONTENT (from narration_excerpt - THIS IS THE PRIMARY VISUAL DRIVER)
+    5. Characters with costumes (if present in Story Bible)
+    6. Camera/composition (from Story Bible camera_direction + sequencer)
+    7. Style suffix
+
+    The key insight: narration content ("three American aircraft carriers
+    floating in a body of water") is what the image MUST show. Story Bible
+    action field is just camera direction, not content.
 
     Parameters
     ----------
     concept : dict
         Concept dict from scene_expander with block context:
-        - visual_description: action for this image
+        - visual_description: ACTUAL narration content (what the image must show)
+        - sentence_text: exact narration text for this image
         - composition: camera angle (wide/medium/closeup)
+        - camera_direction: Story Bible action field (composition guidance only)
         - block_location: shared environment description
         - block_lighting: shared lighting description
         - block_characters: list of character IDs present
@@ -612,7 +625,16 @@ def build_prompt_from_block(
     block_location = concept.get("block_location", "").strip()
     block_lighting = concept.get("block_lighting", "").strip()
     block_characters = concept.get("block_characters", [])
-    action = concept.get("visual_description", "Scene continues").strip()
+
+    # PRIMARY CONTENT: The actual narration that drives what we visualize
+    # This is what the narrator is saying - the image MUST depict this
+    story_content = concept.get("visual_description", "").strip()
+    if not story_content:
+        story_content = concept.get("sentence_text", "Scene continues").strip()
+
+    # CAMERA DIRECTION: From Story Bible action field (composition guidance, NOT content)
+    camera_direction = concept.get("camera_direction", "").strip()
+
     camera = concept.get("composition", "medium")
     mood = concept.get("block_mood", concept.get("mood", "neutral"))
 
@@ -645,17 +667,18 @@ def build_prompt_from_block(
     if block_lighting:
         parts.append(f"Lighting: {block_lighting}.")
 
-    # 4. Characters with costumes (if present)
+    # 4. STORY CONTENT - This is the PRIMARY visual driver
+    # The image must depict what the narrator is actually saying
+    if story_content:
+        # Clean content text
+        story_content = _strip_style_language(story_content).rstrip(". ")
+        parts.append(f"Scene: {story_content}.")
+
+    # 5. Characters with costumes (if present)
     if char_descriptions:
         parts.append(f"Characters: {'; '.join(char_descriptions)}.")
 
-    # 5. Specific action for THIS image
-    if action:
-        # Clean action text
-        action = _strip_style_language(action).rstrip(". ")
-        parts.append(f"Action: {action}.")
-
-    # 6. Camera angle
+    # 6. Camera angle and composition guidance
     camera_map = {
         "wide": "Wide establishing shot",
         "medium": "Medium shot",
@@ -664,7 +687,14 @@ def build_prompt_from_block(
         "extreme_closeup": "Extreme close-up",
     }
     camera_desc = camera_map.get(camera.lower(), "Medium shot")
-    parts.append(f"Camera: {camera_desc}.")
+    camera_parts = [camera_desc]
+
+    # Add camera direction guidance if available (e.g., "camera pushes in slowly")
+    if camera_direction:
+        camera_direction = _strip_style_language(camera_direction).rstrip(". ")
+        camera_parts.append(camera_direction)
+
+    parts.append(f"Camera: {', '.join(camera_parts)}.")
 
     # 7. Mood/atmosphere
     if mood and mood != "neutral":
