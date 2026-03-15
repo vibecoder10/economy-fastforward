@@ -48,6 +48,9 @@ class StyleSystemConfig:
     """Style system configuration — replaces style_config.py constants."""
     style_prefix: str = ""
     style_suffix: str = ""
+    # Optional separate prefix for scenes with characters (e.g., adds
+    # "expressive faces" language).  Falls back to style_prefix when empty.
+    character_prefix: str = ""
     substyles: dict[str, SubstyleConfig] = field(default_factory=dict)
 
     # Accent color mapping: topic_category -> color mood value

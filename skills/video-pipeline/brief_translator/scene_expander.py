@@ -686,10 +686,17 @@ async def _expand_with_scene_blocks(
 ) -> list[dict]:
     """Expand scene using V2 scene_blocks format.
 
-    Scene blocks pre-define image groupings with shared location/lighting.
-    This function matches the scene's narration text to images via their
-    narration_excerpt field (fuzzy matching), then returns concepts with
-    block context already populated.
+    Two-layer approach:
+    1. **Text splitting** — deterministic sentence-based splitter produces
+       verbatim segments from the scene script (same as V1 path).
+    2. **Visual context** — Story Bible scene_blocks provide location,
+       lighting, characters per image.  Each deterministic segment is
+       mapped to the closest Story Bible image by text overlap so it
+       inherits the block context.
+
+    This ensures sentence_text is ALWAYS a verbatim substring of the
+    scene script while visual descriptions get the consistency benefits
+    of the Story Bible's shared-block system.
 
     Args:
         anthropic_client: AnthropicClient instance (may be used for edge cases)
@@ -704,91 +711,145 @@ async def _expand_with_scene_blocks(
     Returns:
         List of concept dicts with block context (block_id, block_location, etc.)
     """
+    import sys
+    from pathlib import Path
     from bots.story_bible import get_all_images_from_blocks
 
-    # Get all images with their block context
+    # --- Step 1: Deterministic text splitting (verbatim segments) -----------
+    sys.path.insert(0, str(Path(__file__).parent.parent / "clients"))
+    from deterministic_splitter import segment_scene_deterministic
+
+    segments = segment_scene_deterministic(scene_text, voice_duration)
+    if not segments:
+        return [{
+            "concept_index": 1,
+            "sentence_text": scene_text,
+            "visual_description": "Scene continues",
+            "visual_style": get_default_style(),
+            "composition": "medium",
+            "mood": "neutral",
+        }]
+
+    print(f"    Scene {scene_number}: {len(segments)} segments from deterministic splitter "
+          f"({', '.join(str(s['word_count']) + 'w' for s in segments)})")
+
+    # --- Step 2: Pre-filter Story Bible images to THIS scene ---------------
     all_images = get_all_images_from_blocks(story_bible)
 
-    if not all_images:
-        print(f"      ⚠️ Scene {scene_number}: No images in scene_blocks, falling back")
-        return [{
-            "concept_index": 1,
-            "sentence_text": scene_text,
-            "visual_description": "Scene continues",
-            "visual_style": get_default_style(),
-            "composition": "medium",
-            "mood": "neutral",
-        }]
+    scene_images: list[dict] = []
+    if all_images:
+        scene_lower = " ".join(scene_text.split()).lower()
+        for img in all_images:
+            excerpt = img.get("narration_excerpt", "").strip()
+            if not excerpt:
+                continue
+            excerpt_lower = " ".join(excerpt.split()).lower()
 
-    # Match scene_text to images via narration_excerpt overlap
-    # The Story Bible's image narration_excerpts should collectively cover the full script
-    matched_images = _match_scene_to_images(scene_text, all_images)
+            # Exact substring
+            if excerpt_lower in scene_lower:
+                scene_images.append(img)
+                continue
 
-    if not matched_images:
-        # No matches found - this scene may not have images assigned
-        print(f"      ⚠️ Scene {scene_number}: No image matches found for narration")
-        return [{
-            "concept_index": 1,
-            "sentence_text": scene_text,
-            "visual_description": "Scene continues",
-            "visual_style": get_default_style(),
-            "composition": "medium",
-            "mood": "neutral",
-        }]
+            # First 4 words as anchor
+            first_words = " ".join(excerpt_lower.split()[:4])
+            if first_words and first_words in scene_lower:
+                scene_images.append(img)
+                continue
 
-    print(f"    Scene {scene_number}: {len(matched_images)} images matched from scene_blocks "
-          f"(blocks: {', '.join(set(img['block_id'] for img in matched_images))})")
+            # Last 4 words as anchor
+            last_words = " ".join(excerpt_lower.split()[-4:])
+            if last_words and last_words in scene_lower:
+                scene_images.append(img)
 
-    # Calculate words-per-second for duration estimation
-    # Same logic as deterministic_splitter.py: voice_duration → WPS, or default 2.5
-    DEFAULT_WPS = 2.5
-    total_word_count = len(scene_text.split())
-    if voice_duration and voice_duration > 0:
-        wps = total_word_count / voice_duration
-    else:
-        wps = DEFAULT_WPS
+        if not scene_images:
+            # Fallback: filter by act
+            scene_images = [img for img in all_images if img.get("block_act") == act_number]
+            if scene_images:
+                print(f"      ⚠️ Scene {scene_number}: No excerpt match, falling back to act {act_number}")
 
-    # Get profile for LLM visual description generation
+    # --- Step 3: Map each segment to closest Story Bible image (block context) ---
+    def _find_block_context(segment_text: str, images: list[dict]) -> dict:
+        """Find the Story Bible image whose narration_excerpt best overlaps this segment."""
+        if not images:
+            return {}
+
+        seg_lower = " ".join(segment_text.split()).lower()
+        seg_words = set(seg_lower.split())
+        best_img = None
+        best_score = 0.0
+
+        for img in images:
+            excerpt = img.get("narration_excerpt", "").strip()
+            if not excerpt:
+                continue
+            excerpt_lower = " ".join(excerpt.split()).lower()
+
+            # Exact substring match = best possible
+            if excerpt_lower in seg_lower or seg_lower in excerpt_lower:
+                return img
+
+            # Word overlap score
+            excerpt_words = set(excerpt_lower.split())
+            if not excerpt_words:
+                continue
+            overlap = len(seg_words & excerpt_words) / max(len(excerpt_words), 1)
+            if overlap > best_score:
+                best_score = overlap
+                best_img = img
+
+        return best_img if best_img and best_score >= 0.3 else (images[0] if images else {})
+
+    # Build segment → block context mapping
+    segment_contexts: list[dict] = []
+    used_images: set[int] = set()
+    for seg in segments:
+        ctx = _find_block_context(seg["text"], scene_images)
+        segment_contexts.append(ctx)
+        if ctx:
+            idx = ctx.get("image_index")
+            if idx is not None:
+                used_images.add(idx)
+
+    blocks_used = set(c.get("block_id", "?") for c in segment_contexts if c)
+    print(f"    Scene {scene_number}: mapped to blocks: {', '.join(blocks_used)}")
+
+    # --- Step 4: Generate visual descriptions per block (LLM) ---------------
     profile = _get_profile()
     is_holographic = profile is None or profile.profile_id == "holographic_hud"
 
-    # Format Story Bible context once for all images in this scene
     try:
         from bots.story_bible import format_bible_for_prompt
         bible_context = format_bible_for_prompt(story_bible, scene_number)
     except ImportError:
         bible_context = ""
 
-    # Group matched images by block_id so we can generate visual descriptions
-    # for an entire block in ONE Claude call — this gives Claude full context
-    # of the visual sequence so images within a block are consistent
+    # Group segments by block_id for batch LLM calls
     from collections import OrderedDict
-    blocks: OrderedDict[str, list[dict]] = OrderedDict()
-    for img in matched_images:
-        bid = img.get("block_id", "unknown")
-        if bid not in blocks:
-            blocks[bid] = []
-        blocks[bid].append(img)
+    block_groups: OrderedDict[str, list[tuple[int, dict, dict]]] = OrderedDict()
+    for i, (seg, ctx) in enumerate(zip(segments, segment_contexts)):
+        bid = ctx.get("block_id", "unknown") if ctx else "unknown"
+        if bid not in block_groups:
+            block_groups[bid] = []
+        block_groups[bid].append((i, seg, ctx))
 
-    # Generate visual descriptions per block (one Claude call per block)
-    # Returns {image_index: visual_description}
-    block_descriptions: dict[int, str] = {}
-    for block_id, block_images in blocks.items():
-        first_img = block_images[0]
-        block_location = first_img.get("block_location", "")
-        block_lighting = first_img.get("block_lighting", "")
-        block_characters = first_img.get("block_characters", [])
-        block_location_id = first_img.get("block_location_id", "")
-        block_mood = first_img.get("block_mood", "neutral")
+    # LLM visual descriptions keyed by segment index
+    segment_descriptions: dict[int, str] = {}
 
-        # Build the image sequence for this block
+    for block_id, group in block_groups.items():
+        first_ctx = group[0][2] if group[0][2] else {}
+        block_location = first_ctx.get("block_location", "")
+        block_lighting = first_ctx.get("block_lighting", "")
+        block_characters = first_ctx.get("block_characters", [])
+        block_location_id = first_ctx.get("block_location_id", "")
+        block_mood = first_ctx.get("block_mood", "neutral")
+
         image_sequence = []
-        for j, bimg in enumerate(block_images):
-            narration = bimg.get("verbatim_text", "").strip() or bimg.get("narration_excerpt", "").strip()
-            cam = bimg.get("camera", "medium")
-            action = bimg.get("action", "")
+        for j, (seg_idx, seg, ctx) in enumerate(group):
+            cam = ctx.get("camera", "medium") if ctx else "medium"
+            action = ctx.get("action", "") if ctx else ""
             image_sequence.append(
-                f"  Image {j+1}: camera={cam}, action=\"{action}\", narration=\"{narration}\""
+                f"  Image {j+1}: camera={cam}, action=\"{action}\", "
+                f"narration=\"{seg['text'][:120]}\""
             )
 
         try:
@@ -801,7 +862,7 @@ async def _expand_with_scene_blocks(
                 chars_str = ", ".join(block_characters) if block_characters else "none (environment/data shot)"
                 visual_desc_prompt += (
                     f"## BLOCK: {block_id}\n"
-                    f"All {len(block_images)} images share this setting:\n"
+                    f"All {len(group)} images share this setting:\n"
                     f"- Location: {block_location_id} — {block_location}\n"
                     f"- Characters present: {chars_str}\n"
                     f"- Lighting: {block_lighting}\n"
@@ -827,7 +888,7 @@ async def _expand_with_scene_blocks(
                     "3. If characters_present is 'none', NO character figures — environment/data only.\n"
                     "4. Do NOT include style prefix (e.g. 'Cinematic animated illustration...') — added automatically.\n\n"
                     f"Visual seeds: {visual_seeds[:200] if visual_seeds else 'none'}\n\n"
-                    f"Return a JSON array of {len(block_images)} strings, one per image. Example:\n"
+                    f"Return a JSON array of {len(group)} strings, one per image. Example:\n"
                     f'[\"desc for image 1\", \"desc for image 2\", ...]\n'
                     "Return ONLY the JSON array, nothing else."
                 )
@@ -835,87 +896,80 @@ async def _expand_with_scene_blocks(
                 visual_desc_prompt = (
                     "You are creating visual descriptions for HOLOGRAPHIC DATA DISPLAYS "
                     "in an intelligence operations center.\n\n"
-                    f"## BLOCK: {block_id} ({len(block_images)} images in sequence)\n"
+                    f"## BLOCK: {block_id} ({len(group)} images in sequence)\n"
                     + "\n".join(image_sequence) + "\n\n"
                     "Write a 20-35 word visual description for EACH image.\n"
                     "Each should describe DATA, DOCUMENTS, MAPS, or CHARTS on a holographic screen.\n"
                     "Maintain visual consistency — same display theme, evolving data across images.\n\n"
-                    f"Return a JSON array of {len(block_images)} strings. "
+                    f"Return a JSON array of {len(group)} strings. "
                     "Return ONLY the JSON array, nothing else."
                 )
 
+            import json
             raw_response = await anthropic_client.generate(
                 prompt=visual_desc_prompt,
                 model="claude-sonnet-4-5-20250929",
-                max_tokens=150 * len(block_images),
+                max_tokens=150 * len(group),
                 temperature=0.4,
             )
 
-            # Parse JSON array response
-            import json
             raw = raw_response.strip()
-            # Remove markdown fences if present
             if raw.startswith("```"):
                 raw = raw.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
             descriptions = json.loads(raw)
 
-            if isinstance(descriptions, list) and len(descriptions) == len(block_images):
-                for j, bimg in enumerate(block_images):
-                    idx = bimg.get("image_index", j)
-                    block_descriptions[idx] = descriptions[j].strip()
+            if isinstance(descriptions, list) and len(descriptions) == len(group):
+                for j, (seg_idx, _seg, _ctx) in enumerate(group):
+                    segment_descriptions[seg_idx] = descriptions[j].strip()
                 print(f"      Block {block_id}: {len(descriptions)} visual descriptions generated")
             else:
-                print(f"      ⚠️ Block {block_id}: Expected {len(block_images)} descriptions, "
+                print(f"      ⚠️ Block {block_id}: Expected {len(group)} descriptions, "
                       f"got {len(descriptions) if isinstance(descriptions, list) else 'non-list'}")
-                # Fallback: use whatever we got, pad with narration_excerpt
                 if isinstance(descriptions, list):
-                    for j, bimg in enumerate(block_images):
-                        idx = bimg.get("image_index", j)
+                    for j, (seg_idx, _seg, _ctx) in enumerate(group):
                         if j < len(descriptions):
-                            block_descriptions[idx] = str(descriptions[j]).strip()
+                            segment_descriptions[seg_idx] = str(descriptions[j]).strip()
 
         except Exception as e:
             print(f"      ⚠️ Block {block_id}: LLM batch failed: {e}")
-            # Fallback: narration_excerpt for each image in this block
 
-    # Convert matched images to concept dicts, using LLM descriptions where available
+    # --- Step 5: Build concept dicts from deterministic segments + block context ---
     composition_map = {
         "wide": "wide", "medium": "medium", "closeup": "closeup",
         "close-up": "closeup", "extreme_closeup": "closeup", "extreme-closeup": "closeup",
     }
+
     concepts = []
-    for i, img in enumerate(matched_images):
-        camera = img.get("camera", "medium").lower()
+    for i, (seg, ctx) in enumerate(zip(segments, segment_contexts)):
+        camera = (ctx.get("camera", "medium") if ctx else "medium").lower()
         composition = composition_map.get(camera, "medium")
-        verbatim_text = img.get("verbatim_text", "").strip()
-        visual_content = img.get("narration_excerpt", "").strip()
-        camera_direction = img.get("action", "").strip()
-        block_mood = img.get("block_mood", "neutral")
+        camera_direction = (ctx.get("action", "") if ctx else "").strip()
+        block_mood = (ctx.get("block_mood", "neutral") if ctx else "neutral")
 
-        sentence = verbatim_text if verbatim_text else visual_content
-        word_count = len(sentence.split()) if sentence else 0
-        duration = round(word_count / wps, 1) if wps > 0 else round(word_count / DEFAULT_WPS, 1)
-        duration = max(4.0, min(10.0, duration))
+        # sentence_text is ALWAYS the verbatim deterministic segment
+        sentence_text = seg["text"]
 
-        # Use LLM-generated description if available, fallback to narration_excerpt
-        img_idx = img.get("image_index", i)
-        visual_description = block_descriptions.get(img_idx, visual_content if visual_content else "Scene continues")
+        # Visual description from LLM, fallback to narration excerpt
+        visual_description = segment_descriptions.get(
+            i,
+            (ctx.get("narration_excerpt", "") if ctx else "") or "Scene continues"
+        )
 
         concept = {
             "concept_index": i + 1,
-            "sentence_text": verbatim_text if verbatim_text else visual_content,
+            "sentence_text": sentence_text,
             "visual_description": visual_description,
             "visual_style": get_default_style(),
             "composition": composition,
             "mood": block_mood,
-            "duration": duration,
+            "duration": seg["duration"],
             # Block context for prompt builder
-            "block_id": img.get("block_id"),
-            "block_location": img.get("block_location", ""),
-            "block_lighting": img.get("block_lighting", ""),
-            "block_characters": img.get("block_characters", []),
-            "block_location_id": img.get("block_location_id", ""),
-            "global_image_index": img.get("image_index"),
+            "block_id": ctx.get("block_id") if ctx else None,
+            "block_location": (ctx.get("block_location", "") if ctx else ""),
+            "block_lighting": (ctx.get("block_lighting", "") if ctx else ""),
+            "block_characters": (ctx.get("block_characters", []) if ctx else []),
+            "block_location_id": (ctx.get("block_location_id", "") if ctx else ""),
+            "global_image_index": ctx.get("image_index") if ctx else None,
             "camera_direction": camera_direction,
         }
         concepts.append(concept)
@@ -923,124 +977,6 @@ async def _expand_with_scene_blocks(
     return concepts
 
 
-def _match_scene_to_images(scene_text: str, all_images: list[dict]) -> list[dict]:
-    """Match a scene's narration text to images via narration_excerpt overlap.
-
-    For V2 scene_blocks, the Story Bible already assigns image_index values in
-    the intended sequential order. This function matches images whose
-    narration_excerpt appears in the scene_text, then returns them in
-    IMAGE_INDEX order (the Story Bible's intended order).
-
-    IMPORTANT: Each returned image includes a 'verbatim_text' field containing
-    the EXACT substring from scene_text that this image covers. This is used
-    for the Airtable Sentence Text field (not the Story Bible's narration_excerpt).
-
-    Args:
-        scene_text: The scene's full narration text (verbatim from Script table)
-        all_images: All images from scene_blocks with their context (pre-sorted by image_index)
-
-    Returns:
-        List of images whose narration_excerpt matches this scene, sorted by
-        image_index to preserve Story Bible ordering. Each image has
-        'verbatim_text' and 'match_position' fields added.
-    """
-    # Normalize scene text for matching (preserve original for extraction)
-    scene_text_normalized = " ".join(scene_text.split()).strip()
-    scene_text_lower = scene_text_normalized.lower()
-
-    # Track matches with their positions for verbatim extraction
-    matched_with_pos: list[tuple[int, int, dict]] = []  # (start_pos, end_pos, img)
-
-    for img in all_images:
-        excerpt = img.get("narration_excerpt", "").strip()
-        if not excerpt:
-            continue
-
-        excerpt_normalized = " ".join(excerpt.split())
-        excerpt_lower = excerpt_normalized.lower()
-
-        # Strategy 1: Exact substring match (preferred)
-        pos = scene_text_lower.find(excerpt_lower)
-        if pos != -1:
-            # Find the end position based on word count (not char count)
-            # to handle potential whitespace differences
-            excerpt_word_count = len(excerpt_normalized.split())
-            words_after_pos = scene_text_normalized[pos:].split()
-            end_text = " ".join(words_after_pos[:excerpt_word_count])
-            end_pos = pos + len(end_text)
-            matched_with_pos.append((pos, end_pos, img))
-            continue
-
-        # Strategy 2: Anchor word matching
-        excerpt_words = excerpt_lower.split()
-        if len(excerpt_words) >= 3:
-            first_three = " ".join(excerpt_words[:3])
-            last_three = " ".join(excerpt_words[-3:])
-            first_pos = scene_text_lower.find(first_three)
-            last_pos = scene_text_lower.find(last_three)
-
-            if first_pos != -1 and last_pos != -1 and last_pos > first_pos:
-                # Found anchors - estimate the full span
-                end_pos = last_pos + len(last_three)
-                matched_with_pos.append((first_pos, end_pos, img))
-                continue
-
-        # Strategy 3: High confidence fuzzy match
-        excerpt_words_set = set(excerpt_words)
-        scene_words = scene_text_lower.split()
-        scene_words_normalized = scene_text_normalized.split()
-
-        best_overlap = 0
-        best_start_word_idx = -1
-        window_size = len(excerpt_words)
-
-        for i in range(max(1, len(scene_words) - window_size + 1)):
-            window = set(scene_words[i:i + window_size])
-            overlap = len(excerpt_words_set & window) / max(len(excerpt_words_set), 1)
-            if overlap > best_overlap:
-                best_overlap = overlap
-                best_start_word_idx = i
-
-        if best_overlap >= 0.8 and best_start_word_idx >= 0:
-            # Calculate character positions from word indices
-            start_pos = len(" ".join(scene_words_normalized[:best_start_word_idx]))
-            if best_start_word_idx > 0:
-                start_pos += 1  # Account for space before this word
-            end_word_idx = min(best_start_word_idx + window_size, len(scene_words_normalized))
-            end_pos = len(" ".join(scene_words_normalized[:end_word_idx]))
-            matched_with_pos.append((start_pos, end_pos, img))
-
-    # Sort by image_index to preserve Story Bible order
-    matched_with_pos.sort(key=lambda x: x[2].get("image_index", 0))
-
-    # Extract verbatim text for each matched image
-    # Handle overlaps and gaps by partitioning the scene_text
-    result: list[dict] = []
-    last_end = 0
-
-    for i, (start_pos, end_pos, img) in enumerate(matched_with_pos):
-        # Absorb any gap from the previous segment
-        actual_start = max(last_end, 0) if i > 0 else 0
-
-        # For the last image, extend to end of scene_text
-        if i == len(matched_with_pos) - 1:
-            actual_end = len(scene_text_normalized)
-        else:
-            # Use the match position but don't overlap with next segment
-            actual_end = end_pos
-
-        # Extract verbatim text
-        verbatim = scene_text_normalized[actual_start:actual_end].strip()
-
-        # Add to result with verbatim_text field
-        img_copy = dict(img)
-        img_copy["verbatim_text"] = verbatim
-        img_copy["match_position"] = (actual_start, actual_end)
-        result.append(img_copy)
-
-        last_end = actual_end
-
-    return result
 
 
 async def expand_scene_concepts_deterministic(

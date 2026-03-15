@@ -524,12 +524,7 @@ def build_prompt(
         return f"{framing} {clean_desc}, {mood_language}{suffix}"
     else:
         # --- Profile path: CONTENT-DRIVEN prefix detection ---
-
-        # Check if profile is the cinematic illustration style
-        default_prefix = profile.style_system.style_prefix if profile.style_system.style_prefix else ""
-        is_illustrated_profile = (
-            profile and profile.profile_id == "cinematic_illustration"
-        ) or "animated illustration" in default_prefix.lower()
+        default_prefix = profile.style_system.style_prefix or ""
 
         # Strip any existing prefix from description if Claude already included it
         if default_prefix and clean_desc.lower().startswith(default_prefix.lower()):
@@ -540,27 +535,18 @@ def build_prompt(
                 clean_desc = clean_desc[len(std_prefix):].strip().lstrip(",").strip()
                 break
 
-        if is_illustrated_profile:
-            # Content-driven: detect if characters are present
-            # Non-character scenes (data, environment, objects) get environment prefix
-            is_non_character = _is_non_character_scene(clean_desc)
-            has_characters = _has_character_indicators(clean_desc)
+        # Use profile prefix/suffix — character_prefix for character scenes
+        env_prefix = default_prefix
+        char_prefix = getattr(profile.style_system, "character_prefix", "") or env_prefix
+        suffix = profile.style_system.style_suffix or ""
 
-            if is_non_character:
-                # Data/environment/object scene: use environment prefix
-                prefix = _ENVIRONMENT_PREFIX
-            elif has_characters:
-                # Characters present: use character prefix
-                prefix = _CHARACTER_PREFIX
-            else:
-                # No characters detected: use environment prefix
-                prefix = _ENVIRONMENT_PREFIX
+        is_non_character = _is_non_character_scene(clean_desc)
+        has_characters = _has_character_indicators(clean_desc)
 
-            suffix = _UNIVERSAL_SUFFIX
+        if is_non_character or not has_characters:
+            prefix = env_prefix
         else:
-            # Other profile: use profile defaults
-            prefix = default_prefix
-            suffix = profile.style_system.style_suffix if profile.style_system.style_suffix else ""
+            prefix = char_prefix
 
         if image_style_override and image_style_override.strip():
             suffix = _apply_style_override(suffix, image_style_override)
@@ -708,13 +694,21 @@ def build_prompt_from_block(
             pass
 
     # ---------------------------------------------------------------
-    # Prefix: character vs environment
+    # Prefix + suffix from profile (falls back to module constants)
     # ---------------------------------------------------------------
     has_characters = bool(block_characters)
-    if has_characters:
-        prefix = _CHARACTER_PREFIX
+    if profile:
+        try:
+            ss = profile.style_system
+            env_prefix = ss.style_prefix or _ENVIRONMENT_PREFIX
+            char_prefix = ss.character_prefix or env_prefix
+            suffix = ss.style_suffix or _UNIVERSAL_SUFFIX
+        except (AttributeError, TypeError):
+            env_prefix, char_prefix, suffix = _ENVIRONMENT_PREFIX, _CHARACTER_PREFIX, _UNIVERSAL_SUFFIX
     else:
-        prefix = _ENVIRONMENT_PREFIX
+        env_prefix, char_prefix, suffix = _ENVIRONMENT_PREFIX, _CHARACTER_PREFIX, _UNIVERSAL_SUFFIX
+
+    prefix = char_prefix if has_characters else env_prefix
 
     # ---------------------------------------------------------------
     # Assemble prompt: prefix + Claude's description + camera/substyle + suffix
@@ -746,7 +740,6 @@ def build_prompt_from_block(
     prompt_body = " ".join(parts)
 
     # Apply style override to suffix if provided
-    suffix = _UNIVERSAL_SUFFIX
     if image_style_override and image_style_override.strip():
         suffix = _apply_style_override(suffix, image_style_override)
 

@@ -103,10 +103,17 @@
 - **First image of every block MUST be wide.** Enforced by validation; auto-fixed if violated.
 - **Act boundaries force new blocks.** When narration transitions to a new act, start a new scene block.
 - **Global image_index is sequential.** Images numbered 1, 2, 3... across entire video (60-80 total). No per-scene arithmetic.
-- **Scene → block mapping via narration text overlap.** Use fuzzy matching on `narration_excerpt` field to find which images belong to a scene.
+- **NEVER use Story Bible narration_excerpt for sentence_text.** The deterministic splitter (`segment_scene_deterministic()`) produces verbatim script segments. Story Bible images provide VISUAL CONTEXT only (location, lighting, characters). The V2 path was rewritten 2026-03-15 to fix cross-scene contamination caused by fuzzy-matching narration_excerpts across all scenes.
+- **Story Bible ≠ text splitter.** The Story Bible tells you WHERE and WHO. The deterministic splitter tells you WHAT TEXT each image covers. These are separate concerns. `_find_block_context()` maps segments to blocks by text overlap, but `sentence_text` always comes from the splitter.
+- **Pre-filter images to the current scene.** `get_all_images_from_blocks()` returns images from ALL scenes. ALWAYS filter by narration_excerpt text overlap before mapping. Without filtering, fuzzy matching leaks images from neighbouring scenes.
 - **Total images must match VideoConfig.** If VideoConfig says 60 clips, Story Bible must output exactly 60 images distributed across 12-20 blocks.
 - **Block context flows to prompt builder.** Concepts include `block_location`, `block_lighting`, `block_characters` for consistent prompts.
 - **Backward compatibility automatic.** Existing V1 Story Bibles (visual_arc) continue to work. New videos use V2 (scene_blocks) by default.
+
+### Prompt Builder Prefix/Suffix (Profile-Driven)
+- **NEVER hardcode style prefix/suffix in prompt_builder.py.** Read `profile.style_system.style_prefix`, `.character_prefix`, `.style_suffix` from the visual profile. The `_CHARACTER_PREFIX`, `_ENVIRONMENT_PREFIX`, `_UNIVERSAL_SUFFIX` module constants are legacy fallbacks ONLY.
+- **`character_prefix` is optional on StyleSystemConfig.** Falls back to `style_prefix` when empty. Only cinematic_illustration needs it (adds "expressive faces" language for character scenes).
+- **Every time visual system code is touched, check if hardcoded strings snuck back in.** This has happened repeatedly — a new feature uses a constant instead of reading from the profile, breaking all other visual styles.
 
 ## Session Review Log
 
@@ -126,6 +133,7 @@ _After each session, add a one-line summary of what was done and any new lessons
 | 2026-03-14 | Hotfix: progressive writes before validation + act_coherence threshold to 6 + geopolitical clustering | Scripts must ALWAYS be saved before validation; geopolitics needs higher topic threshold |
 | 2026-03-14 | Research agent narrative fields: shared extraction via narrative_extractor.py, wired into all 3 entry points | Shared utilities in clients/ folder; all entry points must use the same extraction logic |
 | 2026-03-14 | Fix 3 pipeline issues: cinematic voice prompt position, act_coherence advisory, verified progressive writes | System prompt ordering matters; advisory checks for unreliable fixes; progressive writes already worked |
+| 2026-03-15 | Fix cross-scene sentence contamination: V2 path now uses deterministic splitter for text + Story Bible for visual context only. Prompt builder prefix/suffix now reads from profile instead of hardcoded constants. | Story Bible ≠ text splitter; pre-filter images to current scene; never hardcode prefix/suffix |
 | 2026-03-14 | Debug Script field write + add !approve command for blocked scripts | Wiring audit failed — "already working" claims need ACTUAL verification with debug logs, not code reading |
 | 2026-03-14 | Fix Script field missing from Airtable setup — field documented but never created | Documentation ≠ implementation; always check setup scripts match field audit comments |
 | 2026-03-15 | Fix 3 prompt builder bugs: Scene uses narration_excerpt, duration from word count, character integration | 4 separate data paths in prompt builder — don't cross them; V2 scene blocks must match V1 deterministic_splitter capabilities |
