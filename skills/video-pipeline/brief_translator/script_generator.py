@@ -789,7 +789,11 @@ def build_script_prompt(
         preamble = build_script_system_prompt(profile)
 
         # Insert the framework lens and research brief
+        # IMPORTANT: Cinematic voice rules come SECOND (after role identity)
+        # so Claude internalizes voice/tone BEFORE structural constraints.
         rendered = preamble + "\n\n"
+        rendered += _CINEMATIC_VOICE_RULES + "\n\n"
+
         if framework_lens:
             rendered += framework_lens + "\n\n"
 
@@ -859,8 +863,7 @@ def build_script_prompt(
         else:
             rendered += "\n\n" + _FRAMEWORK_PSYCH_SEPARATION
 
-        # Cinematic voice rules (scene-driven openings, active framing, transitions)
-        rendered += "\n\n" + _CINEMATIC_VOICE_RULES
+        # Cinematic voice rules already added at top of prompt (after preamble)
 
         if profile.act_specific_rules:
             rendered += "\n\n" + profile.act_specific_rules
@@ -895,6 +898,10 @@ def build_script_prompt(
         SOURCE_CITATIONS_SECTION=source_citations,
     )
 
+    # IMPORTANT: Cinematic voice rules come FIRST after template
+    # so Claude internalizes voice/tone BEFORE structural constraints.
+    rendered += "\n\n" + _CINEMATIC_VOICE_RULES
+
     # Append updated act structure (dynamic from config or legacy),
     # micro-payoff architecture, framework selection rules, revelation
     # engine, and act-specific rules.
@@ -903,7 +910,6 @@ def build_script_prompt(
     rendered += "\n\n" + _FRAMEWORK_SELECTION_RULES
     rendered += "\n\n" + _FRAMEWORK_REVELATION_ENGINE
     rendered += "\n\n" + _FRAMEWORK_PSYCH_SEPARATION
-    rendered += "\n\n" + _CINEMATIC_VOICE_RULES
     rendered += "\n\n" + _ACT_SPECIFIC_RULES
     rendered += "\n\n" + _STRICT_GROUNDING_RULE
 

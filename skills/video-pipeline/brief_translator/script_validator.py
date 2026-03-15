@@ -746,11 +746,15 @@ def _count_cliffhangers_at_transitions(script: str, acts: dict[int, str]) -> tup
 
 @dataclass
 class CheckResult:
-    """Result of a single validation check."""
+    """Result of a single validation check.
+
+    Advisory checks are logged but don't block the pipeline.
+    """
     name: str
     passed: bool
     detail: str
     retry_prompt: str = ""
+    advisory: bool = False  # Advisory checks warn but don't block
 
 
 @dataclass
@@ -760,17 +764,29 @@ class ScriptValidationResult:
 
     @property
     def passed(self) -> bool:
-        return all(c.passed for c in self.checks)
+        # Advisory checks don't affect the overall pass/fail status
+        return all(c.passed for c in self.checks if not c.advisory)
 
     @property
     def failed_checks(self) -> list[CheckResult]:
-        return [c for c in self.checks if not c.passed]
+        # Advisory checks are excluded from blocking failures
+        return [c for c in self.checks if not c.passed and not c.advisory]
+
+    @property
+    def advisory_warnings(self) -> list[CheckResult]:
+        """Advisory checks that failed but don't block the pipeline."""
+        return [c for c in self.checks if not c.passed and c.advisory]
 
     @property
     def summary(self) -> str:
         lines = []
         for c in self.checks:
-            status = "PASS" if c.passed else "FAIL"
+            if c.passed:
+                status = "PASS"
+            elif c.advisory:
+                status = "WARN"  # Advisory failures show as warnings
+            else:
+                status = "FAIL"
             lines.append(f"  [{status}] {c.name}: {c.detail}")
         return "\n".join(lines)
 
@@ -782,9 +798,11 @@ class ScriptValidationResult:
                     "name": c.name,
                     "passed": c.passed,
                     "detail": c.detail,
+                    "advisory": c.advisory,
                 }
                 for c in self.checks
             ],
+            "advisory_warnings": [c.name for c in self.advisory_warnings],
         }
 
 
@@ -1130,6 +1148,7 @@ def validate_script_editorial(
             passed=passed,
             detail=detail,
             retry_prompt=retry_prompt,
+            advisory=True,  # Warns but doesn't block — geopolitics scripts naturally reference many entities
         ))
 
     return result
