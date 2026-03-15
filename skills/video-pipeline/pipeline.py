@@ -48,7 +48,6 @@ from bots.idea_bot import IdeaBot
 from bots.trending_idea_bot import TrendingIdeaBot
 from bots.sound_prompt_bot import SoundPromptBot
 from bots.sound_bot import SoundBot
-from bots.prompt_validator import PromptValidator, format_validation_report
 from pipeline_config import VideoConfig
 from segmentation_engine import enforce_duration_caps, recalculate_durations
 from image_prompt_engine.prompt_builder import (
@@ -2520,138 +2519,13 @@ class VideoPipeline:
                 audio_sync_summary = f" | Audio sync error: {e}"
 
         # ---------------------------------------------------------------
-        # Prompt Validation: Check sequencing rules before image generation
+        # Prompt Validation — DISABLED
+        # The sequencer + Story Bible V2 handle camera rotation and location
+        # consistency upstream. The post-hoc validator was fighting the
+        # sequencer (swapping camera types → creating cascading violations).
+        # See commit history for the original validator code.
         # ---------------------------------------------------------------
         validation_summary = ""
-        if not self._is_targeted_run:
-            try:
-                print(f"\n  Running prompt validation...")
-                prompts = self.airtable.get_all_images_for_video(self.video_title)
-
-                if prompts:
-                    validator = PromptValidator()
-                    violations = validator.validate(prompts)
-
-                    if violations:
-                        auto_fixed = []
-                        needs_regen = []
-
-                        for v in violations:
-                            if v.fix == "swap_camera_distance":
-                                fix = validator.auto_fix_camera_distance(prompts, v)
-                                if fix:
-                                    # Write fix to Airtable
-                                    self.airtable.update_image_prompt_fields(
-                                        record_id=fix["record_id"],
-                                        shot_type=fix["new_shot_type"],
-                                    )
-                                    auto_fixed.append(fix)
-                                    print(f"    Auto-fixed: Image {fix['image_index']} camera distance {fix['old_shot_type']} → {fix['new_shot_type']}")
-                                else:
-                                    needs_regen.append(v)
-                            else:
-                                needs_regen.append(v)
-
-                        # Regenerate prompts that need it via Claude
-                        regenerated = []
-                        if needs_regen:
-                            print(f"    Regenerating {len(needs_regen)} prompts via Claude...")
-                            # Load story bible from idea record
-                            story_bible = None
-                            story_bible_json = (self.current_idea.get("Story Bible") or "").strip()
-                            if story_bible_json:
-                                try:
-                                    story_bible = json.loads(story_bible_json)
-                                except json.JSONDecodeError:
-                                    pass
-
-                            for v in needs_regen:
-                                regen_result = await validator.regenerate_prompt(
-                                    anthropic_client=self.anthropic,
-                                    violation=v,
-                                    prompts=prompts,
-                                    story_bible=story_bible,
-                                )
-                                if regen_result:
-                                    # Write regenerated prompt to Airtable
-                                    self.airtable.update_image_prompt_fields(
-                                        record_id=regen_result["record_id"],
-                                        image_prompt=regen_result["new_prompt"],
-                                    )
-                                    regenerated.append(regen_result)
-                                    # Update local prompts list so re-validation sees the fix
-                                    for p in prompts:
-                                        if p.get("Image Index") == v.image_index:
-                                            p["Image Prompt"] = regen_result["new_prompt"]
-                                            break
-                                    print(f"    Regenerated: Image {v.image_index} ({v.type})")
-                                else:
-                                    print(f"    Failed to regenerate: Image {v.image_index} ({v.type})")
-
-                        # Re-validate once after all fixes to confirm
-                        still_failing = []
-                        if regenerated or auto_fixed:
-                            print(f"    Re-validating after fixes...")
-                            # Re-fetch prompts to get the updated state
-                            prompts = self.airtable.get_all_images_for_video(self.video_title)
-                            recheck_violations = validator.validate(prompts)
-                            if recheck_violations:
-                                still_failing = recheck_violations
-                                print(f"    Re-validation: {len(still_failing)} violations remain")
-                            else:
-                                print(f"    Re-validation: all clear")
-
-                        # Report to Slack
-                        report = format_validation_report(
-                            video_title=self.video_title,
-                            total_prompts=len(prompts),
-                            violations=violations,
-                            auto_fixed=auto_fixed,
-                            regenerated=regenerated,
-                            still_failing=still_failing,
-                        )
-                        self.slack.notify_prompt_validation(report)
-
-                        # Log to file for debugging
-                        try:
-                            with open("/tmp/pipeline-validation.log", "a") as f:
-                                from datetime import datetime
-                                f.write(f"\n{'='*60}\n")
-                                f.write(f"[{datetime.now().isoformat()}] {self.video_title}\n")
-                                f.write(f"{'='*60}\n")
-                                f.write(f"Total prompts: {len(prompts)}\n")
-                                f.write(f"Violations: {len(violations)}\n")
-                                f.write(f"Auto-fixed: {len(auto_fixed)}\n")
-                                f.write(f"Regenerated: {len(regenerated)}\n")
-                                f.write(f"Still failing: {len(still_failing)}\n\n")
-                                for v in violations:
-                                    f.write(f"  [{v.severity.upper()}] {v.type}: Image {v.image_index} - {v.issue}\n")
-                                if regenerated:
-                                    f.write(f"\n  Regenerated prompts:\n")
-                                    for r in regenerated:
-                                        f.write(f"    Image {r['image_index']} ({r['violation_type']})\n")
-                                if still_failing:
-                                    f.write(f"\n  Still failing after fix:\n")
-                                    for v in still_failing:
-                                        f.write(f"    [{v.severity.upper()}] {v.type}: Image {v.image_index} - {v.issue}\n")
-                        except Exception as log_err:
-                            print(f"    Warning: Could not write to validation log: {log_err}")
-
-                        # Check for remaining violations — log to Slack but don't block
-                        if still_failing:
-                            print(f"  ⚠️ {len(still_failing)} violations remain after fix pass — proceeding anyway")
-                            validation_summary = f" | ⚠️ {len(still_failing)} remaining after fix"
-                        else:
-                            total_fixed = len(auto_fixed) + len(regenerated)
-                            print(f"  ✅ Validation passed ({total_fixed} fixed)")
-                            validation_summary = f" | ✅ {total_fixed} fixed"
-                    else:
-                        print(f"  ✅ Validation passed - no issues found")
-                else:
-                    print(f"  ⚠️ No prompts found for validation")
-            except Exception as e:
-                print(f"  Prompt validation failed (non-blocking): {e}")
-                validation_summary = f" | Validation error: {e}"
 
         # Update status (skip if targeted run)
         if self._is_targeted_run:
