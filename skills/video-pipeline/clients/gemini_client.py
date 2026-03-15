@@ -6,12 +6,13 @@ import re
 from typing import Optional
 import httpx
 from json_utils import parse_json_response
+from pipeline_constants import Endpoints
 
 
 class GeminiClient:
     """Client for Google Gemini API (REST-based, no SDK dependency)."""
 
-    BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
+    BASE_URL = Endpoints.GEMINI_BASE
 
     def __init__(self, api_key: Optional[str] = None):
         self.api_key = api_key or os.getenv("GEMINI_API_KEY")

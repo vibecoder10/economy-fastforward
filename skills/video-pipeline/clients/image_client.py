@@ -8,7 +8,7 @@ import os
 import httpx
 from typing import Optional
 import asyncio
-from pipeline_constants import Models
+from pipeline_constants import Endpoints, Models
 
 
 def _get_profile():
@@ -50,14 +50,14 @@ def _valid_scene_models_from_profile() -> dict:
 class ImageClient:
     """Client for image and video generation via Kie.ai API."""
 
-    # Kie.ai API endpoints (from n8n workflow)
-    CREATE_TASK_URL = "https://api.kie.ai/api/v1/jobs/createTask"
-    RECORD_INFO_URL = "https://api.kie.ai/api/v1/jobs/recordInfo"
+    # Kie.ai API endpoints
+    CREATE_TASK_URL = Endpoints.KIE_CREATE_TASK
+    RECORD_INFO_URL = Endpoints.KIE_RECORD_INFO
 
-    # Veo 3.1 API endpoints (separate from generic jobs API)
-    VEO_GENERATE_URL = "https://api.kie.ai/api/v1/veo/generate"
-    VEO_RECORD_INFO_URL = "https://api.kie.ai/api/v1/veo/record-info"
-    VEO_1080P_URL = "https://api.kie.ai/api/v1/veo/get-1080p-video"
+    # Veo 3.1 API endpoints
+    VEO_GENERATE_URL = Endpoints.VEO_GENERATE
+    VEO_RECORD_INFO_URL = Endpoints.VEO_RECORD_INFO
+    VEO_1080P_URL = Endpoints.VEO_1080P
 
     # Model routing — reads from profile with hardcoded fallbacks
     SCENE_MODEL = _scene_model_from_profile()
@@ -123,7 +123,7 @@ class ImageClient:
         image_url: str,
         prompt: str,
         duration: int = 5,
-        model: str = "grok-imagine/image-to-video",
+        model: str = Models.ANIMATION_GROK,
     ) -> Optional[str]:
         """Generate a video from an image."""
         
@@ -703,10 +703,9 @@ class ImageClient:
         }
         
         # Grok Imagine Schema
-        # Model: grok-imagine/image-to-video
         # Input: image_urls (array), prompt, duration (string), mode (default normal)
         payload = {
-            "model": "grok-imagine/image-to-video",
+            "model": Models.ANIMATION_GROK,
             "input": {
                 "image_urls": [image_url],
                 "prompt": prompt,

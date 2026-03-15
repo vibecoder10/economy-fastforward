@@ -22,7 +22,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from clients.airtable_client import AirtableClient
-from pipeline_constants import IdeaFields, ImageFields, ScriptFields, Statuses
+from pipeline_constants import IdeaFields, ImageFields, ScriptFields, Statuses, Models
 from clients.google_client import GoogleClient, get_direct_drive_url
 
 def sanitize_filename(title: str) -> str:
@@ -114,11 +114,11 @@ def _build_sound_layers(
     Downloads SFX files from Google Drive to the local sfx directory.
     Returns an empty list if no sound map or SFX status is not Done.
     """
-    sfx_status = script.get("SFX Status", "")
-    if sfx_status != "Done":
+    sfx_status = script.get(ScriptFields.SFX_STATUS, "")
+    if sfx_status != ImageFields.STATUS_DONE:
         return []
 
-    sound_map_raw = script.get("Sound Map", "")
+    sound_map_raw = script.get(ScriptFields.SOUND_MAP, "")
     if not sound_map_raw:
         return []
 
@@ -391,7 +391,7 @@ def main():
     for img in images:
         clip_url = img.get(ImageFields.VIDEO_CLIP_URL, "")
         anim_status = img.get(ImageFields.ANIMATION_STATUS, "")
-        if clip_url and anim_status == "Done":
+        if clip_url and anim_status == ImageFields.STATUS_DONE:
             scene_num = img.get(ImageFields.SCENE, 0)
             img_idx = img.get(ImageFields.IMAGE_INDEX, 0)
             file_id = _extract_drive_file_id(clip_url)

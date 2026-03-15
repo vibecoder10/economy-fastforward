@@ -1,5 +1,4 @@
 """Configuration constants for EFF Thumbnail Generator.
-from pipeline_constants import Models
 
 API settings, color palette, and generation parameters for Nano Banana Pro
 thumbnail generation via Kie.ai.
@@ -7,6 +6,8 @@ thumbnail generation via Kie.ai.
 When a visual profile is loaded, model/cost/color settings read from the
 profile. Falls back to hardcoded defaults when no profile is available.
 """
+
+from pipeline_constants import Endpoints, Models, Tuning
 
 
 # ---------------------------------------------------------------------------
@@ -26,21 +27,20 @@ def _get_profile():
 # Nano Banana Pro API (via Kie.ai)
 # ---------------------------------------------------------------------------
 # Kie.ai uses a task-based API: create task -> poll for result
-API_BASE_URL = "https://api.kie.ai/api/v1/jobs"
-CREATE_TASK_URL = f"{API_BASE_URL}/createTask"
-RECORD_INFO_URL = f"{API_BASE_URL}/recordInfo"
+CREATE_TASK_URL = Endpoints.KIE_CREATE_TASK
+RECORD_INFO_URL = Endpoints.KIE_RECORD_INFO
 MODEL_NAME = Models.IMAGE_THUMBNAIL
 
 ASPECT_RATIO = "16:9"  # NEVER change this — wrong ratio causes black bars
 RESOLUTION = "2K"
 OUTPUT_FORMAT = "png"
 MAX_ATTEMPTS = 3  # Max regenerations before flagging for manual review
-COST_PER_IMAGE = 0.09  # USD at 2K resolution
+COST_PER_IMAGE = Tuning.COST_THUMBNAIL
 
 # Polling settings
-POLL_INITIAL_WAIT = 5.0  # Seconds before first poll
-POLL_INTERVAL = 2.0  # Seconds between polls
-POLL_MAX_ATTEMPTS = 45  # Max poll iterations (~90 seconds total)
+POLL_INITIAL_WAIT = Tuning.IMAGE_POLL_INITIAL_WAIT
+POLL_INTERVAL = Tuning.IMAGE_POLL_INTERVAL
+POLL_MAX_ATTEMPTS = Tuning.IMAGE_POLL_MAX_ATTEMPTS
 
 
 def get_thumbnail_model() -> str:
