@@ -34,6 +34,7 @@ logger = logging.getLogger(__name__)
 
 # Import competitor VPH calculation
 from bots.competitor_scraper import calculate_vph
+from clients.narrative_extractor import extract_narrative_fields_from_concept
 
 # Source categories for headline scanning
 SCAN_SOURCES = {
@@ -1120,15 +1121,20 @@ def build_idea_record_from_discovery(
         source_vph = 0
         dna_source = "discovery_scanner"
 
+    # Extract narrative fields using shared helper
+    narrative = extract_narrative_fields_from_concept(idea)
+    # Fallback: if our_angle exists but present_parallel is empty, use our_angle
+    if not narrative["present_parallel"] and idea.get("our_angle"):
+        narrative["present_parallel"] = idea.get("our_angle", "")
+    # Fallback: if historical_parallel_hint exists but past_context empty, use hint
+    if not narrative["past_context"] and idea.get("historical_parallel_hint"):
+        narrative["past_context"] = idea.get("historical_parallel_hint", "")
+
     record = {
         "viral_title": best_title or f"Discovery Idea {idea_number}",
         "hook_script": idea.get("hook", ""),
         "writer_guidance": idea.get("our_angle", ""),
-        "narrative_logic": {
-            "past_context": idea.get("historical_parallel_hint", ""),
-            "present_parallel": idea.get("our_angle", ""),
-            "future_prediction": "",
-        },
+        "narrative_logic": narrative,
         # Rich schema fields
         "Framework Angle": idea.get("framework") or infer_framework_angle(idea),
         "Headline": headline_source.split(" — ")[0] if " — " in headline_source else headline_source,

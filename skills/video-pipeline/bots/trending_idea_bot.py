@@ -14,6 +14,7 @@ import json
 import os
 
 from bots.idea_modeling import decompose_title, extract_format, generate_modeled_ideas
+from clients.narrative_extractor import extract_narrative_fields_from_concept
 
 
 
@@ -331,6 +332,9 @@ Return ONLY the JSON object, no other text."""
                 idea["source_views"] = top_videos[0].get("views", 0)
                 idea["source_channel"] = top_videos[0].get("channel", "")
 
+            # Ensure narrative_logic is properly populated using shared extraction
+            idea["narrative_logic"] = extract_narrative_fields_from_concept(idea)
+
         # Save to Airtable (Idea Concepts table)
         if save_to_airtable:
             print("  Saving to Airtable (Idea Concepts)...")
@@ -432,7 +436,10 @@ Return ONLY the JSON object, no other text."""
                 idea["reference_url"] = top_videos[0].get("url", "")
                 idea["source_views"] = top_videos[0].get("views", 0)
                 idea["source_channel"] = top_videos[0].get("channel", "")
-        
+
+            # Ensure narrative_logic is properly populated using shared extraction
+            idea["narrative_logic"] = extract_narrative_fields_from_concept(idea)
+
         # Save to Airtable (Idea Concepts table)
         if save_to_airtable:
             print("Saving to Airtable (Idea Concepts)...")
