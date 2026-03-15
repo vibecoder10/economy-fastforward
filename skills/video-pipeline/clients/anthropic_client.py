@@ -1050,15 +1050,29 @@ Start with style engine prefix, end with style engine suffix + lighting + text r
 
 YOUR TASK: Divide this scene into {target_count} visual segments ({min_count}-{max_count} range) and create image prompts.
 
-=== VISUAL VARIETY (MOST IMPORTANT RULE) ===
-Each image prompt MUST depict a DIFFERENT visual subject. Do NOT repeat the same scene with minor angle changes.
-- If the narration mentions a ship, a cost figure, a geographic strait, and a military strategy — those are 4 DIFFERENT images.
-- Translate abstract concepts into CONCRETE visuals: "$13 billion cost" → shipyard with scaffolding and workers, NOT another carrier at sea.
-- "Deterrence" → war room with strategic map, NOT another carrier shot.
-- "Iran's opportunity" → Iranian military command center or Strait map, NOT another carrier shot.
-- Ask yourself: "If I showed these {target_count} images as thumbnails, could I tell them apart at a glance?" If not, rewrite.
-- NEVER use the same primary subject (e.g., "aircraft carriers") in more than 2 out of {target_count} prompts.
-- Mine each sentence for its UNIQUE visual hook — what makes this fact different from the one before it?
+=== CINEMATIC COVERAGE (MOST IMPORTANT RULE) ===
+Direct each scene like a FILM DIRECTOR covering a location. Stay with the scene's subject
+but vary every shot through camera distance, angle, and detail focus — like a camera crew
+circling the scene, not a slideshow of disconnected images.
+
+EXAMPLE — Scene about three aircraft carriers in the Persian Gulf:
+- Wide establishing: three carriers in formation, Persian Gulf waters, distant Iranian coastline
+- Medium: flight deck of the Gerald R. Ford, jets lined up, crew activity
+- Close-up: hull number "CVN-78" on steel bow, waves crashing against hull
+- Low angle: looking up at carrier island superstructure, radar arrays against sky
+- Overhead: aerial view showing wake patterns, escort destroyers flanking
+- Environmental: the narrow Strait of Hormuz from above, tankers in single file
+
+Each image adds NEW VISUAL INFORMATION through:
+1. CAMERA DISTANCE: wide → medium → close-up → extreme close-up (cycle, don't repeat)
+2. ANGLE: eye-level, low angle, overhead, three-quarter — vary every shot
+3. DETAIL FOCUS: each shot highlights a DIFFERENT physical detail (deck, hull, radar, wake, weaponry)
+4. The viewer should feel like they're MOVING THROUGH the scene, not seeing the same postcard 9 times
+
+WHAT TO AVOID:
+- Multiple wide shots of the same formation from roughly the same distance
+- Describing the same elements (e.g., "massive gray hulls cutting through calm blue sea") in more than one prompt
+- Ignoring specific facts in the narration — if a sentence mentions "$13 billion," show construction details, not another ocean shot
 
 === CRITICAL DURATION RULE (HARD CEILING) ===
 - Each segment: ~{words_per_segment} words (±5 words)
@@ -1164,22 +1178,23 @@ RESEARCH DATA (use specific numbers, dates, and facts from this):
 {research_payload[:2000]}"""
 
         if not is_holographic and profile:
-            # Number sentences so Claude maps each to a distinct visual concept
+            # Number sentences so Claude can map each to a visual beat
             import re as _re
             _sentences = _re.split(r'(?<=[.!?])\s+', scene_text.strip())
             _numbered = "\n".join(f"  [{i+1}] {s}" for i, s in enumerate(_sentences) if s.strip())
 
-            prompt = f"""Segment this scene into {target_count} visual concepts using the {profile.profile_name} style.
+            prompt = f"""Cover this scene in {target_count} shots like a film director using the {profile.profile_name} style.
 
-SCENE TEXT (numbered sentences — each sentence suggests a DIFFERENT visual):
+SCENE TEXT:
 {_numbered}
 {research_context}
 
-INSTRUCTIONS:
-1. Map each sentence (or group of 2-3 sentences) to ONE visual concept
-2. Each image_prompt MUST show a DIFFERENT subject — no two prompts should describe the same thing
-3. Translate facts, numbers, and abstract ideas into concrete visual scenes (not just the dominant subject repeated)
-4. Return JSON with segments array. Each segment has text, image_prompt, and shot_type.
+SHOT PLAN:
+1. Group sentences into {target_count} beats (1-3 sentences each)
+2. For each beat, choose a camera distance + angle that is DIFFERENT from the previous beat
+3. Stay with the scene's subject — but each shot reveals NEW visual details (move closer, change angle, focus on a different element)
+4. If a sentence mentions a specific fact/number, let that detail drive what's VISIBLE in frame
+5. Return JSON with segments array. Each segment has text, image_prompt, and shot_type.
 REMEMBER: {PROMPT_MIN_WORDS}-{PROMPT_MAX_WORDS} words per prompt."""
         else:
             prompt = f"""Segment this scene into {target_count} holographic intelligence display visualizations:
