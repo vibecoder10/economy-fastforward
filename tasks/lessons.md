@@ -84,6 +84,17 @@
 - **Mannequin validation removed.** The prompt_validator no longer checks for naked mannequins or mannequin hands — these checks were style-specific. Style-agnostic checks remain: camera_distance, consecutive_location, consecutive_data.
 - **Profile detection changed.** Pipeline uses `uses_story_bible` (any profile except holographic_hud) instead of `is_mannequin_profile`. This is more accurate now that mannequin style is deprecated.
 
+### Scene Blocking System (Story Bible V2)
+- **Two Story Bible formats exist**: V1 (`visual_arc`) and V2 (`scene_blocks`). Use `has_scene_blocks()` to detect version.
+- **Scene blocks group 2-5 images** sharing location + lighting. Only camera angle, action, expression change within a block.
+- **First image of every block MUST be wide.** Enforced by validation; auto-fixed if violated.
+- **Act boundaries force new blocks.** When narration transitions to a new act, start a new scene block.
+- **Global image_index is sequential.** Images numbered 1, 2, 3... across entire video (60-80 total). No per-scene arithmetic.
+- **Scene → block mapping via narration text overlap.** Use fuzzy matching on `narration_excerpt` field to find which images belong to a scene.
+- **Total images must match VideoConfig.** If VideoConfig says 60 clips, Story Bible must output exactly 60 images distributed across 12-20 blocks.
+- **Block context flows to prompt builder.** Concepts include `block_location`, `block_lighting`, `block_characters` for consistent prompts.
+- **Backward compatibility automatic.** Existing V1 Story Bibles (visual_arc) continue to work. New videos use V2 (scene_blocks) by default.
+
 ## Session Review Log
 
 _After each session, add a one-line summary of what was done and any new lessons discovered._
@@ -97,3 +108,4 @@ _After each session, add a one-line summary of what was done and any new lessons
 | 2026-03-14 | Image prompt pipeline fixes: conditional mannequin prefix, context-aware regeneration, MANDATORY rules first, equipment integrity | Image prompt pipeline patterns |
 | 2026-03-14 | Visual style overhaul: replaced mannequin with cinematic illustration (312 tests passing) | Visual style system patterns, backwards compat alias |
 | 2026-03-14 | Added cinematic voice rules to script writer: scene-driven openings, active framing, film-style transitions | Voice/style additions go in system prompt constants, wire into both profile and legacy paths |
+| 2026-03-14 | Implemented Scene Blocking System (Story Bible V2): scene_blocks format, block-aware expansion, prompt builder | Scene blocks patterns, V1/V2 backward compat, narration text matching |

@@ -6,6 +6,7 @@ _Reference `ANIMATION_SYSTEM_REVIEW.md` for detailed feature specs before starti
 
 - [x] Image Prompt Pipeline Fixes (2026-03-14) — DONE
 - [x] Visual Style Overhaul: Mannequin → Cinematic Illustration (2026-03-14) — DONE
+- [x] Scene Blocking System (Story Bible V2) (2026-03-14) — DONE
 
 ### 2026-03-14: Visual Style Overhaul — Mannequin → Cinematic Illustration
 
@@ -34,25 +35,62 @@ Replaced the "3D rendered faceless mannequin with smooth white oval head" visual
 - `cinematic_illustration` is now the default (was `mannequin_storytelling`)
 - Old videos with `mannequin_storytelling` in Airtable will load `cinematic_illustration` (alias)
 
-## Handoff for Session 2: Scene Blocking System
+### 2026-03-14: Scene Blocking System (Story Bible V2) — COMPLETED
 
-**DEFERRED FROM THIS SESSION** — Scene blocking was part of the original request but deferred to reduce risk.
+**What Changed:**
+Implemented Scene Blocking system where images within a scene share environment/lighting but vary in camera angle. This creates visual continuity within narrative beats.
 
-**What Needs to Be Done:**
-- Update Story Bible to output scene blocks instead of per-scene arcs
-- Each scene block = 2-5 images sharing environment/lighting but varying in camera angle
-- Update prompt assembly to read from scene blocks
-- Update sequencer for within-block camera progression (wide → medium → closeup)
+**Files Modified:**
+- `bots/story_bible.py`:
+  - Added `SCENE_BLOCK_CONFIG` constants (min/max images per block, target blocks)
+  - Added `STORY_BIBLE_USER_PROMPT_V2` for scene_blocks output format
+  - Added `_validate_and_normalize_scene_blocks()` validation function
+  - Added helper functions: `has_scene_blocks()`, `get_story_bible_version()`, `get_block_for_image()`, `get_image_spec_by_index()`, `get_all_images_from_blocks()`
+  - Updated `generate_story_bible()` to support `use_scene_blocks=True` parameter
 
-**Why It Matters:**
-- Currently each image is independent — no visual continuity across a scene
-- Scene blocking ensures the same location/lighting persists for 2-5 images
-- Camera angles progress naturally (establishing wide → detail closeups)
+- `brief_translator/scene_expander.py`:
+  - Added `_expand_with_scene_blocks()` for V2 format
+  - Added `_match_scene_to_images()` for fuzzy matching narration text to images
+  - Updated `expand_scene_concepts_deterministic()` to detect and route V1 vs V2
 
-**Files to Modify:**
-- `bots/story_bible.py` — Output format change
-- `image_prompt_engine/prompt_builder.py` — Read scene blocks
-- `image_prompt_engine/sequencer.py` — Within-block camera rotation
+- `image_prompt_engine/prompt_builder.py`:
+  - Added `build_prompt_from_block()` for block-aware prompt assembly
+
+- `pipeline.py`:
+  - Updated Story Bible generation to use V2 by default (`use_scene_blocks=True`)
+  - Updated logging to detect and report V1 vs V2 format
+  - Pass `total_images` and `video_duration_minutes` to Story Bible generation
+
+**Scene Blocks Structure:**
+```json
+{
+  "scene_blocks": [
+    {
+      "block_id": "block_1",
+      "location": "Full environment description...",
+      "lighting": "Specific lighting setup...",
+      "mood": "tense",
+      "characters_present": ["russian_leader"],
+      "images": [
+        {"image_index": 1, "camera": "wide", "action": "..."},
+        {"image_index": 2, "camera": "medium", "action": "..."}
+      ]
+    }
+  ]
+}
+```
+
+**Key Rules:**
+- Each block has 2-5 images sharing location/lighting
+- First image of every block MUST be wide (enforced)
+- Act boundaries force new block boundaries
+- Global image_index is sequential (1, 2, 3... up to ~60-80)
+- Scene → block mapping via narration_excerpt text overlap
+
+**Verification:**
+- Ran 312 tests: ALL PASSED (286 unit + 26 integration)
+- Backward compatibility: existing V1 (visual_arc) Story Bibles continue to work
+- New videos use V2 (scene_blocks) by default
 
 ---
 
@@ -108,6 +146,9 @@ Replaced the "3D rendered faceless mannequin with smooth white oval head" visual
 - [x] Feature 6: Veo 3.1 Fast Integration — DONE
 - [x] Workflow orchestration rules (CLAUDE.md) — DONE
 - [x] Blocking Script Validation with Senior Editor Pass — DONE (2026-03-14)
+- [x] Image Prompt Pipeline Fixes — DONE (2026-03-14)
+- [x] Visual Style Overhaul: Mannequin → Cinematic Illustration — DONE (2026-03-14)
+- [x] Scene Blocking System (Story Bible V2) — DONE (2026-03-14)
 
 ## Review Notes
 
