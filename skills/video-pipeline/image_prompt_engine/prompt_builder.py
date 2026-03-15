@@ -79,12 +79,24 @@ def validate_no_people(prompt: str) -> tuple[bool, list[str]]:
 _STYLE_STRIP_PATTERNS: list[re.Pattern[str]] = [
     re.compile(p, re.IGNORECASE)
     for p in [
+        # Full old-format prefix (catches residual Claude output or cached data)
+        r"cinematic\s+animated\s+illustration\s+in\s+muted\s+earthy\s+color\s+palette"
+        r"\s+with\s+(?:visible\s+)?ink\s+outlines\s+and\s+dramatic\s+(?:directional\s+)?lighting\.?\s*",
+        # Old-format suffix phrases
+        r",?\s*stylized\s+2D\s+animation\s+aesthetic\s+with\s+visible\s+ink\s+outlines"
+        r",?\s*muted\s+film\s+grain\s+texture,?\s*16:?\s?9\s+cinematic\s+composition\s*",
+        # Old character prefix fragment
+        r"stylized\s+illustrated\s+characters?\s+with\s+expressive\s+faces?\s+"
+        r"showing\s+emotion\.?\s*",
+        # Old substyle fragments that duplicate builder-added content
+        r",?\s*muted\s+earthy\s+palette\b",
+        r",?\s*visible\s+ink\s+outlines\b",
+        # Individual style words (legacy)
         r"\bcinematic(?:\s+photorealistic)?\b",
         r"\bphotorealistic\b",
         r"\bholographic\b",
         r"\b16:\s?9\b",
         r"\b8K\s+resolution\b",
-        r"\bshallow depth of field\b",
         r"\bfilm grain\b",
     ]
 ]
