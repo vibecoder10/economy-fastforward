@@ -759,50 +759,38 @@ async def _expand_with_scene_blocks(
     except ImportError:
         bible_context = ""
 
-    # Convert matched images to concept dicts
-    concepts = []
-    for i, img in enumerate(matched_images):
-        # Map camera to composition
-        camera = img.get("camera", "medium").lower()
-        composition_map = {
-            "wide": "wide",
-            "medium": "medium",
-            "closeup": "closeup",
-            "close-up": "closeup",
-            "extreme_closeup": "closeup",
-            "extreme-closeup": "closeup",
-        }
-        composition = composition_map.get(camera, "medium")
+    # Group matched images by block_id so we can generate visual descriptions
+    # for an entire block in ONE Claude call — this gives Claude full context
+    # of the visual sequence so images within a block are consistent
+    from collections import OrderedDict
+    blocks: OrderedDict[str, list[dict]] = OrderedDict()
+    for img in matched_images:
+        bid = img.get("block_id", "unknown")
+        if bid not in blocks:
+            blocks[bid] = []
+        blocks[bid].append(img)
 
-        # VERBATIM TEXT: The exact words from the Script table Scene text field
-        # This is what goes into Airtable's Sentence Text field
-        # (NOT the Story Bible's narration_excerpt which may be a paraphrase)
-        verbatim_text = img.get("verbatim_text", "").strip()
+    # Generate visual descriptions per block (one Claude call per block)
+    # Returns {image_index: visual_description}
+    block_descriptions: dict[int, str] = {}
+    for block_id, block_images in blocks.items():
+        first_img = block_images[0]
+        block_location = first_img.get("block_location", "")
+        block_lighting = first_img.get("block_lighting", "")
+        block_characters = first_img.get("block_characters", [])
+        block_location_id = first_img.get("block_location_id", "")
+        block_mood = first_img.get("block_mood", "neutral")
 
-        # VISUAL CONTENT: Story Bible narration_excerpt — used as context for Claude,
-        # NOT as the final visual description
-        visual_content = img.get("narration_excerpt", "").strip()
+        # Build the image sequence for this block
+        image_sequence = []
+        for j, bimg in enumerate(block_images):
+            narration = bimg.get("verbatim_text", "").strip() or bimg.get("narration_excerpt", "").strip()
+            cam = bimg.get("camera", "medium")
+            action = bimg.get("action", "")
+            image_sequence.append(
+                f"  Image {j+1}: camera={cam}, action=\"{action}\", narration=\"{narration}\""
+            )
 
-        # Get camera/composition direction from Story Bible action field
-        camera_direction = img.get("action", "").strip()
-
-        # Block context for this image
-        block_location = img.get("block_location", "")
-        block_lighting = img.get("block_lighting", "")
-        block_characters = img.get("block_characters", [])
-        block_location_id = img.get("block_location_id", "")
-        block_mood = img.get("block_mood", "neutral")
-
-        # Duration from word count of sentence_text (verbatim script words)
-        sentence = verbatim_text if verbatim_text else visual_content
-        word_count = len(sentence.split()) if sentence else 0
-        duration = round(word_count / wps, 1) if wps > 0 else round(word_count / DEFAULT_WPS, 1)
-        # Clamp to reasonable range: min 4s, max 10s (same as deterministic_splitter)
-        duration = max(4.0, min(10.0, duration))
-
-        # Generate visual description via Claude API — same as V1 path
-        # The block context (location, lighting, characters) replaces V1's arc data
-        narration_text = verbatim_text if verbatim_text else visual_content
         try:
             if not is_holographic and profile and profile.scene_description.system_prompt:
                 visual_desc_prompt = f"{profile.scene_description.system_prompt}\n\n"
@@ -810,67 +798,108 @@ async def _expand_with_scene_blocks(
                 if bible_context:
                     visual_desc_prompt += f"{bible_context}\n\n"
 
-                # Block context replaces V1's arc data — richer since it has
-                # full location descriptions and character lists
                 chars_str = ", ".join(block_characters) if block_characters else "none (environment/data shot)"
                 visual_desc_prompt += (
-                    f"## THIS SHOT'S BLOCK CONTEXT:\n"
+                    f"## BLOCK: {block_id}\n"
+                    f"All {len(block_images)} images share this setting:\n"
                     f"- Location: {block_location_id} — {block_location}\n"
                     f"- Characters present: {chars_str}\n"
                     f"- Lighting: {block_lighting}\n"
-                    f"- Mood: {block_mood}\n"
-                    f"- Camera: {camera}\n"
-                    f"- Action direction: {camera_direction}\n\n"
+                    f"- Mood: {block_mood}\n\n"
+                    f"## IMAGE SEQUENCE (these play consecutively as animation):\n"
+                    + "\n".join(image_sequence) + "\n\n"
                 )
 
                 visual_desc_prompt += (
-                    "VISUAL APPROACH — Before writing this prompt, identify the PRIMARY VERB in the narration:\n"
-                    "- If the verb is an action (launched, struck, surged, collapsed, invaded, signed, declared) → show that action happening in the physical world\n"
-                    "- If the verb is internal (realized, calculated, planned, knew) → THEN show a character in a contemplative setting\n"
-                    "- If the verb describes data (cost, earned, spent, numbered) → show the physical manifestation of that data (infrastructure, currency, military hardware) OR a data display\n\n"
-                    "Ask yourself: \"What would a documentary filmmaker POINT THE CAMERA AT for this line?\" The answer is almost never \"a person sitting at a desk.\" It's the event itself.\n\n"
-                    "CRITICAL RULES:\n"
-                    "1. If a character from the bible appears, use their EXACT costume description. Do not change or omit clothing.\n"
-                    "2. Use the location description and signature detail from the block context above.\n"
-                    "3. Match the mood and camera distance from the block context.\n"
-                    "4. If characters_present is 'none', do NOT include character figures — this is a data/environment shot.\n"
-                    "5. Incorporate the action direction — what's happening in this specific frame.\n\n"
-                    "CLOTHING RULE: Every character figure MUST have specific clothing described. "
-                    "Never describe a character without clothing. If unsure, use 'wearing dark formal suit with white shirt.'\n\n"
-                    "Write a 20-35 word visual description for this narration segment. "
-                    "Do NOT start with the style prefix (e.g. 'Cinematic animated illustration...') — "
-                    "that will be added automatically.\n"
-                    "Return ONLY the description, nothing else.\n\n"
-                    f"Narration: \"{narration_text}\"\n"
-                    f"Visual seeds for context: {visual_seeds[:200] if visual_seeds else 'none'}"
+                    "Write a visual description (20-35 words each) for EACH image in this block.\n\n"
+                    "CONSISTENCY RULES — these images animate together as one continuous sequence:\n"
+                    "- Same location, same lighting, same color palette across all images\n"
+                    "- Characters keep the EXACT same clothing and appearance in every image\n"
+                    "- Only the camera angle and character action/pose change between images\n"
+                    "- Image 1 (wide) establishes the scene, subsequent images push in closer\n\n"
+                    "VISUAL APPROACH — identify the PRIMARY VERB in each narration line:\n"
+                    "- Action verbs (launched, struck, signed) → show it happening physically\n"
+                    "- Internal verbs (realized, planned) → contemplative character moment\n"
+                    "- Data verbs (cost, earned, numbered) → physical manifestation or data display\n\n"
+                    "RULES:\n"
+                    "1. Use EXACT character costumes from the Story Bible. Never omit clothing.\n"
+                    "2. Use the shared location description — don't invent a different setting.\n"
+                    "3. If characters_present is 'none', NO character figures — environment/data only.\n"
+                    "4. Do NOT include style prefix (e.g. 'Cinematic animated illustration...') — added automatically.\n\n"
+                    f"Visual seeds: {visual_seeds[:200] if visual_seeds else 'none'}\n\n"
+                    f"Return a JSON array of {len(block_images)} strings, one per image. Example:\n"
+                    f'[\"desc for image 1\", \"desc for image 2\", ...]\n'
+                    "Return ONLY the JSON array, nothing else."
                 )
             else:
-                # Holographic path — same as V1
                 visual_desc_prompt = (
                     "You are creating visual descriptions for HOLOGRAPHIC DATA DISPLAYS "
-                    "in an intelligence operations center — not camera shots of real events.\n\n"
-                    "ALWAYS describe:\n"
-                    "- What DATA, DOCUMENTS, MAPS, or CHARTS would appear on a holographic screen analyzing this topic\n"
-                    "- Information visualizations (price charts, treaty text, flow diagrams, network maps, timelines)\n"
-                    "- At least one specific number, date, or percentage from the narration\n\n"
-                    "Write a 20-35 word description of what DATA DISPLAY would visualize this narration. "
-                    "Return ONLY the description, nothing else.\n\n"
-                    f"Narration: \"{narration_text}\"\n"
-                    f"Visual seeds for context: {visual_seeds[:200] if visual_seeds else 'none'}"
+                    "in an intelligence operations center.\n\n"
+                    f"## BLOCK: {block_id} ({len(block_images)} images in sequence)\n"
+                    + "\n".join(image_sequence) + "\n\n"
+                    "Write a 20-35 word visual description for EACH image.\n"
+                    "Each should describe DATA, DOCUMENTS, MAPS, or CHARTS on a holographic screen.\n"
+                    "Maintain visual consistency — same display theme, evolving data across images.\n\n"
+                    f"Return a JSON array of {len(block_images)} strings. "
+                    "Return ONLY the JSON array, nothing else."
                 )
 
-            visual_description = await anthropic_client.generate(
+            raw_response = await anthropic_client.generate(
                 prompt=visual_desc_prompt,
                 model="claude-sonnet-4-5-20250929",
-                max_tokens=200,
+                max_tokens=150 * len(block_images),
                 temperature=0.4,
             )
-            visual_description = visual_description.strip()
+
+            # Parse JSON array response
+            import json
+            raw = raw_response.strip()
+            # Remove markdown fences if present
+            if raw.startswith("```"):
+                raw = raw.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+            descriptions = json.loads(raw)
+
+            if isinstance(descriptions, list) and len(descriptions) == len(block_images):
+                for j, bimg in enumerate(block_images):
+                    idx = bimg.get("image_index", j)
+                    block_descriptions[idx] = descriptions[j].strip()
+                print(f"      Block {block_id}: {len(descriptions)} visual descriptions generated")
+            else:
+                print(f"      ⚠️ Block {block_id}: Expected {len(block_images)} descriptions, "
+                      f"got {len(descriptions) if isinstance(descriptions, list) else 'non-list'}")
+                # Fallback: use whatever we got, pad with narration_excerpt
+                if isinstance(descriptions, list):
+                    for j, bimg in enumerate(block_images):
+                        idx = bimg.get("image_index", j)
+                        if j < len(descriptions):
+                            block_descriptions[idx] = str(descriptions[j]).strip()
 
         except Exception as e:
-            print(f"      ⚠️ LLM visual description failed for image {i+1}: {e}")
-            # Fallback: use narration_excerpt from Story Bible
-            visual_description = visual_content if visual_content else "Scene continues"
+            print(f"      ⚠️ Block {block_id}: LLM batch failed: {e}")
+            # Fallback: narration_excerpt for each image in this block
+
+    # Convert matched images to concept dicts, using LLM descriptions where available
+    composition_map = {
+        "wide": "wide", "medium": "medium", "closeup": "closeup",
+        "close-up": "closeup", "extreme_closeup": "closeup", "extreme-closeup": "closeup",
+    }
+    concepts = []
+    for i, img in enumerate(matched_images):
+        camera = img.get("camera", "medium").lower()
+        composition = composition_map.get(camera, "medium")
+        verbatim_text = img.get("verbatim_text", "").strip()
+        visual_content = img.get("narration_excerpt", "").strip()
+        camera_direction = img.get("action", "").strip()
+        block_mood = img.get("block_mood", "neutral")
+
+        sentence = verbatim_text if verbatim_text else visual_content
+        word_count = len(sentence.split()) if sentence else 0
+        duration = round(word_count / wps, 1) if wps > 0 else round(word_count / DEFAULT_WPS, 1)
+        duration = max(4.0, min(10.0, duration))
+
+        # Use LLM-generated description if available, fallback to narration_excerpt
+        img_idx = img.get("image_index", i)
+        visual_description = block_descriptions.get(img_idx, visual_content if visual_content else "Scene continues")
 
         concept = {
             "concept_index": i + 1,
@@ -882,10 +911,10 @@ async def _expand_with_scene_blocks(
             "duration": duration,
             # Block context for prompt builder
             "block_id": img.get("block_id"),
-            "block_location": block_location,
-            "block_lighting": block_lighting,
-            "block_characters": block_characters,
-            "block_location_id": block_location_id,
+            "block_location": img.get("block_location", ""),
+            "block_lighting": img.get("block_lighting", ""),
+            "block_characters": img.get("block_characters", []),
+            "block_location_id": img.get("block_location_id", ""),
             "global_image_index": img.get("image_index"),
             "camera_direction": camera_direction,
         }
