@@ -30,6 +30,8 @@ _PROFILE_MODULES: dict[str, str] = {
     "cinematic_dossier": "visual_profiles.cinematic_dossier",
     "clay_mannequin": "visual_profiles.clay_mannequin",
     "cinematic_illustration": "visual_profiles.cinematic_illustration",
+    # Legacy alias — old Airtable records may still have this value
+    "mannequin_storytelling": "visual_profiles.cinematic_illustration",
 }
 
 DEFAULT_PROFILE_ID = "holographic_hud"

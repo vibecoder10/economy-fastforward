@@ -698,10 +698,18 @@ def build_prompt_from_block(
     camera_desc = camera_map.get(camera.lower(), "Medium shot")
     camera_parts = [camera_desc]
 
-    # Add camera direction guidance if available (e.g., "camera pushes in slowly")
+    # Only append camera_direction if it's actual camera/cinematography guidance
+    # (e.g., "camera pushes in slowly", "tracking shot from left").
+    # Skip if it's scene description — that already lives in the Scene field.
+    _CAMERA_KEYWORDS = {"camera", "tracking", "pan", "zoom", "dolly", "tilt",
+                        "crane", "pull", "push", "orbit", "steadicam", "handheld",
+                        "rack focus", "follows", "sweeps", "rises", "descends"}
     if camera_direction:
-        camera_direction = _strip_style_language(camera_direction).rstrip(". ")
-        camera_parts.append(camera_direction)
+        direction_lower = camera_direction.lower()
+        is_camera_guidance = any(kw in direction_lower for kw in _CAMERA_KEYWORDS)
+        if is_camera_guidance:
+            camera_direction = _strip_style_language(camera_direction).rstrip(". ")
+            camera_parts.append(camera_direction)
 
     parts.append(f"Camera: {', '.join(camera_parts)}.")
 
