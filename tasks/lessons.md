@@ -65,18 +65,24 @@
 1. **Async everywhere.** All bots, all clients, all pipeline code uses async Python. Don't introduce sync blocking calls.
 2. **httpx, not requests.** The project uses `httpx` for async HTTP. Don't add `requests`.
 3. **6 images per scene, 20 scenes per video.** This is the standard. Changes to this ratio cascade through the entire pipeline.
-4. **Visual style system is profile-driven.** Holographic HUD uses Dossier/Schema/Echo. Mannequin Storytelling uses power_move/lone_figure/environment/data_hud/object_closeup. The sequencer must match the active profile.
+4. **Visual style system is profile-driven.** Holographic HUD uses Dossier/Schema/Echo. Cinematic Illustration (default) uses power_move/lone_figure/environment/data_hud/object_closeup with illustrated characters. The sequencer must match the active profile.
 5. **Max consecutive same-type constraint varies by profile.** Holographic: 4 max. Mannequin: 3 max. Read from `profile.rotation.max_consecutive_same_content_type`.
 6. **ElevenLabs voice ID is configured, not hardcoded.** Use `ELEVENLABS_VOICE_ID` from .env.
 7. **Google Drive is the media store.** Images, audio, and video go to Drive. Don't store large files locally on the VPS.
 8. **When adding CLI args to a pipeline function**, make sure EVERY code path that calls it actually passes and uses those args. The `image_filter` arg was parsed correctly in 3 places but never used in the function that mattered.
 
 ### Image Prompt Pipeline Patterns
-- **Mannequin prefix is conditional.** Only scenes with CHARACTER indicators (seated, walking, wearing, etc.) get the mannequin prefix. Data displays, environments, objects, and maps do NOT get the prefix. Use `_is_non_character_scene()` to check first.
-- **Non-character scene types**: holographic display, data visualization, charts, factory floor, military base, aerial view, satellite view, map overlays — these should NEVER have mannequin prefix regardless of any keywords.
+- **Character prefix is conditional.** Only scenes with CHARACTER indicators (seated, walking, wearing, etc.) get the character prefix. Data displays, environments, objects, and maps do NOT get the prefix. Use `_is_non_character_scene()` to check first.
+- **Non-character scene types**: holographic display, data visualization, charts, factory floor, military base, aerial view, satellite view, map overlays — these should NEVER have character prefix regardless of any keywords.
 - **Regeneration needs context.** When regenerating a prompt for consecutive_location or consecutive_data violations, pass the SURROUNDING locations/types (indices i-2, i-1, i+1, i+2) so Claude doesn't regenerate with a conflicting neighbor.
-- **MANDATORY rules must come FIRST.** For naked_mannequin and realistic_hands violations, put the mandatory clothing/hand rules at the very first line of the regeneration prompt. Model attention is highest at the start.
 - **Equipment integrity default.** Drones, weapons, vehicles default to "fully assembled" unless the narration explicitly mentions wreckage/damage. Remove "detached", "disassembled" language from non-damage scenes.
+
+### Visual Style System (Cinematic Illustration)
+- **Default style changed from mannequin to cinematic illustration (2026-03-14).** New style: "Cinematic animated illustration in muted earthy color palette with ink outlines and dramatic lighting. Stylized illustrated characters with expressive faces."
+- **Two prefixes now exist**: `_CHARACTER_PREFIX` (for scenes with characters) and `_ENVIRONMENT_PREFIX` (for data/environment/object scenes). Both share `_UNIVERSAL_SUFFIX`.
+- **Backwards compatibility via alias.** If Airtable has `mannequin_storytelling`, the profile registry loads `cinematic_illustration` instead. No breaking changes for existing videos.
+- **Mannequin validation removed.** The prompt_validator no longer checks for naked mannequins or mannequin hands — these checks were style-specific. Style-agnostic checks remain: camera_distance, consecutive_location, consecutive_data.
+- **Profile detection changed.** Pipeline uses `uses_story_bible` (any profile except holographic_hud) instead of `is_mannequin_profile`. This is more accurate now that mannequin style is deprecated.
 
 ## Session Review Log
 
@@ -89,3 +95,4 @@ _After each session, add a one-line summary of what was done and any new lessons
 | 2026-03-12 | Fixed resume logic blocking targeted runs + skip audio sync for partial generation | Targeted vs full run resume logic, audio sync scope |
 | 2026-03-14 | Added blocking script validation: promise-payoff tracking, act coherence, senior editor pass | Script validation blocking flow, 7 validation checks |
 | 2026-03-14 | Image prompt pipeline fixes: conditional mannequin prefix, context-aware regeneration, MANDATORY rules first, equipment integrity | Image prompt pipeline patterns |
+| 2026-03-14 | Visual style overhaul: replaced mannequin with cinematic illustration (312 tests passing) | Visual style system patterns, backwards compat alias |

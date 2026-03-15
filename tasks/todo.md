@@ -5,6 +5,56 @@
 _Reference `ANIMATION_SYSTEM_REVIEW.md` for detailed feature specs before starting any roadmap item._
 
 - [x] Image Prompt Pipeline Fixes (2026-03-14) — DONE
+- [x] Visual Style Overhaul: Mannequin → Cinematic Illustration (2026-03-14) — DONE
+
+### 2026-03-14: Visual Style Overhaul — Mannequin → Cinematic Illustration
+
+**What Changed:**
+Replaced the "3D rendered faceless mannequin with smooth white oval head" visual style with "Cinematic animated illustration in muted earthy color palette with ink outlines and dramatic lighting. Stylized illustrated characters with expressive faces showing emotion."
+
+**Files Modified:**
+- `image_prompt_engine/prompt_builder.py` — New prefix/suffix constants (_CHARACTER_PREFIX, _ENVIRONMENT_PREFIX, _UNIVERSAL_SUFFIX), updated detection logic
+- `bots/prompt_validator.py` — Removed ~224 lines of mannequin-specific validation (naked mannequins, mannequin hands)
+- `pipeline.py` — Changed `is_mannequin_profile` to `uses_story_bible`, removed mannequin clothing rules
+- `visual_profiles/cinematic_illustration.py` — NEW FILE (~700 lines) - complete illustrated profile
+- `visual_profiles/__init__.py` — Added cinematic_illustration, aliased mannequin_storytelling for backwards compat
+- `clients/airtable_client.py` — Updated VALID_VISUAL_STYLES and DEFAULT_VISUAL_STYLE
+- `bots/story_bible.py` — Updated examples to use "illustrated figure" instead of "mannequin"
+- `brief_translator/scene_expander.py` — Updated prompts to use "character" instead of "mannequin"
+
+**Verification:**
+- Ran 312 tests across 3 test suites: ALL PASSED
+  - image_prompt_engine: 143 passed, 2 skipped
+  - brief_translator: 143 passed
+  - pipeline_integration: 26 passed
+- ZERO prompts should contain "mannequin", "oval head", "faceless", "no facial features"
+- Prompts should contain "animated illustration", "ink outlines", "expressive faces"
+
+**New Default Style:**
+- `cinematic_illustration` is now the default (was `mannequin_storytelling`)
+- Old videos with `mannequin_storytelling` in Airtable will load `cinematic_illustration` (alias)
+
+## Handoff for Session 2: Scene Blocking System
+
+**DEFERRED FROM THIS SESSION** — Scene blocking was part of the original request but deferred to reduce risk.
+
+**What Needs to Be Done:**
+- Update Story Bible to output scene blocks instead of per-scene arcs
+- Each scene block = 2-5 images sharing environment/lighting but varying in camera angle
+- Update prompt assembly to read from scene blocks
+- Update sequencer for within-block camera progression (wide → medium → closeup)
+
+**Why It Matters:**
+- Currently each image is independent — no visual continuity across a scene
+- Scene blocking ensures the same location/lighting persists for 2-5 images
+- Camera angles progress naturally (establishing wide → detail closeups)
+
+**Files to Modify:**
+- `bots/story_bible.py` — Output format change
+- `image_prompt_engine/prompt_builder.py` — Read scene blocks
+- `image_prompt_engine/sequencer.py` — Within-block camera rotation
+
+---
 
 ### 2026-03-14: Image Prompt Pipeline Fixes
 

@@ -2132,13 +2132,12 @@ class VideoPipeline:
         # Generate or load Story Bible for visual consistency
         # ---------------------------------------------------------------
         story_bible = None
-        is_mannequin_profile = (
+        uses_story_bible = (
             _active_profile is not None
             and _active_profile.profile_id not in ("holographic_hud",)
-            and _active_profile.figure_rules.allow_mannequins
         )
 
-        if is_mannequin_profile:
+        if uses_story_bible:
             # Check if Story Bible already exists in Airtable
             existing_bible_json = (self.current_idea.get("Story Bible") or "").strip()
             if existing_bible_json:
@@ -2306,14 +2305,13 @@ class VideoPipeline:
                                     "narration, use their EXACT description from the bible above.\n\n"
                                 )
 
-                            # Add clothing requirement and instructions
+                            # Add instructions for visual description
                             regen_prompt += (
-                                "CLOTHING RULE: Every mannequin figure MUST have specific clothing described. "
-                                "Never describe a mannequin without clothing. If unsure, use 'wearing dark formal suit with white shirt.'\n\n"
+                                "CHARACTER RULE: Every character must have specific clothing and appearance described. "
+                                "Use period-appropriate, role-appropriate attire from the Story Bible.\n\n"
                                 "Write a 20-35 word visual description for this narration segment. "
                                 "You decide whether this moment needs characters, environment, data, or objects.\n\n"
-                                "Do NOT start with the style prefix (e.g. '3D rendered faceless mannequin...') — "
-                                "that will be added automatically based on what you write.\n"
+                                "Do NOT start with the style prefix — that will be added automatically based on what you write.\n"
                                 "Return ONLY the description, nothing else.\n\n"
                                 f"Narration: \"{concept['sentence_text']}\""
                             )
@@ -2493,18 +2491,7 @@ class VideoPipeline:
                                     print(f"    Auto-fixed: Image {fix['image_index']} camera distance {fix['old_shot_type']} → {fix['new_shot_type']}")
                                 else:
                                     needs_regen.append(v)
-                            elif v.fix == "add_mannequin_hand_description":
-                                fix = validator.auto_fix_mannequin_hands(prompts, v)
-                                if fix:
-                                    # Write fix to Airtable
-                                    self.airtable.update_image_prompt_fields(
-                                        record_id=fix["record_id"],
-                                        image_prompt=fix["new_prompt"],
-                                    )
-                                    auto_fixed.append(fix)
-                                    print(f"    Auto-fixed: Image {fix['image_index']} added mannequin hand reinforcement")
-                                else:
-                                    needs_regen.append(v)
+                            # mannequin hand fix case removed - visual style deprecated
                             else:
                                 needs_regen.append(v)
 

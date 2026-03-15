@@ -82,86 +82,6 @@ class PromptValidator:
         "trend line",
     ]
 
-    # Hand words that need mannequin reinforcement
-    HAND_WORDS = [
-        "hand resting",
-        "hands resting",
-        "hand reaching",
-        "hands reaching",
-        "hand gripping",
-        "hands gripping",
-        "fingers",
-        "holding pen",
-        "holding document",
-        "hand on",
-        "hands on",
-    ]
-
-    # Mannequin hand descriptors
-    MANNEQUIN_HAND_WORDS = [
-        "plastic",
-        "white mannequin hand",
-        "joint seam",
-        "smooth white hand",
-        "mannequin hand",
-        "articulated joint",
-        "plastic hand",
-    ]
-
-    # Character indicators (phrases that indicate a human figure is present, excluding "mannequin"
-    # which is always in the prefix). Use multi-word phrases to avoid false positives like
-    # "official seals" being detected as "official" (person).
-    CHARACTER_INDICATORS = [
-        "standing",
-        "sitting",
-        "leaning",
-        "seated",
-        "walking",
-        "gesturing",
-        "arms crossed",
-        "hands clasped",
-        "suited mannequin",
-        "official seated",
-        "official standing",
-        "official at",
-        "leader at",
-        "leader seated",
-        "trader at",
-        "trader standing",
-    ]
-
-    # Standard mannequin prefix to strip before checking for character content
-    MANNEQUIN_PREFIX = "3D rendered faceless mannequin with smooth white oval head"
-
-    # Standard mannequin suffix that should be stripped before checking
-    MANNEQUIN_SUFFIX = ", Cinematic 3D documentary style, no facial features on any figures."
-
-    # Clothing descriptors
-    CLOTHING_INDICATORS = [
-        "wearing",
-        "suit",
-        "uniform",
-        "robes",
-        "dress shirt",
-        "tie",
-        "jacket",
-        "vest",
-        "shirt",
-        "three-piece",
-        "costume",
-        "clerical",
-        "thobe",
-        "business attire",
-        "formal wear",
-        "coat",
-        "blazer",
-        "overalls",
-        "coveralls",
-        "military uniform",
-        "lab coat",
-        "hard hat",
-    ]
-
     def validate(self, prompts: list[dict]) -> list[Violation]:
         """Run all validation checks.
 
@@ -180,8 +100,7 @@ class PromptValidator:
         violations.extend(self._check_camera_distance(prompts))
         violations.extend(self._check_consecutive_locations(prompts))
         violations.extend(self._check_consecutive_data_scenes(prompts))
-        violations.extend(self._check_mannequin_hands(prompts))
-        violations.extend(self._check_naked_mannequins(prompts))
+        # Mannequin-specific checks removed (style deprecated)
         return violations
 
     def _check_camera_distance(self, prompts: list[dict]) -> list[Violation]:
@@ -277,76 +196,8 @@ class PromptValidator:
 
         return violations
 
-    def _check_mannequin_hands(self, prompts: list[dict]) -> list[Violation]:
-        """Flag closeup shots that describe hands without mannequin reinforcement."""
-        violations = []
-
-        for p in prompts:
-            prompt_text = p.get("Image Prompt", "").lower()
-            shot_type = p.get("Shot Type", "").lower()
-
-            has_hands = any(hw in prompt_text for hw in self.HAND_WORDS)
-            has_mannequin_hands = any(mhw in prompt_text for mhw in self.MANNEQUIN_HAND_WORDS)
-            is_closeup = shot_type in ["closeup", "close-up", "extreme-close-up"]
-
-            if has_hands and is_closeup and not has_mannequin_hands:
-                violations.append(
-                    Violation(
-                        type="realistic_hands",
-                        image_index=p.get("Image Index", 0),
-                        record_id=p.get("id", ""),
-                        issue="Closeup with hand description but no mannequin hand reinforcement",
-                        fix="add_mannequin_hand_description",
-                        severity="medium",
-                    )
-                )
-
-        return violations
-
-    def _check_naked_mannequins(self, prompts: list[dict]) -> list[Violation]:
-        """Flag character prompts without clothing descriptions."""
-        violations = []
-
-        for p in prompts:
-            prompt_text = p.get("Image Prompt", "")
-
-            # Only check prompts that have the mannequin prefix (character scenes)
-            if not prompt_text.startswith("3D rendered faceless mannequin"):
-                continue
-
-            # Strip the standard prefix and suffix before checking for character content
-            # This prevents false positives from words like "mannequin" in the prefix
-            # and "figures" in the standard suffix
-            content = prompt_text
-            if content.startswith(self.MANNEQUIN_PREFIX):
-                content = content[len(self.MANNEQUIN_PREFIX):].strip()
-            if content.endswith(self.MANNEQUIN_SUFFIX):
-                content = content[:-len(self.MANNEQUIN_SUFFIX)].strip()
-
-            content_lower = content.lower()
-
-            # Check if this is a data/environment scene (not a character scene)
-            is_data_scene = any(ind in content_lower for ind in self.DATA_INDICATORS)
-
-            # Check for character presence and clothing
-            has_character = any(ci in content_lower for ci in self.CHARACTER_INDICATORS)
-            has_clothing = any(cl in content_lower for cl in self.CLOTHING_INDICATORS)
-
-            # Only flag if it's a character scene without clothing
-            # Skip data/environment scenes that incorrectly have the mannequin prefix
-            if has_character and not has_clothing and not is_data_scene:
-                violations.append(
-                    Violation(
-                        type="naked_mannequin",
-                        image_index=p.get("Image Index", 0),
-                        record_id=p.get("id", ""),
-                        issue="Character scene with no clothing description",
-                        fix="needs_regeneration",
-                        severity="critical",
-                    )
-                )
-
-        return violations
+    # Mannequin-specific checks (_check_mannequin_hands, _check_naked_mannequins)
+    # removed - visual style deprecated in favor of cinematic_illustration
 
     def _detect_location(self, prompt_text: str) -> str:
         """Detect location from prompt text."""
@@ -410,61 +261,7 @@ class PromptValidator:
 
         return None
 
-    def auto_fix_mannequin_hands(
-        self, prompts: list[dict], violation: Violation
-    ) -> Optional[dict]:
-        """Insert mannequin hand description into prompt.
-
-        Returns:
-            Dict with {record_id, new_prompt} if fixed, None if not fixable
-        """
-        # Find the prompt by image index
-        target = None
-        for p in prompts:
-            if p.get("Image Index") == violation.image_index:
-                target = p
-                break
-
-        if target is None:
-            return None
-
-        prompt = target.get("Image Prompt", "")
-        original_prompt = prompt
-
-        # Find hand description and add mannequin qualifier
-        hand_replacements = {
-            "hand resting": "smooth white plastic mannequin hand resting",
-            "hands resting": "smooth white plastic mannequin hands resting",
-            "hand reaching": "smooth white plastic mannequin hand reaching",
-            "hands reaching": "smooth white plastic mannequin hands reaching",
-            "hand gripping": "smooth white plastic mannequin hand gripping",
-            "hands gripping": "smooth white plastic mannequin hands gripping",
-            "hand on": "smooth white plastic mannequin hand on",
-            "hands on": "smooth white plastic mannequin hands on",
-            "holding pen": "plastic mannequin fingers holding pen",
-            "holding document": "plastic mannequin hand holding document",
-        }
-
-        for original, replacement in hand_replacements.items():
-            if original in prompt.lower():
-                # Case-insensitive replacement
-                import re
-                prompt = re.sub(
-                    re.escape(original),
-                    replacement,
-                    prompt,
-                    flags=re.IGNORECASE,
-                )
-                break
-
-        if prompt != original_prompt:
-            return {
-                "record_id": target.get("id"),
-                "new_prompt": prompt,
-                "image_index": violation.image_index,
-            }
-
-        return None
+    # auto_fix_mannequin_hands method removed - visual style deprecated
 
     # =========================================================================
     # REGENERATION METHODS (Claude-powered prompt rewrite)
@@ -515,12 +312,7 @@ class PromptValidator:
                 "Show a physical environment, character, or concrete object instead."
             )
 
-        elif violation.type == "naked_mannequin":
-            return (
-                "MUST include specific clothing description for any character/mannequin figure. "
-                "Every character needs clothing (suit, uniform, robes, jacket, etc.) from the Story Bible. "
-                "Naked/unclothed mannequins are not allowed."
-            )
+        # naked_mannequin case removed - visual style deprecated
 
         return f"Fix the following issue: {violation.issue}"
 
@@ -638,43 +430,23 @@ class PromptValidator:
                     else:
                         bible_context += f"- {loc}\n"
 
-        # Detect current style prefix/suffix to preserve it
-        style_prefix = ""
-        style_suffix = ""
-        if old_prompt.startswith("3D rendered faceless mannequin"):
-            style_prefix = self.MANNEQUIN_PREFIX
-            if old_prompt.endswith(self.MANNEQUIN_SUFFIX.rstrip()):
-                style_suffix = self.MANNEQUIN_SUFFIX
+        # Style prefix/suffix detection removed - visual style is now dynamic
+        # The regenerated prompt will be created fresh without requiring prefix preservation
 
-        # Build MANDATORY rules header for clothing/hand violations (FIRST LINE)
-        # These must appear at the very top to ensure model attention
-        mandatory_header = ""
-        if violation.type == "naked_mannequin":
-            mandatory_header = """**MANDATORY - READ THIS FIRST:**
-This mannequin figure MUST wear clothing. Describe the clothing in detail: tactical vest, lab coat, military uniform, business suit, or other appropriate attire from the Story Bible. NO bare mannequin surfaces visible. Every character MUST have a specific clothing description.
-
-"""
-        elif violation.type == "realistic_hands":
-            mandatory_header = """**MANDATORY - READ THIS FIRST:**
-All hands MUST be described as smooth white mannequin hands with mitten-like fingers. NO realistic fingers, NO skin texture, NO fingernails. Use phrases like "smooth white plastic mannequin hand" or "articulated mannequin fingers with visible joint seams".
-
-"""
-
-        system_prompt = f"""{mandatory_header}You are a visual director rewriting an image prompt that violated a validation rule.
+        system_prompt = f"""You are a visual director rewriting an image prompt that violated a validation rule.
 
 Your job: rewrite the SCENE DESCRIPTION portion of the prompt to fix the violation while keeping:
-1. The same visual style (prefix/suffix stay the same)
+1. The same visual style as the original prompt
 2. The same shot type ({shot_type})
 3. Faithful representation of the narration text
-4. Word count between 62-84 words total (including prefix/suffix)
+4. Word count between 62-84 words total
 
 CONSTRAINT: {constraint}
 {bible_context}
 
 OUTPUT FORMAT:
 Return ONLY the complete image prompt text. No explanations, no JSON, no labels.
-{"The prompt MUST start with: " + repr(style_prefix) if style_prefix else ""}
-{"The prompt MUST end with: " + repr(style_suffix.strip()) if style_suffix else ""}"""
+Preserve any style prefix/suffix from the original prompt."""
 
         user_prompt = f"""Rewrite this image prompt to fix the violation.
 

@@ -29,15 +29,15 @@ CRITICAL VISUAL RULE — SHOW THE ACTION, NOT THE REACTION:
 When designing the visual arc, each scene's image should show the ACTION the narration describes, not a character reacting to it in an office.
 
 Rules:
-- Military events → show the military hardware, operations, explosions, landscapes. Jets in the sky, ships in the strait, missiles launching, bunkers exploding. No mannequin reading about it at a desk.
+- Military events → show the military hardware, operations, explosions, landscapes. Jets in the sky, ships in the strait, missiles launching, bunkers exploding. No character reading about it at a desk.
 - Economic events → show the physical infrastructure. Oil fields pumping, tanker ships, factory floors, stock tickers, gas station price displays, empty shelves. Not a chart on a screen.
 - Political events → show the event itself. Press conference with cameras, signing ceremony, protest in streets, parliament in session. Not someone watching it on TV.
 - Declarations/speeches → show the speaker AT the podium or on a broadcast screen in a control room. Not someone hearing about it secondhand.
-- Historical parallels → show the historical event itself with period-appropriate visuals. 1973 oil embargo = tankers stopped at sea, gas lines. 1979 Afghanistan = Soviet helicopters over mountains. Not a mannequin reading a history book.
+- Historical parallels → show the historical event itself with period-appropriate visuals. 1973 oil embargo = tankers stopped at sea, gas lines. 1979 Afghanistan = Soviet helicopters over mountains. Not a character reading a history book.
 
 Scene type distribution for a typical video:
 - 30% ACTION SCENES: Military operations, infrastructure, physical events happening in the world
-- 25% CHARACTER SCENES: Mannequins performing specific actions (signing, declaring, confronting) — NOT sitting at desks
+- 25% CHARACTER SCENES: Illustrated figures performing specific actions (signing, declaring, confronting) — NOT sitting at desks
 - 20% ENVIRONMENT SCENES: Locations that tell the story (strait, oil field, city, desert, war zone)
 - 15% DATA SCENES: Holographic displays for specific statistics and numbers
 - 10% OBJECT CLOSEUPS: Documents, weapons, currency, physical evidence
@@ -46,7 +46,7 @@ Maximum 20% of images should be interior office/desk scenes. The remaining 80% s
 
 NARRATION → VISUAL TRANSLATION EXAMPLES:
 
-"Russia and Iran signed a 20-year strategic partnership" → Two mannequins in formal attire at ornate signing table, both leaning forward with pens touching document, crossed flags behind, cameras flashing
+"Russia and Iran signed a 20-year strategic partnership" → Two illustrated figures in formal attire at ornate signing table, both leaning forward with pens touching document, crossed flags behind, cameras flashing
 
 "The United States launched strikes on Iran" → Cinematic wide shot of desert at dawn, military jets banking over terrain, explosion clouds rising from concrete bunker complex, contrails in sky
 
@@ -58,9 +58,9 @@ NARRATION → VISUAL TRANSLATION EXAMPLES:
 
 "Every Patriot missile fired in Iran is one not defending Ukraine" → Split composition: left side shows Patriot battery launching missile against night sky in desert, right side shows empty missile launcher rack in Ukrainian field with city lights under attack in background
 
-"For the average driver, that's $500-800 more per year" → Faceless mannequin in casual clothes standing at gas pump, LED price display showing $3.45, hand reaching toward wallet, suburban gas station in harsh daylight
+"For the average driver, that's $500-800 more per year" → Illustrated figure in casual clothes standing at gas pump, LED price display showing $3.45, hand reaching toward wallet, suburban gas station in harsh daylight
 
-"What Sun Tzu identified as the supreme art of war" → Extreme close-up of mannequin hands in dark suit resting on open leather-bound book, page showing calligraphic text, warm amber desk lamp casting sharp shadows, mahogany desk surface"""
+"What Sun Tzu identified as the supreme art of war" → Extreme close-up of hands in dark suit resting on open leather-bound book, page showing calligraphic text, warm amber desk lamp casting sharp shadows, mahogany desk surface"""
 
 
 STORY_BIBLE_USER_PROMPT = """Read this entire video script and produce a Story Bible.
@@ -80,7 +80,7 @@ Identify every recurring character or role. For each:
 - "signature_pose": their default body language when not performing a specific action (e.g., "hands clasped behind back", "leaning forward over desk")
 
 Rules:
-- Every character MUST have specific clothing. No naked or unspecified mannequins.
+- Every character MUST have specific clothing. No unclothed or unspecified figures.
 - Use contextual costume cues for nationality/role (Mao collar = Chinese, turban + robes = Iranian cleric, etc.)
 - Maximum 5-6 characters. Merge minor references into existing archetypes.
 - If the same entity appears in different time periods (e.g., 1973 vs 2026), create separate character entries with period-appropriate costumes.
