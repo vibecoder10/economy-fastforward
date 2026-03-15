@@ -30,10 +30,10 @@ MIN_DISPLAY_SECONDS: float = 3.0
 MAX_DISPLAY_SECONDS: float = 300.0
 """Safety cap only — scene duration comes directly from its audio file."""
 
-MAX_IMAGE_DISPLAY_SECONDS: float = 15.0
+MAX_IMAGE_DISPLAY_SECONDS: float = 10.0
 """Hard cap for any single image.  When an image's proportional duration
-exceeds this, the scene's audio time is redistributed evenly across all
-images in that scene so no single image dominates."""
+exceeds this, excess time is donated to the shortest neighbor so no
+single image overstays while the overall scene timeline is preserved."""
 
 PRE_ROLL_SECONDS: float = 0.3
 """Image appears 0.3 s BEFORE its narration starts."""

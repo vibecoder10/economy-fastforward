@@ -19,9 +19,9 @@ except ImportError:
     from sentence_utils import split_into_sentences
 
 # Splitting configuration
-TARGET_DURATION = 7.0  # Ideal segment duration (soft target)
+TARGET_DURATION = 5.5  # Ideal segment duration — shorter = more visual beats
 MIN_DURATION = 4.0     # Minimum segment duration (orphan threshold)
-MAX_DURATION = 10.0    # HARD ceiling - nothing exceeds this, ever
+MAX_DURATION = 9.0     # HARD ceiling - mid-sentence split if needed
 DEFAULT_WPS = 2.5      # Default words per second (fallback)
 
 
@@ -183,17 +183,22 @@ def segment_scene_deterministic(
         sentence_duration = _calculate_duration(sentence, wps)
         projected_duration = current_duration + sentence_duration
 
-        # Check if adding this sentence would exceed MAX_DURATION
+        # Decision logic:
+        # 1. Would bust MAX → must save current and start new
+        # 2. Current already >= TARGET and adding would overshoot → save
+        # 3. Otherwise → keep accumulating
         if projected_duration > MAX_DURATION and current_segment_sentences:
             # Save current segment and start new one
             segments.append(' '.join(current_segment_sentences))
             current_segment_sentences = [sentence]
             current_duration = sentence_duration
-        elif current_duration < MIN_DURATION and projected_duration > MAX_DURATION:
-            # Current segment is too short, but adding would exceed max
-            # Absorb it anyway, then we'll force-split later
-            current_segment_sentences.append(sentence)
-            current_duration = projected_duration
+        elif (current_duration >= TARGET_DURATION
+              and current_segment_sentences
+              and projected_duration > TARGET_DURATION + 2.0):
+            # Current segment already hit target — don't overshoot by >2s
+            segments.append(' '.join(current_segment_sentences))
+            current_segment_sentences = [sentence]
+            current_duration = sentence_duration
         else:
             # Add sentence to current segment
             current_segment_sentences.append(sentence)
