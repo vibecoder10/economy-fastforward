@@ -76,16 +76,22 @@ def _record_failure(task_name: str) -> None:
 def _parse_target(text: str, command_prefix: str) -> tuple[int | None, int | None]:
     """Parse scene,image targeting from command text.
 
-    Examples:
-        "video prompts 3,2" -> (3, 2)
-        "images 5" -> (5, None)
-        "script" -> (None, None)
+    Accepts natural language variations:
+        "prompts 3,2"        -> (3, 2)
+        "prompt 3,2"         -> (3, 2)
+        "image prompts 1,1"  -> (1, 1)
+        "images 5"           -> (5, None)
+        "image 5"            -> (5, None)
+        "script"             -> (None, None)
     """
-    # Strip the command prefix to get the trailing argument
-    suffix = re.sub(rf"^!?(run\s+)?{re.escape(command_prefix)}\s*", "", text, flags=re.IGNORECASE).strip()
+    # Strip common command prefixes — accept singular/plural and multi-word variants
+    suffix = re.sub(
+        r"^!?\s*(?:run\s+)?(?:image\s+)?(?:prompts?|images?|scripts?|voice|thumbnail)\s*",
+        "", text, flags=re.IGNORECASE,
+    ).strip()
     if not suffix:
         return None, None
-    # Match "N" or "N,M"
+    # Match "N" or "N,M" (with optional spaces around comma)
     m = re.match(r"^(\d+)(?:\s*,\s*(\d+))?$", suffix)
     if m:
         scene = int(m.group(1))
@@ -844,8 +850,8 @@ async def handle_video_generate(message, say):
         await say(f":x: Error: {e}")
 
 
-@app.message(re.compile(r"run prompts", re.IGNORECASE))
-@app.message(re.compile(r"^prompts(?:\s+[\d,]+)?$", re.IGNORECASE))
+@app.message(re.compile(r"run\s+(?:image\s+)?prompts?", re.IGNORECASE))
+@app.message(re.compile(r"^(?:image\s+)?prompts?(?:\s+[\d,\s]+)?$", re.IGNORECASE))
 async def handle_prompts(message, say):
     """Run image prompt generation only (no image generation)."""
     global current_process
@@ -907,8 +913,8 @@ async def handle_end_images(message, say):
         await say(f":x: Error: {e}")
 
 
-@app.message(re.compile(r"run images", re.IGNORECASE))
-@app.message(re.compile(r"^images(?:\s+[\d,]+)?$", re.IGNORECASE))
+@app.message(re.compile(r"run\s+images?", re.IGNORECASE))
+@app.message(re.compile(r"^images?(?:\s+[\d,\s]+)?$", re.IGNORECASE))
 async def handle_images(message, say):
     """Run the image bot only (generates scene images for 'Ready For Images' idea)."""
     global current_process
