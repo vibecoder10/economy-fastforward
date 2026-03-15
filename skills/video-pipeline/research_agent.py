@@ -26,6 +26,7 @@ from typing import Optional
 
 from clients.narrative_extractor import extract_narrative_fields
 from pipeline_constants import Models
+from json_utils import parse_json_response
 
 logger = logging.getLogger(__name__)
 
@@ -219,43 +220,8 @@ Respond ONLY in this JSON format (no markdown, raw JSON):
 
 
 def _parse_title_response(response_text: str) -> dict:
-    """Parse JSON title generation response with fallback chain.
-
-    Handles: markdown fences, prose before/after JSON, partial JSON.
-    Returns empty dict on parse failure (never crashes).
-    """
-    text = response_text.strip()
-
-    # Strip markdown code block if present
-    if "```" in text:
-        # Remove opening ```json or ```
-        import re
-        fenced = re.search(r"```(?:json)?\s*\n(.*?)```", text, re.DOTALL)
-        if fenced:
-            text = fenced.group(1).strip()
-        else:
-            # Just strip the markers
-            text = text.replace("```json", "").replace("```", "").strip()
-
-    # Find JSON object (handles prose before/after)
-    brace_start = text.find("{")
-    brace_end = text.rfind("}")
-    if brace_start != -1 and brace_end != -1:
-        text = text[brace_start:brace_end + 1]
-
-    try:
-        return json.loads(text)
-    except (json.JSONDecodeError, ValueError) as e:
-        logger.warning(f"Title response JSON parse failed: {e}")
-        # Try fixing common issues: trailing commas
-        try:
-            import re
-            cleaned = re.sub(r",\s*([}\]])", r"\1", text)
-            return json.loads(cleaned)
-        except (json.JSONDecodeError, ValueError):
-            pass
-        logger.warning(f"Title response parse failed completely, returning empty dict")
-        return {}
+    """Parse JSON title generation response with fallback chain."""
+    return parse_json_response(response_text)
 
 
 async def generate_title_candidates(
@@ -572,24 +538,11 @@ def _parse_research_payload(response_text: str) -> dict:
     """Parse the JSON research payload from Claude's response.
 
     Handles potential formatting issues (markdown code blocks, etc.)
+    Raises json.JSONDecodeError if parsing fails completely.
     """
-    text = response_text.strip()
-
-    # Strip markdown code block if present
-    if text.startswith("```"):
-        # Remove opening ```json or ```
-        first_newline = text.index("\n")
-        text = text[first_newline + 1:]
-    if text.endswith("```"):
-        text = text[:-3].rstrip()
-
-    # Try to find JSON object
-    brace_start = text.find("{")
-    brace_end = text.rfind("}")
-    if brace_start != -1 and brace_end != -1:
-        text = text[brace_start:brace_end + 1]
-
-    payload = json.loads(text)
+    payload = parse_json_response(response_text, default=None)
+    if payload is None:
+        raise json.JSONDecodeError("Failed to parse research payload", response_text, 0)
 
     # Validate required fields
     required_fields = [

@@ -20,6 +20,7 @@ from thumbnail_title.templates import (
     detect_palette,
 )
 from pipeline_constants import Models
+from json_utils import parse_json_response
 
 
 # ---------------------------------------------------------------------------
@@ -200,8 +201,9 @@ class ThumbnailPromptBuilder:
             max_tokens=800,
         )
 
-        clean = response.replace("```json", "").replace("```", "").strip()
-        result = json.loads(clean)
+        result = parse_json_response(response, default=None)
+        if result is None:
+            raise ValueError("Failed to parse variable fill response as JSON")
 
         # Validate all requested variables are present
         missing = [v for v in variables if v not in result]

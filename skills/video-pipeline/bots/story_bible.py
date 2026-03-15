@@ -35,6 +35,7 @@ SCENE_BLOCK_CONFIG = {
 import json
 from typing import Optional
 from pipeline_constants import Models
+from json_utils import parse_json_response
 
 
 # System prompt for generating the Story Bible
@@ -370,32 +371,7 @@ async def generate_story_bible(
 
 def _parse_json_response(response_text: str) -> dict:
     """Extract JSON from LLM response with fallback parsing."""
-    import re
-
-    # Try direct parse first
-    try:
-        return json.loads(response_text)
-    except json.JSONDecodeError:
-        pass
-
-    # Try extracting from markdown code block
-    json_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", response_text, re.DOTALL)
-    if json_match:
-        try:
-            return json.loads(json_match.group(1))
-        except json.JSONDecodeError:
-            pass
-
-    # Try finding raw JSON braces
-    brace_start = response_text.find("{")
-    brace_end = response_text.rfind("}")
-    if brace_start != -1 and brace_end != -1:
-        try:
-            return json.loads(response_text[brace_start:brace_end + 1])
-        except json.JSONDecodeError:
-            pass
-
-    return {}
+    return parse_json_response(response_text)
 
 
 def _validate_and_normalize(bible: dict, total_scenes: int) -> dict:

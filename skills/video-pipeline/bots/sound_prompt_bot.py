@@ -15,6 +15,7 @@ from typing import Optional
 from clients.anthropic_client import AnthropicClient
 from clients.airtable_client import AirtableClient
 from pipeline_constants import Models, ImageFields
+from json_utils import parse_json_response
 
 
 SOUND_CURATION_SYSTEM = """\
@@ -144,28 +145,10 @@ class SoundPromptBot:
         scene_images: list[dict],
     ) -> list[dict]:
         """Parse Claude's curation JSON response."""
-        text = response.strip()
-
-        # Strip markdown fences
-        if text.startswith("```"):
-            text = text.split("\n", 1)[-1] if "\n" in text else text[3:]
-            if text.endswith("```"):
-                text = text[:-3]
-            text = text.strip()
-
-        try:
-            parsed = json.loads(text)
-        except json.JSONDecodeError:
-            # Try extracting JSON array
-            start = text.find("[")
-            end = text.rfind("]")
-            if start != -1 and end != -1:
-                try:
-                    parsed = json.loads(text[start:end + 1])
-                except json.JSONDecodeError:
-                    return []
-            else:
-                return []
+        parsed = parse_json_response(response, default=[])
+        if isinstance(parsed, dict):
+            # Expected a list, not a dict
+            return []
 
         if not isinstance(parsed, list):
             return []
