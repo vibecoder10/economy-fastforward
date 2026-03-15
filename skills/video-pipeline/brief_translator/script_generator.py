@@ -246,6 +246,37 @@ CRITICAL: The arc must end on EMPOWERMENT. The viewer must leave every video \
 feeling like they gained an advantage, not like they lost hope.
 """
 
+_CINEMATIC_VOICE_RULES = """\
+=== CINEMATIC VOICE — SCENE-DRIVEN WRITING ===
+
+1. SCENE-DRIVEN ACT OPENINGS: Open every act with a specific scene — a place, \
+a person, an action — in the first 2-3 sentences. Ground the viewer in a \
+visual moment BEFORE transitioning to analysis.
+
+GOOD: "In a warehouse outside Isfahan, Iranian engineers loaded the first \
+batch of Shahed drones onto transport planes."
+BAD: "Iran needed regional dominance without direct confrontation."
+
+2. ACTIVE FRAMING: Replace passive analytical statements with active cinematic \
+ones. Same facts, cinematic delivery.
+
+GOOD: "Iran's generals studied the map and saw an opportunity."
+BAD: "Iran needed regional dominance."
+
+GOOD: "Three engineers in a Kyiv garage plugged in a 3D printer."
+BAD: "What emerged wasn't a government program."
+
+3. SCENE TRANSITIONS: Cut between locations like a film editor. Use geographic \
+and temporal cuts to move between acts — NOT abstract narrative bridges.
+
+GOOD: "Six hundred miles south, at a shipping container in Kuwait, a US \
+sergeant checked the perimeter for the last time."
+BAD: "But here's what none of this explains."
+
+Every act opening should feel like a camera cutting to a new location. The \
+viewer should SEE the scene before hearing the analysis.
+"""
+
 _STRICT_GROUNDING_RULE = """\
 === STRICT FACTUAL GROUNDING RULE — NON-NEGOTIABLE ===
 
@@ -828,6 +859,9 @@ def build_script_prompt(
         else:
             rendered += "\n\n" + _FRAMEWORK_PSYCH_SEPARATION
 
+        # Cinematic voice rules (scene-driven openings, active framing, transitions)
+        rendered += "\n\n" + _CINEMATIC_VOICE_RULES
+
         if profile.act_specific_rules:
             rendered += "\n\n" + profile.act_specific_rules
         else:
@@ -869,6 +903,7 @@ def build_script_prompt(
     rendered += "\n\n" + _FRAMEWORK_SELECTION_RULES
     rendered += "\n\n" + _FRAMEWORK_REVELATION_ENGINE
     rendered += "\n\n" + _FRAMEWORK_PSYCH_SEPARATION
+    rendered += "\n\n" + _CINEMATIC_VOICE_RULES
     rendered += "\n\n" + _ACT_SPECIFIC_RULES
     rendered += "\n\n" + _STRICT_GROUNDING_RULE
 
