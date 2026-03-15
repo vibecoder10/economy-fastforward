@@ -116,7 +116,11 @@ Identify every distinct location/setting. For each:
 Rules:
 - Same location appearing in multiple scenes MUST use identical description.
 - Include 2-3 "everyday" locations for personal impact scenes (gas station, kitchen table, trading floor).
-- Data/holographic display scenes count as a location: "dark operations room."
+- For scenes showing data/statistics/charts, use PHYSICAL settings, NOT holographic displays:
+  - "war_room" — military briefing room with wall maps, pins, printed reports on table, physical screens
+  - "newsroom" — TV studio with monitors showing footage, anchor desk, printed scripts, teleprompter
+  - "government_office" — office with documents spread on desk, wall charts, filing cabinets, desk lamp
+  - "archive" — library or records room with shelved documents, newspaper clippings on corkboard, reading lamp
 - Maximum 8-10 locations. Merge similar settings.
 
 LOCATION VARIETY REQUIREMENT:
@@ -134,7 +138,7 @@ For each location, specify whether it is:
 The video's location mix should be approximately:
 - 30% EXTERIOR action environments
 - 25% INTERIOR government/military settings
-- 20% DATA/CONTROL rooms
+- 20% DATA settings (war_room, newsroom, office with screens, archive)
 - 15% EVERYDAY personal impact settings
 - 10% HISTORICAL period settings
 
@@ -152,13 +156,13 @@ Map the emotional and visual progression of the ENTIRE video. For EACH scene:
 
 ⚠️ HARD RULES FOR THE ARC (VIOLATIONS WILL BE REJECTED):
 
-1. **LOCATION INTERCUT RULE** — NEVER assign the same location_id to more than 2 consecutive scenes. If scenes 5, 6, 7 are all about data/charts, you MUST cut away: scene 5 = dark_operations_room, scene 6 = kremlin_office (reaction shot), scene 7 = dark_operations_room. This creates visual rhythm even when the narration stays on one topic.
+1. **LOCATION INTERCUT RULE** — NEVER assign the same location_id to more than 2 consecutive scenes. If scenes 5, 6, 7 are all about data/charts, you MUST cut away: scene 5 = war_room, scene 6 = kremlin_office (reaction shot), scene 7 = newsroom. This creates visual rhythm even when the narration stays on one topic.
 
 2. **CAMERA DISTANCE RULE** — NEVER the same camera_distance for more than 2 consecutive scenes. Alternate: wide → medium → close-up → wide. Breathing room.
 
 3. **COLOR TEMPERATURE RULE** — NEVER the same color_temperature for more than 3 consecutive scenes. The palette must shift with the narrative arc.
 
-4. **DATA ROOM LIMIT** — The "dark_operations_room" (holographic data displays) should appear in NO MORE than 30% of total scenes. If you have 14 scenes, max 4-5 should be data room. The rest should be physical locations with characters.
+4. **DATA SCENE LIMIT** — Data presentation settings (war_room, newsroom, archive, office with charts) should appear in NO MORE than 30% of total scenes. If you have 14 scenes, max 4-5 should be data-focused. The rest should be physical locations with characters in action.
 
 5. **TENSION ESCALATION** — Tension_level should generally rise from ~3-4 at the start to ~8-9 at the climax, with 1-2 intentional dips for breathing room after major revelations.
 
@@ -170,7 +174,7 @@ Map the emotional and visual progression of the ENTIRE video. For EACH scene:
 
 Before outputting, VERIFY:
 - Count consecutive same-location scenes. If any location appears 3+ times in a row, FIX IT by inserting a reaction shot in a different location.
-- Count dark_operations_room appearances. If > 30% of total scenes, reduce by moving some data to physical locations (character looking at screen, document on desk, etc.)
+- Count data-presentation scenes (war_room, newsroom, archive, office). If > 30% of total scenes, reduce by moving some data to physical locations (character looking at screen, document on desk, etc.)
 
 Respond ONLY with valid JSON. No markdown fences, no explanation, no preamble."""
 
@@ -207,12 +211,18 @@ Identify every distinct location/setting. For each:
 - "description": EXACT environment description (20-40 words) that will be reused every time this location appears
 - "lighting": specific lighting description (e.g., "warm amber from brass desk lamp, cold blue from window")
 - "color_temperature": warm / cold / neutral
-- "type": INTERIOR / EXTERIOR / EVERYDAY / HISTORICAL / DATA_ROOM
+- "type": INTERIOR / EXTERIOR / EVERYDAY / HISTORICAL / DATA_SETTING
+
+For data/statistics scenes, use physical settings (NOT holographic):
+- war_room (military briefing room with wall maps, pins, printed reports, physical screens)
+- newsroom (TV studio with monitors, anchor desk, teleprompter)
+- government_office (documents on desk, wall charts, filing cabinets)
+- archive (library, records room, newspaper clippings on corkboard)
 
 Location mix guidelines:
 - 30% EXTERIOR action environments
 - 25% INTERIOR government/military settings
-- 20% DATA/CONTROL rooms
+- 20% DATA_SETTING (war_room, newsroom, office, archive)
 - 15% EVERYDAY personal impact settings
 - 10% HISTORICAL period settings
 

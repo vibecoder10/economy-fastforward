@@ -2042,7 +2042,7 @@ class VideoPipeline:
         Returns:
             Dict with prompt generation results.
         """
-        from image_prompt_engine.prompt_builder import build_prompt, assign_profile_styles
+        from image_prompt_engine.prompt_builder import build_prompt, build_prompt_from_block, assign_profile_styles
         from image_prompt_engine.sequencer import assign_styles
         from brief_translator.scene_expander import expand_scene_concepts, expand_scene_concepts_deterministic
 
@@ -2431,14 +2431,24 @@ class VideoPipeline:
                 display_format = style["display_format"]
                 color_mood = style["color_mood"]
 
-                # Build styled prompt using sequencer-assigned styles
-                prompt = build_prompt(
-                    scene_description=visual_desc,
-                    content_type=content_type,
-                    display_format=display_format,
-                    color_mood=color_mood,
-                    image_style_override=image_style_override,
-                )
+                # Build styled prompt — use block context if available (V2 Story Bible)
+                has_block_context = bool(concept.get("block_location"))
+                if has_block_context and story_bible:
+                    # V2: Use shared block location/lighting for visual consistency
+                    prompt = build_prompt_from_block(
+                        concept=concept,
+                        story_bible=story_bible,
+                        image_style_override=image_style_override,
+                    )
+                else:
+                    # V1/legacy: Use sequencer-assigned styles
+                    prompt = build_prompt(
+                        scene_description=visual_desc,
+                        content_type=content_type,
+                        display_format=display_format,
+                        color_mood=color_mood,
+                        image_style_override=image_style_override,
+                    )
 
                 # Diagnostic: print first 3 assembled prompts for format verification
                 if image_index < 3:

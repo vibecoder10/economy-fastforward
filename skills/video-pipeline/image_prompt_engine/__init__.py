@@ -27,6 +27,7 @@ Usage
 
 from .prompt_builder import (
     build_prompt,
+    build_prompt_from_block,
     generate_prompts,
     resolve_accent_color,
     resolve_scene_accent_color,
@@ -59,6 +60,7 @@ __all__ = [
     # High-level API
     "generate_prompts",
     "build_prompt",
+    "build_prompt_from_block",
     "resolve_accent_color",
     "resolve_scene_accent_color",
     "resolve_scene_color_mood",
