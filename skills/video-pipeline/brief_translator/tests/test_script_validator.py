@@ -718,7 +718,7 @@ class TestConfig:
         # New checks enabled by default
         assert config.promise_payoff_check is True
         assert config.act_coherence_check is True
-        assert config.act_coherence_max_topics == 3
+        assert config.act_coherence_max_topics == 6  # Higher for geopolitics content
 
     def test_custom_values(self):
         config = ScriptValidationConfig(

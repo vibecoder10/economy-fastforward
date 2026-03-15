@@ -56,8 +56,10 @@
 - **7 validation checks**: number_density, framework_density, personal_stakes, actionable_close, cliffhanger_presence, promise_payoff, act_coherence.
 - **Senior editor gets ONE pass.** If validation fails → senior_editor() fixes → re-validate. If still failing → pipeline BLOCKED, status set to "Needs Script Review", Slack notification sent.
 - **Promise-payoff tracking**: Forward references like "what Part 3 reveals" must have matching content in the referenced act. Use `_extract_promises()` and `_check_promise_payoff()`.
-- **Act coherence**: Each act should have max 3 distinct topic shifts. Topic drift is detected by tracking proper nouns and domain terms across paragraphs.
+- **Act coherence**: Each act should have max 6 distinct topic shifts (threshold raised from 3 for geopolitics content). Topic drift is detected by tracking proper nouns and domain terms across paragraphs, with geopolitical clustering (Iran/Iranian/Tehran/Hormuz = 1 topic cluster).
 - **To force advance a blocked script**: Use `!approve <title>` command in Slack (requires manual review first).
+- **Scripts must ALWAYS be saved before validation.** Progressive writes: save to Airtable AND Google Drive immediately after generation, BEFORE running validation. If validation blocks or crashes, the script is still accessible for review. Never lose generated content.
+- **act_coherence threshold must account for geopolitics.** Multiple countries/leaders per act is normal in geopolitics content, not topic drift. Related terms (Iran, Iranian, Tehran, Persian Gulf) are normalized to a single cluster before drift detection.
 - **New validator checks need matching config flags.** When adding a new check to `validate_script_editorial()`, add a corresponding `*_check: bool = True` flag to `ScriptValidationConfig` or the "disable all checks" test will fail. Test fixtures must also be updated — cliffhangers in `_make_good_script()` must use keywords that actually appear in subsequent acts.
 
 ## Project-Specific Rules
@@ -111,3 +113,4 @@ _After each session, add a one-line summary of what was done and any new lessons
 | 2026-03-14 | Added cinematic voice rules to script writer: scene-driven openings, active framing, film-style transitions | Voice/style additions go in system prompt constants, wire into both profile and legacy paths |
 | 2026-03-14 | Implemented Scene Blocking System (Story Bible V2): scene_blocks format, block-aware expansion, prompt builder | Scene blocks patterns, V1/V2 backward compat, narration text matching |
 | 2026-03-14 | Removed legacy mannequin_storytelling code remnants: deleted profile file, removed alias, cleaned type hints/comments | Legacy code remnants cause phantom validation failures — always grep after style swap |
+| 2026-03-14 | Hotfix: progressive writes before validation + act_coherence threshold to 6 + geopolitical clustering | Scripts must ALWAYS be saved before validation; geopolitics needs higher topic threshold |

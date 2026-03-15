@@ -181,7 +181,14 @@ class BriefTranslator:
             logger.info(f"Script generated: {word_count} words, {act_count} acts")
 
             # === PROGRESSIVE WRITE: Save script immediately (never lose work) ===
+            # Write to Airtable FIRST — fast, always available
             self._save_script_to_ideas(idea_record_id, script)
+
+            # Write to Google Drive SECOND — slower but provides reviewer-friendly doc
+            doc_url = self._save_script_to_drive(script, brief, project_folder_id)
+            if doc_url:
+                result["doc_url"] = doc_url
+                logger.info(f"Script saved to Google Drive: {doc_url}")
 
             # === STEP 3: Blocking Validation (all 7 checks) ===
             acts = extract_acts(script)
@@ -294,17 +301,16 @@ class BriefTranslator:
                     f"{format_editor_summary(editor_result)}"
                 )
 
-            # === STEP 6: Save script to Airtable ===
-            self._save_script_to_ideas(idea_record_id, script)
+            # === STEP 6: Update script if senior editor made changes ===
+            # (Original already saved before validation; this overwrites with fixes)
+            if editor_result and editor_result.get("changelog"):
+                self._save_script_to_ideas(idea_record_id, script)
+                # Overwrite Drive doc with fixed version
+                updated_doc_url = self._save_script_to_drive(script, brief, project_folder_id)
+                if updated_doc_url:
+                    result["doc_url"] = updated_doc_url
 
-            # === STEP 7: Save script to Google Drive as a Doc ===
-            doc_url = self._save_script_to_drive(
-                script, brief, project_folder_id,
-            )
-            if doc_url:
-                result["doc_url"] = doc_url
-
-            # === STEP 8: Write validation results ===
+            # === STEP 7: Write validation results ===
             self._write_editorial_to_ideas(idea_record_id, editorial_summary)
 
             # === STEP 9: Extract framework, assign psych angles, write Script records ===

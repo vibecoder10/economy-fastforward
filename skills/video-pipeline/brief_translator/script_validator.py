@@ -58,8 +58,10 @@ class ScriptValidationConfig:
     promise_payoff_check: bool = True
 
     # Check 7: Act coherence (topic drift)
+    # Geopolitics scripts naturally mention multiple countries/leaders per act.
+    # Threshold of 6 allows for complex multi-actor narratives without false positives.
     act_coherence_check: bool = True
-    act_coherence_max_topics: int = 3
+    act_coherence_max_topics: int = 6
 
     # Retry settings — validation is now BLOCKING.
     # Scripts must pass all checks before advancing to voice.
@@ -88,7 +90,7 @@ class ScriptValidationConfig:
             # New blocking checks — always enabled, use defaults
             promise_payoff_check=True,
             act_coherence_check=True,
-            act_coherence_max_topics=3,
+            act_coherence_max_topics=6,  # Geopolitics needs higher threshold
             # Validation is now blocking
             retry_on_fail=True,
             max_retries=1,
@@ -507,6 +509,36 @@ def _check_promise_payoff(
 # Act Coherence / Topic Drift Detection (Check 7)
 # ---------------------------------------------------------------------------
 
+# Geographic/political clusters — terms that belong to the same topic
+# Each cluster maps a canonical name to all related terms
+_GEOPOLITICAL_CLUSTERS: dict[str, set[str]] = {
+    "iran": {"iran", "iranian", "tehran", "persia", "persian", "hormuz", "khamenei", "rouhani", "raisi", "irgc", "quds"},
+    "russia": {"russia", "russian", "moscow", "kremlin", "putin", "lavrov", "medvedev", "soviet", "ussr"},
+    "china": {"china", "chinese", "beijing", "xi", "jinping", "ccp", "prc", "taiwan", "taipei", "pla"},
+    "usa": {"usa", "american", "america", "washington", "biden", "trump", "pentagon", "congress", "white house"},
+    "saudi": {"saudi", "arabia", "riyadh", "mbs", "salman", "aramco", "opec"},
+    "israel": {"israel", "israeli", "netanyahu", "tel aviv", "jerusalem", "idf", "mossad"},
+    "ukraine": {"ukraine", "ukrainian", "kyiv", "kiev", "zelenskyy", "zelensky", "donbas", "crimea"},
+    "europe": {"europe", "european", "eu", "brussels", "nato", "germany", "german", "france", "french", "uk", "british"},
+    "gulf": {"gulf", "gcc", "uae", "emirates", "qatar", "bahrain", "kuwait", "oman"},
+    "energy": {"oil", "gas", "opec", "barrel", "pipeline", "lng", "crude", "refinery", "energy"},
+    "finance": {"fed", "federal reserve", "treasury", "imf", "world bank", "dollar", "yuan", "euro"},
+}
+
+
+def _normalize_to_cluster(term: str) -> str:
+    """Normalize a term to its canonical cluster name, or return the term itself."""
+    term_lower = term.lower()
+    for cluster_name, members in _GEOPOLITICAL_CLUSTERS.items():
+        if term_lower in members:
+            return cluster_name
+        # Partial match for multi-word terms
+        for member in members:
+            if member in term_lower or term_lower in member:
+                return cluster_name
+    return term_lower
+
+
 def _extract_topics_from_act(act_text: str) -> list[str]:
     """Extract distinct topics/subjects from an act.
 
@@ -524,8 +556,8 @@ def _extract_topics_from_act(act_text: str) -> list[str]:
         return []  # Single paragraph = single topic
 
     topics = []
-    prev_proper_nouns = set()
-    prev_domain_terms = set()
+    prev_clustered_pn: set[str] = set()
+    prev_clustered_domain: set[str] = set()
 
     # Common sentence starters to exclude
     _STARTERS = {
@@ -547,6 +579,10 @@ def _extract_topics_from_act(act_text: str) -> list[str]:
 
         proper_nouns = multi_word_pn | single_pn
 
+        # Normalize proper nouns to clusters (Iran, Iranian, Tehran → "iran")
+        # This prevents treating related geopolitical terms as separate topics
+        clustered_pn = {_normalize_to_cluster(pn) for pn in proper_nouns}
+
         # Extract domain-specific terms
         domain_terms = set(re.findall(
             r'\b(iphone|android|tesla|bitcoin|oil|opec|nato|'
@@ -556,38 +592,41 @@ def _extract_topics_from_act(act_text: str) -> list[str]:
             para.lower()
         ))
 
-        # Check for topic shift
-        if i > 0 and (prev_proper_nouns or prev_domain_terms):
-            # Calculate overlap separately for proper nouns and domain terms
-            pn_overlap = proper_nouns & prev_proper_nouns
-            domain_overlap = domain_terms & prev_domain_terms
+        # Normalize domain terms to clusters too
+        clustered_domain = {_normalize_to_cluster(dt) for dt in domain_terms}
 
-            new_pn = proper_nouns - prev_proper_nouns
-            new_domain = domain_terms - prev_domain_terms
+        # Check for topic shift using CLUSTERED terms (not raw)
+        if i > 0 and (prev_clustered_pn or prev_clustered_domain):
+            # Calculate overlap using normalized clusters
+            pn_overlap = clustered_pn & prev_clustered_pn
+            domain_overlap = clustered_domain & prev_clustered_domain
+
+            new_pn_clusters = clustered_pn - prev_clustered_pn
+            new_domain_clusters = clustered_domain - prev_clustered_domain
 
             # Topic shift if:
-            # 1. No overlap in proper nouns AND new proper nouns introduced
-            # 2. OR significant new domain terms with no overlap
+            # 1. No overlap in proper noun CLUSTERS AND new clusters introduced
+            # 2. OR significant new domain CLUSTERS with no overlap
             has_pn_shift = (
                 len(pn_overlap) == 0 and
-                len(new_pn) >= 1 and
-                len(proper_nouns) >= 1
+                len(new_pn_clusters) >= 1 and
+                len(clustered_pn) >= 1
             )
             has_domain_shift = (
                 len(domain_overlap) == 0 and
-                len(new_domain) >= 2 and
-                len(prev_domain_terms) >= 1
+                len(new_domain_clusters) >= 2 and
+                len(prev_clustered_domain) >= 1
             )
 
             if has_pn_shift or has_domain_shift:
-                # New topic detected
-                label_parts = sorted(new_pn)[:2] + sorted(new_domain)[:2]
+                # New topic detected — use cluster names for label
+                label_parts = sorted(new_pn_clusters)[:2] + sorted(new_domain_clusters)[:2]
                 topic_label = ", ".join(label_parts[:3])
                 if topic_label:
                     topics.append(topic_label)
 
-        prev_proper_nouns = proper_nouns
-        prev_domain_terms = domain_terms
+        prev_clustered_pn = clustered_pn
+        prev_clustered_domain = clustered_domain
 
     return topics
 
