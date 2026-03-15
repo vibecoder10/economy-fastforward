@@ -266,6 +266,9 @@ async def run(pipeline) -> dict:
                     concept=concept,
                     story_bible=story_bible,
                     image_style_override=image_style_override,
+                    content_type=content_type,
+                    display_format=display_format,
+                    color_mood=color_mood,
                 )
             else:
                 prompt = build_prompt(
