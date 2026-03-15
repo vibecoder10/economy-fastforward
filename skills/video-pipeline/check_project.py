@@ -6,6 +6,7 @@ import asyncio
 import httpx
 from dotenv import load_dotenv
 from collections import Counter
+from pipeline_constants import Statuses
 
 load_dotenv()
 
@@ -22,30 +23,30 @@ ANIMATION_SCENES_TABLE_ID = "tblipThhapetdSJdm"
 
 # YouTube pipeline status order
 YOUTUBE_STATUS_ORDER = [
-    "Idea Logged",
-    "Approved",
-    "Ready For Scripting",
-    "Ready For Voice",
-    "Ready For Image Prompts",
-    "Ready For Images",
-    "Ready For Video Scripts",
-    "Ready For Video Generation",
-    "Ready For Thumbnail",
-    "Ready To Render",
-    "In Que",
-    "Done",
+    Statuses.IDEA_LOGGED,
+    Statuses.APPROVED,
+    Statuses.READY_SCRIPTING,
+    Statuses.READY_VOICE,
+    Statuses.READY_IMAGE_PROMPTS,
+    Statuses.READY_IMAGES,
+    Statuses.READY_VIDEO_SCRIPTS,
+    Statuses.READY_VIDEO_GENERATION,
+    Statuses.READY_THUMBNAIL,
+    Statuses.READY_TO_RENDER,
+    Statuses.IN_QUE,
+    Statuses.DONE,
 ]
 
 # Mapping from YouTube status to next Slack command
 YOUTUBE_NEXT_STEP = {
-    "Approved": "research",
-    "Ready For Scripting": "script",
-    "Ready For Voice": "voice",
-    "Ready For Image Prompts": "prompts",
-    "Ready For Images": "prompts",
-    "Ready For Thumbnail": "thumbnail",
-    "Ready To Render": "(manual render)",
-    "Done": None,
+    Statuses.APPROVED: "research",
+    Statuses.READY_SCRIPTING: "script",
+    Statuses.READY_VOICE: "voice",
+    Statuses.READY_IMAGE_PROMPTS: "prompts",
+    Statuses.READY_IMAGES: "prompts",
+    Statuses.READY_THUMBNAIL: "thumbnail",
+    Statuses.READY_TO_RENDER: "(manual render)",
+    Statuses.DONE: None,
 }
 
 

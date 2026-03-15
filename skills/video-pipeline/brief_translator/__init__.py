@@ -41,6 +41,7 @@ from .script_validator import (
     ScriptValidationResult,
 )
 from .senior_editor import run_senior_editor, format_editor_summary
+from pipeline_constants import Models
 
 try:
     from script_profiles import load_script_profile
@@ -68,7 +69,7 @@ class BriefTranslator:
         airtable_client,
         slack_client=None,
         google_client=None,
-        script_model: str = "claude-sonnet-4-5-20250929",
+        script_model: str = Models.CLAUDE_SONNET,
         video_config=None,
     ):
         self.anthropic = anthropic_client
@@ -621,7 +622,7 @@ async def translate_brief(
     slack_client=None,
     google_client=None,
     project_folder_id: str = None,
-    script_model: str = "claude-sonnet-4-5-20250929",
+    script_model: str = Models.CLAUDE_SONNET,
     video_config=None,
     # Legacy params kept for backward compat — ignored
     total_images: int = 25,

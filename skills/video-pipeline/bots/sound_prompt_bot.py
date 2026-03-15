@@ -14,6 +14,7 @@ from typing import Optional
 
 from clients.anthropic_client import AnthropicClient
 from clients.airtable_client import AirtableClient
+from pipeline_constants import Models
 
 
 SOUND_CURATION_SYSTEM = """\
@@ -119,7 +120,7 @@ class SoundPromptBot:
         response = await self.anthropic.generate(
             prompt=user_prompt,
             system_prompt=SOUND_CURATION_SYSTEM,
-            model="claude-haiku-4-5-20251001",
+            model=Models.CLAUDE_HAIKU,
             max_tokens=512,
             temperature=0.4,
         )
@@ -262,7 +263,7 @@ class SoundPromptBot:
         response = await self.anthropic.generate(
             prompt=user_prompt,
             system_prompt=SOUND_PROMPT_SYSTEM,
-            model="claude-haiku-4-5-20251001",
+            model=Models.CLAUDE_HAIKU,
             max_tokens=128,
             temperature=0.5,
         )

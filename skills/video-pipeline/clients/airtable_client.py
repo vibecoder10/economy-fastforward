@@ -3,6 +3,7 @@
 import os
 from pyairtable import Api, Table
 from typing import Optional, Any
+from pipeline_constants import Models, Statuses
 
 
 # ---------------------------------------------------------------------------
@@ -12,9 +13,9 @@ from typing import Optional, Any
 # Airtable Multiple Select display names → internal model IDs
 # Multiple Select returns array like ["Nano Banana"], we need "nano-banana-2"
 AIRTABLE_MODEL_NAME_MAP: dict[str, str] = {
-    "z-image": "z-image",
-    "Nano Banana": "nano-banana-2",
-    "nano-banana-2": "nano-banana-2",
+    Models.IMAGE_ZIMAGE: Models.IMAGE_ZIMAGE,
+    "Nano Banana": Models.IMAGE_SCENE,
+    Models.IMAGE_SCENE: Models.IMAGE_SCENE,
 }
 
 # Valid visual styles (maps to visual_profiles module names)
@@ -27,7 +28,7 @@ VALID_VISUAL_STYLES: set[str] = {
 DEFAULT_VISUAL_STYLE = "cinematic_illustration"
 
 # Default model for video/scene images (z-image), thumbnails use nano-banana-2
-DEFAULT_IMAGE_MODEL = "nano-banana-2"
+DEFAULT_IMAGE_MODEL = Models.IMAGE_SCENE
 
 
 def get_image_model_override(record: dict) -> str:
@@ -281,7 +282,7 @@ class AirtableClient:
 
     def get_ideas_ready_for_scripting(self, limit: int = 1) -> list[dict]:
         """Get ideas with status 'Ready For Scripting'."""
-        return self.get_ideas_by_status("Ready For Scripting", limit)
+        return self.get_ideas_by_status(Statuses.READY_SCRIPTING, limit)
 
     def get_ideas_ready_for_visuals(self, limit: int = 1) -> list[dict]:
         """Get ideas with status 'Ready For Visuals'."""
@@ -314,7 +315,7 @@ class AirtableClient:
         """
         # Core fields (always present in Airtable)
         core_fields = {
-            "Status": "Idea Logged",
+            "Status": Statuses.IDEA_LOGGED,
             "Video Title": idea_data.get("viral_title", idea_data.get("Video Title", "")),
             "Hook Script": idea_data.get("hook_script", idea_data.get("Hook Script", "")),
             "Past Context": idea_data.get("narrative_logic", {}).get("past_context", idea_data.get("Past Context", "")),
@@ -410,7 +411,7 @@ class AirtableClient:
             # Final fallback: only Status + Video Title (guaranteed Airtable fields)
             print(f"    ⚠️ Multiple fields missing, saving minimal record")
             minimal = {
-                "Status": core_fields.get("Status", "Idea Logged"),
+                "Status": core_fields.get("Status", Statuses.IDEA_LOGGED),
                 "Video Title": core_fields.get("Video Title", ""),
             }
             record = self.idea_concepts_table.create(minimal, typecast=True)

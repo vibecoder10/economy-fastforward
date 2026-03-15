@@ -37,6 +37,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# Must be after load_dotenv and sys.path setup
+from pipeline_constants import Statuses  # noqa: E402
+
 logger = logging.getLogger(__name__)
 
 # Map emoji to idea number
@@ -278,11 +281,11 @@ class DiscoveryBot:
 
         idea_record = build_idea_record_from_discovery(idea, idea_number)
 
-        # Override status to "Approved" (will trigger research)
+        # Override status to Approved (will trigger research)
         record = self.airtable.create_idea(idea_record, source="discovery_scanner")
 
         # Update status to Approved
-        self.airtable.update_idea_status(record["id"], "Approved")
+        self.airtable.update_idea_status(record["id"], Statuses.APPROVED)
 
         logger.info(f"Airtable record created: {record['id']}")
         return record
@@ -339,7 +342,7 @@ class DiscoveryBot:
                 logger.warning(f"Could not write all research fields: {e}")
 
             # Always advance status — even if some field writes failed above
-            self.airtable.update_idea_status(record_id, "Ready For Scripting")
+            self.airtable.update_idea_status(record_id, Statuses.READY_SCRIPTING)
 
             self.slack.notify(
                 f"✅ Research complete: _{payload.get('headline', title)}_\n"

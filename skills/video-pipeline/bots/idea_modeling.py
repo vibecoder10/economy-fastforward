@@ -7,6 +7,7 @@ import json
 import logging
 from typing import Optional
 from collections import defaultdict
+from pipeline_constants import Models
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +53,7 @@ async def decompose_title(title: str, anthropic_client) -> Optional[dict]:
     """
     try:
         response = await anthropic_client.messages.create(
-            model="claude-sonnet-4-5-20250929",
+            model=Models.CLAUDE_SONNET,
             max_tokens=1024,
             system=DECOMPOSE_SYSTEM_PROMPT,
             messages=[{"role": "user", "content": title}]
@@ -193,7 +194,7 @@ async def generate_modeled_ideas(
         )
         
         response = await anthropic_client.messages.create(
-            model="claude-sonnet-4-5-20250929",
+            model=Models.CLAUDE_SONNET,
             max_tokens=2048,
             messages=[{"role": "user", "content": prompt}]
         )

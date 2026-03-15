@@ -13,6 +13,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from pipeline_constants import Statuses
+
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -56,7 +58,7 @@ SAMPLE_SCENE_LIST[-1]["style"] = "dossier"
 SAMPLE_IDEA_RECORD = {
     "id": "recABC123",
     "Video Title": "The SpaceX-xAI Merger",
-    "Status": "Ready For Scripting",
+    "Status": Statuses.READY_SCRIPTING,
     "Hook Script": "What if one man controlled everything?",
     "Past Context": "Standard Oil vertical integration.",
     "Present Parallel": "Vertical integration of hardware + software + data.",
@@ -344,33 +346,33 @@ class TestStatusProgression:
     def test_valid_status_chain(self):
         """Status values form a valid progression."""
         valid_chain = [
-            "Idea Logged",
-            "In Que",
-            "Ready For Scripting",
-            "Ready For Voice",
-            "Ready For Image Prompts",
-            "Ready For Images",
-            "Ready For Video Scripts",
-            "Ready For Video Generation",
-            "Ready For Thumbnail",
-            "Ready To Render",
-            "Done",
+            Statuses.IDEA_LOGGED,
+            Statuses.IN_QUE,
+            Statuses.READY_SCRIPTING,
+            Statuses.READY_VOICE,
+            Statuses.READY_IMAGE_PROMPTS,
+            Statuses.READY_IMAGES,
+            Statuses.READY_VIDEO_SCRIPTS,
+            Statuses.READY_VIDEO_GENERATION,
+            Statuses.READY_THUMBNAIL,
+            Statuses.READY_TO_RENDER,
+            Statuses.DONE,
         ]
 
         # All statuses defined in VideoPipeline should be in the chain
-        # We test the constants rather than importing the full class (avoids API init)
+        # We test the constants from pipeline_constants.Statuses
         pipeline_statuses = [
-            "Idea Logged",
-            "Ready For Scripting",
-            "Ready For Voice",
-            "Ready For Image Prompts",
-            "Ready For Images",
-            "Ready For Video Scripts",
-            "Ready For Video Generation",
-            "Ready For Thumbnail",
-            "Ready To Render",
-            "Done",
-            "In Que",
+            Statuses.IDEA_LOGGED,
+            Statuses.READY_SCRIPTING,
+            Statuses.READY_VOICE,
+            Statuses.READY_IMAGE_PROMPTS,
+            Statuses.READY_IMAGES,
+            Statuses.READY_VIDEO_SCRIPTS,
+            Statuses.READY_VIDEO_GENERATION,
+            Statuses.READY_THUMBNAIL,
+            Statuses.READY_TO_RENDER,
+            Statuses.DONE,
+            Statuses.IN_QUE,
         ]
 
         for status in pipeline_statuses:

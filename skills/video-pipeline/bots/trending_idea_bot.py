@@ -15,6 +15,7 @@ import os
 
 from bots.idea_modeling import decompose_title, extract_format, generate_modeled_ideas
 from clients.narrative_extractor import extract_narrative_fields_from_concept
+from pipeline_constants import Models
 
 
 
@@ -279,7 +280,7 @@ Return ONLY the JSON object, no other text."""
         response = await self.anthropic.generate(
             prompt=user_prompt,
             system_prompt=system_prompt.format(num_ideas=num_ideas),
-            model="claude-sonnet-4-5-20250929",
+            model=Models.CLAUDE_SONNET,
         )
 
         # Parse response

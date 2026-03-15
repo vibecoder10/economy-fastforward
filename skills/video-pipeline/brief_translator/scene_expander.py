@@ -16,6 +16,7 @@ import re
 from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Optional
+from pipeline_constants import Models
 
 PROMPT_TEMPLATE_PATH = Path(__file__).parent / "prompts" / "concept_expand.txt"
 
@@ -908,7 +909,7 @@ async def _expand_with_scene_blocks(
             import json
             raw_response = await anthropic_client.generate(
                 prompt=visual_desc_prompt,
-                model="claude-sonnet-4-5-20250929",
+                model=Models.CLAUDE_SONNET,
                 max_tokens=150 * len(group),
                 temperature=0.4,
             )
@@ -1266,7 +1267,7 @@ async def expand_scene_concepts_deterministic(
 
             visual_description = await anthropic_client.generate(
                 prompt=visual_desc_prompt,
-                model="claude-sonnet-4-5-20250929",
+                model=Models.CLAUDE_SONNET,
                 max_tokens=200,
                 temperature=0.4,
             )
@@ -1397,7 +1398,7 @@ async def expand_scene_concepts(
         try:
             response = await anthropic_client.generate(
                 prompt=prompt + extra,
-                model="claude-sonnet-4-5-20250929",
+                model=Models.CLAUDE_SONNET,
                 max_tokens=6000,
                 temperature=max(0.3, 0.7 - 0.1 * attempt),
             )

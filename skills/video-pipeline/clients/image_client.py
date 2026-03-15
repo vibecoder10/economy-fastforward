@@ -8,6 +8,7 @@ import os
 import httpx
 from typing import Optional
 import asyncio
+from pipeline_constants import Models
 
 
 def _get_profile():
@@ -24,7 +25,7 @@ def _scene_model_from_profile() -> str:
     profile = _get_profile()
     if profile:
         return profile.image_gen.scene_model
-    return "nano-banana-2"
+    return Models.IMAGE_SCENE
 
 
 def _thumbnail_model_from_profile() -> str:
@@ -32,7 +33,7 @@ def _thumbnail_model_from_profile() -> str:
     profile = _get_profile()
     if profile:
         return profile.image_gen.thumbnail_model
-    return "nano-banana-pro"
+    return Models.IMAGE_THUMBNAIL
 
 
 def _valid_scene_models_from_profile() -> dict:
@@ -63,19 +64,19 @@ class ImageClient:
     THUMBNAIL_MODEL = _thumbnail_model_from_profile()
 
     # Alternative scene image models (hot-swappable via Slack !model command)
-    ZIMAGE_MODEL = "z-image"  # Z Image — high-quality image generation
-    NANO_BANANA_MODEL = "nano-banana-2"  # Nano Banana 2 — legacy/reference support
+    ZIMAGE_MODEL = Models.IMAGE_ZIMAGE  # Z Image — high-quality image generation
+    NANO_BANANA_MODEL = Models.IMAGE_SCENE  # Nano Banana 2 — legacy/reference support
 
     # Valid scene image models for hot-swap validation
     VALID_SCENE_MODELS = _valid_scene_models_from_profile()
 
     # Veo 3.1 models
-    VEO_MODEL_FAST = "veo3_fast"  # Faster, lower cost
-    VEO_MODEL_QUALITY = "veo3"  # Higher quality, slower
+    VEO_MODEL_FAST = Models.VEO_FAST  # Faster, lower cost
+    VEO_MODEL_QUALITY = Models.VEO_QUALITY  # Higher quality, slower
 
     # Legacy models (deprecated but kept for backwards compatibility)
     DEFAULT_MODEL = "google/nano-banana"  # Uses image_size parameter
-    PRO_MODEL = "nano-banana-pro"  # Alias for THUMBNAIL_MODEL
+    PRO_MODEL = Models.IMAGE_THUMBNAIL  # Alias for THUMBNAIL_MODEL
     
     def __init__(self, api_key: Optional[str] = None, google_client: Optional[object] = None):
         self.api_key = api_key or os.getenv("KIE_AI_API_KEY")

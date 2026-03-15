@@ -19,6 +19,7 @@ from thumbnail_title.templates import (
     THUMBNAIL_PALETTES,
     detect_palette,
 )
+from pipeline_constants import Models
 
 
 # ---------------------------------------------------------------------------
@@ -195,7 +196,7 @@ class ThumbnailPromptBuilder:
         response = await self.anthropic.generate(
             prompt=user_prompt,
             system_prompt=VARIABLE_FILL_SYSTEM_PROMPT,
-            model="claude-sonnet-4-5-20250929",
+            model=Models.CLAUDE_SONNET,
             max_tokens=800,
         )
 

@@ -15,6 +15,7 @@ import logging
 import re
 from pathlib import Path
 from typing import Optional, TYPE_CHECKING
+from pipeline_constants import Models
 
 if TYPE_CHECKING:
     from pipeline_config import VideoConfig
@@ -1055,7 +1056,7 @@ def extract_acts(script: str) -> dict[int, str]:
 async def generate_script(
     anthropic_client,
     brief: dict,
-    model: str = "claude-sonnet-4-5-20250929",
+    model: str = Models.CLAUDE_SONNET,
     config: Optional["VideoConfig"] = None,
     profile: Optional["ScriptProfile"] = None,
 ) -> dict:
@@ -1257,7 +1258,7 @@ async def verify_script_claims(
         result = await anthropic_client.generate(
             prompt=prompt,
             system_prompt=system_prompt,
-            model="claude-haiku-4-5-20251001",
+            model=Models.CLAUDE_HAIKU,
             max_tokens=2000,
             temperature=0.0,
         )

@@ -50,6 +50,7 @@ from bots.sound_prompt_bot import SoundPromptBot
 from bots.sound_bot import SoundBot
 from pipeline_config import VideoConfig
 from segmentation_engine import enforce_duration_caps, recalculate_durations
+from pipeline_constants import Models, Statuses
 from image_prompt_engine.prompt_builder import (
     CAMERA_MOVEMENTS,
     detect_camera_movement,
@@ -66,22 +67,22 @@ class VideoPipeline:
     # - "scene": Old mode with hardcoded 6 images per scene (deprecated)
     IMAGE_MODE = os.getenv("IMAGE_MODE", "semantic")
     
-    # Valid statuses in workflow order
-    STATUS_IDEA_LOGGED = "Idea Logged"
-    STATUS_READY_SCRIPTING = "Ready For Scripting"
-    STATUS_READY_VOICE = "Ready For Voice"
-    STATUS_READY_SOUND_DESIGN = "Ready For Sound Design"
-    STATUS_READY_SOUND_EFFECTS = "Ready For Sound Effects"
-    STATUS_READY_IMAGE_PROMPTS = "Ready For Image Prompts"
-    STATUS_READY_IMAGES = "Ready For Images"
-    STATUS_READY_VIDEO_SCRIPTS = "Ready For Video Scripts"
-    STATUS_READY_VIDEO_GENERATION = "Ready For Video Generation"
-    STATUS_READY_THUMBNAIL = "Ready For Thumbnail"
-    STATUS_DONE = "Done"
-    STATUS_READY_TO_RENDER = "Ready To Render"
-    STATUS_RENDERED = "Rendered"
-    STATUS_UPLOADED_DRAFT = "Uploaded (Draft)"
-    STATUS_IN_QUE = "In Que"
+    # Valid statuses — single source of truth in pipeline_constants.Statuses
+    STATUS_IDEA_LOGGED = Statuses.IDEA_LOGGED
+    STATUS_READY_SCRIPTING = Statuses.READY_SCRIPTING
+    STATUS_READY_VOICE = Statuses.READY_VOICE
+    STATUS_READY_SOUND_DESIGN = Statuses.READY_SOUND_DESIGN
+    STATUS_READY_SOUND_EFFECTS = Statuses.READY_SOUND_EFFECTS
+    STATUS_READY_IMAGE_PROMPTS = Statuses.READY_IMAGE_PROMPTS
+    STATUS_READY_IMAGES = Statuses.READY_IMAGES
+    STATUS_READY_VIDEO_SCRIPTS = Statuses.READY_VIDEO_SCRIPTS
+    STATUS_READY_VIDEO_GENERATION = Statuses.READY_VIDEO_GENERATION
+    STATUS_READY_THUMBNAIL = Statuses.READY_THUMBNAIL
+    STATUS_DONE = Statuses.DONE
+    STATUS_READY_TO_RENDER = Statuses.READY_TO_RENDER
+    STATUS_RENDERED = Statuses.RENDERED
+    STATUS_UPLOADED_DRAFT = Statuses.UPLOADED_DRAFT
+    STATUS_IN_QUE = Statuses.IN_QUE
     
     def __init__(self):
         """Initialize all API clients."""
@@ -759,8 +760,8 @@ class VideoPipeline:
 
         # YouTube pipeline: Core Image is optional (uses text-to-image without reference)
         # Animation pipeline: Core Image is required (uses Seed Dream 4.5 Edit with reference)
-        use_reference = bool(self.core_image_url) and model_override != "z-image"
-        if model_override == "z-image":
+        use_reference = bool(self.core_image_url) and model_override != Models.IMAGE_ZIMAGE
+        if model_override == Models.IMAGE_ZIMAGE:
             print(f"     🎨 Using Z Image model (text-to-image, no reference)")
         elif use_reference:
             print(f"     🖼️ Using Core Image reference (Seed Dream 4.5 Edit)")
@@ -798,7 +799,7 @@ class VideoPipeline:
 
                     try:
                         # Generate image: route based on model override, then reference availability
-                        if model_override == "z-image":
+                        if model_override == Models.IMAGE_ZIMAGE:
                             result = await self.image_client.generate_scene_image_zimage(prompt, aspect_ratio="16:9")
                         elif use_reference:
                             result = await self.image_client.generate_scene_image(prompt, self.core_image_url)
@@ -907,7 +908,7 @@ class VideoPipeline:
                     
                     prompt_preview = prompt[:120] + "..." if len(prompt) > 120 else prompt
                     try:
-                        if model_override == "z-image":
+                        if model_override == Models.IMAGE_ZIMAGE:
                             result = await self.image_client.generate_scene_image_zimage(prompt, aspect_ratio="16:9")
                         elif use_reference:
                             result = await self.image_client.generate_scene_image(prompt, self.core_image_url)

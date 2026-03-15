@@ -14,6 +14,7 @@ Six formula families:
 
 import json
 from typing import Optional
+from pipeline_constants import Models
 
 
 # ---------------------------------------------------------------------------
@@ -193,7 +194,7 @@ class TitleGenerator:
         response = await self.anthropic.generate(
             prompt=user_prompt,
             system_prompt=TITLE_GENERATION_SYSTEM_PROMPT,
-            model="claude-sonnet-4-5-20250929",
+            model=Models.CLAUDE_SONNET,
             max_tokens=500,
         )
 

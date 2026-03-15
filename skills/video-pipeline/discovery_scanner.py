@@ -35,6 +35,7 @@ logger = logging.getLogger(__name__)
 # Import competitor VPH calculation
 from bots.competitor_scraper import calculate_vph
 from clients.narrative_extractor import extract_narrative_fields_from_concept
+from pipeline_constants import Models
 
 # Source categories for headline scanning
 SCAN_SOURCES = {
@@ -346,7 +347,7 @@ class DiscoveryScanner:
         anthropic_client,
         apify_client=None,
         airtable_client=None,
-        model: str = "claude-sonnet-4-5-20250929",
+        model: str = Models.CLAUDE_SONNET,
     ):
         """Initialize the discovery scanner.
 
@@ -744,7 +745,7 @@ async def run_discovery(
     focus: Optional[str] = None,
     headlines: Optional[str] = None,
     include_competitors: bool = True,
-    model: str = "claude-sonnet-4-5-20250929",
+    model: str = Models.CLAUDE_SONNET,
 ) -> dict:
     """Convenience function to run discovery scan (news + competitors).
 
@@ -1217,7 +1218,7 @@ Examples:
     )
     parser.add_argument(
         "--model",
-        default="claude-sonnet-4-5-20250929",
+        default=Models.CLAUDE_SONNET,
         help="Model to use (default: claude-sonnet-4-5-20250929)",
     )
     parser.add_argument(

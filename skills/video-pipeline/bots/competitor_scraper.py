@@ -15,6 +15,7 @@ import json
 import re
 from datetime import datetime, timezone
 from typing import Optional
+from pipeline_constants import Models
 
 
 def calculate_vph(views: int, published_at: str) -> tuple[float, float]:
@@ -255,7 +256,7 @@ Return ONLY the JSON object."""
         response = await self.anthropic.generate(
             prompt=user_prompt,
             system_prompt=system_prompt,
-            model="claude-sonnet-4-5-20250929",
+            model=Models.CLAUDE_SONNET,
         )
 
         # Parse response (following existing JSON parsing pattern)

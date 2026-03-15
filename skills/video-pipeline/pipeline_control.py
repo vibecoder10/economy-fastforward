@@ -40,6 +40,7 @@ else:
 
 from slack_bolt.async_app import AsyncApp
 from slack_bolt.adapter.socket_mode.async_handler import AsyncSocketModeHandler
+from pipeline_constants import Models, Statuses
 
 # Initialize Slack app
 app = AsyncApp(token=os.environ.get("SLACK_BOT_TOKEN"))
@@ -521,12 +522,12 @@ async def handle_queue(message, say):
 
         all_ideas = airtable.get_all_ideas()
         active_statuses = [
-            "Approved", "Ready For Scripting", "Ready For Voice",
-            "Ready For Image Prompts", "Ready For Images",
-            "Ready For Sound Design", "Ready For Sound Effects",
-            "Ready For Video Scripts", "Ready For Video Generation",
-            "Ready For Thumbnail",
-            "Done", "Ready To Render", "Rendered", "In Que",
+            Statuses.APPROVED, Statuses.READY_SCRIPTING, Statuses.READY_VOICE,
+            Statuses.READY_IMAGE_PROMPTS, Statuses.READY_IMAGES,
+            Statuses.READY_SOUND_DESIGN, Statuses.READY_SOUND_EFFECTS,
+            Statuses.READY_VIDEO_SCRIPTS, Statuses.READY_VIDEO_GENERATION,
+            Statuses.READY_THUMBNAIL,
+            Statuses.DONE, Statuses.READY_TO_RENDER, Statuses.RENDERED, Statuses.IN_QUE,
         ]
 
         # Group by status — get_all_ideas returns flat dicts with id + fields
@@ -564,11 +565,11 @@ async def handle_skip(message, say):
 
         # Status progression order
         status_order = [
-            "Idea Logged", "Ready For Scripting", "Ready For Voice",
-            "Ready For Image Prompts", "Ready For Images",
-            "Ready For Video Scripts", "Ready For Video Generation",
-            "Ready For Thumbnail",
-            "Ready To Render", "Done",
+            Statuses.IDEA_LOGGED, Statuses.READY_SCRIPTING, Statuses.READY_VOICE,
+            Statuses.READY_IMAGE_PROMPTS, Statuses.READY_IMAGES,
+            Statuses.READY_VIDEO_SCRIPTS, Statuses.READY_VIDEO_GENERATION,
+            Statuses.READY_THUMBNAIL,
+            Statuses.READY_TO_RENDER, Statuses.DONE,
         ]
 
         all_ideas = airtable.get_all_ideas()
@@ -638,7 +639,7 @@ async def handle_approve_script(message, say):
         # Approve: advance to Ready For Voice
         record_id = matched["id"]
         title = matched.get("Video Title", matched.get("Headline", "Untitled"))
-        airtable.update_idea_status(record_id, "Ready For Voice")
+        airtable.update_idea_status(record_id, Statuses.READY_VOICE)
 
         await say(
             f":white_check_mark: Script approved: *{title}*\n"
@@ -1662,7 +1663,7 @@ async def _handle_discovery_approval(
         record_id = record["id"]
 
         # Set status to Approved
-        airtable.update_idea_status(record_id, "Approved")
+        airtable.update_idea_status(record_id, Statuses.APPROVED)
 
         # Save the selected formula_id for performance tracking
         if selected_formula_id:
@@ -1697,7 +1698,7 @@ async def _handle_discovery_approval(
                 log.warning(f"Could not write Research Payload: {e}")
 
         # Advance status to Ready For Scripting
-        airtable.update_idea_status(record_id, "Ready For Scripting")
+        airtable.update_idea_status(record_id, Statuses.READY_SCRIPTING)
 
         await client.chat_postMessage(
             channel=channel,
@@ -1776,7 +1777,7 @@ async def _handle_cron_discovery_approval(
 
         # If we have an existing record, update it; otherwise create new
         if record_id:
-            airtable.update_idea_status(record_id, "Approved")
+            airtable.update_idea_status(record_id, Statuses.APPROVED)
             # Update Video Title to the user's chosen title
             if selected_title:
                 try:
@@ -1807,7 +1808,7 @@ async def _handle_cron_discovery_approval(
             source_name = "competitor_scanner" if source_type == "competitor" else "discovery_scanner"
             record = airtable.create_idea(idea_data, source=source_name)
             record_id = record["id"]
-            airtable.update_idea_status(record_id, "Approved")
+            airtable.update_idea_status(record_id, Statuses.APPROVED)
             if selected_formula_id:
                 try:
                     airtable.update_idea_field(record_id, "Title Formula", selected_formula_id)
@@ -1838,7 +1839,7 @@ async def _handle_cron_discovery_approval(
                 log.warning(f"Could not write Research Payload: {e}")
 
         # Advance status to Ready For Scripting (will be picked up by 8 AM pipeline)
-        airtable.update_idea_status(record_id, "Ready For Scripting")
+        airtable.update_idea_status(record_id, Statuses.READY_SCRIPTING)
 
         await client.chat_postMessage(
             channel=channel,
@@ -1893,7 +1894,7 @@ async def handle_research(message, say):
         if not topic:
             await say(":microscope: Starting research on next approved idea...")
 
-            approved = airtable.get_ideas_by_status("Approved", limit=1)
+            approved = airtable.get_ideas_by_status(Statuses.APPROVED, limit=1)
             if not approved:
                 await say(
                     ":zzz: No approved ideas in queue. "
@@ -1937,7 +1938,7 @@ async def handle_research(message, say):
                     log.warning("Could not write Research Payload field either")
 
             # Advance status to Ready For Scripting
-            airtable.update_idea_status(record_id, "Ready For Scripting")
+            airtable.update_idea_status(record_id, Statuses.READY_SCRIPTING)
 
             current_task_name = None
             await say(
@@ -2455,7 +2456,7 @@ async def handle_delete_scripts(message, say):
             return
 
         # Reset status so scripts can be regenerated
-        airtable.update_idea_fields(idea["id"], {"Status": "Ready For Scripting"})
+        airtable.update_idea_fields(idea["id"], {"Status": Statuses.READY_SCRIPTING})
         await say(
             f":wastebasket: Deleted *{count}* script records for *{video_title}*\n"
             f"Status reset to *Ready For Scripting* — run `script` to regenerate"
@@ -2493,7 +2494,7 @@ async def handle_delete_images(message, say):
             return
 
         # Reset status so image prompts can be regenerated
-        airtable.update_idea_fields(idea["id"], {"Status": "Ready For Image Prompts"})
+        airtable.update_idea_fields(idea["id"], {"Status": Statuses.READY_IMAGE_PROMPTS})
         await say(
             f":wastebasket: Deleted *{count}* image records for *{video_title}*\n"
             f"Status reset to *Ready For Image Prompts* — run `prompts` to regenerate"
@@ -2630,7 +2631,7 @@ async def handle_fallback(event, say):
         command = await anthropic.generate(
             prompt=f"User message: {text}",
             system_prompt=_AI_ROUTER_SYSTEM,
-            model="claude-haiku-4-5-20251001",
+            model=Models.CLAUDE_HAIKU,
             max_tokens=100,
             temperature=0.0,
         )

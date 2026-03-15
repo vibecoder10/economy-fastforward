@@ -10,7 +10,7 @@ import asyncio
 import gc
 from collections import defaultdict
 
-from pipeline_constants import Statuses
+from pipeline_constants import Statuses, Models
 
 
 async def run(pipeline) -> dict:
@@ -132,8 +132,8 @@ async def _generate_images(pipeline) -> dict:
     if model_override:
         print(f"     🔄 Model override active: {model_override} ({ImageClient.VALID_SCENE_MODELS[model_override]})")
 
-    use_reference = bool(pipeline.core_image_url) and model_override != "z-image"
-    if model_override == "z-image":
+    use_reference = bool(pipeline.core_image_url) and model_override != Models.IMAGE_ZIMAGE
+    if model_override == Models.IMAGE_ZIMAGE:
         print(f"     🎨 Using Z Image model (text-to-image, no reference)")
     elif use_reference:
         print(f"     🖼️ Using Core Image reference (Seed Dream 4.5 Edit)")
@@ -169,7 +169,7 @@ async def _generate_images(pipeline) -> dict:
                 prompt_preview = prompt[:120] + "..." if len(prompt) > 120 else prompt
 
                 try:
-                    if model_override == "z-image":
+                    if model_override == Models.IMAGE_ZIMAGE:
                         result = await pipeline.image_client.generate_scene_image_zimage(prompt, aspect_ratio="16:9")
                     elif use_reference:
                         result = await pipeline.image_client.generate_scene_image(prompt, pipeline.core_image_url)
@@ -253,7 +253,7 @@ async def _generate_images(pipeline) -> dict:
                 index = img_record.get("Image Index", 0)
 
                 try:
-                    if model_override == "z-image":
+                    if model_override == Models.IMAGE_ZIMAGE:
                         result = await pipeline.image_client.generate_scene_image_zimage(prompt, aspect_ratio="16:9")
                     elif use_reference:
                         result = await pipeline.image_client.generate_scene_image(prompt, pipeline.core_image_url)
