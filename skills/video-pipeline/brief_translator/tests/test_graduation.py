@@ -9,6 +9,7 @@ from brief_translator.pipeline_writer import (
     build_pipeline_record,
     generate_video_id,
 )
+from pipeline_constants import IdeaFields
 
 
 SAMPLE_BRIEF = {
@@ -93,11 +94,12 @@ class TestBuildPipelineRecord:
             "cold_teal", "rec123", "/tmp/scenes.json", "vid_001"
         )
         required = [
-            "Video Title", "Hook Script", "Past Context", "Present Parallel",
-            "Future Prediction", "Writer Guidance", "Original DNA",
-            "Status", "Script", "Scene File Path", "Accent Color",
-            "Video ID", "Scene Count", "Validation Status",
-            "Framework Angle", "Thematic Framework",
+            IdeaFields.VIDEO_TITLE, IdeaFields.HOOK_SCRIPT, IdeaFields.PAST_CONTEXT,
+            IdeaFields.PRESENT_PARALLEL, IdeaFields.FUTURE_PREDICTION,
+            IdeaFields.WRITER_GUIDANCE, IdeaFields.ORIGINAL_DNA,
+            IdeaFields.STATUS, IdeaFields.SCRIPT, IdeaFields.SCENE_FILE_PATH,
+            IdeaFields.ACCENT_COLOR, "Video ID", "Scene Count", "Validation Status",
+            IdeaFields.FRAMEWORK_ANGLE, IdeaFields.THEMATIC_FRAMEWORK,
         ]
         for field in required:
             assert field in record, f"Missing field: {field}"
@@ -114,7 +116,7 @@ class TestBuildPipelineRecord:
             SAMPLE_BRIEF, SAMPLE_SCRIPT, SAMPLE_SCENES,
             "cold_teal", "rec123", "/tmp/scenes.json", "vid_001"
         )
-        assert record["Status"] == "Queued"
+        assert record[IdeaFields.STATUS] == "Queued"
 
     def test_validation_status_is_validated(self):
         record = build_pipeline_record(
@@ -128,7 +130,7 @@ class TestBuildPipelineRecord:
             SAMPLE_BRIEF, SAMPLE_SCRIPT, SAMPLE_SCENES,
             "cold_teal", "recABC123", "/tmp/scenes.json", "vid_001"
         )
-        dna = json.loads(record["Original DNA"])
+        dna = json.loads(record[IdeaFields.ORIGINAL_DNA])
         assert dna["meta_data"]["source_idea_id"] == "recABC123"
         assert dna["meta_data"]["framework"] == "Machiavelli's The Prince"
 
@@ -144,19 +146,19 @@ class TestFullGraduationFlow:
         )
 
         # Title comes from first title option
-        assert record["Video Title"] == "The $1.25 Trillion Power Play"
+        assert record[IdeaFields.VIDEO_TITLE] == "The $1.25 Trillion Power Play"
 
         # Hook comes from executive_hook
-        assert record["Hook Script"] == SAMPLE_BRIEF["executive_hook"]
+        assert record[IdeaFields.HOOK_SCRIPT] == SAMPLE_BRIEF["executive_hook"]
 
         # Past Context comes from historical_parallels
-        assert record["Past Context"] == SAMPLE_BRIEF["historical_parallels"]
+        assert record[IdeaFields.PAST_CONTEXT] == SAMPLE_BRIEF["historical_parallels"]
 
         # Present Parallel comes from framework_analysis
-        assert record["Present Parallel"] == SAMPLE_BRIEF["framework_analysis"]
+        assert record[IdeaFields.PRESENT_PARALLEL] == SAMPLE_BRIEF["framework_analysis"]
 
         # Future Prediction comes from narrative_arc
-        assert record["Future Prediction"] == SAMPLE_BRIEF["narrative_arc"]
+        assert record[IdeaFields.FUTURE_PREDICTION] == SAMPLE_BRIEF["narrative_arc"]
 
     def test_scene_list_roundtrip(self):
         """Verify scene list can be saved and loaded without data loss."""

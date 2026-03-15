@@ -30,6 +30,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+from pipeline_constants import IdeaFields
+
 logger = logging.getLogger(__name__)
 
 
@@ -135,7 +137,7 @@ class PerformanceAnalyzer:
         # Process each video
         for video in videos:
             analysis_type = video.get("_analysis_type", "48h")
-            title = video.get("Video Title", "Unknown")
+            title = video.get(IdeaFields.VIDEO_TITLE, "Unknown")
             record_id = video.get("id")
 
             logger.info(f"Analyzing: {title} ({analysis_type} post-mortem)")
@@ -160,7 +162,7 @@ class PerformanceAnalyzer:
                 # Persist results
                 if not dry_run:
                     # Save post-mortem analysis to Ideas table
-                    field_name = "Post-Mortem 48h" if analysis_type == "48h" else "Post-Mortem 7d"
+                    field_name = IdeaFields.POST_MORTEM_48H if analysis_type == "48h" else IdeaFields.POST_MORTEM_7D
                     analysis_json = json.dumps({
                         "ctr_verdict": pm_result.ctr_verdict,
                         "retention_verdict": pm_result.retention_verdict,
@@ -174,7 +176,7 @@ class PerformanceAnalyzer:
                     # Save Performance Verdict (simplified for filtering)
                     await self._update_idea_field(
                         record_id,
-                        "Performance Verdict",
+                        IdeaFields.PERFORMANCE_VERDICT,
                         pm_result.overall_verdict,
                     )
 
@@ -213,14 +215,14 @@ class PerformanceAnalyzer:
         Focuses on CTR and early retention signals. If CTR is weak,
         recommends title/thumbnail swap before algorithm gives up.
         """
-        title = video.get("Video Title", "Unknown")
-        video_id = video.get("YouTube Video ID", "")
+        title = video.get(IdeaFields.VIDEO_TITLE, "Unknown")
+        video_id = video.get(IdeaFields.YOUTUBE_VIDEO_ID, "")
 
         # Get metrics (prefer 48h snapshots, fall back to current)
-        ctr = video.get("CTR 48h (%)") or video.get("CTR (%)")
-        retention = video.get("Retention 48h (%)") or video.get("Avg Retention (%)")
-        impressions = video.get("Impressions", 0)
-        views_48h = video.get("Views 48h") or video.get("Views", 0)
+        ctr = video.get(IdeaFields.CTR_48H) or video.get(IdeaFields.CTR)
+        retention = video.get(IdeaFields.RETENTION_48H) or video.get(IdeaFields.AVG_RETENTION)
+        impressions = video.get(IdeaFields.IMPRESSIONS, 0)
+        views_48h = video.get(IdeaFields.VIEWS_48H) or video.get(IdeaFields.VIEWS, 0)
 
         raw_metrics = {
             "ctr": ctr,
@@ -261,18 +263,18 @@ class PerformanceAnalyzer:
         Full analysis with learning extraction. These insights get
         persisted and fed back into generation prompts.
         """
-        title = video.get("Video Title", "Unknown")
-        video_id = video.get("YouTube Video ID", "")
+        title = video.get(IdeaFields.VIDEO_TITLE, "Unknown")
+        video_id = video.get(IdeaFields.YOUTUBE_VIDEO_ID, "")
 
         # Get final metrics
-        ctr = video.get("CTR (%)")
-        retention = video.get("Avg Retention (%)")
-        impressions = video.get("Impressions", 0)
-        views = video.get("Views", 0)
-        views_7d = video.get("Views 7d") or views
-        watch_time = video.get("Watch Time (hours)", 0)
-        framework = video.get("Framework Angle", "")
-        hook_script = video.get("Hook Script", "")
+        ctr = video.get(IdeaFields.CTR)
+        retention = video.get(IdeaFields.AVG_RETENTION)
+        impressions = video.get(IdeaFields.IMPRESSIONS, 0)
+        views = video.get(IdeaFields.VIEWS, 0)
+        views_7d = video.get(IdeaFields.VIEWS_7D) or views
+        watch_time = video.get(IdeaFields.WATCH_TIME_HOURS, 0)
+        framework = video.get(IdeaFields.FRAMEWORK_ANGLE, "")
+        hook_script = video.get(IdeaFields.HOOK_SCRIPT, "")
 
         raw_metrics = {
             "ctr": ctr,
@@ -364,7 +366,7 @@ class PerformanceAnalyzer:
         verdict: str,
     ) -> list[dict]:
         """Extract learnings from title performance."""
-        title = video.get("Video Title", "")
+        title = video.get(IdeaFields.VIDEO_TITLE, "")
         learnings = []
 
         # Only extract positive learnings (CTR > 4%) or notable negative (<2%)
@@ -414,8 +416,8 @@ class PerformanceAnalyzer:
         verdict: str,
     ) -> list[dict]:
         """Extract learnings from retention performance."""
-        title = video.get("Video Title", "")
-        hook = video.get("Hook Script", "")
+        title = video.get(IdeaFields.VIDEO_TITLE, "")
+        hook = video.get(IdeaFields.HOOK_SCRIPT, "")
         learnings = []
 
         if verdict not in ("strong", "weak"):
@@ -468,7 +470,7 @@ class PerformanceAnalyzer:
         framework: str,
     ) -> list[dict]:
         """Extract framework-specific performance learnings."""
-        title = video.get("Video Title", "")
+        title = video.get(IdeaFields.VIDEO_TITLE, "")
         learnings = []
 
         pattern_parts = [f"Framework '{framework}'"]

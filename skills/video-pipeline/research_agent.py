@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Optional
 
 from clients.narrative_extractor import extract_narrative_fields
-from pipeline_constants import Models
+from pipeline_constants import IdeaFields, Models
 from json_utils import parse_json_response
 
 logger = logging.getLogger(__name__)
@@ -328,8 +328,8 @@ async def refine_title_post_script(
     if not idea:
         raise ValueError(f"Idea record {record_id} not found")
 
-    current_title = idea.get("Video Title", "")
-    framework = idea.get("Framework Angle", "48 Laws")
+    current_title = idea.get(IdeaFields.VIDEO_TITLE, "")
+    framework = idea.get(IdeaFields.FRAMEWORK_ANGLE, "48 Laws")
 
     # Get all script scenes for this video
     scripts = airtable_client.get_scripts_by_title(current_title)
@@ -411,8 +411,8 @@ async def refine_title_post_script(
     }
 
     if should_switch:
-        update_fields["Video Title"] = winner.get("title", "")
-        update_fields["Thumbnail Text"] = winner.get("thumbnail_text", "")
+        update_fields[IdeaFields.VIDEO_TITLE] = winner.get("title", "")
+        update_fields[IdeaFields.THUMBNAIL_TEXT] = winner.get("thumbnail_text", "")
 
     airtable_client.update_idea_fields(record_id, update_fields)
 
@@ -779,18 +779,18 @@ def write_to_airtable(
         narrative = extract_narrative_fields(payload)
 
         research_fields = {
-            "Research Payload": research_payload_json,
-            "Source URLs": payload.get("source_bibliography", ""),
-            "Executive Hook": payload.get("executive_hook", ""),
-            "Thesis": payload.get("thesis", ""),
-            "Framework Angle": framework_angle,
-            "Thematic Framework": payload.get("themes", ""),
-            "Headline": payload.get("headline", ""),
-            "Video Title": video_title,
+            IdeaFields.RESEARCH_PAYLOAD: research_payload_json,
+            IdeaFields.SOURCE_URLS: payload.get("source_bibliography", ""),
+            IdeaFields.EXECUTIVE_HOOK: payload.get("executive_hook", ""),
+            IdeaFields.THESIS: payload.get("thesis", ""),
+            IdeaFields.FRAMEWORK_ANGLE: framework_angle,
+            IdeaFields.THEMATIC_FRAMEWORK: payload.get("themes", ""),
+            IdeaFields.HEADLINE: payload.get("headline", ""),
+            IdeaFields.VIDEO_TITLE: video_title,
             # Narrative fields for Past → Present → Future framing
-            "Past Context": narrative["past_context"],
-            "Present Parallel": narrative["present_parallel"],
-            "Future Prediction": narrative["future_prediction"],
+            IdeaFields.PAST_CONTEXT: narrative["past_context"],
+            IdeaFields.PRESENT_PARALLEL: narrative["present_parallel"],
+            IdeaFields.FUTURE_PREDICTION: narrative["future_prediction"],
         }
         # Add title candidates if generated
         if title_candidates and title_candidates.get("candidates"):
@@ -798,7 +798,7 @@ def write_to_airtable(
                 title_candidates["candidates"]
             )
         if title_candidates and title_candidates.get("winner_thumbnail"):
-            research_fields["Thumbnail Text"] = title_candidates["winner_thumbnail"]
+            research_fields[IdeaFields.THUMBNAIL_TEXT] = title_candidates["winner_thumbnail"]
 
         airtable_client.update_idea_fields(record_id, research_fields)
         logger.info(f"Research updated on existing record: {record_id}")
@@ -825,20 +825,20 @@ def write_to_airtable(
             "psychological_angles": payload.get("psychological_angles", ""),
         }),
         # Rich schema fields
-        "Framework Angle": framework_angle,
-        "Headline": payload.get("headline", ""),
-        "Executive Hook": payload.get("executive_hook", ""),
-        "Thesis": payload.get("thesis", ""),
-        "Source URLs": payload.get("source_bibliography", ""),
-        "Research Payload": research_payload_json,
-        "Thematic Framework": payload.get("themes", ""),
+        IdeaFields.FRAMEWORK_ANGLE: framework_angle,
+        IdeaFields.HEADLINE: payload.get("headline", ""),
+        IdeaFields.EXECUTIVE_HOOK: payload.get("executive_hook", ""),
+        IdeaFields.THESIS: payload.get("thesis", ""),
+        IdeaFields.SOURCE_URLS: payload.get("source_bibliography", ""),
+        IdeaFields.RESEARCH_PAYLOAD: research_payload_json,
+        IdeaFields.THEMATIC_FRAMEWORK: payload.get("themes", ""),
     }
 
     # Add title candidates if generated
     if title_candidates and title_candidates.get("candidates"):
         idea_data["Title Candidates"] = json.dumps(title_candidates["candidates"])
     if title_candidates and title_candidates.get("winner_thumbnail"):
-        idea_data["Thumbnail Text"] = title_candidates["winner_thumbnail"]
+        idea_data[IdeaFields.THUMBNAIL_TEXT] = title_candidates["winner_thumbnail"]
 
     # Create the record with source="research_agent"
     record = airtable_client.create_idea(idea_data, source="research_agent")

@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from pipeline_constants import Statuses
+from pipeline_constants import IdeaFields, Statuses
 
 
 # ---------------------------------------------------------------------------
@@ -57,16 +57,16 @@ SAMPLE_SCENE_LIST[-1]["style"] = "dossier"
 
 SAMPLE_IDEA_RECORD = {
     "id": "recABC123",
-    "Video Title": "The SpaceX-xAI Merger",
-    "Status": Statuses.READY_SCRIPTING,
-    "Hook Script": "What if one man controlled everything?",
-    "Past Context": "Standard Oil vertical integration.",
-    "Present Parallel": "Vertical integration of hardware + software + data.",
-    "Future Prediction": "Path to controlling both orbit and intelligence.",
-    "Writer Guidance": "Focus on monopoly implications.",
-    "Original DNA": '{"meta_data":{}}',
-    "Reference URL": "https://reuters.com/spacex-xai",
-    "Thumbnail Prompt": "Rocket and AI brain split image",
+    IdeaFields.VIDEO_TITLE: "The SpaceX-xAI Merger",
+    IdeaFields.STATUS: Statuses.READY_SCRIPTING,
+    IdeaFields.HOOK_SCRIPT: "What if one man controlled everything?",
+    IdeaFields.PAST_CONTEXT: "Standard Oil vertical integration.",
+    IdeaFields.PRESENT_PARALLEL: "Vertical integration of hardware + software + data.",
+    IdeaFields.FUTURE_PREDICTION: "Path to controlling both orbit and intelligence.",
+    IdeaFields.WRITER_GUIDANCE: "Focus on monopoly implications.",
+    IdeaFields.ORIGINAL_DNA: '{"meta_data":{}}',
+    IdeaFields.REFERENCE_URL: "https://reuters.com/spacex-xai",
+    IdeaFields.THUMBNAIL_PROMPT: "Rocket and AI brain split image",
 }
 
 
@@ -108,17 +108,17 @@ class TestIdeasBankToBriefTranslator:
 
         # This is the mapping from pipeline.run_brief_translator()
         brief = {
-            "headline": idea.get("Video Title", ""),
-            "thesis": idea.get("Future Prediction", ""),
-            "executive_hook": idea.get("Hook Script", ""),
-            "fact_sheet": idea.get("Writer Guidance", ""),
-            "historical_parallels": idea.get("Past Context", ""),
-            "framework_analysis": idea.get("Present Parallel", ""),
+            "headline": idea.get(IdeaFields.VIDEO_TITLE, ""),
+            "thesis": idea.get(IdeaFields.FUTURE_PREDICTION, ""),
+            "executive_hook": idea.get(IdeaFields.HOOK_SCRIPT, ""),
+            "fact_sheet": idea.get(IdeaFields.WRITER_GUIDANCE, ""),
+            "historical_parallels": idea.get(IdeaFields.PAST_CONTEXT, ""),
+            "framework_analysis": idea.get(IdeaFields.PRESENT_PARALLEL, ""),
             "character_dossier": "",
-            "narrative_arc": idea.get("Future Prediction", ""),
+            "narrative_arc": idea.get(IdeaFields.FUTURE_PREDICTION, ""),
             "counter_arguments": "",
-            "visual_seeds": idea.get("Thumbnail Prompt", ""),
-            "source_bibliography": idea.get("Reference URL", ""),
+            "visual_seeds": idea.get(IdeaFields.THUMBNAIL_PROMPT, ""),
+            "source_bibliography": idea.get(IdeaFields.REFERENCE_URL, ""),
         }
 
         assert brief["headline"] == "The SpaceX-xAI Merger"
@@ -131,17 +131,17 @@ class TestIdeasBankToBriefTranslator:
 
         idea = SAMPLE_IDEA_RECORD
         brief = {
-            "headline": idea.get("Video Title", ""),
-            "thesis": idea.get("Future Prediction", ""),
-            "executive_hook": idea.get("Hook Script", ""),
-            "fact_sheet": idea.get("Writer Guidance", ""),
-            "historical_parallels": idea.get("Past Context", ""),
-            "framework_analysis": idea.get("Present Parallel", ""),
+            "headline": idea.get(IdeaFields.VIDEO_TITLE, ""),
+            "thesis": idea.get(IdeaFields.FUTURE_PREDICTION, ""),
+            "executive_hook": idea.get(IdeaFields.HOOK_SCRIPT, ""),
+            "fact_sheet": idea.get(IdeaFields.WRITER_GUIDANCE, ""),
+            "historical_parallels": idea.get(IdeaFields.PAST_CONTEXT, ""),
+            "framework_analysis": idea.get(IdeaFields.PRESENT_PARALLEL, ""),
             "character_dossier": "",
-            "narrative_arc": idea.get("Future Prediction", ""),
+            "narrative_arc": idea.get(IdeaFields.FUTURE_PREDICTION, ""),
             "counter_arguments": "",
-            "visual_seeds": idea.get("Thumbnail Prompt", ""),
-            "source_bibliography": idea.get("Reference URL", ""),
+            "visual_seeds": idea.get(IdeaFields.THUMBNAIL_PROMPT, ""),
+            "source_bibliography": idea.get(IdeaFields.REFERENCE_URL, ""),
         }
 
         # Should not raise
@@ -171,15 +171,15 @@ class TestBriefTranslatorToPipeline:
         )
 
         # Core fields the pipeline reads
-        assert "Video Title" in record
-        assert "Hook Script" in record
-        assert "Status" in record
-        assert record["Status"] == "Queued"
+        assert IdeaFields.VIDEO_TITLE in record
+        assert IdeaFields.HOOK_SCRIPT in record
+        assert IdeaFields.STATUS in record
+        assert record[IdeaFields.STATUS] == "Queued"
 
         # New translation fields
-        assert "Script" in record
-        assert "Scene File Path" in record
-        assert "Accent Color" in record
+        assert IdeaFields.SCRIPT in record
+        assert IdeaFields.SCENE_FILE_PATH in record
+        assert IdeaFields.ACCENT_COLOR in record
         assert "Video ID" in record
         assert "Scene Count" in record
         assert record["Scene Count"] == 136
@@ -198,7 +198,7 @@ class TestBriefTranslatorToPipeline:
             video_id="vid_test",
         )
 
-        dna = json.loads(record["Original DNA"])
+        dna = json.loads(record[IdeaFields.ORIGINAL_DNA])
         assert dna["meta_data"]["source_idea_id"] == "recABC123"
         assert dna["meta_data"]["accent_color"] == "cold_teal"
 

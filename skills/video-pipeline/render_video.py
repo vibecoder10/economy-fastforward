@@ -22,7 +22,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from clients.airtable_client import AirtableClient
-from pipeline_constants import Statuses
+from pipeline_constants import IdeaFields, ImageFields, ScriptFields, Statuses
 from clients.google_client import GoogleClient, get_direct_drive_url
 
 def sanitize_filename(title: str) -> str:
@@ -186,7 +186,7 @@ def main():
         ideas = airtable.get_all_ideas()
         for idea in ideas:
             if idea.get("Status") == Statuses.DONE:
-                print(f"  • {idea.get('Video Title')}")
+                print(f"  • {idea.get(IdeaFields.VIDEO_TITLE)}")
         return
 
     title = " ".join(args)
@@ -203,7 +203,7 @@ def main():
     ideas = airtable.get_all_ideas()
     idea = None
     for i in ideas:
-        if i.get("Video Title") == title:
+        if i.get(IdeaFields.VIDEO_TITLE) == title:
             idea = i
             break
     
@@ -216,7 +216,7 @@ def main():
         print("   Proceeding anyway...")
     
     # Use existing folder from Airtable (where images/voice/SFX were uploaded)
-    folder_id = idea.get("Google Drive Folder ID") or idea.get("Drive Folder ID")
+    folder_id = idea.get(IdeaFields.GOOGLE_DRIVE_FOLDER_ID) or idea.get(IdeaFields.DRIVE_FOLDER_ID)
     if not folder_id:
         # Fallback: search for existing folder, never create a new one
         folder = google.search_folder(title)
@@ -252,22 +252,22 @@ def main():
     scenes = []
     for script in scripts:
         scene_number = script.get("scene", 0)
-        scene_images = [img for img in images if img.get("Scene") == scene_number]
+        scene_images = [img for img in images if img.get(ImageFields.SCENE) == scene_number]
 
         # Build sound_layers from Sound Map JSON (if available)
         sound_layers = _build_sound_layers(script, scene_number, sfx_dir, google)
 
         # Build per-image data including SFX
         image_props = []
-        for img in sorted(scene_images, key=lambda x: x.get("Image Index", 0)):
-            img_index = img.get("Image Index", 0)
+        for img in sorted(scene_images, key=lambda x: x.get(ImageFields.IMAGE_INDEX, 0)):
+            img_index = img.get(ImageFields.IMAGE_INDEX, 0)
             img_data: dict = {
                 "index": img_index,
                 "url": img.get("Image", [{}])[0].get("url", "") if img.get("Image") else "",
             }
 
             # Extract per-image sound effect from Airtable
-            sound_attachment = img.get("Sound Effect")
+            sound_attachment = img.get(ImageFields.SOUND_EFFECT)
             if sound_attachment and isinstance(sound_attachment, list) and len(sound_attachment) > 0:
                 sfx_filename = f"sfx_{scene_number}_{img_index}.mp3"
                 local_sfx = sfx_dir / sfx_filename
@@ -326,14 +326,14 @@ def main():
 
                 if local_sfx.exists():
                     img_data["sfx"] = f"sfx/{sfx_filename}"
-                    img_data["sfxVolume"] = img.get("Sound Volume", 0.15)
+                    img_data["sfxVolume"] = img.get(ImageFields.SOUND_VOLUME, 0.15)
 
             image_props.append(img_data)
 
         scenes.append({
             "sceneNumber": scene_number,
-            "text": script.get("Scene text", ""),
-            "voiceUrl": script.get("Voice Over", [{}])[0].get("url", "") if script.get("Voice Over") else "",
+            "text": script.get(ScriptFields.SCENE_TEXT, ""),
+            "voiceUrl": script.get(ScriptFields.VOICE_OVER, [{}])[0].get("url", "") if script.get(ScriptFields.VOICE_OVER) else "",
             "images": image_props,
             "sound_layers": sound_layers,
         })
@@ -383,17 +383,17 @@ def main():
     # Build lookup: (scene_number, image_index) -> image record
     image_lookup: dict[tuple[int, int], dict] = {}
     for img in images:
-        key = (img.get("Scene", 0), img.get("Image Index", 0))
+        key = (img.get(ImageFields.SCENE, 0), img.get(ImageFields.IMAGE_INDEX, 0))
         image_lookup[key] = img
 
     # Collect clips to download
     clips_to_download: list[dict] = []
     for img in images:
-        clip_url = img.get("Video Clip URL", "")
-        anim_status = img.get("Animation Status", "")
+        clip_url = img.get(ImageFields.VIDEO_CLIP_URL, "")
+        anim_status = img.get(ImageFields.ANIMATION_STATUS, "")
         if clip_url and anim_status == "Done":
-            scene_num = img.get("Scene", 0)
-            img_idx = img.get("Image Index", 0)
+            scene_num = img.get(ImageFields.SCENE, 0)
+            img_idx = img.get(ImageFields.IMAGE_INDEX, 0)
             file_id = _extract_drive_file_id(clip_url)
             if file_id:
                 mp4_name = f"Scene_{scene_num:02d}_{img_idx:02d}.mp4"
@@ -403,7 +403,7 @@ def main():
                     "local_path": video_clip_dir / mp4_name,
                     "scene_number": scene_num,
                     "image_index": img_idx,
-                    "video_duration": img.get("Video Duration"),
+                    "video_duration": img.get(ImageFields.VIDEO_DURATION),
                     "label": f"Scene {scene_num} img {img_idx}",
                 })
 
@@ -635,7 +635,7 @@ def main():
     
     # Update Airtable with video link
     drive_url = f"https://drive.google.com/file/d/{drive_file['id']}/view"
-    airtable.update_idea_field(idea["id"], "Final Video", drive_url)
+    airtable.update_idea_field(idea["id"], IdeaFields.FINAL_VIDEO, drive_url)
     print(f"✅ Airtable updated with video link")
     
     print("\n" + "=" * 60)

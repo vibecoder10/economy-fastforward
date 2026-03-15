@@ -35,6 +35,7 @@ load_dotenv(env_path)
 sys.path.insert(0, str(Path(__file__).parent))
 
 from clients.airtable_client import AirtableClient
+from pipeline_constants import IdeaFields
 
 # Minimum videos with CTR data before analysis is meaningful
 MIN_VIDEOS_FOR_ANALYSIS = 8
@@ -48,7 +49,7 @@ def _get_videos_with_analytics(airtable: AirtableClient) -> list[dict]:
     all_ideas = airtable.get_all_ideas()
     return [
         idea for idea in all_ideas
-        if idea.get("CTR (%)") is not None or idea.get("Avg Retention (%)") is not None
+        if idea.get(IdeaFields.CTR) is not None or idea.get(IdeaFields.AVG_RETENTION) is not None
     ]
 
 
@@ -81,16 +82,16 @@ def analyze_title_formulas(videos: list[dict]) -> dict:
     formula_groups: dict[str, list[dict]] = defaultdict(list)
 
     for v in videos:
-        formula_id = v.get("Title Formula", "").strip()
+        formula_id = v.get(IdeaFields.TITLE_FORMULA, "").strip()
         if not formula_id:
             continue
         formula_groups[formula_id].append(v)
 
     rankings = []
     for formula_id, group in formula_groups.items():
-        ctrs = [_safe_float(v.get("CTR (%)")) for v in group if v.get("CTR (%)") is not None]
-        retentions = [_safe_float(v.get("Avg Retention (%)")) for v in group if v.get("Avg Retention (%)") is not None]
-        views_48h = [_safe_int(v.get("Views 48h")) for v in group if v.get("Views 48h") is not None]
+        ctrs = [_safe_float(v.get(IdeaFields.CTR)) for v in group if v.get(IdeaFields.CTR) is not None]
+        retentions = [_safe_float(v.get(IdeaFields.AVG_RETENTION)) for v in group if v.get(IdeaFields.AVG_RETENTION) is not None]
+        views_48h = [_safe_int(v.get(IdeaFields.VIEWS_48H)) for v in group if v.get(IdeaFields.VIEWS_48H) is not None]
 
         rankings.append({
             "formula_id": formula_id,
@@ -98,7 +99,7 @@ def analyze_title_formulas(videos: list[dict]) -> dict:
             "avg_ctr": round(sum(ctrs) / len(ctrs), 2) if ctrs else 0.0,
             "avg_retention": round(sum(retentions) / len(retentions), 1) if retentions else 0.0,
             "avg_views_48h": round(sum(views_48h) / len(views_48h)) if views_48h else 0,
-            "titles": [v.get("Video Title", "Unknown") for v in group],
+            "titles": [v.get(IdeaFields.VIDEO_TITLE, "Unknown") for v in group],
         })
 
     rankings.sort(key=lambda r: r["avg_ctr"], reverse=True)
@@ -144,8 +145,8 @@ def analyze_topics(videos: list[dict]) -> dict:
     category_data: dict[str, list[dict]] = defaultdict(list)
 
     for v in videos:
-        title = (v.get("Video Title") or "").lower()
-        framework = (v.get("Thematic Framework") or "").lower()
+        title = (v.get(IdeaFields.VIDEO_TITLE) or "").lower()
+        framework = (v.get(IdeaFields.THEMATIC_FRAMEWORK) or "").lower()
         combined = f"{title} {framework}"
 
         matched = False
@@ -160,7 +161,7 @@ def analyze_topics(videos: list[dict]) -> dict:
     categories = []
     for category, group in category_data.items():
         impressions = [_safe_int(v.get("Impressions")) for v in group if v.get("Impressions") is not None]
-        ctrs = [_safe_float(v.get("CTR (%)")) for v in group if v.get("CTR (%)") is not None]
+        ctrs = [_safe_float(v.get(IdeaFields.CTR)) for v in group if v.get(IdeaFields.CTR) is not None]
 
         categories.append({
             "category": category,
@@ -168,7 +169,7 @@ def analyze_topics(videos: list[dict]) -> dict:
             "avg_impressions": round(sum(impressions) / len(impressions)) if impressions else 0,
             "total_impressions": sum(impressions),
             "avg_ctr": round(sum(ctrs) / len(ctrs), 2) if ctrs else 0.0,
-            "titles": [v.get("Video Title", "Unknown") for v in group],
+            "titles": [v.get(IdeaFields.VIDEO_TITLE, "Unknown") for v in group],
         })
 
     categories.sort(key=lambda c: c["total_impressions"], reverse=True)
@@ -207,12 +208,12 @@ def analyze_velocity(videos: list[dict]) -> dict:
     low_impressions = []
 
     for v in videos:
-        title = v.get("Video Title", "Unknown")
-        views_24h = _safe_int(v.get("Views 24h"))
-        views_48h = _safe_int(v.get("Views 48h"))
-        views_7d = _safe_int(v.get("Views 7d"))
+        title = v.get(IdeaFields.VIDEO_TITLE, "Unknown")
+        views_24h = _safe_int(v.get(IdeaFields.VIEWS_24H))
+        views_48h = _safe_int(v.get(IdeaFields.VIEWS_48H))
+        views_7d = _safe_int(v.get(IdeaFields.VIEWS_7D))
         impressions = _safe_int(v.get("Impressions"))
-        ctr = _safe_float(v.get("CTR (%)"))
+        ctr = _safe_float(v.get(IdeaFields.CTR))
 
         # Velocity: ratio of 48h views to 7d views (high = fast initial pickup)
         if views_48h > 0 and views_7d > 0:
@@ -279,14 +280,14 @@ def analyze_retention(videos: list[dict]) -> dict:
     retention_data = []
 
     for v in videos:
-        retention = v.get("Avg Retention (%)")
+        retention = v.get(IdeaFields.AVG_RETENTION)
         if retention is None:
             continue
         retention_data.append({
-            "title": v.get("Video Title", "Unknown"),
+            "title": v.get(IdeaFields.VIDEO_TITLE, "Unknown"),
             "retention": _safe_float(retention),
             "scene_count": _safe_int(v.get("Scene Count")),
-            "framework": v.get("Thematic Framework", ""),
+            "framework": v.get(IdeaFields.THEMATIC_FRAMEWORK, ""),
         })
 
     retention_data.sort(key=lambda d: d["retention"], reverse=True)
@@ -497,7 +498,7 @@ def run_analysis(dry_run: bool = False, output_json: bool = False) -> str | None
     airtable = AirtableClient()
     videos = _get_videos_with_analytics(airtable)
 
-    videos_with_ctr = [v for v in videos if v.get("CTR (%)") is not None]
+    videos_with_ctr = [v for v in videos if v.get(IdeaFields.CTR) is not None]
 
     if len(videos_with_ctr) < MIN_VIDEOS_FOR_ANALYSIS:
         needed = MIN_VIDEOS_FOR_ANALYSIS - len(videos_with_ctr)

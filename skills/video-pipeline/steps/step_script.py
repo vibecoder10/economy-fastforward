@@ -9,7 +9,7 @@ Clients: anthropic, airtable, google, slack
 import asyncio
 import json
 
-from pipeline_constants import Statuses
+from pipeline_constants import IdeaFields, Statuses
 
 
 async def run(pipeline, brief: dict = None) -> dict:
@@ -33,8 +33,8 @@ async def run(pipeline, brief: dict = None) -> dict:
     folder_url = f"https://drive.google.com/drive/folders/{pipeline.project_folder_id}"
     try:
         pipeline.airtable.update_idea_fields(pipeline.current_idea_id, {
-            "Drive Folder Link": folder_url,
-            "Drive Folder ID": pipeline.project_folder_id,
+            IdeaFields.DRIVE_FOLDER_LINK: folder_url,
+            IdeaFields.DRIVE_FOLDER_ID: pipeline.project_folder_id,
         })
     except Exception as e:
         print(f"  ⚠️ Could not save Drive folder to Airtable: {e}")
@@ -44,16 +44,16 @@ async def run(pipeline, brief: dict = None) -> dict:
         idea = pipeline.current_idea
 
         # Check for research_payload (from research agent)
-        research_payload_raw = idea.get("Research Payload", "")
+        research_payload_raw = idea.get(IdeaFields.RESEARCH_PAYLOAD, "")
         if research_payload_raw:
             try:
                 research_payload = json.loads(research_payload_raw)
                 print("  📚 Found research payload — using as primary source material")
-                framework_angle = idea.get("Framework Angle", "") or research_payload.get("themes", "")
+                framework_angle = idea.get(IdeaFields.FRAMEWORK_ANGLE, "") or research_payload.get("themes", "")
                 brief = {
-                    "headline": research_payload.get("headline", idea.get("Video Title", "")),
+                    "headline": research_payload.get("headline", idea.get(IdeaFields.VIDEO_TITLE, "")),
                     "thesis": research_payload.get("thesis", ""),
-                    "executive_hook": research_payload.get("executive_hook", idea.get("Hook Script", "")),
+                    "executive_hook": research_payload.get("executive_hook", idea.get(IdeaFields.HOOK_SCRIPT, "")),
                     "fact_sheet": research_payload.get("fact_sheet", ""),
                     "historical_parallels": research_payload.get("historical_parallels", ""),
                     "framework_analysis": research_payload.get("framework_analysis", ""),
@@ -63,7 +63,7 @@ async def run(pipeline, brief: dict = None) -> dict:
                     "visual_seeds": research_payload.get("visual_seeds", ""),
                     "source_bibliography": research_payload.get("source_bibliography", ""),
                     "framework_angle": framework_angle,
-                    "title_options": research_payload.get("title_options", idea.get("Video Title", "")),
+                    "title_options": research_payload.get("title_options", idea.get(IdeaFields.VIDEO_TITLE, "")),
                     "thumbnail_concepts": research_payload.get("thumbnail_concepts", ""),
                     "source_urls": idea.get("Source URLs", "") or research_payload.get("source_bibliography", ""),
                     "psychological_angles": research_payload.get("psychological_angles", ""),
@@ -75,23 +75,23 @@ async def run(pipeline, brief: dict = None) -> dict:
                 research_payload_raw = ""
 
         if not research_payload_raw:
-            framework_angle = idea.get("Framework Angle", "")
+            framework_angle = idea.get(IdeaFields.FRAMEWORK_ANGLE, "")
             brief = {
-                "headline": idea.get("Video Title", ""),
-                "thesis": idea.get("Thesis", "") or idea.get("Future Prediction", ""),
-                "executive_hook": idea.get("Executive Hook", "") or idea.get("Hook Script", ""),
-                "fact_sheet": idea.get("Writer Guidance", ""),
-                "historical_parallels": idea.get("Past Context", ""),
-                "framework_analysis": idea.get("Present Parallel", ""),
+                "headline": idea.get(IdeaFields.VIDEO_TITLE, ""),
+                "thesis": idea.get(IdeaFields.THESIS, "") or idea.get(IdeaFields.FUTURE_PREDICTION, ""),
+                "executive_hook": idea.get(IdeaFields.EXECUTIVE_HOOK, "") or idea.get(IdeaFields.HOOK_SCRIPT, ""),
+                "fact_sheet": idea.get(IdeaFields.WRITER_GUIDANCE, ""),
+                "historical_parallels": idea.get(IdeaFields.PAST_CONTEXT, ""),
+                "framework_analysis": idea.get(IdeaFields.PRESENT_PARALLEL, ""),
                 "character_dossier": "",
-                "narrative_arc": idea.get("Future Prediction", ""),
+                "narrative_arc": idea.get(IdeaFields.FUTURE_PREDICTION, ""),
                 "counter_arguments": "",
-                "visual_seeds": idea.get("Thumbnail Prompt", ""),
-                "source_bibliography": idea.get("Reference URL", ""),
+                "visual_seeds": idea.get(IdeaFields.THUMBNAIL_PROMPT, ""),
+                "source_bibliography": idea.get(IdeaFields.REFERENCE_URL, ""),
                 "framework_angle": framework_angle,
-                "title_options": idea.get("Video Title", ""),
-                "thumbnail_concepts": idea.get("Thumbnail Prompt", ""),
-                "source_urls": idea.get("Source URLs", "") or idea.get("Reference URL", ""),
+                "title_options": idea.get(IdeaFields.VIDEO_TITLE, ""),
+                "thumbnail_concepts": idea.get(IdeaFields.THUMBNAIL_PROMPT, ""),
+                "source_urls": idea.get("Source URLs", "") or idea.get(IdeaFields.REFERENCE_URL, ""),
             }
             print(f"  🎯 Framework Angle: {framework_angle or '(not set — legacy idea)'}")
 

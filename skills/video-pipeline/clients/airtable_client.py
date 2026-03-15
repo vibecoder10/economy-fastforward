@@ -448,7 +448,7 @@ class AirtableClient:
         search = title.strip().lower()
         best_match = None
         for r in all_records:
-            record_title = r["fields"].get("Video Title", "")
+            record_title = r["fields"].get(IdeaFields.VIDEO_TITLE, "")
             if not record_title:
                 continue
             if record_title.strip().lower() == search:
@@ -836,7 +836,7 @@ class AirtableClient:
 
         # Get all uploaded videos
         all_ideas = self.get_all_ideas()
-        uploaded = [r for r in all_ideas if r.get("YouTube Video ID")]
+        uploaded = [r for r in all_ideas if r.get(IdeaFields.YOUTUBE_VIDEO_ID)]
 
         needs_analysis = []
         now = datetime.now(timezone.utc)

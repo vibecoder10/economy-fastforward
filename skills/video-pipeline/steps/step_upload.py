@@ -6,7 +6,7 @@ Advances: Rendered → Uploaded (Draft)
 Clients: anthropic, airtable, google, slack
 """
 
-from pipeline_constants import Statuses
+from pipeline_constants import IdeaFields, Statuses
 
 
 async def run(pipeline) -> dict:
@@ -30,7 +30,7 @@ async def run(pipeline) -> dict:
 
         seo = SEOGenerator(pipeline.anthropic)
         scripts = pipeline.airtable.get_scripts_by_title(pipeline.video_title)
-        hook = pipeline.current_idea.get("Hook Script", "")
+        hook = pipeline.current_idea.get(IdeaFields.HOOK_SCRIPT, "")
 
         seo_result = seo.generate(
             title=pipeline.video_title,
@@ -40,18 +40,18 @@ async def run(pipeline) -> dict:
 
         # Store SEO fields in Airtable
         pipeline.airtable.update_idea_fields(pipeline.current_idea_id, {
-            "SEO Description": seo_result["description"],
-            "SEO Tags": seo_result["tags"],
-            "SEO Hashtags": seo_result["hashtags"],
+            IdeaFields.SEO_DESCRIPTION: seo_result["description"],
+            IdeaFields.SEO_TAGS: seo_result["tags"],
+            IdeaFields.SEO_HASHTAGS: seo_result["hashtags"],
         })
         print(f"  SEO metadata saved to Airtable")
         print(f"    Hook line: {seo_result.get('hook_line', '')[:100]}")
     except Exception as e:
         print(f"  Warning: SEO generation failed: {e}")
         print(f"  Continuing with basic description...")
-        fallback_desc = pipeline.current_idea.get("Hook Script", pipeline.video_title)
+        fallback_desc = pipeline.current_idea.get(IdeaFields.HOOK_SCRIPT, pipeline.video_title)
         pipeline.airtable.update_idea_field(
-            pipeline.current_idea_id, "SEO Description", fallback_desc
+            pipeline.current_idea_id, IdeaFields.SEO_DESCRIPTION, fallback_desc
         )
         seo_result = {
             "description": fallback_desc,
@@ -68,8 +68,8 @@ async def run(pipeline) -> dict:
             break
     if not idea_fresh:
         idea_fresh = pipeline.current_idea
-        idea_fresh["SEO Description"] = seo_result["description"]
-        idea_fresh["SEO Tags"] = seo_result["tags"]
+        idea_fresh[IdeaFields.SEO_DESCRIPTION] = seo_result["description"]
+        idea_fresh[IdeaFields.SEO_TAGS] = seo_result["tags"]
 
     # --- STEP 2: Upload to YouTube ---
     print("  Uploading to YouTube...")
@@ -119,11 +119,11 @@ async def run(pipeline) -> dict:
     pipeline._update_status(Statuses.UPLOADED_DRAFT)
 
     video_url = upload_result.get("video_url", "")
-    folder_id = pipeline.current_idea.get("Drive Folder ID", "")
+    folder_id = pipeline.current_idea.get(IdeaFields.DRIVE_FOLDER_ID, "")
     folder_url = (
         f"https://drive.google.com/drive/folders/{folder_id}"
         if folder_id else
-        pipeline.current_idea.get("Drive Folder Link", "")
+        pipeline.current_idea.get(IdeaFields.DRIVE_FOLDER_LINK, "")
     )
     description_preview = seo_result.get("description", "")[:100]
 

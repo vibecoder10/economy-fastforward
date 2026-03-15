@@ -6,7 +6,7 @@ Advances: Ready For Video Scripts → Ready For Video Generation
 Clients: anthropic, airtable
 """
 
-from pipeline_constants import Statuses, Models
+from pipeline_constants import ImageFields, Statuses, Models
 from image_prompt_engine.prompt_builder import CAMERA_MOVEMENTS, detect_camera_movement, validate_video_prompt
 
 
@@ -18,7 +18,7 @@ async def run(pipeline) -> dict:
 
     # Get pending images
     existing_images = pipeline.airtable.get_all_images_for_video(pipeline.video_title)
-    done_images = [img for img in existing_images if img.get("Status") == "Done"]
+    done_images = [img for img in existing_images if img.get(ImageFields.STATUS) == ImageFields.STATUS_DONE]
 
     # Apply scene/image filters
     done_images = pipeline._filter_by_scene(done_images)
@@ -26,7 +26,7 @@ async def run(pipeline) -> dict:
     # Sort by scene and image index for proper camera history ordering
     done_images = sorted(
         done_images,
-        key=lambda x: (x.get("Scene", 0), x.get("Image Index", 0)),
+        key=lambda x: (x.get(ImageFields.SCENE, 0), x.get(ImageFields.IMAGE_INDEX, 0)),
     )
 
     prompt_count = 0
@@ -35,26 +35,26 @@ async def run(pipeline) -> dict:
 
     # Pre-populate camera history from images that already have prompts
     for img_record in done_images:
-        existing_prompt = img_record.get("Video Prompt", "")
+        existing_prompt = img_record.get(ImageFields.VIDEO_PROMPT, "")
         if existing_prompt:
             camera_history.append(detect_camera_movement(existing_prompt))
 
     for img_record in done_images:
-        scene = img_record.get("Scene", 0)
+        scene = img_record.get(ImageFields.SCENE, 0)
 
         # Check if prompt already exists
-        if img_record.get("Video Prompt"):
+        if img_record.get(ImageFields.VIDEO_PROMPT):
             continue
 
-        image_prompt = img_record.get("Image Prompt", "")
+        image_prompt = img_record.get(ImageFields.IMAGE_PROMPT, "")
         if not image_prompt:
             print(f"    ⚠️ No Image Prompt found for Scene {scene}, skipping.")
             continue
 
         # Get segment data
-        sentence_text = img_record.get("Sentence Text", "")
-        shot_type = img_record.get("Shot Type", "medium_human_story")
-        duration = img_record.get("Duration (s)", 6.0)
+        sentence_text = img_record.get(ImageFields.SENTENCE_TEXT, "")
+        shot_type = img_record.get(ImageFields.SHOT_TYPE, "medium_human_story")
+        duration = img_record.get(ImageFields.DURATION, 6.0)
 
         # Smart hero selection: duration > 6s gets 10s clip
         is_hero = duration > 6.0
@@ -63,7 +63,7 @@ async def run(pipeline) -> dict:
         if is_hero:
             hero_count += 1
 
-        idx = img_record.get("Image Index", "?")
+        idx = img_record.get(ImageFields.IMAGE_INDEX, "?")
         print(f"    [{idx}] {shot_type} | {duration:.1f}s segment → {clip_duration}s clip {'(HERO)' if is_hero else ''}")
 
         motion_prompt = await pipeline.anthropic.generate_video_prompt(

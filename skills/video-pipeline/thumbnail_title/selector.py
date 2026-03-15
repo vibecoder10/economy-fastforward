@@ -11,6 +11,8 @@ Templates:
   D: Symbolic Action   — traps, power moves, economic mechanisms (20%)
 """
 
+from pipeline_constants import IdeaFields
+
 
 # Keywords that trigger Template B: Character + Bold Text (person/entity-focused)
 PERSON_KEYWORDS = [
@@ -69,9 +71,9 @@ def select_template(video_metadata: dict) -> str:
     """
     # Build a searchable text blob from all relevant fields
     topic = video_metadata.get("topic", "").lower()
-    title = video_metadata.get("Video Title", "").lower()
-    summary = video_metadata.get("Summary", "").lower()
-    framework = video_metadata.get("Framework Angle", "").lower()
+    title = video_metadata.get(IdeaFields.VIDEO_TITLE, "").lower()
+    summary = video_metadata.get(IdeaFields.SUMMARY, "").lower()
+    framework = video_metadata.get(IdeaFields.FRAMEWORK_ANGLE, "").lower()
     tags = [t.lower() for t in video_metadata.get("tags", [])]
 
     searchable = f"{topic} {title} {summary} {framework} {' '.join(tags)}"

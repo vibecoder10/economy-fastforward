@@ -15,7 +15,7 @@ import subprocess
 import time as _time
 from pathlib import Path
 
-from pipeline_constants import Statuses
+from pipeline_constants import Statuses, IdeaFields, ImageFields, ScriptFields
 
 
 def _clean_render_assets(label: str = "stale") -> int:
@@ -88,8 +88,8 @@ async def run(pipeline) -> dict:
     # PRE-FLIGHT CHECK: Regenerate any missing/pending images before render
     print(f"\n  🔍 Pre-flight check: Looking for missing images...")
     all_images = pipeline.airtable.get_all_images_for_video(pipeline.video_title)
-    pending_images = [img for img in all_images if img.get("Status") == "Pending"]
-    missing_images = [img for img in all_images if not img.get("Image")]
+    pending_images = [img for img in all_images if img.get(ImageFields.STATUS) == ImageFields.STATUS_PENDING]
+    missing_images = [img for img in all_images if not img.get(ImageFields.IMAGE)]
 
     if pending_images or missing_images:
         count = len(pending_images) + len(missing_images)
@@ -265,8 +265,8 @@ async def run(pipeline) -> dict:
 
     # Update Airtable
     pipeline.airtable.update_idea_fields(pipeline.current_idea_id, {
-        "Final Video": drive_url,
-        "Final Video URL": drive_url,
+        IdeaFields.FINAL_VIDEO: drive_url,
+        IdeaFields.FINAL_VIDEO_URL: drive_url,
     })
     pipeline._update_status(Statuses.RENDERED)
 
@@ -588,7 +588,7 @@ async def _verify_and_fetch_audio(pipeline, props: dict, public_dir: Path) -> li
             still_missing.append(fname)
             continue
 
-        voice_over = script.get("Voice Over")
+        voice_over = script.get(ScriptFields.VOICE_OVER)
         voice_url = None
         if isinstance(voice_over, list) and voice_over:
             voice_url = voice_over[0].get("url")

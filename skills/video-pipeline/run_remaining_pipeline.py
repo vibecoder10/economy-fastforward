@@ -12,6 +12,7 @@ from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
 
 from pipeline import VideoPipeline
+from pipeline_constants import IdeaFields
 
 
 async def main():
@@ -29,7 +30,7 @@ async def main():
     video_title = " ".join(sys.argv[1:])
 
     ideas = pipeline.airtable.get_all_ideas()
-    idea = next((i for i in ideas if i.get("Video Title") == video_title), None)
+    idea = next((i for i in ideas if i.get(IdeaFields.VIDEO_TITLE) == video_title), None)
     if not idea:
         print(f"❌ No idea found with title: {video_title}")
         sys.exit(1)

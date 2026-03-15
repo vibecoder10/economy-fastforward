@@ -13,6 +13,7 @@ from animation.airtable_client import AnimationAirtableClient
 from animation.image_generator import ImagePromptGenerator
 from clients.image_client import ImageClient
 from clients.google_client import GoogleClient
+from pipeline_constants import IdeaFields
 
 
 async def main():
@@ -34,7 +35,7 @@ async def main():
     creative_direction = project.get("Creative Direction", "")
 
     # Extract Core Image URL from the project record
-    core_image_attachments = project.get("Core Image", [])
+    core_image_attachments = project.get(IdeaFields.CORE_IMAGE, [])
     core_image_url = ""
     if core_image_attachments and isinstance(core_image_attachments, list):
         core_image_url = core_image_attachments[0].get("url", "")

@@ -27,7 +27,7 @@ from thumbnail_title.selector import select_template
 from thumbnail_title.title_generator import TitleGenerator
 from thumbnail_title.prompt_builder import ThumbnailPromptBuilder
 from thumbnail_title.validator import validate_thumbnail, validate_title_thumbnail_pair
-from pipeline_constants import Models
+from pipeline_constants import Models, IdeaFields
 
 
 # Maximum generation attempts per thumbnail before flagging for manual review
@@ -266,8 +266,8 @@ class ThumbnailTitleEngine:
                 needs_manual_review: bool — True if all attempts failed
                 thumbnail_text_auto_generated: bool — True if text was auto-generated
         """
-        video_title = video_metadata.get("Video Title", "")
-        video_summary = video_metadata.get("Summary", "")
+        video_title = video_metadata.get(IdeaFields.VIDEO_TITLE, "")
+        video_summary = video_metadata.get(IdeaFields.SUMMARY, "")
         tags = video_metadata.get("tags", [])
 
         # Step 1: Select template

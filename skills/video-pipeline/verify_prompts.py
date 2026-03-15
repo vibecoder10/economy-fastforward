@@ -2,6 +2,7 @@ import os
 from dotenv import load_dotenv
 from pyairtable.formulas import match, AND
 from pyairtable import Table
+from pipeline_constants import ImageFields
 
 def verify_prompts(video_title):
     print(f"🔍 VERIFYING PROMPTS FOR: {video_title}")
@@ -16,8 +17,8 @@ def verify_prompts(video_title):
     # Get Scene 1 prompts
     records = table.all(
         formula=AND(
-            match({"Video Title": video_title}),
-            match({"Scene": 1})
+            match({ImageFields.VIDEO_TITLE: video_title}),
+            match({ImageFields.SCENE: 1})
         )
     )
     
@@ -27,8 +28,8 @@ def verify_prompts(video_title):
 
     print(f"✅ Found {len(records)} prompts for Scene 1:\n")
     for r in records:
-        print(f"--- Prompt {r['fields'].get('Image Index')} ---")
-        print(r['fields'].get('Image Prompt'))
+        print(f"--- Prompt {r['fields'].get(ImageFields.IMAGE_INDEX)} ---")
+        print(r['fields'].get(ImageFields.IMAGE_PROMPT))
         print()
 
 if __name__ == "__main__":

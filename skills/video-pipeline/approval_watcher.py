@@ -27,7 +27,7 @@ import sys
 import time
 from pathlib import Path
 from typing import Optional
-from pipeline_constants import Models, Statuses
+from pipeline_constants import IdeaFields, Models, Statuses
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +41,7 @@ def _extract_formula_id(idea: dict) -> str:
     Matches the Video Title against title_options stored in original_dna JSON.
     Returns the matching formula_id, or the first one if no exact match.
     """
-    dna_str = idea.get("Original DNA", "")
+    dna_str = idea.get(IdeaFields.ORIGINAL_DNA, "")
     if not dna_str:
         return ""
     try:
@@ -55,7 +55,7 @@ def _extract_formula_id(idea: dict) -> str:
         formula_ids = dna.get("formula_ids", [])
         return formula_ids[0] if formula_ids else ""
 
-    video_title = idea.get("Video Title", "").strip().lower()
+    video_title = idea.get(IdeaFields.VIDEO_TITLE, "").strip().lower()
     for opt in title_options:
         if opt.get("title", "").strip().lower() == video_title:
             return opt.get("formula_id", "")
@@ -130,7 +130,7 @@ class ApprovalWatcher:
 
         for idea in approved:
             record_id = idea.get("id", "")
-            title = idea.get("Video Title", "Untitled")
+            title = idea.get(IdeaFields.VIDEO_TITLE, "Untitled")
 
             # Idempotency check — skip if already processed
             if record_id in _processed_ids:
@@ -143,12 +143,12 @@ class ApprovalWatcher:
             )
 
             # Save Title Formula if not already set (extract from original_dna)
-            if not idea.get("Title Formula"):
+            if not idea.get(IdeaFields.TITLE_FORMULA):
                 formula_id = _extract_formula_id(idea)
                 if formula_id:
                     try:
                         self.airtable.update_idea_field(
-                            record_id, "Title Formula", formula_id
+                            record_id, IdeaFields.TITLE_FORMULA, formula_id
                         )
                         logger.info(f"Set Title Formula: {formula_id}")
                     except Exception as e:
@@ -157,10 +157,10 @@ class ApprovalWatcher:
             try:
                 # Build context from idea fields
                 context_parts = []
-                if idea.get("Hook Script"):
-                    context_parts.append(idea["Hook Script"])
-                if idea.get("Writer Guidance"):
-                    context_parts.append(idea["Writer Guidance"])
+                if idea.get(IdeaFields.HOOK_SCRIPT):
+                    context_parts.append(idea[IdeaFields.HOOK_SCRIPT])
+                if idea.get(IdeaFields.WRITER_GUIDANCE):
+                    context_parts.append(idea[IdeaFields.WRITER_GUIDANCE])
                 context = "\n".join(context_parts) if context_parts else None
 
                 # Run deep research
@@ -176,18 +176,18 @@ class ApprovalWatcher:
 
                 research_json = json.dumps(payload)
                 research_fields = {
-                    "Research Payload": research_json,
-                    "Source URLs": payload.get("source_bibliography", ""),
-                    "Executive Hook": payload.get("executive_hook", ""),
-                    "Thesis": payload.get("thesis", ""),
-                    "Thematic Framework": payload.get("themes", ""),
-                    "Headline": payload.get("headline", ""),
+                    IdeaFields.RESEARCH_PAYLOAD: research_json,
+                    IdeaFields.SOURCE_URLS: payload.get("source_bibliography", ""),
+                    IdeaFields.EXECUTIVE_HOOK: payload.get("executive_hook", ""),
+                    IdeaFields.THESIS: payload.get("thesis", ""),
+                    IdeaFields.THEMATIC_FRAMEWORK: payload.get("themes", ""),
+                    IdeaFields.HEADLINE: payload.get("headline", ""),
                 }
 
                 # Set Framework Angle if not already set on the record
-                existing_framework = idea.get("Framework Angle")
+                existing_framework = idea.get(IdeaFields.FRAMEWORK_ANGLE)
                 if not existing_framework:
-                    research_fields["Framework Angle"] = infer_framework_from_research(payload)
+                    research_fields[IdeaFields.FRAMEWORK_ANGLE] = infer_framework_from_research(payload)
                     logger.info(
                         f"Set Framework Angle: {research_fields['Framework Angle']}"
                     )
@@ -199,7 +199,7 @@ class ApprovalWatcher:
                     # Fallback: try just the research payload
                     try:
                         self.airtable.update_idea_field(
-                            record_id, "Research Payload", research_json
+                            record_id, IdeaFields.RESEARCH_PAYLOAD, research_json
                         )
                     except Exception:
                         logger.warning("Could not write Research Payload field either")

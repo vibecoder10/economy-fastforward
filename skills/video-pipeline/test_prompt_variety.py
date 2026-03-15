@@ -16,6 +16,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 from clients.airtable_client import AirtableClient
+from pipeline_constants import ImageFields
 
 
 async def test_prompt_variety(video_title: str):
@@ -38,7 +39,7 @@ async def test_prompt_variety(video_title: str):
     # Extract prompts
     prompts = []
     for img in images:
-        prompt = img.get("Image Prompt", "")
+        prompt = img.get(ImageFields.IMAGE_PROMPT, "")
         if prompt:
             prompts.append(prompt)
 
