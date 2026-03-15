@@ -632,20 +632,29 @@ def build_prompt_from_block(
     if not story_content:
         story_content = concept.get("sentence_text", "Scene continues").strip()
 
-    # CAMERA DIRECTION: From Story Bible action field (composition guidance, NOT content)
-    camera_direction = concept.get("camera_direction", "").strip()
-
     camera = concept.get("composition", "medium")
     mood = concept.get("block_mood", concept.get("mood", "neutral"))
 
-    # Get character costume descriptions from Story Bible
+    # Build character descriptions: integrate costume + action in context
+    # NOT raw costume dumps — characters should be DOING something
+    # camera_direction = Story Bible "action" field (what's happening in this shot)
+    camera_direction = concept.get("camera_direction", "").strip()
     char_descriptions = []
     for char_id in block_characters:
         char = get_character_by_id(story_bible, char_id)
         if char:
+            name = char.get("id", "figure").replace("_", " ")
             costume = char.get("costume") or char.get("description", "")
             if costume:
-                char_descriptions.append(costume)
+                # Integrate: "figure in [costume], [action from camera_direction]"
+                if camera_direction:
+                    char_descriptions.append(f"{name} in {costume}, {camera_direction}")
+                else:
+                    pose = char.get("signature_pose", "")
+                    if pose:
+                        char_descriptions.append(f"{name} in {costume}, {pose}")
+                    else:
+                        char_descriptions.append(f"{name} wearing {costume}")
 
     # Determine prefix based on character presence
     if block_characters and char_descriptions:
