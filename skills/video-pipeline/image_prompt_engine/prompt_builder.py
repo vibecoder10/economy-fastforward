@@ -503,7 +503,7 @@ def build_prompt(
     elif profile and profile.figure_rules:
         fr = profile.figure_rules
         if fr.allow_mannequins:
-            # Legacy mannequin style: replace human words with equivalents
+            # Clay mannequin style: replace human words with mannequin equivalents
             clean_desc = _apply_profile_people_replacements(clean_desc, fr)
         elif not fr.allow_human_figures:
             # Other no-people profiles: use profile-specific word list

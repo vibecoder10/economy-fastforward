@@ -180,6 +180,9 @@ class BriefTranslator:
             act_count = script_result["validation"]["act_count"]
             logger.info(f"Script generated: {word_count} words, {act_count} acts")
 
+            # === PROGRESSIVE WRITE: Save script immediately (never lose work) ===
+            self._save_script_to_ideas(idea_record_id, script)
+
             # === STEP 3: Blocking Validation (all 7 checks) ===
             acts = extract_acts(script)
             if not acts:

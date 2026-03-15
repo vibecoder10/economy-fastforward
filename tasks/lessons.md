@@ -80,9 +80,10 @@
 ### Visual Style System (Cinematic Illustration)
 - **Default style changed from mannequin to cinematic illustration (2026-03-14).** New style: "Cinematic animated illustration in muted earthy color palette with ink outlines and dramatic lighting. Stylized illustrated characters with expressive faces."
 - **Two prefixes now exist**: `_CHARACTER_PREFIX` (for scenes with characters) and `_ENVIRONMENT_PREFIX` (for data/environment/object scenes). Both share `_UNIVERSAL_SUFFIX`.
-- **Backwards compatibility via alias.** If Airtable has `mannequin_storytelling`, the profile registry loads `cinematic_illustration` instead. No breaking changes for existing videos.
+- **Backwards compatibility via alias REMOVED (2026-03-14).** The `mannequin_storytelling` alias and profile file were deleted. Only `clay_mannequin` remains as a separate valid style.
 - **Mannequin validation removed.** The prompt_validator no longer checks for naked mannequins or mannequin hands — these checks were style-specific. Style-agnostic checks remain: camera_distance, consecutive_location, consecutive_data.
 - **Profile detection changed.** Pipeline uses `uses_story_bible` (any profile except holographic_hud) instead of `is_mannequin_profile`. This is more accurate now that mannequin style is deprecated.
+- **Legacy code remnants cause phantom failures.** After ANY style/profile swap, do a full codebase grep to catch stragglers. Dead type hints, comments referencing removed values, and deprecated aliases will confuse validators and cause false positives. Run: `grep -rn "old_style_name" skills/video-pipeline/ --include="*.py"`
 
 ### Scene Blocking System (Story Bible V2)
 - **Two Story Bible formats exist**: V1 (`visual_arc`) and V2 (`scene_blocks`). Use `has_scene_blocks()` to detect version.
@@ -109,3 +110,4 @@ _After each session, add a one-line summary of what was done and any new lessons
 | 2026-03-14 | Visual style overhaul: replaced mannequin with cinematic illustration (312 tests passing) | Visual style system patterns, backwards compat alias |
 | 2026-03-14 | Added cinematic voice rules to script writer: scene-driven openings, active framing, film-style transitions | Voice/style additions go in system prompt constants, wire into both profile and legacy paths |
 | 2026-03-14 | Implemented Scene Blocking System (Story Bible V2): scene_blocks format, block-aware expansion, prompt builder | Scene blocks patterns, V1/V2 backward compat, narration text matching |
+| 2026-03-14 | Removed legacy mannequin_storytelling code remnants: deleted profile file, removed alias, cleaned type hints/comments | Legacy code remnants cause phantom validation failures — always grep after style swap |

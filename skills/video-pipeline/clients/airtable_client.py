@@ -19,11 +19,10 @@ AIRTABLE_MODEL_NAME_MAP: dict[str, str] = {
 
 # Valid visual styles (maps to visual_profiles module names)
 VALID_VISUAL_STYLES: set[str] = {
-    "cinematic_illustration",  # New default (illustrated characters with faces)
+    "cinematic_illustration",  # Default (illustrated characters with faces)
     "holographic_hud",
     "cinematic_dossier",
     "clay_mannequin",
-    "mannequin_storytelling",  # Deprecated: alias for cinematic_illustration
 }
 DEFAULT_VISUAL_STYLE = "cinematic_illustration"
 
@@ -85,7 +84,7 @@ def get_visual_style(record: dict) -> str:
         record: Airtable record dict with fields
 
     Returns:
-        Visual style profile ID (e.g. "mannequin_storytelling") or default if
+        Visual style profile ID (e.g. "cinematic_illustration") or default if
         not set or invalid.
     """
     raw_value = record.get("Visual Style")
@@ -158,7 +157,7 @@ class AirtableClient:
         - Image Style Override    : Long Text       — custom instructions for image prompt prefix
         - Thumbnail Style Override: Long Text       — custom instructions for thumbnail template
         - Image Model Override    : Multiple Select — hot-swap scene image model (options: z-image, Nano Banana)
-        - Visual Style            : Single Select   — visual profile (options: mannequin_storytelling, holographic_hud, cinematic_dossier, clay_mannequin)
+        - Visual Style            : Single Select   — visual profile (options: cinematic_illustration, holographic_hud, cinematic_dossier, clay_mannequin)
 
     Pipeline-only fields (written by later stages, not discovery/research):
         - Script            : Long Text      — written by brief_translator

@@ -8,13 +8,10 @@ Violations checked:
 - Camera distance clustering (3+ consecutive same shot type)
 - Consecutive same location (3+ in same location)
 - Consecutive data/chart scenes (3+ data visualizations)
-- Mannequin hands without reinforcement (closeups with hands but no mannequin qualifier)
-- Naked mannequins (character scenes without clothing descriptions)
 
 Fix strategies:
 - Camera distance: swap shot type (no regeneration needed)
-- Mannequin hands: text replacement (no regeneration needed)
-- Location/data clustering, naked mannequins: regenerate prompt via Claude with constraint
+- Location/data clustering: regenerate prompt via Claude with constraint
 """
 
 from dataclasses import dataclass
@@ -30,12 +27,12 @@ logger = logging.getLogger(__name__)
 class Violation:
     """A validation violation found in the prompts."""
 
-    type: str  # camera_distance, consecutive_location, consecutive_data, realistic_hands, naked_mannequin
+    type: str  # camera_distance, consecutive_location, consecutive_data
     image_index: int
     record_id: str
     issue: str
-    fix: str  # swap_camera_distance, add_mannequin_hand_description, needs_regeneration
-    severity: str  # low, medium, high, critical
+    fix: str  # swap_camera_distance, needs_regeneration
+    severity: str  # low, medium, high
 
 
 class PromptValidator:
@@ -100,7 +97,6 @@ class PromptValidator:
         violations.extend(self._check_camera_distance(prompts))
         violations.extend(self._check_consecutive_locations(prompts))
         violations.extend(self._check_consecutive_data_scenes(prompts))
-        # Mannequin-specific checks removed (style deprecated)
         return violations
 
     def _check_camera_distance(self, prompts: list[dict]) -> list[Violation]:
@@ -196,9 +192,6 @@ class PromptValidator:
 
         return violations
 
-    # Mannequin-specific checks (_check_mannequin_hands, _check_naked_mannequins)
-    # removed - visual style deprecated in favor of cinematic_illustration
-
     def _detect_location(self, prompt_text: str) -> str:
         """Detect location from prompt text."""
         prompt_lower = prompt_text.lower()
@@ -261,8 +254,6 @@ class PromptValidator:
 
         return None
 
-    # auto_fix_mannequin_hands method removed - visual style deprecated
-
     # =========================================================================
     # REGENERATION METHODS (Claude-powered prompt rewrite)
     # =========================================================================
@@ -311,8 +302,6 @@ class PromptValidator:
                 "The previous images are already data scenes. "
                 "Show a physical environment, character, or concrete object instead."
             )
-
-        # naked_mannequin case removed - visual style deprecated
 
         return f"Fix the following issue: {violation.issue}"
 
@@ -523,10 +512,6 @@ def format_validation_report(
             if "new_shot_type" in fix:
                 lines.append(
                     f"  \u2022 Image {fix['image_index']}: camera distance {fix['old_shot_type']} \u2192 {fix['new_shot_type']}"
-                )
-            elif "new_prompt" in fix and "violation_type" not in fix:
-                lines.append(
-                    f"  \u2022 Image {fix['image_index']}: added mannequin hand reinforcement"
                 )
         lines.append("")
 

@@ -2539,7 +2539,6 @@ class VideoPipeline:
                                     print(f"    Auto-fixed: Image {fix['image_index']} camera distance {fix['old_shot_type']} → {fix['new_shot_type']}")
                                 else:
                                     needs_regen.append(v)
-                            # mannequin hand fix case removed - visual style deprecated
                             else:
                                 needs_regen.append(v)
 
