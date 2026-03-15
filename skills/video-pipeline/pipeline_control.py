@@ -288,202 +288,53 @@ _All commands are case-insensitive. Natural language also works._
     await say(help_text)
 
 
+
+# ---------------------------------------------------------------------------
+# Admin handlers — imported from handlers/admin_handlers.py
+# ---------------------------------------------------------------------------
+from handlers.admin_handlers import (
+    handle_set_key as _handle_set_key,
+    handle_set_env as _handle_set_env,
+    handle_show_env as _handle_show_env,
+    handle_restart as _handle_restart,
+    handle_disk as _handle_disk,
+    handle_tail_logs as _handle_tail_logs,
+    _get_env_path, _set_env_var, _mask_value,
+)
+
+
 @app.message(re.compile(r"set\s+(?:openai[_\s]*(?:api[_\s]*)?)?key\s+(sk-\S+)", re.IGNORECASE))
 async def handle_set_key(message, say):
-    """Set OPENAI_API_KEY in the project .env file from Slack."""
-    match = re.search(r"set\s+(?:openai[_\s]*(?:api[_\s]*)?)?key\s+(sk-\S+)", message["text"], re.IGNORECASE)
-    if not match:
-        await say(":x: Usage: `set key sk-proj-...`")
-        return
-    # Delegate to set env
-    fake = {"text": f"set env OPENAI_API_KEY={match.group(1).strip()}", "user": message.get("user", "")}
-    await handle_set_env(fake, say)
-
-
-def _get_env_path() -> str:
-    """Return absolute path to the project .env file."""
-    return os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", ".env"))
-
-
-def _set_env_var(env_path: str, key: str, value: str) -> None:
-    """Set a key=value in the .env file (replace if exists, append if not)."""
-    if os.path.exists(env_path):
-        content = open(env_path).read()
-    else:
-        content = ""
-
-    pattern = re.compile(rf"^{re.escape(key)}=.*$", re.MULTILINE)
-    if pattern.search(content):
-        content = pattern.sub(f"{key}={value}", content)
-    else:
-        content = content.rstrip() + f"\n{key}={value}\n"
-
-    with open(env_path, "w") as f:
-        f.write(content)
-
-    os.environ[key] = value
-
-
-def _mask_value(value: str) -> str:
-    """Mask a secret value for display."""
-    if len(value) <= 8:
-        return "***"
-    return value[:4] + "..." + value[-4:]
+    await _handle_set_key(message, say)
 
 
 @app.message(re.compile(r"set\s+env\s+(\w+)\s*=\s*(.+)", re.IGNORECASE))
 async def handle_set_env(message, say):
-    """Set any environment variable in the project .env file."""
-    match = re.search(r"set\s+env\s+(\w+)\s*=\s*(.+)", message["text"], re.IGNORECASE)
-    if not match:
-        await say(":x: Usage: `set env KEY=VALUE`")
-        return
-
-    key = match.group(1).strip()
-    value = match.group(2).strip().strip("'").strip('"')
-
-    if not key or not value:
-        await say(":x: Usage: `set env KEY=VALUE`")
-        return
-
-    env_path = _get_env_path()
-    try:
-        _set_env_var(env_path, key, value)
-        await say(f":white_check_mark: `{key}` set in `{env_path}`\nValue: `{_mask_value(value)}`")
-    except Exception as e:
-        await say(f":x: Failed to set {key}: {e}")
+    await _handle_set_env(message, say)
 
 
 @app.message(re.compile(r"show\s+env", re.IGNORECASE))
 @app.message(re.compile(r"env\s+vars?", re.IGNORECASE))
 async def handle_show_env(message, say):
-    """Show all env vars from the project .env file (values masked)."""
-    env_path = _get_env_path()
-
-    if not os.path.exists(env_path):
-        await say(f":x: No `.env` file found at `{env_path}`")
-        return
-
-    try:
-        lines = []
-        for line in open(env_path).read().splitlines():
-            stripped = line.strip()
-            if not stripped or stripped.startswith("#"):
-                continue
-            if "=" not in stripped:
-                continue
-            key, _, value = stripped.partition("=")
-            key = key.strip()
-            value = value.strip().strip("'").strip('"')
-            if value and not value.startswith("xxxxx"):
-                status = ":white_check_mark:"
-                display = _mask_value(value)
-            else:
-                status = ":x:"
-                display = "(not set / placeholder)"
-            lines.append(f"{status} `{key}` = `{display}`")
-
-        if lines:
-            header = f"*Environment variables* (`{env_path}`):\n"
-            await say(header + "\n".join(lines))
-        else:
-            await say(f":shrug: `.env` file is empty at `{env_path}`")
-    except Exception as e:
-        await say(f":x: Error reading .env: {e}")
+    await _handle_show_env(message, say)
 
 
 @app.message(re.compile(r"^restart$", re.IGNORECASE))
 @app.message(re.compile(r"reboot", re.IGNORECASE))
 async def handle_restart(message, say):
-    """Restart the bot process."""
-    await say(":arrows_counterclockwise: Restarting bot...")
-    try:
-        bot_script = os.path.join(BASE_DIR, "pipeline_control.py")
-        new_proc = subprocess.Popen(
-            [sys.executable, bot_script],
-            cwd=BASE_DIR,
-            stdout=open("/tmp/pipeline-bot.log", "w"),
-            stderr=subprocess.STDOUT,
-            start_new_session=True,
-        )
-        with open("/tmp/pipeline-bot.pid", "w") as f:
-            f.write(str(new_proc.pid))
-        await say(f":white_check_mark: New bot started (PID: {new_proc.pid}). Shutting down old instance...")
-        await asyncio.sleep(2)
-        os._exit(0)
-    except Exception as e:
-        await say(f":x: Restart failed: {e}")
+    await _handle_restart(message, say)
 
 
 @app.message(re.compile(r"disk", re.IGNORECASE))
 @app.message(re.compile(r"space", re.IGNORECASE))
 async def handle_disk(message, say):
-    """Show disk usage on the VPS."""
-    try:
-        # Overall disk usage
-        df_result = subprocess.run(
-            ["df", "-h", "/"],
-            capture_output=True, text=True, timeout=10,
-        )
-        # Project directory size
-        du_result = subprocess.run(
-            ["du", "-sh", os.path.abspath(os.path.join(BASE_DIR, "..", ".."))],
-            capture_output=True, text=True, timeout=30,
-        )
-        # Tmp/logs size
-        tmp_result = subprocess.run(
-            ["du", "-sh", "/tmp/pipeline-bot.log",
-             "/tmp/pipeline-discover.log",
-             "/tmp/pipeline-queue.log"],
-            capture_output=True, text=True, timeout=10,
-        )
-
-        parts = [":floppy_disk: *Disk Usage*\n"]
-        if df_result.returncode == 0:
-            parts.append(f"*System:*\n```{df_result.stdout.strip()}```\n")
-        if du_result.returncode == 0:
-            parts.append(f"*Project:* `{du_result.stdout.strip()}`\n")
-        if tmp_result.stdout.strip():
-            parts.append(f"*Logs:*\n```{tmp_result.stdout.strip()}```")
-
-        await say("\n".join(parts))
-    except Exception as e:
-        await say(f":x: Error checking disk: {e}")
+    await _handle_disk(message, say)
 
 
 @app.message(re.compile(r"tail\s*logs?", re.IGNORECASE))
 @app.message(re.compile(r"show\s*logs?", re.IGNORECASE))
 async def handle_tail_logs(message, say):
-    """Show last N lines of pipeline bot log."""
-    text = message.get("text", "")
-    # Extract optional line count (default 30)
-    num_match = re.search(r"(\d+)", text)
-    num_lines = min(int(num_match.group(1)), 100) if num_match else 30
-
-    log_files = {
-        "Bot": "/tmp/pipeline-bot.log",
-        "Discover": "/tmp/pipeline-discover.log",
-        "Queue": "/tmp/pipeline-queue.log",
-    }
-
-    found_any = False
-    for label, path in log_files.items():
-        if not os.path.exists(path):
-            continue
-        try:
-            result = subprocess.run(
-                ["tail", f"-{num_lines}", path],
-                capture_output=True, text=True, timeout=10,
-            )
-            if result.stdout.strip():
-                found_any = True
-                output = result.stdout[-3000:]  # Slack message limit
-                await say(f":scroll: *{label} Log* (last {num_lines} lines of `{path}`):\n```{output}```")
-        except Exception:
-            pass
-
-    if not found_any:
-        await say(":shrug: No log files found.")
+    await _handle_tail_logs(message, say)
 
 
 # Track last failed command for retry
@@ -2158,349 +2009,93 @@ async def handle_cron(message, say):
     )
 
 
+
 # ---------------------------------------------------------------------------
-# !style — per-video style overrides for image prompts and thumbnails
+# Style/model/visualstyle handlers — imported from handlers/style_handlers.py
 # ---------------------------------------------------------------------------
+from handlers.style_handlers import (
+    handle_style_image as _handle_style_image,
+    handle_style_thumbnail as _handle_style_thumbnail,
+    handle_style_color as _handle_style_color,
+    handle_style_reset as _handle_style_reset,
+    handle_model_set as _handle_model_set,
+    handle_model_reset as _handle_model_reset,
+    handle_model_list as _handle_model_list,
+    handle_visualstyle_set as _handle_visualstyle_set,
+    handle_visualstyle_reset as _handle_visualstyle_reset,
+    handle_visualstyle_list as _handle_visualstyle_list,
+)
+
 
 @app.message(re.compile(r"^!?style\s+image\s+(.+?):\s*(.+)", re.IGNORECASE))
 async def handle_style_image(message, say):
-    """Set an image style override for a specific video."""
-    match = re.search(r"^!?style\s+image\s+(.+?):\s*(.+)", message["text"], re.IGNORECASE)
-    if not match:
-        await say(":x: Usage: `style image <video_title>: <instructions>`")
-        return
-
-    title = match.group(1).strip()
-    instructions = match.group(2).strip()
-
-    try:
-        from clients.airtable_client import AirtableClient
-        airtable = AirtableClient()
-        idea = airtable.find_idea_by_title(title)
-        if not idea:
-            await say(f":x: No video found matching *{title}*")
-            return
-
-        airtable.update_idea_fields(idea["id"], {"Image Style Override": instructions})
-        preview = instructions[:50] + "..." if len(instructions) > 50 else instructions
-        video_title = idea.get(IdeaFields.VIDEO_TITLE, title)
-        await say(f":art: Image style override set for *{video_title}*: {preview}")
-    except Exception as e:
-        await say(f":x: Error setting image style override: {e}")
+    await _handle_style_image(message, say)
 
 
 @app.message(re.compile(r"^!?style\s+thumbnail\s+(.+?):\s*(.+)", re.IGNORECASE))
 async def handle_style_thumbnail(message, say):
-    """Set a thumbnail style override for a specific video."""
-    match = re.search(r"^!?style\s+thumbnail\s+(.+?):\s*(.+)", message["text"], re.IGNORECASE)
-    if not match:
-        await say(":x: Usage: `style thumbnail <video_title>: <instructions>`")
-        return
-
-    title = match.group(1).strip()
-    instructions = match.group(2).strip()
-
-    try:
-        from clients.airtable_client import AirtableClient
-        airtable = AirtableClient()
-        idea = airtable.find_idea_by_title(title)
-        if not idea:
-            await say(f":x: No video found matching *{title}*")
-            return
-
-        airtable.update_idea_fields(idea["id"], {"Thumbnail Style Override": instructions})
-        preview = instructions[:50] + "..." if len(instructions) > 50 else instructions
-        video_title = idea.get(IdeaFields.VIDEO_TITLE, title)
-        await say(f":art: Thumbnail style override set for *{video_title}*: {preview}")
-    except Exception as e:
-        await say(f":x: Error setting thumbnail style override: {e}")
+    await _handle_style_thumbnail(message, say)
 
 
 @app.message(re.compile(r"^!?style\s+color\s+(.+?):\s*(.+)", re.IGNORECASE))
 async def handle_style_color(message, say):
-    """Set an accent color override for a specific video."""
-    match = re.search(r"^!?style\s+color\s+(.+?):\s*(.+)", message["text"], re.IGNORECASE)
-    if not match:
-        await say(":x: Usage: `style color <video_title>: <color>`")
-        return
-
-    title = match.group(1).strip()
-    color = match.group(2).strip().lower()
-
-    from image_prompt_engine.style_config import VALID_ACCENT_COLORS
-    if color not in VALID_ACCENT_COLORS:
-        valid = ", ".join(sorted(VALID_ACCENT_COLORS))
-        await say(f":x: Invalid accent color *{color}*. Valid values: {valid}")
-        return
-
-    try:
-        from clients.airtable_client import AirtableClient
-        airtable = AirtableClient()
-        idea = airtable.find_idea_by_title(title)
-        if not idea:
-            await say(f":x: No video found matching *{title}*")
-            return
-
-        airtable.update_idea_fields(idea["id"], {"Accent Color": color})
-        video_title = idea.get(IdeaFields.VIDEO_TITLE, title)
-        await say(f":art: Accent color set for *{video_title}*: {color}")
-    except Exception as e:
-        await say(f":x: Error setting accent color: {e}")
+    await _handle_style_color(message, say)
 
 
 @app.message(re.compile(r"^!?style\s+reset\s+(.+)", re.IGNORECASE))
 async def handle_style_reset(message, say):
-    """Clear both style overrides and accent color for a specific video."""
-    match = re.search(r"^!?style\s+reset\s+(.+)", message["text"], re.IGNORECASE)
-    if not match:
-        await say(":x: Usage: `style reset <video_title>`")
-        return
+    await _handle_style_reset(message, say)
 
-    title = match.group(1).strip()
-
-    try:
-        from clients.airtable_client import AirtableClient
-        airtable = AirtableClient()
-        idea = airtable.find_idea_by_title(title)
-        if not idea:
-            await say(f":x: No video found matching *{title}*")
-            return
-
-        airtable.update_idea_fields(idea["id"], {
-            "Image Style Override": "",
-            "Thumbnail Style Override": "",
-            "Accent Color": "",
-            "Image Model Override": [],  # Multiple Select requires array
-            "Visual Style": "",  # Single Select clears with empty string
-        })
-        video_title = idea.get(IdeaFields.VIDEO_TITLE, title)
-        await say(f":white_check_mark: Style overrides cleared for *{video_title}*")
-    except Exception as e:
-        await say(f":x: Error resetting style overrides: {e}")
-
-
-# ---------------------------------------------------------------------------
-# !model — hot-swap image generation model for a video
-# ---------------------------------------------------------------------------
 
 @app.message(re.compile(r"^!?model\s+(.+?):\s*(.+)", re.IGNORECASE))
 async def handle_model_set(message, say):
-    """Set the image generation model override for a specific video."""
-    match = re.search(r"^!?model\s+(.+?):\s*(.+)", message["text"], re.IGNORECASE)
-    if not match:
-        await say(":x: Usage: `model <video_title>: <model_name>`")
-        return
-
-    title = match.group(1).strip()
-    model_name = match.group(2).strip().lower()
-
-    from clients.image_client import ImageClient
-    if model_name not in ImageClient.VALID_SCENE_MODELS:
-        valid = "\n".join(f"  • `{k}` — {v}" for k, v in ImageClient.VALID_SCENE_MODELS.items())
-        await say(f":x: Invalid model *{model_name}*. Available models:\n{valid}")
-        return
-
-    try:
-        from clients.airtable_client import AirtableClient
-        airtable = AirtableClient()
-        idea = airtable.find_idea_by_title(title)
-        if not idea:
-            await say(f":x: No video found matching *{title}*")
-            return
-
-        airtable.update_idea_fields(idea["id"], {"Image Model Override": [model_name]})  # Multiple Select format
-        video_title = idea.get(IdeaFields.VIDEO_TITLE, title)
-        desc = ImageClient.VALID_SCENE_MODELS[model_name]
-        await say(f":arrows_counterclockwise: Image model set for *{video_title}*: `{model_name}` ({desc})")
-    except Exception as e:
-        await say(f":x: Error setting image model: {e}")
+    await _handle_model_set(message, say)
 
 
 @app.message(re.compile(r"^!?model\s+reset\s+(.+)", re.IGNORECASE))
 async def handle_model_reset(message, say):
-    """Clear the image model override for a specific video (revert to default)."""
-    match = re.search(r"^!?model\s+reset\s+(.+)", message["text"], re.IGNORECASE)
-    if not match:
-        await say(":x: Usage: `model reset <video_title>`")
-        return
-
-    title = match.group(1).strip()
-
-    try:
-        from clients.airtable_client import AirtableClient
-        airtable = AirtableClient()
-        idea = airtable.find_idea_by_title(title)
-        if not idea:
-            await say(f":x: No video found matching *{title}*")
-            return
-
-        airtable.update_idea_fields(idea["id"], {"Image Model Override": []})  # Multiple Select clears with empty array
-        video_title = idea.get(IdeaFields.VIDEO_TITLE, title)
-        await say(f":white_check_mark: Image model reset to default for *{video_title}*")
-    except Exception as e:
-        await say(f":x: Error resetting image model: {e}")
+    await _handle_model_reset(message, say)
 
 
 @app.message(re.compile(r"^!?models$", re.IGNORECASE))
 async def handle_model_list(message, say):
-    """List all available image generation models."""
-    from clients.image_client import ImageClient
-    lines = [":camera: *Available Image Generation Models:*\n"]
-    for model_id, desc in ImageClient.VALID_SCENE_MODELS.items():
-        default = " _(default)_" if model_id == ImageClient.SCENE_MODEL else ""
-        lines.append(f"  • `{model_id}` — {desc}{default}")
-    lines.append("\n_Use `model <title>: <model>` to set, `model reset <title>` to revert._")
-    await say("\n".join(lines))
+    await _handle_model_list(message, say)
 
-
-# ---------------------------------------------------------------------------
-# !visualstyle — set visual profile for a video
-# ---------------------------------------------------------------------------
 
 @app.message(re.compile(r"^!?visualstyle\s+(.+?):\s*(.+)", re.IGNORECASE))
 async def handle_visualstyle_set(message, say):
-    """Set the visual style/profile for a specific video."""
-    match = re.search(r"^!?visualstyle\s+(.+?):\s*(.+)", message["text"], re.IGNORECASE)
-    if not match:
-        await say(":x: Usage: `visualstyle <video_title>: <style_name>`")
-        return
-
-    title = match.group(1).strip()
-    style_name = match.group(2).strip().lower().replace(" ", "_")
-
-    from clients.airtable_client import VALID_VISUAL_STYLES
-    if style_name not in VALID_VISUAL_STYLES:
-        valid = "\n".join(f"  • `{s}`" for s in sorted(VALID_VISUAL_STYLES))
-        await say(f":x: Invalid style *{style_name}*. Available styles:\n{valid}")
-        return
-
-    try:
-        from clients.airtable_client import AirtableClient
-        airtable = AirtableClient()
-        idea = airtable.find_idea_by_title(title)
-        if not idea:
-            await say(f":x: No video found matching *{title}*")
-            return
-
-        airtable.update_idea_fields(idea["id"], {"Visual Style": style_name})
-        video_title = idea.get(IdeaFields.VIDEO_TITLE, title)
-        await say(f":art: Visual style set for *{video_title}*: `{style_name}`")
-    except Exception as e:
-        await say(f":x: Error setting visual style: {e}")
+    await _handle_visualstyle_set(message, say)
 
 
 @app.message(re.compile(r"^!?visualstyle\s+reset\s+(.+)", re.IGNORECASE))
 async def handle_visualstyle_reset(message, say):
-    """Clear the visual style override for a specific video (revert to default)."""
-    match = re.search(r"^!?visualstyle\s+reset\s+(.+)", message["text"], re.IGNORECASE)
-    if not match:
-        await say(":x: Usage: `visualstyle reset <video_title>`")
-        return
-
-    title = match.group(1).strip()
-
-    try:
-        from clients.airtable_client import AirtableClient
-        from clients.airtable_client import DEFAULT_VISUAL_STYLE
-        airtable = AirtableClient()
-        idea = airtable.find_idea_by_title(title)
-        if not idea:
-            await say(f":x: No video found matching *{title}*")
-            return
-
-        airtable.update_idea_fields(idea["id"], {"Visual Style": ""})
-        video_title = idea.get(IdeaFields.VIDEO_TITLE, title)
-        await say(f":white_check_mark: Visual style reset to default (`{DEFAULT_VISUAL_STYLE}`) for *{video_title}*")
-    except Exception as e:
-        await say(f":x: Error resetting visual style: {e}")
+    await _handle_visualstyle_reset(message, say)
 
 
 @app.message(re.compile(r"^!?visualstyles?$", re.IGNORECASE))
 async def handle_visualstyle_list(message, say):
-    """List all available visual styles."""
-    from clients.airtable_client import VALID_VISUAL_STYLES, DEFAULT_VISUAL_STYLE
-    lines = [":art: *Available Visual Styles:*\n"]
-    for style in sorted(VALID_VISUAL_STYLES):
-        default = " _(default)_" if style == DEFAULT_VISUAL_STYLE else ""
-        lines.append(f"  • `{style}`{default}")
-    lines.append("\n_Use `visualstyle <title>: <style>` to set, `visualstyle reset <title>` to revert._")
-    await say("\n".join(lines))
+    await _handle_visualstyle_list(message, say)
+
+
 
 
 # ---------------------------------------------------------------------------
-# !delete — wipe scripts or image prompts for a video (for re-generation)
+# Delete/redo handlers — imported from handlers/delete_handlers.py
 # ---------------------------------------------------------------------------
+from handlers.delete_handlers import (
+    handle_delete_scripts as _handle_delete_scripts,
+    handle_delete_images as _handle_delete_images,
+)
 
-@app.message(re.compile(r"^!?delete\s+[\"']?(.+?)[\"']?\s+scripts?$", re.IGNORECASE))
+
+@app.message(re.compile(r"^!?delete\s+[\"\']?(.+?)[\"\']?\s+scripts?$", re.IGNORECASE))
 async def handle_delete_scripts(message, say):
-    """Delete all script records for a video so they can be regenerated."""
-    match = re.search(r"^!?delete\s+[\"']?(.+?)[\"']?\s+scripts?$", message["text"], re.IGNORECASE)
-    if not match:
-        await say(":x: Usage: `delete <video_title> scripts`")
-        return
-
-    title = match.group(1).strip()
-
-    try:
-        from clients.airtable_client import AirtableClient
-        airtable = AirtableClient()
-        idea = airtable.find_idea_by_title(title)
-        if not idea:
-            await say(f":x: No video found matching *{title}*")
-            return
-
-        video_title = idea.get(IdeaFields.VIDEO_TITLE, title)
-        count = airtable.delete_scripts_for_video(video_title)
-        if count == 0:
-            await say(f":warning: No script records found for *{video_title}*")
-            return
-
-        # Reset status so scripts can be regenerated
-        airtable.update_idea_fields(idea["id"], {"Status": Statuses.READY_SCRIPTING})
-        await say(
-            f":wastebasket: Deleted *{count}* script records for *{video_title}*\n"
-            f"Status reset to *Ready For Scripting* — run `script` to regenerate"
-        )
-    except Exception as e:
-        await say(f":x: Error deleting scripts: {e}")
+    await _handle_delete_scripts(message, say)
 
 
-@app.message(re.compile(r"^!?delete\s+[\"']?(.+?)[\"']?\s+(?:prompts?|images?)$", re.IGNORECASE))
+@app.message(re.compile(r"^!?delete\s+[\"\']?(.+?)[\"\']?\s+(?:prompts?|images?)$", re.IGNORECASE))
 async def handle_delete_images(message, say):
-    """Delete all image prompt/concept records for a video so they can be regenerated."""
-    match = re.search(
-        r"^!?delete\s+[\"']?(.+?)[\"']?\s+(?:prompts?|images?)$",
-        message["text"],
-        re.IGNORECASE,
-    )
-    if not match:
-        await say(":x: Usage: `delete <video_title> prompts` or `delete <video_title> images`")
-        return
-
-    title = match.group(1).strip()
-
-    try:
-        from clients.airtable_client import AirtableClient
-        airtable = AirtableClient()
-        idea = airtable.find_idea_by_title(title)
-        if not idea:
-            await say(f":x: No video found matching *{title}*")
-            return
-
-        video_title = idea.get(IdeaFields.VIDEO_TITLE, title)
-        count = airtable.delete_images_for_video(video_title)
-        if count == 0:
-            await say(f":warning: No image records found for *{video_title}*")
-            return
-
-        # Reset status so image prompts can be regenerated
-        airtable.update_idea_fields(idea["id"], {"Status": Statuses.READY_IMAGE_PROMPTS})
-        await say(
-            f":wastebasket: Deleted *{count}* image records for *{video_title}*\n"
-            f"Status reset to *Ready For Image Prompts* — run `prompts` to regenerate"
-        )
-    except Exception as e:
-        await say(f":x: Error deleting images: {e}")
+    await _handle_delete_images(message, say)
 
 
 # ---------------------------------------------------------------------------
