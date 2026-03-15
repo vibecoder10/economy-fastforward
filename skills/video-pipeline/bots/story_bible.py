@@ -6,13 +6,31 @@ escalation across an entire video. Run ONCE before generating any image prompts.
 The Story Bible provides:
 1. Character Bible: Recurring characters with EXACT costume/appearance
 2. Location Bible: Recurring locations with EXACT environment details
-3. Visual Arc: Per-scene mood, color, camera, tension mapping
+3. Scene Blocks: Groups of 2-5 images sharing environment/lighting (NEW)
+4. Visual Arc: Per-scene mood, color, camera, tension mapping (LEGACY)
 
 Claude receives the Story Bible context when writing each visual
 description, ensuring the same character appears identically across
 all their scenes, locations maintain visual continuity, and the
 visual arc escalates properly.
+
+Scene Blocks (v2):
+- Each block groups 2-5 consecutive images that share the same location
+  and lighting, creating visual continuity within narrative beats
+- Only camera angle, action, and expression change within a block
+- Act boundaries MUST be scene block boundaries
+- First image of each block is always a wide establishing shot
 """
+
+# Scene block sizing configuration
+SCENE_BLOCK_CONFIG = {
+    "min_images_per_block": 2,
+    "max_images_per_block": 5,
+    "target_blocks_10_min": 15,  # ~60 images / 4 per block
+    "target_blocks_12_min": 18,  # ~72 images / 4 per block
+    "first_image_must_be_wide": True,
+    "act_boundary_forces_new_block": True,
+}
 
 import json
 from typing import Optional
@@ -157,11 +175,103 @@ Before outputting, VERIFY:
 Respond ONLY with valid JSON. No markdown fences, no explanation, no preamble."""
 
 
+# V2 Prompt: Scene Blocks format (replaces visual_arc with scene_blocks)
+STORY_BIBLE_USER_PROMPT_V2 = """Read this entire video script and produce a Story Bible.
+
+VIDEO LENGTH: {video_duration_minutes} minutes
+TOTAL IMAGES REQUIRED: {total_images}
+
+FULL SCRIPT:
+{full_script_text}
+
+Produce a JSON response with these three sections:
+
+## 1. "characters"
+
+Identify every recurring character or role. For each:
+- "id": short snake_case identifier (e.g., "russian_leader", "eu_official")
+- "costume": EXACT clothing description that will be used EVERY time this character appears. Be specific: fabric, color, accessories.
+- "scenes_present": list of scene numbers where this character appears
+- "role": protagonist / antagonist / observer / victim
+- "signature_pose": their default body language (e.g., "hands clasped behind back")
+
+Rules:
+- Every character MUST have specific clothing. No unclothed figures.
+- Use contextual costume cues for nationality/role.
+- Maximum 5-6 characters. Merge minor references into existing archetypes.
+
+## 2. "locations"
+
+Identify every distinct location/setting. For each:
+- "id": short snake_case identifier (e.g., "kremlin_office", "strait_of_hormuz")
+- "description": EXACT environment description (20-40 words) that will be reused every time this location appears
+- "lighting": specific lighting description (e.g., "warm amber from brass desk lamp, cold blue from window")
+- "color_temperature": warm / cold / neutral
+- "type": INTERIOR / EXTERIOR / EVERYDAY / HISTORICAL / DATA_ROOM
+
+Location mix guidelines:
+- 30% EXTERIOR action environments
+- 25% INTERIOR government/military settings
+- 20% DATA/CONTROL rooms
+- 15% EVERYDAY personal impact settings
+- 10% HISTORICAL period settings
+
+Maximum 8-10 locations. Maximum 3 interior office locations.
+
+## 3. "scene_blocks" (REPLACES visual_arc)
+
+Group ALL {total_images} images into 12-24 SCENE BLOCKS. Each block = 2-5 consecutive images that share:
+- Same location (from your locations list)
+- Same lighting setup
+- Same characters present
+
+ONLY camera angle, action, and expression change within a block.
+
+For EACH block:
+- "block_id": "block_1", "block_2", etc.
+- "act": which act this block belongs to (1-6)
+- "location_id": which location from your locations list
+- "location": FULL environment description copied from your location entry (20-40 words)
+- "lighting": EXACT lighting setup from your location entry
+- "mood": one word — tense / desperate / revelatory / threatening / clinical / archival / personal
+- "characters_present": list of character IDs (empty list for environment/data scenes)
+- "images": array of 2-5 image specs, EACH with:
+  - "image_index": global 1-based index (images are numbered 1, 2, 3... up to {total_images})
+  - "camera": "wide" / "medium" / "closeup" / "extreme_closeup"
+  - "action": one sentence describing the specific moment (10-20 words)
+  - "narration_excerpt": the ~15 words of script this image illustrates
+
+⚠️ CRITICAL BLOCK RULES (VIOLATIONS WILL BE REJECTED):
+
+1. **FIRST IMAGE = WIDE** — Every block's first image MUST have camera: "wide"
+2. **ACT BOUNDARIES = BLOCK BOUNDARIES** — When a new act starts, START A NEW BLOCK
+3. **LOCATION CHANGES = NEW BLOCK** — When location changes, START A NEW BLOCK
+4. **BLOCK SIZE** — Minimum 2 images, maximum 5 images per block
+5. **CAMERA PROGRESSION** — Within a block: wide → medium → closeup (general pattern)
+6. **NO CONSECUTIVE SAME-LOCATION BLOCKS** — Never 2 consecutive blocks with same location_id
+7. **TOTAL IMAGES** — You MUST output EXACTLY {total_images} images total across all blocks
+8. **SEQUENTIAL NUMBERING** — image_index must count 1, 2, 3... sequentially with NO gaps
+
+Before outputting, VERIFY:
+- Total blocks: 12-24 (aim for {target_blocks})
+- Total images across all blocks: EXACTLY {total_images}
+- image_index values: 1 through {total_images} with no gaps
+- Every block starts with camera: "wide"
+- No block has more than 5 images or fewer than 2
+- Act transitions (1→2, 2→3, etc.) align with block boundaries
+- No two consecutive blocks share the same location_id
+
+Respond ONLY with valid JSON. No markdown fences, no explanation."""
+
+
 async def generate_story_bible(
     anthropic_client,
     full_script_text: str,
     video_title: str = "",
     total_scenes: int = 14,
+    use_scene_blocks: bool = False,
+    total_images: int = 60,
+    video_duration_minutes: int = 10,
 ) -> dict:
     """Generate a complete Story Bible from the full script.
 
@@ -173,24 +283,41 @@ async def generate_story_bible(
         anthropic_client: AnthropicClient instance with generate() method
         full_script_text: Combined text of ALL scenes in the video
         video_title: Video title for logging/context
-        total_scenes: Total number of scenes for arc validation
+        total_scenes: Total number of scenes for arc validation (legacy V1)
+        use_scene_blocks: If True, use V2 scene_blocks format instead of visual_arc
+        total_images: Target number of images for the video (V2 only)
+        video_duration_minutes: Video duration in minutes (V2 only)
 
     Returns:
-        Dict with keys: characters, locations, visual_arc
+        Dict with keys: characters, locations, and either visual_arc (V1) or scene_blocks (V2)
         Returns empty dict if generation fails.
     """
     if not full_script_text or len(full_script_text.strip()) < 100:
         print(f"  ⚠️ Script too short for story bible: {len(full_script_text)} chars")
         return {}
 
-    prompt = STORY_BIBLE_USER_PROMPT.format(full_script_text=full_script_text)
+    # Choose prompt based on version
+    if use_scene_blocks:
+        # V2: Scene blocks format
+        target_blocks = max(12, min(24, total_images // 4))  # ~4 images per block average
+        prompt = STORY_BIBLE_USER_PROMPT_V2.format(
+            full_script_text=full_script_text,
+            total_images=total_images,
+            video_duration_minutes=video_duration_minutes,
+            target_blocks=target_blocks,
+        )
+        version_label = "V2 (scene_blocks)"
+    else:
+        # V1: Legacy visual_arc format
+        prompt = STORY_BIBLE_USER_PROMPT.format(full_script_text=full_script_text)
+        version_label = "V1 (visual_arc)"
 
     try:
         response = await anthropic_client.generate(
             prompt=prompt,
             system_prompt=STORY_BIBLE_SYSTEM_PROMPT,
             model="claude-sonnet-4-5-20250929",
-            max_tokens=8000,
+            max_tokens=12000 if use_scene_blocks else 8000,  # V2 needs more tokens
             temperature=0.3,  # Low temperature for consistency
         )
 
@@ -201,17 +328,27 @@ async def generate_story_bible(
             print(f"  ⚠️ Failed to parse story bible JSON")
             return {}
 
-        # Validate and normalize required sections
-        bible = _validate_and_normalize(bible, total_scenes)
-
-        # Log summary
-        print(f"  📖 Story Bible generated:")
-        print(f"      {len(bible['characters'])} characters")
-        print(f"      {len(bible['locations'])} locations")
-        print(f"      {len(bible['visual_arc'])} scene arcs")
-
-        # Validate arc constraints
-        _validate_arc_constraints(bible)
+        # Validate and normalize based on version
+        if use_scene_blocks:
+            bible = _validate_and_normalize_scene_blocks(bible, total_images)
+            # Log summary
+            total_block_images = sum(
+                len(b.get("images", [])) for b in bible.get("scene_blocks", [])
+            )
+            print(f"  📖 Story Bible {version_label} generated:")
+            print(f"      {len(bible.get('characters', []))} characters")
+            print(f"      {len(bible.get('locations', []))} locations")
+            print(f"      {len(bible.get('scene_blocks', []))} scene blocks")
+            print(f"      {total_block_images} total images")
+        else:
+            bible = _validate_and_normalize(bible, total_scenes)
+            # Log summary
+            print(f"  📖 Story Bible {version_label} generated:")
+            print(f"      {len(bible['characters'])} characters")
+            print(f"      {len(bible['locations'])} locations")
+            print(f"      {len(bible['visual_arc'])} scene arcs")
+            # Validate arc constraints
+            _validate_arc_constraints(bible)
 
         return bible
 
@@ -336,6 +473,219 @@ def _validate_arc_constraints(bible: dict) -> None:
     if arcs[0].get("location_id") != arcs[-1].get("location_id"):
         print(f"      ℹ️ Arc note: first and last scenes use different locations "
               f"(no bookend)")
+
+
+def _validate_and_normalize_scene_blocks(bible: dict, expected_images: int = 60) -> dict:
+    """Validate and normalize scene_blocks structure.
+
+    Ensures all blocks have required fields, enforces first-image-wide rule,
+    and validates sequential image indexing.
+
+    Args:
+        bible: The raw Story Bible dict from Claude
+        expected_images: Expected total number of images (from VideoConfig)
+
+    Returns:
+        Normalized bible dict with scene_blocks
+    """
+    # Ensure all sections exist
+    if "characters" not in bible:
+        bible["characters"] = []
+    if "locations" not in bible:
+        bible["locations"] = []
+    if "scene_blocks" not in bible:
+        bible["scene_blocks"] = []
+
+    # Normalize characters (same as V1)
+    for char in bible["characters"]:
+        if "description" in char and "costume" not in char:
+            char["costume"] = char["description"]
+        if "costume" not in char:
+            char["costume"] = "dark formal suit with white shirt"
+        if "signature_pose" not in char:
+            char["signature_pose"] = "standing with composed posture"
+        if "scenes_present" not in char:
+            char["scenes_present"] = []
+        if "role" not in char:
+            char["role"] = "supporting"
+
+    # Normalize locations (same as V1)
+    for loc in bible["locations"]:
+        if "description" not in loc:
+            loc["description"] = "interior setting"
+        if "lighting" not in loc:
+            loc["lighting"] = "ambient lighting"
+        if "color_temperature" not in loc:
+            loc["color_temperature"] = "neutral"
+        if "type" not in loc:
+            loc["type"] = "INTERIOR"
+
+    # Normalize scene blocks
+    total_images = 0
+    for i, block in enumerate(bible["scene_blocks"]):
+        # Ensure required fields
+        if "block_id" not in block:
+            block["block_id"] = f"block_{i + 1}"
+        if "act" not in block:
+            block["act"] = 1
+        if "location_id" not in block:
+            block["location_id"] = bible["locations"][0]["id"] if bible["locations"] else "unknown"
+        if "location" not in block:
+            # Try to copy from location bible
+            loc = next((l for l in bible["locations"] if l.get("id") == block["location_id"]), None)
+            block["location"] = loc["description"] if loc else "unspecified environment"
+        if "lighting" not in block:
+            loc = next((l for l in bible["locations"] if l.get("id") == block["location_id"]), None)
+            block["lighting"] = loc["lighting"] if loc else "ambient lighting"
+        if "mood" not in block:
+            block["mood"] = "neutral"
+        if "characters_present" not in block:
+            block["characters_present"] = []
+        if "images" not in block:
+            block["images"] = []
+
+        # Normalize images within block
+        for j, img in enumerate(block["images"]):
+            if "camera" not in img:
+                # First image in block must be wide
+                img["camera"] = "wide" if j == 0 else "medium"
+            if "action" not in img:
+                img["action"] = "scene continues"
+            if "narration_excerpt" not in img:
+                img["narration_excerpt"] = ""
+
+        # Enforce first image = wide
+        if block["images"] and block["images"][0].get("camera") != "wide":
+            print(f"      ⚠️ Block {block['block_id']}: fixing first image to wide (was {block['images'][0].get('camera')})")
+            block["images"][0]["camera"] = "wide"
+
+        total_images += len(block["images"])
+
+    # Validate total image count
+    if total_images != expected_images:
+        print(f"      ⚠️ Scene blocks have {total_images} images, expected {expected_images}")
+
+    # Validate consecutive block locations
+    blocks = bible["scene_blocks"]
+    for i in range(1, len(blocks)):
+        if blocks[i].get("location_id") == blocks[i - 1].get("location_id"):
+            print(f"      ⚠️ Consecutive blocks {blocks[i-1]['block_id']} and {blocks[i]['block_id']} "
+                  f"share location {blocks[i]['location_id']}")
+
+    return bible
+
+
+# === SCENE BLOCK HELPER FUNCTIONS ===
+
+
+def has_scene_blocks(story_bible: dict) -> bool:
+    """Check if Story Bible uses V2 scene_blocks format.
+
+    Args:
+        story_bible: The Story Bible dict
+
+    Returns:
+        True if scene_blocks exists and has content, False otherwise
+    """
+    if not story_bible:
+        return False
+    return bool(story_bible.get("scene_blocks"))
+
+
+def get_story_bible_version(story_bible: dict) -> int:
+    """Return Story Bible version based on content.
+
+    Args:
+        story_bible: The Story Bible dict
+
+    Returns:
+        2 if scene_blocks format (V2)
+        1 if visual_arc format (V1)
+        0 if empty/invalid
+    """
+    if not story_bible:
+        return 0
+    if story_bible.get("scene_blocks"):
+        return 2
+    if story_bible.get("visual_arc"):
+        return 1
+    return 0
+
+
+def get_block_for_image(story_bible: dict, image_index: int) -> Optional[dict]:
+    """Find the scene block containing a specific image index.
+
+    Args:
+        story_bible: The Story Bible dict with scene_blocks
+        image_index: Global 1-based image index
+
+    Returns:
+        The block dict containing this image, or None if not found
+    """
+    if not story_bible:
+        return None
+
+    for block in story_bible.get("scene_blocks", []):
+        for img in block.get("images", []):
+            if img.get("image_index") == image_index:
+                return block
+    return None
+
+
+def get_image_spec_by_index(story_bible: dict, image_index: int) -> Optional[dict]:
+    """Get the image spec for a specific global image index.
+
+    Args:
+        story_bible: The Story Bible dict with scene_blocks
+        image_index: Global 1-based image index
+
+    Returns:
+        The image spec dict, or None if not found
+    """
+    if not story_bible:
+        return None
+
+    for block in story_bible.get("scene_blocks", []):
+        for img in block.get("images", []):
+            if img.get("image_index") == image_index:
+                return img
+    return None
+
+
+def get_all_images_from_blocks(story_bible: dict) -> list[dict]:
+    """Get all images from scene_blocks in sequential order.
+
+    Each returned dict includes the image spec PLUS block context:
+    - block_id, location, lighting, mood, characters_present
+
+    Args:
+        story_bible: The Story Bible dict with scene_blocks
+
+    Returns:
+        List of image dicts with block context, sorted by image_index
+    """
+    if not story_bible:
+        return []
+
+    images = []
+    for block in story_bible.get("scene_blocks", []):
+        block_context = {
+            "block_id": block.get("block_id"),
+            "block_location": block.get("location", ""),
+            "block_lighting": block.get("lighting", ""),
+            "block_mood": block.get("mood", "neutral"),
+            "block_characters": block.get("characters_present", []),
+            "block_location_id": block.get("location_id", ""),
+            "block_act": block.get("act", 1),
+        }
+        for img in block.get("images", []):
+            # Merge image spec with block context
+            full_img = {**img, **block_context}
+            images.append(full_img)
+
+    # Sort by image_index to ensure sequential order
+    images.sort(key=lambda x: x.get("image_index", 0))
+    return images
 
 
 def format_bible_for_prompt(story_bible: dict, current_scene: int) -> str:

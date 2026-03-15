@@ -572,6 +572,115 @@ def build_prompt(
             return f"{clean_desc}{suffix}"
 
 
+def build_prompt_from_block(
+    concept: dict,
+    story_bible: dict,
+    image_style_override: Optional[str] = None,
+) -> str:
+    """Build image prompt using scene block context.
+
+    For V2 scene_blocks Story Bible format, the block provides shared
+    location/lighting that applies to all images in the block. Only camera
+    angle and action change per image.
+
+    Uses the block's location and lighting descriptions directly in the
+    prompt, ensuring visual consistency within the block.
+
+    Parameters
+    ----------
+    concept : dict
+        Concept dict from scene_expander with block context:
+        - visual_description: action for this image
+        - composition: camera angle (wide/medium/closeup)
+        - block_location: shared environment description
+        - block_lighting: shared lighting description
+        - block_characters: list of character IDs present
+        - block_mood: emotional tone
+    story_bible : dict
+        Full Story Bible with characters list (for costume lookups)
+    image_style_override : str, optional
+        Per-video style override from Airtable
+
+    Returns
+    -------
+    str
+        Complete prompt string for image generation
+    """
+    from bots.story_bible import get_character_by_id
+
+    # Extract block context
+    block_location = concept.get("block_location", "").strip()
+    block_lighting = concept.get("block_lighting", "").strip()
+    block_characters = concept.get("block_characters", [])
+    action = concept.get("visual_description", "Scene continues").strip()
+    camera = concept.get("composition", "medium")
+    mood = concept.get("block_mood", concept.get("mood", "neutral"))
+
+    # Get character costume descriptions from Story Bible
+    char_descriptions = []
+    for char_id in block_characters:
+        char = get_character_by_id(story_bible, char_id)
+        if char:
+            costume = char.get("costume") or char.get("description", "")
+            if costume:
+                char_descriptions.append(costume)
+
+    # Determine prefix based on character presence
+    if block_characters and char_descriptions:
+        prefix = _CHARACTER_PREFIX
+    else:
+        prefix = _ENVIRONMENT_PREFIX
+
+    # Build prompt parts
+    parts = []
+
+    # 1. Style prefix
+    parts.append(prefix)
+
+    # 2. Block environment (shared across all images in block)
+    if block_location:
+        parts.append(f"Setting: {block_location}.")
+
+    # 3. Block lighting (shared)
+    if block_lighting:
+        parts.append(f"Lighting: {block_lighting}.")
+
+    # 4. Characters with costumes (if present)
+    if char_descriptions:
+        parts.append(f"Characters: {'; '.join(char_descriptions)}.")
+
+    # 5. Specific action for THIS image
+    if action:
+        # Clean action text
+        action = _strip_style_language(action).rstrip(". ")
+        parts.append(f"Action: {action}.")
+
+    # 6. Camera angle
+    camera_map = {
+        "wide": "Wide establishing shot",
+        "medium": "Medium shot",
+        "closeup": "Close-up shot",
+        "close-up": "Close-up shot",
+        "extreme_closeup": "Extreme close-up",
+    }
+    camera_desc = camera_map.get(camera.lower(), "Medium shot")
+    parts.append(f"Camera: {camera_desc}.")
+
+    # 7. Mood/atmosphere
+    if mood and mood != "neutral":
+        parts.append(f"Mood: {mood}.")
+
+    # Combine parts
+    prompt_body = " ".join(parts)
+
+    # Apply style override to suffix if provided
+    suffix = _UNIVERSAL_SUFFIX
+    if image_style_override and image_style_override.strip():
+        suffix = _apply_style_override(suffix, image_style_override)
+
+    return f"{prompt_body}{suffix}"
+
+
 def assign_profile_styles(
     total_images: int,
     profile,

@@ -674,6 +674,148 @@ def _sentence_boundary_split(scene_text: str) -> list[dict]:
     return _validate_concept_durations(concepts)
 
 
+async def _expand_with_scene_blocks(
+    anthropic_client,
+    scene_number: int,
+    scene_text: str,
+    story_bible: dict,
+    visual_seeds: str,
+    accent_color: str,
+    act_number: int,
+) -> list[dict]:
+    """Expand scene using V2 scene_blocks format.
+
+    Scene blocks pre-define image groupings with shared location/lighting.
+    This function matches the scene's narration text to images via their
+    narration_excerpt field (fuzzy matching), then returns concepts with
+    block context already populated.
+
+    Args:
+        anthropic_client: AnthropicClient instance (may be used for edge cases)
+        scene_number: Scene number from Script table
+        scene_text: Exact narration text from Script table
+        story_bible: Story Bible dict with scene_blocks
+        visual_seeds: Visual seeds for context
+        accent_color: Accent color for video
+        act_number: Which act this scene belongs to
+
+    Returns:
+        List of concept dicts with block context (block_id, block_location, etc.)
+    """
+    from bots.story_bible import get_all_images_from_blocks
+
+    # Get all images with their block context
+    all_images = get_all_images_from_blocks(story_bible)
+
+    if not all_images:
+        print(f"      ⚠️ Scene {scene_number}: No images in scene_blocks, falling back")
+        return [{
+            "concept_index": 1,
+            "sentence_text": scene_text,
+            "visual_description": "Scene continues",
+            "visual_style": get_default_style(),
+            "composition": "medium",
+            "mood": "neutral",
+        }]
+
+    # Match scene_text to images via narration_excerpt overlap
+    # The Story Bible's image narration_excerpts should collectively cover the full script
+    matched_images = _match_scene_to_images(scene_text, all_images)
+
+    if not matched_images:
+        # No matches found - this scene may not have images assigned
+        print(f"      ⚠️ Scene {scene_number}: No image matches found for narration")
+        return [{
+            "concept_index": 1,
+            "sentence_text": scene_text,
+            "visual_description": "Scene continues",
+            "visual_style": get_default_style(),
+            "composition": "medium",
+            "mood": "neutral",
+        }]
+
+    print(f"    Scene {scene_number}: {len(matched_images)} images matched from scene_blocks "
+          f"(blocks: {', '.join(set(img['block_id'] for img in matched_images))})")
+
+    # Convert matched images to concept dicts
+    concepts = []
+    for i, img in enumerate(matched_images):
+        # Map camera to composition
+        camera = img.get("camera", "medium").lower()
+        composition_map = {
+            "wide": "wide",
+            "medium": "medium",
+            "closeup": "closeup",
+            "close-up": "closeup",
+            "extreme_closeup": "closeup",
+            "extreme-closeup": "closeup",
+        }
+        composition = composition_map.get(camera, "medium")
+
+        concept = {
+            "concept_index": i + 1,
+            "sentence_text": img.get("narration_excerpt", ""),
+            "visual_description": img.get("action", "Scene continues"),
+            "visual_style": get_default_style(),
+            "composition": composition,
+            "mood": img.get("block_mood", "neutral"),
+            # Block context for prompt builder
+            "block_id": img.get("block_id"),
+            "block_location": img.get("block_location", ""),
+            "block_lighting": img.get("block_lighting", ""),
+            "block_characters": img.get("block_characters", []),
+            "block_location_id": img.get("block_location_id", ""),
+            "global_image_index": img.get("image_index"),
+        }
+        concepts.append(concept)
+
+    return concepts
+
+
+def _match_scene_to_images(scene_text: str, all_images: list[dict]) -> list[dict]:
+    """Match a scene's narration text to images via narration_excerpt overlap.
+
+    Uses fuzzy matching to find which images' narration_excerpts are contained
+    within the scene_text. Returns images in their original order (by image_index).
+
+    Args:
+        scene_text: The scene's full narration text
+        all_images: All images from scene_blocks with their context
+
+    Returns:
+        List of images whose narration_excerpt matches this scene (in order)
+    """
+    scene_text_lower = scene_text.lower().strip()
+    matched = []
+
+    for img in all_images:
+        excerpt = img.get("narration_excerpt", "").strip()
+        if not excerpt:
+            continue
+
+        excerpt_lower = excerpt.lower()
+
+        # Check if excerpt is a substring of scene_text (fuzzy match)
+        # Use ratio for partial matches when exact substring fails
+        if excerpt_lower in scene_text_lower:
+            matched.append(img)
+        else:
+            # Fuzzy match for excerpts that may have minor variations
+            ratio = SequenceMatcher(None, excerpt_lower, scene_text_lower).ratio()
+            # Also check if excerpt overlaps significantly with scene_text
+            # by checking if most words from excerpt appear in scene_text
+            excerpt_words = set(excerpt_lower.split())
+            scene_words = set(scene_text_lower.split())
+            word_overlap = len(excerpt_words & scene_words) / max(len(excerpt_words), 1)
+
+            if ratio > 0.5 or word_overlap > 0.7:
+                matched.append(img)
+
+    # Sort by image_index to maintain sequential order
+    matched.sort(key=lambda x: x.get("image_index", 0))
+    return matched
+
+
 async def expand_scene_concepts_deterministic(
     anthropic_client,
     scene_number: int,
@@ -687,18 +829,12 @@ async def expand_scene_concepts_deterministic(
 ) -> list[dict]:
     """Expand one scene's narration into visual concepts using deterministic word-duration-aware splitting.
 
-    Replaces LLM-based text segmentation with a deterministic splitter that:
-    - Guarantees hard 10s cap per concept (for animation clip limits)
-    - Uses word-based duration calculation (not sentence count)
-    - Performs mid-sentence splitting at natural boundaries when needed
-    - Merges orphan segments < 4s
+    Supports two Story Bible formats:
+    - V1 (visual_arc): Uses deterministic splitter + LLM for visual descriptions
+    - V2 (scene_blocks): Uses pre-defined blocks with shared location/lighting
 
-    Still uses LLM for generating visual_description per segment, but the text
-    splitting is deterministic and duration-guaranteed.
-
-    Claude writes whatever prompt best tells the story moment. NO scene type
-    constraints are applied — Claude reads the narration, consults the Story
-    Bible for character/location consistency, and writes the best visual.
+    For V2 scene_blocks, each image has block context (location, lighting, characters)
+    already defined. The scene_number maps to images via narration text overlap.
 
     Args:
         anthropic_client: AnthropicClient instance with generate() method
@@ -709,7 +845,7 @@ async def expand_scene_concepts_deterministic(
         act_number: Which act this scene belongs to (1-6)
         total_scenes: Total number of scenes in the video
         voice_duration: Optional actual voice duration in seconds (for accurate WPS)
-        story_bible: Optional Story Bible dict with characters, locations, visual_arc
+        story_bible: Optional Story Bible dict with characters, locations, visual_arc OR scene_blocks
 
     Returns:
         List of concept dicts, each with:
@@ -719,19 +855,40 @@ async def expand_scene_concepts_deterministic(
         - visual_style (str, profile substyle name - DESCRIPTIVE, not prescriptive)
         - composition (str, wide/medium/closeup/etc.)
         - mood (str)
+        - For V2 scene_blocks, also includes:
+          - block_id, block_location, block_lighting, block_characters
     """
     import sys
     from pathlib import Path
 
+    # Import Story Bible helpers
+    try:
+        from bots.story_bible import (
+            format_bible_for_prompt,
+            has_scene_blocks,
+            get_all_images_from_blocks,
+        )
+    except ImportError:
+        def format_bible_for_prompt(bible, scene): return ""
+        def has_scene_blocks(bible): return False
+        def get_all_images_from_blocks(bible): return []
+
+    # Check if Story Bible uses V2 scene_blocks format
+    if story_bible and has_scene_blocks(story_bible):
+        return await _expand_with_scene_blocks(
+            anthropic_client=anthropic_client,
+            scene_number=scene_number,
+            scene_text=scene_text,
+            story_bible=story_bible,
+            visual_seeds=visual_seeds,
+            accent_color=accent_color,
+            act_number=act_number,
+        )
+
+    # V1 path: Use deterministic splitter + LLM visual descriptions
     # Import deterministic splitter
     sys.path.insert(0, str(Path(__file__).parent.parent / "clients"))
     from deterministic_splitter import segment_scene_deterministic
-
-    # Import Story Bible formatter
-    try:
-        from bots.story_bible import format_bible_for_prompt
-    except ImportError:
-        def format_bible_for_prompt(bible, scene): return ""
 
     # Step 1: Use deterministic splitter to get text segments with guaranteed durations
     segments = segment_scene_deterministic(scene_text, voice_duration)

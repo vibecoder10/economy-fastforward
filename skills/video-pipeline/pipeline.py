@@ -2142,14 +2142,34 @@ class VideoPipeline:
             existing_bible_json = (self.current_idea.get("Story Bible") or "").strip()
             if existing_bible_json:
                 try:
+                    from bots.story_bible import has_scene_blocks
+
                     story_bible = json.loads(existing_bible_json)
                     char_count = len(story_bible.get("characters", []))
                     loc_count = len(story_bible.get("locations", []))
-                    print(f"  📖 Loaded existing Story Bible: {char_count} characters, {loc_count} locations")
-                    self.slack.notify(
-                        f"📖 Using existing Story Bible for *{self.video_title}*:\n"
-                        f"• {char_count} characters, {loc_count} locations"
-                    )
+
+                    # Detect format version
+                    if has_scene_blocks(story_bible):
+                        block_count = len(story_bible.get("scene_blocks", []))
+                        total_block_images = sum(
+                            len(b.get("images", []))
+                            for b in story_bible.get("scene_blocks", [])
+                        )
+                        print(f"  📖 Loaded existing Story Bible V2: {char_count} characters, "
+                              f"{loc_count} locations, {block_count} blocks ({total_block_images} images)")
+                        self.slack.notify(
+                            f"📖 Using existing Story Bible V2 for *{self.video_title}*:\n"
+                            f"• {char_count} characters, {loc_count} locations\n"
+                            f"• {block_count} scene blocks ({total_block_images} images)"
+                        )
+                    else:
+                        arc_count = len(story_bible.get("visual_arc", []))
+                        print(f"  📖 Loaded existing Story Bible V1: {char_count} characters, "
+                              f"{loc_count} locations, {arc_count} arcs")
+                        self.slack.notify(
+                            f"📖 Using existing Story Bible for *{self.video_title}*:\n"
+                            f"• {char_count} characters, {loc_count} locations"
+                        )
                 except json.JSONDecodeError:
                     print(f"  ⚠️ Could not parse existing Story Bible, regenerating...")
                     story_bible = None
@@ -2158,7 +2178,16 @@ class VideoPipeline:
             if not story_bible:
                 print(f"  📖 Generating Story Bible for visual consistency...")
                 try:
-                    from bots.story_bible import generate_story_bible
+                    from bots.story_bible import generate_story_bible, has_scene_blocks
+                    from pipeline_config import VideoConfig
+
+                    # Get video config for total image count
+                    video_length = self.current_idea.get("Video Length (min)", 10)
+                    try:
+                        video_config = VideoConfig(int(video_length), 10)
+                        total_images = video_config.total_clips
+                    except (ValueError, TypeError):
+                        total_images = 60  # Default for 10-min video
 
                     # Combine all script text for bible generation
                     full_script_text = "\n\n".join(
@@ -2166,10 +2195,14 @@ class VideoPipeline:
                         for s in scripts
                     )
 
+                    # Use V2 scene_blocks format for new Story Bibles
                     story_bible = await generate_story_bible(
                         anthropic_client=self.anthropic,
                         full_script_text=full_script_text,
                         video_title=self.video_title,
+                        use_scene_blocks=True,  # V2 format
+                        total_images=total_images,
+                        video_duration_minutes=int(video_length),
                     )
 
                     # Store in Airtable for future runs
@@ -2179,16 +2212,31 @@ class VideoPipeline:
                             {"Story Bible": json.dumps(story_bible, ensure_ascii=False)}
                         )
                         print(f"  📖 Story Bible saved to Airtable")
-                        # Notify Slack that Story Bible was generated
+
+                        # Notify Slack - format depends on V1 vs V2
                         char_count = len(story_bible.get("characters", []))
                         loc_count = len(story_bible.get("locations", []))
-                        arc_count = len(story_bible.get("visual_arc", []))
-                        self.slack.notify(
-                            f"📖 Story Bible generated for *{self.video_title}*:\n"
-                            f"• {char_count} characters\n"
-                            f"• {loc_count} locations\n"
-                            f"• {arc_count} scene arcs"
-                        )
+
+                        if has_scene_blocks(story_bible):
+                            block_count = len(story_bible.get("scene_blocks", []))
+                            total_block_images = sum(
+                                len(b.get("images", []))
+                                for b in story_bible.get("scene_blocks", [])
+                            )
+                            self.slack.notify(
+                                f"📖 Story Bible V2 generated for *{self.video_title}*:\n"
+                                f"• {char_count} characters\n"
+                                f"• {loc_count} locations\n"
+                                f"• {block_count} scene blocks ({total_block_images} images)"
+                            )
+                        else:
+                            arc_count = len(story_bible.get("visual_arc", []))
+                            self.slack.notify(
+                                f"📖 Story Bible generated for *{self.video_title}*:\n"
+                                f"• {char_count} characters\n"
+                                f"• {loc_count} locations\n"
+                                f"• {arc_count} scene arcs"
+                            )
                 except Exception as e:
                     print(f"  ⚠️ Story Bible generation failed (non-blocking): {e}")
                     story_bible = {}
