@@ -1,6 +1,33 @@
 # Task Tracking
 
-## Active: Modular Pipeline Audit — Can Steps Become Independent Tools?
+## Active: Modular Pipeline Refactor
+
+### Status: Phase 2 COMPLETE — Step extraction + pipeline.py wired
+
+**Phase 1** ✅ `pipeline_constants.py` — Central config registry (424 lines)
+**Phase 2** ✅ 12 step files extracted + pipeline.py wired as thin router (4,599→2,533 lines)
+**Phase 3** 🔲 Migrate hardcoded values in clients/bots to use `pipeline_constants` imports
+**Phase 4** 🔲 Extract shared JSON parser into `clients/json_utils.py`
+
+### Step Files Created (`steps/`)
+| File | Lines | Extracts |
+|------|-------|----------|
+| `step_idea.py` | ~80 | Idea generation (URL/concept + trending) |
+| `step_script.py` | ~170 | Brief translator + title refinement |
+| `step_voice.py` | ~80 | Voice synthesis + Drive upload |
+| `step_sound_design.py` | ~40 | Sound prompt generation |
+| `step_sound_effects.py` | ~50 | Sound effect generation |
+| `step_image_prompts.py` | ~430 | Scene expansion + styled prompts + Story Bible |
+| `step_images.py` | ~300 | Image generation with retry |
+| `step_video_scripts.py` | ~135 | Motion prompt generation |
+| `step_video_gen.py` | ~130 | Video clip generation |
+| `step_thumbnail.py` | ~195 | Thumbnail + title generation |
+| `step_render.py` | ~530 | Asset download + Remotion render + Drive upload |
+| `step_upload.py` | ~150 | SEO generation + YouTube upload |
+
+---
+
+## Original Analysis
 
 ### The Pipeline Steps (Sequential Order)
 

@@ -1,0 +1,193 @@
+"""Thumbnail generation step — creates matched thumbnail + title pair.
+
+Reads: Idea record (Video Title, Summary, Framework Angle, style overrides)
+Writes: Thumbnail attachment + Video Title to Ideas table, PNG to Drive
+Advances: Ready For Thumbnail → Ready To Render
+Clients: anthropic, image_client, google, airtable, slack
+"""
+
+from pipeline_constants import Statuses
+
+
+async def run(pipeline) -> dict:
+    """Generate matched thumbnail + title pair for the video."""
+    from thumbnail_title.engine import ThumbnailTitleEngine
+
+    # Verify status
+    if not pipeline.current_idea:
+        idea = pipeline.get_idea_by_status(Statuses.READY_THUMBNAIL)
+        if not idea:
+            return {"error": "No idea with status 'Ready For Thumbnail'"}
+        pipeline._load_idea(idea)
+
+    if pipeline.current_idea.get("Status") != Statuses.READY_THUMBNAIL:
+        return {"error": f"Idea status is '{pipeline.current_idea.get('Status')}', expected 'Ready For Thumbnail'"}
+
+    print(f"\n🎨 THUMBNAIL BOT: Processing '{pipeline.video_title}'")
+
+    # Re-fetch from Airtable to pick up style overrides set after initial load
+    try:
+        fresh = pipeline.airtable.idea_concepts_table.get(pipeline.current_idea_id)
+        if fresh:
+            pipeline.current_idea.update(fresh.get("fields", {}))
+    except Exception as e:
+        print(f"  Could not refresh idea from Airtable: {e}")
+
+    video_title = pipeline.current_idea.get("Video Title", "")
+    video_summary = pipeline.current_idea.get("Summary", "")
+
+    # Read per-video thumbnail style override
+    thumbnail_style_override = (pipeline.current_idea.get("Thumbnail Style Override") or "").strip()
+    if thumbnail_style_override:
+        print(f"  Thumbnail style override active: {thumbnail_style_override[:80]}...")
+
+    # Read independent thumbnail text
+    thumbnail_text = (pipeline.current_idea.get("Thumbnail Text") or "").strip()
+    if thumbnail_text:
+        print(f"  Thumbnail Text from Airtable: {thumbnail_text}")
+    else:
+        print(f"  No Thumbnail Text set — will auto-generate")
+
+    # Read optional palette override
+    palette_override = (pipeline.current_idea.get("Thumbnail Palette") or "").strip().lower() or None
+
+    # Build metadata for template selection
+    video_metadata = {
+        "Video Title": video_title,
+        "Summary": video_summary,
+        "topic": pipeline.current_idea.get("Headline", ""),
+        "Framework Angle": pipeline.current_idea.get("Framework Angle", ""),
+        "Framework": pipeline.current_idea.get("Framework", ""),
+        "tags": [],
+    }
+
+    # --- Generate matched title + thumbnail (3 variants) ---
+    override_note = f" (with style override)" if thumbnail_style_override else ""
+    pipeline.slack.notify(f"🎨 Generating thumbnail + title for *{pipeline.video_title}*{override_note}...")
+    engine = ThumbnailTitleEngine(pipeline.anthropic, pipeline.image_client)
+
+    try:
+        result = await engine.generate(
+            video_metadata,
+            thumbnail_style_override=thumbnail_style_override or None,
+            thumbnail_text=thumbnail_text or None,
+            palette_override=palette_override,
+        )
+    except Exception as e:
+        error_msg = f"Thumbnail/title generation failed for '{pipeline.video_title}': {e}"
+        print(f"  {error_msg}")
+        pipeline.slack.notify(f"Thumbnail Bot STOPPED: {error_msg}\nStatus NOT advanced.")
+        return {
+            "status": "failed",
+            "bot": "Thumbnail Bot",
+            "video_title": pipeline.video_title,
+            "error": error_msg,
+        }
+
+    # --- Save generated prompt and title metadata to Airtable ---
+    pipeline.airtable.update_idea_field(pipeline.current_idea_id, "Thumbnail Prompt", result["thumbnail_prompt"])
+    if result.get("title"):
+        pipeline.airtable.update_idea_field(pipeline.current_idea_id, "Video Title", result["title"])
+
+    # --- Warn Slack if thumbnail text was auto-generated ---
+    if result.get("thumbnail_text_auto_generated"):
+        auto_text = f"{result['line_1']}" + (f" {result['line_2']}" if result['line_2'] else "")
+        pipeline.slack.notify(
+            f"No Thumbnail Text set for *{pipeline.video_title}* — auto-generated: *{auto_text}*\n"
+            f"Set `Thumbnail Text` field in Airtable to override."
+        )
+
+    # --- Check if thumbnail generation succeeded ---
+    if result["needs_manual_review"]:
+        error_msg = (
+            f"Thumbnail generation failed after {result['thumbnail_attempt']} attempts "
+            f"for '{pipeline.video_title}'. Flagged for manual review."
+        )
+        print(f"  {error_msg}")
+        pipeline.slack.notify(
+            f"Thumbnail Bot needs manual review for *{pipeline.video_title}*\n"
+            f"Template: {result['template_name']}\n"
+            f"Title: {result['title']}\n"
+            f"Status NOT advanced."
+        )
+        return {
+            "status": "manual_review",
+            "bot": "Thumbnail Bot",
+            "video_title": pipeline.video_title,
+            "generated_title": result["title"],
+            "template_used": result["template_used"],
+            "error": error_msg,
+        }
+
+    thumbnail_urls = result["thumbnail_urls"]
+    print(f"  {len(thumbnail_urls)} thumbnail variant(s) generated")
+
+    # --- Upload all variants to Google Drive ---
+    if pipeline.project_folder_id:
+        parent_id = pipeline.project_folder_id
+    else:
+        folder = pipeline.google.search_folder(pipeline.video_title)
+        if folder:
+            parent_id = folder["id"]
+        else:
+            print("  Project folder not found, uploading to root.")
+            parent_id = None
+
+    slug = video_title.lower().replace(" ", "_").replace("'", "")[:50]
+    drive_links = []
+
+    for i, image_url in enumerate(thumbnail_urls, 1):
+        filename = f"{slug}_thumbnail_v{i}.png"
+        print(f"  Uploading variant {i} to Google Drive...")
+        try:
+            google_file = pipeline.google.upload_file_from_url(
+                url=image_url,
+                name=filename,
+                parent_id=parent_id,
+            )
+            link = google_file.get("webViewLink", image_url)
+            drive_links.append(link)
+            print(f"  Uploaded variant {i}: {link}")
+        except Exception as e:
+            print(f"  Failed to upload variant {i}: {e}")
+            drive_links.append(image_url)
+
+    # --- Save first thumbnail to Airtable (primary) ---
+    pipeline.airtable.update_idea_thumbnail(pipeline.current_idea_id, thumbnail_urls[0])
+    print("  Saved primary thumbnail to Airtable")
+
+    # --- Update status ---
+    pipeline._update_status(Statuses.READY_TO_RENDER)
+    print(f"  Status updated to: {Statuses.READY_TO_RENDER}")
+
+    template_info = result['template_name']
+    if thumbnail_style_override:
+        override_mode = "REPLACE" if thumbnail_style_override.upper().startswith("REPLACE:") else "APPEND"
+        template_info = f"{result['template_name']} ({override_mode} override active)"
+
+    variant_links = "\n".join(f"  Option {i}: {link}" for i, link in enumerate(drive_links, 1))
+    pipeline.slack.notify(
+        f"Thumbnail + title complete for *{pipeline.video_title}*\n"
+        f"Title: {result['title']}\n"
+        f"Template: {template_info}\n"
+        f"Text: {result['line_1']}" + (f" / {result['line_2']}" if result['line_2'] else "") + f"\n"
+        f"{len(drive_links)} options generated — pick your favorite:\n{variant_links}"
+    )
+
+    return {
+        "bot": "Thumbnail Bot",
+        "video_title": pipeline.video_title,
+        "new_status": Statuses.READY_TO_RENDER,
+        "thumbnail_url": drive_links[0] if drive_links else None,
+        "thumbnail_urls": drive_links,
+        "generated_title": result["title"],
+        "caps_word": result["caps_word"],
+        "formula_used": result["formula_used"],
+        "template_used": result["template_used"],
+        "template_name": result["template_name"],
+        "line_1": result["line_1"],
+        "line_2": result["line_2"],
+        "thumbnail_attempt": result["thumbnail_attempt"],
+        "validation": result["validation"],
+        "thumbnail_text_auto_generated": result.get("thumbnail_text_auto_generated", False),
+    }
