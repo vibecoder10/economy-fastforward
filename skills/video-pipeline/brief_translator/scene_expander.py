@@ -1136,6 +1136,7 @@ async def expand_scene_concepts_deterministic(
 
     # Step 4: Generate visual_description for each segment using LLM
     concepts = []
+    prev_descriptions: list[str] = []  # Track previous descriptions for deduplication
 
     for i, seg in enumerate(segments):
         # Get the arc entry for THIS concept (cycle through if more concepts than arcs)
@@ -1229,6 +1230,25 @@ async def expand_scene_concepts_deterministic(
                     "that will be added automatically based on what you write.\n"
                     "End with a camera angle and lighting description that matches the arc.\n"
                     "Return ONLY the description, nothing else.\n\n"
+                )
+
+                # Add previous descriptions for deduplication
+                if prev_descriptions:
+                    recent = prev_descriptions[-3:]  # Last 3 descriptions
+                    visual_desc_prompt += (
+                        "PREVIOUS IMAGES IN THIS SCENE (you MUST make yours visually DISTINCT):\n"
+                    )
+                    for j, prev in enumerate(recent, 1):
+                        visual_desc_prompt += f"  {j}. {prev}\n"
+                    visual_desc_prompt += (
+                        "Your image MUST show a DIFFERENT subject, angle, or setting. "
+                        "Do NOT repeat the same primary subject. If the previous images show "
+                        "the same object (e.g. ships, buildings, maps), zoom into a DETAIL, "
+                        "show the CONSEQUENCE, show a DIFFERENT location, or show the HUMAN "
+                        "element instead.\n\n"
+                    )
+
+                visual_desc_prompt += (
                     f"Narration: \"{seg['text']}\"\n"
                     f"Visual seeds for context: {visual_seeds[:200] if visual_seeds else 'none'}"
                 )
@@ -1254,6 +1274,22 @@ async def expand_scene_concepts_deterministic(
                     "The subject is ALWAYS information/data being displayed, never the physical event itself.\n\n"
                     "Write a 20-35 word description of what DATA DISPLAY would visualize this narration. "
                     "Return ONLY the description, nothing else.\n\n"
+                )
+
+                # Add previous descriptions for deduplication
+                if prev_descriptions:
+                    recent = prev_descriptions[-3:]
+                    visual_desc_prompt += (
+                        "PREVIOUS IMAGES IN THIS SCENE (you MUST make yours visually DISTINCT):\n"
+                    )
+                    for j, prev in enumerate(recent, 1):
+                        visual_desc_prompt += f"  {j}. {prev}\n"
+                    visual_desc_prompt += (
+                        "Your image MUST show a DIFFERENT data visualization type. "
+                        "Do NOT repeat the same display format.\n\n"
+                    )
+
+                visual_desc_prompt += (
                     f"Narration: \"{seg['text']}\"\n"
                     f"Visual seeds for context: {visual_seeds[:200] if visual_seeds else 'none'}"
                 )
@@ -1270,6 +1306,9 @@ async def expand_scene_concepts_deterministic(
             print(f"      ⚠️ LLM visual description failed for segment {i+1}: {e}")
             # Fallback: use the narration text as placeholder
             visual_description = seg['text']
+
+        # Track for deduplication of subsequent concepts
+        prev_descriptions.append(visual_description)
 
         # Scene type is now DESCRIPTIVE — assigned based on what Claude wrote
         # (detected by prompt_builder.py when assembling final prompt)
