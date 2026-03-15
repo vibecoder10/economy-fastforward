@@ -646,43 +646,30 @@ def build_prompt_from_block(
     story_bible: dict,
     image_style_override: Optional[str] = None,
 ) -> str:
-    """Build image prompt using scene block context and profile intelligence.
+    """Build image prompt from Claude-generated visual description + style framing.
 
-    Profile-driven assembly that adapts to content type. Reads substyle
-    suffixes, character archetypes, metaphor tables, and negative prompts
-    from the active visual profile. Falls back to sensible defaults when
-    no profile is loaded.
+    Claude already wrote the visual_description with full block context
+    (location, lighting, characters, action, mood) via one-call-per-block
+    in scene_expander._expand_with_scene_blocks(). This function wraps it
+    with style prefix, camera/substyle suffix, and universal suffix.
 
     PROMPT FLOW:
-    1. Style prefix (character vs environment based on content detection)
-    2. Location + lighting (from Story Bible block — woven in, not labeled)
-    3. Scene content (narration_excerpt + Story Bible action merged)
-    4. Characters (costume + expression from archetype + action, integrated)
-    5. Camera composition
-    6. Substyle suffix (from profile, matched to detected scene type)
-    7. Universal suffix + negative prompt
+    1. Style prefix (character vs environment)
+    2. Claude's visual description (already contains setting, characters, action)
+    3. Camera composition + substyle suffix
+    4. Universal suffix (aspect ratio, texture)
 
     Parameters
     ----------
     concept : dict
-        Concept dict from scene_expander with block context:
-        - visual_description: Story Bible narration_excerpt (what to SHOW)
-        - sentence_text: verbatim script text (for Airtable)
+        Concept dict from scene_expander with:
+        - visual_description: Claude-generated 20-35 word filmable description
         - composition: camera angle (wide/medium/closeup)
-        - camera_direction: Story Bible action field (scene direction)
-        - block_location: shared environment description
-        - block_lighting: shared lighting description
-        - block_characters: list of character IDs present
-        - block_mood: emotional tone
+        - block_characters: list of character IDs (for prefix selection)
     story_bible : dict
-        Full Story Bible with characters list
+        Full Story Bible (used for character ID lookup)
     image_style_override : str, optional
         Per-video style override from Airtable
-
-    Returns
-    -------
-    str
-        Complete prompt string for image generation
     """
     from bots.story_bible import get_character_by_id
 
@@ -707,47 +694,10 @@ def build_prompt_from_block(
     visual_desc = _strip_style_language(visual_desc).rstrip(". ")
 
     # ---------------------------------------------------------------
-    # Character assembly: costume + archetype expression + action
-    # ---------------------------------------------------------------
-    char_parts = []
-    multi_character = len(block_characters) > 1
-    for i, char_id in enumerate(block_characters):
-        char = get_character_by_id(story_bible, char_id)
-        if not char:
-            continue
-        name = char.get("id", "figure").replace("_", " ")
-        costume = char.get("costume") or char.get("description", "")
-        if not costume:
-            continue
-
-        # Get expression from profile archetypes (e.g., "stern angular face")
-        expression = _match_archetype_expression(char.get("id", ""), profile)
-
-        # Build integrated character string
-        # "iranian leader with intense gaze in dark clerical robes, addressing parliament"
-        fragments = [name]
-        if expression:
-            fragments.append(f"with {expression}")
-        fragments.append(f"in {costume}")
-        # Action goes with FIRST character only (scene-level direction);
-        # subsequent characters get their signature_pose
-        if action and (i == 0 or not multi_character):
-            fragments.append(action)
-        elif char.get("signature_pose"):
-            fragments.append(char["signature_pose"])
-
-        char_parts.append(", ".join(fragments))
-
-    has_characters = bool(char_parts)
-
-    # ---------------------------------------------------------------
     # Scene type detection → substyle suffix from profile
     # ---------------------------------------------------------------
-    # Combine all content for scene type detection
-    all_content = " ".join(filter(None, [visual_desc, action, block_location]))
-    scene_type = _detect_scene_type(all_content)
+    scene_type = _detect_scene_type(visual_desc)
 
-    # Get substyle suffix from profile (e.g., "two characters in tension...")
     substyle_suffix = ""
     if profile:
         try:
@@ -757,71 +707,29 @@ def build_prompt_from_block(
         except (AttributeError, TypeError):
             pass
 
-    # Get negative prompt from profile
-    negative_prompt = ""
-    if profile:
-        try:
-            negative_prompt = profile.figure_rules.negative_prompt_suffix or ""
-        except (AttributeError, TypeError):
-            pass
-
     # ---------------------------------------------------------------
     # Prefix: character vs environment
     # ---------------------------------------------------------------
+    has_characters = bool(block_characters)
     if has_characters:
         prefix = _CHARACTER_PREFIX
-    elif _is_non_character_scene(all_content):
-        prefix = _ENVIRONMENT_PREFIX
     else:
         prefix = _ENVIRONMENT_PREFIX
 
     # ---------------------------------------------------------------
-    # Assemble prompt as flowing description (no rigid labels)
+    # Assemble prompt: prefix + Claude's description + camera/substyle + suffix
+    #
+    # Claude's visual_description already contains location, characters,
+    # lighting, mood, and action — all written with block context.
+    # Do NOT re-add block_location, block_lighting, or character costumes.
     # ---------------------------------------------------------------
-    parts = []
+    parts = [prefix]
 
-    # 1. Style prefix
-    parts.append(prefix)
+    # Claude's visual description IS the prompt content
+    if visual_desc:
+        parts.append(f"{visual_desc}.")
 
-    # 2. Location woven in (not "Setting: X")
-    if block_location:
-        loc = _strip_style_language(block_location).rstrip(". ")
-        parts.append(f"{loc}.")
-
-    # 3. Scene content: visual_desc is the primary visual driver
-    #    For character scenes, action goes with characters (not here)
-    #    For non-character scenes, merge action into scene content
-    if has_characters:
-        # Action lives with the characters — scene content stands alone
-        if visual_desc:
-            parts.append(f"{visual_desc}.")
-    else:
-        # No characters — merge action into scene content
-        if visual_desc and action:
-            action_clean = _strip_style_language(action).rstrip(". ")
-            if action_clean.lower() not in visual_desc.lower():
-                parts.append(f"{visual_desc}, {action_clean}.")
-            else:
-                parts.append(f"{visual_desc}.")
-        elif visual_desc:
-            parts.append(f"{visual_desc}.")
-        elif action:
-            parts.append(f"{_strip_style_language(action).rstrip('. ')}.")
-
-    # 4. Characters integrated (not "Characters: costume dump")
-    if char_parts:
-        parts.append(f"{'; '.join(char_parts)}.")
-
-    # 5. Lighting + mood (concise, not labeled)
-    light_mood = []
-    if block_lighting:
-        light_mood.append(_strip_style_language(block_lighting).rstrip(". "))
-    if mood and mood != "neutral":
-        light_mood.append(f"{mood} atmosphere")
-    if light_mood:
-        parts.append(f"{', '.join(light_mood)}.")
-
-    # 6. Camera composition + substyle suffix (merged for flow)
+    # Camera composition + substyle suffix
     camera_map = {
         "wide": "wide establishing shot",
         "medium": "medium shot",
@@ -835,16 +743,6 @@ def build_prompt_from_block(
     else:
         parts.append(f"{camera_desc}.")
 
-    # 8. Metaphor check — if visual_desc contains abstract language,
-    #    add a visualization hint from profile's metaphor table
-    metaphor_hint = _check_metaphor_table(visual_desc + " " + (action or ""), profile)
-    if metaphor_hint:
-        # Extract just the core visual direction, not the full hint
-        # Hints are like "Show character at central bank..." — take just the visual
-        hint_clean = metaphor_hint.rstrip(". ")
-        parts.append(f"({hint_clean}).")
-
-    # Combine flowing description
     prompt_body = " ".join(parts)
 
     # Apply style override to suffix if provided
@@ -852,12 +750,7 @@ def build_prompt_from_block(
     if image_style_override and image_style_override.strip():
         suffix = _apply_style_override(suffix, image_style_override)
 
-    # Negative prompt from profile (separated cleanly)
-    neg = ""
-    if negative_prompt:
-        neg = f". {negative_prompt.rstrip('. ')}"
-
-    return f"{prompt_body}{suffix}{neg}"
+    return f"{prompt_body}{suffix}"
 
 
 def assign_profile_styles(
