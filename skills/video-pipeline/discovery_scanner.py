@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 # Import competitor VPH calculation
 from bots.competitor_scraper import calculate_vph
 from clients.narrative_extractor import extract_narrative_fields_from_concept
-from pipeline_constants import Models
+from pipeline_constants import IdeaFields, Models
 from json_utils import parse_json_response
 
 # Source categories for headline scanning
@@ -1112,17 +1112,17 @@ def build_idea_record_from_discovery(
         "writer_guidance": idea.get("our_angle", ""),
         "narrative_logic": narrative,
         # Rich schema fields
-        "Framework Angle": idea.get("framework") or infer_framework_angle(idea),
-        "Headline": headline_source.split(" — ")[0] if " — " in headline_source else headline_source,
+        IdeaFields.FRAMEWORK_ANGLE: idea.get("framework") or infer_framework_angle(idea),
+        IdeaFields.HEADLINE: headline_source.split(" — ")[0] if " — " in headline_source else headline_source,
         "Timeliness Score": min(10, max(1, idea.get("estimated_appeal", 7))),
         "Audience Fit Score": min(10, max(1, appeal_breakdown.get("emotional_trigger", 7))),
         "Content Gap Score": min(10, max(1, appeal_breakdown.get("hidden_system", 7))),
-        "Source URLs": source_urls,
-        "Executive Hook": idea.get("hook", ""),
-        "Thesis": idea.get("our_angle", ""),
+        IdeaFields.SOURCE_URLS: source_urls,
+        IdeaFields.EXECUTIVE_HOOK: idea.get("hook", ""),
+        IdeaFields.THESIS: idea.get("our_angle", ""),
         "Date Surfaced": date.today().isoformat(),
         # Thumbnail text for yin-yang overlay (independent from title)
-        "Thumbnail Text": best_thumbnail,
+        IdeaFields.THUMBNAIL_TEXT: best_thumbnail,
         # Title Candidates — full JSON array of all title options with scores
         "Title Candidates": json.dumps(title_options) if title_options else "",
         # Store full discovery data as Original DNA for downstream use

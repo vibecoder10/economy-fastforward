@@ -22,7 +22,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 load_dotenv(Path(__file__).parent.parent.parent / ".env")
 
-from pipeline_constants import Statuses
+from pipeline_constants import IdeaFields, ImageFields, Statuses
 
 # Setup paths
 PIPELINE_DIR = Path(__file__).parent
@@ -62,10 +62,10 @@ def _get_video_title() -> str:
     try:
         api = get_airtable_api()
         table = api.table(AIRTABLE_BASE_ID, AIRTABLE_IDEAS_TABLE_ID)
-        records = table.all(sort=["Video Title"])
+        records = table.all(sort=[IdeaFields.VIDEO_TITLE])
         for r in records:
             status = r["fields"].get("Status", "")
-            title = r["fields"].get("Video Title", "")
+            title = r["fields"].get(IdeaFields.VIDEO_TITLE, "")
             if title and status in (Statuses.READY_TO_RENDER, Statuses.DONE, Statuses.RENDERED):
                 print(f"  • [{status}] {title}")
     except Exception:
@@ -180,7 +180,7 @@ def find_audio_files(idea: dict) -> dict[int, Path]:
         idea: Idea record from Airtable (must have 'Google Drive Folder ID')
     """
     # Get the Google Drive folder ID
-    folder_id = idea.get("Google Drive Folder ID") or idea.get("Drive Folder ID")
+    folder_id = idea.get(IdeaFields.GOOGLE_DRIVE_FOLDER_ID) or idea.get(IdeaFields.DRIVE_FOLDER_ID)
 
     if folder_id:
         print("  Downloading audio from Google Drive...")
@@ -226,11 +226,11 @@ async def run():
 
     scenes_images: dict[int, list[dict]] = defaultdict(list)
     for img in image_records:
-        scene_num = img.get("Scene")
+        scene_num = img.get(ImageFields.SCENE)
         if scene_num is not None:
             scenes_images[scene_num].append(img)
     for sn in scenes_images:
-        scenes_images[sn].sort(key=lambda x: x.get("Image Index", 0))
+        scenes_images[sn].sort(key=lambda x: x.get(ImageFields.IMAGE_INDEX, 0))
 
     scene_numbers = sorted(scenes_images.keys())
     total_images = sum(len(imgs) for imgs in scenes_images.values())
@@ -347,8 +347,8 @@ async def run():
         img_entries = []
         total_sentence_words = 0
         for img_idx, img in enumerate(images):
-            sentence = img.get("Sentence Text", "") or ""
-            img_index = img.get("Image Index", img_idx + 1)
+            sentence = img.get(ImageFields.SENTENCE_TEXT, "") or ""
+            img_index = img.get(ImageFields.IMAGE_INDEX, img_idx + 1)
             if not sentence.strip():
                 continue
             wc = len(sentence.split())
@@ -424,13 +424,13 @@ async def run():
     for scene_num in scene_numbers:
         images = scenes_images[scene_num]
         for img_idx, img in enumerate(images):
-            sentence = img.get("Sentence Text", "") or ""
-            img_index = img.get("Image Index", img_idx + 1)
+            sentence = img.get(ImageFields.SENTENCE_TEXT, "") or ""
+            img_index = img.get(ImageFields.IMAGE_INDEX, img_idx + 1)
             dur = image_durations.get((scene_num, img_index), 0)
             if dur <= 0:
                 continue
             dur = float(dur)
-            composition = img.get("Shot Type", "") or "wide"
+            composition = img.get(ImageFields.SHOT_TYPE, "") or "wide"
 
             timed_images.append({
                 "scene_number": scene_num,

@@ -6,7 +6,7 @@ Advances: Ready For Thumbnail → Ready To Render
 Clients: anthropic, image_client, google, airtable, slack
 """
 
-from pipeline_constants import Statuses
+from pipeline_constants import Statuses, IdeaFields
 
 
 async def run(pipeline) -> dict:
@@ -20,8 +20,8 @@ async def run(pipeline) -> dict:
             return {"error": "No idea with status 'Ready For Thumbnail'"}
         pipeline._load_idea(idea)
 
-    if pipeline.current_idea.get("Status") != Statuses.READY_THUMBNAIL:
-        return {"error": f"Idea status is '{pipeline.current_idea.get('Status')}', expected 'Ready For Thumbnail'"}
+    if pipeline.current_idea.get(IdeaFields.STATUS) != Statuses.READY_THUMBNAIL:
+        return {"error": f"Idea status is '{pipeline.current_idea.get(IdeaFields.STATUS)}', expected 'Ready For Thumbnail'"}
 
     print(f"\n🎨 THUMBNAIL BOT: Processing '{pipeline.video_title}'")
 
@@ -33,31 +33,31 @@ async def run(pipeline) -> dict:
     except Exception as e:
         print(f"  Could not refresh idea from Airtable: {e}")
 
-    video_title = pipeline.current_idea.get("Video Title", "")
-    video_summary = pipeline.current_idea.get("Summary", "")
+    video_title = pipeline.current_idea.get(IdeaFields.VIDEO_TITLE, "")
+    video_summary = pipeline.current_idea.get(IdeaFields.SUMMARY, "")
 
     # Read per-video thumbnail style override
-    thumbnail_style_override = (pipeline.current_idea.get("Thumbnail Style Override") or "").strip()
+    thumbnail_style_override = (pipeline.current_idea.get(IdeaFields.THUMBNAIL_STYLE_OVERRIDE) or "").strip()
     if thumbnail_style_override:
         print(f"  Thumbnail style override active: {thumbnail_style_override[:80]}...")
 
     # Read independent thumbnail text
-    thumbnail_text = (pipeline.current_idea.get("Thumbnail Text") or "").strip()
+    thumbnail_text = (pipeline.current_idea.get(IdeaFields.THUMBNAIL_TEXT) or "").strip()
     if thumbnail_text:
         print(f"  Thumbnail Text from Airtable: {thumbnail_text}")
     else:
         print(f"  No Thumbnail Text set — will auto-generate")
 
     # Read optional palette override
-    palette_override = (pipeline.current_idea.get("Thumbnail Palette") or "").strip().lower() or None
+    palette_override = (pipeline.current_idea.get(IdeaFields.THUMBNAIL_PALETTE) or "").strip().lower() or None
 
     # Build metadata for template selection
     video_metadata = {
-        "Video Title": video_title,
-        "Summary": video_summary,
-        "topic": pipeline.current_idea.get("Headline", ""),
-        "Framework Angle": pipeline.current_idea.get("Framework Angle", ""),
-        "Framework": pipeline.current_idea.get("Framework", ""),
+        IdeaFields.VIDEO_TITLE: video_title,
+        IdeaFields.SUMMARY: video_summary,
+        "topic": pipeline.current_idea.get(IdeaFields.HEADLINE, ""),
+        IdeaFields.FRAMEWORK_ANGLE: pipeline.current_idea.get(IdeaFields.FRAMEWORK_ANGLE, ""),
+        IdeaFields.FRAMEWORK: pipeline.current_idea.get(IdeaFields.FRAMEWORK, ""),
         "tags": [],
     }
 
@@ -85,9 +85,9 @@ async def run(pipeline) -> dict:
         }
 
     # --- Save generated prompt and title metadata to Airtable ---
-    pipeline.airtable.update_idea_field(pipeline.current_idea_id, "Thumbnail Prompt", result["thumbnail_prompt"])
+    pipeline.airtable.update_idea_field(pipeline.current_idea_id, IdeaFields.THUMBNAIL_PROMPT, result["thumbnail_prompt"])
     if result.get("title"):
-        pipeline.airtable.update_idea_field(pipeline.current_idea_id, "Video Title", result["title"])
+        pipeline.airtable.update_idea_field(pipeline.current_idea_id, IdeaFields.VIDEO_TITLE, result["title"])
 
     # --- Warn Slack if thumbnail text was auto-generated ---
     if result.get("thumbnail_text_auto_generated"):

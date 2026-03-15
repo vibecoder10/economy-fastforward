@@ -40,7 +40,7 @@ else:
 
 from slack_bolt.async_app import AsyncApp
 from slack_bolt.adapter.socket_mode.async_handler import AsyncSocketModeHandler
-from pipeline_constants import Models, Statuses
+from pipeline_constants import IdeaFields, Models, Statuses
 
 # Initialize Slack app
 app = AsyncApp(token=os.environ.get("SLACK_BOT_TOKEN"))
@@ -623,13 +623,13 @@ async def handle_approve_script(message, say):
         search_lower = search_title.lower()
         matched = None
         for idea in blocked:
-            title = idea.get("Video Title", "") or idea.get("Headline", "") or ""
+            title = idea.get(IdeaFields.VIDEO_TITLE, "") or idea.get(IdeaFields.HEADLINE, "") or ""
             if search_lower in title.lower():
                 matched = idea
                 break
 
         if not matched:
-            titles = [i.get("Video Title", i.get("Headline", "Untitled")) for i in blocked]
+            titles = [i.get(IdeaFields.VIDEO_TITLE, i.get(IdeaFields.HEADLINE, "Untitled")) for i in blocked]
             await say(
                 f":x: No match for '{search_title}'\n"
                 f"Blocked scripts: {', '.join(titles[:5])}"
@@ -638,7 +638,7 @@ async def handle_approve_script(message, say):
 
         # Approve: advance to Ready For Voice
         record_id = matched["id"]
-        title = matched.get("Video Title", matched.get("Headline", "Untitled"))
+        title = matched.get(IdeaFields.VIDEO_TITLE, matched.get(IdeaFields.HEADLINE, "Untitled"))
         airtable.update_idea_status(record_id, Statuses.READY_VOICE)
 
         await say(
@@ -1038,7 +1038,7 @@ async def handle_sound_design(message, say):
             await say(f":x: No video found matching *{title_query}*")
             return
 
-        video_title = idea.get("Video Title", title_query)
+        video_title = idea.get(IdeaFields.VIDEO_TITLE, title_query)
         await say(f":headphones: Generating sound prompts for *{video_title}* (per-image)...")
 
         bot = SoundPromptBot(airtable=airtable)
@@ -1088,7 +1088,7 @@ async def handle_sound_effects(message, say):
             await say(f":x: No video found matching *{title_query}*")
             return
 
-        video_title = idea.get("Video Title", title_query)
+        video_title = idea.get(IdeaFields.VIDEO_TITLE, title_query)
         await say(f":loud_sound: Generating sound effects for *{video_title}* (per-image)...")
 
         google = GoogleClient()
@@ -1140,7 +1140,7 @@ async def handle_sound_all(message, say):
             await say(f":x: No video found matching *{title_query}*")
             return
 
-        video_title = idea.get("Video Title", title_query)
+        video_title = idea.get(IdeaFields.VIDEO_TITLE, title_query)
         await say(f":headphones: Starting full sound pipeline for *{video_title}* (per-image)...")
 
         # Step 1: Sound prompts (one per image via Claude Haiku)
@@ -1668,7 +1668,7 @@ async def _handle_discovery_approval(
         # Save the selected formula_id for performance tracking
         if selected_formula_id:
             try:
-                airtable.update_idea_field(record_id, "Title Formula", selected_formula_id)
+                airtable.update_idea_field(record_id, IdeaFields.TITLE_FORMULA, selected_formula_id)
             except Exception as e:
                 log.warning(f"Could not write Title Formula: {e}")
 
@@ -1690,7 +1690,7 @@ async def _handle_discovery_approval(
         # Write research payload back to the same record
         research_json = json.dumps(payload)
         try:
-            airtable.update_idea_field(record_id, "Research Payload", research_json)
+            airtable.update_idea_field(record_id, IdeaFields.RESEARCH_PAYLOAD, research_json)
         except Exception as e:
             if "UNKNOWN_FIELD_NAME" in str(e):
                 log.info("Research Payload field not yet in Airtable — skipping")
@@ -1781,19 +1781,19 @@ async def _handle_cron_discovery_approval(
             # Update Video Title to the user's chosen title
             if selected_title:
                 try:
-                    airtable.update_idea_field(record_id, "Video Title", selected_title)
+                    airtable.update_idea_field(record_id, IdeaFields.VIDEO_TITLE, selected_title)
                 except Exception as e:
                     log.warning(f"Could not update Video Title: {e}")
             # Save the selected formula_id for performance tracking
             if selected_formula_id:
                 try:
-                    airtable.update_idea_field(record_id, "Title Formula", selected_formula_id)
+                    airtable.update_idea_field(record_id, IdeaFields.TITLE_FORMULA, selected_formula_id)
                 except Exception as e:
                     log.warning(f"Could not write Title Formula: {e}")
             # Save thumbnail text for yin-yang overlay
             if selected_thumbnail_text:
                 try:
-                    airtable.update_idea_field(record_id, "Thumbnail Text", selected_thumbnail_text)
+                    airtable.update_idea_field(record_id, IdeaFields.THUMBNAIL_TEXT, selected_thumbnail_text)
                 except Exception as e:
                     log.warning(f"Could not write Thumbnail Text: {e}")
             log.info(f"Updated existing Airtable record: {record_id} — {title} (formula: {selected_formula_id})")
@@ -1811,7 +1811,7 @@ async def _handle_cron_discovery_approval(
             airtable.update_idea_status(record_id, Statuses.APPROVED)
             if selected_formula_id:
                 try:
-                    airtable.update_idea_field(record_id, "Title Formula", selected_formula_id)
+                    airtable.update_idea_field(record_id, IdeaFields.TITLE_FORMULA, selected_formula_id)
                 except Exception as e:
                     log.warning(f"Could not write Title Formula: {e}")
 
@@ -1831,7 +1831,7 @@ async def _handle_cron_discovery_approval(
         # Write research payload back to the record
         research_json = json.dumps(payload)
         try:
-            airtable.update_idea_field(record_id, "Research Payload", research_json)
+            airtable.update_idea_field(record_id, IdeaFields.RESEARCH_PAYLOAD, research_json)
         except Exception as e:
             if "UNKNOWN_FIELD_NAME" in str(e):
                 log.info("Research Payload field not yet in Airtable — skipping")
@@ -1904,7 +1904,7 @@ async def handle_research(message, say):
 
             idea = approved[0]
             record_id = idea["id"]
-            title = idea.get("Video Title", "Untitled")
+            title = idea.get(IdeaFields.VIDEO_TITLE, "Untitled")
             current_task_name = f"research: {title}"
 
             await say(f":microscope: Researching approved idea: _{title}_")
@@ -1913,7 +1913,7 @@ async def handle_research(message, say):
             payload = await run_research(
                 anthropic_client=anthropic,
                 topic=title,
-                context=idea.get("Hook Script", ""),
+                context=idea.get(IdeaFields.HOOK_SCRIPT, ""),
                 airtable_client=None,  # Don't create a duplicate record
             )
 
@@ -1922,18 +1922,18 @@ async def handle_research(message, say):
             try:
                 from research_agent import infer_framework_from_research
                 research_fields = {
-                    "Research Payload": research_json,
+                    IdeaFields.RESEARCH_PAYLOAD: research_json,
                     "Source URLs": payload.get("source_bibliography", ""),
                     "Executive Hook": payload.get("executive_hook", ""),
                     "Thesis": payload.get("thesis", ""),
                 }
-                if not idea.get("Framework Angle"):
-                    research_fields["Framework Angle"] = infer_framework_from_research(payload)
+                if not idea.get(IdeaFields.FRAMEWORK_ANGLE):
+                    research_fields[IdeaFields.FRAMEWORK_ANGLE] = infer_framework_from_research(payload)
                 airtable.update_idea_fields(record_id, research_fields)
             except Exception as e:
                 log.warning(f"Could not write research fields: {e}")
                 try:
-                    airtable.update_idea_field(record_id, "Research Payload", research_json)
+                    airtable.update_idea_field(record_id, IdeaFields.RESEARCH_PAYLOAD, research_json)
                 except Exception:
                     log.warning("Could not write Research Payload field either")
 
@@ -2183,7 +2183,7 @@ async def handle_style_image(message, say):
 
         airtable.update_idea_fields(idea["id"], {"Image Style Override": instructions})
         preview = instructions[:50] + "..." if len(instructions) > 50 else instructions
-        video_title = idea.get("Video Title", title)
+        video_title = idea.get(IdeaFields.VIDEO_TITLE, title)
         await say(f":art: Image style override set for *{video_title}*: {preview}")
     except Exception as e:
         await say(f":x: Error setting image style override: {e}")
@@ -2210,7 +2210,7 @@ async def handle_style_thumbnail(message, say):
 
         airtable.update_idea_fields(idea["id"], {"Thumbnail Style Override": instructions})
         preview = instructions[:50] + "..." if len(instructions) > 50 else instructions
-        video_title = idea.get("Video Title", title)
+        video_title = idea.get(IdeaFields.VIDEO_TITLE, title)
         await say(f":art: Thumbnail style override set for *{video_title}*: {preview}")
     except Exception as e:
         await say(f":x: Error setting thumbnail style override: {e}")
@@ -2242,7 +2242,7 @@ async def handle_style_color(message, say):
             return
 
         airtable.update_idea_fields(idea["id"], {"Accent Color": color})
-        video_title = idea.get("Video Title", title)
+        video_title = idea.get(IdeaFields.VIDEO_TITLE, title)
         await say(f":art: Accent color set for *{video_title}*: {color}")
     except Exception as e:
         await say(f":x: Error setting accent color: {e}")
@@ -2273,7 +2273,7 @@ async def handle_style_reset(message, say):
             "Image Model Override": [],  # Multiple Select requires array
             "Visual Style": "",  # Single Select clears with empty string
         })
-        video_title = idea.get("Video Title", title)
+        video_title = idea.get(IdeaFields.VIDEO_TITLE, title)
         await say(f":white_check_mark: Style overrides cleared for *{video_title}*")
     except Exception as e:
         await say(f":x: Error resetting style overrides: {e}")
@@ -2309,7 +2309,7 @@ async def handle_model_set(message, say):
             return
 
         airtable.update_idea_fields(idea["id"], {"Image Model Override": [model_name]})  # Multiple Select format
-        video_title = idea.get("Video Title", title)
+        video_title = idea.get(IdeaFields.VIDEO_TITLE, title)
         desc = ImageClient.VALID_SCENE_MODELS[model_name]
         await say(f":arrows_counterclockwise: Image model set for *{video_title}*: `{model_name}` ({desc})")
     except Exception as e:
@@ -2335,7 +2335,7 @@ async def handle_model_reset(message, say):
             return
 
         airtable.update_idea_fields(idea["id"], {"Image Model Override": []})  # Multiple Select clears with empty array
-        video_title = idea.get("Video Title", title)
+        video_title = idea.get(IdeaFields.VIDEO_TITLE, title)
         await say(f":white_check_mark: Image model reset to default for *{video_title}*")
     except Exception as e:
         await say(f":x: Error resetting image model: {e}")
@@ -2383,7 +2383,7 @@ async def handle_visualstyle_set(message, say):
             return
 
         airtable.update_idea_fields(idea["id"], {"Visual Style": style_name})
-        video_title = idea.get("Video Title", title)
+        video_title = idea.get(IdeaFields.VIDEO_TITLE, title)
         await say(f":art: Visual style set for *{video_title}*: `{style_name}`")
     except Exception as e:
         await say(f":x: Error setting visual style: {e}")
@@ -2409,7 +2409,7 @@ async def handle_visualstyle_reset(message, say):
             return
 
         airtable.update_idea_fields(idea["id"], {"Visual Style": ""})
-        video_title = idea.get("Video Title", title)
+        video_title = idea.get(IdeaFields.VIDEO_TITLE, title)
         await say(f":white_check_mark: Visual style reset to default (`{DEFAULT_VISUAL_STYLE}`) for *{video_title}*")
     except Exception as e:
         await say(f":x: Error resetting visual style: {e}")
@@ -2449,7 +2449,7 @@ async def handle_delete_scripts(message, say):
             await say(f":x: No video found matching *{title}*")
             return
 
-        video_title = idea.get("Video Title", title)
+        video_title = idea.get(IdeaFields.VIDEO_TITLE, title)
         count = airtable.delete_scripts_for_video(video_title)
         if count == 0:
             await say(f":warning: No script records found for *{video_title}*")
@@ -2487,7 +2487,7 @@ async def handle_delete_images(message, say):
             await say(f":x: No video found matching *{title}*")
             return
 
-        video_title = idea.get("Video Title", title)
+        video_title = idea.get(IdeaFields.VIDEO_TITLE, title)
         count = airtable.delete_images_for_video(video_title)
         if count == 0:
             await say(f":warning: No image records found for *{video_title}*")

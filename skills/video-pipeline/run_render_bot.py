@@ -18,6 +18,7 @@ from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
 
 from pipeline import VideoPipeline
+from pipeline_constants import IdeaFields
 
 
 async def main():
@@ -36,11 +37,11 @@ async def main():
 
     print(f"\n📋 Found {len(ideas)} video(s) to render:")
     for i, idea in enumerate(ideas, 1):
-        print(f"   {i}. {idea.get('Video Title', 'Untitled')}")
+        print(f"   {i}. {idea.get(IdeaFields.VIDEO_TITLE, 'Untitled')}")
 
     # Process one at a time, sequentially
     for i, idea in enumerate(ideas, 1):
-        title = idea.get("Video Title", "Untitled")
+        title = idea.get(IdeaFields.VIDEO_TITLE, "Untitled")
         print(f"\n{'=' * 60}")
         print(f"🎬 RENDERING {i}/{len(ideas)}: {title}")
         print(f"{'=' * 60}")

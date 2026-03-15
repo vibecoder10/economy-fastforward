@@ -10,6 +10,7 @@ load_dotenv(os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
 
 from pyairtable import Api
 from pyairtable.formulas import match
+from pipeline_constants import ImageFields
 
 
 def reset_visuals(video_title: str):
@@ -26,8 +27,8 @@ def reset_visuals(video_title: str):
 
     print("🔍 Searching for records...")
     records = table.all(
-        formula=match({"Video Title": video_title}),
-        sort=["Scene", "Image Index"],
+        formula=match({ImageFields.VIDEO_TITLE: video_title}),
+        sort=[ImageFields.SCENE, ImageFields.IMAGE_INDEX],
     )
     print(f"Found {len(records)} records.")
 

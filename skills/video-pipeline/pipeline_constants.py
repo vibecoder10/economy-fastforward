@@ -105,6 +105,15 @@ class IdeaFields:
     RETENTION_48H = "Retention 48h (%)"
     LAST_ANALYTICS_SYNC = "Last Analytics Sync"
 
+    # Thumbnail
+    THUMBNAIL_TEXT = "Thumbnail Text"
+    THUMBNAIL_PALETTE = "Thumbnail Palette"
+    SUMMARY = "Summary"
+
+    # Computed / formula
+    TITLE_FORMULA = "Title Formula"
+    FRAMEWORK = "Framework"
+
     # Osiris
     POST_MORTEM_48H = "Post-Mortem 48h"
     POST_MORTEM_7D = "Post-Mortem 7d"

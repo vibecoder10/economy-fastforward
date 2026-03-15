@@ -38,7 +38,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Must be after load_dotenv and sys.path setup
-from pipeline_constants import Statuses  # noqa: E402
+from pipeline_constants import IdeaFields, Statuses  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -324,17 +324,17 @@ class DiscoveryBot:
             # Write research back to the same record
             import json
             research_fields = {
-                "Research Payload": json.dumps(payload),
-                "Source URLs": payload.get("source_bibliography", ""),
-                "Executive Hook": payload.get("executive_hook", ""),
-                "Thesis": payload.get("thesis", ""),
-                "Thematic Framework": payload.get("themes", ""),
-                "Headline": payload.get("headline", ""),
+                IdeaFields.RESEARCH_PAYLOAD: json.dumps(payload),
+                IdeaFields.SOURCE_URLS: payload.get("source_bibliography", ""),
+                IdeaFields.EXECUTIVE_HOOK: payload.get("executive_hook", ""),
+                IdeaFields.THESIS: payload.get("thesis", ""),
+                IdeaFields.THEMATIC_FRAMEWORK: payload.get("themes", ""),
+                IdeaFields.HEADLINE: payload.get("headline", ""),
             }
 
             # Set Framework Angle from research
             framework_angle = infer_framework_from_research(payload)
-            research_fields["Framework Angle"] = framework_angle
+            research_fields[IdeaFields.FRAMEWORK_ANGLE] = framework_angle
 
             try:
                 self.airtable.update_idea_fields(record_id, research_fields)

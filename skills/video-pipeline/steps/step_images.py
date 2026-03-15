@@ -10,7 +10,7 @@ import asyncio
 import gc
 from collections import defaultdict
 
-from pipeline_constants import Statuses, Models
+from pipeline_constants import Statuses, Models, IdeaFields, ImageFields, ScriptFields
 
 
 async def run(pipeline) -> dict:
@@ -21,8 +21,8 @@ async def run(pipeline) -> dict:
             return {"error": "No idea with status 'Ready For Images'"}
         pipeline._load_idea(idea)
 
-    if pipeline.current_idea.get("Status") != Statuses.READY_IMAGES:
-        return {"error": f"Idea status is '{pipeline.current_idea.get('Status')}', expected 'Ready For Images'"}
+    if pipeline.current_idea.get(IdeaFields.STATUS) != Statuses.READY_IMAGES:
+        return {"error": f"Idea status is '{pipeline.current_idea.get(IdeaFields.STATUS)}', expected 'Ready For Images'"}
 
     print(f"\n🖼️ IMAGE BOT: Processing '{pipeline.video_title}'")
     pipeline._log_filters()
@@ -47,8 +47,8 @@ async def run(pipeline) -> dict:
 
     # VERIFY all images are actually complete before advancing status
     all_images = pipeline.airtable.get_all_images_for_video(pipeline.video_title)
-    pending = [img for img in all_images if img.get("Status") != "Done" and img.get("Image Prompt")]
-    total = len([img for img in all_images if img.get("Image Prompt")])
+    pending = [img for img in all_images if img.get(ImageFields.STATUS) != ImageFields.STATUS_DONE and img.get(ImageFields.IMAGE_PROMPT)]
+    total = len([img for img in all_images if img.get(ImageFields.IMAGE_PROMPT)])
 
     if not all_images or total == 0:
         error_msg = f"No images found for '{pipeline.video_title}' — cannot advance status"
@@ -104,8 +104,8 @@ async def _generate_images(pipeline) -> dict:
 
     # RESUME LOGIC: Get only pending images
     all_images = pipeline.airtable.get_all_images_for_video(pipeline.video_title)
-    done_count = len([img for img in all_images if img.get("Status") == "Done"])
-    pending_images = [img for img in all_images if img.get("Status") == "Pending" and img.get("Image Prompt")]
+    done_count = len([img for img in all_images if img.get(ImageFields.STATUS) == ImageFields.STATUS_DONE])
+    pending_images = [img for img in all_images if img.get(ImageFields.STATUS) == ImageFields.STATUS_PENDING and img.get(ImageFields.IMAGE_PROMPT)]
 
     # Apply scene/image filters
     pending_images = pipeline._filter_by_scene(pending_images)
@@ -145,7 +145,7 @@ async def _generate_images(pipeline) -> dict:
     # Group images by scene
     scenes = {}
     for img in pending_images:
-        scene_num = img.get("Scene", 0)
+        scene_num = img.get(ImageFields.SCENE, 0)
         if scene_num not in scenes:
             scenes[scene_num] = []
         scenes[scene_num].append(img)
@@ -163,8 +163,8 @@ async def _generate_images(pipeline) -> dict:
             nonlocal image_count, failed_count
 
             async with semaphore:
-                prompt = img_record.get("Image Prompt", "")
-                index = img_record.get("Image Index", 0)
+                prompt = img_record.get(ImageFields.IMAGE_PROMPT, "")
+                index = img_record.get(ImageFields.IMAGE_INDEX, 0)
                 record_id = img_record["id"]
                 prompt_preview = prompt[:120] + "..." if len(prompt) > 120 else prompt
 
@@ -229,7 +229,7 @@ async def _generate_images(pipeline) -> dict:
     max_retries = 3
     for retry_round in range(max_retries):
         all_images = pipeline.airtable.get_all_images_for_video(pipeline.video_title)
-        pending = [img for img in all_images if img.get("Status") != "Done" and img.get("Image Prompt")]
+        pending = [img for img in all_images if img.get(ImageFields.STATUS) != ImageFields.STATUS_DONE and img.get(ImageFields.IMAGE_PROMPT)]
 
         if not pending:
             print(f"    ✅ All images verified complete")
@@ -240,7 +240,7 @@ async def _generate_images(pipeline) -> dict:
 
         retry_scenes = defaultdict(list)
         for img in pending:
-            retry_scenes[img.get("Scene", 0)].append(img)
+            retry_scenes[img.get(ImageFields.SCENE, 0)].append(img)
 
         retry_count = 0
         for s_num in sorted(retry_scenes.keys()):
@@ -249,8 +249,8 @@ async def _generate_images(pipeline) -> dict:
 
             for img_record in s_images:
                 record_id = img_record["id"]
-                prompt = img_record.get("Image Prompt", "")
-                index = img_record.get("Image Index", 0)
+                prompt = img_record.get(ImageFields.IMAGE_PROMPT, "")
+                index = img_record.get(ImageFields.IMAGE_INDEX, 0)
 
                 try:
                     if model_override == Models.IMAGE_ZIMAGE:
@@ -289,7 +289,7 @@ async def _generate_images(pipeline) -> dict:
 
     # Final check
     final_images = pipeline.airtable.get_all_images_for_video(pipeline.video_title)
-    final_pending = len([img for img in final_images if img.get("Status") != "Done" and img.get("Image Prompt")])
+    final_pending = len([img for img in final_images if img.get(ImageFields.STATUS) != ImageFields.STATUS_DONE and img.get(ImageFields.IMAGE_PROMPT)])
     if final_pending > 0:
         pipeline.slack.notify(f"⚠️ {final_pending} images still pending after retries for *{pipeline.video_title}*")
     else:

@@ -39,6 +39,8 @@ from dotenv import load_dotenv
 env_path = Path(__file__).parent.parent.parent / ".env"
 load_dotenv(env_path)
 
+from pipeline_constants import IdeaFields
+
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
@@ -57,8 +59,8 @@ READ_SCOPES = [
 
 # Snapshot fields — written once, never overwritten
 SNAPSHOT_FIELDS = {
-    "Views 24h", "Views 48h", "Views 7d", "Views 30d",
-    "CTR 48h (%)", "Retention 48h (%)",
+    IdeaFields.VIEWS_24H, IdeaFields.VIEWS_48H, IdeaFields.VIEWS_7D, IdeaFields.VIEWS_30D,
+    IdeaFields.CTR_48H, IdeaFields.RETENTION_48H,
 }
 
 
@@ -103,13 +105,13 @@ def get_uploaded_videos(airtable_client, recent_only: bool = False) -> list[dict
         List of Airtable record dicts with 'id' and field data
     """
     all_ideas = airtable_client.get_all_ideas()
-    uploaded = [r for r in all_ideas if r.get("YouTube Video ID")]
+    uploaded = [r for r in all_ideas if r.get(IdeaFields.YOUTUBE_VIDEO_ID)]
 
     if recent_only:
         cutoff = datetime.now(timezone.utc) - timedelta(days=30)
         filtered = []
         for r in uploaded:
-            upload_date_str = r.get("Upload Date") or r.get("Last Analytics Sync")
+            upload_date_str = r.get(IdeaFields.UPLOAD_DATE) or r.get(IdeaFields.LAST_ANALYTICS_SYNC)
             if not upload_date_str:
                 # No date info — include it (might be new)
                 filtered.append(r)
@@ -425,24 +427,24 @@ def calculate_snapshots(
     snapshots = {}
 
     # Only write snapshots that haven't been written yet
-    if hours_since >= 24 and existing_fields.get("Views 24h") is None:
-        snapshots["Views 24h"] = stats["views"]
+    if hours_since >= 24 and existing_fields.get(IdeaFields.VIEWS_24H) is None:
+        snapshots[IdeaFields.VIEWS_24H] = stats["views"]
 
     if hours_since >= 48:
-        if existing_fields.get("Views 48h") is None:
-            snapshots["Views 48h"] = stats["views"]
+        if existing_fields.get(IdeaFields.VIEWS_48H) is None:
+            snapshots[IdeaFields.VIEWS_48H] = stats["views"]
         if analytics:
-            if existing_fields.get("Retention 48h (%)") is None:
-                snapshots["Retention 48h (%)"] = analytics["avg_retention"]
+            if existing_fields.get(IdeaFields.RETENTION_48H) is None:
+                snapshots[IdeaFields.RETENTION_48H] = analytics["avg_retention"]
         if reporting:
-            if existing_fields.get("CTR 48h (%)") is None:
-                snapshots["CTR 48h (%)"] = reporting["ctr"]
+            if existing_fields.get(IdeaFields.CTR_48H) is None:
+                snapshots[IdeaFields.CTR_48H] = reporting["ctr"]
 
-    if hours_since >= 168 and existing_fields.get("Views 7d") is None:
-        snapshots["Views 7d"] = stats["views"]
+    if hours_since >= 168 and existing_fields.get(IdeaFields.VIEWS_7D) is None:
+        snapshots[IdeaFields.VIEWS_7D] = stats["views"]
 
-    if hours_since >= 720 and existing_fields.get("Views 30d") is None:
-        snapshots["Views 30d"] = stats["views"]
+    if hours_since >= 720 and existing_fields.get(IdeaFields.VIEWS_30D) is None:
+        snapshots[IdeaFields.VIEWS_30D] = stats["views"]
 
     return snapshots
 
@@ -517,14 +519,14 @@ def get_formula_performance(airtable_client) -> list[dict]:
     # Filter to records with both Title Formula and CTR data
     formula_data: dict[str, list] = {}
     for idea in all_ideas:
-        formula_id = idea.get("Title Formula", "")
-        ctr = idea.get("CTR (%)")
+        formula_id = idea.get(IdeaFields.TITLE_FORMULA, "")
+        ctr = idea.get(IdeaFields.CTR)
         if not formula_id or ctr is None:
             continue
         if formula_id not in formula_data:
             formula_data[formula_id] = []
         formula_data[formula_id].append({
-            "title": idea.get("Video Title", "Unknown"),
+            "title": idea.get(IdeaFields.VIDEO_TITLE, "Unknown"),
             "ctr": float(ctr),
             "views": idea.get("Views", 0),
         })
@@ -616,11 +618,11 @@ def main(recent_only: bool = False, dry_run: bool = False):
     results = []
 
     for video in videos:
-        video_id = video.get("YouTube Video ID")
+        video_id = video.get(IdeaFields.YOUTUBE_VIDEO_ID)
         record_id = video["id"]
-        title = video.get("Video Title", "Unknown")
-        upload_date = video.get("Upload Date")
-        formula_id = video.get("Title Formula", "")
+        title = video.get(IdeaFields.VIDEO_TITLE, "Unknown")
+        upload_date = video.get(IdeaFields.UPLOAD_DATE)
+        formula_id = video.get(IdeaFields.TITLE_FORMULA, "")
 
         print(f"  {title}")
         print(f"    YouTube ID: {video_id}")
@@ -684,10 +686,10 @@ def main(recent_only: bool = False, dry_run: bool = False):
                 print(f"    Snapshot: {field_name} = {snapshots[field_name]}")
 
         # Backfill Upload Date if it was missing and we got it from YouTube
-        if not video.get("Upload Date") and upload_date:
-            update_fields["Upload Date"] = upload_date
+        if not video.get(IdeaFields.UPLOAD_DATE) and upload_date:
+            update_fields[IdeaFields.UPLOAD_DATE] = upload_date
 
-        update_fields["Last Analytics Sync"] = datetime.now(timezone.utc).isoformat()
+        update_fields[IdeaFields.LAST_ANALYTICS_SYNC] = datetime.now(timezone.utc).isoformat()
 
         # Write to Airtable
         if dry_run:

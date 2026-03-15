@@ -29,6 +29,7 @@ sys.path.insert(0, str(PIPELINE_DIR))
 import httpx
 from clients.airtable_client import AirtableClient
 from clients.google_client import GoogleClient
+from pipeline_constants import IdeaFields, ImageFields
 
 
 def _get_video_title() -> str:
@@ -57,7 +58,7 @@ def main():
         print("❌ No image records found")
         sys.exit(1)
 
-    done_images = [img for img in images if img.get("Status") == "Done"]
+    done_images = [img for img in images if img.get(ImageFields.STATUS) == ImageFields.STATUS_DONE]
     print(f"  Found {len(images)} image records ({len(done_images)} with status Done)")
 
     # Step 2: Get or create Drive folder
@@ -67,7 +68,7 @@ def main():
     idea = airtable.find_idea_by_title(VIDEO_TITLE)
     folder_id = None
     if idea:
-        folder_id = idea.get("Google Drive Folder ID") or idea.get("Drive Folder ID")
+        folder_id = idea.get(IdeaFields.GOOGLE_DRIVE_FOLDER_ID) or idea.get(IdeaFields.DRIVE_FOLDER_ID)
 
     if folder_id:
         print(f"  Folder ID from Airtable: {folder_id}")
@@ -90,8 +91,8 @@ def main():
     errors = 0
 
     for img in done_images:
-        scene = img.get("Scene", 0)
-        img_index = img.get("Image Index", 0)
+        scene = img.get(ImageFields.SCENE, 0)
+        img_index = img.get(ImageFields.IMAGE_INDEX, 0)
         record_id = img.get("id")
         filename = f"Scene_{int(scene):02d}_{int(img_index):02d}.png"
 
@@ -104,7 +105,7 @@ def main():
         url = None
 
         # Source 1: Airtable Image attachment (may be expired)
-        attachments = img.get("Image", [])
+        attachments = img.get(ImageFields.IMAGE, [])
         if attachments and isinstance(attachments, list):
             url = attachments[0].get("url", "")
 

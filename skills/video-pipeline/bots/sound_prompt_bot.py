@@ -302,7 +302,7 @@ class SoundPromptBot:
 
             # Check if all images in this scene already have prompts
             needs_processing = [
-                img for img in scene_images if not img.get("Sound Prompt")
+                img for img in scene_images if not img.get(ImageFields.SOUND_PROMPT)
             ]
             already_done = len(scene_images) - len(needs_processing)
 

@@ -50,7 +50,7 @@ from bots.sound_prompt_bot import SoundPromptBot
 from bots.sound_bot import SoundBot
 from pipeline_config import VideoConfig
 from segmentation_engine import enforce_duration_caps, recalculate_durations
-from pipeline_constants import Models, Statuses
+from pipeline_constants import Models, Statuses, IdeaFields, ScriptFields, ImageFields
 from image_prompt_engine.prompt_builder import (
     CAMERA_MOVEMENTS,
     detect_camera_movement,
@@ -138,7 +138,7 @@ class VideoPipeline:
         if self.scene_filter is not None:
             records = [r for r in records if r.get(scene_key) == self.scene_filter]
         if self.image_filter is not None:
-            records = [r for r in records if r.get("Image Index") == self.image_filter]
+            records = [r for r in records if r.get(ImageFields.IMAGE_INDEX) == self.image_filter]
         return records
 
     def get_idea_by_status(self, status: str) -> Optional[dict]:
@@ -157,21 +157,21 @@ class VideoPipeline:
         """
         self.airtable.update_idea_status(self.current_idea_id, new_status)
         if self.current_idea:
-            self.current_idea["Status"] = new_status
+            self.current_idea[IdeaFields.STATUS] = new_status
 
     def _load_idea(self, idea: dict):
         """Load idea data into pipeline state."""
         self.current_idea = idea
         self.current_idea_id = idea.get("id")
-        self.video_title = idea.get("Video Title", "Untitled")
+        self.video_title = idea.get(IdeaFields.VIDEO_TITLE, "Untitled")
 
         # Restore saved Google Drive folder ID (avoids name-based search issues)
-        saved_folder_id = idea.get("Drive Folder ID")
+        saved_folder_id = idea.get(IdeaFields.DRIVE_FOLDER_ID)
         if saved_folder_id:
             self.project_folder_id = saved_folder_id
 
         # Extract Core Image URL from the idea/project record
-        core_image_attachments = idea.get("Core Image", [])
+        core_image_attachments = idea.get(IdeaFields.CORE_IMAGE, [])
         if core_image_attachments and isinstance(core_image_attachments, list):
             self.core_image_url = core_image_attachments[0].get("url", "")
         else:
@@ -190,7 +190,7 @@ class VideoPipeline:
         os.environ["VISUAL_PROFILE"] = self.visual_style
 
         print(f"\n📌 Loaded idea: {self.video_title}")
-        print(f"   Status: {idea.get('Status')}")
+        print(f"   Status: {idea.get(IdeaFields.STATUS)}")
         print(f"   ID: {self.current_idea_id}")
         print(f"   🎬 {self.video_config.summary().splitlines()[0]}")
         print(f"   🎨 Visual style: {self.visual_style}")
@@ -216,20 +216,20 @@ class VideoPipeline:
         """
         # Check scripts
         scripts = self.airtable.get_scripts_by_title(video_title)
-        scripts_finished = [s for s in scripts if s.get("Script Status") == "Finished"]
-        scripts_to_voice = [s for s in scripts if s.get("Script Status") == "Create"]
+        scripts_finished = [s for s in scripts if s.get(ScriptFields.SCRIPT_STATUS) == ScriptFields.STATUS_FINISHED]
+        scripts_to_voice = [s for s in scripts if s.get(ScriptFields.SCRIPT_STATUS) == ScriptFields.STATUS_CREATE]
         
         # Check images
         all_images = self.airtable.get_all_images_for_video(video_title)
-        pending_images = [img for img in all_images if img.get("Status") == "Pending"]
-        done_images = [img for img in all_images if img.get("Status") == "Done"]
+        pending_images = [img for img in all_images if img.get(ImageFields.STATUS) == ImageFields.STATUS_PENDING]
+        done_images = [img for img in all_images if img.get(ImageFields.STATUS) == ImageFields.STATUS_DONE]
         
         # Check videos (images with Video) - CONSTRAINT: Scene 1 only for now
         # We define "Video Work" as done based on Scene 1 completeness
-        scene_1_images = [img for img in done_images if img.get("Scene") == 1]
-        scene_1_prompts = [img for img in scene_1_images if img.get("Video Prompt")]
+        scene_1_images = [img for img in done_images if img.get(ImageFields.SCENE) == 1]
+        scene_1_prompts = [img for img in scene_1_images if img.get(ImageFields.VIDEO_PROMPT)]
         # Check 'Video' field (list of attachments)
-        scene_1_videos = [img for img in scene_1_images if img.get("Video")]
+        scene_1_videos = [img for img in scene_1_images if img.get(ImageFields.VIDEO)]
         
         # Determine what status this video should be at
         suggested_status = None
@@ -299,7 +299,7 @@ class VideoPipeline:
         # Sort by scene and index
         sorted_images = sorted(
             images,
-            key=lambda x: (x.get("Scene", 0), x.get("Image Index", 0))
+            key=lambda x: (x.get(ImageFields.SCENE, 0), x.get(ImageFields.IMAGE_INDEX, 0))
         )
 
         if not sorted_images:
@@ -324,7 +324,7 @@ class VideoPipeline:
             return False
 
         # Rule 1: First image of Scene 1 (opening hook)
-        scene_1_images = [img for img in sorted_images if img.get("Scene") == 1]
+        scene_1_images = [img for img in sorted_images if img.get(ImageFields.SCENE) == 1]
         if scene_1_images:
             hero_ids.append(scene_1_images[0]["id"])
 
@@ -333,15 +333,15 @@ class VideoPipeline:
         for img in sorted_images:
             if len(hero_ids) >= max_heroes:
                 break
-            segment_text = img.get("Sentence Text", "").lower()
+            segment_text = img.get(ImageFields.SENTENCE_TEXT, "").lower()
             if any(kw in segment_text for kw in data_keywords):
                 if not is_consecutive_with_existing(img["id"]) and img["id"] not in hero_ids:
                     hero_ids.append(img["id"])
 
         # Rule 3: Final reveal (last image of final scene)
         if len(hero_ids) < max_heroes:
-            last_scene = max((img.get("Scene", 0) for img in sorted_images), default=0)
-            final_images = [img for img in sorted_images if img.get("Scene") == last_scene]
+            last_scene = max((img.get(ImageFields.SCENE, 0) for img in sorted_images), default=0)
+            final_images = [img for img in sorted_images if img.get(ImageFields.SCENE) == last_scene]
             if final_images:
                 final_img = final_images[-1]
                 if not is_consecutive_with_existing(final_img["id"]) and final_img["id"] not in hero_ids:
@@ -543,8 +543,8 @@ class VideoPipeline:
                 return {"error": "No idea with status 'Ready For Scripting'"}
             self._load_idea(idea)
         
-        if self.current_idea.get("Status") != self.STATUS_READY_SCRIPTING:
-            return {"error": f"Idea status is '{self.current_idea.get('Status')}', expected 'Ready For Scripting'"}
+        if self.current_idea.get(IdeaFields.STATUS) != self.STATUS_READY_SCRIPTING:
+            return {"error": f"Idea status is '{self.current_idea.get(IdeaFields.STATUS)}', expected 'Ready For Scripting'"}
         
         self.slack.notify_script_start()
         print(f"\n📝 SCRIPT BOT: Processing '{self.video_title}'")
@@ -557,8 +557,8 @@ class VideoPipeline:
         # Store Drive folder link and ID in Airtable for all subsequent stages
         folder_url = f"https://drive.google.com/drive/folders/{self.project_folder_id}"
         self.airtable.update_idea_fields(self.current_idea_id, {
-            "Drive Folder Link": folder_url,
-            "Drive Folder ID": self.project_folder_id,
+            IdeaFields.DRIVE_FOLDER_LINK: folder_url,
+            IdeaFields.DRIVE_FOLDER_ID: self.project_folder_id,
         })
 
         # Create Google Doc for script (graceful fallback if API unavailable)
@@ -730,8 +730,8 @@ class VideoPipeline:
 
         # RESUME LOGIC: Get only pending images — already-completed images are skipped
         all_images = self.airtable.get_all_images_for_video(self.video_title)
-        done_count = len([img for img in all_images if img.get("Status") == "Done"])
-        pending_images = [img for img in all_images if img.get("Status") == "Pending" and img.get("Image Prompt")]
+        done_count = len([img for img in all_images if img.get(ImageFields.STATUS) == ImageFields.STATUS_DONE])
+        pending_images = [img for img in all_images if img.get(ImageFields.STATUS) == ImageFields.STATUS_PENDING and img.get(ImageFields.IMAGE_PROMPT)]
 
         # Apply scene/image filters
         pending_images = self._filter_by_scene(pending_images)
@@ -773,7 +773,7 @@ class VideoPipeline:
         # Group images by scene for organized processing
         scenes = {}
         for img in pending_images:
-            scene_num = img.get("Scene", 0)
+            scene_num = img.get(ImageFields.SCENE, 0)
             if scene_num not in scenes:
                 scenes[scene_num] = []
             scenes[scene_num].append(img)
@@ -792,8 +792,8 @@ class VideoPipeline:
                 nonlocal image_count, failed_count
 
                 async with semaphore:
-                    prompt = img_record.get("Image Prompt", "")
-                    index = img_record.get("Image Index", 0)
+                    prompt = img_record.get(ImageFields.IMAGE_PROMPT, "")
+                    index = img_record.get(ImageFields.IMAGE_INDEX, 0)
                     record_id = img_record["id"]
                     prompt_preview = prompt[:120] + "..." if len(prompt) > 120 else prompt
 
@@ -881,7 +881,7 @@ class VideoPipeline:
         for retry_round in range(max_retries):
             # Check Airtable for pending images
             all_images = self.airtable.get_all_images_for_video(self.video_title)
-            pending = [img for img in all_images if img.get("Status") != "Done" and img.get("Image Prompt")]
+            pending = [img for img in all_images if img.get(ImageFields.STATUS) != ImageFields.STATUS_DONE and img.get(ImageFields.IMAGE_PROMPT)]
             
             if not pending:
                 print(f"    ✅ All images verified complete")
@@ -894,7 +894,7 @@ class VideoPipeline:
             from collections import defaultdict
             retry_scenes = defaultdict(list)
             for img in pending:
-                retry_scenes[img.get("Scene", 0)].append(img)
+                retry_scenes[img.get(ImageFields.SCENE, 0)].append(img)
             
             retry_count = 0
             for scene_num in sorted(retry_scenes.keys()):
@@ -903,9 +903,9 @@ class VideoPipeline:
                 
                 for img_record in scene_images:
                     record_id = img_record["id"]
-                    prompt = img_record.get("Image Prompt", "")
-                    index = img_record.get("Image Index", 0)
-                    
+                    prompt = img_record.get(ImageFields.IMAGE_PROMPT, "")
+                    index = img_record.get(ImageFields.IMAGE_INDEX, 0)
+
                     prompt_preview = prompt[:120] + "..." if len(prompt) > 120 else prompt
                     try:
                         if model_override == Models.IMAGE_ZIMAGE:
@@ -955,7 +955,7 @@ class VideoPipeline:
 
         # Final check
         final_images = self.airtable.get_all_images_for_video(self.video_title)
-        final_pending = len([img for img in final_images if img.get("Status") != "Done" and img.get("Image Prompt")])
+        final_pending = len([img for img in final_images if img.get(ImageFields.STATUS) != ImageFields.STATUS_DONE and img.get(ImageFields.IMAGE_PROMPT)])
         if final_pending > 0:
             self.slack.notify(f"⚠️ {final_pending} images still pending after retries for *{self.video_title}*")
         else:
@@ -986,7 +986,7 @@ class VideoPipeline:
         """
         if not self.current_idea:
             return ""
-        rp_raw = self.current_idea.get("Research Payload", "")
+        rp_raw = self.current_idea.get(IdeaFields.RESEARCH_PAYLOAD, "")
         if rp_raw:
             try:
                 rp = json.loads(rp_raw) if isinstance(rp_raw, str) else rp_raw
@@ -995,7 +995,7 @@ class VideoPipeline:
                     return vs
             except (json.JSONDecodeError, TypeError, AttributeError):
                 pass
-        return self.current_idea.get("Thumbnail Prompt", "")
+        return self.current_idea.get(IdeaFields.THUMBNAIL_PROMPT, "")
 
     async def run_styled_image_prompts(self, scene_filepath: str = None) -> dict:
         """Expand script scenes into visual concepts and generate styled image prompts."""
@@ -1087,7 +1087,7 @@ class VideoPipeline:
         self._load_idea(idea)
 
         # Ensure status is at least Ready For Scripting
-        current_status = idea.get("Status")
+        current_status = idea.get(IdeaFields.STATUS)
         if current_status in [self.STATUS_IDEA_LOGGED, self.STATUS_IN_QUE]:
             self._update_status(self.STATUS_READY_SCRIPTING)
 
@@ -1141,7 +1141,7 @@ class VideoPipeline:
             # Find the first idea that's in or past this stage
             all_ideas = self.airtable.get_all_ideas()
             for idea in all_ideas:
-                if idea.get("Status") != self.STATUS_DONE:
+                if idea.get(IdeaFields.STATUS) != self.STATUS_DONE:
                     self._load_idea(idea)
                     break
             if not self.current_idea:
@@ -1212,11 +1212,11 @@ class VideoPipeline:
 
         scenes_images: dict[int, list[dict]] = defaultdict(list)
         for img in image_records:
-            scene_num = img.get("Scene")
+            scene_num = img.get(ImageFields.SCENE)
             if scene_num is not None:
                 scenes_images[scene_num].append(img)
         for sn in scenes_images:
-            scenes_images[sn].sort(key=lambda x: x.get("Image Index", 0))
+            scenes_images[sn].sort(key=lambda x: x.get(ImageFields.IMAGE_INDEX, 0))
 
         scene_numbers = sorted(scenes_images.keys())
         total_images = sum(len(imgs) for imgs in scenes_images.values())
@@ -1375,8 +1375,8 @@ class VideoPipeline:
             img_entries = []  # (record, img_index, sentence, word_count)
             total_sentence_words = 0
             for img_idx, img in enumerate(images):
-                sentence = img.get("Sentence Text", "") or ""
-                img_index = img.get("Image Index", img_idx + 1)
+                sentence = img.get(ImageFields.SENTENCE_TEXT, "") or ""
+                img_index = img.get(ImageFields.IMAGE_INDEX, img_idx + 1)
                 if not sentence.strip():
                     print(f"      Image {img_index}: (no sentence text, skipping)")
                     continue
@@ -1470,8 +1470,8 @@ class VideoPipeline:
         for scene_num in scene_numbers:
             images = scenes_images[scene_num]
             for img_idx, img in enumerate(images):
-                sentence = img.get("Sentence Text", "") or ""
-                img_index = img.get("Image Index", img_idx + 1)
+                sentence = img.get(ImageFields.SENTENCE_TEXT, "") or ""
+                img_index = img.get(ImageFields.IMAGE_INDEX, img_idx + 1)
 
                 # Look up the enforced duration calculated in Step 3.
                 # The local scenes_images dict is stale (loaded before Step 3),
@@ -1485,7 +1485,7 @@ class VideoPipeline:
                 dur = float(dur)
 
                 # Use actual composition from image record (Shot Type)
-                composition = img.get("Shot Type", "") or "wide"
+                composition = img.get(ImageFields.SHOT_TYPE, "") or "wide"
 
                 timed_images.append({
                     "scene_number": scene_num,
@@ -1589,17 +1589,17 @@ class VideoPipeline:
             scene_number = script.get("scene", 0)
             scene_images = [
                 img for img in images
-                if img.get("Scene") == scene_number
+                if img.get(ImageFields.SCENE) == scene_number
             ]
 
             # Sort images by index
-            sorted_images = sorted(scene_images, key=lambda x: x.get("Image Index", 0))
+            sorted_images = sorted(scene_images, key=lambda x: x.get(ImageFields.IMAGE_INDEX, 0))
 
             processed_images = []
             for img in sorted_images:
                 # Check for video clip first (animation pipeline output)
-                video_clip_url = img.get("Video Clip URL")  # Direct Drive URL for video
-                video_attachments = img.get("Video", [])
+                video_clip_url = img.get(ImageFields.VIDEO_CLIP_URL)  # Direct Drive URL for video
+                video_attachments = img.get(ImageFields.VIDEO, [])
 
                 # Prefer video clip over static image
                 if video_clip_url:
@@ -1611,20 +1611,20 @@ class VideoPipeline:
                     media_type = "video"
                 else:
                     # Fallback to static image (Drive URL preferred)
-                    media_url = img.get("Drive Image URL") or (
-                        img.get("Image", [{}])[0].get("url", "") if img.get("Image") else ""
+                    media_url = img.get(ImageFields.DRIVE_IMAGE_URL) or (
+                        img.get(ImageFields.IMAGE, [{}])[0].get("url", "") if img.get(ImageFields.IMAGE) else ""
                     )
                     media_type = "image"
 
                 # Build base asset
                 asset = {
-                    "index": img.get("Image Index", 0),
+                    "index": img.get(ImageFields.IMAGE_INDEX, 0),
                     "url": media_url,
                     "type": media_type,  # "image" or "video"
-                    "segmentText": img.get("Sentence Text", ""),
-                    "duration": img.get("Duration (s)", 8.0),
-                    "isHeroShot": img.get("Hero Shot", False),
-                    "videoDuration": img.get("Video Duration", 6),
+                    "segmentText": img.get(ImageFields.SENTENCE_TEXT, ""),
+                    "duration": img.get(ImageFields.DURATION, 8.0),
+                    "isHeroShot": img.get(ImageFields.HERO_SHOT, False),
+                    "videoDuration": img.get(ImageFields.VIDEO_DURATION, 6),
                 }
 
                 # =============================================================
@@ -1654,21 +1654,21 @@ class VideoPipeline:
                     asset["trimEnd"] = clip_duration - voiceover_duration
 
                 # Per-image sound effect (new image-level system)
-                sfx_attachment = img.get("Sound Effect")
+                sfx_attachment = img.get(ImageFields.SOUND_EFFECT)
                 if sfx_attachment and isinstance(sfx_attachment, list) and sfx_attachment:
                     sfx_url = sfx_attachment[0].get("url", "")
                     if sfx_url:
-                        sfx_filename = f"sfx_{scene_number}_{img.get('Image Index', 0)}.mp3"
+                        sfx_filename = f"sfx_{scene_number}_{img.get(ImageFields.IMAGE_INDEX, 0)}.mp3"
                         asset["sfx"] = f"sfx/{sfx_filename}"
-                        asset["sfxVolume"] = img.get("Sound Volume", 0.15)
+                        asset["sfxVolume"] = img.get(ImageFields.SOUND_VOLUME, 0.15)
                         asset["sfxUrl"] = sfx_url  # For download during render
 
                 processed_images.append(asset)
 
             scenes.append({
                 "sceneNumber": scene_number,
-                "text": script.get("Scene text", ""),
-                "voiceUrl": script.get("Voice Over", [{}])[0].get("url", "") if script.get("Voice Over") else "",
+                "text": script.get(ScriptFields.SCENE_TEXT, ""),
+                "voiceUrl": script.get(ScriptFields.VOICE_OVER, [{}])[0].get("url", "") if script.get(ScriptFields.VOICE_OVER) else "",
                 "images": processed_images,
             })
 
@@ -1727,18 +1727,18 @@ class VideoPipeline:
             # Specific scene/index pairs
             for scene_num, img_index in image_indices:
                 for img in all_images:
-                    if img.get("Scene") == scene_num and img.get("Image Index") == img_index:
+                    if img.get(ImageFields.SCENE) == scene_num and img.get(ImageFields.IMAGE_INDEX) == img_index:
                         images_to_regen.append(img)
                         break
         elif scene_list:
             # All images in specified scenes
             for img in all_images:
-                if img.get("Scene") in scene_list:
+                if img.get(ImageFields.SCENE) in scene_list:
                     images_to_regen.append(img)
         else:
             # All images with no "Image" attachment (missing)
             for img in all_images:
-                img_attachments = img.get("Image", [])
+                img_attachments = img.get(ImageFields.IMAGE, [])
                 if not img_attachments:
                     images_to_regen.append(img)
 
@@ -1751,7 +1751,7 @@ class VideoPipeline:
         # Group by scene for parallel processing
         scenes = {}
         for img in images_to_regen:
-            scene_num = img.get("Scene", 0)
+            scene_num = img.get(ImageFields.SCENE, 0)
             if scene_num not in scenes:
                 scenes[scene_num] = []
             scenes[scene_num].append(img)
@@ -1763,8 +1763,8 @@ class VideoPipeline:
             print(f"  Scene {scene_num}: Regenerating {len(scene_images)} images...")
 
             async def generate_single(img_record):
-                prompt = img_record.get("Image Prompt", "")
-                index = img_record.get("Image Index", 0)
+                prompt = img_record.get(ImageFields.IMAGE_PROMPT, "")
+                index = img_record.get(ImageFields.IMAGE_INDEX, 0)
 
                 if not prompt:
                     return (img_record, None, index, "No prompt")
@@ -1863,7 +1863,7 @@ async def main():
         print("=" * 60)
         ideas = pipeline.airtable.get_all_ideas()
         for idea in ideas:
-            print(f"  {idea.get('Status', 'Unknown'):20} | {idea.get('Video Title', 'Untitled')[:40]}")
+            print(f"  {idea.get(IdeaFields.STATUS, 'Unknown'):20} | {idea.get(IdeaFields.VIDEO_TITLE, 'Untitled')[:40]}")
         return
 
     if len(sys.argv) > 1 and sys.argv[1] == "--idea":
@@ -2203,7 +2203,7 @@ async def main():
         # Load the idea to set video_title
         ideas = pipeline.airtable.get_all_ideas()
         for idea in ideas:
-            if idea.get("Video Title") == title:
+            if idea.get(IdeaFields.VIDEO_TITLE) == title:
                 pipeline._load_idea(idea)
                 break
 
@@ -2278,7 +2278,7 @@ async def main():
         # Load the video
         ideas = pipeline.airtable.get_all_ideas()
         for idea in ideas:
-            if idea.get("Video Title") == title:
+            if idea.get(IdeaFields.VIDEO_TITLE) == title:
                 pipeline._load_idea(idea)
                 break
 
@@ -2350,11 +2350,11 @@ async def main():
 
         print(f"\nFound {len(ideas)} video(s) to render:")
         for i, idea in enumerate(ideas, 1):
-            print(f"   {i}. {idea.get('Video Title', 'Untitled')}")
+            print(f"   {i}. {idea.get(IdeaFields.VIDEO_TITLE, 'Untitled')}")
 
         rendered = 0
         for i, idea in enumerate(ideas, 1):
-            title = idea.get("Video Title", "Untitled")
+            title = idea.get(IdeaFields.VIDEO_TITLE, "Untitled")
             print(f"\n{'=' * 60}")
             print(f"RENDERING {i}/{len(ideas)}: {title}")
             print(f"{'=' * 60}")
@@ -2425,7 +2425,7 @@ async def main():
             ]:
                 ideas_at_status = pipeline.airtable.get_ideas_by_status(status_name, limit=10)
                 if ideas_at_status:
-                    titles = [i.get("Video Title", "Untitled")[:40] for i in ideas_at_status]
+                    titles = [i.get(IdeaFields.VIDEO_TITLE, "Untitled")[:40] for i in ideas_at_status]
                     status_summary.append(f"  *{status_name}*: {', '.join(titles)}")
 
             if status_summary:

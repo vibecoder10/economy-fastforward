@@ -11,6 +11,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+from pipeline_constants import IdeaFields
+
 
 # Default scene output directory (project-relative fallback)
 DEFAULT_SCENE_DIR = str(Path(__file__).parent.parent / "scenes")
@@ -99,7 +101,7 @@ def select_video_title(brief: dict) -> str:
                 return first_line
 
     # Priority 2: Headline field (set by discovery scanner)
-    headline_field = brief.get("Headline", "")
+    headline_field = brief.get(IdeaFields.HEADLINE, "")
     if headline_field and len(headline_field) > 10:
         return headline_field
 
@@ -189,28 +191,28 @@ def build_pipeline_record(
 
     return {
         # Core mapped fields
-        "Video Title": video_title,
-        "Hook Script": brief.get("executive_hook", ""),
-        "Past Context": brief.get("historical_parallels", ""),
-        "Present Parallel": brief.get("framework_analysis", ""),
-        "Future Prediction": brief.get("narrative_arc", ""),
-        "Writer Guidance": build_writer_guidance(brief, accent_color, scene_count),
-        "Original DNA": build_original_dna(brief, idea_record_id, accent_color, scene_count),
-        "Reference URL": reference_url,
-        "Thumbnail Prompt": thumbnail_prompt,
+        IdeaFields.VIDEO_TITLE: video_title,
+        IdeaFields.HOOK_SCRIPT: brief.get("executive_hook", ""),
+        IdeaFields.PAST_CONTEXT: brief.get("historical_parallels", ""),
+        IdeaFields.PRESENT_PARALLEL: brief.get("framework_analysis", ""),
+        IdeaFields.FUTURE_PREDICTION: brief.get("narrative_arc", ""),
+        IdeaFields.WRITER_GUIDANCE: build_writer_guidance(brief, accent_color, scene_count),
+        IdeaFields.ORIGINAL_DNA: build_original_dna(brief, idea_record_id, accent_color, scene_count),
+        IdeaFields.REFERENCE_URL: reference_url,
+        IdeaFields.THUMBNAIL_PROMPT: thumbnail_prompt,
         "Status": "Queued",
         # New fields for the translation layer
         "Script": script,
-        "Scene File Path": scene_filepath,
-        "Accent Color": accent_color,
+        IdeaFields.SCENE_FILE_PATH: scene_filepath,
+        IdeaFields.ACCENT_COLOR: accent_color,
         "Video ID": video_id,
         "Scene Count": scene_count,
         "Validation Status": "validated",
         # Source list for YouTube description / show notes
         "Sources": sources_text,
         # Framework fields for downstream stages (thumbnail selection, performance analysis)
-        "Framework Angle": brief.get("_selected_framework", "") or brief.get("framework_angle", ""),
-        "Thematic Framework": brief.get("themes", ""),
+        IdeaFields.FRAMEWORK_ANGLE: brief.get("_selected_framework", "") or brief.get("framework_angle", ""),
+        IdeaFields.THEMATIC_FRAMEWORK: brief.get("themes", ""),
     }
 
 
@@ -303,19 +305,19 @@ async def graduate_to_pipeline(
     except Exception as e:
         # If some fields don't exist yet, try with core fields only
         core_fields = {
-            "Video Title": pipeline_record["Video Title"],
-            "Hook Script": pipeline_record["Hook Script"],
-            "Past Context": pipeline_record["Past Context"],
-            "Present Parallel": pipeline_record["Present Parallel"],
-            "Future Prediction": pipeline_record["Future Prediction"],
-            "Writer Guidance": pipeline_record["Writer Guidance"],
-            "Original DNA": pipeline_record["Original DNA"],
+            IdeaFields.VIDEO_TITLE: pipeline_record[IdeaFields.VIDEO_TITLE],
+            IdeaFields.HOOK_SCRIPT: pipeline_record[IdeaFields.HOOK_SCRIPT],
+            IdeaFields.PAST_CONTEXT: pipeline_record[IdeaFields.PAST_CONTEXT],
+            IdeaFields.PRESENT_PARALLEL: pipeline_record[IdeaFields.PRESENT_PARALLEL],
+            IdeaFields.FUTURE_PREDICTION: pipeline_record[IdeaFields.FUTURE_PREDICTION],
+            IdeaFields.WRITER_GUIDANCE: pipeline_record[IdeaFields.WRITER_GUIDANCE],
+            IdeaFields.ORIGINAL_DNA: pipeline_record[IdeaFields.ORIGINAL_DNA],
             "Status": "Queued",
         }
-        if pipeline_record.get("Reference URL"):
-            core_fields["Reference URL"] = pipeline_record["Reference URL"]
-        if pipeline_record.get("Thumbnail Prompt"):
-            core_fields["Thumbnail Prompt"] = pipeline_record["Thumbnail Prompt"]
+        if pipeline_record.get(IdeaFields.REFERENCE_URL):
+            core_fields[IdeaFields.REFERENCE_URL] = pipeline_record[IdeaFields.REFERENCE_URL]
+        if pipeline_record.get(IdeaFields.THUMBNAIL_PROMPT):
+            core_fields[IdeaFields.THUMBNAIL_PROMPT] = pipeline_record[IdeaFields.THUMBNAIL_PROMPT]
 
         result = airtable_client.create_idea(core_fields)
         pipeline_record_id = result["id"]

@@ -6,7 +6,7 @@ import asyncio
 import httpx
 from dotenv import load_dotenv
 from collections import Counter
-from pipeline_constants import Statuses
+from pipeline_constants import IdeaFields, Statuses
 
 load_dotenv()
 
@@ -141,7 +141,7 @@ async def get_pipeline_status():
             for r in youtube_records:
                 fields = r.get("fields", {})
                 if fields.get("Status") == status:
-                    current_idea = fields.get("Video Title", "Untitled")
+                    current_idea = fields.get(IdeaFields.VIDEO_TITLE, "Untitled")
                     current_status = status
                     break
             if current_idea:

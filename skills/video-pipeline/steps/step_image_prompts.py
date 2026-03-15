@@ -8,7 +8,7 @@ Clients: anthropic, airtable, google, slack
 
 import json
 
-from pipeline_constants import Statuses, Models
+from pipeline_constants import Statuses, Models, IdeaFields, ScriptFields, ImageFields
 
 
 def _get_visual_seeds(idea: dict) -> str:
@@ -19,7 +19,7 @@ def _get_visual_seeds(idea: dict) -> str:
     """
     if not idea:
         return ""
-    rp_raw = idea.get("Research Payload", "")
+    rp_raw = idea.get(IdeaFields.RESEARCH_PAYLOAD, "")
     if rp_raw:
         try:
             rp = json.loads(rp_raw) if isinstance(rp_raw, str) else rp_raw
@@ -28,7 +28,7 @@ def _get_visual_seeds(idea: dict) -> str:
                 return vs
         except (json.JSONDecodeError, TypeError, AttributeError):
             pass
-    return idea.get("Thumbnail Prompt", "")
+    return idea.get(IdeaFields.THUMBNAIL_PROMPT, "")
 
 
 async def run(pipeline) -> dict:
@@ -75,7 +75,7 @@ async def run(pipeline) -> dict:
         print(f"  🎨 Using profile-aware sequencer: {_active_profile.profile_id}")
 
     # Read per-video image style override (set via Slack !style command)
-    image_style_override = (pipeline.current_idea.get("Image Style Override") or "").strip()
+    image_style_override = (pipeline.current_idea.get(IdeaFields.IMAGE_STYLE_OVERRIDE) or "").strip()
     if image_style_override:
         print(f"  🎨 Image style override active: {image_style_override[:80]}...")
 
@@ -94,7 +94,7 @@ async def run(pipeline) -> dict:
 
     # Determine accent color: Airtable field first, then topic category map, then default
     from image_prompt_engine import resolve_accent_color
-    airtable_color = (pipeline.current_idea.get("Accent Color") or "").replace("_", " ").strip()
+    airtable_color = (pipeline.current_idea.get(IdeaFields.ACCENT_COLOR) or "").replace("_", " ").strip()
     accent_color = resolve_accent_color(
         accent_color=airtable_color or None,
     )
@@ -104,7 +104,7 @@ async def run(pipeline) -> dict:
     existing_images = pipeline.airtable.get_all_images_for_video(pipeline.video_title)
     existing_scenes: set[int] = set()
     for img in existing_images:
-        scene_num = img.get("Scene")
+        scene_num = img.get(ImageFields.SCENE)
         if scene_num is not None:
             existing_scenes.add(int(scene_num))
 
@@ -162,17 +162,17 @@ async def run(pipeline) -> dict:
 
     for script in scripts:
         scene_num = script.get("scene", 0)
-        scene_text = script.get("Scene text", "") or script.get("Script", "")
+        scene_text = script.get(ScriptFields.SCENE_TEXT, "") or script.get(IdeaFields.SCRIPT, "")
 
         if not scene_text:
             print(f"  Scene {scene_num}: empty text, skipping")
             continue
 
         if scene_num in existing_scenes:
-            existing_image_count = sum(1 for img in existing_images if img.get("Scene") == scene_num)
+            existing_image_count = sum(1 for img in existing_images if img.get(ImageFields.SCENE) == scene_num)
             if pipeline.image_filter is not None:
                 has_target = any(
-                    img.get("Scene") == scene_num and img.get("Image Index") == pipeline.image_filter
+                    img.get(ImageFields.SCENE) == scene_num and img.get(ImageFields.IMAGE_INDEX) == pipeline.image_filter
                     for img in existing_images
                 )
                 if has_target:
@@ -194,7 +194,7 @@ async def run(pipeline) -> dict:
 
         # Get voice duration for accurate words-per-second calculation
         voice_duration = None
-        voice_over = script.get("Voice Over")
+        voice_over = script.get(ScriptFields.VOICE_OVER)
         if voice_over and isinstance(voice_over, list) and len(voice_over) > 0:
             voice_url = voice_over[0].get("url")
             if voice_url:
@@ -386,7 +386,7 @@ def _load_or_generate_story_bible(pipeline, scripts: list) -> dict | None:
     story_bible = None
 
     # Check if Story Bible already exists in Airtable
-    existing_bible_json = (pipeline.current_idea.get("Story Bible") or "").strip()
+    existing_bible_json = (pipeline.current_idea.get(IdeaFields.STORY_BIBLE) or "").strip()
     if existing_bible_json:
         try:
             from bots.story_bible import has_scene_blocks
@@ -437,7 +437,7 @@ async def _generate_story_bible(pipeline, scripts: list) -> dict | None:
         from bots.story_bible import generate_story_bible, has_scene_blocks
         from pipeline_config import VideoConfig
 
-        video_length = pipeline.current_idea.get("Video Length (min)", 10)
+        video_length = pipeline.current_idea.get(IdeaFields.VIDEO_LENGTH_MIN, 10)
         try:
             video_config = VideoConfig(int(video_length), 10)
             total_images = video_config.total_clips
@@ -445,7 +445,7 @@ async def _generate_story_bible(pipeline, scripts: list) -> dict | None:
             total_images = 60
 
         full_script_text = "\n\n".join(
-            f"[SCENE {s.get('scene', 0)}]\n{s.get('Scene text', '') or s.get('Script', '')}"
+            f"[SCENE {s.get('scene', 0)}]\n{s.get(ScriptFields.SCENE_TEXT, '') or s.get(IdeaFields.SCRIPT, '')}"
             for s in scripts
         )
 
@@ -461,7 +461,7 @@ async def _generate_story_bible(pipeline, scripts: list) -> dict | None:
         if story_bible:
             pipeline.airtable.update_idea_fields(
                 pipeline.current_idea_id,
-                {"Story Bible": json.dumps(story_bible, ensure_ascii=False)}
+                {IdeaFields.STORY_BIBLE: json.dumps(story_bible, ensure_ascii=False)}
             )
             print(f"  📖 Story Bible saved to Airtable")
 

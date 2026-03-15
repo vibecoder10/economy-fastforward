@@ -6,7 +6,7 @@ Advances: Ready For Voice → Ready For Image Prompts
 Clients: elevenlabs, google, airtable, slack
 """
 
-from pipeline_constants import Statuses
+from pipeline_constants import Statuses, IdeaFields, ScriptFields
 
 
 async def run(pipeline) -> dict:
@@ -17,8 +17,8 @@ async def run(pipeline) -> dict:
             return {"error": "No idea with status 'Ready For Voice'"}
         pipeline._load_idea(idea)
 
-    if pipeline.current_idea.get("Status") != Statuses.READY_VOICE:
-        return {"error": f"Idea status is '{pipeline.current_idea.get('Status')}', expected 'Ready For Voice'"}
+    if pipeline.current_idea.get(IdeaFields.STATUS) != Statuses.READY_VOICE:
+        return {"error": f"Idea status is '{pipeline.current_idea.get(IdeaFields.STATUS)}', expected 'Ready For Voice'"}
 
     pipeline.slack.notify_voice_start()
     print(f"\n🗣️ VOICE BOT: Processing '{pipeline.video_title}'")
@@ -44,11 +44,11 @@ async def run(pipeline) -> dict:
         scene_number = script.get("scene", 0)
 
         # CHECK: Is voice already done?
-        if script.get("Script Status") == "Finished":
+        if script.get(ScriptFields.SCRIPT_STATUS) == ScriptFields.STATUS_FINISHED:
             print(f"  Check: Scene {scene_number} voice already done, skipping.")
             continue
 
-        scene_text = script.get("Scene text", "")
+        scene_text = script.get(ScriptFields.SCENE_TEXT, "")
 
         print(f"  Generating voice for scene {scene_number}...")
 

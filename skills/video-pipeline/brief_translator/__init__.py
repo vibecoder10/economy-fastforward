@@ -41,7 +41,7 @@ from .script_validator import (
     ScriptValidationResult,
 )
 from .senior_editor import run_senior_editor, format_editor_summary
-from pipeline_constants import Models, Statuses
+from pipeline_constants import IdeaFields, Models, Statuses
 
 try:
     from script_profiles import load_script_profile
@@ -323,7 +323,7 @@ class BriefTranslator:
                 brief["_selected_framework"] = selected_framework
                 try:
                     self.airtable.update_idea_fields(
-                        idea_record_id, {"Framework Angle": selected_framework}
+                        idea_record_id, {IdeaFields.FRAMEWORK_ANGLE: selected_framework}
                     )
                 except Exception as fw_err:
                     logger.warning(

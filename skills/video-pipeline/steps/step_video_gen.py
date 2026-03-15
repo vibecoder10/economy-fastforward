@@ -8,7 +8,7 @@ Clients: image_client, google, airtable
 
 import asyncio
 
-from pipeline_constants import Statuses
+from pipeline_constants import ImageFields, Statuses
 
 
 async def run(pipeline) -> dict:
@@ -20,7 +20,7 @@ async def run(pipeline) -> dict:
     pending_videos = pipeline.airtable.get_images_ready_for_video_generation(pipeline.video_title)
 
     # Only those with a Video Prompt
-    pending_videos = [v for v in pending_videos if v.get("Video Prompt")]
+    pending_videos = [v for v in pending_videos if v.get(ImageFields.VIDEO_PROMPT)]
 
     # Apply scene/image filters
     pending_videos = pipeline._filter_by_scene(pending_videos)
@@ -46,17 +46,17 @@ async def run(pipeline) -> dict:
         """Generate, download, upload, and checkpoint a single video clip."""
         nonlocal video_count, failed_count
 
-        scene = img_record.get("Scene", 0)
-        index = img_record.get("Image Index", 0)
+        scene = img_record.get(ImageFields.SCENE, 0)
+        index = img_record.get(ImageFields.IMAGE_INDEX, 0)
 
         # Use permanent Drive URL instead of expiring Airtable attachment
-        drive_url = img_record.get("Drive Image URL")
+        drive_url = img_record.get(ImageFields.DRIVE_IMAGE_URL)
         if not drive_url:
             # Fallback to attachment URL if Drive URL missing (legacy records)
-            image_url_list = img_record.get("Image", [])
+            image_url_list = img_record.get(ImageFields.IMAGE, [])
             drive_url = image_url_list[0].get("url") if image_url_list else None
 
-        motion_prompt = img_record.get("Video Prompt")
+        motion_prompt = img_record.get(ImageFields.VIDEO_PROMPT)
 
         if not drive_url or not motion_prompt:
             return
@@ -65,7 +65,7 @@ async def run(pipeline) -> dict:
         image_url = pipeline.google.get_direct_drive_url(drive_url)
 
         # Hero selection: duration > 6s gets 10s clip, otherwise 6s
-        segment_duration = img_record.get("Duration (s)", 6.0)
+        segment_duration = img_record.get(ImageFields.DURATION, 6.0)
         clip_duration = 10 if segment_duration > 6.0 else 6
 
         async with semaphore:
@@ -122,7 +122,7 @@ async def run(pipeline) -> dict:
         return {"bot": "Video Gen Bot", "video_count": video_count, "targeted": True}
 
     # Check if all videos are done
-    remaining = [v for v in pipeline.airtable.get_images_ready_for_video_generation(pipeline.video_title) if v.get("Video Prompt")]
+    remaining = [v for v in pipeline.airtable.get_images_ready_for_video_generation(pipeline.video_title) if v.get(ImageFields.VIDEO_PROMPT)]
     if not remaining:
         pipeline._update_status(Statuses.READY_THUMBNAIL)
         print(f"  ✅ Status updated to: {Statuses.READY_THUMBNAIL}")

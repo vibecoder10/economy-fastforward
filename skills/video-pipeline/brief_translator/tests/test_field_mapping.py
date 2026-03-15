@@ -8,6 +8,7 @@ from brief_translator.pipeline_writer import (
     build_pipeline_record,
     generate_video_id,
 )
+from pipeline_constants import IdeaFields
 
 
 SAMPLE_BRIEF = {
@@ -87,7 +88,7 @@ class TestBuildPipelineRecord:
         record = build_pipeline_record(
             SAMPLE_BRIEF, "script text", [], "cold_teal", "rec123", "/tmp/scenes.json", "vid_001"
         )
-        assert record["Video Title"] == "The $1.25 Trillion Power Play"
+        assert record[IdeaFields.VIDEO_TITLE] == "The $1.25 Trillion Power Play"
 
     def test_falls_back_to_headline_when_no_title_options(self):
         brief = dict(SAMPLE_BRIEF)
@@ -95,49 +96,49 @@ class TestBuildPipelineRecord:
         record = build_pipeline_record(
             brief, "script text", [], "cold_teal", "rec123", "/tmp/scenes.json", "vid_001"
         )
-        assert record["Video Title"] == "The $1.25 Trillion Power Play"
+        assert record[IdeaFields.VIDEO_TITLE] == "The $1.25 Trillion Power Play"
 
     def test_maps_hook_script(self):
         record = build_pipeline_record(
             SAMPLE_BRIEF, "script text", [], "cold_teal", "rec123", "/tmp/scenes.json", "vid_001"
         )
-        assert "February 2nd" in record["Hook Script"]
+        assert "February 2nd" in record[IdeaFields.HOOK_SCRIPT]
 
     def test_extracts_reference_url(self):
         record = build_pipeline_record(
             SAMPLE_BRIEF, "script text", [], "cold_teal", "rec123", "/tmp/scenes.json", "vid_001"
         )
-        assert record["Reference URL"] == "https://example.com/article1"
+        assert record[IdeaFields.REFERENCE_URL] == "https://example.com/article1"
 
     def test_extracts_thumbnail_prompt(self):
         record = build_pipeline_record(
             SAMPLE_BRIEF, "script text", [], "cold_teal", "rec123", "/tmp/scenes.json", "vid_001"
         )
-        assert "silhouette" in record["Thumbnail Prompt"]
+        assert "silhouette" in record[IdeaFields.THUMBNAIL_PROMPT]
 
     def test_sets_queued_status(self):
         record = build_pipeline_record(
             SAMPLE_BRIEF, "script text", [], "cold_teal", "rec123", "/tmp/scenes.json", "vid_001"
         )
-        assert record["Status"] == "Queued"
+        assert record[IdeaFields.STATUS] == "Queued"
 
     def test_includes_script(self):
         record = build_pipeline_record(
             SAMPLE_BRIEF, "full script content", [], "cold_teal", "rec123", "/tmp/scenes.json", "vid_001"
         )
-        assert record["Script"] == "full script content"
+        assert record[IdeaFields.SCRIPT] == "full script content"
 
     def test_includes_scene_file_path(self):
         record = build_pipeline_record(
             SAMPLE_BRIEF, "script", [], "cold_teal", "rec123", "/tmp/scenes.json", "vid_001"
         )
-        assert record["Scene File Path"] == "/tmp/scenes.json"
+        assert record[IdeaFields.SCENE_FILE_PATH] == "/tmp/scenes.json"
 
     def test_includes_accent_color(self):
         record = build_pipeline_record(
             SAMPLE_BRIEF, "script", [], "muted_crimson", "rec123", "/tmp/scenes.json", "vid_001"
         )
-        assert record["Accent Color"] == "muted_crimson"
+        assert record[IdeaFields.ACCENT_COLOR] == "muted_crimson"
 
     def test_includes_scene_count(self):
         scenes = [{"scene_number": i} for i in range(1, 137)]
@@ -150,13 +151,13 @@ class TestBuildPipelineRecord:
         record = build_pipeline_record(
             SAMPLE_BRIEF, "script text", [], "cold_teal", "rec123", "/tmp/scenes.json", "vid_001"
         )
-        assert record["Framework Angle"] == "Machiavelli's The Prince"
+        assert record[IdeaFields.FRAMEWORK_ANGLE] == "Machiavelli's The Prince"
 
     def test_includes_thematic_framework(self):
         record = build_pipeline_record(
             SAMPLE_BRIEF, "script text", [], "cold_teal", "rec123", "/tmp/scenes.json", "vid_001"
         )
-        assert "Power consolidation" in record["Thematic Framework"]
+        assert "Power consolidation" in record[IdeaFields.THEMATIC_FRAMEWORK]
 
     def test_framework_angle_prefers_selected_framework(self):
         brief = dict(SAMPLE_BRIEF)
@@ -164,13 +165,13 @@ class TestBuildPipelineRecord:
         record = build_pipeline_record(
             brief, "script text", [], "cold_teal", "rec123", "/tmp/scenes.json", "vid_001"
         )
-        assert record["Framework Angle"] == "Systems Thinking"
+        assert record[IdeaFields.FRAMEWORK_ANGLE] == "Systems Thinking"
 
     def test_original_dna_is_valid_json(self):
         record = build_pipeline_record(
             SAMPLE_BRIEF, "script", [], "cold_teal", "rec123", "/tmp/scenes.json", "vid_001"
         )
-        parsed = json.loads(record["Original DNA"])
+        parsed = json.loads(record[IdeaFields.ORIGINAL_DNA])
         assert parsed["meta_data"]["source_idea_id"] == "rec123"
 
 
