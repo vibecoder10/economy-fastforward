@@ -151,19 +151,18 @@ def enforce_max_image_duration(
     max_seconds: float = MAX_IMAGE_DISPLAY_SECONDS,
     min_seconds: float = 1.0,
 ) -> list[dict[str, Any]]:
-    """
-    Enforce a hard maximum duration per image within a single scene.
+    """Enforce a hard maximum duration per image within a single scene.
 
-    If ANY image in *scene_raw* exceeds *max_seconds*, redistribute the
-    scene's total audio time evenly across all images (clamped to
-    [min_seconds, max_seconds]).  This prevents one long sentence from
-    monopolising a scene's display time.
+    Shaves excess time off images that exceed *max_seconds* and donates
+    it to the shortest images in the scene.  This keeps the overall
+    scene timeline intact while preventing any single image from
+    overstaying.  Much gentler than the old "redistribute evenly"
+    approach which flattened all variation.
 
     Args:
-        scene_raw: Per-image entries for ONE scene (must all share the
-            same scene).  Each dict must have ``duration``,
-            ``display_start``, and ``display_end``.
-        max_seconds: Hard cap per image (default 15 s).
+        scene_raw: Per-image entries for ONE scene.  Each dict must
+            have ``duration``, ``display_start``, and ``display_end``.
+        max_seconds: Hard cap per image (default from config).
         min_seconds: Floor per image (default 1 s).
 
     Returns:
@@ -177,18 +176,32 @@ def enforce_max_image_duration(
     if not has_outlier:
         return scene_raw
 
-    scene_total = sum(e["duration"] for e in scene_raw)
-    n = len(scene_raw)
-    even_dur = round(scene_total / n, 2)
-    even_dur = max(min_seconds, min(even_dur, max_seconds))
+    # Pass 1: collect excess from images over the cap
+    excess = 0.0
+    for entry in scene_raw:
+        if entry["duration"] > max_seconds:
+            excess += entry["duration"] - max_seconds
+            entry["duration"] = max_seconds
 
-    # Rebuild start/end from the scene's first display_start
+    # Pass 2: donate excess to the shortest images (sorted ascending)
+    if excess > 0 and len(scene_raw) > 1:
+        order = sorted(range(len(scene_raw)), key=lambda i: scene_raw[i]["duration"])
+        recipients = [i for i in order if scene_raw[i]["duration"] < max_seconds]
+        if recipients:
+            per_recipient = round(excess / len(recipients), 2)
+            for i in recipients:
+                give = min(per_recipient, max_seconds - scene_raw[i]["duration"])
+                scene_raw[i]["duration"] = round(scene_raw[i]["duration"] + give, 2)
+                excess -= give
+                if excess <= 0.01:
+                    break
+
+    # Rebuild start/end times to keep the timeline contiguous
     cursor = scene_raw[0]["display_start"]
     for entry in scene_raw:
-        entry["duration"] = even_dur
         entry["display_start"] = round(cursor, 4)
-        entry["display_end"] = round(cursor + even_dur, 4)
-        cursor += even_dur
+        entry["display_end"] = round(cursor + entry["duration"], 4)
+        cursor += entry["duration"]
 
     return scene_raw
 
