@@ -16,16 +16,10 @@ Status-driven pipeline where Airtable Status fields gate each stage: Research â†
 
 CRITICAL: Never skip a status. Always update via Airtable client. Check status before processing.
 
-### Prompt Validation (between Image Prompts and Images)
-After prompts are generated, `bots/prompt_validator.py` validates sequencing rules:
-- **Camera distance**: Max 2 consecutive same shot type (wide/medium/closeup)
-- **Location clustering**: Max 2 consecutive same location
-- **Data scene clustering**: Max 2 consecutive data/chart scenes
-- **Naked mannequins**: Character scenes must have clothing descriptions
-
-Auto-fixes: Camera distance swaps, mannequin hand reinforcement
-Critical violations (naked mannequins) block status advancement.
-Results logged to `/tmp/pipeline-validation.log`.
+### Prompt Sequencing (handled upstream)
+Camera rotation and location consistency are handled by the profile-aware sequencer
+(`assign_profile_styles`) and Story Bible V2 blocks â€” no post-hoc validation needed.
+The old `bots/prompt_validator.py` is preserved but disabled in the pipeline.
 
 ---
 
