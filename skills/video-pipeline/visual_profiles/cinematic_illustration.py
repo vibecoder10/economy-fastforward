@@ -81,21 +81,21 @@ _IMAGE_GEN = ImageGenConfig(
 # =============================================================================
 
 # Style prefix for character scenes
+# Short medium declaration — front-loaded so the model knows WHAT first.
+# Claude's visual description follows immediately (subject + action).
 _CHARACTER_PREFIX = (
-    "Cinematic animated illustration in muted earthy color palette "
-    "with ink outlines and dramatic lighting. Stylized illustrated "
-    "characters with expressive faces showing emotion."
+    "Cinematic 2D animated illustration of"
 )
 
 _ENVIRONMENT_PREFIX = (
-    "Cinematic animated illustration in muted earthy color palette "
-    "with ink outlines and dramatic lighting."
+    "Cinematic 2D animated illustration of"
 )
 
-# Universal suffix per prompt construction
+# Technical tail — aspect ratio, texture, palette. No style words that
+# duplicate the prefix or substyle suffixes.
 _SUFFIX = (
-    ", stylized 2D animation aesthetic with visible ink outlines, "
-    "muted film grain texture, 16:9 cinematic composition"
+    " Stylized ink outlines, muted earthy palette, film grain texture, "
+    "16:9 composition"
 )
 
 _STYLE_SYSTEM = StyleSystemConfig(
@@ -107,9 +107,8 @@ _STYLE_SYSTEM = StyleSystemConfig(
             name="Power Move",
             weight=0.275,
             suffix=(
-                "two or more illustrated characters in tension, one dominant one "
-                "subordinate, confrontation staging, dramatic directional lighting, "
-                "expressive faces showing determination or concern"
+                "Two or more characters in confrontation, one dominant one subordinate, "
+                "dramatic directional lighting, expressive faces showing determination"
             ),
             description=(
                 "Confrontation / Decision. Two or more characters in tension. "
@@ -122,8 +121,7 @@ _STYLE_SYSTEM = StyleSystemConfig(
             name="Lone Figure",
             weight=0.225,
             suffix=(
-                "single illustrated character in a moment of weight, solitary action, "
-                "dramatic single-source lighting, contemplative or revelatory mood, "
+                "Single character in solitary moment of weight, single-source lighting, "
                 "expressive face showing internal conflict or resolve"
             ),
             description=(
@@ -136,9 +134,8 @@ _STYLE_SYSTEM = StyleSystemConfig(
             name="Environment / Establishing",
             weight=0.175,
             suffix=(
-                "cinematic wide shot, illustrated environment, no characters "
-                "or tiny distant figures only, dramatic natural lighting, "
-                "geography and atmosphere establish context, muted earthy palette"
+                "No characters or tiny distant figures only, dramatic natural lighting, "
+                "geography and atmosphere establish context"
             ),
             description=(
                 "Illustrated location grounding the narrative in geography. "
@@ -150,9 +147,9 @@ _STYLE_SYSTEM = StyleSystemConfig(
             name="Data / HUD Analysis",
             weight=0.125,
             suffix=(
-                "dark operations room, projected display with data visualization, "
-                "teal/cyan glow against muted amber interior, specific data with "
-                "one key number highlighted, minimal room visible, no human figures"
+                "Dark operations room with projected data visualization, "
+                "teal glow against amber interior, one key number highlighted, "
+                "no human figures"
             ),
             description=(
                 "Data display style retained for pure data reveals — "
@@ -164,9 +161,8 @@ _STYLE_SYSTEM = StyleSystemConfig(
             name="Object Close-up",
             weight=0.125,
             suffix=(
-                "cinematic close-up of physical object, shallow depth of field, "
-                "warm amber lighting, illustrated textures with ink outlines, "
-                "contextual details nearby that tell the story"
+                "Tight close-up of physical object, shallow depth of field, "
+                "warm amber lighting, contextual details nearby"
             ),
             description=(
                 "Tight shot on a physical object carrying narrative weight. "

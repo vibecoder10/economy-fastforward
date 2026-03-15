@@ -266,23 +266,21 @@ Scene type labels become DESCRIPTIVE (assigned after prompt is written
 based on content) not PRESCRIPTIVE (assigned before, constraining output).
 """
 
-# New style prefix for scenes WITH characters
+# Short medium declaration — front-loaded so the model knows WHAT first.
+# Claude's visual description follows immediately (subject + action).
 _CHARACTER_PREFIX = (
-    "Cinematic animated illustration in muted earthy color palette "
-    "with ink outlines and dramatic lighting. Stylized illustrated "
-    "characters with expressive faces showing emotion."
+    "Cinematic 2D animated illustration of"
 )
 
-# New style prefix for scenes WITHOUT characters (environment/object)
+# Same for environment scenes (no character language needed — that's in substyle suffix)
 _ENVIRONMENT_PREFIX = (
-    "Cinematic animated illustration in muted earthy color palette "
-    "with ink outlines and dramatic lighting."
+    "Cinematic 2D animated illustration of"
 )
 
 # Universal suffix for ALL scenes
 _UNIVERSAL_SUFFIX = (
-    ", stylized 2D animation aesthetic with visible ink outlines, "
-    "muted film grain texture, 16:9 cinematic composition"
+    " Stylized ink outlines, muted earthy palette, film grain texture, "
+    "16:9 composition"
 )
 
 # Words that indicate character presence in the visual description
@@ -551,11 +549,11 @@ def build_prompt(
         if image_style_override and image_style_override.strip():
             suffix = _apply_style_override(suffix, image_style_override)
 
-        # Build final prompt
+        # Build final prompt: [Medium] [Subject]. [Technical tail]
         if prefix:
-            return f"{prefix} {clean_desc}{suffix}"
+            return f"{prefix} {clean_desc}.{suffix}"
         else:
-            return f"{clean_desc}{suffix}"
+            return f"{clean_desc}.{suffix}"
 
 
 def _match_archetype_expression(char_id: str, profile) -> str:
@@ -679,6 +677,15 @@ def build_prompt_from_block(
         visual_desc = concept.get("sentence_text", "Scene continues").strip()
     visual_desc = _strip_style_language(visual_desc).rstrip(". ")
 
+    # Strip leading camera/shot language — it's added separately by camera_map
+    visual_desc = re.sub(
+        r'^(?:wide\s+(?:establishing\s+)?shot\s+of\s+'
+        r'|medium\s+shot\s+of\s+'
+        r'|close[- ]?up\s+(?:shot\s+)?of\s+'
+        r'|extreme\s+close[- ]?up\s+of\s+)',
+        '', visual_desc, flags=re.IGNORECASE,
+    ).strip()
+
     # ---------------------------------------------------------------
     # Scene type detection → substyle suffix from profile
     # ---------------------------------------------------------------
@@ -711,35 +718,43 @@ def build_prompt_from_block(
     prefix = char_prefix if has_characters else env_prefix
 
     # ---------------------------------------------------------------
-    # Assemble prompt: prefix + Claude's description + camera/substyle + suffix
+    # Assemble prompt following Nano Banana 2 optimum order:
+    #   [Medium] [Subject + Action] . [Camera] . [Substyle context] . [Technical]
+    #
+    # Models weigh the beginning most heavily, so the WHAT (medium +
+    # subject) comes first.  Style/texture/aspect go last as a
+    # technical tail the model uses for rendering decisions.
     #
     # Claude's visual_description already contains location, characters,
     # lighting, mood, and action — all written with block context.
     # Do NOT re-add block_location, block_lighting, or character costumes.
     # ---------------------------------------------------------------
-    parts = [prefix]
 
-    # Claude's visual description IS the prompt content
+    # 1. Medium + Subject (highest weight)
     if visual_desc:
-        parts.append(f"{visual_desc}.")
-
-    # Camera composition + substyle suffix
-    camera_map = {
-        "wide": "wide establishing shot",
-        "medium": "medium shot",
-        "closeup": "close-up",
-        "close-up": "close-up",
-        "extreme_closeup": "extreme close-up",
-    }
-    camera_desc = camera_map.get(camera.lower(), "medium shot")
-    if substyle_suffix:
-        parts.append(f"{camera_desc}, {substyle_suffix.rstrip('. ')}.")
+        core = f"{prefix} {visual_desc}."
     else:
-        parts.append(f"{camera_desc}.")
+        core = prefix
 
-    prompt_body = " ".join(parts)
+    # 2. Camera composition
+    camera_map = {
+        "wide": "Wide establishing shot",
+        "medium": "Medium shot",
+        "closeup": "Close-up",
+        "close-up": "Close-up",
+        "extreme_closeup": "Extreme close-up",
+    }
+    camera_desc = camera_map.get(camera.lower(), "Medium shot")
 
-    # Apply style override to suffix if provided
+    # 3. Substyle context (compositional direction)
+    if substyle_suffix:
+        style_direction = f"{camera_desc}. {substyle_suffix.rstrip('. ')}."
+    else:
+        style_direction = f"{camera_desc}."
+
+    prompt_body = f"{core} {style_direction}"
+
+    # 4. Technical tail (palette, texture, aspect ratio)
     if image_style_override and image_style_override.strip():
         suffix = _apply_style_override(suffix, image_style_override)
 
