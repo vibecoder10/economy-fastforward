@@ -74,16 +74,22 @@ def split_into_sentences(text: str) -> List[str]:
     return sentences
 
 
-def estimate_sentence_duration(sentence: str, words_per_minute: float = 173) -> float:
+def estimate_sentence_duration(sentence: str, words_per_minute: float = None) -> float:
     """Estimate how long a sentence takes to speak.
-    
+
     Args:
         sentence: The sentence text
-        words_per_minute: Speaking rate (default 173 wpm based on actual ElevenLabs output)
-        
+        words_per_minute: Speaking rate. Defaults to pipeline_config.SPEAKING_RATE_WPS * 60.
+
     Returns:
         Duration in seconds
     """
+    if words_per_minute is None:
+        try:
+            from pipeline_config import VideoConfig
+            words_per_minute = VideoConfig.SPEAKING_RATE_WPS * 60  # Convert WPS to WPM
+        except ImportError:
+            words_per_minute = 150  # 2.5 WPS * 60
     word_count = len(sentence.split())
     # Convert to seconds: words / (words/minute) * 60
     duration = (word_count / words_per_minute) * 60

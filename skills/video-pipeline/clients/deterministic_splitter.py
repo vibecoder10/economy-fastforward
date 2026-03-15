@@ -18,11 +18,16 @@ except ImportError:
     # When running as __main__, use absolute import
     from sentence_utils import split_into_sentences
 
+try:
+    from pipeline_config import VideoConfig
+    DEFAULT_WPS = VideoConfig.SPEAKING_RATE_WPS
+except ImportError:
+    DEFAULT_WPS = 2.5  # Fallback if pipeline_config unavailable
+
 # Splitting configuration
 TARGET_DURATION = 5.5  # Ideal segment duration — shorter = more visual beats
 MIN_DURATION = 4.0     # Minimum segment duration (orphan threshold)
 MAX_DURATION = 9.0     # HARD ceiling - mid-sentence split if needed
-DEFAULT_WPS = 2.5      # Default words per second (fallback)
 
 
 def _calculate_duration(text: str, wps: float) -> float:
