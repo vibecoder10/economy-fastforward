@@ -720,9 +720,47 @@ async def _expand_with_scene_blocks(
             "mood": "neutral",
         }]
 
+    # Pre-filter: only keep images whose narration_excerpt has a real
+    # text overlap with THIS scene's script.  This prevents cross-scene
+    # contamination where Strategy-3 fuzzy matching pulls images from
+    # neighbouring scenes whose word distributions happen to overlap.
+    scene_lower = " ".join(scene_text.split()).lower()
+    scene_images = []
+    for img in all_images:
+        excerpt = img.get("narration_excerpt", "").strip()
+        if not excerpt:
+            continue
+        excerpt_lower = " ".join(excerpt.split()).lower()
+
+        # Check 1: exact substring (fast path)
+        if excerpt_lower in scene_lower:
+            scene_images.append(img)
+            continue
+
+        # Check 2: first 4 words of excerpt appear as contiguous substring
+        first_words = " ".join(excerpt_lower.split()[:4])
+        if first_words and first_words in scene_lower:
+            scene_images.append(img)
+            continue
+
+        # Check 3: last 4 words of excerpt appear as contiguous substring
+        last_words = " ".join(excerpt_lower.split()[-4:])
+        if last_words and last_words in scene_lower:
+            scene_images.append(img)
+
+    if not scene_images:
+        # Fallback: filter by act number (looser but prevents distant scenes)
+        scene_images = [img for img in all_images if img.get("block_act") == act_number]
+        if scene_images:
+            print(f"      ⚠️ Scene {scene_number}: No excerpt match, falling back to act {act_number} "
+                  f"({len(scene_images)} images)")
+        else:
+            print(f"      ⚠️ Scene {scene_number}: No matching images found at all")
+            scene_images = all_images  # Last resort: use all (original behavior)
+
     # Match scene_text to images via narration_excerpt overlap
-    # The Story Bible's image narration_excerpts should collectively cover the full script
-    matched_images = _match_scene_to_images(scene_text, all_images)
+    # Now only matching against images pre-filtered to this scene
+    matched_images = _match_scene_to_images(scene_text, scene_images)
 
     if not matched_images:
         # No matches found - this scene may not have images assigned
@@ -1001,7 +1039,7 @@ def _match_scene_to_images(scene_text: str, all_images: list[dict]) -> list[dict
                 best_overlap = overlap
                 best_start_word_idx = i
 
-        if best_overlap >= 0.8 and best_start_word_idx >= 0:
+        if best_overlap >= 0.9 and best_start_word_idx >= 0:
             # Calculate character positions from word indices
             start_pos = len(" ".join(scene_words_normalized[:best_start_word_idx]))
             if best_start_word_idx > 0:
