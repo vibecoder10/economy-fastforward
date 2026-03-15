@@ -50,6 +50,7 @@
 - **Building a module ≠ wiring it in.** The mannequin_storytelling profile was a complete, beautiful 793-line file with substyles, composition affinity, Ken Burns mapping, character archetypes — and it was completely ignored by the pipeline because nobody wired the sequencer to use it.
 - **The sequencer is the chokepoint.** All image prompt generation flows through `assign_styles()` → `build_prompt()`. If the sequencer doesn't know about your profile, your profile is dead code.
 - **Always trace the full call chain**: Slack command → `pipeline_control.py` → `run_*.py` script → `pipeline.py` method → bot/engine. A break at any point means the feature doesn't work.
+- **"Already working" claims need REAL verification.** Reading code that SHOULD work is not proof it DOES work. Add debug print statements, run the actual code, check Airtable. The `update_idea_fields()` graceful degradation silently drops unknown fields — a "successful" write might have dropped your field entirely.
 
 ### Script Validation (Blocking Flow)
 - **Validation is now BLOCKING.** Scripts must pass all 7 checks before advancing to "Ready For Voice". This is enforced in `BriefTranslator.translate()`.
@@ -118,3 +119,4 @@ _After each session, add a one-line summary of what was done and any new lessons
 | 2026-03-14 | Hotfix: progressive writes before validation + act_coherence threshold to 6 + geopolitical clustering | Scripts must ALWAYS be saved before validation; geopolitics needs higher topic threshold |
 | 2026-03-14 | Research agent narrative fields: shared extraction via narrative_extractor.py, wired into all 3 entry points | Shared utilities in clients/ folder; all entry points must use the same extraction logic |
 | 2026-03-14 | Fix 3 pipeline issues: cinematic voice prompt position, act_coherence advisory, verified progressive writes | System prompt ordering matters; advisory checks for unreliable fixes; progressive writes already worked |
+| 2026-03-14 | Debug Script field write + add !approve command for blocked scripts | Wiring audit failed — "already working" claims need ACTUAL verification with debug logs, not code reading |

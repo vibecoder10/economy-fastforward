@@ -446,14 +446,22 @@ class BriefTranslator:
 
     def _save_script_to_ideas(self, idea_record_id: str, script: str):
         """Persist script text to the Idea Concepts table immediately."""
+        print(f"[DEBUG] _save_script_to_ideas called: record_id={idea_record_id}, script_len={len(script) if script else 0}")
         if not script:
+            print("[DEBUG] Script is empty, skipping write")
+            return
+        if not idea_record_id:
+            print("[DEBUG] idea_record_id is empty, skipping write")
             return
         try:
-            self.airtable.update_idea_fields(
+            print(f"[DEBUG] Writing {len(script)} chars to Airtable 'Script' field...")
+            result = self.airtable.update_idea_fields(
                 idea_record_id, {"Script": script}
             )
+            print(f"[DEBUG] Airtable write result: {result}")
             logger.info("Script saved to Idea Concepts table")
         except Exception as e:
+            print(f"[DEBUG] Airtable write FAILED: {e}")
             logger.warning(f"Could not save script to Ideas: {e}")
             self._notify(f"⚠️ Script field write failed: {e}")
 

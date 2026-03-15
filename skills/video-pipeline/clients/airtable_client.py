@@ -477,11 +477,14 @@ class AirtableClient:
 
         Gracefully drops unknown fields instead of failing the whole update.
         """
+        print(f"[DEBUG] update_idea_fields called: record_id={record_id}, fields={list(fields.keys())}")
         try:
             record = self.idea_concepts_table.update(record_id, fields, typecast=True)
+            print(f"[DEBUG] update_idea_fields SUCCESS: wrote {list(fields.keys())}")
             return {"id": record["id"], **record["fields"]}
         except Exception as e:
             error_msg = str(e)
+            print(f"[DEBUG] update_idea_fields EXCEPTION: {error_msg[:200]}")
             if "UNKNOWN_FIELD_NAME" not in error_msg and "Unknown field name" not in error_msg:
                 raise
 
@@ -491,7 +494,7 @@ class AirtableClient:
             for _ in range(max_retries):
                 bad_field = self._extract_bad_field(error_msg)
                 if bad_field and bad_field in remaining:
-                    print(f"    ⚠️ Field '{bad_field}' not in Airtable, dropping it")
+                    print(f"    ⚠️ Field '{bad_field}' not in Airtable, DROPPING IT")
                     del remaining[bad_field]
                 else:
                     # Can't identify the bad field — try each field individually

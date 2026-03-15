@@ -237,6 +237,7 @@ _Targeted runs do NOT advance the pipeline status (safe for testing)._
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 - `queue` / `pipeline` — Show all active ideas and statuses
 - `skip` — Skip current pipeline step
+- `approve <title>` — Approve a blocked script and advance to voice
 - `retry` / `try again` — Re-run last failed command
 - `stop` / `kill` — Stop currently running task
 - `status` / `check` — Check current project status
@@ -584,6 +585,62 @@ async def handle_skip(message, say):
         await say(":shrug: No active idea found to skip.")
     except Exception as e:
         await say(f":x: Error skipping: {e}")
+
+
+@app.message(re.compile(r"^!?approve\s+(.+)$", re.IGNORECASE))
+async def handle_approve_script(message, say):
+    """Approve a blocked script and advance to Ready For Voice.
+
+    Use when script validation failed but you've manually reviewed it.
+    Usage: !approve <title> (partial match supported)
+    """
+    match = re.search(r"^!?approve\s+(.+)$", message["text"], re.IGNORECASE)
+    if not match:
+        await say(":x: Usage: `!approve <title>`")
+        return
+
+    search_title = match.group(1).strip().strip('"\'')
+    await say(f":mag: Looking for blocked scripts matching: _{search_title}_")
+
+    try:
+        from clients.airtable_client import AirtableClient
+        airtable = AirtableClient()
+
+        # Find ideas with "Needs Script Review" status
+        blocked = airtable.get_ideas_by_status("Needs Script Review")
+        if not blocked:
+            await say(":shrug: No blocked scripts found with status 'Needs Script Review'")
+            return
+
+        # Match by partial title (case-insensitive)
+        search_lower = search_title.lower()
+        matched = None
+        for idea in blocked:
+            title = idea.get("Video Title", "") or idea.get("Headline", "") or ""
+            if search_lower in title.lower():
+                matched = idea
+                break
+
+        if not matched:
+            titles = [i.get("Video Title", i.get("Headline", "Untitled")) for i in blocked]
+            await say(
+                f":x: No match for '{search_title}'\n"
+                f"Blocked scripts: {', '.join(titles[:5])}"
+            )
+            return
+
+        # Approve: advance to Ready For Voice
+        record_id = matched["id"]
+        title = matched.get("Video Title", matched.get("Headline", "Untitled"))
+        airtable.update_idea_status(record_id, "Ready For Voice")
+
+        await say(
+            f":white_check_mark: Script approved: *{title}*\n"
+            f"Status: `Needs Script Review` → `Ready For Voice`\n"
+            f"Pipeline will continue on next run."
+        )
+    except Exception as e:
+        await say(f":x: Error approving script: {e}")
 
 
 @app.message(re.compile(r"^!?(?:stop|kill)$", re.IGNORECASE))
