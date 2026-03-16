@@ -268,7 +268,7 @@ def segment_scene_deterministic(
 
     # Split any oversized segments at word boundaries
     # Allow single sentences slightly over MAX to avoid creating orphan fragments
-    SOFT_MAX = MAX_DURATION + 1.0  # 11.0s — accept rather than create 3s orphans
+    SOFT_MAX = MAX_DURATION + 2.0  # 12.0s — accept rather than create 3s orphans
     final_segments = []
     for seg_text in segments:
         duration = _calculate_duration(seg_text, wps)
