@@ -637,32 +637,6 @@ def _check_metaphor_table(text: str, profile) -> str:
     return ""
 
 
-# ── Mood clause mapping for illustrated profiles ─────────────────
-# Short tonal phrases injected before the technical suffix.  These
-# complement the substyle suffix (which describes composition) by
-# adding color/atmosphere variation from the sequencer's color_mood.
-
-_MOOD_CLAUSES: dict[str, str] = {
-    "cold teal": "Cool teal atmospheric tones",
-    "muted crimson": "Muted crimson undertones with tension",
-    "warm amber": "Warm amber and golden light",
-    "muted green": "Subdued olive and muted green tones",
-    # Holographic-path moods (in case they leak through)
-    "strategic": "Cool analytical teal tones",
-    "alert": "Urgent red and amber warning tones",
-    "archive": "Warm golden sepia tones",
-    "contagion": "Sickly green cascading to red tones",
-    "power": "Deep authoritative blue tones",
-    "personal": "Warm orange intimate tones",
-}
-
-
-def _mood_clause(color_mood: str) -> str:
-    """Return a short tonal phrase for the given color mood value."""
-    if not color_mood:
-        return ""
-    return _MOOD_CLAUSES.get(color_mood.strip().lower(), "")
-
 
 def build_prompt_from_block(
     concept: dict,
@@ -756,7 +730,16 @@ def build_prompt_from_block(
         # Check compatibility: does the sequencer's substyle match the content?
         sequencer_wants_characters = display_format in _CHARACTER_SUBSTYLES
         compatible = (sequencer_wants_characters == has_characters_in_desc)
-        scene_type = display_format if compatible else detected_type
+        if compatible:
+            scene_type = display_format
+        elif not has_characters_in_desc:
+            # Sequencer assigned a character substyle to a non-character scene.
+            # Pick a compatible non-character substyle based on the description
+            # instead of always defaulting to "environment".
+            scene_type = detected_type  # data_hud, object_closeup, or environment
+        else:
+            # Sequencer assigned a non-character substyle to a character scene.
+            scene_type = detected_type  # power_move or lone_figure
     else:
         scene_type = detected_type
 
@@ -827,15 +810,9 @@ def build_prompt_from_block(
     else:
         style_direction = f"{camera_desc}."
 
-    # 4. Color mood clause — inject tonal direction from sequencer
-    mood_clause = _mood_clause(color_mood) if color_mood else ""
-
     prompt_body = f"{core} {style_direction}"
-    if mood_clause:
-        # Insert mood before the technical suffix for tonal variation
-        prompt_body = f"{prompt_body} {mood_clause}."
 
-    # 5. Technical tail (palette, texture, aspect ratio)
+    # 4. Technical tail (palette, texture, aspect ratio)
     if image_style_override and image_style_override.strip():
         suffix = _apply_style_override(suffix, image_style_override)
 
