@@ -207,9 +207,12 @@ async def _expand_with_scene_blocks(
         for j, (seg_idx, seg, ctx) in enumerate(group):
             cam = ctx.get("camera", "medium") if ctx else "medium"
             action = ctx.get("action", "") if ctx else ""
+            # Full narration text — this is what each image must depict
+            narration = seg['text']
             image_sequence.append(
-                f"  Image {j+1}: camera={cam}, action=\"{action}\", "
-                f"narration=\"{seg['text'][:120]}\""
+                f"  Image {j+1} (camera: {cam}):\n"
+                f"    Narration: \"{narration}\"\n"
+                f"    Action note: {action}"
             )
 
         try:
@@ -227,28 +230,26 @@ async def _expand_with_scene_blocks(
                     f"- Characters present: {chars_str}\n"
                     f"- Lighting: {block_lighting}\n"
                     f"- Mood: {block_mood}\n\n"
-                    f"## IMAGE SEQUENCE (these play consecutively as animation):\n"
+                    f"## IMAGE SEQUENCE:\n"
                     + "\n".join(image_sequence) + "\n\n"
                 )
 
                 visual_desc_prompt += (
-                    "Write a visual description (20-35 words each) for EACH image in this block.\n\n"
-                    "CONSISTENCY RULES — these images animate together as one continuous sequence:\n"
-                    "- Same location, same lighting, same color palette across all images\n"
-                    "- Characters keep the EXACT same clothing and appearance in every image\n"
-                    "- Image 1 (wide) establishes the scene, subsequent images push in closer\n\n"
-                    "DIVERSITY RULE — each image MUST show a DIFFERENT visual subject:\n"
-                    "- Each description must focus on a DIFFERENT detail, object, or aspect of the scene\n"
-                    "- Do NOT repeat the same primary subject across images (e.g. if image 1 shows\n"
-                    "  'aircraft carriers in formation', image 2 must show something ELSE: the flight\n"
-                    "  deck, radar arrays, a crew member on the bridge, wake patterns, etc.)\n"
-                    "- Use the camera angle to guide what's visible: wide = full scene, medium = key\n"
-                    "  element, closeup = specific detail\n"
-                    "- The narration text for each image tells you WHAT to depict — follow it\n\n"
-                    "VISUAL APPROACH — identify the PRIMARY VERB in each narration line:\n"
+                    "Write a visual description (20-35 words each) for EACH image.\n\n"
+                    "CORE RULE — each image's description must DEPICT ITS NARRATION TEXT:\n"
+                    "- Read each image's Narration carefully — it tells you what to show\n"
+                    "- Each narration segment covers a different aspect of the story, so each\n"
+                    "  image should naturally depict something different\n"
+                    "- If two narrations describe the same subject (e.g. both mention carriers),\n"
+                    "  use the camera angle to differentiate: wide = full formation, medium = deck\n"
+                    "  activity, closeup = specific hardware detail\n\n"
+                    "VISUAL APPROACH — identify the PRIMARY VERB in each narration:\n"
                     "- Action verbs (launched, struck, signed) → show it happening physically\n"
                     "- Internal verbs (realized, planned) → contemplative character moment\n"
                     "- Data verbs (cost, earned, numbered) → physical manifestation or data display\n\n"
+                    "CONSISTENCY:\n"
+                    "- Same location and lighting across all images in this block\n"
+                    "- Characters keep EXACT same clothing and appearance\n\n"
                     "RULES:\n"
                     "1. Use EXACT character costumes from the Story Bible. Never omit clothing.\n"
                     "2. Use the shared location description — don't invent a different setting.\n"
