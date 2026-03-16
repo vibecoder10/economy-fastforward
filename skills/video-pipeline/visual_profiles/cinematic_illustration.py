@@ -96,7 +96,7 @@ _ENVIRONMENT_PREFIX = (
 # duplicate the prefix or substyle suffixes.
 _SUFFIX = (
     " Stylized ink outlines, muted earthy palette, film grain texture, "
-    "16:9 composition"
+    "full-bleed 16:9 composition, no black bars"
 )
 
 _STYLE_SYSTEM = StyleSystemConfig(

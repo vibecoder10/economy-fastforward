@@ -292,7 +292,7 @@ _ENVIRONMENT_PREFIX = (
 # Universal suffix for ALL scenes
 _UNIVERSAL_SUFFIX = (
     " Stylized ink outlines, muted earthy palette, film grain texture, "
-    "16:9 composition"
+    "full-bleed 16:9 composition, no black bars"
 )
 
 # Words that indicate character presence in the visual description
