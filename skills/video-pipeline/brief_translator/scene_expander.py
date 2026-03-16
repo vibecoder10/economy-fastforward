@@ -195,6 +195,10 @@ async def _expand_with_scene_blocks(
     # LLM visual descriptions keyed by segment index
     segment_descriptions: dict[int, str] = {}
 
+    # Max images per LLM call — prevents Claude from producing repetitive descriptions
+    # when too many similar narrations are batched together
+    MAX_BATCH_SIZE = 4
+
     for block_id, group in block_groups.items():
         first_ctx = group[0][2] if group[0][2] else {}
         block_location = first_ctx.get("block_location", "")
@@ -203,101 +207,133 @@ async def _expand_with_scene_blocks(
         block_location_id = first_ctx.get("block_location_id", "")
         block_mood = first_ctx.get("block_mood", "neutral")
 
-        image_sequence = []
-        for j, (seg_idx, seg, ctx) in enumerate(group):
-            cam = ctx.get("camera", "medium") if ctx else "medium"
-            action = ctx.get("action", "") if ctx else ""
-            # Full narration text — this is what each image must depict
-            narration = seg['text']
-            image_sequence.append(
-                f"  Image {j+1} (camera: {cam}):\n"
-                f"    Narration: \"{narration}\"\n"
-                f"    Action note: {action}"
-            )
+        # Split large groups into sub-batches for better description diversity
+        sub_batches = [group[i:i+MAX_BATCH_SIZE] for i in range(0, len(group), MAX_BATCH_SIZE)]
+        block_prev_descriptions: list[str] = []  # Dedup across sub-batches
 
-        try:
-            if not is_holographic and profile and profile.scene_description.system_prompt:
-                visual_desc_prompt = f"{profile.scene_description.system_prompt}\n\n"
-
-                if bible_context:
-                    visual_desc_prompt += f"{bible_context}\n\n"
-
-                chars_str = ", ".join(block_characters) if block_characters else "none (environment/data shot)"
-                visual_desc_prompt += (
-                    f"## BLOCK: {block_id}\n"
-                    f"All {len(group)} images share this setting:\n"
-                    f"- Location: {block_location_id} — {block_location}\n"
-                    f"- Characters present: {chars_str}\n"
-                    f"- Lighting: {block_lighting}\n"
-                    f"- Mood: {block_mood}\n\n"
-                    f"## IMAGE SEQUENCE:\n"
-                    + "\n".join(image_sequence) + "\n\n"
+        for batch_idx, batch in enumerate(sub_batches):
+            image_sequence = []
+            for j, (seg_idx, seg, ctx) in enumerate(batch):
+                cam = ctx.get("camera", "medium") if ctx else "medium"
+                action = ctx.get("action", "") if ctx else ""
+                narration = seg['text']
+                image_sequence.append(
+                    f"  Image {j+1} (camera: {cam}):\n"
+                    f"    Narration: \"{narration}\"\n"
+                    f"    Action note: {action}"
                 )
 
-                visual_desc_prompt += (
-                    "Write a visual description (20-35 words each) for EACH image.\n\n"
-                    "CORE RULE — find the PRIMARY VERB in each narration and SHOW THAT ACTION:\n"
-                    "- \"launched strikes\" → jets over desert, explosions on target\n"
-                    "- \"sanctions crushed\" → empty factory floor, idle machinery, rusting equipment\n"
-                    "- \"signed a treaty\" → two figures at table with document, pens, flags\n"
-                    "- \"oil prices surged\" → tankers at sea, pump jacks working, price ticker\n"
-                    "- \"protests erupted\" → scattered debris on empty street, overturned barriers\n"
-                    "- Each narration has a DIFFERENT verb/action, so each image naturally differs\n"
-                    "- If two narrations describe the same subject, use the camera angle to show\n"
-                    "  a different aspect (wide = full scene, medium = key element, closeup = detail)\n\n"
-                    "CONSISTENCY:\n"
-                    "- Same location and lighting across all images in this block\n"
-                    "- Characters keep EXACT same clothing and appearance\n\n"
-                    "RULES:\n"
-                    "1. Use EXACT character costumes from the Story Bible. Never omit clothing.\n"
-                    "2. Use the shared location description — don't invent a different setting.\n"
-                    "3. If characters_present is 'none', NO character figures — environment/data only.\n"
-                    "4. Do NOT include style prefix (e.g. 'Cinematic animated illustration...') — added automatically.\n"
-                    "5. Never mention letterbox bars, black bars, or widescreen framing — the image fills the full frame.\n\n"
-                    f"Visual seeds: {visual_seeds[:200] if visual_seeds else 'none'}\n\n"
-                    f"Return a JSON array of {len(group)} strings, one per image. Example:\n"
-                    f'[\"desc for image 1\", \"desc for image 2\", ...]\n'
-                    "Return ONLY the JSON array, nothing else."
+            try:
+                if not is_holographic and profile and profile.scene_description.system_prompt:
+                    visual_desc_prompt = f"{profile.scene_description.system_prompt}\n\n"
+
+                    if bible_context:
+                        visual_desc_prompt += f"{bible_context}\n\n"
+
+                    chars_str = ", ".join(block_characters) if block_characters else "none (environment/data shot)"
+                    visual_desc_prompt += (
+                        f"## BLOCK: {block_id}\n"
+                        f"All images share this setting:\n"
+                        f"- Location: {block_location_id} — {block_location}\n"
+                        f"- Characters present: {chars_str}\n"
+                        f"- Lighting: {block_lighting}\n"
+                        f"- Mood: {block_mood}\n\n"
+                        f"## IMAGE SEQUENCE:\n"
+                        + "\n".join(image_sequence) + "\n\n"
+                    )
+
+                    visual_desc_prompt += (
+                        "Write a visual description (20-35 words each) for EACH image.\n\n"
+                        "CORE RULE — find the PRIMARY VERB in each narration and SHOW THAT ACTION:\n"
+                        "- \"launched strikes\" → jets over desert, explosions on target\n"
+                        "- \"sanctions crushed\" → empty factory floor, idle machinery, rusting equipment\n"
+                        "- \"signed a treaty\" → two figures at table with document, pens, flags\n"
+                        "- \"oil prices surged\" → tankers at sea, pump jacks working, price ticker\n"
+                        "- \"protests erupted\" → scattered debris on empty street, overturned barriers\n"
+                        "- Each narration has a DIFFERENT verb/action, so each image naturally differs\n"
+                        "- If two narrations describe the same subject, use the camera angle to show\n"
+                        "  a different aspect (wide = full scene, medium = key element, closeup = detail)\n\n"
+                        "CONSISTENCY:\n"
+                        "- Same location and lighting across all images in this block\n"
+                        "- Characters keep EXACT same clothing and appearance\n\n"
+                        "RULES:\n"
+                        "1. Use EXACT character costumes from the Story Bible. Never omit clothing.\n"
+                        "2. Use the shared location description — don't invent a different setting.\n"
+                        "3. If characters_present is 'none', NO character figures — environment/data only.\n"
+                        "4. Do NOT include style prefix (e.g. 'Cinematic animated illustration...') — added automatically.\n"
+                        "5. Never mention letterbox bars, black bars, or widescreen framing — the image fills the full frame.\n\n"
+                    )
+
+                    # Add previous descriptions from earlier sub-batches for dedup
+                    if block_prev_descriptions:
+                        recent = block_prev_descriptions[-3:]
+                        visual_desc_prompt += (
+                            "PREVIOUS IMAGES already generated for this block (make yours DIFFERENT):\n"
+                        )
+                        for k, prev in enumerate(recent, 1):
+                            visual_desc_prompt += f"  {k}. {prev}\n"
+                        visual_desc_prompt += "\n"
+
+                    visual_desc_prompt += (
+                        f"Visual seeds: {visual_seeds[:200] if visual_seeds else 'none'}\n\n"
+                        f"Return a JSON array of {len(batch)} strings, one per image. Example:\n"
+                        f'[\"desc for image 1\", \"desc for image 2\", ...]\n'
+                        "Return ONLY the JSON array, nothing else."
+                    )
+                else:
+                    visual_desc_prompt = (
+                        "You are creating visual descriptions for HOLOGRAPHIC DATA DISPLAYS "
+                        "in an intelligence operations center.\n\n"
+                        f"## BLOCK: {block_id} ({len(batch)} images in sequence)\n"
+                        + "\n".join(image_sequence) + "\n\n"
+                        "Write a 20-35 word visual description for EACH image.\n"
+                        "Each should describe DATA, DOCUMENTS, MAPS, or CHARTS on a holographic screen.\n"
+                        "Maintain visual consistency — same display theme, evolving data across images.\n\n"
+                    )
+                    if block_prev_descriptions:
+                        recent = block_prev_descriptions[-3:]
+                        visual_desc_prompt += (
+                            "PREVIOUS IMAGES (make yours DIFFERENT):\n"
+                        )
+                        for k, prev in enumerate(recent, 1):
+                            visual_desc_prompt += f"  {k}. {prev}\n"
+                        visual_desc_prompt += "\n"
+                    visual_desc_prompt += (
+                        f"Return a JSON array of {len(batch)} strings. "
+                        "Return ONLY the JSON array, nothing else."
+                    )
+
+                raw_response = await anthropic_client.generate(
+                    prompt=visual_desc_prompt,
+                    model=Models.CLAUDE_SONNET,
+                    max_tokens=150 * len(batch),
+                    temperature=0.4,
                 )
-            else:
-                visual_desc_prompt = (
-                    "You are creating visual descriptions for HOLOGRAPHIC DATA DISPLAYS "
-                    "in an intelligence operations center.\n\n"
-                    f"## BLOCK: {block_id} ({len(group)} images in sequence)\n"
-                    + "\n".join(image_sequence) + "\n\n"
-                    "Write a 20-35 word visual description for EACH image.\n"
-                    "Each should describe DATA, DOCUMENTS, MAPS, or CHARTS on a holographic screen.\n"
-                    "Maintain visual consistency — same display theme, evolving data across images.\n\n"
-                    f"Return a JSON array of {len(group)} strings. "
-                    "Return ONLY the JSON array, nothing else."
-                )
 
-            raw_response = await anthropic_client.generate(
-                prompt=visual_desc_prompt,
-                model=Models.CLAUDE_SONNET,
-                max_tokens=150 * len(group),
-                temperature=0.4,
-            )
+                raw = raw_response.strip()
+                if raw.startswith("```"):
+                    raw = raw.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+                descriptions = json.loads(raw)
 
-            raw = raw_response.strip()
-            if raw.startswith("```"):
-                raw = raw.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
-            descriptions = json.loads(raw)
+                if isinstance(descriptions, list) and len(descriptions) == len(batch):
+                    for j, (seg_idx, _seg, _ctx) in enumerate(batch):
+                        desc = descriptions[j].strip()
+                        segment_descriptions[seg_idx] = desc
+                        block_prev_descriptions.append(desc)
+                    batch_label = f" (batch {batch_idx+1}/{len(sub_batches)})" if len(sub_batches) > 1 else ""
+                    print(f"      Block {block_id}{batch_label}: {len(descriptions)} visual descriptions generated")
+                else:
+                    print(f"      ⚠️ Block {block_id}: Expected {len(batch)} descriptions, "
+                          f"got {len(descriptions) if isinstance(descriptions, list) else 'non-list'}")
+                    if isinstance(descriptions, list):
+                        for j, (seg_idx, _seg, _ctx) in enumerate(batch):
+                            if j < len(descriptions):
+                                desc = str(descriptions[j]).strip()
+                                segment_descriptions[seg_idx] = desc
+                                block_prev_descriptions.append(desc)
 
-            if isinstance(descriptions, list) and len(descriptions) == len(group):
-                for j, (seg_idx, _seg, _ctx) in enumerate(group):
-                    segment_descriptions[seg_idx] = descriptions[j].strip()
-                print(f"      Block {block_id}: {len(descriptions)} visual descriptions generated")
-            else:
-                print(f"      ⚠️ Block {block_id}: Expected {len(group)} descriptions, "
-                      f"got {len(descriptions) if isinstance(descriptions, list) else 'non-list'}")
-                if isinstance(descriptions, list):
-                    for j, (seg_idx, _seg, _ctx) in enumerate(group):
-                        if j < len(descriptions):
-                            segment_descriptions[seg_idx] = str(descriptions[j]).strip()
-
-        except Exception as e:
-            print(f"      ⚠️ Block {block_id}: LLM batch failed: {e}")
+            except Exception as e:
+                print(f"      ⚠️ Block {block_id}: LLM batch failed: {e}")
 
     # --- Step 5: Build concept dicts from deterministic segments + block context ---
     composition_map = {

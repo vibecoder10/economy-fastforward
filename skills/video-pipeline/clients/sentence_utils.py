@@ -43,8 +43,25 @@ def get_audio_duration(audio_url: str) -> Optional[float]:
         return None
 
 
+# Known abbreviations that should NOT trigger sentence splits
+_ABBREVIATIONS = {
+    'U.S.', 'U.K.', 'E.U.', 'U.N.', 'U.S.S.',
+    'Dr.', 'Mr.', 'Mrs.', 'Ms.', 'Jr.', 'Sr.', 'St.', 'Gen.', 'Gov.', 'Sen.', 'Rep.', 'Sgt.', 'Col.', 'Adm.',
+    'vs.', 'etc.', 'i.e.', 'e.g.', 'approx.', 'est.',
+}
+
+# Sentinel character used to protect abbreviation periods during splitting
+_SENTINEL = "\x00"
+
+
 def split_into_sentences(text: str) -> List[str]:
-    """Split text into sentences.
+    """Split text into sentences, preserving abbreviations and initials.
+
+    Handles:
+    - Known abbreviations (U.S., Dr., etc.) — not split
+    - Single-letter initials (Gerald R. Ford) — not split
+    - Decimal numbers ($13.5 billion) — not split
+    - Em-dash interrupted sentences — not split
 
     Args:
         text: The full scene narration text
@@ -52,24 +69,29 @@ def split_into_sentences(text: str) -> List[str]:
     Returns:
         List of sentences
     """
-    # Use a different approach: find sentence boundaries and split
-    # Match sentence-ending punctuation, optionally followed by quotes
-    # Then split on whitespace after these boundaries
-
-    # First, normalize whitespace (convert newlines to spaces)
+    # Normalize whitespace (convert newlines to spaces)
     normalized = " ".join(text.split())
 
-    # Pattern matches: punctuation (.!?) optionally followed by closing quote
-    # Then we insert a special delimiter and split on it
-    # This handles: "Hello." and "Hello?" and 'Hello!'
-    pattern = r'([.!?]["\'\u201d\u2019]?)\s+'
-    marked = re.sub(pattern, r'\1|||SPLIT|||', normalized)
+    # Protect abbreviations, initials, and decimals from sentence splitting
+    protected = normalized
 
-    # Split on our delimiter
+    # 1. Known abbreviations (longest first to avoid partial matches)
+    for abbr in sorted(_ABBREVIATIONS, key=len, reverse=True):
+        protected = protected.replace(abbr, abbr.replace('.', _SENTINEL))
+
+    # 2. Single-letter initials: "R. Ford", "J. Kennedy" (capital + period + space + capital)
+    protected = re.sub(r'(?<=[A-Z])\.(?=\s[A-Z])', _SENTINEL, protected)
+
+    # 3. Decimal numbers: "$13.5", "3.2%", "100,000.5"
+    protected = re.sub(r'(?<=\d)\.(?=\d)', _SENTINEL, protected)
+
+    # Standard sentence splitting on .!? followed by whitespace
+    pattern = r'([.!?]["\'\u201d\u2019]?)\s+'
+    marked = re.sub(pattern, r'\1|||SPLIT|||', protected)
     sentences = marked.split('|||SPLIT|||')
 
-    # Filter out empty strings and clean up
-    sentences = [s.strip() for s in sentences if s.strip()]
+    # Restore sentinel chars to periods and clean up
+    sentences = [s.replace(_SENTINEL, '.').strip() for s in sentences if s.strip()]
 
     return sentences
 
