@@ -736,25 +736,36 @@ def build_prompt_from_block(
     ).strip()
 
     # ---------------------------------------------------------------
-    # Scene type: prefer sequencer assignment, fall back to detection
+    # Scene type: prefer sequencer assignment when compatible,
+    # fall back to text detection when it contradicts the content.
+    #
+    # The sequencer rotates substyles for diversity but doesn't know
+    # what Claude wrote in the visual_description.  A "power_move"
+    # substyle on a no-character environment scene produces nonsense
+    # ("Two characters in confrontation" on an aircraft carrier wide
+    # shot).  So we validate: character substyles require characters,
+    # non-character substyles require no characters.
     # ---------------------------------------------------------------
-    # The sequencer's display_format IS the substyle key for profile-based
-    # systems (e.g. "power_move", "data_hud", "environment").  Using it
-    # instead of re-detecting from text ensures the sequencer's diversity
-    # rotation actually reaches the final prompt.
-    scene_type = display_format if display_format else _detect_scene_type(visual_desc)
+    _CHARACTER_SUBSTYLES = {"power_move", "lone_figure"}
+    _NON_CHARACTER_SUBSTYLES = {"environment", "data_hud", "object_closeup"}
+
+    detected_type = _detect_scene_type(visual_desc)
+    has_characters_in_desc = detected_type in _CHARACTER_SUBSTYLES
+
+    if display_format:
+        # Check compatibility: does the sequencer's substyle match the content?
+        sequencer_wants_characters = display_format in _CHARACTER_SUBSTYLES
+        compatible = (sequencer_wants_characters == has_characters_in_desc)
+        scene_type = display_format if compatible else detected_type
+    else:
+        scene_type = detected_type
 
     substyle_suffix = ""
     if profile:
         try:
             substyles = profile.style_system.substyles
-            # Try sequencer-assigned type first, fall back to text detection
             if scene_type in substyles:
                 substyle_suffix = substyles[scene_type].suffix or ""
-            else:
-                detected = _detect_scene_type(visual_desc)
-                if detected in substyles:
-                    substyle_suffix = substyles[detected].suffix or ""
         except (AttributeError, TypeError):
             pass
 
