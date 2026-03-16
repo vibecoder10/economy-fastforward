@@ -331,11 +331,28 @@ def _validate_concepts(
     return True, ""
 
 
+def _is_comma_inside_number(text: str, pos: int) -> bool:
+    """Check if a comma at position `pos` is inside a number (e.g. '15,000')."""
+    if pos <= 0 or pos >= len(text) - 1:
+        return False
+    return text[pos] == ',' and text[pos - 1].isdigit() and text[pos + 1].isdigit()
+
+
+# Words that should never START the second half of a split
+_BAD_SPLIT_STARTERS = {
+    'of', 'in', 'to', 'for', 'at', 'by', 'on', 'with', 'from', 'into',
+    'the', 'a', 'an', 'that', 'this', 'its', 'their', 'our', 'your',
+}
+
+
 def _split_at_clause_boundary(text: str) -> tuple[str, str]:
     """Split text at the nearest clause boundary (period, comma, semicolon, dash) near the midpoint.
 
     Falls back to midpoint word split if no suitable boundary produces
     two halves that both meet MIN_WORDS_PER_CONCEPT.
+
+    Skips commas inside numbers (e.g. '15,000') and avoids splits that
+    leave dangling prepositions at the start of part 2.
     """
     mid_char = len(text) // 2
     boundary_chars = ".,:;—–-"
@@ -346,25 +363,65 @@ def _split_at_clause_boundary(text: str) -> tuple[str, str]:
         for delta in [offset, -offset]:
             pos = mid_char + delta
             if 0 < pos < len(text) - 1 and text[pos] in boundary_chars:
+                # Skip commas inside numbers like "15,000"
+                if _is_comma_inside_number(text, pos):
+                    continue
+
                 candidate = pos + 1
                 part1 = text[:candidate].strip()
                 part2 = text[candidate:].strip()
-                if (
+
+                # Check both halves meet minimum word count
+                if not (
                     len(part1.split()) >= MIN_WORDS_PER_CONCEPT
                     and len(part2.split()) >= MIN_WORDS_PER_CONCEPT
                 ):
-                    best_pos = candidate
-                    break
+                    continue
+
+                # Reject if part2 starts with a dangling preposition/article
+                # (but only for non-sentence boundaries — after a period is fine)
+                is_sentence_boundary = text[pos] in '.!?'
+                if not is_sentence_boundary and part2:
+                    first_word_of_part2 = part2.split()[0].lower().strip('.,!?;:—–')
+                    if first_word_of_part2 in _BAD_SPLIT_STARTERS:
+                        continue
+
+                best_pos = candidate
+                break
         if best_pos is not None:
             break
 
     if best_pos is not None:
         return text[:best_pos].strip(), text[best_pos:].strip()
 
-    # No good boundary — fall back to midpoint word split
+    # No good boundary — fall back to word-level split using deterministic
+    # splitter logic (respects conjunctions and dangling endings)
     words = text.split()
     mid = len(words) // 2
-    return " ".join(words[:mid]), " ".join(words[mid:])
+
+    # Try to find a conjunction near the midpoint (±3 words)
+    conjunctions = {'and', 'but', 'or', 'because', 'while', 'when', 'which', 'where'}
+    for offset in range(4):
+        for delta in [offset, -offset]:
+            pos = mid + delta
+            if 0 < pos < len(words):
+                word = words[pos].lower().strip('.,!?;:—–')
+                if word in conjunctions:
+                    return " ".join(words[:pos]), " ".join(words[pos:])
+
+    # Avoid ending on a dangling word
+    split_pos = mid
+    last_word = words[split_pos - 1].lower().strip('.,!?;:—–') if split_pos > 0 else ""
+    if last_word in _BAD_SPLIT_STARTERS:
+        # Move forward to find a non-dangling end
+        for fwd in range(1, 4):
+            if split_pos + fwd < len(words):
+                cand = words[split_pos + fwd - 1].lower().strip('.,!?;:—–')
+                if cand not in _BAD_SPLIT_STARTERS:
+                    split_pos = split_pos + fwd
+                    break
+
+    return " ".join(words[:split_pos]), " ".join(words[split_pos:])
 
 
 def _validate_concept_durations(concepts: list[dict]) -> list[dict]:
