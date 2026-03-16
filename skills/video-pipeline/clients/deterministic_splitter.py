@@ -25,9 +25,9 @@ except ImportError:
     DEFAULT_WPS = 2.5  # Fallback if pipeline_config unavailable
 
 # Splitting configuration
-TARGET_DURATION = 5.5  # Ideal segment duration — shorter = more visual beats
+TARGET_DURATION = 7.0  # Ideal segment duration — documentary pacing (6-9s per shot)
 MIN_DURATION = 4.0     # Minimum segment duration (orphan threshold)
-MAX_DURATION = 9.0     # HARD ceiling - mid-sentence split if needed
+MAX_DURATION = 10.0    # HARD ceiling - mid-sentence split if needed
 
 
 def _calculate_duration(text: str, wps: float) -> float:
@@ -36,13 +36,21 @@ def _calculate_duration(text: str, wps: float) -> float:
     return word_count / wps if wps > 0 else word_count / DEFAULT_WPS
 
 
+# Words that should never end a segment (articles, prepositions, dangling connectors)
+_DANGLING_ENDINGS = {
+    'the', 'a', 'an', 'of', 'in', 'to', 'for', 'and', 'or', 'but', 'not',
+    'is', 'it', 'its', 'at', 'by', 'on', 'with', 'from', 'into', 'that',
+    'this', 'their', 'our', 'your', 'his', 'her', 'was', 'were', 'are',
+}
+
+
 def _find_split_point(text: str, target_word_pos: int) -> int:
     """Find best word position to split text near target position.
 
-    Searches +/- 3 words from target for:
+    Searches +/- 5 words from target for:
     1. After punctuation: comma, semicolon, colon, em dash
     2. Before conjunction: and, but, or, because, while, when, which, where, as, since, though, although, yet
-    3. Exact word boundary at target (fallback)
+    3. Nearest non-dangling word boundary (avoids ending on 'the', 'a', 'in', etc.)
 
     Args:
         text: The text to split
@@ -57,9 +65,9 @@ def _find_split_point(text: str, target_word_pos: int) -> int:
     if target_word_pos >= max_pos:
         return max_pos
 
-    # Search window: +/- 3 words from target
-    search_start = max(0, target_word_pos - 3)
-    search_end = min(max_pos, target_word_pos + 3)
+    # Search window: +/- 5 words from target (wider = better boundary selection)
+    search_start = max(0, target_word_pos - 5)
+    search_end = min(max_pos, target_word_pos + 5)
 
     # Conjunctions to split before
     conjunctions = {
@@ -68,12 +76,20 @@ def _find_split_point(text: str, target_word_pos: int) -> int:
     }
 
     # Priority 1: After punctuation (comma, semicolon, colon, em dash)
+    # Find closest to target
+    best_punct = None
+    best_punct_dist = float('inf')
     for i in range(search_start, search_end):
         if i >= max_pos:
             break
         word = words[i]
         if word.endswith((',', ';', ':', '—', '–')):
-            return i + 1  # Split after this word
+            dist = abs(i - target_word_pos)
+            if dist < best_punct_dist:
+                best_punct = i + 1
+                best_punct_dist = dist
+    if best_punct is not None:
+        return best_punct
 
     # Priority 2: Before conjunction
     for i in range(search_start, search_end):
@@ -83,8 +99,29 @@ def _find_split_point(text: str, target_word_pos: int) -> int:
         if word in conjunctions:
             return i  # Split before this word
 
-    # Priority 3: Exact target position (fallback)
-    return min(target_word_pos, max_pos)
+    # Priority 3: Target position, but avoid dangling endings
+    split_pos = min(target_word_pos, max_pos)
+    if split_pos > 0 and split_pos < max_pos:
+        last_word = words[split_pos - 1].lower().strip('.,!?;:—–')
+        if last_word in _DANGLING_ENDINGS:
+            # Try moving forward 1-3 words to find a non-dangling end
+            for offset in range(1, 4):
+                candidate = split_pos + offset
+                if candidate >= max_pos:
+                    break
+                cand_word = words[candidate - 1].lower().strip('.,!?;:—–')
+                if cand_word not in _DANGLING_ENDINGS:
+                    return candidate
+            # Try moving backward 1-3 words
+            for offset in range(1, 4):
+                candidate = split_pos - offset
+                if candidate <= 0:
+                    break
+                cand_word = words[candidate - 1].lower().strip('.,!?;:—–')
+                if cand_word not in _DANGLING_ENDINGS:
+                    return candidate
+
+    return split_pos
 
 
 def _split_oversized_segment(text: str, wps: float, depth: int = 0) -> list[str]:
@@ -214,17 +251,21 @@ def segment_scene_deterministic(
         segments.append(' '.join(current_segment_sentences))
 
     # Split any oversized segments at word boundaries
+    # Allow single sentences slightly over MAX to avoid creating orphan fragments
+    SOFT_MAX = MAX_DURATION + 1.0  # 11.0s — accept rather than create 3s orphans
     final_segments = []
     for seg_text in segments:
         duration = _calculate_duration(seg_text, wps)
-        if duration > MAX_DURATION:
-            # Recursively split until all chunks <= MAX_DURATION
+        if duration > SOFT_MAX:
+            # Well over limit — must split
             chunks = _split_oversized_segment(seg_text, wps)
             final_segments.extend(chunks)
         else:
             final_segments.append(seg_text)
 
-    # Merge orphan segments (< MIN_DURATION) into previous
+    # Merge orphan segments (< MIN_DURATION) into previous or next
+    # Allow soft overflow (MAX + 1s) to avoid recreating the same orphan
+    ORPHAN_OVERFLOW = MAX_DURATION + 1.0
     merged_segments = []
     for i, seg_text in enumerate(final_segments):
         duration = _calculate_duration(seg_text, wps)
@@ -235,8 +276,12 @@ def segment_scene_deterministic(
             merged_text = prev_text + ' ' + seg_text
             merged_duration = _calculate_duration(merged_text, wps)
 
-            if merged_duration > MAX_DURATION:
-                # Merged result exceeds max, split it
+            if merged_duration <= ORPHAN_OVERFLOW:
+                # Accept slight overflow to avoid orphan fragments
+                merged_segments[-1] = merged_text
+            elif merged_duration > ORPHAN_OVERFLOW:
+                # Too long even with overflow — try merging with NEXT instead
+                # For now, re-split (but this is a last resort)
                 chunks = _split_oversized_segment(merged_text, wps)
                 merged_segments[-1] = chunks[0]
                 merged_segments.extend(chunks[1:])
