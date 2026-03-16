@@ -76,7 +76,7 @@ def _find_split_point(text: str, target_word_pos: int) -> int:
     }
 
     # Priority 1: After punctuation (comma, semicolon, colon, em dash)
-    # Find closest to target
+    # Find closest to target. Skip commas inside numbers (e.g. "15,000")
     best_punct = None
     best_punct_dist = float('inf')
     for i in range(search_start, search_end):
@@ -84,6 +84,15 @@ def _find_split_point(text: str, target_word_pos: int) -> int:
             break
         word = words[i]
         if word.endswith((',', ';', ':', '—', '–')):
+            # Skip commas inside numbers: "15,000" ends with ',' only
+            # if the next word starts with digits (continuation of number)
+            if word.endswith(',') and i + 1 < max_pos and words[i + 1][:1].isdigit():
+                continue
+            # Skip if next word is a dangling start (preposition/article)
+            if i + 1 < max_pos:
+                next_word = words[i + 1].lower().strip('.,!?;:—–')
+                if next_word in _DANGLING_ENDINGS:
+                    continue
             dist = abs(i - target_word_pos)
             if dist < best_punct_dist:
                 best_punct = i + 1
@@ -99,26 +108,33 @@ def _find_split_point(text: str, target_word_pos: int) -> int:
         if word in conjunctions:
             return i  # Split before this word
 
-    # Priority 3: Target position, but avoid dangling endings
+    # Priority 3: Target position, but avoid dangling endings AND dangling starts
     split_pos = min(target_word_pos, max_pos)
     if split_pos > 0 and split_pos < max_pos:
         last_word = words[split_pos - 1].lower().strip('.,!?;:—–')
-        if last_word in _DANGLING_ENDINGS:
-            # Try moving forward 1-3 words to find a non-dangling end
+        next_word = words[split_pos].lower().strip('.,!?;:—–') if split_pos < max_pos else ""
+        needs_adjustment = (
+            last_word in _DANGLING_ENDINGS
+            or next_word in _DANGLING_ENDINGS  # "body | of water" → bad
+        )
+        if needs_adjustment:
+            # Try moving forward 1-3 words to find a clean boundary
             for offset in range(1, 4):
                 candidate = split_pos + offset
                 if candidate >= max_pos:
                     break
-                cand_word = words[candidate - 1].lower().strip('.,!?;:—–')
-                if cand_word not in _DANGLING_ENDINGS:
+                cand_last = words[candidate - 1].lower().strip('.,!?;:—–')
+                cand_next = words[candidate].lower().strip('.,!?;:—–') if candidate < max_pos else ""
+                if cand_last not in _DANGLING_ENDINGS and cand_next not in _DANGLING_ENDINGS:
                     return candidate
             # Try moving backward 1-3 words
             for offset in range(1, 4):
                 candidate = split_pos - offset
                 if candidate <= 0:
                     break
-                cand_word = words[candidate - 1].lower().strip('.,!?;:—–')
-                if cand_word not in _DANGLING_ENDINGS:
+                cand_last = words[candidate - 1].lower().strip('.,!?;:—–')
+                cand_next = words[candidate].lower().strip('.,!?;:—–') if candidate < max_pos else ""
+                if cand_last not in _DANGLING_ENDINGS and cand_next not in _DANGLING_ENDINGS:
                     return candidate
 
     return split_pos
