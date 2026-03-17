@@ -236,7 +236,7 @@ Then generate the image."""
     )
     file_id = drive_result.get("id", "")
 
-    # Make it public so we get a usable URL
+    # Make it public so we get a usable direct URL
     v4_url = ""
     if file_id:
         try:
@@ -244,7 +244,8 @@ Then generate the image."""
             print(f"    Gemini thumbnail uploaded to Drive: {v4_url[:60]}...")
         except Exception as e:
             print(f"    Failed to make Gemini thumbnail public: {e}")
-            v4_url = f"https://drive.google.com/file/d/{file_id}/view"
+            # uc?id= format still works for public files in Slack image blocks
+            v4_url = f"https://drive.google.com/uc?id={file_id}"
 
     if not v4_url:
         print("    Failed to upload Gemini-generated thumbnail to Drive")
@@ -257,6 +258,7 @@ Then generate the image."""
 
     return {
         "v4_url": v4_url,
+        "v4_file_id": file_id,
         "analysis": analysis,
         "visual_metaphor": metaphor,
         "reasoning": reasoning,

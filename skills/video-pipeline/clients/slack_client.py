@@ -122,6 +122,61 @@ class SlackClient:
         except Exception:
             pass
 
+    def send_blocks(
+        self,
+        text: str,
+        blocks: list[dict],
+        channel_id: Optional[str] = None,
+    ) -> dict:
+        """Send a message with Block Kit blocks (supports inline images).
+
+        Args:
+            text: Fallback text for notifications/accessibility.
+            blocks: List of Slack Block Kit block dicts.
+            channel_id: Channel to send to (uses default if not specified).
+
+        Returns:
+            Slack API response dict with ok, ts, channel.
+        """
+        target_channel = channel_id or self.channel_id
+
+        last_error = None
+        for attempt in range(3):
+            try:
+                response = self.client.chat_postMessage(
+                    channel=target_channel,
+                    text=text,
+                    blocks=blocks,
+                )
+                return {
+                    "ok": response["ok"],
+                    "ts": response["ts"],
+                    "channel": response["channel"],
+                }
+            except SlackApiError as e:
+                last_error = e
+                error_code = e.response.get("error", "") if e.response else ""
+                if error_code in _RETRYABLE_ERRORS and attempt < 2:
+                    wait = (attempt + 1) * 2
+                    if error_code == "ratelimited":
+                        wait = int(e.response.headers.get("Retry-After", wait))
+                    print(f"    Slack {error_code}, retrying in {wait}s (attempt {attempt + 1}/3)...")
+                    time.sleep(wait)
+                    continue
+                raise
+
+    def notify_blocks(
+        self,
+        text: str,
+        blocks: list[dict],
+        channel_id: Optional[str] = None,
+    ) -> None:
+        """Fire-and-forget block notification. Never raises."""
+        try:
+            self.send_blocks(text, blocks, channel_id)
+        except Exception:
+            pass
+
     # ==================== PIPELINE NOTIFICATIONS ====================
     
     def notify_pipeline_start(self, youtube_url: str) -> dict:
