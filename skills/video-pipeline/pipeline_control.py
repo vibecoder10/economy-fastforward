@@ -209,9 +209,9 @@ async def handle_help(message, say):
 - `sync` / `timing` — Run Whisper alignment to calculate scene durations
 
 *6. Sound Design (optional)*
-- `run sound design <title>` — Generate per-image sound maps via Claude
-- `run sound effects <title>` — Generate sound effect audio files
-- `run sound all <title>` — Run sound design + effects sequentially
+- `sound design <title>` — Generate per-image sound maps via Claude
+- `sound effects <title>` — Generate sound effect audio files
+- `sound all <title>` — Run sound design + effects sequentially
 
 *7. Video Prompts (manual, ~$0.10/clip)*
 - `video prompts` — Generate motion prompts for all pending images
@@ -355,8 +355,8 @@ _last_failed_command = None
 _last_failed_handler = None
 
 
-@app.message(re.compile(r"^retry$", re.IGNORECASE))
-@app.message(re.compile(r"^try again$", re.IGNORECASE))
+@app.message(re.compile(r"^retry", re.IGNORECASE))
+@app.message(re.compile(r"^try again", re.IGNORECASE))
 async def handle_retry(message, say):
     """Re-run the last failed command."""
     global _last_failed_command, _last_failed_handler
@@ -375,8 +375,8 @@ async def handle_retry(message, say):
         await handler(message, say)
 
 
-@app.message(re.compile(r"^queue$", re.IGNORECASE))
-@app.message(re.compile(r"^pipeline$", re.IGNORECASE))
+@app.message(re.compile(r"^(?:show\s+)?queues?$", re.IGNORECASE))
+@app.message(re.compile(r"^(?:show\s+)?pipelines?$", re.IGNORECASE))
 async def handle_queue(message, say):
     """Show all ideas in the Airtable pipeline with their current status."""
     await say(":mag: Checking pipeline queue...")
@@ -419,7 +419,7 @@ async def handle_queue(message, say):
         await say(f":x: Error checking queue: {e}")
 
 
-@app.message(re.compile(r"^skip$", re.IGNORECASE))
+@app.message(re.compile(r"^skip", re.IGNORECASE))
 async def handle_skip(message, say):
     """Skip the current pipeline step — advance status to the next stage."""
     await say(":mag: Looking for the current idea to skip...")
@@ -615,8 +615,8 @@ async def handle_run(message, say):
         _stop_event.clear()
 
 
-@app.message(re.compile(r"run script", re.IGNORECASE))
-@app.message(re.compile(r"^script$", re.IGNORECASE))
+@app.message(re.compile(r"run scripts?", re.IGNORECASE))
+@app.message(re.compile(r"^scripts?(?:\s+\d+)?$", re.IGNORECASE))
 async def handle_script(message, say):
     """Run the brief translator (script generation with validation)."""
     global current_process
@@ -647,8 +647,8 @@ async def handle_script(message, say):
 
 
 
-@app.message(re.compile(r"run video prompts", re.IGNORECASE))
-@app.message(re.compile(r"^video prompts(?:\s+[\d,]+)?$", re.IGNORECASE))
+@app.message(re.compile(r"run video prompts?", re.IGNORECASE))
+@app.message(re.compile(r"^video prompts?(?:\s+[\d,]+)?$", re.IGNORECASE))
 async def handle_video_prompts(message, say):
     """Generate video motion prompts for images."""
     global current_process
@@ -681,8 +681,8 @@ async def handle_video_prompts(message, say):
         await say(f":x: Error: {e}")
 
 
-@app.message(re.compile(r"run video generate", re.IGNORECASE))
-@app.message(re.compile(r"^video generate(?:\s+[\d,]+)?$", re.IGNORECASE))
+@app.message(re.compile(r"run video generat(?:e|ion)", re.IGNORECASE))
+@app.message(re.compile(r"^video generat(?:e|ion)(?:\s+[\d,]+)?$", re.IGNORECASE))
 async def handle_video_generate(message, say):
     """Generate video clips from images with motion prompts."""
     global current_process
@@ -749,8 +749,8 @@ async def handle_prompts(message, say):
         await say(f":x: Error: {e}")
 
 
-@app.message(re.compile(r"run end images", re.IGNORECASE))
-@app.message(re.compile(r"end images", re.IGNORECASE))
+@app.message(re.compile(r"run end (?:images?|cards?)", re.IGNORECASE))
+@app.message(re.compile(r"^end (?:images?|cards?)", re.IGNORECASE))
 async def handle_end_images(message, say):
     """Run end images generation."""
     global current_process
@@ -842,7 +842,9 @@ async def handle_audio_sync(message, say):
         await say(f":x: Error: {e}")
 
 
+@app.message(re.compile(r"run voiceovers?", re.IGNORECASE))
 @app.message(re.compile(r"run voice", re.IGNORECASE))
+@app.message(re.compile(r"^voiceovers?(?:\s+\d+)?$", re.IGNORECASE))
 @app.message(re.compile(r"^voice(?:\s+\d+)?$", re.IGNORECASE))
 async def handle_voice(message, say):
     """Run the voice bot."""
@@ -876,7 +878,7 @@ async def handle_voice(message, say):
         await say(f":x: Error: {e}")
 
 
-@app.message(re.compile(r"^!?run\s+sound\s+design\s+(.+)", re.IGNORECASE))
+@app.message(re.compile(r"^!?(?:run\s+)?sound\s+design\s+(.+)", re.IGNORECASE))
 async def handle_sound_design(message, say):
     """Generate per-image sound prompts via Claude Haiku."""
     global current_task_name
@@ -884,9 +886,9 @@ async def handle_sound_design(message, say):
         await say(f":x: Already running `{current_task_name}`. Use `stop` to cancel it first.")
         return
 
-    match = re.search(r"^!?run\s+sound\s+design\s+(.+)", message["text"], re.IGNORECASE)
+    match = re.search(r"^!?(?:run\s+)?sound\s+design\s+(.+)", message["text"], re.IGNORECASE)
     if not match:
-        await say(":x: Usage: `run sound design <video title>`")
+        await say(":x: Usage: `sound design <video title>`")
         return
 
     title_query = match.group(1).strip()
@@ -925,7 +927,7 @@ async def handle_sound_design(message, say):
         current_task_name = None
 
 
-@app.message(re.compile(r"^!?run\s+sound\s+effects?\s+(.+)", re.IGNORECASE))
+@app.message(re.compile(r"^!?(?:run\s+)?sound\s+effects?\s+(.+)", re.IGNORECASE))
 async def handle_sound_effects(message, say):
     """Generate sound effect audio files per image row."""
     global current_task_name
@@ -933,9 +935,9 @@ async def handle_sound_effects(message, say):
         await say(f":x: Already running `{current_task_name}`. Use `stop` to cancel it first.")
         return
 
-    match = re.search(r"^!?run\s+sound\s+effects?\s+(.+)", message["text"], re.IGNORECASE)
+    match = re.search(r"^!?(?:run\s+)?sound\s+effects?\s+(.+)", message["text"], re.IGNORECASE)
     if not match:
-        await say(":x: Usage: `run sound effects <video title>`")
+        await say(":x: Usage: `sound effects <video title>`")
         return
 
     title_query = match.group(1).strip()
@@ -976,7 +978,7 @@ async def handle_sound_effects(message, say):
         current_task_name = None
 
 
-@app.message(re.compile(r"^!?run\s+sound\s+all\s+(.+)", re.IGNORECASE))
+@app.message(re.compile(r"^!?(?:run\s+)?sound\s+all\s+(.+)", re.IGNORECASE))
 async def handle_sound_all(message, say):
     """Run both sound prompts and sound effects sequentially for a video."""
     global current_task_name
@@ -984,7 +986,7 @@ async def handle_sound_all(message, say):
         await say(f":x: Already running `{current_task_name}`. Use `stop` to cancel it first.")
         return
 
-    match = re.search(r"^!?run\s+sound\s+all\s+(.+)", message["text"], re.IGNORECASE)
+    match = re.search(r"^!?(?:run\s+)?sound\s+all\s+(.+)", message["text"], re.IGNORECASE)
     if not match:
         await say(":x: Usage: `run sound all <video title>`")
         return
@@ -1045,8 +1047,8 @@ async def handle_sound_all(message, say):
         current_task_name = None
 
 
-@app.message(re.compile(r"run thumbnail", re.IGNORECASE))
-@app.message(re.compile(r"thumbnail", re.IGNORECASE))
+@app.message(re.compile(r"run thumbnails?", re.IGNORECASE))
+@app.message(re.compile(r"^thumbnails?$", re.IGNORECASE))
 async def handle_thumbnail(message, say):
     """Run the thumbnail bot."""
     global current_process
@@ -1074,8 +1076,8 @@ async def handle_thumbnail(message, say):
         await say(f":x: Error: {e}")
 
 
-@app.message(re.compile(r"run render", re.IGNORECASE))
-@app.message(re.compile(r"^render$", re.IGNORECASE))
+@app.message(re.compile(r"run renders?", re.IGNORECASE))
+@app.message(re.compile(r"^renders?$", re.IGNORECASE))
 async def handle_render(message, say):
     """Render all videos at 'Ready To Render' one at a time."""
     global current_process
@@ -1106,8 +1108,8 @@ async def handle_render(message, say):
         await say(f":x: Error: {e}")
 
 
-@app.message(re.compile(r"run upload", re.IGNORECASE))
-@app.message(re.compile(r"^upload$", re.IGNORECASE))
+@app.message(re.compile(r"run uploads?", re.IGNORECASE))
+@app.message(re.compile(r"^uploads?$", re.IGNORECASE))
 async def handle_upload(message, say):
     """Upload a rendered video to YouTube as an unlisted draft."""
     global current_process, current_task_name
@@ -1143,8 +1145,8 @@ async def handle_upload(message, say):
         current_task_name = None
 
 
-@app.message(re.compile(r"run analytics", re.IGNORECASE))
-@app.message(re.compile(r"^analytics$", re.IGNORECASE))
+@app.message(re.compile(r"run analytics?", re.IGNORECASE))
+@app.message(re.compile(r"^analytics?$", re.IGNORECASE))
 async def handle_analytics(message, say):
     """Sync YouTube analytics for all uploaded videos to Airtable."""
     global current_process, current_task_name
@@ -1174,8 +1176,8 @@ async def handle_analytics(message, say):
         await say(f":x: Analytics error: {e}")
 
 
-@app.message(re.compile(r"run analyze", re.IGNORECASE))
-@app.message(re.compile(r"^analyze$", re.IGNORECASE))
+@app.message(re.compile(r"run analy[sz]e", re.IGNORECASE))
+@app.message(re.compile(r"^analy[sz]e$", re.IGNORECASE))
 async def handle_analyze(message, say):
     """Run weekly performance analysis and post insights to Slack."""
     global current_process, current_task_name
@@ -2070,22 +2072,22 @@ async def handle_model_reset(message, say):
     await _handle_model_reset(message, say)
 
 
-@app.message(re.compile(r"^!?models$", re.IGNORECASE))
+@app.message(re.compile(r"^!?models?$", re.IGNORECASE))
 async def handle_model_list(message, say):
     await _handle_model_list(message, say)
 
 
-@app.message(re.compile(r"^!?visualstyle\s+(.+?):\s*(.+)", re.IGNORECASE))
+@app.message(re.compile(r"^!?visual[\s-]*styles?\s+(.+?):\s*(.+)", re.IGNORECASE))
 async def handle_visualstyle_set(message, say):
     await _handle_visualstyle_set(message, say)
 
 
-@app.message(re.compile(r"^!?visualstyle\s+reset\s+(.+)", re.IGNORECASE))
+@app.message(re.compile(r"^!?visual[\s-]*styles?\s+reset\s+(.+)", re.IGNORECASE))
 async def handle_visualstyle_reset(message, say):
     await _handle_visualstyle_reset(message, say)
 
 
-@app.message(re.compile(r"^!?visualstyles?$", re.IGNORECASE))
+@app.message(re.compile(r"^!?visual[\s-]*styles?$", re.IGNORECASE))
 async def handle_visualstyle_list(message, say):
     await _handle_visualstyle_list(message, say)
 
