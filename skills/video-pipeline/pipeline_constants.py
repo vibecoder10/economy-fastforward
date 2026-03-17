@@ -358,9 +358,9 @@ class Tuning:
     SPEAKING_RATE_WPS = 2.5  # words per second
 
     # Segment duration (deterministic_splitter + audio_sync)
-    TARGET_SEGMENT_DURATION = 5.5
+    TARGET_SEGMENT_DURATION = 7.0
     MIN_SEGMENT_DURATION = 4.0
-    MAX_SEGMENT_DURATION = 9.0
+    MAX_SEGMENT_DURATION = 10.0
 
     # Display timing (audio_sync/config.py)
     MIN_DISPLAY_SECONDS = 3.0

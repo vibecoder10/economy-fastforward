@@ -16,6 +16,8 @@ import {
     getActiveSegment,
     getSegmentsForScene,
 } from "./segments";
+import { CaptionsOverlay } from "./components/CaptionsOverlay";
+import { getRenderScenesForScene, RenderScene } from "./renderConfig";
 
 interface SceneProps {
     sceneNumber: number;
@@ -138,6 +140,12 @@ export const Scene: React.FC<SceneProps> = ({
     // SFX fade duration in frames (0.3s)
     const SFX_FADE_FRAMES = Math.floor(fps * 0.3);
 
+    // Load per-image Ken Burns + transition data from render_config
+    const renderScenes = useMemo(
+        () => getRenderScenesForScene(sceneNumber),
+        [sceneNumber],
+    );
+
     return (
         <AbsoluteFill>
             {/* Audio for this scene */}
@@ -146,6 +154,8 @@ export const Scene: React.FC<SceneProps> = ({
             {/* Render all clips in Sequences - proper Remotion pattern for sequential video */}
             {segmentTimings.map((timing, index) => {
                 const img = images[index];
+                // Match render_config entry by image_index (1-based)
+                const rs = renderScenes[index] as RenderScene | undefined;
                 return (
                     <Sequence
                         key={timing.imageFile}
@@ -156,6 +166,9 @@ export const Scene: React.FC<SceneProps> = ({
                             imageFile={timing.imageFile}
                             motionIndex={index}
                             segmentDurationFrames={timing.durationFrames}
+                            kenBurns={rs?.ken_burns}
+                            transitionIn={rs?.transition_in}
+                            transitionOut={rs?.transition_out}
                         />
                         {/* Per-image sound effect — plays for exactly the image duration */}
                         {img?.sfx && (
@@ -170,6 +183,14 @@ export const Scene: React.FC<SceneProps> = ({
                 );
             })}
 
+            {/* Karaoke captions — word-level highlight synced to audio */}
+            {hasTranscript && transcript?.words && transcript.words.length > 0 && (
+                <CaptionsOverlay
+                    words={transcript.words}
+                    currentTimeSeconds={currentTimeSeconds}
+                    wordsPerChunk={4}
+                />
+            )}
         </AbsoluteFill>
     );
 };
@@ -253,7 +274,10 @@ const DynamicImage: React.FC<{
     imageFile: string;
     motionIndex: number;
     segmentDurationFrames: number;
-}> = ({ imageFile, motionIndex, segmentDurationFrames }) => {
+    kenBurns?: Record<string, unknown>;
+    transitionIn?: Record<string, unknown>;
+    transitionOut?: Record<string, unknown>;
+}> = ({ imageFile, motionIndex, segmentDurationFrames, kenBurns, transitionIn, transitionOut }) => {
     // Inside Sequence: frame is already relative to segment start
     const frame = useCurrentFrame();
     const { fps } = useVideoConfig();
@@ -267,74 +291,95 @@ const DynamicImage: React.FC<{
     // Frame is relative to Sequence start (0-based)
     const localFrame = frame;
 
-    // Crossfade transition: fade in at start, fade out at end
-    const FADE_FRAMES = Math.floor(fps * 0.4); // 0.4 second fade
+    // Transition durations from render_config (fall back to 0.4s crossfade)
+    const fadeInDuration = (transitionIn?.duration as number) ?? 0.4;
+    const fadeOutDuration = (transitionOut?.duration as number) ?? 0.4;
+    const FADE_IN_FRAMES = Math.floor(fps * fadeInDuration);
+    const FADE_OUT_FRAMES = Math.floor(fps * fadeOutDuration);
+
+    // Transition type determines opacity curve
+    const transInType = (transitionIn?.type as string) ?? "crossfade";
+    const transOutType = (transitionOut?.type as string) ?? "crossfade";
 
     // Safety: ensure we have enough frames for the fade curve
-    const safeDuration = Math.max(segmentDurationFrames, FADE_FRAMES * 2 + 1);
-    const fadeOutStart = Math.max(FADE_FRAMES + 1, safeDuration - FADE_FRAMES);
+    const safeDuration = Math.max(segmentDurationFrames, FADE_IN_FRAMES + FADE_OUT_FRAMES + 1);
+    const fadeOutStart = Math.max(FADE_IN_FRAMES + 1, safeDuration - FADE_OUT_FRAMES);
+
+    // "cut" transitions are instant (no fade), "dip_to_black" uses full fade
+    const fadeInTarget = transInType === "cut" ? 0 : FADE_IN_FRAMES;
+    const fadeOutTarget = transOutType === "cut" ? 0 : FADE_OUT_FRAMES;
 
     const opacity = interpolate(
         localFrame,
-        [0, FADE_FRAMES, fadeOutStart, safeDuration],
-        [0, 1, 1, 0],
+        [0, Math.max(fadeInTarget, 1), fadeOutStart, fadeOutStart + Math.max(fadeOutTarget, 1)],
+        [transInType === "cut" ? 1 : 0, 1, 1, transOutType === "fade_to_black" || transOutType === "dip_to_black" ? 0 : 0],
         { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' }
     );
 
     // Progress through FULL segment - motion NEVER stops
     const progress = Math.min(localFrame / segmentDurationFrames, 1);
 
-    // 6 continuous motion patterns that run the entire duration
-    const pattern = motionIndex % 6;
-
     let scale = 1;
     let translateX = 0;
     let translateY = 0;
 
-    // Base zoom that's always happening (100% to 125% over segment)
-    const baseZoom = 1.0 + progress * 0.25;
+    // Use Ken Burns data from render_config if available
+    const direction = kenBurns?.direction as string | undefined;
+    const speedMultiplier = (kenBurns?.speed_multiplier as number) ?? 1.0;
 
-    // Layered motion - zoom + pan + drift all happening together
-    switch (pattern) {
-        case 0:
-            // Push in + drift right - continuous diagonal movement
-            scale = baseZoom;
-            translateX = -progress * 80; // Drifts right (negative moves image left, view goes right)
-            translateY = -progress * 30; // Slight upward drift
-            break;
+    if (direction && kenBurns) {
+        // Profile-aware Ken Burns from render_config
+        const startScale = (kenBurns.start_scale as number) ?? 1.0;
+        const endScale = (kenBurns.end_scale as number) ?? startScale;
+        const startXOffset = (kenBurns.start_x_offset as number) ?? 0;
+        const endXOffset = (kenBurns.end_x_offset as number) ?? 0;
+        const startYOffset = (kenBurns.start_y_offset as number) ?? 0;
+        const endYOffset = (kenBurns.end_y_offset as number) ?? 0;
 
-        case 1:
-            // Pull out + drift left - reverse energy
-            scale = 1.25 - progress * 0.20; // 125% down to 105%
-            translateX = progress * 80; // Drifts left
-            translateY = progress * 20; // Slight downward
-            break;
+        // Adjusted progress accounts for speed multiplier
+        const adjustedProgress = Math.min(progress * speedMultiplier, 1);
 
-        case 2:
-            // Continuous pan right with steady zoom
-            scale = 1.05 + progress * 0.20;
-            translateX = 50 - progress * 100; // 50 to -50
-            break;
+        // Scale interpolation
+        scale = startScale + (endScale - startScale) * adjustedProgress;
 
-        case 3:
-            // Continuous pan left with steady zoom
-            scale = 1.05 + progress * 0.20;
-            translateX = -50 + progress * 100; // -50 to 50
-            break;
+        // Pan/tilt interpolation
+        translateX = startXOffset + (endXOffset - startXOffset) * adjustedProgress;
+        translateY = startYOffset + (endYOffset - startYOffset) * adjustedProgress;
+    } else {
+        // Fallback: 6 hardcoded patterns (for Studio preview or missing config)
+        const pattern = motionIndex % 6;
+        const baseZoom = 1.0 + progress * 0.25;
 
-        case 4:
-            // Rise up throughout - reveals and builds
-            scale = baseZoom;
-            translateY = 60 - progress * 120; // 60 to -60 (continuous rise)
-            translateX = -progress * 30; // Subtle side drift
-            break;
-
-        case 5:
-            // Sink down with zoom - weight and gravity
-            scale = 1.25 - progress * 0.15;
-            translateY = -50 + progress * 100; // -50 to 50 (continuous fall)
-            translateX = progress * 25;
-            break;
+        switch (pattern) {
+            case 0:
+                scale = baseZoom;
+                translateX = -progress * 80;
+                translateY = -progress * 30;
+                break;
+            case 1:
+                scale = 1.25 - progress * 0.20;
+                translateX = progress * 80;
+                translateY = progress * 20;
+                break;
+            case 2:
+                scale = 1.05 + progress * 0.20;
+                translateX = 50 - progress * 100;
+                break;
+            case 3:
+                scale = 1.05 + progress * 0.20;
+                translateX = -50 + progress * 100;
+                break;
+            case 4:
+                scale = baseZoom;
+                translateY = 60 - progress * 120;
+                translateX = -progress * 30;
+                break;
+            case 5:
+                scale = 1.25 - progress * 0.15;
+                translateY = -50 + progress * 100;
+                translateX = progress * 25;
+                break;
+        }
     }
 
     // Add subtle organic "breathing" motion on top of everything
