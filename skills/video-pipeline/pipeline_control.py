@@ -209,9 +209,9 @@ async def handle_help(message, say):
 - `sync` / `timing` — Run Whisper alignment to calculate scene durations
 
 *6. Sound Design (optional)*
-- `run sound design <title>` — Generate per-image sound maps via Claude
-- `run sound effects <title>` — Generate sound effect audio files
-- `run sound all <title>` — Run sound design + effects sequentially
+- `sound design <title>` — Generate per-image sound maps via Claude
+- `sound effects <title>` — Generate sound effect audio files
+- `sound all <title>` — Run sound design + effects sequentially
 
 *7. Video Prompts (manual, ~$0.10/clip)*
 - `video prompts` — Generate motion prompts for all pending images
@@ -236,15 +236,15 @@ _Targeted runs do NOT advance the pipeline status (safe for testing)._
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 *Storyboard (contact-sheet workflow)*
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-- `!storyboard <title>` — Show beat breakdown + cost estimate
-- `!storyboard-preview [title]` — Preview directives only (no images)
-- `!storyboard-go [title]` — Phase 1: generate contact-sheet grids
-- `!storyboard-approve [title]` — Phase 2: extract panels + upscale
-- `!storyboard-beat <N> [title]` — Generate a single beat grid
-- `!storyboard-regenerate <N> [title]` — Regenerate a beat grid
-- `!storyboard-on <title>` — Enable storyboard mode for a video
-- `!storyboard-off <title>` — Disable storyboard mode (use normal pipeline)
-- `!storyboard-status [title]` — Show storyboard progress
+- `storyboard <title>` — Show beat breakdown + cost estimate
+- `storyboard preview [title]` — Preview directives only (no images)
+- `storyboard go [title]` — Phase 1: generate contact-sheet grids
+- `storyboard approve [title]` — Phase 2: extract panels + upscale
+- `storyboard beat <N> [title]` — Generate a single beat grid
+- `storyboard regenerate <N> [title]` — Regenerate a beat grid
+- `storyboard on <title>` — Enable storyboard mode for a video
+- `storyboard off <title>` — Disable storyboard mode (use normal pipeline)
+- `storyboard status [title]` — Show storyboard progress
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 *Auto-Run*
@@ -355,8 +355,8 @@ _last_failed_command = None
 _last_failed_handler = None
 
 
-@app.message(re.compile(r"^retry$", re.IGNORECASE))
-@app.message(re.compile(r"^try again$", re.IGNORECASE))
+@app.message(re.compile(r"^retry", re.IGNORECASE))
+@app.message(re.compile(r"^try again", re.IGNORECASE))
 async def handle_retry(message, say):
     """Re-run the last failed command."""
     global _last_failed_command, _last_failed_handler
@@ -375,8 +375,8 @@ async def handle_retry(message, say):
         await handler(message, say)
 
 
-@app.message(re.compile(r"^queue$", re.IGNORECASE))
-@app.message(re.compile(r"^pipeline$", re.IGNORECASE))
+@app.message(re.compile(r"^(?:show\s+)?queues?$", re.IGNORECASE))
+@app.message(re.compile(r"^(?:show\s+)?pipelines?$", re.IGNORECASE))
 async def handle_queue(message, say):
     """Show all ideas in the Airtable pipeline with their current status."""
     await say(":mag: Checking pipeline queue...")
@@ -419,7 +419,7 @@ async def handle_queue(message, say):
         await say(f":x: Error checking queue: {e}")
 
 
-@app.message(re.compile(r"^skip$", re.IGNORECASE))
+@app.message(re.compile(r"^skip", re.IGNORECASE))
 async def handle_skip(message, say):
     """Skip the current pipeline step — advance status to the next stage."""
     await say(":mag: Looking for the current idea to skip...")
@@ -615,8 +615,8 @@ async def handle_run(message, say):
         _stop_event.clear()
 
 
-@app.message(re.compile(r"run script", re.IGNORECASE))
-@app.message(re.compile(r"^script$", re.IGNORECASE))
+@app.message(re.compile(r"run scripts?", re.IGNORECASE))
+@app.message(re.compile(r"^scripts?(?:\s+\d+)?$", re.IGNORECASE))
 async def handle_script(message, say):
     """Run the brief translator (script generation with validation)."""
     global current_process
@@ -647,8 +647,8 @@ async def handle_script(message, say):
 
 
 
-@app.message(re.compile(r"run video prompts", re.IGNORECASE))
-@app.message(re.compile(r"^video prompts(?:\s+[\d,]+)?$", re.IGNORECASE))
+@app.message(re.compile(r"run video prompts?", re.IGNORECASE))
+@app.message(re.compile(r"^video prompts?(?:\s+[\d,]+)?$", re.IGNORECASE))
 async def handle_video_prompts(message, say):
     """Generate video motion prompts for images."""
     global current_process
@@ -681,8 +681,8 @@ async def handle_video_prompts(message, say):
         await say(f":x: Error: {e}")
 
 
-@app.message(re.compile(r"run video generate", re.IGNORECASE))
-@app.message(re.compile(r"^video generate(?:\s+[\d,]+)?$", re.IGNORECASE))
+@app.message(re.compile(r"run video generat(?:e|ion)", re.IGNORECASE))
+@app.message(re.compile(r"^video generat(?:e|ion)(?:\s+[\d,]+)?$", re.IGNORECASE))
 async def handle_video_generate(message, say):
     """Generate video clips from images with motion prompts."""
     global current_process
@@ -749,8 +749,8 @@ async def handle_prompts(message, say):
         await say(f":x: Error: {e}")
 
 
-@app.message(re.compile(r"run end images", re.IGNORECASE))
-@app.message(re.compile(r"end images", re.IGNORECASE))
+@app.message(re.compile(r"run end (?:images?|cards?)", re.IGNORECASE))
+@app.message(re.compile(r"^end (?:images?|cards?)", re.IGNORECASE))
 async def handle_end_images(message, say):
     """Run end images generation."""
     global current_process
@@ -842,7 +842,9 @@ async def handle_audio_sync(message, say):
         await say(f":x: Error: {e}")
 
 
+@app.message(re.compile(r"run voiceovers?", re.IGNORECASE))
 @app.message(re.compile(r"run voice", re.IGNORECASE))
+@app.message(re.compile(r"^voiceovers?(?:\s+\d+)?$", re.IGNORECASE))
 @app.message(re.compile(r"^voice(?:\s+\d+)?$", re.IGNORECASE))
 async def handle_voice(message, say):
     """Run the voice bot."""
@@ -876,7 +878,7 @@ async def handle_voice(message, say):
         await say(f":x: Error: {e}")
 
 
-@app.message(re.compile(r"^!?run\s+sound\s+design\s+(.+)", re.IGNORECASE))
+@app.message(re.compile(r"^!?(?:run\s+)?sound\s+design\s+(.+)", re.IGNORECASE))
 async def handle_sound_design(message, say):
     """Generate per-image sound prompts via Claude Haiku."""
     global current_task_name
@@ -884,9 +886,9 @@ async def handle_sound_design(message, say):
         await say(f":x: Already running `{current_task_name}`. Use `stop` to cancel it first.")
         return
 
-    match = re.search(r"^!?run\s+sound\s+design\s+(.+)", message["text"], re.IGNORECASE)
+    match = re.search(r"^!?(?:run\s+)?sound\s+design\s+(.+)", message["text"], re.IGNORECASE)
     if not match:
-        await say(":x: Usage: `run sound design <video title>`")
+        await say(":x: Usage: `sound design <video title>`")
         return
 
     title_query = match.group(1).strip()
@@ -925,7 +927,7 @@ async def handle_sound_design(message, say):
         current_task_name = None
 
 
-@app.message(re.compile(r"^!?run\s+sound\s+effects?\s+(.+)", re.IGNORECASE))
+@app.message(re.compile(r"^!?(?:run\s+)?sound\s+effects?\s+(.+)", re.IGNORECASE))
 async def handle_sound_effects(message, say):
     """Generate sound effect audio files per image row."""
     global current_task_name
@@ -933,9 +935,9 @@ async def handle_sound_effects(message, say):
         await say(f":x: Already running `{current_task_name}`. Use `stop` to cancel it first.")
         return
 
-    match = re.search(r"^!?run\s+sound\s+effects?\s+(.+)", message["text"], re.IGNORECASE)
+    match = re.search(r"^!?(?:run\s+)?sound\s+effects?\s+(.+)", message["text"], re.IGNORECASE)
     if not match:
-        await say(":x: Usage: `run sound effects <video title>`")
+        await say(":x: Usage: `sound effects <video title>`")
         return
 
     title_query = match.group(1).strip()
@@ -976,7 +978,7 @@ async def handle_sound_effects(message, say):
         current_task_name = None
 
 
-@app.message(re.compile(r"^!?run\s+sound\s+all\s+(.+)", re.IGNORECASE))
+@app.message(re.compile(r"^!?(?:run\s+)?sound\s+all\s+(.+)", re.IGNORECASE))
 async def handle_sound_all(message, say):
     """Run both sound prompts and sound effects sequentially for a video."""
     global current_task_name
@@ -984,7 +986,7 @@ async def handle_sound_all(message, say):
         await say(f":x: Already running `{current_task_name}`. Use `stop` to cancel it first.")
         return
 
-    match = re.search(r"^!?run\s+sound\s+all\s+(.+)", message["text"], re.IGNORECASE)
+    match = re.search(r"^!?(?:run\s+)?sound\s+all\s+(.+)", message["text"], re.IGNORECASE)
     if not match:
         await say(":x: Usage: `run sound all <video title>`")
         return
@@ -1045,8 +1047,8 @@ async def handle_sound_all(message, say):
         current_task_name = None
 
 
-@app.message(re.compile(r"run thumbnail", re.IGNORECASE))
-@app.message(re.compile(r"thumbnail", re.IGNORECASE))
+@app.message(re.compile(r"run thumbnails?", re.IGNORECASE))
+@app.message(re.compile(r"^thumbnails?$", re.IGNORECASE))
 async def handle_thumbnail(message, say):
     """Run the thumbnail bot."""
     global current_process
@@ -1074,8 +1076,8 @@ async def handle_thumbnail(message, say):
         await say(f":x: Error: {e}")
 
 
-@app.message(re.compile(r"run render", re.IGNORECASE))
-@app.message(re.compile(r"^render$", re.IGNORECASE))
+@app.message(re.compile(r"run renders?", re.IGNORECASE))
+@app.message(re.compile(r"^renders?$", re.IGNORECASE))
 async def handle_render(message, say):
     """Render all videos at 'Ready To Render' one at a time."""
     global current_process
@@ -1106,8 +1108,8 @@ async def handle_render(message, say):
         await say(f":x: Error: {e}")
 
 
-@app.message(re.compile(r"run upload", re.IGNORECASE))
-@app.message(re.compile(r"^upload$", re.IGNORECASE))
+@app.message(re.compile(r"run uploads?", re.IGNORECASE))
+@app.message(re.compile(r"^uploads?$", re.IGNORECASE))
 async def handle_upload(message, say):
     """Upload a rendered video to YouTube as an unlisted draft."""
     global current_process, current_task_name
@@ -1143,8 +1145,8 @@ async def handle_upload(message, say):
         current_task_name = None
 
 
-@app.message(re.compile(r"run analytics", re.IGNORECASE))
-@app.message(re.compile(r"^analytics$", re.IGNORECASE))
+@app.message(re.compile(r"run analytics?", re.IGNORECASE))
+@app.message(re.compile(r"^analytics?$", re.IGNORECASE))
 async def handle_analytics(message, say):
     """Sync YouTube analytics for all uploaded videos to Airtable."""
     global current_process, current_task_name
@@ -1174,8 +1176,8 @@ async def handle_analytics(message, say):
         await say(f":x: Analytics error: {e}")
 
 
-@app.message(re.compile(r"run analyze", re.IGNORECASE))
-@app.message(re.compile(r"^analyze$", re.IGNORECASE))
+@app.message(re.compile(r"run analy[sz]e", re.IGNORECASE))
+@app.message(re.compile(r"^analy[sz]e$", re.IGNORECASE))
 async def handle_analyze(message, say):
     """Run weekly performance analysis and post insights to Slack."""
     global current_process, current_task_name
@@ -2070,22 +2072,22 @@ async def handle_model_reset(message, say):
     await _handle_model_reset(message, say)
 
 
-@app.message(re.compile(r"^!?models$", re.IGNORECASE))
+@app.message(re.compile(r"^!?models?$", re.IGNORECASE))
 async def handle_model_list(message, say):
     await _handle_model_list(message, say)
 
 
-@app.message(re.compile(r"^!?visualstyle\s+(.+?):\s*(.+)", re.IGNORECASE))
+@app.message(re.compile(r"^!?visual[\s-]*styles?\s+(.+?):\s*(.+)", re.IGNORECASE))
 async def handle_visualstyle_set(message, say):
     await _handle_visualstyle_set(message, say)
 
 
-@app.message(re.compile(r"^!?visualstyle\s+reset\s+(.+)", re.IGNORECASE))
+@app.message(re.compile(r"^!?visual[\s-]*styles?\s+reset\s+(.+)", re.IGNORECASE))
 async def handle_visualstyle_reset(message, say):
     await _handle_visualstyle_reset(message, say)
 
 
-@app.message(re.compile(r"^!?visualstyles?$", re.IGNORECASE))
+@app.message(re.compile(r"^!?visual[\s-]*styles?$", re.IGNORECASE))
 async def handle_visualstyle_list(message, say):
     await _handle_visualstyle_list(message, say)
 
@@ -2131,10 +2133,10 @@ async def _find_idea_by_title(airtable, title: str, say=None):
     return None
 
 
-@app.message(re.compile(r"^!storyboard-preview\s*(.*)$", re.IGNORECASE))
+@app.message(re.compile(r"^!?storyboard[\s-]+previews?\s*(.*)$", re.IGNORECASE))
 async def handle_storyboard_preview(message, say):
     """Run directives only — no image generation. Sends shot plans to Slack."""
-    match = re.search(r"^!storyboard-preview\s*(.*)$", message["text"], re.IGNORECASE)
+    match = re.search(r"^!?storyboard[\s-]+previews?\s*(.*)$", message["text"], re.IGNORECASE)
     title_arg = match.group(1).strip().strip("\"'") if match and match.group(1).strip() else None
 
     await say(":film_projector: Running storyboard preview (directives only)...")
@@ -2174,10 +2176,10 @@ async def handle_storyboard_preview(message, say):
         await say(f":x: Storyboard preview failed: {e}")
 
 
-@app.message(re.compile(r"^!storyboard-go\s*(.*)$", re.IGNORECASE))
+@app.message(re.compile(r"^!?storyboard[\s-]+go\s*(.*)$", re.IGNORECASE))
 async def handle_storyboard_go(message, say):
     """Phase 1: Generate directives + contact sheet grids."""
-    match = re.search(r"^!storyboard-go\s*(.*)$", message["text"], re.IGNORECASE)
+    match = re.search(r"^!?storyboard[\s-]+go\s*(.*)$", message["text"], re.IGNORECASE)
     title_arg = match.group(1).strip().strip("\"'") if match and match.group(1).strip() else None
 
     await say(":art: Starting storyboard grid generation (Phase 1)...")
@@ -2223,10 +2225,10 @@ async def handle_storyboard_go(message, say):
         await say(f":x: Storyboard generation failed: {e}")
 
 
-@app.message(re.compile(r"^!storyboard-approve\s*(.*)$", re.IGNORECASE))
+@app.message(re.compile(r"^!?storyboard[\s-]+approve\s*(.*)$", re.IGNORECASE))
 async def handle_storyboard_approve(message, say):
     """Phase 2: Extract panels from grids, upscale, write to Images table."""
-    match = re.search(r"^!storyboard-approve\s*(.*)$", message["text"], re.IGNORECASE)
+    match = re.search(r"^!?storyboard[\s-]+approve\s*(.*)$", message["text"], re.IGNORECASE)
     title_arg = match.group(1).strip().strip("\"'") if match and match.group(1).strip() else None
 
     await say(":scissors: Starting panel extraction + upscale (Phase 2)...")
@@ -2264,10 +2266,10 @@ async def handle_storyboard_approve(message, say):
         await say(f":x: Panel extraction failed: {e}")
 
 
-@app.message(re.compile(r"^!storyboard-beat\s+(\d+)\s*(.*)$", re.IGNORECASE))
+@app.message(re.compile(r"^!?storyboard[\s-]+beats?\s+(\d+)\s*(.*)$", re.IGNORECASE))
 async def handle_storyboard_beat(message, say):
     """Process a single beat only — for testing."""
-    match = re.search(r"^!storyboard-beat\s+(\d+)\s*(.*)$", message["text"], re.IGNORECASE)
+    match = re.search(r"^!?storyboard[\s-]+beats?\s+(\d+)\s*(.*)$", message["text"], re.IGNORECASE)
     if not match:
         await say(":x: Usage: `!storyboard-beat <N> [title]`")
         return
@@ -2311,10 +2313,10 @@ async def handle_storyboard_beat(message, say):
         await say(f":x: Storyboard beat failed: {e}")
 
 
-@app.message(re.compile(r"^!storyboard-status\s*(.*)$", re.IGNORECASE))
+@app.message(re.compile(r"^!?storyboard[\s-]+status\s*(.*)$", re.IGNORECASE))
 async def handle_storyboard_status(message, say):
     """Show storyboard progress for a video."""
-    match = re.search(r"^!storyboard-status\s*(.*)$", message["text"], re.IGNORECASE)
+    match = re.search(r"^!?storyboard[\s-]+status\s*(.*)$", message["text"], re.IGNORECASE)
     title_arg = match.group(1).strip().strip("\"'") if match and match.group(1).strip() else None
 
     try:
@@ -2357,10 +2359,10 @@ async def handle_storyboard_status(message, say):
         await say(f":x: Status check failed: {e}")
 
 
-@app.message(re.compile(r"^!storyboard-regenerate\s+(\d+)\s*(.*)$", re.IGNORECASE))
+@app.message(re.compile(r"^!?storyboard[\s-]+(?:re)?gen(?:erate)?\s+(\d+)\s*(.*)$", re.IGNORECASE))
 async def handle_storyboard_regenerate(message, say):
     """Regenerate a specific beat's grid."""
-    match = re.search(r"^!storyboard-regenerate\s+(\d+)\s*(.*)$", message["text"], re.IGNORECASE)
+    match = re.search(r"^!?storyboard[\s-]+(?:re)?gen(?:erate)?\s+(\d+)\s*(.*)$", message["text"], re.IGNORECASE)
     if not match:
         await say(":x: Usage: `!storyboard-regenerate <beat_number> [title]`")
         return
@@ -2404,12 +2406,12 @@ async def handle_storyboard_regenerate(message, say):
         await say(f":x: Regeneration failed: {e}")
 
 
-@app.message(re.compile(r"^!storyboard-on\s+(.+)$", re.IGNORECASE))
+@app.message(re.compile(r"^!?storyboard[\s-]+on\s+(.+)$", re.IGNORECASE))
 async def handle_storyboard_on(message, say):
     """Enable storyboard mode for a video."""
-    match = re.search(r"^!storyboard-on\s+(.+)$", message["text"], re.IGNORECASE)
+    match = re.search(r"^!?storyboard[\s-]+on\s+(.+)$", message["text"], re.IGNORECASE)
     if not match:
-        await say(":x: Usage: `!storyboard-on <title>`")
+        await say(":x: Usage: `storyboard on <title>`")
         return
 
     title_arg = match.group(1).strip().strip("\"'")
@@ -2430,12 +2432,12 @@ async def handle_storyboard_on(message, say):
         await say(f":x: Failed to enable storyboard mode: {e}")
 
 
-@app.message(re.compile(r"^!storyboard-off\s+(.+)$", re.IGNORECASE))
+@app.message(re.compile(r"^!?storyboard[\s-]+off\s+(.+)$", re.IGNORECASE))
 async def handle_storyboard_off(message, say):
     """Disable storyboard mode for a video."""
-    match = re.search(r"^!storyboard-off\s+(.+)$", message["text"], re.IGNORECASE)
+    match = re.search(r"^!?storyboard[\s-]+off\s+(.+)$", message["text"], re.IGNORECASE)
     if not match:
-        await say(":x: Usage: `!storyboard-off <title>`")
+        await say(":x: Usage: `storyboard off <title>`")
         return
 
     title_arg = match.group(1).strip().strip("\"'")
@@ -2456,10 +2458,10 @@ async def handle_storyboard_off(message, say):
         await say(f":x: Failed to disable storyboard mode: {e}")
 
 
-@app.message(re.compile(r"^!storyboard\s+(.+)$", re.IGNORECASE))
+@app.message(re.compile(r"^!?storyboards?\s+(.+)$", re.IGNORECASE))
 async def handle_storyboard_plan(message, say):
     """Show storyboard plan with cost estimate and beat breakdown."""
-    match = re.search(r"^!storyboard\s+(.+)$", message["text"], re.IGNORECASE)
+    match = re.search(r"^!?storyboards?\s+(.+)$", message["text"], re.IGNORECASE)
     if not match:
         await say(":x: Usage: `!storyboard <title>`")
         return
@@ -2547,6 +2549,15 @@ Available commands (return one of these EXACTLY):
 - "delete TITLE scripts" — delete all script records for a video and reset to Ready For Scripting (keep TITLE from user message)
 - "delete TITLE prompts" — delete all image prompt/concept records for a video and reset to Ready For Image Prompts (keep TITLE from user message)
 - "delete TITLE images" — same as "delete TITLE prompts" (alias)
+- "storyboard TITLE" — show storyboard plan / beat breakdown for a video
+- "storyboard preview TITLE" — preview storyboard directives only (no images)
+- "storyboard go TITLE" — generate storyboard contact-sheet grids
+- "storyboard approve TITLE" — approve storyboard and extract panels
+- "storyboard beat N TITLE" — generate a single beat grid (replace N with beat number)
+- "storyboard regenerate N TITLE" — regenerate a beat grid (replace N with beat number)
+- "storyboard status TITLE" — show storyboard progress
+- "storyboard on TITLE" — enable storyboard mode for a video
+- "storyboard off TITLE" — disable storyboard mode for a video
 - "help" — show available commands
 - "unknown" — message is not a bot command (casual chat, question, etc.)
 
@@ -2594,7 +2605,19 @@ Rules:
 "clear images VIDEO" → delete VIDEO images, \
 "redo prompts for VIDEO" → delete VIDEO prompts, \
 "remove images for VIDEO" → delete VIDEO images, \
-"start over images VIDEO" → delete VIDEO images
+"start over images VIDEO" → delete VIDEO images, \
+"show storyboard for VIDEO" → storyboard VIDEO, \
+"storyboard plan VIDEO" → storyboard VIDEO, \
+"preview storyboard VIDEO" → storyboard preview VIDEO, \
+"generate storyboard for VIDEO" → storyboard go VIDEO, \
+"run storyboard VIDEO" → storyboard go VIDEO, \
+"approve storyboard VIDEO" → storyboard approve VIDEO, \
+"storyboard progress VIDEO" → storyboard status VIDEO, \
+"redo beat 3 for VIDEO" → storyboard regenerate 3 VIDEO, \
+"enable storyboard for VIDEO" → storyboard on VIDEO, \
+"turn on storyboard VIDEO" → storyboard on VIDEO, \
+"disable storyboard VIDEO" → storyboard off VIDEO, \
+"turn off storyboard VIDEO" → storyboard off VIDEO
 4. If they mention an API key or secret key, return: set key KEY
 5. If truly ambiguous, return: unknown"""
 
@@ -2612,6 +2635,14 @@ async def handle_fallback(event, say):
 
     # Skip very short or very long messages
     if len(text) < 2 or len(text) > 500:
+        return
+
+    # Skip messages that have dedicated @app.message() handlers —
+    # Bolt's @app.event("message") fires even when a regex handler matches.
+    if text.startswith("!"):
+        return
+    lower = text.lower()
+    if lower.startswith("storyboard"):
         return
 
     try:
@@ -2743,6 +2774,31 @@ async def handle_fallback(event, say):
     ):
         fake_message = {"text": command, "user": event.get("user", "")}
         await handle_delete_images(fake_message, say)
+        return
+
+    # Check for storyboard commands routed by AI
+    if command.startswith("storyboard"):
+        fake_message = {"text": command, "user": event.get("user", "")}
+        # Route to the right handler based on subcommand
+        sb_lower = command[len("storyboard"):].strip()
+        if sb_lower.startswith("preview"):
+            await handle_storyboard_preview(fake_message, say)
+        elif sb_lower.startswith("go"):
+            await handle_storyboard_go(fake_message, say)
+        elif sb_lower.startswith("approve"):
+            await handle_storyboard_approve(fake_message, say)
+        elif sb_lower.startswith("beat"):
+            await handle_storyboard_beat(fake_message, say)
+        elif sb_lower.startswith("status"):
+            await handle_storyboard_status(fake_message, say)
+        elif sb_lower.startswith(("regenerate", "regen", "gen")):
+            await handle_storyboard_regenerate(fake_message, say)
+        elif sb_lower.startswith("on"):
+            await handle_storyboard_on(fake_message, say)
+        elif sb_lower.startswith("off"):
+            await handle_storyboard_off(fake_message, say)
+        else:
+            await handle_storyboard_plan(fake_message, say)
         return
 
     # Check for "discover" with focus keyword
