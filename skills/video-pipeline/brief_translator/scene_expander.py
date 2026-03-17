@@ -193,11 +193,11 @@ async def _expand_with_scene_blocks(
         block_groups[bid].append((i, seg, ctx))
 
     # LLM visual descriptions keyed by segment index
-    segment_descriptions: dict[int, str] = {}
+    # Each value is a dict: {"description": str, "scene_type": str}
+    segment_descriptions: dict[int, dict] = {}
 
-    # Max images per LLM call — prevents Claude from producing repetitive descriptions
-    # when too many similar narrations are batched together
-    MAX_BATCH_SIZE = 4
+    # Safety cap: if a block has >20 segments, split into 2 calls with cross-reference
+    _MAX_SEGMENTS_PER_CALL = 20
 
     for block_id, group in block_groups.items():
         first_ctx = group[0][2] if group[0][2] else {}
@@ -207,9 +207,10 @@ async def _expand_with_scene_blocks(
         block_location_id = first_ctx.get("block_location_id", "")
         block_mood = first_ctx.get("block_mood", "neutral")
 
-        # Split large groups into sub-batches for better description diversity
-        sub_batches = [group[i:i+MAX_BATCH_SIZE] for i in range(0, len(group), MAX_BATCH_SIZE)]
-        block_prev_descriptions: list[str] = []  # Dedup across sub-batches
+        # Send all segments in one call so Claude can design a coherent visual arc.
+        # Only split if >20 segments (safety cap — shouldn't happen with current splitter).
+        sub_batches = [group[i:i+_MAX_SEGMENTS_PER_CALL] for i in range(0, len(group), _MAX_SEGMENTS_PER_CALL)]
+        block_prev_descriptions: list[str] = []  # Cross-reference context for overflow batches
 
         for batch_idx, batch in enumerate(sub_batches):
             image_sequence = []
@@ -238,12 +239,20 @@ async def _expand_with_scene_blocks(
                         f"- Characters present: {chars_str}\n"
                         f"- Lighting: {block_lighting}\n"
                         f"- Mood: {block_mood}\n\n"
-                        f"## IMAGE SEQUENCE:\n"
+                        f"## IMAGE SEQUENCE ({len(batch)} images):\n"
                         + "\n".join(image_sequence) + "\n\n"
                     )
 
                     visual_desc_prompt += (
-                        "Write a visual description (20-35 words each) for EACH image.\n\n"
+                        "Write a visual description (40-70 words) for EACH image.\n\n"
+
+                        "SCENE TYPE — classify each image as one of:\n"
+                        "- power_move: Two or more characters in tension/confrontation\n"
+                        "- lone_figure: Single character at a turning point\n"
+                        "- environment: Location establishing shot, no characters or tiny distant only\n"
+                        "- data_hud: Data visualization, statistics, maps with overlays\n"
+                        "- object_closeup: Physical object carrying narrative weight\n\n"
+
                         "CORE RULE — find the PRIMARY VERB in each narration and SHOW THAT ACTION:\n"
                         "- \"launched strikes\" → jets over desert, explosions on target\n"
                         "- \"sanctions crushed\" → empty factory floor, idle machinery, rusting equipment\n"
@@ -253,9 +262,25 @@ async def _expand_with_scene_blocks(
                         "- Each narration has a DIFFERENT verb/action, so each image naturally differs\n"
                         "- If two narrations describe the same subject, use the camera angle to show\n"
                         "  a different aspect (wide = full scene, medium = key element, closeup = detail)\n\n"
+
+                        "STORYTELLING DETAILS (one per image):\n"
+                        "- Include ONE unstated contextual detail the narration doesn't mention\n"
+                        "  (a circled location on a map, an empty chair, a clock showing a specific time,\n"
+                        "   a document stamp, a price tag, a flag at half-mast)\n"
+                        "- Describe specific lighting: warm amber/tungsten for interiors, cold steel blue\n"
+                        "  for exteriors/threat, golden hour for transitions, harsh overhead for exposure\n"
+                        "- For characters: describe their facial EXPRESSION and one piece of clothing detail\n\n"
+
+                        "VISUAL ARC across all images in this block:\n"
+                        "- Open with an ESTABLISHING shot (environment or wide)\n"
+                        "- Build complexity through the middle (power moves, data reveals)\n"
+                        "- End with the emotional payoff (lone figure realization, or personal stakes)\n"
+                        "- Never put two identical scene types back to back\n\n"
+
                         "CONSISTENCY:\n"
                         "- Same location and lighting across all images in this block\n"
                         "- Characters keep EXACT same clothing and appearance\n\n"
+
                         "RULES:\n"
                         "1. Use EXACT character costumes from the Story Bible. Never omit clothing.\n"
                         "2. Use the shared location description — don't invent a different setting.\n"
@@ -264,9 +289,9 @@ async def _expand_with_scene_blocks(
                         "5. Never mention letterbox bars, black bars, or widescreen framing — the image fills the full frame.\n\n"
                     )
 
-                    # Add previous descriptions from earlier sub-batches for dedup
+                    # Add cross-reference descriptions from earlier overflow batches
                     if block_prev_descriptions:
-                        recent = block_prev_descriptions[-3:]
+                        recent = block_prev_descriptions[-5:]
                         visual_desc_prompt += (
                             "PREVIOUS IMAGES already generated for this block (make yours DIFFERENT):\n"
                         )
@@ -276,8 +301,9 @@ async def _expand_with_scene_blocks(
 
                     visual_desc_prompt += (
                         f"Visual seeds: {visual_seeds[:200] if visual_seeds else 'none'}\n\n"
-                        f"Return a JSON array of {len(batch)} strings, one per image. Example:\n"
-                        f'[\"desc for image 1\", \"desc for image 2\", ...]\n'
+                        f"Return a JSON array of {len(batch)} objects, one per image.\n"
+                        f"Each object has \"scene_type\" and \"description\".\n"
+                        f"Example: [{{\"scene_type\": \"environment\", \"description\": \"...\"}}, ...]\n"
                         "Return ONLY the JSON array, nothing else."
                     )
                 else:
@@ -286,12 +312,12 @@ async def _expand_with_scene_blocks(
                         "in an intelligence operations center.\n\n"
                         f"## BLOCK: {block_id} ({len(batch)} images in sequence)\n"
                         + "\n".join(image_sequence) + "\n\n"
-                        "Write a 20-35 word visual description for EACH image.\n"
+                        "Write a 40-70 word visual description for EACH image.\n"
                         "Each should describe DATA, DOCUMENTS, MAPS, or CHARTS on a holographic screen.\n"
                         "Maintain visual consistency — same display theme, evolving data across images.\n\n"
                     )
                     if block_prev_descriptions:
-                        recent = block_prev_descriptions[-3:]
+                        recent = block_prev_descriptions[-5:]
                         visual_desc_prompt += (
                             "PREVIOUS IMAGES (make yours DIFFERENT):\n"
                         )
@@ -299,14 +325,17 @@ async def _expand_with_scene_blocks(
                             visual_desc_prompt += f"  {k}. {prev}\n"
                         visual_desc_prompt += "\n"
                     visual_desc_prompt += (
-                        f"Return a JSON array of {len(batch)} strings. "
+                        f"Return a JSON array of {len(batch)} objects.\n"
+                        f"Each object has \"scene_type\" (one of: power_move, lone_figure, "
+                        f"environment, data_hud, object_closeup) and \"description\".\n"
+                        f"Example: [{{\"scene_type\": \"data_hud\", \"description\": \"...\"}}, ...]\n"
                         "Return ONLY the JSON array, nothing else."
                     )
 
                 raw_response = await anthropic_client.generate(
                     prompt=visual_desc_prompt,
                     model=Models.CLAUDE_SONNET,
-                    max_tokens=150 * len(batch),
+                    max_tokens=200 * len(batch),
                     temperature=0.4,
                 )
 
@@ -317,8 +346,15 @@ async def _expand_with_scene_blocks(
 
                 if isinstance(descriptions, list) and len(descriptions) == len(batch):
                     for j, (seg_idx, _seg, _ctx) in enumerate(batch):
-                        desc = descriptions[j].strip()
-                        segment_descriptions[seg_idx] = desc
+                        item = descriptions[j]
+                        if isinstance(item, dict):
+                            desc = item.get("description", "").strip()
+                            scene_type = item.get("scene_type", "")
+                        else:
+                            # Backward compat: plain string
+                            desc = str(item).strip()
+                            scene_type = ""
+                        segment_descriptions[seg_idx] = {"description": desc, "scene_type": scene_type}
                         block_prev_descriptions.append(desc)
                     batch_label = f" (batch {batch_idx+1}/{len(sub_batches)})" if len(sub_batches) > 1 else ""
                     print(f"      Block {block_id}{batch_label}: {len(descriptions)} visual descriptions generated")
@@ -328,12 +364,18 @@ async def _expand_with_scene_blocks(
                     if isinstance(descriptions, list):
                         for j, (seg_idx, _seg, _ctx) in enumerate(batch):
                             if j < len(descriptions):
-                                desc = str(descriptions[j]).strip()
-                                segment_descriptions[seg_idx] = desc
+                                item = descriptions[j]
+                                if isinstance(item, dict):
+                                    desc = item.get("description", "").strip()
+                                    scene_type = item.get("scene_type", "")
+                                else:
+                                    desc = str(item).strip()
+                                    scene_type = ""
+                                segment_descriptions[seg_idx] = {"description": desc, "scene_type": scene_type}
                                 block_prev_descriptions.append(desc)
 
             except Exception as e:
-                print(f"      ⚠️ Block {block_id}: LLM batch failed: {e}")
+                print(f"      ⚠️ Block {block_id}: LLM call failed: {e}")
 
     # --- Step 5: Build concept dicts from deterministic segments + block context ---
     composition_map = {
@@ -370,11 +412,21 @@ async def _expand_with_scene_blocks(
         # sentence_text is ALWAYS the verbatim deterministic segment
         sentence_text = seg["text"]
 
-        # Visual description from LLM, fallback to narration excerpt
-        visual_description = segment_descriptions.get(
-            i,
-            (ctx.get("narration_excerpt", "") if ctx else "") or "Scene continues"
-        )
+        # Visual description + scene_type from LLM, fallback to narration excerpt
+        desc_data = segment_descriptions.get(i, {})
+        if isinstance(desc_data, dict):
+            visual_description = desc_data.get("description", "")
+            scene_type_from_llm = desc_data.get("scene_type", "")
+        else:
+            visual_description = str(desc_data)
+            scene_type_from_llm = ""
+        if not visual_description:
+            visual_description = (ctx.get("narration_excerpt", "") if ctx else "") or "Scene continues"
+
+        # Validate scene_type against known values
+        _VALID_SCENE_TYPES = {"power_move", "lone_figure", "environment", "data_hud", "object_closeup"}
+        if scene_type_from_llm not in _VALID_SCENE_TYPES:
+            scene_type_from_llm = ""
 
         concept = {
             "concept_index": i + 1,
@@ -384,6 +436,8 @@ async def _expand_with_scene_blocks(
             "composition": composition,
             "mood": block_mood,
             "duration": seg["duration"],
+            # LLM-assigned scene type (narrative-aware)
+            "scene_type": scene_type_from_llm,
             # Block context for prompt builder
             "block_id": ctx.get("block_id") if ctx else None,
             "block_location": (ctx.get("block_location", "") if ctx else ""),
@@ -433,11 +487,12 @@ async def expand_scene_concepts_deterministic(
         List of concept dicts, each with:
         - concept_index (int, 1-based)
         - sentence_text (str, exact substring of scene_text)
-        - visual_description (str, 20-35 word filmable description)
+        - visual_description (str, 40-70 word filmable description for V2, 20-35 for V1)
         - visual_style (str, profile substyle name - DESCRIPTIVE, not prescriptive)
         - composition (str, wide/medium/closeup/etc.)
         - mood (str)
         - For V2 scene_blocks, also includes:
+          - scene_type (str, LLM-assigned: power_move/lone_figure/environment/data_hud/object_closeup)
           - block_id, block_location, block_lighting, block_characters
     """
     import sys

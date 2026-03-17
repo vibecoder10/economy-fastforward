@@ -664,7 +664,8 @@ def build_prompt_from_block(
     ----------
     concept : dict
         Concept dict from scene_expander with:
-        - visual_description: Claude-generated 20-35 word filmable description
+        - visual_description: Claude-generated 40-70 word filmable description
+        - scene_type: LLM-assigned scene type (power_move, lone_figure, etc.)
         - composition: camera angle (wide/medium/closeup)
         - block_characters: list of character IDs (for prefix selection)
     story_bible : dict
@@ -710,38 +711,41 @@ def build_prompt_from_block(
     ).strip()
 
     # ---------------------------------------------------------------
-    # Scene type: prefer sequencer assignment when compatible,
-    # fall back to text detection when it contradicts the content.
+    # Scene type resolution (3-tier):
+    #   1. Expander-assigned scene_type (narrative-aware, from LLM)
+    #   2. Sequencer display_format (rotation-based, validated)
+    #   3. Text detection fallback (keyword heuristics)
     #
-    # The sequencer rotates substyles for diversity but doesn't know
-    # what Claude wrote in the visual_description.  A "power_move"
-    # substyle on a no-character environment scene produces nonsense
-    # ("Two characters in confrontation" on an aircraft carrier wide
-    # shot).  So we validate: character substyles require characters,
-    # non-character substyles require no characters.
+    # The expander sees the full narration context and assigns
+    # scene_type per image with visual arc awareness.  This is more
+    # accurate than the sequencer's blind rotation or keyword
+    # heuristics.  Sequencer still controls color_mood and
+    # composition cycling.
     # ---------------------------------------------------------------
     _CHARACTER_SUBSTYLES = {"power_move", "lone_figure"}
     _NON_CHARACTER_SUBSTYLES = {"environment", "data_hud", "object_closeup"}
+    _ALL_SUBSTYLES = _CHARACTER_SUBSTYLES | _NON_CHARACTER_SUBSTYLES
 
-    detected_type = _detect_scene_type(visual_desc)
-    has_characters_in_desc = detected_type in _CHARACTER_SUBSTYLES
+    # Tier 1: Expander-assigned scene_type (narrative-aware)
+    expander_scene_type = concept.get("scene_type", "")
 
-    if display_format:
-        # Check compatibility: does the sequencer's substyle match the content?
+    if expander_scene_type and expander_scene_type in _ALL_SUBSTYLES:
+        scene_type = expander_scene_type
+    elif display_format:
+        # Tier 2: Sequencer rotation, validated against content
+        detected_type = _detect_scene_type(visual_desc)
+        has_characters_in_desc = detected_type in _CHARACTER_SUBSTYLES
         sequencer_wants_characters = display_format in _CHARACTER_SUBSTYLES
         compatible = (sequencer_wants_characters == has_characters_in_desc)
         if compatible:
             scene_type = display_format
         elif not has_characters_in_desc:
-            # Sequencer assigned a character substyle to a non-character scene.
-            # Pick a compatible non-character substyle based on the description
-            # instead of always defaulting to "environment".
-            scene_type = detected_type  # data_hud, object_closeup, or environment
+            scene_type = detected_type
         else:
-            # Sequencer assigned a non-character substyle to a character scene.
-            scene_type = detected_type  # power_move or lone_figure
+            scene_type = detected_type
     else:
-        scene_type = detected_type
+        # Tier 3: Text detection fallback
+        scene_type = _detect_scene_type(visual_desc)
 
     substyle_suffix = ""
     if profile:
