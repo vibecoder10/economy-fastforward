@@ -242,6 +242,8 @@ _Targeted runs do NOT advance the pipeline status (safe for testing)._
 - `!storyboard-approve [title]` — Phase 2: extract panels + upscale
 - `!storyboard-beat <N> [title]` — Generate a single beat grid
 - `!storyboard-regenerate <N> [title]` — Regenerate a beat grid
+- `!storyboard-on <title>` — Enable storyboard mode for a video
+- `!storyboard-off <title>` — Disable storyboard mode (use normal pipeline)
 - `!storyboard-status [title]` — Show storyboard progress
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -2400,6 +2402,58 @@ async def handle_storyboard_regenerate(message, say):
 
     except Exception as e:
         await say(f":x: Regeneration failed: {e}")
+
+
+@app.message(re.compile(r"^!storyboard-on\s+(.+)$", re.IGNORECASE))
+async def handle_storyboard_on(message, say):
+    """Enable storyboard mode for a video."""
+    match = re.search(r"^!storyboard-on\s+(.+)$", message["text"], re.IGNORECASE)
+    if not match:
+        await say(":x: Usage: `!storyboard-on <title>`")
+        return
+
+    title_arg = match.group(1).strip().strip("\"'")
+
+    try:
+        from clients.airtable_client import AirtableClient
+
+        airtable = AirtableClient()
+        idea = await _find_idea_by_title(airtable, title_arg, say)
+        if not idea:
+            return
+
+        airtable.update_idea_fields(idea["id"], {IdeaFields.STORYBOARD_MODE: "on"})
+        title = idea.get(IdeaFields.VIDEO_TITLE, "")
+        await say(f":white_check_mark: Storyboard mode *enabled* for \"{title}\"")
+
+    except Exception as e:
+        await say(f":x: Failed to enable storyboard mode: {e}")
+
+
+@app.message(re.compile(r"^!storyboard-off\s+(.+)$", re.IGNORECASE))
+async def handle_storyboard_off(message, say):
+    """Disable storyboard mode for a video."""
+    match = re.search(r"^!storyboard-off\s+(.+)$", message["text"], re.IGNORECASE)
+    if not match:
+        await say(":x: Usage: `!storyboard-off <title>`")
+        return
+
+    title_arg = match.group(1).strip().strip("\"'")
+
+    try:
+        from clients.airtable_client import AirtableClient
+
+        airtable = AirtableClient()
+        idea = await _find_idea_by_title(airtable, title_arg, say)
+        if not idea:
+            return
+
+        airtable.update_idea_fields(idea["id"], {IdeaFields.STORYBOARD_MODE: "off"})
+        title = idea.get(IdeaFields.VIDEO_TITLE, "")
+        await say(f":white_check_mark: Storyboard mode *disabled* for \"{title}\"")
+
+    except Exception as e:
+        await say(f":x: Failed to disable storyboard mode: {e}")
 
 
 @app.message(re.compile(r"^!storyboard\s+(.+)$", re.IGNORECASE))
