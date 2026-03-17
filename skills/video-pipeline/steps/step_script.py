@@ -17,12 +17,9 @@ async def run(pipeline, brief: dict = None) -> dict:
     from brief_translator import translate_brief
 
     if not pipeline.current_idea:
-        idea = (
-            pipeline.get_idea_by_status(Statuses.READY_SCRIPTING)
-            or pipeline.get_idea_by_status(Statuses.IDEA_LOGGED)
-        )
+        idea = pipeline.get_idea_by_status(Statuses.READY_SCRIPTING)
         if not idea:
-            return {"error": "No idea available for brief translation"}
+            return {"error": "No idea at 'Ready For Scripting'. Set an idea's status to 'Ready For Scripting' first."}
         pipeline._load_idea(idea)
 
     print(f"\n📜 BRIEF TRANSLATOR: Processing '{pipeline.video_title}'")
