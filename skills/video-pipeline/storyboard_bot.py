@@ -28,7 +28,7 @@ from typing import Optional
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from channel_profile import ChannelProfile, load_profile
+from channel_profile import ChannelProfile, ModelProfile, load_model_profile, load_profile
 from pipeline_constants import ImageFields, Models, ScriptFields
 
 logger = logging.getLogger(__name__)
