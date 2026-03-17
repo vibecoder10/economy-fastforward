@@ -60,17 +60,20 @@ class ThumbnailTitleEngine:
     auto-generation of thumbnail text when not provided.
     """
 
-    def __init__(self, anthropic_client, image_client):
+    def __init__(self, anthropic_client, image_client, gemini_client=None, google_client=None):
         """Initialize with existing pipeline clients.
 
         Args:
             anthropic_client: An initialized AnthropicClient.
             image_client: An initialized ImageClient (Kie.ai).
+            gemini_client: Optional GeminiClient for creative director (thumbnail #4).
+            google_client: Optional GoogleClient (unused currently, reserved).
         """
         self.anthropic = anthropic_client
         self.title_gen = TitleGenerator(anthropic_client)
         self.prompt_builder = ThumbnailPromptBuilder(anthropic_client)
         self.image_client = image_client
+        self.gemini = gemini_client
 
     @staticmethod
     def _parse_thumbnail_text(thumbnail_text: str) -> dict:
@@ -317,6 +320,10 @@ class ThumbnailTitleEngine:
             for issue in pair_issues:
                 print(f"  WARNING: {issue}")
 
+        # Detect palette (needed for both prompt builder and Gemini director)
+        from thumbnail_title.templates import THUMBNAIL_PALETTES, detect_palette
+        palette_key = palette_override or detect_palette(f"{video_title} {video_summary}")
+
         # Step 4: Build thumbnail prompt (with optional style override)
         print("  Building thumbnail prompt...")
         if thumbnail_style_override:
@@ -394,6 +401,35 @@ class ThumbnailTitleEngine:
         else:
             print(f"  Generated {len(all_thumbnail_urls)} thumbnail variants")
 
+        # --- Gemini Creative Director: thumbnail #4 ---
+        gemini_result = None
+        if self.gemini and all_thumbnail_urls:
+            try:
+                from thumbnail_title.gemini_director import run_gemini_director
+
+                gemini_result = await run_gemini_director(
+                    gemini_client=self.gemini,
+                    image_client=self.image_client,
+                    v1_image_urls=all_thumbnail_urls,
+                    video_title=title_data["title"],
+                    thumbnail_text=f"{title_data['line_1']} {title_data.get('line_2', '')}".strip(),
+                    research_payload=video_metadata.get("research_payload", {}),
+                    script_text=video_metadata.get("full_script", ""),
+                    framework_angle=video_metadata.get(IdeaFields.FRAMEWORK_ANGLE, ""),
+                    channel_ctr_history=video_metadata.get("ctr_history", []),
+                    palette=palette_key,
+                )
+
+                if gemini_result and gemini_result.get("v4_url"):
+                    all_thumbnail_urls.append(gemini_result["v4_url"])
+                    print(f"  Gemini Director thumbnail generated (#4)")
+                    print(f"     Metaphor: {gemini_result.get('visual_metaphor', '')}")
+                    print(f"     Reasoning: {gemini_result.get('reasoning', '')[:150]}")
+                else:
+                    print("  Gemini Director returned no thumbnail")
+            except Exception as e:
+                print(f"  Gemini Director failed (non-blocking): {e}")
+
         return {
             "title": title_data["title"],
             "caps_word": title_data["caps_word"],
@@ -411,4 +447,5 @@ class ThumbnailTitleEngine:
             },
             "needs_manual_review": needs_manual_review,
             "thumbnail_text_auto_generated": thumbnail_text_auto_generated,
+            "gemini_result": gemini_result,
         }

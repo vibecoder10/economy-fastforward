@@ -58,6 +58,19 @@ PERSONAL STAKES (build into visuals):
 - Power words: CHECKMATE, TRAP, COLLAPSE, BANNED, WEAPONIZED
 - The viewer must feel PERSONALLY affected
 
+CRITICAL: Each of the 3 thumbnail concepts you help build will use a
+COMPLETELY DIFFERENT visual metaphor. Think in terms of:
+- OBJECT metaphors: bear trap, chess piece, domino chain, noose, vault door,
+  ticking bomb, puppet strings, house of cards
+- MAP compositions: geography with arrows, barriers, zones, chokepoints
+- SYMBOLIC ACTIONS: hand grabbing/crushing, scale tipping, door slamming,
+  rope pulling, wall cracking
+
+Name SPECIFIC OBJECTS with relationships, not generic elements.
+BAD: "map showing conflict in the region"
+GOOD: "Russian nesting doll shaped like an open bear trap with a burlap
+money sack labeled CASH $$$ as bait, hand pulling rope attached to trap"
+
 OUTPUT FORMAT (JSON only, no markdown):
 Return a JSON object with ALL required variable names as keys.
 Keep descriptions vivid but concise (10-25 words per variable).

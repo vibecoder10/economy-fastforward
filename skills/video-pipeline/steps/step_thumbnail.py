@@ -6,7 +6,9 @@ Advances: Ready For Thumbnail → Ready To Render
 Clients: anthropic, image_client, google, airtable, slack
 """
 
-from pipeline_constants import Statuses, IdeaFields
+import json
+
+from pipeline_constants import Statuses, IdeaFields, ScriptFields
 
 
 async def run(pipeline) -> dict:
@@ -51,7 +53,45 @@ async def run(pipeline) -> dict:
     # Read optional palette override
     palette_override = (pipeline.current_idea.get(IdeaFields.THUMBNAIL_PALETTE) or "").strip().lower() or None
 
-    # Build metadata for template selection
+    # --- Gather full context for Gemini creative director ---
+    # Full script text (all acts)
+    full_script_text = ""
+    try:
+        scripts = pipeline.airtable.get_scripts_by_title(pipeline.video_title)
+        full_script_text = "\n\n".join(
+            f"[Scene {s.get('scene', 0)}]\n{s.get(ScriptFields.SCENE_TEXT, '')}"
+            for s in sorted(scripts, key=lambda x: x.get('scene', 0))
+        )
+    except Exception as e:
+        print(f"  Could not fetch scripts for Gemini context: {e}")
+
+    # Recent CTR history (top 5 by views)
+    ctr_history = []
+    try:
+        all_ideas = pipeline.airtable.get_all_ideas()
+        for idea in all_ideas:
+            ctr = idea.get(IdeaFields.CTR)
+            if ctr:
+                ctr_history.append({
+                    "title": idea.get(IdeaFields.VIDEO_TITLE, "")[:60],
+                    "ctr": ctr,
+                    "views": idea.get(IdeaFields.VIEWS, 0),
+                    "thumbnail_text": idea.get(IdeaFields.THUMBNAIL_TEXT, ""),
+                })
+        ctr_history = sorted(ctr_history, key=lambda x: x.get("views", 0), reverse=True)[:5]
+    except Exception:
+        pass
+
+    # Parse research payload
+    research_payload = {}
+    rp_raw = pipeline.current_idea.get(IdeaFields.RESEARCH_PAYLOAD, "")
+    if rp_raw:
+        try:
+            research_payload = json.loads(rp_raw) if isinstance(rp_raw, str) else rp_raw
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+    # Build metadata for template selection + Gemini context
     video_metadata = {
         IdeaFields.VIDEO_TITLE: video_title,
         IdeaFields.SUMMARY: video_summary,
@@ -59,12 +99,19 @@ async def run(pipeline) -> dict:
         IdeaFields.FRAMEWORK_ANGLE: pipeline.current_idea.get(IdeaFields.FRAMEWORK_ANGLE, ""),
         IdeaFields.FRAMEWORK: pipeline.current_idea.get(IdeaFields.FRAMEWORK, ""),
         "tags": [],
+        # Gemini creative director context
+        "research_payload": research_payload,
+        "full_script": full_script_text,
+        "ctr_history": ctr_history,
     }
 
-    # --- Generate matched title + thumbnail (3 variants) ---
+    # --- Generate matched title + thumbnail (3 variants + Gemini #4) ---
     override_note = f" (with style override)" if thumbnail_style_override else ""
     pipeline.slack.notify(f"🎨 Generating thumbnail + title for *{pipeline.video_title}*{override_note}...")
-    engine = ThumbnailTitleEngine(pipeline.anthropic, pipeline.image_client)
+    engine = ThumbnailTitleEngine(
+        pipeline.anthropic, pipeline.image_client,
+        gemini_client=pipeline.gemini, google_client=pipeline.google,
+    )
 
     try:
         result = await engine.generate(
@@ -165,7 +212,17 @@ async def run(pipeline) -> dict:
         override_mode = "REPLACE" if thumbnail_style_override.upper().startswith("REPLACE:") else "APPEND"
         template_info = f"{result['template_name']} ({override_mode} override active)"
 
-    variant_links = "\n".join(f"  Option {i}: {link}" for i, link in enumerate(drive_links, 1))
+    variant_links_parts = []
+    for i, link in enumerate(drive_links, 1):
+        if i == len(drive_links) and result.get("gemini_result"):
+            reasoning = result["gemini_result"].get("reasoning", "")[:200]
+            variant_links_parts.append(
+                f"  ⭐ Option {i} (Gemini Director): {link}\n"
+                f"     💡 {reasoning}"
+            )
+        else:
+            variant_links_parts.append(f"  Option {i}: {link}")
+    variant_links = "\n".join(variant_links_parts)
     pipeline.slack.notify(
         f"Thumbnail + title complete for *{pipeline.video_title}*\n"
         f"Title: {result['title']}\n"
