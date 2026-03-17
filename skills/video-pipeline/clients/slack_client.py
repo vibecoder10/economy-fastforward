@@ -311,3 +311,54 @@ class SlackClient:
             f"```{error}```\n\n"
             f"Please check and retry."
         )
+
+    # --- Storyboard notifications ---
+
+    def notify_storyboard_plan(self, title: str, plan: dict) -> dict:
+        """Send storyboard plan with cost estimate."""
+        return self.send_message(
+            f"🎬 *STORYBOARD PLAN* — \"{title}\"\n\n"
+            f"📝 Script: {plan.get('total_words', 0)} words | "
+            f"{plan.get('scene_count', 0)} scenes\n"
+            f"🎞️ Beats: {plan.get('beat_count', 0)} × 9 panels = "
+            f"{plan.get('total_panels', 0)} frames\n"
+            f"💰 Est. cost: ${plan.get('total_cost', 0):.2f}\n\n"
+            f"Commands:\n"
+            f"  `!storyboard-preview` → Directives only (${plan.get('cost_claude', 0):.2f})\n"
+            f"  `!storyboard-go` → Generate grids "
+            f"(${plan.get('cost_claude', 0) + plan.get('cost_grids', 0):.2f})\n"
+            f"  `!storyboard-approve` → Extract + upscale "
+            f"(${plan.get('cost_upscale', 0):.2f})"
+        )
+
+    def notify_storyboard_start(self, title: str, beat_count: int) -> dict:
+        """Notify storyboard generation started."""
+        return self.send_message(
+            f"🎬 Storyboard generation started — {beat_count} beats "
+            f"for \"{title}\""
+        )
+
+    def notify_storyboard_beat_done(
+        self, title: str, beat_num: int, total_beats: int, cost: float,
+    ) -> dict:
+        """Notify one beat's grid is complete."""
+        return self.send_message(
+            f"🎞️ Beat {beat_num}/{total_beats} complete — "
+            f"9 panels generated (${cost:.2f})"
+        )
+
+    def notify_storyboard_done(
+        self, title: str, total_panels: int, total_cost: float,
+    ) -> dict:
+        """Notify all storyboard grids are complete."""
+        return self.send_message(
+            f"✅ Storyboards complete — {total_panels} panels generated "
+            f"(${total_cost:.2f})\n"
+            f"Run `!storyboard-approve` to extract and upscale."
+        )
+
+    def notify_storyboard_preview_beat(
+        self, title: str, beat_num: int, total_beats: int, summary: str,
+    ) -> dict:
+        """Send a beat's directive preview."""
+        return self.send_message(summary)
