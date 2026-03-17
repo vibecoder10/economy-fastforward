@@ -225,13 +225,13 @@ class TestEnforceMaxImageDuration:
         result = enforce_max_image_duration(scene, max_seconds=15.0)
         assert result[0]["duration"] == 15.0
 
-    def test_even_split_within_cap_not_capped(self):
-        """When even split is under max, images keep the even duration."""
+    def test_shave_and_donate_within_cap(self):
+        """Outlier is capped, excess donated to shortest image."""
         scene = [
             {"duration": 20.0, "display_start": 0.0, "display_end": 20.0},
             {"duration": 4.0, "display_start": 20.0, "display_end": 24.0},
         ]
         result = enforce_max_image_duration(scene, max_seconds=15.0)
-        # Total 24s / 2 = 12s each → under 15s cap, so 12s
-        assert result[0]["duration"] == 12.0
-        assert result[1]["duration"] == 12.0
+        # 20s shaved to 15s, 5s excess donated to the 4s image → [15, 9]
+        assert result[0]["duration"] == 15.0
+        assert result[1]["duration"] == 9.0

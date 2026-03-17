@@ -13,7 +13,6 @@ from typing import Any
 
 from .config import (
     DEFAULT_FPS, DEFAULT_WIDTH, DEFAULT_HEIGHT,
-    MAX_IMAGE_DISPLAY_SECONDS,
 )
 
 
@@ -105,17 +104,6 @@ def build_render_config(
             entry["segment_index"] = scene["segment_index"]
         if scene.get("animation_intensity"):
             entry["animation_intensity"] = scene["animation_intensity"]
-
-        # Voice speed nudge — when a segment slightly exceeds the image
-        # display cap (10s), flag it so the renderer can speed up audio
-        # by a tiny amount (e.g. 1.02-1.08x) instead of splitting the
-        # sentence into an orphan fragment.
-        display_dur = entry["display_duration"]
-        if display_dur > MAX_IMAGE_DISPLAY_SECONDS:
-            # Speed factor that would compress it to exactly 10s
-            entry["voice_speed"] = round(
-                display_dur / MAX_IMAGE_DISPLAY_SECONDS, 3
-            )
 
         render_scenes.append(entry)
 
