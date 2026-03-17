@@ -2614,6 +2614,11 @@ async def handle_fallback(event, say):
     if len(text) < 2 or len(text) > 500:
         return
 
+    # Skip messages that have dedicated @app.message() handlers —
+    # Bolt's @app.event("message") fires even when a regex handler matches.
+    if text.startswith("!"):
+        return
+
     try:
         from clients.anthropic_client import AnthropicClient
         anthropic = AnthropicClient()
