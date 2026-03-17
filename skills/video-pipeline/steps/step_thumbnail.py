@@ -103,6 +103,7 @@ async def run(pipeline) -> dict:
         "research_payload": research_payload,
         "full_script": full_script_text,
         "ctr_history": ctr_history,
+        "drive_folder_id": pipeline.project_folder_id,
     }
 
     # --- Generate matched title + thumbnail (3 variants + Gemini #4) ---

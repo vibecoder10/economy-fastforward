@@ -67,13 +67,14 @@ class ThumbnailTitleEngine:
             anthropic_client: An initialized AnthropicClient.
             image_client: An initialized ImageClient (Kie.ai).
             gemini_client: Optional GeminiClient for creative director (thumbnail #4).
-            google_client: Optional GoogleClient (unused currently, reserved).
+            google_client: Optional GoogleClient for uploading Gemini-generated images.
         """
         self.anthropic = anthropic_client
         self.title_gen = TitleGenerator(anthropic_client)
         self.prompt_builder = ThumbnailPromptBuilder(anthropic_client)
         self.image_client = image_client
         self.gemini = gemini_client
+        self.google = google_client
 
     @staticmethod
     def _parse_thumbnail_text(thumbnail_text: str) -> dict:
@@ -410,6 +411,7 @@ class ThumbnailTitleEngine:
                 gemini_result = await run_gemini_director(
                     gemini_client=self.gemini,
                     image_client=self.image_client,
+                    google_client=self.google,
                     v1_image_urls=all_thumbnail_urls,
                     video_title=title_data["title"],
                     thumbnail_text=f"{title_data['line_1']} {title_data.get('line_2', '')}".strip(),
@@ -418,6 +420,7 @@ class ThumbnailTitleEngine:
                     framework_angle=video_metadata.get(IdeaFields.FRAMEWORK_ANGLE, ""),
                     channel_ctr_history=video_metadata.get("ctr_history", []),
                     palette=palette_key,
+                    drive_folder_id=video_metadata.get("drive_folder_id"),
                 )
 
                 if gemini_result and gemini_result.get("v4_url"):

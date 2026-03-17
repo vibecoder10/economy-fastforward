@@ -1,18 +1,17 @@
-"""Gemini Creative Director — analyzes 3 draft thumbnails and creates optimal #4.
+"""Gemini Creative Director — analyzes 3 draft thumbnails and generates optimal #4.
 
-Receives all 3 rendered thumbnail images via Gemini Vision, plus the full video
-context (title, research payload, script, CTR history), and synthesizes the best
-elements into one optimal Nano Banana Pro prompt.
-
-This is the key differentiator: Gemini sees the actual rendered images AND has the
-full script/research context, so it can judge what works visually AND what best
-captures the story's conflict.
+Uses gemini-3-pro-image-preview which supports both vision (analyzing the 3 drafts)
+AND image generation in a single call. Gemini reasons through what works in each draft,
+considers the full video context, then generates the optimal thumbnail directly —
+no separate Nano Banana Pro render step needed.
 
 Non-blocking: if Gemini fails, the 3 Claude thumbnails still complete.
 """
 
-import json
+import base64
 from typing import Optional
+
+import httpx
 
 from json_utils import parse_json_response
 
@@ -20,6 +19,7 @@ from json_utils import parse_json_response
 async def run_gemini_director(
     gemini_client,
     image_client,
+    google_client,
     v1_image_urls: list[str],
     video_title: str,
     thumbnail_text: str,
@@ -28,12 +28,17 @@ async def run_gemini_director(
     framework_angle: str,
     channel_ctr_history: list[dict],
     palette: str,
+    drive_folder_id: Optional[str] = None,
 ) -> Optional[dict]:
     """Gemini analyzes 3 draft thumbnails + full context, generates optimal #4.
 
+    Uses gemini-3-pro-image-preview with response_modalities=['TEXT', 'IMAGE']
+    to analyze drafts and generate the final thumbnail in one call.
+
     Args:
         gemini_client: Initialized GeminiClient instance.
-        image_client: Initialized ImageClient for generating thumbnail #4.
+        image_client: Initialized ImageClient (unused — kept for signature compat).
+        google_client: Initialized GoogleClient for uploading generated image.
         v1_image_urls: 3 rendered thumbnail URLs from Claude-prompted variants.
         video_title: The video title.
         thumbnail_text: The yin-yang overlay text (line_1 + line_2).
@@ -42,14 +47,15 @@ async def run_gemini_director(
         framework_angle: e.g. "Machiavelli", "Game Theory".
         channel_ctr_history: Recent video CTR data (list of dicts).
         palette: Detected palette key (middle_east, finance, etc.).
+        drive_folder_id: Google Drive folder to upload the generated image.
 
     Returns:
-        Dict with v4_url, analysis, visual_metaphor, reasoning, prompt.
+        Dict with v4_url, analysis, visual_metaphor, reasoning.
         None if Gemini fails or no images could be fetched.
     """
     gemini_client._require_api_key()
 
-    # Step 1: Download all 3 images as base64
+    # Step 1: Download all 3 draft images as base64
     image_parts = []
     for i, url in enumerate(v1_image_urls):
         try:
@@ -68,8 +74,7 @@ async def run_gemini_director(
         print("    No draft thumbnails could be fetched — skipping Gemini director")
         return None
 
-    # Step 2: Build the context sections
-    # Parse thumbnail text into line_1/line_2
+    # Step 2: Build context sections
     words = thumbnail_text.strip().upper().split()
     if len(words) <= 3:
         line_1 = thumbnail_text.strip().upper()
@@ -103,7 +108,7 @@ async def run_gemini_director(
         fact_sheet = str(research_payload.get("fact_sheet", ""))[:2000]
         narrative_arc = str(research_payload.get("narrative_arc", ""))[:1000]
 
-    # Step 3: Build the Gemini prompt
+    # Step 3: Build the prompt — ask Gemini to analyze AND generate
     prompt_text = f"""You are the creative director for a YouTube channel producing geopolitical \
 and economic analysis videos. You are reviewing {len(image_parts)} thumbnail drafts and will \
 create the definitive final version.
@@ -142,76 +147,173 @@ thumbnail = emotional WHAT. Never repeat the same words.
 which visual metaphor is strongest, what reads instantly
 3. Consider the full script and research — what is THE single most \
 compelling visual image that captures this story's conflict?
-4. Synthesize the best elements into ONE optimal thumbnail prompt
+4. Generate the OPTIMAL thumbnail image that synthesizes the best elements
 
-Write a Nano Banana Pro image generation prompt (80-150 words) that \
-produces this optimal thumbnail. The prompt MUST include:
+The generated thumbnail MUST have:
 - The EXACT overlay text: line 1 = '{line_1}', line 2 = '{line_2}'
 - Text: yellow (#FFD700), bold block capitals, thick black outline, \
 heavy drop shadow, 60-70% of frame width
-- A SPECIFIC visual metaphor with named objects and relationships \
-(e.g., "Russian nesting doll shaped like an open bear trap \
-containing a burlap money sack labeled CASH $$$, realistic hand \
-pulling a rope attached to the trap mechanism")
-- Color palette: 3-4 colors max from {palette}
-- Bright editorial illustration style, 16:9, 1280x720
-- NO dark/cinematic/photorealistic language
+- A SPECIFIC visual metaphor with named objects and relationships
+- Color palette: 3-4 colors max from {palette} palette
+- Bright editorial illustration style
+- NO dark/cinematic/photorealistic look
 
-Return JSON:
-{{
-    "analysis": "What you took from each of the {len(image_parts)} drafts (2-3 sentences)",
-    "visual_metaphor": "The core metaphor in 1 sentence",
-    "prompt": "The full Nano Banana Pro generation prompt (80-150 words)",
-    "reasoning": "Why this will outperform the {len(image_parts)} drafts (1-2 sentences)"
-}}"""
+First write your analysis as text, then generate the optimal thumbnail image.
 
-    # Step 4: Assemble the Gemini API call with vision + text
-    import httpx
+Format your text analysis as:
+ANALYSIS: [What you took from each of the {len(image_parts)} drafts, 2-3 sentences]
+METAPHOR: [The core visual metaphor in 1 sentence]
+REASONING: [Why this will outperform the {len(image_parts)} drafts, 1-2 sentences]
 
-    url = f"{gemini_client.BASE_URL}/models/gemini-2.0-flash:generateContent"
+Then generate the image."""
+
+    # Step 4: Call gemini-3-pro-image-preview with vision input + image generation
+    url = f"{gemini_client.BASE_URL}/models/gemini-3-pro-image-preview:generateContent"
     params = {"key": gemini_client.api_key}
 
-    # Build parts: text prompt first, then all images
     parts = [{"text": prompt_text}] + image_parts
 
     payload = {
         "contents": [{"parts": parts}],
         "generationConfig": {
-            "temperature": 0.7,  # Higher creativity for thumbnails
-            "maxOutputTokens": 2048,
-            "responseMimeType": "application/json",
+            "temperature": 0.7,
+            "maxOutputTokens": 4096,
+            "response_modalities": ["TEXT", "IMAGE"],
+            "image_config": {
+                "aspect_ratio": "16:9",
+                "image_size": "2K",
+            },
         },
     }
 
-    async with httpx.AsyncClient(timeout=90.0) as client:
+    async with httpx.AsyncClient(timeout=120.0) as client:
         response = await client.post(url, params=params, json=payload)
         response.raise_for_status()
 
     data = response.json()
-    text = data["candidates"][0]["content"]["parts"][0]["text"]
-
-    # Step 5: Parse the response
-    result = parse_json_response(text, default=None)
-    if not result or "prompt" not in result:
-        print(f"    Gemini director returned unparseable response")
+    candidates = data.get("candidates", [])
+    if not candidates:
+        print("    Gemini returned no candidates")
         return None
 
-    gemini_prompt = result["prompt"]
-    print(f"    Gemini director prompt: {gemini_prompt[:100]}...")
+    response_parts = candidates[0].get("content", {}).get("parts", [])
 
-    # Step 6: Generate thumbnail #4 with Nano Banana Pro
-    v4_urls = await image_client.generate_thumbnail(gemini_prompt)
-    if not v4_urls:
-        print(f"    Gemini-directed thumbnail generation failed")
+    # Step 5: Extract text analysis and generated image from response parts
+    text_parts = []
+    image_data = None
+    image_mime = "image/png"
+
+    for part in response_parts:
+        if "text" in part:
+            text_parts.append(part["text"])
+        elif "inline_data" in part:
+            image_data = part["inline_data"].get("data")
+            image_mime = part["inline_data"].get("mime_type", "image/png")
+
+    analysis_text = "\n".join(text_parts)
+
+    if not image_data:
+        print("    Gemini did not generate an image — falling back to prompt extraction")
+        # Try to extract a prompt from the text and use Nano Banana Pro as fallback
+        return await _fallback_to_nano_banana(
+            image_client, analysis_text, line_1, line_2, palette
+        )
+
+    # Decode the generated image
+    image_bytes = base64.b64decode(image_data)
+    print(f"    Gemini generated thumbnail image ({len(image_bytes)} bytes)")
+
+    # Step 6: Upload generated image to Google Drive
+    ext = "png" if "png" in image_mime else "jpeg"
+    slug = video_title.lower().replace(" ", "_").replace("'", "")[:50]
+    filename = f"{slug}_thumbnail_gemini.{ext}"
+
+    drive_result = google_client.upload_file(
+        content=image_bytes,
+        name=filename,
+        folder_id=drive_folder_id or "",
+        mime_type=image_mime,
+    )
+    file_id = drive_result.get("id", "")
+
+    # Make it public so we get a usable URL
+    v4_url = ""
+    if file_id:
+        try:
+            v4_url = google_client.make_file_public(file_id)
+            print(f"    Gemini thumbnail uploaded to Drive: {v4_url[:60]}...")
+        except Exception as e:
+            print(f"    Failed to make Gemini thumbnail public: {e}")
+            v4_url = f"https://drive.google.com/file/d/{file_id}/view"
+
+    if not v4_url:
+        print("    Failed to upload Gemini-generated thumbnail to Drive")
         return None
 
-    v4_url = v4_urls[0]
-    print(f"    Gemini-directed thumbnail generated: {v4_url[:60]}...")
+    # Step 7: Parse the text analysis
+    analysis = _extract_field(analysis_text, "ANALYSIS")
+    metaphor = _extract_field(analysis_text, "METAPHOR")
+    reasoning = _extract_field(analysis_text, "REASONING")
 
     return {
         "v4_url": v4_url,
-        "analysis": result.get("analysis", ""),
-        "visual_metaphor": result.get("visual_metaphor", ""),
-        "reasoning": result.get("reasoning", ""),
-        "prompt": gemini_prompt,
+        "analysis": analysis,
+        "visual_metaphor": metaphor,
+        "reasoning": reasoning,
+        "prompt": "(generated directly by Gemini 3 Pro — no text prompt used)",
+    }
+
+
+def _extract_field(text: str, field_name: str) -> str:
+    """Extract a labeled field from Gemini's text output.
+
+    Looks for patterns like 'ANALYSIS: ...' up to the next label or end.
+    """
+    import re
+    pattern = rf"{field_name}:\s*(.+?)(?=\n(?:ANALYSIS|METAPHOR|REASONING):|$)"
+    match = re.search(pattern, text, re.DOTALL | re.IGNORECASE)
+    if match:
+        return match.group(1).strip()
+    return ""
+
+
+async def _fallback_to_nano_banana(
+    image_client,
+    analysis_text: str,
+    line_1: str,
+    line_2: str,
+    palette: str,
+) -> Optional[dict]:
+    """Fallback: extract a prompt from Gemini's text and render via Nano Banana Pro.
+
+    Used when Gemini returns text analysis but no generated image.
+    """
+    # Try to find anything that looks like a generation prompt
+    prompt = None
+    for marker in ["PROMPT:", "prompt:", "Generate:", "generate:"]:
+        if marker in analysis_text:
+            idx = analysis_text.index(marker) + len(marker)
+            prompt = analysis_text[idx:idx + 500].strip().split("\n\n")[0].strip()
+            break
+
+    if not prompt:
+        print("    Fallback: no prompt found in Gemini text output")
+        return None
+
+    print(f"    Fallback: using extracted prompt with Nano Banana Pro")
+    v4_urls = await image_client.generate_thumbnail(prompt)
+    if not v4_urls:
+        print("    Fallback: Nano Banana Pro generation failed")
+        return None
+
+    analysis = _extract_field(analysis_text, "ANALYSIS")
+    metaphor = _extract_field(analysis_text, "METAPHOR")
+    reasoning = _extract_field(analysis_text, "REASONING")
+
+    return {
+        "v4_url": v4_urls[0],
+        "analysis": analysis,
+        "visual_metaphor": metaphor,
+        "reasoning": reasoning,
+        "prompt": prompt,
     }
