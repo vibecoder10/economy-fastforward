@@ -40,7 +40,7 @@ else:
 
 from slack_bolt.async_app import AsyncApp
 from slack_bolt.adapter.socket_mode.async_handler import AsyncSocketModeHandler
-from pipeline_constants import IdeaFields, Models, Statuses
+from pipeline_constants import IdeaFields, ImageFields, Models, Statuses
 
 # Initialize Slack app
 app = AsyncApp(token=os.environ.get("SLACK_BOT_TOKEN"))
@@ -232,6 +232,17 @@ async def handle_help(message, say):
 
 _Targeting: Add `[scene]` or `[scene],[image]` to any generation command._
 _Targeted runs do NOT advance the pipeline status (safe for testing)._
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+*Storyboard (contact-sheet workflow)*
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- `!storyboard <title>` — Show beat breakdown + cost estimate
+- `!storyboard-preview [title]` — Preview directives only (no images)
+- `!storyboard-go [title]` — Phase 1: generate contact-sheet grids
+- `!storyboard-approve [title]` — Phase 2: extract panels + upscale
+- `!storyboard-beat <N> [title]` — Generate a single beat grid
+- `!storyboard-regenerate <N> [title]` — Regenerate a beat grid
+- `!storyboard-status [title]` — Show storyboard progress
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 *Auto-Run*
@@ -2098,298 +2109,6 @@ async def handle_delete_images(message, say):
     await _handle_delete_images(message, say)
 
 
-# ---------------------------------------------------------------------------
-# AI-powered fallback — catches messages that no regex handler matched
-# ---------------------------------------------------------------------------
-
-_AI_ROUTER_SYSTEM = """\
-You are the command router for a Slack-based video production pipeline bot.
-
-The user sent a message that didn't match any built-in command. Your job is to
-figure out what they want and return the EXACT command keyword to execute.
-
-Available commands (return one of these EXACTLY):
-- "run" — auto-continue the pipeline from its current status
-- "script" — generate a script for the next video
-- "voice" — generate voiceover audio
-- "run sound design TITLE" — generate sound maps for a video (replace TITLE with the video title from the user message)
-- "run sound effects TITLE" — generate sound effect audio files for a video (replace TITLE)
-- "run sound all TITLE" — run both sound design + sound effects for a video (replace TITLE)
-- "prompts" — generate image prompts and start image generation
-- "images" — generate scene images only
-- "end images" — generate end/outro images
-- "sync" — run audio sync / Whisper alignment / calculate timing
-- "thumbnail" — generate a thumbnail
-- "render" — render the video
-- "upload" — upload a rendered video to YouTube as unlisted draft
-- "analytics" — sync YouTube performance metrics (views, CTR, retention) to Airtable
-- "analyze" — run weekly performance analysis (title formulas, topics, velocity, retention insights)
-- "discover" — scan headlines for new video ideas
-- "research" — run deep research on an approved idea
-- "research TOPIC" — research a specific topic (replace TOPIC with the user's topic)
-- "stop" — stop / kill the currently running pipeline
-- "status" — check current project status
-- "queue" — show all active ideas and their pipeline statuses
-- "skip" — skip the current pipeline step
-- "retry" — re-run the last failed command
-- "disk" — check disk space / storage usage
-- "tail logs" — show recent log output
-- "show env" — show environment variables
-- "set env KEY=VALUE" — set an environment variable (keep KEY=VALUE from user message)
-- "set key KEY" — set the OpenAI API key (replace KEY with the actual key from the message)
-- "restart" — restart the bot process
-- "update" — pull latest code from GitHub
-- "cron on" — enable cron jobs
-- "cron off" — disable cron jobs
-- "cron status" — check cron schedule
-- "style image TITLE: INSTRUCTIONS" — set image style override for a video (keep TITLE and INSTRUCTIONS from user message)
-- "style thumbnail TITLE: INSTRUCTIONS" — set thumbnail style override for a video (keep TITLE and INSTRUCTIONS)
-- "style color TITLE: COLOR" — set accent color for a video (valid colors: cold teal, muted crimson, warm amber, muted green). Keep TITLE and COLOR from user message.
-- "style reset TITLE" — clear style overrides for a video (keep TITLE from user message)
-- "model TITLE: MODEL" — set image generation model for a video (valid models: nano-banana-2, z-image). Keep TITLE and MODEL from user message.
-- "model reset TITLE" — reset image model to default for a video (keep TITLE from user message)
-- "models" — list available image generation models
-- "delete TITLE scripts" — delete all script records for a video and reset to Ready For Scripting (keep TITLE from user message)
-- "delete TITLE prompts" — delete all image prompt/concept records for a video and reset to Ready For Image Prompts (keep TITLE from user message)
-- "delete TITLE images" — same as "delete TITLE prompts" (alias)
-- "help" — show available commands
-- "unknown" — message is not a bot command (casual chat, question, etc.)
-
-Rules:
-1. Return ONLY the command string, nothing else. No quotes, no explanation.
-2. If the user is asking a question or chatting, return: unknown
-3. Be generous with interpretation — "do the whisper thing" → sync, \
-"make me a thumb" → thumbnail, "what's happening" → status, \
-"pull the code" → update, "next step" → run, \
-"generate the voiceover" → voice, "create images" → images, \
-"generate sounds for TITLE" → run sound all TITLE, \
-"run sound design" → run sound design TITLE (extract TITLE from context), \
-"create sound effects for TITLE" → run sound effects TITLE, \
-"sound design for TITLE" → run sound design TITLE, \
-"add sounds to TITLE" → run sound all TITLE, \
-"do sounds for TITLE" → run sound all TITLE, \
-"how much storage" → disk, "what's in the pipeline" → queue, \
-"upload to youtube" → upload, "push to youtube" → upload, \
-"upload as draft" → upload, "youtube draft" → upload, \
-"check analytics" → analytics, "sync metrics" → analytics, \
-"get video stats" → analytics, "youtube stats" → analytics, \
-"how are my videos doing" → analytics, "pull analytics" → analytics, \
-"analyze performance" → analyze, "weekly report" → analyze, \
-"what's working" → analyze, "performance insights" → analyze, \
-"do that again" → retry, "show me the logs" → tail logs, \
-"check my keys" → show env, \
-"change the image style for VIDEO to DESCRIPTION" → style image VIDEO: DESCRIPTION, \
-"make the images for VIDEO look like DESCRIPTION" → style image VIDEO: DESCRIPTION, \
-"make the VIDEO video red" → style color VIDEO: muted crimson, \
-"use crimson for VIDEO" → style color VIDEO: muted crimson, \
-"use teal for VIDEO" → style color VIDEO: cold teal, \
-"make VIDEO amber" → style color VIDEO: warm amber, \
-"green accent for VIDEO" → style color VIDEO: muted green, \
-"reset the style for VIDEO" → style reset VIDEO, \
-"switch VIDEO to z-image" → model VIDEO: z-image, \
-"use z image for VIDEO" → model VIDEO: z-image, \
-"change model for VIDEO to z-image" → model VIDEO: z-image, \
-"reset model for VIDEO" → model reset VIDEO, \
-"what models are available" → models, \
-"list models" → models, \
-"wipe scripts for VIDEO" → delete VIDEO scripts, \
-"clear scripts VIDEO" → delete VIDEO scripts, \
-"redo scripts for VIDEO" → delete VIDEO scripts, \
-"wipe prompts for VIDEO" → delete VIDEO prompts, \
-"clear images VIDEO" → delete VIDEO images, \
-"redo prompts for VIDEO" → delete VIDEO prompts, \
-"remove images for VIDEO" → delete VIDEO images, \
-"start over images VIDEO" → delete VIDEO images
-4. If they mention an API key or secret key, return: set key KEY
-5. If truly ambiguous, return: unknown"""
-
-
-@app.event("message")
-async def handle_fallback(event, say):
-    """AI-powered fallback for messages that no regex handler matched."""
-    text = event.get("text", "").strip()
-    if not text:
-        return
-
-    # Skip bot messages, edits, and thread replies to avoid loops
-    if event.get("bot_id") or event.get("subtype") or event.get("thread_ts"):
-        return
-
-    # Skip very short or very long messages
-    if len(text) < 2 or len(text) > 500:
-        return
-
-    try:
-        from clients.anthropic_client import AnthropicClient
-        anthropic = AnthropicClient()
-
-        command = await anthropic.generate(
-            prompt=f"User message: {text}",
-            system_prompt=_AI_ROUTER_SYSTEM,
-            model=Models.CLAUDE_HAIKU,
-            max_tokens=100,
-            temperature=0.0,
-        )
-        command = command.strip().lower()
-
-    except Exception as e:
-        print(f"[ai-router] Error: {e}")
-        return
-
-    if command == "unknown":
-        return
-
-    print(f"[ai-router] '{text}' → '{command}'")
-
-    # Build a mapping of command keywords to handler functions
-    command_map = {
-        "run": handle_run,
-        "script": handle_script,
-        "voice": handle_voice,
-        "prompts": handle_prompts,
-        "images": handle_images,
-        "end images": handle_end_images,
-        "sync": handle_audio_sync,
-        "thumbnail": handle_thumbnail,
-        "render": handle_render,
-        "upload": handle_upload,
-        "analytics": handle_analytics,
-        "video prompts": handle_video_prompts,
-        "video generate": handle_video_generate,
-        "discover": handle_discover,
-        "stop": handle_stop,
-        "status": handle_status,
-        "queue": handle_queue,
-        "skip": handle_skip,
-        "retry": handle_retry,
-        "disk": handle_disk,
-        "tail logs": handle_tail_logs,
-        "show env": handle_show_env,
-        "restart": handle_restart,
-        "update": handle_update,
-        "help": handle_help,
-        "models": handle_model_list,
-        "cron on": handle_cron,
-        "cron off": handle_cron,
-        "cron status": handle_cron,
-    }
-
-    # Check for "run sound design/effects/all TITLE" commands
-    if command.startswith("run sound design "):
-        fake_message = {"text": command, "user": event.get("user", "")}
-        await handle_sound_design(fake_message, say)
-        return
-    if command.startswith("run sound effects "):
-        fake_message = {"text": command, "user": event.get("user", "")}
-        await handle_sound_effects(fake_message, say)
-        return
-    if command.startswith("run sound all "):
-        fake_message = {"text": command, "user": event.get("user", "")}
-        await handle_sound_all(fake_message, say)
-        return
-
-    # Check for "set env KEY=VALUE" command
-    if command.startswith("set env "):
-        fake_message = {"text": command, "user": event.get("user", "")}
-        await handle_set_env(fake_message, say)
-        return
-
-    # Check for "set key" command
-    if command.startswith("set key"):
-        fake_message = {"text": f"set key {text}", "user": event.get("user", "")}
-        await handle_set_key(fake_message, say)
-        return
-
-    # Check for "research TOPIC" variant
-    if command.startswith("research "):
-        fake_message = {"text": command, "user": event.get("user", "")}
-        await handle_research(fake_message, say)
-        return
-
-    # Check for "style image/thumbnail/color/reset" commands
-    if command.startswith("style image "):
-        fake_message = {"text": command, "user": event.get("user", "")}
-        await handle_style_image(fake_message, say)
-        return
-    if command.startswith("style thumbnail "):
-        fake_message = {"text": command, "user": event.get("user", "")}
-        await handle_style_thumbnail(fake_message, say)
-        return
-    if command.startswith("style color "):
-        fake_message = {"text": command, "user": event.get("user", "")}
-        await handle_style_color(fake_message, say)
-        return
-    if command.startswith("style reset "):
-        fake_message = {"text": command, "user": event.get("user", "")}
-        await handle_style_reset(fake_message, say)
-        return
-
-    # Check for "model" commands (hot-swap image generation model)
-    if command.startswith("model reset "):
-        fake_message = {"text": command, "user": event.get("user", "")}
-        await handle_model_reset(fake_message, say)
-        return
-    if command.startswith("model ") and ":" in command:
-        fake_message = {"text": command, "user": event.get("user", "")}
-        await handle_model_set(fake_message, say)
-        return
-    if command == "models":
-        fake_message = {"text": command, "user": event.get("user", "")}
-        await handle_model_list(fake_message, say)
-        return
-
-    # Check for "delete TITLE scripts/prompts/images" commands
-    if command.startswith("delete ") and command.endswith((" scripts", " script")):
-        fake_message = {"text": command, "user": event.get("user", "")}
-        await handle_delete_scripts(fake_message, say)
-        return
-    if command.startswith("delete ") and command.endswith(
-        (" prompts", " prompt", " images", " image")
-    ):
-        fake_message = {"text": command, "user": event.get("user", "")}
-        await handle_delete_images(fake_message, say)
-        return
-
-    # Check for "discover" with focus keyword
-    if command.startswith("discover"):
-        fake_message = {"text": command, "user": event.get("user", ""),
-                        "channel": event.get("channel", "")}
-        await handle_discover(fake_message, say, client=app.client)
-        return
-
-    handler = command_map.get(command)
-    if handler:
-        fake_message = {"text": command, "user": event.get("user", ""),
-                        "channel": event.get("channel", "")}
-        if handler == handle_discover:
-            await handler(fake_message, say, client=app.client)
-        else:
-            await handler(fake_message, say)
-    else:
-        # AI returned something unexpected — ignore silently
-        print(f"[ai-router] Unmapped command: '{command}'")
-
-
-# Populate retry map — maps task_name used in run_script_async to handler
-_TASK_HANDLER_MAP.update({
-    "script": handle_script,
-    "voice": handle_voice,
-    "sound design": handle_sound_design,
-    "sound effects": handle_sound_effects,
-    "sound all": handle_sound_all,
-    "images": handle_images,
-    "end images": handle_end_images,
-    "prompts": handle_prompts,
-    "audio sync": handle_audio_sync,
-    "thumbnail": handle_thumbnail,
-    "render": handle_render,
-    "upload": handle_upload,
-    "analytics": handle_analytics,
-    "video prompts": handle_video_prompts,
-    "video generate": handle_video_generate,
-})
-
-
 # =============================================================================
 # Storyboard Commands
 # =============================================================================
@@ -2718,6 +2437,298 @@ async def handle_storyboard_plan(message, say):
 
     except Exception as e:
         await say(f":x: Storyboard plan failed: {e}")
+
+
+# ---------------------------------------------------------------------------
+# AI-powered fallback — catches messages that no regex handler matched
+# ---------------------------------------------------------------------------
+
+_AI_ROUTER_SYSTEM = """\
+You are the command router for a Slack-based video production pipeline bot.
+
+The user sent a message that didn't match any built-in command. Your job is to
+figure out what they want and return the EXACT command keyword to execute.
+
+Available commands (return one of these EXACTLY):
+- "run" — auto-continue the pipeline from its current status
+- "script" — generate a script for the next video
+- "voice" — generate voiceover audio
+- "run sound design TITLE" — generate sound maps for a video (replace TITLE with the video title from the user message)
+- "run sound effects TITLE" — generate sound effect audio files for a video (replace TITLE)
+- "run sound all TITLE" — run both sound design + sound effects for a video (replace TITLE)
+- "prompts" — generate image prompts and start image generation
+- "images" — generate scene images only
+- "end images" — generate end/outro images
+- "sync" — run audio sync / Whisper alignment / calculate timing
+- "thumbnail" — generate a thumbnail
+- "render" — render the video
+- "upload" — upload a rendered video to YouTube as unlisted draft
+- "analytics" — sync YouTube performance metrics (views, CTR, retention) to Airtable
+- "analyze" — run weekly performance analysis (title formulas, topics, velocity, retention insights)
+- "discover" — scan headlines for new video ideas
+- "research" — run deep research on an approved idea
+- "research TOPIC" — research a specific topic (replace TOPIC with the user's topic)
+- "stop" — stop / kill the currently running pipeline
+- "status" — check current project status
+- "queue" — show all active ideas and their pipeline statuses
+- "skip" — skip the current pipeline step
+- "retry" — re-run the last failed command
+- "disk" — check disk space / storage usage
+- "tail logs" — show recent log output
+- "show env" — show environment variables
+- "set env KEY=VALUE" — set an environment variable (keep KEY=VALUE from user message)
+- "set key KEY" — set the OpenAI API key (replace KEY with the actual key from the message)
+- "restart" — restart the bot process
+- "update" — pull latest code from GitHub
+- "cron on" — enable cron jobs
+- "cron off" — disable cron jobs
+- "cron status" — check cron schedule
+- "style image TITLE: INSTRUCTIONS" — set image style override for a video (keep TITLE and INSTRUCTIONS from user message)
+- "style thumbnail TITLE: INSTRUCTIONS" — set thumbnail style override for a video (keep TITLE and INSTRUCTIONS)
+- "style color TITLE: COLOR" — set accent color for a video (valid colors: cold teal, muted crimson, warm amber, muted green). Keep TITLE and COLOR from user message.
+- "style reset TITLE" — clear style overrides for a video (keep TITLE from user message)
+- "model TITLE: MODEL" — set image generation model for a video (valid models: nano-banana-2, z-image). Keep TITLE and MODEL from user message.
+- "model reset TITLE" — reset image model to default for a video (keep TITLE from user message)
+- "models" — list available image generation models
+- "delete TITLE scripts" — delete all script records for a video and reset to Ready For Scripting (keep TITLE from user message)
+- "delete TITLE prompts" — delete all image prompt/concept records for a video and reset to Ready For Image Prompts (keep TITLE from user message)
+- "delete TITLE images" — same as "delete TITLE prompts" (alias)
+- "help" — show available commands
+- "unknown" — message is not a bot command (casual chat, question, etc.)
+
+Rules:
+1. Return ONLY the command string, nothing else. No quotes, no explanation.
+2. If the user is asking a question or chatting, return: unknown
+3. Be generous with interpretation — "do the whisper thing" → sync, \
+"make me a thumb" → thumbnail, "what's happening" → status, \
+"pull the code" → update, "next step" → run, \
+"generate the voiceover" → voice, "create images" → images, \
+"generate sounds for TITLE" → run sound all TITLE, \
+"run sound design" → run sound design TITLE (extract TITLE from context), \
+"create sound effects for TITLE" → run sound effects TITLE, \
+"sound design for TITLE" → run sound design TITLE, \
+"add sounds to TITLE" → run sound all TITLE, \
+"do sounds for TITLE" → run sound all TITLE, \
+"how much storage" → disk, "what's in the pipeline" → queue, \
+"upload to youtube" → upload, "push to youtube" → upload, \
+"upload as draft" → upload, "youtube draft" → upload, \
+"check analytics" → analytics, "sync metrics" → analytics, \
+"get video stats" → analytics, "youtube stats" → analytics, \
+"how are my videos doing" → analytics, "pull analytics" → analytics, \
+"analyze performance" → analyze, "weekly report" → analyze, \
+"what's working" → analyze, "performance insights" → analyze, \
+"do that again" → retry, "show me the logs" → tail logs, \
+"check my keys" → show env, \
+"change the image style for VIDEO to DESCRIPTION" → style image VIDEO: DESCRIPTION, \
+"make the images for VIDEO look like DESCRIPTION" → style image VIDEO: DESCRIPTION, \
+"make the VIDEO video red" → style color VIDEO: muted crimson, \
+"use crimson for VIDEO" → style color VIDEO: muted crimson, \
+"use teal for VIDEO" → style color VIDEO: cold teal, \
+"make VIDEO amber" → style color VIDEO: warm amber, \
+"green accent for VIDEO" → style color VIDEO: muted green, \
+"reset the style for VIDEO" → style reset VIDEO, \
+"switch VIDEO to z-image" → model VIDEO: z-image, \
+"use z image for VIDEO" → model VIDEO: z-image, \
+"change model for VIDEO to z-image" → model VIDEO: z-image, \
+"reset model for VIDEO" → model reset VIDEO, \
+"what models are available" → models, \
+"list models" → models, \
+"wipe scripts for VIDEO" → delete VIDEO scripts, \
+"clear scripts VIDEO" → delete VIDEO scripts, \
+"redo scripts for VIDEO" → delete VIDEO scripts, \
+"wipe prompts for VIDEO" → delete VIDEO prompts, \
+"clear images VIDEO" → delete VIDEO images, \
+"redo prompts for VIDEO" → delete VIDEO prompts, \
+"remove images for VIDEO" → delete VIDEO images, \
+"start over images VIDEO" → delete VIDEO images
+4. If they mention an API key or secret key, return: set key KEY
+5. If truly ambiguous, return: unknown"""
+
+
+@app.event("message")
+async def handle_fallback(event, say):
+    """AI-powered fallback for messages that no regex handler matched."""
+    text = event.get("text", "").strip()
+    if not text:
+        return
+
+    # Skip bot messages, edits, and thread replies to avoid loops
+    if event.get("bot_id") or event.get("subtype") or event.get("thread_ts"):
+        return
+
+    # Skip very short or very long messages
+    if len(text) < 2 or len(text) > 500:
+        return
+
+    try:
+        from clients.anthropic_client import AnthropicClient
+        anthropic = AnthropicClient()
+
+        command = await anthropic.generate(
+            prompt=f"User message: {text}",
+            system_prompt=_AI_ROUTER_SYSTEM,
+            model=Models.CLAUDE_HAIKU,
+            max_tokens=100,
+            temperature=0.0,
+        )
+        command = command.strip().lower()
+
+    except Exception as e:
+        print(f"[ai-router] Error: {e}")
+        return
+
+    if command == "unknown":
+        return
+
+    print(f"[ai-router] '{text}' → '{command}'")
+
+    # Build a mapping of command keywords to handler functions
+    command_map = {
+        "run": handle_run,
+        "script": handle_script,
+        "voice": handle_voice,
+        "prompts": handle_prompts,
+        "images": handle_images,
+        "end images": handle_end_images,
+        "sync": handle_audio_sync,
+        "thumbnail": handle_thumbnail,
+        "render": handle_render,
+        "upload": handle_upload,
+        "analytics": handle_analytics,
+        "video prompts": handle_video_prompts,
+        "video generate": handle_video_generate,
+        "discover": handle_discover,
+        "stop": handle_stop,
+        "status": handle_status,
+        "queue": handle_queue,
+        "skip": handle_skip,
+        "retry": handle_retry,
+        "disk": handle_disk,
+        "tail logs": handle_tail_logs,
+        "show env": handle_show_env,
+        "restart": handle_restart,
+        "update": handle_update,
+        "help": handle_help,
+        "models": handle_model_list,
+        "cron on": handle_cron,
+        "cron off": handle_cron,
+        "cron status": handle_cron,
+    }
+
+    # Check for "run sound design/effects/all TITLE" commands
+    if command.startswith("run sound design "):
+        fake_message = {"text": command, "user": event.get("user", "")}
+        await handle_sound_design(fake_message, say)
+        return
+    if command.startswith("run sound effects "):
+        fake_message = {"text": command, "user": event.get("user", "")}
+        await handle_sound_effects(fake_message, say)
+        return
+    if command.startswith("run sound all "):
+        fake_message = {"text": command, "user": event.get("user", "")}
+        await handle_sound_all(fake_message, say)
+        return
+
+    # Check for "set env KEY=VALUE" command
+    if command.startswith("set env "):
+        fake_message = {"text": command, "user": event.get("user", "")}
+        await handle_set_env(fake_message, say)
+        return
+
+    # Check for "set key" command
+    if command.startswith("set key"):
+        fake_message = {"text": f"set key {text}", "user": event.get("user", "")}
+        await handle_set_key(fake_message, say)
+        return
+
+    # Check for "research TOPIC" variant
+    if command.startswith("research "):
+        fake_message = {"text": command, "user": event.get("user", "")}
+        await handle_research(fake_message, say)
+        return
+
+    # Check for "style image/thumbnail/color/reset" commands
+    if command.startswith("style image "):
+        fake_message = {"text": command, "user": event.get("user", "")}
+        await handle_style_image(fake_message, say)
+        return
+    if command.startswith("style thumbnail "):
+        fake_message = {"text": command, "user": event.get("user", "")}
+        await handle_style_thumbnail(fake_message, say)
+        return
+    if command.startswith("style color "):
+        fake_message = {"text": command, "user": event.get("user", "")}
+        await handle_style_color(fake_message, say)
+        return
+    if command.startswith("style reset "):
+        fake_message = {"text": command, "user": event.get("user", "")}
+        await handle_style_reset(fake_message, say)
+        return
+
+    # Check for "model" commands (hot-swap image generation model)
+    if command.startswith("model reset "):
+        fake_message = {"text": command, "user": event.get("user", "")}
+        await handle_model_reset(fake_message, say)
+        return
+    if command.startswith("model ") and ":" in command:
+        fake_message = {"text": command, "user": event.get("user", "")}
+        await handle_model_set(fake_message, say)
+        return
+    if command == "models":
+        fake_message = {"text": command, "user": event.get("user", "")}
+        await handle_model_list(fake_message, say)
+        return
+
+    # Check for "delete TITLE scripts/prompts/images" commands
+    if command.startswith("delete ") and command.endswith((" scripts", " script")):
+        fake_message = {"text": command, "user": event.get("user", "")}
+        await handle_delete_scripts(fake_message, say)
+        return
+    if command.startswith("delete ") and command.endswith(
+        (" prompts", " prompt", " images", " image")
+    ):
+        fake_message = {"text": command, "user": event.get("user", "")}
+        await handle_delete_images(fake_message, say)
+        return
+
+    # Check for "discover" with focus keyword
+    if command.startswith("discover"):
+        fake_message = {"text": command, "user": event.get("user", ""),
+                        "channel": event.get("channel", "")}
+        await handle_discover(fake_message, say, client=app.client)
+        return
+
+    handler = command_map.get(command)
+    if handler:
+        fake_message = {"text": command, "user": event.get("user", ""),
+                        "channel": event.get("channel", "")}
+        if handler == handle_discover:
+            await handler(fake_message, say, client=app.client)
+        else:
+            await handler(fake_message, say)
+    else:
+        # AI returned something unexpected — ignore silently
+        print(f"[ai-router] Unmapped command: '{command}'")
+
+
+# Populate retry map — maps task_name used in run_script_async to handler
+_TASK_HANDLER_MAP.update({
+    "script": handle_script,
+    "voice": handle_voice,
+    "sound design": handle_sound_design,
+    "sound effects": handle_sound_effects,
+    "sound all": handle_sound_all,
+    "images": handle_images,
+    "end images": handle_end_images,
+    "prompts": handle_prompts,
+    "audio sync": handle_audio_sync,
+    "thumbnail": handle_thumbnail,
+    "render": handle_render,
+    "upload": handle_upload,
+    "analytics": handle_analytics,
+    "video prompts": handle_video_prompts,
+    "video generate": handle_video_generate,
+})
 
 
 async def main():
