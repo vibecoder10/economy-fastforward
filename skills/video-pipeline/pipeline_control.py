@@ -2390,6 +2390,336 @@ _TASK_HANDLER_MAP.update({
 })
 
 
+# =============================================================================
+# Storyboard Commands
+# =============================================================================
+
+
+async def _find_idea_by_title(airtable, title: str, say=None):
+    """Find an idea record by partial title match. Returns record or None."""
+    from pyairtable.formulas import FIELD
+
+    all_ideas = airtable.get_all_ideas()
+    search_lower = title.lower().strip().strip("\"'")
+    for idea in all_ideas:
+        video_title = idea.get(IdeaFields.VIDEO_TITLE, "") or ""
+        if search_lower in video_title.lower():
+            return idea
+    if say:
+        await say(f":x: No idea found matching: _{title}_")
+    return None
+
+
+@app.message(re.compile(r"^!storyboard-preview\s*(.*)$", re.IGNORECASE))
+async def handle_storyboard_preview(message, say):
+    """Run directives only — no image generation. Sends shot plans to Slack."""
+    match = re.search(r"^!storyboard-preview\s*(.*)$", message["text"], re.IGNORECASE)
+    title_arg = match.group(1).strip().strip("\"'") if match and match.group(1).strip() else None
+
+    await say(":film_projector: Running storyboard preview (directives only)...")
+
+    try:
+        from clients.airtable_client import AirtableClient
+        from clients.slack_client import SlackClient
+        from storyboard_bot import run_storyboard_preview
+
+        airtable = AirtableClient()
+        slack = SlackClient()
+
+        if title_arg:
+            idea = await _find_idea_by_title(airtable, title_arg, say)
+        else:
+            ideas = airtable.get_ideas_by_status(Statuses.READY_STORYBOARDS)
+            idea = ideas[0] if ideas else None
+
+        if not idea:
+            await say(":x: No idea found. Use `!storyboard-preview \"title\"`")
+            return
+
+        idea_record = {"id": idea.get("id", ""), "fields": idea}
+        results = await run_storyboard_preview(idea_record=idea_record)
+
+        for result in results:
+            slack.notify_storyboard_preview_beat(
+                idea.get(IdeaFields.VIDEO_TITLE, ""),
+                result["beat"]["beat_number"],
+                len(results),
+                result["preview"],
+            )
+
+        await say(f":white_check_mark: Preview complete — {len(results)} directives generated")
+
+    except Exception as e:
+        await say(f":x: Storyboard preview failed: {e}")
+
+
+@app.message(re.compile(r"^!storyboard-go\s*(.*)$", re.IGNORECASE))
+async def handle_storyboard_go(message, say):
+    """Phase 1: Generate directives + contact sheet grids."""
+    match = re.search(r"^!storyboard-go\s*(.*)$", message["text"], re.IGNORECASE)
+    title_arg = match.group(1).strip().strip("\"'") if match and match.group(1).strip() else None
+
+    await say(":art: Starting storyboard grid generation (Phase 1)...")
+
+    try:
+        from clients.airtable_client import AirtableClient
+        from clients.slack_client import SlackClient
+        from storyboard_bot import run_storyboard_grids
+
+        airtable = AirtableClient()
+        slack = SlackClient()
+
+        if title_arg:
+            idea = await _find_idea_by_title(airtable, title_arg, say)
+        else:
+            ideas = airtable.get_ideas_by_status(Statuses.READY_STORYBOARDS)
+            idea = ideas[0] if ideas else None
+
+        if not idea:
+            await say(":x: No idea found. Use `!storyboard-go \"title\"`")
+            return
+
+        idea_record = {"id": idea.get("id", ""), "fields": idea}
+        title = idea.get(IdeaFields.VIDEO_TITLE, "")
+        slack.notify_storyboard_start(title, 0)
+
+        result = await run_storyboard_grids(idea_record=idea_record)
+
+        if result.get("error"):
+            await say(f":x: {result['error']}")
+            return
+
+        slack.notify_storyboard_done(
+            title, result.get("beat_count", 0) * 9, result.get("total_cost", 0),
+        )
+        await say(
+            f":white_check_mark: Phase 1 complete — {result.get('beat_count', 0)} grids generated "
+            f"(${result.get('total_cost', 0):.2f})\n"
+            f"Review grids in Airtable, then run `!storyboard-approve` to extract + upscale."
+        )
+
+    except Exception as e:
+        await say(f":x: Storyboard generation failed: {e}")
+
+
+@app.message(re.compile(r"^!storyboard-approve\s*(.*)$", re.IGNORECASE))
+async def handle_storyboard_approve(message, say):
+    """Phase 2: Extract panels from grids, upscale, write to Images table."""
+    match = re.search(r"^!storyboard-approve\s*(.*)$", message["text"], re.IGNORECASE)
+    title_arg = match.group(1).strip().strip("\"'") if match and match.group(1).strip() else None
+
+    await say(":scissors: Starting panel extraction + upscale (Phase 2)...")
+
+    try:
+        from clients.airtable_client import AirtableClient
+        from storyboard_bot import run_storyboard_extract
+
+        airtable = AirtableClient()
+
+        if title_arg:
+            idea = await _find_idea_by_title(airtable, title_arg, say)
+        else:
+            ideas = airtable.get_ideas_by_status(Statuses.READY_STORYBOARDS)
+            idea = ideas[0] if ideas else None
+
+        if not idea:
+            await say(":x: No idea found. Use `!storyboard-approve \"title\"`")
+            return
+
+        idea_record = {"id": idea.get("id", ""), "fields": idea}
+        result = await run_storyboard_extract(idea_record=idea_record)
+
+        if result.get("error"):
+            await say(f":x: {result['error']}")
+            return
+
+        await say(
+            f":white_check_mark: Phase 2 complete — {result.get('total_panels', 0)} panels "
+            f"extracted + upscaled (${result.get('total_cost', 0):.2f})\n"
+            f"Status: Ready For Video Scripts"
+        )
+
+    except Exception as e:
+        await say(f":x: Panel extraction failed: {e}")
+
+
+@app.message(re.compile(r"^!storyboard-beat\s+(\d+)\s*(.*)$", re.IGNORECASE))
+async def handle_storyboard_beat(message, say):
+    """Process a single beat only — for testing."""
+    match = re.search(r"^!storyboard-beat\s+(\d+)\s*(.*)$", message["text"], re.IGNORECASE)
+    if not match:
+        await say(":x: Usage: `!storyboard-beat <N> [title]`")
+        return
+
+    beat_num = int(match.group(1))
+    title_arg = match.group(2).strip().strip("\"'") if match.group(2).strip() else None
+
+    await say(f":art: Generating storyboard for beat {beat_num}...")
+
+    try:
+        from clients.airtable_client import AirtableClient
+        from storyboard_bot import run_storyboard_grids
+
+        airtable = AirtableClient()
+
+        if title_arg:
+            idea = await _find_idea_by_title(airtable, title_arg, say)
+        else:
+            ideas = airtable.get_ideas_by_status(Statuses.READY_STORYBOARDS)
+            idea = ideas[0] if ideas else None
+
+        if not idea:
+            await say(":x: No idea found.")
+            return
+
+        idea_record = {"id": idea.get("id", ""), "fields": idea}
+        result = await run_storyboard_grids(
+            idea_record=idea_record, single_beat=beat_num,
+        )
+
+        if result.get("error"):
+            await say(f":x: {result['error']}")
+            return
+
+        await say(
+            f":white_check_mark: Beat {beat_num} grid generated "
+            f"(${result.get('total_cost', 0):.2f})"
+        )
+
+    except Exception as e:
+        await say(f":x: Storyboard beat failed: {e}")
+
+
+@app.message(re.compile(r"^!storyboard-status\s*(.*)$", re.IGNORECASE))
+async def handle_storyboard_status(message, say):
+    """Show storyboard progress for a video."""
+    match = re.search(r"^!storyboard-status\s*(.*)$", message["text"], re.IGNORECASE)
+    title_arg = match.group(1).strip().strip("\"'") if match and match.group(1).strip() else None
+
+    try:
+        from clients.airtable_client import AirtableClient
+
+        airtable = AirtableClient()
+
+        if title_arg:
+            idea = await _find_idea_by_title(airtable, title_arg, say)
+        else:
+            ideas = airtable.get_ideas_by_status(Statuses.READY_STORYBOARDS)
+            idea = ideas[0] if ideas else None
+
+        if not idea:
+            await say(":x: No idea found.")
+            return
+
+        title = idea.get(IdeaFields.VIDEO_TITLE, "")
+        sb_mode = idea.get("Storyboard Mode", "off")
+        sb_status = idea.get("Storyboard Status", "none")
+        beat_count = idea.get("Storyboard Beat Count", 0)
+
+        # Count storyboard images
+        images = airtable.get_all_images_for_video(title)
+        sb_done = sum(
+            1 for img in images
+            if img.get("Generation Method") == "storyboard"
+            and img.get(ImageFields.STATUS) == "Done"
+        )
+        total = len(images)
+
+        await say(
+            f":film_projector: *Storyboard Status* — \"{title}\"\n\n"
+            f"Mode: `{sb_mode}` | Status: `{sb_status}`\n"
+            f"Beats: {beat_count}\n"
+            f"Panels: {sb_done}/{total} done"
+        )
+
+    except Exception as e:
+        await say(f":x: Status check failed: {e}")
+
+
+@app.message(re.compile(r"^!storyboard-regenerate\s+(\d+)\s*(.*)$", re.IGNORECASE))
+async def handle_storyboard_regenerate(message, say):
+    """Regenerate a specific beat's grid."""
+    match = re.search(r"^!storyboard-regenerate\s+(\d+)\s*(.*)$", message["text"], re.IGNORECASE)
+    if not match:
+        await say(":x: Usage: `!storyboard-regenerate <beat_number> [title]`")
+        return
+
+    beat_num = int(match.group(1))
+    title_arg = match.group(2).strip().strip("\"'") if match.group(2).strip() else None
+
+    await say(f":arrows_counterclockwise: Regenerating beat {beat_num}...")
+
+    try:
+        from clients.airtable_client import AirtableClient
+        from storyboard_bot import run_storyboard_grids
+
+        airtable = AirtableClient()
+
+        if title_arg:
+            idea = await _find_idea_by_title(airtable, title_arg, say)
+        else:
+            ideas = airtable.get_ideas_by_status(Statuses.READY_STORYBOARDS)
+            idea = ideas[0] if ideas else None
+
+        if not idea:
+            await say(":x: No idea found.")
+            return
+
+        idea_record = {"id": idea.get("id", ""), "fields": idea}
+        result = await run_storyboard_grids(
+            idea_record=idea_record, single_beat=beat_num,
+        )
+
+        if result.get("error"):
+            await say(f":x: {result['error']}")
+            return
+
+        await say(
+            f":white_check_mark: Beat {beat_num} regenerated "
+            f"(${result.get('total_cost', 0):.2f})"
+        )
+
+    except Exception as e:
+        await say(f":x: Regeneration failed: {e}")
+
+
+@app.message(re.compile(r"^!storyboard\s+(.+)$", re.IGNORECASE))
+async def handle_storyboard_plan(message, say):
+    """Show storyboard plan with cost estimate and beat breakdown."""
+    match = re.search(r"^!storyboard\s+(.+)$", message["text"], re.IGNORECASE)
+    if not match:
+        await say(":x: Usage: `!storyboard <title>`")
+        return
+
+    title_arg = match.group(1).strip().strip("\"'")
+
+    try:
+        from clients.airtable_client import AirtableClient
+        from clients.slack_client import SlackClient
+        from storyboard_bot import generate_storyboard_plan
+
+        airtable = AirtableClient()
+        slack = SlackClient()
+
+        idea = await _find_idea_by_title(airtable, title_arg, say)
+        if not idea:
+            return
+
+        idea_record = {"id": idea.get("id", ""), "fields": idea}
+        plan = await generate_storyboard_plan(idea_record=idea_record)
+
+        if plan.get("error"):
+            await say(f":x: {plan['error']}")
+            return
+
+        slack.notify_storyboard_plan(
+            idea.get(IdeaFields.VIDEO_TITLE, ""), plan,
+        )
+
+    except Exception as e:
+        await say(f":x: Storyboard plan failed: {e}")
+
+
 async def main():
     """Start the Slack bot."""
     print("=" * 60)

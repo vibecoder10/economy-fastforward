@@ -125,6 +125,13 @@ class IdeaFields:
     POST_MORTEM_7D = "Post-Mortem 7d"
     PERFORMANCE_VERDICT = "Performance Verdict"
 
+    # Storyboard
+    STORYBOARD_MODE = "Storyboard Mode"
+    STORYBOARD_STATUS = "Storyboard Status"
+    STORYBOARD_PREVIEW = "Storyboard Preview"
+    STORYBOARD_BEAT_COUNT = "Storyboard Beat Count"
+    VIDEO_MODEL = "Video Model"
+
 
 class ScriptFields:
     """Scripts table field names."""
@@ -177,6 +184,15 @@ class ImageFields:
     SOUND_PROMPT = "Sound Prompt"
     SOUND_EFFECT = "Sound Effect"
     SOUND_VOLUME = "Sound Volume"
+
+    # Storyboard
+    STORYBOARD_GRID_URL = "Storyboard Grid URL"
+    PANEL_POSITION = "Panel Position"
+    GENERATION_METHOD = "Generation Method"
+    CLIP_DURATION = "Clip Duration"
+    CAMERA_MOVEMENT = "Camera Movement"
+    ASSIGNED_VIDEO_DURATION = "Assigned Video Duration"
+    ESTIMATED_CLIP_COST = "Estimated Clip Cost"
 
     # Status values
     STATUS_PENDING = "Pending"
@@ -242,6 +258,7 @@ class Statuses:
     READY_SOUND_DESIGN = "Ready For Sound Design"
     READY_SOUND_EFFECTS = "Ready For Sound Effects"
     READY_IMAGE_PROMPTS = "Ready For Image Prompts"
+    READY_STORYBOARDS = "Ready For Storyboards"
     READY_IMAGES = "Ready For Images"
     READY_VIDEO_SCRIPTS = "Ready For Video Scripts"
     READY_VIDEO_GENERATION = "Ready For Video Generation"

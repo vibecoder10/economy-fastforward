@@ -28,7 +28,7 @@ from typing import Optional
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from channel_profile import ChannelProfile, load_profile
+from channel_profile import ChannelProfile, ModelProfile, load_profile
 from pipeline_constants import ImageFields, Models, ScriptFields
 
 logger = logging.getLogger(__name__)
@@ -613,6 +613,581 @@ async def run_storyboard_preview(
         logger.info(f"Beat {beat['beat_number']}/{len(beats)} directive generated")
 
     return results
+
+
+# =============================================================================
+# Duration-Aware Sentence Binning
+# =============================================================================
+
+WORDS_PER_SECOND = 2.5
+
+
+def assign_clip_durations(
+    segments: list[dict],
+    model: ModelProfile,
+) -> list[dict]:
+    """Assign each text segment to the smallest model duration that fits.
+
+    Rules:
+    1. Use smallest duration >= spoken_duration
+    2. Stay at or below preferred_max when possible
+    3. If segment exceeds preferred_max and allow_max_override is True,
+       use next duration up only if splitting would create tiny fragments
+    4. Segments exceeding all durations are split at sentence boundaries
+    5. Segments < 60% of smallest duration merge with adjacent segment
+    """
+    available = sorted(model.durations)
+    preferred = [d for d in available if d <= model.preferred_max]
+    min_viable = available[0] * 0.6
+
+    result: list[dict] = []
+
+    for seg in segments:
+        spoken = seg["spoken_duration_seconds"]
+
+        # Too short — merge with previous
+        if spoken < min_viable and result:
+            prev = result[-1]
+            prev["text"] += " " + seg["text"]
+            prev["word_count"] += seg["word_count"]
+            prev["spoken_duration_seconds"] += spoken
+            prev["assigned_duration"] = _best_fit_duration(
+                prev["spoken_duration_seconds"], preferred, available, model,
+            )
+            prev["estimated_cost"] = model.cost_per_clip.get(
+                prev["assigned_duration"], 0,
+            )
+            continue
+
+        # Too long — split at sentence boundaries
+        max_duration = available[-1]
+        if spoken > max_duration:
+            result.extend(_split_long_segment(seg, model))
+            continue
+
+        # Normal — assign best-fit
+        duration = _best_fit_duration(spoken, preferred, available, model)
+        seg["assigned_duration"] = duration
+        seg["estimated_cost"] = model.cost_per_clip.get(duration, 0)
+        result.append(seg)
+
+    return result
+
+
+def _best_fit_duration(
+    spoken: float,
+    preferred: list[int],
+    available: list[int],
+    model: ModelProfile,
+) -> int:
+    """Find the smallest duration that fits the spoken length."""
+    for d in preferred:
+        if d >= spoken:
+            return d
+
+    if model.allow_max_override:
+        for d in available:
+            if d >= spoken:
+                return d
+
+    return available[-1]
+
+
+def _split_long_segment(
+    segment: dict,
+    model: ModelProfile,
+) -> list[dict]:
+    """Split a segment exceeding the model's max duration at sentence boundaries."""
+    max_duration = (
+        model.preferred_max if not model.allow_max_override
+        else max(model.durations)
+    )
+    max_words = int(max_duration * WORDS_PER_SECOND)
+
+    text = segment["text"]
+    sentences = re.split(r"(?<=[.!?])\s+", text)
+
+    available = sorted(model.durations)
+    preferred = [d for d in available if d <= model.preferred_max]
+
+    sub_segments: list[dict] = []
+    current_text = ""
+    current_words = 0
+
+    for sentence in sentences:
+        sentence_words = len(sentence.split())
+
+        if current_words + sentence_words > max_words and current_words > 0:
+            sub = _make_segment(current_text.strip(), current_words)
+            sub["assigned_duration"] = _best_fit_duration(
+                sub["spoken_duration_seconds"], preferred, available, model,
+            )
+            sub["estimated_cost"] = model.cost_per_clip.get(
+                sub["assigned_duration"], 0,
+            )
+            sub_segments.append(sub)
+            current_text = ""
+            current_words = 0
+
+        current_text += " " + sentence
+        current_words += sentence_words
+
+    if current_words > 0:
+        sub = _make_segment(current_text.strip(), current_words)
+        sub["assigned_duration"] = _best_fit_duration(
+            sub["spoken_duration_seconds"], preferred, available, model,
+        )
+        sub["estimated_cost"] = model.cost_per_clip.get(
+            sub["assigned_duration"], 0,
+        )
+        sub_segments.append(sub)
+
+    return sub_segments
+
+
+def _make_segment(text: str, word_count: int) -> dict:
+    """Create a segment dict from text and word count."""
+    return {
+        "text": text,
+        "word_count": word_count,
+        "spoken_duration_seconds": word_count / WORDS_PER_SECOND,
+    }
+
+
+def calculate_video_cost(
+    segments: list[dict],
+    model: ModelProfile,
+) -> dict:
+    """Calculate total video generation cost from duration-assigned segments."""
+    by_duration: dict[int, dict] = {}
+    for seg in segments:
+        d = seg.get("assigned_duration", 10)
+        if d not in by_duration:
+            by_duration[d] = {"count": 0, "cost": 0.0}
+        by_duration[d]["count"] += 1
+        by_duration[d]["cost"] += seg.get("estimated_cost", 0)
+
+    total_clips = sum(v["count"] for v in by_duration.values())
+    total_cost = sum(v["cost"] for v in by_duration.values())
+    total_duration = sum(v["count"] * d for d, v in by_duration.items())
+
+    return {
+        "model": model.display_name,
+        "total_clips": total_clips,
+        "total_duration_seconds": total_duration,
+        "total_cost": total_cost,
+        "by_duration": by_duration,
+    }
+
+
+# =============================================================================
+# Multi-Grid Beat Handling
+# =============================================================================
+
+def group_segments_into_grids(segments: list[dict]) -> list[dict]:
+    """Group duration-assigned segments into storyboard grids of 9.
+
+    Each grid becomes one contact sheet. If the last grid has fewer
+    than 9 segments, remaining panels are black (not generated).
+    """
+    grids: list[dict] = []
+    grid_number = 1
+
+    for i in range(0, len(segments), 9):
+        chunk = segments[i : i + 9]
+        grids.append({
+            "grid_number": grid_number,
+            "segments": chunk,
+            "panel_count": len(chunk),
+            "black_panels": 9 - len(chunk),
+        })
+        grid_number += 1
+
+    return grids
+
+
+# =============================================================================
+# Panel Extraction (PIL)
+# =============================================================================
+
+def extract_panels(
+    grid_image_path: str,
+    output_dir: str,
+    grid_number: int,
+    expected_real_panels: int = 9,
+) -> list[str]:
+    """Extract panels from a 3x3 grid image, skipping black/blank panels.
+
+    Crops with inset margin (2% x, 4% y) to trim panel borders/labels.
+    Returns list of file paths for REAL panels only (reading order).
+    """
+    from PIL import Image
+
+    img = Image.open(grid_image_path)
+    width, height = img.size
+
+    panel_width = width // 3
+    panel_height = height // 3
+
+    margin_x = int(panel_width * 0.02)
+    margin_y = int(panel_height * 0.04)
+
+    real_panels: list[str] = []
+
+    for row in range(3):
+        for col in range(3):
+            left = col * panel_width + margin_x
+            upper = row * panel_height + margin_y
+            right = (col + 1) * panel_width - margin_x
+            lower = (row + 1) * panel_height - margin_y
+
+            panel = img.crop((left, upper, right, lower))
+
+            if is_blank_panel(panel):
+                logger.info(
+                    f"Grid {grid_number} panel {len(real_panels) + 1} is black — skipping"
+                )
+                continue
+
+            kf_number = len(real_panels) + 1
+            panel_path = os.path.join(
+                output_dir,
+                f"grid_{grid_number}_kf{kf_number}.png",
+            )
+            panel.save(panel_path, quality=95)
+            real_panels.append(panel_path)
+
+            if len(real_panels) >= expected_real_panels:
+                break
+        if len(real_panels) >= expected_real_panels:
+            break
+
+    return real_panels
+
+
+def is_blank_panel(panel_image, threshold: int = 15) -> bool:
+    """Check if an extracted panel is solid black (filler).
+
+    Returns True if mean pixel value is below threshold.
+    Works with PIL Image objects.
+    """
+    import numpy as np
+
+    pixels = np.array(panel_image)
+    return float(pixels.mean()) < threshold
+
+
+# =============================================================================
+# Contact Sheet Generation + Upscaling
+# =============================================================================
+
+async def generate_contact_sheet(
+    contact_sheet_prompt: str,
+    real_panel_count: int = 9,
+    image_client=None,
+) -> str:
+    """Generate a 3x3 contact sheet via Nano Banana Pro.
+
+    Returns Google Drive URL of the generated grid image.
+    """
+    if image_client is None:
+        from clients.image_client import ImageClient
+        image_client = ImageClient()
+
+    # Prepend technical grid wrapper
+    full_prompt = (
+        "CRITICAL OUTPUT FORMAT: Generate a single image containing a 3×3 grid "
+        "(3 rows × 3 columns) of 9 cinematic panels. Each panel must be clearly "
+        "separated. Panel labels [KF# | shot_type | duration] must appear in the "
+        "top-left margin of each panel, small and non-intrusive.\n\n"
+    )
+
+    if real_panel_count < 9:
+        full_prompt += (
+            f"IMPORTANT: Panels {real_panel_count + 1} through 9 must be SOLID "
+            f"BLACK with no content. Only panels 1 through {real_panel_count} "
+            f"contain scene imagery.\n\n"
+        )
+
+    full_prompt += contact_sheet_prompt
+
+    result = await image_client.generate_scene_image(
+        prompt=full_prompt,
+        model=Models.IMAGE_THUMBNAIL,  # Nano Banana Pro
+        aspect_ratio="16:9",
+    )
+
+    return result
+
+
+async def upscale_panel(
+    panel_image_url: str,
+    keyframe_desc: str,
+    profile: ChannelProfile,
+    image_client=None,
+) -> str:
+    """Upscale an extracted panel via Nano Banana 2 with image_input.
+
+    Uses the individual keyframe's description (not the generic image prompt)
+    to ensure the upscaled image matches the storyboard's cinematic intent.
+    """
+    if image_client is None:
+        from clients.image_client import ImageClient
+        image_client = ImageClient()
+
+    prompt = (
+        f"{profile.visual_style_directive}\n\n"
+        f"{keyframe_desc}\n\n"
+        f"Technical: {profile.lens_profile.grain}. "
+        f"{profile.color_grade.primary_palette}. "
+        f"{profile.color_grade.contrast}."
+    )
+
+    result = await image_client.generate_scene_image(
+        prompt=prompt,
+        image_input=panel_image_url,
+        aspect_ratio="16:9",
+    )
+
+    return result
+
+
+# =============================================================================
+# Two-Phase Orchestration
+# =============================================================================
+
+async def run_storyboard_grids(
+    idea_record: dict,
+    airtable_client=None,
+    anthropic_client=None,
+    image_client=None,
+    single_beat: Optional[int] = None,
+) -> dict:
+    """Phase 1: Generate directives + contact sheet grids.
+
+    Generates Claude directives and Nano Banana Pro contact sheets.
+    Does NOT extract or upscale panels — that's Phase 2 (!storyboard-approve).
+
+    Returns dict with grid_urls, beat_count, and cost.
+    """
+    if airtable_client is None:
+        from clients.airtable_client import AirtableClient
+        airtable_client = AirtableClient()
+    if anthropic_client is None:
+        from clients.anthropic_client import AnthropicClient
+        anthropic_client = AnthropicClient()
+    if image_client is None:
+        from clients.image_client import ImageClient
+        image_client = ImageClient()
+
+    fields = idea_record.get("fields", idea_record)
+    video_title = fields.get("Video Title", "")
+    profile = load_profile(fields)
+
+    script_records = airtable_client.get_scripts_by_title(video_title)
+    if not script_records:
+        return {"error": f"No script found for '{video_title}'"}
+
+    beats = segment_script_into_beats(script_records)
+    if single_beat is not None:
+        beats = [b for b in beats if b["beat_number"] == single_beat]
+        if not beats:
+            return {"error": f"Beat {single_beat} not found"}
+
+    image_records = airtable_client.get_all_images_for_video(video_title)
+
+    grid_urls: list[str] = []
+    directives: list[dict] = []
+    total_cost = 0.0
+
+    for beat in beats:
+        beat_images = _get_images_for_beat(image_records, beat)
+        image_prompts = [
+            img.get(ImageFields.IMAGE_PROMPT, "")
+            for img in beat_images
+        ]
+
+        # Step 1: Generate directive
+        directive = await generate_storyboard_directive(
+            beat_number=beat["beat_number"],
+            beat_text=beat["text"],
+            beat_scenes=beat["scenes"],
+            video_title=video_title,
+            image_prompts=image_prompts,
+            profile=profile,
+            anthropic_client=anthropic_client,
+        )
+        total_cost += 0.03
+        directives.append(directive)
+
+        # Step 2: Generate contact sheet
+        contact_sheet_prompt = directive["contact_sheet_prompt"]
+        real_panels = min(len(beat_images), 9)
+
+        grid_url = await generate_contact_sheet(
+            contact_sheet_prompt=contact_sheet_prompt,
+            real_panel_count=real_panels,
+            image_client=image_client,
+        )
+        total_cost += 0.075
+        grid_urls.append(grid_url)
+
+        logger.info(
+            f"Beat {beat['beat_number']}/{len(beats)} grid generated "
+            f"(${total_cost:.2f} so far)"
+        )
+
+    # Write grid URLs to Airtable Storyboard Preview field
+    idea_id = idea_record.get("id", "")
+    if idea_id and grid_urls:
+        try:
+            airtable_client.update_idea_fields(idea_id, {
+                "Storyboard Status": "grids_generated",
+                "Storyboard Beat Count": len(beats),
+                "Storyboard Preview": [{"url": url} for url in grid_urls if url],
+            })
+        except Exception as e:
+            logger.warning(f"Failed to write storyboard preview: {e}")
+
+    return {
+        "video_title": video_title,
+        "beat_count": len(beats),
+        "grid_urls": grid_urls,
+        "directives": directives,
+        "total_cost": total_cost,
+    }
+
+
+async def run_storyboard_extract(
+    idea_record: dict,
+    airtable_client=None,
+    image_client=None,
+    google_client=None,
+) -> dict:
+    """Phase 2: Extract panels from grids, upscale, and write to Images table.
+
+    Triggered by !storyboard-approve after reviewing grids.
+    Resume-safe: checks existing panel status before processing.
+    """
+    if airtable_client is None:
+        from clients.airtable_client import AirtableClient
+        airtable_client = AirtableClient()
+    if image_client is None:
+        from clients.image_client import ImageClient
+        image_client = ImageClient()
+    if google_client is None:
+        from clients.google_client import GoogleClient
+        google_client = GoogleClient()
+
+    fields = idea_record.get("fields", idea_record)
+    video_title = fields.get("Video Title", "")
+    profile = load_profile(fields)
+
+    image_records = airtable_client.get_all_images_for_video(video_title)
+
+    # Get grid URLs from Storyboard Preview field
+    storyboard_preview = fields.get("Storyboard Preview", [])
+    if not storyboard_preview:
+        return {"error": "No storyboard grids found — run !storyboard-go first"}
+
+    grid_urls = [
+        att.get("url", "") for att in storyboard_preview if att.get("url")
+    ]
+
+    # Group image records into grids of 9
+    grids = group_segments_into_grids(image_records)
+
+    total_panels = 0
+    total_cost = 0.0
+
+    for grid_idx, grid_url in enumerate(grid_urls):
+        if grid_idx >= len(grids):
+            break
+
+        grid = grids[grid_idx]
+        grid_images = grid["segments"]
+        real_panels = grid["panel_count"]
+
+        # Download grid image
+        temp_dir = f"/tmp/storyboard_{video_title.replace(' ', '_')}_grid_{grid_idx + 1}"
+        os.makedirs(temp_dir, exist_ok=True)
+
+        try:
+            grid_local_path = await google_client.download_file_to_local(
+                grid_url, os.path.join(temp_dir, f"grid_{grid_idx + 1}.png"),
+            )
+        except Exception as e:
+            logger.error(f"Failed to download grid {grid_idx + 1}: {e}")
+            continue
+
+        # Extract panels
+        panel_paths = extract_panels(
+            grid_local_path, temp_dir, grid_idx + 1, real_panels,
+        )
+
+        # Upscale each panel and write back
+        for panel_idx, panel_path in enumerate(panel_paths):
+            if panel_idx >= len(grid_images):
+                break
+
+            img_record = grid_images[panel_idx]
+            record_id = img_record.get("id", "")
+
+            # Resume check
+            if (
+                img_record.get("Generation Method") == "storyboard"
+                and img_record.get(ImageFields.STATUS) == "Done"
+            ):
+                continue
+
+            # Upload extracted panel to Drive
+            panel_drive_url = await google_client.upload_file(
+                panel_path, video_title,
+            )
+
+            # Upscale
+            try:
+                upscaled_url = await upscale_panel(
+                    panel_image_url=panel_drive_url,
+                    keyframe_desc="",  # Will use grid context
+                    profile=profile,
+                    image_client=image_client,
+                )
+                total_cost += 0.045
+            except Exception as e:
+                logger.warning(f"Upscale failed for panel {panel_idx + 1}: {e}")
+                upscaled_url = panel_drive_url  # Fall back to non-upscaled
+
+            # Write to Airtable
+            if record_id:
+                try:
+                    airtable_client.update_image_record(record_id, {
+                        ImageFields.IMAGE: [{"url": upscaled_url}],
+                        ImageFields.STATUS: "Done",
+                        "Storyboard Grid URL": grid_url,
+                        "Panel Position": f"{panel_idx // 3}_{panel_idx % 3}",
+                        "Generation Method": "storyboard",
+                    })
+                except Exception as e:
+                    logger.warning(f"Airtable write failed for panel {panel_idx + 1}: {e}")
+
+            total_panels += 1
+
+    # Update storyboard status
+    idea_id = idea_record.get("id", "")
+    if idea_id:
+        try:
+            airtable_client.update_idea_fields(idea_id, {
+                "Storyboard Status": "extracted",
+            })
+        except Exception as e:
+            logger.warning(f"Failed to update storyboard status: {e}")
+
+    return {
+        "video_title": video_title,
+        "total_panels": total_panels,
+        "total_cost": total_cost,
+    }
 
 
 # =============================================================================

@@ -402,6 +402,32 @@ class VideoPipeline:
 
             return await self._run_step_safe("Image Prompt Bot", self.run_styled_image_prompts)
 
+        # 3b. Check for Ready For Storyboards (manual trigger — PAUSE)
+        idea = self.get_idea_by_status(Statuses.READY_STORYBOARDS)
+        if idea:
+            self._load_idea(idea)
+            fields = idea.get("fields", idea)
+            sb_status = fields.get("Storyboard Status", "none")
+
+            if sb_status == "extracted":
+                # Storyboards done — images already in Images table, skip image_bot
+                print(f"  ✅ Storyboards extracted — skipping to Video Scripts")
+                self._update_status(self.STATUS_READY_VIDEO_SCRIPTS)
+                return await self.run_next_step()
+
+            # Storyboards not complete — PAUSE pipeline
+            print(f"  ⏸️ Storyboard mode ON — waiting for manual trigger via Slack")
+            try:
+                self.slack.notify(
+                    f"⏸️ '{self.video_title}' is waiting for storyboards "
+                    f"(status: {sb_status}).\n"
+                    f"Run `!storyboard \"{self.video_title}\"` to generate, "
+                    f"or set Storyboard Mode to 'off' to skip."
+                )
+            except Exception:
+                pass
+            return {"status": "paused", "reason": "waiting_for_storyboards"}
+
         # 4. Check for Ready For Images
         idea = self.get_idea_by_status(self.STATUS_READY_IMAGES)
         if idea:

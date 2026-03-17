@@ -119,6 +119,174 @@ class ChannelProfile:
 
 
 # =============================================================================
+# Model Profile — Video Generation Model Capabilities
+# =============================================================================
+
+@dataclass
+class ModelProfile:
+    """Defines a video generation model's capabilities and cost structure.
+
+    Used by the duration-aware binner and video generation bot.
+    Hot-swappable: changing the model on an Idea Concepts record
+    re-runs duration binning with the new model's profile.
+    """
+    model_id: str
+    display_name: str
+    provider: str
+
+    # Duration options (seconds, ascending)
+    durations: list[int] = field(default_factory=lambda: [10])
+    preferred_max: int = 10
+    allow_max_override: bool = True
+
+    # Cost per duration tier: {seconds: usd}
+    cost_per_clip: dict[int, float] = field(default_factory=dict)
+
+    # Capabilities
+    resolution: str = "720p"
+    supports_image_input: bool = True
+    supports_first_last_frame: bool = False
+    supports_camera_control: bool = False
+    camera_control_type: str = "prompt"  # "prompt", "bracket", "keyframe", "none"
+    aspect_ratios: list[str] = field(default_factory=lambda: ["16:9"])
+    max_concurrent: int = 5
+    avg_generation_time_seconds: int = 30
+
+    # Audio
+    includes_audio: bool = False
+    strip_audio: bool = True
+
+
+# --- Model Instances ---
+
+GROK_IMAGINE = ModelProfile(
+    model_id="grok-imagine",
+    display_name="Grok Imagine",
+    provider="kie.ai",
+    durations=[6, 10, 15],
+    preferred_max=10,
+    allow_max_override=True,
+    cost_per_clip={6: 0.10, 10: 0.15, 15: 0.20},
+    resolution="720p",
+    supports_image_input=True,
+    supports_camera_control=False,
+    camera_control_type="prompt",
+    includes_audio=True,
+    strip_audio=True,
+    avg_generation_time_seconds=15,
+    max_concurrent=10,
+)
+
+VEO_31_FAST = ModelProfile(
+    model_id="veo-3.1-fast",
+    display_name="Veo 3.1 Fast",
+    provider="kie.ai",
+    durations=[8],
+    preferred_max=8,
+    allow_max_override=False,
+    cost_per_clip={8: 0.30},
+    resolution="720p",
+    supports_image_input=True,
+    supports_first_last_frame=True,
+    supports_camera_control=False,
+    camera_control_type="none",
+    avg_generation_time_seconds=60,
+    max_concurrent=5,
+)
+
+VEO_31_QUALITY = ModelProfile(
+    model_id="veo-3.1-quality",
+    display_name="Veo 3.1 Quality",
+    provider="kie.ai",
+    durations=[8],
+    preferred_max=8,
+    allow_max_override=False,
+    cost_per_clip={8: 1.25},
+    resolution="1080p",
+    supports_image_input=True,
+    supports_first_last_frame=True,
+    supports_camera_control=False,
+    camera_control_type="none",
+    avg_generation_time_seconds=120,
+    max_concurrent=3,
+)
+
+KLING_30_PRO = ModelProfile(
+    model_id="kling-3.0-pro",
+    display_name="Kling 3.0 Pro",
+    provider="kie.ai",
+    durations=[5, 10],
+    preferred_max=10,
+    allow_max_override=False,
+    cost_per_clip={5: 0.80, 10: 1.50},
+    resolution="1080p",
+    supports_image_input=True,
+    supports_camera_control=True,
+    camera_control_type="keyframe",
+    avg_generation_time_seconds=90,
+    max_concurrent=3,
+)
+
+RUNWAY_GEN4_TURBO = ModelProfile(
+    model_id="runway-gen4-turbo",
+    display_name="Runway Gen-4 Turbo",
+    provider="runway",
+    durations=[5, 10],
+    preferred_max=10,
+    allow_max_override=False,
+    cost_per_clip={5: 0.25, 10: 0.50},
+    resolution="720p",
+    supports_image_input=True,
+    supports_camera_control=True,
+    camera_control_type="prompt",
+    avg_generation_time_seconds=360,
+    max_concurrent=5,
+)
+
+HAILUO_23_STANDARD = ModelProfile(
+    model_id="hailuo-2.3-standard",
+    display_name="Hailuo 2.3 Standard",
+    provider="fal.ai",
+    durations=[6, 10],
+    preferred_max=10,
+    allow_max_override=False,
+    cost_per_clip={6: 0.28, 10: 0.47},
+    resolution="768p",
+    supports_image_input=True,
+    supports_camera_control=True,
+    camera_control_type="bracket",
+    avg_generation_time_seconds=45,
+    max_concurrent=5,
+)
+
+# --- Model Registry ---
+
+MODEL_REGISTRY: dict[str, ModelProfile] = {
+    "grok-imagine": GROK_IMAGINE,
+    "veo-3.1-fast": VEO_31_FAST,
+    "veo-3.1-quality": VEO_31_QUALITY,
+    "kling-3.0-pro": KLING_30_PRO,
+    "runway-gen4-turbo": RUNWAY_GEN4_TURBO,
+    "hailuo-2.3-standard": HAILUO_23_STANDARD,
+}
+
+DEFAULT_VIDEO_MODEL = "grok-imagine"
+
+
+def load_model_profile(idea_record: Optional[dict] = None) -> ModelProfile:
+    """Load video generation model profile.
+
+    Reads 'Video Model' from idea record, falls back to DEFAULT_VIDEO_MODEL.
+    """
+    model_id = DEFAULT_VIDEO_MODEL
+    if idea_record:
+        override = idea_record.get("Video Model")
+        if override and override in MODEL_REGISTRY:
+            model_id = override
+    return MODEL_REGISTRY[model_id]
+
+
+# =============================================================================
 # Default Profile — Economy FastForward / Power Doctrine
 # =============================================================================
 

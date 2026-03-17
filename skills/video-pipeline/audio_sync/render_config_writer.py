@@ -99,6 +99,11 @@ def build_render_config(
         else:
             entry["type"] = "image"
 
+        # Storyboard-specified clip duration override
+        clip_duration = scene.get("clip_duration") or scene.get("assigned_video_duration")
+        if clip_duration and clip_duration > 0:
+            entry["clip_duration"] = round(float(clip_duration), 2)
+
         # Segment metadata for configurable-length pipeline
         if scene.get("segment_index") is not None:
             entry["segment_index"] = scene["segment_index"]

@@ -356,8 +356,17 @@ async def run(pipeline) -> dict:
             "targeted": True,
         }
 
-    pipeline._update_status(Statuses.READY_IMAGES)
-    print(f"  Status updated to: {Statuses.READY_IMAGES}")
+    # Route based on Storyboard Mode
+    storyboard_mode = (pipeline.current_idea or {}).get("fields", {}).get(
+        "Storyboard Mode", "off"
+    )
+    if storyboard_mode == "on":
+        next_status = Statuses.READY_STORYBOARDS
+    else:
+        next_status = Statuses.READY_IMAGES
+
+    pipeline._update_status(next_status)
+    print(f"  Status updated to: {next_status}")
 
     skip_note = f" ({scenes_skipped} resumed)" if scenes_skipped else ""
     total_styled = sum(style_counts.values()) or 1
@@ -380,7 +389,7 @@ async def run(pipeline) -> dict:
         "scenes_skipped": scenes_skipped,
         "total_concepts": total_concepts,
         "style_distribution": style_counts,
-        "new_status": Statuses.READY_IMAGES,
+        "new_status": next_status,
     }
 
 
