@@ -236,15 +236,15 @@ _Targeted runs do NOT advance the pipeline status (safe for testing)._
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 *Storyboard (contact-sheet workflow)*
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-- `!storyboard <title>` — Show beat breakdown + cost estimate
-- `!storyboard-preview [title]` — Preview directives only (no images)
-- `!storyboard-go [title]` — Phase 1: generate contact-sheet grids
-- `!storyboard-approve [title]` — Phase 2: extract panels + upscale
-- `!storyboard-beat <N> [title]` — Generate a single beat grid
-- `!storyboard-regenerate <N> [title]` — Regenerate a beat grid
-- `!storyboard-on <title>` — Enable storyboard mode for a video
-- `!storyboard-off <title>` — Disable storyboard mode (use normal pipeline)
-- `!storyboard-status [title]` — Show storyboard progress
+- `storyboard <title>` — Show beat breakdown + cost estimate
+- `storyboard preview [title]` — Preview directives only (no images)
+- `storyboard go [title]` — Phase 1: generate contact-sheet grids
+- `storyboard approve [title]` — Phase 2: extract panels + upscale
+- `storyboard beat <N> [title]` — Generate a single beat grid
+- `storyboard regenerate <N> [title]` — Regenerate a beat grid
+- `storyboard on <title>` — Enable storyboard mode for a video
+- `storyboard off <title>` — Disable storyboard mode (use normal pipeline)
+- `storyboard status [title]` — Show storyboard progress
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 *Auto-Run*
@@ -2131,10 +2131,10 @@ async def _find_idea_by_title(airtable, title: str, say=None):
     return None
 
 
-@app.message(re.compile(r"^!storyboard-preview\s*(.*)$", re.IGNORECASE))
+@app.message(re.compile(r"^!?storyboard[\s-]+previews?\s*(.*)$", re.IGNORECASE))
 async def handle_storyboard_preview(message, say):
     """Run directives only — no image generation. Sends shot plans to Slack."""
-    match = re.search(r"^!storyboard-preview\s*(.*)$", message["text"], re.IGNORECASE)
+    match = re.search(r"^!?storyboard[\s-]+previews?\s*(.*)$", message["text"], re.IGNORECASE)
     title_arg = match.group(1).strip().strip("\"'") if match and match.group(1).strip() else None
 
     await say(":film_projector: Running storyboard preview (directives only)...")
@@ -2174,10 +2174,10 @@ async def handle_storyboard_preview(message, say):
         await say(f":x: Storyboard preview failed: {e}")
 
 
-@app.message(re.compile(r"^!storyboard-go\s*(.*)$", re.IGNORECASE))
+@app.message(re.compile(r"^!?storyboard[\s-]+go\s*(.*)$", re.IGNORECASE))
 async def handle_storyboard_go(message, say):
     """Phase 1: Generate directives + contact sheet grids."""
-    match = re.search(r"^!storyboard-go\s*(.*)$", message["text"], re.IGNORECASE)
+    match = re.search(r"^!?storyboard[\s-]+go\s*(.*)$", message["text"], re.IGNORECASE)
     title_arg = match.group(1).strip().strip("\"'") if match and match.group(1).strip() else None
 
     await say(":art: Starting storyboard grid generation (Phase 1)...")
@@ -2223,10 +2223,10 @@ async def handle_storyboard_go(message, say):
         await say(f":x: Storyboard generation failed: {e}")
 
 
-@app.message(re.compile(r"^!storyboard-approve\s*(.*)$", re.IGNORECASE))
+@app.message(re.compile(r"^!?storyboard[\s-]+approve\s*(.*)$", re.IGNORECASE))
 async def handle_storyboard_approve(message, say):
     """Phase 2: Extract panels from grids, upscale, write to Images table."""
-    match = re.search(r"^!storyboard-approve\s*(.*)$", message["text"], re.IGNORECASE)
+    match = re.search(r"^!?storyboard[\s-]+approve\s*(.*)$", message["text"], re.IGNORECASE)
     title_arg = match.group(1).strip().strip("\"'") if match and match.group(1).strip() else None
 
     await say(":scissors: Starting panel extraction + upscale (Phase 2)...")
@@ -2264,10 +2264,10 @@ async def handle_storyboard_approve(message, say):
         await say(f":x: Panel extraction failed: {e}")
 
 
-@app.message(re.compile(r"^!storyboard-beat\s+(\d+)\s*(.*)$", re.IGNORECASE))
+@app.message(re.compile(r"^!?storyboard[\s-]+beats?\s+(\d+)\s*(.*)$", re.IGNORECASE))
 async def handle_storyboard_beat(message, say):
     """Process a single beat only — for testing."""
-    match = re.search(r"^!storyboard-beat\s+(\d+)\s*(.*)$", message["text"], re.IGNORECASE)
+    match = re.search(r"^!?storyboard[\s-]+beats?\s+(\d+)\s*(.*)$", message["text"], re.IGNORECASE)
     if not match:
         await say(":x: Usage: `!storyboard-beat <N> [title]`")
         return
@@ -2311,10 +2311,10 @@ async def handle_storyboard_beat(message, say):
         await say(f":x: Storyboard beat failed: {e}")
 
 
-@app.message(re.compile(r"^!storyboard-status\s*(.*)$", re.IGNORECASE))
+@app.message(re.compile(r"^!?storyboard[\s-]+status\s*(.*)$", re.IGNORECASE))
 async def handle_storyboard_status(message, say):
     """Show storyboard progress for a video."""
-    match = re.search(r"^!storyboard-status\s*(.*)$", message["text"], re.IGNORECASE)
+    match = re.search(r"^!?storyboard[\s-]+status\s*(.*)$", message["text"], re.IGNORECASE)
     title_arg = match.group(1).strip().strip("\"'") if match and match.group(1).strip() else None
 
     try:
@@ -2357,10 +2357,10 @@ async def handle_storyboard_status(message, say):
         await say(f":x: Status check failed: {e}")
 
 
-@app.message(re.compile(r"^!storyboard-regenerate\s+(\d+)\s*(.*)$", re.IGNORECASE))
+@app.message(re.compile(r"^!?storyboard[\s-]+(?:re)?gen(?:erate)?\s+(\d+)\s*(.*)$", re.IGNORECASE))
 async def handle_storyboard_regenerate(message, say):
     """Regenerate a specific beat's grid."""
-    match = re.search(r"^!storyboard-regenerate\s+(\d+)\s*(.*)$", message["text"], re.IGNORECASE)
+    match = re.search(r"^!?storyboard[\s-]+(?:re)?gen(?:erate)?\s+(\d+)\s*(.*)$", message["text"], re.IGNORECASE)
     if not match:
         await say(":x: Usage: `!storyboard-regenerate <beat_number> [title]`")
         return
@@ -2404,12 +2404,12 @@ async def handle_storyboard_regenerate(message, say):
         await say(f":x: Regeneration failed: {e}")
 
 
-@app.message(re.compile(r"^!storyboard-on\s+(.+)$", re.IGNORECASE))
+@app.message(re.compile(r"^!?storyboard[\s-]+on\s+(.+)$", re.IGNORECASE))
 async def handle_storyboard_on(message, say):
     """Enable storyboard mode for a video."""
-    match = re.search(r"^!storyboard-on\s+(.+)$", message["text"], re.IGNORECASE)
+    match = re.search(r"^!?storyboard[\s-]+on\s+(.+)$", message["text"], re.IGNORECASE)
     if not match:
-        await say(":x: Usage: `!storyboard-on <title>`")
+        await say(":x: Usage: `storyboard on <title>`")
         return
 
     title_arg = match.group(1).strip().strip("\"'")
@@ -2430,12 +2430,12 @@ async def handle_storyboard_on(message, say):
         await say(f":x: Failed to enable storyboard mode: {e}")
 
 
-@app.message(re.compile(r"^!storyboard-off\s+(.+)$", re.IGNORECASE))
+@app.message(re.compile(r"^!?storyboard[\s-]+off\s+(.+)$", re.IGNORECASE))
 async def handle_storyboard_off(message, say):
     """Disable storyboard mode for a video."""
-    match = re.search(r"^!storyboard-off\s+(.+)$", message["text"], re.IGNORECASE)
+    match = re.search(r"^!?storyboard[\s-]+off\s+(.+)$", message["text"], re.IGNORECASE)
     if not match:
-        await say(":x: Usage: `!storyboard-off <title>`")
+        await say(":x: Usage: `storyboard off <title>`")
         return
 
     title_arg = match.group(1).strip().strip("\"'")
@@ -2456,10 +2456,10 @@ async def handle_storyboard_off(message, say):
         await say(f":x: Failed to disable storyboard mode: {e}")
 
 
-@app.message(re.compile(r"^!storyboard\s+(.+)$", re.IGNORECASE))
+@app.message(re.compile(r"^!?storyboards?\s+(.+)$", re.IGNORECASE))
 async def handle_storyboard_plan(message, say):
     """Show storyboard plan with cost estimate and beat breakdown."""
-    match = re.search(r"^!storyboard\s+(.+)$", message["text"], re.IGNORECASE)
+    match = re.search(r"^!?storyboards?\s+(.+)$", message["text"], re.IGNORECASE)
     if not match:
         await say(":x: Usage: `!storyboard <title>`")
         return
@@ -2547,6 +2547,15 @@ Available commands (return one of these EXACTLY):
 - "delete TITLE scripts" — delete all script records for a video and reset to Ready For Scripting (keep TITLE from user message)
 - "delete TITLE prompts" — delete all image prompt/concept records for a video and reset to Ready For Image Prompts (keep TITLE from user message)
 - "delete TITLE images" — same as "delete TITLE prompts" (alias)
+- "storyboard TITLE" — show storyboard plan / beat breakdown for a video
+- "storyboard preview TITLE" — preview storyboard directives only (no images)
+- "storyboard go TITLE" — generate storyboard contact-sheet grids
+- "storyboard approve TITLE" — approve storyboard and extract panels
+- "storyboard beat N TITLE" — generate a single beat grid (replace N with beat number)
+- "storyboard regenerate N TITLE" — regenerate a beat grid (replace N with beat number)
+- "storyboard status TITLE" — show storyboard progress
+- "storyboard on TITLE" — enable storyboard mode for a video
+- "storyboard off TITLE" — disable storyboard mode for a video
 - "help" — show available commands
 - "unknown" — message is not a bot command (casual chat, question, etc.)
 
@@ -2594,7 +2603,19 @@ Rules:
 "clear images VIDEO" → delete VIDEO images, \
 "redo prompts for VIDEO" → delete VIDEO prompts, \
 "remove images for VIDEO" → delete VIDEO images, \
-"start over images VIDEO" → delete VIDEO images
+"start over images VIDEO" → delete VIDEO images, \
+"show storyboard for VIDEO" → storyboard VIDEO, \
+"storyboard plan VIDEO" → storyboard VIDEO, \
+"preview storyboard VIDEO" → storyboard preview VIDEO, \
+"generate storyboard for VIDEO" → storyboard go VIDEO, \
+"run storyboard VIDEO" → storyboard go VIDEO, \
+"approve storyboard VIDEO" → storyboard approve VIDEO, \
+"storyboard progress VIDEO" → storyboard status VIDEO, \
+"redo beat 3 for VIDEO" → storyboard regenerate 3 VIDEO, \
+"enable storyboard for VIDEO" → storyboard on VIDEO, \
+"turn on storyboard VIDEO" → storyboard on VIDEO, \
+"disable storyboard VIDEO" → storyboard off VIDEO, \
+"turn off storyboard VIDEO" → storyboard off VIDEO
 4. If they mention an API key or secret key, return: set key KEY
 5. If truly ambiguous, return: unknown"""
 
@@ -2617,6 +2638,9 @@ async def handle_fallback(event, say):
     # Skip messages that have dedicated @app.message() handlers —
     # Bolt's @app.event("message") fires even when a regex handler matches.
     if text.startswith("!"):
+        return
+    lower = text.lower()
+    if lower.startswith("storyboard"):
         return
 
     try:
@@ -2748,6 +2772,31 @@ async def handle_fallback(event, say):
     ):
         fake_message = {"text": command, "user": event.get("user", "")}
         await handle_delete_images(fake_message, say)
+        return
+
+    # Check for storyboard commands routed by AI
+    if command.startswith("storyboard"):
+        fake_message = {"text": command, "user": event.get("user", "")}
+        # Route to the right handler based on subcommand
+        sb_lower = command[len("storyboard"):].strip()
+        if sb_lower.startswith("preview"):
+            await handle_storyboard_preview(fake_message, say)
+        elif sb_lower.startswith("go"):
+            await handle_storyboard_go(fake_message, say)
+        elif sb_lower.startswith("approve"):
+            await handle_storyboard_approve(fake_message, say)
+        elif sb_lower.startswith("beat"):
+            await handle_storyboard_beat(fake_message, say)
+        elif sb_lower.startswith("status"):
+            await handle_storyboard_status(fake_message, say)
+        elif sb_lower.startswith(("regenerate", "regen", "gen")):
+            await handle_storyboard_regenerate(fake_message, say)
+        elif sb_lower.startswith("on"):
+            await handle_storyboard_on(fake_message, say)
+        elif sb_lower.startswith("off"):
+            await handle_storyboard_off(fake_message, say)
+        else:
+            await handle_storyboard_plan(fake_message, say)
         return
 
     # Check for "discover" with focus keyword
