@@ -57,6 +57,7 @@ Osiris analysis fields (written by `osiris/performance_analyzer.py`):
 - `Video Title`, `Aspect Ratio`, `Status`: "Pending" → "Done"
 - `Image` (attachment), `Video`, `Video Prompt`
 - Animation: `Hero Shot`, `Video Clip URL`, `Animation Status`, `Video Duration`
+- Sound: `Sound Prompt` (Long Text — generated prompt or "SKIP"), `Sound Effect` (attachment — MP3 from Google Drive), `Sound Volume` (Number — default 0.15)
 
 ## Competitor Channels Table
 

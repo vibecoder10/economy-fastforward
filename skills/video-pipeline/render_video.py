@@ -338,6 +338,7 @@ def main():
     print(f"  Drive folder: {len(drive_files_list)} files total, {len(sfx_in_drive)} SFX files")
 
     scenes = []
+    failed_sfx_downloads = []  # Track failed SFX downloads for error reporting
     for script in scripts:
         scene_number = script.get("scene", 0)
         scene_images = [img for img in images if img.get(ImageFields.SCENE) == scene_number]
@@ -411,6 +412,11 @@ def main():
 
                     if not downloaded:
                         print(f"  ❌ Could not download {sfx_filename} via any method")
+                        failed_sfx_downloads.append({
+                            "scene": scene_number,
+                            "image": img_index,
+                            "filename": sfx_filename,
+                        })
 
                 if local_sfx.exists():
                     img_data["sfx"] = f"sfx/{sfx_filename}"
@@ -425,7 +431,24 @@ def main():
             "images": image_props,
             "sound_layers": sound_layers,
         })
-    
+
+    # Fail render if any SFX downloads failed
+    if failed_sfx_downloads:
+        error_msg = f"❌ Sound effect download failed for {len(failed_sfx_downloads)} files:\n"
+        for fail in failed_sfx_downloads[:10]:  # Show first 10
+            error_msg += f"  Scene {fail['scene']}, Image {fail['image']}: {fail['filename']}\n"
+        if len(failed_sfx_downloads) > 10:
+            error_msg += f"  ... and {len(failed_sfx_downloads) - 10} more\n"
+        error_msg += "\nCheck Google Drive folder for missing SFX files."
+        print(error_msg)
+        try:
+            slack = SlackClient()
+            slack.notify_error("Sound Effect Download", error_msg)
+        except Exception as e:
+            print(f"  Warning: Slack notification failed: {e}")
+        print("\n⛔ Render aborted due to missing sound effects.")
+        return
+
     props = {
         "videoTitle": title,
         "folderId": folder_id,
@@ -495,6 +518,16 @@ def main():
             slack.notify_music_selected(music_beds)
         except Exception as e:
             print(f"  Warning: Slack notification failed: {e}")
+
+    # Notify Slack of SFX loaded
+    sfx_count = sum(1 for s in scenes for img in s.get("images", []) if img.get("sfx"))
+    total_images = sum(len(s.get("images", [])) for s in scenes)
+    print(f"  Sound effects: {sfx_count}/{total_images} images have SFX")
+    try:
+        slack = SlackClient()
+        slack.notify_sfx_loaded(sfx_count, total_images)
+    except Exception as e:
+        print(f"  Warning: Slack notification failed: {e}")
 
     # ── Video clip downloads ──────────────────────────────────────────
     # For each image record with a completed video clip, download the mp4

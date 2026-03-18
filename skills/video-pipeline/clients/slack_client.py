@@ -294,7 +294,15 @@ class SlackClient:
             lines.append(f"  Act {act}: {emoji} {mood} → `{track_name}`")
 
         return self.send_message("\n".join(lines))
-    
+
+    def notify_sfx_loaded(self, sfx_count: int, total_images: int) -> dict:
+        """Notify how many sound effects were loaded for rendering."""
+        if sfx_count == 0:
+            return self.send_message("🔇 No sound effects for this video")
+        return self.send_message(
+            f"🔊 *Sound Effects Loaded:* {sfx_count}/{total_images} images have SFX"
+        )
+
     def notify_pipeline_complete(self, video_title: str, folder_url: str) -> dict:
         """Notify that the entire pipeline is complete."""
         return self.send_message(
