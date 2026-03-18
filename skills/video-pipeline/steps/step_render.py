@@ -768,9 +768,12 @@ async def _select_and_download_music(pipeline, props: dict, public_dir: Path) ->
             scene_to_act[scene_num] = act_num
 
     if not scene_to_act:
-        print("  ⚠️ No act data in renderConfig, estimating from scene numbers")
-        for i in range(1, 21):
-            scene_to_act[i] = min(6, (i - 1) // 3 + 1)
+        # Estimate acts from scene numbers - distribute scenes across 6 acts
+        max_scene = max((s.get("scene_number", 0) for s in rc_scenes), default=20)
+        scenes_per_act = max(1, max_scene // 6)
+        print(f"  ⚠️ No act data in renderConfig, estimating {max_scene} scenes → 6 acts ({scenes_per_act} scenes/act)")
+        for i in range(1, max_scene + 1):
+            scene_to_act[i] = min(6, (i - 1) // scenes_per_act + 1)
 
     # Get script text from Airtable
     scripts = pipeline.airtable.get_scripts_by_title(pipeline.video_title)
