@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Shared JSON parsing utilities for AI response extraction.
 
 All Claude/Gemini responses use this fallback chain:
