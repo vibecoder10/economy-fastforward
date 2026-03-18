@@ -1,0 +1,15 @@
+# Build output
+out/
+dist/
+
+# Dependencies
+node_modules/
+
+# Props file (generated per-video)
+props.json
+
+# Downloaded music tracks (cached from Google Drive)
+public/music/
+
+# Render config (generated per-video)
+public/render_config.json

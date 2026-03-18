@@ -9,6 +9,8 @@ Flags:
                 downloading assets or calling Remotion.
 """
 
+from __future__ import annotations
+
 import os
 import sys
 import json
