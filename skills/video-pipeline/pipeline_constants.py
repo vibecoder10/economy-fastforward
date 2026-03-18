@@ -54,6 +54,7 @@ class IdeaFields:
 
     # Visual consistency
     STORY_BIBLE = "Story Bible"
+    CHARACTER_REFERENCE = "Character Reference"  # Attachment — reference image for BYOC
 
     # Pipeline state
     SCRIPT = "Script"

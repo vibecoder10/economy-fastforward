@@ -1053,8 +1053,13 @@ async def generate_contact_sheet(
     contact_sheet_prompt: str,
     real_panel_count: int = 9,
     image_client=None,
+    character_reference_url: str | None = None,
 ) -> str:
     """Generate a 3x3 contact sheet via Nano Banana Pro.
+
+    When a character_reference_url is provided, it's passed as image_input
+    so the generated panels maintain visual consistency with the reference
+    character (BYOC — bring your own character).
 
     Returns Google Drive URL of the generated grid image.
     """
@@ -1079,13 +1084,24 @@ async def generate_contact_sheet(
 
     full_prompt += contact_sheet_prompt
 
-    result = await image_client.generate_scene_image(
-        prompt=full_prompt,
-        model=Models.IMAGE_THUMBNAIL,  # Nano Banana Pro
-        aspect_ratio="16:9",
-    )
-
-    return result
+    if character_reference_url:
+        # Use reference-based generation for character consistency
+        result = await image_client.generate_with_reference(
+            prompt=full_prompt,
+            reference_image_url=character_reference_url,
+            aspect_ratio="16:9",
+        )
+        # generate_with_reference returns dict with 'url' key
+        return result.get("url") if isinstance(result, dict) else result
+    else:
+        # No reference image — use standard text-to-image
+        result = await image_client.generate_and_wait(
+            prompt=full_prompt,
+            aspect_ratio="16:9",
+            model=Models.IMAGE_THUMBNAIL,
+        )
+        # generate_and_wait returns list of URLs
+        return result[0] if result else None
 
 
 async def upscale_panel(
@@ -1155,6 +1171,9 @@ async def run_storyboard_grids(
     # Load Story Bible for visual consistency across beats
     story_bible = _load_story_bible(fields)
 
+    # Load character reference image for BYOC visual lock
+    character_ref_url = _load_character_reference(fields)
+
     script_records = airtable_client.get_scripts_by_title(video_title)
     if not script_records:
         return {"error": f"No script found for '{video_title}'"}
@@ -1200,6 +1219,7 @@ async def run_storyboard_grids(
             contact_sheet_prompt=contact_sheet_prompt,
             real_panel_count=real_panels,
             image_client=image_client,
+            character_reference_url=character_ref_url,
         )
         total_cost += 0.075
         grid_urls.append(grid_url)
@@ -1394,6 +1414,27 @@ def _load_story_bible(fields: dict) -> dict | None:
     except (json.JSONDecodeError, TypeError) as e:
         logger.warning(f"Failed to parse Story Bible JSON: {e}")
         return None
+
+
+def _load_character_reference(fields: dict) -> str | None:
+    """Load character reference image URL from the idea record.
+
+    The Character Reference field is an Airtable attachment field.
+    Returns the first image URL, or None if not set.
+    """
+    attachments = fields.get(IdeaFields.CHARACTER_REFERENCE) or fields.get(
+        "Character Reference"
+    )
+    if not attachments:
+        return None
+
+    if isinstance(attachments, list) and attachments:
+        url = attachments[0].get("url", "")
+        if url:
+            logger.info(f"Loaded character reference image: {url[:80]}...")
+            return url
+
+    return None
 
 
 def _get_images_for_beat(
