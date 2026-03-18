@@ -706,6 +706,54 @@ class AirtableClient:
                     print(f"    ⚠️ Failed to create video {video_data.get('video_id')}: {ind_err}")
             return results
 
+    def get_competitor_videos_with_metrics(
+        self,
+        min_vph: float = 0,
+        min_views: int = 0,
+        limit: int = 500,
+    ) -> list[dict]:
+        """Get competitor videos with performance metrics for analysis.
+
+        Args:
+            min_vph: Minimum VPH filter (default 0 = all)
+            min_views: Minimum view count filter (default 0 = all)
+            limit: Max records to return (default 500)
+
+        Returns:
+            List of video dicts with fields: Title, VPH, Views, Hours Old,
+            Published Date, Channel, URL
+        """
+        try:
+            # Build formula for filtering
+            conditions = []
+            if min_vph > 0:
+                conditions.append(f"{{VPH}} >= {min_vph}")
+            if min_views > 0:
+                conditions.append(f"{{Views}} >= {min_views}")
+
+            formula = None
+            if conditions:
+                formula = "AND(" + ", ".join(conditions) + ")"
+
+            records = self.competitor_videos_table.all(
+                formula=formula,
+                max_records=limit,
+                sort=["-VPH"],  # Highest VPH first
+                fields=[
+                    CompetitorVideoFields.TITLE,
+                    CompetitorVideoFields.VPH,
+                    CompetitorVideoFields.VIEWS,
+                    CompetitorVideoFields.HOURS_OLD,
+                    CompetitorVideoFields.PUBLISHED_DATE,
+                    CompetitorVideoFields.CHANNEL,
+                    CompetitorVideoFields.URL,
+                ],
+            )
+            return [r["fields"] for r in records if r["fields"].get(CompetitorVideoFields.VPH)]
+        except Exception as e:
+            print(f"    ⚠️ Could not fetch competitor videos: {e}")
+            return []
+
     # ==================== OSIRIS LEARNINGS TABLE ====================
 
     @property
