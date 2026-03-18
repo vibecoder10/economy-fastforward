@@ -245,3 +245,84 @@ Extract duplicated pattern from 5+ bots into `clients/json_utils.py`.
 ### Phase 4: Animation Quality
 - [ ] Feature 8: Start/End Frame Bridging — MEDIUM
 - [ ] Feature 9: Multi-Voice & Sound Design — LOW
+
+---
+
+## Creative Visual Story Engine — Vision Audit (2026-03-18)
+
+**Vision**: A democratized visual storytelling engine that lets anyone create animated content without technical skills. Users bring their story, style, and characters — the system handles everything else.
+
+### Vision Alignment Scorecard
+
+| Pillar | Coverage | Status |
+|--------|----------|--------|
+| Bring Your Own Story | 80% | ✅ Works well |
+| Bring Your Own Style | 60% | 🟡 Needs UI for hot-swap |
+| Bring Your Own Characters | 40% | 🔴 CRITICAL GAP |
+| Modular & Bulletproof | 50% | 🟡 Two parallel paths |
+| End-to-End Execution | 85% | ✅ Works well |
+
+### 🔴 Critical Gap: Character Bible Not Injected into Image Prompts
+
+**Problem**: Story Bible generates exact character descriptions, but `image_prompt_bot.py` does NOT read them. Claude writes prompts from scratch → characters look different every scene.
+
+**Fix Required**:
+1. Load Story Bible in `image_prompt_bot.py`
+2. Inject character descriptions into Claude's prompt with "USE EXACT" instruction
+3. Estimated: 2-3 hours
+
+### Priority Enhancement List
+
+| # | Enhancement | Impact | Effort | Files |
+|---|-------------|--------|--------|-------|
+| 1 | **Character Bible → Image Prompts** | 🔴 Critical | 2-3 hrs | `image_prompt_bot.py` |
+| 2 | **Integrate storyboard into main pipeline** | High | 4-5 hrs | `pipeline.py`, `storyboard_bot.py` |
+| 3 | **Character library (persist & reuse)** | High | 3-4 hrs | NEW: `character_library.py` |
+| 4 | **Style profile upload UI** | Medium | 2-3 hrs | `channel_profile.py`, `pipeline_control.py` |
+| 5 | **Voice selector UI** | Medium | 1-2 hrs | `pipeline_control.py`, `voice_bot.py` |
+| 6 | **Multi-format batch render** | Medium | 3-4 hrs | `render_video.py` |
+| 7 | **Character consistency validator** | Medium | 4-5 hrs | NEW: `validators/character_consistency.py` |
+| 8 | **Script template selection** | Low | 2-3 hrs | `script_generator.py` |
+
+### Architecture Enhancement: Story Bible Central
+
+```
+PROPOSED (Story Bible as single source of truth):
+┌─────────────────────────────────────────────┐
+│            STORY BIBLE (Central)             │
+│   Characters │ Locations │ Visual Arc        │
+└──────────────────────┬──────────────────────┘
+                       │
+         ┌─────────────┴─────────────┐
+         ▼                           ▼
+    Storyboards                Image Prompts
+    (Visual Lock)              (Uses Bible)
+         │                           │
+         └───────────┬───────────────┘
+                     ▼
+               Consistent Images
+```
+
+### New Airtable Fields Needed (Scripts Table)
+
+- [ ] **Storyboard Prompts** (Long Text) — Copy to Gemini for review
+- [ ] **Storyboard 1** (Attachment) — First 3×3 grid
+- [ ] **Storyboard 2** (Attachment) — Second 3×3 grid
+- [ ] **Storyboard 3** (Attachment) — Third 3×3 grid (for 19+ images)
+
+### Storyboard System Built (2026-03-18)
+
+- [x] `generate_scene_storyboard_prompts()` — Groups images into 3×3 grids
+- [x] `generate_storyboard_prompts_for_video()` — Processes all scenes
+- [x] Calculate storyboard count from image count: `ceil(images/9)`
+- [x] Build unified contact sheet prompts with visual consistency anchors
+- [x] Fix `ScriptFields.SCENE` to lowercase 'scene' to match Airtable
+- [x] XY extraction formula: `Sentence Index = (Storyboard# - 1) × 9 + (Y - 1) × 3 + X`
+
+### Bug Fixes Applied (2026-03-18)
+
+- [x] Remove broken `FIELD` import from pyairtable (pyairtable 3.x compatibility)
+- [x] Fix Python 3.9 type hint compatibility (`Optional[dict]` not `dict | None`)
+- [x] Fix keyframe parsing to handle Claude's **bold** markdown
+- [x] Fix duplicate keyframes by only parsing KEYFRAMES section
+- [x] Pass beat duration to directive generator (was hardcoded 10-20s, now uses actual duration)
