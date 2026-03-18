@@ -19,26 +19,25 @@ const STYLE = {
     font: {
         family: "Inter",
         weight: 900,
-        size: 80,
-        letterSpacing: "0.01em",
-        wordGap: 20,
+        size: 72,
+        letterSpacing: "0.02em",
+        wordGap: 16,
     },
     colors: {
         current: "#FFE135", // Bright yellow - currently spoken word
-        past: "#FFFFFF", // White - already spoken
-        future: "#888888", // Gray - not yet spoken
-        textStroke: "8px #000000", // Thick black outline
+        default: "#FFFFFF", // White - all other words (past and future)
+        textStroke: "6px #000000", // Black outline
     },
     position: {
-        bottom: 120,
-        gradientHeight: "40%",
+        bottom: 100,
+        gradientHeight: "35%",
     },
 };
 
 export const CaptionsOverlay: React.FC<CaptionsOverlayProps> = ({
     words,
     currentTimeSeconds,
-    wordsPerChunk = 4,
+    wordsPerChunk = 8,
 }) => {
     if (!words || words.length === 0) return null;
 
@@ -104,13 +103,9 @@ export const CaptionsOverlay: React.FC<CaptionsOverlayProps> = ({
                     // Clean word (remove trailing punctuation)
                     const cleanWord = wordData.word.replace(/[.,!?;:]$/, "");
 
-                    // Determine word state
-                    let color = STYLE.colors.future;
-                    if (wordData.originalIndex < currentWordIndex) {
-                        color = STYLE.colors.past;
-                    } else if (wordData.originalIndex === currentWordIndex) {
-                        color = STYLE.colors.current;
-                    }
+                    // Current word is yellow, all others are white
+                    const isCurrentWord = wordData.originalIndex === currentWordIndex;
+                    const color = isCurrentWord ? STYLE.colors.current : STYLE.colors.default;
 
                     return (
                         <span
@@ -120,7 +115,7 @@ export const CaptionsOverlay: React.FC<CaptionsOverlayProps> = ({
                                 WebkitTextStroke: STYLE.colors.textStroke,
                                 paintOrder: "stroke fill",
                                 display: "inline-block",
-                                transition: "color 0.1s ease-out",
+                                transition: "color 0.05s ease-out",
                             }}
                         >
                             {cleanWord}
