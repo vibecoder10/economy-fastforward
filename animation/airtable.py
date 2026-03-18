@@ -96,7 +96,7 @@ class AnimationAirtableClient:
 
     def get_scenes_needing_images(self, project_name: str) -> list[dict]:
         """Get scenes where prompt done = true but image done = false."""
-        from pyairtable.formulas import match, AND, FIELD
+        from pyairtable.formulas import match, AND
         records = self.scenes_table.all(
             formula=AND(
                 match({"Project Name": project_name}),

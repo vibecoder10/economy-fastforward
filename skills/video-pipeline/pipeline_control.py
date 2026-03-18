@@ -2291,8 +2291,6 @@ async def handle_delete_images(message, say):
 
 async def _find_idea_by_title(airtable, title: str, say=None):
     """Find an idea record by partial title match. Returns record or None."""
-    from pyairtable.formulas import FIELD
-
     all_ideas = airtable.get_all_ideas()
     search_lower = title.lower().strip().strip("\"'")
     for idea in all_ideas:
