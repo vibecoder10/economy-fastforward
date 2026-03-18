@@ -284,6 +284,7 @@ _Targeted runs do NOT advance the pipeline status (safe for testing)._
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 - `analytics` — Sync YouTube metrics to Airtable
 - `analyze` — Run weekly performance analysis
+- `analyze titles [min_vph]` — Analyze competitor title patterns (Osiris)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 *System*
@@ -1204,6 +1205,48 @@ async def handle_analyze(message, say):
 
     except Exception as e:
         await say(f":x: Analysis error: {e}")
+
+
+@app.message(re.compile(r"analyze[\-\s]?titles?(?:\s+\d+)?", re.IGNORECASE))
+async def handle_analyze_titles(message, say):
+    """Analyze competitor title patterns from Osiris data."""
+    global current_process, current_task_name
+    if current_process or current_task_name:
+        await say(f":x: Already running `{current_task_name}`. Use `stop` to cancel it first.")
+        return
+
+    # Parse optional min_vph from message text
+    text = message.get("text", "").strip()
+    min_vph = 50  # default
+    match = re.search(r"(\d+)", text.replace("analyze", "").replace("titles", "").replace("-", ""))
+    if match:
+        min_vph = float(match.group(1))
+
+    await say(f":bar_chart: Running title pattern analysis (min VPH: {min_vph})...")
+
+    try:
+        from osiris.title_analyzer import run_title_analysis
+        result = await run_title_analysis(min_vph=min_vph, limit=300)
+
+        # Format response
+        msg = "*Title Analysis Complete*\n"
+        msg += f"Videos analyzed: {result.total_videos_analyzed}\n\n"
+
+        if result.structural_insights:
+            msg += "*Structural Patterns:*\n"
+            for insight in result.structural_insights[:5]:
+                msg += f"• {insight}\n"
+
+        if result.top_patterns:
+            msg += "\n*Semantic Patterns:*\n"
+            for p in result.top_patterns[:3]:
+                msg += f"• *{p.pattern_name}*: {p.description[:100]}...\n"
+
+        await say(msg)
+
+    except Exception as e:
+        log.exception("Title analysis failed")
+        await say(f":x: Title analysis failed: {e}")
 
 
 @app.message(re.compile(r"run discover", re.IGNORECASE))
