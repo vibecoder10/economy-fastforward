@@ -6,6 +6,11 @@ Core fields (always written):
 - `Status`, `Video Title`, `Hook Script`, `Past Context`, `Present Parallel`, `Future Prediction`
 - `Thumbnail Prompt`, `Writer Guidance`, `Original DNA` (JSON backup), `Source`
 
+Script fields (written by script generation):
+- `Script` (Long Text) — **CRITICAL**: Full script text saved here when script is generated. Must exist or scripts will be silently lost.
+- `Script Validation` (Long Text) — Editorial validation results from senior editor
+- `Video Length (min)` (Number) — **REQUIRED before scripting**: Target video duration in minutes. If not set, script generation will halt with Slack notification.
+
 Rich fields (written by research):
 - `Framework Angle`, `Headline`, `Timeliness Score`, `Audience Fit Score`, `Content Gap Score`
 - `Source URLs`, `Executive Hook`, `Thesis`, `Date Surfaced`
@@ -126,6 +131,30 @@ Setup:
 4. Run `python -m osiris analyze --dry-run` to verify setup
 
 The analyzer runs daily at 7:30 AM PT (after performance_tracker), analyzing videos at 48h/7d milestones.
+
+## Title Insights Table (Competitor Title Pattern Analysis)
+
+Stores discovered patterns from competitor title analysis. Populated by `osiris/title_analyzer.py` which analyzes the Competitor Videos table to identify winning title patterns.
+
+Required fields:
+- `Analysis Date` (Date) — When this analysis was run
+- `Pattern Type` (Single Select) — Pattern category: `structural`, `semantic`
+- `Pattern Name` (Single Line Text) — Short name like "Question", "Caps Emphasis", "Urgency Hook"
+- `Description` (Long Text) — What this pattern means and why it works
+- `Example Titles` (Long Text) — JSON array of up to 5 example titles matching this pattern
+- `Avg VPH` (Number, decimal) — Average VPH for videos using this pattern
+- `Count` (Number) — How many videos in the analysis matched this pattern
+- `Confidence` (Number) — 0-100 confidence score based on sample size
+- `Videos Analyzed` (Number) — Total videos in the analysis run
+- `VPH Threshold` (Number, decimal) — Minimum VPH filter used for this analysis
+
+Setup:
+1. Create the table in Airtable with name "Title Insights"
+2. Add the fields above (Pattern Type needs Single Select options: `structural`, `semantic`)
+3. Set `AIRTABLE_TITLE_INSIGHTS_TABLE_ID` in `.env` to the table ID
+4. Run `python -m osiris.title_analyzer --dry-run` to verify setup
+
+The analyzer can be run via Slack with `analyze titles` or manually with `python -m osiris.title_analyzer`.
 
 ## Known Schema Issues (See ANIMATION_SYSTEM_REVIEW.md Feature 4)
 

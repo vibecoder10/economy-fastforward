@@ -6,6 +6,7 @@ from typing import Optional, Any
 from pipeline_constants import (
     Models, Statuses, IdeaFields, ScriptFields, ImageFields,
     CompetitorVideoFields, CompetitorChannelFields, OsirisLearningFields,
+    TitleInsightFields,
 )
 
 
@@ -216,6 +217,7 @@ class AirtableClient:
         self._competitor_channels_table = None
         self._competitor_videos_table = None
         self._osiris_learnings_table = None
+        self._title_insights_table = None
 
     @property
     def idea_concepts_table(self) -> Table:
@@ -867,6 +869,144 @@ class AirtableClient:
         updates["Last Updated"] = date.today().isoformat()
         record = self.osiris_learnings_table.update(record_id, updates, typecast=True)
         return {"id": record["id"], **record["fields"]}
+
+    # ==================== TITLE INSIGHTS TABLE ====================
+
+    @property
+    def title_insights_table(self) -> Table:
+        """Get the Title Insights table (competitor title pattern analysis)."""
+        if self._title_insights_table is None:
+            table_id = os.getenv("AIRTABLE_TITLE_INSIGHTS_TABLE_ID", "")
+            if not table_id:
+                raise ValueError(
+                    "AIRTABLE_TITLE_INSIGHTS_TABLE_ID not set. "
+                    "Create the Title Insights table in Airtable and add the ID to .env"
+                )
+            self._title_insights_table = self.api.table(self.base_id, table_id)
+        return self._title_insights_table
+
+    def create_title_insight(self, insight: dict) -> dict:
+        """Create a new title insight record.
+
+        Args:
+            insight: Dict with insight fields:
+                - pattern_type: "structural" or "semantic"
+                - pattern_name: e.g., "Question Format", "Urgency Hook"
+                - description: What the pattern is and why it works
+                - example_titles: List of example titles
+                - avg_vph: Average VPH of matching videos
+                - count: How many videos match
+                - confidence: 0-100 confidence score
+                - videos_analyzed: Total videos in this analysis run
+                - vph_threshold: Min VPH filter used
+
+        Returns:
+            Created record dict
+        """
+        from datetime import date
+        import json
+
+        fields = {
+            TitleInsightFields.ANALYSIS_DATE: date.today().isoformat(),
+            TitleInsightFields.PATTERN_TYPE: insight.get("pattern_type", "structural"),
+            TitleInsightFields.PATTERN_NAME: insight.get("pattern_name", ""),
+            TitleInsightFields.DESCRIPTION: insight.get("description", ""),
+            TitleInsightFields.EXAMPLE_TITLES: json.dumps(insight.get("example_titles", [])),
+            TitleInsightFields.AVG_VPH: round(insight.get("avg_vph", 0), 1),
+            TitleInsightFields.COUNT: insight.get("count", 0),
+            TitleInsightFields.CONFIDENCE: insight.get("confidence", 50),
+            TitleInsightFields.VIDEOS_ANALYZED: insight.get("videos_analyzed", 0),
+            TitleInsightFields.VPH_THRESHOLD: insight.get("vph_threshold", 0),
+        }
+
+        try:
+            record = self.title_insights_table.create(fields, typecast=True)
+            return {"id": record["id"], **record["fields"]}
+        except Exception as e:
+            error_msg = str(e)
+            if "UNKNOWN_FIELD_NAME" not in error_msg:
+                raise
+            # Graceful degradation: drop unknown field and retry
+            bad_field = self._extract_bad_field(error_msg)
+            if bad_field and bad_field in fields:
+                print(f"    ⚠️ Field '{bad_field}' not in Title Insights table, dropping it")
+                del fields[bad_field]
+                record = self.title_insights_table.create(fields, typecast=True)
+                return {"id": record["id"], **record["fields"]}
+            raise
+
+    def batch_create_title_insights(self, insights: list[dict]) -> list[dict]:
+        """Batch create title insight records.
+
+        Args:
+            insights: List of insight dicts (same format as create_title_insight)
+
+        Returns:
+            List of created record dicts
+        """
+        from datetime import date
+        import json
+
+        if not insights:
+            return []
+
+        today = date.today().isoformat()
+        records_to_create = []
+
+        for insight in insights:
+            fields = {
+                TitleInsightFields.ANALYSIS_DATE: today,
+                TitleInsightFields.PATTERN_TYPE: insight.get("pattern_type", "structural"),
+                TitleInsightFields.PATTERN_NAME: insight.get("pattern_name", ""),
+                TitleInsightFields.DESCRIPTION: insight.get("description", ""),
+                TitleInsightFields.EXAMPLE_TITLES: json.dumps(insight.get("example_titles", [])),
+                TitleInsightFields.AVG_VPH: round(insight.get("avg_vph", 0), 1),
+                TitleInsightFields.COUNT: insight.get("count", 0),
+                TitleInsightFields.CONFIDENCE: insight.get("confidence", 50),
+                TitleInsightFields.VIDEOS_ANALYZED: insight.get("videos_analyzed", 0),
+                TitleInsightFields.VPH_THRESHOLD: insight.get("vph_threshold", 0),
+            }
+            records_to_create.append(fields)
+
+        try:
+            created = self.title_insights_table.batch_create(records_to_create, typecast=True)
+            return [{"id": r["id"], **r["fields"]} for r in created]
+        except Exception as e:
+            # Fallback to individual creates
+            print(f"    ⚠️ Batch create failed, falling back to individual creates: {e}")
+            results = []
+            for insight in insights:
+                try:
+                    result = self.create_title_insight(insight)
+                    results.append(result)
+                except Exception as ind_err:
+                    print(f"    ⚠️ Failed to create insight: {ind_err}")
+            return results
+
+    def get_title_insights(self, pattern_type: str = None, limit: int = 100) -> list[dict]:
+        """Get title insights from the table.
+
+        Args:
+            pattern_type: Filter by "structural" or "semantic" (optional)
+            limit: Max records to return
+
+        Returns:
+            List of insight records
+        """
+        try:
+            formula = None
+            if pattern_type:
+                formula = f'{{Pattern Type}} = "{pattern_type}"'
+
+            records = self.title_insights_table.all(
+                formula=formula,
+                max_records=limit,
+                sort=["-Analysis Date", "-Confidence"],
+            )
+            return [{"id": r["id"], **r["fields"]} for r in records]
+        except Exception as e:
+            print(f"    ⚠️ Could not fetch title insights: {e}")
+            return []
 
     def get_videos_needing_postmortem(self) -> list[dict]:
         """Get uploaded videos that need 48h or 7d post-mortem analysis.

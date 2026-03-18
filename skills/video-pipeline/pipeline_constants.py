@@ -244,6 +244,21 @@ class OsirisLearningFields:
     ACTIVE = "Active"
 
 
+class TitleInsightFields:
+    """Title Insights table field names (competitor title pattern analysis)."""
+
+    ANALYSIS_DATE = "Analysis Date"
+    PATTERN_TYPE = "Pattern Type"  # Single Select: structural, semantic
+    PATTERN_NAME = "Pattern Name"
+    DESCRIPTION = "Description"
+    EXAMPLE_TITLES = "Example Titles"  # JSON array
+    AVG_VPH = "Avg VPH"
+    COUNT = "Count"
+    CONFIDENCE = "Confidence"
+    VIDEOS_ANALYZED = "Videos Analyzed"
+    VPH_THRESHOLD = "VPH Threshold"
+
+
 # =============================================================================
 # PIPELINE STATUSES
 # =============================================================================

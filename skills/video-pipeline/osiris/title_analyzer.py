@@ -130,7 +130,7 @@ class TitleAnalyzer:
         logger.info(f"  Average tier (VPH>{self.VPH_TIER_AVERAGE}): {len(tiers['average'])} videos")
 
         # Step 3: Extract structural patterns (fast, no API call)
-        structural_patterns = self._extract_structural_patterns(videos)
+        structural_patterns, structural_raw = self._extract_structural_patterns(videos)
 
         # Step 4: Extract semantic patterns via Claude
         semantic_patterns = await self._extract_semantic_patterns(tiers)
@@ -150,6 +150,15 @@ class TitleAnalyzer:
 
         # Step 7: Print summary
         self._print_summary(result)
+
+        # Step 8: Persist insights to Airtable (unless dry_run)
+        if not dry_run:
+            await self._persist_insights(
+                structural_raw=structural_raw,
+                semantic_patterns=semantic_patterns,
+                total_videos=len(videos),
+                vph_threshold=min_vph,
+            )
 
         return result
 
@@ -175,7 +184,10 @@ class TitleAnalyzer:
 
         return tiers
 
-    def _extract_structural_patterns(self, videos: list[dict]) -> list[str]:
+    def _extract_structural_patterns(
+        self,
+        videos: list[dict]
+    ) -> tuple[list[str], list[dict]]:
         """Extract structural title patterns (no API call needed).
 
         Detects:
@@ -185,8 +197,11 @@ class TitleAnalyzer:
         - Year mentions
         - Colon structure
         - Length distributions
+
+        Returns:
+            tuple of (formatted insights list, raw pattern data for persistence)
         """
-        patterns = defaultdict(lambda: {"count": 0, "vph_sum": 0})
+        patterns = defaultdict(lambda: {"count": 0, "vph_sum": 0, "examples": []})
 
         for video in videos:
             title = video.get("Title", "")
@@ -196,34 +211,47 @@ class TitleAnalyzer:
             if "?" in title:
                 patterns["question"]["count"] += 1
                 patterns["question"]["vph_sum"] += vph
+                if len(patterns["question"]["examples"]) < 5:
+                    patterns["question"]["examples"].append(title)
 
             # ALL CAPS words (4+ chars)
             if re.search(r'\b[A-Z]{4,}\b', title):
                 patterns["caps_emphasis"]["count"] += 1
                 patterns["caps_emphasis"]["vph_sum"] += vph
+                if len(patterns["caps_emphasis"]["examples"]) < 5:
+                    patterns["caps_emphasis"]["examples"].append(title)
 
             # Numbers/statistics
             if re.search(r'\$[\d,]+|\d+%|\d{1,3}(?:,\d{3})+', title):
                 patterns["numbers_stats"]["count"] += 1
                 patterns["numbers_stats"]["vph_sum"] += vph
+                if len(patterns["numbers_stats"]["examples"]) < 5:
+                    patterns["numbers_stats"]["examples"].append(title)
 
             # Year mentions (2024-2030)
             if re.search(r'\b20[2-3]\d\b', title):
                 patterns["year_mention"]["count"] += 1
                 patterns["year_mention"]["vph_sum"] += vph
+                if len(patterns["year_mention"]["examples"]) < 5:
+                    patterns["year_mention"]["examples"].append(title)
 
             # Colon structure
             if ":" in title:
                 patterns["colon_structure"]["count"] += 1
                 patterns["colon_structure"]["vph_sum"] += vph
+                if len(patterns["colon_structure"]["examples"]) < 5:
+                    patterns["colon_structure"]["examples"].append(title)
 
             # How/Why/What questions
             if re.match(r'^(How|Why|What|When|Where|Who)\b', title, re.IGNORECASE):
                 patterns["how_why_what"]["count"] += 1
                 patterns["how_why_what"]["vph_sum"] += vph
+                if len(patterns["how_why_what"]["examples"]) < 5:
+                    patterns["how_why_what"]["examples"].append(title)
 
-        # Format insights
+        # Format insights and build raw data
         insights = []
+        raw_data = []
         total = len(videos)
 
         for pattern_name, data in sorted(
@@ -239,8 +267,16 @@ class TitleAnalyzer:
                     f"{pattern_name.replace('_', ' ').title()}: "
                     f"{count} videos ({pct:.0f}%), avg VPH {avg_vph:.0f}"
                 )
+                # Build raw data for persistence
+                raw_data.append({
+                    "pattern_name": pattern_name.replace("_", " ").title(),
+                    "count": count,
+                    "avg_vph": avg_vph,
+                    "examples": data["examples"],
+                    "description": f"Titles using {pattern_name.replace('_', ' ')} format ({pct:.0f}% of analyzed videos)",
+                })
 
-        return insights
+        return insights, raw_data
 
     async def _extract_semantic_patterns(
         self,
@@ -418,6 +454,75 @@ Identify 3-5 patterns that distinguish top performers. What do they do different
                 print(f"  * {channel}: {data['avg_vph']:.0f} avg VPH ({data['count']} videos)")
 
         print("\n" + "=" * 60)
+
+    async def _persist_insights(
+        self,
+        structural_raw: list[dict],
+        semantic_patterns: list[TitlePattern],
+        total_videos: int,
+        vph_threshold: float,
+    ) -> None:
+        """Persist discovered insights to the Title Insights Airtable table.
+
+        Args:
+            structural_raw: Raw structural pattern data (from _extract_structural_patterns)
+            semantic_patterns: Semantic patterns (from _extract_semantic_patterns)
+            total_videos: Total videos analyzed
+            vph_threshold: VPH threshold used for analysis
+        """
+        from pipeline_constants import TitleInsightFields
+
+        insights_to_create = []
+        analysis_date = date.today().isoformat()
+
+        # Build structural pattern records
+        for pattern in structural_raw:
+            confidence = min(100, pattern["count"] * 5)  # 5 points per video, max 100
+            insights_to_create.append({
+                TitleInsightFields.ANALYSIS_DATE: analysis_date,
+                TitleInsightFields.PATTERN_TYPE: "structural",
+                TitleInsightFields.PATTERN_NAME: pattern["pattern_name"],
+                TitleInsightFields.DESCRIPTION: pattern["description"],
+                TitleInsightFields.EXAMPLE_TITLES: json.dumps(pattern["examples"]),
+                TitleInsightFields.AVG_VPH: round(pattern["avg_vph"], 1),
+                TitleInsightFields.COUNT: pattern["count"],
+                TitleInsightFields.CONFIDENCE: confidence,
+                TitleInsightFields.VIDEOS_ANALYZED: total_videos,
+                TitleInsightFields.VPH_THRESHOLD: vph_threshold,
+            })
+
+        # Build semantic pattern records
+        for pattern in semantic_patterns:
+            insights_to_create.append({
+                TitleInsightFields.ANALYSIS_DATE: analysis_date,
+                TitleInsightFields.PATTERN_TYPE: "semantic",
+                TitleInsightFields.PATTERN_NAME: pattern.pattern_name,
+                TitleInsightFields.DESCRIPTION: pattern.description,
+                TitleInsightFields.EXAMPLE_TITLES: json.dumps(pattern.example_titles),
+                TitleInsightFields.AVG_VPH: round(pattern.avg_vph, 1),
+                TitleInsightFields.COUNT: pattern.count,
+                TitleInsightFields.CONFIDENCE: pattern.confidence,
+                TitleInsightFields.VIDEOS_ANALYZED: total_videos,
+                TitleInsightFields.VPH_THRESHOLD: vph_threshold,
+            })
+
+        if not insights_to_create:
+            logger.info("No insights to persist")
+            return
+
+        # Batch create in Airtable
+        try:
+            created = self.airtable.batch_create_title_insights(insights_to_create)
+            logger.info(f"Persisted {len(created)} title insights to Airtable")
+
+            if self.slack:
+                await self.slack.send_message(
+                    f":brain: Title analysis complete: {len(created)} patterns logged "
+                    f"({len(structural_raw)} structural, {len(semantic_patterns)} semantic)"
+                )
+        except Exception as e:
+            logger.error(f"Failed to persist insights: {e}")
+            # Non-blocking - don't fail the analysis if persistence fails
 
 
 async def run_title_analysis(

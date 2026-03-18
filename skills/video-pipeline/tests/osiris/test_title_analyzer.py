@@ -57,7 +57,7 @@ class TestExtractStructuralPatterns:
             {"Title": "No question here", "VPH": 80},
         ] * 3  # Need 5+ for pattern detection
 
-        insights = analyzer._extract_structural_patterns(videos)
+        insights, raw_data = analyzer._extract_structural_patterns(videos)
 
         question_insights = [i for i in insights if "Question" in i]
         assert len(question_insights) >= 1
@@ -73,7 +73,7 @@ class TestExtractStructuralPatterns:
             {"Title": "China's COLLAPSE Begins", "VPH": 180},
         ] * 3
 
-        insights = analyzer._extract_structural_patterns(videos)
+        insights, raw_data = analyzer._extract_structural_patterns(videos)
 
         caps_insights = [i for i in insights if "Caps" in i]
         assert len(caps_insights) >= 1
@@ -93,10 +93,14 @@ class TestExtractStructuralPatterns:
             {"Title": "How $500 Billion Disappeared", "VPH": 210},
         ]
 
-        insights = analyzer._extract_structural_patterns(videos)
+        insights, raw_data = analyzer._extract_structural_patterns(videos)
 
         number_insights = [i for i in insights if "Numbers" in i]
         assert len(number_insights) >= 1
+        # Also verify raw_data structure
+        assert len(raw_data) >= 1
+        assert raw_data[0]["pattern_name"] == "Numbers Stats"
+        assert raw_data[0]["count"] == 5
 
 
 class TestExtractThemeClusters:
