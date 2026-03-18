@@ -69,6 +69,263 @@ def calculate_grid_count(
 
 
 # =============================================================================
+# Scene-Based Storyboard Prompt Generator
+# =============================================================================
+
+
+def generate_scene_storyboard_prompts(
+    scene_images: list[dict],
+    scene_number: int,
+    video_title: str,
+    profile: ChannelProfile,
+) -> list[dict]:
+    """Generate storyboard prompts for a scene from its existing image prompts.
+
+    Takes the image records (with their existing prompts) and groups them into
+    3x3 storyboard grids with unified visual consistency anchors.
+
+    Args:
+        scene_images: List of image records for this scene (sorted by index)
+        scene_number: Scene number
+        video_title: Video title
+        profile: Channel visual profile for style consistency
+
+    Returns:
+        List of dicts, each containing:
+            - grid_number: 1, 2, or 3
+            - panel_count: Number of actual panels (1-9)
+            - prompt: The full storyboard prompt text
+            - panels: List of panel details (sentence, image_prompt)
+    """
+    # Sort images by index
+    sorted_images = sorted(
+        scene_images,
+        key=lambda x: x.get("fields", x).get(
+            ImageFields.IMAGE_INDEX,
+            x.get("fields", x).get(ImageFields.SENTENCE_INDEX, 0)
+        )
+    )
+
+    # Calculate grids needed
+    total_panels = len(sorted_images)
+    grid_count = math.ceil(total_panels / 9)
+
+    storyboard_prompts = []
+
+    for grid_idx in range(grid_count):
+        start_idx = grid_idx * 9
+        end_idx = min(start_idx + 9, total_panels)
+        grid_images = sorted_images[start_idx:end_idx]
+
+        # Build panel data
+        panels = []
+        for i, img in enumerate(grid_images):
+            fields = img.get("fields", img)
+            panels.append({
+                "panel_number": i + 1,
+                "sentence": fields.get(ImageFields.SENTENCE_TEXT, ""),
+                "image_prompt": fields.get(ImageFields.IMAGE_PROMPT, ""),
+            })
+
+        # Generate the unified storyboard prompt
+        prompt = _build_storyboard_grid_prompt(
+            panels=panels,
+            scene_number=scene_number,
+            grid_number=grid_idx + 1,
+            total_grids=grid_count,
+            video_title=video_title,
+            profile=profile,
+        )
+
+        storyboard_prompts.append({
+            "grid_number": grid_idx + 1,
+            "panel_count": len(panels),
+            "blank_panels": 9 - len(panels),
+            "prompt": prompt,
+            "panels": panels,
+        })
+
+    return storyboard_prompts
+
+
+def _build_storyboard_grid_prompt(
+    panels: list[dict],
+    scene_number: int,
+    grid_number: int,
+    total_grids: int,
+    video_title: str,
+    profile: ChannelProfile,
+) -> str:
+    """Build a unified 3x3 contact sheet prompt from panel data.
+
+    This prompt ensures all 9 panels share:
+    - Same visual style
+    - Same lighting direction and quality
+    - Same color palette
+    - Consistent character appearances
+    - Consistent environment details
+    """
+    # Style prefix from channel profile
+    style_prefix = f"""**{profile.visual_style_directive}**
+
+3×3 contact sheet storyboard grid (3 rows × 3 columns) with clearly separated panels.
+Each panel is a cinematic frame from Scene {scene_number}, Grid {grid_number}/{total_grids}.
+Title: "{video_title}"
+
+**VISUAL CONSISTENCY REQUIREMENTS:**
+- Color palette: {profile.color_grade.primary_palette}
+- Lighting: {profile.color_grade.time_of_day_default}, {profile.color_grade.shadow_treatment}
+- Texture: {profile.lens_profile.grain}
+- All panels must share the same environment, lighting direction, and atmosphere.
+
+"""
+
+    # Build panel descriptions
+    panel_descriptions = []
+    for p in panels:
+        panel_num = p["panel_number"]
+        # Extract core visual from the existing prompt (first 150 chars after style prefix)
+        prompt = p["image_prompt"]
+        # Remove common style prefixes to get the core content
+        core_prompt = prompt
+        for prefix in ["Cinematic 2D animated illustration of ", "cinematic_illustration style, "]:
+            if core_prompt.lower().startswith(prefix.lower()):
+                core_prompt = core_prompt[len(prefix):]
+                break
+
+        row = (panel_num - 1) // 3 + 1
+        col = (panel_num - 1) % 3 + 1
+        panel_descriptions.append(
+            f"**Panel {panel_num} (Row {row}, Col {col}):** {core_prompt[:200]}"
+        )
+
+    # Add blank panel descriptions if needed
+    for i in range(len(panels) + 1, 10):
+        row = (i - 1) // 3 + 1
+        col = (i - 1) % 3 + 1
+        panel_descriptions.append(
+            f"**Panel {i} (Row {row}, Col {col}):** BLACK PANEL - solid black fill"
+        )
+
+    panels_section = "\n".join(panel_descriptions)
+
+    return f"""{style_prefix}
+**PANEL LAYOUT:**
+{panels_section}
+
+**TECHNICAL SPECS:**
+- Output as single image containing all 9 panels in 3×3 grid
+- Thin black dividers between panels
+- 16:9 aspect ratio per panel
+- Consistent cinematic illustration style across all panels
+"""
+
+
+async def generate_storyboard_prompts_for_video(
+    video_title: str,
+    airtable_client=None,
+    save_to_airtable: bool = True,
+) -> dict:
+    """Generate storyboard prompts for all scenes in a video.
+
+    Groups existing image prompts into 3x3 storyboards and optionally
+    saves the prompts to the Scripts table for review.
+
+    Args:
+        video_title: Title of the video
+        airtable_client: Optional Airtable client
+        save_to_airtable: Whether to save prompts to Scripts table
+
+    Returns:
+        Dict with scene_number -> list of storyboard prompts
+    """
+    if airtable_client is None:
+        from clients.airtable_client import AirtableClient
+        airtable_client = AirtableClient()
+
+    # Get script records to find scene IDs
+    scripts = airtable_client.get_scripts_by_title(video_title)
+    if not scripts:
+        logger.error(f"No scripts found for '{video_title}'")
+        return {}
+
+    # Get all images
+    images = airtable_client.get_all_images_for_video(video_title)
+    if not images:
+        logger.error(f"No images found for '{video_title}'")
+        return {}
+
+    # Load channel profile
+    ideas = airtable_client.get_ideas_by_status(None)  # Get all to find by title
+    idea_record = None
+    for idea in ideas:
+        if idea.get(IdeaFields.VIDEO_TITLE) == video_title:
+            idea_record = idea
+            break
+
+    if idea_record:
+        profile = load_profile(idea_record)
+    else:
+        profile = load_profile({})  # Default profile
+
+    # Group images by scene
+    from collections import defaultdict
+    images_by_scene = defaultdict(list)
+    for img in images:
+        fields = img.get("fields", img)
+        scene = fields.get("Scene", fields.get("scene", 0))
+        images_by_scene[scene].append(img)
+
+    # Build scene_id -> record_id map
+    scene_to_record = {}
+    for s in scripts:
+        fields = s.get("fields", s)
+        scene_num = fields.get(ScriptFields.SCENE, 0)
+        scene_to_record[scene_num] = s.get("id", "")
+
+    results = {}
+
+    for scene_num in sorted(images_by_scene.keys()):
+        scene_images = images_by_scene[scene_num]
+        logger.info(f"Scene {scene_num}: {len(scene_images)} images")
+
+        # Generate storyboard prompts
+        storyboard_prompts = generate_scene_storyboard_prompts(
+            scene_images=scene_images,
+            scene_number=scene_num,
+            video_title=video_title,
+            profile=profile,
+        )
+
+        results[scene_num] = storyboard_prompts
+
+        # Save to Airtable
+        if save_to_airtable:
+            record_id = scene_to_record.get(scene_num)
+            if record_id:
+                # Combine all prompts into one text block
+                prompts_text = []
+                for sb in storyboard_prompts:
+                    prompts_text.append(f"=== STORYBOARD {sb['grid_number']}/{len(storyboard_prompts)} ===")
+                    prompts_text.append(f"Panels: {sb['panel_count']} (+ {sb['blank_panels']} blank)")
+                    prompts_text.append("")
+                    prompts_text.append(sb["prompt"])
+                    prompts_text.append("")
+                    prompts_text.append("---")
+                    prompts_text.append("")
+
+                try:
+                    airtable_client.update_script_record(record_id, {
+                        ScriptFields.STORYBOARD_PROMPTS: "\n".join(prompts_text),
+                    })
+                    logger.info(f"Saved storyboard prompts for Scene {scene_num}")
+                except Exception as e:
+                    logger.warning(f"Failed to save prompts for Scene {scene_num}: {e}")
+
+    return results
+
+
+# =============================================================================
 # Narrative Beat Segmentation
 # =============================================================================
 
@@ -290,8 +547,13 @@ def _format_story_bible_for_beat(
 # Cinematic Directive Generator — Core Intelligence
 # =============================================================================
 
-def _build_directive_system_prompt(profile: ChannelProfile) -> str:
-    """Build the system prompt for the cinematic directive generator."""
+def _build_directive_system_prompt(profile: ChannelProfile, beat_duration_seconds: float = 120) -> str:
+    """Build the system prompt for the cinematic directive generator.
+
+    Args:
+        profile: Channel visual profile
+        beat_duration_seconds: Target duration for this beat's keyframes (from word count)
+    """
     return f"""\
 <role>
 You are an award-winning trailer director, cinematographer, and storyboard artist working \
@@ -350,8 +612,11 @@ progression following the 4-beat arc: {profile.emotional_arc.beat_1} → \
 {profile.emotional_arc.beat_2} → {profile.emotional_arc.beat_3} → \
 {profile.emotional_arc.beat_4}.
 
-Total suggested duration for all 9 keyframes: 10-20 seconds (this will be one beat \
-in a larger video).
+CRITICAL: Total duration for all 9 keyframes MUST equal approximately {beat_duration_seconds:.0f} seconds \
+(calculated from the narration word count at 2.5 words/second). Distribute the duration across \
+keyframes based on the pacing of the narration — longer dialogue sections get longer keyframes, \
+quick action moments get shorter keyframes. The sum of all keyframe durations must match the \
+narration length so the visuals sync with the audio.
 </goal>
 
 <output_format>
@@ -459,8 +724,12 @@ async def generate_storyboard_directive(
     profile: ChannelProfile,
     anthropic_client=None,
     story_bible: dict | None = None,
+    beat_duration_seconds: float = 120.0,
 ) -> dict:
     """Generate a cinematic directive for one narrative beat via Claude.
+
+    Args:
+        beat_duration_seconds: Target duration for keyframes (from word count / 2.5 wps)
 
     Returns dict with:
         scene_breakdown, theme_and_story, cinematic_approach,
@@ -470,7 +739,7 @@ async def generate_storyboard_directive(
         from clients.anthropic_client import AnthropicClient
         anthropic_client = AnthropicClient()
 
-    system_prompt = _build_directive_system_prompt(profile)
+    system_prompt = _build_directive_system_prompt(profile, beat_duration_seconds)
     user_prompt = _build_directive_user_prompt(
         beat_number, beat_text, beat_scenes, video_title, image_prompts,
         story_bible=story_bible,
@@ -794,6 +1063,7 @@ async def run_storyboard_preview(
             profile=profile,
             anthropic_client=anthropic_client,
             story_bible=story_bible,
+            beat_duration_seconds=beat.get("estimated_duration_seconds", 120.0),
         )
 
         preview = format_beat_preview(
@@ -812,24 +1082,35 @@ async def run_storyboard_preview(
 
         logger.info(f"Beat {beat['beat_number']}/{len(beats)} directive generated")
 
-    # Save directive summaries to Airtable if we have results
-    idea_id = idea_record.get("id", "")
-    if idea_id and results:
-        try:
-            # Build a summary of all keyframes for Airtable storage
-            directive_summary = []
-            for r in results:
-                beat = r["beat"]
-                directive_summary.append(f"## Beat {beat['beat_number']}")
-                directive_summary.append(r["preview"])
-                directive_summary.append("")
+    # Save directive per-scene to Scripts table
+    # Each beat covers 1+ scenes - save the directive to each scene's script record
+    if results and script_records:
+        from pipeline_constants import ScriptFields
 
-            airtable_client.update_idea_fields(idea_id, {
-                "Storyboard Directive": "\n".join(directive_summary),
-            })
-            logger.info(f"Saved storyboard directive to Airtable for '{video_title}'")
-        except Exception as e:
-            logger.warning(f"Failed to save storyboard directive to Airtable: {e}")
+        # Build a map of scene number -> script record ID
+        scene_to_record_id = {}
+        for rec in script_records:
+            fields = rec.get("fields", rec)
+            scene_num = fields.get(ScriptFields.SCENE, 0)
+            record_id = rec.get("id", "")
+            if scene_num and record_id:
+                scene_to_record_id[scene_num] = record_id
+
+        for r in results:
+            beat = r["beat"]
+            preview = r["preview"]
+
+            # Save to each scene covered by this beat
+            for scene_num in beat.get("scenes", []):
+                record_id = scene_to_record_id.get(scene_num)
+                if record_id:
+                    try:
+                        airtable_client.update_script_record(record_id, {
+                            ScriptFields.STORYBOARD_DIRECTIVE: preview,
+                        })
+                        logger.info(f"Saved storyboard directive to Scene {scene_num}")
+                    except Exception as e:
+                        logger.warning(f"Failed to save directive for Scene {scene_num}: {e}")
 
     return results
 
@@ -1258,6 +1539,7 @@ async def run_storyboard_grids(
             profile=profile,
             anthropic_client=anthropic_client,
             story_bible=story_bible,
+            beat_duration_seconds=beat.get("estimated_duration_seconds", 120.0),
         )
         total_cost += 0.03
         directives.append(directive)

@@ -137,7 +137,7 @@ class IdeaFields:
 class ScriptFields:
     """Scripts table field names."""
 
-    SCENE = "Scene"
+    SCENE = "scene"  # Airtable uses lowercase
     SCENE_TEXT = "Scene text"
     TITLE = "Title"
     VOICE_ID = "Voice ID"
@@ -148,6 +148,12 @@ class ScriptFields:
     PSYCH_ANGLE = "Psych Angle"
     SFX_STATUS = "SFX Status"
     SOUND_MAP = "Sound Map"
+
+    # Storyboard fields - for visual consistency planning
+    STORYBOARD_PROMPTS = "Storyboard Prompts"  # Long Text - prompts for all grids (copy to Gemini)
+    STORYBOARD_1 = "Storyboard 1"  # Attachment - first 3x3 grid
+    STORYBOARD_2 = "Storyboard 2"  # Attachment - second 3x3 grid
+    STORYBOARD_3 = "Storyboard 3"  # Attachment - third 3x3 grid (if 19+ sentences)
 
     # Script Status values
     STATUS_CREATE = "Create"
