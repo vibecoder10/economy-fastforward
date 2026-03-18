@@ -129,8 +129,8 @@ async def run(pipeline, brief: dict = None) -> dict:
         if result.get("doc_url"):
             print(f"  📄 Google Doc: {result['doc_url']}")
 
-        # Phase 2: Refine title with script content (non-blocking)
-        await _refine_title_post_script(pipeline)
+        # Phase 2: Title refinement DISABLED — user wants to keep their chosen title
+        # Previously called: await _refine_title_post_script(pipeline)
 
         pipeline.slack.notify(
             f"📜 Script complete: *{pipeline.video_title}*\n"
