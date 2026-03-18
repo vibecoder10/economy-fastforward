@@ -459,6 +459,40 @@ async def handle_skip(message, say):
         await say(f":x: Error skipping: {e}")
 
 
+@app.message(re.compile(r"^!?approved?$", re.IGNORECASE))
+async def handle_approve_recent_script(message, say):
+    """Approve the most recent blocked script (no title needed).
+
+    Use when responding to a blocked script notification.
+    Simply type 'approved' or 'approve' to approve the most recent blocked script.
+    """
+    try:
+        from clients.airtable_client import AirtableClient
+        airtable = AirtableClient()
+
+        # Find the most recent blocked script
+        blocked = airtable.get_ideas_by_status(Statuses.NEEDS_SCRIPT_REVIEW)
+        if not blocked:
+            await say(":shrug: No blocked scripts found with status 'Needs Script Review'")
+            return
+
+        # Take the first (most recent) blocked script
+        matched = blocked[0]
+        record_id = matched["id"]
+        title = matched.get(IdeaFields.VIDEO_TITLE, matched.get(IdeaFields.HEADLINE, "Untitled"))
+
+        # Approve: advance to Ready For Voice
+        airtable.update_idea_status(record_id, Statuses.READY_VOICE)
+
+        await say(
+            f":white_check_mark: *Script approved:* {title}\n"
+            f"Status: `Needs Script Review` → `Ready For Voice`\n"
+            f"Run `!voice` to continue, or pipeline will auto-continue on next cron run."
+        )
+    except Exception as e:
+        await say(f":x: Error approving script: {e}")
+
+
 @app.message(re.compile(r"^!?approve\s+(.+)$", re.IGNORECASE))
 async def handle_approve_script(message, say):
     """Approve a blocked script and advance to Ready For Voice.

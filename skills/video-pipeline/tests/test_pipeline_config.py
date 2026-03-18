@@ -146,29 +146,33 @@ class TestSerialization:
 
     def test_from_airtable_record_with_values(self):
         record = {"fields": {"Video Length (min)": 15}}
-        config = VideoConfig.from_airtable_record(record)
+        config, duration_was_set = VideoConfig.from_airtable_record(record)
         assert config.video_length_minutes == 15
         assert config.clip_duration_seconds == 10  # always 10 for planning
+        assert duration_was_set is True
 
     def test_from_airtable_record_empty_fields(self):
         """Empty Airtable fields should use defaults."""
         record = {"fields": {}}
-        config = VideoConfig.from_airtable_record(record)
+        config, duration_was_set = VideoConfig.from_airtable_record(record)
         assert config.video_length_minutes == 10
         assert config.clip_duration_seconds == 10
+        assert duration_was_set is False
 
     def test_from_airtable_flat_dict(self):
         """Record without 'fields' wrapper."""
         record = {"Video Length (min)": 5}
-        config = VideoConfig.from_airtable_record(record)
+        config, duration_was_set = VideoConfig.from_airtable_record(record)
         assert config.video_length_minutes == 5
         assert config.clip_duration_seconds == 10  # dynamic per-segment, planning uses 10
+        assert duration_was_set is True
 
     def test_from_airtable_ignores_clip_duration_field(self):
         """Clip Duration (s) field is ignored — clip duration is now dynamic per-segment."""
         record = {"fields": {"Video Length (min)": 10, "Clip Duration (s)": 6}}
-        config = VideoConfig.from_airtable_record(record)
+        config, duration_was_set = VideoConfig.from_airtable_record(record)
         assert config.clip_duration_seconds == 10  # always 10 for planning
+        assert duration_was_set is True
 
 
 class TestActTemplates:

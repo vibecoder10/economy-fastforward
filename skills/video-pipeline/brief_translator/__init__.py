@@ -279,13 +279,18 @@ class BriefTranslator:
                 except Exception:
                     pass  # Status field may not exist
 
-                # Send blocking notification
+                # Send blocking notification with script preview and approval prompt
+                title = brief.get('headline', 'Untitled')
+                script_preview = script[:800] + "..." if len(script) > 800 else script
                 self._notify(
-                    f"🚫 SCRIPT BLOCKED: '{brief.get('headline', 'Untitled')}'\n"
+                    f"🚫 *SCRIPT BLOCKED:* '{title}'\n"
                     f"Senior editor could not fix {len(failed_names)} issue(s):\n"
                     f"{chr(10).join(failed_details)}\n\n"
-                    f"Manual review required. Use `!approve <title>` to force "
-                    f"advance to Ready For Voice."
+                    f"*Script saved to Airtable for review.*\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    f"*Script Preview:*\n```{script_preview}```\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                    f"📝 *To approve and continue:* Reply `approved` or `!approve {title[:30]}`"
                 )
 
                 result["status"] = "blocked"
@@ -445,26 +450,47 @@ class BriefTranslator:
 
         return None
 
-    def _save_script_to_ideas(self, idea_record_id: str, script: str):
-        """Persist script text to the Idea Concepts table immediately."""
+    def _save_script_to_ideas(self, idea_record_id: str, script: str) -> bool:
+        """Persist script text to the Idea Concepts table immediately.
+
+        Returns True if script was saved successfully, False otherwise.
+        LOUD FAILURE: Sends Slack notification if save fails.
+        """
         print(f"[DEBUG] _save_script_to_ideas called: record_id={idea_record_id}, script_len={len(script) if script else 0}")
         if not script:
             print("[DEBUG] Script is empty, skipping write")
-            return
+            return False
         if not idea_record_id:
             print("[DEBUG] idea_record_id is empty, skipping write")
-            return
+            return False
         try:
             print(f"[DEBUG] Writing {len(script)} chars to Airtable 'Script' field...")
             result = self.airtable.update_idea_fields(
                 idea_record_id, {"Script": script}
             )
             print(f"[DEBUG] Airtable write result: {result}")
+
+            # VERIFY the write succeeded by checking if Script is in the returned fields
+            # If the field doesn't exist in Airtable, update_idea_fields silently drops it
+            if "Script" not in result:
+                error_msg = (
+                    "🚨 *CRITICAL: Script field NOT saved to Airtable!*\n"
+                    "The 'Script' field may not exist in the Idea Concepts table.\n"
+                    "Add a Long Text field named 'Script' to the Idea Concepts table."
+                )
+                print(f"[ERROR] {error_msg}")
+                logger.error(error_msg)
+                self._notify(error_msg)
+                return False
+
             logger.info("Script saved to Idea Concepts table")
+            return True
         except Exception as e:
+            error_msg = f"🚨 *Script field write FAILED:* {e}"
             print(f"[DEBUG] Airtable write FAILED: {e}")
-            logger.warning(f"Could not save script to Ideas: {e}")
-            self._notify(f"⚠️ Script field write failed: {e}")
+            logger.error(f"Could not save script to Ideas: {e}")
+            self._notify(error_msg)
+            return False
 
     def _save_script_to_drive(
         self,

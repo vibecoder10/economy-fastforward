@@ -204,16 +204,28 @@ Extract duplicated pattern from 5+ bots into `clients/json_utils.py`.
 - [ ] **USER ACTION**: Create `Character Reference` attachment field in Airtable Idea Concepts table
 
 ## Handoff
-**What was done**:
-1. Wired Story Bible into storyboard directive generator — characters, locations, visual arc, scene blocks now injected as binding constraints
-2. Added BYOC Character Reference support — when a reference image is uploaded to Airtable, it's passed as `image_input` to contact sheet generation for visual consistency
-3. Fixed pre-existing bug where `generate_contact_sheet()` called `generate_scene_image()` with kwargs it doesn't accept
+**What was done** (2026-03-18):
+1. **Problem 1 - Duration validation**: Added Slack notification + pipeline halt when "Video Length (min)" is not set in Airtable. Scripts will no longer generate with wrong word counts.
+2. **Problem 2 - Script field fix**:
+   - Documented `Script` field requirement in Airtable schema (MUST exist as Long Text field)
+   - Added LOUD failure when Script field write fails (verifies write succeeded, sends Slack alert if not)
+   - Added script preview to blocked notification
+   - Added simple `approved` command handler (no title needed) for quick approval of blocked scripts
+3. Kept existing `!approve <title>` command for when multiple scripts are blocked
 
 **What's next**:
-- User needs to create `Character Reference` attachment field in Airtable Idea Concepts table
-- Test end-to-end with a real video: upload character reference → run !storyboard-go → verify panels match reference
+- **USER ACTION REQUIRED**: Create `Script` field (Long Text) in Airtable Idea Concepts table if it doesn't exist
+- **USER ACTION REQUIRED**: Create `Video Length (min)` field (Number) in Airtable Idea Concepts table if it doesn't exist
+- Test the new approval flow: block a script → reply "approved" → verify status advances
 
-**Key files changed**: `skills/video-pipeline/storyboard_bot.py`, `skills/video-pipeline/pipeline_constants.py`, `docs/airtable-schema.md`
+**Key files changed**:
+- `skills/video-pipeline/pipeline_config.py` (returns duration_was_set flag)
+- `skills/video-pipeline/pipeline.py` (tracks duration_was_set)
+- `skills/video-pipeline/steps/step_script.py` (halts if duration not set)
+- `skills/video-pipeline/brief_translator/__init__.py` (verifies script write, shows preview)
+- `skills/video-pipeline/pipeline_control.py` (added simple "approved" handler)
+- `docs/airtable-schema.md` (documented Script, Video Length fields)
+- `tests/test_pipeline_config.py` (updated for tuple return)
 
 ---
 

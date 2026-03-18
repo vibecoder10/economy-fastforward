@@ -22,6 +22,24 @@ async def run(pipeline, brief: dict = None) -> dict:
             return {"error": "No idea at 'Ready For Scripting'. Set an idea's status to 'Ready For Scripting' first."}
         pipeline._load_idea(idea)
 
+    # === CHECK: Video Length must be set before script generation ===
+    if not getattr(pipeline, '_duration_was_set', True):
+        error_msg = (
+            f"⚠️ *No video length set for '{pipeline.video_title}'*\n"
+            f"Set 'Video Length (min)' in Airtable before generating script.\n"
+            f"Currently defaulting to 10 minutes — script word count will be wrong."
+        )
+        print(f"\n❌ {error_msg}")
+        try:
+            pipeline.slack.send_message(error_msg)
+        except Exception:
+            pass
+        return {
+            "error": "Video Length (min) not set in Airtable",
+            "status": "blocked",
+            "video_title": pipeline.video_title,
+        }
+
     print(f"\n📜 BRIEF TRANSLATOR: Processing '{pipeline.video_title}'")
 
     # --- Google Drive folder (same as legacy script bot) ---

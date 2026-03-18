@@ -173,9 +173,11 @@ class VideoPipeline:
 
         # Instantiate VideoConfig from Airtable fields (defaults to 10min/10s)
         try:
-            self.video_config = VideoConfig.from_airtable_record(idea)
+            self.video_config, duration_was_set = VideoConfig.from_airtable_record(idea)
+            self._duration_was_set = duration_was_set
         except (ValueError, TypeError):
             self.video_config = VideoConfig()  # safe defaults
+            self._duration_was_set = False
 
         # Load visual style from Airtable (for visual profile selection)
         from clients.airtable_client import get_visual_style

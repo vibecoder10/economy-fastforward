@@ -106,19 +106,24 @@ class VideoConfig:
         )
 
     @classmethod
-    def from_airtable_record(cls, record: dict) -> "VideoConfig":
+    def from_airtable_record(cls, record: dict) -> tuple["VideoConfig", bool]:
         """Create VideoConfig from an Airtable Idea Concepts record.
 
         Reads 'Video Length (min)' field. Falls back to 10 min if empty.
         Clip duration is always 10s for planning estimates — actual clip
         durations are assigned per-segment by the segmentation engine.
+
+        Returns:
+            Tuple of (VideoConfig, duration_was_set) where duration_was_set
+            is True if the field was present, False if defaulted to 10 min.
         """
         fields = record.get("fields", record)
         length = fields.get("Video Length (min)")
 
-        video_length = int(length) if length else 10
+        duration_was_set = length is not None and length != ""
+        video_length = int(length) if duration_was_set else 10
 
-        return cls(video_length_minutes=video_length)
+        return cls(video_length_minutes=video_length), duration_was_set
 
 
 # Act structure templates scaled by act count
