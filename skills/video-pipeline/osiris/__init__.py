@@ -33,3 +33,7 @@ Design Principles:
 """
 
 __version__ = "2.0.0"
+
+from .title_analyzer import TitleAnalyzer, run_title_analysis
+
+__all__ = ["TitleAnalyzer", "run_title_analysis"]
