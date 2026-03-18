@@ -19,6 +19,7 @@ import argparse
 import asyncio
 import os
 import sys
+from typing import Optional
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -33,7 +34,7 @@ from storyboard_bot import (
 )
 
 
-def _find_idea_record(airtable: AirtableClient, title: str = None) -> dict | None:
+def _find_idea_record(airtable: AirtableClient, title: str = None) -> Optional[dict]:
     """Find an idea record by title or by storyboard-ready status."""
     if title:
         from pyairtable.formulas import match

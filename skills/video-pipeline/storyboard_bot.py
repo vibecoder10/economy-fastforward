@@ -509,9 +509,27 @@ def parse_keyframe_metadata(directive_text: str) -> list[dict]:
     Looks for patterns like: [KF1 | ELS | 2.0]
     Returns list of dicts with shot_type, duration_seconds, and sub-field text.
     """
+    # Extract only the KEYFRAMES section to avoid matching keyframe refs in other sections
+    keyframes_start = directive_text.find("## KEYFRAMES")
+    if keyframes_start == -1:
+        keyframes_start = directive_text.find("KEYFRAMES")
+    if keyframes_start == -1:
+        keyframes_start = 0
+
+    # Find the end of KEYFRAMES section (next ## header or CONTACT SHEET)
+    keyframes_section = directive_text[keyframes_start:]
+    section_end = re.search(r"\n##\s+(?!KEYFRAME)", keyframes_section)
+    if section_end:
+        keyframes_section = keyframes_section[: section_end.start()]
+
+    # Also stop at CONTACT SHEET PROMPT marker
+    contact_marker = keyframes_section.find("CONTACT SHEET")
+    if contact_marker != -1:
+        keyframes_section = keyframes_section[:contact_marker]
+
     # Match pattern: [KF# | shot_type | duration]
     pattern = r"\[KF(\d+)\s*\|\s*([^|]+?)\s*\|\s*([\d.]+)\s*s?\s*\]"
-    matches = list(re.finditer(pattern, directive_text))
+    matches = list(re.finditer(pattern, keyframes_section))
 
     if not matches:
         logger.warning("No keyframe headers found in directive response")
@@ -526,8 +544,8 @@ def parse_keyframe_metadata(directive_text: str) -> list[dict]:
 
         # Extract description block between this header and the next
         start_pos = match.end()
-        end_pos = matches[i + 1].start() if i < len(matches) - 1 else len(directive_text)
-        description_block = directive_text[start_pos:end_pos].strip()
+        end_pos = matches[i + 1].start() if i < len(matches) - 1 else len(keyframes_section)
+        description_block = keyframes_section[start_pos:end_pos].strip()
 
         # Stop at section boundaries (## headers)
         section_break = re.search(r"\n##\s", description_block)
@@ -595,10 +613,24 @@ def _extract_section(text: str, section_name: str) -> str:
 
 
 def _extract_field(text: str, field_name: str) -> str:
-    """Extract a field value from a keyframe description block."""
-    pattern = rf"-\s*{re.escape(field_name)}[^:]*:\s*(.+?)(?=\n-|\n\n|\Z)"
+    """Extract a field value from a keyframe description block.
+
+    Handles both plain and bold markdown formats:
+    - Composition: value
+    - **Composition:** value
+    """
+    # Pattern handles optional ** markdown around field name
+    pattern = rf"-\s*(?:\*\*)?{re.escape(field_name)}(?:\*\*)?[^:]*:\s*(.+?)(?=\n-|\n\n|\Z)"
     match = re.search(pattern, text, re.DOTALL)
-    return match.group(1).strip() if match else ""
+    if not match:
+        return ""
+    # Strip whitespace and any leading/trailing ** markdown
+    value = match.group(1).strip()
+    if value.startswith("**"):
+        value = value[2:]
+    if value.endswith("**"):
+        value = value[:-2]
+    return value.strip()
 
 
 # =============================================================================
@@ -779,6 +811,25 @@ async def run_storyboard_preview(
         })
 
         logger.info(f"Beat {beat['beat_number']}/{len(beats)} directive generated")
+
+    # Save directive summaries to Airtable if we have results
+    idea_id = idea_record.get("id", "")
+    if idea_id and results:
+        try:
+            # Build a summary of all keyframes for Airtable storage
+            directive_summary = []
+            for r in results:
+                beat = r["beat"]
+                directive_summary.append(f"## Beat {beat['beat_number']}")
+                directive_summary.append(r["preview"])
+                directive_summary.append("")
+
+            airtable_client.update_idea_fields(idea_id, {
+                "Storyboard Directive": "\n".join(directive_summary),
+            })
+            logger.info(f"Saved storyboard directive to Airtable for '{video_title}'")
+        except Exception as e:
+            logger.warning(f"Failed to save storyboard directive to Airtable: {e}")
 
     return results
 
