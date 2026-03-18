@@ -183,6 +183,7 @@ async def _select_and_download_music(
     scripts: list[dict],
     music_dir: Path,
     google: GoogleClient,
+    rc_data: dict | None = None,
     dry_run: bool = False,
 ) -> list[dict]:
     """Select music for each act and download tracks.
@@ -192,29 +193,47 @@ async def _select_and_download_music(
         scripts: List of script records from Airtable
         music_dir: Local directory to download tracks to
         google: GoogleClient instance
+        rc_data: render_config data with scene->act mapping
         dry_run: If True, skip downloads
 
     Returns:
         music_beds array for render_config.json
     """
     from bots.music_selector import select_music_for_script
-    from brief_translator.script_generator import extract_acts
     from clients.anthropic_client import AnthropicClient
 
-    # Reassemble full script from Airtable records
-    full_script = ""
+    # Build scene-to-act mapping from render_config
+    scene_to_act: dict[int, int] = {}
+    if rc_data and rc_data.get("scenes"):
+        for scene in rc_data["scenes"]:
+            scene_num = scene.get("scene_number", 0)
+            act_num = scene.get("act", 0)
+            if scene_num and act_num:
+                scene_to_act[scene_num] = act_num
+
+    # If no mapping available, estimate acts (20 scenes / 6 acts ≈ 3-4 scenes per act)
+    if not scene_to_act:
+        print("  Warning: No act mapping in render_config, estimating from scene numbers")
+        for i in range(1, 21):
+            # Approximate: scenes 1-3 → act 1, 4-6 → act 2, etc.
+            scene_to_act[i] = min(6, (i - 1) // 3 + 1)
+
+    # Group script text by act
+    acts: dict[int, str] = {}
     for script in sorted(scripts, key=lambda s: s.get("scene", 0)):
         scene_text = script.get("Scene text", "")
         scene_num = script.get("scene", 0)
-        full_script += f"\n\n[ACT {scene_num}]\n{scene_text}"
+        act_num = scene_to_act.get(scene_num, 1)
 
-    # Extract acts from script
-    acts = extract_acts(full_script)
+        if act_num not in acts:
+            acts[act_num] = ""
+        acts[act_num] += f"\n{scene_text}"
+
     if not acts:
-        print("  Warning: Could not extract acts from script, skipping music")
+        print("  Warning: Could not group scripts by act, skipping music")
         return []
 
-    print(f"  Extracted {len(acts)} acts from script")
+    print(f"  Grouped scripts into {len(acts)} acts")
 
     # Select music for each act
     anthropic = AnthropicClient()
@@ -498,6 +517,7 @@ def main():
                 scripts=scripts,
                 music_dir=music_dir,
                 google=google,
+                rc_data=rc_data,
                 dry_run=dry_run,
             )
         )
