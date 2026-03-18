@@ -12,6 +12,12 @@ from image_prompt_engine.prompt_builder import CAMERA_MOVEMENTS, detect_camera_m
 
 async def run(pipeline) -> dict:
     """Generate video motion prompts for images."""
+    if not pipeline.current_idea:
+        idea = pipeline.get_idea_by_status(Statuses.READY_VIDEO_SCRIPTS)
+        if not idea:
+            return {"error": "No idea at 'Ready For Video Scripts'."}
+        pipeline._load_idea(idea)
+
     target = f"Scene {pipeline.scene_filter}" if pipeline.scene_filter else "all scenes"
     print(f"\n  📝 VIDEO SCRIPT BOT: Generating prompts for {target}...")
     pipeline._log_filters()

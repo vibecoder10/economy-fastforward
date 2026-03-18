@@ -18,8 +18,9 @@ Style override fields (set via Slack `!style` commands):
 - `Image Model Override` (Multiple Select) — hot-swap scene image model. Options: `z-image`, `Nano Banana`. Set via Slack `!model` command.
 - `Visual Style` (Single Select) — visual profile override. Options: `cinematic_illustration`, `holographic_hud`, `cinematic_dossier`, `clay_mannequin`. Default: `cinematic_illustration`. Set via Slack `!visualstyle` command.
 
-Visual consistency fields (auto-generated):
+Visual consistency fields:
 - `Story Bible` (Long Text) — JSON containing character bible, location bible, visual arc, and recurring props for consistent visuals across the video. Generated automatically before image prompts when using mannequin profiles. Structure: `{"characters": [...], "locations": [...], "visual_arc": [...], "recurring_props": [...]}`
+- `Character Reference` (Attachment) — Reference image for BYOC (bring your own character). When set, the storyboard bot passes this image as `image_input` to the contact sheet generator so all panels maintain visual consistency with the reference character. Upload one or more character reference images to lock the visual identity across all storyboard beats.
 
 Optional fields:
 - `Reference URL`, `Idea Reasoning`, `Source Views`, `Source Channel`

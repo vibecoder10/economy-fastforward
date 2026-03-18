@@ -184,10 +184,44 @@ Extract duplicated pattern from 5+ bots into `clients/json_utils.py`.
 - [x] Scene Blocking System (Story Bible V2) — DONE (2026-03-14)
 - [x] Blocking Script Validation with Senior Editor Pass — DONE (2026-03-14)
 
+## Active: Storyboard Visual Consistency
+
+### Story Bible → Storyboard Wiring ✅
+- [x] Wire Story Bible loading into `run_storyboard_grids()` and `run_storyboard_preview()`
+- [x] Add `story_bible` param to `generate_storyboard_directive()`
+- [x] Inject character/location/arc data into `_build_directive_user_prompt()` as binding constraints
+- [x] Add visual bible rule (#6) to `_build_directive_system_prompt()` non-negotiable rules
+- [x] Add `_format_story_bible_for_beat()` — extracts characters, locations, visual arc, scene blocks per beat
+- [x] Add `_load_story_bible()` — loads + parses Story Bible JSON from Airtable idea fields
+
+### Character Reference Images (BYOC) ✅
+- [x] Add `CHARACTER_REFERENCE` to IdeaFields in `pipeline_constants.py`
+- [x] Add `_load_character_reference()` to extract image URL from Airtable attachment
+- [x] Update `generate_contact_sheet()` to accept `character_reference_url`
+- [x] Wire through `run_storyboard_grids()` → `generate_contact_sheet()`
+- [x] Fix pre-existing bug: contact sheet was using wrong image_client method
+- [x] Document field in `airtable-schema.md`
+- [ ] **USER ACTION**: Create `Character Reference` attachment field in Airtable Idea Concepts table
+
+## Handoff
+**What was done**:
+1. Wired Story Bible into storyboard directive generator — characters, locations, visual arc, scene blocks now injected as binding constraints
+2. Added BYOC Character Reference support — when a reference image is uploaded to Airtable, it's passed as `image_input` to contact sheet generation for visual consistency
+3. Fixed pre-existing bug where `generate_contact_sheet()` called `generate_scene_image()` with kwargs it doesn't accept
+
+**What's next**:
+- User needs to create `Character Reference` attachment field in Airtable Idea Concepts table
+- Test end-to-end with a real video: upload character reference → run !storyboard-go → verify panels match reference
+
+**Key files changed**: `skills/video-pipeline/storyboard_bot.py`, `skills/video-pipeline/pipeline_constants.py`, `docs/airtable-schema.md`
+
+---
+
 ## Backlog
 
 ### Phase 2: Character Consistency
-- [ ] Feature 1: Character Reference System (BYOC) — HIGH
+- [x] Story Bible → Storyboard wiring (2026-03-18) — DONE
+- [ ] Feature 1: Character Reference System (BYOC) — HIGH (next)
 - [ ] Feature 5: Style Locking via Golden Frame — HIGH
 - [ ] Feature 10: Quality Scoring via Gemini Vision — MEDIUM
 

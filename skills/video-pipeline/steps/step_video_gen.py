@@ -13,6 +13,12 @@ from pipeline_constants import ImageFields, Statuses
 
 async def run(pipeline) -> dict:
     """Generate video clips from images with motion prompts."""
+    if not pipeline.current_idea:
+        idea = pipeline.get_idea_by_status(Statuses.READY_VIDEO_GENERATION)
+        if not idea:
+            return {"error": "No idea at 'Ready For Video Generation'."}
+        pipeline._load_idea(idea)
+
     print(f"\n  🎥 VIDEO GEN BOT: Generating videos...")
     pipeline._log_filters()
 

@@ -29,7 +29,7 @@ from typing import Optional
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from channel_profile import ChannelProfile, ModelProfile, load_profile
-from pipeline_constants import ImageFields, Models, ScriptFields
+from pipeline_constants import ImageFields, IdeaFields, Models, ScriptFields
 
 logger = logging.getLogger(__name__)
 
@@ -147,6 +147,146 @@ def segment_script_into_beats(
 
 
 # =============================================================================
+# Story Bible → Storyboard Context Formatter
+# =============================================================================
+
+
+def _format_story_bible_for_beat(
+    story_bible: dict | None,
+    beat_scenes: list[int],
+) -> str:
+    """Format Story Bible characters, locations, and arc data for a beat.
+
+    Extracts only the characters and locations relevant to the scenes
+    covered by this beat, providing binding visual constraints for the
+    directive generator.
+
+    Returns formatted string to inject into the user prompt, or empty
+    string if no Story Bible exists.
+    """
+    if not story_bible:
+        return ""
+
+    lines: list[str] = []
+
+    # === CHARACTERS relevant to this beat ===
+    chars = story_bible.get("characters", [])
+    if chars:
+        lines.append("<visual_bible_characters>")
+        lines.append("USE THESE EXACT DESCRIPTIONS for visual consistency across all panels.")
+        for char in chars:
+            char_id = char.get("id", "unknown")
+            costume = char.get("costume") or char.get("description", "")
+            pose = char.get("signature_pose", "")
+            scenes = char.get("scenes_present", [])
+            # Include if character appears in any of this beat's scenes, or if
+            # scenes_present is empty (character appears everywhere)
+            if not scenes or any(s in scenes for s in beat_scenes):
+                lines.append(f"\n  {char_id.upper()}:")
+                lines.append(f"    Appearance: {costume}")
+                if pose:
+                    lines.append(f"    Default pose: {pose}")
+        lines.append("</visual_bible_characters>")
+
+    # === LOCATIONS relevant to this beat ===
+    locs = story_bible.get("locations", [])
+    if locs:
+        lines.append("\n<visual_bible_locations>")
+        lines.append("USE THESE EXACT ENVIRONMENTS for visual consistency.")
+        for loc in locs:
+            loc_id = loc.get("id", "unknown")
+            desc = loc.get("description", "")
+            lighting = loc.get("lighting", "")
+            signature = loc.get("signature_detail", "")
+            loc_type = loc.get("type", "")
+            scenes = loc.get("scenes_present", [])
+            if not scenes or any(s in scenes for s in beat_scenes):
+                lines.append(f"\n  {loc_id.upper()}:")
+                lines.append(f"    {desc}")
+                if lighting:
+                    lines.append(f"    Lighting: {lighting}")
+                if signature:
+                    lines.append(f"    Signature detail: {signature}")
+                if loc_type:
+                    lines.append(f"    Type: {loc_type}")
+        lines.append("</visual_bible_locations>")
+
+    # === VISUAL ARC entries for this beat's scenes ===
+    arcs = story_bible.get("visual_arc", [])
+    beat_arcs = [a for a in arcs if a.get("scene") in beat_scenes]
+    if beat_arcs:
+        lines.append("\n<visual_arc>")
+        lines.append("Visual progression planned for this beat:")
+        for arc in beat_arcs:
+            scene_num = arc.get("scene", "?")
+            mood = arc.get("mood", "neutral")
+            camera = arc.get("camera_distance", "medium")
+            tension = arc.get("tension_level", 5)
+            color_temp = arc.get("color_temperature", "neutral")
+            visual_note = arc.get("visual_note", "")
+            loc_id = arc.get("location_id", "")
+            chars_present = arc.get("characters_present", [])
+            lines.append(
+                f"  Scene {scene_num}: {loc_id} | mood={mood} | "
+                f"camera={camera} | tension={tension}/10 | "
+                f"color_temp={color_temp}"
+            )
+            if chars_present:
+                lines.append(f"    Characters: {', '.join(chars_present)}")
+            if visual_note:
+                lines.append(f"    Note: {visual_note}")
+        lines.append("</visual_arc>")
+
+    # === SCENE BLOCKS (V2) for this beat ===
+    scene_blocks = story_bible.get("scene_blocks", [])
+    if scene_blocks:
+        # Find blocks that overlap with this beat's scenes
+        # Scene blocks use image_index, but we can match by act or just
+        # include blocks whose act number is in the beat's scene range
+        beat_blocks = []
+        for block in scene_blocks:
+            block_act = block.get("act")
+            # Include block if its act number falls within this beat's scenes
+            if block_act in beat_scenes:
+                beat_blocks.append(block)
+
+        if beat_blocks:
+            lines.append("\n<scene_blocks>")
+            lines.append(
+                "Pre-planned visual groupings. Each block shares location "
+                "+ lighting. Only camera, action, expression change within."
+            )
+            for block in beat_blocks:
+                block_id = block.get("block_id", "?")
+                location = block.get("location", "")
+                lighting = block.get("lighting", "")
+                mood = block.get("mood", "")
+                chars_present = block.get("characters_present", [])
+                images = block.get("images", [])
+                lines.append(f"\n  Block {block_id}: {location}")
+                if lighting:
+                    lines.append(f"    Lighting: {lighting}")
+                if mood:
+                    lines.append(f"    Mood: {mood}")
+                if chars_present:
+                    lines.append(
+                        f"    Characters: {', '.join(chars_present)}"
+                    )
+                if images:
+                    for img in images:
+                        idx = img.get("image_index", "?")
+                        cam = img.get("camera", "medium")
+                        action = img.get("action", "")
+                        lines.append(f"    [{idx}] {cam} — {action}")
+            lines.append("</scene_blocks>")
+
+    if not lines:
+        return ""
+
+    return "\n".join(lines)
+
+
+# =============================================================================
 # Cinematic Directive Generator — Core Intelligence
 # =============================================================================
 
@@ -197,6 +337,11 @@ angle, and camera movement may change.
 grade across the entire sequence per the color grade profile.
 5) Do NOT introduce new characters/objects not supported by the narration. If you need \
 tension/conflict beyond what's described, imply it off-screen (shadow, reflection, gaze).
+6) If a VISUAL BIBLE is provided in the user message, it contains BINDING character and \
+location descriptions. Use the EXACT costume/appearance for each character and the EXACT \
+environment description for each location. These are visual anchors that ensure consistency \
+across the entire video — do NOT deviate from them. The visual bible is your single source \
+of truth for what characters look like and what environments look like.
 </non_negotiable_rules>
 
 <goal>
@@ -269,23 +414,40 @@ def _build_directive_user_prompt(
     beat_scenes: list[int],
     video_title: str,
     image_prompts: list[str],
+    story_bible: dict | None = None,
 ) -> str:
     """Build the user message for the directive generator."""
     formatted_prompts = "\n".join(
         f"  [{i + 1}] {p}" for i, p in enumerate(image_prompts) if p
     ) or "  (no existing image prompts)"
 
-    return f"""\
-Generate the cinematic storyboard directive for Beat {beat_number} \
-of "{video_title}".
+    # Format Story Bible data as binding visual constraints
+    visual_bible_block = _format_story_bible_for_beat(story_bible, beat_scenes)
 
-Scenes covered: {', '.join(str(s) for s in beat_scenes)}
+    parts = [
+        f'Generate the cinematic storyboard directive for Beat {beat_number} '
+        f'of "{video_title}".',
+        f"\nScenes covered: {', '.join(str(s) for s in beat_scenes)}",
+        f"\nBeat narration:\n{beat_text}",
+    ]
 
-Beat narration:
-{beat_text}
+    if visual_bible_block:
+        parts.append(
+            f"\n--- VISUAL BIBLE (binding visual anchors) ---\n"
+            f"{visual_bible_block}\n"
+            f"--- END VISUAL BIBLE ---\n\n"
+            f"IMPORTANT: The visual bible above defines EXACT character "
+            f"appearances and location descriptions. Use them verbatim in "
+            f"your keyframe descriptions and contact sheet prompt to ensure "
+            f"visual consistency across the entire video."
+        )
 
-Reference image prompts (use as context for subjects and environments):
-{formatted_prompts}"""
+    parts.append(
+        f"\nReference image prompts (use as context for subjects and "
+        f"environments):\n{formatted_prompts}"
+    )
+
+    return "\n".join(parts)
 
 
 async def generate_storyboard_directive(
@@ -296,6 +458,7 @@ async def generate_storyboard_directive(
     image_prompts: list[str],
     profile: ChannelProfile,
     anthropic_client=None,
+    story_bible: dict | None = None,
 ) -> dict:
     """Generate a cinematic directive for one narrative beat via Claude.
 
@@ -310,6 +473,7 @@ async def generate_storyboard_directive(
     system_prompt = _build_directive_system_prompt(profile)
     user_prompt = _build_directive_user_prompt(
         beat_number, beat_text, beat_scenes, video_title, image_prompts,
+        story_bible=story_bible,
     )
 
     response = await anthropic_client.generate(
@@ -566,6 +730,9 @@ async def run_storyboard_preview(
     video_title = fields.get("Video Title", "")
     profile = load_profile(fields)
 
+    # Load Story Bible for visual consistency across beats
+    story_bible = _load_story_bible(fields)
+
     script_records = airtable_client.get_scripts_by_title(video_title)
     if not script_records:
         logger.error(f"No script found for '{video_title}'")
@@ -594,6 +761,7 @@ async def run_storyboard_preview(
             image_prompts=image_prompts,
             profile=profile,
             anthropic_client=anthropic_client,
+            story_bible=story_bible,
         )
 
         preview = format_beat_preview(
@@ -885,8 +1053,13 @@ async def generate_contact_sheet(
     contact_sheet_prompt: str,
     real_panel_count: int = 9,
     image_client=None,
+    character_reference_url: str | None = None,
 ) -> str:
     """Generate a 3x3 contact sheet via Nano Banana Pro.
+
+    When a character_reference_url is provided, it's passed as image_input
+    so the generated panels maintain visual consistency with the reference
+    character (BYOC — bring your own character).
 
     Returns Google Drive URL of the generated grid image.
     """
@@ -911,13 +1084,24 @@ async def generate_contact_sheet(
 
     full_prompt += contact_sheet_prompt
 
-    result = await image_client.generate_scene_image(
-        prompt=full_prompt,
-        model=Models.IMAGE_THUMBNAIL,  # Nano Banana Pro
-        aspect_ratio="16:9",
-    )
-
-    return result
+    if character_reference_url:
+        # Use reference-based generation for character consistency
+        result = await image_client.generate_with_reference(
+            prompt=full_prompt,
+            reference_image_url=character_reference_url,
+            aspect_ratio="16:9",
+        )
+        # generate_with_reference returns dict with 'url' key
+        return result.get("url") if isinstance(result, dict) else result
+    else:
+        # No reference image — use standard text-to-image
+        result = await image_client.generate_and_wait(
+            prompt=full_prompt,
+            aspect_ratio="16:9",
+            model=Models.IMAGE_THUMBNAIL,
+        )
+        # generate_and_wait returns list of URLs
+        return result[0] if result else None
 
 
 async def upscale_panel(
@@ -984,6 +1168,12 @@ async def run_storyboard_grids(
     video_title = fields.get("Video Title", "")
     profile = load_profile(fields)
 
+    # Load Story Bible for visual consistency across beats
+    story_bible = _load_story_bible(fields)
+
+    # Load character reference image for BYOC visual lock
+    character_ref_url = _load_character_reference(fields)
+
     script_records = airtable_client.get_scripts_by_title(video_title)
     if not script_records:
         return {"error": f"No script found for '{video_title}'"}
@@ -1016,6 +1206,7 @@ async def run_storyboard_grids(
             image_prompts=image_prompts,
             profile=profile,
             anthropic_client=anthropic_client,
+            story_bible=story_bible,
         )
         total_cost += 0.03
         directives.append(directive)
@@ -1028,6 +1219,7 @@ async def run_storyboard_grids(
             contact_sheet_prompt=contact_sheet_prompt,
             real_panel_count=real_panels,
             image_client=image_client,
+            character_reference_url=character_ref_url,
         )
         total_cost += 0.075
         grid_urls.append(grid_url)
@@ -1193,6 +1385,57 @@ async def run_storyboard_extract(
 # =============================================================================
 # Internal Helpers
 # =============================================================================
+
+
+def _load_story_bible(fields: dict) -> dict | None:
+    """Load Story Bible from the idea record's fields.
+
+    The Story Bible is stored as a JSON string in the 'Story Bible' field.
+    Returns parsed dict, or None if not present or unparseable.
+    """
+    import json
+
+    raw = fields.get(IdeaFields.STORY_BIBLE) or fields.get("Story Bible")
+    if not raw:
+        logger.info("No Story Bible found — storyboard will generate without visual bible")
+        return None
+
+    if isinstance(raw, dict):
+        return raw
+
+    try:
+        bible = json.loads(raw)
+        char_count = len(bible.get("characters", []))
+        loc_count = len(bible.get("locations", []))
+        logger.info(
+            f"Loaded Story Bible: {char_count} characters, {loc_count} locations"
+        )
+        return bible
+    except (json.JSONDecodeError, TypeError) as e:
+        logger.warning(f"Failed to parse Story Bible JSON: {e}")
+        return None
+
+
+def _load_character_reference(fields: dict) -> str | None:
+    """Load character reference image URL from the idea record.
+
+    The Character Reference field is an Airtable attachment field.
+    Returns the first image URL, or None if not set.
+    """
+    attachments = fields.get(IdeaFields.CHARACTER_REFERENCE) or fields.get(
+        "Character Reference"
+    )
+    if not attachments:
+        return None
+
+    if isinstance(attachments, list) and attachments:
+        url = attachments[0].get("url", "")
+        if url:
+            logger.info(f"Loaded character reference image: {url[:80]}...")
+            return url
+
+    return None
+
 
 def _get_images_for_beat(
     all_image_records: list[dict],
