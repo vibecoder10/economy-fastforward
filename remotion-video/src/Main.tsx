@@ -4,6 +4,7 @@ import { Scene } from "./Scene";
 import { useMemo } from "react";
 import { getWordsForScene } from "./transcripts";
 import { getSceneNumbers, getImageCountForScene, getSceneDurationFromConfig, getRenderScenesForScene } from "./renderConfig";
+import { MusicBed } from "./components/MusicBed";
 
 interface MainProps {
     totalScenes?: number;
@@ -139,6 +140,9 @@ export const Main: React.FC<MainProps> = ({ totalScenes }) => {
 
     return (
         <AbsoluteFill style={{ backgroundColor: "#000" }}>
+            {/* Background music bed - spans full video, manages its own timing */}
+            <MusicBed />
+
             {scenesWithTiming.map((scene) => (
                 <Sequence
                     key={scene.sceneNumber}
