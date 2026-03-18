@@ -465,9 +465,15 @@ async def handle_approve_recent_script(message, say):
 
     Use when responding to a blocked script notification.
     Simply type 'approved' or 'approve' to approve the most recent blocked script.
+
+    This handler also writes the Scripts TABLE records that were skipped
+    when the script was blocked (required for voice synthesis).
     """
     try:
         from clients.airtable_client import AirtableClient
+        from brief_translator.script_generator import extract_acts
+        from brief_translator.pipeline_writer import build_sources_list
+
         airtable = AirtableClient()
 
         # Find the most recent blocked script
@@ -481,11 +487,53 @@ async def handle_approve_recent_script(message, say):
         record_id = matched["id"]
         title = matched.get(IdeaFields.VIDEO_TITLE, matched.get(IdeaFields.HEADLINE, "Untitled"))
 
+        # Get the Script field content
+        script_text = matched.get(IdeaFields.SCRIPT, "")
+        if not script_text:
+            await say(f":x: No script content found for '{title}'. Cannot approve.")
+            return
+
+        # Extract acts from the script
+        acts = extract_acts(script_text)
+        if not acts:
+            await say(f":x: Could not parse acts from script for '{title}'. Script may be malformed.")
+            return
+
+        await say(f":hourglass: Writing {len(acts)} script records to Scripts table...")
+
+        # Build sources list from research payload if available
+        sources_text = ""
+        research_payload_raw = matched.get(IdeaFields.RESEARCH_PAYLOAD, "")
+        if research_payload_raw:
+            try:
+                import json
+                research_payload = json.loads(research_payload_raw)
+                sources_text = build_sources_list(research_payload)
+            except Exception:
+                pass
+
+        # Write Scripts TABLE records (required for voice synthesis)
+        record_ids = []
+        for act_num in sorted(acts.keys()):
+            act_text = acts[act_num]
+            try:
+                record = airtable.create_script_record(
+                    scene_number=act_num,
+                    scene_text=act_text,
+                    title=title,
+                    psych_angle="",  # Not available for blocked scripts
+                    sources=sources_text if act_num == 1 else "",
+                )
+                record_ids.append(record.get("id", ""))
+            except Exception as e:
+                await say(f":warning: Failed to write Script record for act {act_num}: {e}")
+
         # Approve: advance to Ready For Voice
         airtable.update_idea_status(record_id, Statuses.READY_VOICE)
 
         await say(
             f":white_check_mark: *Script approved:* {title}\n"
+            f"Wrote {len(record_ids)} script records to Scripts table.\n"
             f"Status: `Needs Script Review` → `Ready For Voice`\n"
             f"Run `!voice` to continue, or pipeline will auto-continue on next cron run."
         )
@@ -535,13 +583,59 @@ async def handle_approve_script(message, say):
             )
             return
 
-        # Approve: advance to Ready For Voice
         record_id = matched["id"]
         title = matched.get(IdeaFields.VIDEO_TITLE, matched.get(IdeaFields.HEADLINE, "Untitled"))
+
+        # Get the Script field content
+        script_text = matched.get(IdeaFields.SCRIPT, "")
+        if not script_text:
+            await say(f":x: No script content found for '{title}'. Cannot approve.")
+            return
+
+        # Extract acts from the script
+        from brief_translator.script_generator import extract_acts
+        from brief_translator.pipeline_writer import build_sources_list
+
+        acts = extract_acts(script_text)
+        if not acts:
+            await say(f":x: Could not parse acts from script for '{title}'. Script may be malformed.")
+            return
+
+        await say(f":hourglass: Writing {len(acts)} script records to Scripts table...")
+
+        # Build sources list from research payload if available
+        sources_text = ""
+        research_payload_raw = matched.get(IdeaFields.RESEARCH_PAYLOAD, "")
+        if research_payload_raw:
+            try:
+                import json
+                research_payload = json.loads(research_payload_raw)
+                sources_text = build_sources_list(research_payload)
+            except Exception:
+                pass
+
+        # Write Scripts TABLE records (required for voice synthesis)
+        record_ids = []
+        for act_num in sorted(acts.keys()):
+            act_text = acts[act_num]
+            try:
+                record = airtable.create_script_record(
+                    scene_number=act_num,
+                    scene_text=act_text,
+                    title=title,
+                    psych_angle="",  # Not available for blocked scripts
+                    sources=sources_text if act_num == 1 else "",
+                )
+                record_ids.append(record.get("id", ""))
+            except Exception as e:
+                await say(f":warning: Failed to write Script record for act {act_num}: {e}")
+
+        # Approve: advance to Ready For Voice
         airtable.update_idea_status(record_id, Statuses.READY_VOICE)
 
         await say(
             f":white_check_mark: Script approved: *{title}*\n"
+            f"Wrote {len(record_ids)} script records to Scripts table.\n"
             f"Status: `Needs Script Review` → `Ready For Voice`\n"
             f"Pipeline will continue on next run."
         )
