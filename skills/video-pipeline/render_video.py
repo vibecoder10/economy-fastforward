@@ -175,6 +175,87 @@ def _build_sound_layers(
     return layers
 
 
+async def _select_and_download_music(
+    title: str,
+    scripts: list[dict],
+    music_dir: Path,
+    google: GoogleClient,
+    dry_run: bool = False,
+) -> list[dict]:
+    """Select music for each act and download tracks.
+
+    Args:
+        title: Video title
+        scripts: List of script records from Airtable
+        music_dir: Local directory to download tracks to
+        google: GoogleClient instance
+        dry_run: If True, skip downloads
+
+    Returns:
+        music_beds array for render_config.json
+    """
+    from bots.music_selector import select_music_for_script
+    from brief_translator.script_generator import extract_acts
+    from clients.anthropic_client import AnthropicClient
+
+    # Reassemble full script from Airtable records
+    full_script = ""
+    for script in sorted(scripts, key=lambda s: s.get("scene", 0)):
+        scene_text = script.get("Scene text", "")
+        scene_num = script.get("scene", 0)
+        full_script += f"\n\n[ACT {scene_num}]\n{scene_text}"
+
+    # Extract acts from script
+    acts = extract_acts(full_script)
+    if not acts:
+        print("  Warning: Could not extract acts from script, skipping music")
+        return []
+
+    print(f"  Extracted {len(acts)} acts from script")
+
+    # Select music for each act
+    anthropic = AnthropicClient()
+    music_beds = await select_music_for_script(anthropic, acts)
+
+    if not music_beds:
+        print("  Warning: No music selected, skipping")
+        return []
+
+    print(f"  Selected {len(music_beds)} music tracks")
+
+    # Download tracks (skip if already exist)
+    for bed in music_beds:
+        if not bed.get("file"):
+            continue
+        local_path = music_dir / Path(bed["file"]).name
+
+        if local_path.exists():
+            print(f"  Music cached: {local_path.name}")
+            continue
+
+        if dry_run:
+            print(f"  [DRY RUN] Would download: {bed['file']}")
+            continue
+
+        try:
+            google.download_file_to_local(bed["file_id"], str(local_path))
+            print(f"  Downloaded: {local_path.name}")
+        except Exception as e:
+            print(f"  Warning: Failed to download {bed['file']}: {e}")
+
+    # Remove file_id from output (not needed in render_config)
+    return [
+        {
+            "act": b["act"],
+            "file": b["file"],
+            "mood": b["mood"],
+            "volume": b["volume"],
+        }
+        for b in music_beds
+        if b.get("file")
+    ]
+
+
 def main():
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     dry_run = "--dry-run" in sys.argv
@@ -237,6 +318,10 @@ def main():
     remotion_dir = Path(__file__).parent.parent.parent / "remotion-video"
     sfx_dir = remotion_dir / "public" / "sfx"
     sfx_dir.mkdir(parents=True, exist_ok=True)
+
+    # Ensure music directory exists
+    music_dir = remotion_dir / "public" / "music"
+    music_dir.mkdir(parents=True, exist_ok=True)
 
     # Pre-load all files in the Drive folder (paginated) so we can look up
     # SFX files by name without per-file API calls.  The folder can have 200+
@@ -373,6 +458,32 @@ def main():
         print(f"     Checked: {audio_sync_config}")
         print(f"     Checked: {rc_path}")
         print(f"   Rendering will use fallback timing (no Whisper alignment)")
+
+    # ── Music selection and download ──────────────────────────────────
+    print("\n🎵 Selecting background music...")
+    import asyncio
+
+    try:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        music_beds = loop.run_until_complete(
+            _select_and_download_music(
+                title=title,
+                scripts=scripts,
+                music_dir=music_dir,
+                google=google,
+                dry_run=dry_run,
+            )
+        )
+        loop.close()
+    except Exception as e:
+        print(f"  Warning: Music selection failed: {e}")
+        music_beds = []
+
+    # Add music_beds to render_config
+    if music_beds and rc_data:
+        rc_data["music_beds"] = music_beds
+        print(f"  Added {len(music_beds)} music beds to render_config")
 
     # ── Video clip downloads ──────────────────────────────────────────
     # For each image record with a completed video clip, download the mp4
