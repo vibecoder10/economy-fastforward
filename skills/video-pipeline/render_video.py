@@ -24,6 +24,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from clients.airtable_client import AirtableClient
+from clients.slack_client import SlackClient
 from pipeline_constants import IdeaFields, ImageFields, ScriptFields, Statuses, Models
 from clients.google_client import GoogleClient, get_direct_drive_url
 
@@ -486,6 +487,14 @@ def main():
     if music_beds and rc_data:
         rc_data["music_beds"] = music_beds
         print(f"  Added {len(music_beds)} music beds to render_config")
+
+    # Notify Slack of music selection
+    if music_beds:
+        try:
+            slack = SlackClient()
+            slack.notify_music_selected(music_beds)
+        except Exception as e:
+            print(f"  Warning: Slack notification failed: {e}")
 
     # ── Video clip downloads ──────────────────────────────────────────
     # For each image record with a completed video clip, download the mp4

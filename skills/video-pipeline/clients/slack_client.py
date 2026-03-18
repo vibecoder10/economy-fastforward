@@ -277,6 +277,23 @@ class SlackClient:
             "✅ Thumbnail created!\n\n"
             "🎬 All assets ready for video editing!"
         )
+
+    def notify_music_selected(self, music_beds: list[dict]) -> dict:
+        """Notify which background music was selected for each act."""
+        if not music_beds:
+            return self.send_message("🎵 No background music selected (no acts found)")
+
+        lines = ["🎵 *Background Music Selected:*\n"]
+        for bed in sorted(music_beds, key=lambda b: b.get("act", 0)):
+            act = bed.get("act", "?")
+            mood = bed.get("mood", "unknown")
+            track = bed.get("file", "none")
+            # Extract just the filename from the path
+            track_name = track.split("/")[-1] if track else "none"
+            emoji = {"tension": "😰", "strategic": "♟️", "revelation": "💡"}.get(mood, "🎵")
+            lines.append(f"  Act {act}: {emoji} {mood} → `{track_name}`")
+
+        return self.send_message("\n".join(lines))
     
     def notify_pipeline_complete(self, video_title: str, folder_url: str) -> dict:
         """Notify that the entire pipeline is complete."""
