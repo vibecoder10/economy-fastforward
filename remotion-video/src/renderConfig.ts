@@ -33,6 +33,13 @@ export interface RenderScene {
     video_clip_path?: string;
 }
 
+export interface MusicBed {
+    act: number;
+    file: string;
+    mood: string;
+    volume: number;
+}
+
 export interface RenderConfig {
     video_id: string;
     audio_path: string;
@@ -43,6 +50,7 @@ export interface RenderConfig {
         height: number;
     };
     scenes: RenderScene[];
+    music_beds?: MusicBed[];
 }
 
 /**
@@ -141,4 +149,53 @@ export function getTotalDurationFromConfig(): number | null {
     const config = loadRenderConfig();
     if (!config || !config.total_duration_seconds) return null;
     return config.total_duration_seconds > 0 ? config.total_duration_seconds : null;
+}
+
+/**
+ * Get music beds from render_config.
+ * Returns empty array if unavailable.
+ */
+export function getMusicBeds(): MusicBed[] {
+    const config = loadRenderConfig();
+    if (!config || !config.music_beds) return [];
+    return config.music_beds;
+}
+
+/**
+ * Calculate act boundaries (start/end frames) from scene data.
+ * Returns array sorted by act number.
+ */
+export function getActBoundaries(
+    fps: number
+): Array<{ act: number; startFrame: number; endFrame: number }> {
+    const config = loadRenderConfig();
+    if (!config || !config.scenes || config.scenes.length === 0) return [];
+
+    const actMap = new Map<number, { start: number; end: number }>();
+
+    for (const scene of config.scenes) {
+        const act = scene.act || 0;
+        if (act === 0) continue;
+
+        const existing = actMap.get(act);
+        if (existing) {
+            existing.start = Math.min(existing.start, scene.display_start);
+            existing.end = Math.max(existing.end, scene.display_end);
+        } else {
+            actMap.set(act, { start: scene.display_start, end: scene.display_end });
+        }
+    }
+
+    const result: Array<{ act: number; startFrame: number; endFrame: number }> = [];
+    for (const [act, bounds] of Array.from(actMap.entries()).sort(
+        (a, b) => a[0] - b[0]
+    )) {
+        result.push({
+            act,
+            startFrame: Math.floor(bounds.start * fps),
+            endFrame: Math.floor(bounds.end * fps),
+        });
+    }
+
+    return result;
 }
