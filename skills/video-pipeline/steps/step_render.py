@@ -196,7 +196,13 @@ async def run(pipeline) -> dict:
     # Download SFX files
     sfx_count, sfx_total = await _download_sfx(pipeline, asset_folders, props, public_dir)
 
-    # Re-save props.json after SFX processing
+    # Select and download background music
+    music_beds = await _select_and_download_music(pipeline, props, public_dir)
+    if music_beds:
+        props["renderConfig"]["music_beds"] = music_beds
+        print(f"  🎵 Music beds: {len(music_beds)} tracks selected")
+
+    # Re-save props.json after SFX and music processing
     with open(props_file, "w") as f:
         json.dump(props, f, indent=2)
 
@@ -232,10 +238,16 @@ async def run(pipeline) -> dict:
     else:
         sound_info = "\n🔇 No sound effects"
 
+    music_info = ""
+    if music_beds:
+        music_info = f"\n🎵 Background music: {len(music_beds)} tracks"
+    else:
+        music_info = "\n🔇 No background music"
+
     pipeline.slack.notify(
         f"⬇️ *Assets ready:* _{pipeline.video_title}_\n"
         f"{scene_count} scenes, {audio_count} audio files verified."
-        f"{video_info}{sound_info}\n"
+        f"{video_info}{sound_info}{music_info}\n"
         f"Starting Remotion render now..."
     )
 
@@ -728,3 +740,127 @@ async def _run_remotion_render(pipeline, remotion_dir: Path, public_dir: Path,
         "file_size_mb": file_size_mb,
         "total_min": total_min,
     }
+
+
+async def _select_and_download_music(pipeline, props: dict, public_dir: Path) -> list[dict]:
+    """Select per-act background music based on mood classification.
+
+    Uses Claude Haiku to classify each act's mood (tension/strategic/revelation)
+    and selects a random track from the music library matching that mood.
+
+    Returns list of music_bed dicts with: act, file, mood, volume
+    """
+    from bots.music_selector import select_music_for_script, MUSIC_FOLDER_ID
+
+    # Get render_config to extract act boundaries
+    rc_data = props.get("renderConfig", {})
+    rc_scenes = rc_data.get("scenes", [])
+    if not rc_scenes:
+        print("  ⚠️ No scenes in renderConfig, skipping music selection")
+        return []
+
+    # Build scene-to-act mapping
+    scene_to_act: dict[int, int] = {}
+    for scene in rc_scenes:
+        scene_num = scene.get("scene_number", 0)
+        act_num = scene.get("act", 0)
+        if scene_num and act_num:
+            scene_to_act[scene_num] = act_num
+
+    if not scene_to_act:
+        print("  ⚠️ No act data in renderConfig, estimating from scene numbers")
+        for i in range(1, 21):
+            scene_to_act[i] = min(6, (i - 1) // 3 + 1)
+
+    # Get script text from Airtable
+    scripts = pipeline.airtable.get_scripts_by_title(pipeline.video_title)
+    if not scripts:
+        print("  ⚠️ No scripts found, skipping music selection")
+        return []
+
+    # Group script text by act
+    acts: dict[int, str] = {}
+    for script in sorted(scripts, key=lambda s: s.get("scene", 0)):
+        scene_text = script.get(ScriptFields.SCENE_TEXT, "")
+        scene_num = script.get("scene", 0)
+        act_num = scene_to_act.get(scene_num, 1)
+
+        if act_num not in acts:
+            acts[act_num] = ""
+        acts[act_num] += f"\n{scene_text}"
+
+    if not acts:
+        print("  ⚠️ Could not group scripts by act, skipping music")
+        return []
+
+    print(f"  🎵 Selecting background music for {len(acts)} acts...")
+
+    # Create Anthropic client and select music
+    from clients.anthropic_client import AnthropicClient
+    anthropic = AnthropicClient()
+    music_beds = await select_music_for_script(anthropic, acts)
+
+    if not music_beds:
+        print("  ⚠️ No music tracks selected")
+        return []
+
+    # Download music files to public/music/
+    music_dir = public_dir / "music"
+    music_dir.mkdir(exist_ok=True)
+
+    # Get list of files in the music library folder
+    try:
+        music_files = pipeline.google.list_files_in_folder(MUSIC_FOLDER_ID)
+        music_map = {f["name"]: f["id"] for f in music_files}
+    except Exception as e:
+        print(f"  ⚠️ Could not list music folder: {e}")
+        return []
+
+    downloaded = []
+    for bed in music_beds:
+        if not bed.get("file"):
+            continue
+
+        filename = bed["file"].removeprefix("music/")
+        dest = music_dir / filename
+
+        if dest.exists() and dest.stat().st_size > 1000:
+            print(f"    ✅ {filename} (cached)")
+            downloaded.append(bed)
+            continue
+
+        file_id = bed.get("file_id") or music_map.get(filename)
+        if not file_id:
+            print(f"    ❌ {filename}: not found in music library")
+            continue
+
+        try:
+            content = pipeline.google.download_file(file_id)
+            dest.write_bytes(content)
+            print(f"    ✅ {filename} ({len(content) // 1024} KB)")
+            downloaded.append(bed)
+        except Exception as e:
+            print(f"    ❌ {filename}: download failed: {e}")
+
+    # Notify Slack
+    if downloaded:
+        mood_emoji = {"tension": "😰", "strategic": "♟️", "revelation": "💡"}
+        lines = ["🎵 *Background Music Selected:*"]
+        for bed in sorted(downloaded, key=lambda b: b.get("act", 0)):
+            act = bed.get("act", "?")
+            mood = bed.get("mood", "unknown")
+            track = bed.get("file", "").split("/")[-1]
+            emoji = mood_emoji.get(mood, "🎵")
+            lines.append(f"  Act {act}: {emoji} {mood} → `{track}`")
+        pipeline.slack.notify("\n".join(lines))
+
+    # Return music_beds with file paths (no file_id needed in render_config)
+    return [
+        {
+            "act": b["act"],
+            "file": b["file"],
+            "mood": b["mood"],
+            "volume": b["volume"],
+        }
+        for b in downloaded
+    ]
