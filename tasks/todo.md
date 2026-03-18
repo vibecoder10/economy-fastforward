@@ -184,10 +184,36 @@ Extract duplicated pattern from 5+ bots into `clients/json_utils.py`.
 - [x] Scene Blocking System (Story Bible V2) — DONE (2026-03-14)
 - [x] Blocking Script Validation with Senior Editor Pass — DONE (2026-03-14)
 
+## Active: Storyboard Visual Consistency
+
+### Story Bible → Storyboard Wiring ✅
+- [x] Wire Story Bible loading into `run_storyboard_grids()` and `run_storyboard_preview()`
+- [x] Add `story_bible` param to `generate_storyboard_directive()`
+- [x] Inject character/location/arc data into `_build_directive_user_prompt()` as binding constraints
+- [x] Add visual bible rule (#6) to `_build_directive_system_prompt()` non-negotiable rules
+- [x] Add `_format_story_bible_for_beat()` — extracts characters, locations, visual arc, scene blocks per beat
+- [x] Add `_load_story_bible()` — loads + parses Story Bible JSON from Airtable idea fields
+
+### Next: Character Reference Images (BYOC)
+- [ ] Add `Character Reference` attachment field to Airtable Idea Concepts table
+- [ ] Load reference images in storyboard bot and pass to contact sheet generation
+- [ ] Pass reference images as `image_input` to Nano Banana Pro for style-locked contact sheets
+- [ ] Allow characters to be defined externally (not just from Story Bible generation)
+
+## Handoff
+**What was done**: Wired Story Bible (characters, locations, visual arc, scene blocks) into the storyboard directive generator. Previously, the storyboard bot was completely disconnected from the Story Bible — it generated directives using only channel profile with no visual anchors. Now Claude receives exact character costumes, location descriptions, and visual arc data as binding constraints in the user prompt.
+
+**What's next**: Character Reference Image system — the ability to load a reference character image so contact sheets generate with a consistent character appearance across all beats. This is the "bring your own character" (BYOC) feature from the backlog.
+
+**Key files changed**: `skills/video-pipeline/storyboard_bot.py`
+
+---
+
 ## Backlog
 
 ### Phase 2: Character Consistency
-- [ ] Feature 1: Character Reference System (BYOC) — HIGH
+- [x] Story Bible → Storyboard wiring (2026-03-18) — DONE
+- [ ] Feature 1: Character Reference System (BYOC) — HIGH (next)
 - [ ] Feature 5: Style Locking via Golden Frame — HIGH
 - [ ] Feature 10: Quality Scoring via Gemini Vision — MEDIUM
 
