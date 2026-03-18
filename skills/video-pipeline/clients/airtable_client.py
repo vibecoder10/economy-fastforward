@@ -939,37 +939,19 @@ class AirtableClient:
         """Batch create title insight records.
 
         Args:
-            insights: List of insight dicts (same format as create_title_insight)
+            insights: List of insight dicts with TitleInsightFields keys
+                      (pre-formatted by caller, e.g. _persist_insights)
 
         Returns:
             List of created record dicts
         """
-        from datetime import date
-        import json
-
         if not insights:
             return []
 
-        today = date.today().isoformat()
-        records_to_create = []
-
-        for insight in insights:
-            fields = {
-                TitleInsightFields.ANALYSIS_DATE: today,
-                TitleInsightFields.PATTERN_TYPE: insight.get("pattern_type", "structural"),
-                TitleInsightFields.PATTERN_NAME: insight.get("pattern_name", ""),
-                TitleInsightFields.DESCRIPTION: insight.get("description", ""),
-                TitleInsightFields.EXAMPLE_TITLES: json.dumps(insight.get("example_titles", [])),
-                TitleInsightFields.AVG_VPH: round(insight.get("avg_vph", 0), 1),
-                TitleInsightFields.COUNT: insight.get("count", 0),
-                TitleInsightFields.CONFIDENCE: insight.get("confidence", 50),
-                TitleInsightFields.VIDEOS_ANALYZED: insight.get("videos_analyzed", 0),
-                TitleInsightFields.VPH_THRESHOLD: insight.get("vph_threshold", 0),
-            }
-            records_to_create.append(fields)
-
+        # insights are already formatted with TitleInsightFields keys
+        # by the caller (_persist_insights), so pass them directly
         try:
-            created = self.title_insights_table.batch_create(records_to_create, typecast=True)
+            created = self.title_insights_table.batch_create(insights, typecast=True)
             return [{"id": r["id"], **r["fields"]} for r in created]
         except Exception as e:
             # Fallback to individual creates
@@ -977,8 +959,8 @@ class AirtableClient:
             results = []
             for insight in insights:
                 try:
-                    result = self.create_title_insight(insight)
-                    results.append(result)
+                    result = self.title_insights_table.create(insight, typecast=True)
+                    results.append({"id": result["id"], **result["fields"]})
                 except Exception as ind_err:
                     print(f"    ⚠️ Failed to create insight: {ind_err}")
             return results
