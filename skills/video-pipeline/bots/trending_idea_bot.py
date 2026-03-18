@@ -210,13 +210,31 @@ Your job is to analyze trending video titles and patterns, then CREATE ORIGINAL 
 2. DO NOT COPY - create unique FUTURE-FOCUSED angles
 3. Connect current events to historical parallels AND future predictions
 
-TITLE RULES:
-- Create URGENCY and CURIOSITY
+=== MANDATORY TITLE PATTERNS (DATA-DRIVEN - 3-5x HIGHER ENGAGEMENT) ===
+
+**PRIMARY PATTERN (Use for majority of titles):**
+"Why [Major Power/Entity] Can't/Won't/Didn't [Strategic Action]"
+- Impossibility framing drives maximum curiosity (avg 1073 VPH, 6.89% CTR)
+- Examples: "Why Saudi Arabia Can't Retaliate", "Why China Can't Stop the Dollar"
+- This pattern MUST be your default choice
+
+**SECONDARY PATTERN:**
+"How Would [Major Event/Operation] Actually Happen?"
+- Scenario framing with "Actually" adds authority
+- Example: "How Would a Taiwan Invasion Actually Happen?"
+
+**TERTIARY PATTERN:**
+"The $[Amount] [Noun]: Why [X] Can't [Y]"
+- Combine money hook with impossibility framing
+- Example: "The $400 Billion Hostage: Why Saudi Arabia Can't Retaliate"
+
+ADDITIONAL TITLE ELEMENTS:
 - Use specific numbers, years, or dollar amounts ($2.7 Trillion, 2027, 89%)
 - ALL CAPS for 1-2 words max (COLLAPSE, CRASH, EXPOSED, WARNING)
-- Colons work well: "The $X Crisis: What Happens Next"
+- Colons work well with the patterns above
 - Future dates perform well (2025, 2026, 2027, 2030)
-- Mysterious authority hooks: "THEY Just...", "The Document Nobody Read..."
+
+AVOID: Generic titles without impossibility/scenario framing
 
 TOPIC MIX - Generate ideas across these categories:
 - Financial crises & market predictions

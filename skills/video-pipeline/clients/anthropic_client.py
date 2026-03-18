@@ -552,6 +552,26 @@ INSTRUCTIONS:
    - Concept 3: The Black Swan (High risk/reward)
 3. Follow the "Abstraction -> Substitution -> Projection" logic for every idea.
 
+=== MANDATORY TITLE PATTERNS (DATA-DRIVEN) ===
+These patterns have proven 3-5x higher engagement. USE THEM:
+
+**PRIMARY (Use for 2+ of 3 titles):**
+"Why [Major Power/Entity] Can't/Won't/Didn't [Strategic Action]"
+- Impossibility framing drives curiosity (avg 1073 VPH, 6.89% CTR)
+- Examples: "Why Saudi Arabia Can't Retaliate", "Why China Can't Stop the Dollar"
+
+**SECONDARY:**
+"How Would [Major Event/Operation] Actually Happen?"
+- Scenario framing with "Actually" adds authority
+- Example: "How Would a Taiwan Invasion Actually Happen?"
+
+**TERTIARY:**
+"The $[Amount] [Noun]: Why [X] Can't [Y]"
+- Combine money hook with impossibility framing
+- Example: "The $400 Billion Hostage: Why Saudi Arabia Can't Retaliate"
+
+AVOID: Generic titles, single-word drama words without impossibility framing
+
 CRITICAL OUTPUT RULES:
 - You must output valid JSON only.
 - Do NOT output a single object. You must output an ARRAY of 3 objects inside a "concepts" key.
