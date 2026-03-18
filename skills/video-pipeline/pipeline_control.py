@@ -52,6 +52,10 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 current_process = None
 current_task_name = None
 
+# Track running async task for immediate cancellation
+# When "kill" is called, we cancel this task directly (raises CancelledError)
+_current_task: asyncio.Task = None
+
 # Stop signal for in-process async tasks (e.g. "run" auto-pipeline, inline research)
 # When set, long-running loops should break at the next safe point.
 _stop_event = asyncio.Event()
@@ -646,7 +650,7 @@ async def handle_approve_script(message, say):
 @app.message(re.compile(r"^!?(?:stop|kill)$", re.IGNORECASE))
 async def handle_stop(message, say):
     """Stop the currently running pipeline immediately."""
-    global current_process, current_task_name
+    global current_process, current_task_name, _current_task
 
     # Always set the stop event so auto-pipeline loops break too.
     # Without this, killing a subprocess during "!run" would just
@@ -669,7 +673,17 @@ async def handle_stop(message, say):
         return
 
     # Case 2: An in-process async task is running (e.g. "run" auto-pipeline,
-    # inline research). The stop event is already set above.
+    # inline research). Cancel it immediately instead of waiting for step end.
+    if _current_task is not None and not _current_task.done():
+        task = current_task_name or "unknown task"
+        try:
+            _current_task.cancel()
+            await say(f":stop_sign: Killed `{task}` immediately")
+        except Exception as e:
+            await say(f":x: Error cancelling task: {e}")
+        return
+
+    # Case 3: Task name set but no task object (legacy path)
     if current_task_name is not None:
         task = current_task_name
         await say(f":stop_sign: Stopping `{task}` — will halt after current step finishes.")
@@ -681,7 +695,7 @@ async def handle_stop(message, say):
 @app.message(re.compile(r"^run$", re.IGNORECASE))
 async def handle_run(message, say):
     """Pick up the YouTube pipeline where it left off and keep going."""
-    global current_process, current_task_name
+    global current_process, current_task_name, _current_task
     if current_process or current_task_name:
         await say(f":x: Already running `{current_task_name}`. Use `stop` to cancel it first.")
         return
@@ -690,7 +704,8 @@ async def handle_run(message, say):
     _stop_event.clear()  # reset stop signal for this run
     await say(":rocket: Starting auto-pipeline — checking Airtable for next step...")
 
-    try:
+    async def _run_pipeline():
+        """Inner coroutine that can be cancelled immediately."""
         from pipeline import VideoPipeline
 
         pipeline = VideoPipeline()
@@ -734,13 +749,21 @@ async def handle_run(message, say):
         if steps_done >= max_steps:
             await say(f":warning: Stopped after {max_steps} steps (safety cap).")
 
+        return steps_done
+
+    try:
+        # Create cancellable task - when "kill" is called, task.cancel() raises CancelledError
+        _current_task = asyncio.create_task(_run_pipeline())
+        await _current_task
+
     except asyncio.CancelledError:
-        await say(f":stop_sign: Pipeline cancelled after {steps_done} step(s).")
+        await say(":stop_sign: Pipeline killed immediately.")
     except Exception as e:
         log.error(f"run auto-pipeline error: {e}", exc_info=True)
         await say(f":x: Pipeline error: {e}")
     finally:
         current_task_name = None
+        _current_task = None
         _stop_event.clear()
 
 
@@ -1010,7 +1033,7 @@ async def handle_voice(message, say):
 @app.message(re.compile(r"^!?(?:run\s+)?sound\s+design\s+(.+)", re.IGNORECASE))
 async def handle_sound_design(message, say):
     """Generate per-image sound prompts via Claude Haiku."""
-    global current_task_name
+    global current_task_name, _current_task
     if current_process or current_task_name:
         await say(f":x: Already running `{current_task_name}`. Use `stop` to cancel it first.")
         return
@@ -1023,7 +1046,7 @@ async def handle_sound_design(message, say):
     title_query = match.group(1).strip()
     current_task_name = "sound design"
 
-    try:
+    async def _run_sound_design():
         from clients.airtable_client import AirtableClient
         from bots.sound_prompt_bot import SoundPromptBot
 
@@ -1049,17 +1072,23 @@ async def handle_sound_design(message, say):
                 f"{generated}/{total} image rows now have sound prompts."
             )
 
+    try:
+        _current_task = asyncio.create_task(_run_sound_design())
+        await _current_task
+    except asyncio.CancelledError:
+        await say(":stop_sign: Sound design killed.")
     except Exception as e:
         await say(f":x: Sound design error: {e}")
         _record_failure("sound design")
     finally:
         current_task_name = None
+        _current_task = None
 
 
 @app.message(re.compile(r"^!?(?:run\s+)?sound\s+effects?\s+(.+)", re.IGNORECASE))
 async def handle_sound_effects(message, say):
     """Generate sound effect audio files per image row."""
-    global current_task_name
+    global current_task_name, _current_task
     if current_process or current_task_name:
         await say(f":x: Already running `{current_task_name}`. Use `stop` to cancel it first.")
         return
@@ -1072,7 +1101,7 @@ async def handle_sound_effects(message, say):
     title_query = match.group(1).strip()
     current_task_name = "sound effects"
 
-    try:
+    async def _run_sound_effects():
         from clients.airtable_client import AirtableClient
         from clients.google_client import GoogleClient
         from bots.sound_bot import SoundBot
@@ -1100,17 +1129,23 @@ async def handle_sound_effects(message, say):
                 f"Generated {total} audio files (~${cost:.2f})."
             )
 
+    try:
+        _current_task = asyncio.create_task(_run_sound_effects())
+        await _current_task
+    except asyncio.CancelledError:
+        await say(":stop_sign: Sound effects killed.")
     except Exception as e:
         await say(f":x: Sound effects error: {e}")
         _record_failure("sound effects")
     finally:
         current_task_name = None
+        _current_task = None
 
 
 @app.message(re.compile(r"^!?(?:run\s+)?sound\s+all\s+(.+)", re.IGNORECASE))
 async def handle_sound_all(message, say):
     """Run both sound prompts and sound effects sequentially for a video."""
-    global current_task_name
+    global current_task_name, _current_task
     if current_process or current_task_name:
         await say(f":x: Already running `{current_task_name}`. Use `stop` to cancel it first.")
         return
@@ -1123,7 +1158,7 @@ async def handle_sound_all(message, say):
     title_query = match.group(1).strip()
     current_task_name = "sound all"
 
-    try:
+    async def _run_sound_all():
         from clients.airtable_client import AirtableClient
         from clients.google_client import GoogleClient
         from bots.sound_prompt_bot import SoundPromptBot
@@ -1169,11 +1204,17 @@ async def handle_sound_all(message, say):
             f"• {total} audio files created (~${cost:.2f})"
         )
 
+    try:
+        _current_task = asyncio.create_task(_run_sound_all())
+        await _current_task
+    except asyncio.CancelledError:
+        await say(":stop_sign: Sound pipeline killed.")
     except Exception as e:
         await say(f":x: Sound pipeline error: {e}")
         _record_failure("sound all")
     finally:
         current_task_name = None
+        _current_task = None
 
 
 @app.message(re.compile(r"run thumbnails?", re.IGNORECASE))
@@ -1241,7 +1282,7 @@ async def handle_render(message, say):
 @app.message(re.compile(r"^uploads?$", re.IGNORECASE))
 async def handle_upload(message, say):
     """Upload a rendered video to YouTube as an unlisted draft."""
-    global current_process, current_task_name
+    global current_process, current_task_name, _current_task
     if current_process or current_task_name:
         await say(f":x: Already running `{current_task_name}`. Use `stop` to cancel it first.")
         return
@@ -1249,7 +1290,8 @@ async def handle_upload(message, say):
     current_task_name = "upload (YouTube draft)"
     await say(":tv: Starting YouTube upload — looking for rendered videos...")
 
-    try:
+    async def _run_upload():
+        """Inner coroutine that can be cancelled immediately."""
         from pipeline import VideoPipeline
 
         pipeline = VideoPipeline()
@@ -1268,10 +1310,16 @@ async def handle_upload(message, say):
         else:
             await say(":white_check_mark: Upload complete.")
 
+    try:
+        _current_task = asyncio.create_task(_run_upload())
+        await _current_task
+    except asyncio.CancelledError:
+        await say(":stop_sign: Upload killed.")
     except Exception as e:
         await say(f":x: Upload error: {e}")
     finally:
         current_task_name = None
+        _current_task = None
 
 
 @app.message(re.compile(r"run analytics?", re.IGNORECASE))
