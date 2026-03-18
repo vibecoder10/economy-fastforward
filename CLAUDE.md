@@ -1,6 +1,76 @@
 # Economy FastForward — AI Video Production Pipeline
 "Topic in, video out — length configured per-idea in Airtable"
 
+---
+
+## 🦸 Superpowers Skill Integration
+
+**Skills are NOT optional. Invoke them BEFORE acting.** Use the `Skill` tool.
+
+### Skill → Scenario Mapping
+
+| Scenario | Skill to Invoke FIRST | Why |
+|----------|----------------------|-----|
+| **Bug report / test failure** | `systematic-debugging` | Diagnose before fixing. No guessing. |
+| **New feature request** | `brainstorming` | Clarify intent and requirements before coding |
+| **Multi-step task (3+ steps)** | `writing-plans` | Plan THEN implement. No improvising. |
+| **Implementing a plan** | `subagent-driven-development` | Parallel execution with checkpoints |
+| **About to say "done" or "fixed"** | `verification-before-completion` | Prove it works. Run commands. Show output. |
+| **Major feature complete** | `requesting-code-review` | Validate against requirements |
+| **Received code review feedback** | `receiving-code-review` | Don't blindly agree. Verify technically. |
+| **Ready to merge/PR** | `finishing-a-development-branch` | Structured completion options |
+| **2+ independent tasks** | `dispatching-parallel-agents` | Parallelize for speed |
+| **Need feature isolation** | `using-git-worktrees` | Safe experimentation |
+
+### Pipeline-Specific Skill Triggers
+
+| Pipeline Work | Required Skills |
+|---------------|-----------------|
+| **Fixing a pipeline stage** (images stuck, voice fails) | `systematic-debugging` → fix → `verification-before-completion` |
+| **Adding new bot/step** | `brainstorming` → `writing-plans` → `test-driven-development` → implement → `verification-before-completion` |
+| **Modifying Airtable schema** | `brainstorming` (impact analysis) → `writing-plans` → implement → `verification-before-completion` |
+| **Touching >3 files** | `writing-plans` MANDATORY before any code |
+| **Render/Remotion changes** | `systematic-debugging` (if fixing) or `brainstorming` (if adding) → test in studio → `verification-before-completion` |
+| **Adding Slack command** | `brainstorming` → implement → `verification-before-completion` (MUST test live) |
+
+### Skill Chaining (Common Flows)
+
+**Bug Fix Flow:**
+```
+User: "Images aren't matching the script"
+→ Invoke: systematic-debugging
+→ Diagnose (logs, Airtable, code trace)
+→ Fix
+→ Invoke: verification-before-completion
+→ Run tests, show Airtable result, confirm fix
+```
+
+**Feature Flow:**
+```
+User: "Add character reference system"
+→ Invoke: brainstorming (understand scope)
+→ Invoke: writing-plans (create implementation plan)
+→ Invoke: subagent-driven-development (execute plan)
+→ Invoke: verification-before-completion (prove it works)
+→ Invoke: requesting-code-review (validate)
+```
+
+**Refactor Flow:**
+```
+User: "Split pipeline.py into smaller modules"
+→ Invoke: brainstorming (clarify scope, boundaries)
+→ Invoke: writing-plans (phase breakdown)
+→ Execute phase 1 → tests pass
+→ Invoke: verification-before-completion
+→ Repeat for each phase
+```
+
+### The 1% Rule
+
+If there's even a **1% chance** a skill applies → **invoke it**. The cost of invoking an unnecessary skill is seconds. The cost of NOT invoking a necessary skill is hours of rework.
+
+---
+
 ## Stack
 Python 3.11+ (async) · TypeScript · Remotion · Airtable (orchestration DB) Claude (scripts) · Kie.ai (images/video) · ElevenLabs (voice) · Whisper (transcription) Google Drive (storage) · Slack (control) · Next.js (frontend)
 
