@@ -106,7 +106,7 @@ export const CaptionsOverlay: React.FC<CaptionsOverlayProps> = ({
                     flexWrap: "nowrap",
                     justifyContent: "center",
                     gap: STYLE.font.wordGap,
-                    maxWidth: "85%",
+                    maxWidth: "92%",
                     fontFamily: STYLE.font.family,
                     fontWeight: STYLE.font.weight,
                     fontSize: STYLE.font.size,

@@ -74,7 +74,13 @@ function buildWordsFromRenderScenes(
     for (const scene of renderScenes) {
         // Use actual Whisper word timestamps if available
         if (scene.words && scene.words.length > 0) {
-            for (const w of scene.words) {
+            // Extract punctuated words from sentence_text to restore punctuation
+            const sentenceWords = (scene.sentence_text || "")
+                .split(/\s+/)
+                .filter((w) => w.length > 0);
+
+            for (let i = 0; i < scene.words.length; i++) {
+                const w = scene.words[i];
                 const relStart = w.start - sceneStartTime;
                 let relEnd = w.end - sceneStartTime;
 
@@ -83,8 +89,21 @@ function buildWordsFromRenderScenes(
                     relEnd = relStart + MIN_WORD_DURATION;
                 }
 
+                // Restore punctuation from sentence_text if available
+                // Match by finding corresponding word (same position or fuzzy match)
+                let wordWithPunctuation = w.word;
+                if (i < sentenceWords.length) {
+                    const sentenceWord = sentenceWords[i];
+                    // If sentence word starts with same letters, use it (has punctuation)
+                    const whisperClean = w.word.toLowerCase().replace(/[^a-z0-9]/g, "");
+                    const sentenceClean = sentenceWord.toLowerCase().replace(/[^a-z0-9]/g, "");
+                    if (whisperClean === sentenceClean) {
+                        wordWithPunctuation = sentenceWord;
+                    }
+                }
+
                 words.push({
-                    word: w.word,
+                    word: wordWithPunctuation,
                     start: relStart,
                     end: relEnd,
                 });
