@@ -205,27 +205,53 @@ Extract duplicated pattern from 5+ bots into `clients/json_utils.py`.
 
 ## Handoff
 **What was done** (2026-03-18):
-1. **Problem 1 - Duration validation**: Added Slack notification + pipeline halt when "Video Length (min)" is not set in Airtable. Scripts will no longer generate with wrong word counts.
-2. **Problem 2 - Script field fix**:
-   - Documented `Script` field requirement in Airtable schema (MUST exist as Long Text field)
-   - Added LOUD failure when Script field write fails (verifies write succeeded, sends Slack alert if not)
-   - Added script preview to blocked notification
-   - Added simple `approved` command handler (no title needed) for quick approval of blocked scripts
-3. Kept existing `!approve <title>` command for when multiple scripts are blocked
 
-**What's next**:
-- **USER ACTION REQUIRED**: Create `Script` field (Long Text) in Airtable Idea Concepts table if it doesn't exist
-- **USER ACTION REQUIRED**: Create `Video Length (min)` field (Number) in Airtable Idea Concepts table if it doesn't exist
-- Test the new approval flow: block a script → reply "approved" → verify status advances
+### MAJOR: Autopilot Brain Design & Planning Complete
 
-**Key files changed**:
-- `skills/video-pipeline/pipeline_config.py` (returns duration_was_set flag)
-- `skills/video-pipeline/pipeline.py` (tracks duration_was_set)
-- `skills/video-pipeline/steps/step_script.py` (halts if duration not set)
-- `skills/video-pipeline/brief_translator/__init__.py` (verifies script write, shows preview)
-- `skills/video-pipeline/pipeline_control.py` (added simple "approved" handler)
-- `docs/airtable-schema.md` (documented Script, Video Length fields)
-- `tests/test_pipeline_config.py` (updated for tuple return)
+Designed and spec'd a complete autonomous video production orchestrator ("Autopilot Brain") modeled on karpathy/autoresearch. This is the "brain" layer that sits above the existing pipeline.
+
+**Design Spec:** `docs/superpowers/specs/2026-03-18-autopilot-brain-design.md` (789 lines)
+**Chunk 1 Implementation Plan:** `docs/superpowers/plans/2026-03-18-autopilot-chunk1-foundation.md` (1941 lines)
+
+**What the autopilot does:**
+1. ON/OFF switch via `autopilot_program.md`
+2. Cadence management (videos_per_month = 15 → every 2 days)
+3. Scores candidates from Competitor Videos table using weighted signals
+4. Picks best idea, notifies Slack with full reasoning
+5. Analyzes competitor thumbnails (Claude vision) → writes style overrides
+6. Triggers pipeline → YouTube draft
+7. Monitors CTR at 6h/24h/48h
+8. Extracts learnings to persistent memory files (`autopilot/memory/LEARNINGS.md`)
+9. Compounds intelligence over time
+
+**Implementation is broken into 3 chunks:**
+- **Chunk 1** (plan written): Foundation + Decision Engine — config, state, cadence, scoring, notifier
+- **Chunk 2** (not yet planned): Thumbnail Intel + Memory System
+- **Chunk 3** (not yet planned): CTR Monitoring + Learning Loop + Integration
+
+**What's next:**
+1. **Implement Chunk 1** — Follow the plan at `docs/superpowers/plans/2026-03-18-autopilot-chunk1-foundation.md`
+   - 8 tasks, TDD approach, 18+ tests
+   - Creates `autopilot/` directory structure
+   - Entry point: `python -m autopilot.autopilot --status`
+2. After Chunk 1 complete → write Chunk 2 plan
+3. Manual pipeline still works — autopilot is purely additive
+
+**Key files to read for context:**
+- `docs/superpowers/specs/2026-03-18-autopilot-brain-design.md` — Full design spec
+- `docs/superpowers/plans/2026-03-18-autopilot-chunk1-foundation.md` — Implementation plan
+- CLAUDE.md now includes autopilot structure and commands
+
+**Cron jobs to add (after implementation):**
+- 6:30 AM: `autopilot --check-cycle`
+- 7:30 AM: `autopilot.ctr_monitor`
+- 8:30 AM: `autopilot.learning_extractor`
+
+---
+
+### Previous (2026-03-18 earlier):
+1. **Problem 1 - Duration validation**: Added Slack notification + pipeline halt when "Video Length (min)" is not set in Airtable.
+2. **Problem 2 - Script field fix**: Added LOUD failure + script preview + simple `approved` command handler
 
 ---
 

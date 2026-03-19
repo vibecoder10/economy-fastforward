@@ -76,15 +76,61 @@ Python 3.11+ (async) · TypeScript · Remotion · Airtable (orchestration DB) Cl
 
 ## Repo Structure
 * skills/video-pipeline/ — Core pipeline code (bots, clients, content gen, animation, audio sync)
+* skills/video-pipeline/autopilot/ — **NEW: Autopilot Brain** (autonomous orchestration layer)
 * remotion-video/ — TypeScript/Remotion video rendering (src/, scripts/)
 * storyengine/ — Research UI (backend/, frontend/, shared/, config/)
 * animation/ — Animation assets and code
 * tasks/ — Task tracking, lessons learned, utility scripts
 
+### Autopilot Brain Structure (NEW - March 2026)
+```
+skills/video-pipeline/autopilot/
+├── autopilot.py              # Main orchestrator loop (entry point)
+├── autopilot_program.md      # Human-editable config (ON/OFF, weights, thresholds)
+├── core/
+│   ├── config_parser.py      # Parse autopilot_program.md → pydantic
+│   ├── state_manager.py      # Read/write autopilot_state.json
+│   ├── cadence_manager.py    # Videos/month → production schedule
+│   ├── confidence_scorer.py  # Weighted idea ranking
+│   └── notifier.py           # Slack notifications with reasoning
+├── analysis/                 # Chunk 2: thumbnail_analyzer.py, thumbnail_adapter.py
+├── monitoring/               # Chunk 3: ctr_monitor.py, early_warning.py
+├── learning/                 # Chunk 2-3: learning_extractor.py, memory_writer.py
+├── memory/                   # Persistent learnings (LEARNINGS.md, patterns)
+├── state/
+│   └── autopilot_state.json  # Runtime state (gitignored)
+└── tests/
+```
+
+**Design Spec:** `docs/superpowers/specs/2026-03-18-autopilot-brain-design.md`
+**Implementation Plan:** `docs/superpowers/plans/2026-03-18-autopilot-chunk1-foundation.md`
+
 ## Architecture
 Status-driven pipeline where Airtable Status fields gate each stage: Research → Script → Voice → Image Prompts → **Validation** → Images → Video Scripts → Video Generation → Thumbnail → Render → Upload
 
 CRITICAL: Never skip a status. Always update via Airtable client. Check status before processing.
+
+### Autopilot Brain (NEW)
+The autopilot is an autonomous orchestration **layer above** the existing pipeline. It:
+1. Reads config from `autopilot_program.md` (weights, cadence, thresholds)
+2. Checks if production slot is available (videos_per_month cadence)
+3. Scores candidate ideas from Competitor Videos table
+4. Picks best idea, notifies Slack with reasoning
+5. Writes style overrides to Airtable
+6. Triggers pipeline execution → YouTube draft
+7. Monitors CTR at 6h/24h/48h
+8. Extracts learnings to memory files
+
+**Key commands:**
+```bash
+python -m autopilot.autopilot --status    # Show autopilot state
+python -m autopilot.autopilot --check-cycle  # Run one cycle
+python -m autopilot.autopilot --force     # Skip cadence, run now
+```
+
+**Slack commands:** `autopilot on`, `autopilot off`, `autopilot status`, `autopilot force`
+
+**The pipeline can always run manually** — autopilot is purely additive.
 
 ### Prompt Sequencing (handled upstream)
 Camera rotation and location consistency are handled by the profile-aware sequencer
@@ -142,6 +188,8 @@ python -m ruff check .
 ```
 
 ## Key Reference Docs (read ONLY when relevant)
+* **Autopilot Brain design spec** → @docs/superpowers/specs/2026-03-18-autopilot-brain-design.md
+* **Autopilot Chunk 1 plan** → @docs/superpowers/plans/2026-03-18-autopilot-chunk1-foundation.md
 * Airtable schema & field maps → @docs/airtable-schema.md
 * API integration patterns (retry, polling, JSON parsing) → @docs/api-patterns.md
 * Image Prompt Engine (3-style system, 4-layer architecture) → @docs/image-prompt-engine.md
