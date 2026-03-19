@@ -82,28 +82,42 @@ Python 3.11+ (async) · TypeScript · Remotion · Airtable (orchestration DB) Cl
 * animation/ — Animation assets and code
 * tasks/ — Task tracking, lessons learned, utility scripts
 
-### Autopilot Brain Structure (NEW - March 2026)
+### Autopilot Brain Structure (March 2026)
 ```
 skills/video-pipeline/autopilot/
 ├── autopilot.py              # Main orchestrator loop (entry point)
 ├── autopilot_program.md      # Human-editable config (ON/OFF, weights, thresholds)
-├── core/
+├── core/                     # CHUNK 1 - Foundation (COMPLETE, 27 tests)
 │   ├── config_parser.py      # Parse autopilot_program.md → pydantic
 │   ├── state_manager.py      # Read/write autopilot_state.json
 │   ├── cadence_manager.py    # Videos/month → production schedule
 │   ├── confidence_scorer.py  # Weighted idea ranking
 │   └── notifier.py           # Slack notifications with reasoning
-├── analysis/                 # Chunk 2: thumbnail_analyzer.py, thumbnail_adapter.py
-├── monitoring/               # Chunk 3: ctr_monitor.py, early_warning.py
-├── learning/                 # Chunk 2-3: learning_extractor.py, memory_writer.py
-├── memory/                   # Persistent learnings (LEARNINGS.md, patterns)
+├── analysis/                 # CHUNK 2 - Thumbnail Intel (COMPLETE, 26 tests)
+│   ├── thumbnail_analyzer.py # Claude vision extraction from competitor thumbnails
+│   ├── thumbnail_adapter.py  # Generate REPLACE:/APPEND: style overrides
+│   └── title_selector.py     # Score title variants against pattern memory
+├── learning/                 # CHUNK 2 - Memory System (COMPLETE, 7 tests)
+│   └── pattern_library.py    # Read/query patterns from memory files
+├── memory/                   # Persistent learnings (git-tracked)
+│   ├── LEARNINGS.md          # Master summary (always loaded into context)
+│   ├── thumbnail_patterns.md # Proven/anti thumbnail elements
+│   ├── title_patterns.md     # Proven/anti title formulas
+│   ├── topic_performance.md  # Topic × timing performance
+│   ├── experiments_log.md    # Full video experiment ledger
+│   └── competitor_models.md  # Competitor trust scores
+├── monitoring/               # CHUNK 3 - CTR Monitoring (TODO)
+│   ├── ctr_monitor.py        # 6h/24h/48h YouTube Analytics checks
+│   └── early_warning.py      # Alert logic for underperforming videos
 ├── state/
 │   └── autopilot_state.json  # Runtime state (gitignored)
-└── tests/
+└── tests/                    # 60 tests total
 ```
 
 **Design Spec:** `docs/superpowers/specs/2026-03-18-autopilot-brain-design.md`
-**Implementation Plan:** `docs/superpowers/plans/2026-03-18-autopilot-chunk1-foundation.md`
+**Implementation Plans:**
+- Chunk 1 (Foundation): `docs/superpowers/plans/2026-03-18-autopilot-chunk1-foundation.md`
+- Chunk 2 (Thumbnail/Memory): `docs/superpowers/plans/2026-03-18-autopilot-chunk2-thumbnail-memory.md`
 
 ## Architecture
 Status-driven pipeline where Airtable Status fields gate each stage: Research → Script → Voice → Image Prompts → **Validation** → Images → Video Scripts → Video Generation → Thumbnail → Render → Upload
