@@ -20,6 +20,7 @@ class ExperimentState(BaseModel):
     publish_date: Optional[str] = None
     modeled_from: Optional[str] = None
     thumbnail_override: Optional[str] = None
+    idea_record_id: Optional[str] = None  # Airtable record ID for the created idea
 
 
 class AutopilotState(BaseModel):
@@ -97,6 +98,7 @@ class StateManager:
         video_title: str,
         modeled_from: Optional[str] = None,
         thumbnail_override: Optional[str] = None,
+        idea_record_id: Optional[str] = None,
     ) -> None:
         """Record that a production cycle started.
 
@@ -104,6 +106,7 @@ class StateManager:
             video_title: Title of video being produced
             modeled_from: Competitor video this models (optional)
             thumbnail_override: Thumbnail override used (optional)
+            idea_record_id: Airtable record ID for the created idea (optional)
         """
         state = self.load()
         state.videos_produced += 1
@@ -113,6 +116,7 @@ class StateManager:
             status="producing",
             modeled_from=modeled_from,
             thumbnail_override=thumbnail_override,
+            idea_record_id=idea_record_id,
         )
         self.save(state)
 

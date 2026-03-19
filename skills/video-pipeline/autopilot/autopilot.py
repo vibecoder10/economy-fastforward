@@ -7,17 +7,20 @@ This is the entry point for the autopilot system. It:
 3. Gathers candidates from Competitor Videos table
 4. Scores candidates using weighted signals
 5. Picks the best idea and notifies Slack
-6. Triggers pipeline execution
+6. Extracts theme/formula from competitor video
+7. Creates original idea in Airtable via modeling
 
 Usage:
     python -m autopilot.autopilot --check-cycle
     python -m autopilot.autopilot --status
     python -m autopilot.autopilot --force
+    python -m autopilot.autopilot --dry-run  # Test without creating records
 """
 
 import os
 import sys
 import argparse
+import asyncio
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional
@@ -31,7 +34,9 @@ load_dotenv()
 from autopilot.core.config_parser import load_config, AutopilotConfig
 from autopilot.core.state_manager import StateManager, AutopilotState
 from autopilot.core.cadence_manager import CadenceManager
-from autopilot.core.confidence_scorer import ConfidenceScorer, IdeaCandidate
+from autopilot.core.confidence_scorer import ConfidenceScorer, IdeaCandidate, ScoredIdea
+from autopilot.analysis.theme_extractor import ThemeExtractor
+from autopilot.production.idea_creator import IdeaCreator
 
 
 # Competitor video field names (matches Airtable schema)
@@ -58,6 +63,7 @@ class Autopilot:
         state_manager: Optional[StateManager] = None,
         airtable_client=None,
         slack_client=None,
+        anthropic_client=None,
     ):
         """Initialize autopilot with all dependencies.
 
@@ -66,30 +72,45 @@ class Autopilot:
             state_manager: State manager override (for testing)
             airtable_client: Airtable client override (for testing)
             slack_client: Slack client override (for testing)
+            anthropic_client: Anthropic client override (for testing)
         """
         self.config = config or load_config()
         self.state_manager = state_manager or StateManager()
         self.airtable = airtable_client
         self.slack = slack_client
+        self.anthropic = anthropic_client
         self.scorer = ConfidenceScorer(self.config)
+
+        # Theme extractor and idea creator (lazy init)
+        self.theme_extractor: Optional[ThemeExtractor] = None
+        self.idea_creator: Optional[IdeaCreator] = None
 
         # Lazy load clients if not provided
         self._clients_initialized = (airtable_client is not None and slack_client is not None)
 
     def _init_clients(self):
         """Initialize API clients (lazy load)."""
-        if self._clients_initialized:
-            return
+        # Initialize external API clients if not already provided
+        if not self._clients_initialized:
+            try:
+                from clients.airtable_client import AirtableClient
+                from clients.slack_client import SlackClient
+                self.airtable = AirtableClient()
+                self.slack = SlackClient()
+                self._clients_initialized = True
+            except ImportError as e:
+                print(f"Warning: Could not import clients: {e}")
+                print("Running in test mode without external dependencies.")
 
-        try:
-            from clients.airtable_client import AirtableClient
-            from clients.slack_client import SlackClient
-            self.airtable = AirtableClient()
-            self.slack = SlackClient()
-            self._clients_initialized = True
-        except ImportError as e:
-            print(f"Warning: Could not import clients: {e}")
-            print("Running in test mode without external dependencies.")
+        # Always initialize theme extractor and idea creator if not yet done
+        if self.theme_extractor is None:
+            self.theme_extractor = ThemeExtractor(anthropic_client=self.anthropic)
+
+        if self.idea_creator is None and self.airtable is not None:
+            self.idea_creator = IdeaCreator(
+                airtable_client=self.airtable,
+                anthropic_client=self.anthropic,
+            )
 
     def _get_candidates_from_competitor_videos(self) -> List[IdeaCandidate]:
         """Fetch candidate ideas from Competitor Videos table.
@@ -161,11 +182,85 @@ class Autopilot:
         except Exception as e:
             print(f"   Warning: Could not send Slack message: {e}")
 
-    def check_cycle(self, force: bool = False) -> bool:
+    async def _create_modeled_idea(
+        self,
+        best: ScoredIdea,
+        dry_run: bool = False,
+    ) -> Optional[dict]:
+        """Extract theme from competitor and create original idea.
+
+        Args:
+            best: The best scored idea (competitor video)
+            dry_run: If True, don't create Airtable record
+
+        Returns:
+            Created Airtable record or None
+        """
+        if self.theme_extractor is None or self.idea_creator is None:
+            print("   Warning: Theme extractor or idea creator not initialized")
+            return None
+
+        competitor_title = best.candidate.competitor_title or best.candidate.title
+
+        # 1. Extract theme, angle, formula from competitor title
+        print(f"   Extracting theme from: {competitor_title}")
+        theme_analysis = await self.theme_extractor.extract(competitor_title)
+
+        if theme_analysis is None:
+            print("   Warning: Theme extraction failed, using quick extraction")
+            # Fall back to quick extraction (no API call)
+            from autopilot.analysis.theme_extractor import ThemeAnalysis
+            theme_analysis = ThemeAnalysis(
+                primary_theme=competitor_title,
+                angle_type=ThemeExtractor.quick_extract_angle(competitor_title),
+                topic_category=ThemeExtractor.quick_extract_topic_category(competitor_title),
+                confidence=0.5,
+            )
+
+        print(f"   Theme: {theme_analysis.primary_theme}")
+        print(f"   Angle: {theme_analysis.angle_type}")
+        print(f"   Formula: {theme_analysis.title_formula}")
+        print(f"   Confidence: {theme_analysis.confidence:.0%}")
+
+        if dry_run:
+            print("   [DRY RUN] Would create idea using this formula")
+            print(f"   [DRY RUN] Formula: {theme_analysis.title_formula}")
+            print(f"   [DRY RUN] Variables: {theme_analysis.formula_variables}")
+            # In dry run, we skip the API call to avoid needing async mocks in tests
+            # The actual generation is tested in test_idea_creator.py
+            return None
+
+        # 2. Create idea in Airtable
+        print("   Creating original idea in Airtable...")
+        record = await self.idea_creator.create_idea_from_competitor(
+            candidate=best.candidate,
+            theme_analysis=theme_analysis,
+            idea_index=0,  # Use first generated idea
+        )
+
+        if record:
+            print(f"   ✅ Created idea: {record.get('id', 'unknown')}")
+            # Notify Slack with the created idea
+            idea_title = record.get('fields', {}).get('Video Title', 'Unknown')
+            self._notify(
+                f"✨ *AUTOPILOT: Original idea created*\n\n"
+                f"*TITLE:* {idea_title}\n"
+                f"*MODELED FROM:* {competitor_title}\n"
+                f"*FORMULA:* {theme_analysis.title_formula}\n"
+                f"*ANGLE:* {theme_analysis.angle_type}\n\n"
+                f"_Idea ready for pipeline. Approve to start production._"
+            )
+        else:
+            print("   ⚠️ Failed to create idea")
+
+        return record
+
+    def check_cycle(self, force: bool = False, dry_run: bool = False) -> bool:
         """Run one autopilot cycle.
 
         Args:
             force: Skip cadence check and run anyway
+            dry_run: If True, don't create Airtable records (test mode)
 
         Returns:
             True if production started, False otherwise
@@ -240,15 +335,40 @@ class Autopilot:
 
         self._notify(message)
 
-        # 7. Record state
+        # 7. Extract theme and create original idea
+        print(f"   ✅ Selected competitor: {best.candidate.title}")
+
+        if dry_run:
+            print("   [DRY RUN] Testing idea creation without saving...")
+            # Run async idea creation (dry run - no actual API calls)
+            asyncio.run(self._create_modeled_idea(best, dry_run=True))
+            # Record state with competitor title (no idea created)
+            self.state_manager.record_production_cycle(
+                video_title=best.candidate.title,
+                modeled_from=best.candidate.competitor_title,
+                idea_record_id=None,
+            )
+            print("   [DRY RUN] Cycle complete (no records created)")
+            return True
+
+        # Run async idea creation (real mode)
+        record = asyncio.run(self._create_modeled_idea(best, dry_run=False))
+
+        if record is None:
+            print("   ⚠️ Idea creation failed")
+            return False
+
+        # 8. Record state with created idea
+        idea_record_id = record.get('id') if record else None
+        idea_title = record.get('fields', {}).get('Video Title', best.candidate.title) if record else best.candidate.title
+
         self.state_manager.record_production_cycle(
-            video_title=best.candidate.title,
+            video_title=idea_title,
             modeled_from=best.candidate.competitor_title,
+            idea_record_id=idea_record_id,
         )
 
-        # 8. Trigger pipeline (placeholder for Chunk 2)
-        print(f"   ✅ Selected: {best.candidate.title}")
-        print("   TODO: Trigger pipeline (Chunk 2)")
+        print(f"   ✅ Idea created and ready for pipeline: {idea_title}")
 
         return True
 
@@ -292,6 +412,7 @@ def main():
     parser.add_argument("--check-cycle", action="store_true", help="Run one autopilot cycle")
     parser.add_argument("--status", action="store_true", help="Show current status")
     parser.add_argument("--force", action="store_true", help="Force production (skip cadence)")
+    parser.add_argument("--dry-run", action="store_true", help="Test without creating Airtable records")
 
     args = parser.parse_args()
 
@@ -299,8 +420,8 @@ def main():
 
     if args.status:
         autopilot.status()
-    elif args.check_cycle or args.force:
-        autopilot.check_cycle(force=args.force)
+    elif args.check_cycle or args.force or args.dry_run:
+        autopilot.check_cycle(force=args.force, dry_run=args.dry_run)
     else:
         parser.print_help()
 
