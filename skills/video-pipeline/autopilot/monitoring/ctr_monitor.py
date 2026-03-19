@@ -270,3 +270,61 @@ class CTRMonitor:
                 alerts.append(alert)
 
         return alerts
+
+
+# ---------------------------------------------------------------------------
+# CLI Entry Point
+# ---------------------------------------------------------------------------
+
+async def main_async():
+    """Async entry point for CTR monitoring."""
+    import sys
+    sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+
+    from clients.airtable_client import AirtableClient
+    from clients.slack_client import SlackClient
+
+    print("🔍 CTR Monitor: Checking active experiments...")
+
+    airtable = AirtableClient()
+    slack = SlackClient()
+    monitor = CTRMonitor(airtable_client=airtable)
+
+    alerts = await monitor.check_all_active()
+
+    if not alerts:
+        print("   No experiments ready for CTR check.")
+        return
+
+    for alert in alerts:
+        print(f"   {alert.message}")
+        # Send to Slack
+        try:
+            slack.send_message(
+                f"📊 *CTR Check: {alert.video_title}*\n"
+                f"{alert.message}\n"
+                f"_Impressions: {alert.impressions:,} | Hours: {alert.hours_since_publish:.0f}_"
+            )
+        except Exception as e:
+            print(f"   Warning: Failed to send Slack alert: {e}")
+
+    print(f"   Checked {len(alerts)} experiment(s).")
+
+
+def main():
+    """CLI entry point."""
+    import argparse
+    import asyncio
+
+    parser = argparse.ArgumentParser(description="CTR Monitor")
+    parser.add_argument("--check-active", action="store_true", help="Check all active experiments")
+    args = parser.parse_args()
+
+    if args.check_active:
+        asyncio.run(main_async())
+    else:
+        parser.print_help()
+
+
+if __name__ == "__main__":
+    main()

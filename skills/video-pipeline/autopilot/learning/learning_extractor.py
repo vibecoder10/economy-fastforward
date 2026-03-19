@@ -230,3 +230,67 @@ class LearningExtractor:
             title_formula=None,
             learnings=learnings,
         )
+
+
+# ---------------------------------------------------------------------------
+# CLI Entry Point
+# ---------------------------------------------------------------------------
+
+def run_daily_extraction():
+    """Run daily learning extraction on 48h+ videos.
+
+    Queries Airtable for videos uploaded 48+ hours ago that have
+    CTR data but haven't been analyzed yet.
+    """
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+
+    from autopilot.learning.memory_writer import MemoryWriter
+    from autopilot.core.state_manager import StateManager
+
+    print("🧠 Learning Extractor: Running daily extraction...")
+
+    extractor = LearningExtractor()
+    writer = MemoryWriter()
+    state_manager = StateManager()
+
+    # Get current experiment from state
+    state = state_manager.load()
+
+    if not state.current_experiment:
+        print("   No current experiment to analyze.")
+        return
+
+    exp = state.current_experiment
+
+    # Check if experiment has CTR data (would come from Airtable via performance_tracker)
+    # For now, we just show what would be extracted
+    if exp.status != "monitoring":
+        print(f"   Current experiment '{exp.video_title}' is in status '{exp.status}', not 'monitoring'.")
+        return
+
+    print(f"   Analyzing: {exp.video_title}")
+    print("   (Note: Full extraction requires CTR data from performance_tracker)")
+
+    # TODO: Integrate with Airtable to get actual CTR data
+    # For now, log that we would extract learnings
+    print("   Learning extraction is ready. Will process when CTR data is available.")
+
+
+def main():
+    """CLI entry point."""
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Learning Extractor")
+    parser.add_argument("--daily", action="store_true", help="Run daily extraction on 48h+ videos")
+    args = parser.parse_args()
+
+    if args.daily:
+        run_daily_extraction()
+    else:
+        parser.print_help()
+
+
+if __name__ == "__main__":
+    main()

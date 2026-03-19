@@ -291,6 +291,16 @@ _Targeted runs do NOT advance the pipeline status (safe for testing)._
 - `analyze titles [min_vph]` — Analyze competitor title patterns (Osiris)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+*Autopilot Brain*
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- `autopilot` — Show autopilot commands
+- `autopilot on/off` — Enable/disable autopilot
+- `autopilot status` — Show current state
+- `autopilot force` — Force production cycle now
+- `autopilot config` — Show weights and thresholds
+- `autopilot learnings` — Show pattern learnings
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 *System*
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 - `logs` / `show logs` — Show recent log output
@@ -2242,6 +2252,156 @@ async def handle_cron(message, say):
         "• `cron status` — Show current cron schedule"
     )
 
+
+# ---------------------------------------------------------------------------
+# Autopilot Brain commands
+# ---------------------------------------------------------------------------
+
+@app.message(re.compile(r"^autopilot\s+on$", re.IGNORECASE))
+async def handle_autopilot_on(message, say):
+    """Enable the autopilot brain."""
+    try:
+        from autopilot.core.state_manager import StateManager
+        manager = StateManager()
+        manager.set_enabled(True)
+        await say(":robot_face: *Autopilot ENABLED*\n_Will check for production opportunities on next cycle._")
+    except Exception as e:
+        await say(f":x: Failed to enable autopilot: {e}")
+
+
+@app.message(re.compile(r"^autopilot\s+off$", re.IGNORECASE))
+async def handle_autopilot_off(message, say):
+    """Disable the autopilot brain."""
+    try:
+        from autopilot.core.state_manager import StateManager
+        manager = StateManager()
+        manager.set_enabled(False)
+        await say(":stop_sign: *Autopilot DISABLED*\n_Manual pipeline runs still work. Use `autopilot on` to re-enable._")
+    except Exception as e:
+        await say(f":x: Failed to disable autopilot: {e}")
+
+
+@app.message(re.compile(r"^autopilot\s+status$", re.IGNORECASE))
+async def handle_autopilot_status(message, say):
+    """Show autopilot status."""
+    try:
+        from autopilot.core.state_manager import StateManager
+        from autopilot.core.config_parser import load_config
+        from autopilot.core.cadence_manager import CadenceManager
+
+        manager = StateManager()
+        state = manager.load()
+        config = load_config()
+        cadence = CadenceManager(config, state)
+
+        status_emoji = ":white_check_mark:" if state.autopilot_enabled else ":red_circle:"
+        enabled_text = "ON" if state.autopilot_enabled else "OFF"
+
+        if cadence.is_production_slot_available():
+            next_text = ":green_circle: Ready now"
+        else:
+            days = cadence.days_until_next()
+            next_date = cadence.get_next_production_date().strftime("%Y-%m-%d")
+            next_text = f":clock3: {next_date} ({days} day(s))"
+
+        exp_text = ""
+        if state.current_experiment:
+            exp = state.current_experiment
+            exp_text = f"\n\n*Current Experiment:*\n• Title: {exp.video_title}\n• Status: {exp.status}"
+            if exp.modeled_from:
+                exp_text += f"\n• Modeled from: {exp.modeled_from}"
+
+        await say(
+            f":robot_face: *Autopilot Status*\n\n"
+            f"*Enabled:* {status_emoji} {enabled_text}\n"
+            f"*Videos produced:* {state.videos_produced}\n"
+            f"*Avg CTR:* {state.channel_avg_ctr:.1f}%\n"
+            f"*Next slot:* {next_text}"
+            f"{exp_text}"
+        )
+    except Exception as e:
+        await say(f":x: Failed to get autopilot status: {e}")
+
+
+@app.message(re.compile(r"^autopilot\s+force$", re.IGNORECASE))
+async def handle_autopilot_force(message, say):
+    """Force a production cycle (skip cadence check)."""
+    await say(":rocket: *Forcing autopilot cycle* (skipping cadence)...")
+
+    try:
+        from autopilot.autopilot import Autopilot
+        autopilot = Autopilot()
+        result = autopilot.check_cycle(force=True)
+
+        if result:
+            await say(":white_check_mark: Production cycle started! Check notifications for details.")
+        else:
+            await say(":warning: Cycle ran but no production started (no candidates or autopilot disabled).")
+    except Exception as e:
+        await say(f":x: Force cycle failed: {e}")
+
+
+@app.message(re.compile(r"^autopilot\s+config$", re.IGNORECASE))
+async def handle_autopilot_config(message, say):
+    """Show autopilot configuration."""
+    try:
+        from autopilot.core.config_parser import load_config
+        config = load_config()
+
+        await say(
+            f":gear: *Autopilot Configuration*\n\n"
+            f"*Cadence:*\n"
+            f"• Videos/month: {config.videos_per_month}\n"
+            f"• Interval: {config.production_interval_days} days\n\n"
+            f"*Weights:*\n"
+            f"• VPH: {config.weights.competitor_vph:.0%}\n"
+            f"• Topic fit: {config.weights.topic_channel_fit:.0%}\n"
+            f"• Freshness: {config.weights.timing_freshness:.0%}\n"
+            f"• Momentum: {config.weights.channel_momentum:.0%}\n"
+            f"• Retention: {config.weights.retention_patterns:.0%}\n"
+            f"• Title: {config.weights.title_formula:.0%}\n\n"
+            f"*Thresholds:*\n"
+            f"• Min confidence: {config.thresholds.min_confidence_score}\n"
+            f"• Min VPH: {config.thresholds.min_competitor_vph}\n"
+            f"• CTR success: {config.thresholds.ctr_success_threshold}%\n"
+            f"• CTR failure: {config.thresholds.ctr_failure_threshold}%"
+        )
+    except Exception as e:
+        await say(f":x: Failed to load config: {e}")
+
+
+@app.message(re.compile(r"^autopilot\s+learnings?$", re.IGNORECASE))
+async def handle_autopilot_learnings(message, say):
+    """Show autopilot learnings summary."""
+    try:
+        from autopilot.learning.pattern_library import PatternLibrary
+        library = PatternLibrary()
+        summary = library.get_learnings_summary()
+
+        if summary:
+            # Truncate if too long
+            if len(summary) > 2500:
+                summary = summary[:2500] + "\n...(truncated)"
+            await say(f":brain: *Autopilot Learnings*\n```{summary}```")
+        else:
+            await say(":shrug: No learnings recorded yet. Produce videos and measure CTR to build learnings.")
+    except Exception as e:
+        await say(f":x: Failed to load learnings: {e}")
+
+
+@app.message(re.compile(r"^autopilot$", re.IGNORECASE))
+async def handle_autopilot_help(message, say):
+    """Show autopilot help."""
+    await say(
+        ":robot_face: *Autopilot Commands*\n\n"
+        "• `autopilot on` — Enable autopilot\n"
+        "• `autopilot off` — Disable autopilot\n"
+        "• `autopilot status` — Show current state\n"
+        "• `autopilot force` — Force production cycle now\n"
+        "• `autopilot config` — Show weights and thresholds\n"
+        "• `autopilot learnings` — Show LEARNINGS.md summary\n\n"
+        "_The autopilot runs on cron at 6:30 AM PT. Manual pipeline runs always work._"
+    )
 
 
 # ---------------------------------------------------------------------------

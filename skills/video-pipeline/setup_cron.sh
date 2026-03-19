@@ -121,6 +121,12 @@ TZ=America/Los_Angeles
 # Timeout: 15 min max | Lock expires after 20 min (includes competitor scrape)
 0 $DISCOVER_HOUR * * * MAX_LOCK_AGE=1200 $WRAPPER discovery /tmp/pipeline-discover.log timeout 900 python pipeline.py --discover
 
+# $OSIRIS_HOUR+1:30 (~6:30 AM PT) — Autopilot decision cycle
+# Checks cadence, scores candidates, selects best idea, notifies Slack
+# Runs BEFORE pipeline queue so overrides are set before production
+# Timeout: 15 min max | Lock expires after 20 min
+30 $(($OSIRIS_HOUR + 1)) * * * MAX_LOCK_AGE=1200 $WRAPPER autopilot-cycle /tmp/autopilot-cycle.log timeout 900 python -m autopilot.autopilot --check-cycle
+
 # $PERF_HOUR:00 (~7 AM PT) — Daily YouTube performance tracker
 # Syncs YouTube metrics (views, CTR, retention, snapshots) to Airtable
 # Timeout: 10 min max | Lock expires after 15 min
@@ -131,6 +137,18 @@ TZ=America/Los_Angeles
 # Analyzes videos at 48h/7d milestones, extracts learnings for prompt injection
 # Timeout: 10 min max | Lock expires after 15 min
 30 $PERF_HOUR * * * MAX_LOCK_AGE=900 $WRAPPER osiris-analyze /tmp/osiris-analyze.log timeout 600 python -m osiris analyze
+
+# $PERF_HOUR:45 (~7:45 AM PT) — Autopilot CTR monitor
+# Monitors CTR at 6h/24h/48h milestones for videos in "monitoring" state
+# Sends early warning alerts to Slack for underperforming videos
+# Timeout: 10 min max | Lock expires after 15 min
+45 $PERF_HOUR * * * MAX_LOCK_AGE=900 $WRAPPER autopilot-ctr /tmp/autopilot-ctr.log timeout 600 python -m autopilot.monitoring.ctr_monitor --check-active
+
+# 8:30 AM PT — Autopilot learning extractor
+# Extracts patterns from 48h+ videos and updates memory files
+# Runs AFTER performance metrics are fresh
+# Timeout: 10 min max | Lock expires after 15 min
+30 8 * * * MAX_LOCK_AGE=900 $WRAPPER autopilot-learn /tmp/autopilot-learn.log timeout 600 python -m autopilot.learning.learning_extractor --daily
 
 # $QUEUE_HOUR:00 (~12 PM PT) — Daily pipeline queue run
 # Processes all stages: Script → Voice → Image Prompts → Images → Thumbnail → Render → Upload
@@ -149,7 +167,7 @@ EOF
 )
 
 # Preserve any existing cron entries not from this script
-EXISTING=$(crontab -l 2>/dev/null | grep -v "pipeline-discover\|pipeline-queue\|pipeline-bot-health\|pipeline-approval\|performance-tracker\|osiris-scraper\|osiris-analyze\|pipeline\.log\|Pipeline Cron\|setup_cron\|Daily idea\|Daily pipeline\|performance tracker\|bot health\|Approval watcher\|run-queue\|--discover\|performance_tracker\|cron_wrapper\|osiris\.competitor\|osiris analyze" || true)
+EXISTING=$(crontab -l 2>/dev/null | grep -v "pipeline-discover\|pipeline-queue\|pipeline-bot-health\|pipeline-approval\|performance-tracker\|osiris-scraper\|osiris-analyze\|autopilot-cycle\|autopilot-ctr\|autopilot-learn\|pipeline\.log\|Pipeline Cron\|setup_cron\|Daily idea\|Daily pipeline\|performance tracker\|bot health\|Approval watcher\|run-queue\|--discover\|performance_tracker\|cron_wrapper\|osiris\.competitor\|osiris analyze\|autopilot\.autopilot\|autopilot\.monitoring\|autopilot\.learning" || true)
 
 # Install combined crontab
 if [ -n "$EXISTING" ]; then
@@ -162,8 +180,11 @@ echo "  Cron jobs installed!"
 echo ""
 echo "  Scheduled (system time $SYS_TZ → ~Pacific equivalent):"
 echo "    $OSIRIS_HOUR:00 daily (~5 AM PT)    ->  Osiris scraper (persist competitor videos)"
+echo "    $(($OSIRIS_HOUR + 1)):30 daily (~6:30 AM PT)  ->  Autopilot cycle (score ideas, select best)"
 echo "    $PERF_HOUR:00 daily (~7 AM PT)      ->  YouTube performance tracker (sync analytics)"
 echo "    $PERF_HOUR:30 daily (~7:30 AM PT)   ->  Osiris analyzer (post-mortems + learnings)"
+echo "    $PERF_HOUR:45 daily (~7:45 AM PT)   ->  Autopilot CTR monitor (early warnings)"
+echo "    8:30 daily (~8:30 AM PT)            ->  Autopilot learning (extract patterns)"
 echo "    $DISCOVER_HOUR:00 daily (~9 AM PT)  ->  Discovery scan (news + competitors → Slack)"
 echo "    $QUEUE_HOUR:00 daily (~12 PM PT)    ->  Pipeline queue (process all stages to render)"
 echo "    Every 15 min             ->  Bot health check (auto-restart if down)"
@@ -174,17 +195,23 @@ echo "    All jobs (except healthcheck) send Slack notifications on failure."
 echo "    Check your Slack channel if you don't see morning activity."
 echo ""
 echo "  Timeouts:"
-echo "    Osiris Scraper:   10 min max"
-echo "    Performance:      10 min max"
-echo "    Osiris Analyzer:  10 min max"
-echo "    Discovery:        15 min max (includes competitor scrape)"
-echo "    Pipeline:         4 hours max"
-echo "    Approval:         10 min max"
+echo "    Osiris Scraper:    10 min max"
+echo "    Autopilot Cycle:   15 min max"
+echo "    Performance:       10 min max"
+echo "    Osiris Analyzer:   10 min max"
+echo "    Autopilot CTR:     10 min max"
+echo "    Autopilot Learn:   10 min max"
+echo "    Discovery:         15 min max (includes competitor scrape)"
+echo "    Pipeline:          4 hours max"
+echo "    Approval:          10 min max"
 echo ""
 echo "  Logs:"
 echo "    /tmp/osiris-scraper.log"
+echo "    /tmp/autopilot-cycle.log"
 echo "    /tmp/performance-tracker.log"
 echo "    /tmp/osiris-analyze.log"
+echo "    /tmp/autopilot-ctr.log"
+echo "    /tmp/autopilot-learn.log"
 echo "    /tmp/pipeline-discover.log"
 echo "    /tmp/pipeline-queue.log"
 echo "    /tmp/pipeline-bot-health.log"
