@@ -1,6 +1,7 @@
 """Tests for thumbnail analyzer."""
 
 import pytest
+import asyncio
 from unittest.mock import Mock, AsyncMock, patch
 from autopilot.analysis.thumbnail_analyzer import ThumbnailAnalyzer, ThumbnailAnalysis
 
@@ -13,7 +14,7 @@ class TestThumbnailAnalyzer:
         """Mock Anthropic client."""
         mock = Mock()
         mock.messages = Mock()
-        mock.messages.create = AsyncMock()
+        mock.messages.create = Mock()  # Anthropic SDK is sync, not async
         return mock
 
     @pytest.fixture
@@ -72,8 +73,7 @@ class TestThumbnailAnalyzer:
         assert analysis.text == {}
         assert analysis.subject == {}
 
-    @pytest.mark.asyncio
-    async def test_analyze_success(self, analyzer, mock_anthropic, sample_vision_response):
+    def test_analyze_success(self, analyzer, mock_anthropic, sample_vision_response):
         """Should analyze thumbnail and return structured data."""
         import json
         # Mock successful API response
@@ -81,19 +81,24 @@ class TestThumbnailAnalyzer:
         mock_response.content = [Mock(text=json.dumps(sample_vision_response))]
         mock_anthropic.messages.create.return_value = mock_response
 
-        with patch.object(analyzer, '_download_image', new_callable=AsyncMock) as mock_download:
-            mock_download.return_value = b"fake_image_bytes"
-            analysis = await analyzer.analyze("https://example.com/thumb.jpg")
+        async def run_test():
+            with patch.object(analyzer, '_download_image', new_callable=AsyncMock) as mock_download:
+                mock_download.return_value = b"fake_image_bytes"
+                return await analyzer.analyze("https://example.com/thumb.jpg")
+
+        analysis = asyncio.get_event_loop().run_until_complete(run_test())
 
         assert analysis is not None
         assert analysis.composition == "face_left_text_right"
 
-    @pytest.mark.asyncio
-    async def test_analyze_image_404(self, analyzer):
+    def test_analyze_image_404(self, analyzer):
         """Should return None on image download failure."""
-        with patch.object(analyzer, '_download_image', new_callable=AsyncMock) as mock_download:
-            mock_download.return_value = None
-            analysis = await analyzer.analyze("https://example.com/notfound.jpg")
+        async def run_test():
+            with patch.object(analyzer, '_download_image', new_callable=AsyncMock) as mock_download:
+                mock_download.return_value = None
+                return await analyzer.analyze("https://example.com/notfound.jpg")
+
+        analysis = asyncio.get_event_loop().run_until_complete(run_test())
 
         assert analysis is None
 
