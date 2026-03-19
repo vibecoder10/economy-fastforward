@@ -77,7 +77,7 @@ export const MusicBed: React.FC = () => {
 					>
 						<ActMusic
 							musicFile={musicBed.file}
-							volume={Math.min(musicBed.volume || 0.04, 0.04)}
+							volume={Math.min(musicBed.volume || 0.03, 0.03)}
 							sequenceDuration={durationFrames}
 							fadeInFrames={FADE_IN_FRAMES}
 							fadeOutFrames={FADE_OUT_FRAMES}
