@@ -144,11 +144,11 @@ TZ=America/Los_Angeles
 # Timeout: 10 min max | Lock expires after 15 min
 45 $PERF_HOUR * * * MAX_LOCK_AGE=900 $WRAPPER autopilot-ctr /tmp/autopilot-ctr.log timeout 600 python -m autopilot.monitoring.ctr_monitor --check-active
 
-# 8:30 AM PT — Autopilot learning extractor
+# $(($PERF_HOUR + 1)):30 (~8:30 AM PT) — Autopilot learning extractor
 # Extracts patterns from 48h+ videos and updates memory files
 # Runs AFTER performance metrics are fresh
 # Timeout: 10 min max | Lock expires after 15 min
-30 8 * * * MAX_LOCK_AGE=900 $WRAPPER autopilot-learn /tmp/autopilot-learn.log timeout 600 python -m autopilot.learning.learning_extractor --daily
+30 $(($PERF_HOUR + 1)) * * * MAX_LOCK_AGE=900 $WRAPPER autopilot-learn /tmp/autopilot-learn.log timeout 600 python -m autopilot.learning.learning_extractor --daily
 
 # $QUEUE_HOUR:00 (~12 PM PT) — Daily pipeline queue run
 # Processes all stages: Script → Voice → Image Prompts → Images → Thumbnail → Render → Upload
@@ -184,7 +184,7 @@ echo "    $(($OSIRIS_HOUR + 1)):30 daily (~6:30 AM PT)  ->  Autopilot cycle (sco
 echo "    $PERF_HOUR:00 daily (~7 AM PT)      ->  YouTube performance tracker (sync analytics)"
 echo "    $PERF_HOUR:30 daily (~7:30 AM PT)   ->  Osiris analyzer (post-mortems + learnings)"
 echo "    $PERF_HOUR:45 daily (~7:45 AM PT)   ->  Autopilot CTR monitor (early warnings)"
-echo "    8:30 daily (~8:30 AM PT)            ->  Autopilot learning (extract patterns)"
+echo "    $(($PERF_HOUR + 1)):30 daily (~8:30 AM PT)  ->  Autopilot learning (extract patterns)"
 echo "    $DISCOVER_HOUR:00 daily (~9 AM PT)  ->  Discovery scan (news + competitors → Slack)"
 echo "    $QUEUE_HOUR:00 daily (~12 PM PT)    ->  Pipeline queue (process all stages to render)"
 echo "    Every 15 min             ->  Bot health check (auto-restart if down)"
