@@ -86,7 +86,7 @@ class TestThumbnailAnalyzer:
                 mock_download.return_value = b"fake_image_bytes"
                 return await analyzer.analyze("https://example.com/thumb.jpg")
 
-        analysis = asyncio.get_event_loop().run_until_complete(run_test())
+        analysis = asyncio.run(run_test())
 
         assert analysis is not None
         assert analysis.composition == "face_left_text_right"
@@ -98,7 +98,7 @@ class TestThumbnailAnalyzer:
                 mock_download.return_value = None
                 return await analyzer.analyze("https://example.com/notfound.jpg")
 
-        analysis = asyncio.get_event_loop().run_until_complete(run_test())
+        analysis = asyncio.run(run_test())
 
         assert analysis is None
 
