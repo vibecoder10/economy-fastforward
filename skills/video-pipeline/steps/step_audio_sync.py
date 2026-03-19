@@ -105,6 +105,7 @@ async def run(pipeline, audio_path: str = None, scene_list: list = None) -> dict
     total_duration = 0.0
     scene_durations: dict[int, float] = {}
     image_durations: dict[tuple[int, int], float] = {}
+    image_word_data: dict[tuple[int, int], list[dict]] = {}
 
     for scene_num in scene_numbers:
         images = scenes_images[scene_num]
@@ -226,15 +227,24 @@ async def run(pipeline, audio_path: str = None, scene_list: list = None) -> dict
 
         scene_raw: list[dict] = []
         for entry_idx, (img, img_index, sentence, wc) in enumerate(img_entries):
-            start_time = words[start_indices[entry_idx]].start
+            w_start_idx = start_indices[entry_idx]
+            start_time = words[w_start_idx].start
 
             if entry_idx < len(img_entries) - 1:
-                end_time = words[start_indices[entry_idx + 1]].start
+                w_end_idx = start_indices[entry_idx + 1]
+                end_time = words[w_end_idx].start
             else:
+                w_end_idx = len(words)
                 end_time = words[-1].end
 
             dur = round(end_time - start_time, 2)
             dur = max(dur, 1.0)
+
+            # Extract actual word timestamps for this sentence
+            sentence_words = [
+                {"word": w.word, "start": round(w.start, 4), "end": round(w.end, 4)}
+                for w in words[w_start_idx:w_end_idx]
+            ]
 
             scene_raw.append({
                 "record_id": img["id"],
@@ -244,6 +254,7 @@ async def run(pipeline, audio_path: str = None, scene_list: list = None) -> dict
                 "display_start": round(start_time, 4),
                 "display_end": round(end_time, 4),
                 "word_count": wc,
+                "words": sentence_words,
             })
 
         scene_raw = enforce_max_image_duration(scene_raw)
@@ -256,6 +267,10 @@ async def run(pipeline, audio_path: str = None, scene_list: list = None) -> dict
             wc = entry["word_count"]
 
             image_durations[(scene_num, img_index)] = dur
+            # Store word timestamps for this image
+            image_words = entry.get("words", [])
+            if image_words:
+                image_word_data[(scene_num, img_index)] = image_words
 
             try:
                 pipeline.airtable.images_table.update(
@@ -276,6 +291,14 @@ async def run(pipeline, audio_path: str = None, scene_list: list = None) -> dict
 
     from audio_sync.render_config_writer import build_render_config, write_render_config
 
+    # Calculate scene-to-act mapping (6 acts, scenes distributed evenly)
+    max_scene = max(scene_numbers) if scene_numbers else 20
+    scenes_per_act = max(1, max_scene / 6)
+
+    def get_act_for_scene(sn: int) -> int:
+        """Map scene number to act (1-6)."""
+        return min(6, max(1, int((sn - 1) / scenes_per_act) + 1))
+
     running_time = 0.0
     timed_images = []
     for scene_num in scene_numbers:
@@ -291,6 +314,23 @@ async def run(pipeline, audio_path: str = None, scene_list: list = None) -> dict
 
             composition = img.get(ImageFields.SHOT_TYPE, "") or "wide"
 
+            # Get word timestamps for this image (with time offset for running_time)
+            raw_words = image_word_data.get((scene_num, img_index), [])
+            if raw_words:
+                # Offset word times relative to scene start
+                first_word_start = raw_words[0]["start"] if raw_words else 0
+                offset = running_time - first_word_start
+                words_with_offset = [
+                    {
+                        "word": w["word"],
+                        "start": round(w["start"] + offset, 4),
+                        "end": round(w["end"] + offset, 4),
+                    }
+                    for w in raw_words
+                ]
+            else:
+                words_with_offset = []
+
             timed_images.append({
                 "scene_number": scene_num,
                 "image_index": img_index,
@@ -304,6 +344,8 @@ async def run(pipeline, audio_path: str = None, scene_list: list = None) -> dict
                 "alignment_method": "sentence_match",
                 "style": "",
                 "composition": composition,
+                "act": get_act_for_scene(scene_num),
+                "words": words_with_offset,
             })
             running_time += dur
 

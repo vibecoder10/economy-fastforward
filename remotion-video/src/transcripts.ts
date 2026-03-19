@@ -42,15 +42,34 @@ export function getWordsForScene(
 }
 
 /**
- * Build words from render_config scenes (existing logic).
- * Each entry has sentence_text and narration_start/narration_end.
+ * Build words from render_config scenes.
+ * Uses actual Whisper word timestamps when available (words array),
+ * falls back to uniform distribution when not.
  */
 function buildWordsFromRenderScenes(
-    renderScenes: Array<{ sentence_text?: string; narration_start: number; narration_end: number }>,
+    renderScenes: Array<{
+        sentence_text?: string;
+        narration_start: number;
+        narration_end: number;
+        words?: Array<{ word: string; start: number; end: number }>;
+    }>,
 ): Array<{ word: string; start: number; end: number }> {
     const words: Array<{ word: string; start: number; end: number }> = [];
 
     for (const scene of renderScenes) {
+        // Use actual Whisper word timestamps if available
+        if (scene.words && scene.words.length > 0) {
+            for (const w of scene.words) {
+                words.push({
+                    word: w.word,
+                    start: w.start,
+                    end: w.end,
+                });
+            }
+            continue;
+        }
+
+        // Fallback: estimate from sentence text and narration bounds
         const text = scene.sentence_text || "";
         if (!text.trim()) continue;
 

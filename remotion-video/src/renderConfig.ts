@@ -13,6 +13,12 @@
 
 import { getInputProps } from "remotion";
 
+export interface WordTimestamp {
+    word: string;
+    start: number;
+    end: number;
+}
+
 export interface RenderScene {
     scene_number: number;
     image_path: string;
@@ -31,6 +37,7 @@ export interface RenderScene {
     image_index?: number;
     type?: "image" | "video";
     video_clip_path?: string;
+    words?: WordTimestamp[];
 }
 
 export interface MusicBed {

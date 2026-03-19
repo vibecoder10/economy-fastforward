@@ -89,14 +89,15 @@ export const CaptionsOverlay: React.FC<CaptionsOverlayProps> = ({
             <div
                 style={{
                     display: "flex",
-                    flexWrap: "wrap",
+                    flexWrap: "nowrap",
                     justifyContent: "center",
                     gap: STYLE.font.wordGap,
-                    maxWidth: "80%",
+                    maxWidth: "95%",
                     fontFamily: STYLE.font.family,
                     fontWeight: STYLE.font.weight,
                     fontSize: STYLE.font.size,
                     letterSpacing: STYLE.font.letterSpacing,
+                    whiteSpace: "nowrap",
                 }}
             >
                 {currentChunk.map((wordData) => {

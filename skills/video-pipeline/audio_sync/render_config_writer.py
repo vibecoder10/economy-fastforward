@@ -89,6 +89,10 @@ def build_render_config(
         sentence_text = scene.get("sentence_text", "")
         if sentence_text:
             entry["sentence_text"] = sentence_text
+        # Include word-level timestamps for karaoke captions
+        words = scene.get("words", [])
+        if words:
+            entry["words"] = words
 
         # Video clip support — when a segment has a video clip, use it
         # instead of (or in addition to) the static image
