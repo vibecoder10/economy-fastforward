@@ -28,6 +28,7 @@ The Autopilot Brain is an autonomous orchestration layer that sits above the exi
 5. [Thumbnail Analysis System](#5-thumbnail-analysis-system)
 6. [File Structure & Implementation](#6-file-structure--implementation)
 7. [V1 Scope & Phases](#7-v1-scope--phases)
+8. [Integration Details](#8-integration-details-review-fixes)
 
 ---
 
@@ -567,6 +568,219 @@ Every video is an experiment.
 Every CTR measurement is data.
 Compound what works. Discard what doesn't.
 Never stop learning.
+```
+
+---
+
+## 8. Integration Details (Review Fixes)
+
+### 8.1 Relationship to Existing Osiris System
+
+The autopilot memory system **supplements** (not replaces) the existing Osiris tables.
+
+**Existing Osiris System (Airtable - persistent store):**
+- `Osiris Learnings Table` — Structured patterns with confidence scores, sample sizes
+- `Title Insights Table` — Competitor title patterns with VPH data
+- `osiris/performance_analyzer.py` — Extracts learnings at 48h/7d milestones
+- `osiris/learnings_engine.py` — Queries and injects learnings into prompts
+
+**Autopilot Memory (Markdown - working memory):**
+- `LEARNINGS.md` — Human-readable summary loaded into Claude context
+- Pattern files — Detailed reasoning, hypotheses, experiment narratives
+- `experiments_log.md` — Full attribution for every video decision
+
+**Data Flow:**
+```
+Osiris Learnings Table (structured, queryable)
+         ↓ read
+   pattern_library.py
+         ↓ format
+   LEARNINGS.md (narrative, context-loadable)
+         ↓ read
+   autopilot.py (Claude sees full context)
+         ↓ produces video
+   learning_extractor.py
+         ↓ writes
+   Both: Osiris table (structured) + memory files (narrative)
+```
+
+**Why both?**
+- Airtable: Structured queries, confidence math, cross-video aggregation
+- Markdown: Rich context for Claude, human-readable, git-tracked
+
+### 8.2 State Management
+
+**Config vs State Separation:**
+
+`autopilot_program.md` (human-editable, read-only by autopilot):
+- Mission statement
+- Cadence settings (videos_per_month)
+- Confidence weights
+- Thresholds
+- Scope boundaries
+
+`autopilot/state/autopilot_state.json` (autopilot-owned):
+```json
+{
+  "autopilot_enabled": true,
+  "last_cycle": "2026-03-18T09:00:00Z",
+  "videos_produced": 12,
+  "channel_avg_ctr": 4.2,
+  "current_experiment": {
+    "video_title": "China's $3T Dollar Trap",
+    "status": "monitoring",
+    "publish_date": "2026-03-16T14:00:00Z"
+  },
+  "active_hypotheses": [
+    {"pattern": "red_face_formula", "videos_remaining": 2}
+  ]
+}
+```
+
+The autopilot reads `autopilot_program.md` for configuration but writes state to `autopilot_state.json`.
+
+### 8.3 CTR Monitoring API Strategy
+
+**6h check:** Use YouTube Analytics API (`yt-analytics.readonly` scope)
+- Endpoint: `reports.query` with `metrics=impressions,impressionClickThroughRate`
+- Available: ~4-6 hours after publish (varies)
+- Fallback: If no data at 6h, log and retry at 12h
+
+**24h/48h/7d checks:** Use existing `performance_tracker.py` infrastructure
+- YouTube Reporting API (bulk CSV data)
+- Already runs daily at 7:00 AM
+- Autopilot reads from Ideas table after tracker runs
+
+**Implementation:**
+```python
+async def check_ctr_6h(video_id: str) -> Optional[float]:
+    """Early CTR check via Analytics API"""
+    try:
+        response = await youtube_analytics.reports().query(
+            ids="channel==MINE",
+            startDate=today,
+            endDate=today,
+            metrics="impressionClickThroughRate,impressions",
+            filters=f"video=={video_id}"
+        ).execute()
+
+        if response.get("rows"):
+            ctr = response["rows"][0][0]  # CTR as decimal
+            return ctr * 100  # Convert to percentage
+        return None  # Data not yet available
+    except Exception as e:
+        log.warning(f"6h CTR check failed: {e}")
+        return None  # Non-blocking, will retry
+```
+
+### 8.4 Thumbnail Override Format
+
+The `Thumbnail Style Override` field uses structured prefixes:
+
+**REPLACE:** (full override, replaces default template)
+```
+REPLACE: Red gradient background transitioning from deep crimson top to
+darker red bottom. Leader portrait (stern expression) positioned on LEFT
+side of frame, taking up 40% of width. Two lines of bold yellow text on
+RIGHT side, approximately 70% of frame width, thick black outline with
+heavy drop shadow. Text in all caps. High saturation editorial illustration
+style. No blue tones. Dominant colors: red, yellow, black only.
+```
+
+**APPEND:** (adds to default template)
+```
+APPEND: Use red/yellow color scheme. Subject expression: stern/serious.
+Text placement: right 65%. Add subtle map overlay behind subject.
+```
+
+**Autopilot Logic:**
+- Use `REPLACE:` when modeling a specific competitor's visual style
+- Use `APPEND:` when adding learned patterns to the default template
+- Always log which format was used for attribution
+
+### 8.5 Thumbnail URL Resolution
+
+```python
+async def get_competitor_thumbnail(video_id: str) -> Optional[str]:
+    """Fetch highest quality thumbnail URL"""
+    response = await youtube.videos().list(
+        part="snippet",
+        id=video_id
+    ).execute()
+
+    if not response.get("items"):
+        return None
+
+    thumbnails = response["items"][0]["snippet"]["thumbnails"]
+
+    # Prefer maxres (1280x720), fall back to high (480x360)
+    if "maxres" in thumbnails:
+        return thumbnails["maxres"]["url"]
+    elif "high" in thumbnails:
+        return thumbnails["high"]["url"]
+    else:
+        return thumbnails.get("default", {}).get("url")
+```
+
+### 8.6 Title Selection Flow
+
+The autopilot does NOT generate new titles. It selects from existing options:
+
+1. When competitor video is selected for modeling, existing `idea_bot` generates 3 title variants
+2. Autopilot's `title_selector.py` scores each variant against `title_patterns.md`
+3. Scoring factors:
+   - Match to proven formulas (e.g., "Question format" +2 points)
+   - Avoid anti-patterns (e.g., "All lowercase" -3 points)
+   - Similar to competitor's structure (+1 point)
+4. Highest-scoring title written to Airtable `Video Title` field
+5. If all variants score below threshold: request regeneration with pattern guidance
+
+### 8.7 Vision Analysis Error Handling
+
+| Error | Recovery |
+|-------|----------|
+| Image 404 | Skip thumbnail analysis, use default template |
+| Rate limit | Retry with exponential backoff (3 attempts) |
+| Vision returns empty | Log warning, use default template |
+| Low confidence (<0.6) | Log, proceed with partial extraction |
+| API error | Fall back to text-only title patterns |
+
+**Thumbnail analysis is non-blocking.** Pipeline continues even if analysis fails. The autopilot logs failures and uses default patterns.
+
+### 8.8 Cron Integration with Existing Jobs
+
+**Integrated Schedule (no conflicts):**
+
+| Time | Job | Relationship |
+|------|-----|--------------|
+| 5:00 AM | `osiris.competitor_scraper` | Provides candidate data |
+| 6:30 AM | `autopilot --check-cycle` | **NEW** Runs BEFORE pipeline queue |
+| 7:00 AM | `performance_tracker --recent` | Provides CTR data |
+| 7:30 AM | `autopilot.ctr_monitor` | **NEW** Runs AFTER tracker |
+| 8:00 AM | `pipeline --run-queue` | Processes autopilot-approved ideas |
+| 8:30 AM | `autopilot.learning_extractor` | **NEW** Runs AFTER pipeline |
+| 9:00 AM | `discovery_scanner` | Feeds new candidates |
+
+**Key coordination:**
+- Autopilot sets up overrides at 6:30 AM
+- Pipeline queue at 8:00 AM processes them
+- Learning extraction at 8:30 AM captures results
+
+### 8.9 Slack Command Prefix Convention
+
+All autopilot commands use the `autopilot` prefix for consistency:
+
+```
+autopilot on              # Turn on
+autopilot off             # Turn off
+autopilot status          # Show state
+autopilot force           # Force production now
+autopilot skip            # Skip next slot
+autopilot config          # Show weights
+autopilot learnings       # Show LEARNINGS.md
+autopilot patterns thumb  # Show thumbnail patterns
+autopilot patterns title  # Show title patterns
+autopilot ctr [title]     # Force CTR check
 ```
 
 ---
