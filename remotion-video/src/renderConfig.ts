@@ -13,6 +13,32 @@
 
 import { getInputProps } from "remotion";
 
+// For Studio preview: try to load render_config.json statically
+// This is safe because Studio preview is local-only development
+let _staticConfig: RenderConfig | null = null;
+
+// Try to load static config at module initialization (Studio preview)
+try {
+    // Use synchronous XHR for initial load (works in browser/Studio)
+    if (typeof XMLHttpRequest !== "undefined" && typeof window !== "undefined") {
+        // Remotion serves static files with a hash prefix
+        const staticBase = (window as unknown as Record<string, unknown>).remotion_staticBase as string || "";
+        const configUrl = staticBase ? `${staticBase}/render_config.json` : "/render_config.json";
+
+        const xhr = new XMLHttpRequest();
+        xhr.open("GET", configUrl, false); // synchronous
+        xhr.send();
+        if (xhr.status === 200) {
+            const data = JSON.parse(xhr.responseText) as RenderConfig;
+            if (data?.scenes && data.scenes.length > 0) {
+                _staticConfig = data;
+            }
+        }
+    }
+} catch {
+    // Static file not available or XHR not supported
+}
+
 export interface WordTimestamp {
     word: string;
     start: number;
@@ -76,10 +102,13 @@ let _cachedConfig: RenderConfig | null = null;
  *
  * Returns the renderConfig object embedded in props.json by pipeline.py,
  * or null if unavailable.  NEVER returns stale data from a previous video.
+ *
+ * For Studio preview: falls back to public/render_config.json if no CLI props.
  */
 export function loadRenderConfig(): RenderConfig | null {
     if (_cachedConfig) return _cachedConfig;
 
+    // 1. Try CLI input props first (production render path)
     try {
         const inputProps = getInputProps() as Record<string, unknown>;
         const rc = inputProps?.renderConfig as RenderConfig | undefined;
@@ -91,7 +120,8 @@ export function loadRenderConfig(): RenderConfig | null {
         // getInputProps() unavailable (e.g. during initial bundling)
     }
 
-    return null;
+    // 2. Fallback: return cached static config for Studio preview
+    return _staticConfig;
 }
 
 /**

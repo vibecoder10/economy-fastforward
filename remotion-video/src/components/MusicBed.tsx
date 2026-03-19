@@ -43,15 +43,14 @@ export const MusicBed: React.FC = () => {
 		return map;
 	}, [musicBeds]);
 
-	// Determine first and last act numbers
-	const firstAct = actBoundaries[0]?.act ?? 1;
+	// Determine last act for crossfade logic
 	const lastAct = actBoundaries[actBoundaries.length - 1]?.act ?? 1;
 
-	// Crossfade timing: 3 seconds = 90 frames at 30fps
-	const CROSSFADE_FRAMES = 90;
+	// Crossfade timing: 3 seconds overlap between acts
+	const CROSSFADE_FRAMES = Math.floor(fps * 3);
 	// Fade in/out timing: 2 seconds for fade in, 3 seconds for fade out
-	const FADE_IN_FRAMES = 60; // 2 seconds at 30fps
-	const FADE_OUT_FRAMES = 90; // 3 seconds at 30fps
+	const FADE_IN_FRAMES = Math.floor(fps * 2);
+	const FADE_OUT_FRAMES = Math.floor(fps * 3);
 
 	return (
 		<>
@@ -65,8 +64,8 @@ export const MusicBed: React.FC = () => {
 
 				const startFrame = boundary.startFrame;
 				// Add crossfade overlap if not the last act
-				const isLastAct = actNum === lastAct;
-				const durationFrames = isLastAct
+				const isLastActFlag = actNum === lastAct;
+				const durationFrames = isLastActFlag
 					? boundary.endFrame - startFrame
 					: boundary.endFrame - startFrame + CROSSFADE_FRAMES;
 
@@ -79,11 +78,7 @@ export const MusicBed: React.FC = () => {
 						<ActMusic
 							musicFile={musicBed.file}
 							volume={musicBed.volume || 0.08}
-							isFirstAct={actNum === firstAct}
-							isLastAct={isLastAct}
-							actStartFrame={startFrame}
-							actEndFrame={boundary.endFrame}
-							videoEndFrame={totalDurationFrames}
+							sequenceDuration={durationFrames}
 							fadeInFrames={FADE_IN_FRAMES}
 							fadeOutFrames={FADE_OUT_FRAMES}
 						/>
@@ -97,11 +92,7 @@ export const MusicBed: React.FC = () => {
 interface ActMusicProps {
 	musicFile: string;
 	volume: number;
-	isFirstAct: boolean;
-	isLastAct: boolean;
-	actStartFrame: number;
-	actEndFrame: number;
-	videoEndFrame: number;
+	sequenceDuration: number;  // Duration of this Sequence in frames
 	fadeInFrames: number;
 	fadeOutFrames: number;
 }
@@ -110,61 +101,43 @@ interface ActMusicProps {
  * Internal component for a single act's music with volume control.
  *
  * Handles fade in/out and volume interpolation based on act position.
+ *
+ * IMPORTANT: This component runs inside a <Sequence>, so useCurrentFrame()
+ * returns SEQUENCE-RELATIVE frames (starting at 0), not absolute video frames.
  */
 const ActMusic: React.FC<ActMusicProps> = ({
 	musicFile,
 	volume,
-	isFirstAct,
-	isLastAct,
-	actStartFrame,
-	actEndFrame,
-	videoEndFrame,
+	sequenceDuration,
 	fadeInFrames,
 	fadeOutFrames,
 }) => {
+	// frame is SEQUENCE-RELATIVE (starts at 0 for each act's Sequence)
 	const frame = useCurrentFrame();
-	const { fps } = useVideoConfig();
 
 	// Calculate effective volume with fade in/out
 	const effectiveVolume = useMemo(() => {
 		let vol = volume;
 
-		if (isFirstAct) {
-			// Fade in from 0 to baseVolume over first fadeInFrames of VIDEO (not act)
-			if (frame < fadeInFrames) {
-				vol = interpolate(frame, [0, fadeInFrames], [0, volume]);
-			}
-		} else {
-			// Non-first acts: fade in over fadeOutFrames at act start
-			const framesSinceActStart = frame - actStartFrame;
-			if (framesSinceActStart < fadeOutFrames) {
-				vol = interpolate(framesSinceActStart, [0, fadeOutFrames], [0, volume]);
-			}
+		// Fade in at start of sequence (all acts fade in)
+		if (frame < fadeInFrames) {
+			vol = interpolate(frame, [0, fadeInFrames], [0, volume]);
 		}
 
-		if (isLastAct) {
-			// Fade out from baseVolume to 0 over last fadeOutFrames of VIDEO
-			const framesUntilEnd = videoEndFrame - frame;
-			if (framesUntilEnd < fadeOutFrames) {
-				vol = interpolate(framesUntilEnd, [0, fadeOutFrames], [0, volume]);
-			}
-		} else {
-			// Non-last acts: fade out over fadeOutFrames at act end
-			const framesUntilActEnd = actEndFrame - frame;
-			if (framesUntilActEnd < fadeOutFrames) {
-				vol = interpolate(framesUntilActEnd, [0, fadeOutFrames], [0, volume]);
-			}
+		// Fade out at end of sequence
+		const framesUntilEnd = sequenceDuration - frame;
+		if (framesUntilEnd < fadeOutFrames) {
+			// Use minimum of fade-in and fade-out volumes to handle overlap
+			const fadeOutVol = interpolate(framesUntilEnd, [0, fadeOutFrames], [0, volume]);
+			vol = Math.min(vol, fadeOutVol);
 		}
 
-		return vol;
+		// Ensure volume is never negative or above 1
+		return Math.max(0, Math.min(1, vol));
 	}, [
 		frame,
 		volume,
-		isFirstAct,
-		isLastAct,
-		actStartFrame,
-		actEndFrame,
-		videoEndFrame,
+		sequenceDuration,
 		fadeInFrames,
 		fadeOutFrames,
 	]);

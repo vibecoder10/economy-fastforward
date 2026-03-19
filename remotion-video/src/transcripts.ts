@@ -41,10 +41,19 @@ export function getWordsForScene(
     return buildWordsFromInputProps(sceneNumber);
 }
 
+// Minimum word duration in seconds - prevents zero-duration words from Whisper
+const MIN_WORD_DURATION = 0.15;
+
 /**
  * Build words from render_config scenes.
  * Uses actual Whisper word timestamps when available (words array),
  * falls back to uniform distribution when not.
+ *
+ * IMPORTANT: Returns SCENE-RELATIVE timestamps (starting at 0), not absolute
+ * video timestamps. This is because Scene.tsx runs inside a Remotion <Sequence>
+ * where useCurrentFrame() returns scene-relative frames.
+ *
+ * Also fixes zero-duration words by expanding them to MIN_WORD_DURATION.
  */
 function buildWordsFromRenderScenes(
     renderScenes: Array<{
@@ -54,16 +63,30 @@ function buildWordsFromRenderScenes(
         words?: Array<{ word: string; start: number; end: number }>;
     }>,
 ): Array<{ word: string; start: number; end: number }> {
+    if (renderScenes.length === 0) return [];
+
+    // Find the scene's start time (earliest narration_start) to convert
+    // absolute timestamps to scene-relative timestamps
+    const sceneStartTime = Math.min(...renderScenes.map(s => s.narration_start));
+
     const words: Array<{ word: string; start: number; end: number }> = [];
 
     for (const scene of renderScenes) {
         // Use actual Whisper word timestamps if available
         if (scene.words && scene.words.length > 0) {
             for (const w of scene.words) {
+                const relStart = w.start - sceneStartTime;
+                let relEnd = w.end - sceneStartTime;
+
+                // Fix zero-duration words by expanding them
+                if (relEnd <= relStart) {
+                    relEnd = relStart + MIN_WORD_DURATION;
+                }
+
                 words.push({
                     word: w.word,
-                    start: w.start,
-                    end: w.end,
+                    start: relStart,
+                    end: relEnd,
                 });
             }
             continue;
@@ -76,8 +99,9 @@ function buildWordsFromRenderScenes(
         const sceneWords = text.split(/\s+/).filter((w) => w.length > 0);
         if (sceneWords.length === 0) continue;
 
-        const start = scene.narration_start;
-        const end = scene.narration_end;
+        // Convert to scene-relative timing
+        const start = scene.narration_start - sceneStartTime;
+        const end = scene.narration_end - sceneStartTime;
         const duration = end - start;
 
         // Guard against zero/negative duration (degenerate timing)

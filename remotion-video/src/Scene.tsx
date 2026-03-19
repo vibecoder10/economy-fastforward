@@ -188,7 +188,7 @@ export const Scene: React.FC<SceneProps> = ({
                 <CaptionsOverlay
                     words={transcript.words}
                     currentTimeSeconds={currentTimeSeconds}
-                    wordsPerChunk={10}
+                    wordsPerChunk={6}
                 />
             )}
         </AbsoluteFill>

@@ -37,7 +37,7 @@ const STYLE = {
 export const CaptionsOverlay: React.FC<CaptionsOverlayProps> = ({
     words,
     currentTimeSeconds,
-    wordsPerChunk = 8,
+    wordsPerChunk = 6,
 }) => {
     if (!words || words.length === 0) return null;
 
@@ -71,10 +71,24 @@ export const CaptionsOverlay: React.FC<CaptionsOverlayProps> = ({
     const currentChunk = chunks[activeChunkIndex];
     if (!currentChunk) return null;
 
-    // Find which word is currently being spoken
-    const currentWordIndex = words.findIndex(
+    // Find which word is currently being spoken (or most recently spoken)
+    // First try exact match
+    let currentWordIndex = words.findIndex(
         (w) => currentTimeSeconds >= w.start && currentTimeSeconds <= w.end
     );
+
+    // If no exact match (in a gap between words), find the most recent word
+    // This reduces perceived lag by "sticking" to the last spoken word
+    if (currentWordIndex === -1) {
+        // Find the last word whose end time has passed
+        for (let i = words.length - 1; i >= 0; i--) {
+            if (currentTimeSeconds >= words[i].end) {
+                currentWordIndex = i;
+                break;
+            }
+        }
+        // If still -1, we're before the first word - highlight nothing
+    }
 
     return (
         <AbsoluteFill
@@ -92,7 +106,7 @@ export const CaptionsOverlay: React.FC<CaptionsOverlayProps> = ({
                     flexWrap: "nowrap",
                     justifyContent: "center",
                     gap: STYLE.font.wordGap,
-                    maxWidth: "95%",
+                    maxWidth: "85%",
                     fontFamily: STYLE.font.family,
                     fontWeight: STYLE.font.weight,
                     fontSize: STYLE.font.size,
@@ -101,9 +115,6 @@ export const CaptionsOverlay: React.FC<CaptionsOverlayProps> = ({
                 }}
             >
                 {currentChunk.map((wordData) => {
-                    // Clean word (remove trailing punctuation)
-                    const cleanWord = wordData.word.replace(/[.,!?;:]$/, "");
-
                     // Current word is yellow, all others are white
                     const isCurrentWord = wordData.originalIndex === currentWordIndex;
                     const color = isCurrentWord ? STYLE.colors.current : STYLE.colors.default;
@@ -116,10 +127,9 @@ export const CaptionsOverlay: React.FC<CaptionsOverlayProps> = ({
                                 WebkitTextStroke: STYLE.colors.textStroke,
                                 paintOrder: "stroke fill",
                                 display: "inline-block",
-                                transition: "color 0.05s ease-out",
                             }}
                         >
-                            {cleanWord}
+                            {wordData.word}
                         </span>
                     );
                 })}
