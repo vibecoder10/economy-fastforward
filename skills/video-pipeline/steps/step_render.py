@@ -824,7 +824,7 @@ async def _select_and_download_music(pipeline, props: dict, public_dir: Path) ->
         if not bed.get("file"):
             continue
 
-        filename = bed["file"].removeprefix("music/")
+        filename = bed["file"]
         dest = music_dir / filename
 
         if dest.exists() and dest.stat().st_size > 1000:

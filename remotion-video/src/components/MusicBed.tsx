@@ -142,10 +142,15 @@ const ActMusic: React.FC<ActMusicProps> = ({
 		fadeOutFrames,
 	]);
 
+	const { fps } = useVideoConfig();
+	// Skip the first 30 seconds of each track (avoid slow intros)
+	const MUSIC_START_FROM_FRAMES = Math.floor(30 * fps);
+
 	return (
 		<Audio
 			src={staticFile(`music/${musicFile}`)}
 			volume={effectiveVolume}
+			startFrom={MUSIC_START_FROM_FRAMES}
 			loop
 		/>
 	);

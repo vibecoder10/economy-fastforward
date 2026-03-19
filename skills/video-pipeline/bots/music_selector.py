@@ -206,7 +206,7 @@ async def select_music_for_script(
 
         results.append({
             "act": act_num,
-            "file": f"music/{track['name']}" if track else None,
+            "file": track['name'] if track else None,
             "file_id": track["id"] if track else None,
             "mood": mood,
             "volume": DEFAULT_VOLUME,
