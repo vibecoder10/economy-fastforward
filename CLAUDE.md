@@ -97,8 +97,10 @@ skills/video-pipeline/autopilot/
 │   ├── thumbnail_analyzer.py # Claude vision extraction from competitor thumbnails
 │   ├── thumbnail_adapter.py  # Generate REPLACE:/APPEND: style overrides
 │   └── title_selector.py     # Score title variants against pattern memory
-├── learning/                 # CHUNK 2 - Memory System (COMPLETE, 7 tests)
-│   └── pattern_library.py    # Read/query patterns from memory files
+├── learning/                 # CHUNK 2+3 - Memory + Learning (COMPLETE, 19 tests)
+│   ├── pattern_library.py    # Read/query patterns from memory files
+│   ├── learning_extractor.py # Extract patterns from 48h+ video performance
+│   └── memory_writer.py      # Update markdown memory files with learnings
 ├── memory/                   # Persistent learnings (git-tracked)
 │   ├── LEARNINGS.md          # Master summary (always loaded into context)
 │   ├── thumbnail_patterns.md # Proven/anti thumbnail elements
@@ -106,18 +108,20 @@ skills/video-pipeline/autopilot/
 │   ├── topic_performance.md  # Topic × timing performance
 │   ├── experiments_log.md    # Full video experiment ledger
 │   └── competitor_models.md  # Competitor trust scores
-├── monitoring/               # CHUNK 3 - CTR Monitoring (TODO)
+├── monitoring/               # CHUNK 3 - CTR Monitoring (COMPLETE, 30 tests)
 │   ├── ctr_monitor.py        # 6h/24h/48h YouTube Analytics checks
-│   └── early_warning.py      # Alert logic for underperforming videos
+│   ├── early_warning.py      # Alert classification (CRITICAL/WARNING/NORMAL/STRONG)
+│   └── performance_comparator.py  # Compare our CTR vs competitor VPH
 ├── state/
 │   └── autopilot_state.json  # Runtime state (gitignored)
-└── tests/                    # 60 tests total
+└── tests/                    # 102 tests total
 ```
 
 **Design Spec:** `docs/superpowers/specs/2026-03-18-autopilot-brain-design.md`
 **Implementation Plans:**
 - Chunk 1 (Foundation): `docs/superpowers/plans/2026-03-18-autopilot-chunk1-foundation.md`
 - Chunk 2 (Thumbnail/Memory): `docs/superpowers/plans/2026-03-18-autopilot-chunk2-thumbnail-memory.md`
+- Chunk 3 (CTR/Learning): `docs/superpowers/plans/2026-03-18-autopilot-chunk3-ctr-learning.md`
 
 ## Architecture
 Status-driven pipeline where Airtable Status fields gate each stage: Research → Script → Voice → Image Prompts → **Validation** → Images → Video Scripts → Video Generation → Thumbnail → Render → Upload
