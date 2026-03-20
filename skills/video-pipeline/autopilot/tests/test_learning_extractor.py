@@ -6,6 +6,7 @@ from autopilot.learning.learning_extractor import (
     LearningExtractor,
     ExtractedLearning,
     ExperimentResult,
+    ThemeData,
 )
 from autopilot.monitoring.early_warning import CTRVerdict
 
@@ -117,3 +118,73 @@ class TestLearningExtractor:
         assert "face_left_composition" in patterns
         assert "question_format" in patterns
         assert "caps_emphasis" in patterns  # TRAP is in caps
+
+    def test_extract_theme_learnings(self, extractor):
+        """Theme extraction should create topic, angle, and hook learnings."""
+        theme_data = ThemeData(
+            primary_theme="US-China conflict",
+            secondary_themes=["trade war", "technology"],
+            angle_type="hidden_truth",
+            emotional_hooks=["curiosity_gap", "fear"],
+            topic_category="geopolitics",
+            title_formula="How [Power] [Verb] the [Event]",
+            formula_variables={"power": "US", "verb": "Engineered", "event": "Trade War"},
+        )
+
+        learnings = extractor.extract_theme_learnings(
+            video_title="How the US Engineered the Trade War",
+            ctr=5.5,
+            theme_data=theme_data,
+        )
+
+        # Should have topic, angle, hook, and formula learnings
+        categories = {l.category for l in learnings}
+        assert "topic" in categories
+        assert "angle" in categories
+        assert "hook" in categories
+        assert "formula" in categories
+
+        # Check specific patterns
+        patterns = [l.pattern for l in learnings]
+        assert "geopolitics" in patterns  # topic_category
+        assert "hidden_truth" in patterns  # angle_type
+        assert "curiosity_gap" in patterns  # emotional hook
+        assert "fear" in patterns  # emotional hook
+
+    def test_extract_all_with_theme_data(self, extractor):
+        """Full extraction with theme data should include all categories."""
+        theme_data = ThemeData(
+            primary_theme="China economy",
+            angle_type="warning",
+            emotional_hooks=["fear"],
+            topic_category="economy",
+            title_formula="Why [Entity] Will [Outcome]",
+        )
+
+        result = extractor.extract_all(
+            video_title="Why China Will Collapse?",
+            ctr=4.2,
+            thumbnail_override="Red background with yellow text",
+            modeled_from="Competitor video",
+            theme_data=theme_data,
+        )
+
+        # Should have all categories
+        categories = {l.category for l in result.learnings}
+        assert "thumbnail" in categories
+        assert "title" in categories
+        assert "topic" in categories
+        assert "angle" in categories
+
+        # Title formula should be set from theme_data
+        assert result.title_formula == "Why [Entity] Will [Outcome]"
+
+    def test_normalize_formula(self, extractor):
+        """Formula normalization should create consistent pattern names."""
+        # Test typical formula
+        normalized = extractor._normalize_formula("How [Power] [Verb] the [Event]")
+        assert normalized == "how_power_verb_the_event"
+
+        # Test empty formula
+        assert extractor._normalize_formula("") == ""
+        assert extractor._normalize_formula(None) == ""

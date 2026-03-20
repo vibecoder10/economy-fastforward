@@ -1,9 +1,13 @@
 """Score idea candidates using weighted signals."""
 
 import math
+import re
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import List, Optional, TYPE_CHECKING
 from autopilot.core.config_parser import AutopilotConfig
+
+if TYPE_CHECKING:
+    from autopilot.learning.pattern_library import PatternLibrary
 
 
 @dataclass
@@ -16,7 +20,7 @@ class IdeaCandidate:
     competitor_title: Optional[str] = None
     hours_old: float = 0.0
     topic: Optional[str] = None
-    # Future: topic_fit_score, retention_history, etc.
+    angle: Optional[str] = None  # angle_type from theme extraction
 
 
 @dataclass
@@ -35,14 +39,24 @@ class ConfidenceScorer:
     MAX_VPH = 500.0  # VPH above this gets max score
     MAX_HOURS = 168.0  # 7 days - older than this gets 0 freshness
 
-    def __init__(self, config: AutopilotConfig):
+    # CTR thresholds for scoring
+    STRONG_CTR = 4.0  # Topics with avg CTR >= this get high scores
+    WEAK_CTR = 2.5    # Topics with avg CTR <= this get low scores
+
+    def __init__(
+        self,
+        config: AutopilotConfig,
+        pattern_library: Optional["PatternLibrary"] = None,
+    ):
         """Initialize scorer with config weights.
 
         Args:
             config: Autopilot configuration with weights
+            pattern_library: Optional PatternLibrary for learned patterns
         """
         self.config = config
         self.weights = config.weights
+        self._pattern_library = pattern_library
 
     def _score_vph(self, vph: float) -> float:
         """Score based on competitor VPH (0-100).
@@ -68,14 +82,50 @@ class ConfidenceScorer:
         # Linear decay
         return (1 - hours_old / self.MAX_HOURS) * 100
 
-    def _score_topic_fit(self, topic: Optional[str]) -> float:
+    def _score_topic_fit(self, topic: Optional[str], angle: Optional[str] = None) -> tuple[float, Optional[str]]:
         """Score based on topic fit for our channel (0-100).
 
-        TODO: Cross-reference with topic_performance.md
-        For now, return neutral score.
+        Cross-references with topic_performance.md to find topics
+        that have historically performed well for THIS channel.
+
+        Args:
+            topic: Topic category (e.g., "geopolitics", "economy")
+            angle: Angle type (e.g., "hidden_truth", "warning")
+
+        Returns:
+            Tuple of (score, reasoning string or None)
         """
-        # Placeholder - will be enhanced in Chunk 2 with memory
-        return 50.0
+        if self._pattern_library is None or not topic:
+            return 50.0, None
+
+        # Check topic performance
+        topic_perf = self._pattern_library.get_topic_performance()
+        topic_lower = topic.lower()
+
+        if topic_lower in topic_perf:
+            perf = topic_perf[topic_lower]
+            if perf.sample_size >= 1:
+                # Score based on historical CTR
+                if perf.avg_ctr >= self.STRONG_CTR:
+                    score = 70.0 + min(30.0, (perf.avg_ctr - self.STRONG_CTR) * 10)
+                    return score, f"Topic '{topic}' strong (CTR {perf.avg_ctr:.1f}%, n={perf.sample_size})"
+                elif perf.avg_ctr <= self.WEAK_CTR:
+                    score = 30.0 - min(20.0, (self.WEAK_CTR - perf.avg_ctr) * 10)
+                    return max(10.0, score), f"Topic '{topic}' weak (CTR {perf.avg_ctr:.1f}%, n={perf.sample_size})"
+                else:
+                    # Neutral range
+                    return 50.0, f"Topic '{topic}' neutral (CTR {perf.avg_ctr:.1f}%, n={perf.sample_size})"
+
+        # Check angle performance if topic not found
+        if angle:
+            angle_perf = self._pattern_library.get_angle_performance()
+            angle_lower = angle.lower()
+            if angle_lower in angle_perf:
+                perf = angle_perf[angle_lower]
+                if perf.sample_size >= 1 and perf.avg_ctr >= self.STRONG_CTR:
+                    return 65.0, f"Angle '{angle}' strong (CTR {perf.avg_ctr:.1f}%)"
+
+        return 50.0, None
 
     def _score_channel_momentum(self, competitor_title: Optional[str]) -> float:
         """Score based on competitor channel momentum (0-100).
@@ -95,14 +145,96 @@ class ConfidenceScorer:
         # Placeholder
         return 50.0
 
-    def _score_title_formula(self, title: str) -> float:
+    def _score_title_formula(self, title: str) -> tuple[float, Optional[str]]:
         """Score based on title formula patterns (0-100).
 
-        TODO: Cross-reference with title_patterns.md
-        For now, return neutral score.
+        Cross-references with title_patterns.md to identify
+        structural patterns that work for this channel.
+
+        Args:
+            title: Video title to analyze
+
+        Returns:
+            Tuple of (score, reasoning string or None)
         """
-        # Placeholder
-        return 50.0
+        score = 50.0
+        matches = []
+
+        # Check for structural patterns
+        is_question = title.rstrip().endswith('?')
+        has_number = bool(re.search(r'\d+', title))
+        has_caps = bool(re.search(r'\b[A-Z]{2,}\b', title))
+        has_how = title.lower().startswith('how ')
+        has_why = title.lower().startswith('why ')
+
+        if self._pattern_library is None:
+            # No library, use heuristic scoring
+            if is_question:
+                score += 5
+                matches.append("question format")
+            if has_number:
+                score += 3
+            return min(100.0, score), None if not matches else f"Title uses {', '.join(matches)}"
+
+        # Check against learned patterns
+        title_notes = self._pattern_library.get_title_notes()
+        if title_notes:
+            # Aggregate pattern performance from notes
+            pattern_ctrs = {}
+            for note in title_notes:
+                pattern = note['pattern']
+                if pattern not in pattern_ctrs:
+                    pattern_ctrs[pattern] = []
+                pattern_ctrs[pattern].append(note['ctr'])
+
+            # Check if current title matches known patterns
+            for pattern, ctrs in pattern_ctrs.items():
+                avg_ctr = sum(ctrs) / len(ctrs)
+                pattern_lower = pattern.lower()
+
+                if 'question' in pattern_lower and is_question:
+                    if avg_ctr >= self.STRONG_CTR:
+                        score += 15
+                        matches.append(f"question format (CTR {avg_ctr:.1f}%)")
+                    elif avg_ctr <= self.WEAK_CTR:
+                        score -= 10
+                        matches.append(f"question format weak (CTR {avg_ctr:.1f}%)")
+
+                if 'number' in pattern_lower and has_number:
+                    if avg_ctr >= self.STRONG_CTR:
+                        score += 10
+                        matches.append(f"number in title (CTR {avg_ctr:.1f}%)")
+
+                if 'caps' in pattern_lower and has_caps:
+                    if avg_ctr >= self.STRONG_CTR:
+                        score += 8
+                        matches.append(f"caps emphasis (CTR {avg_ctr:.1f}%)")
+
+        # Check proven formulas
+        proven = self._pattern_library.get_title_patterns(status="proven")
+        for p in proven:
+            formula_lower = p.formula.lower()
+            if 'question' in formula_lower and is_question:
+                score += 10
+                if "question" not in str(matches):
+                    matches.append("proven question formula")
+            if 'how' in formula_lower and has_how:
+                score += 8
+                matches.append("proven 'How' formula")
+            if 'why' in formula_lower and has_why:
+                score += 8
+                matches.append("proven 'Why' formula")
+
+        # Check anti-patterns
+        anti = self._pattern_library.get_title_patterns(status="anti")
+        for p in anti:
+            formula_lower = p.formula.lower()
+            if 'lowercase' in formula_lower and title == title.lower():
+                score -= 15
+                matches.append("AVOID: all lowercase")
+
+        reasoning = f"Title patterns: {', '.join(matches)}" if matches else None
+        return min(100.0, max(0.0, score)), reasoning
 
     def score(self, candidate: IdeaCandidate) -> ScoredIdea:
         """Calculate confidence score for a candidate idea.
@@ -125,8 +257,13 @@ class ConfidenceScorer:
         components['timing_freshness'] = freshness_score
         reasoning.append(f"Age {candidate.hours_old:.0f}h → {freshness_score:.0f}/100")
 
-        topic_fit_score = self._score_topic_fit(candidate.topic)
+        # Topic fit (with learned patterns)
+        topic_fit_score, topic_reason = self._score_topic_fit(
+            candidate.topic, candidate.angle
+        )
         components['topic_channel_fit'] = topic_fit_score
+        if topic_reason:
+            reasoning.append(topic_reason)
 
         momentum_score = self._score_channel_momentum(candidate.competitor_title)
         components['channel_momentum'] = momentum_score
@@ -134,8 +271,11 @@ class ConfidenceScorer:
         retention_score = self._score_retention_patterns(candidate.topic)
         components['retention_patterns'] = retention_score
 
-        title_score = self._score_title_formula(candidate.title)
+        # Title formula (with learned patterns)
+        title_score, title_reason = self._score_title_formula(candidate.title)
         components['title_formula'] = title_score
+        if title_reason:
+            reasoning.append(title_reason)
 
         # Calculate weighted sum
         total_score = (

@@ -1,28 +1,48 @@
 # skills/video-pipeline/autopilot/learning/learning_extractor.py
 """Extract learnable patterns from video performance.
 
-Analyzes 48h+ video performance and extracts patterns from thumbnail
-overrides and titles. Identifies what worked (KEEP) and what didn't (DISCARD).
+Analyzes 48h+ video performance and extracts patterns from:
+- Thumbnail overrides (colors, composition, text style)
+- Title structure (question format, numbers, caps)
+- Theme/angle/hooks (via ThemeExtractor integration)
+- Topic category performance
+
+Identifies what worked (KEEP) and what didn't (DISCARD).
 """
 
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from datetime import datetime
 import re
+import logging
 
 from autopilot.monitoring.early_warning import CTRVerdict, EarlyWarning
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
 class ExtractedLearning:
     """A learning extracted from video performance."""
-    category: str  # "thumbnail", "title", "topic"
-    pattern: str  # e.g., "red_yellow_color_scheme"
+    category: str  # "thumbnail", "title", "topic", "theme", "angle", "formula"
+    pattern: str  # e.g., "red_yellow_color_scheme", "hidden_truth", "geopolitics"
     verdict: CTRVerdict
     confidence: float  # 0-100
     evidence: str  # Human-readable explanation
     video_title: str
     ctr: float
+
+
+@dataclass
+class ThemeData:
+    """Theme analysis data for a video."""
+    primary_theme: str = ""
+    secondary_themes: List[str] = field(default_factory=list)
+    angle_type: str = ""
+    emotional_hooks: List[str] = field(default_factory=list)
+    topic_category: str = ""
+    title_formula: str = ""
+    formula_variables: Dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -36,6 +56,7 @@ class ExperimentResult:
     verdict: CTRVerdict
     thumbnail_override: Optional[str]
     title_formula: Optional[str]
+    theme_data: Optional[ThemeData] = None  # NEW: Theme analysis data
     learnings: List[ExtractedLearning] = field(default_factory=list)
 
 
@@ -192,23 +213,129 @@ class LearningExtractor:
 
         return learnings
 
+    def extract_theme_learnings(
+        self,
+        video_title: str,
+        ctr: float,
+        theme_data: Optional[ThemeData],
+    ) -> List[ExtractedLearning]:
+        """Extract theme-related learnings from theme analysis.
+
+        Analyzes the theme, angle, topic category, and emotional hooks
+        to identify what resonates with our audience.
+
+        Args:
+            video_title: Title of the video
+            ctr: Actual CTR percentage
+            theme_data: Theme analysis from ThemeExtractor
+
+        Returns:
+            List of ExtractedLearning objects for theme patterns
+        """
+        learnings = []
+        verdict = self.early_warning.get_verdict(ctr)
+        confidence = self._get_confidence_for_verdict(verdict)
+
+        if theme_data is None:
+            return learnings
+
+        # Topic category learning
+        if theme_data.topic_category:
+            learnings.append(ExtractedLearning(
+                category="topic",
+                pattern=theme_data.topic_category,
+                verdict=verdict,
+                confidence=confidence,
+                evidence=f"Topic '{theme_data.topic_category}'. CTR: {ctr:.1f}%",
+                video_title=video_title,
+                ctr=ctr,
+            ))
+
+        # Angle type learning
+        if theme_data.angle_type:
+            learnings.append(ExtractedLearning(
+                category="angle",
+                pattern=theme_data.angle_type,
+                verdict=verdict,
+                confidence=confidence,
+                evidence=f"Angle '{theme_data.angle_type}'. CTR: {ctr:.1f}%",
+                video_title=video_title,
+                ctr=ctr,
+            ))
+
+        # Emotional hooks learning
+        for hook in theme_data.emotional_hooks:
+            learnings.append(ExtractedLearning(
+                category="hook",
+                pattern=hook,
+                verdict=verdict,
+                confidence=confidence,
+                evidence=f"Hook '{hook}' used. CTR: {ctr:.1f}%",
+                video_title=video_title,
+                ctr=ctr,
+            ))
+
+        # Title formula learning (if we have a recognizable formula)
+        if theme_data.title_formula:
+            # Normalize formula to a pattern name
+            formula_pattern = self._normalize_formula(theme_data.title_formula)
+            if formula_pattern:
+                learnings.append(ExtractedLearning(
+                    category="formula",
+                    pattern=formula_pattern,
+                    verdict=verdict,
+                    confidence=confidence,
+                    evidence=f"Formula '{theme_data.title_formula}'. CTR: {ctr:.1f}%",
+                    video_title=video_title,
+                    ctr=ctr,
+                ))
+
+        return learnings
+
+    def _normalize_formula(self, formula: str) -> str:
+        """Normalize a title formula to a pattern name.
+
+        Args:
+            formula: Raw formula like "How [Power] [Verb] the [Event]"
+
+        Returns:
+            Normalized pattern name like "how_power_verb_event"
+        """
+        if not formula:
+            return ""
+
+        # Extract just the structure words and placeholders
+        # Remove brackets and lowercase
+        normalized = formula.lower()
+        normalized = re.sub(r'\[([^\]]+)\]', r'\1', normalized)  # Remove brackets
+        normalized = re.sub(r'[^\w\s]', '', normalized)  # Remove punctuation
+        normalized = re.sub(r'\s+', '_', normalized.strip())  # Spaces to underscores
+
+        # Truncate if too long
+        if len(normalized) > 50:
+            normalized = normalized[:50]
+
+        return normalized
+
     def extract_all(
         self,
         video_title: str,
         ctr: float,
         thumbnail_override: Optional[str] = None,
         modeled_from: Optional[str] = None,
+        theme_data: Optional[ThemeData] = None,
     ) -> ExperimentResult:
         """Extract all learnings from a video experiment.
 
-        Combines thumbnail and title pattern extraction into a single
-        experiment result with all learnings.
+        Combines thumbnail, title, and theme pattern extraction into
+        a single experiment result with all learnings.
 
         Args:
             video_title: Title of the video
             ctr: Actual CTR percentage
             thumbnail_override: Text description of thumbnail override
             modeled_from: Competitor video this was modeled from
+            theme_data: Theme analysis data (optional)
 
         Returns:
             ExperimentResult with verdict and all extracted learnings
@@ -218,6 +345,10 @@ class LearningExtractor:
         learnings = []
         learnings.extend(self.extract_thumbnail_learnings(video_title, ctr, thumbnail_override))
         learnings.extend(self.extract_title_learnings(video_title, ctr))
+        learnings.extend(self.extract_theme_learnings(video_title, ctr, theme_data))
+
+        # Get title formula from theme_data if available
+        title_formula = theme_data.title_formula if theme_data else None
 
         return ExperimentResult(
             video_title=video_title,
@@ -227,8 +358,57 @@ class LearningExtractor:
             actual_ctr=ctr,
             verdict=verdict,
             thumbnail_override=thumbnail_override,
-            title_formula=None,
+            title_formula=title_formula,
+            theme_data=theme_data,
             learnings=learnings,
+        )
+
+    async def extract_with_theme_analysis(
+        self,
+        video_title: str,
+        ctr: float,
+        thumbnail_override: Optional[str] = None,
+        modeled_from: Optional[str] = None,
+    ) -> ExperimentResult:
+        """Extract learnings including theme analysis via Claude.
+
+        Performs full theme extraction using ThemeExtractor before
+        extracting patterns. Use this for comprehensive analysis.
+
+        Args:
+            video_title: Title of the video
+            ctr: Actual CTR percentage
+            thumbnail_override: Text description of thumbnail override
+            modeled_from: Competitor video this was modeled from
+
+        Returns:
+            ExperimentResult with theme data and all extracted learnings
+        """
+        from autopilot.analysis.theme_extractor import ThemeExtractor, ThemeAnalysis
+
+        # Extract theme using Claude
+        extractor = ThemeExtractor()
+        theme_analysis = await extractor.extract(video_title)
+
+        # Convert ThemeAnalysis to ThemeData
+        theme_data = None
+        if theme_analysis:
+            theme_data = ThemeData(
+                primary_theme=theme_analysis.primary_theme,
+                secondary_themes=theme_analysis.secondary_themes,
+                angle_type=theme_analysis.angle_type,
+                emotional_hooks=theme_analysis.emotional_hooks,
+                topic_category=theme_analysis.topic_category,
+                title_formula=theme_analysis.title_formula,
+                formula_variables=theme_analysis.formula_variables,
+            )
+
+        return self.extract_all(
+            video_title=video_title,
+            ctr=ctr,
+            thumbnail_override=thumbnail_override,
+            modeled_from=modeled_from,
+            theme_data=theme_data,
         )
 
 

@@ -10,6 +10,7 @@ Memory files:
 - experiments_log.md - Full experiment ledger
 - thumbnail_patterns.md - Thumbnail pattern notes
 - title_patterns.md - Title pattern notes
+- topic_performance.md - Topic/angle/theme performance
 """
 
 from datetime import datetime
@@ -222,6 +223,45 @@ Best CTR: {best_ctr:.1f}% ("{best_title}")
 
         path.write_text(content)
 
+    def update_topic_performance(self, learnings: List[ExtractedLearning]) -> None:
+        """Update topic_performance.md with topic, angle, and hook patterns.
+
+        Adds notes about topic categories, angles, and emotional hooks
+        observed from video performance data.
+
+        Args:
+            learnings: List of learnings (topic, angle, hook, formula categories used)
+        """
+        pattern_path = self.memory_dir / "topic_performance.md"
+        content = pattern_path.read_text() if pattern_path.exists() else ""
+
+        for learning in learnings:
+            if learning.category not in ("topic", "angle", "hook", "formula"):
+                continue
+
+            # Determine which section to update based on category
+            if learning.category == "topic":
+                section = "## Topic CTR Rankings"
+            elif learning.category == "angle":
+                section = "## Angle Performance"
+            elif learning.category == "formula":
+                section = "## Theme Patterns"
+            else:  # hook
+                section = "## Notes"
+
+            note = (
+                f"\n- {learning.pattern}: CTR {learning.ctr:.1f}% "
+                f"({learning.verdict.value}) - {learning.video_title}"
+            )
+
+            if section in content:
+                # Insert note after section heading
+                content = content.replace(f"{section}\n", f"{section}{note}\n", 1)
+            else:
+                content += f"\n{section}{note}\n"
+
+        pattern_path.write_text(content)
+
     def process_result(self, result: ExperimentResult) -> None:
         """Process a full experiment result and update all memory files.
 
@@ -237,9 +277,12 @@ Best CTR: {best_ctr:.1f}% ("{best_title}")
         # Filter learnings by category
         thumbnail_learnings = [l for l in result.learnings if l.category == "thumbnail"]
         title_learnings = [l for l in result.learnings if l.category == "title"]
+        topic_learnings = [l for l in result.learnings if l.category in ("topic", "angle", "hook", "formula")]
 
         # Update pattern files if there are relevant learnings
         if thumbnail_learnings:
             self.update_thumbnail_patterns(thumbnail_learnings)
         if title_learnings:
             self.update_title_patterns(title_learnings)
+        if topic_learnings:
+            self.update_topic_performance(topic_learnings)
