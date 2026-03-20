@@ -165,3 +165,18 @@ def mark_reaction_processed(message_ts: str, reaction: str, title: str = ""):
     }
     _save_reaction_log(log)
     logger.info(f"Marked reaction as processed: {key} ({title})")
+
+
+def get_latest_discovery_message() -> Optional[tuple[str, dict]]:
+    """Get the most recent discovery message.
+
+    Returns:
+        Tuple of (message_ts, entry_dict) or None if no messages exist.
+        entry_dict contains 'ideas' and 'airtable_record_ids'.
+    """
+    data = _load_tracker()
+    if not data:
+        return None
+    # Find the most recently created entry
+    latest_ts = max(data.keys(), key=lambda ts: data[ts].get("created_at", 0))
+    return (latest_ts, data[latest_ts])

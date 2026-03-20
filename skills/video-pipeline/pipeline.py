@@ -1172,7 +1172,7 @@ async def main():
         try:
             slack_msg = (
                 "*Good Morning! Daily Discovery Scan Complete*\n"
-                "React with a letter emoji to approve an idea - "
+                "Type a number (1-9) or letter (a-t) to approve an idea - "
                 "I'll auto-research it and queue it for the 12 PM pipeline run.\n\n"
             )
             slack_msg += format_ideas_for_slack(result)

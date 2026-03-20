@@ -871,7 +871,7 @@ def format_ideas_for_slack(result: dict) -> str:
     comp_count = len(competitor_ideas)
     lines.append(
         f"*{news_count} news ideas + {comp_count} competitor ideas*\n"
-        f"React with a letter to pick your idea. "
+        f"Type a number (1-9) or letter (a-t) to pick your idea. "
         f"I'll auto-research it and queue it for the 12 PM pipeline run."
     )
 

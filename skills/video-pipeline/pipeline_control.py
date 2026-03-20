@@ -190,7 +190,7 @@ async def handle_help(message, say):
 *1. Discovery & Research*
 - `discover` / `scan` — Scan headlines, present 2-3 video ideas
 - `discover [focus]` — Scan with focus keyword (e.g. `discover BRICS`)
-- React 1️⃣ 2️⃣ 3️⃣ on results to approve + auto-research
+- Type `1`, `2`, `a`, `b` etc. (or react) to approve + auto-research
 - `research` — Run deep research on next approved idea
 - `research "topic"` — Research a specific topic
 
@@ -1687,6 +1687,124 @@ async def handle_reaction_added(event, client):
         )
         remove_discovery_message(item_ts)
         return
+
+
+# Text-based selection: type a number (1-9) or letter (a-t) to select an idea
+@app.message(re.compile(r"^([1-9]|[a-tA-T])$"))
+async def handle_text_selection(message, say, client):
+    """Handle text-based idea selection — type a number or letter to pick.
+
+    Examples: "1", "2", "a", "B", etc.
+    Maps to the same option indices as emoji reactions.
+    """
+    from discovery_scanner import build_option_map
+    from discovery_tracker import (
+        get_discovery_message, get_latest_discovery_message,
+        remove_discovery_message, is_reaction_processed, mark_reaction_processed,
+    )
+
+    text = message.get("text", "").strip().lower()
+    user = message.get("user", "")
+    channel = message.get("channel", "")
+
+    # Map text input to 0-based option index
+    if text.isdigit():
+        option_index = int(text) - 1  # "1" -> 0, "2" -> 1, etc.
+    else:
+        option_index = ord(text) - ord('a')  # "a" -> 0, "b" -> 1, etc.
+
+    # Check in-memory tracking first (most recent message)
+    if _discovery_messages:
+        # Get the most recent in-memory message
+        latest_ts = max(_discovery_messages.keys())
+        result = _discovery_messages[latest_ts]
+        if isinstance(result, list):
+            result = {"ideas": result}
+        option_map = build_option_map(result)
+
+        if option_index >= len(option_map):
+            await say(f":x: Invalid selection `{text}`. Only {len(option_map)} options available.")
+            return
+
+        # Check for duplicate selection
+        reaction_key = f"text_{text}"
+        if is_reaction_processed(latest_ts, reaction_key):
+            log.info(f"Ignoring duplicate text selection: {text} on {latest_ts}")
+            await say(f":warning: Already processing selection `{text}`.")
+            return
+
+        selected = option_map[option_index]
+        source_type = selected.get("source_type", "news")
+        log.info(
+            f"Text selection (in-memory): '{text}' from {user} "
+            f"-> {source_type} idea {selected['idea_index'] + 1}, title: {selected['title']}"
+        )
+
+        # Mark as processed
+        mark_reaction_processed(latest_ts, reaction_key, selected["title"])
+        await say(f":white_check_mark: Selected: *{selected['title']}*")
+
+        await _handle_discovery_approval(
+            client, channel, latest_ts,
+            selected["idea_index"],
+            selected_title=selected["title"],
+            selected_formula_id=selected.get("formula_id", ""),
+            selected_thumbnail_text=selected.get("thumbnail_text", ""),
+            source_type=source_type,
+        )
+        return
+
+    # Check shared tracker file (from cron job --discover runs)
+    latest = get_latest_discovery_message()
+    if latest:
+        latest_ts, tracked = latest
+        ideas = tracked.get("ideas", [])
+        airtable_ids = tracked.get("airtable_record_ids", [])
+
+        # Reconstruct result dict for build_option_map
+        result = {"ideas": [], "competitor_ideas": []}
+        for idea in ideas:
+            if idea.get("source_type") == "competitor":
+                result["competitor_ideas"].append(idea)
+            else:
+                result["ideas"].append(idea)
+        option_map = build_option_map(result)
+
+        if option_index >= len(option_map):
+            await say(f":x: Invalid selection `{text}`. Only {len(option_map)} options available.")
+            return
+
+        # Check for duplicate selection
+        reaction_key = f"text_{text}"
+        if is_reaction_processed(latest_ts, reaction_key):
+            log.info(f"Ignoring duplicate text selection: {text} on {latest_ts}")
+            await say(f":warning: Already processing selection `{text}`.")
+            return
+
+        selected = option_map[option_index]
+        source_type = selected.get("source_type", "news")
+        log.info(
+            f"Text selection (cron-tracked): '{text}' from {user} "
+            f"-> {source_type} idea {selected['idea_index'] + 1}, title: {selected['title']}"
+        )
+
+        # Mark as processed
+        mark_reaction_processed(latest_ts, reaction_key, selected["title"])
+        await say(f":white_check_mark: Selected: *{selected['title']}*")
+
+        await _handle_cron_discovery_approval(
+            client, channel, latest_ts,
+            selected["idea_index"], ideas, airtable_ids,
+            selected_title=selected["title"],
+            selected_formula_id=selected.get("formula_id", ""),
+            selected_thumbnail_text=selected.get("thumbnail_text", ""),
+            source_type=source_type,
+        )
+        remove_discovery_message(latest_ts)
+        return
+
+    # No discovery messages found
+    await say(":shrug: No pending discovery ideas to select from. Run `discover` first.")
 
 
 async def _handle_discovery_approval(
