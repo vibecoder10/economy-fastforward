@@ -12,8 +12,12 @@ interface Word {
 interface CaptionsOverlayProps {
     words: Word[];
     currentTimeSeconds: number;
-    wordsPerChunk?: number;
+    maxCharsPerChunk?: number;
 }
+
+// Maximum characters per chunk - fits 92% of 1920px at 72px Inter Bold
+// Calculated: (1920 * 0.92 - 5 * 16px gap) / ~43px per char ≈ 39 chars
+const MAX_CHARS_PER_CHUNK = 38;
 
 const STYLE = {
     font: {
@@ -37,19 +41,35 @@ const STYLE = {
 export const CaptionsOverlay: React.FC<CaptionsOverlayProps> = ({
     words,
     currentTimeSeconds,
-    wordsPerChunk = 6,
+    maxCharsPerChunk = MAX_CHARS_PER_CHUNK,
 }) => {
     if (!words || words.length === 0) return null;
 
-    // Chunk words into groups
+    // Chunk words by character count (not word count) to prevent overflow
+    // This creates adaptive chunks: short words → more per chunk, long words → fewer
     const chunks: Array<Array<Word & { originalIndex: number }>> = [];
-    for (let i = 0; i < words.length; i += wordsPerChunk) {
-        chunks.push(
-            words.slice(i, i + wordsPerChunk).map((w, idx) => ({
-                ...w,
-                originalIndex: i + idx,
-            }))
-        );
+    let buildingChunk: Array<Word & { originalIndex: number }> = [];
+    let buildingChunkChars = 0;
+
+    for (let i = 0; i < words.length; i++) {
+        const word = words[i];
+        // Calculate chars if we add this word (+1 for space between words)
+        const wordChars = word.word.length + (buildingChunk.length > 0 ? 1 : 0);
+
+        // If adding this word would exceed limit AND we have at least one word, start new chunk
+        if (buildingChunkChars + wordChars > maxCharsPerChunk && buildingChunk.length > 0) {
+            chunks.push(buildingChunk);
+            buildingChunk = [];
+            buildingChunkChars = 0;
+        }
+
+        buildingChunk.push({ ...word, originalIndex: i });
+        buildingChunkChars += word.word.length + (buildingChunk.length > 1 ? 1 : 0);
+    }
+
+    // Don't forget the last chunk
+    if (buildingChunk.length > 0) {
+        chunks.push(buildingChunk);
     }
 
     // Find current chunk based on time

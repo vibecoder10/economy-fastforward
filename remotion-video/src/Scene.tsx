@@ -184,11 +184,11 @@ export const Scene: React.FC<SceneProps> = ({
             })}
 
             {/* Karaoke captions — word-level highlight synced to audio */}
+            {/* Uses character-based chunking (max 38 chars) to prevent overflow */}
             {hasTranscript && transcript?.words && transcript.words.length > 0 && (
                 <CaptionsOverlay
                     words={transcript.words}
                     currentTimeSeconds={currentTimeSeconds}
-                    wordsPerChunk={6}
                 />
             )}
         </AbsoluteFill>
