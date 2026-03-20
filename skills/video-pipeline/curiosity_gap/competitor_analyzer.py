@@ -143,9 +143,22 @@ TITLE: "{title}"
 
 {get_structure_prompt()}
 
+CONFIDENCE SCORING (calibrate carefully — do NOT default to 85):
+- 95-100: Textbook example. Title could be used to teach this structure.
+- 80-94: Strong fit. Structure is clearly the primary mechanism.
+- 65-79: Moderate fit. Structure is present but not the dominant mechanism.
+- 50-64: Weak fit. Structure is a stretch — another structure might fit better.
+- 30-49: Poor fit. Forcing this structure onto the title.
+- Below 30: Does not fit. Use "other".
+
+Be precise. A title like "The $100B Mistake Saudi Arabia Is Hiding" is a 95 for hidden_flaw.
+A title like "Why Russia Can't Win" is maybe a 60 for asymmetric_dg — it implies imbalance but doesn't emphasize the small-beats-big mechanism.
+
+Distribute your scores. If all 5 structures score within 10 points of each other, you haven't discriminated — pick the real winner and separate it.
+
 Return JSON with:
-- structure: one of the structure IDs above
-- confidence: 0-100 how well the title fits the structure
+- structure: one of the structure IDs above (pick the BEST fit)
+- confidence: 0-100 how well the title fits that structure (use the scale above)
 - gap_mechanism: the specific question this title makes viewers ask
 - variables: extracted components (amounts, entities, timeframes, etc.)
 
