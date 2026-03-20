@@ -656,19 +656,275 @@ React: 🅰️ 🅱️ 🅲
 
 ---
 
-## Appendix: Existing Code References
+## Appendix A: Technical Clarifications
+
+### A.1 Learning Extractor Category Definition
+
+The `learning_extractor.py` currently supports these categories:
+```python
+category: str  # "thumbnail", "title", "topic", "theme", "angle", "formula"
+```
+
+We add a NEW category `"structure"` (not replacing `"title"`):
+
+```python
+# NEW: Add to ExtractedLearning categories
+category: str  # existing + "structure" for curiosity gap structures
+
+# Example extraction
+ExtractedLearning(
+    category="structure",           # NEW category
+    pattern="hidden_flaw",          # The structure ID
+    verdict=CTRVerdict.KEEP,
+    confidence=75.0,
+    evidence="hidden_flaw structure. CTR: 5.2%",
+    video_title="The $100B Pipeline Trap",
+    ctr=5.2,
+)
+```
+
+The existing `"title"` category continues to track surface patterns (question, number, caps). The new `"structure"` category tracks the curiosity gap taxonomy.
+
+### A.2 CTR Tracking Timeline
+
+The existing system tracks CTR at 6h/24h/48h via `ctr_monitor.py`. We ADD 12h tracking:
+
+**How it works:** The `performance_tracker.py` runs at 7:00 AM daily and pulls YouTube Analytics data. CTR snapshots are written to Airtable when the video crosses each milestone:
+
+| Milestone | When Written | Source |
+|-----------|--------------|--------|
+| CTR 6h | First ctr_monitor run after 6h | Existing early warning |
+| CTR 12h | **NEW:** First performance_tracker run after 12h | performance_tracker.py |
+| CTR 24h | First performance_tracker run after 24h | Existing |
+| CTR 48h | First performance_tracker run after 48h | Existing |
+
+**Implementation:** Add to `performance_tracker.py`:
+```python
+# Check if 12h has passed and CTR 12h not yet written
+if hours_since_publish >= 12 and not record.get("CTR 12h"):
+    await update_record(record_id, {"CTR 12h": current_ctr})
+```
+
+### A.3 MF Fallback Formulas Definition
+
+MF formulas are the EXISTING title formulas from the user's current system (visible in the example ideas they provided):
+
+| ID | Formula | Example |
+|----|---------|---------|
+| MF-0 | CHOKE POINT — geographic/strategic control | "How Iran Turned the Gulf Into a Hostage" |
+| MF-1 | GEOGRAPHIC TRAP — terrain as weapon | "How Iran Quietly Weaponized Geography" |
+| MF-2 | EXITS LOCKED — no escape framing | "Why Saudi Arabia Can't Escape Hormuz" |
+
+These exist in `bots/trending_idea_bot.py` and are used when curiosity gap structures don't fit well. The fallback function:
+
+```python
+async def fallback_to_mf_formulas(
+    story_context: dict,
+    viable_structures: List[ScoredStructure],
+    fill_with_mf: bool = True
+) -> List[GeneratedTitle]:
+    """
+    Fill remaining title slots with MF formulas when <3 curiosity gap structures
+    score above CONFIDENCE_FLOOR.
+
+    Example: If only hidden_flaw scores 65, we generate:
+    - Slot 1: hidden_flaw title (from curiosity gap)
+    - Slot 2: MF-0 title (from existing formulas)
+    - Slot 3: MF-1 title (from existing formulas)
+    """
+```
+
+### A.4 Module Relationship: New vs Existing Title Generators
+
+**Two separate concerns:**
+
+| Module | Responsibility | When Called |
+|--------|----------------|-------------|
+| `curiosity_gap/title_generator.py` | Generate TITLE text using curiosity gap structures | During idea creation (idea_bot, trending_idea_bot) |
+| `thumbnail_title/title_generator.py` | Generate THUMBNAIL text from a title | During thumbnail generation |
+
+**The relationship:**
+1. `curiosity_gap/title_generator.py` generates title + thumbnail text together (yin/yang)
+2. `thumbnail_title/title_generator.py` is NOT replaced — it handles thumbnail rendering details (CAPS word positioning, line breaks)
+3. The yin/yang thumbnail text flows TO `thumbnail_title/` as input
+
+```python
+# Flow
+title, thumbnail_text = await curiosity_gap.generate_titles(story)[0]
+# title = "The $100B Mistake Saudi Arabia Is Hiding"
+# thumbnail_text = "WORTHLESS PIPELINES"
+
+# Then thumbnail_title handles rendering
+thumbnail_spec = await thumbnail_title.format_thumbnail(
+    title=title,
+    thumbnail_text=thumbnail_text,  # From curiosity_gap
+    # ... other params
+)
+```
+
+### A.5 Pattern Library API Extensions
+
+Add these methods to `pattern_library.py`:
+
+```python
+from enum import Enum
+from typing import Optional, List, Dict
+
+class CuriosityStructure(str, Enum):
+    """Valid curiosity gap structure IDs."""
+    HIDDEN_FLAW = "hidden_flaw"
+    ASYMMETRIC_DG = "asymmetric_dg"
+    TIME_BOMB = "time_bomb"
+    PARADIGM_SHIFT = "paradigm_shift"
+    ILLUSION_CONTROL = "illusion_control"
+    OTHER = "other"
+
+@dataclass
+class CuriosityGapPattern:
+    """Performance data for a curiosity gap structure."""
+    structure: CuriosityStructure
+    avg_ctr_ours: Optional[float]      # Our videos using this
+    sample_size_ours: int
+    avg_vph_competitors: Optional[float]  # Competitor videos
+    sample_size_competitors: int
+    status: str  # "proven", "testing", "anti"
+
+@dataclass
+class CompetitorPattern:
+    """Extracted pattern from competitor video."""
+    video_id: str
+    channel: str
+    title: str
+    structure: CuriosityStructure
+    confidence: int
+    vph: float
+    thumbnail_style: Dict
+    yin_yang_approach: str
+
+# NEW METHODS
+class PatternLibrary:
+
+    def get_curiosity_gap_patterns(
+        self,
+        structure: Optional[CuriosityStructure] = None
+    ) -> List[CuriosityGapPattern]:
+        """Get curiosity gap structure performance from title_patterns.md."""
+
+    def get_competitor_patterns(
+        self,
+        channel: Optional[str] = None,
+        structure: Optional[CuriosityStructure] = None,
+        min_vph: float = 0
+    ) -> List[CompetitorPattern]:
+        """Get competitor patterns from competitor_patterns.md."""
+
+    def get_best_structures_for_topic(
+        self,
+        topic_category: str
+    ) -> List[CuriosityStructure]:
+        """Get structures that perform best for a topic category."""
+```
+
+### A.6 Airtable Pre-Implementation Requirements
+
+**CRITICAL:** Create these fields in Airtable BEFORE deploying code.
+
+**Competitor Videos Table:**
+1. Create Single Select field `Curiosity Structure` with options: `hidden_flaw`, `asymmetric_dg`, `time_bomb`, `paradigm_shift`, `illusion_control`, `other`
+2. Create Number field `Structure Confidence`
+3. Create Long Text field `Thumbnail Style JSON`
+4. Create Single Select field `Yin Yang Approach` with options: `from_hook`, `from_gap`
+5. Create Single Line field `Yin Yang Text`
+6. Create Date field `Analysis Date`
+7. Create Checkbox field `Modeled By Us`
+8. Create Number field `Our CTR Result`
+
+**Ideas Table:**
+1. Create Single Select field `Curiosity Structure` (same options)
+2. Create Number field `Structure Confidence`
+3. Create Long Text field `Structure Source`
+4. Create Single Select field `Thumbnail Approach` with options: `from_hook`, `from_gap`
+5. Create Single Line field `Thumbnail Text`
+6. Create Long Text field `Pattern Library Snapshot`
+7. Create Single Select field `Title Poll Result` with options: `human_selected`, `auto_selected`
+8. Create Number field `CTR 12h`
+
+**Graceful Degradation:** Code should use the existing error recovery pattern (try with all fields, drop unknown fields, retry). Fields missing in Airtable should not crash the pipeline.
+
+### A.7 Vision API Selection
+
+**Default: Gemini Vision** (via existing `gemini_client.py`)
+
+Reasons:
+- Already integrated in codebase
+- Cost-effective for high-volume analysis
+- Sufficient quality for thumbnail element extraction
+
+**Fallback: Claude Vision** (via `anthropic_client.py`)
+
+When to use Claude:
+- Gemini rate limited
+- Need higher accuracy for specific analysis
+- Yin/yang relationship detection (more nuanced)
+
+```python
+# competitor_analyzer.py
+
+async def analyze_thumbnail(
+    video_id: str,
+    title: str,
+    use_gemini: bool = True
+) -> ThumbnailAnalysis:
+    """
+    Analyze thumbnail using vision API.
+
+    Args:
+        video_id: YouTube video ID
+        title: Video title (for yin/yang comparison)
+        use_gemini: Use Gemini (default) or Claude Vision
+    """
+    thumbnail_url = await get_thumbnail_url(video_id)
+
+    if use_gemini:
+        # Extend existing gemini_client.generate_thumbnail_spec()
+        return await gemini_client.analyze_competitor_thumbnail(
+            thumbnail_url,
+            title
+        )
+    else:
+        return await anthropic_client.analyze_thumbnail_vision(
+            thumbnail_url,
+            title
+        )
+```
+
+### A.8 Cost Estimation (Complete)
+
+| Operation | Cost | Volume/Day | Daily Cost |
+|-----------|------|------------|------------|
+| Phase 1 title analysis | $0.002 | ~50 videos | $0.10 |
+| Phase 2 thumbnail (Gemini) | $0.01 | ~10 videos | $0.10 |
+| Title generation (Claude) | $0.02 | ~3 ideas | $0.06 |
+| Weekly digest clustering | $0.05 | 1/week | $0.007 |
+| **Total** | | | **~$0.27/day** |
+
+---
+
+## Appendix B: Existing Code References
 
 Files to extend:
-- `autopilot/learning/learning_extractor.py` — add `curiosity_structure` category
-- `autopilot/learning/pattern_library.py` — read curiosity gap patterns
+- `autopilot/learning/learning_extractor.py` — add `"structure"` category
+- `autopilot/learning/pattern_library.py` — add methods from A.5
 - `autopilot/learning/memory_writer.py` — write curiosity gap learnings
 - `autopilot/analysis/thumbnail_analyzer.py` — extract yin/yang relationship
 - `autopilot/core/confidence_scorer.py` — boost/penalize based on structure performance
+- `clients/gemini_client.py` — add `analyze_competitor_thumbnail()` method
+- `performance_tracker.py` — add 12h CTR snapshot
 
 Files to integrate with:
 - `bots/idea_bot.py` — call `curiosity_gap.generate_titles()`
 - `bots/trending_idea_bot.py` — call `curiosity_gap.generate_titles()`
-- `thumbnail_title/title_generator.py` — use generated thumbnail text
+- `thumbnail_title/title_generator.py` — receive yin/yang thumbnail text as input
 - `pipeline_control.py` — add new Slack commands
 
 Related commit: `78ecabe` (feat: Add learning system and pattern-based scoring)
