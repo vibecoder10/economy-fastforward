@@ -757,6 +757,108 @@ class AirtableClient:
             print(f"    ⚠️ Could not fetch competitor videos: {e}")
             return []
 
+    def update_competitor_curiosity_analysis(
+        self,
+        record_id: str,
+        structure: str,
+        structure_confidence: int,
+        thumbnail_style_json: Optional[str] = None,
+        yin_yang_approach: Optional[str] = None,
+        yin_yang_text: Optional[str] = None,
+    ) -> bool:
+        """Update competitor video with curiosity gap analysis results.
+
+        Args:
+            record_id: Airtable record ID
+            structure: CuriosityStructure value (e.g., "hidden_flaw")
+            structure_confidence: 0-100 confidence score
+            thumbnail_style_json: JSON string of thumbnail analysis (optional)
+            yin_yang_approach: "from_hook" or "from_gap" (optional)
+            yin_yang_text: Extracted thumbnail text (optional)
+
+        Returns:
+            True if update succeeded
+        """
+        from datetime import datetime
+
+        fields = {
+            CompetitorVideoFields.CURIOSITY_STRUCTURE: structure,
+            CompetitorVideoFields.STRUCTURE_CONFIDENCE: structure_confidence,
+            CompetitorVideoFields.ANALYSIS_DATE: datetime.now().strftime("%Y-%m-%d"),
+        }
+
+        if thumbnail_style_json:
+            fields[CompetitorVideoFields.THUMBNAIL_STYLE_JSON] = thumbnail_style_json
+
+        if yin_yang_approach:
+            fields[CompetitorVideoFields.YIN_YANG_APPROACH] = yin_yang_approach
+
+        if yin_yang_text:
+            fields[CompetitorVideoFields.YIN_YANG_TEXT] = yin_yang_text
+
+        try:
+            self.competitor_videos_table.update(record_id, fields)
+            return True
+        except Exception as e:
+            print(f"Failed to update competitor curiosity analysis: {e}")
+            return False
+
+    def get_competitor_videos_by_channel(
+        self,
+        channel_name: str,
+        limit: int = 20,
+    ) -> list[dict]:
+        """Get recent competitor videos for a channel.
+
+        Args:
+            channel_name: Channel name (e.g., "CaspianReport")
+            limit: Maximum records to return
+
+        Returns:
+            List of Airtable records
+        """
+        # Match by channel name - existing pattern uses Channel field
+        formula = f"{{Channel}} = '{channel_name}'"
+
+        try:
+            records = self.competitor_videos_table.all(
+                formula=formula,
+                sort=["-VPH"],
+                max_records=limit,
+            )
+            return records
+        except Exception as e:
+            print(f"Failed to get competitor videos by channel: {e}")
+            return []
+
+    def get_unanalyzed_competitor_videos(
+        self,
+        min_vph: float = 50,
+        limit: int = 100,
+    ) -> list[dict]:
+        """Get competitor videos that haven't been analyzed for curiosity gap.
+
+        Args:
+            min_vph: Minimum VPH threshold
+            limit: Maximum records to return
+
+        Returns:
+            List of Airtable records without curiosity analysis
+        """
+        # Videos with VPH >= threshold AND no Curiosity Structure set
+        formula = f"AND({{VPH}} >= {min_vph}, {{Curiosity Structure}} = '')"
+
+        try:
+            records = self.competitor_videos_table.all(
+                formula=formula,
+                sort=["-VPH"],
+                max_records=limit,
+            )
+            return records
+        except Exception as e:
+            print(f"Failed to get unanalyzed competitor videos: {e}")
+            return []
+
     # ==================== OSIRIS LEARNINGS TABLE ====================
 
     @property
