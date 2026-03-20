@@ -218,6 +218,7 @@ class AirtableClient:
         self._competitor_videos_table = None
         self._osiris_learnings_table = None
         self._title_insights_table = None
+        self._title_tests_table = None
 
     @property
     def idea_concepts_table(self) -> Table:
@@ -989,6 +990,85 @@ class AirtableClient:
         except Exception as e:
             print(f"    ⚠️ Could not fetch title insights: {e}")
             return []
+
+    # ==================== TITLE TESTS TABLE ====================
+
+    @property
+    def title_tests_table(self) -> Table:
+        """Get the Title Tests table (curiosity gap A/B testing)."""
+        if self._title_tests_table is None:
+            from pipeline_constants import AIRTABLE_TITLE_TESTS_TABLE_ID
+            table_id = AIRTABLE_TITLE_TESTS_TABLE_ID
+            if not table_id:
+                raise ValueError(
+                    "AIRTABLE_TITLE_TESTS_TABLE_ID not set in pipeline_constants.py"
+                )
+            self._title_tests_table = self.api.table(self.base_id, table_id)
+        return self._title_tests_table
+
+    def create_title_test(self, title_test: dict) -> dict:
+        """Create a new title test record.
+
+        Args:
+            title_test: Dict with TitleTestFields values
+
+        Returns:
+            Created record dict
+        """
+        from pipeline_constants import TitleTestFields
+
+        fields = {
+            TitleTestFields.IDEA: title_test.get("idea", ""),
+            TitleTestFields.TITLE_TEXT: title_test.get("title_text", ""),
+            TitleTestFields.STRUCTURE: title_test.get("structure", ""),
+            TitleTestFields.STRUCTURE_CONFIDENCE: title_test.get("structure_confidence", 0),
+            TitleTestFields.THUMBNAIL_TEXT: title_test.get("thumbnail_text", ""),
+            TitleTestFields.THUMBNAIL_APPROACH: title_test.get("thumbnail_approach", ""),
+            TitleTestFields.SOURCE_PATTERNS: title_test.get("source_patterns", ""),
+            TitleTestFields.PATTERN_LIBRARY_SNAPSHOT: title_test.get("pattern_library_snapshot", ""),
+            TitleTestFields.VIDEO_TITLE: title_test.get("video_title", ""),
+        }
+
+        # Remove empty values
+        fields = {k: v for k, v in fields.items() if v}
+
+        try:
+            record = self.title_tests_table.create(fields, typecast=True)
+            return {"id": record["id"], **record["fields"]}
+        except Exception as e:
+            print(f"    ⚠️ Failed to create title test: {e}")
+            raise
+
+    def get_title_tests_for_idea(self, idea_record_id: str) -> list[dict]:
+        """Get all title test variants for an idea.
+
+        Args:
+            idea_record_id: Ideas table record ID
+
+        Returns:
+            List of title test records
+        """
+        from pipeline_constants import TitleTestFields
+
+        formula = f"{{Idea}} = '{idea_record_id}'"
+        try:
+            records = self.title_tests_table.all(formula=formula)
+            return [{"id": r["id"], **r["fields"]} for r in records]
+        except Exception as e:
+            print(f"    ⚠️ Could not fetch title tests: {e}")
+            return []
+
+    def update_title_test(self, record_id: str, fields: dict) -> dict:
+        """Update a title test record.
+
+        Args:
+            record_id: Title test record ID
+            fields: Fields to update
+
+        Returns:
+            Updated record
+        """
+        return self.title_tests_table.update(record_id, fields, typecast=True)
 
     def get_videos_needing_postmortem(self) -> list[dict]:
         """Get uploaded videos that need 48h or 7d post-mortem analysis.

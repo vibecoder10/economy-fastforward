@@ -133,6 +133,12 @@ class IdeaFields:
     STORYBOARD_BEAT_COUNT = "Storyboard Beat Count"
     VIDEO_MODEL = "Video Model"
 
+    # Curiosity Gap (copied from selected Title Test record)
+    CURIOSITY_STRUCTURE = "Curiosity Structure"
+    STRUCTURE_CONFIDENCE = "Structure Confidence"
+    THUMBNAIL_APPROACH = "Thumbnail Approach"
+    # THUMBNAIL_TEXT already exists above
+
 
 class ScriptFields:
     """Scripts table field names."""
@@ -234,6 +240,16 @@ class CompetitorVideoFields:
     OUR_VIDEO = "Our Video"
     TOPIC_CLUSTER = "Topic Cluster"
 
+    # Curiosity Gap fields (added 2026-03-20)
+    CURIOSITY_STRUCTURE = "Curiosity Structure"
+    STRUCTURE_CONFIDENCE = "Structure Confidence"
+    THUMBNAIL_STYLE_JSON = "Thumbnail Style JSON"
+    YIN_YANG_APPROACH = "Yin Yang Approach"
+    YIN_YANG_TEXT = "Yin Yang Text"
+    ANALYSIS_DATE = "Analysis Date"
+    MODELED_BY_US = "Modeled By Us"
+    OUR_CTR_RESULT = "Our CTR Result"
+
 
 class OsirisLearningFields:
     """Osiris Learnings table field names."""
@@ -263,6 +279,37 @@ class TitleInsightFields:
     CONFIDENCE = "Confidence"
     VIDEOS_ANALYZED = "Videos Analyzed"
     VPH_THRESHOLD = "VPH Threshold"
+
+
+class TitleTestFields:
+    """Title Tests table field names (curiosity gap A/B testing)."""
+
+    IDEA = "Idea"  # Ideas record ID
+    TITLE_TEXT = "Title Text"
+    STRUCTURE = "Structure"  # Single Select: hidden_flaw, asymmetric_dg, time_bomb, paradigm_shift, illusion_control, other
+    STRUCTURE_CONFIDENCE = "Structure Confidence"
+    THUMBNAIL_TEXT = "Thumbnail Text"
+    THUMBNAIL_APPROACH = "Thumbnail Approach"  # Single Select: from_hook, from_gap
+    SOURCE_PATTERNS = "Source Patterns"  # JSON: competitor + our record IDs
+    PATTERN_LIBRARY_SNAPSHOT = "Pattern Library Snapshot"  # JSON: pattern state at generation
+    POLL_RESULT = "Poll Result"  # Single Select: human_selected, auto_selected
+    POLL_CLOSED = "Poll Closed"
+    CTR_12H = "CTR 12h"
+    CTR_24H = "CTR 24h"
+    CTR_48H = "CTR 48h"
+    SELECTED = "Selected"
+    VIDEO_TITLE = "Video Title"  # String match to Ideas table
+
+
+# =============================================================================
+# CURIOSITY GAP SYSTEM
+# =============================================================================
+
+# Kill switch - set to False to instantly disable curiosity gap system
+CURIOSITY_GAP_ENABLED = True
+
+# Title Tests table ID
+AIRTABLE_TITLE_TESTS_TABLE_ID = "tbln8CPbNaMvERVn9"
 
 
 # =============================================================================

@@ -362,20 +362,22 @@ MODELED_BY_US = "Modeled By Us"
 OUR_CTR_RESULT = "Our CTR Result"
 ```
 
-Add to the `IdeaFields` class (or create if not exists):
+Add to the `IdeaFields` class (these get copied from selected Title Test record):
 
 ```python
-# Curiosity Gap fields for Ideas table (added 2026-03-20)
+# Curiosity Gap fields for Ideas table (copied from selected Title Test)
 CURIOSITY_STRUCTURE = "Curiosity Structure"
 STRUCTURE_CONFIDENCE = "Structure Confidence"
-STRUCTURE_SOURCE = "Structure Source"
 THUMBNAIL_APPROACH = "Thumbnail Approach"
-THUMBNAIL_TEXT = "Thumbnail Text"
-PATTERN_LIBRARY_SNAPSHOT = "Pattern Library Snapshot"
-TITLE_POLL_RESULT = "Title Poll Result"
-POLL_CLOSED = "Poll Closed"
-CTR_12H = "CTR 12h"
+# THUMBNAIL_TEXT already exists in IdeaFields
 ```
+
+**NOTE:** The following fields live on the Title Tests table, NOT Ideas:
+- Structure Source → Title Tests.Source Patterns
+- Pattern Library Snapshot → Title Tests.Pattern Library Snapshot
+- Title Poll Result → Title Tests.Poll Result
+- Poll Closed → Title Tests.Poll Closed
+- CTR 12h → Title Tests.CTR 12h
 
 Add kill switch constant to top-level module (outside any class):
 
