@@ -189,6 +189,113 @@ IMPORTANT:
             "overall_brightness": "bright",
         }
 
+    async def analyze_competitor_thumbnail(
+        self,
+        thumbnail_url: str,
+        title: str,
+    ) -> dict:
+        """Analyze competitor thumbnail for curiosity gap patterns.
+
+        Extracts:
+        - Colors (dominant palette)
+        - Composition (face-left, text-right, etc.)
+        - Text extracted from thumbnail
+        - Yin/yang relationship to title
+        - Yin/yang approach (from_hook or from_gap)
+
+        Args:
+            thumbnail_url: URL of thumbnail image
+            title: Video title for yin/yang comparison
+
+        Returns:
+            Dict with analysis results
+        """
+        self._require_api_key()
+
+        prompt = f"""Analyze this YouTube thumbnail in relation to its title.
+
+TITLE: "{title}"
+
+Extract:
+1. colors: List the 3-5 dominant colors (e.g., ["deep red", "bright yellow", "black"])
+2. composition: Describe layout (e.g., "face-left text-right", "centered text", "split screen")
+3. text_extracted: What text appears on the thumbnail? (exact text in caps)
+4. yin_yang_relationship: How does the thumbnail text relate to the title?
+   - Does it reveal the answer/consequence? (from_gap)
+   - Does it show a surprising detail from the hook? (from_hook)
+   - Is it just repeating the title? (repetitive - bad)
+5. yin_yang_approach: "from_hook" or "from_gap" based on the relationship
+
+Return JSON only, no markdown."""
+
+        try:
+            # Fetch and encode image
+            image_base64 = await self._fetch_image_base64(thumbnail_url)
+
+            url = f"{self.BASE_URL}/models/gemini-2.0-flash:generateContent"
+            params = {"key": self.api_key}
+            payload = {
+                "contents": [
+                    {
+                        "parts": [
+                            {"text": prompt},
+                            {
+                                "inline_data": {
+                                    "mime_type": "image/jpeg",
+                                    "data": image_base64,
+                                }
+                            },
+                        ]
+                    }
+                ],
+                "generationConfig": {
+                    "temperature": 0.3,
+                    "maxOutputTokens": 1024,
+                    "responseMimeType": "application/json",
+                },
+            }
+
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                response = await client.post(url, params=params, json=payload)
+                response.raise_for_status()
+
+            data = response.json()
+            text = data["candidates"][0]["content"]["parts"][0]["text"]
+
+            # Parse JSON response
+            result = self._parse_json_response(text)
+            if result:
+                print(f"  Thumbnail analysis: {result.get('composition', 'N/A')} composition, {result.get('yin_yang_approach', 'N/A')} approach")
+                return result
+
+            # Try to extract JSON from response
+            json_match = re.search(r'\{.*\}', text, re.DOTALL)
+            if json_match:
+                try:
+                    return json.loads(json_match.group())
+                except json.JSONDecodeError:
+                    pass
+
+            # Return defaults
+            return self._get_thumbnail_analysis_fallback()
+
+        except httpx.HTTPStatusError as e:
+            print(f"  Gemini API error: {e.response.status_code}")
+            return self._get_thumbnail_analysis_fallback()
+        except Exception as e:
+            print(f"  Gemini thumbnail analysis error: {e}")
+            return self._get_thumbnail_analysis_fallback()
+
+    def _get_thumbnail_analysis_fallback(self) -> dict:
+        """Return defaults when thumbnail analysis fails."""
+        return {
+            "colors": [],
+            "composition": "unknown",
+            "text_extracted": "",
+            "yin_yang_relationship": "unknown",
+            "yin_yang_approach": "from_gap",
+        }
+
     async def _fetch_image_base64(self, url: str) -> str:
         """Download an image and return its base64-encoded content."""
         import base64
