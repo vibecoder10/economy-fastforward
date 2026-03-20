@@ -346,6 +346,8 @@ cd skills/video-pipeline && head -100 pipeline_constants.py
 
 - [ ] **Add curiosity gap field constants to pipeline_constants.py**
 
+**NOTE:** Base constants (TITLE, VPH, VIDEO_ID, CHANNEL) already exist in CompetitorVideoFields at lines 223-227. Only add the NEW curiosity gap fields below.
+
 Add to the `CompetitorVideoFields` class:
 
 ```python
@@ -373,6 +375,14 @@ PATTERN_LIBRARY_SNAPSHOT = "Pattern Library Snapshot"
 TITLE_POLL_RESULT = "Title Poll Result"
 POLL_CLOSED = "Poll Closed"
 CTR_12H = "CTR 12h"
+```
+
+Add kill switch constant to top-level module (outside any class):
+
+```python
+# Curiosity Gap kill switch (2026-03-20)
+# Set to False to instantly disable curiosity gap system
+CURIOSITY_GAP_ENABLED = True
 ```
 
 ### Step 3: Commit
@@ -849,7 +859,7 @@ Return ONLY valid JSON, no markdown fences."""
         video_id: str,
         title: str,
         vph: float,
-        channel_id: str,
+        channel_name: str,
     ) -> Dict:
         """Full analysis: title (always) + thumbnail (if qualifies).
 
@@ -857,7 +867,7 @@ Return ONLY valid JSON, no markdown fences."""
             video_id: YouTube video ID
             title: Video title
             vph: Views per hour
-            channel_id: YouTube channel ID
+            channel_name: Channel name (e.g., "CaspianReport")
 
         Returns:
             Dict with title_analysis and optional thumbnail_analysis
@@ -872,7 +882,7 @@ Return ONLY valid JSON, no markdown fences."""
         }
 
         # Phase 2: Thumbnail only if top 20%
-        if await should_deep_analyze(vph, channel_id):
+        if await should_deep_analyze(vph, channel_name):
             thumbnail_analysis = await self.analyze_thumbnail(video_id, title)
             result["thumbnail_analysis"] = thumbnail_analysis
             result["deep_analyzed"] = True
@@ -1484,6 +1494,14 @@ git commit -m "feat(pattern-library): Add curiosity gap pattern methods
 cd skills/video-pipeline && grep -n "def.*competitor" clients/airtable_client.py | head -20
 ```
 
+- [ ] **Verify `competitor_videos_table` property exists**
+
+```bash
+cd skills/video-pipeline && grep -n "competitor_videos_table" clients/airtable_client.py
+```
+
+If the property doesn't exist, add it following the existing table property pattern (e.g., `ideas_table`, `scripts_table`). It should return `self.base.table(os.getenv("AIRTABLE_COMPETITOR_VIDEOS_TABLE_ID"))`.
+
 ### Step 2: Add curiosity gap update method
 
 - [ ] **Add methods to airtable_client.py**
@@ -1655,7 +1673,7 @@ load_dotenv()
 from curiosity_gap.competitor_analyzer import CompetitorAnalyzer, should_deep_analyze
 from curiosity_gap.structures import CuriosityStructure
 from clients.airtable_client import AirtableClient
-from pipeline_constants import CompetitorVideoFields
+from pipeline_constants import CompetitorVideoFields, CURIOSITY_GAP_ENABLED
 
 
 async def seed_patterns(
@@ -1673,6 +1691,12 @@ async def seed_patterns(
     Returns:
         Summary dict with counts
     """
+    # Kill switch - instant rollback mechanism
+    if not CURIOSITY_GAP_ENABLED:
+        print("❌ Curiosity gap system is DISABLED (CURIOSITY_GAP_ENABLED=False)")
+        print("   Set CURIOSITY_GAP_ENABLED=True in pipeline_constants.py to enable")
+        return {"analyzed": 0, "errors": 0, "disabled": True}
+
     print(f"🌱 Seeding curiosity gap patterns...")
     print(f"   Mode: {'DRY RUN' if dry_run else 'LIVE'}")
     print(f"   Limit: {limit} videos, min VPH: {min_vph}")
@@ -1681,9 +1705,9 @@ async def seed_patterns(
     airtable = AirtableClient()
     analyzer = CompetitorAnalyzer()
 
-    # Get unanalyzed videos
+    # Get unanalyzed videos (sync call - AirtableClient uses pyairtable which is sync)
     print("📥 Fetching unanalyzed competitor videos...")
-    videos = await airtable.get_unanalyzed_competitor_videos(
+    videos = airtable.get_unanalyzed_competitor_videos(
         min_vph=min_vph,
         limit=limit,
     )
@@ -1734,9 +1758,9 @@ async def seed_patterns(
                     print(f"   Yin/Yang: {thumbnail_analysis.yin_yang_approach}")
                     results["deep_analyzed"] += 1
 
-            # Save to Airtable
+            # Save to Airtable (sync call - AirtableClient uses pyairtable which is sync)
             if not dry_run:
-                await airtable.update_competitor_curiosity_analysis(
+                airtable.update_competitor_curiosity_analysis(
                     record_id=record["id"],
                     structure=title_analysis.structure.value,
                     structure_confidence=title_analysis.confidence,
@@ -1893,7 +1917,7 @@ class TestCompetitorAnalyzerIntegration:
                     video_id="test123",
                     title="The $100B Mistake Saudi Arabia Is Hiding",
                     vph=200,
-                    channel_id="UCtest",
+                    channel_name="CaspianReport",
                 )
 
                 assert result["title_analysis"].structure == CuriosityStructure.HIDDEN_FLAW
@@ -1919,7 +1943,7 @@ class TestCompetitorAnalyzerIntegration:
                     video_id="test456",
                     title="Some Low Performing Title",
                     vph=120,
-                    channel_id="UCtest",
+                    channel_name="CaspianReport",
                 )
 
                 assert result["deep_analyzed"] is False
