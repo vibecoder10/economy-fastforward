@@ -3,7 +3,10 @@
 import re
 from pathlib import Path
 from dataclasses import dataclass, field
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Any
+
+# Import CuriosityStructure - curiosity_gap is a sibling package
+from curiosity_gap.structures import CuriosityStructure
 
 
 @dataclass
@@ -34,6 +37,30 @@ class TopicPerformance:
     avg_ctr: float
     sample_size: int
     verdicts: Dict[str, int] = field(default_factory=dict)  # keep/discard counts
+
+
+@dataclass
+class CuriosityGapPattern:
+    """Performance data for a curiosity gap structure."""
+    structure: CuriosityStructure
+    avg_ctr_ours: Optional[float] = None
+    sample_size_ours: int = 0
+    avg_vph_competitors: Optional[float] = None
+    sample_size_competitors: int = 0
+    status: str = "testing"  # "proven", "testing", "anti"
+
+
+@dataclass
+class CompetitorPattern:
+    """Extracted pattern from competitor video."""
+    video_id: str = ""
+    channel: str = ""
+    title: str = ""
+    structure: CuriosityStructure = CuriosityStructure.OTHER
+    confidence: int = 0
+    vph: float = 0.0
+    thumbnail_style: Dict[str, Any] = field(default_factory=dict)
+    yin_yang_approach: str = ""
 
 
 class PatternLibrary:
@@ -360,3 +387,162 @@ class PatternLibrary:
 
         content = path.read_text()
         return self._parse_notes_section(content, "## Notes")
+
+    def _parse_competitor_patterns(self) -> tuple[List[CuriosityGapPattern], List[CompetitorPattern]]:
+        """Parse competitor_patterns.md into structured data."""
+        path = self.memory_dir / "competitor_patterns.md"
+        if not path.exists():
+            return [], []
+
+        content = path.read_text()
+        gap_patterns = []
+        competitor_patterns = []
+
+        # Parse structure sections (### hidden_flaw (n=12, avg VPH: 165))
+        structure_pattern = r'### (\w+) \(n=(\d+), avg VPH: ([\d.]+|—)\)'
+        for match in re.finditer(structure_pattern, content):
+            structure_name = match.group(1)
+            sample_size = int(match.group(2))
+            avg_vph_str = match.group(3)
+            avg_vph = float(avg_vph_str) if avg_vph_str != "—" else None
+
+            try:
+                structure = CuriosityStructure(structure_name)
+            except ValueError:
+                structure = CuriosityStructure.OTHER
+
+            gap_patterns.append(CuriosityGapPattern(
+                structure=structure,
+                sample_size_competitors=sample_size,
+                avg_vph_competitors=avg_vph,
+            ))
+
+        # Parse individual videos (- Channel: "Title" (VPH: X))
+        # Channel name can have spaces (e.g., "Economics Explained")
+        video_pattern = r'- ([^:]+): "([^"]+)" \(VPH: ([\d.]+)\)'
+        # Find which section each video is in
+        current_structure = CuriosityStructure.OTHER
+        for line in content.split('\n'):
+            struct_match = re.match(r'### (\w+)', line)
+            if struct_match:
+                try:
+                    current_structure = CuriosityStructure(struct_match.group(1))
+                except ValueError:
+                    current_structure = CuriosityStructure.OTHER
+                continue
+
+            video_match = re.match(video_pattern, line.strip())
+            if video_match:
+                competitor_patterns.append(CompetitorPattern(
+                    channel=video_match.group(1),
+                    title=video_match.group(2),
+                    vph=float(video_match.group(3)),
+                    structure=current_structure,
+                ))
+
+        return gap_patterns, competitor_patterns
+
+    def get_curiosity_gap_patterns(
+        self,
+        structure: Optional[CuriosityStructure] = None
+    ) -> List[CuriosityGapPattern]:
+        """Get curiosity gap structure performance from competitor_patterns.md.
+
+        Args:
+            structure: Filter by specific structure (optional)
+
+        Returns:
+            List of CuriosityGapPattern objects
+        """
+        gap_patterns, _ = self._parse_competitor_patterns()
+
+        if structure is not None:
+            return [p for p in gap_patterns if p.structure == structure]
+
+        return gap_patterns
+
+    def get_competitor_patterns(
+        self,
+        channel: Optional[str] = None,
+        structure: Optional[CuriosityStructure] = None,
+        min_vph: float = 0
+    ) -> List[CompetitorPattern]:
+        """Get competitor patterns from competitor_patterns.md.
+
+        Args:
+            channel: Filter by channel name (optional)
+            structure: Filter by structure (optional)
+            min_vph: Minimum VPH threshold
+
+        Returns:
+            List of CompetitorPattern objects
+        """
+        _, competitor_patterns = self._parse_competitor_patterns()
+
+        if channel is not None:
+            competitor_patterns = [p for p in competitor_patterns if p.channel == channel]
+
+        if structure is not None:
+            competitor_patterns = [p for p in competitor_patterns if p.structure == structure]
+
+        if min_vph > 0:
+            competitor_patterns = [p for p in competitor_patterns if p.vph >= min_vph]
+
+        return competitor_patterns
+
+    def get_unclassified_titles(self) -> List[Dict]:
+        """Get unclassified 'other' titles from competitor_patterns.md.
+
+        Returns:
+            List of dicts with title and notes
+        """
+        path = self.memory_dir / "competitor_patterns.md"
+        if not path.exists():
+            return []
+
+        content = path.read_text()
+        unclassified = []
+
+        # Find Unclassified section
+        unclassified_match = re.search(
+            r'## Unclassified \(other\).*?\n(.*?)(?=\n##|\n---|\Z)',
+            content,
+            re.DOTALL
+        )
+
+        if unclassified_match:
+            section = unclassified_match.group(1)
+            # Parse lines like: - "Title" (pattern note?)
+            for line in section.split('\n'):
+                line = line.strip()
+                if line.startswith('- "'):
+                    match = re.match(r'- "([^"]+)"(.*)', line)
+                    if match:
+                        unclassified.append({
+                            "title": match.group(1),
+                            "notes": match.group(2).strip(' ()'),
+                        })
+
+        return unclassified
+
+    def get_best_structures_for_topic(
+        self,
+        topic_category: str
+    ) -> List[CuriosityStructure]:
+        """Get structures that perform best for a topic category.
+
+        Args:
+            topic_category: Topic like "geopolitics", "finance", etc.
+
+        Returns:
+            List of structures ranked by performance
+        """
+        # TODO: Cross-reference with topic_performance.md
+        # For now, return all main structures
+        return [
+            CuriosityStructure.HIDDEN_FLAW,
+            CuriosityStructure.ASYMMETRIC_DG,
+            CuriosityStructure.TIME_BOMB,
+            CuriosityStructure.PARADIGM_SHIFT,
+            CuriosityStructure.ILLUSION_CONTROL,
+        ]
