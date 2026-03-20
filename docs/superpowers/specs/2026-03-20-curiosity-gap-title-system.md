@@ -64,11 +64,13 @@ Top 3 scoring structures (above confidence floor) become title variants.
 skills/video-pipeline/
 ├── curiosity_gap/                    # NEW MODULE
 │   ├── __init__.py
-│   ├── structures.py                 # 5 structure definitions + scoring criteria
-│   ├── title_generator.py            # generate_titles(story) → 3 titles
+│   ├── structures.py                 # 5 structure definitions + CuriosityStructure enum
+│   ├── gap_title_engine.py           # generate_titles(story) → 3 titles (NOT title_generator.py to avoid collision)
 │   ├── thumbnail_generator.py        # yin/yang text generation (approach A or B)
 │   └── competitor_analyzer.py        # analyze competitor title + thumbnail
 ```
+
+**Naming Note:** The file is `gap_title_engine.py` NOT `title_generator.py` to avoid confusion with `thumbnail_title/title_generator.py`. Two files with similar names in one codebase causes wiring bugs.
 
 ### Integration with Existing Autopilot
 
@@ -204,9 +206,12 @@ skills/video-pipeline/autopilot/
 | `Thumbnail Text` | Single Line | The yin/yang text generated |
 | `Pattern Library Snapshot` | Long Text | Which patterns informed this decision |
 | `Title Poll Result` | Single Select | `human_selected`, `auto_selected` |
+| `Poll Closed` | Checkbox | Whether poll auto-selected (prevents late vote changes) |
 | `CTR 12h` | Number | CTR at 12 hours |
 | `CTR 24h` | Number | CTR at 24 hours |
 | `CTR 48h` | Number | CTR at 48 hours |
+
+**JSON Field Note:** `Structure Source`, `Pattern Library Snapshot`, and `Thumbnail Style JSON` are **stringified JSON in Long Text fields**, NOT native Airtable JSON (which doesn't exist). Read with `json.loads()`, write with `json.dumps()`. This follows the existing pattern used by `Original DNA` and `Research Payload` fields.
 
 ### Memory Files
 
@@ -340,6 +345,8 @@ async def analyze_thumbnail(
 ### VPH Normalization with Cold Start Handling
 
 ```python
+import bisect
+
 MIN_CHANNEL_SAMPLE = 5
 COLD_START_VPH_THRESHOLD = 100
 
@@ -351,7 +358,8 @@ async def should_deep_analyze(video: CompetitorVideo) -> bool:
         return video.vph >= COLD_START_VPH_THRESHOLD
 
     vphs = sorted([v.vph for v in channel_videos])
-    percentile = vphs.index(video.vph) / len(vphs) * 100
+    # Use bisect for correct percentile (handles duplicate VPH values)
+    percentile = bisect.bisect_left(vphs, video.vph) / len(vphs) * 100
     return percentile >= 80  # Top 20% of channel's recent videos
 ```
 
@@ -389,7 +397,7 @@ Claude selects approach per title based on which creates stronger yin/yang.
 ### Generation Flow
 
 ```python
-# curiosity_gap/title_generator.py
+# curiosity_gap/gap_title_engine.py
 
 @dataclass
 class GeneratedTitle:
@@ -581,6 +589,47 @@ React: 🅰️ 🅱️ 🅲
 - >80% auto-select → poll isn't adding value, consider tightening loop
 - <50% auto-select → humans actively curating, keep it
 
+**Late vote handling:**
+When auto-select fires, set `poll_closed=True` in the poll state. The reaction handler checks this flag:
+```python
+async def handle_poll_reaction(reaction, poll_id):
+    poll = await get_poll_state(poll_id)
+
+    if poll.closed:
+        # Late vote after auto-select - ignore and notify
+        await slack.reply_in_thread(
+            poll.thread_ts,
+            f"⏰ Poll already closed. Title '{poll.selected_title}' is locked."
+        )
+        return
+
+    # Process valid vote...
+```
+This prevents late votes from triggering title changes mid-pipeline.
+
+### 8.4 Kill Switch — Global Rollback
+
+If curiosity gap titles underperform MF formulas in early weeks, instant rollback without code deploy:
+
+**Toggle:** `CURIOSITY_GAP_ENABLED` (env var OR Airtable Settings table checkbox)
+
+```python
+# At start of title generation
+async def generate_titles_for_idea(idea_record, story_context):
+    if not is_curiosity_gap_enabled():
+        # Fallback to pure MF formulas
+        return await generate_mf_titles(story_context)
+
+    # Normal curiosity gap flow...
+```
+
+**Airtable Settings table:**
+| Field | Value |
+|-------|-------|
+| `Curiosity Gap Enabled` | ✅ (checkbox) |
+
+The cron auto-pulls code, so toggling the Airtable checkbox = instant rollback.
+
 ---
 
 ## 9. Slack Commands
@@ -612,35 +661,41 @@ React: 🅰️ 🅱️ 🅲
 
 ## 10. Implementation Phases
 
-### Phase 1: Core Module (Week 1)
+**IMPORTANT:** Build competitor analyzer FIRST to seed pattern library. The title generator needs real data from day one — empty patterns produce blind outputs.
+
+### Phase 1: Competitor Analysis + Data Seeding (Week 1)
 
 - [ ] Create `curiosity_gap/` module structure
-- [ ] Implement `structures.py` with 5 structures + `other`
-- [ ] Implement `title_generator.py` with Claude integration
-- [ ] Implement `thumbnail_generator.py` with yin/yang logic
-- [ ] Add confidence floor + MF fallback
-- [ ] Tests for all components
-
-### Phase 2: Competitor Analysis (Week 2)
-
+- [ ] Implement `structures.py` with 5 structures + `other` + CuriosityStructure enum
 - [ ] Implement `competitor_analyzer.py` Phase 1 (title analysis)
 - [ ] Implement `competitor_analyzer.py` Phase 2 (thumbnail vision)
-- [ ] Add VPH normalization with cold start handling
-- [ ] Integrate with daily `competitor_scraper` run
+- [ ] Add VPH normalization with cold start handling (bisect)
 - [ ] Add Airtable fields to Competitor Videos table
 - [ ] Create `competitor_patterns.md` memory file
+- [ ] **Seed library with ~50 competitor titles** before moving to Phase 2
+- [ ] Tests for analyzer components
+
+### Phase 2: Core Generation Module (Week 2)
+
+- [ ] Implement `gap_title_engine.py` with Claude integration
+- [ ] Implement `thumbnail_generator.py` with yin/yang logic
+- [ ] Add confidence floor + MF fallback
+- [ ] Add `CURIOSITY_GAP_ENABLED` kill switch (env var + Airtable checkbox)
+- [ ] Extend `pattern_library.py` to read curiosity gap patterns
+- [ ] Tests for generation components
 
 ### Phase 3: Learning Integration (Week 3)
 
-- [ ] Extend `learning_extractor.py` for curiosity structure category
-- [ ] Extend `pattern_library.py` to read curiosity gap patterns
+- [ ] Extend `learning_extractor.py` for `"structure"` category
 - [ ] Extend `memory_writer.py` to write curiosity gap learnings
 - [ ] Add Airtable fields to Ideas table
 - [ ] Wire CTR 12h/24h/48h tracking
+- [ ] Integrate with daily `competitor_scraper` run
 
 ### Phase 4: Autopilot + Slack (Week 4)
 
 - [ ] Add Slack poll for title selection (2h timeout)
+- [ ] Add `poll_closed` flag + late vote handling
 - [ ] Add `analyze` Slack commands
 - [ ] Add `patterns` Slack commands
 - [ ] Implement weekly "other" digest
@@ -651,8 +706,9 @@ React: 🅰️ 🅱️ 🅲
 
 - [ ] Integrate with `idea_bot.py`
 - [ ] Integrate with `trending_idea_bot.py`
-- [ ] Integrate with `title_generator.py` (thumbnail module)
+- [ ] Integrate with `thumbnail_title/title_generator.py` (receives yin/yang text)
 - [ ] Full pipeline test: competitor → pattern → generation → publish → CTR → learning
+- [ ] Rollback testing: verify kill switch works
 
 ---
 
@@ -736,31 +792,41 @@ async def fallback_to_mf_formulas(
 
 ### A.4 Module Relationship: New vs Existing Title Generators
 
-**Two separate concerns:**
+**⚠️ CRITICAL — READ THIS FIRST**
 
-| Module | Responsibility | When Called |
-|--------|----------------|-------------|
-| `curiosity_gap/title_generator.py` | Generate TITLE text using curiosity gap structures | During idea creation (idea_bot, trending_idea_bot) |
-| `thumbnail_title/title_generator.py` | Generate THUMBNAIL text from a title | During thumbnail generation |
+This is the #1 source of confusion. There are TWO modules with "title" and "generator" in different parts of the codebase. They do DIFFERENT things:
+
+| Module | File | Responsibility | When Called |
+|--------|------|----------------|-------------|
+| **Curiosity Gap Engine** | `curiosity_gap/gap_title_engine.py` | Generate TITLE text using curiosity gap structures | During idea creation (idea_bot, trending_idea_bot) |
+| **Thumbnail Title Module** | `thumbnail_title/title_generator.py` | Format THUMBNAIL text (line breaks, CAPS positioning) | During thumbnail image generation |
 
 **The relationship:**
-1. `curiosity_gap/title_generator.py` generates title + thumbnail text together (yin/yang)
-2. `thumbnail_title/title_generator.py` is NOT replaced — it handles thumbnail rendering details (CAPS word positioning, line breaks)
-3. The yin/yang thumbnail text flows TO `thumbnail_title/` as input
+1. `curiosity_gap/gap_title_engine.py` generates title + raw yin/yang thumbnail text together
+2. `thumbnail_title/title_generator.py` is NOT replaced — it handles thumbnail RENDERING (text layout, line breaks)
+3. The yin/yang text flows FROM curiosity_gap TO thumbnail_title as input
 
 ```python
-# Flow
-title, thumbnail_text = await curiosity_gap.generate_titles(story)[0]
-# title = "The $100B Mistake Saudi Arabia Is Hiding"
-# thumbnail_text = "WORTHLESS PIPELINES"
+# Step 1: Curiosity gap engine generates title + thumbnail text
+from curiosity_gap.gap_title_engine import generate_titles
 
-# Then thumbnail_title handles rendering
-thumbnail_spec = await thumbnail_title.format_thumbnail(
-    title=title,
-    thumbnail_text=thumbnail_text,  # From curiosity_gap
+result = await generate_titles(story)[0]
+# result.text = "The $100B Mistake Saudi Arabia Is Hiding"
+# result.thumbnail_text = "WORTHLESS PIPELINES"
+
+# Step 2: Thumbnail title module formats for rendering
+from thumbnail_title.title_generator import format_thumbnail
+
+thumbnail_spec = await format_thumbnail(
+    title=result.text,
+    thumbnail_text=result.thumbnail_text,  # FROM curiosity_gap
     # ... other params
 )
+# thumbnail_spec.line_1 = "WORTHLESS"
+# thumbnail_spec.line_2 = "PIPELINES"
 ```
+
+**Why the naming matters:** The new file is `gap_title_engine.py` (not `title_generator.py`) specifically to prevent wiring confusion. If you see `title_generator.py` in code, it's the EXISTING thumbnail module.
 
 ### A.5 Pattern Library API Extensions
 
@@ -922,9 +988,16 @@ Files to extend:
 - `performance_tracker.py` — add 12h CTR snapshot
 
 Files to integrate with:
-- `bots/idea_bot.py` — call `curiosity_gap.generate_titles()`
-- `bots/trending_idea_bot.py` — call `curiosity_gap.generate_titles()`
-- `thumbnail_title/title_generator.py` — receive yin/yang thumbnail text as input
-- `pipeline_control.py` — add new Slack commands
+- `bots/idea_bot.py` — call `curiosity_gap.gap_title_engine.generate_titles()`
+- `bots/trending_idea_bot.py` — call `curiosity_gap.gap_title_engine.generate_titles()`
+- `thumbnail_title/title_generator.py` — receive yin/yang thumbnail text as input (NOT replaced)
+- `pipeline_control.py` — add new Slack commands + poll reaction handler
+
+New files to create:
+- `curiosity_gap/structures.py` — CuriosityStructure enum + structure definitions
+- `curiosity_gap/gap_title_engine.py` — title generation with curiosity gap scoring
+- `curiosity_gap/thumbnail_generator.py` — yin/yang text generation
+- `curiosity_gap/competitor_analyzer.py` — two-phase competitor analysis
+- `autopilot/memory/competitor_patterns.md` — competitor pattern storage
 
 Related commit: `78ecabe` (feat: Add learning system and pattern-based scoring)
