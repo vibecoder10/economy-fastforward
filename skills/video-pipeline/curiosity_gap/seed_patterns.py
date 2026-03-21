@@ -115,6 +115,11 @@ async def seed_patterns(
 
             # Save to Airtable (sync call - AirtableClient uses pyairtable which is sync)
             if not dry_run:
+                # Only write valid yin_yang_approach values (skip "repetitive" etc)
+                yin_yang_approach = thumbnail_analysis.yin_yang_approach if thumbnail_analysis else None
+                if yin_yang_approach not in ("from_hook", "from_gap"):
+                    yin_yang_approach = None
+
                 airtable.update_competitor_curiosity_analysis(
                     record_id=record["id"],
                     structure=title_analysis.structure.value,
@@ -123,7 +128,7 @@ async def seed_patterns(
                         "colors": thumbnail_analysis.colors if thumbnail_analysis else [],
                         "composition": thumbnail_analysis.composition if thumbnail_analysis else "",
                     }) if thumbnail_analysis else None,
-                    yin_yang_approach=thumbnail_analysis.yin_yang_approach if thumbnail_analysis else None,
+                    yin_yang_approach=yin_yang_approach,
                     yin_yang_text=thumbnail_analysis.text_extracted if thumbnail_analysis else None,
                 )
                 print(f"   Saved to Airtable")
