@@ -28,7 +28,7 @@ class ExtractedLearning:
     Represents a single pattern observation from a video's
     CTR performance that should be recorded to memory.
     """
-    category: str  # thumbnail, title, topic, etc.
+    category: str  # thumbnail, title, topic, structure, etc.
     pattern: str  # Description of the pattern
     verdict: CTRVerdict  # KEEP, DISCARD, or NEUTRAL
     confidence: float  # 0.0 - 1.0
@@ -262,6 +262,40 @@ Best CTR: {best_ctr:.1f}% ("{best_title}")
 
         pattern_path.write_text(content)
 
+    def update_curiosity_gap_patterns(self, learnings: List[ExtractedLearning]) -> None:
+        """Update title_patterns.md with curiosity gap structure performance.
+
+        Adds notes about which curiosity gap structures performed well
+        (KEEP) or poorly (DISCARD) based on CTR data.
+
+        Args:
+            learnings: List of learnings (only "structure" category used)
+        """
+        pattern_path = self.memory_dir / "title_patterns.md"
+        content = pattern_path.read_text() if pattern_path.exists() else ""
+
+        for learning in learnings:
+            if learning.category != "structure":
+                continue
+
+            note = (
+                f"\n- {learning.pattern}: CTR {learning.ctr:.1f}% "
+                f"({learning.verdict.value}) - {learning.video_title}"
+            )
+
+            # Insert into Curiosity Gap Structures section
+            if "## Curiosity Gap Structures" in content:
+                content = content.replace(
+                    "## Curiosity Gap Structures\n",
+                    f"## Curiosity Gap Structures{note}\n",
+                    1
+                )
+            else:
+                # Create section if missing
+                content += f"\n## Curiosity Gap Structures{note}\n"
+
+        pattern_path.write_text(content)
+
     def process_result(self, result: ExperimentResult) -> None:
         """Process a full experiment result and update all memory files.
 
@@ -278,6 +312,7 @@ Best CTR: {best_ctr:.1f}% ("{best_title}")
         thumbnail_learnings = [l for l in result.learnings if l.category == "thumbnail"]
         title_learnings = [l for l in result.learnings if l.category == "title"]
         topic_learnings = [l for l in result.learnings if l.category in ("topic", "angle", "hook", "formula")]
+        structure_learnings = [l for l in result.learnings if l.category == "structure"]
 
         # Update pattern files if there are relevant learnings
         if thumbnail_learnings:
@@ -286,3 +321,5 @@ Best CTR: {best_ctr:.1f}% ("{best_title}")
             self.update_title_patterns(title_learnings)
         if topic_learnings:
             self.update_topic_performance(topic_learnings)
+        if structure_learnings:
+            self.update_curiosity_gap_patterns(structure_learnings)
