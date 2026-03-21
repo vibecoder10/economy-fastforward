@@ -635,6 +635,7 @@ class ImageClient:
                 "prompt": prompt,
                 "image_input": [reference_image_url],
                 "aspect_ratio": aspect_ratio,
+                "resolution": "1K",  # Required with image_input to enforce aspect ratio
             },
         }
 
