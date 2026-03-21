@@ -19,6 +19,7 @@ Pipeline flow (with storyboard enabled):
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import math
 import os
@@ -1682,7 +1683,6 @@ async def run_storyboard_prompts(
                 logger.warning(f"Scene {target_scene}, Beat {scene_beat_idx} attempt {attempt + 1} failed: {e}")
                 if attempt == 0:
                     notify(f"⚠️ Scene {target_scene}, Beat {scene_beat_idx} retry...")
-                    import asyncio
                     await asyncio.sleep(2)  # Brief pause before retry
                 else:
                     notify(f"❌ Scene {target_scene}, Beat {scene_beat_idx} FAILED: {e}")
