@@ -1624,6 +1624,20 @@ async def run_storyboard_prompts(
     prompts_generated = 0
     failed_beats: list[tuple[int, int]] = []  # (scene, beat)
 
+    # Count how many beats we'll skip (already exist)
+    skipped_count = 0
+    for beat in beats:
+        target_scene = beat["scenes"][0] if beat["scenes"] else 1
+        scene_beats_list = [b for b in beats if b["scenes"] and b["scenes"][0] == target_scene]
+        scene_beat_idx = next((i for i, b in enumerate(scene_beats_list, 1) if b["beat_number"] == beat["beat_number"]), 1)
+        existing_count = scene_beat_counts.get(target_scene, 0)
+        if scene_beat_idx <= existing_count:
+            skipped_count += 1
+
+    if skipped_count > 0:
+        notify(f"⏭️ Skipping {skipped_count} already-generated beats, resuming from beat {skipped_count + 1}")
+        logger.info(f"Resuming: skipping {skipped_count} beats that already exist")
+
     for beat in beats:
         beat_num = beat["beat_number"]
         # Target scene is the first scene this beat covers
