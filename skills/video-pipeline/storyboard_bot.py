@@ -1107,6 +1107,8 @@ async def run_storyboard_preview(
     fields = idea_record.get("fields", idea_record)
     video_title = fields.get("Video Title", "")
     profile = load_profile(fields)
+    idea_id = idea_record.get("id", "")
+    video_length_min = fields.get(IdeaFields.VIDEO_LENGTH_MIN, 10) or 10
 
     # Load Story Bible for visual consistency across beats
     story_bible = _load_story_bible(fields)
@@ -1115,6 +1117,19 @@ async def run_storyboard_preview(
     if not script_records:
         logger.error(f"No script found for '{video_title}'")
         return []
+
+    # Generate Story Bible if missing
+    if story_bible is None and idea_id:
+        logger.info(f"Story Bible missing for preview — generating now...")
+        story_bible = await _generate_story_bible_for_storyboard(
+            anthropic_client=anthropic_client,
+            airtable_client=airtable_client,
+            idea_id=idea_id,
+            video_title=video_title,
+            script_records=script_records,
+            video_length_min=int(video_length_min),
+            slack_client=None,  # No Slack notifications in preview mode
+        )
 
     # Get images first to calculate beats based on image count
     image_records = airtable_client.get_all_images_for_video(video_title)
@@ -1581,6 +1596,7 @@ async def run_storyboard_prompts(
     video_title = fields.get("Video Title", "")
     profile = load_profile(fields)
     idea_id = idea_record.get("id", "")
+    video_length_min = fields.get(IdeaFields.VIDEO_LENGTH_MIN, 10) or 10
 
     # Load Story Bible for visual consistency across beats
     story_bible = _load_story_bible(fields)
@@ -1588,6 +1604,21 @@ async def run_storyboard_prompts(
     script_records = airtable_client.get_scripts_by_title(video_title)
     if not script_records:
         return {"error": f"No script found for '{video_title}'"}
+
+    # Generate Story Bible if missing — CRITICAL for visual consistency
+    if story_bible is None:
+        logger.info(f"Story Bible missing for '{video_title}' — generating now...")
+        story_bible = await _generate_story_bible_for_storyboard(
+            anthropic_client=anthropic_client,
+            airtable_client=airtable_client,
+            idea_id=idea_id,
+            video_title=video_title,
+            script_records=script_records,
+            video_length_min=int(video_length_min),
+            slack_client=slack_client,
+        )
+        if story_bible:
+            logger.info(f"Story Bible generated successfully for '{video_title}'")
 
     # Build scene_to_record_id map for per-scene saving
     scene_to_record_id: dict[int, str] = {}
@@ -2145,6 +2176,117 @@ def _load_story_bible(fields: dict) -> dict | None:
         return bible
     except (json.JSONDecodeError, TypeError) as e:
         logger.warning(f"Failed to parse Story Bible JSON: {e}")
+        return None
+
+
+async def _generate_story_bible_for_storyboard(
+    anthropic_client,
+    airtable_client,
+    idea_id: str,
+    video_title: str,
+    script_records: list,
+    video_length_min: int = 10,
+    slack_client=None,
+) -> dict | None:
+    """Generate Story Bible if not present, and save to Airtable.
+
+    This ensures storyboard prompts have visual consistency even when
+    run before image prompts (or when image prompts ran without Story Bible).
+
+    Args:
+        anthropic_client: AnthropicClient for Claude API calls
+        airtable_client: AirtableClient for saving Story Bible
+        idea_id: Airtable record ID for the idea
+        video_title: Video title for logging
+        script_records: List of script records with scene text
+        video_length_min: Video length in minutes (default 10)
+        slack_client: Optional SlackClient for notifications
+
+    Returns:
+        Generated Story Bible dict, or None on failure
+    """
+    import json
+    from bots.story_bible import generate_story_bible, has_scene_blocks
+
+    def notify(msg: str):
+        if slack_client:
+            try:
+                slack_client.send_message(msg)
+            except Exception:
+                pass
+
+    logger.info(f"Generating Story Bible for '{video_title}'...")
+    notify(f"📖 Generating Story Bible for *{video_title}* (required for visual consistency)...")
+
+    try:
+        # Calculate total images based on video length
+        try:
+            from pipeline_config import VideoConfig
+            video_config = VideoConfig(int(video_length_min), 10)
+            total_images = video_config.total_clips
+        except (ValueError, TypeError, ImportError):
+            total_images = 60  # Default fallback
+
+        # Combine all scene text
+        full_script_text = "\n\n".join(
+            f"[SCENE {rec.get('fields', rec).get(ScriptFields.SCENE, 0)}]\n"
+            f"{rec.get('fields', rec).get(ScriptFields.SCENE_TEXT, '') or rec.get('fields', rec).get(IdeaFields.SCRIPT, '')}"
+            for rec in script_records
+        )
+
+        if not full_script_text.strip():
+            logger.warning("No script text found for Story Bible generation")
+            return None
+
+        # Generate Story Bible via Claude
+        story_bible = await generate_story_bible(
+            anthropic_client=anthropic_client,
+            full_script_text=full_script_text,
+            video_title=video_title,
+            use_scene_blocks=True,
+            total_images=total_images,
+            video_duration_minutes=int(video_length_min),
+        )
+
+        if story_bible:
+            # Save to Airtable
+            airtable_client.update_idea_fields(
+                idea_id,
+                {IdeaFields.STORY_BIBLE: json.dumps(story_bible, ensure_ascii=False)}
+            )
+            logger.info(f"Story Bible saved to Airtable for '{video_title}'")
+
+            # Log and notify
+            char_count = len(story_bible.get("characters", []))
+            loc_count = len(story_bible.get("locations", []))
+
+            if has_scene_blocks(story_bible):
+                block_count = len(story_bible.get("scene_blocks", []))
+                total_block_images = sum(
+                    len(b.get("images", []))
+                    for b in story_bible.get("scene_blocks", [])
+                )
+                notify(
+                    f"📖 Story Bible generated for *{video_title}*:\n"
+                    f"• {char_count} characters, {loc_count} locations\n"
+                    f"• {block_count} scene blocks ({total_block_images} images)"
+                )
+            else:
+                arc_count = len(story_bible.get("visual_arc", []))
+                notify(
+                    f"📖 Story Bible generated for *{video_title}*:\n"
+                    f"• {char_count} characters, {loc_count} locations\n"
+                    f"• {arc_count} visual arcs"
+                )
+
+            return story_bible
+        else:
+            logger.warning("Story Bible generation returned empty result")
+            return None
+
+    except Exception as e:
+        logger.error(f"Story Bible generation failed: {e}")
+        notify(f"⚠️ Story Bible generation failed for *{video_title}*: {e}")
         return None
 
 
