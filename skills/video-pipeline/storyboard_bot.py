@@ -1588,7 +1588,16 @@ async def run_storyboard_prompts(
     if not script_records:
         return {"error": f"No script found for '{video_title}'"}
 
-    # Get first script record ID for writing storyboard fields
+    # Build scene_to_record_id map for per-scene saving
+    scene_to_record_id: dict[int, str] = {}
+    for rec in script_records:
+        fields = rec.get("fields", rec)
+        scene_num = fields.get(ScriptFields.SCENE, 0)
+        rec_id = rec.get("id", "")
+        if scene_num and rec_id:
+            scene_to_record_id[scene_num] = rec_id
+
+    # Fallback for legacy behavior
     first_script_id = script_records[0].get("id", "")
 
     # Get images FIRST to calculate beats based on image count
@@ -1601,30 +1610,34 @@ async def run_storyboard_prompts(
     logger.info(f"Calculated {len(beats)} beats for {len(image_records)} images")
     notify(f"📝 Storyboard prompts: *{video_title}*\n• {len(image_records)} images → {len(beats)} beat(s)")
 
-    # Check existing prompts from Scripts table (resume support)
-    first_script_fields = script_records[0].get("fields", script_records[0])
-    existing_prompts = first_script_fields.get("Storyboard Prompts", "") or ""
-    existing_beat_count = existing_prompts.count("--- BEAT ")
+    # Track per-scene prompts for resume support
+    scene_prompts: dict[int, str] = {}
+    scene_beat_counts: dict[int, int] = {}
+    for rec in script_records:
+        fields = rec.get("fields", rec)
+        scene_num = fields.get(ScriptFields.SCENE, 0)
+        existing = fields.get("Storyboard Prompts", "") or ""
+        scene_prompts[scene_num] = existing
+        scene_beat_counts[scene_num] = existing.count("--- BEAT ")
 
-    if existing_beat_count >= len(beats):
-        logger.info(f"All {len(beats)} prompts already generated")
-        return {
-            "video_title": video_title,
-            "beat_count": len(beats),
-            "prompts_generated": existing_beat_count,
-            "total_cost": 0,
-            "skipped": True,
-        }
-
-    all_prompts_text = existing_prompts
     total_cost = 0.0
+    prompts_generated = 0
 
     for beat in beats:
         beat_num = beat["beat_number"]
+        # Target scene is the first scene this beat covers
+        target_scene = beat["scenes"][0] if beat["scenes"] else 1
+        target_record_id = scene_to_record_id.get(target_scene, first_script_id)
 
-        # Skip already-completed beats
-        if beat_num <= existing_beat_count:
-            logger.info(f"Beat {beat_num}/{len(beats)} prompt already exists, skipping")
+        # Calculate beat number within this scene
+        scene_beats = [b for b in beats if b["scenes"] and b["scenes"][0] == target_scene]
+        scene_beat_idx = next((i for i, b in enumerate(scene_beats, 1) if b["beat_number"] == beat_num), 1)
+        total_scene_beats = len(scene_beats)
+
+        # Skip already-completed beats for this scene
+        existing_count = scene_beat_counts.get(target_scene, 0)
+        if scene_beat_idx <= existing_count:
+            logger.info(f"Scene {target_scene}, Beat {scene_beat_idx}/{total_scene_beats} already exists, skipping")
             continue
 
         beat_images = _get_images_for_beat(image_records, beat)
@@ -1647,37 +1660,42 @@ async def run_storyboard_prompts(
         )
         total_cost += 0.03
 
-        # Save prompt to Scripts table immediately
+        # Save prompt to THIS scene's Scripts record
         contact_sheet_prompt = directive["contact_sheet_prompt"]
-        prompt_block = f"\n\n--- BEAT {beat_num} ---\n{contact_sheet_prompt}"
-        all_prompts_text += prompt_block
+        prompt_block = f"\n\n--- BEAT {scene_beat_idx} ---\n{contact_sheet_prompt}"
+        scene_prompts[target_scene] = scene_prompts.get(target_scene, "") + prompt_block
 
-        if first_script_id:
+        if target_record_id:
             try:
-                airtable_client.update_script_record(first_script_id, {
-                    "Storyboard Prompts": all_prompts_text,
-                    "Storyboard Status": f"prompts_{beat_num}_of_{len(beats)}",
+                airtable_client.update_script_record(target_record_id, {
+                    "Storyboard Prompts": scene_prompts[target_scene],
+                    "Storyboard Status": f"prompts_{scene_beat_idx}_of_{total_scene_beats}",
                 })
-                logger.info(f"Beat {beat_num}/{len(beats)} prompt saved to Scripts table")
-                notify(f"✅ Beat {beat_num}/{len(beats)} prompt saved")
+                logger.info(f"Scene {target_scene}, Beat {scene_beat_idx}/{total_scene_beats} prompt saved")
+                notify(f"✅ Scene {target_scene}, Beat {scene_beat_idx}/{total_scene_beats} saved")
+                prompts_generated += 1
             except Exception as e:
                 logger.warning(f"Failed to checkpoint prompt: {e}")
-                notify(f"⚠️ Beat {beat_num} checkpoint failed: {e}")
+                notify(f"⚠️ Scene {target_scene}, Beat {scene_beat_idx} failed: {e}")
 
-    # Final status update on Scripts table
-    if first_script_id:
-        try:
-            airtable_client.update_script_record(first_script_id, {
-                "Storyboard Status": "prompts_ready",
-                "Storyboard Beat Count": len(beats),
-            })
-        except Exception as e:
-            logger.warning(f"Failed to write final prompt status: {e}")
+    # Final status update on ALL scene records
+    for scene_num, record_id in scene_to_record_id.items():
+        if record_id:
+            try:
+                scene_beats = [b for b in beats if b["scenes"] and b["scenes"][0] == scene_num]
+                airtable_client.update_script_record(record_id, {
+                    "Storyboard Status": "prompts_ready",
+                    "Storyboard Beat Count": len(scene_beats),
+                })
+            except Exception as e:
+                logger.warning(f"Failed to write final status for scene {scene_num}: {e}")
+
+    notify(f"✅ Storyboard prompts complete: {prompts_generated} beats across {len(scene_to_record_id)} scenes")
 
     return {
         "video_title": video_title,
         "beat_count": len(beats),
-        "prompts_generated": len(beats),
+        "prompts_generated": prompts_generated,
         "total_cost": total_cost,
     }
 
@@ -1722,119 +1740,146 @@ async def run_storyboard_images(
     if not script_records:
         return {"error": f"No script found for '{video_title}'"}
 
+    # Build scene_to_record_id map for per-scene saving
+    scene_to_record_id: dict[int, str] = {}
+    scene_to_fields: dict[int, dict] = {}
+    for rec in script_records:
+        fields = rec.get("fields", rec)
+        scene_num = fields.get(ScriptFields.SCENE, 0)
+        rec_id = rec.get("id", "")
+        if scene_num and rec_id:
+            scene_to_record_id[scene_num] = rec_id
+            scene_to_fields[scene_num] = fields
+
     first_script_id = script_records[0].get("id", "")
-    first_script_fields = script_records[0].get("fields", script_records[0])
 
-    # Read prompts from Scripts table
-    prompts_text = first_script_fields.get("Storyboard Prompts", "") or ""
-    if not prompts_text:
-        return {"error": "No storyboard prompts found — run prompt generation first"}
-
-    # Parse prompts from text
+    # Read prompts from ALL scenes' records and collect per-scene
     import re
     beat_pattern = r"--- BEAT (\d+) ---\n(.*?)(?=--- BEAT \d+|$)"
-    matches = re.findall(beat_pattern, prompts_text, re.DOTALL)
+    scene_prompts: dict[int, list[tuple[int, str]]] = {}  # scene -> [(beat_num, prompt)]
 
-    if not matches:
-        return {"error": "Could not parse prompts from Storyboard Prompts field"}
+    for scene_num, fields in scene_to_fields.items():
+        prompts_text = fields.get("Storyboard Prompts", "") or ""
+        matches = re.findall(beat_pattern, prompts_text, re.DOTALL)
+        if matches:
+            scene_prompts[scene_num] = [(int(b), p.strip()) for b, p in matches]
+
+    if not scene_prompts:
+        return {"error": "No storyboard prompts found — run prompt generation first"}
 
     # Get images and calculate beats based on image count
     image_records = airtable_client.get_all_images_for_video(video_title)
     beats = segment_script_into_beats(script_records, image_records=image_records)
 
-    # Check existing grids from Scripts table (resume support)
-    existing_grids = []
-    for field_name in ["Storyboard 1", "Storyboard 2", "Storyboard 3"]:
-        field_val = first_script_fields.get(field_name, [])
-        if field_val and isinstance(field_val, list) and len(field_val) > 0:
-            existing_grids.append(field_val[0].get("url", ""))
+    # Check existing grids per scene (resume support)
+    scene_existing_grids: dict[int, list[str]] = {}
+    for scene_num, fields in scene_to_fields.items():
+        existing = []
+        for field_name in ["Storyboard 1", "Storyboard 2", "Storyboard 3"]:
+            field_val = fields.get(field_name, [])
+            if field_val and isinstance(field_val, list) and len(field_val) > 0:
+                existing.append(field_val[0].get("url", ""))
+        scene_existing_grids[scene_num] = existing
 
-    completed_beats = len([g for g in existing_grids if g])
-    if completed_beats > 0:
-        logger.info(f"Resuming from beat {completed_beats + 1} (found {completed_beats} existing grids)")
-
-    grid_urls: list[str] = list(existing_grids[:completed_beats])
     total_cost = 0.0
-    failed_beats: list[int] = []
+    failed_beats: list[tuple[int, int]] = []  # (scene, beat)
+    total_grids = 0
+    scene_grid_urls: dict[int, list[str]] = {s: list(g) for s, g in scene_existing_grids.items()}
 
-    for beat_num_str, prompt in matches:
-        beat_num = int(beat_num_str)
+    # Count total prompts across all scenes
+    total_prompts = sum(len(prompts) for prompts in scene_prompts.values())
 
-        # Skip already-completed beats
-        if beat_num <= completed_beats:
-            logger.info(f"Beat {beat_num} grid already exists, skipping")
+    # Process each scene's prompts
+    for scene_num in sorted(scene_prompts.keys()):
+        prompts = scene_prompts[scene_num]
+        target_record_id = scene_to_record_id.get(scene_num)
+        if not target_record_id:
             continue
 
-        # Get panel count for this beat
-        real_panels = 9
-        if beats and beat_num <= len(beats):
-            beat = beats[beat_num - 1]
-            beat_images = _get_images_for_beat(image_records, beat)
-            real_panels = min(len(beat_images), 9)
+        completed_beats = len([g for g in scene_existing_grids.get(scene_num, []) if g])
+        scene_grid_urls.setdefault(scene_num, [])
 
-        try:
-            grid_url = await generate_contact_sheet(
-                contact_sheet_prompt=prompt.strip(),
-                real_panel_count=real_panels,
-                image_client=image_client,
-                character_reference_url=character_ref_url,
+        for beat_num, prompt in prompts:
+            # Skip already-completed beats
+            if beat_num <= completed_beats:
+                logger.info(f"Scene {scene_num}, Beat {beat_num} grid already exists, skipping")
+                continue
+
+            # Get panel count for this beat from beats list
+            real_panels = 9
+            matching_beat = next(
+                (b for b in beats if b["scenes"] and b["scenes"][0] == scene_num),
+                None
             )
-            total_cost += 0.075
+            if matching_beat:
+                beat_images = _get_images_for_beat(image_records, matching_beat)
+                real_panels = min(len(beat_images), 9)
 
-            if grid_url:
-                grid_urls.append(grid_url)
+            try:
+                grid_url = await generate_contact_sheet(
+                    contact_sheet_prompt=prompt,
+                    real_panel_count=real_panels,
+                    image_client=image_client,
+                    character_reference_url=character_ref_url,
+                )
+                total_cost += 0.075
 
-                # Save to Storyboard 1/2/3 fields in Scripts table
-                if first_script_id:
+                if grid_url:
+                    scene_grid_urls[scene_num].append(grid_url)
+                    total_grids += 1
+
+                    # Save to Storyboard 1/2/3 fields in THIS scene's Scripts record
                     try:
                         update_fields = {}
-                        for i, url in enumerate(grid_urls):
+                        for i, url in enumerate(scene_grid_urls[scene_num]):
                             if i < 3 and url:
                                 field_name = f"Storyboard {i + 1}"
                                 update_fields[field_name] = [{"url": url}]
-                        airtable_client.update_script_record(first_script_id, update_fields)
-                        logger.info(f"Beat {beat_num} grid saved to Scripts table (Storyboard {len(grid_urls)})")
-                        notify(f"✅ Grid {len(grid_urls)}/{len(matches)} saved to Storyboard {len(grid_urls)}")
+                        update_fields["Storyboard Status"] = f"images_{len(scene_grid_urls[scene_num])}_of_{len(prompts)}"
+                        airtable_client.update_script_record(target_record_id, update_fields)
+                        logger.info(f"Scene {scene_num}, Beat {beat_num}/{len(prompts)} grid saved")
+                        notify(f"✅ Scene {scene_num}, Beat {beat_num}/{len(prompts)} grid saved")
                     except Exception as e:
-                        logger.warning(f"Failed to checkpoint grid to Scripts: {e}")
-                        notify(f"⚠️ Grid {beat_num} save failed: {e}")
+                        logger.warning(f"Failed to checkpoint grid: {e}")
+                        notify(f"⚠️ Scene {scene_num}, Beat {beat_num} save failed: {e}")
+                else:
+                    logger.error(f"Scene {scene_num}, Beat {beat_num} grid generation returned None")
+                    failed_beats.append((scene_num, beat_num))
 
-                # Update status on Scripts table
-                try:
-                    airtable_client.update_script_record(first_script_id, {
-                        "Storyboard Status": f"images_{len(grid_urls)}_of_{len(matches)}",
-                    })
-                except Exception as e:
-                    logger.warning(f"Failed to update status: {e}")
-            else:
-                logger.error(f"Beat {beat_num} grid generation returned None")
-                failed_beats.append(beat_num)
+            except Exception as e:
+                logger.error(f"Scene {scene_num}, Beat {beat_num} grid generation failed: {e}")
+                failed_beats.append((scene_num, beat_num))
+                continue
 
-        except Exception as e:
-            logger.error(f"Beat {beat_num} grid generation failed: {e}")
-            failed_beats.append(beat_num)
-            continue
+            logger.info(f"Scene {scene_num}, Beat {beat_num} grid generated (${total_cost:.2f} so far)")
 
-        logger.info(f"Beat {beat_num}/{len(matches)} grid generated (${total_cost:.2f} so far)")
+    # Final updates - per scene
+    for scene_num, record_id in scene_to_record_id.items():
+        if record_id:
+            grids = scene_grid_urls.get(scene_num, [])
+            prompts = scene_prompts.get(scene_num, [])
+            scene_failed = [b for s, b in failed_beats if s == scene_num]
+            final_status = "grids_generated" if not scene_failed else f"partial_{len(grids)}_of_{len(prompts)}"
+            try:
+                update_fields = {"Storyboard Status": final_status}
+                for i, url in enumerate(grids):
+                    if i < 3 and url:
+                        update_fields[f"Storyboard {i + 1}"] = [{"url": url}]
+                airtable_client.update_script_record(record_id, update_fields)
+            except Exception as e:
+                logger.warning(f"Failed to write final status for scene {scene_num}: {e}")
 
-    # Final updates - all to Scripts table
-    final_status = "grids_generated" if not failed_beats else f"partial_{len(grid_urls)}_of_{len(matches)}"
+    notify(f"✅ Storyboard images complete: {total_grids} grids across {len(scene_prompts)} scenes")
 
-    if first_script_id:
-        try:
-            update_fields = {"Storyboard Status": final_status}
-            for i, url in enumerate(grid_urls):
-                if i < 3 and url:
-                    update_fields[f"Storyboard {i + 1}"] = [{"url": url}]
-            airtable_client.update_script_record(first_script_id, update_fields)
-        except Exception as e:
-            logger.warning(f"Failed to write final grids/status to Scripts: {e}")
+    all_grid_urls = []
+    for scene_num in sorted(scene_grid_urls.keys()):
+        all_grid_urls.extend(scene_grid_urls[scene_num])
 
     result = {
         "video_title": video_title,
-        "beat_count": len(matches),
-        "grid_urls": grid_urls,
-        "grids_generated": len(grid_urls),
+        "beat_count": total_prompts,
+        "grid_urls": all_grid_urls,
+        "grids_generated": total_grids,
         "total_cost": total_cost,
     }
 
