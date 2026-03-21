@@ -333,21 +333,95 @@ def segment_script_into_beats(
     script_records: list[dict],
     target_seconds_per_beat: int = 40,
     words_per_second: float = 2.5,
+    image_records: list[dict] | None = None,
 ) -> list[dict]:
     """Divide the full script into narrative beats for storyboard generation.
 
-    Each beat targets ~40 seconds of narration (~100 words at 2.5 wps).
-    Respects scene boundaries — never splits mid-scene.
+    If image_records is provided, beats are calculated based on image count:
+    - Each beat = 9 images (one 3x3 grid)
+    - Number of beats = ceil(total_images / 9)
+
+    Otherwise falls back to narration-based segmentation (~40s per beat).
 
     Args:
         script_records: Airtable script records with 'Scene', 'Scene text' fields.
-        target_seconds_per_beat: Target duration per beat in seconds.
+        target_seconds_per_beat: Target duration per beat in seconds (fallback).
         words_per_second: Narration speed (2.5 wps standard).
+        image_records: Optional list of image records to calculate beats from.
 
     Returns:
         List of beats, each with beat_number, scenes, text, word_count,
         estimated_duration_seconds.
     """
+    import math
+
+    # If image_records provided, calculate beats based on image count
+    if image_records:
+        total_images = len(image_records)
+        beats_needed = max(1, math.ceil(total_images / 9))
+        images_per_beat = math.ceil(total_images / beats_needed)
+
+        # Sort records by scene number
+        sorted_records = sorted(
+            script_records,
+            key=lambda r: r.get(ScriptFields.SCENE, r.get("fields", {}).get(ScriptFields.SCENE, 0)),
+        )
+
+        # Build scene text map
+        scene_texts = {}
+        for record in sorted_records:
+            fields = record.get("fields", record)
+            scene_num = fields.get(ScriptFields.SCENE, 0)
+            scene_text = fields.get(ScriptFields.SCENE_TEXT, "")
+            scene_texts[scene_num] = scene_text
+
+        # Sort images by scene/index and distribute into beats
+        sorted_images = sorted(
+            image_records,
+            key=lambda r: (
+                r.get("fields", r).get(ImageFields.SCENE, 0),
+                r.get("fields", r).get(ImageFields.IMAGE_INDEX, 0),
+            ),
+        )
+
+        beats: list[dict] = []
+        for beat_num in range(1, beats_needed + 1):
+            start_idx = (beat_num - 1) * 9
+            end_idx = min(start_idx + 9, total_images)
+            beat_images = sorted_images[start_idx:end_idx]
+
+            # Get scenes covered by this beat's images
+            beat_scenes = sorted(set(
+                img.get("fields", img).get(ImageFields.SCENE, 0)
+                for img in beat_images
+            ))
+
+            # Build text from Sentence Text fields in image records (what's being narrated)
+            sentence_texts = [
+                img.get("fields", img).get(ImageFields.SENTENCE_TEXT, "")
+                for img in beat_images
+            ]
+            beat_text = " ".join(t for t in sentence_texts if t).strip()
+            word_count = len(beat_text.split())
+
+            # Store image record IDs for accurate filtering later
+            image_record_ids = [img.get("id", "") for img in beat_images]
+
+            beats.append({
+                "beat_number": beat_num,
+                "scenes": beat_scenes,
+                "text": beat_text,
+                "word_count": word_count,
+                "estimated_duration_seconds": word_count / words_per_second,
+                "image_count": len(beat_images),
+                "image_record_ids": image_record_ids,  # Exact images in this beat
+                "start_idx": start_idx,
+                "end_idx": end_idx,
+            })
+
+        return beats
+
+    # Fallback: narration-based segmentation
     target_words_per_beat = int(target_seconds_per_beat * words_per_second)
 
     beats: list[dict] = []
@@ -983,9 +1057,11 @@ async def generate_storyboard_plan(
     )
     scene_count = len(script_records)
 
-    beats = segment_script_into_beats(script_records)
+    # Get images to calculate accurate beat count
+    image_records = airtable_client.get_all_images_for_video(video_title)
+    beats = segment_script_into_beats(script_records, image_records=image_records)
     grid_count = len(beats)
-    total_panels = grid_count * 9
+    total_panels = len(image_records) if image_records else grid_count * 9
 
     cost = calculate_grid_count(video_length, clip_duration)
 
@@ -1039,11 +1115,11 @@ async def run_storyboard_preview(
         logger.error(f"No script found for '{video_title}'")
         return []
 
-    beats = segment_script_into_beats(script_records)
+    # Get images first to calculate beats based on image count
+    image_records = airtable_client.get_all_images_for_video(video_title)
+    beats = segment_script_into_beats(script_records, image_records=image_records)
     if single_beat is not None:
         beats = [b for b in beats if b["beat_number"] == single_beat]
-
-    image_records = airtable_client.get_all_images_for_video(video_title)
 
     results: list[dict] = []
 
@@ -1506,8 +1582,14 @@ async def run_storyboard_prompts(
     # Get first script record ID for writing storyboard fields
     first_script_id = script_records[0].get("id", "")
 
-    beats = segment_script_into_beats(script_records)
+    # Get images FIRST to calculate beats based on image count
     image_records = airtable_client.get_all_images_for_video(video_title)
+    if not image_records:
+        return {"error": f"No images found for '{video_title}' — run image prompts first"}
+
+    # Calculate beats based on image count (9 images per beat/grid)
+    beats = segment_script_into_beats(script_records, image_records=image_records)
+    logger.info(f"Calculated {len(beats)} beats for {len(image_records)} images")
 
     # Check existing prompts from Scripts table (resume support)
     first_script_fields = script_records[0].get("fields", script_records[0])
@@ -1635,9 +1717,9 @@ async def run_storyboard_images(
     if not matches:
         return {"error": "Could not parse prompts from Storyboard Prompts field"}
 
-    # Get beats for panel counts
-    beats = segment_script_into_beats(script_records)
+    # Get images and calculate beats based on image count
     image_records = airtable_client.get_all_images_for_video(video_title)
+    beats = segment_script_into_beats(script_records, image_records=image_records)
 
     # Check existing grids from Scripts table (resume support)
     existing_grids = []
@@ -1985,7 +2067,17 @@ def _get_images_for_beat(
     all_image_records: list[dict],
     beat: dict,
 ) -> list[dict]:
-    """Filter image records to those belonging to scenes in this beat."""
+    """Filter image records to those belonging to this beat.
+
+    If beat has image_record_ids (from image-count-based segmentation),
+    uses those for exact matching. Otherwise falls back to scene-based filtering.
+    """
+    # Use exact image IDs if available (new image-count-based beats)
+    if "image_record_ids" in beat and beat["image_record_ids"]:
+        record_ids = set(beat["image_record_ids"])
+        return [img for img in all_image_records if img.get("id", "") in record_ids]
+
+    # Fallback: filter by scene (old narration-based beats)
     beat_scenes = set(beat["scenes"])
     return [
         img for img in all_image_records
