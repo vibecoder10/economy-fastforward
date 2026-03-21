@@ -334,6 +334,7 @@ class Statuses:
     READY_SOUND_EFFECTS = "Ready For Sound Effects"
     READY_IMAGE_PROMPTS = "Ready For Image Prompts"
     READY_STORYBOARDS = "Ready For Storyboards"
+    READY_STORYBOARD_EXTRACTION = "Ready For Storyboard Extraction"
     READY_IMAGES = "Ready For Images"
     READY_VIDEO_SCRIPTS = "Ready For Video Scripts"
     READY_VIDEO_GENERATION = "Ready For Video Generation"

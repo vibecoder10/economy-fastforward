@@ -404,11 +404,17 @@ class VideoPipeline:
 
             return await self._run_step_safe("Image Prompt Bot", self.run_styled_image_prompts)
 
-        # 3b. Check for Ready For Storyboards
+        # 3b. Check for Ready For Storyboards (grid generation)
         idea = self.get_idea_by_status(Statuses.READY_STORYBOARDS)
         if idea:
             self._load_idea(idea)
             return await self._run_step_safe("Storyboard Bot", self.run_storyboard_bot)
+
+        # 3c. Check for Ready For Storyboard Extraction (panel extraction after review)
+        idea = self.get_idea_by_status(Statuses.READY_STORYBOARD_EXTRACTION)
+        if idea:
+            self._load_idea(idea)
+            return await self._run_step_safe("Storyboard Extract", self.run_storyboard_extract)
 
         # 4. Check for Ready For Images
         idea = self.get_idea_by_status(self.STATUS_READY_IMAGES)
@@ -633,8 +639,13 @@ class VideoPipeline:
         return await _step_run(self)
 
     async def run_storyboard_bot(self) -> dict:
-        """Generate storyboard grids and extract panels."""
+        """Generate storyboard contact sheet grids (Phase 1)."""
         from steps.step_storyboard import run as _step_run
+        return await _step_run(self)
+
+    async def run_storyboard_extract(self) -> dict:
+        """Extract panels from storyboard grids (Phase 2, after review)."""
+        from steps.step_storyboard_extract import run as _step_run
         return await _step_run(self)
 
     async def run_full_pipeline(self, input_text: str) -> dict:

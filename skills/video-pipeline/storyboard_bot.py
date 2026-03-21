@@ -1518,11 +1518,32 @@ async def run_storyboard_grids(
 
     image_records = airtable_client.get_all_images_for_video(video_title)
 
-    grid_urls: list[str] = []
+    idea_id = idea_record.get("id", "")
+
+    # === RESUME CAPABILITY: Check existing progress ===
+    existing_preview = fields.get("Storyboard Preview", [])
+    existing_prompts = fields.get("Storyboard Prompts", "") or ""
+    existing_grid_urls = [att.get("url", "") for att in existing_preview if att.get("url")]
+
+    # Count how many beats are already done
+    completed_beats = len(existing_grid_urls)
+    if completed_beats > 0:
+        logger.info(f"Resuming from beat {completed_beats + 1} (found {completed_beats} existing grids)")
+
+    grid_urls: list[str] = list(existing_grid_urls)  # Start with existing
     directives: list[dict] = []
+    all_prompts_text = existing_prompts  # Start with existing prompts
     total_cost = 0.0
+    failed_beats: list[int] = []
 
     for beat in beats:
+        beat_num = beat["beat_number"]
+
+        # Skip already-completed beats (resume support)
+        if beat_num <= completed_beats:
+            logger.info(f"Beat {beat_num}/{len(beats)} already done, skipping")
+            continue
+
         beat_images = _get_images_for_beat(image_records, beat)
         image_prompts = [
             img.get(ImageFields.IMAGE_PROMPT, "")
@@ -1531,7 +1552,7 @@ async def run_storyboard_grids(
 
         # Step 1: Generate directive
         directive = await generate_storyboard_directive(
-            beat_number=beat["beat_number"],
+            beat_number=beat_num,
             beat_text=beat["text"],
             beat_scenes=beat["scenes"],
             video_title=video_title,
@@ -1544,43 +1565,88 @@ async def run_storyboard_grids(
         total_cost += 0.03
         directives.append(directive)
 
-        # Step 2: Generate contact sheet
+        # === CHECKPOINT: Save directive to Airtable immediately ===
         contact_sheet_prompt = directive["contact_sheet_prompt"]
+        prompt_block = f"\n\n--- BEAT {beat_num} ---\n{contact_sheet_prompt}"
+        all_prompts_text += prompt_block
+
+        if idea_id:
+            try:
+                airtable_client.update_idea_fields(idea_id, {
+                    "Storyboard Prompts": all_prompts_text,
+                    "Storyboard Status": f"generating_beat_{beat_num}",
+                })
+                logger.info(f"Beat {beat_num} directive saved to Airtable")
+            except Exception as e:
+                logger.warning(f"Failed to checkpoint directive: {e}")
+
+        # Step 2: Generate contact sheet (with error handling)
         real_panels = min(len(beat_images), 9)
 
-        grid_url = await generate_contact_sheet(
-            contact_sheet_prompt=contact_sheet_prompt,
-            real_panel_count=real_panels,
-            image_client=image_client,
-            character_reference_url=character_ref_url,
-        )
-        total_cost += 0.075
-        grid_urls.append(grid_url)
+        try:
+            grid_url = await generate_contact_sheet(
+                contact_sheet_prompt=contact_sheet_prompt,
+                real_panel_count=real_panels,
+                image_client=image_client,
+                character_reference_url=character_ref_url,
+            )
+            total_cost += 0.075
+
+            if grid_url:
+                grid_urls.append(grid_url)
+
+                # === CHECKPOINT: Save grid URL to Airtable immediately ===
+                if idea_id:
+                    try:
+                        airtable_client.update_idea_fields(idea_id, {
+                            "Storyboard Preview": [{"url": url} for url in grid_urls if url],
+                            "Storyboard Beat Count": len(grid_urls),
+                        })
+                        logger.info(f"Beat {beat_num} grid saved to Airtable")
+                    except Exception as e:
+                        logger.warning(f"Failed to checkpoint grid: {e}")
+            else:
+                logger.error(f"Beat {beat_num} grid generation returned None")
+                failed_beats.append(beat_num)
+
+        except Exception as e:
+            logger.error(f"Beat {beat_num} grid generation failed: {e}")
+            failed_beats.append(beat_num)
+            # Continue to next beat instead of crashing
+            continue
 
         logger.info(
-            f"Beat {beat['beat_number']}/{len(beats)} grid generated "
+            f"Beat {beat_num}/{len(beats)} grid generated "
             f"(${total_cost:.2f} so far)"
         )
 
-    # Write grid URLs to Airtable Storyboard Preview field
-    idea_id = idea_record.get("id", "")
-    if idea_id and grid_urls:
+    # Final status update
+    if idea_id:
+        final_status = "grids_generated" if not failed_beats else f"partial_{len(grid_urls)}_of_{len(beats)}"
         try:
             airtable_client.update_idea_fields(idea_id, {
-                "Storyboard Status": "grids_generated",
-                "Storyboard Beat Count": len(beats),
+                "Storyboard Status": final_status,
+                "Storyboard Beat Count": len(grid_urls),
                 "Storyboard Preview": [{"url": url} for url in grid_urls if url],
             })
         except Exception as e:
-            logger.warning(f"Failed to write storyboard preview: {e}")
+            logger.warning(f"Failed to write final storyboard status: {e}")
 
-    return {
+    result = {
         "video_title": video_title,
         "beat_count": len(beats),
         "grid_urls": grid_urls,
+        "grids_generated": len(grid_urls),
         "directives": directives,
         "total_cost": total_cost,
     }
+
+    if failed_beats:
+        result["failed_beats"] = failed_beats
+        result["warning"] = f"Failed to generate grids for beats: {failed_beats}"
+        logger.warning(f"Completed with {len(failed_beats)} failed beats: {failed_beats}")
+
+    return result
 
 
 async def run_storyboard_extract(
