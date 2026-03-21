@@ -241,8 +241,9 @@ _Targeted runs do NOT advance the pipeline status (safe for testing)._
 *Storyboard (contact-sheet workflow)*
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 - `storyboard <title>` — Show beat breakdown + cost estimate
-- `storyboard preview [title]` — Preview directives only (no images)
-- `storyboard go [title]` — Phase 1: generate contact-sheet grids
+- `storyboard prompts [title]` — Phase 1A: generate prompts via Claude
+- `storyboard images [title]` — Phase 1B: generate contact-sheet grids
+- `storyboard go [title]` — Phase 1: generate prompts + grids (combined)
 - `storyboard approve [title]` — Phase 2: extract panels + upscale
 - `storyboard beat <N> [title]` — Generate a single beat grid
 - `storyboard regenerate <N> [title]` — Regenerate a beat grid
@@ -2918,6 +2919,102 @@ async def handle_storyboard_preview(message, say):
         await say(f":x: Storyboard preview failed: {e}")
 
 
+@app.message(re.compile(r"^!?storyboard[\s-]+prompts?\s*(.*)$", re.IGNORECASE))
+async def handle_storyboard_prompts(message, say):
+    """Phase 1A: Generate storyboard prompts via Claude."""
+    match = re.search(r"^!?storyboard[\s-]+prompts?\s*(.*)$", message["text"], re.IGNORECASE)
+    title_arg = match.group(1).strip().strip("\"'") if match and match.group(1).strip() else None
+
+    await say(":memo: Starting storyboard prompt generation (Phase 1A)...")
+
+    try:
+        from clients.airtable_client import AirtableClient
+        from clients.slack_client import SlackClient
+        from storyboard_bot import run_storyboard_prompts
+
+        airtable = AirtableClient()
+        slack = SlackClient()
+
+        if title_arg:
+            idea = await _find_idea_by_title(airtable, title_arg, say)
+        else:
+            ideas = airtable.get_ideas_by_status(Statuses.READY_STORYBOARDS)
+            idea = ideas[0] if ideas else None
+
+        if not idea:
+            await say(":x: No idea found. Use `storyboard prompts \"title\"`")
+            return
+
+        idea_record = {"id": idea.get("id", ""), "fields": idea}
+
+        result = await run_storyboard_prompts(
+            idea_record=idea_record,
+            airtable_client=airtable,
+            slack_client=slack,
+        )
+
+        if result.get("error"):
+            await say(f":x: {result['error']}")
+            return
+
+        await say(
+            f":white_check_mark: Prompts complete — {result.get('prompts_generated', 0)}/{result.get('beat_count', 0)} beats "
+            f"(${result.get('total_cost', 0):.2f})\n"
+            f"Run `storyboard images` to generate the grids."
+        )
+
+    except Exception as e:
+        await say(f":x: Storyboard prompts failed: {e}")
+
+
+@app.message(re.compile(r"^!?storyboard[\s-]+images?\s*(.*)$", re.IGNORECASE))
+async def handle_storyboard_images(message, say):
+    """Phase 1B: Generate contact sheet images from prompts."""
+    match = re.search(r"^!?storyboard[\s-]+images?\s*(.*)$", message["text"], re.IGNORECASE)
+    title_arg = match.group(1).strip().strip("\"'") if match and match.group(1).strip() else None
+
+    await say(":art: Starting storyboard image generation (Phase 1B)...")
+
+    try:
+        from clients.airtable_client import AirtableClient
+        from clients.slack_client import SlackClient
+        from storyboard_bot import run_storyboard_images
+
+        airtable = AirtableClient()
+        slack = SlackClient()
+
+        if title_arg:
+            idea = await _find_idea_by_title(airtable, title_arg, say)
+        else:
+            ideas = airtable.get_ideas_by_status(Statuses.READY_STORYBOARD_IMAGES)
+            idea = ideas[0] if ideas else None
+
+        if not idea:
+            await say(":x: No idea found. Use `storyboard images \"title\"`")
+            return
+
+        idea_record = {"id": idea.get("id", ""), "fields": idea}
+
+        result = await run_storyboard_images(
+            idea_record=idea_record,
+            airtable_client=airtable,
+            slack_client=slack,
+        )
+
+        if result.get("error"):
+            await say(f":x: {result['error']}")
+            return
+
+        await say(
+            f":white_check_mark: Images complete — {result.get('grids_generated', 0)} grids "
+            f"(${result.get('total_cost', 0):.2f})\n"
+            f"Review grids in Airtable, then run `storyboard approve` to extract + upscale."
+        )
+
+    except Exception as e:
+        await say(f":x: Storyboard images failed: {e}")
+
+
 @app.message(re.compile(r"^!?storyboard[\s-]+go\s*(.*)$", re.IGNORECASE))
 async def handle_storyboard_go(message, say):
     """Phase 1: Generate directives + contact sheet grids."""
@@ -3548,7 +3645,11 @@ async def handle_fallback(event, say):
         fake_message = {"text": command, "user": event.get("user", "")}
         # Route to the right handler based on subcommand
         sb_lower = command[len("storyboard"):].strip()
-        if sb_lower.startswith("preview"):
+        if sb_lower.startswith("prompt"):
+            await handle_storyboard_prompts(fake_message, say)
+        elif sb_lower.startswith("image"):
+            await handle_storyboard_images(fake_message, say)
+        elif sb_lower.startswith("preview"):
             await handle_storyboard_preview(fake_message, say)
         elif sb_lower.startswith("go"):
             await handle_storyboard_go(fake_message, say)
