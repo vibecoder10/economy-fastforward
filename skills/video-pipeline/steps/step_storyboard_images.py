@@ -67,6 +67,7 @@ async def run(pipeline) -> dict:
         idea_record=idea_record,
         airtable_client=pipeline.airtable,
         image_client=pipeline.image_client,
+        slack_client=pipeline.slack,
     )
 
     if result.get("error"):

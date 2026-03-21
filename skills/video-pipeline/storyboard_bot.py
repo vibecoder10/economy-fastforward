@@ -1552,6 +1552,7 @@ async def run_storyboard_prompts(
     idea_record: dict,
     airtable_client=None,
     anthropic_client=None,
+    slack_client=None,
 ) -> dict:
     """Phase 1A: Generate storyboard prompts via Claude.
 
@@ -1566,6 +1567,14 @@ async def run_storyboard_prompts(
     if anthropic_client is None:
         from clients.anthropic_client import AnthropicClient
         anthropic_client = AnthropicClient()
+
+    def notify(msg: str):
+        """Send Slack notification if client available."""
+        if slack_client:
+            try:
+                slack_client.send_message(msg)
+            except Exception:
+                pass
 
     fields = idea_record.get("fields", idea_record)
     video_title = fields.get("Video Title", "")
@@ -1590,6 +1599,7 @@ async def run_storyboard_prompts(
     # Calculate beats based on image count (9 images per beat/grid)
     beats = segment_script_into_beats(script_records, image_records=image_records)
     logger.info(f"Calculated {len(beats)} beats for {len(image_records)} images")
+    notify(f"📝 Storyboard prompts: *{video_title}*\n• {len(image_records)} images → {len(beats)} beat(s)")
 
     # Check existing prompts from Scripts table (resume support)
     first_script_fields = script_records[0].get("fields", script_records[0])
@@ -1649,8 +1659,10 @@ async def run_storyboard_prompts(
                     "Storyboard Status": f"prompts_{beat_num}_of_{len(beats)}",
                 })
                 logger.info(f"Beat {beat_num}/{len(beats)} prompt saved to Scripts table")
+                notify(f"✅ Beat {beat_num}/{len(beats)} prompt saved")
             except Exception as e:
                 logger.warning(f"Failed to checkpoint prompt: {e}")
+                notify(f"⚠️ Beat {beat_num} checkpoint failed: {e}")
 
     # Final status update on Scripts table
     if first_script_id:
@@ -1674,6 +1686,7 @@ async def run_storyboard_images(
     idea_record: dict,
     airtable_client=None,
     image_client=None,
+    slack_client=None,
 ) -> dict:
     """Phase 1B: Generate storyboard images from prompts.
 
@@ -1688,6 +1701,14 @@ async def run_storyboard_images(
     if image_client is None:
         from clients.image_client import ImageClient
         image_client = ImageClient()
+
+    def notify(msg: str):
+        """Send Slack notification if client available."""
+        if slack_client:
+            try:
+                slack_client.send_message(msg)
+            except Exception:
+                pass
 
     fields = idea_record.get("fields", idea_record)
     video_title = fields.get("Video Title", "")
@@ -1773,8 +1794,10 @@ async def run_storyboard_images(
                                 update_fields[field_name] = [{"url": url}]
                         airtable_client.update_script_record(first_script_id, update_fields)
                         logger.info(f"Beat {beat_num} grid saved to Scripts table (Storyboard {len(grid_urls)})")
+                        notify(f"✅ Grid {len(grid_urls)}/{len(matches)} saved to Storyboard {len(grid_urls)}")
                     except Exception as e:
                         logger.warning(f"Failed to checkpoint grid to Scripts: {e}")
+                        notify(f"⚠️ Grid {beat_num} save failed: {e}")
 
                 # Update status on Scripts table
                 try:
