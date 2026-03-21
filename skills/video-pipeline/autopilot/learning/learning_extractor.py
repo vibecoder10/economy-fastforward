@@ -24,8 +24,8 @@ logger = logging.getLogger(__name__)
 @dataclass
 class ExtractedLearning:
     """A learning extracted from video performance."""
-    category: str  # "thumbnail", "title", "topic", "theme", "angle", "formula"
-    pattern: str  # e.g., "red_yellow_color_scheme", "hidden_truth", "geopolitics"
+    category: str  # "thumbnail", "title", "topic", "theme", "angle", "formula", "structure"
+    pattern: str  # e.g., "red_yellow_color_scheme", "hidden_truth", "geopolitics", "hidden_flaw"
     verdict: CTRVerdict
     confidence: float  # 0-100
     evidence: str  # Human-readable explanation
@@ -317,6 +317,52 @@ class LearningExtractor:
 
         return normalized
 
+    def extract_structure_learnings(
+        self,
+        video_title: str,
+        ctr: float,
+        structure: Optional[str],
+        structure_confidence: Optional[int],
+    ) -> List[ExtractedLearning]:
+        """Extract curiosity gap structure learnings.
+
+        Tracks which curiosity gap structure was used and correlates
+        with CTR performance.
+
+        Args:
+            video_title: Title of the video
+            ctr: Actual CTR percentage
+            structure: Curiosity gap structure ID (e.g., "hidden_flaw")
+            structure_confidence: Confidence score at generation time
+
+        Returns:
+            List of ExtractedLearning for structure pattern
+        """
+        learnings = []
+
+        if not structure:
+            return learnings
+
+        verdict = self.early_warning.get_verdict(ctr)
+        confidence = self._get_confidence_for_verdict(verdict)
+
+        # Adjust confidence based on structure_confidence at generation
+        if structure_confidence:
+            # Blend: 60% CTR verdict, 40% generation confidence
+            confidence = confidence * 0.6 + (structure_confidence / 100 * 100) * 0.4
+
+        learnings.append(ExtractedLearning(
+            category="structure",
+            pattern=structure,
+            verdict=verdict,
+            confidence=confidence,
+            evidence=f"Structure '{structure}' (gen_conf: {structure_confidence or 'N/A'}). CTR: {ctr:.1f}%",
+            video_title=video_title,
+            ctr=ctr,
+        ))
+
+        return learnings
+
     def extract_all(
         self,
         video_title: str,
@@ -324,10 +370,12 @@ class LearningExtractor:
         thumbnail_override: Optional[str] = None,
         modeled_from: Optional[str] = None,
         theme_data: Optional[ThemeData] = None,
+        structure: Optional[str] = None,
+        structure_confidence: Optional[int] = None,
     ) -> ExperimentResult:
         """Extract all learnings from a video experiment.
 
-        Combines thumbnail, title, and theme pattern extraction into
+        Combines thumbnail, title, theme, and structure pattern extraction into
         a single experiment result with all learnings.
 
         Args:
@@ -336,6 +384,8 @@ class LearningExtractor:
             thumbnail_override: Text description of thumbnail override
             modeled_from: Competitor video this was modeled from
             theme_data: Theme analysis data (optional)
+            structure: Curiosity gap structure ID (optional)
+            structure_confidence: Structure confidence at generation time (optional)
 
         Returns:
             ExperimentResult with verdict and all extracted learnings
@@ -346,6 +396,7 @@ class LearningExtractor:
         learnings.extend(self.extract_thumbnail_learnings(video_title, ctr, thumbnail_override))
         learnings.extend(self.extract_title_learnings(video_title, ctr))
         learnings.extend(self.extract_theme_learnings(video_title, ctr, theme_data))
+        learnings.extend(self.extract_structure_learnings(video_title, ctr, structure, structure_confidence))
 
         # Get title formula from theme_data if available
         title_formula = theme_data.title_formula if theme_data else None
