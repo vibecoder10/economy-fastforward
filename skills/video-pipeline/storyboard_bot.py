@@ -355,70 +355,69 @@ def segment_script_into_beats(
         estimated_duration_seconds.
     """
     import math
+    from collections import defaultdict
 
-    # If image_records provided, calculate beats based on image count
+    # If image_records provided, calculate beats PER SCENE based on image count
     if image_records:
-        total_images = len(image_records)
-        beats_needed = max(1, math.ceil(total_images / 9))
-        images_per_beat = math.ceil(total_images / beats_needed)
+        # Group images by scene
+        scene_images: dict[int, list] = defaultdict(list)
+        for img in image_records:
+            fields = img.get("fields", img)
+            scene_num = fields.get(ImageFields.SCENE, 0)
+            scene_images[scene_num].append(img)
 
-        # Sort records by scene number
-        sorted_records = sorted(
-            script_records,
-            key=lambda r: r.get(ScriptFields.SCENE, r.get("fields", {}).get(ScriptFields.SCENE, 0)),
-        )
+        # Sort images within each scene by index
+        for scene_num in scene_images:
+            scene_images[scene_num].sort(
+                key=lambda r: r.get("fields", r).get(ImageFields.IMAGE_INDEX, 0)
+            )
 
         # Build scene text map
         scene_texts = {}
-        for record in sorted_records:
+        for record in script_records:
             fields = record.get("fields", record)
             scene_num = fields.get(ScriptFields.SCENE, 0)
             scene_text = fields.get(ScriptFields.SCENE_TEXT, "")
             scene_texts[scene_num] = scene_text
 
-        # Sort images by scene/index and distribute into beats
-        sorted_images = sorted(
-            image_records,
-            key=lambda r: (
-                r.get("fields", r).get(ImageFields.SCENE, 0),
-                r.get("fields", r).get(ImageFields.IMAGE_INDEX, 0),
-            ),
-        )
-
+        # Generate beats per scene
         beats: list[dict] = []
-        for beat_num in range(1, beats_needed + 1):
-            start_idx = (beat_num - 1) * 9
-            end_idx = min(start_idx + 9, total_images)
-            beat_images = sorted_images[start_idx:end_idx]
+        global_beat_num = 0
 
-            # Get scenes covered by this beat's images
-            beat_scenes = sorted(set(
-                img.get("fields", img).get(ImageFields.SCENE, 0)
-                for img in beat_images
-            ))
+        for scene_num in sorted(scene_images.keys()):
+            imgs = scene_images[scene_num]
+            scene_beat_count = max(1, math.ceil(len(imgs) / 9))
 
-            # Build text from Sentence Text fields in image records (what's being narrated)
-            sentence_texts = [
-                img.get("fields", img).get(ImageFields.SENTENCE_TEXT, "")
-                for img in beat_images
-            ]
-            beat_text = " ".join(t for t in sentence_texts if t).strip()
-            word_count = len(beat_text.split())
+            for scene_beat_idx in range(scene_beat_count):
+                global_beat_num += 1
+                start_idx = scene_beat_idx * 9
+                end_idx = min(start_idx + 9, len(imgs))
+                beat_images = imgs[start_idx:end_idx]
 
-            # Store image record IDs for accurate filtering later
-            image_record_ids = [img.get("id", "") for img in beat_images]
+                # Build text from Sentence Text fields in image records
+                sentence_texts = [
+                    img.get("fields", img).get(ImageFields.SENTENCE_TEXT, "")
+                    for img in beat_images
+                ]
+                beat_text = " ".join(t for t in sentence_texts if t).strip()
+                word_count = len(beat_text.split())
 
-            beats.append({
-                "beat_number": beat_num,
-                "scenes": beat_scenes,
-                "text": beat_text,
-                "word_count": word_count,
-                "estimated_duration_seconds": word_count / words_per_second,
-                "image_count": len(beat_images),
-                "image_record_ids": image_record_ids,  # Exact images in this beat
-                "start_idx": start_idx,
-                "end_idx": end_idx,
-            })
+                # Store image record IDs for accurate filtering later
+                image_record_ids = [img.get("id", "") for img in beat_images]
+
+                beats.append({
+                    "beat_number": global_beat_num,
+                    "scenes": [scene_num],  # Single scene per beat
+                    "scene_beat_index": scene_beat_idx + 1,  # Beat # within this scene
+                    "scene_beat_total": scene_beat_count,  # Total beats for this scene
+                    "text": beat_text,
+                    "word_count": word_count,
+                    "estimated_duration_seconds": word_count / words_per_second,
+                    "image_count": len(beat_images),
+                    "image_record_ids": image_record_ids,
+                    "start_idx": start_idx,
+                    "end_idx": end_idx,
+                })
 
         return beats
 
@@ -1630,8 +1629,7 @@ async def run_storyboard_prompts(
     skipped_count = 0
     for beat in beats:
         target_scene = beat["scenes"][0] if beat["scenes"] else 1
-        scene_beats_list = [b for b in beats if b["scenes"] and b["scenes"][0] == target_scene]
-        scene_beat_idx = next((i for i, b in enumerate(scene_beats_list, 1) if b["beat_number"] == beat["beat_number"]), 1)
+        scene_beat_idx = beat.get("scene_beat_index", 1)
         existing_count = scene_beat_counts.get(target_scene, 0)
         if scene_beat_idx <= existing_count:
             skipped_count += 1
@@ -1646,10 +1644,9 @@ async def run_storyboard_prompts(
         target_scene = beat["scenes"][0] if beat["scenes"] else 1
         target_record_id = scene_to_record_id.get(target_scene, first_script_id)
 
-        # Calculate beat number within this scene
-        scene_beats = [b for b in beats if b["scenes"] and b["scenes"][0] == target_scene]
-        scene_beat_idx = next((i for i, b in enumerate(scene_beats, 1) if b["beat_number"] == beat_num), 1)
-        total_scene_beats = len(scene_beats)
+        # Use per-scene beat info from segment_script_into_beats
+        scene_beat_idx = beat.get("scene_beat_index", 1)
+        total_scene_beats = beat.get("scene_beat_total", 1)
 
         # Skip already-completed beats for this scene
         existing_count = scene_beat_counts.get(target_scene, 0)
