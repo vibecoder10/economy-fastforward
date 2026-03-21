@@ -1013,8 +1013,8 @@ def validate_script_editorial(
     # --- Check 5: Cliffhanger Presence ---
     if config.cliffhanger_check:
         found, expected = _count_cliffhangers_at_transitions(script, acts)
-        # Allow 4/5 — missing one cliffhanger is acceptable
-        min_required = max(expected - 1, 1) if expected > 0 else 0
+        # Allow 3/5 — micro-insights and emotional beats are valid forward pulls
+        min_required = max(expected - 2, 1) if expected > 0 else 0
         passed = found >= min_required if expected > 0 else True
         detail = f"{found}/{expected} act transitions have cliffhangers"
 
