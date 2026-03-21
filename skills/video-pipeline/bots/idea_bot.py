@@ -16,6 +16,10 @@ Outputs 3 distinct video concepts with:
 import re
 from typing import Optional
 
+from curiosity_gap.gap_title_engine import GapTitleEngine
+from autopilot.learning.pattern_library import PatternLibrary
+from pipeline_constants import CURIOSITY_GAP_ENABLED
+
 
 class IdeaBot:
     """Generates video ideas from URLs or concepts."""
@@ -26,6 +30,8 @@ class IdeaBot:
         airtable_client,
         gemini_client=None,
         slack_client=None,
+        gap_title_engine=None,
+        pattern_library=None,
     ):
         """Initialize with required clients.
 
@@ -34,11 +40,15 @@ class IdeaBot:
             airtable_client: For saving ideas to Airtable
             gemini_client: Optional, for analyzing YouTube thumbnails
             slack_client: Optional, for notifications
+            gap_title_engine: Optional, for curiosity gap title generation
+            pattern_library: Optional, for pattern memory lookup
         """
         self.anthropic = anthropic_client
         self.airtable = airtable_client
         self.gemini = gemini_client
         self.slack = slack_client
+        self.gap_title_engine = gap_title_engine
+        self.pattern_library = pattern_library
 
     def _extract_youtube_video_id(self, url: str) -> Optional[str]:
         """Extract video ID from various YouTube URL formats.
@@ -114,6 +124,58 @@ class IdeaBot:
             "topic": concept,
         }
 
+    async def _enhance_title_with_curiosity_gap(
+        self,
+        idea: dict,
+    ) -> dict:
+        """Enhance idea with curiosity gap optimized title.
+
+        Args:
+            idea: Idea dict from generate_video_ideas
+
+        Returns:
+            Enhanced idea dict with structure metadata
+        """
+        if not CURIOSITY_GAP_ENABLED:
+            return idea
+
+        # Lazy initialize engine if needed
+        if self.gap_title_engine is None:
+            self.gap_title_engine = GapTitleEngine(self.anthropic)
+
+        if self.pattern_library is None:
+            self.pattern_library = PatternLibrary()
+
+        # Build story context from idea
+        story_context = {
+            "hook": idea.get("hook_script", ""),
+            "thesis": idea.get("narrative_logic", {}).get("present_parallel", ""),
+            "facts": [],  # Could extract from research if available
+        }
+
+        try:
+            titles = await self.gap_title_engine.generate_titles(
+                story_context,
+                pattern_library=self.pattern_library,
+                target_count=1,  # Just need best title
+            )
+
+            if titles:
+                best = titles[0]
+                idea["viral_title"] = best.text
+                idea["curiosity_structure"] = best.structure.value
+                idea["structure_confidence"] = best.structure_confidence
+                idea["thumbnail_text"] = best.thumbnail_text
+                idea["thumbnail_approach"] = best.thumbnail_approach
+                print(f"    Enhanced title: {best.text}")
+                print(f"    Structure: {best.structure.value} ({best.structure_confidence}%)")
+
+        except Exception as e:
+            print(f"    Curiosity gap enhancement failed: {e}")
+            # Non-blocking - keep original title
+
+        return idea
+
     async def generate_ideas(
         self,
         input_text: str,
@@ -150,6 +212,15 @@ class IdeaBot:
             title = idea.get("viral_title", "Untitled")
             print(f"    {i}. {title}")
 
+        # Enhance with curiosity gap titles
+        if CURIOSITY_GAP_ENABLED:
+            print("  Enhancing with curiosity gap structures...")
+            enhanced_ideas = []
+            for idea in ideas:
+                enhanced = await self._enhance_title_with_curiosity_gap(idea)
+                enhanced_ideas.append(enhanced)
+            ideas = enhanced_ideas
+
         # Add original DNA and reference URL to each idea
         for idea in ideas:
             idea["original_dna"] = str(video_dna)
@@ -164,6 +235,19 @@ class IdeaBot:
                 try:
                     record = self.airtable.create_idea(idea, source="url_analysis")
                     print(f"    ✅ Saved idea {i}: {record.get('id')}")
+
+                    # Save curiosity structure metadata if present
+                    if idea.get("curiosity_structure"):
+                        try:
+                            self.airtable.update_idea_curiosity_structure(
+                                record_id=record.get("id"),
+                                structure=idea.get("curiosity_structure"),
+                                confidence=idea.get("structure_confidence", 0),
+                                thumbnail_text=idea.get("thumbnail_text", ""),
+                                thumbnail_approach=idea.get("thumbnail_approach", "from_gap"),
+                            )
+                        except Exception as e:
+                            print(f"    Warning: Could not save structure metadata: {e}")
                 except Exception as e:
                     print(f"    ❌ Failed to save idea {i}: {e}")
 
