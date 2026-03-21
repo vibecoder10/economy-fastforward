@@ -1503,11 +1503,15 @@ async def run_storyboard_prompts(
     if not script_records:
         return {"error": f"No script found for '{video_title}'"}
 
+    # Get first script record ID for writing storyboard fields
+    first_script_id = script_records[0].get("id", "")
+
     beats = segment_script_into_beats(script_records)
     image_records = airtable_client.get_all_images_for_video(video_title)
 
-    # Check existing prompts (resume support)
-    existing_prompts = fields.get("Storyboard Prompts", "") or ""
+    # Check existing prompts from Scripts table (resume support)
+    first_script_fields = script_records[0].get("fields", script_records[0])
+    existing_prompts = first_script_fields.get("Storyboard Prompts", "") or ""
     existing_beat_count = existing_prompts.count("--- BEAT ")
 
     if existing_beat_count >= len(beats):
@@ -1551,22 +1555,30 @@ async def run_storyboard_prompts(
         )
         total_cost += 0.03
 
-        # Save prompt to Airtable immediately
+        # Save prompt to Scripts table immediately
         contact_sheet_prompt = directive["contact_sheet_prompt"]
         prompt_block = f"\n\n--- BEAT {beat_num} ---\n{contact_sheet_prompt}"
         all_prompts_text += prompt_block
 
-        if idea_id:
+        if first_script_id:
             try:
-                airtable_client.update_idea_fields(idea_id, {
+                airtable_client.update_script_record(first_script_id, {
                     "Storyboard Prompts": all_prompts_text,
-                    "Storyboard Status": f"prompts_{beat_num}_of_{len(beats)}",
                 })
-                logger.info(f"Beat {beat_num}/{len(beats)} prompt saved to Airtable")
+                logger.info(f"Beat {beat_num}/{len(beats)} prompt saved to Scripts table")
             except Exception as e:
                 logger.warning(f"Failed to checkpoint prompt: {e}")
 
-    # Final status update
+        # Update status on Ideas table
+        if idea_id:
+            try:
+                airtable_client.update_idea_fields(idea_id, {
+                    "Storyboard Status": f"prompts_{beat_num}_of_{len(beats)}",
+                })
+            except Exception as e:
+                logger.warning(f"Failed to update status: {e}")
+
+    # Final status update on Ideas table
     if idea_id:
         try:
             airtable_client.update_idea_fields(idea_id, {
@@ -1610,8 +1622,16 @@ async def run_storyboard_images(
     # Load character reference image for BYOC visual lock
     character_ref_url = _load_character_reference(fields)
 
-    # Read prompts from Airtable
-    prompts_text = fields.get("Storyboard Prompts", "") or ""
+    # Get script records for reading prompts and writing images
+    script_records = airtable_client.get_scripts_by_title(video_title)
+    if not script_records:
+        return {"error": f"No script found for '{video_title}'"}
+
+    first_script_id = script_records[0].get("id", "")
+    first_script_fields = script_records[0].get("fields", script_records[0])
+
+    # Read prompts from Scripts table
+    prompts_text = first_script_fields.get("Storyboard Prompts", "") or ""
     if not prompts_text:
         return {"error": "No storyboard prompts found — run prompt generation first"}
 
@@ -1623,15 +1643,14 @@ async def run_storyboard_images(
     if not matches:
         return {"error": "Could not parse prompts from Storyboard Prompts field"}
 
-    # Get script for panel counts
-    script_records = airtable_client.get_scripts_by_title(video_title)
-    beats = segment_script_into_beats(script_records) if script_records else []
+    # Get beats for panel counts
+    beats = segment_script_into_beats(script_records)
     image_records = airtable_client.get_all_images_for_video(video_title)
 
-    # Check existing grids (resume support)
+    # Check existing grids from Scripts table (resume support)
     existing_grids = []
     for field_name in ["Storyboard 1", "Storyboard 2", "Storyboard 3"]:
-        field_val = fields.get(field_name, [])
+        field_val = first_script_fields.get(field_name, [])
         if field_val and isinstance(field_val, list) and len(field_val) > 0:
             existing_grids.append(field_val[0].get("url", ""))
 
@@ -1670,19 +1689,27 @@ async def run_storyboard_images(
             if grid_url:
                 grid_urls.append(grid_url)
 
-                # Save to Storyboard 1/2/3 fields immediately
-                if idea_id:
+                # Save to Storyboard 1/2/3 fields in Scripts table
+                if first_script_id:
                     try:
                         update_fields = {}
                         for i, url in enumerate(grid_urls):
                             if i < 3 and url:
                                 field_name = f"Storyboard {i + 1}"
                                 update_fields[field_name] = [{"url": url}]
-                        update_fields["Storyboard Status"] = f"images_{len(grid_urls)}_of_{len(matches)}"
-                        airtable_client.update_idea_fields(idea_id, update_fields)
-                        logger.info(f"Beat {beat_num} grid saved to Storyboard {len(grid_urls)}")
+                        airtable_client.update_script_record(first_script_id, update_fields)
+                        logger.info(f"Beat {beat_num} grid saved to Scripts table (Storyboard {len(grid_urls)})")
                     except Exception as e:
-                        logger.warning(f"Failed to checkpoint grid: {e}")
+                        logger.warning(f"Failed to checkpoint grid to Scripts: {e}")
+
+                # Update status on Ideas table
+                if idea_id:
+                    try:
+                        airtable_client.update_idea_fields(idea_id, {
+                            "Storyboard Status": f"images_{len(grid_urls)}_of_{len(matches)}",
+                        })
+                    except Exception as e:
+                        logger.warning(f"Failed to update status: {e}")
             else:
                 logger.error(f"Beat {beat_num} grid generation returned None")
                 failed_beats.append(beat_num)
@@ -1694,17 +1721,27 @@ async def run_storyboard_images(
 
         logger.info(f"Beat {beat_num}/{len(matches)} grid generated (${total_cost:.2f} so far)")
 
-    # Final status update
-    if idea_id:
-        final_status = "grids_generated" if not failed_beats else f"partial_{len(grid_urls)}_of_{len(matches)}"
+    # Final updates - images to Scripts, status to Ideas
+    final_status = "grids_generated" if not failed_beats else f"partial_{len(grid_urls)}_of_{len(matches)}"
+
+    if first_script_id:
         try:
-            update_fields = {"Storyboard Status": final_status}
+            update_fields = {}
             for i, url in enumerate(grid_urls):
                 if i < 3 and url:
                     update_fields[f"Storyboard {i + 1}"] = [{"url": url}]
-            airtable_client.update_idea_fields(idea_id, update_fields)
+            if update_fields:
+                airtable_client.update_script_record(first_script_id, update_fields)
         except Exception as e:
-            logger.warning(f"Failed to write final grid status: {e}")
+            logger.warning(f"Failed to write final grids to Scripts: {e}")
+
+    if idea_id:
+        try:
+            airtable_client.update_idea_fields(idea_id, {
+                "Storyboard Status": final_status,
+            })
+        except Exception as e:
+            logger.warning(f"Failed to write final status: {e}")
 
     result = {
         "video_title": video_title,
