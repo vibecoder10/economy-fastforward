@@ -6,7 +6,7 @@ active visual identity profile at runtime.
 Profile selection order:
 1. Explicit ``profile_id`` argument (per-video override from Airtable)
 2. ``VISUAL_PROFILE`` environment variable (per-channel default)
-3. Fallback: ``"holographic_hud"`` (current production style)
+3. Fallback: ``"cinematic_illustration"`` (current production style)
 
 Usage::
 
@@ -34,7 +34,7 @@ _PROFILE_MODULES: dict[str, str] = {
     "mannequin_storytelling": "visual_profiles.cinematic_illustration",
 }
 
-DEFAULT_PROFILE_ID = "holographic_hud"
+DEFAULT_PROFILE_ID = "cinematic_illustration"
 
 # Module-level cache — one profile loaded per pipeline run
 _profile_cache: dict[str, VisualProfile] = {}
@@ -45,7 +45,7 @@ def load_profile(profile_id: Optional[str] = None) -> Optional[VisualProfile]:
 
     Args:
         profile_id: Profile to load. If None, reads ``VISUAL_PROFILE``
-            env var, then falls back to ``"holographic_hud"``.
+            env var, then falls back to ``"cinematic_illustration"``.
 
     Returns:
         The loaded ``VisualProfile``, or ``None`` if loading fails
