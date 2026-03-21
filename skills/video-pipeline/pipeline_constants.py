@@ -128,8 +128,7 @@ class IdeaFields:
     POST_MORTEM_7D = "Post-Mortem 7d"
     PERFORMANCE_VERDICT = "Performance Verdict"
 
-    # Storyboard
-    STORYBOARD_MODE = "Storyboard Mode"
+    # Storyboard (mode is on Scripts table, these stay on Ideas)
     STORYBOARD_STATUS = "Storyboard Status"
     STORYBOARD_PREVIEW = "Storyboard Preview"
     STORYBOARD_BEAT_COUNT = "Storyboard Beat Count"
@@ -162,6 +161,7 @@ class ScriptFields:
     SOUND_MAP = "Sound Map"
 
     # Storyboard fields - for visual consistency planning
+    STORYBOARD_MODE = "Story Board On/OFF"  # Single Select - "On" or "Off"
     STORYBOARD_PROMPTS = "Storyboard Prompts"  # Long Text - prompts for all grids (copy to Gemini)
     STORYBOARD_1 = "Storyboard 1"  # Attachment - first 3x3 grid
     STORYBOARD_2 = "Storyboard 2"  # Attachment - second 3x3 grid

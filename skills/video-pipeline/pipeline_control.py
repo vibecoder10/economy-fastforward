@@ -40,7 +40,7 @@ else:
 
 from slack_bolt.async_app import AsyncApp
 from slack_bolt.adapter.socket_mode.async_handler import AsyncSocketModeHandler
-from pipeline_constants import IdeaFields, ImageFields, Models, Statuses
+from pipeline_constants import IdeaFields, ImageFields, Models, ScriptFields, Statuses
 
 # Initialize Slack app
 app = AsyncApp(token=os.environ.get("SLACK_BOT_TOKEN"))
@@ -3059,7 +3059,14 @@ async def handle_storyboard_status(message, say):
             return
 
         title = idea.get(IdeaFields.VIDEO_TITLE, "")
-        sb_mode = idea.get("Storyboard Mode", "off")
+
+        # Read storyboard mode from Scripts table
+        scripts = airtable.get_scripts_by_title(title)
+        sb_mode = "off"
+        if scripts:
+            sb_mode = (scripts[0].get(ScriptFields.STORYBOARD_MODE) or "off").lower()
+
+        # These stay on Ideas table
         sb_status = idea.get("Storyboard Status", "none")
         beat_count = idea.get("Storyboard Beat Count", 0)
 
@@ -3148,9 +3155,18 @@ async def handle_storyboard_on(message, say):
         if not idea:
             return
 
-        airtable.update_idea_fields(idea["id"], {IdeaFields.STORYBOARD_MODE: "on"})
         title = idea.get(IdeaFields.VIDEO_TITLE, "")
-        await say(f":white_check_mark: Storyboard mode *enabled* for \"{title}\"")
+
+        # Update storyboard mode on ALL script records for this video
+        scripts = airtable.get_scripts_by_title(title)
+        if not scripts:
+            await say(f":x: No scripts found for \"{title}\". Generate scripts first.")
+            return
+
+        for script in scripts:
+            airtable.update_script_record(script["id"], {ScriptFields.STORYBOARD_MODE: "On"})
+
+        await say(f":white_check_mark: Storyboard mode *enabled* for \"{title}\" ({len(scripts)} scripts updated)")
 
     except Exception as e:
         await say(f":x: Failed to enable storyboard mode: {e}")
@@ -3174,9 +3190,18 @@ async def handle_storyboard_off(message, say):
         if not idea:
             return
 
-        airtable.update_idea_fields(idea["id"], {IdeaFields.STORYBOARD_MODE: "off"})
         title = idea.get(IdeaFields.VIDEO_TITLE, "")
-        await say(f":white_check_mark: Storyboard mode *disabled* for \"{title}\"")
+
+        # Update storyboard mode on ALL script records for this video
+        scripts = airtable.get_scripts_by_title(title)
+        if not scripts:
+            await say(f":x: No scripts found for \"{title}\".")
+            return
+
+        for script in scripts:
+            airtable.update_script_record(script["id"], {ScriptFields.STORYBOARD_MODE: "Off"})
+
+        await say(f":white_check_mark: Storyboard mode *disabled* for \"{title}\" ({len(scripts)} scripts updated)")
 
     except Exception as e:
         await say(f":x: Failed to disable storyboard mode: {e}")

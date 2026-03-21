@@ -356,10 +356,15 @@ async def run(pipeline) -> dict:
             "targeted": True,
         }
 
-    # Route based on Storyboard Mode
-    storyboard_mode = (pipeline.current_idea or {}).get("fields", {}).get(
-        "Storyboard Mode", "off"
-    )
+    # Route based on Storyboard Mode (read from Scripts table)
+    # Check first script record for "Story Board On/OFF" field
+    storyboard_mode = "off"
+    if scripts:
+        first_script = scripts[0] if isinstance(scripts[0], dict) else {}
+        # Handle both raw dict and {fields: {...}} format
+        fields = first_script.get("fields", first_script)
+        storyboard_mode = (fields.get(ScriptFields.STORYBOARD_MODE) or "off").lower()
+
     if storyboard_mode == "on":
         next_status = Statuses.READY_STORYBOARDS
     else:

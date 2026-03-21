@@ -51,6 +51,11 @@ Osiris analysis fields (written by `osiris/performance_analyzer.py`):
 - `Voice Status`, `Voice Over` (attachment URL)
 - `Sources` (show notes for YouTube description)
 
+Storyboard fields:
+- `Story Board On/OFF` (Single Select) — "On" or "Off". Controls whether the pipeline routes to storyboard generation or direct image generation. Set via `storyboard on <title>` / `storyboard off <title>` Slack commands.
+- `Storyboard Prompts` (Long Text) — Generated prompts for all grids (copy to Gemini)
+- `Storyboard 1`, `Storyboard 2`, `Storyboard 3` (Attachment) — 3x3 contact sheet grids
+
 ## Images Table
 
 - `Scene`, `Image Index`, `Sentence Text`, `Image Prompt`, `Shot Type`
