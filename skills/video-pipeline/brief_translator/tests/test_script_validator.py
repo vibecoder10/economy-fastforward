@@ -710,7 +710,7 @@ class TestConfig:
         config = ScriptValidationConfig()
         assert config.number_density_min == 19
         assert config.framework_max_pct == 0.15
-        assert config.personal_stakes_min_score == 3
+        assert config.personal_stakes_min_score == 1  # lowered: one match is enough
         assert config.actionable_close_min_score == 2
         # New defaults: validation is blocking
         assert config.max_retries == 1

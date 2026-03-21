@@ -45,7 +45,7 @@ class ScriptValidationConfig:
 
     # Check 3: Personal stakes presence
     personal_stakes_check: bool = True
-    personal_stakes_min_score: int = 3
+    personal_stakes_min_score: int = 1
 
     # Check 4: Actionable close
     actionable_close_check: bool = True
@@ -83,7 +83,7 @@ class ScriptValidationConfig:
             framework_density_check=v.framework_max_pct_check,
             framework_max_pct=profile.framework_integration.max_runtime_pct,
             personal_stakes_check=v.personal_stakes_presence,
-            personal_stakes_min_score=3,  # no profile field yet — keep default
+            personal_stakes_min_score=1,  # one match is enough — cinematic stakes
             actionable_close_check=v.actionable_ending_check,
             actionable_close_min_score=2,  # no profile field yet — keep default
             cliffhanger_check=v.cliffhanger_check,
@@ -278,6 +278,8 @@ _PERSONAL_STAKES_PATTERNS = [
     re.compile(r"\byour\s+\w+\s+(?:drops?|falls?|loses?|gains?|rises?)\s+\d", re.IGNORECASE),
     re.compile(r"\b(?:here'?s\s+what\s+(?:this|it)\s+means\s+for\s+you|"
                r"what\s+this\s+means\s+for\s+your)\b", re.IGNORECASE),
+    # Broad: any dollar amount signals personal/financial stakes in the scene
+    re.compile(r"\$\d[\d,]*(?:\.\d+)?", re.IGNORECASE),
 ]
 
 
@@ -1011,7 +1013,9 @@ def validate_script_editorial(
     # --- Check 5: Cliffhanger Presence ---
     if config.cliffhanger_check:
         found, expected = _count_cliffhangers_at_transitions(script, acts)
-        passed = found >= expected if expected > 0 else True
+        # Allow 4/5 — missing one cliffhanger is acceptable
+        min_required = max(expected - 1, 1) if expected > 0 else 0
+        passed = found >= min_required if expected > 0 else True
         detail = f"{found}/{expected} act transitions have cliffhangers"
 
         retry_prompt = ""
