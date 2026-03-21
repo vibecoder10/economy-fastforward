@@ -66,6 +66,8 @@ async def run(pipeline, brief: dict = None) -> dict:
                 print("  📚 Found research payload — using as primary source material")
                 framework_angle = idea.get(IdeaFields.FRAMEWORK_ANGLE, "") or research_payload.get("themes", "")
                 brief = {
+                    # Canonical title from Airtable — always use this
+                    "video_title": idea.get(IdeaFields.VIDEO_TITLE, ""),
                     "headline": research_payload.get("headline", idea.get(IdeaFields.VIDEO_TITLE, "")),
                     "thesis": research_payload.get("thesis", ""),
                     "executive_hook": research_payload.get("executive_hook", idea.get(IdeaFields.HOOK_SCRIPT, "")),
@@ -98,6 +100,8 @@ async def run(pipeline, brief: dict = None) -> dict:
         if not research_payload_raw:
             framework_angle = idea.get(IdeaFields.FRAMEWORK_ANGLE, "")
             brief = {
+                # Canonical title from Airtable — always use this
+                "video_title": idea.get(IdeaFields.VIDEO_TITLE, ""),
                 "headline": idea.get(IdeaFields.VIDEO_TITLE, ""),
                 "thesis": idea.get(IdeaFields.THESIS, "") or idea.get(IdeaFields.FUTURE_PREDICTION, ""),
                 "executive_hook": idea.get(IdeaFields.EXECUTIVE_HOOK, "") or idea.get(IdeaFields.HOOK_SCRIPT, ""),

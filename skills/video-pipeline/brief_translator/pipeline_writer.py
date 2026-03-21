@@ -58,16 +58,21 @@ def select_video_title(brief: dict) -> str:
     """Select the best video title using the priority order.
 
     Priority:
-    1. title_options from research_payload / discovery scanner (best one)
-    2. Headline field from Airtable record
-    3. headline from research brief
-    4. Generate from title_patterns.json (if available)
+    1. video_title — the canonical title from Airtable's Video Title field
+    2. title_options from research_payload / discovery scanner (best one)
+    3. Headline field from Airtable record
+    4. headline from research brief
     5. Fallback to "Untitled"
 
     NEVER outputs a generic journalism headline. The title must match
     Economy FastForward channel voice: Machiavellian, dark power dynamics,
     pattern/cycle framing.
     """
+    # Priority 0: Canonical video_title from Airtable (user's chosen title)
+    video_title = brief.get("video_title", "")
+    if video_title and len(video_title) > 5:
+        return video_title
+
     # Priority 1: title_options (from discovery scanner or research agent)
     title_options = brief.get("title_options", "")
     if title_options:
