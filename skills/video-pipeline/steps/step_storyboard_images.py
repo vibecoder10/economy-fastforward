@@ -21,8 +21,17 @@ async def run(pipeline) -> dict:
             return {"error": "No idea with status 'Ready For Storyboard Images'", "bot": "Storyboard Images"}
         pipeline._load_idea(idea)
 
-    fields = pipeline.current_idea.get("fields", pipeline.current_idea)
-    sb_status = fields.get("Storyboard Status", "none")
+    # Check storyboard status and prompts from Scripts table
+    script_records = pipeline.airtable.get_scripts_by_title(pipeline.video_title)
+    if not script_records:
+        return {
+            "error": f"No script found for '{pipeline.video_title}'",
+            "bot": "Storyboard Images",
+            "video_title": pipeline.video_title,
+        }
+
+    first_script = script_records[0].get("fields", script_records[0])
+    sb_status = first_script.get("Storyboard Status", "none") or "none"
 
     # If grids already generated, skip to extraction status
     if sb_status == "grids_generated":
@@ -36,7 +45,7 @@ async def run(pipeline) -> dict:
         }
 
     # Check that prompts exist
-    prompts = fields.get("Storyboard Prompts", "")
+    prompts = first_script.get("Storyboard Prompts", "")
     if not prompts:
         return {
             "error": "No storyboard prompts found — run prompt generation first",

@@ -21,8 +21,12 @@ async def run(pipeline) -> dict:
             return {"error": "No idea with status 'Ready For Storyboards'", "bot": "Storyboard Prompts"}
         pipeline._load_idea(idea)
 
-    fields = pipeline.current_idea.get("fields", pipeline.current_idea)
-    sb_status = fields.get("Storyboard Status", "none")
+    # Check storyboard status from Scripts table
+    script_records = pipeline.airtable.get_scripts_by_title(pipeline.video_title)
+    sb_status = "none"
+    if script_records:
+        first_script = script_records[0].get("fields", script_records[0])
+        sb_status = first_script.get("Storyboard Status", "none") or "none"
 
     # If prompts already generated, skip to images status
     if sb_status == "prompts_ready":
