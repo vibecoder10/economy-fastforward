@@ -302,6 +302,100 @@ The final sentence should create genuine curiosity about what comes next.
 
 Every act opening should feel like a camera cutting to a new location. The \
 viewer should SEE the scene before hearing the analysis.
+
+9. THE POWER DOCTRINE APEX (Act 4):
+
+Every video has one moment where the story stops being about the headline \
+and becomes a truth the viewer can use forever. This is the reward for staying.
+
+THREE RULES:
+
+A) BUILD A GAP IN ACTS 1-3: Something doesn't add up. The viewer feels a \
+contradiction they can't resolve:
+- "If Iran is losing, why are the tankers still frozen?"
+- "If America has the strongest military, why can't it open a 21-mile strait?"
+
+B) DROP THE INSIGHT THROUGH A CHARACTER: Not as a lecture. As something a \
+person discovered, proved, or lived. The insight belongs to them.
+
+GOOD: "Van Riper proved it in 2002. You don't have to win. You just have to \
+make winning too expensive for the other guy."
+BAD: "This illustrates Nash equilibrium in asymmetric conflict theory."
+
+C) SIMPLE ENOUGH TO REPEAT: If a teenager couldn't say it back to a friend \
+in one sentence, rewrite it.
+
+PLACEMENT: Act 4. Never earlier. Never Act 5 — that's the personal stakes return.
+
+10. MICRO-INSIGHT BREADCRUMBS (Every Act):
+
+Every act ends with one simple truth the viewer takes with them. These build \
+toward the apex but each one works alone. A viewer who leaves after Act 2 \
+still learned two things they can use.
+
+PATTERN:
+- Act 1: A truth about money, prices, or how hidden systems hit your life
+- Act 2: A truth about perception, appearances, or what power looks like
+- Act 3: A truth about strategy, systems, or how the game was changed
+- Act 4: THE APEX — the big transferable insight
+- Act 5: A truth about signals — how to read what's really happening
+- Act 6: A truth about patterns — how to spot this playing out again
+
+RULES:
+- One sentence. Two at most.
+- Plain language only. No theory names. No economist citations.
+- Delivered through the character's experience, not narrator commentary.
+- Must pass the "text it to a friend" test.
+
+GOOD: "You don't pay more because something bad happened. You pay more \
+because something bad might happen."
+GOOD: "If everyone believes you can hurt them, you don't actually have to."
+GOOD: "Don't listen to what people say. Watch where the money goes."
+
+BAD: "This demonstrates deterrence through perceived capability rather than \
+actual force deployment."
+
+The micro-insights form a chain. Each makes the next feel inevitable. By the \
+time the apex drops, the viewer has already been thinking in the right direction.
+
+11. EMOTIONAL ARC AND ACT STRUCTURE:
+
+The viewer is the common person. They are the through-line. The story starts \
+with their life, leaves to explore the machinery behind their pain, then \
+returns with understanding.
+
+THE ARC:
+- Act 1 — "THAT'S ME": Open with the ordinary person affected. Gas pump, \
+grocery bill, rent increase. They don't understand why. The viewer identifies \
+immediately.
+- Act 2 — "THEY'RE LYING": The official story falls apart. The person in \
+charge can't solve it. The viewer feels the gap between what they're told and \
+what's happening.
+- Act 3 — "SOMEONE BUILT THIS": Meet the architect. The adversary or system \
+designer who planned this deliberately over years or decades. The viewer feels \
+dread and grudging respect.
+- Act 4 — "NOW I UNDERSTAND": The apex. A historical proof or character who \
+demonstrated this truth before. The viewer gets the framework that explains \
+everything they've seen.
+- Act 5 — "IT'S HITTING MY LIFE": Return to the ordinary person. Now every \
+link is visible. The tankers, the insurance, the supply chain — all traced \
+back to the mechanism revealed in Acts 2-4. The abstract becomes personal.
+- Act 6 — "I KNOW WHAT TO WATCH": Return to Act 2's character or scene. Same \
+situation, but the viewer sees it completely differently. Close with what \
+signals to monitor and how to spot this pattern next time.
+
+THE CHARACTER MAP:
+- Act 1: The ordinary person (the viewer's stand-in)
+- Act 2: The front-line operator failing to solve the crisis
+- Act 3: The architect who built the system causing the crisis
+- Act 4: The prophet who predicted or proved this before
+- Act 5: Return to Act 1's ordinary person — now with understanding
+- Act 6: Return to Act 2's operator — same scene, new meaning
+
+This structure means the viewer's own life bookends the story. They enter \
+through their experience, travel through the hidden machinery, and return to \
+their own life with the ability to see what was invisible before. That \
+transformation is why they subscribe.
 """
 
 _STRICT_GROUNDING_RULE = """\

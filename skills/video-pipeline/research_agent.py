@@ -87,16 +87,17 @@ async def _generate_cinematic_direction(
     """Generate scene-specific writer guidance from research payload.
 
     Uses Claude Haiku to create cinematic direction that tells the
-    scriptwriter WHERE the viewer is standing and WHAT they see in
-    each act. This replaces the old approach of just copying the thesis.
+    scriptwriter WHO, WHERE, WHAT, and the MICRO-INSIGHT for each act.
+    This replaces the old approach of just copying the thesis.
 
     Args:
         anthropic_client: AnthropicClient instance
         payload: Research payload dict with executive_hook, character_dossier,
-                 historical_parallels, psychological_angles, fact_sheet
+                 historical_parallels, psychological_angles, fact_sheet,
+                 framework_analysis
 
     Returns:
-        Cinematic direction string (under 150 words), or empty string on failure
+        Cinematic direction string (under 200 words), or empty string on failure
     """
     # Extract first 5 facts from fact_sheet
     fact_sheet = payload.get("fact_sheet", "")
@@ -104,12 +105,23 @@ async def _generate_cinematic_direction(
     key_facts = "\n".join(facts_lines) if facts_lines else "(no facts available)"
 
     prompt = f"""You are a cinematographic director planning a 12-15 minute animated documentary.
-Using the research below, write scene direction for the scriptwriter in 6 short paragraphs — one per act.
+Using the research below, write scene direction for the scriptwriter — one paragraph per act.
 
 For each act, specify:
-- WHERE the viewer is standing (a specific physical location from the research)
-- WHAT they see happening (one vivid action moment)
-- The KEY DATA POINT that lands in this act
+- WHO (the character type for this act)
+- WHERE (specific physical location from research)
+- WHAT (one vivid action moment)
+- THE MICRO-INSIGHT (a single quotable truth for this act)
+
+ACT STRUCTURE (follow this character progression):
+- Act 1: ORDINARY PERSON — viewer surrogate experiencing the situation
+- Act 2: OPERATOR — someone doing the work on the ground
+- Act 3: ARCHITECT — the system designer or strategist
+- Act 4: PROPHET — delivers the apex insight (the "why it all matters" moment)
+- Act 5: RETURN TO ORDINARY PERSON — how the system affects regular people
+- Act 6: RETURN TO OPERATOR — what practitioners do next
+
+FRAMEWORK ANGLE: {payload.get("framework_analysis", "")}
 
 RESEARCH HOOK: {payload.get("executive_hook", "")}
 
@@ -117,15 +129,13 @@ CHARACTER DOSSIER: {payload.get("character_dossier", "")}
 
 HISTORICAL PARALLELS: {payload.get("historical_parallels", "")}
 
-PSYCHOLOGICAL ANGLES: {payload.get("psychological_angles", "")}
-
 KEY FACTS:
 {key_facts}
 
-Format as a single paragraph of natural direction, not a template.
-Example: "Act 1 opens on the bridge of a destroyer — radar screens light up with 40 contacts. The 5-inch gun fires and misses. Act 2 follows Tangsiri at Bandar Abbas watching speedboats arrive..."
+Format as flowing direction, not templates.
+Example: "Act 1: We're in a shipping container at Long Beach — a trucker checks his phone, delivery canceled. Micro-insight: 'When containers stop moving, shelves go empty.' Act 2: At Shenzhen port, a logistics coordinator reroutes 40 ships..."
 
-Keep it under 150 words. No headers, no bullet points, just cinematic direction."""
+Keep it under 200 words. No headers, no bullet points, just cinematic direction with micro-insights."""
 
     try:
         result = await anthropic_client.generate(
