@@ -2523,6 +2523,155 @@ async def handle_autopilot_help(message, say):
 
 
 # ---------------------------------------------------------------------------
+# Curiosity Gap Title Commands
+# ---------------------------------------------------------------------------
+
+@app.message(re.compile(r"^gap\s+titles\s+(\S+)$", re.IGNORECASE))
+async def handle_gap_titles(message, say):
+    """Generate curiosity gap titles for an idea."""
+    from pipeline_constants import CURIOSITY_GAP_ENABLED
+
+    if not CURIOSITY_GAP_ENABLED:
+        await say(":x: Curiosity gap system is disabled")
+        return
+
+    match = re.match(r"^gap\s+titles\s+(\S+)$", message["text"], re.IGNORECASE)
+    record_id = match.group(1)
+
+    await say(f":dart: Generating curiosity gap titles for `{record_id}`...")
+
+    try:
+        from clients.airtable_client import AirtableClient
+        from clients.anthropic_client import AnthropicClient
+        from curiosity_gap.gap_title_engine import GapTitleEngine
+        from autopilot.learning.pattern_library import PatternLibrary
+
+        airtable = AirtableClient()
+        record = airtable.get_idea(record_id)
+
+        if not record:
+            await say(f":x: Record not found: `{record_id}`")
+            return
+
+        hook = record.get("Hook Script", "")
+        thesis = record.get("Thesis", "")
+        current_title = record.get("Video Title", "")
+
+        anthropic = AnthropicClient()
+        engine = GapTitleEngine(anthropic)
+        pattern_library = PatternLibrary()
+
+        story_context = {
+            "hook": hook or current_title,
+            "thesis": thesis or current_title,
+            "facts": [],
+        }
+
+        titles = await engine.generate_titles(
+            story_context,
+            pattern_library=pattern_library,
+            target_count=3,
+        )
+
+        if not titles:
+            await say(":x: No titles generated (all structures below confidence floor)")
+            return
+
+        # Format response
+        response = f"*Current:* {current_title}\n\n*Alternatives:*\n"
+        for i, t in enumerate(titles, 1):
+            response += f"{i}. {t.text}\n"
+            response += f"   _{t.structure.value}_ ({t.structure_confidence}%)\n"
+
+        response += f"\nReply `gap select {record_id} 1` to use title #1"
+
+        await say(response)
+
+    except Exception as e:
+        await say(f":x: Error: {e}")
+
+
+@app.message(re.compile(r"^gap\s+select\s+(\S+)\s+(\d+)$", re.IGNORECASE))
+async def handle_gap_select(message, say):
+    """Apply a previously generated title option."""
+    match = re.match(r"^gap\s+select\s+(\S+)\s+(\d+)$", message["text"], re.IGNORECASE)
+    record_id = match.group(1)
+    selection = int(match.group(2))
+
+    try:
+        from clients.airtable_client import AirtableClient
+        from clients.anthropic_client import AnthropicClient
+        from curiosity_gap.gap_title_engine import GapTitleEngine
+        from autopilot.learning.pattern_library import PatternLibrary
+
+        airtable = AirtableClient()
+        record = airtable.get_idea(record_id)
+
+        if not record:
+            await say(f":x: Record not found: `{record_id}`")
+            return
+
+        hook = record.get("Hook Script", "")
+        thesis = record.get("Thesis", "")
+        current_title = record.get("Video Title", "")
+
+        anthropic = AnthropicClient()
+        engine = GapTitleEngine(anthropic)
+        pattern_library = PatternLibrary()
+
+        story_context = {
+            "hook": hook or current_title,
+            "thesis": thesis or current_title,
+            "facts": [],
+        }
+
+        titles = await engine.generate_titles(
+            story_context,
+            pattern_library=pattern_library,
+            target_count=3,
+        )
+
+        if not titles or selection < 1 or selection > len(titles):
+            await say(f":x: Invalid selection. Must be 1-{len(titles) if titles else 0}")
+            return
+
+        selected = titles[selection - 1]
+
+        # Update Airtable with selected title
+        airtable.idea_concepts_table.update(
+            record_id,
+            {"Video Title": selected.text}
+        )
+        airtable.update_idea_curiosity_structure(
+            record_id=record_id,
+            structure=selected.structure.value,
+            confidence=selected.structure_confidence,
+            thumbnail_text=selected.thumbnail_text,
+            thumbnail_approach=selected.thumbnail_approach,
+        )
+
+        await say(
+            f":white_check_mark: Applied title #{selection}:\n"
+            f"*{selected.text}*\n"
+            f"_{selected.structure.value}_ ({selected.structure_confidence}%)"
+        )
+
+    except Exception as e:
+        await say(f":x: Error: {e}")
+
+
+@app.message(re.compile(r"^gap\s+titles?$", re.IGNORECASE))
+async def handle_gap_titles_help(message, say):
+    """Show gap titles help."""
+    await say(
+        ":dart: *Curiosity Gap Title Commands*\n\n"
+        "• `gap titles <record_id>` — Generate curiosity gap titles for an idea\n"
+        "• `gap select <record_id> <number>` — Apply a selected title\n\n"
+        "_Uses proven curiosity structures to maximize CTR._"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Style/model/visualstyle handlers — imported from handlers/style_handlers.py
 # ---------------------------------------------------------------------------
 from handlers.style_handlers import (
