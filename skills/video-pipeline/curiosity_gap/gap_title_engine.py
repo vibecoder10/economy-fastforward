@@ -49,16 +49,36 @@ def _score_hidden_flaw(hook: str, thesis: str, facts: List[str]) -> int:
     content = f"{hook} {thesis} {' '.join(facts)}".lower()
 
     score = 0
-    # Financial waste indicators
-    if re.search(r'\$\d+[mb]?\b', content):  # Dollar amounts
+    # Financial amounts (with or without $ sign)
+    if re.search(r'(\$\d+|\d+\s*(billion|trillion|million|percent|b\b|m\b))', content):
         score += 25
-    if any(word in content for word in ['waste', 'wasted', 'mistake', 'failed', 'failure']):
+    # Waste/failure concepts (expanded)
+    if any(word in content for word in [
+        'waste', 'wasted', 'mistake', 'failed', 'failure', 'empty',
+        'unused', 'worthless', 'abandoned', 'useless', 'pointless',
+        'backfired', 'blunder', 'bungled', 'flop', 'flopped',
+        'idle', 'sitting', 'rotting', 'crumbling', 'rusting',
+    ]):
         score += 25
-    if any(word in content for word in ['hiding', 'hidden', 'secret', 'cover']):
+    # Concealment concepts (expanded)
+    if any(word in content for word in [
+        'hiding', 'hidden', 'secret', 'cover', 'conceal', 'quietly',
+        'nobody told', 'nobody knows', 'unreported', 'silently',
+        'swept under', 'buried', 'suppressed',
+    ]):
         score += 20
-    if any(word in content for word in ['billion', 'trillion', 'million']):
+    # Bad bet / wrong strategy concepts
+    if any(word in content for word in [
+        'bet', 'gamble', 'gambled', 'miscalculated', 'overestimated',
+        'wrong', 'shifted', 'obsolete', 'stranded', 'bet everything',
+        'backfire', 'shortsighted', 'hubris',
+    ]):
         score += 15
-    if any(word in content for word in ['abandoned', 'empty', 'unused', 'worthless']):
+    # Scale amplifiers
+    if any(word in content for word in [
+        'billion', 'trillion', 'million', 'massive', 'enormous',
+        'colossal', '100b', '500m', 'hundreds of',
+    ]):
         score += 15
 
     return min(100, score)
@@ -69,15 +89,38 @@ def _score_asymmetric_dg(hook: str, thesis: str, facts: List[str]) -> int:
     content = f"{hook} {thesis} {' '.join(facts)}".lower()
 
     score = 0
-    if any(word in content for word in ['small', 'tiny', 'cheap', '$500', '$100']):
+    # Small/cheap thing (expanded)
+    if any(word in content for word in [
+        'small', 'tiny', 'cheap', 'simple', 'basic', 'primitive',
+        'homemade', 'improvised', 'low-cost', 'inexpensive',
+        '$500', '$100', '$50', 'few hundred', 'fraction',
+    ]):
         score += 25
-    if any(word in content for word in ['terrified', 'afraid', 'fear', 'scared']):
+    # Fear/threat from powerful entity (expanded)
+    if any(word in content for word in [
+        'terrified', 'afraid', 'fear', 'scared', 'worried',
+        'nightmare', 'threat', 'vulnerable', 'powerless',
+        'can\'t stop', 'cannot stop', 'helpless',
+    ]):
         score += 20
-    if any(word in content for word in ['navy', 'military', 'army', 'superpower']):
+    # Big/powerful entity (expanded)
+    if any(word in content for word in [
+        'navy', 'military', 'army', 'superpower', 'pentagon',
+        'billion-dollar', 'trillion', 'aircraft carrier', 'fleet',
+        'empire', 'giant', 'goliath', 'massive', 'powerful',
+    ]):
         score += 20
-    if any(word in content for word in ['beat', 'defeat', 'destroy', 'stop']):
+    # Outcome concepts (expanded)
+    if any(word in content for word in [
+        'beat', 'defeat', 'destroy', 'stop', 'cripple', 'sink',
+        'neutralize', 'outmaneuver', 'outsmart', 'overwhelm',
+    ]):
         score += 15
-    if any(word in content for word in ['drone', 'boat', 'missile', 'plastic']):
+    # Small weapon/tool examples (expanded)
+    if any(word in content for word in [
+        'drone', 'boat', 'missile', 'plastic', 'raft', 'swarm',
+        'explosive', 'mine', 'device', 'weapon',
+    ]):
         score += 10
 
     return min(100, score)
@@ -88,15 +131,35 @@ def _score_time_bomb(hook: str, thesis: str, facts: List[str]) -> int:
     content = f"{hook} {thesis} {' '.join(facts)}".lower()
 
     score = 0
-    if re.search(r'\d+[- ]year', content):  # X-year patterns
+    # Time patterns (expanded)
+    if re.search(r'(\d+[- ]year|\d+[- ]decade|\d+ years|\d+ decades)', content):
         score += 30
-    if any(word in content for word in ['trap', 'trapped', 'walked into']):
+    # Trap concepts (expanded)
+    if any(word in content for word in [
+        'trap', 'trapped', 'walked into', 'locked in', 'locked into',
+        'stuck', 'cornered', 'boxed in', 'no way out', 'no escape',
+        'painted into', 'checkmate', 'inevitable',
+    ]):
         score += 25
-    if any(word in content for word in ['decade', 'decades', 'long-term', 'slow']):
+    # Long-term timeframes (expanded)
+    if any(word in content for word in [
+        'decade', 'decades', 'long-term', 'slow', 'gradual',
+        'years ago', 'seeds', 'building', 'brewing', 'festering',
+        'accumulating', 'compounding', 'generation',
+    ]):
         score += 20
-    if any(word in content for word in ['set up', 'planted', 'waiting']):
+    # Setup/planting concepts (expanded)
+    if any(word in content for word in [
+        'set up', 'planted', 'waiting', 'ticking', 'dormant',
+        'laid the groundwork', 'sowed', 'roots', 'foundation',
+    ]):
         score += 15
-    if any(word in content for word in ['trigger', 'explode', 'collapse']):
+    # Trigger/consequence concepts (expanded)
+    if any(word in content for word in [
+        'trigger', 'explode', 'collapse', 'unravel', 'implode',
+        'come due', 'reckoning', 'chickens come home', 'finally',
+        'about to', 'on the verge', 'tipping point',
+    ]):
         score += 10
 
     return min(100, score)
@@ -107,15 +170,37 @@ def _score_paradigm_shift(hook: str, thesis: str, facts: List[str]) -> int:
     content = f"{hook} {thesis} {' '.join(facts)}".lower()
 
     score = 0
-    if any(word in content for word in ['proves', 'proof', 'evidence', 'map']):
+    # Evidence/proof concepts (expanded)
+    if any(word in content for word in [
+        'proves', 'proof', 'evidence', 'map', 'reveals', 'shows',
+        'demonstrates', 'exposes', 'uncovers', 'confirms',
+    ]):
         score += 25
-    if any(word in content for word in ['already', 'begun', 'started', 'happening']):
+    # Already happening concepts (expanded)
+    if any(word in content for word in [
+        'already', 'begun', 'started', 'happening', 'underway',
+        'in motion', 'unfolding', 'right now', 'as we speak',
+    ]):
         score += 20
-    if any(word in content for word in ['think', 'believe', 'assume', 'reality']):
+    # Belief challenge concepts (expanded)
+    if any(word in content for word in [
+        'think', 'believe', 'assume', 'reality', 'actually',
+        'really', 'truth', 'myth', 'lie', 'misconception',
+        'wrong about', 'misunderstand', 'didn\'t know',
+    ]):
         score += 20
-    if any(word in content for word in ['wwiii', 'war', 'conflict', 'crisis']):
+    # Big event reframes (expanded)
+    if any(word in content for word in [
+        'wwiii', 'war', 'conflict', 'crisis', 'collapse',
+        'revolution', 'shift', 'change everything', 'new era',
+    ]):
         score += 15
-    if any(word in content for word in ['missing', 'overlooked', 'ignored']):
+    # Hidden/overlooked concepts (expanded)
+    if any(word in content for word in [
+        'missing', 'overlooked', 'ignored', 'nobody noticed',
+        'under the radar', 'quietly', 'without anyone knowing',
+        'blind spot', 'invisible',
+    ]):
         score += 15
 
     return min(100, score)
@@ -126,15 +211,37 @@ def _score_illusion_control(hook: str, thesis: str, facts: List[str]) -> int:
     content = f"{hook} {thesis} {' '.join(facts)}".lower()
 
     score = 0
-    if any(word in content for word in ['your', 'you', 'everyone', 'every american']):
+    # Direct personal address (expanded)
+    if any(word in content for word in [
+        'your', 'you', 'everyone', 'every american', 'we all',
+        'our', 'us', 'ordinary people', 'average person',
+        'consumers', 'citizens', 'taxpayers',
+    ]):
         score += 30
-    if any(word in content for word in ['bank', 'money', 'savings', 'wallet']):
+    # Financial personal stakes (expanded)
+    if any(word in content for word in [
+        'bank', 'money', 'savings', 'wallet', 'paycheck',
+        '401k', 'retirement', 'mortgage', 'debt', 'income',
+        'grocery', 'rent', 'bills', 'afford',
+    ]):
         score += 25
-    if any(word in content for word in ['control', 'controls', 'chokepoint']):
+    # Control/power concepts (expanded)
+    if any(word in content for word in [
+        'control', 'controls', 'chokepoint', 'leverage', 'power over',
+        'dictate', 'determine', 'decide', 'manipulate', 'rig',
+    ]):
         score += 20
-    if any(word in content for word in ['affect', 'impact', 'change']):
+    # Impact concepts (expanded)
+    if any(word in content for word in [
+        'affect', 'impact', 'change', 'hit', 'hurt', 'harm',
+        'feel', 'notice', 'see', 'experience',
+    ]):
         score += 15
-    if any(word in content for word in ['price', 'cost', 'pay', 'inflation']):
+    # Price/cost concepts (expanded)
+    if any(word in content for word in [
+        'price', 'cost', 'pay', 'inflation', 'expensive',
+        'rising', 'skyrocket', 'surge', 'double', 'triple',
+    ]):
         score += 10
 
     return min(100, score)
