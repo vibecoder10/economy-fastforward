@@ -25,8 +25,13 @@ from pathlib import Path
 from typing import Optional
 
 from clients.narrative_extractor import extract_narrative_fields
-from pipeline_constants import IdeaFields, Models
+from pipeline_constants import IdeaFields, Models, CURIOSITY_GAP_ENABLED
 from json_utils import parse_json_response
+
+# Curiosity gap imports (lazy loaded to avoid circular deps at module level)
+if CURIOSITY_GAP_ENABLED:
+    from curiosity_gap.gap_title_engine import GapTitleEngine
+    from autopilot.learning.pattern_library import PatternLibrary
 
 logger = logging.getLogger(__name__)
 
@@ -901,6 +906,53 @@ async def run_research(
         # Non-blocking — title generation failure should NOT stop research
         logger.warning(f"Title candidate generation failed: {e}")
 
+    # Phase 2: Enhance title with curiosity gap structure (if enabled)
+    curiosity_data = None
+    if CURIOSITY_GAP_ENABLED:
+        try:
+            engine = GapTitleEngine(anthropic_client)
+            pattern_lib = PatternLibrary()
+
+            # Build rich story context from research payload
+            story_context = {
+                "hook": payload.get("executive_hook", ""),
+                "thesis": payload.get("thesis", ""),
+                "facts": payload.get("fact_sheet", "")[:1000],  # Truncate for context
+            }
+
+            titles = await engine.generate_titles(
+                story_context,
+                pattern_library=pattern_lib,
+                target_count=1,
+            )
+
+            if titles:
+                best = titles[0]
+                # Override title candidates winner with curiosity gap title
+                if title_candidates:
+                    title_candidates["winner"] = best.text
+                    title_candidates["winner_thumbnail"] = best.thumbnail_text
+                else:
+                    title_candidates = {
+                        "winner": best.text,
+                        "winner_thumbnail": best.thumbnail_text,
+                        "candidates": [],
+                    }
+
+                curiosity_data = {
+                    "structure": best.structure.value,
+                    "confidence": best.structure_confidence,
+                    "thumbnail_text": best.thumbnail_text,
+                    "thumbnail_approach": best.thumbnail_approach,
+                }
+                logger.info(
+                    f"Curiosity gap: '{best.text}' "
+                    f"({best.structure.value}, {best.structure_confidence}%)"
+                )
+        except Exception as e:
+            # Non-blocking — keep original title on failure
+            logger.warning(f"Curiosity gap enhancement failed: {e}")
+
     # Write to Airtable if client provided
     if airtable_client is not None:
         record = write_to_airtable(
@@ -910,9 +962,26 @@ async def run_research(
         )
         payload["_airtable_record_id"] = record["id"]
 
+        # Save curiosity structure metadata if generated
+        if curiosity_data:
+            try:
+                airtable_client.update_idea_curiosity_structure(
+                    record_id=record["id"],
+                    structure=curiosity_data["structure"],
+                    confidence=curiosity_data["confidence"],
+                    thumbnail_text=curiosity_data["thumbnail_text"],
+                    thumbnail_approach=curiosity_data["thumbnail_approach"],
+                )
+            except Exception as e:
+                logger.warning(f"Could not save curiosity structure: {e}")
+
     # Attach title candidates to payload for callers
     if title_candidates:
         payload["_title_candidates"] = title_candidates
+
+    # Attach curiosity data if generated
+    if curiosity_data:
+        payload["_curiosity_structure"] = curiosity_data
 
     return payload
 

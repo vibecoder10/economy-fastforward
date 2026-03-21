@@ -15,7 +15,12 @@ import os
 
 from bots.idea_modeling import decompose_title, extract_format, generate_modeled_ideas
 from clients.narrative_extractor import extract_narrative_fields_from_concept
-from pipeline_constants import Models
+from pipeline_constants import Models, CURIOSITY_GAP_ENABLED
+
+# Curiosity gap imports (lazy loaded to avoid circular deps)
+if CURIOSITY_GAP_ENABLED:
+    from curiosity_gap.gap_title_engine import GapTitleEngine
+    from autopilot.learning.pattern_library import PatternLibrary
 
 
 
@@ -121,6 +126,59 @@ class TrendingIdeaBot:
                 self._learnings_engine = LearningsEngine(airtable_client)
             except ImportError:
                 pass  # Osiris not installed, skip learnings
+
+        # Curiosity gap engine (lazy initialized)
+        self._gap_engine = None
+        self._pattern_library = None
+
+    async def _enhance_title_with_curiosity_gap(self, idea: dict) -> dict:
+        """Enhance idea with curiosity gap optimized title.
+
+        Args:
+            idea: Idea dict with viral_title, hook_script, narrative_logic
+
+        Returns:
+            Enhanced idea dict with structure metadata
+        """
+        if not CURIOSITY_GAP_ENABLED:
+            return idea
+
+        # Lazy initialize engine
+        if self._gap_engine is None:
+            self._gap_engine = GapTitleEngine(self.anthropic)
+        if self._pattern_library is None:
+            self._pattern_library = PatternLibrary()
+
+        # Build story context from idea
+        narrative = idea.get("narrative_logic", {})
+        story_context = {
+            "hook": idea.get("hook_script", ""),
+            "thesis": narrative.get("present_parallel", ""),
+            "facts": [],
+        }
+
+        try:
+            titles = await self._gap_engine.generate_titles(
+                story_context,
+                pattern_library=self._pattern_library,
+                target_count=1,
+            )
+
+            if titles:
+                best = titles[0]
+                idea["viral_title"] = best.text
+                idea["curiosity_structure"] = best.structure.value
+                idea["structure_confidence"] = best.structure_confidence
+                idea["thumbnail_text"] = best.thumbnail_text
+                idea["thumbnail_approach"] = best.thumbnail_approach
+                print(f"    Enhanced: {best.text}")
+                print(f"    Structure: {best.structure.value} ({best.structure_confidence}%)")
+
+        except Exception as e:
+            print(f"    Curiosity gap enhancement failed: {e}")
+            # Non-blocking - keep original title
+
+        return idea
 
     async def scrape_trending(
         self,
@@ -354,6 +412,15 @@ Return ONLY the JSON object, no other text."""
             # Ensure narrative_logic is properly populated using shared extraction
             idea["narrative_logic"] = extract_narrative_fields_from_concept(idea)
 
+        # Enhance with curiosity gap titles (if enabled)
+        if CURIOSITY_GAP_ENABLED:
+            print("  Enhancing with curiosity gap structures...")
+            enhanced_ideas = []
+            for idea in ideas:
+                enhanced = await self._enhance_title_with_curiosity_gap(idea)
+                enhanced_ideas.append(enhanced)
+            ideas = enhanced_ideas
+
         # Save to Airtable (Idea Concepts table)
         if save_to_airtable:
             print("  Saving to Airtable (Idea Concepts)...")
@@ -361,6 +428,19 @@ Return ONLY the JSON object, no other text."""
                 try:
                     record = self.airtable.create_idea(idea, source="trending")
                     print(f"    ✅ Saved idea {i}: {record.get('id')}")
+
+                    # Save curiosity structure metadata if present
+                    if idea.get("curiosity_structure"):
+                        try:
+                            self.airtable.update_idea_curiosity_structure(
+                                record_id=record.get("id"),
+                                structure=idea.get("curiosity_structure"),
+                                confidence=idea.get("structure_confidence", 0),
+                                thumbnail_text=idea.get("thumbnail_text", ""),
+                                thumbnail_approach=idea.get("thumbnail_approach", "from_gap"),
+                            )
+                        except Exception as e:
+                            print(f"    Warning: Could not save structure metadata: {e}")
                 except Exception as e:
                     print(f"    ❌ Failed to save idea {i}: {e}")
 
@@ -459,16 +539,38 @@ Return ONLY the JSON object, no other text."""
             # Ensure narrative_logic is properly populated using shared extraction
             idea["narrative_logic"] = extract_narrative_fields_from_concept(idea)
 
+        # Enhance with curiosity gap titles (if enabled)
+        if CURIOSITY_GAP_ENABLED:
+            print("Enhancing with curiosity gap structures...")
+            enhanced_ideas = []
+            for idea in ideas:
+                enhanced = await self._enhance_title_with_curiosity_gap(idea)
+                enhanced_ideas.append(enhanced)
+            ideas = enhanced_ideas
+
         # Save to Airtable (Idea Concepts table)
         if save_to_airtable:
             print("Saving to Airtable (Idea Concepts)...")
             for i, idea in enumerate(ideas, 1):
                 try:
                     record = self.airtable.create_idea(idea, source="trending")
-                    print(f"  Saved idea {i}: {record.get(id)}")
+                    print(f"  Saved idea {i}: {record.get('id')}")
+
+                    # Save curiosity structure metadata if present
+                    if idea.get("curiosity_structure"):
+                        try:
+                            self.airtable.update_idea_curiosity_structure(
+                                record_id=record.get("id"),
+                                structure=idea.get("curiosity_structure"),
+                                confidence=idea.get("structure_confidence", 0),
+                                thumbnail_text=idea.get("thumbnail_text", ""),
+                                thumbnail_approach=idea.get("thumbnail_approach", "from_gap"),
+                            )
+                        except Exception as e:
+                            print(f"  Warning: Could not save structure metadata: {e}")
                 except Exception as e:
                     print(f"  Failed to save idea {i}: {e}")
-        
+
         # Notify Slack with v2 format
         if notify_slack and self.slack:
             try:
