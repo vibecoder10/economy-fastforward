@@ -831,6 +831,12 @@ async def handle_run(message, say):
                 )
                 break
 
+            # PAUSE for manual intervention (e.g., storyboards)
+            if result.get("status") == "paused":
+                reason = result.get("reason", "manual intervention needed")
+                await say(f":pause_button: *Pipeline paused:* {reason}")
+                break
+
             bot_name = result.get("bot", "step")
             new_status = result.get("new_status", "?")
             steps_done += 1
