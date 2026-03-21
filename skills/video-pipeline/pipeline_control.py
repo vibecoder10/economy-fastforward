@@ -253,6 +253,7 @@ _Targeted runs do NOT advance the pipeline status (safe for testing)._
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 *Auto-Run*
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- `next` — Run exactly one pipeline step based on current status
 - `run` — Pick up where the pipeline left off and keep going
   _(skips video prompts & video generation — those are manual)_
 
@@ -700,6 +701,85 @@ async def handle_stop(message, say):
         return
 
     await say(":shrug: No pipeline currently running.")
+
+
+@app.message(re.compile(r"^next$", re.IGNORECASE))
+async def handle_next(message, say):
+    """Run exactly one pipeline step based on the current idea's status."""
+    global current_process, current_task_name, _current_task
+    if current_process or current_task_name:
+        await say(f":x: Already running `{current_task_name}`. Use `stop` to cancel it first.")
+        return
+
+    current_task_name = "next (single step)"
+    await say(":arrow_forward: Running next pipeline step...")
+
+    async def _run_single_step():
+        """Run one step and return."""
+        from pipeline import VideoPipeline
+
+        pipeline = VideoPipeline()
+        result = await pipeline.run_next_step()
+
+        if result.get("status") == "idle":
+            await say(":zzz: Nothing to do — no ideas with an actionable status in the pipeline.")
+            return result
+
+        if result.get("status") == "failed" or result.get("error"):
+            error_msg = result.get("error", "Unknown error")
+            bot_name = result.get("bot", "Unknown")
+            await say(
+                f":x: *Step failed* — {bot_name}\n"
+                f"Error: {error_msg}\n"
+                f"Status was NOT advanced. Fix the issue and try again."
+            )
+            return result
+
+        bot_name = result.get("bot", "step")
+        new_status = result.get("new_status", "?")
+        video_title = result.get("video_title", "")
+
+        # Provide hint about what's next
+        next_hint = _get_next_step_hint(new_status)
+
+        await say(
+            f":white_check_mark: *{bot_name}* complete\n"
+            f"Video: *{video_title}*\n"
+            f"Status: `{new_status}`\n"
+            f"{next_hint}"
+        )
+        return result
+
+    try:
+        _current_task = asyncio.create_task(_run_single_step())
+        await _current_task
+
+    except asyncio.CancelledError:
+        await say(":stop_sign: Step cancelled.")
+    except Exception as e:
+        log.error(f"next step error: {e}", exc_info=True)
+        await say(f":x: Step error: {e}")
+    finally:
+        current_task_name = None
+        _current_task = None
+
+
+def _get_next_step_hint(current_status: str) -> str:
+    """Return a hint about what command to run next based on the status."""
+    hints = {
+        Statuses.READY_SCRIPTING: "Next: `next` or `script`",
+        Statuses.READY_VOICE: "Next: `next` or `voice`",
+        Statuses.READY_IMAGE_PROMPTS: "Next: `next` or `prompts`",
+        Statuses.READY_STORYBOARDS: "Next: `storyboard go [title]` (manual trigger)",
+        Statuses.READY_IMAGES: "Next: `next` or `images`",
+        Statuses.READY_VIDEO_SCRIPTS: "Next: `video prompts` (manual, ~$0.10/clip)",
+        Statuses.READY_VIDEO_GENERATION: "Next: `video generate` (manual, ~$0.10/clip)",
+        Statuses.READY_THUMBNAIL: "Next: `next` or `thumbnail`",
+        Statuses.DONE: "Next: `next` → auto-advances to Ready To Render",
+        Statuses.READY_TO_RENDER: "Next: `next` or `render`",
+        Statuses.RENDERED: "Next: `next` or `upload`",
+    }
+    return hints.get(current_status, "")
 
 
 @app.message(re.compile(r"^run$", re.IGNORECASE))
