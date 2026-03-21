@@ -36,7 +36,12 @@ async def run(pipeline) -> dict:
         if not pipeline._is_targeted_run:
             print(f"    All videos done. Moving to Thumbnail.")
             pipeline._update_status(Statuses.READY_THUMBNAIL)
-        return {"video_count": 0, "new_status": Statuses.READY_THUMBNAIL}
+        return {
+            "bot": "Video Gen Bot",
+            "video_title": pipeline.video_title,
+            "video_count": 0,
+            "new_status": Statuses.READY_THUMBNAIL,
+        }
 
     video_count = 0
     failed_count = 0
@@ -125,7 +130,12 @@ async def run(pipeline) -> dict:
 
     if pipeline._is_targeted_run:
         print(f"  🎯 Targeted run — status NOT advanced")
-        return {"bot": "Video Gen Bot", "video_count": video_count, "targeted": True}
+        return {
+            "bot": "Video Gen Bot",
+            "video_title": pipeline.video_title,
+            "video_count": video_count,
+            "targeted": True,
+        }
 
     # Check if all videos are done
     remaining = [v for v in pipeline.airtable.get_images_ready_for_video_generation(pipeline.video_title) if v.get(ImageFields.VIDEO_PROMPT)]
@@ -133,4 +143,9 @@ async def run(pipeline) -> dict:
         pipeline._update_status(Statuses.READY_THUMBNAIL)
         print(f"  ✅ Status updated to: {Statuses.READY_THUMBNAIL}")
 
-    return {"bot": "Video Gen Bot", "video_count": video_count}
+    return {
+        "bot": "Video Gen Bot",
+        "video_title": pipeline.video_title,
+        "video_count": video_count,
+        "new_status": Statuses.READY_THUMBNAIL if not remaining else None,
+    }

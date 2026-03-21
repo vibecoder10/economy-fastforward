@@ -14,11 +14,11 @@ async def run(pipeline) -> dict:
     if not pipeline.current_idea:
         idea = pipeline.get_idea_by_status(Statuses.READY_VOICE)
         if not idea:
-            return {"error": "No idea with status 'Ready For Voice'"}
+            return {"error": "No idea with status 'Ready For Voice'", "bot": "Voice Bot"}
         pipeline._load_idea(idea)
 
     if pipeline.current_idea.get(IdeaFields.STATUS) != Statuses.READY_VOICE:
-        return {"error": f"Idea status is '{pipeline.current_idea.get(IdeaFields.STATUS)}', expected 'Ready For Voice'"}
+        return {"error": f"Idea status is '{pipeline.current_idea.get(IdeaFields.STATUS)}', expected 'Ready For Voice'", "bot": "Voice Bot", "video_title": pipeline.video_title}
 
     pipeline.slack.notify_voice_start()
     print(f"\n🗣️ VOICE BOT: Processing '{pipeline.video_title}'")
@@ -33,7 +33,7 @@ async def run(pipeline) -> dict:
     scripts = pipeline.airtable.get_scripts_by_title(pipeline.video_title)
 
     if not scripts:
-        return {"error": f"No scripts found for: {pipeline.video_title}"}
+        return {"error": f"No scripts found for: {pipeline.video_title}", "bot": "Voice Bot", "video_title": pipeline.video_title}
 
     # Apply scene filter
     if pipeline.scene_filter is not None:

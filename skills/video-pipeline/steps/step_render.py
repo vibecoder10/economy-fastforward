@@ -176,7 +176,7 @@ async def run(pipeline) -> dict:
             f"No Scene assets found across {len(asset_folders)} Drive folder(s).\n"
             f"Make sure Scene *.mp3 and Scene_*.png files exist in Google Drive."
         )
-        return {"error": "No assets in Drive folders", "bot": "Render Bot"}
+        return {"error": "No assets in Drive folders", "bot": "Render Bot", "video_title": pipeline.video_title}
 
     if download_fail > download_ok * 0.3:
         fail_list = "\n".join(f"  • {a}" for a in failed_assets[:10])
@@ -186,7 +186,7 @@ async def run(pipeline) -> dict:
             f"Too many asset downloads failed ({download_fail} of {download_ok + download_fail}).\n"
             f"Failed:\n{fail_list}{extra}"
         )
-        return {"error": f"{download_fail} asset downloads failed", "bot": "Render Bot"}
+        return {"error": f"{download_fail} asset downloads failed", "bot": "Render Bot", "video_title": pipeline.video_title}
 
     print(f"  ✅ Assets downloaded: {audio_count} audio, {image_count} images, {video_clip_count} video clips")
 
@@ -216,7 +216,7 @@ async def run(pipeline) -> dict:
             f"Missing audio: {missing_list}\n"
             f"Searched Drive + Airtable — these files were not found anywhere."
         )
-        return {"error": f"Missing audio: {missing_list}", "bot": "Render Bot"}
+        return {"error": f"Missing audio: {missing_list}", "bot": "Render Bot", "video_title": pipeline.video_title}
 
     # Notify assets ready
     scene_count = len(props.get("scenes", []))
@@ -642,7 +642,7 @@ async def _run_remotion_render(pipeline, remotion_dir: Path, public_dir: Path,
                 f"❌ *Render FAILED:* _{pipeline.video_title}_\n"
                 f"`npm install` failed in remotion-video/. Check node/npm on VPS."
             )
-            return {"error": "npm install failed", "bot": "Render Bot"}
+            return {"error": "npm install failed", "bot": "Render Bot", "video_title": pipeline.video_title}
 
     # Clear Remotion cache
     remotion_cache = remotion_dir / ".remotion"
@@ -722,7 +722,7 @@ async def _run_remotion_render(pipeline, remotion_dir: Path, public_dir: Path,
             f"❌ *Render FAILED:* _{pipeline.video_title}_\n"
             f"Remotion exited with code {returncode} after {total_min} min.{error_detail}"
         )
-        return {"error": "Render failed", "bot": "Render Bot"}
+        return {"error": "Render failed", "bot": "Render Bot", "video_title": pipeline.video_title}
 
     if not output_file.exists():
         print(f"  ❌ Output not found")
@@ -730,7 +730,7 @@ async def _run_remotion_render(pipeline, remotion_dir: Path, public_dir: Path,
             f"❌ *Render FAILED:* _{pipeline.video_title}_\n"
             f"Remotion finished but output file not found at {output_file}"
         )
-        return {"error": "Output file missing", "bot": "Render Bot"}
+        return {"error": "Output file missing", "bot": "Render Bot", "video_title": pipeline.video_title}
 
     file_size_mb = output_file.stat().st_size / (1024 * 1024)
     print(f"  ✅ Rendered: {output_file} ({file_size_mb:.0f} MB)")

@@ -137,4 +137,9 @@ async def run(pipeline) -> dict:
     pipeline._update_status(Statuses.READY_VIDEO_GENERATION)
     print(f"  ✅ Status updated to: {Statuses.READY_VIDEO_GENERATION}")
 
-    return {"bot": "Video Script Bot", "prompt_count": prompt_count, "new_status": Statuses.READY_VIDEO_GENERATION}
+    return {
+        "bot": "Video Script Bot",
+        "video_title": pipeline.video_title,
+        "prompt_count": prompt_count,
+        "new_status": Statuses.READY_VIDEO_GENERATION,
+    }

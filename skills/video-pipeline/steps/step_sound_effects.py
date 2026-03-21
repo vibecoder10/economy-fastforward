@@ -16,11 +16,11 @@ async def run(pipeline) -> dict:
     if not pipeline.current_idea:
         idea = pipeline.get_idea_by_status(Statuses.READY_SOUND_EFFECTS)
         if not idea:
-            return {"error": "No idea with status 'Ready For Sound Effects'"}
+            return {"error": "No idea with status 'Ready For Sound Effects'", "bot": "Sound Bot"}
         pipeline._load_idea(idea)
 
     if pipeline.current_idea.get("Status") != Statuses.READY_SOUND_EFFECTS:
-        return {"error": f"Idea status is '{pipeline.current_idea.get('Status')}', expected 'Ready For Sound Effects'"}
+        return {"error": f"Idea status is '{pipeline.current_idea.get('Status')}', expected 'Ready For Sound Effects'", "bot": "Sound Bot", "video_title": pipeline.video_title}
 
     pipeline.slack.notify("🔊 Generating sound effects for: " + pipeline.video_title)
     print(f"\n🔊 SOUND BOT: Processing '{pipeline.video_title}'")

@@ -18,11 +18,11 @@ async def run(pipeline) -> dict:
     if not pipeline.current_idea:
         idea = pipeline.get_idea_by_status(Statuses.READY_IMAGES)
         if not idea:
-            return {"error": "No idea with status 'Ready For Images'"}
+            return {"error": "No idea with status 'Ready For Images'", "bot": "Image Bot"}
         pipeline._load_idea(idea)
 
     if pipeline.current_idea.get(IdeaFields.STATUS) != Statuses.READY_IMAGES:
-        return {"error": f"Idea status is '{pipeline.current_idea.get(IdeaFields.STATUS)}', expected 'Ready For Images'"}
+        return {"error": f"Idea status is '{pipeline.current_idea.get(IdeaFields.STATUS)}', expected 'Ready For Images'", "bot": "Image Bot", "video_title": pipeline.video_title}
 
     print(f"\n🖼️ IMAGE BOT: Processing '{pipeline.video_title}'")
     pipeline._log_filters()
