@@ -570,7 +570,8 @@ class AirtableClient:
         if thumbnail_text:
             fields[IdeaFields.THUMBNAIL_TEXT] = thumbnail_text
 
-        return self.idea_concepts_table.update(record_id, fields)
+        record = self.idea_concepts_table.update(record_id, fields, typecast=True)
+        return {"id": record["id"], **record["fields"]}
 
     # ==================== COMPETITOR CHANNELS TABLE ====================
 
