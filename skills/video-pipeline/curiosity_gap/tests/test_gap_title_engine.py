@@ -1,7 +1,14 @@
 """Tests for gap title engine."""
 
+import asyncio
 import pytest
+from unittest.mock import AsyncMock, patch, Mock
 from curiosity_gap.structures import CuriosityStructure
+
+
+def run_async(coro):
+    """Helper to run async coroutines in sync tests."""
+    return asyncio.get_event_loop().run_until_complete(coro)
 
 
 class TestGeneratedTitle:
@@ -158,3 +165,95 @@ class TestMFFallback:
         # If 3+ viable, need 0 MF
         assert get_mf_fallback_count(viable_count=3, target=3) == 0
         assert get_mf_fallback_count(viable_count=5, target=3) == 0
+
+
+class TestGenerateTitles:
+    """Test suite for title generation."""
+
+    @pytest.fixture
+    def sample_story(self):
+        return {
+            "hook": "Saudi Arabia spent $100 billion on pipelines that now sit empty.",
+            "thesis": "The kingdom's bet on being an oil transit hub has failed.",
+            "facts": [
+                "NEOM pipeline: $500M spent, 0% utilized",
+                "Total waste: estimated $100B",
+            ],
+        }
+
+    @pytest.fixture
+    def mock_claude_response(self):
+        """Mock Claude response for title generation."""
+        return {
+            "titles": [
+                {
+                    "text": "The $100B Mistake Saudi Arabia Is Hiding",
+                    "structure": "hidden_flaw",
+                    "confidence": 85,
+                    "thumbnail_text": "WORTHLESS PIPELINES",
+                    "thumbnail_approach": "from_gap",
+                    "reasoning": "Clear financial waste angle",
+                },
+                {
+                    "text": "The 30-Year Trap Saudi Arabia Walked Into",
+                    "structure": "time_bomb",
+                    "confidence": 72,
+                    "thumbnail_text": "CHECKMATE",
+                    "thumbnail_approach": "from_gap",
+                    "reasoning": "Long-term strategy failure",
+                },
+                {
+                    "text": "Why Saudi Arabia Can't Escape Its Pipeline Trap",
+                    "structure": "illusion_control",
+                    "confidence": 65,
+                    "thumbnail_text": "NO EXIT",
+                    "thumbnail_approach": "from_hook",
+                    "reasoning": "Personal stakes for kingdom",
+                },
+            ]
+        }
+
+    def test_generate_titles_returns_three(self, sample_story, mock_claude_response):
+        """Should generate 3 titles by default."""
+        from curiosity_gap.gap_title_engine import GapTitleEngine
+
+        engine = GapTitleEngine()
+
+        async def run_test():
+            with patch.object(engine, '_call_claude_for_titles', return_value=mock_claude_response):
+                return await engine.generate_titles(sample_story)
+
+        titles = run_async(run_test())
+
+        assert len(titles) == 3
+        assert all(isinstance(t.text, str) for t in titles)
+        assert all(t.structure in CuriosityStructure for t in titles)
+
+    def test_generate_titles_sorted_by_confidence(self, sample_story, mock_claude_response):
+        """Titles should be sorted by confidence descending."""
+        from curiosity_gap.gap_title_engine import GapTitleEngine
+
+        engine = GapTitleEngine()
+
+        async def run_test():
+            with patch.object(engine, '_call_claude_for_titles', return_value=mock_claude_response):
+                return await engine.generate_titles(sample_story)
+
+        titles = run_async(run_test())
+
+        confidences = [t.structure_confidence for t in titles]
+        assert confidences == sorted(confidences, reverse=True)
+
+    def test_generate_titles_with_kill_switch_disabled(self, sample_story):
+        """Should return empty list when kill switch is off."""
+        from curiosity_gap.gap_title_engine import GapTitleEngine
+
+        engine = GapTitleEngine()
+
+        async def run_test():
+            return await engine.generate_titles(sample_story)
+
+        with patch('curiosity_gap.gap_title_engine.CURIOSITY_GAP_ENABLED', False):
+            titles = run_async(run_test())
+
+        assert titles == []

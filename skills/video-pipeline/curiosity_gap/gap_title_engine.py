@@ -9,10 +9,12 @@ to avoid confusion with thumbnail_title/title_generator.py which handles
 thumbnail text formatting.
 """
 
+import json
 import re
 from dataclasses import dataclass, field
 from typing import Dict, List
 from curiosity_gap.structures import CuriosityStructure, get_main_structures, STRUCTURE_DEFINITIONS
+from pipeline_constants import CURIOSITY_GAP_ENABLED, Models
 
 
 # Confidence floor - structures must score at least this to generate titles
@@ -224,3 +226,145 @@ def score_structures(story_context: Dict) -> List[ScoredStructure]:
 
     # Sort by confidence descending
     return sorted(scores, key=lambda s: s.confidence, reverse=True)
+
+
+class GapTitleEngine:
+    """Generate titles using curiosity gap structures."""
+
+    def __init__(self, anthropic_client=None):
+        """Initialize engine.
+
+        Args:
+            anthropic_client: AnthropicClient instance (lazy loaded if None)
+        """
+        self._anthropic_client = anthropic_client
+
+    @property
+    def anthropic_client(self):
+        if self._anthropic_client is None:
+            from clients.anthropic_client import AnthropicClient
+            self._anthropic_client = AnthropicClient()
+        return self._anthropic_client
+
+    def _build_generation_prompt(
+        self,
+        story_context: Dict,
+        scored_structures: List[ScoredStructure],
+        pattern_context: str = "",
+    ) -> str:
+        """Build Claude prompt for title generation."""
+        structures_text = "\n".join([
+            f"- {s.structure.value} (confidence: {s.confidence}): {s.reasoning}"
+            for s in scored_structures
+        ])
+
+        prompt = f"""Generate YouTube titles for Power Doctrine channel using curiosity gap structures.
+
+STORY CONTEXT:
+Hook: {story_context.get('hook', '')}
+Thesis: {story_context.get('thesis', '')}
+Key facts: {json.dumps(story_context.get('facts', []))}
+
+STRUCTURES TO USE (generate one title per structure):
+{structures_text}
+
+{pattern_context}
+
+For each structure, generate:
+1. title text (create cognitive dissonance, force the click)
+2. thumbnail_text (2-4 words, ALL CAPS, yin/yang complement to title)
+3. thumbnail_approach ("from_hook" or "from_gap")
+4. reasoning (why this title works for this structure)
+
+Return JSON only:
+{{
+  "titles": [
+    {{
+      "text": "The $100B Mistake Saudi Arabia Is Hiding",
+      "structure": "hidden_flaw",
+      "confidence": 85,
+      "thumbnail_text": "WORTHLESS PIPELINES",
+      "thumbnail_approach": "from_gap",
+      "reasoning": "Clear financial waste angle"
+    }}
+  ]
+}}"""
+        return prompt
+
+    async def _call_claude_for_titles(self, prompt: str) -> Dict:
+        """Call Claude to generate titles."""
+        response = await self.anthropic_client.generate(
+            prompt=prompt,
+            model=Models.CLAUDE_SONNET,
+            max_tokens=2000,
+            temperature=0.7,
+        )
+
+        # Parse JSON response
+        try:
+            return json.loads(response)
+        except json.JSONDecodeError:
+            json_match = re.search(r'\{.*\}', response, re.DOTALL)
+            if json_match:
+                return json.loads(json_match.group())
+            return {"titles": []}
+
+    async def generate_titles(
+        self,
+        story_context: Dict,
+        pattern_library=None,
+        target_count: int = 3,
+    ) -> List[GeneratedTitle]:
+        """Generate titles using curiosity gap structures."""
+        # Kill switch check
+        if not CURIOSITY_GAP_ENABLED:
+            return []
+
+        # Score structures
+        scores = score_structures(story_context)
+        viable = get_viable_structures(scores)
+
+        # Determine which structures to use
+        structures_to_use = viable[:target_count]
+
+        # Get pattern context if library provided
+        pattern_context = ""
+        if pattern_library:
+            gap_patterns = pattern_library.get_curiosity_gap_patterns()
+            if gap_patterns:
+                pattern_context = "PROVEN PATTERNS:\n" + "\n".join([
+                    f"- {p.structure.value}: avg VPH {p.avg_vph_competitors}"
+                    for p in gap_patterns if p.avg_vph_competitors
+                ])
+
+        if not structures_to_use:
+            return []
+
+        # Build prompt and call Claude
+        prompt = self._build_generation_prompt(
+            story_context,
+            structures_to_use,
+            pattern_context,
+        )
+
+        result = await self._call_claude_for_titles(prompt)
+
+        # Parse response into GeneratedTitle objects
+        titles = []
+        for item in result.get("titles", []):
+            try:
+                structure = CuriosityStructure(item.get("structure", "other"))
+            except ValueError:
+                structure = CuriosityStructure.OTHER
+
+            titles.append(GeneratedTitle(
+                text=item.get("text", ""),
+                structure=structure,
+                structure_confidence=item.get("confidence", 0),
+                thumbnail_text=item.get("thumbnail_text", ""),
+                thumbnail_approach=item.get("thumbnail_approach", "from_gap"),
+                reasoning=item.get("reasoning", ""),
+            ))
+
+        # Sort by confidence
+        return sorted(titles, key=lambda t: t.structure_confidence, reverse=True)
