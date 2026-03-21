@@ -823,7 +823,7 @@ async def generate_storyboard_directive(
         prompt=user_prompt,
         system_prompt=system_prompt,
         model=Models.CLAUDE_SONNET,
-        max_tokens=6000,
+        max_tokens=8000,  # Increased from 6000 - directive format requires ~7000 tokens
         temperature=0.9,
     )
 
@@ -1622,6 +1622,7 @@ async def run_storyboard_prompts(
 
     total_cost = 0.0
     prompts_generated = 0
+    failed_beats: list[tuple[int, int]] = []  # (scene, beat)
 
     for beat in beats:
         beat_num = beat["beat_number"]
@@ -1646,19 +1647,36 @@ async def run_storyboard_prompts(
             for img in beat_images
         ]
 
-        # Generate directive via Claude
-        directive = await generate_storyboard_directive(
-            beat_number=beat_num,
-            beat_text=beat["text"],
-            beat_scenes=beat["scenes"],
-            video_title=video_title,
-            image_prompts=image_prompts,
-            profile=profile,
-            anthropic_client=anthropic_client,
-            story_bible=story_bible,
-            beat_duration_seconds=beat.get("estimated_duration_seconds", 120.0),
-        )
-        total_cost += 0.03
+        # Generate directive via Claude with retry on failure
+        directive = None
+        for attempt in range(2):  # Max 2 attempts
+            try:
+                directive = await generate_storyboard_directive(
+                    beat_number=beat_num,
+                    beat_text=beat["text"],
+                    beat_scenes=beat["scenes"],
+                    video_title=video_title,
+                    image_prompts=image_prompts,
+                    profile=profile,
+                    anthropic_client=anthropic_client,
+                    story_bible=story_bible,
+                    beat_duration_seconds=beat.get("estimated_duration_seconds", 120.0),
+                )
+                total_cost += 0.03
+                break  # Success
+            except ValueError as e:
+                logger.warning(f"Scene {target_scene}, Beat {scene_beat_idx} attempt {attempt + 1} failed: {e}")
+                if attempt == 0:
+                    notify(f"⚠️ Scene {target_scene}, Beat {scene_beat_idx} retry...")
+                    import asyncio
+                    await asyncio.sleep(2)  # Brief pause before retry
+                else:
+                    notify(f"❌ Scene {target_scene}, Beat {scene_beat_idx} FAILED: {e}")
+                    failed_beats.append((target_scene, scene_beat_idx))
+                    continue
+
+        if directive is None:
+            continue  # Skip to next beat
 
         # Save prompt to THIS scene's Scripts record
         contact_sheet_prompt = directive["contact_sheet_prompt"]
@@ -1690,14 +1708,22 @@ async def run_storyboard_prompts(
             except Exception as e:
                 logger.warning(f"Failed to write final status for scene {scene_num}: {e}")
 
-    notify(f"✅ Storyboard prompts complete: {prompts_generated} beats across {len(scene_to_record_id)} scenes")
+    if failed_beats:
+        notify(f"⚠️ Storyboard prompts partial: {prompts_generated}/{len(beats)} beats, {len(failed_beats)} failed")
+    else:
+        notify(f"✅ Storyboard prompts complete: {prompts_generated} beats across {len(scene_to_record_id)} scenes")
 
-    return {
+    result = {
         "video_title": video_title,
         "beat_count": len(beats),
         "prompts_generated": prompts_generated,
         "total_cost": total_cost,
     }
+    if failed_beats:
+        result["failed_beats"] = failed_beats
+        result["error"] = f"Failed to generate prompts for {len(failed_beats)} beat(s): {failed_beats}"
+
+    return result
 
 
 async def run_storyboard_images(
