@@ -9,9 +9,10 @@ to avoid confusion with thumbnail_title/title_generator.py which handles
 thumbnail text formatting.
 """
 
+import re
 from dataclasses import dataclass, field
-from typing import List
-from curiosity_gap.structures import CuriosityStructure
+from typing import Dict, List
+from curiosity_gap.structures import CuriosityStructure, get_main_structures, STRUCTURE_DEFINITIONS
 
 
 # Confidence floor - structures must score at least this to generate titles
@@ -39,3 +40,137 @@ class GeneratedTitle:
     # Traceability
     source_patterns: List[str] = field(default_factory=list)       # ["competitor:rec123"]
     competitor_video_ids: List[str] = field(default_factory=list)  # Airtable record IDs
+
+
+def _score_hidden_flaw(hook: str, thesis: str, facts: List[str]) -> int:
+    """Score for hidden_flaw: financial waste, mistakes, cover-ups."""
+    content = f"{hook} {thesis} {' '.join(facts)}".lower()
+
+    score = 0
+    # Financial waste indicators
+    if re.search(r'\$\d+[mb]?\b', content):  # Dollar amounts
+        score += 25
+    if any(word in content for word in ['waste', 'wasted', 'mistake', 'failed', 'failure']):
+        score += 25
+    if any(word in content for word in ['hiding', 'hidden', 'secret', 'cover']):
+        score += 20
+    if any(word in content for word in ['billion', 'trillion', 'million']):
+        score += 15
+    if any(word in content for word in ['abandoned', 'empty', 'unused', 'worthless']):
+        score += 15
+
+    return min(100, score)
+
+
+def _score_asymmetric_dg(hook: str, thesis: str, facts: List[str]) -> int:
+    """Score for asymmetric_dg: small vs big, David vs Goliath."""
+    content = f"{hook} {thesis} {' '.join(facts)}".lower()
+
+    score = 0
+    if any(word in content for word in ['small', 'tiny', 'cheap', '$500', '$100']):
+        score += 25
+    if any(word in content for word in ['terrified', 'afraid', 'fear', 'scared']):
+        score += 20
+    if any(word in content for word in ['navy', 'military', 'army', 'superpower']):
+        score += 20
+    if any(word in content for word in ['beat', 'defeat', 'destroy', 'stop']):
+        score += 15
+    if any(word in content for word in ['drone', 'boat', 'missile', 'plastic']):
+        score += 10
+
+    return min(100, score)
+
+
+def _score_time_bomb(hook: str, thesis: str, facts: List[str]) -> int:
+    """Score for time_bomb: long-term traps, delayed consequences."""
+    content = f"{hook} {thesis} {' '.join(facts)}".lower()
+
+    score = 0
+    if re.search(r'\d+[- ]year', content):  # X-year patterns
+        score += 30
+    if any(word in content for word in ['trap', 'trapped', 'walked into']):
+        score += 25
+    if any(word in content for word in ['decade', 'decades', 'long-term', 'slow']):
+        score += 20
+    if any(word in content for word in ['set up', 'planted', 'waiting']):
+        score += 15
+    if any(word in content for word in ['trigger', 'explode', 'collapse']):
+        score += 10
+
+    return min(100, score)
+
+
+def _score_paradigm_shift(hook: str, thesis: str, facts: List[str]) -> int:
+    """Score for paradigm_shift: reframing, hidden truths."""
+    content = f"{hook} {thesis} {' '.join(facts)}".lower()
+
+    score = 0
+    if any(word in content for word in ['proves', 'proof', 'evidence', 'map']):
+        score += 25
+    if any(word in content for word in ['already', 'begun', 'started', 'happening']):
+        score += 20
+    if any(word in content for word in ['think', 'believe', 'assume', 'reality']):
+        score += 20
+    if any(word in content for word in ['wwiii', 'war', 'conflict', 'crisis']):
+        score += 15
+    if any(word in content for word in ['missing', 'overlooked', 'ignored']):
+        score += 15
+
+    return min(100, score)
+
+
+def _score_illusion_control(hook: str, thesis: str, facts: List[str]) -> int:
+    """Score for illusion_control: personal stakes, affects YOU."""
+    content = f"{hook} {thesis} {' '.join(facts)}".lower()
+
+    score = 0
+    if any(word in content for word in ['your', 'you', 'everyone', 'every american']):
+        score += 30
+    if any(word in content for word in ['bank', 'money', 'savings', 'wallet']):
+        score += 25
+    if any(word in content for word in ['control', 'controls', 'chokepoint']):
+        score += 20
+    if any(word in content for word in ['affect', 'impact', 'change']):
+        score += 15
+    if any(word in content for word in ['price', 'cost', 'pay', 'inflation']):
+        score += 10
+
+    return min(100, score)
+
+
+STRUCTURE_SCORERS = {
+    CuriosityStructure.HIDDEN_FLAW: _score_hidden_flaw,
+    CuriosityStructure.ASYMMETRIC_DG: _score_asymmetric_dg,
+    CuriosityStructure.TIME_BOMB: _score_time_bomb,
+    CuriosityStructure.PARADIGM_SHIFT: _score_paradigm_shift,
+    CuriosityStructure.ILLUSION_CONTROL: _score_illusion_control,
+}
+
+
+def score_structures(story_context: Dict) -> List[ScoredStructure]:
+    """Score all 5 structures against story content.
+
+    Args:
+        story_context: Dict with 'hook', 'thesis', 'facts' keys
+
+    Returns:
+        List of ScoredStructure sorted by confidence descending
+    """
+    hook = story_context.get("hook", "")
+    thesis = story_context.get("thesis", "")
+    facts = story_context.get("facts", [])
+
+    scores = []
+    for structure in get_main_structures():
+        scorer = STRUCTURE_SCORERS[structure]
+        confidence = scorer(hook, thesis, facts)
+        defn = STRUCTURE_DEFINITIONS[structure]
+
+        scores.append(ScoredStructure(
+            structure=structure,
+            confidence=confidence,
+            reasoning=f"Scored {confidence}/100 for '{defn['gap_mechanism']}'",
+        ))
+
+    # Sort by confidence descending
+    return sorted(scores, key=lambda s: s.confidence, reverse=True)
