@@ -739,6 +739,7 @@ grid containing all 9 keyframes as panels. This prompt will be sent directly to 
 generation model.
 
 The contact sheet prompt MUST:
+- Start with: "Generate in 16:9 widescreen aspect ratio."
 - Begin with the channel's visual style directive
 - Describe a 3×3 grid layout (3 rows, 3 columns) with clearly separated panels
 - Include panel labels: [KF# | shot_type | duration] in the top-left corner of each panel
