@@ -139,6 +139,10 @@ class IdeaFields:
     CURIOSITY_STRUCTURE = "Curiosity Structure"
     STRUCTURE_CONFIDENCE = "Structure Confidence"
     THUMBNAIL_APPROACH = "Thumbnail Approach"
+    STRUCTURE_SOURCE = "Structure Source"
+    PATTERN_LIBRARY_SNAPSHOT = "Pattern Library Snapshot"
+    TITLE_POLL_RESULT = "Title Poll Result"
+    POLL_CLOSED = "Poll Closed"
     # THUMBNAIL_TEXT already exists above
 
 
