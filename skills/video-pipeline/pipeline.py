@@ -428,7 +428,7 @@ class VideoPipeline:
                 )
             except Exception:
                 pass
-            return {"status": "paused", "reason": "waiting_for_storyboards"}
+            return {"status": "paused", "reason": "waiting_for_storyboards", "video_title": self.video_title}
 
         # 4. Check for Ready For Images
         idea = self.get_idea_by_status(self.STATUS_READY_IMAGES)

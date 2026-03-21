@@ -735,6 +735,18 @@ async def handle_next(message, say):
             )
             return result
 
+        # Handle paused status (e.g., waiting for storyboards)
+        if result.get("status") == "paused":
+            reason = result.get("reason", "manual intervention needed")
+            video_title = result.get("video_title", "")
+            await say(
+                f":pause_button: *Pipeline paused*\n"
+                f"Video: *{video_title}*\n"
+                f"Reason: {reason}\n"
+                f"Run `storyboard go \"{video_title}\"` to continue."
+            )
+            return result
+
         bot_name = result.get("bot", "step")
         new_status = result.get("new_status", "?")
         video_title = result.get("video_title", "")
