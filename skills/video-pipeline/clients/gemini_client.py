@@ -265,6 +265,15 @@ Return JSON only, no markdown."""
             # Parse JSON response
             result = self._parse_json_response(text)
             if result:
+                # Handle list response (Gemini sometimes returns array)
+                if isinstance(result, list):
+                    result = result[0] if result else {}
+
+                # Normalize text_extracted to string
+                text_extracted = result.get("text_extracted", "")
+                if isinstance(text_extracted, list):
+                    result["text_extracted"] = "\n".join(text_extracted)
+
                 print(f"  Thumbnail analysis: {result.get('composition', 'N/A')} composition, {result.get('yin_yang_approach', 'N/A')} approach")
                 return result
 
@@ -272,7 +281,13 @@ Return JSON only, no markdown."""
             json_match = re.search(r'\{.*\}', text, re.DOTALL)
             if json_match:
                 try:
-                    return json.loads(json_match.group())
+                    fallback_result = json.loads(json_match.group())
+                    if isinstance(fallback_result, list):
+                        fallback_result = fallback_result[0] if fallback_result else {}
+                    text_extracted = fallback_result.get("text_extracted", "")
+                    if isinstance(text_extracted, list):
+                        fallback_result["text_extracted"] = "\n".join(text_extracted)
+                    return fallback_result
                 except json.JSONDecodeError:
                     pass
 
