@@ -147,6 +147,56 @@ STRUCTURE_SCORERS = {
 }
 
 
+# MF (existing formula) fallbacks - used when <3 structures score above floor
+# These are simplified versions of formulas from trending_idea_bot.py
+MF_FORMULAS = {
+    "MF-0": {
+        "name": "CHOKE POINT",
+        "template": "How [Entity] Turned [Location] Into a Hostage",
+        "description": "Geographic/strategic control framing",
+    },
+    "MF-1": {
+        "name": "GEOGRAPHIC TRAP",
+        "template": "How [Entity] Quietly Weaponized [Geography]",
+        "description": "Terrain as weapon framing",
+    },
+    "MF-2": {
+        "name": "EXITS LOCKED",
+        "template": "Why [Entity] Can't Escape [Constraint]",
+        "description": "No escape framing",
+    },
+}
+
+
+def get_viable_structures(
+    scores: List[ScoredStructure],
+    min_confidence: int = CONFIDENCE_FLOOR,
+) -> List[ScoredStructure]:
+    """Filter structures to those above confidence floor.
+
+    Args:
+        scores: List of scored structures
+        min_confidence: Minimum confidence to be viable
+
+    Returns:
+        Filtered list of viable structures
+    """
+    return [s for s in scores if s.confidence >= min_confidence]
+
+
+def get_mf_fallback_count(viable_count: int, target: int = 3) -> int:
+    """Calculate how many MF fallback titles needed.
+
+    Args:
+        viable_count: Number of structures above confidence floor
+        target: Target number of titles to generate
+
+    Returns:
+        Number of MF fallbacks needed
+    """
+    return max(0, target - viable_count)
+
+
 def score_structures(story_context: Dict) -> List[ScoredStructure]:
     """Score all 5 structures against story content.
 

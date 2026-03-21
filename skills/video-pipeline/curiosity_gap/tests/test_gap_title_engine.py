@@ -113,3 +113,48 @@ class TestScoreStructures:
         # hidden_flaw should be among top 2 for this waste story
         top_structures = [s.structure for s in scores[:2]]
         assert CuriosityStructure.HIDDEN_FLAW in top_structures
+
+
+class TestMFFallback:
+    """Test suite for MF formula fallback."""
+
+    def test_mf_formulas_exist(self):
+        """Should have 3 MF fallback formulas defined."""
+        from curiosity_gap.gap_title_engine import MF_FORMULAS
+
+        assert len(MF_FORMULAS) >= 3
+        assert "MF-0" in MF_FORMULAS or 0 in MF_FORMULAS
+
+    def test_get_viable_structures_filters_by_floor(self):
+        """Should filter structures below confidence floor."""
+        from curiosity_gap.gap_title_engine import (
+            get_viable_structures,
+            ScoredStructure,
+            CONFIDENCE_FLOOR,
+        )
+
+        scores = [
+            ScoredStructure(CuriosityStructure.HIDDEN_FLAW, 75, "high"),
+            ScoredStructure(CuriosityStructure.TIME_BOMB, 55, "low"),
+            ScoredStructure(CuriosityStructure.ASYMMETRIC_DG, 65, "mid"),
+        ]
+
+        viable = get_viable_structures(scores)
+
+        # Only structures >= 60 should pass
+        assert len(viable) == 2
+        assert all(s.confidence >= CONFIDENCE_FLOOR for s in viable)
+
+    def test_get_mf_fallback_count(self):
+        """Should calculate how many MF fallbacks needed."""
+        from curiosity_gap.gap_title_engine import get_mf_fallback_count
+
+        # If 2 viable structures, need 1 MF fallback
+        assert get_mf_fallback_count(viable_count=2, target=3) == 1
+        # If 1 viable, need 2 MF
+        assert get_mf_fallback_count(viable_count=1, target=3) == 2
+        # If 0 viable, need 3 MF
+        assert get_mf_fallback_count(viable_count=0, target=3) == 3
+        # If 3+ viable, need 0 MF
+        assert get_mf_fallback_count(viable_count=3, target=3) == 0
+        assert get_mf_fallback_count(viable_count=5, target=3) == 0
