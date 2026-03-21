@@ -248,7 +248,7 @@ feeling like they gained an advantage, not like they lost hope.
 """
 
 _CINEMATIC_VOICE_RULES = """\
-=== CINEMATIC VOICE — SCENE-DRIVEN WRITING ===
+=== CINEMATIC VOICE — IMMERSIVE POV WRITING ===
 
 1. SCENE-DRIVEN ACT OPENINGS: Open every act with a specific scene — a place, \
 a person, an action — in the first 2-3 sentences. Ground the viewer in a \
@@ -273,6 +273,32 @@ and temporal cuts to move between acts — NOT abstract narrative bridges.
 GOOD: "Six hundred miles south, at a shipping container in Kuwait, a US \
 sergeant checked the perimeter for the last time."
 BAD: "But here's what none of this explains."
+
+4. POV ANCHOR: Each act must have ONE moment where the viewer is placed \
+inside the scene — standing in a boardroom, watching a screen, hearing the \
+announcement. This is the cinematic "you are here" beat.
+
+GOOD: "You're sitting in the trading floor when the ticker flashes red."
+GOOD: "Picture standing on that shipping container watching the tankers queue."
+
+5. SENTENCE RHYTHM: Short fragments during action and revelation. Longer \
+flowing sentences during explanation and context-building. The rhythm itself \
+creates tension and release.
+
+ACTION: "The phone rang. The CFO answered. Three words. Then silence."
+EXPLANATION: "What nobody outside the Pentagon understood was that this \
+particular supply chain had been quietly subsidized for two decades."
+
+6. THE "YOU" PIVOT: The direct address to the viewer ("you", "your wallet", \
+"your 401k") happens ONCE in Act 5 — not scattered throughout. Save it for \
+maximum impact when personal stakes are introduced.
+
+7. HERO VISUAL MOMENT: Each act gets ONE vivid visual beat that could be a \
+movie still — a face, a place, an object that crystallizes the act's theme. \
+Describe it in sensory detail.
+
+8. FORWARD PULL: End every act (except the last) with explicit forward momentum. \
+The final sentence should create genuine curiosity about what comes next.
 
 Every act opening should feel like a camera cutting to a new location. The \
 viewer should SEE the scene before hearing the analysis.
@@ -675,6 +701,27 @@ def _build_framework_lens_section(framework_angle: str) -> str:
     return framework
 
 
+def _build_writer_guidance_section(brief: dict) -> str:
+    """Build the writer guidance section for the prompt.
+
+    Writer Guidance is a per-video override field that lets the user inject
+    specific instructions for the script (e.g., "Focus on the personal angle",
+    "Use more historical parallels", "Emphasize the conspiracy angle").
+    """
+    writer_guidance = brief.get("writer_guidance", "")
+    if not writer_guidance:
+        return ""
+
+    return (
+        "=== WRITER GUIDANCE — PER-VIDEO OVERRIDE ===\n\n"
+        "The following instructions are specific to THIS video and override "
+        "general guidelines when they conflict:\n\n"
+        f"{writer_guidance}\n\n"
+        "Apply these instructions throughout the script while maintaining "
+        "the investigative voice and factual grounding rules."
+    )
+
+
 def _build_source_citations_section(brief: dict) -> str:
     """Build the source citations instruction section for the prompt."""
     source_urls = brief.get("source_urls", "")
@@ -795,6 +842,11 @@ def build_script_prompt(
         rendered = preamble + "\n\n"
         rendered += _CINEMATIC_VOICE_RULES + "\n\n"
 
+        # Inject writer guidance if present (per-video override)
+        writer_guidance_section = _build_writer_guidance_section(brief)
+        if writer_guidance_section:
+            rendered += writer_guidance_section + "\n\n"
+
         if framework_lens:
             rendered += framework_lens + "\n\n"
 
@@ -902,6 +954,11 @@ def build_script_prompt(
     # IMPORTANT: Cinematic voice rules come FIRST after template
     # so Claude internalizes voice/tone BEFORE structural constraints.
     rendered += "\n\n" + _CINEMATIC_VOICE_RULES
+
+    # Inject writer guidance if present (per-video override)
+    writer_guidance_section = _build_writer_guidance_section(brief)
+    if writer_guidance_section:
+        rendered += "\n\n" + writer_guidance_section
 
     # Append updated act structure (dynamic from config or legacy),
     # micro-payoff architecture, framework selection rules, revelation

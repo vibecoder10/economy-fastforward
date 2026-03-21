@@ -85,6 +85,12 @@ async def run(pipeline, brief: dict = None) -> dict:
                     "_research_enriched": True,
                 }
                 print(f"  🎯 Framework Angle: {framework_angle or '(not set)'}")
+
+                # Inject Writer Guidance if present on the idea record
+                writer_guidance = idea.get(IdeaFields.WRITER_GUIDANCE, "")
+                if writer_guidance:
+                    brief["writer_guidance"] = writer_guidance
+                    print(f"  📝 Writer Guidance injected")
             except (json.JSONDecodeError, TypeError) as e:
                 print(f"  ⚠️ Could not parse research payload: {e}")
                 research_payload_raw = ""
