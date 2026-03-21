@@ -404,31 +404,11 @@ class VideoPipeline:
 
             return await self._run_step_safe("Image Prompt Bot", self.run_styled_image_prompts)
 
-        # 3b. Check for Ready For Storyboards (manual trigger — PAUSE)
+        # 3b. Check for Ready For Storyboards
         idea = self.get_idea_by_status(Statuses.READY_STORYBOARDS)
         if idea:
             self._load_idea(idea)
-            fields = idea.get("fields", idea)
-            sb_status = fields.get("Storyboard Status", "none")
-
-            if sb_status == "extracted":
-                # Storyboards done — images already in Images table, skip image_bot
-                print(f"  ✅ Storyboards extracted — skipping to Video Scripts")
-                self._update_status(self.STATUS_READY_VIDEO_SCRIPTS)
-                return await self.run_next_step()
-
-            # Storyboards not complete — PAUSE pipeline
-            print(f"  ⏸️ Storyboard mode ON — waiting for manual trigger via Slack")
-            try:
-                self.slack.notify(
-                    f"⏸️ '{self.video_title}' is waiting for storyboards "
-                    f"(status: {sb_status}).\n"
-                    f"Run `!storyboard \"{self.video_title}\"` to generate, "
-                    f"or set Storyboard Mode to 'off' to skip."
-                )
-            except Exception:
-                pass
-            return {"status": "paused", "reason": "waiting_for_storyboards", "video_title": self.video_title}
+            return await self._run_step_safe("Storyboard Bot", self.run_storyboard_bot)
 
         # 4. Check for Ready For Images
         idea = self.get_idea_by_status(self.STATUS_READY_IMAGES)
@@ -650,6 +630,11 @@ class VideoPipeline:
     async def run_styled_image_prompts(self, scene_filepath: str = None) -> dict:
         """Expand script scenes into visual concepts and generate styled image prompts."""
         from steps.step_image_prompts import run as _step_run
+        return await _step_run(self)
+
+    async def run_storyboard_bot(self) -> dict:
+        """Generate storyboard grids and extract panels."""
+        from steps.step_storyboard import run as _step_run
         return await _step_run(self)
 
     async def run_full_pipeline(self, input_text: str) -> dict:
