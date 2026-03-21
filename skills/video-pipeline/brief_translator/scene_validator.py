@@ -504,7 +504,7 @@ def _extract_research_entities(brief: dict) -> set[str]:
         "headline", "thesis", "executive_hook", "fact_sheet",
         "historical_parallels", "framework_analysis", "character_dossier",
         "narrative_arc", "counter_arguments", "visual_seeds",
-        "source_bibliography", "source_urls",
+        "source_bibliography", "source_urls", "writer_guidance",
     ]
     all_text = " ".join(str(brief.get(f, "")) for f in research_fields)
     return _extract_entities_from_text(all_text)
@@ -555,7 +555,7 @@ def check_entity_consistency(
         "headline", "thesis", "executive_hook", "fact_sheet",
         "historical_parallels", "framework_analysis", "character_dossier",
         "narrative_arc", "counter_arguments", "visual_seeds",
-        "source_bibliography", "source_urls",
+        "source_bibliography", "source_urls", "writer_guidance",
     ]
     research_text_lower = " ".join(
         str(brief.get(f, "")) for f in research_fields
