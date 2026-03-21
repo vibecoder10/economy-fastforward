@@ -309,6 +309,65 @@ Return JSON only:
                 return json.loads(json_match.group())
             return {"titles": []}
 
+    async def _generate_mf_titles(
+        self,
+        story_context: Dict,
+        count: int = 3,
+    ) -> List[GeneratedTitle]:
+        """Generate titles using MF fallback formulas.
+
+        Args:
+            story_context: Dict with hook, thesis, facts
+            count: Number of titles to generate
+
+        Returns:
+            List of GeneratedTitle using MF formulas
+        """
+        mf_ids = list(MF_FORMULAS.keys())[:count]
+
+        prompt = f"""Generate YouTube titles using these formula templates.
+
+STORY CONTEXT:
+Hook: {story_context.get('hook', '')}
+Thesis: {story_context.get('thesis', '')}
+
+FORMULAS TO USE:
+{chr(10).join([f"- {mf_id}: {MF_FORMULAS[mf_id]['template']}" for mf_id in mf_ids])}
+
+For each formula:
+1. Replace [Entity], [Location], etc. with story-specific values
+2. Generate thumbnail_text (2-4 words, ALL CAPS)
+3. Use thumbnail_approach "from_gap"
+
+Return JSON only:
+{{
+  "titles": [
+    {{
+      "text": "How Iran Turned Hormuz Into a Hostage",
+      "structure": "other",
+      "confidence": 50,
+      "thumbnail_text": "CHOKEPOINT",
+      "thumbnail_approach": "from_gap",
+      "reasoning": "MF-0 CHOKE POINT formula"
+    }}
+  ]
+}}"""
+
+        result = await self._call_claude_for_titles(prompt)
+
+        titles = []
+        for item in result.get("titles", []):
+            titles.append(GeneratedTitle(
+                text=item.get("text", ""),
+                structure=CuriosityStructure.OTHER,
+                structure_confidence=item.get("confidence", 50),
+                thumbnail_text=item.get("thumbnail_text", ""),
+                thumbnail_approach="from_gap",
+                reasoning=item.get("reasoning", "MF fallback"),
+            ))
+
+        return titles
+
     async def generate_titles(
         self,
         story_context: Dict,
@@ -326,6 +385,13 @@ Return JSON only:
 
         # Determine which structures to use
         structures_to_use = viable[:target_count]
+
+        # Check if we need MF fallbacks
+        mf_count = get_mf_fallback_count(len(structures_to_use), target_count)
+
+        if mf_count > 0 and not structures_to_use:
+            # All structures below floor - pure MF fallback
+            return await self._generate_mf_titles(story_context, target_count)
 
         # Get pattern context if library provided
         pattern_context = ""

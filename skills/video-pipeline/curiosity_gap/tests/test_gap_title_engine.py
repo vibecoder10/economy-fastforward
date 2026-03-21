@@ -257,3 +257,56 @@ class TestGenerateTitles:
             titles = run_async(run_test())
 
         assert titles == []
+
+
+class TestMFIntegration:
+    """Test suite for MF fallback integration."""
+
+    @pytest.fixture
+    def low_confidence_story(self):
+        """Story that doesn't fit well into any structure."""
+        return {
+            "hook": "A small policy change happened.",
+            "thesis": "The change is interesting.",
+            "facts": ["It happened last week."],
+        }
+
+    def test_fallback_triggered_when_low_confidence(self, low_confidence_story):
+        """Should use MF fallback when no structures score above floor."""
+        from curiosity_gap.gap_title_engine import GapTitleEngine, ScoredStructure
+
+        engine = GapTitleEngine()
+
+        # Mock Claude to return MF-style titles
+        mock_response = {
+            "titles": [
+                {
+                    "text": "How Policy Changed Everything",
+                    "structure": "other",
+                    "confidence": 45,
+                    "thumbnail_text": "CHANGE COMING",
+                    "thumbnail_approach": "from_gap",
+                    "reasoning": "MF fallback applied",
+                }
+            ]
+        }
+
+        async def run_test():
+            with patch.object(engine, '_call_claude_for_titles', return_value=mock_response):
+                with patch('curiosity_gap.gap_title_engine.score_structures') as mock_score:
+                    # All structures score below floor
+                    mock_score.return_value = [
+                        ScoredStructure(CuriosityStructure.HIDDEN_FLAW, 40, "low"),
+                        ScoredStructure(CuriosityStructure.TIME_BOMB, 35, "low"),
+                        ScoredStructure(CuriosityStructure.ASYMMETRIC_DG, 30, "low"),
+                        ScoredStructure(CuriosityStructure.PARADIGM_SHIFT, 25, "low"),
+                        ScoredStructure(CuriosityStructure.ILLUSION_CONTROL, 20, "low"),
+                    ]
+
+                    return await engine.generate_titles(low_confidence_story)
+
+        titles = run_async(run_test())
+
+        # Should still return titles via MF fallback
+        assert isinstance(titles, list)
+        assert len(titles) >= 1
