@@ -309,6 +309,40 @@ MICRO-INSIGHTS: These are the character's earned wisdom, said in their \
 voice at the end of their scene. Not narrator commentary. The captain \
 thinks it. Tangsiri knows it. The family feels it. Van Riper proved it.
 
+ACT 4 IS THE HARDEST ACT TO KEEP IN CHARACTER. This is where the \
+framework drops and the temptation is to break into professor mode. \
+DO NOT.
+
+The Act 4 character is the prophet — the person who predicted or \
+proved this pattern before. The framework insight belongs to THEM, \
+not to a narrator explaining theory.
+
+BAD: "What you're watching is what military theorists call asymmetric \
+cost imposition — the strategic principle that..."
+
+GOOD: "Van Riper quit the war game in protest. He'd proved something \
+the Pentagon didn't want to hear: you don't have to win a fight. You \
+just have to make winning too expensive for the other guy. Twenty-four \
+years later, he's watching Iran prove him right."
+
+BAD: "Halford Mackinder wrote in 1904 that geography determines \
+destiny. Zbigniew Brzezinski updated it for the modern era."
+
+GOOD: "Van Riper didn't need Mackinder to tell him what the map \
+already showed. Twenty-one miles of shallow water with 100 miles of \
+hostile coastline. No carrier group in history was built for this."
+
+THE RULE FOR ACT 4: The framework name can appear ONCE. One sentence. \
+Then immediately return to the character's experience. If you find \
+yourself writing two consecutive sentences of theory without a \
+character acting, seeing, or deciding — you've left the scene.
+
+THE APEX must be said in plain language a teenager could repeat:
+GOOD: "You don't have to win. You just have to make winning too \
+expensive for the other guy."
+BAD: "This demonstrates asymmetric cost imposition where the \
+defender's expenditure exceeds the attacker's investment ratio."
+
 1. SCENE-DRIVEN ACT OPENINGS: Open every act with a specific scene — a place, \
 a person, an action — in the first 2-3 sentences. Ground the viewer in a \
 visual moment BEFORE transitioning to analysis.
@@ -462,6 +496,37 @@ This structure means the viewer's own life bookends the story. They enter \
 through their experience, travel through the hidden machinery, and return to \
 their own life with the ability to see what was invisible before. That \
 transformation is why they subscribe.
+
+12. ACT 6 — THE RETURN, NOT THE BRIEFING:
+
+Act 6 returns to the Act 1 and Act 2 characters. The viewer sees the \
+same scene with new understanding. This is emotional payoff, not a \
+financial newsletter.
+
+Actionable signals (insurance markets, pipeline capacity, specific \
+indicators) must be delivered THROUGH a character's perspective, not \
+as a numbered list.
+
+BAD: "Watch for three specific indicators. One: insurance premium \
+movements. Two: bypass pipeline utilization. Three: Chinese vessel \
+transit patterns."
+
+GOOD: "The captain will know it's over when the tankers start moving. \
+Not when the Pentagon says it's safe — when Lloyd's of London says \
+it's insurable. That's the signal. Insurance desks in London will \
+call the end of this crisis before any general does."
+
+BAD: "The sectors that move first: energy obviously, but also \
+shipping insurance, defense contractors..."
+
+GOOD: "That family in Ohio will fill up again next week. If the \
+price drops, someone solved the insurance problem. If it doesn't, \
+the 21-mile kill zone is still open for business. You'll know which \
+one happened before the news tells you — just watch the price."
+
+The final act is a STORY ENDING, not a research report. The viewer \
+should feel closure and empowerment, not like they just read a \
+Bloomberg terminal.
 """
 
 _STRICT_GROUNDING_RULE = """\
