@@ -78,6 +78,73 @@ def _build_scoring_rules_text(patterns: dict) -> str:
     return "\n".join(lines)
 
 
+# === Cinematic Writer Guidance Generator ===
+
+async def _generate_cinematic_direction(
+    anthropic_client,
+    payload: dict,
+) -> str:
+    """Generate scene-specific writer guidance from research payload.
+
+    Uses Claude Haiku to create cinematic direction that tells the
+    scriptwriter WHERE the viewer is standing and WHAT they see in
+    each act. This replaces the old approach of just copying the thesis.
+
+    Args:
+        anthropic_client: AnthropicClient instance
+        payload: Research payload dict with executive_hook, character_dossier,
+                 historical_parallels, psychological_angles, fact_sheet
+
+    Returns:
+        Cinematic direction string (under 150 words), or empty string on failure
+    """
+    # Extract first 5 facts from fact_sheet
+    fact_sheet = payload.get("fact_sheet", "")
+    facts_lines = [l.strip() for l in fact_sheet.split("\n") if l.strip()][:5]
+    key_facts = "\n".join(facts_lines) if facts_lines else "(no facts available)"
+
+    prompt = f"""You are a cinematographic director planning a 12-15 minute animated documentary.
+Using the research below, write scene direction for the scriptwriter in 6 short paragraphs — one per act.
+
+For each act, specify:
+- WHERE the viewer is standing (a specific physical location from the research)
+- WHAT they see happening (one vivid action moment)
+- The KEY DATA POINT that lands in this act
+
+RESEARCH HOOK: {payload.get("executive_hook", "")}
+
+CHARACTER DOSSIER: {payload.get("character_dossier", "")}
+
+HISTORICAL PARALLELS: {payload.get("historical_parallels", "")}
+
+PSYCHOLOGICAL ANGLES: {payload.get("psychological_angles", "")}
+
+KEY FACTS:
+{key_facts}
+
+Format as a single paragraph of natural direction, not a template.
+Example: "Act 1 opens on the bridge of a destroyer — radar screens light up with 40 contacts. The 5-inch gun fires and misses. Act 2 follows Tangsiri at Bandar Abbas watching speedboats arrive..."
+
+Keep it under 150 words. No headers, no bullet points, just cinematic direction."""
+
+    try:
+        result = await anthropic_client.generate(
+            prompt=prompt,
+            model=Models.CLAUDE_HAIKU,
+            max_tokens=300,
+            temperature=0.7,
+        )
+
+        if result and len(result.strip()) > 50:
+            logger.info(f"Generated cinematic direction ({len(result)} chars)")
+            return result.strip()
+
+    except Exception as e:
+        logger.warning(f"Cinematic direction generation failed: {e}")
+
+    return ""
+
+
 TITLE_GENERATION_PROMPT = """\
 You are the title strategist for Economy FastForward, a faceless \
 YouTube channel producing 15-20 minute geopolitical and economic analysis videos.
@@ -823,7 +890,7 @@ def write_to_airtable(
             if payload.get("thumbnail_concepts")
             else ""
         ),
-        "writer_guidance": payload.get("thesis", ""),
+        "writer_guidance": payload.get("_writer_guidance", ""),  # Cinematic direction, not thesis
         "original_dna": json.dumps({
             "source": "research_agent",
             "themes": payload.get("themes", ""),
@@ -952,6 +1019,20 @@ async def run_research(
         except Exception as e:
             # Non-blocking — keep original title on failure
             logger.warning(f"Curiosity gap enhancement failed: {e}")
+
+    # Phase 3: Generate cinematic writer guidance from research payload
+    # This creates scene-specific direction instead of just copying the thesis
+    writer_guidance = ""
+    try:
+        writer_guidance = await _generate_cinematic_direction(anthropic_client, payload)
+        if writer_guidance:
+            logger.info("Generated cinematic writer guidance")
+    except Exception as e:
+        # Non-blocking — empty guidance is fine, script generator has its own rules
+        logger.warning(f"Writer guidance generation failed: {e}")
+
+    # Store in payload for write_to_airtable
+    payload["_writer_guidance"] = writer_guidance
 
     # Write to Airtable if client provided
     if airtable_client is not None:
