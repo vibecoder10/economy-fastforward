@@ -542,6 +542,36 @@ class AirtableClient:
         print(f"    Note: Could not save thumbnail URL to Airtable (tried multiple field names)")
         return {"id": record_id}
 
+    def update_idea_curiosity_structure(
+        self,
+        record_id: str,
+        structure: str,
+        confidence: int,
+        thumbnail_text: str = "",
+        thumbnail_approach: str = "from_gap",
+    ) -> dict:
+        """Update curiosity gap metadata for an idea.
+
+        Args:
+            record_id: Airtable record ID
+            structure: Curiosity structure name (e.g., "hidden_flaw")
+            confidence: Structure confidence score (0-100)
+            thumbnail_text: Generated thumbnail text (optional)
+            thumbnail_approach: "from_gap" or "from_hook"
+
+        Returns:
+            Updated Airtable record
+        """
+        fields = {
+            IdeaFields.CURIOSITY_STRUCTURE: structure,
+            IdeaFields.STRUCTURE_CONFIDENCE: confidence,
+            IdeaFields.THUMBNAIL_APPROACH: thumbnail_approach,
+        }
+        if thumbnail_text:
+            fields[IdeaFields.THUMBNAIL_TEXT] = thumbnail_text
+
+        return self.idea_concepts_table.update(record_id, fields)
+
     # ==================== COMPETITOR CHANNELS TABLE ====================
 
     def get_active_competitor_channels(self) -> list[dict]:
