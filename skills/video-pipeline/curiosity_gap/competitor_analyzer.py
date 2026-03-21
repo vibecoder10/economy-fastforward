@@ -143,22 +143,52 @@ TITLE: "{title}"
 
 {get_structure_prompt()}
 
-CONFIDENCE SCORING (calibrate carefully — do NOT default to 85):
-- 95-100: Textbook example. Title could be used to teach this structure.
+CALIBRATION EXAMPLES (use these to anchor your scoring):
+
+hidden_flaw (95): "The $100B Mistake Saudi Arabia Is Hiding"
+  -> Clear waste/mistake being concealed. Textbook.
+
+hidden_flaw (70): "Why Would the U.S. Capture Iran's Kharg Island?"
+  -> Targeting a vulnerability/weakness, but not explicitly about a "mistake"
+
+asymmetric_dg (92): "Why the Navy Is Terrified of $500 Plastic"
+  -> Small cheap thing vs massive military. Classic David/Goliath.
+
+asymmetric_dg (55): "Why Can't the U.S. Take Over the Strait of Hormuz?"
+  -> Implies inability of a superpower, but no "small beats big" framing. Weak fit.
+
+paradigm_shift (85): "Why Didn't Russia and China Help Iran?"
+  -> Challenges assumed alliance. Forces viewer to rethink what they know.
+
+paradigm_shift (50): "How Is the U.S. Actually Reopening the Strait of Hormuz?"
+  -> "Actually" adds mild reframing but it's mostly descriptive. Weak fit.
+
+time_bomb (90): "The 40-Year Trap America Walked Into"
+  -> Long-term setup with delayed trigger. Textbook.
+
+illusion_control (88): "The Chokepoint That Controls Your Bank Account"
+  -> Direct personal financial threat. "YOUR" stakes.
+
+other (25): "Plane Crash with Black Hawk Helicopter Explained"
+  -> Purely descriptive, no curiosity gap at all. Low confidence because there's nothing to classify.
+
+SCORING RULES:
+- "other" titles should score LOW confidence (20-40) because there's no structure to be confident about
+- Descriptive titles ("X Explained", "How X Works", "X vs Y") are almost always "other"
+- Don't default to paradigm_shift — it requires genuinely challenging an assumption, not just asking "why"
+- A "Why" question is NOT automatically paradigm_shift. "Why can't X" could be asymmetric_dg, hidden_flaw, or other depending on the mechanism.
+
+CONFIDENCE SCORING:
+- 95-100: Textbook example. Could teach this structure with this title.
 - 80-94: Strong fit. Structure is clearly the primary mechanism.
-- 65-79: Moderate fit. Structure is present but not the dominant mechanism.
-- 50-64: Weak fit. Structure is a stretch — another structure might fit better.
+- 65-79: Moderate fit. Structure present but not dominant.
+- 50-64: Weak fit. Another structure might fit better.
 - 30-49: Poor fit. Forcing this structure onto the title.
 - Below 30: Does not fit. Use "other".
 
-Be precise. A title like "The $100B Mistake Saudi Arabia Is Hiding" is a 95 for hidden_flaw.
-A title like "Why Russia Can't Win" is maybe a 60 for asymmetric_dg — it implies imbalance but doesn't emphasize the small-beats-big mechanism.
-
-Distribute your scores. If all 5 structures score within 10 points of each other, you haven't discriminated — pick the real winner and separate it.
-
 Return JSON with:
-- structure: one of the structure IDs above (pick the BEST fit)
-- confidence: 0-100 how well the title fits that structure (use the scale above)
+- structure: one of the structure IDs above
+- confidence: 0-100 how well the title fits the structure
 - gap_mechanism: the specific question this title makes viewers ask
 - variables: extracted components (amounts, entities, timeframes, etc.)
 
