@@ -250,6 +250,65 @@ feeling like they gained an advantage, not like they lost hope.
 _CINEMATIC_VOICE_RULES = """\
 === CINEMATIC VOICE — IMMERSIVE POV WRITING ===
 
+0. DATA LIVES INSIDE CHARACTERS — THE #1 RULE:
+
+Once you enter a character's perspective at the start of an act, you \
+DO NOT LEAVE IT until the act ends. Every statistic, every percentage, \
+every dollar amount must be something that character sees, knows, fears, \
+or discovers.
+
+You are NOT a news anchor reading statistics. You are a camera operator \
+standing behind a person who is living this moment.
+
+TEST: For every sentence, ask "whose eyes am I seeing this through?" \
+If the answer is "nobody — this is just information," REWRITE IT through \
+the nearest character.
+
+BAD (narrator breaks away to brief the audience):
+"China receives 37.7% of all crude oil flowing through Hormuz, according \
+to Visual Capitalist's Q1 2025 data. Saudi Arabia exports 37.2% through \
+the strait. Iraq: 22.8%."
+
+GOOD (the destroyer captain knows this because it's his problem):
+"The captain knows what's anchored behind him. Tankers bound for China, \
+which takes 37% of everything that flows through this strait. Tankers \
+for Japan, South Korea, India. His mission is to protect them all. His \
+ship has 90 missile cells. There are 3,000 speedboats."
+
+BAD (narrator lectures about cost asymmetry):
+"This is the asymmetry that breaks empires. Iran fires a $50,000 drone. \
+The U.S. spends $4 million to stop it. That's a 1-to-80 cost ratio."
+
+GOOD (the captain is living the cost asymmetry):
+"Every time his ship fires a $4 million interceptor at a drone that \
+cost $50,000 to build, the captain is watching his ammunition budget \
+evaporate. He has 90 cells. Iran has 2,500 missiles and thousands of \
+drones. He can do the math."
+
+BAD (narrator delivers a history lesson):
+"On April 18, 1988, Operation Praying Mantis saw U.S. forces destroy \
+one Iranian frigate, one gunboat, three speedboats, and two platforms \
+in the largest U.S. naval engagement since World War II."
+
+GOOD (Tangsiri remembers it because he lived through it):
+"Tangsiri was a junior officer in 1988 when American ships destroyed \
+an Iranian frigate, a gunboat, three speedboats, and two platforms in \
+a single afternoon. Forty-five sailors died. He spent the next 35 years \
+making sure Iran would never fight that way again."
+
+THE RULE: If you find yourself writing "according to" or listing \
+percentages without a character reacting to them, you've left the \
+scene. Get back inside.
+
+CITATIONS: Source attributions still appear — but weave them into the \
+character's world. "The Pentagon's own assessment landed on his desk: \
+1 to 6 months" not "A Defense Intelligence Agency assessment estimates \
+1 to 6 months, according to CNN."
+
+MICRO-INSIGHTS: These are the character's earned wisdom, said in their \
+voice at the end of their scene. Not narrator commentary. The captain \
+thinks it. Tangsiri knows it. The family feels it. Van Riper proved it.
+
 1. SCENE-DRIVEN ACT OPENINGS: Open every act with a specific scene — a place, \
 a person, an action — in the first 2-3 sentences. Ground the viewer in a \
 visual moment BEFORE transitioning to analysis.
@@ -257,6 +316,13 @@ visual moment BEFORE transitioning to analysis.
 GOOD: "In a warehouse outside Isfahan, Iranian engineers loaded the first \
 batch of Shahed drones onto transport planes."
 BAD: "Iran needed regional dominance without direct confrontation."
+
+CRITICAL: The scene you open with IS the act. You don't open with a \
+scene and then leave it to deliver analysis. The analysis happens \
+INSIDE the scene. If Act 2 opens on the destroyer bridge, Act 2 \
+STAYS on the destroyer bridge. The trade flow percentages, the \
+insurance data, the cost ratios — the captain knows all of this \
+because it's his operational reality.
 
 2. ACTIVE FRAMING: Replace passive analytical statements with active cinematic \
 ones. Same facts, cinematic delivery.
