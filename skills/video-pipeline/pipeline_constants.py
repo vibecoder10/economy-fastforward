@@ -102,6 +102,8 @@ class IdeaFields:
     VIEWS_48H = "Views 48h"
     VIEWS_7D = "Views 7d"
     VIEWS_30D = "Views 30d"
+    CTR_12H = "CTR 12h (%)"
+    CTR_24H = "CTR 24h (%)"
     CTR_48H = "CTR 48h (%)"
     RETENTION_48H = "Retention 48h (%)"
     LAST_ANALYTICS_SYNC = "Last Analytics Sync"

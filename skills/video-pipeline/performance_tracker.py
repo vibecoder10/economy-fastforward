@@ -60,7 +60,7 @@ READ_SCOPES = [
 # Snapshot fields — written once, never overwritten
 SNAPSHOT_FIELDS = {
     IdeaFields.VIEWS_24H, IdeaFields.VIEWS_48H, IdeaFields.VIEWS_7D, IdeaFields.VIEWS_30D,
-    IdeaFields.CTR_48H, IdeaFields.RETENTION_48H,
+    IdeaFields.CTR_12H, IdeaFields.CTR_24H, IdeaFields.CTR_48H, IdeaFields.RETENTION_48H,
 }
 
 
@@ -426,9 +426,18 @@ def calculate_snapshots(
 
     snapshots = {}
 
-    # Only write snapshots that haven't been written yet
-    if hours_since >= 24 and existing_fields.get(IdeaFields.VIEWS_24H) is None:
-        snapshots[IdeaFields.VIEWS_24H] = stats["views"]
+    # CTR 12h snapshot (earliest CTR measurement)
+    if hours_since >= 12 and reporting:
+        if existing_fields.get(IdeaFields.CTR_12H) is None:
+            snapshots[IdeaFields.CTR_12H] = reporting["ctr"]
+
+    # 24h snapshots (views + CTR)
+    if hours_since >= 24:
+        if existing_fields.get(IdeaFields.VIEWS_24H) is None:
+            snapshots[IdeaFields.VIEWS_24H] = stats["views"]
+        if reporting:
+            if existing_fields.get(IdeaFields.CTR_24H) is None:
+                snapshots[IdeaFields.CTR_24H] = reporting["ctr"]
 
     if hours_since >= 48:
         if existing_fields.get(IdeaFields.VIEWS_48H) is None:
