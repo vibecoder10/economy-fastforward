@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getPublicKalshiClient } from "@/lib/kalshi-server";
 import { mockMarkets } from "@/lib/kalshi-mock";
+import { isRelevantCategory } from "@/lib/betting-brain/markets";
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
@@ -19,10 +20,17 @@ export async function GET(req: Request) {
 
     let markets = data.markets;
 
+    // Filter out sports, entertainment, etc. — only relevant categories
+    markets = markets.filter((m) => isRelevantCategory(m.category));
+
     // Filter by category if provided
     if (category && category !== "All") {
       markets = markets.filter(
-        (m) => m.category?.toLowerCase() === category.toLowerCase()
+        (m) => {
+          const cat = (m.category || "").toLowerCase();
+          const target = category.toLowerCase();
+          return cat === target || cat.includes(target) || target.includes(cat);
+        }
       );
     }
 
@@ -36,11 +44,15 @@ export async function GET(req: Request) {
     return NextResponse.json({ markets, cursor: data.cursor });
   } catch {
     // Fallback to mock data
-    let markets = [...mockMarkets];
+    let markets = mockMarkets.filter((m) => isRelevantCategory(m.category));
 
     if (category && category !== "All") {
       markets = markets.filter(
-        (m) => m.category?.toLowerCase() === category.toLowerCase()
+        (m) => {
+          const cat = (m.category || "").toLowerCase();
+          const target = category.toLowerCase();
+          return cat === target || cat.includes(target) || target.includes(cat);
+        }
       );
     }
 

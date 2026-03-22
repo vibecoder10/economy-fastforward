@@ -22,8 +22,8 @@ export type { PositionSize } from "./sizer";
 export { runCycle, monitorPositions, getStatus } from "./brain";
 export type { CycleResult, MonitorResult, BrainStatus, SettlementResult } from "./brain";
 
-export { extractLearnings, computeCategoryScores } from "./learner";
-export type { ExtractedLearning } from "./learner";
+export { extractLearnings, computeCategoryScores, generateLearningSummary } from "./learner";
+export type { ExtractedLearning, LearningSummary } from "./learner";
 
 export { fetchMarketsForBrain } from "./markets";
 export type { FetchedMarketData } from "./markets";

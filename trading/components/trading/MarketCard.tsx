@@ -10,7 +10,7 @@ interface MarketCardProps {
 }
 
 export function MarketCard({ market, onToggleWatchlist }: MarketCardProps) {
-  const yesPercent = market.yesPrice;
+  const yesPercent = market.yesPrice ?? 50;
   const isHighProbability = yesPercent >= 50;
 
   const formatVolume = (v: number) => {
@@ -84,14 +84,14 @@ export function MarketCard({ market, onToggleWatchlist }: MarketCardProps) {
             "h-full rounded-full transition-all",
             isHighProbability ? "bg-success" : "bg-error"
           )}
-          style={{ width: `${yesPercent}%` }}
+          style={{ width: `${Math.max(0, Math.min(100, yesPercent))}%` }}
         />
       </div>
 
       {/* Footer */}
       <div className="flex items-center justify-between text-xs text-text-tertiary">
         <div className="flex items-center gap-3">
-          <span>{formatVolume(market.volume)} Vol</span>
+          <span>{formatVolume(market.volume ?? 0)} Vol</span>
           <span className="text-border">|</span>
           <span>{market.category}</span>
         </div>

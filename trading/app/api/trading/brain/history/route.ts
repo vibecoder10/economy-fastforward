@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { computeCategoryScores } from "@/lib/betting-brain/learner";
+import { computeCategoryScores, generateLearningSummary } from "@/lib/betting-brain/learner";
 
 const DEFAULT_USER_ID = "default-user";
 
@@ -39,7 +39,20 @@ export async function GET() {
       if (exp.result === "won") priceRanges[range].wins++;
     }
 
+    // Generate learning summary
+    const learningSummary = generateLearningSummary(
+      settled.map((e) => ({
+        category: e.category,
+        result: e.result,
+        entryPrice: e.entryPrice,
+        confidence: e.confidence,
+        pnl: e.pnl,
+        title: e.title,
+      }))
+    );
+
     return NextResponse.json({
+      learningSummary,
       experiments: experiments.map((e) => ({
         id: e.id,
         ticker: e.ticker,

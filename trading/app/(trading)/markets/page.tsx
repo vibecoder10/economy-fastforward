@@ -8,16 +8,17 @@ import { CATEGORIES } from "@/lib/trading-types";
 import type { KalshiMarket } from "@/lib/kalshi-types";
 
 function toDisplayData(m: KalshiMarket, watchlist: Set<string>): MarketDisplayData {
+  const yesPrice = m.yes_bid ?? m.last_price ?? 50;
   return {
     ticker: m.ticker,
     eventTicker: m.event_ticker,
     title: m.title,
-    yesPrice: m.yes_bid || m.last_price,
-    noPrice: m.no_bid || (100 - (m.yes_bid || m.last_price)),
-    volume: m.volume,
-    volume24h: m.volume_24h,
+    yesPrice,
+    noPrice: m.no_bid ?? (100 - yesPrice),
+    volume: m.volume ?? 0,
+    volume24h: m.volume_24h ?? 0,
     closeTime: m.close_time,
-    category: m.category || "Geopolitics",
+    category: m.category || "Other",
     status: m.status,
     isWatchlisted: watchlist.has(m.ticker),
   };

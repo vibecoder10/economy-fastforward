@@ -6,8 +6,23 @@ import { type BrainState, type ActiveBet, DEFAULT_STATE } from "@/lib/betting-br
 import { runCycle, monitorPositions, getStatus } from "@/lib/betting-brain/brain";
 import { extractLearnings, computeCategoryScores } from "@/lib/betting-brain/learner";
 import { fetchMarketsForBrain } from "@/lib/betting-brain/markets";
+import { rankMarkets } from "@/lib/betting-brain/scorer";
 
 const DEFAULT_USER_ID = "default-user";
+
+// Simple 5-minute cache for market insights (avoid hammering Kalshi on every page load)
+let insightsCache: { data: InsightEntry[]; timestamp: number } | null = null;
+const INSIGHTS_CACHE_TTL_MS = 5 * 60 * 1000;
+
+interface InsightEntry {
+  title: string;
+  ticker: string;
+  score: number;
+  side: string;
+  edgeCents: number;
+  reasoning: string[];
+  category: string;
+}
 
 // ---------- Prisma ↔ BrainState helpers ----------
 
@@ -90,9 +105,34 @@ export async function GET() {
       take: 10,
     });
 
+    // Fetch market insights (cached)
+    let insights: InsightEntry[] = [];
+    if (insightsCache && Date.now() - insightsCache.timestamp < INSIGHTS_CACHE_TTL_MS) {
+      insights = insightsCache.data;
+    } else {
+      try {
+        const marketData = await fetchMarketsForBrain([]);
+        const candidates = marketData.openMarkets.map((m) => ({ market: m }));
+        const ranked = rankMarkets(candidates, config);
+        insights = ranked.slice(0, 5).map((r) => ({
+          title: r.market.title,
+          ticker: r.market.ticker,
+          score: r.score,
+          side: r.side,
+          edgeCents: r.edgeCents,
+          reasoning: r.reasoning,
+          category: r.market.category || "Other",
+        }));
+        insightsCache = { data: insights, timestamp: Date.now() };
+      } catch {
+        // Non-blocking — insights are nice-to-have
+      }
+    }
+
     return NextResponse.json({
       status,
       activeBets: state.active_bets,
+      insights,
       recentSettled: recentSettled.map((e) => ({
         id: e.id,
         ticker: e.ticker,
