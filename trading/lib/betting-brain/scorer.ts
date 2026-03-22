@@ -35,8 +35,8 @@ export interface ScoredMarket {
  * on the side the market hasn't fully priced in yet.
  */
 function scorePriceEdge(market: KalshiMarket): { score: number; side: "yes" | "no"; reasoning: string } {
-  const yesPrice = market.yes_bid || market.last_price;
-  const noPrice = market.no_bid || (100 - yesPrice);
+  const yesPrice = market.yes_bid ?? market.last_price ?? 50;
+  const noPrice = market.no_bid ?? (100 - yesPrice);
 
   // Distance from 50c (higher = stronger conviction)
   const distance = Math.abs(yesPrice - 50);
@@ -192,7 +192,7 @@ export function scoreMarket(candidate: MarketCandidate, config: BrainConfig): Sc
     momentumResult.score * config.weights.price_momentum;
 
   // Calculate expected edge in cents
-  const entryPrice = side === "yes" ? (market.yes_ask || market.last_price) : (market.no_ask || (100 - market.last_price));
+  const entryPrice = side === "yes" ? (market.yes_ask ?? market.last_price ?? 50) : (market.no_ask ?? (100 - (market.last_price ?? 50)));
   const edgeCents = 100 - entryPrice - 50; // simplified: how much better than coin flip
 
   const reasoning = [

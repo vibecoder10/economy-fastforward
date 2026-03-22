@@ -47,6 +47,7 @@ export const CATEGORIES = [
   "Economy",
   "US Politics",
   "World Politics",
+  "Other",
 ] as const;
 
 export type MarketCategory = (typeof CATEGORIES)[number];

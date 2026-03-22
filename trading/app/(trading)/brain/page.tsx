@@ -18,9 +18,20 @@ interface SettledBetDisplay {
   settledAt: string;
 }
 
+interface InsightEntry {
+  title: string;
+  ticker: string;
+  score: number;
+  side: string;
+  edgeCents: number;
+  reasoning: string[];
+  category: string;
+}
+
 interface BrainResponse {
   status: BrainStatus;
   activeBets: ActiveBet[];
+  insights: InsightEntry[];
   recentSettled: SettledBetDisplay[];
   config: {
     mode: string;
@@ -42,7 +53,19 @@ interface CycleResponse {
   }>;
 }
 
+interface LearningSummaryData {
+  totalSettled: number;
+  narrativeSummary: string;
+  topPatterns: Array<{ pattern: string; verdict: string; sampleSize: number; winRate: number }>;
+  bestCategory: { name: string; winRate: number } | null;
+  worstCategory: { name: string; winRate: number } | null;
+  bestPriceRange: { range: string; winRate: number } | null;
+  confidenceCalibration: { avgOnWins: number; avgOnLosses: number };
+  activeHypotheses: string[];
+}
+
 interface HistoryResponse {
+  learningSummary: LearningSummaryData;
   patterns: {
     categoryScores: Record<string, number>;
     priceRanges: Record<string, { wins: number; total: number }>;
@@ -381,6 +404,97 @@ export default function BrainPage() {
       {/* Tab Content */}
       {activeTab === "overview" && (
         <div className="space-y-6">
+          {/* Brain Insights — Top Market Recommendations */}
+          {(data?.insights?.length ?? 0) > 0 && (
+            <div>
+              <h2 className="text-lg font-semibold text-text-primary mb-3">Market Insights</h2>
+              <div className="space-y-2">
+                {data!.insights.map((insight, i) => (
+                  <div
+                    key={insight.ticker}
+                    className="p-3 rounded-xl bg-surface border border-border"
+                  >
+                    <div className="flex items-center justify-between mb-1.5">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="text-xs text-text-tertiary font-mono">#{i + 1}</span>
+                        <span className="text-sm font-medium text-text-primary truncate">
+                          {insight.title}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span
+                          className={cn(
+                            "text-xs px-2 py-0.5 rounded font-medium",
+                            insight.side === "yes"
+                              ? "bg-green-500/20 text-green-400"
+                              : "bg-red-500/20 text-red-400"
+                          )}
+                        >
+                          {insight.side.toUpperCase()}
+                        </span>
+                        <span className="text-sm font-mono text-accent font-medium">
+                          {insight.score.toFixed(0)}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3 text-xs text-text-tertiary mb-1">
+                      <span>Edge: {insight.edgeCents > 0 ? "+" : ""}{insight.edgeCents}¢</span>
+                      <span className="text-border">|</span>
+                      <span>{insight.category}</span>
+                    </div>
+                    <details className="mt-1">
+                      <summary className="text-xs text-text-tertiary cursor-pointer hover:text-text-secondary">
+                        Why this market?
+                      </summary>
+                      <div className="mt-1 text-xs text-text-tertiary space-y-0.5 pl-2 border-l border-border">
+                        {insight.reasoning.map((r, j) => (
+                          <div key={j}>{r}</div>
+                        ))}
+                      </div>
+                    </details>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Compact Learning Summary */}
+          {history?.learningSummary && history.learningSummary.totalSettled > 0 && (
+            <div className="p-4 rounded-xl bg-surface border border-border">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-sm font-medium text-text-primary">What We&apos;ve Learned</h3>
+                <button
+                  onClick={() => setActiveTab("history")}
+                  className="text-xs text-accent hover:underline"
+                >
+                  See all →
+                </button>
+              </div>
+              <p className="text-xs text-text-secondary leading-relaxed mb-2">
+                {history.learningSummary.narrativeSummary}
+              </p>
+              {history.learningSummary.topPatterns.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {history.learningSummary.topPatterns.slice(0, 3).map((p) => (
+                    <span
+                      key={p.pattern}
+                      className={cn(
+                        "text-xs px-2 py-0.5 rounded",
+                        p.verdict === "KEEP"
+                          ? "bg-green-500/10 text-green-400"
+                          : p.verdict === "DISCARD"
+                            ? "bg-red-500/10 text-red-400"
+                            : "bg-yellow-500/10 text-yellow-400"
+                      )}
+                    >
+                      {p.pattern}: {p.winRate}% ({p.sampleSize})
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Active Bets */}
           <div>
             <h2 className="text-lg font-semibold text-text-primary mb-3">Active Bets</h2>
@@ -443,6 +557,75 @@ export default function BrainPage() {
 
       {activeTab === "history" && (
         <div className="space-y-6">
+          {/* Full Learning Summary */}
+          {history?.learningSummary && (
+            <div className="p-4 rounded-xl bg-surface border border-accent/20">
+              <h2 className="text-sm font-semibold text-accent mb-2">Learning Summary</h2>
+              <p className="text-sm text-text-secondary leading-relaxed mb-3">
+                {history.learningSummary.narrativeSummary}
+              </p>
+
+              {/* Proven vs Anti patterns */}
+              {history.learningSummary.topPatterns.length > 0 && (
+                <div className="grid grid-cols-2 gap-3 mb-3">
+                  <div>
+                    <span className="text-xs text-green-400 font-medium">Proven Patterns</span>
+                    <div className="mt-1 space-y-1">
+                      {history.learningSummary.topPatterns
+                        .filter((p) => p.verdict === "KEEP")
+                        .map((p) => (
+                          <div key={p.pattern} className="text-xs text-text-secondary flex justify-between">
+                            <span>{p.pattern}</span>
+                            <span className="text-green-400 font-mono">{p.winRate}%</span>
+                          </div>
+                        ))}
+                      {history.learningSummary.topPatterns.filter((p) => p.verdict === "KEEP").length === 0 && (
+                        <div className="text-xs text-text-tertiary">None yet</div>
+                      )}
+                    </div>
+                  </div>
+                  <div>
+                    <span className="text-xs text-red-400 font-medium">Anti-Patterns</span>
+                    <div className="mt-1 space-y-1">
+                      {history.learningSummary.topPatterns
+                        .filter((p) => p.verdict === "DISCARD")
+                        .map((p) => (
+                          <div key={p.pattern} className="text-xs text-text-secondary flex justify-between">
+                            <span>{p.pattern}</span>
+                            <span className="text-red-400 font-mono">{p.winRate}%</span>
+                          </div>
+                        ))}
+                      {history.learningSummary.topPatterns.filter((p) => p.verdict === "DISCARD").length === 0 && (
+                        <div className="text-xs text-text-tertiary">None yet</div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Confidence calibration */}
+              {history.learningSummary.confidenceCalibration.avgOnWins > 0 && (
+                <div className="flex items-center gap-4 text-xs text-text-tertiary pt-2 border-t border-border">
+                  <span>Confidence calibration:</span>
+                  <span className="text-green-400">Wins avg {history.learningSummary.confidenceCalibration.avgOnWins}</span>
+                  <span className="text-red-400">Losses avg {history.learningSummary.confidenceCalibration.avgOnLosses}</span>
+                </div>
+              )}
+
+              {/* Active hypotheses */}
+              {history.learningSummary.activeHypotheses.length > 0 && (
+                <div className="mt-2 pt-2 border-t border-border">
+                  <span className="text-xs text-yellow-400 font-medium">Still Testing</span>
+                  <div className="mt-1 space-y-0.5">
+                    {history.learningSummary.activeHypotheses.map((h) => (
+                      <div key={h} className="text-xs text-text-tertiary">• {h}</div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Category Performance */}
           <div>
             <h2 className="text-lg font-semibold text-text-primary mb-3">Learned Patterns</h2>

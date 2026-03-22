@@ -13,7 +13,7 @@ import { getPublicKalshiClient } from "../kalshi-server";
 import { mockMarkets } from "../kalshi-mock";
 
 /** Categories the brain should analyze (economy/geopolitics focus) */
-const RELEVANT_CATEGORIES = new Set([
+export const RELEVANT_CATEGORIES = new Set([
   "politics",
   "economics",
   "finance",
@@ -32,7 +32,7 @@ const RELEVANT_CATEGORIES = new Set([
 ]);
 
 /** Check if a market category is relevant to our domain */
-function isRelevantCategory(category: string): boolean {
+export function isRelevantCategory(category: string): boolean {
   if (!category) return true; // include uncategorized
   const lower = category.toLowerCase();
   if (RELEVANT_CATEGORIES.has(lower)) return true;
