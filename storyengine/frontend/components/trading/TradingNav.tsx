@@ -9,6 +9,7 @@ import { BalanceWidget } from "./BalanceWidget";
 const navItems = [
   { href: "/markets", label: "Markets" },
   { href: "/portfolio", label: "Portfolio" },
+  { href: "/brain", label: "Brain" },
   { href: "/settings", label: "Settings" },
 ];
 

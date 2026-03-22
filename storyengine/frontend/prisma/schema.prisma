@@ -69,6 +69,7 @@ model User {
   kalshiCredentials KalshiCredentials?
   watchlistItems    WatchlistItem[]
   tradeLogs         TradeLog[]
+  betExperiments    BetExperiment[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -208,6 +209,33 @@ model TradeLog {
   totalCost        Float
   status           String   @default("pending") // pending, filled, canceled
   createdAt        DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// =============================================================================
+// BETTING BRAIN: Experiment Log (every bet placed by the brain)
+// =============================================================================
+
+model BetExperiment {
+  id             String   @id @default(cuid())
+  userId         String
+  ticker         String
+  title          String
+  side           String   // "yes" or "no"
+  contracts      Int
+  entryPrice     Float    // cents (1-99)
+  totalCost      Float    // cents
+  confidence     Float    // 0-100
+  reasoning      String   // JSON array of reasoning strings
+  category       String
+  mode           String   @default("paper") // "paper" or "live"
+  result         String?  // "won", "lost", "push", null if pending
+  payout         Float?   // cents
+  pnl            Float?   // cents
+  learnings      String?  // JSON array of extracted learnings
+  settledAt      DateTime?
+  createdAt      DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
