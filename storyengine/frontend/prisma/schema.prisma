@@ -60,12 +60,17 @@ model User {
   subscriptionTier String   @default("taste")
   stripeCustomerId String?
 
-  accounts        Account[]
-  sessions        Session[]
-  apiKeys         ApiKeys?
-  channelProfiles ChannelProfile[]
-  projects        Project[]
-  usageEvents     UsageEvent[]
+  accounts          Account[]
+  sessions          Session[]
+  apiKeys           ApiKeys?
+  channelProfiles   ChannelProfile[]
+  projects          Project[]
+  usageEvents       UsageEvent[]
+  kalshiCredentials KalshiCredentials?
+  watchlistItems    WatchlistItem[]
+  tradeLogs         TradeLog[]
+  betExperiments    BetExperiment[]
+  brainState         BrainState?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -149,6 +154,116 @@ model Project {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// =============================================================================
+// USAGE METERING
+// =============================================================================
+
+// =============================================================================
+// TRADING: Kalshi Credentials (encrypted at rest)
+// =============================================================================
+
+model KalshiCredentials {
+  id         String @id @default(cuid())
+  userId     String @unique
+  apiKeyId   String // Encrypted Kalshi API key ID
+  privateKey String // Encrypted RSA private key PEM
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// =============================================================================
+// TRADING: Watchlist
+// =============================================================================
+
+model WatchlistItem {
+  id           String   @id @default(cuid())
+  userId       String
+  eventTicker  String
+  marketTicker String
+  title        String   @default("")
+  addedAt      DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, marketTicker])
+}
+
+// =============================================================================
+// TRADING: Trade Log (local record of trades placed through our UI)
+// =============================================================================
+
+model TradeLog {
+  id               String   @id @default(cuid())
+  userId           String
+  kalshiOrderId    String
+  marketTicker     String
+  eventTicker      String
+  side             String   // "yes" or "no"
+  action           String   // "buy" or "sell"
+  contracts        Int
+  pricePerContract Float    // in dollars (0.01 - 0.99)
+  totalCost        Float
+  status           String   @default("pending") // pending, filled, canceled
+  createdAt        DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// =============================================================================
+// BETTING BRAIN: Persistent State (replaces filesystem brain_state.json)
+// =============================================================================
+
+model BrainState {
+  id                     String   @id @default(cuid())
+  userId                 String   @unique
+  enabled                Boolean  @default(true)
+  mode                   String   @default("paper") // "paper" or "live"
+  bankrollCents          Int      @default(10000)
+  startingBankrollCents  Int      @default(10000)
+  totalBets              Int      @default(0)
+  wins                   Int      @default(0)
+  losses                 Int      @default(0)
+  totalPnlCents          Int      @default(0)
+  activeBets             String   @default("[]") // JSON array of ActiveBet
+  lastCycle              DateTime?
+  lastBet                DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// =============================================================================
+// BETTING BRAIN: Experiment Log (every bet placed by the brain)
+// =============================================================================
+
+model BetExperiment {
+  id             String   @id @default(cuid())
+  userId         String
+  ticker         String
+  title          String
+  side           String   // "yes" or "no"
+  contracts      Int
+  entryPrice     Float    // cents (1-99)
+  totalCost      Float    // cents
+  confidence     Float    // 0-100
+  reasoning      String   // JSON array of reasoning strings
+  category       String
+  mode           String   @default("paper") // "paper" or "live"
+  result         String?  // "won", "lost", "push", null if pending
+  payout         Float?   // cents
+  pnl            Float?   // cents
+  learnings      String?  // JSON array of extracted learnings
+  settledAt      DateTime?
+  createdAt      DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 // =============================================================================
