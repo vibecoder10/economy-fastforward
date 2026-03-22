@@ -12,7 +12,7 @@ import type {
   KalshiPlaceOrderParams,
 } from "./kalshi-types";
 
-const KALSHI_BASE_URL = "https://trading-api.kalshi.com/trade-api/v2";
+const KALSHI_BASE_URL = "https://api.elections.kalshi.com/trade-api/v2";
 const KALSHI_DEMO_URL = "https://demo-api.kalshi.co/trade-api/v2";
 
 export class KalshiClient {

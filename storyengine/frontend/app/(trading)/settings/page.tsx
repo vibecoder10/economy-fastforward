@@ -8,8 +8,16 @@ export default function TradingSettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [showManual, setShowManual] = useState(false);
+
+  // Kalshi login fields
+  const [kalshiEmail, setKalshiEmail] = useState("");
+  const [kalshiPassword, setKalshiPassword] = useState("");
+
+  // Manual API key fields
   const [apiKeyId, setApiKeyId] = useState("");
   const [privateKey, setPrivateKey] = useState("");
+
   const [message, setMessage] = useState<{
     type: "success" | "error";
     text: string;
@@ -25,7 +33,36 @@ export default function TradingSettingsPage() {
       .catch(() => setLoading(false));
   }, []);
 
-  const handleSave = async () => {
+  const handleKalshiLogin = async () => {
+    setSaving(true);
+    setMessage(null);
+
+    try {
+      const res = await fetch("/api/trading/kalshi-login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: kalshiEmail, password: kalshiPassword }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setMessage({ type: "error", text: data.error || "Login failed" });
+      } else {
+        setMessage({
+          type: "success",
+          text: "Kalshi account connected! API keys generated automatically.",
+        });
+        setConfigured(true);
+        setKalshiEmail("");
+        setKalshiPassword("");
+      }
+    } catch {
+      setMessage({ type: "error", text: "Network error — could not reach server" });
+    }
+    setSaving(false);
+  };
+
+  const handleManualSave = async () => {
     setSaving(true);
     setMessage(null);
 
@@ -40,7 +77,7 @@ export default function TradingSettingsPage() {
       if (!res.ok) {
         setMessage({ type: "error", text: data.error || "Failed to save" });
       } else {
-        setMessage({ type: "success", text: "Kalshi account connected successfully!" });
+        setMessage({ type: "success", text: "Kalshi account connected!" });
         setConfigured(true);
         setApiKeyId("");
         setPrivateKey("");
@@ -139,49 +176,145 @@ export default function TradingSettingsPage() {
 
         {!configured && (
           <>
-            {/* Instructions */}
-            <div className="bg-background rounded-lg p-4 mb-6">
-              <h3 className="text-sm font-semibold mb-2">How to get your API keys:</h3>
-              <ol className="text-sm text-text-secondary space-y-1.5 list-decimal list-inside">
-                <li>Go to <span className="text-accent">kalshi.com</span> and sign in</li>
-                <li>Navigate to Settings &rarr; API Keys</li>
-                <li>Click &ldquo;Create API Key&rdquo;</li>
-                <li>Copy your API Key ID and download the private key file</li>
-                <li>Paste both below</li>
-              </ol>
-              <p className="text-xs text-text-tertiary mt-3">
-                Your credentials are encrypted with AES-256-GCM before storage. We never see your keys in plaintext.
+            {/* Kalshi Sign-In (primary flow) */}
+            <div className="space-y-4">
+              <div className="bg-background rounded-lg p-4">
+                <h3 className="text-sm font-semibold mb-1">
+                  Sign in with your Kalshi account
+                </h3>
+                <p className="text-xs text-text-tertiary">
+                  We&apos;ll generate API keys automatically. Your Kalshi password is
+                  never stored — it&apos;s only used once to create secure API keys.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-text-secondary mb-1.5">
+                  Kalshi Email
+                </label>
+                <input
+                  type="email"
+                  value={kalshiEmail}
+                  onChange={(e) => setKalshiEmail(e.target.value)}
+                  placeholder="you@example.com"
+                  className="w-full px-4 py-3 bg-background border border-border rounded-lg text-text-primary placeholder:text-text-tertiary focus:outline-none focus:border-accent transition-colors text-sm"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-text-secondary mb-1.5">
+                  Kalshi Password
+                </label>
+                <input
+                  type="password"
+                  value={kalshiPassword}
+                  onChange={(e) => setKalshiPassword(e.target.value)}
+                  placeholder="Your Kalshi password"
+                  className="w-full px-4 py-3 bg-background border border-border rounded-lg text-text-primary placeholder:text-text-tertiary focus:outline-none focus:border-accent transition-colors text-sm"
+                />
+              </div>
+
+              <button
+                onClick={handleKalshiLogin}
+                disabled={saving || !kalshiEmail || !kalshiPassword}
+                className="w-full py-3 bg-accent hover:bg-accent-hover disabled:opacity-50 text-background font-semibold rounded-lg transition-colors"
+              >
+                {saving ? "Connecting..." : "Connect Kalshi Account"}
+              </button>
+
+              <p className="text-xs text-text-tertiary text-center">
+                Don&apos;t have an account?{" "}
+                <a
+                  href="https://kalshi.com/sign-up"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-accent hover:underline"
+                >
+                  Sign up at Kalshi
+                </a>
               </p>
             </div>
 
-            {/* Form */}
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-text-secondary mb-1.5">
-                  API Key ID
-                </label>
-                <input
-                  type="text"
-                  value={apiKeyId}
-                  onChange={(e) => setApiKeyId(e.target.value)}
-                  placeholder="e.g., abc123-def456-..."
-                  className="w-full px-4 py-3 bg-background border border-border rounded-lg text-text-primary placeholder:text-text-tertiary focus:outline-none focus:border-accent transition-colors font-mono text-sm"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-text-secondary mb-1.5">
-                  Private Key (RSA PEM)
-                </label>
-                <textarea
-                  value={privateKey}
-                  onChange={(e) => setPrivateKey(e.target.value)}
-                  placeholder="-----BEGIN RSA PRIVATE KEY-----&#10;...&#10;-----END RSA PRIVATE KEY-----"
-                  rows={6}
-                  className="w-full px-4 py-3 bg-background border border-border rounded-lg text-text-primary placeholder:text-text-tertiary focus:outline-none focus:border-accent transition-colors font-mono text-xs"
-                />
-              </div>
+            {/* Divider */}
+            <div className="flex items-center gap-4 my-6">
+              <div className="flex-1 h-px bg-border" />
+              <button
+                onClick={() => setShowManual(!showManual)}
+                className="text-xs text-text-tertiary hover:text-text-secondary transition-colors"
+              >
+                {showManual
+                  ? "Hide manual setup"
+                  : "Or connect with API keys manually"}
+              </button>
+              <div className="flex-1 h-px bg-border" />
             </div>
+
+            {/* Manual API key entry (collapsed by default) */}
+            {showManual && (
+              <div className="space-y-4">
+                <div className="bg-background rounded-lg p-4">
+                  <h3 className="text-sm font-semibold mb-2">
+                    Manual API Key Setup
+                  </h3>
+                  <ol className="text-sm text-text-secondary space-y-1.5 list-decimal list-inside">
+                    <li>
+                      Go to{" "}
+                      <a
+                        href="https://kalshi.com/account/profile"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-accent hover:underline"
+                      >
+                        kalshi.com/account/profile
+                      </a>
+                    </li>
+                    <li>Scroll to API Keys and click &ldquo;Create API Key&rdquo;</li>
+                    <li>Copy your API Key ID and download the private key file</li>
+                    <li>Paste both below</li>
+                  </ol>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-text-secondary mb-1.5">
+                    API Key ID
+                  </label>
+                  <input
+                    type="text"
+                    value={apiKeyId}
+                    onChange={(e) => setApiKeyId(e.target.value)}
+                    placeholder="e.g., abc123-def456-..."
+                    className="w-full px-4 py-3 bg-background border border-border rounded-lg text-text-primary placeholder:text-text-tertiary focus:outline-none focus:border-accent transition-colors font-mono text-sm"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-text-secondary mb-1.5">
+                    Private Key (RSA PEM)
+                  </label>
+                  <textarea
+                    value={privateKey}
+                    onChange={(e) => setPrivateKey(e.target.value)}
+                    placeholder={
+                      "-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----"
+                    }
+                    rows={6}
+                    className="w-full px-4 py-3 bg-background border border-border rounded-lg text-text-primary placeholder:text-text-tertiary focus:outline-none focus:border-accent transition-colors font-mono text-xs"
+                  />
+                </div>
+
+                <button
+                  onClick={handleManualSave}
+                  disabled={saving || !apiKeyId || !privateKey}
+                  className="w-full py-3 bg-surface-hover hover:bg-border disabled:opacity-50 text-text-primary font-semibold rounded-lg transition-colors"
+                >
+                  {saving ? "Connecting..." : "Connect with API Keys"}
+                </button>
+
+                <p className="text-xs text-text-tertiary text-center">
+                  Credentials are encrypted with AES-256-GCM before storage.
+                </p>
+              </div>
+            )}
           </>
         )}
 
@@ -198,27 +331,26 @@ export default function TradingSettingsPage() {
             {message.text}
           </div>
         )}
-
-        {/* Save button */}
-        {!configured && (
-          <button
-            onClick={handleSave}
-            disabled={saving || !apiKeyId || !privateKey}
-            className="mt-6 w-full py-3 bg-accent hover:bg-accent-hover disabled:opacity-50 text-background font-semibold rounded-lg transition-colors"
-          >
-            {saving ? "Connecting..." : "Connect Kalshi Account"}
-          </button>
-        )}
       </div>
 
-      {/* Deposit instructions */}
+      {/* Fund account instructions */}
       <div className="bg-surface border border-border rounded-xl p-6">
         <h2 className="text-lg font-semibold mb-3">Fund Your Account</h2>
         <p className="text-sm text-text-secondary mb-4">
           To start trading, deposit funds directly through Kalshi:
         </p>
         <ol className="text-sm text-text-secondary space-y-1.5 list-decimal list-inside">
-          <li>Log in to your Kalshi account at <span className="text-accent">kalshi.com</span></li>
+          <li>
+            Log in at{" "}
+            <a
+              href="https://kalshi.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-accent hover:underline"
+            >
+              kalshi.com
+            </a>
+          </li>
           <li>Go to Portfolio &rarr; Deposit</li>
           <li>Add $50 or more via bank transfer or debit card</li>
           <li>Your balance will appear here automatically</li>
