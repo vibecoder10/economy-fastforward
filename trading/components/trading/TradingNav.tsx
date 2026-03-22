@@ -50,12 +50,6 @@ export function TradingNav() {
           {/* Right side */}
           <div className="flex items-center gap-4">
             <BalanceWidget />
-            <Link
-              href="/dashboard"
-              className="text-xs text-text-tertiary hover:text-text-secondary transition-colors"
-            >
-              StoryEngine
-            </Link>
           </div>
         </div>
       </div>
