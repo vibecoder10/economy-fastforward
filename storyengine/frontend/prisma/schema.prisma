@@ -60,12 +60,15 @@ model User {
   subscriptionTier String   @default("taste")
   stripeCustomerId String?
 
-  accounts        Account[]
-  sessions        Session[]
-  apiKeys         ApiKeys?
-  channelProfiles ChannelProfile[]
-  projects        Project[]
-  usageEvents     UsageEvent[]
+  accounts          Account[]
+  sessions          Session[]
+  apiKeys           ApiKeys?
+  channelProfiles   ChannelProfile[]
+  projects          Project[]
+  usageEvents       UsageEvent[]
+  kalshiCredentials KalshiCredentials?
+  watchlistItems    WatchlistItem[]
+  tradeLogs         TradeLog[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -149,6 +152,64 @@ model Project {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// =============================================================================
+// USAGE METERING
+// =============================================================================
+
+// =============================================================================
+// TRADING: Kalshi Credentials (encrypted at rest)
+// =============================================================================
+
+model KalshiCredentials {
+  id         String @id @default(cuid())
+  userId     String @unique
+  apiKeyId   String // Encrypted Kalshi API key ID
+  privateKey String // Encrypted RSA private key PEM
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// =============================================================================
+// TRADING: Watchlist
+// =============================================================================
+
+model WatchlistItem {
+  id           String   @id @default(cuid())
+  userId       String
+  eventTicker  String
+  marketTicker String
+  title        String   @default("")
+  addedAt      DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, marketTicker])
+}
+
+// =============================================================================
+// TRADING: Trade Log (local record of trades placed through our UI)
+// =============================================================================
+
+model TradeLog {
+  id               String   @id @default(cuid())
+  userId           String
+  kalshiOrderId    String
+  marketTicker     String
+  eventTicker      String
+  side             String   // "yes" or "no"
+  action           String   // "buy" or "sell"
+  contracts        Int
+  pricePerContract Float    // in dollars (0.01 - 0.99)
+  totalCost        Float
+  status           String   @default("pending") // pending, filled, canceled
+  createdAt        DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 // =============================================================================
