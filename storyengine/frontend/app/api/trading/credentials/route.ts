@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { encrypt, decrypt } from "@/lib/crypto";
 import { KalshiClient } from "@/lib/kalshi";
 import { z } from "zod";
+
+const DEFAULT_USER_ID = "default-user";
 
 const credentialSchema = z.object({
   apiKeyId: z.string().min(1, "API Key ID is required"),
@@ -13,12 +13,7 @@ const credentialSchema = z.object({
 
 // Check if credentials are configured
 export async function GET() {
-  const session = await getServerSession(authOptions);
-  if (!session?.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const userId = (session.user as { id: string }).id;
+  const userId = DEFAULT_USER_ID;
   const creds = await prisma.kalshiCredentials.findUnique({
     where: { userId },
   });
@@ -31,12 +26,7 @@ export async function GET() {
 
 // Save credentials (encrypted)
 export async function PUT(req: Request) {
-  const session = await getServerSession(authOptions);
-  if (!session?.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const userId = (session.user as { id: string }).id;
+  const userId = DEFAULT_USER_ID;
   const body = await req.json();
   const parsed = credentialSchema.safeParse(body);
 
@@ -85,12 +75,7 @@ export async function PUT(req: Request) {
 
 // Remove credentials
 export async function DELETE() {
-  const session = await getServerSession(authOptions);
-  if (!session?.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const userId = (session.user as { id: string }).id;
+  const userId = DEFAULT_USER_ID;
 
   await prisma.kalshiCredentials.deleteMany({
     where: { userId },

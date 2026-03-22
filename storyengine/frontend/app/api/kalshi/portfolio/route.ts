@@ -1,16 +1,11 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { getKalshiClientForUser } from "@/lib/kalshi-server";
 import { mockBalance, mockPositions } from "@/lib/kalshi-mock";
 
-export async function GET() {
-  const session = await getServerSession(authOptions);
-  if (!session?.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+const DEFAULT_USER_ID = "default-user";
 
-  const userId = (session.user as { id: string }).id;
+export async function GET() {
+  const userId = DEFAULT_USER_ID;
 
   try {
     const client = await getKalshiClientForUser(userId);

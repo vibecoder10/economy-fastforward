@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { signOut } from "next-auth/react";
 import { cn } from "@/lib/utils";
 import { BalanceWidget } from "./BalanceWidget";
 
@@ -57,12 +56,6 @@ export function TradingNav() {
             >
               StoryEngine
             </Link>
-            <button
-              onClick={() => signOut({ callbackUrl: "/" })}
-              className="text-sm text-text-secondary hover:text-text-primary transition-colors"
-            >
-              Sign Out
-            </button>
           </div>
         </div>
       </div>

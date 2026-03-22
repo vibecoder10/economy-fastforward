@@ -1,10 +1,9 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { encrypt } from "@/lib/crypto";
 import { z } from "zod";
 
+const DEFAULT_USER_ID = "default-user";
 const KALSHI_API_BASE = "https://api.elections.kalshi.com/trade-api/v2";
 
 const loginSchema = z.object({
@@ -19,12 +18,7 @@ const loginSchema = z.object({
  * 3. Store the generated keys encrypted in our DB
  */
 export async function POST(req: Request) {
-  const session = await getServerSession(authOptions);
-  if (!session?.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const userId = (session.user as { id: string }).id;
+  const userId = DEFAULT_USER_ID;
   const body = await req.json();
   const parsed = loginSchema.safeParse(body);
 

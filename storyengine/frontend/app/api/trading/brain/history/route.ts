@@ -1,19 +1,15 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { computeCategoryScores } from "@/lib/betting-brain/learner";
+
+const DEFAULT_USER_ID = "default-user";
 
 /**
  * GET /api/trading/brain/history — Full experiment history + learned patterns
  */
 export async function GET() {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-    const userId = (session.user as { id: string }).id;
+    const userId = DEFAULT_USER_ID;
 
     // Get all experiments
     const experiments = await prisma.betExperiment.findMany({

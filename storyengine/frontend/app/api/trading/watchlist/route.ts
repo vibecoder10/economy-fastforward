@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
+
+const DEFAULT_USER_ID = "default-user";
 
 const addSchema = z.object({
   eventTicker: z.string().min(1),
@@ -12,12 +12,7 @@ const addSchema = z.object({
 
 // Get watchlist
 export async function GET() {
-  const session = await getServerSession(authOptions);
-  if (!session?.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const userId = (session.user as { id: string }).id;
+  const userId = DEFAULT_USER_ID;
   const items = await prisma.watchlistItem.findMany({
     where: { userId },
     orderBy: { addedAt: "desc" },
@@ -28,12 +23,7 @@ export async function GET() {
 
 // Add to watchlist
 export async function POST(req: Request) {
-  const session = await getServerSession(authOptions);
-  if (!session?.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const userId = (session.user as { id: string }).id;
+  const userId = DEFAULT_USER_ID;
   const body = await req.json();
   const parsed = addSchema.safeParse(body);
 
@@ -65,12 +55,7 @@ export async function POST(req: Request) {
 
 // Remove from watchlist
 export async function DELETE(req: Request) {
-  const session = await getServerSession(authOptions);
-  if (!session?.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const userId = (session.user as { id: string }).id;
+  const userId = DEFAULT_USER_ID;
   const { searchParams } = new URL(req.url);
   const marketTicker = searchParams.get("marketTicker");
 

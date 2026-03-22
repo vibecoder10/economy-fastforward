@@ -1,6 +1,4 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getKalshiClientForUser } from "@/lib/kalshi-server";
 import { getConfig } from "@/lib/betting-brain/config";
@@ -8,6 +6,8 @@ import { type BrainState, type ActiveBet, DEFAULT_STATE } from "@/lib/betting-br
 import { runCycle, monitorPositions, getStatus } from "@/lib/betting-brain/brain";
 import { extractLearnings, computeCategoryScores } from "@/lib/betting-brain/learner";
 import { fetchMarketsForBrain } from "@/lib/betting-brain/markets";
+
+const DEFAULT_USER_ID = "default-user";
 
 // ---------- Prisma ↔ BrainState helpers ----------
 
@@ -77,11 +77,7 @@ async function getConfigWithLearnings(userId: string) {
 
 export async function GET() {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-    const userId = (session.user as { id: string }).id;
+    const userId = DEFAULT_USER_ID;
 
     const config = await getConfigWithLearnings(userId);
     const state = await loadStateFromDb(userId);
@@ -131,11 +127,7 @@ export async function GET() {
 
 export async function POST(req: Request) {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-    const userId = (session.user as { id: string }).id;
+    const userId = DEFAULT_USER_ID;
 
     const body = await req.json();
     const action = body.action as string;

@@ -1,6 +1,3 @@
-import { redirect } from "next/navigation";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { TradingNav } from "@/components/trading/TradingNav";
 
 export default async function TradingLayout({
@@ -8,12 +5,6 @@ export default async function TradingLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const session = await getServerSession(authOptions);
-
-  if (!session) {
-    redirect("/auth/login");
-  }
-
   return (
     <div className="min-h-screen flex flex-col">
       <TradingNav />

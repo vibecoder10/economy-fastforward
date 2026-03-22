@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { getKalshiClientForUser } from "@/lib/kalshi-server";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
+
+const DEFAULT_USER_ID = "default-user";
 
 const placeOrderSchema = z.object({
   ticker: z.string().min(1),
@@ -14,12 +14,7 @@ const placeOrderSchema = z.object({
 });
 
 export async function POST(req: Request) {
-  const session = await getServerSession(authOptions);
-  if (!session?.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const userId = (session.user as { id: string }).id;
+  const userId = DEFAULT_USER_ID;
   const client = await getKalshiClientForUser(userId);
 
   if (!client) {
@@ -78,12 +73,7 @@ export async function POST(req: Request) {
 }
 
 export async function GET() {
-  const session = await getServerSession(authOptions);
-  if (!session?.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const userId = (session.user as { id: string }).id;
+  const userId = DEFAULT_USER_ID;
   const client = await getKalshiClientForUser(userId);
 
   if (!client) {
