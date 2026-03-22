@@ -24,3 +24,6 @@ export type { CycleResult, MonitorResult, BrainStatus, SettlementResult } from "
 
 export { extractLearnings, computeCategoryScores } from "./learner";
 export type { ExtractedLearning } from "./learner";
+
+export { fetchMarketsForBrain } from "./markets";
+export type { FetchedMarketData } from "./markets";

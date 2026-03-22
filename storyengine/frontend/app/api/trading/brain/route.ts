@@ -2,13 +2,12 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { getPublicKalshiClient } from "@/lib/kalshi-server";
-import { mockMarkets } from "@/lib/kalshi-mock";
+import { getKalshiClientForUser } from "@/lib/kalshi-server";
 import { getConfig } from "@/lib/betting-brain/config";
 import { type BrainState, type ActiveBet, DEFAULT_STATE } from "@/lib/betting-brain/state";
 import { runCycle, monitorPositions, getStatus } from "@/lib/betting-brain/brain";
 import { extractLearnings, computeCategoryScores } from "@/lib/betting-brain/learner";
-import type { KalshiMarket } from "@/lib/kalshi-types";
+import { fetchMarketsForBrain } from "@/lib/betting-brain/markets";
 
 // ---------- Prisma ↔ BrainState helpers ----------
 
@@ -62,16 +61,6 @@ async function saveStateToDb(userId: string, state: BrainState): Promise<void> {
       lastBet: state.last_bet ? new Date(state.last_bet) : null,
     },
   });
-}
-
-async function fetchMarkets(): Promise<KalshiMarket[]> {
-  try {
-    const client = getPublicKalshiClient();
-    const data = await client.getMarkets({ status: "open", limit: 100 });
-    return data.markets;
-  } catch {
-    return [...mockMarkets];
-  }
 }
 
 async function getConfigWithLearnings(userId: string) {
@@ -156,50 +145,113 @@ export async function POST(req: Request) {
       case "cycle":
       case "force": {
         let state = await loadStateFromDb(userId);
-        const markets = await fetchMarkets();
+
+        // Fetch markets with smart filtering + pagination
+        const activeTickers = state.active_bets.map((b) => b.ticker);
+        const marketData = await fetchMarketsForBrain(activeTickers);
 
         // Force: override cooldown
         if (action === "force") {
           state = { ...state, last_bet: null };
         }
 
-        const result = runCycle(markets, config, state);
+        // Run cycle against relevant open markets
+        const result = runCycle(marketData.openMarkets, config, state);
 
         // Persist updated state
         await saveStateToDb(userId, result.state);
 
-        // If bet placed, also create BetExperiment record
+        // If bet placed, create experiment record + optionally place live order
+        let liveOrderId: string | null = null;
+        let liveError: string | null = null;
+
         if (result.action === "bet_placed" && result.bet) {
-          await prisma.betExperiment.create({
-            data: {
-              userId,
-              ticker: result.bet.ticker,
-              title: result.bet.title,
-              side: result.bet.side,
-              contracts: result.bet.contracts,
-              entryPrice: result.bet.entryPrice,
-              totalCost: result.bet.totalCost,
-              confidence: result.bet.confidence,
-              reasoning: JSON.stringify(result.bet.reasoning),
-              category: result.bet.category,
-              mode: config.mode,
-            },
-          });
+          // Live mode: actually place the order via Kalshi API
+          if (state.mode === "live") {
+            const kalshiClient = await getKalshiClientForUser(userId);
+            if (!kalshiClient) {
+              liveError = "Live mode requires Kalshi credentials. Connect in Settings.";
+            } else {
+              try {
+                const order = await kalshiClient.placeOrder({
+                  ticker: result.bet.ticker,
+                  side: result.bet.side,
+                  action: "buy",
+                  type: "limit",
+                  count: result.bet.contracts,
+                  yes_price: result.bet.side === "yes" ? result.bet.entryPrice : undefined,
+                  no_price: result.bet.side === "no" ? result.bet.entryPrice : undefined,
+                });
+                liveOrderId = order.order.order_id;
+
+                // Log to trade log
+                await prisma.tradeLog.create({
+                  data: {
+                    userId,
+                    kalshiOrderId: order.order.order_id,
+                    marketTicker: result.bet.ticker,
+                    eventTicker: result.bet.ticker.split("-").slice(0, -1).join("-"),
+                    side: result.bet.side,
+                    action: "buy",
+                    contracts: result.bet.contracts,
+                    pricePerContract: result.bet.entryPrice / 100,
+                    totalCost: result.bet.totalCost / 100,
+                    status: order.order.status === "executed" ? "filled" : "pending",
+                  },
+                });
+              } catch (err) {
+                liveError = `Order failed: ${err}`;
+                // Revert the bet from state since it wasn't actually placed
+                const revertedState = {
+                  ...result.state,
+                  active_bets: result.state.active_bets.filter((b) => b.id !== result.bet!.id),
+                  bankroll_cents: result.state.bankroll_cents + result.bet.totalCost,
+                  total_bets: result.state.total_bets - 1,
+                };
+                await saveStateToDb(userId, revertedState);
+              }
+            }
+          }
+
+          // Create experiment record (paper or live)
+          if (!liveError) {
+            await prisma.betExperiment.create({
+              data: {
+                userId,
+                ticker: result.bet.ticker,
+                title: result.bet.title,
+                side: result.bet.side,
+                contracts: result.bet.contracts,
+                entryPrice: result.bet.entryPrice,
+                totalCost: result.bet.totalCost,
+                confidence: result.bet.confidence,
+                reasoning: JSON.stringify(result.bet.reasoning),
+                category: result.bet.category,
+                mode: state.mode,
+              },
+            });
+          }
         }
 
         return NextResponse.json({
-          action: result.action,
-          reason: result.reason,
-          bet: result.bet,
+          action: liveError ? "error" : result.action,
+          reason: liveError ?? result.reason,
+          bet: liveError ? undefined : result.bet,
+          liveOrderId,
           rankings: result.rankings?.slice(0, 5),
-          state: getStatus(config, result.state),
+          marketsScanned: marketData.openMarkets.length,
+          isMock: marketData.isMock,
+          state: getStatus(config, liveError ? await loadStateFromDb(userId) : result.state),
         });
       }
 
       case "monitor": {
         const state = await loadStateFromDb(userId);
-        const markets = await fetchMarkets();
-        const result = monitorPositions(markets, state);
+
+        // Fetch all markets including settled ones for active positions
+        const activeTickers = state.active_bets.map((b) => b.ticker);
+        const marketData = await fetchMarketsForBrain(activeTickers);
+        const result = monitorPositions(marketData.allMarkets, state);
 
         // Persist updated state
         await saveStateToDb(userId, result.state);
@@ -248,6 +300,33 @@ export async function POST(req: Request) {
         return NextResponse.json({
           enabled: newState.enabled,
           message: `Brain ${enabled ? "enabled" : "disabled"}`,
+        });
+      }
+
+      case "set-mode": {
+        const mode = body.mode as string;
+        if (mode !== "paper" && mode !== "live") {
+          return NextResponse.json({ error: "Mode must be 'paper' or 'live'" }, { status: 400 });
+        }
+
+        // Require Kalshi credentials for live mode
+        if (mode === "live") {
+          const kalshiClient = await getKalshiClientForUser(userId);
+          if (!kalshiClient) {
+            return NextResponse.json(
+              { error: "Live mode requires Kalshi credentials. Connect in Settings first." },
+              { status: 400 }
+            );
+          }
+        }
+
+        const state = await loadStateFromDb(userId);
+        const newState = { ...state, mode: mode as "paper" | "live" };
+        await saveStateToDb(userId, newState);
+
+        return NextResponse.json({
+          mode: newState.mode,
+          message: `Switched to ${mode} trading`,
         });
       }
 
