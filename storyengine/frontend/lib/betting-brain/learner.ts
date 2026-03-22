@@ -1,16 +1,11 @@
 /**
- * Extract patterns from settled bets and update memory files.
- * Mirrors: autopilot/learning/learning_extractor.py + memory_writer.py
+ * Extract patterns from settled bets (pure functions).
+ * Mirrors: autopilot/learning/learning_extractor.py
  *
- * After each bet settles, extract:
- * - Category performance (geopolitics wins more than economy?)
- * - Price range patterns (cheap bets win more?)
- * - Timing patterns (3-14 day markets better?)
- * - Volume patterns (high/low volume edge?)
+ * NO filesystem I/O. Learnings stored in BetExperiment.learnings (Prisma).
+ * Category win rates computed from BetExperiment records via SQL.
  */
 
-import { readFileSync, writeFileSync, existsSync } from "fs";
-import { join } from "path";
 import type { SettledBet } from "./state";
 
 export interface ExtractedLearning {
@@ -19,20 +14,6 @@ export interface ExtractedLearning {
   verdict: "KEEP" | "DISCARD" | "NEUTRAL";
   confidence: number;
   detail: string;
-}
-
-const MEMORY_DIR = join(__dirname, "memory");
-
-function readMemoryFile(filename: string): string {
-  const path = join(MEMORY_DIR, filename);
-  if (!existsSync(path)) return "";
-  return readFileSync(path, "utf-8");
-}
-
-function appendToMemoryFile(filename: string, content: string): void {
-  const path = join(MEMORY_DIR, filename);
-  const existing = existsSync(path) ? readFileSync(path, "utf-8") : "";
-  writeFileSync(path, existing + "\n" + content);
 }
 
 function getVerdict(result: "won" | "lost" | "push"): "KEEP" | "DISCARD" | "NEUTRAL" {
@@ -59,7 +40,7 @@ function getDaysToClose(placedAt: string, closeTime: string): number {
 }
 
 /**
- * Extract all learnings from a settled bet.
+ * Extract all learnings from a settled bet. Pure function.
  */
 export function extractLearnings(bet: SettledBet): ExtractedLearning[] {
   const learnings: ExtractedLearning[] = [];
@@ -101,79 +82,27 @@ export function extractLearnings(bet: SettledBet): ExtractedLearning[] {
 }
 
 /**
- * Write learnings to memory files.
+ * Compute category win rates from settled bet experiments.
+ * Takes raw DB records, returns category → score (0-100) mapping.
+ * Used by scorer's category_fit signal.
  */
-export function writeLearnings(bet: SettledBet, learnings: ExtractedLearning[]): void {
-  const date = new Date().toISOString().split("T")[0];
-  const pnlStr = `${bet.pnl > 0 ? "+" : ""}$${(bet.pnl / 100).toFixed(2)}`;
+export function computeCategoryScores(
+  experiments: Array<{ category: string; result: string | null }>
+): Record<string, number> {
+  const stats: Record<string, { wins: number; total: number }> = {};
 
-  // 1. Append to experiments log
-  const experimentEntry = `
-## Bet: "${bet.title}"
-- Date: ${date}
-- Side: ${bet.side.toUpperCase()} @ ${bet.entryPrice}c
-- Contracts: ${bet.contracts}
-- Cost: $${(bet.totalCost / 100).toFixed(2)}
-- Result: ${bet.result.toUpperCase()} (${pnlStr})
-- Confidence: ${bet.confidence.toFixed(0)}/100
-- Category: ${bet.category}
-- Learnings: ${learnings.map((l) => l.detail).join("; ")}
-`;
-  appendToMemoryFile("experiments_log.md", experimentEntry);
-
-  // 2. Update category performance
-  const catLearnings = learnings.filter((l) => l.category === "category");
-  if (catLearnings.length > 0) {
-    const entries = catLearnings.map((l) => `- ${l.detail} (${l.verdict})`).join("\n");
-    appendToMemoryFile("category_performance.md", `\n${entries}`);
+  for (const exp of experiments) {
+    if (!exp.result || exp.result === "push") continue;
+    const cat = exp.category;
+    stats[cat] = stats[cat] ?? { wins: 0, total: 0 };
+    stats[cat].total++;
+    if (exp.result === "won") stats[cat].wins++;
   }
 
-  // 3. Update market patterns
-  const priceLearnings = learnings.filter((l) => l.category === "price_range");
-  if (priceLearnings.length > 0) {
-    const entries = priceLearnings.map((l) => `- ${l.detail} (${l.verdict})`).join("\n");
-    appendToMemoryFile("market_patterns.md", `\n${entries}`);
-  }
-
-  // 4. Update timing patterns
-  const timingLearnings = learnings.filter((l) => l.category === "timing");
-  if (timingLearnings.length > 0) {
-    const entries = timingLearnings.map((l) => `- ${l.detail} (${l.verdict})`).join("\n");
-    appendToMemoryFile("timing_patterns.md", `\n${entries}`);
-  }
-}
-
-/**
- * Read aggregated learnings from memory to inform scoring.
- * Returns category win rates for the scorer's category_fit signal.
- */
-export function getCategoryWinRates(): Record<string, number> {
-  const content = readMemoryFile("category_performance.md");
-  if (!content) return {};
-
-  const rates: Record<string, { wins: number; total: number }> = {};
-
-  for (const line of content.split("\n")) {
-    const keepMatch = line.match(/^- (.+?): won .+ \(KEEP\)/);
-    const discardMatch = line.match(/^- (.+?): lost .+ \(DISCARD\)/);
-
-    if (keepMatch) {
-      const cat = keepMatch[1];
-      rates[cat] = rates[cat] ?? { wins: 0, total: 0 };
-      rates[cat].wins++;
-      rates[cat].total++;
-    } else if (discardMatch) {
-      const cat = discardMatch[1];
-      rates[cat] = rates[cat] ?? { wins: 0, total: 0 };
-      rates[cat].total++;
-    }
-  }
-
-  // Convert to 0-100 scores
   const scores: Record<string, number> = {};
-  for (const [cat, data] of Object.entries(rates)) {
+  for (const [cat, data] of Object.entries(stats)) {
+    // Need 3+ samples to move from default 50
     if (data.total >= 3) {
-      // Need 3+ samples to move from default 50
       scores[cat] = Math.round((data.wins / data.total) * 100);
     }
   }

@@ -1,11 +1,11 @@
 /**
- * Betting Brain — Main Orchestrator
+ * Betting Brain — Main Orchestrator (Pure Functions)
  * Mirrors: autopilot/autopilot.py
  *
  * The loop: ANALYZE → SIZE → BET → MONITOR → LEARN → REPEAT
  *
- * Paper trading mode: simulates bets against real market data.
- * Live mode: places real orders via Kalshi API.
+ * All functions are PURE — take state in, return new state out.
+ * No filesystem I/O. Prisma persistence handled by API route.
  */
 
 import type { KalshiMarket } from "../kalshi-types";
@@ -13,14 +13,13 @@ import type { BrainConfig } from "./config";
 import {
   type BrainState,
   type ActiveBet,
-  loadState,
-  saveState,
+  type SettledBet,
   recordBet,
   settleBet,
   canPlaceBet,
   getWinRate,
 } from "./state";
-import { type ScoredMarket, type MarketCandidate, rankMarkets, getBestMarket } from "./scorer";
+import { type ScoredMarket, type MarketCandidate, rankMarkets } from "./scorer";
 import { calculateSize } from "./sizer";
 
 // ---------- Types ----------
@@ -34,19 +33,23 @@ export interface CycleResult {
   state: BrainState;
 }
 
+export interface SettlementResult {
+  betId: string;
+  ticker: string;
+  result: "won" | "lost" | "push";
+  pnl: number;
+  settled: SettledBet;
+}
+
 export interface MonitorResult {
-  settled: Array<{
-    betId: string;
-    ticker: string;
-    result: "won" | "lost" | "push";
-    pnl: number;
-  }>;
+  settlements: SettlementResult[];
   active: Array<{
     betId: string;
     ticker: string;
     currentPrice: number;
     unrealizedPnl: number;
   }>;
+  state: BrainState;
 }
 
 export interface BrainStatus {
@@ -63,33 +66,32 @@ export interface BrainStatus {
   lastBet: string | null;
 }
 
-// ---------- Core Functions ----------
+// ---------- Core Functions (all pure) ----------
 
 /**
- * Run one brain cycle: score markets → pick best → size → place bet.
+ * Run one brain cycle: score markets → pick best → size → record bet.
+ * Returns new state — caller persists.
  */
 export function runCycle(
   markets: KalshiMarket[],
   config: BrainConfig,
-  state?: BrainState
+  state: BrainState
 ): CycleResult {
-  const currentState = state ?? loadState();
-
   // 1. Check if enabled
-  if (!currentState.enabled) {
-    return { action: "disabled", reason: "Brain is disabled", state: currentState };
+  if (!state.enabled) {
+    return { action: "disabled", reason: "Brain is disabled", state };
   }
 
   // 2. Check if we can place a bet
-  const canBet = canPlaceBet(currentState, config.thresholds);
+  const canBet = canPlaceBet(state, config.thresholds);
   if (!canBet.allowed) {
-    return { action: "not_ready", reason: canBet.reason!, state: currentState };
+    return { action: "not_ready", reason: canBet.reason!, state };
   }
 
   // 3. Filter to open markets only
   const openMarkets = markets.filter((m) => m.status === "open");
   if (openMarkets.length === 0) {
-    return { action: "no_bet", reason: "No open markets available", state: currentState };
+    return { action: "no_bet", reason: "No open markets available", state };
   }
 
   // 4. Score all markets
@@ -101,12 +103,12 @@ export function runCycle(
       action: "no_bet",
       reason: `No markets meet confidence threshold (${config.thresholds.min_confidence})`,
       rankings: [],
-      state: currentState,
+      state,
     };
   }
 
   // 5. Pick best market (skip markets we already have positions in)
-  const activeTickerSet = new Set(currentState.active_bets.map((b) => b.ticker));
+  const activeTickerSet = new Set(state.active_bets.map((b) => b.ticker));
   const best = rankings.find((r) => !activeTickerSet.has(r.market.ticker));
 
   if (!best) {
@@ -114,12 +116,12 @@ export function runCycle(
       action: "no_bet",
       reason: "All qualifying markets already have active positions",
       rankings,
-      state: currentState,
+      state,
     };
   }
 
   // 6. Size the position
-  const size = calculateSize(best, currentState.bankroll_cents, config);
+  const size = calculateSize(best, state.bankroll_cents, config);
 
   // 7. Create the bet record
   const bet: ActiveBet = {
@@ -128,9 +130,10 @@ export function runCycle(
     title: best.market.title,
     side: best.side,
     contracts: size.contracts,
-    entryPrice: best.side === "yes"
-      ? (best.market.yes_ask || best.market.last_price)
-      : (best.market.no_ask || 100 - best.market.last_price),
+    entryPrice:
+      best.side === "yes"
+        ? best.market.yes_ask || best.market.last_price
+        : best.market.no_ask || 100 - best.market.last_price,
     totalCost: size.totalCostCents,
     placedAt: new Date().toISOString(),
     confidence: best.score,
@@ -139,9 +142,8 @@ export function runCycle(
     closeTime: best.market.close_time,
   };
 
-  // 8. Update state (paper mode: just record locally)
-  const newState = recordBet(currentState, bet);
-  saveState(newState);
+  // 8. Update state (pure — caller persists)
+  const newState = recordBet(state, bet);
 
   return {
     action: "bet_placed",
@@ -154,16 +156,17 @@ export function runCycle(
 }
 
 /**
- * Check active bets against current market data. Settle any resolved markets.
+ * Check active bets against current market data. Settle resolved markets.
+ * Returns new state + settlements — caller persists.
  */
 export function monitorPositions(
   markets: KalshiMarket[],
-  state?: BrainState
+  state: BrainState
 ): MonitorResult {
-  let currentState = state ?? loadState();
+  let currentState = state;
   const marketMap = new Map(markets.map((m) => [m.ticker, m]));
 
-  const settled: MonitorResult["settled"] = [];
+  const settlements: SettlementResult[] = [];
   const active: MonitorResult["active"] = [];
 
   for (const bet of currentState.active_bets) {
@@ -179,19 +182,28 @@ export function monitorPositions(
         (bet.side === "yes" && (market.result === "yes" || market.result === "all_yes")) ||
         (bet.side === "no" && (market.result === "no" || market.result === "all_no"));
 
-      const payout = won ? bet.contracts * 100 : 0; // 100c per contract if won, 0 if lost
-      const result = won ? "won" : "lost";
-      const pnl = payout - bet.totalCost;
+      const payout = won ? bet.contracts * 100 : 0;
+      const result = won ? "won" as const : "lost" as const;
 
       const learnings = [
         `${result.toUpperCase()}: ${bet.side} @ ${bet.entryPrice}c on "${bet.title}"`,
         `Category: ${bet.category}`,
         `Confidence was: ${bet.confidence.toFixed(0)}`,
-        `P&L: ${pnl > 0 ? "+" : ""}${(pnl / 100).toFixed(2)}`,
+        `P&L: ${(payout - bet.totalCost) > 0 ? "+" : ""}$${((payout - bet.totalCost) / 100).toFixed(2)}`,
       ];
 
-      currentState = settleBet(currentState, bet.id, result, payout, learnings);
-      settled.push({ betId: bet.id, ticker: bet.ticker, result, pnl });
+      const settleResult = settleBet(currentState, bet.id, result, payout, learnings);
+      currentState = settleResult.state;
+
+      if (settleResult.settled) {
+        settlements.push({
+          betId: bet.id,
+          ticker: bet.ticker,
+          result,
+          pnl: payout - bet.totalCost,
+          settled: settleResult.settled,
+        });
+      }
     } else {
       // Still active — calculate unrealized P&L
       const currentPrice =
@@ -203,53 +215,24 @@ export function monitorPositions(
     }
   }
 
-  if (settled.length > 0) {
-    saveState(currentState);
-  }
-
-  return { settled, active };
+  return { settlements, active, state: currentState };
 }
 
 /**
  * Get current brain status summary.
  */
-export function getStatus(config: BrainConfig, state?: BrainState): BrainStatus {
-  const s = state ?? loadState();
+export function getStatus(config: BrainConfig, state: BrainState): BrainStatus {
   return {
-    enabled: s.enabled,
-    mode: s.mode,
-    bankroll: s.bankroll_cents / 100,
-    startingBankroll: s.starting_bankroll_cents / 100,
-    totalPnl: s.total_pnl_cents / 100,
-    winRate: getWinRate(s),
-    totalBets: s.total_bets,
-    activeBets: s.active_bets.length,
+    enabled: state.enabled,
+    mode: state.mode,
+    bankroll: state.bankroll_cents / 100,
+    startingBankroll: state.starting_bankroll_cents / 100,
+    totalPnl: state.total_pnl_cents / 100,
+    winRate: getWinRate(state),
+    totalBets: state.total_bets,
+    activeBets: state.active_bets.length,
     maxPositions: config.thresholds.max_positions,
-    lastCycle: s.last_cycle,
-    lastBet: s.last_bet,
+    lastCycle: state.last_cycle,
+    lastBet: state.last_bet,
   };
-}
-
-/**
- * Force-run a cycle (ignore cooldown).
- */
-export function forceCycle(
-  markets: KalshiMarket[],
-  config: BrainConfig
-): CycleResult {
-  const state = loadState();
-
-  // Override cooldown by clearing last_bet
-  const overriddenState = { ...state, last_bet: null };
-  return runCycle(markets, config, overriddenState);
-}
-
-/**
- * Toggle brain on/off.
- */
-export function toggleBrain(enabled: boolean): BrainState {
-  const state = loadState();
-  state.enabled = enabled;
-  saveState(state);
-  return state;
 }

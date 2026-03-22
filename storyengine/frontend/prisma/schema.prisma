@@ -70,6 +70,7 @@ model User {
   watchlistItems    WatchlistItem[]
   tradeLogs         TradeLog[]
   betExperiments    BetExperiment[]
+  brainState         BrainState?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -211,6 +212,31 @@ model TradeLog {
   createdAt        DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// =============================================================================
+// BETTING BRAIN: Persistent State (replaces filesystem brain_state.json)
+// =============================================================================
+
+model BrainState {
+  id                     String   @id @default(cuid())
+  userId                 String   @unique
+  enabled                Boolean  @default(true)
+  mode                   String   @default("paper") // "paper" or "live"
+  bankrollCents          Int      @default(10000)
+  startingBankrollCents  Int      @default(10000)
+  totalBets              Int      @default(0)
+  wins                   Int      @default(0)
+  losses                 Int      @default(0)
+  totalPnlCents          Int      @default(0)
+  activeBets             String   @default("[]") // JSON array of ActiveBet
+  lastCycle              DateTime?
+  lastBet                DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 // =============================================================================

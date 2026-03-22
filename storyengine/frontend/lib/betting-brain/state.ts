@@ -1,10 +1,9 @@
 /**
- * Manage betting brain runtime state.
+ * Betting brain state types and pure transform functions.
+ *
+ * NO filesystem I/O. All persistence handled by Prisma in the API route.
  * Mirrors: autopilot/core/state_manager.py
  */
-
-import { readFileSync, writeFileSync, mkdirSync } from "fs";
-import { join, dirname } from "path";
 
 export interface ActiveBet {
   id: string;
@@ -35,7 +34,6 @@ export interface BrainState {
   bankroll_cents: number;
   starting_bankroll_cents: number;
   active_bets: ActiveBet[];
-  settled_bets: SettledBet[];
   total_bets: number;
   wins: number;
   losses: number;
@@ -44,13 +42,12 @@ export interface BrainState {
   last_bet: string | null;
 }
 
-const DEFAULT_STATE: BrainState = {
+export const DEFAULT_STATE: BrainState = {
   enabled: true,
   mode: "paper",
   bankroll_cents: 10000,
   starting_bankroll_cents: 10000,
   active_bets: [],
-  settled_bets: [],
   total_bets: 0,
   wins: 0,
   losses: 0,
@@ -59,25 +56,7 @@ const DEFAULT_STATE: BrainState = {
   last_bet: null,
 };
 
-function getStatePath(): string {
-  return join(__dirname, "brain_state.json");
-}
-
-export function loadState(): BrainState {
-  try {
-    const content = readFileSync(getStatePath(), "utf-8");
-    return { ...DEFAULT_STATE, ...JSON.parse(content) };
-  } catch {
-    return { ...DEFAULT_STATE };
-  }
-}
-
-export function saveState(state: BrainState): void {
-  const statePath = getStatePath();
-  mkdirSync(dirname(statePath), { recursive: true });
-  writeFileSync(statePath, JSON.stringify(state, null, 2));
-}
-
+/** Pure: record a new bet in state */
 export function recordBet(state: BrainState, bet: ActiveBet): BrainState {
   return {
     ...state,
@@ -89,15 +68,16 @@ export function recordBet(state: BrainState, bet: ActiveBet): BrainState {
   };
 }
 
+/** Pure: settle a bet and update state */
 export function settleBet(
   state: BrainState,
   betId: string,
   result: "won" | "lost" | "push",
   payout: number,
   learnings: string[]
-): BrainState {
+): { state: BrainState; settled: SettledBet | null } {
   const bet = state.active_bets.find((b) => b.id === betId);
-  if (!bet) return state;
+  if (!bet) return { state, settled: null };
 
   const pnl = payout - bet.totalCost;
   const settled: SettledBet = {
@@ -109,15 +89,16 @@ export function settleBet(
     learnings,
   };
 
-  return {
+  const newState: BrainState = {
     ...state,
     active_bets: state.active_bets.filter((b) => b.id !== betId),
-    settled_bets: [...state.settled_bets, settled],
     bankroll_cents: state.bankroll_cents + payout,
     wins: result === "won" ? state.wins + 1 : state.wins,
     losses: result === "lost" ? state.losses + 1 : state.losses,
     total_pnl_cents: state.total_pnl_cents + pnl,
   };
+
+  return { state: newState, settled };
 }
 
 export function getWinRate(state: BrainState): number {
@@ -126,10 +107,10 @@ export function getWinRate(state: BrainState): number {
   return (state.wins / total) * 100;
 }
 
-export function canPlaceBet(state: BrainState, thresholds: { max_positions: number; cooldown_hours: number }): {
-  allowed: boolean;
-  reason?: string;
-} {
+export function canPlaceBet(
+  state: BrainState,
+  thresholds: { max_positions: number; cooldown_hours: number }
+): { allowed: boolean; reason?: string } {
   if (!state.enabled) {
     return { allowed: false, reason: "Brain is disabled" };
   }

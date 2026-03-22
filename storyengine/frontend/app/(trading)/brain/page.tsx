@@ -2,12 +2,26 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { cn } from "@/lib/utils";
-import type { BrainStatus, ActiveBet, SettledBet, CycleResult } from "@/lib/betting-brain";
+import type { BrainStatus, ActiveBet, CycleResult } from "@/lib/betting-brain";
+
+interface SettledBetDisplay {
+  id: string;
+  ticker: string;
+  title: string;
+  side: string;
+  contracts: number;
+  entryPrice: number;
+  totalCost: number;
+  confidence: number;
+  result: string | null;
+  pnl: number | null;
+  settledAt: string;
+}
 
 interface BrainResponse {
   status: BrainStatus;
   activeBets: ActiveBet[];
-  recentSettled: SettledBet[];
+  recentSettled: SettledBetDisplay[];
   config: {
     mode: string;
     weights: Record<string, number>;
