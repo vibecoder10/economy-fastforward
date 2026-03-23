@@ -53,7 +53,7 @@ export function VideoCard({ video, onClick }: VideoCardProps) {
       <div className="flex min-w-0 flex-1 flex-col gap-1.5">
         <h3 className="line-clamp-2 text-sm font-medium leading-tight">{video.video_title || "Untitled"}</h3>
         <div className="flex items-center gap-2">
-          <ProgressDots status={video.status} />
+          <ProgressDots status={video.status || "idea_logged"} />
           <span
             className={cn(
               "rounded-full px-1.5 py-0.5 text-[10px] font-medium",
