@@ -1,10 +1,25 @@
 """Video CRUD + stage transitions."""
 
+import json
 from fastapi import APIRouter, Depends, HTTPException, Query
 from auth import get_tenant_id
 from models import VideoSummary, VideoDetail, STAGE_ORDER, PIPELINE_STAGES
 from database import fetch_all, fetch_one, execute
-from typing import Optional
+from typing import Optional, Any
+
+
+def _parse_json_field(val: Any) -> Optional[dict]:
+    """Parse a JSON field that might be string or dict."""
+    if val is None:
+        return None
+    if isinstance(val, dict):
+        return val
+    if isinstance(val, str):
+        try:
+            return json.loads(val)
+        except (json.JSONDecodeError, ValueError):
+            return None
+    return None
 
 router = APIRouter(prefix="/api/videos", tags=["videos"])
 
@@ -96,8 +111,8 @@ async def get_video(video_id: str, tenant_id: str = Depends(get_tenant_id)):
         writer_guidance=r.get("writer_guidance"),
         thesis=r.get("thesis"),
         executive_hook=r.get("executive_hook"),
-        research_payload=r.get("research_payload"),
-        original_dna=r.get("original_dna"),
+        research_payload=_parse_json_field(r.get("research_payload")),
+        original_dna=_parse_json_field(r.get("original_dna")),
         script=r.get("script"),
         story_bible=r.get("story_bible"),
         thumbnail_url=r.get("thumbnail_url"),
