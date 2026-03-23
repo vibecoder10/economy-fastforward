@@ -62,10 +62,6 @@ PIPELINE_ORDER: list[str] = [
     "Uploaded (Draft)",
 ]
 
-# Supabase flow order
-SUPABASE_ORDER: list[str] = [to_supabase(s) for s in PIPELINE_ORDER]
-
-
 def to_supabase(pipeline_status: str) -> str:
     """Convert pipeline status to Supabase format.
 
@@ -162,5 +158,5 @@ def get_bot_name(supabase_status: str) -> str:
     return STAGE_BOT_MAP.get(supabase_status, "Pipeline")
 
 
-# Fix: SUPABASE_ORDER needs to be defined after to_supabase function
-SUPABASE_ORDER = [to_supabase(s) for s in PIPELINE_ORDER]
+# Supabase flow order (must be after to_supabase function)
+SUPABASE_ORDER: list[str] = [to_supabase(s) for s in PIPELINE_ORDER]
