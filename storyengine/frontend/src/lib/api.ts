@@ -66,6 +66,48 @@ export const getActivity = (status?: string) =>
 
 export const getActivityStats = () => fetchApi<ActivityStats>("/api/activity/stats");
 
+// Settings - API Key Management
+export const getApiKeys = () => fetchApi<ApiKeyList>("/api/settings/keys");
+
+export const getApiKeyStatus = (name: string) =>
+  fetchApi<ApiKeyStatus>(`/api/settings/keys/${name}`);
+
+export const setApiKey = (name: string, value: string) =>
+  fetchApi<{ status: string; message: string }>(`/api/settings/keys/${name}`, {
+    method: "POST",
+    body: JSON.stringify({ value }),
+  });
+
+export const deleteApiKey = (name: string) =>
+  fetchApi<{ status: string; message: string }>(`/api/settings/keys/${name}`, {
+    method: "DELETE",
+  });
+
+export const testApiKey = (name: string) =>
+  fetchApi<TestKeyResponse>(`/api/settings/keys/${name}/test`, { method: "POST" });
+
+export const revealApiKey = (name: string) =>
+  fetchApi<{ value: string }>(`/api/settings/keys/${name}/reveal`);
+
+// Pipeline - Stage Triggers
+export const createIdea = (topic: string, source?: string) =>
+  fetchApi<PipelineResponse>("/api/pipeline/create-idea", {
+    method: "POST",
+    body: JSON.stringify({ topic, source: source || "storyengine" }),
+  });
+
+export const runPipelineStage = (videoId: string, stage: string) =>
+  fetchApi<PipelineResponse>(`/api/pipeline/${stage}/${videoId}`, { method: "POST" });
+
+export const runNextStep = (videoId: string) =>
+  fetchApi<PipelineResponse>(`/api/pipeline/run-next/${videoId}`, { method: "POST" });
+
+export const getPipelineStatus = (videoId: string) =>
+  fetchApi<PipelineStatus>(`/api/pipeline/status/${videoId}`);
+
+export const getPipelineTaskStatus = (videoId: string) =>
+  fetchApi<TaskStatus>(`/api/pipeline/task/${videoId}`);
+
 // Types
 export interface DashboardSummary {
   active_bots: number;
@@ -186,4 +228,42 @@ export interface ReviewItem {
   image_index?: number;
   prompt?: string;
   type: string;
+}
+
+// Settings Types
+export interface ApiKeyStatus {
+  name: string;
+  configured: boolean;
+  source: "vault" | "env" | null;
+  masked_value: string | null;
+}
+
+export interface ApiKeyList {
+  keys: ApiKeyStatus[];
+}
+
+export interface TestKeyResponse {
+  success: boolean | null;
+  message: string;
+}
+
+// Pipeline Types
+export interface PipelineResponse {
+  video_id: string;
+  status: string;
+  message: string;
+  error?: string;
+}
+
+export interface PipelineStatus {
+  video_id: string;
+  current_status: string;
+  next_action: string | null;
+  airtable_synced: boolean;
+}
+
+export interface TaskStatus {
+  status: "pending" | "running" | "completed" | "failed";
+  message: string | null;
+  error?: string;
 }
