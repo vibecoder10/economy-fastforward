@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Key,
@@ -12,6 +12,7 @@ import {
   RefreshCw,
   Server,
   Cloud,
+  Check,
 } from "lucide-react";
 import { Card, Modal, Spinner, Tabs, TabPanel } from "@/components/ui";
 import { PasswordInput } from "@/components/forms";
@@ -53,8 +54,16 @@ export default function SettingsPage() {
   const [revealedKey, setRevealedKey] = useState<string | null>(null);
   const [revealedValue, setRevealedValue] = useState<string | null>(null);
 
+  // Save feedback state
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "success" | "error">("idle");
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  // Delete confirmation state
+  const [deletingKey, setDeletingKey] = useState<string | null>(null);
+  const [deleteStatus, setDeleteStatus] = useState<"idle" | "deleting" | "success" | "error">("idle");
+
   // Fetch all keys
-  const { data: keysData, isLoading } = useQuery({
+  const { data: keysData, isLoading, error: fetchError } = useQuery({
     queryKey: ["apiKeys"],
     queryFn: getApiKeys,
   });
@@ -70,20 +79,52 @@ export default function SettingsPage() {
   // Set key mutation
   const setMutation = useMutation({
     mutationFn: ({ name, value }: { name: string; value: string }) => setApiKey(name, value),
+    onMutate: () => {
+      setSaveStatus("saving");
+      setSaveError(null);
+    },
     onSuccess: () => {
+      setSaveStatus("success");
       queryClient.invalidateQueries({ queryKey: ["apiKeys"] });
-      setEditingKey(null);
-      setKeyValue("");
+      // Auto-close after showing success
+      setTimeout(() => {
+        setEditingKey(null);
+        setKeyValue("");
+        setSaveStatus("idle");
+      }, 1500);
+    },
+    onError: (error: Error) => {
+      setSaveStatus("error");
+      setSaveError(error.message || "Failed to save API key");
     },
   });
 
   // Delete key mutation
   const deleteMutation = useMutation({
     mutationFn: deleteApiKey,
+    onMutate: () => {
+      setDeleteStatus("deleting");
+    },
     onSuccess: () => {
+      setDeleteStatus("success");
       queryClient.invalidateQueries({ queryKey: ["apiKeys"] });
+      setTimeout(() => {
+        setDeletingKey(null);
+        setDeleteStatus("idle");
+      }, 1500);
+    },
+    onError: () => {
+      setDeleteStatus("error");
     },
   });
+
+  // Reset modal state when closing
+  const closeEditModal = () => {
+    setEditingKey(null);
+    setKeyValue("");
+    setSaveStatus("idle");
+    setSaveError(null);
+  };
 
   // Reveal key
   const handleReveal = async (name: string) => {
@@ -91,8 +132,9 @@ export default function SettingsPage() {
       const result = await revealApiKey(name);
       setRevealedKey(name);
       setRevealedValue(result.value);
-    } catch {
-      // Handle error silently
+    } catch (error) {
+      // Show error in a simple way
+      alert(`Failed to reveal key: ${error instanceof Error ? error.message : "Unknown error"}`);
     }
   };
 
@@ -114,6 +156,11 @@ export default function SettingsPage() {
             <div className="flex items-center justify-center py-12">
               <Spinner size="lg" />
             </div>
+          ) : fetchError ? (
+            <div className="flex items-center gap-2 rounded-lg bg-[var(--error)]/10 p-4 text-sm text-[var(--error)]">
+              <AlertCircle size={16} />
+              Failed to load API keys: {fetchError.message}
+            </div>
           ) : (
             keysData?.keys.map((key) => (
               <ApiKeyCard
@@ -124,10 +171,12 @@ export default function SettingsPage() {
                 onConfigure={() => {
                   setEditingKey(key.name);
                   setKeyValue("");
+                  setSaveStatus("idle");
+                  setSaveError(null);
                 }}
                 onTest={() => testMutation.mutate(key.name)}
                 onReveal={() => handleReveal(key.name)}
-                onDelete={() => deleteMutation.mutate(key.name)}
+                onDelete={() => setDeletingKey(key.name)}
                 isTesting={testMutation.isPending && testMutation.variables === key.name}
                 testResult={
                   testMutation.data && testMutation.variables === key.name
@@ -177,53 +226,131 @@ export default function SettingsPage() {
       {/* Edit Key Modal */}
       <Modal
         open={editingKey !== null}
-        onClose={() => {
-          setEditingKey(null);
-          setKeyValue("");
-        }}
+        onClose={closeEditModal}
         title={`Configure ${KEY_LABELS[editingKey || ""]?.name || editingKey}`}
         size="md"
       >
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (editingKey && keyValue) {
-              setMutation.mutate({ name: editingKey, value: keyValue });
-            }
-          }}
-          className="space-y-4"
-        >
-          <PasswordInput
-            label="API Key"
-            value={keyValue}
-            onChange={(e) => setKeyValue(e.target.value)}
-            placeholder="Enter your API key..."
-            autoFocus
-          />
-          <p className="text-xs text-[var(--text-secondary)]">
-            {KEY_LABELS[editingKey || ""]?.description}
-          </p>
-          <div className="flex justify-end gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                setEditingKey(null);
-                setKeyValue("");
-              }}
-              className="rounded-lg px-4 py-2 text-sm font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={!keyValue || setMutation.isPending}
-              className="flex items-center gap-2 rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-black disabled:opacity-50"
-            >
-              {setMutation.isPending && <Spinner size="sm" className="text-black" />}
-              Save Key
-            </button>
+        {saveStatus === "success" ? (
+          <div className="flex flex-col items-center justify-center gap-3 py-6">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-green-500/10">
+              <Check size={24} className="text-green-500" />
+            </div>
+            <p className="font-medium text-green-500">API Key Saved Successfully!</p>
+            <p className="text-sm text-[var(--text-secondary)]">
+              The key is now stored securely in the vault.
+            </p>
           </div>
-        </form>
+        ) : (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (editingKey && keyValue) {
+                setMutation.mutate({ name: editingKey, value: keyValue });
+              }
+            }}
+            className="space-y-4"
+          >
+            <PasswordInput
+              label="API Key"
+              value={keyValue}
+              onChange={(e) => setKeyValue(e.target.value)}
+              placeholder="Enter your API key..."
+              autoFocus
+              disabled={saveStatus === "saving"}
+            />
+            <p className="text-xs text-[var(--text-secondary)]">
+              {KEY_LABELS[editingKey || ""]?.description}
+            </p>
+
+            {saveStatus === "error" && saveError && (
+              <div className="flex items-center gap-2 rounded-lg bg-[var(--error)]/10 p-3 text-xs text-[var(--error)]">
+                <XCircle size={14} />
+                {saveError}
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={closeEditModal}
+                disabled={saveStatus === "saving"}
+                className="rounded-lg px-4 py-2 text-sm font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={!keyValue || saveStatus === "saving"}
+                className="flex items-center gap-2 rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-black disabled:opacity-50"
+              >
+                {saveStatus === "saving" && <Spinner size="sm" className="text-black" />}
+                {saveStatus === "saving" ? "Saving..." : "Save Key"}
+              </button>
+            </div>
+          </form>
+        )}
+      </Modal>
+
+      {/* Delete Confirmation Modal */}
+      <Modal
+        open={deletingKey !== null}
+        onClose={() => {
+          setDeletingKey(null);
+          setDeleteStatus("idle");
+        }}
+        title="Delete API Key"
+        size="sm"
+      >
+        {deleteStatus === "success" ? (
+          <div className="flex flex-col items-center justify-center gap-3 py-6">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-green-500/10">
+              <Check size={24} className="text-green-500" />
+            </div>
+            <p className="font-medium text-green-500">Key Deleted</p>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <p className="text-sm text-[var(--text-secondary)]">
+              Are you sure you want to delete{" "}
+              <span className="font-medium text-[var(--text-primary)]">
+                {KEY_LABELS[deletingKey || ""]?.name || deletingKey}
+              </span>{" "}
+              from the vault?
+            </p>
+            <p className="text-xs text-[var(--text-secondary)]">
+              This action cannot be undone. If this key is also set in environment variables, the environment value will still be used.
+            </p>
+
+            {deleteStatus === "error" && (
+              <div className="flex items-center gap-2 rounded-lg bg-[var(--error)]/10 p-3 text-xs text-[var(--error)]">
+                <XCircle size={14} />
+                Failed to delete key
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setDeletingKey(null);
+                  setDeleteStatus("idle");
+                }}
+                disabled={deleteStatus === "deleting"}
+                className="rounded-lg px-4 py-2 text-sm font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => deletingKey && deleteMutation.mutate(deletingKey)}
+                disabled={deleteStatus === "deleting"}
+                className="flex items-center gap-2 rounded-lg bg-[var(--error)] px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+              >
+                {deleteStatus === "deleting" && <Spinner size="sm" className="text-white" />}
+                {deleteStatus === "deleting" ? "Deleting..." : "Delete Key"}
+              </button>
+            </div>
+          </div>
+        )}
       </Modal>
 
       {/* Reveal Key Modal */}
