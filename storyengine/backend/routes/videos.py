@@ -9,26 +9,26 @@ from typing import Optional, Any
 
 
 def _parse_json_field(val: Any) -> Optional[dict]:
-    """Parse a JSON field that might be string or dict."""
-    print(f"[DEBUG] _parse_json_field called with type={type(val)}", flush=True)
-    if val:
-        print(f"[DEBUG] val[:100]={str(val)[:100]}", flush=True)
+    """Parse a JSON field that might be string or dict.
 
+    Handles double-encoded JSON (JSON string inside JSON string) which can happen
+    when data is stored as text in PostgreSQL but was originally JSON.
+    """
     if val is None:
-        print("[DEBUG] Returning None (input was None)", flush=True)
         return None
     if isinstance(val, dict):
-        print("[DEBUG] Returning dict (input was already dict)", flush=True)
         return val
     if isinstance(val, str):
         try:
             result = json.loads(val)
-            print(f"[DEBUG] Parsed string to dict, result type={type(result)}", flush=True)
-            return result
-        except (json.JSONDecodeError, ValueError) as e:
-            print(f"[DEBUG] JSON parse failed: {e}", flush=True)
+            # Handle double-encoded JSON - if result is still a string, parse again
+            if isinstance(result, str):
+                result = json.loads(result)
+            if isinstance(result, dict):
+                return result
             return None
-    print(f"[DEBUG] Returning None (input was unexpected type: {type(val)})", flush=True)
+        except (json.JSONDecodeError, ValueError):
+            return None
     return None
 
 router = APIRouter(prefix="/api/videos", tags=["videos"])
