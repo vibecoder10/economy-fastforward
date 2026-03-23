@@ -43,8 +43,8 @@ const VISUAL_STYLES = [
 
 // Image model options
 const IMAGE_MODELS = [
-  { value: "z-image", label: "Z-Image (Default)" },
-  { value: "Nano Banana", label: "Nano Banana" },
+  { value: "Nano Banana", label: "Nano Banana (Default)" },
+  { value: "z-image", label: "Z-Image" },
 ];
 
 // Accent color options
@@ -403,7 +403,7 @@ export default function PipelinePage() {
                 <Select
                   label="Image Model"
                   options={IMAGE_MODELS}
-                  value="z-image"
+                  value={selectedVideo.image_model_override || "Nano Banana"}
                   onChange={(e) =>
                     styleUpdateMutation.mutate({ image_model_override: e.target.value })
                   }

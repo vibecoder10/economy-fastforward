@@ -163,6 +163,7 @@ export interface VideoDetail extends VideoSummary {
   thumbnail_style_override: string | null;
   visual_style: string | null;
   image_style_override: string | null;
+  image_model_override: string | null;
   video_length_minutes: number | null;
   youtube_url: string | null;
   avg_retention: number | null;

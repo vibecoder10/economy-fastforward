@@ -60,6 +60,7 @@ class VideoDetail(VideoSummary):
     thumbnail_style_override: Optional[str] = None
     visual_style: Optional[str] = None
     image_style_override: Optional[str] = None
+    image_model_override: Optional[str] = None
     video_length_minutes: Optional[float] = None
     youtube_url: Optional[str] = None
     avg_retention: Optional[float] = None

@@ -95,8 +95,8 @@ async def get_video(video_id: str, tenant_id: str = Depends(get_tenant_id)):
                   present_parallel, future_prediction, writer_guidance, thesis, executive_hook,
                   research_payload, original_dna, script, story_bible,
                   thumbnail_url, thumbnail_prompt, thumbnail_style_override,
-                  accent_color, visual_style, image_style_override, video_length_minutes,
-                  youtube_url, total_cost, views, ctr, avg_retention,
+                  accent_color, visual_style, image_style_override, image_model_override,
+                  video_length_minutes, youtube_url, total_cost, views, ctr, avg_retention,
                   impressions, likes, comments, performance_verdict,
                   created_at::text, updated_at::text
            FROM videos WHERE id = $1 AND tenant_id = $2""",
@@ -131,6 +131,7 @@ async def get_video(video_id: str, tenant_id: str = Depends(get_tenant_id)):
         accent_color=r.get("accent_color", "#00D4AA"),
         visual_style=r.get("visual_style"),
         image_style_override=r.get("image_style_override"),
+        image_model_override=r.get("image_model_override"),
         video_length_minutes=float(r["video_length_minutes"]) if r.get("video_length_minutes") else None,
         youtube_url=r.get("youtube_url"),
         total_cost=float(r.get("total_cost") or 0),
