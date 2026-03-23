@@ -10,25 +10,25 @@ from typing import Optional, Any
 
 def _parse_json_field(val: Any) -> Optional[dict]:
     """Parse a JSON field that might be string or dict."""
-    import logging
-    logger = logging.getLogger(__name__)
-    logger.info(f"_parse_json_field called with type={type(val)}, val[:100]={str(val)[:100] if val else None}")
+    print(f"[DEBUG] _parse_json_field called with type={type(val)}", flush=True)
+    if val:
+        print(f"[DEBUG] val[:100]={str(val)[:100]}", flush=True)
 
     if val is None:
-        logger.info("Returning None (input was None)")
+        print("[DEBUG] Returning None (input was None)", flush=True)
         return None
     if isinstance(val, dict):
-        logger.info("Returning dict (input was already dict)")
+        print("[DEBUG] Returning dict (input was already dict)", flush=True)
         return val
     if isinstance(val, str):
         try:
             result = json.loads(val)
-            logger.info(f"Parsed string to dict, result type={type(result)}")
+            print(f"[DEBUG] Parsed string to dict, result type={type(result)}", flush=True)
             return result
         except (json.JSONDecodeError, ValueError) as e:
-            logger.error(f"JSON parse failed: {e}")
+            print(f"[DEBUG] JSON parse failed: {e}", flush=True)
             return None
-    logger.info(f"Returning None (input was unexpected type: {type(val)})")
+    print(f"[DEBUG] Returning None (input was unexpected type: {type(val)})", flush=True)
     return None
 
 router = APIRouter(prefix="/api/videos", tags=["videos"])
