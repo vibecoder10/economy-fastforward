@@ -110,7 +110,7 @@ export default function HomePage() {
                 <p className="text-xs font-medium uppercase tracking-wider text-[var(--text-secondary)]">
                   Latest Video
                 </p>
-                <p className="line-clamp-1 text-sm font-medium">{data.latest_video.title}</p>
+                <p className="line-clamp-1 text-sm font-medium">{data.latest_video.video_title || "Untitled"}</p>
                 <ProgressDots status={data.latest_video.status} />
               </div>
             </div>

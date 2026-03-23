@@ -1,13 +1,15 @@
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
 
 async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
-  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  // Get token from localStorage, fallback to "dev-token" for development
+  const storedToken = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  const token = storedToken || "dev-token";
 
   const res = await fetch(`${API_URL}${path}`, {
     ...options,
     headers: {
       "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      Authorization: `Bearer ${token}`,
       ...options?.headers,
     },
   });
@@ -78,8 +80,8 @@ export interface DashboardSummary {
 
 export interface VideoSummary {
   id: string;
-  title: string;
-  status: string;
+  video_title: string | null;
+  status: string | null;
   thumbnail_url: string | null;
   accent_color: string;
   total_cost: number;
@@ -91,38 +93,59 @@ export interface VideoSummary {
 
 export interface VideoDetail extends VideoSummary {
   airtable_record_id: string | null;
+  headline: string | null;
+  source: string | null;
   framework_angle: string | null;
+  thematic_framework: string | null;
+  hook_script: string | null;
+  past_context: string | null;
+  present_parallel: string | null;
+  future_prediction: string | null;
+  writer_guidance: string | null;
+  thesis: string | null;
+  executive_hook: string | null;
   research_payload: Record<string, unknown> | null;
+  original_dna: Record<string, unknown> | null;
   script: string | null;
   story_bible: string | null;
   thumbnail_prompt: string | null;
-  visual_style: string;
-  video_length_minutes: number;
+  thumbnail_style_override: string | null;
+  visual_style: string | null;
+  image_style_override: string | null;
+  video_length_minutes: number | null;
   youtube_url: string | null;
   avg_retention: number | null;
+  impressions: number;
+  likes: number;
+  comments: number;
+  performance_verdict: string | null;
 }
 
 export interface Asset {
   id: string;
   video_id: string;
-  asset_type: string;
-  scene_number: number | null;
+  scene: number | null;
   image_index: number | null;
-  url: string;
-  prompt: string | null;
-  status: string;
-  metadata: Record<string, unknown> | null;
+  image_url: string | null;
+  image_prompt: string | null;
+  status: string | null;
+  shot_type: string | null;
+  hero_shot: boolean;
+  sentence_text: string | null;
+  video_clip_url: string | null;
   created_at: string | null;
 }
 
 export interface ScriptScene {
   id: string;
-  video_id: string;
-  scene_number: number;
-  scene_text: string;
-  voice_url: string | null;
-  voice_status: string;
+  video_id: string | null;
+  scene: number | null;
+  scene_text: string | null;
+  voice_over_url: string | null;
+  voice_status: string | null;
+  script_status: string | null;
   sources: string | null;
+  storyboard_on_off: string | null;
 }
 
 export interface ActivityEntry {
@@ -151,11 +174,15 @@ export interface PendingReview {
 
 export interface ReviewItem {
   asset_id?: string;
+  script_id?: string;
   video_id: string;
-  title: string;
+  title: string | null;
   url?: string;
+  storyboard_1_url?: string;
+  storyboard_2_url?: string;
+  storyboard_3_url?: string;
   word_count?: number;
-  scene_number?: number;
+  scene?: number;
   image_index?: number;
   prompt?: string;
   type: string;

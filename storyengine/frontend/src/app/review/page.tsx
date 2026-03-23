@@ -170,24 +170,36 @@ export default function ReviewPage() {
         <div className="space-y-4">
           {currentItems.map((item) => (
             <div
-              key={item.asset_id}
+              key={item.script_id || item.video_id}
               className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4"
             >
-              <p className="mb-3 font-medium">{item.title}</p>
-              {item.url && (
-                <div className="overflow-hidden rounded-lg">
-                  <img src={item.url} alt="" className="w-full" />
-                </div>
-              )}
+              <p className="mb-3 font-medium">{item.title || "Untitled"}</p>
+              <p className="mb-2 text-xs text-[var(--text-secondary)]">Scene {item.scene}</p>
+              <div className="grid grid-cols-3 gap-2">
+                {item.storyboard_1_url && (
+                  <div className="overflow-hidden rounded-lg">
+                    <img src={item.storyboard_1_url} alt="Grid 1" className="w-full" />
+                  </div>
+                )}
+                {item.storyboard_2_url && (
+                  <div className="overflow-hidden rounded-lg">
+                    <img src={item.storyboard_2_url} alt="Grid 2" className="w-full" />
+                  </div>
+                )}
+                {item.storyboard_3_url && (
+                  <div className="overflow-hidden rounded-lg">
+                    <img src={item.storyboard_3_url} alt="Grid 3" className="w-full" />
+                  </div>
+                )}
+              </div>
               <div className="mt-3 flex gap-2">
                 <button
-                  onClick={() => item.asset_id && approveMutation.mutate(item.asset_id)}
+                  onClick={() => item.video_id && advanceMutation.mutate(item.video_id)}
                   className="flex-1 rounded-lg bg-[var(--success)]/20 py-2 text-sm font-medium text-[var(--success)]"
                 >
                   Approve
                 </button>
                 <button
-                  onClick={() => item.asset_id && rejectMutation.mutate(item.asset_id)}
                   className="flex-1 rounded-lg bg-[var(--error)]/20 py-2 text-sm font-medium text-[var(--error)]"
                 >
                   Reject

@@ -125,12 +125,12 @@ export default function PipelinePage() {
                     className="flex h-full w-full items-center justify-center text-2xl font-bold text-white/10"
                     style={{ background: `${video.accent_color}15` }}
                   >
-                    {video.title.charAt(0)}
+                    {(video.video_title || "?").charAt(0)}
                   </div>
                 )}
               </div>
               <div className="p-2.5">
-                <p className="line-clamp-2 text-xs font-medium">{video.title}</p>
+                <p className="line-clamp-2 text-xs font-medium">{video.video_title || "Untitled"}</p>
                 <div className="mt-1.5 flex items-center gap-2">
                   <span className="rounded-full bg-[var(--surface-elevated)] px-1.5 py-0.5 text-[9px] font-medium text-[var(--text-secondary)]">
                     {getStageLabel(video.status)}
@@ -146,7 +146,7 @@ export default function PipelinePage() {
       <DetailPanel
         open={!!selectedId}
         onClose={() => setSelectedId(null)}
-        title={selectedVideo?.title}
+        title={selectedVideo?.video_title}
       >
         {selectedVideo && (
           <div className="space-y-6">

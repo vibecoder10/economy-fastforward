@@ -44,14 +44,14 @@ export function VideoCard({ video, onClick }: VideoCardProps) {
             className="flex h-full w-full items-center justify-center text-xs text-[var(--text-secondary)]"
             style={{ background: `${video.accent_color}15` }}
           >
-            {video.title.charAt(0)}
+            {(video.video_title || "?").charAt(0)}
           </div>
         )}
       </div>
 
       {/* Content */}
       <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-        <h3 className="line-clamp-2 text-sm font-medium leading-tight">{video.title}</h3>
+        <h3 className="line-clamp-2 text-sm font-medium leading-tight">{video.video_title || "Untitled"}</h3>
         <div className="flex items-center gap-2">
           <ProgressDots status={video.status} />
           <span
