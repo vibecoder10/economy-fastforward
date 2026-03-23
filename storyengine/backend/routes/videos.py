@@ -29,7 +29,7 @@ async def list_videos(
     """List videos with optional status filter."""
     if status:
         rows = await fetch_all(
-            """SELECT id, title, status, thumbnail_url, accent_color, total_cost, views, ctr,
+            """SELECT id, video_title, status, thumbnail_url, accent_color, total_cost, views, ctr,
                       created_at::text, updated_at::text
                FROM videos WHERE tenant_id = $1 AND status = $2
                ORDER BY updated_at DESC LIMIT $3 OFFSET $4""",
@@ -37,7 +37,7 @@ async def list_videos(
         )
     else:
         rows = await fetch_all(
-            """SELECT id, title, status, thumbnail_url, accent_color, total_cost, views, ctr,
+            """SELECT id, video_title, status, thumbnail_url, accent_color, total_cost, views, ctr,
                       created_at::text, updated_at::text
                FROM videos WHERE tenant_id = $1
                ORDER BY updated_at DESC LIMIT $2 OFFSET $3""",
@@ -47,12 +47,12 @@ async def list_videos(
     return [
         VideoSummary(
             id=str(r["id"]),
-            title=r["title"],
-            status=r["status"],
+            video_title=r.get("video_title"),
+            status=r.get("status"),
             thumbnail_url=r.get("thumbnail_url"),
             accent_color=r.get("accent_color", "#00D4AA"),
-            total_cost=float(r.get("total_cost", 0)),
-            views=r.get("views", 0),
+            total_cost=float(r.get("total_cost") or 0),
+            views=r.get("views") or 0,
             ctr=float(r["ctr"]) if r.get("ctr") else None,
             created_at=r.get("created_at"),
             updated_at=r.get("updated_at"),
@@ -65,10 +65,14 @@ async def list_videos(
 async def get_video(video_id: str, tenant_id: str = Depends(get_tenant_id)):
     """Get full video detail."""
     r = await fetch_one(
-        """SELECT id, title, status, airtable_record_id, framework_angle,
-                  research_payload, script, story_bible, thumbnail_url, thumbnail_prompt,
-                  accent_color, visual_style, video_length_minutes, youtube_url,
-                  total_cost, views, ctr, avg_retention,
+        """SELECT id, video_title, status, airtable_record_id, headline, source,
+                  framework_angle, thematic_framework, hook_script, past_context,
+                  present_parallel, future_prediction, writer_guidance, thesis, executive_hook,
+                  research_payload, original_dna, script, story_bible,
+                  thumbnail_url, thumbnail_prompt, thumbnail_style_override,
+                  accent_color, visual_style, image_style_override, video_length_minutes,
+                  youtube_url, total_cost, views, ctr, avg_retention,
+                  impressions, likes, comments, performance_verdict,
                   created_at::text, updated_at::text
            FROM videos WHERE id = $1 AND tenant_id = $2""",
         video_id, tenant_id,
@@ -78,23 +82,40 @@ async def get_video(video_id: str, tenant_id: str = Depends(get_tenant_id)):
 
     return VideoDetail(
         id=str(r["id"]),
-        title=r["title"],
-        status=r["status"],
+        video_title=r.get("video_title"),
+        status=r.get("status"),
         airtable_record_id=r.get("airtable_record_id"),
+        headline=r.get("headline"),
+        source=r.get("source"),
         framework_angle=r.get("framework_angle"),
+        thematic_framework=r.get("thematic_framework"),
+        hook_script=r.get("hook_script"),
+        past_context=r.get("past_context"),
+        present_parallel=r.get("present_parallel"),
+        future_prediction=r.get("future_prediction"),
+        writer_guidance=r.get("writer_guidance"),
+        thesis=r.get("thesis"),
+        executive_hook=r.get("executive_hook"),
         research_payload=r.get("research_payload"),
+        original_dna=r.get("original_dna"),
         script=r.get("script"),
         story_bible=r.get("story_bible"),
         thumbnail_url=r.get("thumbnail_url"),
         thumbnail_prompt=r.get("thumbnail_prompt"),
+        thumbnail_style_override=r.get("thumbnail_style_override"),
         accent_color=r.get("accent_color", "#00D4AA"),
-        visual_style=r.get("visual_style", "holographic_hud"),
-        video_length_minutes=r.get("video_length_minutes", 10),
+        visual_style=r.get("visual_style"),
+        image_style_override=r.get("image_style_override"),
+        video_length_minutes=float(r["video_length_minutes"]) if r.get("video_length_minutes") else None,
         youtube_url=r.get("youtube_url"),
-        total_cost=float(r.get("total_cost", 0)),
-        views=r.get("views", 0),
+        total_cost=float(r.get("total_cost") or 0),
+        views=r.get("views") or 0,
         ctr=float(r["ctr"]) if r.get("ctr") else None,
         avg_retention=float(r["avg_retention"]) if r.get("avg_retention") else None,
+        impressions=r.get("impressions") or 0,
+        likes=r.get("likes") or 0,
+        comments=r.get("comments") or 0,
+        performance_verdict=r.get("performance_verdict"),
         created_at=r.get("created_at"),
         updated_at=r.get("updated_at"),
     )
@@ -153,10 +174,11 @@ async def reject_video(video_id: str, reason: Optional[str] = None, tenant_id: s
 async def get_video_assets(video_id: str, tenant_id: str = Depends(get_tenant_id)):
     """Get all assets for a video."""
     rows = await fetch_all(
-        """SELECT id, video_id, asset_type, scene_number, image_index, url, prompt, status,
-                  metadata, created_at::text
+        """SELECT id, video_id, scene, image_index, image_url, image_prompt,
+                  status, shot_type, hero_shot, sentence_text, video_clip_url,
+                  created_at::text
            FROM assets WHERE video_id = $1 AND tenant_id = $2
-           ORDER BY scene_number, image_index""",
+           ORDER BY scene, image_index""",
         video_id, tenant_id,
     )
     return rows
@@ -166,10 +188,11 @@ async def get_video_assets(video_id: str, tenant_id: str = Depends(get_tenant_id
 async def get_video_script(video_id: str, tenant_id: str = Depends(get_tenant_id)):
     """Get full script for a video."""
     rows = await fetch_all(
-        """SELECT id, video_id, scene_number, scene_text, voice_url, voice_status, sources,
+        """SELECT id, video_id, scene, scene_text, voice_over_url, voice_status,
+                  script_status, sources, storyboard_on_off,
                   created_at::text
            FROM scripts WHERE video_id = $1 AND tenant_id = $2
-           ORDER BY scene_number""",
+           ORDER BY scene""",
         video_id, tenant_id,
     )
     return rows

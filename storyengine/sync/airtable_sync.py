@@ -8,12 +8,13 @@ Two modes:
     python airtable_sync.py --full    # Pull ALL records (backfill)
     python airtable_sync.py           # Pull records modified in last 5 min (cron)
 
+Sync order: videos → scripts → assets → competitor_channels → competitor_videos
+            → learnings → title_insights → title_tests
+
 Cron (every 2 min):
     */2 * * * * cd /home/clawd/projects/storyengine && \
         /home/clawd/projects/storyengine/backend/venv/bin/python sync/airtable_sync.py \
         >> /tmp/storyengine-sync.log 2>&1
-
-Sync order: videos → scripts → images → competitor_videos → learnings
 """
 
 import argparse
@@ -51,8 +52,11 @@ AIRTABLE_BASE_ID = os.getenv("AIRTABLE_BASE_ID", "appCIcC58YSTwK3CE")
 IDEAS_TABLE = "tblrAsJglokZSkC8m"
 SCRIPTS_TABLE = "tbluGSepeZNgb0NxG"
 IMAGES_TABLE = "tbl3luJ0zsWu0MYYz"
+COMPETITOR_CHANNELS_TABLE = "tblu9JgQ9LKI36iHC"
 COMPETITOR_VIDEOS_TABLE = "tblSjIitAes9lq1WM"
 OSIRIS_LEARNINGS_TABLE = "tblVH58hcdZLpacsn"
+TITLE_INSIGHTS_TABLE = "tbl6nYxbY1A0MsUZc"
+TITLE_TESTS_TABLE = "tbln8CPbNaMvERVn9"
 
 # ---------------------------------------------------------------------------
 # Status mapping — Airtable → dashboard
@@ -108,7 +112,7 @@ def _parse_json(val: Any) -> Any:
         try:
             return json.loads(val)
         except (json.JSONDecodeError, ValueError):
-            return None
+            return val  # store as string if parse fails
     return None
 
 
@@ -135,6 +139,30 @@ def _str(val: Any) -> Optional[str]:
         return None
     if isinstance(val, str):
         return val or None
+    return str(val)
+
+
+def _bool(val: Any) -> bool:
+    """Convert Airtable checkbox to boolean."""
+    if val is None:
+        return False
+    if isinstance(val, bool):
+        return val
+    return bool(val)
+
+
+def _json_str(val: Any) -> Optional[str]:
+    """Parse JSON if string, then dump back. If parse fails, keep as string."""
+    if val is None:
+        return None
+    if isinstance(val, (dict, list)):
+        return json.dumps(val)
+    if isinstance(val, str):
+        try:
+            parsed = json.loads(val)
+            return json.dumps(parsed)
+        except (json.JSONDecodeError, ValueError):
+            return val
     return str(val)
 
 
@@ -206,15 +234,30 @@ class SupaSync:
     # ---- video title → id cache -------------------------------------------
     _video_cache: dict[str, str] = {}
 
+    def _rebuild_video_cache(self):
+        """Rebuild the video title → UUID cache from DB."""
+        self._video_cache.clear()
+        resp = (
+            self.sb.table("videos")
+            .select("id, video_title")
+            .eq("tenant_id", self.tenant_id)
+            .execute()
+        )
+        for row in resp.data or []:
+            if row.get("video_title"):
+                self._video_cache[row["video_title"]] = row["id"]
+
     def _lookup_video_id(self, title: str) -> Optional[str]:
         """Find a video UUID by title (cached)."""
+        if not title:
+            return None
         if title in self._video_cache:
             return self._video_cache[title]
         resp = (
             self.sb.table("videos")
             .select("id")
             .eq("tenant_id", self.tenant_id)
-            .eq("title", title)
+            .eq("video_title", title)
             .limit(1)
             .execute()
         )
@@ -248,7 +291,13 @@ class SupaSync:
                         ).execute()
                         count += 1
                     except Exception as e2:
-                        _label = row.get("title") or row.get("video_title") or row.get("pattern") or row.get("airtable_record_id", "?")
+                        _label = (
+                            row.get("video_title")
+                            or row.get("title")
+                            or row.get("pattern")
+                            or row.get("pattern_name")
+                            or row.get("airtable_record_id", "?")
+                        )
                         print(f"    Error upserting {table} row ({_label}): {e2}")
         return count
 
@@ -259,91 +308,141 @@ class SupaSync:
         rows: list[dict] = []
         for rec in records:
             f = rec.get("fields", {})
-            title = f.get("Video Title") or f.get("Title") or "Untitled"
+
+            # Parse JSON fields
             rp = _parse_json(f.get("Research Payload"))
             dna = _parse_json(f.get("Original DNA"))
 
             row = {
                 "tenant_id": self.tenant_id,
                 "airtable_record_id": rec["id"],
-                "title": title,
+                # Core
+                "video_title": _str(f.get("Video Title")),
                 "status": map_status(f.get("Status", "Idea Logged")),
+                "headline": _str(f.get("Headline")),
+                "source": _str(f.get("Source")),
+                # Editorial
                 "framework_angle": _str(f.get("Framework Angle")),
-                "research_payload": json.dumps(rp) if rp else None,
-                "original_dna": json.dumps(dna) if dna else None,
+                "thematic_framework": _str(f.get("Thematic Framework")),
+                "hook_script": _str(f.get("Hook Script")),
+                "past_context": _str(f.get("Past Context")),
+                "present_parallel": _str(f.get("Present Parallel")),
+                "future_prediction": _str(f.get("Future Prediction")),
+                "writer_guidance": _str(f.get("Writer Guidance")),
+                "thesis": _str(f.get("Thesis")),
+                "executive_hook": _str(f.get("Executive Hook")),
                 "script": _str(f.get("Script")),
-                "story_bible": _str(f.get("Story Bible")),
-                "thumbnail_url": _att_url(f.get("Thumbnail")),
+                "seo_description": _str(f.get("SEO Description")),
+                "seo_tags": _str(f.get("SEO Tags")),
+                "seo_hashtags": _str(f.get("SEO Hashtags")),
+                # Research
+                "research_payload": json.dumps(rp) if isinstance(rp, (dict, list)) else rp,
+                "original_dna": json.dumps(dna) if isinstance(dna, (dict, list)) else dna,
+                "source_urls": _str(f.get("Source URLs")),
+                "date_surfaced": _str(f.get("Date Surfaced")),
+                # Scoring
+                "timeliness_score": _float(f.get("Timeliness Score")),
+                "audience_fit_score": _float(f.get("Audience Fit Score")),
+                "content_gap_score": _float(f.get("Content Gap Score")),
+                "structure_confidence": _float(f.get("Structure Confidence")),
+                "curiosity_structure": _str(f.get("Curiosity Structure")),
+                "monetization_risk": _str(f.get("Monetization Risk")),
+                # Visual
                 "thumbnail_prompt": _str(f.get("Thumbnail Prompt")),
+                "thumbnail_style_override": _str(f.get("Thumbnail Style Override")),
+                "thumbnail_text": _str(f.get("Thumbnail Text")),
+                "thumbnail_approach": _str(f.get("Thumbnail Approach")),
                 "accent_color": _str(f.get("Accent Color")) or "#00D4AA",
-                "visual_style": _str(f.get("Visual Style")) or "holographic_hud",
-                "video_length_minutes": _int(f.get("Video Length (min)"), 10),
-                "clip_duration_seconds": _int(f.get("Clip Duration (s)"), 10),
-                "views": _int(f.get("Views")),
-                "ctr": _float(f.get("CTR (%)")),
-                "avg_retention": _float(f.get("Avg Retention (%)")),
+                "visual_style": _str(f.get("Visual Style")),
+                "image_model": _str(f.get("Image Model")),
+                "image_style_override": _str(f.get("Image Style Override")),
+                "story_bible": _str(f.get("Story Bible")),
+                "script_validation": _str(f.get("Script Validation")),
+                "title_candidates": _str(f.get("Title Candidates")),
+                "title_formula": _str(f.get("Title Formula")),
+                "character_reference_url": _att_url(f.get("Character Reference")),
+                "thumbnail_url": _att_url(f.get("Thumbnail")),
+                # Video config
+                "video_length_minutes": _float(f.get("Video Length (min)")),
+                "clip_duration_seconds": _float(f.get("Clip Duration (s)")),
+                # Drive / YouTube
+                "final_video_url": _str(f.get("Final Video URL")),
+                "drive_folder_link": _str(f.get("Drive Folder Link")),
+                "drive_folder_id": _str(f.get("Drive Folder ID")),
+                "youtube_video_id": _str(f.get("YouTube Video ID")),
                 "youtube_url": _str(f.get("YouTube URL")),
-                "total_cost": _float(f.get("Total Cost")) or 0,
-                # Performance snapshots
-                "post_mortem_48h": _str(f.get("Post-Mortem 48h")),
-                "post_mortem_7d": _str(f.get("Post-Mortem 7d")),
-                "performance_verdict": _str(f.get("Performance Verdict")),
+                "upload_status": _str(f.get("Upload Status")),
                 "upload_date": _str(f.get("Upload Date")),
+                # Performance metrics
+                "views": _int(f.get("Views")),
+                "impressions": _int(f.get("Impressions")),
+                "likes": _int(f.get("Likes")),
+                "comments": _int(f.get("Comments")),
+                "subscribers_gained": _int(f.get("Subscribers Gained")),
+                "ctr": _float(f.get("CTR (%)")),
+                "avg_view_duration_seconds": _float(f.get("Avg View Duration (s)")),
+                "avg_retention": _float(f.get("Avg Retention (%)")),
+                "watch_time_hours": _float(f.get("Watch Time (hours)")),
                 "views_24h": _int(f.get("Views 24h")) if f.get("Views 24h") is not None else None,
                 "views_48h": _int(f.get("Views 48h")) if f.get("Views 48h") is not None else None,
                 "views_7d": _int(f.get("Views 7d")) if f.get("Views 7d") is not None else None,
                 "views_30d": _int(f.get("Views 30d")) if f.get("Views 30d") is not None else None,
                 "ctr_48h": _float(f.get("CTR 48h (%)")),
                 "retention_48h": _float(f.get("Retention 48h (%)")),
-                "likes": _int(f.get("Likes")),
-                "comments": _int(f.get("Comments")),
-                "impressions": _int(f.get("Impressions")),
-                "subscribers_gained": _int(f.get("Subscribers Gained")),
-                "watch_time_hours": _float(f.get("Watch Time (hours)")),
-                "avg_view_duration_seconds": (
-                    _int(f.get("Avg View Duration (s)"))
-                    if f.get("Avg View Duration (s)") is not None
-                    else None
-                ),
+                "last_analytics_sync": _str(f.get("Last Analytics Sync")),
+                # Post-mortem
+                "post_mortem_48h": _str(f.get("Post-Mortem 48h")),
+                "post_mortem_7d": _str(f.get("Post-Mortem 7d")),
+                "performance_verdict": _str(f.get("Performance Verdict")),
+                # Timestamp
                 "updated_at": datetime.now(timezone.utc).isoformat(),
             }
             rows.append(row)
 
-            # Also seed the title→id cache once we know the record
-            self._video_cache[title] = rec["id"]  # placeholder; real UUID comes from DB later
-
         count = self._upsert("videos", rows)
         # Rebuild the cache from DB after upsert
-        self._video_cache.clear()
+        self._rebuild_video_cache()
         return count
 
     # -----------------------------------------------------------------------
-    # 2) SCRIPTS — Scripts table → scripts
+    # 2) SCRIPTS — Script table → scripts
     # -----------------------------------------------------------------------
     def sync_scripts(self, records: list[dict]) -> int:
         rows: list[dict] = []
         for rec in records:
             f = rec.get("fields", {})
-            title = f.get("Title") or f.get("Video Title") or ""
-            video_id = self._lookup_video_id(title)
-            if not video_id:
-                continue
-
-            scene_text = _str(f.get("Scene text"))
-            if not scene_text:
-                continue
+            title = _str(f.get("Title")) or ""
+            video_id = self._lookup_video_id(title) if title else None
 
             row = {
                 "tenant_id": self.tenant_id,
                 "airtable_record_id": rec["id"],
                 "video_id": video_id,
-                "scene_number": _int(f.get("Scene"), 1),
-                "scene_text": scene_text,
-                "voice_url": _att_url(f.get("Voice Over")),
-                "voice_status": (
-                    _str(f.get("Voice Status")) or "pending"
-                ).lower(),
+                # Fields
+                "airtable_id": _float(f.get("ID")),
+                "scene": _int(f.get("Scene")) if f.get("Scene") is not None else None,
+                "title": title or None,
+                "scene_text": _str(f.get("Scene text")),
+                "script_status": _str(f.get("Script Status")),
+                "voice_status": _str(f.get("Voice Status")),
+                "voice_over_url": _att_url(f.get("Voice Over")),
+                "voice_id": _str(f.get("Voice ID")),
                 "sources": _str(f.get("Sources")),
+                "framework": _str(f.get("Framework")),
+                "psych_angle": _str(f.get("Psych Angle")),
+                "sound_map": _str(f.get("Sound Map")),
+                "sfx_status": _str(f.get("SFX Status")),
+                "drive_folder": _str(f.get("Dive Folder")),
+                "script_validation": _str(f.get("Script Validation")),
+                "unverified_claims": _str(f.get("Unverified Claims")),
+                # Storyboard
+                "storyboard_on_off": _str(f.get("Story Board On/OFF")),
+                "storyboard_prompts": _str(f.get("Storyboard Prompts")),
+                "storyboard_beat_count": _float(f.get("Storyboard Beat Count")),
+                "storyboard_status": _str(f.get("Storyboard Status")),
+                "storyboard_1_url": _att_url(f.get("Storyboard 1")),
+                "storyboard_2_url": _att_url(f.get("Storyboard 2")),
+                "storyboard_3_url": _att_url(f.get("Storyboard 3")),
             }
             rows.append(row)
 
@@ -356,146 +455,187 @@ class SupaSync:
         rows: list[dict] = []
         for rec in records:
             f = rec.get("fields", {})
-            title = f.get("Video Title") or f.get("Title") or ""
-            video_id = self._lookup_video_id(title)
-            if not video_id:
-                continue
-
-            url = _att_url(f.get("Image"))
-            if not url:
-                continue
-
-            status_raw = (f.get("Status") or "Pending").strip()
-            status = "done" if status_raw.lower() == "done" else "pending"
-
-            metadata: dict[str, Any] = {}
-            if f.get("Shot Type"):
-                metadata["shot_type"] = f["Shot Type"]
-            if f.get("Hero Shot"):
-                metadata["hero_shot"] = f["Hero Shot"]
-            if f.get("Video Clip URL"):
-                metadata["video_clip_url"] = f["Video Clip URL"]
-            if f.get("Sentence Text"):
-                metadata["sentence_text"] = f["Sentence Text"]
+            video_title = _str(f.get("Video Title")) or ""
+            video_id = self._lookup_video_id(video_title) if video_title else None
 
             row = {
                 "tenant_id": self.tenant_id,
                 "airtable_record_id": rec["id"],
                 "video_id": video_id,
-                "asset_type": "image",
-                "scene_number": _int(f.get("Scene")) if f.get("Scene") is not None else None,
+                "video_title": video_title or None,
+                "scene": _int(f.get("Scene")) if f.get("Scene") is not None else None,
+                "sentence_index": _int(f.get("Sentence Index")) if f.get("Sentence Index") is not None else None,
+                "sentence_text": _str(f.get("Sentence Text")),
                 "image_index": _int(f.get("Image Index")) if f.get("Image Index") is not None else None,
-                "url": url,
-                "prompt": _str(f.get("Image Prompt")),
-                "status": status,
-                "metadata": json.dumps(metadata) if metadata else None,
+                "duration_seconds": _float(f.get("Duration (s)")),
+                "image_prompt": _str(f.get("Image Prompt")),
+                "shot_type": _str(f.get("Shot Type")),
+                "image_url": _att_url(f.get("Image")),
+                "status": _str(f.get("Status")),
+                # Sound
+                "sound_prompt": _str(f.get("Sound Prompt")),
+                "sound_effect_url": _att_url(f.get("Sound Effect")),
+                "sound_volume": _float(f.get("Sound Volume")),
+                # Video/Animation
+                "video_prompt": _str(f.get("Video Prompt")),
+                "video_url": _att_url(f.get("Video")),
+                "video_status": _str(f.get("Video Status")),
+                "video_duration": _float(f.get("Video Duration")),
+                "video_clip_url": _str(f.get("Video Clip URL")),
+                "aspect_ratio": _str(f.get("Aspect Ratio")),
+                "animation_status": _str(f.get("Animation Status")),
+                "intensity": _str(f.get("Intensity")),
+                "content_type": _str(f.get("Content Type")),
+                # Flags
+                "hero_shot": _bool(f.get("Hero Shot")),
             }
             rows.append(row)
 
         return self._upsert("assets", rows)
 
     # -----------------------------------------------------------------------
-    # 4) COMPETITOR VIDEOS
+    # 4) COMPETITOR CHANNELS → competitor_channels
+    # -----------------------------------------------------------------------
+    def sync_competitor_channels(self, records: list[dict]) -> int:
+        rows: list[dict] = []
+        for rec in records:
+            f = rec.get("fields", {})
+
+            row = {
+                "tenant_id": self.tenant_id,
+                "airtable_record_id": rec["id"],
+                "channel_url": _str(f.get("Channel URL")),
+                "channel_name": _str(f.get("Channel Name")),
+                "category": _str(f.get("Category")),
+                "active": _bool(f.get("Active")),
+                "last_scraped": _str(f.get("Last Scraped")),
+                "notes": _str(f.get("Notes")),
+            }
+            rows.append(row)
+
+        return self._upsert("competitor_channels", rows)
+
+    # -----------------------------------------------------------------------
+    # 5) COMPETITOR VIDEOS → competitor_videos
     # -----------------------------------------------------------------------
     def sync_competitor_videos(self, records: list[dict]) -> int:
         rows: list[dict] = []
         for rec in records:
             f = rec.get("fields", {})
-            video_title = (
-                f.get("Video Title") or f.get("Title") or f.get("video_title") or ""
-            )
-            if not video_title:
-                continue
-
-            # Thumbnail: could be attachment or plain URL
-            thumb = _att_url(f.get("Thumbnail")) or _str(f.get("Thumbnail URL"))
-
-            # Tags: could be string or list
-            tags_raw = f.get("Tags")
-            tags = None
-            if isinstance(tags_raw, list):
-                tags = json.dumps(tags_raw)
-            elif isinstance(tags_raw, str):
-                tags = json.dumps([t.strip() for t in tags_raw.split(",") if t.strip()])
-
-            # Published date: many possible field names
-            published = (
-                _str(f.get("Published At"))
-                or _str(f.get("Published"))
-                or _str(f.get("Published Date"))
-            )
-
-            # Collect known fields, put the rest in metadata
-            known_keys = {
-                "Channel Name", "Channel", "Channel ID",
-                "Video Title", "Title", "video_title",
-                "Video URL", "URL", "Video ID",
-                "Published At", "Published", "Published Date",
-                "Views", "Likes", "Comments", "Duration",
-                "Thumbnail", "Thumbnail URL", "Description", "Tags",
-                "Category", "Topic", "Framework Match", "Relevance Score",
-            }
-            metadata = {k: v for k, v in f.items() if k not in known_keys}
 
             row = {
                 "tenant_id": self.tenant_id,
                 "airtable_record_id": rec["id"],
-                "channel_name": _str(f.get("Channel Name") or f.get("Channel")),
-                "channel_id": _str(f.get("Channel ID")),
-                "video_title": video_title,
-                "video_url": _str(f.get("Video URL") or f.get("URL")),
                 "video_id": _str(f.get("Video ID")),
-                "published_at": published,
+                "title": _str(f.get("Title")),
+                "published_date": _str(f.get("Published Date")),
+                "vph": _float(f.get("VPH")),
                 "views": _int(f.get("Views")),
-                "likes": _int(f.get("Likes")),
-                "comments": _int(f.get("Comments")),
-                "duration_seconds": _int(f.get("Duration")) if f.get("Duration") is not None else None,
-                "thumbnail_url": thumb,
-                "description": _str(f.get("Description")),
-                "tags": tags,
-                "category": _str(f.get("Category")),
-                "topic": _str(f.get("Topic")),
-                "framework_match": _str(f.get("Framework Match")),
-                "relevance_score": _int(f.get("Relevance Score")) if f.get("Relevance Score") is not None else None,
-                "metadata": json.dumps(metadata) if metadata else None,
+                "channel": _str(f.get("Channel")),
+                "url": _str(f.get("URL")),
+                "channel_url": _str(f.get("Channel URL")),
+                "hours_old": _float(f.get("Hours Old")),
+                "scrape_date": _str(f.get("Scrape Date")),
+                "modeled": _bool(f.get("Modeled")),
+                "our_video": _str(f.get("Our Video")),
+                "topic_cluster": _str(f.get("Topic Cluster")),
+                "curiosity_structure": _str(f.get("Curiosity Structure")),
+                "structure_confidence": _float(f.get("Structure Confidence")),
+                "thumbnail_style_json": _str(f.get("Thumbnail Style JSON")),
+                "yin_yang_approach": _str(f.get("Yin Yang Approach")),
+                "yin_yang_text": _str(f.get("Yin Yang Text")),
+                "analysis_date": _str(f.get("Analysis Date")),
+                "modeled_by_us": _bool(f.get("Modeled By Us")),
+                "our_ctr_result": _float(f.get("Our CTR Result")),
             }
             rows.append(row)
 
         return self._upsert("competitor_videos", rows)
 
     # -----------------------------------------------------------------------
-    # 5) LEARNINGS — Osiris Learnings → learnings
+    # 6) LEARNINGS — Osiris Learnings → learnings
     # -----------------------------------------------------------------------
     def sync_learnings(self, records: list[dict]) -> int:
         rows: list[dict] = []
         for rec in records:
             f = rec.get("fields", {})
-            pattern = _str(f.get("Pattern"))
-            if not pattern:
-                continue
-
-            category_raw = (_str(f.get("Category")) or "").lower()
-            valid_categories = {"title", "hook", "thumbnail", "retention", "framework"}
-            category = category_raw if category_raw in valid_categories else None
 
             row = {
                 "tenant_id": self.tenant_id,
                 "airtable_record_id": rec["id"],
-                "pattern": pattern,
-                "category": category,
+                "pattern": _str(f.get("Pattern")),
+                "category": _str(f.get("Category")),
                 "detail": _str(f.get("Detail")),
-                "confidence": _int(f.get("Confidence")) if f.get("Confidence") is not None else None,
-                "sample_size": _int(f.get("Sample Size")) if f.get("Sample Size") is not None else None,
+                "confidence": _float(f.get("Confidence")),
+                "sample_size": _float(f.get("Sample Size")),
                 "avg_ctr": _float(f.get("Avg CTR")),
                 "avg_retention": _float(f.get("Avg Retention")),
                 "source_videos": _str(f.get("Source Videos")),
-                "active": bool(f.get("Active", True)),
-                "learned_at": _str(f.get("Created")),
+                "active": _bool(f.get("Active")),
+                "created_date": _str(f.get("Created")),
                 "last_updated": _str(f.get("Last Updated")),
             }
             rows.append(row)
 
         return self._upsert("learnings", rows)
+
+    # -----------------------------------------------------------------------
+    # 7) TITLE INSIGHTS → title_insights
+    # -----------------------------------------------------------------------
+    def sync_title_insights(self, records: list[dict]) -> int:
+        rows: list[dict] = []
+        for rec in records:
+            f = rec.get("fields", {})
+
+            row = {
+                "tenant_id": self.tenant_id,
+                "airtable_record_id": rec["id"],
+                "name": _str(f.get("Name")),
+                "pattern_name": _str(f.get("Pattern Name")),
+                "description": _str(f.get("Description")),
+                "example_titles": _str(f.get("Example Titles")),
+                "analysis_date": _str(f.get("Analysis Date")),
+                "pattern_type": _str(f.get("Pattern Type")),
+                "avg_vph": _float(f.get("Avg VPH")),
+                "count": _int(f.get("Count")) if f.get("Count") is not None else None,
+                "confidence": _float(f.get("Confidence")),
+                "videos_analyzed": _int(f.get("Videos Analyzed")) if f.get("Videos Analyzed") is not None else None,
+                "vph_threshold": _float(f.get("VPH Threshold")),
+            }
+            rows.append(row)
+
+        return self._upsert("title_insights", rows)
+
+    # -----------------------------------------------------------------------
+    # 8) TITLE TESTS → title_tests
+    # -----------------------------------------------------------------------
+    def sync_title_tests(self, records: list[dict]) -> int:
+        rows: list[dict] = []
+        for rec in records:
+            f = rec.get("fields", {})
+
+            row = {
+                "tenant_id": self.tenant_id,
+                "airtable_record_id": rec["id"],
+                "idea": _str(f.get("Idea")),
+                "title_text": _str(f.get("Title Text")),
+                "structure": _str(f.get("Structure")),
+                "structure_confidence": _float(f.get("Structure Confidence")),
+                "thumbnail_text": _str(f.get("Thumbnail Text")),
+                "thumbnail_approach": _str(f.get("Thumbnail Approach")),
+                "source_patterns": _str(f.get("Source Patterns")),
+                "pattern_library_snapshot": _str(f.get("Pattern Library Snapshot")),
+                "poll_result": _str(f.get("Poll Result")),
+                "poll_closed": _bool(f.get("Poll Closed")),
+                "ctr_12h": _float(f.get("CTR 12h")),
+                "ctr_24h": _float(f.get("CTR 24h")),
+                "ctr_48h": _float(f.get("CTR 48h")),
+                "selected": _bool(f.get("Selected")),
+                "video_title": _str(f.get("Video Title")),
+            }
+            rows.append(row)
+
+        return self._upsert("title_tests", rows)
 
     # -----------------------------------------------------------------------
     # Log sync activity
@@ -581,7 +721,18 @@ def main():
     asset_count = sync.sync_assets(image_records)
     print(f"    Synced {asset_count} assets")
 
-    # ---- 4. Competitor Videos ---------------------------------------------
+    # ---- 4. Competitor Channels -------------------------------------------
+    print("  Fetching Competitor Channels...")
+    try:
+        channel_records = fetch_airtable_records(COMPETITOR_CHANNELS_TABLE, full_sync=args.full)
+    except Exception as e:
+        print(f"  ERROR fetching competitor channels: {e}")
+        channel_records = []
+    print(f"    Found {len(channel_records)} records")
+    channel_count = sync.sync_competitor_channels(channel_records)
+    print(f"    Synced {channel_count} channels")
+
+    # ---- 5. Competitor Videos ---------------------------------------------
     print("  Fetching Competitor Videos...")
     try:
         comp_records = fetch_airtable_records(COMPETITOR_VIDEOS_TABLE, full_sync=args.full)
@@ -592,7 +743,7 @@ def main():
     comp_count = sync.sync_competitor_videos(comp_records)
     print(f"    Synced {comp_count} competitor videos")
 
-    # ---- 5. Osiris Learnings ----------------------------------------------
+    # ---- 6. Osiris Learnings ----------------------------------------------
     print("  Fetching Osiris Learnings...")
     try:
         learning_records = fetch_airtable_records(OSIRIS_LEARNINGS_TABLE, full_sync=args.full)
@@ -603,11 +754,34 @@ def main():
     learning_count = sync.sync_learnings(learning_records)
     print(f"    Synced {learning_count} learnings")
 
+    # ---- 7. Title Insights ------------------------------------------------
+    print("  Fetching Title Insights...")
+    try:
+        insight_records = fetch_airtable_records(TITLE_INSIGHTS_TABLE, full_sync=args.full)
+    except Exception as e:
+        print(f"  ERROR fetching title insights: {e}")
+        insight_records = []
+    print(f"    Found {len(insight_records)} records")
+    insight_count = sync.sync_title_insights(insight_records)
+    print(f"    Synced {insight_count} insights")
+
+    # ---- 8. Title Tests ---------------------------------------------------
+    print("  Fetching Title Tests...")
+    try:
+        test_records = fetch_airtable_records(TITLE_TESTS_TABLE, full_sync=args.full)
+    except Exception as e:
+        print(f"  ERROR fetching title tests: {e}")
+        test_records = []
+    print(f"    Found {len(test_records)} records")
+    test_count = sync.sync_title_tests(test_records)
+    print(f"    Synced {test_count} tests")
+
     # ---- Summary ----------------------------------------------------------
     summary = (
         f"Synced {video_count} videos, {script_count} scripts, "
-        f"{asset_count} assets, {comp_count} competitor videos, "
-        f"{learning_count} learnings"
+        f"{asset_count} assets, {channel_count} channels, "
+        f"{comp_count} competitor_videos, {learning_count} learnings, "
+        f"{insight_count} insights, {test_count} tests"
     )
     sync.log_activity(summary)
     print(f"\n  {summary}")
