@@ -394,7 +394,14 @@ class PipelineExecutor:
             "ready_for_scripting": self.run_script,
             "ready_for_voice": self.run_voice,
             "ready_for_image_prompts": self.run_prompts,
+            "ready_for_storyboards": self.run_storyboard_prompts,
+            "ready_for_storyboard_images": self.run_storyboard_images,
+            "ready_for_storyboard_extraction": self.run_storyboard_extract,
             "ready_for_images": self.run_images,
+            "ready_for_sound_design": self.run_sound_prompts,
+            "ready_for_sound_effects": self.run_sound_effects,
+            "ready_for_video_scripts": self.run_video_scripts,
+            "ready_for_video_generation": self.run_video_generation,
             "ready_for_thumbnail": self.run_thumbnail,
             "ready_to_render": self.run_render,
         }
@@ -445,6 +452,117 @@ class PipelineExecutor:
             await self._log_activity(bot_name, video_id, "failed", error_msg)
             return {"status": "failed", "error": error_msg}
 
+    async def run_storyboard_prompts(self, video_id: str) -> dict:
+        """Generate storyboard prompts for a video."""
+        await self._ensure_initialized()
+        bot_name = "Storyboard Bot"
+
+        try:
+            video = await self._get_video(video_id)
+            if not video:
+                return {"status": "failed", "error": "Video not found"}
+
+            current_status = video.get("status")
+            await self._log_activity(bot_name, video_id, "started", "Generating storyboard prompts")
+
+            airtable_id = video.get("airtable_record_id")
+            if airtable_id:
+                idea = self._pipeline.airtable.get_idea(airtable_id)
+                if idea:
+                    self._pipeline._load_idea(idea)
+
+            result = await self._pipeline.run_storyboard_prompts()
+
+            if result.get("error"):
+                raise Exception(result["error"])
+
+            new_status = result.get("new_status", "ready_for_storyboard_images")
+
+            await self._update_video_status(video_id, to_supabase(new_status))
+            await self._log_transition(video_id, current_status, to_supabase(new_status), "api")
+            await self._log_activity(bot_name, video_id, "completed", "Storyboard prompts generated")
+
+            return {"status": to_supabase(new_status), "video_id": video_id}
+
+        except Exception as e:
+            error_msg = str(e)
+            await self._log_activity(bot_name, video_id, "failed", error_msg)
+            return {"status": "failed", "error": error_msg}
+
+    async def run_storyboard_images(self, video_id: str) -> dict:
+        """Generate storyboard images for a video."""
+        await self._ensure_initialized()
+        bot_name = "Storyboard Images Bot"
+
+        try:
+            video = await self._get_video(video_id)
+            if not video:
+                return {"status": "failed", "error": "Video not found"}
+
+            current_status = video.get("status")
+            await self._log_activity(bot_name, video_id, "started", "Generating storyboard images")
+
+            airtable_id = video.get("airtable_record_id")
+            if airtable_id:
+                idea = self._pipeline.airtable.get_idea(airtable_id)
+                if idea:
+                    self._pipeline._load_idea(idea)
+
+            result = await self._pipeline.run_storyboard_images()
+
+            if result.get("error"):
+                raise Exception(result["error"])
+
+            new_status = result.get("new_status", "ready_for_storyboard_extraction")
+
+            await self._update_video_status(video_id, to_supabase(new_status))
+            await self._log_transition(video_id, current_status, to_supabase(new_status), "api")
+            await self._log_activity(bot_name, video_id, "completed", "Storyboard images generated")
+
+            return {"status": to_supabase(new_status), "video_id": video_id}
+
+        except Exception as e:
+            error_msg = str(e)
+            await self._log_activity(bot_name, video_id, "failed", error_msg)
+            return {"status": "failed", "error": error_msg}
+
+    async def run_storyboard_extract(self, video_id: str) -> dict:
+        """Extract storyboard frames for a video."""
+        await self._ensure_initialized()
+        bot_name = "Storyboard Extract Bot"
+
+        try:
+            video = await self._get_video(video_id)
+            if not video:
+                return {"status": "failed", "error": "Video not found"}
+
+            current_status = video.get("status")
+            await self._log_activity(bot_name, video_id, "started", "Extracting storyboard frames")
+
+            airtable_id = video.get("airtable_record_id")
+            if airtable_id:
+                idea = self._pipeline.airtable.get_idea(airtable_id)
+                if idea:
+                    self._pipeline._load_idea(idea)
+
+            result = await self._pipeline.run_storyboard_extract()
+
+            if result.get("error"):
+                raise Exception(result["error"])
+
+            new_status = result.get("new_status", "ready_for_images")
+
+            await self._update_video_status(video_id, to_supabase(new_status))
+            await self._log_transition(video_id, current_status, to_supabase(new_status), "api")
+            await self._log_activity(bot_name, video_id, "completed", "Storyboard frames extracted")
+
+            return {"status": to_supabase(new_status), "video_id": video_id}
+
+        except Exception as e:
+            error_msg = str(e)
+            await self._log_activity(bot_name, video_id, "failed", error_msg)
+            return {"status": "failed", "error": error_msg}
+
     async def run_images(self, video_id: str) -> dict:
         """Generate images for a video."""
         await self._ensure_initialized()
@@ -474,6 +592,154 @@ class PipelineExecutor:
             await self._update_video_status(video_id, to_supabase(new_status))
             await self._log_transition(video_id, current_status, to_supabase(new_status), "api")
             await self._log_activity(bot_name, video_id, "completed", "Images generated")
+
+            return {"status": to_supabase(new_status), "video_id": video_id}
+
+        except Exception as e:
+            error_msg = str(e)
+            await self._log_activity(bot_name, video_id, "failed", error_msg)
+            return {"status": "failed", "error": error_msg}
+
+    async def run_sound_prompts(self, video_id: str) -> dict:
+        """Generate sound design prompts for a video."""
+        await self._ensure_initialized()
+        bot_name = "Sound Design Bot"
+
+        try:
+            video = await self._get_video(video_id)
+            if not video:
+                return {"status": "failed", "error": "Video not found"}
+
+            current_status = video.get("status")
+            await self._log_activity(bot_name, video_id, "started", "Generating sound prompts")
+
+            airtable_id = video.get("airtable_record_id")
+            if airtable_id:
+                idea = self._pipeline.airtable.get_idea(airtable_id)
+                if idea:
+                    self._pipeline._load_idea(idea)
+
+            result = await self._pipeline.run_sound_prompt_bot()
+
+            if result.get("error"):
+                raise Exception(result["error"])
+
+            new_status = result.get("new_status", "ready_for_sound_effects")
+
+            await self._update_video_status(video_id, to_supabase(new_status))
+            await self._log_transition(video_id, current_status, to_supabase(new_status), "api")
+            await self._log_activity(bot_name, video_id, "completed", "Sound prompts generated")
+
+            return {"status": to_supabase(new_status), "video_id": video_id}
+
+        except Exception as e:
+            error_msg = str(e)
+            await self._log_activity(bot_name, video_id, "failed", error_msg)
+            return {"status": "failed", "error": error_msg}
+
+    async def run_sound_effects(self, video_id: str) -> dict:
+        """Generate sound effects for a video."""
+        await self._ensure_initialized()
+        bot_name = "Sound Effects Bot"
+
+        try:
+            video = await self._get_video(video_id)
+            if not video:
+                return {"status": "failed", "error": "Video not found"}
+
+            current_status = video.get("status")
+            await self._log_activity(bot_name, video_id, "started", "Generating sound effects")
+
+            airtable_id = video.get("airtable_record_id")
+            if airtable_id:
+                idea = self._pipeline.airtable.get_idea(airtable_id)
+                if idea:
+                    self._pipeline._load_idea(idea)
+
+            result = await self._pipeline.run_sound_bot()
+
+            if result.get("error"):
+                raise Exception(result["error"])
+
+            new_status = result.get("new_status", "ready_for_video_scripts")
+
+            await self._update_video_status(video_id, to_supabase(new_status))
+            await self._log_transition(video_id, current_status, to_supabase(new_status), "api")
+            await self._log_activity(bot_name, video_id, "completed", "Sound effects generated")
+
+            return {"status": to_supabase(new_status), "video_id": video_id}
+
+        except Exception as e:
+            error_msg = str(e)
+            await self._log_activity(bot_name, video_id, "failed", error_msg)
+            return {"status": "failed", "error": error_msg}
+
+    async def run_video_scripts(self, video_id: str) -> dict:
+        """Generate video motion scripts for a video."""
+        await self._ensure_initialized()
+        bot_name = "Video Script Bot"
+
+        try:
+            video = await self._get_video(video_id)
+            if not video:
+                return {"status": "failed", "error": "Video not found"}
+
+            current_status = video.get("status")
+            await self._log_activity(bot_name, video_id, "started", "Generating video scripts")
+
+            airtable_id = video.get("airtable_record_id")
+            if airtable_id:
+                idea = self._pipeline.airtable.get_idea(airtable_id)
+                if idea:
+                    self._pipeline._load_idea(idea)
+
+            result = await self._pipeline.run_video_script_bot()
+
+            if result.get("error"):
+                raise Exception(result["error"])
+
+            new_status = result.get("new_status", "ready_for_video_generation")
+
+            await self._update_video_status(video_id, to_supabase(new_status))
+            await self._log_transition(video_id, current_status, to_supabase(new_status), "api")
+            await self._log_activity(bot_name, video_id, "completed", "Video scripts generated")
+
+            return {"status": to_supabase(new_status), "video_id": video_id}
+
+        except Exception as e:
+            error_msg = str(e)
+            await self._log_activity(bot_name, video_id, "failed", error_msg)
+            return {"status": "failed", "error": error_msg}
+
+    async def run_video_generation(self, video_id: str) -> dict:
+        """Generate video clips for a video."""
+        await self._ensure_initialized()
+        bot_name = "Video Gen Bot"
+
+        try:
+            video = await self._get_video(video_id)
+            if not video:
+                return {"status": "failed", "error": "Video not found"}
+
+            current_status = video.get("status")
+            await self._log_activity(bot_name, video_id, "started", "Generating video clips")
+
+            airtable_id = video.get("airtable_record_id")
+            if airtable_id:
+                idea = self._pipeline.airtable.get_idea(airtable_id)
+                if idea:
+                    self._pipeline._load_idea(idea)
+
+            result = await self._pipeline.run_video_gen_bot()
+
+            if result.get("error"):
+                raise Exception(result["error"])
+
+            new_status = result.get("new_status", "ready_for_thumbnail")
+
+            await self._update_video_status(video_id, to_supabase(new_status))
+            await self._log_transition(video_id, current_status, to_supabase(new_status), "api")
+            await self._log_activity(bot_name, video_id, "completed", "Video clips generated")
 
             return {"status": to_supabase(new_status), "video_id": video_id}
 

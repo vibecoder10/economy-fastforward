@@ -264,6 +264,129 @@ async def run_prompts(
     return PipelineResponse(video_id=video_id, status="running", message="Prompt generation started")
 
 
+@router.post("/storyboards/{video_id}", response_model=PipelineResponse)
+async def run_storyboards(
+    video_id: str,
+    background_tasks: BackgroundTasks,
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """Generate storyboard prompts for a video."""
+    video = await fetch_one(
+        "SELECT id, status FROM videos WHERE id = $1 AND tenant_id = $2",
+        video_id, tenant_id,
+    )
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+
+    if video["status"] != "ready_for_storyboards":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Video not ready for storyboards (status: {video['status']})",
+        )
+
+    if _get_task_status(video_id):
+        raise HTTPException(status_code=409, detail="Task already running")
+
+    _set_task_status(video_id, "running", "Storyboard generation in progress")
+
+    async def _run():
+        try:
+            executor = PipelineExecutor(tenant_id)
+            result = await executor.run_storyboard_prompts(video_id)
+            _set_task_status(video_id, result.get("status", "unknown"), result.get("error"))
+        except Exception as e:
+            _set_task_status(video_id, "failed", str(e))
+        finally:
+            await asyncio.sleep(30)
+            _clear_task_status(video_id)
+
+    background_tasks.add_task(_run)
+
+    return PipelineResponse(video_id=video_id, status="running", message="Storyboard generation started")
+
+
+@router.post("/storyboard-images/{video_id}", response_model=PipelineResponse)
+async def run_storyboard_images(
+    video_id: str,
+    background_tasks: BackgroundTasks,
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """Generate storyboard images for a video."""
+    video = await fetch_one(
+        "SELECT id, status FROM videos WHERE id = $1 AND tenant_id = $2",
+        video_id, tenant_id,
+    )
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+
+    if video["status"] != "ready_for_storyboard_images":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Video not ready for storyboard images (status: {video['status']})",
+        )
+
+    if _get_task_status(video_id):
+        raise HTTPException(status_code=409, detail="Task already running")
+
+    _set_task_status(video_id, "running", "Storyboard image generation in progress")
+
+    async def _run():
+        try:
+            executor = PipelineExecutor(tenant_id)
+            result = await executor.run_storyboard_images(video_id)
+            _set_task_status(video_id, result.get("status", "unknown"), result.get("error"))
+        except Exception as e:
+            _set_task_status(video_id, "failed", str(e))
+        finally:
+            await asyncio.sleep(30)
+            _clear_task_status(video_id)
+
+    background_tasks.add_task(_run)
+
+    return PipelineResponse(video_id=video_id, status="running", message="Storyboard image generation started")
+
+
+@router.post("/storyboard-extract/{video_id}", response_model=PipelineResponse)
+async def run_storyboard_extract(
+    video_id: str,
+    background_tasks: BackgroundTasks,
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """Extract frames from storyboard grids."""
+    video = await fetch_one(
+        "SELECT id, status FROM videos WHERE id = $1 AND tenant_id = $2",
+        video_id, tenant_id,
+    )
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+
+    if video["status"] != "ready_for_storyboard_extraction":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Video not ready for storyboard extraction (status: {video['status']})",
+        )
+
+    if _get_task_status(video_id):
+        raise HTTPException(status_code=409, detail="Task already running")
+
+    _set_task_status(video_id, "running", "Storyboard extraction in progress")
+
+    async def _run():
+        try:
+            executor = PipelineExecutor(tenant_id)
+            result = await executor.run_storyboard_extract(video_id)
+            _set_task_status(video_id, result.get("status", "unknown"), result.get("error"))
+        except Exception as e:
+            _set_task_status(video_id, "failed", str(e))
+        finally:
+            await asyncio.sleep(30)
+            _clear_task_status(video_id)
+
+    background_tasks.add_task(_run)
+
+    return PipelineResponse(video_id=video_id, status="running", message="Storyboard extraction started")
+
+
 @router.post("/images/{video_id}", response_model=PipelineResponse)
 async def run_images(
     video_id: str,
@@ -303,6 +426,170 @@ async def run_images(
     background_tasks.add_task(_run)
 
     return PipelineResponse(video_id=video_id, status="running", message="Image generation started")
+
+
+@router.post("/sound-prompts/{video_id}", response_model=PipelineResponse)
+async def run_sound_prompts(
+    video_id: str,
+    background_tasks: BackgroundTasks,
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """Generate sound design prompts for a video."""
+    video = await fetch_one(
+        "SELECT id, status FROM videos WHERE id = $1 AND tenant_id = $2",
+        video_id, tenant_id,
+    )
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+
+    if video["status"] != "ready_for_sound_design":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Video not ready for sound design (status: {video['status']})",
+        )
+
+    if _get_task_status(video_id):
+        raise HTTPException(status_code=409, detail="Task already running")
+
+    _set_task_status(video_id, "running", "Sound prompt generation in progress")
+
+    async def _run():
+        try:
+            executor = PipelineExecutor(tenant_id)
+            result = await executor.run_sound_prompts(video_id)
+            _set_task_status(video_id, result.get("status", "unknown"), result.get("error"))
+        except Exception as e:
+            _set_task_status(video_id, "failed", str(e))
+        finally:
+            await asyncio.sleep(30)
+            _clear_task_status(video_id)
+
+    background_tasks.add_task(_run)
+
+    return PipelineResponse(video_id=video_id, status="running", message="Sound prompt generation started")
+
+
+@router.post("/sound-effects/{video_id}", response_model=PipelineResponse)
+async def run_sound_effects(
+    video_id: str,
+    background_tasks: BackgroundTasks,
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """Generate sound effects for a video."""
+    video = await fetch_one(
+        "SELECT id, status FROM videos WHERE id = $1 AND tenant_id = $2",
+        video_id, tenant_id,
+    )
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+
+    if video["status"] != "ready_for_sound_effects":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Video not ready for sound effects (status: {video['status']})",
+        )
+
+    if _get_task_status(video_id):
+        raise HTTPException(status_code=409, detail="Task already running")
+
+    _set_task_status(video_id, "running", "Sound effects generation in progress")
+
+    async def _run():
+        try:
+            executor = PipelineExecutor(tenant_id)
+            result = await executor.run_sound_effects(video_id)
+            _set_task_status(video_id, result.get("status", "unknown"), result.get("error"))
+        except Exception as e:
+            _set_task_status(video_id, "failed", str(e))
+        finally:
+            await asyncio.sleep(30)
+            _clear_task_status(video_id)
+
+    background_tasks.add_task(_run)
+
+    return PipelineResponse(video_id=video_id, status="running", message="Sound effects generation started")
+
+
+@router.post("/video-scripts/{video_id}", response_model=PipelineResponse)
+async def run_video_scripts(
+    video_id: str,
+    background_tasks: BackgroundTasks,
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """Generate video motion scripts for a video."""
+    video = await fetch_one(
+        "SELECT id, status FROM videos WHERE id = $1 AND tenant_id = $2",
+        video_id, tenant_id,
+    )
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+
+    if video["status"] != "ready_for_video_scripts":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Video not ready for video scripts (status: {video['status']})",
+        )
+
+    if _get_task_status(video_id):
+        raise HTTPException(status_code=409, detail="Task already running")
+
+    _set_task_status(video_id, "running", "Video script generation in progress")
+
+    async def _run():
+        try:
+            executor = PipelineExecutor(tenant_id)
+            result = await executor.run_video_scripts(video_id)
+            _set_task_status(video_id, result.get("status", "unknown"), result.get("error"))
+        except Exception as e:
+            _set_task_status(video_id, "failed", str(e))
+        finally:
+            await asyncio.sleep(30)
+            _clear_task_status(video_id)
+
+    background_tasks.add_task(_run)
+
+    return PipelineResponse(video_id=video_id, status="running", message="Video script generation started")
+
+
+@router.post("/video-generation/{video_id}", response_model=PipelineResponse)
+async def run_video_generation(
+    video_id: str,
+    background_tasks: BackgroundTasks,
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """Generate video clips for a video."""
+    video = await fetch_one(
+        "SELECT id, status FROM videos WHERE id = $1 AND tenant_id = $2",
+        video_id, tenant_id,
+    )
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+
+    if video["status"] != "ready_for_video_generation":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Video not ready for video generation (status: {video['status']})",
+        )
+
+    if _get_task_status(video_id):
+        raise HTTPException(status_code=409, detail="Task already running")
+
+    _set_task_status(video_id, "running", "Video clip generation in progress")
+
+    async def _run():
+        try:
+            executor = PipelineExecutor(tenant_id)
+            result = await executor.run_video_generation(video_id)
+            _set_task_status(video_id, result.get("status", "unknown"), result.get("error"))
+        except Exception as e:
+            _set_task_status(video_id, "failed", str(e))
+        finally:
+            await asyncio.sleep(30)
+            _clear_task_status(video_id)
+
+    background_tasks.add_task(_run)
+
+    return PipelineResponse(video_id=video_id, status="running", message="Video clip generation started")
 
 
 @router.post("/thumbnail/{video_id}", response_model=PipelineResponse)
