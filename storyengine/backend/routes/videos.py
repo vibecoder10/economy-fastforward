@@ -10,15 +10,25 @@ from typing import Optional, Any
 
 def _parse_json_field(val: Any) -> Optional[dict]:
     """Parse a JSON field that might be string or dict."""
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"_parse_json_field called with type={type(val)}, val[:100]={str(val)[:100] if val else None}")
+
     if val is None:
+        logger.info("Returning None (input was None)")
         return None
     if isinstance(val, dict):
+        logger.info("Returning dict (input was already dict)")
         return val
     if isinstance(val, str):
         try:
-            return json.loads(val)
-        except (json.JSONDecodeError, ValueError):
+            result = json.loads(val)
+            logger.info(f"Parsed string to dict, result type={type(result)}")
+            return result
+        except (json.JSONDecodeError, ValueError) as e:
+            logger.error(f"JSON parse failed: {e}")
             return None
+    logger.info(f"Returning None (input was unexpected type: {type(val)})")
     return None
 
 router = APIRouter(prefix="/api/videos", tags=["videos"])
