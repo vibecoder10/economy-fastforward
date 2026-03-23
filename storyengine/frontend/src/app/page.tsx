@@ -111,7 +111,7 @@ export default function HomePage() {
                   Latest Video
                 </p>
                 <p className="line-clamp-1 text-sm font-medium">{data.latest_video.video_title || "Untitled"}</p>
-                <ProgressDots status={data.latest_video.status} />
+                <ProgressDots status={data.latest_video.status || "idea_logged"} />
               </div>
             </div>
           </Link>
