@@ -146,7 +146,7 @@ export default function PipelinePage() {
       <DetailPanel
         open={!!selectedId}
         onClose={() => setSelectedId(null)}
-        title={selectedVideo?.video_title}
+        title={selectedVideo?.video_title || undefined}
       >
         {selectedVideo && (
           <div className="space-y-6">
