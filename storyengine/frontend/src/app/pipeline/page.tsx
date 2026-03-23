@@ -133,7 +133,7 @@ export default function PipelinePage() {
                 <p className="line-clamp-2 text-xs font-medium">{video.video_title || "Untitled"}</p>
                 <div className="mt-1.5 flex items-center gap-2">
                   <span className="rounded-full bg-[var(--surface-elevated)] px-1.5 py-0.5 text-[9px] font-medium text-[var(--text-secondary)]">
-                    {getStageLabel(video.status)}
+                    {getStageLabel(video.status || "idea_logged")}
                   </span>
                 </div>
               </div>
@@ -160,7 +160,7 @@ export default function PipelinePage() {
             {/* Stage tracker */}
             <div>
               <h3 className="mb-3 text-sm font-medium text-[var(--text-secondary)]">Progress</h3>
-              <StageTracker status={selectedVideo.status} />
+              <StageTracker status={selectedVideo.status || "idea_logged"} />
             </div>
 
             {/* Actions */}
