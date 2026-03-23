@@ -23,8 +23,8 @@ const BADGE_COLORS: Record<string, string> = {
 };
 
 export function VideoCard({ video, onClick }: VideoCardProps) {
-  const stageColor = getStageColor(video.status);
-  const stageLabel = getStageLabel(video.status);
+  const stageColor = getStageColor(video.status || "idea_logged");
+  const stageLabel = getStageLabel(video.status || "idea_logged");
 
   return (
     <button
