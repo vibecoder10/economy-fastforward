@@ -28,8 +28,8 @@ STAGE_ORDER = {s["key"]: s["dot"] for s in PIPELINE_STAGES}
 
 class VideoSummary(BaseModel):
     id: str
-    title: str
-    status: str
+    video_title: Optional[str] = None
+    status: Optional[str] = None
     thumbnail_url: Optional[str] = None
     accent_color: str = "#00D4AA"
     total_cost: float = 0
@@ -41,15 +41,32 @@ class VideoSummary(BaseModel):
 
 class VideoDetail(VideoSummary):
     airtable_record_id: Optional[str] = None
+    headline: Optional[str] = None
+    source: Optional[str] = None
     framework_angle: Optional[str] = None
+    thematic_framework: Optional[str] = None
+    hook_script: Optional[str] = None
+    past_context: Optional[str] = None
+    present_parallel: Optional[str] = None
+    future_prediction: Optional[str] = None
+    writer_guidance: Optional[str] = None
+    thesis: Optional[str] = None
+    executive_hook: Optional[str] = None
     research_payload: Optional[dict] = None
+    original_dna: Optional[dict] = None
     script: Optional[str] = None
     story_bible: Optional[str] = None
     thumbnail_prompt: Optional[str] = None
-    visual_style: str = "holographic_hud"
-    video_length_minutes: int = 10
+    thumbnail_style_override: Optional[str] = None
+    visual_style: Optional[str] = None
+    image_style_override: Optional[str] = None
+    video_length_minutes: Optional[float] = None
     youtube_url: Optional[str] = None
     avg_retention: Optional[float] = None
+    impressions: int = 0
+    likes: int = 0
+    comments: int = 0
+    performance_verdict: Optional[str] = None
 
 
 class VideoAdvance(BaseModel):
@@ -66,14 +83,15 @@ class VideoReject(BaseModel):
 
 class AssetSummary(BaseModel):
     id: str
-    video_id: str
-    asset_type: str
-    scene_number: Optional[int] = None
+    video_id: Optional[str] = None
+    video_title: Optional[str] = None
+    scene: Optional[int] = None
     image_index: Optional[int] = None
-    url: str
-    prompt: Optional[str] = None
-    status: str = "pending"
-    metadata: Optional[dict] = None
+    image_url: Optional[str] = None
+    image_prompt: Optional[str] = None
+    status: Optional[str] = None
+    shot_type: Optional[str] = None
+    hero_shot: bool = False
     created_at: Optional[str] = None
 
 
@@ -90,12 +108,14 @@ class BatchApproval(BaseModel):
 
 class ScriptScene(BaseModel):
     id: str
-    video_id: str
-    scene_number: int
-    scene_text: str
-    voice_url: Optional[str] = None
-    voice_status: str = "pending"
+    video_id: Optional[str] = None
+    scene: Optional[int] = None
+    scene_text: Optional[str] = None
+    voice_over_url: Optional[str] = None
+    voice_status: Optional[str] = None
+    script_status: Optional[str] = None
     sources: Optional[str] = None
+    storyboard_on_off: Optional[str] = None
 
 
 # --- Activity ---

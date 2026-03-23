@@ -18,11 +18,10 @@ async def get_summary(tenant_id: str = Depends(get_tenant_id)):
         tenant_id,
     )
 
-    # Pending review - scripts needing approval, storyboards, thumbnails
+    # Pending review - assets with pending status
     pending = await fetch_one(
         """SELECT COUNT(*) as count FROM assets
-           WHERE tenant_id = $1 AND status = 'pending'
-           AND asset_type IN ('storyboard_grid', 'thumbnail')""",
+           WHERE tenant_id = $1 AND status = 'Pending'""",
         tenant_id,
     )
 
@@ -61,7 +60,7 @@ async def get_summary(tenant_id: str = Depends(get_tenant_id)):
 
     # Latest video
     latest_row = await fetch_one(
-        """SELECT id, title, status, thumbnail_url, accent_color, total_cost, views, ctr,
+        """SELECT id, video_title, status, thumbnail_url, accent_color, total_cost, views, ctr,
                   created_at::text, updated_at::text
            FROM videos WHERE tenant_id = $1
            ORDER BY updated_at DESC LIMIT 1""",
@@ -71,12 +70,12 @@ async def get_summary(tenant_id: str = Depends(get_tenant_id)):
     if latest_row:
         latest_video = VideoSummary(
             id=str(latest_row["id"]),
-            title=latest_row["title"],
-            status=latest_row["status"],
+            video_title=latest_row.get("video_title"),
+            status=latest_row.get("status"),
             thumbnail_url=latest_row.get("thumbnail_url"),
             accent_color=latest_row.get("accent_color", "#00D4AA"),
-            total_cost=float(latest_row.get("total_cost", 0)),
-            views=latest_row.get("views", 0),
+            total_cost=float(latest_row.get("total_cost") or 0),
+            views=latest_row.get("views") or 0,
             ctr=float(latest_row["ctr"]) if latest_row.get("ctr") else None,
             created_at=latest_row.get("created_at"),
             updated_at=latest_row.get("updated_at"),

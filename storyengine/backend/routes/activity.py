@@ -22,7 +22,7 @@ async def list_activity(
     """Bot activity log, newest first."""
     if status:
         rows = await fetch_all(
-            """SELECT ba.id, ba.bot_name, ba.video_id, v.title as video_title,
+            """SELECT ba.id, ba.bot_name, ba.video_id, v.video_title,
                       ba.status, ba.message, ba.cost, ba.created_at::text
                FROM bot_activity ba
                LEFT JOIN videos v ON v.id = ba.video_id
@@ -32,7 +32,7 @@ async def list_activity(
         )
     else:
         rows = await fetch_all(
-            """SELECT ba.id, ba.bot_name, ba.video_id, v.title as video_title,
+            """SELECT ba.id, ba.bot_name, ba.video_id, v.video_title,
                       ba.status, ba.message, ba.cost, ba.created_at::text
                FROM bot_activity ba
                LEFT JOIN videos v ON v.id = ba.video_id
@@ -91,7 +91,7 @@ async def activity_stream(tenant_id: str = Depends(get_tenant_id)):
             # Poll for new activity entries
             if last_id:
                 rows = await fetch_all(
-                    """SELECT ba.id, ba.bot_name, ba.video_id, v.title as video_title,
+                    """SELECT ba.id, ba.bot_name, ba.video_id, v.video_title,
                               ba.status, ba.message, ba.cost, ba.created_at::text
                        FROM bot_activity ba
                        LEFT JOIN videos v ON v.id = ba.video_id
@@ -101,7 +101,7 @@ async def activity_stream(tenant_id: str = Depends(get_tenant_id)):
                 )
             else:
                 rows = await fetch_all(
-                    """SELECT ba.id, ba.bot_name, ba.video_id, v.title as video_title,
+                    """SELECT ba.id, ba.bot_name, ba.video_id, v.video_title,
                               ba.status, ba.message, ba.cost, ba.created_at::text
                        FROM bot_activity ba
                        LEFT JOIN videos v ON v.id = ba.video_id
