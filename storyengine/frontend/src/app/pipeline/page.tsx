@@ -8,6 +8,7 @@ import {
   runNextStep,
   runPipelineStage,
   getPipelineTaskStatus,
+  updateVideoStyles,
   type VideoSummary,
   type VideoDetail,
 } from "@/lib/api";
@@ -19,7 +20,7 @@ import { Select } from "@/components/forms";
 import { FILTER_OPTIONS, getStageLabel } from "@/lib/constants";
 import { formatCost, timeAgo } from "@/lib/utils";
 import { cn } from "@/lib/utils";
-import { LayoutList, LayoutGrid, Play, AlertCircle } from "lucide-react";
+import { LayoutList, LayoutGrid, Play, AlertCircle, CheckCircle } from "lucide-react";
 
 // Pipeline stage buttons configuration
 const PIPELINE_STAGES = [
@@ -76,6 +77,10 @@ export default function PipelinePage() {
   const [pipelineError, setPipelineError] = useState<string | null>(null);
   const [runningStage, setRunningStage] = useState<string | null>(null);
 
+  // Style update state
+  const [styleUpdateStatus, setStyleUpdateStatus] = useState<"idle" | "saving" | "success" | "error">("idle");
+  const [styleUpdateError, setStyleUpdateError] = useState<string | null>(null);
+
   // Run next step mutation
   const runNextMutation = useMutation({
     mutationFn: (id: string) => runNextStep(id),
@@ -111,6 +116,27 @@ export default function PipelinePage() {
       setPipelineRunning(false);
       setPipelineError(error.message);
       setRunningStage(null);
+    },
+  });
+
+  // Style update mutation
+  const styleUpdateMutation = useMutation({
+    mutationFn: (styles: { visual_style?: string; accent_color?: string; image_model_override?: string }) =>
+      updateVideoStyles(selectedId!, styles),
+    onMutate: () => {
+      setStyleUpdateStatus("saving");
+      setStyleUpdateError(null);
+    },
+    onSuccess: () => {
+      setStyleUpdateStatus("success");
+      queryClient.invalidateQueries({ queryKey: ["video", selectedId] });
+      queryClient.invalidateQueries({ queryKey: ["videos"] });
+      // Reset after 2 seconds
+      setTimeout(() => setStyleUpdateStatus("idle"), 2000);
+    },
+    onError: (error: Error) => {
+      setStyleUpdateStatus("error");
+      setStyleUpdateError(error.message);
     },
   });
 
@@ -163,6 +189,8 @@ export default function PipelinePage() {
     setPipelineRunning(false);
     setPipelineError(null);
     setRunningStage(null);
+    setStyleUpdateStatus("idle");
+    setStyleUpdateError(null);
   }, [selectedId]);
 
   // Check if a stage button should be enabled
@@ -366,26 +394,52 @@ export default function PipelinePage() {
                   label="Visual Style"
                   options={VISUAL_STYLES}
                   value={selectedVideo.visual_style || "cinematic_illustration"}
-                  onChange={() => {}}
+                  onChange={(e) =>
+                    styleUpdateMutation.mutate({ visual_style: e.target.value })
+                  }
                   helperText="Rendering style for generated images"
+                  disabled={styleUpdateStatus === "saving"}
                 />
                 <Select
                   label="Image Model"
                   options={IMAGE_MODELS}
                   value="z-image"
-                  onChange={() => {}}
+                  onChange={(e) =>
+                    styleUpdateMutation.mutate({ image_model_override: e.target.value })
+                  }
                   helperText="AI model for image generation"
+                  disabled={styleUpdateStatus === "saving"}
                 />
                 <Select
                   label="Accent Color"
                   options={ACCENT_COLORS}
                   value={selectedVideo.accent_color || "cold teal"}
-                  onChange={() => {}}
+                  onChange={(e) =>
+                    styleUpdateMutation.mutate({ accent_color: e.target.value })
+                  }
                   helperText="Color theme for the video"
+                  disabled={styleUpdateStatus === "saving"}
                 />
-                <p className="text-xs text-[var(--text-secondary)]">
-                  Style override updates coming soon.
-                </p>
+
+                {/* Feedback */}
+                {styleUpdateStatus === "saving" && (
+                  <div className="flex items-center gap-2 rounded-lg bg-[var(--surface-elevated)] p-3 text-xs">
+                    <Spinner size="sm" />
+                    Saving...
+                  </div>
+                )}
+                {styleUpdateStatus === "success" && (
+                  <div className="flex items-center gap-2 rounded-lg bg-green-500/10 p-3 text-xs text-green-500">
+                    <CheckCircle size={14} />
+                    Style updated successfully
+                  </div>
+                )}
+                {styleUpdateStatus === "error" && (
+                  <div className="flex items-center gap-2 rounded-lg bg-[var(--error)]/10 p-3 text-xs text-[var(--error)]">
+                    <AlertCircle size={14} />
+                    {styleUpdateError || "Failed to update style"}
+                  </div>
+                )}
               </div>
             </Accordion>
 

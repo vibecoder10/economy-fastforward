@@ -108,6 +108,15 @@ export const getPipelineStatus = (videoId: string) =>
 export const getPipelineTaskStatus = (videoId: string) =>
   fetchApi<TaskStatus>(`/api/pipeline/task/${videoId}`);
 
+// Video Style Updates
+export const updateVideoStyles = (
+  videoId: string,
+  styles: { visual_style?: string; accent_color?: string; image_model_override?: string }
+) =>
+  fetchApi<StyleUpdateResponse>(`/api/videos/${videoId}/styles?${new URLSearchParams(
+    Object.entries(styles).filter(([, v]) => v !== undefined) as [string, string][]
+  ).toString()}`, { method: "PATCH" });
+
 // Types
 export interface DashboardSummary {
   active_bots: number;
@@ -266,4 +275,14 @@ export interface TaskStatus {
   status: "pending" | "running" | "completed" | "failed";
   message: string | null;
   error?: string;
+}
+
+export interface StyleUpdateResponse {
+  status: string;
+  video_id: string;
+  updated_fields: {
+    visual_style: string | null;
+    accent_color: string | null;
+    image_model_override: string | null;
+  };
 }

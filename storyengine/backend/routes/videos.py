@@ -221,3 +221,61 @@ async def get_video_script(video_id: str, tenant_id: str = Depends(get_tenant_id
         video_id, tenant_id,
     )
     return rows
+
+
+@router.patch("/{video_id}/styles")
+async def update_video_styles(
+    video_id: str,
+    visual_style: Optional[str] = None,
+    accent_color: Optional[str] = None,
+    image_model_override: Optional[str] = None,
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """Update video style override fields."""
+    # Verify video exists and belongs to tenant
+    video = await fetch_one(
+        "SELECT id FROM videos WHERE id = $1 AND tenant_id = $2",
+        video_id, tenant_id,
+    )
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+
+    # Build dynamic update query
+    updates = []
+    params = []
+    param_idx = 1
+
+    if visual_style is not None:
+        updates.append(f"visual_style = ${param_idx}")
+        params.append(visual_style)
+        param_idx += 1
+
+    if accent_color is not None:
+        updates.append(f"accent_color = ${param_idx}")
+        params.append(accent_color)
+        param_idx += 1
+
+    if image_model_override is not None:
+        updates.append(f"image_model_override = ${param_idx}")
+        params.append(image_model_override)
+        param_idx += 1
+
+    if not updates:
+        raise HTTPException(status_code=400, detail="No fields to update")
+
+    # Add updated_at and video_id
+    updates.append("updated_at = now()")
+    params.append(video_id)
+
+    query = f"UPDATE videos SET {', '.join(updates)} WHERE id = ${param_idx}"
+    await execute(query, *params)
+
+    return {
+        "status": "updated",
+        "video_id": video_id,
+        "updated_fields": {
+            "visual_style": visual_style,
+            "accent_color": accent_color,
+            "image_model_override": image_model_override,
+        },
+    }
