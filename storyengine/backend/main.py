@@ -38,6 +38,8 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:3001",
         "http://localhost:3000",
+        "http://76.13.119.181:3000",
+        "http://76.13.119.181:3001",
         os.getenv("FRONTEND_URL", "http://localhost:3001"),
     ],
     allow_credentials=True,
