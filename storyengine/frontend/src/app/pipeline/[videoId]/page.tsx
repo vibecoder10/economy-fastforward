@@ -78,11 +78,11 @@ export default function VideoDetailPage({
               background: "rgba(212, 168, 68, 0.1)",
             }}
           >
-            {getStageLabel(video.status)}
+            {getStageLabel(video.status || "")}
           </span>
         </div>
         <div className="mt-3">
-          <ProgressDots status={video.status} size="md" />
+          <ProgressDots status={video.status || ""} size="md" />
         </div>
       </div>
 

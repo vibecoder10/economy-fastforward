@@ -215,8 +215,7 @@ export interface VideoDetail extends VideoSummary {
   // Post-mortem
   post_mortem_48h: string | null;
   post_mortem_7d: string | null;
-  // Cost
-  total_cost: number | null;
+  // total_cost already defined in VideoSummary
 }
 
 export interface Asset {
