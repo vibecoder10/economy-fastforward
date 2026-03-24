@@ -354,7 +354,7 @@ class SupaSync:
                 "thumbnail_approach": _str(f.get("Thumbnail Approach")),
                 "accent_color": _str(f.get("Accent Color")) or "#00D4AA",
                 "visual_style": _str(f.get("Visual Style")),
-                "image_model": _str(f.get("Image Model")),
+                "image_model_override": _str(f.get("Image Model Override")[0]) if isinstance(f.get("Image Model Override"), list) and f.get("Image Model Override") else _str(f.get("Image Model Override") or f.get("Image Model")),
                 "image_style_override": _str(f.get("Image Style Override")),
                 "story_bible": _str(f.get("Story Bible")),
                 "script_validation": _str(f.get("Script Validation")),
@@ -394,6 +394,39 @@ class SupaSync:
                 "post_mortem_48h": _str(f.get("Post-Mortem 48h")),
                 "post_mortem_7d": _str(f.get("Post-Mortem 7d")),
                 "performance_verdict": _str(f.get("Performance Verdict")),
+                # Pipeline state
+                "scene_file_path": _str(f.get("Scene File Path")),
+                "core_image_url": _att_url(f.get("Core Image")),
+                "scene_count": _int(f.get("Scene Count")) if f.get("Scene Count") is not None else None,
+                "validation_status": _str(f.get("Validation Status")),
+                "video_id_internal": _str(f.get("Video ID")),
+                "framework": _str(f.get("Framework")),
+                "sources": _str(f.get("Sources")),
+                "pipeline_mode": _str(f.get("Pipeline Mode")),
+                "notes": _str(f.get("Notes")),
+                # Source tracking
+                "reference_url": _str(f.get("Reference URL")),
+                "idea_reasoning": _str(f.get("Idea Reasoning")),
+                "source_views": _int(f.get("Source Views")) if f.get("Source Views") is not None else None,
+                "source_channel": _str(f.get("Source Channel")),
+                # Upload (additional)
+                "final_video_attachment_url": _att_url(f.get("Final Video")),
+                # Storyboard
+                "storyboard_status": _str(f.get("Storyboard Status")),
+                "storyboard_preview_url": _att_url(f.get("Storyboard Preview")),
+                "storyboard_beat_count": _int(f.get("Storyboard Beat Count")) if f.get("Storyboard Beat Count") is not None else None,
+                "video_model": _str(f.get("Video Model")),
+                # Curiosity Gap (additional)
+                "structure_source": _str(f.get("Structure Source")),
+                "pattern_library_snapshot": _str(f.get("Pattern Library Snapshot")),
+                "title_poll_result": _str(f.get("Title Poll Result")),
+                "poll_closed": _bool(f.get("Poll Closed")),
+                # Thumbnail (additional)
+                "thumbnail_palette": _str(f.get("Thumbnail Palette")),
+                "summary": _str(f.get("Summary")),
+                # Performance snapshots (additional)
+                "ctr_12h": _float(f.get("CTR 12h (%)")),
+                "ctr_24h": _float(f.get("CTR 24h (%)")),
                 # Timestamp
                 "updated_at": datetime.now(timezone.utc).isoformat(),
             }
@@ -488,6 +521,14 @@ class SupaSync:
                 "content_type": _str(f.get("Content Type")),
                 # Flags
                 "hero_shot": _bool(f.get("Hero Shot")),
+                # Storyboard tracking
+                "drive_image_url": _str(f.get("Drive Image URL")),
+                "storyboard_grid_url": _str(f.get("Storyboard Grid URL")),
+                "panel_position": _int(f.get("Panel Position")) if f.get("Panel Position") is not None else None,
+                "generation_method": _str(f.get("Generation Method")),
+                "camera_movement": _str(f.get("Camera Movement")),
+                "assigned_video_duration": _float(f.get("Assigned Video Duration")),
+                "estimated_clip_cost": _float(f.get("Estimated Clip Cost")),
             }
             rows.append(row)
 
