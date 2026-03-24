@@ -34,10 +34,12 @@ ALTER TABLE videos ADD COLUMN IF NOT EXISTS summary TEXT;
 ALTER TABLE videos ADD COLUMN IF NOT EXISTS ctr_12h NUMERIC;
 ALTER TABLE videos ADD COLUMN IF NOT EXISTS ctr_24h NUMERIC;
 
--- Rename image_model → image_model_override (idempotent — only if old name exists)
+-- Rename image_model → image_model_override (only if old exists AND new doesn't)
 DO $$
 BEGIN
-  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'videos' AND column_name = 'image_model') THEN
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'videos' AND column_name = 'image_model')
+     AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'videos' AND column_name = 'image_model_override')
+  THEN
     ALTER TABLE videos RENAME COLUMN image_model TO image_model_override;
   END IF;
 END $$;
