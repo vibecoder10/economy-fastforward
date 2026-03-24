@@ -1,26 +1,63 @@
 @import "tailwindcss";
 
 :root {
-  --background: #121212;
-  --surface: #1e1e1e;
-  --surface-elevated: #2a2a2a;
-  --text-primary: #f0f0f0;
-  --text-secondary: #a0a0a0;
-  --accent: #00d4aa;
-  --error: #ff4444;
-  --warning: #ffb020;
-  --success: #00c853;
-  --border: rgba(255, 255, 255, 0.05);
+  /* Base */
+  --bg-primary: #0A0A0B;
+  --bg-card: #141416;
+  --bg-card-hover: #1A1A1E;
+  --border: #2A2A2E;
+
+  /* Text */
+  --text-primary: #E8E8EA;
+  --text-secondary: #8A8A8E;
+  --text-muted: #5A5A5E;
+
+  /* Accent */
+  --amber: #D4A844;
+  --amber-hover: #E0B850;
+  --teal: #1A8A7A;
+  --red: #C44545;
+  --green: #3A9A5A;
+
+  /* Status dots */
+  --dot-complete: var(--green);
+  --dot-current: var(--amber);
+  --dot-pending: var(--text-muted);
+  --dot-failed: var(--red);
+
+  /* Spacing */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  --space-2xl: 48px;
+
+  /* Cards */
+  --card-radius: 12px;
+  --card-padding: var(--space-lg);
+
+  /* Legacy aliases (for components not yet updated) */
+  --background: #0A0A0B;
+  --surface: #141416;
+  --surface-elevated: #1A1A1E;
+  --accent: #D4A844;
+  --error: #C44545;
+  --warning: #D4A844;
+  --success: #3A9A5A;
 }
 
 * {
   box-sizing: border-box;
 }
 
+body {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
 html,
 body {
-  background: var(--background);
-  color: var(--text-primary);
   font-family: "Geist", "Geist Sans", system-ui, -apple-system, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
