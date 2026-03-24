@@ -1,0 +1,19 @@
+{
+  "skill_id": "voice",
+  "name": "Voice Synthesis",
+  "type": "pipeline_stage",
+  "description": "Generates narration audio from script scenes using ElevenLabs via Wavespeed",
+  "entry_point": "voice.run",
+  "function": "run",
+  "pipeline_stage": true,
+  "required_status": "ready_for_voice",
+  "output_status": "ready_for_image_prompts",
+  "required_keys": ["elevenlabs_api_key"],
+  "inputs": ["script_scenes"],
+  "outputs": ["voice_over_urls", "mp3_files"],
+  "cost_estimate": {"per_run": 1.50, "unit": "USD"},
+  "dependencies": ["script"],
+  "configurable_params": {
+    "voice_id": {"type": "string", "default": "G17SuINrv2H9FC6nvetn", "description": "ElevenLabs voice ID"}
+  }
+}

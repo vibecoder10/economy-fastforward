@@ -1,0 +1,20 @@
+{
+  "skill_id": "sound",
+  "name": "Sound Design & Effects",
+  "type": "pipeline_stage",
+  "description": "Generates sound effect prompts per scene and produces sound effect audio files, selects background music per act",
+  "entry_point": "sound.run_design",
+  "functions": {
+    "run_design": "Generate sound effect prompts for each image",
+    "run_effects": "Generate sound effect audio files from prompts"
+  },
+  "pipeline_stage": true,
+  "required_status": "ready_for_sound_design",
+  "output_status": "ready_for_video_scripts",
+  "required_keys": ["anthropic_api_key", "airtable_api_key"],
+  "inputs": ["image_prompts", "script_scenes"],
+  "outputs": ["sound_prompts", "sound_effects", "music_selections"],
+  "cost_estimate": {"per_run": 0.50, "unit": "USD"},
+  "dependencies": ["images"],
+  "configurable_params": {}
+}

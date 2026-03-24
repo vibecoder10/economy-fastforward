@@ -1,0 +1,21 @@
+{
+  "skill_id": "storyboard",
+  "name": "Storyboard Generator",
+  "type": "pipeline_stage",
+  "description": "Generates 3x3 storyboard grids from image prompts, extracts individual panels for production",
+  "entry_point": "storyboard.run",
+  "functions": {
+    "run": "Generate storyboard prompts from image prompts",
+    "run_images": "Generate 3x3 grid images from storyboard prompts",
+    "run_extract": "Extract individual panels from grids into image records"
+  },
+  "pipeline_stage": true,
+  "required_status": "ready_for_storyboards",
+  "output_status": "ready_for_video_scripts",
+  "required_keys": ["anthropic_api_key", "kie_ai_api_key", "airtable_api_key"],
+  "inputs": ["image_prompts", "script_scenes"],
+  "outputs": ["storyboard_grids", "extracted_panels"],
+  "cost_estimate": {"per_run": 2.00, "unit": "USD"},
+  "dependencies": ["image_prompts"],
+  "configurable_params": {}
+}

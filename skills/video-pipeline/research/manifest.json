@@ -1,0 +1,19 @@
+{
+  "skill_id": "research",
+  "name": "Research Agent",
+  "type": "pipeline_stage",
+  "description": "Deep-dive factual research on a topic using Claude with web search, produces 14-field research payload",
+  "entry_point": "research.agent",
+  "function": "run_research",
+  "pipeline_stage": true,
+  "required_status": "idea_logged",
+  "output_status": "ready_for_scripting",
+  "required_keys": ["anthropic_api_key", "airtable_api_key"],
+  "inputs": ["topic", "seed_urls"],
+  "outputs": ["research_payload"],
+  "cost_estimate": {"per_run": 0.50, "unit": "USD"},
+  "dependencies": ["title_idea"],
+  "configurable_params": {
+    "model": {"type": "string", "default": "claude-sonnet-4-20250514", "description": "Claude model for research"}
+  }
+}

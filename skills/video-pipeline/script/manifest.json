@@ -1,0 +1,20 @@
+{
+  "skill_id": "script",
+  "name": "Script Writer",
+  "type": "pipeline_stage",
+  "description": "Generates 6-act, 3000-4500 word video script using brief translator with editorial validation and story bible",
+  "entry_point": "script.run",
+  "function": "run",
+  "pipeline_stage": true,
+  "required_status": "ready_for_scripting",
+  "output_status": "ready_for_voice",
+  "required_keys": ["anthropic_api_key", "airtable_api_key"],
+  "inputs": ["research_payload", "idea_concept"],
+  "outputs": ["script_records", "scene_file", "google_doc"],
+  "cost_estimate": {"per_run": 1.50, "unit": "USD"},
+  "dependencies": ["research"],
+  "configurable_params": {
+    "quality_tier": {"type": "string", "default": "standard", "description": "Agent quality tier: fast, standard, premium"},
+    "target_word_count": {"type": "integer", "default": 3500, "description": "Target script word count"}
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "skill_id": "thumbnail",
+  "name": "Thumbnail Generator",
+  "type": "pipeline_stage",
+  "description": "Generates YouTube thumbnail using template selection, Gemini creative direction, and Nano Banana Pro rendering",
+  "entry_point": "thumbnail.run",
+  "function": "run",
+  "pipeline_stage": true,
+  "required_status": "ready_for_thumbnail",
+  "output_status": "ready_to_render",
+  "required_keys": ["kie_ai_api_key", "anthropic_api_key", "airtable_api_key"],
+  "inputs": ["video_title", "concept", "visual_profile"],
+  "outputs": ["thumbnail_image", "thumbnail_attachment"],
+  "cost_estimate": {"per_run": 0.25, "unit": "USD"},
+  "dependencies": ["video_motion"],
+  "configurable_params": {
+    "thumbnail_style_override": {"type": "string", "default": null, "description": "REPLACE: or APPEND: style override"}
+  }
+}

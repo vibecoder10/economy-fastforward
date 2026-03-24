@@ -1,0 +1,21 @@
+{
+  "skill_id": "image_prompts",
+  "name": "Image Prompt Generator",
+  "type": "pipeline_stage",
+  "description": "Generates 120 cinematic image prompts using 3-style system (Dossier 60%, Schema 22%, Echo 18%) with visual profile awareness",
+  "entry_point": "image_prompts.run",
+  "function": "run",
+  "pipeline_stage": true,
+  "required_status": "ready_for_image_prompts",
+  "output_status": "ready_for_images",
+  "output_status_alt": "ready_for_storyboards",
+  "required_keys": ["anthropic_api_key", "airtable_api_key"],
+  "inputs": ["script_scenes", "visual_profile"],
+  "outputs": ["image_prompt_records", "styled_prompts"],
+  "cost_estimate": {"per_run": 0.50, "unit": "USD"},
+  "dependencies": ["voice"],
+  "configurable_params": {
+    "visual_profile": {"type": "string", "default": "cinematic_illustration", "description": "Visual style profile ID"},
+    "storyboard_mode": {"type": "boolean", "default": false, "description": "Route to storyboard pipeline instead of direct images"}
+  }
+}

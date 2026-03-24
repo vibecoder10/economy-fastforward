@@ -1,0 +1,20 @@
+{
+  "skill_id": "render",
+  "name": "Video Renderer",
+  "type": "pipeline_stage",
+  "description": "Runs audio sync (Whisper alignment, Ken Burns, transitions) then Remotion rendering to produce final MP4",
+  "entry_point": "render.run",
+  "functions": {
+    "run": "Full render pipeline (audio sync + Remotion)",
+    "run_audio_sync": "Audio sync sub-step only (Whisper alignment, timing, render_config.json)"
+  },
+  "pipeline_stage": true,
+  "required_status": "ready_to_render",
+  "output_status": "rendered",
+  "required_keys": ["openai_api_key", "google_drive_credentials"],
+  "inputs": ["images", "voice_overs", "video_clips", "sound_effects"],
+  "outputs": ["final_mp4", "render_config_json"],
+  "cost_estimate": {"per_run": 0.20, "unit": "USD"},
+  "dependencies": ["thumbnail"],
+  "configurable_params": {}
+}

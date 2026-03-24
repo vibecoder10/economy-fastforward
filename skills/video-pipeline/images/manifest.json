@@ -1,0 +1,19 @@
+{
+  "skill_id": "images",
+  "name": "Image Generator",
+  "type": "pipeline_stage",
+  "description": "Generates scene images from styled prompts using Seed Dream 4.5, uploads to Google Drive",
+  "entry_point": "images.run",
+  "function": "run",
+  "pipeline_stage": true,
+  "required_status": "ready_for_images",
+  "output_status": "ready_for_sound_design",
+  "required_keys": ["kie_ai_api_key", "airtable_api_key", "google_drive_credentials"],
+  "inputs": ["image_prompts"],
+  "outputs": ["image_attachments", "drive_urls"],
+  "cost_estimate": {"per_run": 3.00, "unit": "USD"},
+  "dependencies": ["image_prompts"],
+  "configurable_params": {
+    "image_model": {"type": "string", "default": "seedream/4.5-edit", "description": "Image generation model"}
+  }
+}

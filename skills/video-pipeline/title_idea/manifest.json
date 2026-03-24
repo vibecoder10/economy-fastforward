@@ -1,0 +1,22 @@
+{
+  "skill_id": "title_idea",
+  "name": "Title & Idea Generator",
+  "type": "pipeline_stage",
+  "description": "Creates 3 title/concept variations from a topic or competitor video, using curiosity gap analysis and data-backed title patterns",
+  "entry_point": "title_idea.run",
+  "functions": {
+    "run_idea": "Generate ideas from topic/URL input",
+    "run_trending": "Generate ideas from trending competitor analysis"
+  },
+  "pipeline_stage": true,
+  "required_status": null,
+  "output_status": "idea_logged",
+  "required_keys": ["anthropic_api_key", "airtable_api_key"],
+  "inputs": ["topic_or_url", "competitor_data"],
+  "outputs": ["idea_records", "title_variants"],
+  "cost_estimate": {"per_run": 0.30, "unit": "USD"},
+  "dependencies": [],
+  "configurable_params": {
+    "num_ideas": {"type": "integer", "default": 3, "description": "Number of concept variations"}
+  }
+}

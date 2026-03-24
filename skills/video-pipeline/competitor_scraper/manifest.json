@@ -1,0 +1,17 @@
+{
+  "skill_id": "competitor_scraper",
+  "name": "Competitor Scraper",
+  "type": "data_gathering",
+  "description": "Scrapes competitor YouTube channels and persists all videos to Competitor Videos table for performance analysis",
+  "entry_point": "competitor_scraper.run",
+  "function": "main",
+  "pipeline_stage": false,
+  "required_status": null,
+  "output_status": null,
+  "required_keys": ["airtable_api_key"],
+  "inputs": ["competitor_channels_table"],
+  "outputs": ["competitor_videos_records"],
+  "cost_estimate": {"per_run": 0.10, "unit": "USD"},
+  "dependencies": [],
+  "configurable_params": {}
+}

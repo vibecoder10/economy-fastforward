@@ -1,0 +1,22 @@
+{
+  "skill_id": "video_motion",
+  "name": "Video Motion & Animation",
+  "type": "pipeline_stage",
+  "description": "Generates motion prompt scripts for each image, then produces video clips using Veo 3.1 Fast",
+  "entry_point": "video_motion.run_scripts",
+  "functions": {
+    "run_scripts": "Generate animation motion descriptions per image",
+    "run_generate": "Generate video clips from images + motion prompts via Veo 3.1"
+  },
+  "pipeline_stage": true,
+  "required_status": "ready_for_video_scripts",
+  "output_status": "ready_for_thumbnail",
+  "required_keys": ["anthropic_api_key", "kie_ai_api_key", "airtable_api_key"],
+  "inputs": ["images", "motion_prompts"],
+  "outputs": ["video_clips", "video_clip_urls"],
+  "cost_estimate": {"per_run": 9.00, "unit": "USD"},
+  "dependencies": ["sound"],
+  "configurable_params": {
+    "video_model": {"type": "string", "default": "veo3_fast", "description": "Video generation model"}
+  }
+}
