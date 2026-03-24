@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import {
   Brain,
@@ -26,6 +27,7 @@ import {
   toggleAutopilot,
   updateAutopilotConfig,
   launchCandidate,
+  getAgentStats,
   AutopilotSummary,
   CompetitorCandidate,
   ConfidenceBreakdown,
@@ -55,6 +57,11 @@ export default function AutopilotPage() {
   const [targetValue, setTargetValue] = useState(15);
   const [savingTarget, setSavingTarget] = useState(false);
   const [launchingId, setLaunchingId] = useState<string | null>(null);
+
+  const { data: agentStats } = useQuery({
+    queryKey: ["agent-stats"],
+    queryFn: getAgentStats,
+  });
 
   // Fetch data on mount
   useEffect(() => {
@@ -122,9 +129,9 @@ export default function AutopilotPage() {
           <h1 className="text-xl font-bold">Autopilot</h1>
         </div>
         <div className="animate-pulse space-y-4">
-          <div className="h-40 rounded-xl bg-[var(--surface)]" />
-          <div className="h-60 rounded-xl bg-[var(--surface)]" />
-          <div className="h-40 rounded-xl bg-[var(--surface)]" />
+          <div className="h-40 rounded-xl bg-[var(--bg-card)]" />
+          <div className="h-60 rounded-xl bg-[var(--bg-card)]" />
+          <div className="h-40 rounded-xl bg-[var(--bg-card)]" />
         </div>
       </div>
     );
@@ -158,7 +165,7 @@ export default function AutopilotPage() {
             "flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors",
             isEnabled
               ? "bg-green-500/10 text-green-500"
-              : "bg-[var(--surface)] text-[var(--text-secondary)]"
+              : "bg-[var(--bg-card)] text-[var(--text-secondary)]"
           )}
         >
           <Power size={16} />
@@ -167,17 +174,17 @@ export default function AutopilotPage() {
       </div>
 
       {/* Status Card */}
-      <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5">
+      <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-5">
         <div className="flex items-start gap-4">
-          <div className="relative flex h-12 w-12 items-center justify-center rounded-xl bg-[var(--accent)]/10">
+          <div className="relative flex h-12 w-12 items-center justify-center rounded-xl bg-[var(--amber)]/10">
             {isEnabled && (
               <motion.div
                 animate={{ scale: [1, 1.2, 1], opacity: [1, 0.5, 1] }}
                 transition={{ repeat: Infinity, duration: 2 }}
-                className="absolute inset-0 rounded-xl bg-[var(--accent)]/20"
+                className="absolute inset-0 rounded-xl bg-[var(--amber)]/20"
               />
             )}
-            <Brain size={24} className={isEnabled ? "text-[var(--accent)]" : "text-[var(--text-secondary)]"} />
+            <Brain size={24} className={isEnabled ? "text-[var(--amber)]" : "text-[var(--text-secondary)]"} />
           </div>
           <div className="flex-1">
             <h2 className="font-semibold">
@@ -210,7 +217,7 @@ export default function AutopilotPage() {
                   onChange={(e) => setTargetValue(parseInt(e.target.value) || 1)}
                   min={1}
                   max={30}
-                  className="w-16 rounded-md bg-[var(--surface-elevated)] px-2 py-1 text-lg font-bold focus:outline-none focus:ring-1 focus:ring-[var(--accent)]"
+                  className="w-16 rounded-md bg-[var(--bg-card-hover)] px-2 py-1 text-lg font-bold focus:outline-none focus:ring-1 focus:ring-[var(--amber)]"
                   autoFocus
                 />
                 <button
@@ -235,10 +242,10 @@ export default function AutopilotPage() {
                 onClick={() => setEditingTarget(true)}
                 className="group text-left"
               >
-                <p className="text-2xl font-bold group-hover:text-[var(--accent)]">
+                <p className="text-2xl font-bold group-hover:text-[var(--amber)]">
                   {config.videos_per_month}
                 </p>
-                <p className="text-xs text-[var(--text-secondary)] group-hover:text-[var(--accent)]">
+                <p className="text-xs text-[var(--text-secondary)] group-hover:text-[var(--amber)]">
                   Target/Month (click to edit)
                 </p>
               </button>
@@ -247,10 +254,51 @@ export default function AutopilotPage() {
         </div>
       </div>
 
+      {/* Script Quality */}
+      {agentStats && agentStats.total_scripts > 0 && (
+        <div
+          className="rounded-xl p-4"
+          style={{ background: "var(--bg-card)", border: "1px solid var(--border)" }}
+        >
+          <h2
+            className="text-sm font-semibold uppercase tracking-wider mb-4"
+            style={{ color: "var(--text-muted)" }}
+          >
+            Script Quality
+          </h2>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <div>
+              <span className="text-xs" style={{ color: "var(--text-muted)" }}>Avg Hook Score</span>
+              <p className="text-xl font-bold" style={{ color: agentStats.avg_hook_score >= 70 ? "var(--green)" : "var(--amber)" }}>
+                {agentStats.avg_hook_score.toFixed(0)}
+              </p>
+            </div>
+            <div>
+              <span className="text-xs" style={{ color: "var(--text-muted)" }}>Avg Body Score</span>
+              <p className="text-xl font-bold" style={{ color: agentStats.avg_body_score >= 70 ? "var(--green)" : "var(--amber)" }}>
+                {agentStats.avg_body_score.toFixed(0)}
+              </p>
+            </div>
+            <div>
+              <span className="text-xs" style={{ color: "var(--text-muted)" }}>Scripts Processed</span>
+              <p className="text-xl font-bold" style={{ color: "var(--text-primary)" }}>
+                {agentStats.total_scripts}
+              </p>
+            </div>
+            <div>
+              <span className="text-xs" style={{ color: "var(--text-muted)" }}>Total Cost</span>
+              <p className="text-xl font-bold" style={{ color: "var(--text-primary)" }}>
+                ${agentStats.total_cost.toFixed(2)}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Candidates Section */}
-      <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5">
+      <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-5">
         <div className="flex items-center gap-2 text-sm font-semibold">
-          <Target size={16} className="text-[var(--accent)]" />
+          <Target size={16} className="text-[var(--amber)]" />
           Top Candidates
         </div>
         <p className="mt-1 text-xs text-[var(--text-secondary)]">
@@ -258,7 +306,7 @@ export default function AutopilotPage() {
         </p>
 
         {candidates.length === 0 ? (
-          <div className="mt-4 rounded-lg bg-[var(--surface-elevated)] p-4 text-center text-sm text-[var(--text-secondary)]">
+          <div className="mt-4 rounded-lg bg-[var(--bg-card-hover)] p-4 text-center text-sm text-[var(--text-secondary)]">
             No candidates found. Waiting for competitor videos to be scraped.
           </div>
         ) : (
@@ -272,15 +320,15 @@ export default function AutopilotPage() {
                   className={cn(
                     "flex w-full items-center gap-3 rounded-lg p-3 text-left transition-colors",
                     i === 0
-                      ? "border border-[var(--accent)]/30 bg-[var(--accent)]/5"
-                      : "bg-[var(--surface-elevated)] hover:bg-[var(--surface-elevated)]/80"
+                      ? "border border-[var(--amber)]/30 bg-[var(--amber)]/5"
+                      : "bg-[var(--bg-card-hover)] hover:bg-[var(--bg-card-hover)]/80"
                   )}
                 >
                   <div
                     className={cn(
                       "flex h-8 w-8 items-center justify-center rounded-full text-sm font-bold",
                       i === 0
-                        ? "bg-[var(--accent)] text-black"
+                        ? "bg-[var(--amber)] text-black"
                         : "bg-[var(--border)] text-[var(--text-secondary)]"
                     )}
                   >
@@ -300,7 +348,7 @@ export default function AutopilotPage() {
                           candidate.confidence >= 70
                             ? "text-green-500"
                             : candidate.confidence >= 50
-                            ? "text-[var(--accent)]"
+                            ? "text-[var(--amber)]"
                             : "text-[var(--text-secondary)]"
                         )}
                       >
@@ -324,7 +372,7 @@ export default function AutopilotPage() {
                     initial={{ height: 0, opacity: 0 }}
                     animate={{ height: "auto", opacity: 1 }}
                     exit={{ height: 0, opacity: 0 }}
-                    className="mt-2 overflow-hidden rounded-lg bg-[var(--surface-elevated)] p-4"
+                    className="mt-2 overflow-hidden rounded-lg bg-[var(--bg-card-hover)] p-4"
                   >
                     <div className="flex items-center gap-2 text-xs font-semibold text-[var(--text-secondary)] mb-3">
                       <Info size={14} />
@@ -344,7 +392,7 @@ export default function AutopilotPage() {
                         </div>
                         <div className="h-2 rounded-full bg-[var(--border)] overflow-hidden">
                           <div
-                            className="h-full bg-[var(--accent)] rounded-full transition-all"
+                            className="h-full bg-[var(--amber)] rounded-full transition-all"
                             style={{ width: `${candidate.confidence_breakdown.vph_score}%` }}
                           />
                         </div>
@@ -383,7 +431,7 @@ export default function AutopilotPage() {
                             candidate.confidence >= 70
                               ? "text-green-500"
                               : candidate.confidence >= 50
-                              ? "text-[var(--accent)]"
+                              ? "text-[var(--amber)]"
                               : "text-[var(--text-secondary)]"
                           )}>
                             {Math.round(candidate.confidence_breakdown.total_score)}%
@@ -410,7 +458,7 @@ export default function AutopilotPage() {
                         disabled={launchingId === candidate.id}
                         className={cn(
                           "flex items-center gap-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
-                          "bg-[var(--accent)] text-black hover:opacity-90",
+                          "bg-[var(--amber)] text-black hover:opacity-90",
                           launchingId === candidate.id && "opacity-50 cursor-not-allowed"
                         )}
                       >
@@ -431,7 +479,7 @@ export default function AutopilotPage() {
             disabled={launchingId === candidates[0].id}
             className={cn(
               "mt-4 flex w-full items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-medium transition-opacity",
-              "bg-[var(--accent)] text-black hover:opacity-90",
+              "bg-[var(--amber)] text-black hover:opacity-90",
               launchingId === candidates[0].id && "opacity-50 cursor-not-allowed"
             )}
           >
@@ -442,9 +490,9 @@ export default function AutopilotPage() {
       </div>
 
       {/* Configuration */}
-      <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5">
+      <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-5">
         <div className="flex items-center gap-2 text-sm font-semibold">
-          <BarChart3 size={16} className="text-[var(--accent)]" />
+          <BarChart3 size={16} className="text-[var(--amber)]" />
           Confidence Weights
         </div>
         <p className="mt-1 text-xs text-[var(--text-secondary)]">
@@ -460,9 +508,9 @@ export default function AutopilotPage() {
                 </span>
                 <span className="font-medium">{(Number(value) * 100).toFixed(0)}%</span>
               </div>
-              <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-[var(--surface-elevated)]">
+              <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-[var(--bg-card-hover)]">
                 <div
-                  className="h-full rounded-full bg-[var(--accent)]"
+                  className="h-full rounded-full bg-[var(--amber)]"
                   style={{ width: `${Number(value) * 100}%` }}
                 />
               </div>
@@ -472,9 +520,9 @@ export default function AutopilotPage() {
       </div>
 
       {/* Learnings */}
-      <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5">
+      <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-5">
         <div className="flex items-center gap-2 text-sm font-semibold">
-          <Lightbulb size={16} className="text-[var(--accent)]" />
+          <Lightbulb size={16} className="text-[var(--amber)]" />
           Learned Patterns
         </div>
         <p className="mt-1 text-xs text-[var(--text-secondary)]">
@@ -482,7 +530,7 @@ export default function AutopilotPage() {
         </p>
 
         {learnings.length === 0 ? (
-          <div className="mt-4 rounded-lg bg-[var(--surface-elevated)] p-4 text-center text-sm text-[var(--text-secondary)]">
+          <div className="mt-4 rounded-lg bg-[var(--bg-card-hover)] p-4 text-center text-sm text-[var(--text-secondary)]">
             No learnings yet. Patterns will be extracted after videos are published.
           </div>
         ) : (
@@ -490,7 +538,7 @@ export default function AutopilotPage() {
             {learnings.map((learning) => (
               <div
                 key={learning.id}
-                className="flex items-center justify-between rounded-lg bg-[var(--surface-elevated)] px-3 py-2"
+                className="flex items-center justify-between rounded-lg bg-[var(--bg-card-hover)] px-3 py-2"
               >
                 <div className="flex-1 min-w-0">
                   <span className="text-sm truncate block">{learning.pattern}</span>
@@ -512,7 +560,7 @@ export default function AutopilotPage() {
         {learnings.length > 0 && (
           <Link
             href="/autopilot/learnings"
-            className="mt-4 flex items-center justify-center gap-1 text-xs font-medium text-[var(--accent)]"
+            className="mt-4 flex items-center justify-center gap-1 text-xs font-medium text-[var(--amber)]"
           >
             View All Learnings
             <ChevronRight size={14} />
@@ -521,18 +569,18 @@ export default function AutopilotPage() {
       </div>
 
       {/* Cadence */}
-      <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5">
+      <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-5">
         <div className="flex items-center gap-2 text-sm font-semibold">
-          <Calendar size={16} className="text-[var(--accent)]" />
+          <Calendar size={16} className="text-[var(--amber)]" />
           Production Cadence
         </div>
 
         <div className="mt-4 grid grid-cols-2 gap-4">
-          <div className="rounded-lg bg-[var(--surface-elevated)] p-3">
+          <div className="rounded-lg bg-[var(--bg-card-hover)] p-3">
             <p className="text-2xl font-bold">{config.videos_per_month}</p>
             <p className="text-xs text-[var(--text-secondary)]">Videos per month</p>
           </div>
-          <div className="rounded-lg bg-[var(--surface-elevated)] p-3">
+          <div className="rounded-lg bg-[var(--bg-card-hover)] p-3">
             <p className="text-2xl font-bold">{config.production_interval_days}</p>
             <p className="text-xs text-[var(--text-secondary)]">Days between videos</p>
           </div>
@@ -545,9 +593,9 @@ export default function AutopilotPage() {
               {state.videos_produced % config.videos_per_month} / {config.videos_per_month}
             </span>
           </div>
-          <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-[var(--surface-elevated)]">
+          <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-[var(--bg-card-hover)]">
             <div
-              className="h-full rounded-full bg-[var(--accent)]"
+              className="h-full rounded-full bg-[var(--amber)]"
               style={{ width: `${((state.videos_produced % config.videos_per_month) / config.videos_per_month) * 100}%` }}
             />
           </div>
@@ -555,9 +603,9 @@ export default function AutopilotPage() {
       </div>
 
       {/* Thresholds */}
-      <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5">
+      <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-5">
         <div className="flex items-center gap-2 text-sm font-semibold">
-          <TrendingUp size={16} className="text-[var(--accent)]" />
+          <TrendingUp size={16} className="text-[var(--amber)]" />
           Decision Thresholds
         </div>
         <p className="mt-1 text-xs text-[var(--text-secondary)]">
@@ -565,19 +613,19 @@ export default function AutopilotPage() {
         </p>
 
         <div className="mt-4 grid grid-cols-2 gap-3">
-          <div className="rounded-lg bg-[var(--surface-elevated)] p-3">
+          <div className="rounded-lg bg-[var(--bg-card-hover)] p-3">
             <p className="text-lg font-bold">{thresholds.min_confidence_score || 60}</p>
             <p className="text-xs text-[var(--text-secondary)]">Min confidence to launch</p>
           </div>
-          <div className="rounded-lg bg-[var(--surface-elevated)] p-3">
+          <div className="rounded-lg bg-[var(--bg-card-hover)] p-3">
             <p className="text-lg font-bold">{thresholds.min_competitor_vph || 50}</p>
             <p className="text-xs text-[var(--text-secondary)]">Min VPH to consider</p>
           </div>
-          <div className="rounded-lg bg-[var(--surface-elevated)] p-3">
+          <div className="rounded-lg bg-[var(--bg-card-hover)] p-3">
             <p className="text-lg font-bold">{thresholds.ctr_success_threshold || 4.0}%</p>
             <p className="text-xs text-[var(--text-secondary)]">CTR = Success</p>
           </div>
-          <div className="rounded-lg bg-[var(--surface-elevated)] p-3">
+          <div className="rounded-lg bg-[var(--bg-card-hover)] p-3">
             <p className="text-lg font-bold">{thresholds.ctr_failure_threshold || 2.5}%</p>
             <p className="text-xs text-[var(--text-secondary)]">CTR = Needs work</p>
           </div>
