@@ -8,12 +8,12 @@ Clients: airtable, image_client
 This step runs AFTER prompts are generated and reviewed.
 """
 
-from pipeline_constants import Statuses
+from orchestrator.pipeline_constants import Statuses
 
 
 async def run(pipeline) -> dict:
     """Generate storyboard contact sheet images (Phase 1B)."""
-    from storyboard_bot import run_storyboard_images
+    from storyboard.bot import run_storyboard_images
 
     if not pipeline.current_idea:
         idea = pipeline.get_idea_by_status(Statuses.READY_STORYBOARD_IMAGES)

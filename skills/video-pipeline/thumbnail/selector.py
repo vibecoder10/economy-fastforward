@@ -11,7 +11,7 @@ Templates:
   D: Symbolic Action   — traps, power moves, economic mechanisms (20%)
 """
 
-from pipeline_constants import IdeaFields
+from orchestrator.pipeline_constants import IdeaFields
 
 
 # Keywords that trigger Template B: Character + Bold Text (person/entity-focused)

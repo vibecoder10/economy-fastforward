@@ -2,7 +2,7 @@
 
 import pytest
 
-from audio_sync.timing_adjuster import (
+from render.audio_sync.timing_adjuster import (
     apply_pre_roll,
     apply_post_hold,
     enforce_minimum_display,

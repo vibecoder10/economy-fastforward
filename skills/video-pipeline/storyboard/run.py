@@ -8,12 +8,12 @@ Clients: anthropic, airtable
 NOTE: This step ONLY generates prompts. Image generation is step_storyboard_images.py.
 """
 
-from pipeline_constants import Statuses
+from orchestrator.pipeline_constants import Statuses
 
 
 async def run(pipeline) -> dict:
     """Generate storyboard prompts via Claude (Phase 1A)."""
-    from storyboard_bot import run_storyboard_prompts
+    from storyboard.bot import run_storyboard_prompts
 
     if not pipeline.current_idea:
         idea = pipeline.get_idea_by_status(Statuses.READY_STORYBOARDS)

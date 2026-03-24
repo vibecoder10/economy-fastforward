@@ -13,8 +13,8 @@ import json
 import re
 from dataclasses import dataclass, field
 from typing import Dict, List
-from curiosity_gap.structures import CuriosityStructure, get_main_structures, STRUCTURE_DEFINITIONS
-from pipeline_constants import CURIOSITY_GAP_ENABLED, Models
+from title_idea.curiosity_gap.structures import CuriosityStructure, get_main_structures, STRUCTURE_DEFINITIONS
+from orchestrator.pipeline_constants import CURIOSITY_GAP_ENABLED, Models
 
 
 # Confidence floor - structures must score at least this to generate titles

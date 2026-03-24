@@ -11,7 +11,7 @@ IMAGE generation is handled by thumbnail_title/title_generator.py.
 
 from dataclasses import dataclass
 from typing import List
-from curiosity_gap.structures import CuriosityStructure
+from title_idea.curiosity_gap.structures import CuriosityStructure
 
 
 VALID_APPROACHES = ["from_hook", "from_gap"]

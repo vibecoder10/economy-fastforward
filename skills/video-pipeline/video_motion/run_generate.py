@@ -8,7 +8,7 @@ Clients: image_client, google, airtable
 
 import asyncio
 
-from pipeline_constants import ImageFields, Statuses
+from orchestrator.pipeline_constants import ImageFields, Statuses
 
 
 async def run(pipeline) -> dict:

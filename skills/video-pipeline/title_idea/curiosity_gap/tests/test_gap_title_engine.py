@@ -3,7 +3,7 @@
 import asyncio
 import pytest
 from unittest.mock import AsyncMock, patch, Mock
-from curiosity_gap.structures import CuriosityStructure
+from title_idea.curiosity_gap.structures import CuriosityStructure
 
 
 def run_async(coro):
@@ -16,7 +16,7 @@ class TestGeneratedTitle:
 
     def test_generated_title_creation(self):
         """Should create GeneratedTitle with all fields."""
-        from curiosity_gap.gap_title_engine import GeneratedTitle
+        from title_idea.curiosity_gap.gap_title_engine import GeneratedTitle
 
         title = GeneratedTitle(
             text="The $100B Mistake Saudi Arabia Is Hiding",
@@ -41,7 +41,7 @@ class TestScoredStructure:
 
     def test_scored_structure_creation(self):
         """Should create ScoredStructure with confidence and reasoning."""
-        from curiosity_gap.gap_title_engine import ScoredStructure
+        from title_idea.curiosity_gap.gap_title_engine import ScoredStructure
 
         scored = ScoredStructure(
             structure=CuriosityStructure.HIDDEN_FLAW,
@@ -55,7 +55,7 @@ class TestScoredStructure:
 
     def test_scored_structure_ordering(self):
         """Should compare by confidence for sorting."""
-        from curiosity_gap.gap_title_engine import ScoredStructure
+        from title_idea.curiosity_gap.gap_title_engine import ScoredStructure
 
         high = ScoredStructure(
             structure=CuriosityStructure.HIDDEN_FLAW,
@@ -90,7 +90,7 @@ class TestScoreStructures:
 
     def test_score_structures_returns_all_five(self, sample_story_context):
         """Should return scores for all 5 main structures."""
-        from curiosity_gap.gap_title_engine import score_structures
+        from title_idea.curiosity_gap.gap_title_engine import score_structures
 
         scores = score_structures(sample_story_context)
 
@@ -104,7 +104,7 @@ class TestScoreStructures:
 
     def test_score_structures_sorted_descending(self, sample_story_context):
         """Should return structures sorted by confidence descending."""
-        from curiosity_gap.gap_title_engine import score_structures
+        from title_idea.curiosity_gap.gap_title_engine import score_structures
 
         scores = score_structures(sample_story_context)
 
@@ -113,7 +113,7 @@ class TestScoreStructures:
 
     def test_waste_story_scores_hidden_flaw_highest(self, sample_story_context):
         """Story about waste should score hidden_flaw highest."""
-        from curiosity_gap.gap_title_engine import score_structures
+        from title_idea.curiosity_gap.gap_title_engine import score_structures
 
         scores = score_structures(sample_story_context)
 
@@ -127,14 +127,14 @@ class TestMFFallback:
 
     def test_mf_formulas_exist(self):
         """Should have 3 MF fallback formulas defined."""
-        from curiosity_gap.gap_title_engine import MF_FORMULAS
+        from title_idea.curiosity_gap.gap_title_engine import MF_FORMULAS
 
         assert len(MF_FORMULAS) >= 3
         assert "MF-0" in MF_FORMULAS or 0 in MF_FORMULAS
 
     def test_get_viable_structures_filters_by_floor(self):
         """Should filter structures below confidence floor."""
-        from curiosity_gap.gap_title_engine import (
+        from title_idea.curiosity_gap.gap_title_engine import (
             get_viable_structures,
             ScoredStructure,
             CONFIDENCE_FLOOR,
@@ -154,7 +154,7 @@ class TestMFFallback:
 
     def test_get_mf_fallback_count(self):
         """Should calculate how many MF fallbacks needed."""
-        from curiosity_gap.gap_title_engine import get_mf_fallback_count
+        from title_idea.curiosity_gap.gap_title_engine import get_mf_fallback_count
 
         # If 2 viable structures, need 1 MF fallback
         assert get_mf_fallback_count(viable_count=2, target=3) == 1
@@ -215,7 +215,7 @@ class TestGenerateTitles:
 
     def test_generate_titles_returns_three(self, sample_story, mock_claude_response):
         """Should generate 3 titles by default."""
-        from curiosity_gap.gap_title_engine import GapTitleEngine
+        from title_idea.curiosity_gap.gap_title_engine import GapTitleEngine
 
         engine = GapTitleEngine()
 
@@ -231,7 +231,7 @@ class TestGenerateTitles:
 
     def test_generate_titles_sorted_by_confidence(self, sample_story, mock_claude_response):
         """Titles should be sorted by confidence descending."""
-        from curiosity_gap.gap_title_engine import GapTitleEngine
+        from title_idea.curiosity_gap.gap_title_engine import GapTitleEngine
 
         engine = GapTitleEngine()
 
@@ -246,14 +246,14 @@ class TestGenerateTitles:
 
     def test_generate_titles_with_kill_switch_disabled(self, sample_story):
         """Should return empty list when kill switch is off."""
-        from curiosity_gap.gap_title_engine import GapTitleEngine
+        from title_idea.curiosity_gap.gap_title_engine import GapTitleEngine
 
         engine = GapTitleEngine()
 
         async def run_test():
             return await engine.generate_titles(sample_story)
 
-        with patch('curiosity_gap.gap_title_engine.CURIOSITY_GAP_ENABLED', False):
+        with patch('title_idea.curiosity_gap.gap_title_engine.CURIOSITY_GAP_ENABLED', False):
             titles = run_async(run_test())
 
         assert titles == []
@@ -273,7 +273,7 @@ class TestMFIntegration:
 
     def test_fallback_triggered_when_low_confidence(self, low_confidence_story):
         """Should use MF fallback when no structures score above floor."""
-        from curiosity_gap.gap_title_engine import GapTitleEngine, ScoredStructure
+        from title_idea.curiosity_gap.gap_title_engine import GapTitleEngine, ScoredStructure
 
         engine = GapTitleEngine()
 
@@ -293,7 +293,7 @@ class TestMFIntegration:
 
         async def run_test():
             with patch.object(engine, '_call_claude_for_titles', return_value=mock_response):
-                with patch('curiosity_gap.gap_title_engine.score_structures') as mock_score:
+                with patch('title_idea.curiosity_gap.gap_title_engine.score_structures') as mock_score:
                     # All structures score below floor
                     mock_score.return_value = [
                         ScoredStructure(CuriosityStructure.HIDDEN_FLAW, 40, "low"),

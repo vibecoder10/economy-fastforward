@@ -6,12 +6,12 @@ import pytest
 from unittest.mock import AsyncMock, Mock, patch
 from datetime import datetime, timezone
 
-from curiosity_gap.competitor_analyzer import (
+from title_idea.curiosity_gap.competitor_analyzer import (
     TitleAnalysis,
     CompetitorAnalyzer,
     should_deep_analyze_sync,
 )
-from curiosity_gap.structures import CuriosityStructure
+from title_idea.curiosity_gap.structures import CuriosityStructure
 
 
 def run_async(coro):
@@ -51,7 +51,7 @@ class TestShouldDeepAnalyze:
     def test_top_20_percent_qualifies_sync(self, mock_channel_videos):
         """Videos in top 20% should qualify for deep analysis."""
         # VPH 280 is in top 20% of [50, 75, 100, 125, 150, 175, 200, 225, 250, 300]
-        with patch('curiosity_gap.competitor_analyzer.get_recent_channel_videos') as mock_get:
+        with patch('title_idea.curiosity_gap.competitor_analyzer.get_recent_channel_videos') as mock_get:
             mock_get.return_value = mock_channel_videos
             result = should_deep_analyze_sync(
                 video_vph=280,
@@ -62,7 +62,7 @@ class TestShouldDeepAnalyze:
     def test_bottom_80_percent_excluded_sync(self, mock_channel_videos):
         """Videos below top 20% should not qualify."""
         # VPH 80 is in bottom 80%
-        with patch('curiosity_gap.competitor_analyzer.get_recent_channel_videos') as mock_get:
+        with patch('title_idea.curiosity_gap.competitor_analyzer.get_recent_channel_videos') as mock_get:
             mock_get.return_value = mock_channel_videos
             result = should_deep_analyze_sync(
                 video_vph=80,
@@ -73,7 +73,7 @@ class TestShouldDeepAnalyze:
     def test_cold_start_uses_absolute_threshold_sync(self):
         """New channels with <5 videos should use absolute VPH threshold."""
         # Only 3 videos = cold start
-        with patch('curiosity_gap.competitor_analyzer.get_recent_channel_videos') as mock_get:
+        with patch('title_idea.curiosity_gap.competitor_analyzer.get_recent_channel_videos') as mock_get:
             mock_get.return_value = [{"vph": 50}, {"vph": 75}, {"vph": 100}]
 
             # VPH 120 >= 100 threshold
@@ -87,7 +87,7 @@ class TestShouldDeepAnalyze:
     def test_duplicate_vph_handled_correctly_sync(self):
         """Should handle duplicate VPH values using bisect."""
         # Many duplicates at 100
-        with patch('curiosity_gap.competitor_analyzer.get_recent_channel_videos') as mock_get:
+        with patch('title_idea.curiosity_gap.competitor_analyzer.get_recent_channel_videos') as mock_get:
             mock_get.return_value = [
                 {"vph": 100}, {"vph": 100}, {"vph": 100}, {"vph": 100}, {"vph": 100},
                 {"vph": 200}, {"vph": 200}, {"vph": 300}, {"vph": 400}, {"vph": 500},

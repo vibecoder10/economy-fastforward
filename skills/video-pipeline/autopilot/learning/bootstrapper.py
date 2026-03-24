@@ -63,7 +63,7 @@ class Bootstrapper:
 
         if self.airtable is None:
             try:
-                from clients.airtable_client import AirtableClient
+                from shared.clients.airtable_client import AirtableClient
                 self.airtable = AirtableClient()
             except ImportError as e:
                 logger.error(f"Could not import AirtableClient: {e}")

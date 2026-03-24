@@ -6,8 +6,8 @@ Advances: Ready For Video Scripts → Ready For Video Generation
 Clients: anthropic, airtable
 """
 
-from pipeline_constants import ImageFields, Statuses, Models
-from image_prompt_engine.prompt_builder import CAMERA_MOVEMENTS, detect_camera_movement, validate_video_prompt
+from orchestrator.pipeline_constants import ImageFields, Statuses, Models
+from image_prompts.engine.prompt_builder import CAMERA_MOVEMENTS, detect_camera_movement, validate_video_prompt
 
 
 async def run(pipeline) -> dict:

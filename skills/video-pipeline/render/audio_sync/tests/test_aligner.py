@@ -2,13 +2,13 @@
 
 import pytest
 
-from audio_sync.aligner import (
+from render.audio_sync.aligner import (
     normalize_text,
     align_scenes_to_timestamps,
     interpolate_failed_alignments,
     validate_alignment,
 )
-from audio_sync.transcriber import WordTimestamp
+from render.audio_sync.transcriber import WordTimestamp
 
 
 # ---------------------------------------------------------------------------

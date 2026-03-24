@@ -8,7 +8,7 @@ import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Optional
-from pipeline_constants import Models
+from orchestrator.pipeline_constants import Models
 
 PROMPT_TEMPLATE_PATH = Path(__file__).parent / "prompts" / "validation.txt"
 

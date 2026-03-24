@@ -3,7 +3,7 @@
 import os
 from pyairtable import Api, Table
 from typing import Optional, Any
-from pipeline_constants import (
+from orchestrator.pipeline_constants import (
     Models, Statuses, IdeaFields, ScriptFields, ImageFields,
     CompetitorVideoFields, CompetitorChannelFields, OsirisLearningFields,
     TitleInsightFields,
@@ -1130,7 +1130,7 @@ class AirtableClient:
     def title_tests_table(self) -> Table:
         """Get the Title Tests table (curiosity gap A/B testing)."""
         if self._title_tests_table is None:
-            from pipeline_constants import AIRTABLE_TITLE_TESTS_TABLE_ID
+            from orchestrator.pipeline_constants import AIRTABLE_TITLE_TESTS_TABLE_ID
             table_id = AIRTABLE_TITLE_TESTS_TABLE_ID
             if not table_id:
                 raise ValueError(
@@ -1148,7 +1148,7 @@ class AirtableClient:
         Returns:
             Created record dict
         """
-        from pipeline_constants import TitleTestFields
+        from orchestrator.pipeline_constants import TitleTestFields
 
         fields = {
             TitleTestFields.IDEA: title_test.get("idea", ""),
@@ -1181,7 +1181,7 @@ class AirtableClient:
         Returns:
             List of title test records
         """
-        from pipeline_constants import TitleTestFields
+        from orchestrator.pipeline_constants import TitleTestFields
 
         formula = f"{{Idea}} = '{idea_record_id}'"
         try:

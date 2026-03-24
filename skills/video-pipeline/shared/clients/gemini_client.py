@@ -5,8 +5,8 @@ import json
 import re
 from typing import Optional
 import httpx
-from json_utils import parse_json_response
-from pipeline_constants import Endpoints
+from shared.json_utils import parse_json_response
+from orchestrator.pipeline_constants import Endpoints
 
 
 class GeminiClient:

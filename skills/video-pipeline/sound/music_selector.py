@@ -9,7 +9,7 @@ from __future__ import annotations
 import random
 from typing import Optional
 
-from pipeline_constants import Models
+from orchestrator.pipeline_constants import Models
 
 
 # Google Drive folder containing background music tracks

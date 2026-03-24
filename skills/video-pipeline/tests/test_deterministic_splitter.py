@@ -16,8 +16,8 @@ sys.modules.setdefault("mutagen.mp3", MagicMock())
 import pytest
 
 sys.path.insert(0, "clients")
-from deterministic_splitter import segment_scene_deterministic, MAX_DURATION
-from sentence_utils import split_into_sentences
+from shared.clients.deterministic_splitter import segment_scene_deterministic, MAX_DURATION
+from shared.clients.sentence_utils import split_into_sentences
 
 
 # ── Real scene narration (mock data) ─────────────────────────────────

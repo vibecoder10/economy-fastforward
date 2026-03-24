@@ -6,7 +6,7 @@ All functions take (message, say) — decorators applied in pipeline_control.py.
 
 import re
 
-from pipeline_constants import IdeaFields, Statuses
+from orchestrator.pipeline_constants import IdeaFields, Statuses
 
 
 async def handle_delete_scripts(message, say):

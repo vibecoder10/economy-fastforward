@@ -20,8 +20,8 @@ Description architecture:
 
 import json
 from typing import Optional
-from pipeline_constants import ScriptFields
-from json_utils import parse_json_response
+from orchestrator.pipeline_constants import ScriptFields
+from shared.json_utils import parse_json_response
 
 
 # Static hashtags (always appended)

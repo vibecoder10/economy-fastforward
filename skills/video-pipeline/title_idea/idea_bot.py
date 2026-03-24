@@ -18,7 +18,7 @@ from typing import Optional
 
 from curiosity_gap.gap_title_engine import GapTitleEngine
 from autopilot.learning.pattern_library import PatternLibrary
-from pipeline_constants import CURIOSITY_GAP_ENABLED
+from orchestrator.pipeline_constants import CURIOSITY_GAP_ENABLED
 
 
 class IdeaBot:

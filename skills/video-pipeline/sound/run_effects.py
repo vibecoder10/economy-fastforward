@@ -6,9 +6,9 @@ Advances: Ready For Sound Effects → Ready For Video Scripts
 Clients: sound_client, google, airtable, slack
 """
 
-from pipeline_constants import Statuses
+from orchestrator.pipeline_constants import Statuses
 from bots.sound_bot import SoundBot
-from clients.sound_client import SoundClient
+from shared.clients.sound_client import SoundClient
 
 
 async def run(pipeline) -> dict:

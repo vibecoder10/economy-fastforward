@@ -281,8 +281,8 @@ async def main_async():
     import sys
     sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-    from clients.airtable_client import AirtableClient
-    from clients.slack_client import SlackClient
+    from shared.clients.airtable_client import AirtableClient
+    from shared.clients.slack_client import SlackClient
 
     print("🔍 CTR Monitor: Checking active experiments...")
 

@@ -7,8 +7,8 @@ import json
 import logging
 from typing import Optional
 from collections import defaultdict
-from pipeline_constants import Models
-from json_utils import parse_json_response
+from orchestrator.pipeline_constants import Models
+from shared.json_utils import parse_json_response
 
 logger = logging.getLogger(__name__)
 

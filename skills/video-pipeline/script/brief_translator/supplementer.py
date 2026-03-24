@@ -6,7 +6,7 @@ research to fill only those gaps without re-running the entire deep dive.
 
 from pathlib import Path
 from typing import Optional
-from pipeline_constants import Models
+from orchestrator.pipeline_constants import Models
 
 PROMPT_TEMPLATE_PATH = Path(__file__).parent / "prompts" / "supplemental.txt"
 

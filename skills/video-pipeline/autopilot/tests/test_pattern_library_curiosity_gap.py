@@ -7,7 +7,7 @@ from autopilot.learning.pattern_library import PatternLibrary
 
 # Import CuriosityStructure - the test runs from skills/video-pipeline/
 # so curiosity_gap is a sibling package that should be importable
-from curiosity_gap.structures import CuriosityStructure
+from title_idea.curiosity_gap.structures import CuriosityStructure
 
 
 SAMPLE_COMPETITOR_PATTERNS = """# Competitor Patterns

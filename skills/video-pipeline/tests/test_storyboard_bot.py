@@ -8,14 +8,14 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from channel_profile import (
+from shared.channel_profile import (
     DEFAULT_VIDEO_MODEL,
     GROK_IMAGINE,
     MODEL_REGISTRY,
     VEO_31_FAST,
     load_model_profile,
 )
-from storyboard_bot import (
+from storyboard.bot import (
     _make_segment,
     assign_clip_durations,
     calculate_grid_count,
@@ -216,7 +216,7 @@ class TestGroupSegmentsIntoGrids:
 class TestIsBlankPanel:
     def test_black_panel(self):
         from PIL import Image
-        from storyboard_bot import is_blank_panel
+        from storyboard.bot import is_blank_panel
 
         # Pure black image
         img = Image.new("RGB", (100, 100), (0, 0, 0))
@@ -224,14 +224,14 @@ class TestIsBlankPanel:
 
     def test_non_black_panel(self):
         from PIL import Image
-        from storyboard_bot import is_blank_panel
+        from storyboard.bot import is_blank_panel
 
         img = Image.new("RGB", (100, 100), (128, 128, 128))
         assert is_blank_panel(img) is False
 
     def test_near_black_panel(self):
         from PIL import Image
-        from storyboard_bot import is_blank_panel
+        from storyboard.bot import is_blank_panel
 
         img = Image.new("RGB", (100, 100), (10, 10, 10))
         assert is_blank_panel(img) is True  # Mean 10 < threshold 15
@@ -246,7 +246,7 @@ class TestExtractPanels:
     def test_extract_9_panels(self):
         """Full 3x3 grid with all panels colored."""
         from PIL import Image
-        from storyboard_bot import extract_panels
+        from storyboard.bot import extract_panels
 
         # Create a 300x300 grid with 9 colored panels (100x100 each)
         img = Image.new("RGB", (300, 300), (0, 0, 0))
@@ -271,7 +271,7 @@ class TestExtractPanels:
     def test_extract_with_black_panels(self):
         """Grid with 5 colored panels and 4 black."""
         from PIL import Image
-        from storyboard_bot import extract_panels
+        from storyboard.bot import extract_panels
 
         img = Image.new("RGB", (300, 300), (0, 0, 0))  # All black
         # Fill first 5 panels with color

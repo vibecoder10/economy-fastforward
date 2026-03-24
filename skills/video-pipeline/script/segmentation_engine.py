@@ -11,8 +11,8 @@ prompt generation in the pipeline.
 import re
 from typing import Optional
 
-from pipeline_config import VideoConfig, ACT_TEMPLATES
-from clients.sentence_utils import split_into_sentences as _split_into_sentences
+from orchestrator.pipeline_config import VideoConfig, ACT_TEMPLATES
+from shared.clients.sentence_utils import split_into_sentences as _split_into_sentences
 
 # Clause-break words for splitting long sentences
 _CLAUSE_BREAK_WORDS = {"but", "and", "because", "which", "where", "when", "while", "although", "however", "yet", "so", "then", "since", "unless"}

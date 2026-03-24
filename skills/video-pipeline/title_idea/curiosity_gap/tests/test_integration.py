@@ -6,8 +6,8 @@ import pytest
 from unittest.mock import AsyncMock, Mock, patch
 from pathlib import Path
 
-from curiosity_gap.competitor_analyzer import CompetitorAnalyzer, TitleAnalysis
-from curiosity_gap.structures import CuriosityStructure
+from title_idea.curiosity_gap.competitor_analyzer import CompetitorAnalyzer, TitleAnalysis
+from title_idea.curiosity_gap.structures import CuriosityStructure
 
 
 def run_async(coro):
@@ -37,7 +37,7 @@ class TestCompetitorAnalyzerIntegration:
             mock_channel_videos = [{"vph": v} for v in [50, 75, 100, 125, 150]]
 
             with patch.object(analyzer, '_call_claude_for_title', return_value=mock_title_response):
-                with patch('curiosity_gap.competitor_analyzer.get_recent_channel_videos', return_value=mock_channel_videos):
+                with patch('title_idea.curiosity_gap.competitor_analyzer.get_recent_channel_videos', return_value=mock_channel_videos):
                     # Test video in top 20% (VPH 200 > 80th percentile of channel)
                     result = await analyzer.analyze_video(
                         video_id="test123",
@@ -65,7 +65,7 @@ class TestCompetitorAnalyzerIntegration:
             mock_channel_videos = [{"vph": v} for v in [100, 150, 200, 250, 300]]
 
             with patch.object(analyzer, '_call_claude_for_title', return_value=mock_title_response):
-                with patch('curiosity_gap.competitor_analyzer.get_recent_channel_videos', return_value=mock_channel_videos):
+                with patch('title_idea.curiosity_gap.competitor_analyzer.get_recent_channel_videos', return_value=mock_channel_videos):
                     # Test video NOT in top 20% (VPH 120 < 80th percentile)
                     result = await analyzer.analyze_video(
                         video_id="test456",
@@ -100,7 +100,7 @@ class TestCompetitorAnalyzerIntegration:
             }
 
             with patch.object(analyzer, '_call_claude_for_title', return_value=mock_title_response):
-                with patch('curiosity_gap.competitor_analyzer.get_recent_channel_videos', return_value=mock_channel_videos):
+                with patch('title_idea.curiosity_gap.competitor_analyzer.get_recent_channel_videos', return_value=mock_channel_videos):
                     with patch.object(analyzer, '_analyze_with_gemini', return_value=Mock(
                         colors=mock_thumbnail_result["colors"],
                         composition=mock_thumbnail_result["composition"],
@@ -128,7 +128,7 @@ class TestStructuresIntegration:
 
     def test_all_structures_have_complete_definitions(self):
         """Every structure should have all required fields."""
-        from curiosity_gap.structures import STRUCTURE_DEFINITIONS, CuriosityStructure
+        from title_idea.curiosity_gap.structures import STRUCTURE_DEFINITIONS, CuriosityStructure
 
         required_fields = ["gap_mechanism", "when_to_use", "example"]
 
@@ -139,7 +139,7 @@ class TestStructuresIntegration:
 
     def test_structure_prompt_contains_all_mechanisms(self):
         """Generated prompt should include all gap mechanisms."""
-        from curiosity_gap.structures import get_structure_prompt, STRUCTURE_DEFINITIONS, CuriosityStructure
+        from title_idea.curiosity_gap.structures import get_structure_prompt, STRUCTURE_DEFINITIONS, CuriosityStructure
 
         prompt = get_structure_prompt()
 
@@ -151,7 +151,7 @@ class TestStructuresIntegration:
 
     def test_validate_structure_handles_all_valid_inputs(self):
         """validate_structure should handle all valid structure names."""
-        from curiosity_gap.structures import validate_structure, CuriosityStructure
+        from title_idea.curiosity_gap.structures import validate_structure, CuriosityStructure
 
         # Test all valid structures
         assert validate_structure("hidden_flaw") == CuriosityStructure.HIDDEN_FLAW
@@ -163,7 +163,7 @@ class TestStructuresIntegration:
 
     def test_validate_structure_normalizes_case(self):
         """validate_structure should be case-insensitive."""
-        from curiosity_gap.structures import validate_structure, CuriosityStructure
+        from title_idea.curiosity_gap.structures import validate_structure, CuriosityStructure
 
         assert validate_structure("HIDDEN_FLAW") == CuriosityStructure.HIDDEN_FLAW
         assert validate_structure("Hidden_Flaw") == CuriosityStructure.HIDDEN_FLAW
@@ -171,7 +171,7 @@ class TestStructuresIntegration:
 
     def test_validate_structure_returns_other_for_invalid(self):
         """validate_structure should return OTHER for invalid inputs."""
-        from curiosity_gap.structures import validate_structure, CuriosityStructure
+        from title_idea.curiosity_gap.structures import validate_structure, CuriosityStructure
 
         assert validate_structure("unknown_structure") == CuriosityStructure.OTHER
         assert validate_structure("") == CuriosityStructure.OTHER
@@ -179,7 +179,7 @@ class TestStructuresIntegration:
 
     def test_get_main_structures_excludes_other(self):
         """get_main_structures should return 5 structures without OTHER."""
-        from curiosity_gap.structures import get_main_structures, CuriosityStructure
+        from title_idea.curiosity_gap.structures import get_main_structures, CuriosityStructure
 
         main_structures = get_main_structures()
 
@@ -197,12 +197,12 @@ class TestVPHNormalizationIntegration:
 
     def test_percentile_calculation_at_boundaries(self):
         """Test percentile calculation at edge cases."""
-        from curiosity_gap.competitor_analyzer import should_deep_analyze_sync
+        from title_idea.curiosity_gap.competitor_analyzer import should_deep_analyze_sync
 
         # 10 videos, 80th percentile is at position 8 (index 7)
         mock_videos = [{"vph": v} for v in [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]]
 
-        with patch('curiosity_gap.competitor_analyzer.get_recent_channel_videos', return_value=mock_videos):
+        with patch('title_idea.curiosity_gap.competitor_analyzer.get_recent_channel_videos', return_value=mock_videos):
             # VPH 85 is above 80th percentile (position 8 of 10 = 80%)
             assert should_deep_analyze_sync(85, "TestChannel") is True
 
@@ -214,12 +214,12 @@ class TestVPHNormalizationIntegration:
 
     def test_cold_start_threshold_boundaries(self):
         """Test cold start behavior with few videos."""
-        from curiosity_gap.competitor_analyzer import should_deep_analyze_sync, COLD_START_VPH_THRESHOLD
+        from title_idea.curiosity_gap.competitor_analyzer import should_deep_analyze_sync, COLD_START_VPH_THRESHOLD
 
         # Only 3 videos = cold start mode
         mock_videos = [{"vph": v} for v in [50, 100, 150]]
 
-        with patch('curiosity_gap.competitor_analyzer.get_recent_channel_videos', return_value=mock_videos):
+        with patch('title_idea.curiosity_gap.competitor_analyzer.get_recent_channel_videos', return_value=mock_videos):
             # Exactly at threshold
             assert should_deep_analyze_sync(COLD_START_VPH_THRESHOLD, "NewChannel") is True
 
@@ -228,9 +228,9 @@ class TestVPHNormalizationIntegration:
 
     def test_empty_channel_uses_cold_start(self):
         """Empty channel should use cold start threshold."""
-        from curiosity_gap.competitor_analyzer import should_deep_analyze_sync, COLD_START_VPH_THRESHOLD
+        from title_idea.curiosity_gap.competitor_analyzer import should_deep_analyze_sync, COLD_START_VPH_THRESHOLD
 
-        with patch('curiosity_gap.competitor_analyzer.get_recent_channel_videos', return_value=[]):
+        with patch('title_idea.curiosity_gap.competitor_analyzer.get_recent_channel_videos', return_value=[]):
             # Should use cold start threshold
             assert should_deep_analyze_sync(COLD_START_VPH_THRESHOLD + 50, "EmptyChannel") is True
             assert should_deep_analyze_sync(COLD_START_VPH_THRESHOLD - 1, "EmptyChannel") is False

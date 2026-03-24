@@ -41,10 +41,10 @@ from .script_validator import (
     ScriptValidationResult,
 )
 from .senior_editor import run_senior_editor, format_editor_summary
-from pipeline_constants import IdeaFields, Models, Statuses
+from orchestrator.pipeline_constants import IdeaFields, Models, Statuses
 
 try:
-    from script_profiles import load_script_profile
+    from shared.profiles.script import load_script_profile
 except ImportError:
     load_script_profile = None
 

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any, Optional
-from pipeline_constants import Models
+from orchestrator.pipeline_constants import Models
 
 
 @dataclass

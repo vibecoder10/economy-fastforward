@@ -19,7 +19,7 @@ from .style_engine import (
     get_camera_motion,
     PROMPT_MIN_WORDS,
     PROMPT_MAX_WORDS,
-    # New holographic system (re-exported from image_prompt_engine.style_config)
+    # New holographic system (re-exported from image_prompts.engine.style_config)
     ContentType,
     DisplayFormat,
     ColorMood,

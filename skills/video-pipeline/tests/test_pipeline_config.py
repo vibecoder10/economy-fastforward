@@ -6,7 +6,7 @@ import os
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from pipeline_config import VideoConfig, ACT_TEMPLATES, get_act_word_targets
+from orchestrator.pipeline_config import VideoConfig, ACT_TEMPLATES, get_act_word_targets
 
 
 class TestVideoConfigBasics:

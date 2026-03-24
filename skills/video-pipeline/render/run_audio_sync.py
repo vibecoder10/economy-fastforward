@@ -17,11 +17,11 @@ import subprocess as _sp
 from collections import defaultdict
 from pathlib import Path
 
-from pipeline_constants import ImageFields
+from orchestrator.pipeline_constants import ImageFields
 
-from audio_sync.transcriber import transcribe
-from audio_sync.transition_engine import assign_transitions
-from audio_sync.ken_burns_calculator import assign_ken_burns
+from render.audio_sync.transcriber import transcribe
+from render.audio_sync.transition_engine import assign_transitions
+from render.audio_sync.ken_burns_calculator import assign_ken_burns
 
 
 async def run(pipeline, audio_path: str = None, scene_list: list = None) -> dict:
@@ -223,7 +223,7 @@ async def run(pipeline, audio_path: str = None, scene_list: list = None) -> dict
             start_indices.append(w_start)
             cumulative += wc
 
-        from audio_sync.timing_adjuster import enforce_max_image_duration
+        from render.audio_sync.timing_adjuster import enforce_max_image_duration
 
         scene_raw: list[dict] = []
         for entry_idx, (img, img_index, sentence, wc) in enumerate(img_entries):
@@ -289,7 +289,7 @@ async def run(pipeline, audio_path: str = None, scene_list: list = None) -> dict
     # ── Step 4: Build per-IMAGE render config ──
     print(f"  Step 4/4: Writing per-image render config...")
 
-    from audio_sync.render_config_writer import build_render_config, write_render_config
+    from render.audio_sync.render_config_writer import build_render_config, write_render_config
 
     # Calculate scene-to-act mapping (6 acts, scenes distributed evenly)
     max_scene = max(scene_numbers) if scene_numbers else 20

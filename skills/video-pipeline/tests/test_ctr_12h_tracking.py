@@ -4,7 +4,7 @@
 import pytest
 from datetime import datetime, timedelta, timezone
 from performance_tracker import calculate_snapshots
-from pipeline_constants import IdeaFields
+from orchestrator.pipeline_constants import IdeaFields
 
 
 class TestCTRMilestoneTracking:

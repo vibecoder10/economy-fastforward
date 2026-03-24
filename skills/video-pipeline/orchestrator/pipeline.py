@@ -35,21 +35,21 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
-from clients.anthropic_client import AnthropicClient
-from clients.airtable_client import AirtableClient
-from clients.google_client import GoogleClient
-from clients.slack_client import SlackClient
-from clients.elevenlabs_client import ElevenLabsClient
-from clients.image_client import ImageClient
-from clients.gemini_client import GeminiClient
-from clients.apify_client import ApifyYouTubeClient
-from clients.sound_client import SoundClient
+from shared.clients.anthropic_client import AnthropicClient
+from shared.clients.airtable_client import AirtableClient
+from shared.clients.google_client import GoogleClient
+from shared.clients.slack_client import SlackClient
+from shared.clients.elevenlabs_client import ElevenLabsClient
+from shared.clients.image_client import ImageClient
+from shared.clients.gemini_client import GeminiClient
+from shared.clients.apify_client import ApifyYouTubeClient
+from shared.clients.sound_client import SoundClient
 from bots.idea_bot import IdeaBot
 from bots.trending_idea_bot import TrendingIdeaBot
 from bots.sound_prompt_bot import SoundPromptBot
 from bots.sound_bot import SoundBot
-from pipeline_config import VideoConfig
-from pipeline_constants import Models, Statuses, IdeaFields, ScriptFields, ImageFields
+from orchestrator.pipeline_config import VideoConfig
+from orchestrator.pipeline_constants import Models, Statuses, IdeaFields, ScriptFields, ImageFields
 
 
 class VideoPipeline:
@@ -1079,7 +1079,7 @@ async def main():
 
     # === DISCOVERY SCANNER (News + Competitors) ===
     if len(sys.argv) > 1 and sys.argv[1] == "--discover":
-        from discovery_scanner import run_discovery, format_ideas_for_slack, build_option_map, build_idea_record_from_discovery
+        from discovery.scanner import run_discovery, format_ideas_for_slack, build_option_map, build_idea_record_from_discovery
         from discovery_tracker import save_discovery_message
 
         focus = " ".join(sys.argv[2:]).strip() if len(sys.argv) > 2 else None
@@ -1423,7 +1423,7 @@ async def main():
         # PRE-FLIGHT: Process any ideas stuck at "Approved" status
         print("\nPre-flight: Checking for ideas needing research...")
         try:
-            from approval_watcher import ApprovalWatcher
+            from orchestrator.approval_watcher import ApprovalWatcher
             watcher = ApprovalWatcher(
                 anthropic_client=pipeline.anthropic,
                 airtable_client=pipeline.airtable,

@@ -11,7 +11,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from pipeline_constants import IdeaFields, Statuses
+from orchestrator.pipeline_constants import IdeaFields, Statuses
 
 
 # Default scene output directory (project-relative fallback)

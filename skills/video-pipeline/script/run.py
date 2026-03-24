@@ -9,7 +9,7 @@ Clients: anthropic, airtable, google, slack
 import asyncio
 import json
 
-from pipeline_constants import IdeaFields, Statuses
+from orchestrator.pipeline_constants import IdeaFields, Statuses
 
 
 async def run(pipeline, brief: dict = None) -> dict:

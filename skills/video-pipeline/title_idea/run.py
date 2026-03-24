@@ -8,7 +8,7 @@ Clients: anthropic, airtable, gemini, slack, apify (trending only)
 
 from typing import Optional
 
-from pipeline_constants import Statuses
+from orchestrator.pipeline_constants import Statuses
 from bots.idea_bot import IdeaBot
 from bots.trending_idea_bot import TrendingIdeaBot
 

@@ -8,12 +8,12 @@ Clients: airtable, image_client, google
 This step runs AFTER the user reviews the generated grids.
 """
 
-from pipeline_constants import Statuses
+from orchestrator.pipeline_constants import Statuses
 
 
 async def run(pipeline) -> dict:
     """Extract panels from storyboard grids (Phase 2)."""
-    from storyboard_bot import run_storyboard_extract
+    from storyboard.bot import run_storyboard_extract
 
     if not pipeline.current_idea:
         idea = pipeline.get_idea_by_status(Statuses.READY_STORYBOARD_EXTRACTION)

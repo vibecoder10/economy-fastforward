@@ -25,10 +25,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from dotenv import load_dotenv
 load_dotenv()
 
-from curiosity_gap.competitor_analyzer import CompetitorAnalyzer, should_deep_analyze
-from curiosity_gap.structures import CuriosityStructure
-from clients.airtable_client import AirtableClient
-from pipeline_constants import CompetitorVideoFields, CURIOSITY_GAP_ENABLED
+from title_idea.curiosity_gap.competitor_analyzer import CompetitorAnalyzer, should_deep_analyze
+from title_idea.curiosity_gap.structures import CuriosityStructure
+from shared.clients.airtable_client import AirtableClient
+from orchestrator.pipeline_constants import CompetitorVideoFields, CURIOSITY_GAP_ENABLED
 
 
 async def seed_patterns(

@@ -2,11 +2,11 @@
 
 import pytest
 
-from audio_sync.transition_engine import (
+from render.audio_sync.transition_engine import (
     determine_transition,
     assign_transitions,
 )
-from audio_sync.config import CROSSFADE_DURATION, STYLE_CHANGE_FADE, ACT_TRANSITION_BLACK
+from render.audio_sync.config import CROSSFADE_DURATION, STYLE_CHANGE_FADE, ACT_TRANSITION_BLACK
 
 
 class TestDetermineTransition:

@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
-from curiosity_gap.structures import (
+from title_idea.curiosity_gap.structures import (
     CuriosityStructure,
     get_structure_prompt,
     validate_structure,

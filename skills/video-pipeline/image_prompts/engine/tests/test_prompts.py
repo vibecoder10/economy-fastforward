@@ -13,14 +13,14 @@ import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
-from image_prompt_engine.prompt_builder import (
+from image_prompts.engine.prompt_builder import (
     build_prompt,
     generate_prompts,
     resolve_accent_color,
     resolve_scene_accent_color,
     resolve_scene_color_mood,
 )
-from image_prompt_engine.style_config import (
+from image_prompts.engine.style_config import (
     ContentType,
     DisplayFormat,
     ColorMood,
@@ -462,7 +462,7 @@ class TestProfileSwitching:
 
     def test_holographic_default_unchanged(self):
         """Default holographic profile still produces holographic prompts."""
-        from visual_profiles import clear_cache
+        from shared.profiles.visual import clear_cache
         original = os.environ.get("VISUAL_PROFILE", "")
         try:
             os.environ["VISUAL_PROFILE"] = "holographic_hud"
@@ -482,7 +482,7 @@ class TestProfileSwitching:
 
     def test_switching_back_to_holographic(self):
         """Switching from clay back to holographic produces holographic prompts."""
-        from visual_profiles import clear_cache
+        from shared.profiles.visual import clear_cache
         original = os.environ.get("VISUAL_PROFILE", "")
         try:
             # First set clay

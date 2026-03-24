@@ -12,10 +12,10 @@ import math
 from collections import defaultdict
 from typing import Optional
 
-from clients.anthropic_client import AnthropicClient
-from clients.airtable_client import AirtableClient
-from pipeline_constants import Models, ImageFields
-from json_utils import parse_json_response
+from shared.clients.anthropic_client import AnthropicClient
+from shared.clients.airtable_client import AirtableClient
+from orchestrator.pipeline_constants import Models, ImageFields
+from shared.json_utils import parse_json_response
 
 
 SOUND_CURATION_SYSTEM = """\

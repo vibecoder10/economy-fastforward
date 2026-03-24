@@ -14,13 +14,13 @@ style is for SCENE IMAGES ONLY (style_engine.py). Never mix them.
 import json
 from typing import Optional
 
-from thumbnail_title.templates import (
+from thumbnail.templates import (
     TEMPLATES,
     THUMBNAIL_PALETTES,
     detect_palette,
 )
-from pipeline_constants import Models
-from json_utils import parse_json_response
+from orchestrator.pipeline_constants import Models
+from shared.json_utils import parse_json_response
 
 
 # ---------------------------------------------------------------------------

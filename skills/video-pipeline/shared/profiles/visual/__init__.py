@@ -10,7 +10,7 @@ Profile selection order:
 
 Usage::
 
-    from visual_profiles import load_profile
+    from shared.profiles.visual import load_profile
 
     profile = load_profile()              # uses env var or default
     profile = load_profile("clay_mannequin")  # explicit override

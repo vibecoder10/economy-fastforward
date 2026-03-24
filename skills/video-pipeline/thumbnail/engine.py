@@ -23,11 +23,11 @@ Usage from pipeline.py:
 
 from typing import Optional
 
-from thumbnail_title.selector import select_template
-from thumbnail_title.title_generator import TitleGenerator
-from thumbnail_title.prompt_builder import ThumbnailPromptBuilder
-from thumbnail_title.validator import validate_thumbnail, validate_title_thumbnail_pair
-from pipeline_constants import Models, IdeaFields
+from thumbnail.selector import select_template
+from thumbnail.title_generator import TitleGenerator
+from thumbnail.prompt_builder import ThumbnailPromptBuilder
+from thumbnail.validator import validate_thumbnail, validate_title_thumbnail_pair
+from orchestrator.pipeline_constants import Models, IdeaFields
 
 
 # Maximum generation attempts per thumbnail before flagging for manual review
@@ -178,7 +178,7 @@ class ThumbnailTitleEngine:
 
         Returns the final prompt string, or None if the override is empty.
         """
-        from thumbnail_title.templates import TEMPLATES
+        from thumbnail.templates import TEMPLATES
 
         stripped = override.strip()
         if not stripped:
@@ -276,7 +276,7 @@ class ThumbnailTitleEngine:
 
         # Step 1: Select template
         template_key = preferred_template or select_template(video_metadata)
-        from thumbnail_title.templates import TEMPLATES
+        from thumbnail.templates import TEMPLATES
         template_name = TEMPLATES[template_key]["name"]
         print(f"  Template selected: {template_name} ({template_key})")
 
@@ -322,7 +322,7 @@ class ThumbnailTitleEngine:
                 print(f"  WARNING: {issue}")
 
         # Detect palette (needed for both prompt builder and Gemini director)
-        from thumbnail_title.templates import THUMBNAIL_PALETTES, detect_palette
+        from thumbnail.templates import THUMBNAIL_PALETTES, detect_palette
         palette_key = palette_override or detect_palette(f"{video_title} {video_summary}")
 
         # Step 4: Build thumbnail prompt (with optional style override)
@@ -406,7 +406,7 @@ class ThumbnailTitleEngine:
         gemini_result = None
         if self.gemini and all_thumbnail_urls:
             try:
-                from thumbnail_title.gemini_director import run_gemini_director
+                from thumbnail.gemini_director import run_gemini_director
 
                 gemini_result = await run_gemini_director(
                     gemini_client=self.gemini,

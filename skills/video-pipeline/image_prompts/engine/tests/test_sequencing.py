@@ -12,8 +12,8 @@ import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
-from image_prompt_engine.sequencer import assign_styles
-from image_prompt_engine.style_config import DEFAULT_CONFIG, ContentType, DisplayFormat, ColorMood
+from image_prompts.engine.sequencer import assign_styles
+from image_prompts.engine.style_config import DEFAULT_CONFIG, ContentType, DisplayFormat, ColorMood
 
 
 # ---------------------------------------------------------------------------

@@ -15,7 +15,7 @@ import subprocess
 import time as _time
 from pathlib import Path
 
-from pipeline_constants import Statuses, IdeaFields, ImageFields, ScriptFields
+from orchestrator.pipeline_constants import Statuses, IdeaFields, ImageFields, ScriptFields
 
 
 def _clean_render_assets(label: str = "stale") -> int:

@@ -23,10 +23,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from clients.airtable_client import AirtableClient
-from clients.slack_client import SlackClient
-from pipeline_constants import IdeaFields, ImageFields, ScriptFields, Statuses, Models
-from clients.google_client import GoogleClient, get_direct_drive_url
+from shared.clients.airtable_client import AirtableClient
+from shared.clients.slack_client import SlackClient
+from orchestrator.pipeline_constants import IdeaFields, ImageFields, ScriptFields, Statuses, Models
+from shared.clients.google_client import GoogleClient, get_direct_drive_url
 
 def sanitize_filename(title: str) -> str:
     """Convert title to safe filename."""

@@ -1,6 +1,6 @@
 """Holographic Intelligence Display Style Engine
 
-Re-exports all constants from image_prompt_engine.style_config and adds
+Re-exports all constants from image_prompts.engine.style_config and adds
 legacy compatibility constants for the animation pipeline.
 
 When a visual profile is loaded, style constants are read from the profile.
@@ -19,13 +19,13 @@ from typing import List, Tuple
 def _get_profile():
     """Return the active visual profile, or None."""
     try:
-        from visual_profiles import load_profile
+        from shared.profiles.visual import load_profile
         return load_profile()
     except Exception:
         return None
 
 # Import all holographic constants from the canonical source
-from image_prompt_engine.style_config import (
+from image_prompts.engine.style_config import (
     # Enums
     ContentType,
     DisplayFormat,

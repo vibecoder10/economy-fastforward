@@ -8,11 +8,11 @@ to the image row. This replaces the old scene-level Sound Map approach.
 import asyncio
 from typing import Optional
 
-from clients.sound_client import SoundClient
-from clients.airtable_client import AirtableClient
-from clients.google_client import GoogleClient
-from clients.slack_client import SlackClient
-from pipeline_constants import ImageFields, IdeaFields
+from shared.clients.sound_client import SoundClient
+from shared.clients.airtable_client import AirtableClient
+from shared.clients.google_client import GoogleClient
+from shared.clients.slack_client import SlackClient
+from orchestrator.pipeline_constants import ImageFields, IdeaFields
 
 
 # Safety limit — max generations per video

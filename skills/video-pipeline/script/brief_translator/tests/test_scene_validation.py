@@ -1,7 +1,7 @@
 """Tests for programmatic scene list validation."""
 
 import pytest
-from brief_translator.scene_validator import (
+from script.brief_translator.scene_validator import (
     validate_scene_list,
     auto_fix_minor_issues,
     REQUIRED_FIELDS_UNIFIED as REQUIRED_FIELDS,

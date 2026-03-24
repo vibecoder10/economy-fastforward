@@ -22,10 +22,10 @@ from dotenv import load_dotenv
 
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", "..", ".env"))
 
-from clients.apify_client import ApifyYouTubeClient
-from clients.anthropic_client import AnthropicClient
-from clients.airtable_client import AirtableClient
-from clients.slack_client import SlackClient
+from shared.clients.apify_client import ApifyYouTubeClient
+from shared.clients.anthropic_client import AnthropicClient
+from shared.clients.airtable_client import AirtableClient
+from shared.clients.slack_client import SlackClient
 from bots.competitor_scraper import CompetitorScraper
 
 

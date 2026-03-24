@@ -15,7 +15,7 @@ import json
 import re
 from datetime import datetime, timezone
 from typing import Optional
-from pipeline_constants import Models, CompetitorChannelFields
+from orchestrator.pipeline_constants import Models, CompetitorChannelFields
 
 
 def calculate_vph(views: int, published_at: str) -> tuple[float, float]:

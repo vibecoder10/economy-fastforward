@@ -16,9 +16,9 @@ if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "analyze":
         # Remove "analyze" from argv so argparse in performance_analyzer works correctly
         sys.argv.pop(1)
-        from osiris.performance_analyzer import _cli_main as analyze_main
+        from analytics.osiris.performance_analyzer import _cli_main as analyze_main
         asyncio.run(analyze_main())
     else:
         # Default: run competitor scraper
-        from osiris.competitor_scraper import _cli_main as scraper_main
+        from analytics.osiris.competitor_scraper import _cli_main as scraper_main
         asyncio.run(scraper_main())

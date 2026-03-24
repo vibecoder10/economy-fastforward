@@ -1,7 +1,7 @@
 """Tests for json_utils.parse_json_response."""
 
 import pytest
-from json_utils import parse_json_response
+from shared.json_utils import parse_json_response
 
 
 class TestDirectParse:

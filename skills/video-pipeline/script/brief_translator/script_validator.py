@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from typing import Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from script_profiles.schema import ScriptProfile
+    from shared.profiles.script.schema import ScriptProfile
 
 logger = logging.getLogger(__name__)
 

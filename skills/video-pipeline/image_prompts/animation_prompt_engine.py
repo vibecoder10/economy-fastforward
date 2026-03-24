@@ -45,7 +45,7 @@ from __future__ import annotations
 import logging
 import re
 from typing import Callable, Awaitable, Optional
-from pipeline_constants import Models
+from orchestrator.pipeline_constants import Models
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +57,7 @@ logger = logging.getLogger(__name__)
 def _get_profile():
     """Return the active visual profile, or None."""
     try:
-        from visual_profiles import load_profile
+        from shared.profiles.visual import load_profile
         return load_profile()
     except Exception:
         return None

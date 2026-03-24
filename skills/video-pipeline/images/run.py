@@ -10,7 +10,7 @@ import asyncio
 import gc
 from collections import defaultdict
 
-from pipeline_constants import Statuses, Models, IdeaFields, ImageFields, ScriptFields
+from orchestrator.pipeline_constants import Statuses, Models, IdeaFields, ImageFields, ScriptFields
 
 
 async def run(pipeline) -> dict:

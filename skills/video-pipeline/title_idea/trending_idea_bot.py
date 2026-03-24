@@ -14,8 +14,8 @@ import json
 import os
 
 from bots.idea_modeling import decompose_title, extract_format, generate_modeled_ideas
-from clients.narrative_extractor import extract_narrative_fields_from_concept
-from pipeline_constants import Models, CURIOSITY_GAP_ENABLED
+from shared.clients.narrative_extractor import extract_narrative_fields_from_concept
+from orchestrator.pipeline_constants import Models, CURIOSITY_GAP_ENABLED
 
 # Curiosity gap imports (lazy loaded to avoid circular deps)
 if CURIOSITY_GAP_ENABLED:
@@ -122,7 +122,7 @@ class TrendingIdeaBot:
         self._learnings_engine = None
         if use_learnings:
             try:
-                from osiris.learnings_engine import LearningsEngine
+                from analytics.osiris.learnings_engine import LearningsEngine
                 self._learnings_engine = LearningsEngine(airtable_client)
             except ImportError:
                 pass  # Osiris not installed, skip learnings

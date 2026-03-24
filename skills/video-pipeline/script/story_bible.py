@@ -34,8 +34,8 @@ SCENE_BLOCK_CONFIG = {
 
 import json
 from typing import Optional
-from pipeline_constants import Models
-from json_utils import parse_json_response
+from orchestrator.pipeline_constants import Models
+from shared.json_utils import parse_json_response
 
 
 # System prompt for generating the Story Bible

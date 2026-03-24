@@ -2,11 +2,11 @@
 
 import pytest
 
-from audio_sync.ken_burns_calculator import (
+from render.audio_sync.ken_burns_calculator import (
     calculate_ken_burns,
     assign_ken_burns,
 )
-from audio_sync.config import KEN_BURNS_BASE_DURATION
+from render.audio_sync.config import KEN_BURNS_BASE_DURATION
 
 
 class TestCalculateKenBurns:

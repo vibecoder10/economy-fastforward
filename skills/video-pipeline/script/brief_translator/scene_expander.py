@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import json
 from typing import Optional
-from pipeline_constants import Models
+from orchestrator.pipeline_constants import Models
 
 # Re-export public symbols that callers depend on
 from .expander_config import (

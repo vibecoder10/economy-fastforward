@@ -1,7 +1,7 @@
 """Tests for production readiness validation."""
 
 import pytest
-from brief_translator.validator import (
+from script.brief_translator.validator import (
     parse_validation_xml,
     evaluate_validation,
     build_validation_prompt,

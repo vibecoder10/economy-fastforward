@@ -15,7 +15,7 @@ Usage (standalone):
     python discovery_scanner.py --output discoveries.json
 
 Usage (imported):
-    from discovery_scanner import DiscoveryScanner, run_discovery
+    from discovery.scanner import DiscoveryScanner, run_discovery
 
     scanner = DiscoveryScanner(anthropic_client, apify_client, airtable_client)
     ideas = await scanner.scan()
@@ -34,9 +34,9 @@ logger = logging.getLogger(__name__)
 
 # Import competitor VPH calculation
 from bots.competitor_scraper import calculate_vph
-from clients.narrative_extractor import extract_narrative_fields_from_concept
-from pipeline_constants import IdeaFields, Models
-from json_utils import parse_json_response
+from shared.clients.narrative_extractor import extract_narrative_fields_from_concept
+from orchestrator.pipeline_constants import IdeaFields, Models
+from shared.json_utils import parse_json_response
 
 # Source categories for headline scanning
 SCAN_SOURCES = {

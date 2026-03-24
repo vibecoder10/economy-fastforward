@@ -338,7 +338,7 @@ Return ONLY valid JSON."""
 Identify 3-5 patterns that distinguish top performers. What do they do differently?"""
 
         try:
-            from pipeline_constants import Models
+            from orchestrator.pipeline_constants import Models
             response = await self.anthropic.generate(
                 prompt=user_prompt,
                 system_prompt=system_prompt,
@@ -470,7 +470,7 @@ Identify 3-5 patterns that distinguish top performers. What do they do different
             total_videos: Total videos analyzed
             vph_threshold: VPH threshold used for analysis
         """
-        from pipeline_constants import TitleInsightFields
+        from orchestrator.pipeline_constants import TitleInsightFields
 
         insights_to_create = []
         analysis_date = date.today().isoformat()

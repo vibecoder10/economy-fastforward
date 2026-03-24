@@ -15,7 +15,7 @@ import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
-from image_prompt_engine.prompt_builder import (
+from image_prompts.engine.prompt_builder import (
     CAMERA_MOVEMENTS,
     detect_camera_movement,
     validate_video_prompt,

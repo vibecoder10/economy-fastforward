@@ -24,7 +24,7 @@ from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
-from pipeline_constants import IdeaFields
+from orchestrator.pipeline_constants import IdeaFields
 
 
 # Default paths for credentials (relative to this file's directory)

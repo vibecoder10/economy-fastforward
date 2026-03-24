@@ -10,7 +10,7 @@ prompts (idea_bot, script_generator, thumbnail_bot). It:
 4. Caches for 1 hour to avoid excessive Airtable reads
 
 Usage:
-    from osiris.learnings_engine import LearningsEngine
+    from analytics.osiris.learnings_engine import LearningsEngine
     from clients.airtable_client import AirtableClient
 
     engine = LearningsEngine(AirtableClient())

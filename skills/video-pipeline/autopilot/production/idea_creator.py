@@ -79,7 +79,7 @@ class IdeaCreator:
     def _get_airtable(self):
         """Get or create Airtable client."""
         if self.airtable is None:
-            from clients.airtable_client import AirtableClient
+            from shared.clients.airtable_client import AirtableClient
             self.airtable = AirtableClient()
         return self.airtable
 

@@ -24,9 +24,9 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-from clients.narrative_extractor import extract_narrative_fields
-from pipeline_constants import IdeaFields, Models, CURIOSITY_GAP_ENABLED
-from json_utils import parse_json_response
+from shared.clients.narrative_extractor import extract_narrative_fields
+from orchestrator.pipeline_constants import IdeaFields, Models, CURIOSITY_GAP_ENABLED
+from shared.json_utils import parse_json_response
 
 # Curiosity gap imports (lazy loaded to avoid circular deps at module level)
 if CURIOSITY_GAP_ENABLED:

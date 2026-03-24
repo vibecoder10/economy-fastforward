@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any
 
 # Import CuriosityStructure - curiosity_gap is a sibling package
-from curiosity_gap.structures import CuriosityStructure
+from title_idea.curiosity_gap.structures import CuriosityStructure
 
 
 @dataclass

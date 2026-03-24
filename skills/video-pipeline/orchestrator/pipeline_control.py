@@ -40,7 +40,7 @@ else:
 
 from slack_bolt.async_app import AsyncApp
 from slack_bolt.adapter.socket_mode.async_handler import AsyncSocketModeHandler
-from pipeline_constants import IdeaFields, ImageFields, Models, ScriptFields, Statuses
+from orchestrator.pipeline_constants import IdeaFields, ImageFields, Models, ScriptFields, Statuses
 
 # Initialize Slack app
 app = AsyncApp(token=os.environ.get("SLACK_BOT_TOKEN"))
@@ -322,7 +322,7 @@ _All commands are case-insensitive. Natural language also works._
 # ---------------------------------------------------------------------------
 # Admin handlers — imported from handlers/admin_handlers.py
 # ---------------------------------------------------------------------------
-from handlers.admin_handlers import (
+from orchestrator.handlers.admin_handlers import (
     handle_set_key as _handle_set_key,
     handle_set_env as _handle_set_env,
     handle_show_env as _handle_show_env,
@@ -487,8 +487,8 @@ async def handle_approve_recent_script(message, say):
     """
     try:
         from clients.airtable_client import AirtableClient
-        from brief_translator.script_generator import extract_acts
-        from brief_translator.pipeline_writer import build_sources_list
+        from script.brief_translator.script_generator import extract_acts
+        from script.brief_translator.pipeline_writer import build_sources_list
 
         airtable = AirtableClient()
 
@@ -609,8 +609,8 @@ async def handle_approve_script(message, say):
             return
 
         # Extract acts from the script
-        from brief_translator.script_generator import extract_acts
-        from brief_translator.pipeline_writer import build_sources_list
+        from script.brief_translator.script_generator import extract_acts
+        from script.brief_translator.pipeline_writer import build_sources_list
 
         acts = extract_acts(script_text)
         if not acts:
@@ -717,7 +717,7 @@ async def handle_next(message, say):
 
     async def _run_single_step():
         """Run one step and return."""
-        from pipeline import VideoPipeline
+        from orchestrator.pipeline import VideoPipeline
 
         pipeline = VideoPipeline()
         result = await pipeline.run_next_step()
@@ -809,7 +809,7 @@ async def handle_run(message, say):
 
     async def _run_pipeline():
         """Inner coroutine that can be cancelled immediately."""
-        from pipeline import VideoPipeline
+        from orchestrator.pipeline import VideoPipeline
 
         pipeline = VideoPipeline()
         steps_done = 0
@@ -889,7 +889,7 @@ async def handle_script(message, say):
 
     try:
         returncode, stdout, stderr = await run_script_async(
-            "run_script_bot.py", "script", say, timeout=600,
+            "script/cli.py", "script", say, timeout=600,
         )
 
         if returncode == 0:
@@ -923,7 +923,7 @@ async def handle_video_prompts(message, say):
 
     try:
         returncode, stdout, stderr = await run_script_async(
-            "run_video_script_bot.py", "video prompts", say, timeout=2700,
+            "video_motion/cli_scripts.py", "video prompts", say, timeout=2700,
             extra_args=_target_args(scene, image),
         )
 
@@ -957,7 +957,7 @@ async def handle_video_generate(message, say):
 
     try:
         returncode, stdout, stderr = await run_script_async(
-            "run_video_gen_bot.py", "video generate", say, timeout=3600,
+            "video_motion/cli_generate.py", "video generate", say, timeout=3600,
             extra_args=_target_args(scene, image),
         )
 
@@ -991,7 +991,7 @@ async def handle_prompts(message, say):
 
     try:
         returncode, stdout, stderr = await run_script_async(
-            "run_youtube_prompts.py", "prompts", say, timeout=3600,
+            "image_prompts/cli.py", "prompts", say, timeout=3600,
             extra_args=_target_args(scene, image),
         )
 
@@ -1022,7 +1022,7 @@ async def handle_end_images(message, say):
     await say(":frame_with_picture: Starting end images generation...")
 
     try:
-        returncode, stdout, stderr = await run_script_async("run_end_images.py", "end images", say, timeout=1800)
+        returncode, stdout, stderr = await run_script_async("images/cli.py", "end images", say, timeout=1800)
 
         if returncode == 0:
             output = stdout[-3000:] if len(stdout) > 3000 else stdout
@@ -1054,7 +1054,7 @@ async def handle_images(message, say):
 
     try:
         returncode, stdout, stderr = await run_script_async(
-            "run_image_bot.py", "images", say, timeout=1800,
+            "images/cli.py", "images", say, timeout=1800,
             extra_args=_target_args(scene, image),
         )
 
@@ -1086,7 +1086,7 @@ async def handle_audio_sync(message, say):
     await say(":musical_note: Starting audio sync (Whisper alignment)...")
 
     try:
-        returncode, stdout, stderr = await run_script_async("run_audio_sync.py", "audio sync", say, timeout=1800)
+        returncode, stdout, stderr = await run_script_async("render/run_audio_sync.py", "audio sync", say, timeout=1800)
 
         if returncode == 0:
             output = stdout[-3000:] if len(stdout) > 3000 else stdout
@@ -1120,7 +1120,7 @@ async def handle_voice(message, say):
 
     try:
         returncode, stdout, stderr = await run_script_async(
-            "run_voice_bot.py", "voice", say, timeout=600,
+            "voice/cli.py", "voice", say, timeout=600,
             extra_args=_target_args(scene, None),
         )
 
@@ -1338,7 +1338,7 @@ async def handle_thumbnail(message, say):
     await say(":frame_with_picture: Starting thumbnail bot...")
 
     try:
-        returncode, stdout, stderr = await run_script_async("run_thumbnail_bot.py", "thumbnail", say, timeout=300)
+        returncode, stdout, stderr = await run_script_async("thumbnail/cli.py", "thumbnail", say, timeout=300)
 
         if returncode == 0:
             output = stdout[-3000:] if len(stdout) > 3000 else stdout
@@ -1369,7 +1369,7 @@ async def handle_render(message, say):
     try:
         # Render can take 60-90 min per video, set timeout to 4 hours
         returncode, stdout, stderr = await run_script_async(
-            "run_render_bot.py", "render", say, timeout=14400
+            "render/cli.py", "render", say, timeout=14400
         )
 
         if returncode == 0:
@@ -1401,7 +1401,7 @@ async def handle_upload(message, say):
 
     async def _run_upload():
         """Inner coroutine that can be cancelled immediately."""
-        from pipeline import VideoPipeline
+        from orchestrator.pipeline import VideoPipeline
 
         pipeline = VideoPipeline()
         result = await pipeline.run_youtube_upload_bot()
@@ -1444,7 +1444,7 @@ async def handle_analytics(message, say):
 
     try:
         returncode, stdout, stderr = await run_script_async(
-            "run_analytics.py",
+            "analytics/cli.py",
             "analytics",
             say,
             timeout=600,
@@ -1475,7 +1475,7 @@ async def handle_analyze(message, say):
 
     try:
         returncode, stdout, stderr = await run_script_async(
-            "performance_analyzer.py",
+            "analytics/performance_tracker.py",
             "analyze",
             say,
             timeout=300,
@@ -1510,7 +1510,7 @@ async def handle_analyze_titles(message, say):
     await say(f":bar_chart: Running title pattern analysis (min VPH: {min_vph})...")
 
     try:
-        from osiris.title_analyzer import run_title_analysis
+        from analytics.osiris.title_analyzer import run_title_analysis
         result = await run_title_analysis(min_vph=min_vph, limit=300)
 
         # Format response
@@ -1558,7 +1558,7 @@ async def handle_discover(message, say, client):
         from clients.anthropic_client import AnthropicClient
         from clients.airtable_client import AirtableClient
         from clients.apify_client import ApifyYouTubeClient
-        from discovery_scanner import run_discovery, format_ideas_for_slack, build_option_map
+        from discovery.scanner import run_discovery, format_ideas_for_slack, build_option_map
 
         anthropic = AnthropicClient()
         airtable = AirtableClient()
@@ -1687,7 +1687,7 @@ async def handle_reaction_added(event, client):
     Checks both in-memory tracking (from Slack bot discover command) and
     the shared tracker file (from cron job --discover runs).
     """
-    from discovery_scanner import build_option_map
+    from discovery.scanner import build_option_map
     from discovery_tracker import (
         get_discovery_message, remove_discovery_message,
         is_reaction_processed, mark_reaction_processed,
@@ -1796,7 +1796,7 @@ async def handle_text_selection(message, say, client):
     Examples: "1", "2", "a", "B", etc.
     Maps to the same option indices as emoji reactions.
     """
-    from discovery_scanner import build_option_map
+    from discovery.scanner import build_option_map
     from discovery_tracker import (
         get_discovery_message, get_latest_discovery_message,
         remove_discovery_message, is_reaction_processed, mark_reaction_processed,
@@ -1956,7 +1956,7 @@ async def _handle_discovery_approval(
     try:
         from clients.anthropic_client import AnthropicClient
         from clients.airtable_client import AirtableClient
-        from discovery_scanner import build_idea_record_from_discovery
+        from discovery.scanner import build_idea_record_from_discovery
         from research_agent import run_research
 
         anthropic = AnthropicClient()
@@ -2081,7 +2081,7 @@ async def _handle_cron_discovery_approval(
     try:
         from clients.anthropic_client import AnthropicClient
         from clients.airtable_client import AirtableClient
-        from discovery_scanner import build_idea_record_from_discovery
+        from discovery.scanner import build_idea_record_from_discovery
         from research_agent import run_research
 
         anthropic = AnthropicClient()
@@ -2628,7 +2628,7 @@ async def handle_autopilot_help(message, say):
 @app.message(re.compile(r"^gap\s+titles\s+(\S+)$", re.IGNORECASE))
 async def handle_gap_titles(message, say):
     """Generate curiosity gap titles for an idea."""
-    from pipeline_constants import CURIOSITY_GAP_ENABLED
+    from orchestrator.pipeline_constants import CURIOSITY_GAP_ENABLED
 
     if not CURIOSITY_GAP_ENABLED:
         await say(":x: Curiosity gap system is disabled")
@@ -2773,7 +2773,7 @@ async def handle_gap_titles_help(message, say):
 # ---------------------------------------------------------------------------
 # Style/model/visualstyle handlers — imported from handlers/style_handlers.py
 # ---------------------------------------------------------------------------
-from handlers.style_handlers import (
+from orchestrator.handlers.style_handlers import (
     handle_style_image as _handle_style_image,
     handle_style_thumbnail as _handle_style_thumbnail,
     handle_style_color as _handle_style_color,
@@ -2842,7 +2842,7 @@ async def handle_visualstyle_list(message, say):
 # ---------------------------------------------------------------------------
 # Delete/redo handlers — imported from handlers/delete_handlers.py
 # ---------------------------------------------------------------------------
-from handlers.delete_handlers import (
+from orchestrator.handlers.delete_handlers import (
     handle_delete_scripts as _handle_delete_scripts,
     handle_delete_images as _handle_delete_images,
 )
@@ -2887,7 +2887,7 @@ async def handle_storyboard_preview(message, say):
     try:
         from clients.airtable_client import AirtableClient
         from clients.slack_client import SlackClient
-        from storyboard_bot import run_storyboard_preview
+        from storyboard.bot import run_storyboard_preview
 
         airtable = AirtableClient()
         slack = SlackClient()
@@ -2930,7 +2930,7 @@ async def handle_storyboard_prompts(message, say):
     try:
         from clients.airtable_client import AirtableClient
         from clients.slack_client import SlackClient
-        from storyboard_bot import run_storyboard_prompts
+        from storyboard.bot import run_storyboard_prompts
 
         airtable = AirtableClient()
         slack = SlackClient()
@@ -2978,7 +2978,7 @@ async def handle_storyboard_images(message, say):
     try:
         from clients.airtable_client import AirtableClient
         from clients.slack_client import SlackClient
-        from storyboard_bot import run_storyboard_images
+        from storyboard.bot import run_storyboard_images
 
         airtable = AirtableClient()
         slack = SlackClient()
@@ -3026,7 +3026,7 @@ async def handle_storyboard_go(message, say):
     try:
         from clients.airtable_client import AirtableClient
         from clients.slack_client import SlackClient
-        from storyboard_bot import run_storyboard_grids
+        from storyboard.bot import run_storyboard_grids
 
         airtable = AirtableClient()
         slack = SlackClient()
@@ -3074,7 +3074,7 @@ async def handle_storyboard_approve(message, say):
 
     try:
         from clients.airtable_client import AirtableClient
-        from storyboard_bot import run_storyboard_extract
+        from storyboard.bot import run_storyboard_extract
 
         airtable = AirtableClient()
 
@@ -3120,7 +3120,7 @@ async def handle_storyboard_beat(message, say):
 
     try:
         from clients.airtable_client import AirtableClient
-        from storyboard_bot import run_storyboard_grids
+        from storyboard.bot import run_storyboard_grids
 
         airtable = AirtableClient()
 
@@ -3220,7 +3220,7 @@ async def handle_storyboard_regenerate(message, say):
 
     try:
         from clients.airtable_client import AirtableClient
-        from storyboard_bot import run_storyboard_grids
+        from storyboard.bot import run_storyboard_grids
 
         airtable = AirtableClient()
 
@@ -3335,7 +3335,7 @@ async def handle_storyboard_plan(message, say):
     try:
         from clients.airtable_client import AirtableClient
         from clients.slack_client import SlackClient
-        from storyboard_bot import generate_storyboard_plan
+        from storyboard.bot import generate_storyboard_plan
 
         airtable = AirtableClient()
         slack = SlackClient()

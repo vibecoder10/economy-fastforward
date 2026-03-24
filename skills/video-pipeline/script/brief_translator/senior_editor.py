@@ -16,7 +16,7 @@ No retry loop — if the editor can't fix it, pipeline blocks for manual review.
 import logging
 import re
 from typing import Optional
-from pipeline_constants import Models
+from orchestrator.pipeline_constants import Models
 
 logger = logging.getLogger(__name__)
 

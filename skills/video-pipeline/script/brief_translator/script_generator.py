@@ -15,11 +15,11 @@ import logging
 import re
 from pathlib import Path
 from typing import Optional, TYPE_CHECKING
-from pipeline_constants import Models
+from orchestrator.pipeline_constants import Models
 
 if TYPE_CHECKING:
-    from pipeline_config import VideoConfig
-    from script_profiles.schema import ScriptProfile
+    from orchestrator.pipeline_config import VideoConfig
+    from shared.profiles.script.schema import ScriptProfile
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +74,7 @@ def _build_act_structure_override(config: Optional["VideoConfig"] = None) -> str
     if config is None:
         return _ACT_STRUCTURE_OVERRIDE_LEGACY
 
-    from pipeline_config import ACT_TEMPLATES, get_act_word_targets
+    from orchestrator.pipeline_config import ACT_TEMPLATES, get_act_word_targets
 
     act_targets = get_act_word_targets(config)
     duration_min = config.video_length_minutes
@@ -1057,7 +1057,7 @@ def build_script_prompt(
 
     if profile is not None:
         # Assemble the voice preamble from the profile
-        from script_profiles.schema import build_script_system_prompt
+        from shared.profiles.script.schema import build_script_system_prompt
 
         preamble = build_script_system_prompt(profile)
 

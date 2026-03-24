@@ -1,6 +1,6 @@
 """Tests for entity consistency checker — false positive reduction."""
 
-from brief_translator.scene_validator import (
+from script.brief_translator.scene_validator import (
     _extract_entities_from_text,
     check_entity_consistency,
 )

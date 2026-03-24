@@ -6,7 +6,7 @@ All functions take (message, say) — decorators applied in pipeline_control.py.
 
 import re
 
-from pipeline_constants import IdeaFields
+from orchestrator.pipeline_constants import IdeaFields
 
 
 # ---------------------------------------------------------------------------
@@ -75,7 +75,7 @@ async def handle_style_color(message, say):
     title = match.group(1).strip()
     color = match.group(2).strip().lower()
 
-    from image_prompt_engine.style_config import VALID_ACCENT_COLORS
+    from image_prompts.engine.style_config import VALID_ACCENT_COLORS
     if color not in VALID_ACCENT_COLORS:
         valid = ", ".join(sorted(VALID_ACCENT_COLORS))
         await say(f":x: Invalid accent color *{color}*. Valid values: {valid}")

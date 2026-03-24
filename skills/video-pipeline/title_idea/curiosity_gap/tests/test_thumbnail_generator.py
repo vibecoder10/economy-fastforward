@@ -1,7 +1,7 @@
 """Tests for yin/yang thumbnail text generator."""
 
 import pytest
-from curiosity_gap.structures import CuriosityStructure
+from title_idea.curiosity_gap.structures import CuriosityStructure
 
 
 class TestThumbnailText:
@@ -9,7 +9,7 @@ class TestThumbnailText:
 
     def test_thumbnail_text_creation(self):
         """Should create ThumbnailText with required fields."""
-        from curiosity_gap.thumbnail_generator import ThumbnailText
+        from title_idea.curiosity_gap.thumbnail_generator import ThumbnailText
 
         thumb = ThumbnailText(
             text="WORTHLESS PIPELINES",
@@ -23,7 +23,7 @@ class TestThumbnailText:
 
     def test_approach_must_be_valid(self):
         """Approach must be from_hook or from_gap."""
-        from curiosity_gap.thumbnail_generator import ThumbnailText, VALID_APPROACHES
+        from title_idea.curiosity_gap.thumbnail_generator import ThumbnailText, VALID_APPROACHES
 
         assert "from_hook" in VALID_APPROACHES
         assert "from_gap" in VALID_APPROACHES
@@ -35,14 +35,14 @@ class TestYinYangRules:
 
     def test_thumbnail_text_is_caps(self):
         """Generated thumbnail text should be ALL CAPS."""
-        from curiosity_gap.thumbnail_generator import format_thumbnail_text
+        from title_idea.curiosity_gap.thumbnail_generator import format_thumbnail_text
 
         result = format_thumbnail_text("worthless pipelines")
         assert result == "WORTHLESS PIPELINES"
 
     def test_thumbnail_text_max_words(self):
         """Thumbnail text should be 2-4 words max."""
-        from curiosity_gap.thumbnail_generator import format_thumbnail_text
+        from title_idea.curiosity_gap.thumbnail_generator import format_thumbnail_text
 
         # Too long should be truncated
         result = format_thumbnail_text("this is way too many words here")
@@ -51,7 +51,7 @@ class TestYinYangRules:
 
     def test_removes_common_filler(self):
         """Should remove common filler words."""
-        from curiosity_gap.thumbnail_generator import format_thumbnail_text
+        from title_idea.curiosity_gap.thumbnail_generator import format_thumbnail_text
 
         result = format_thumbnail_text("the worthless pipelines")
         assert "THE" not in result.split()
@@ -62,7 +62,7 @@ class TestApproachSelection:
 
     def test_hidden_flaw_prefers_from_gap(self):
         """Hidden flaw structure prefers from_gap (reveals consequence)."""
-        from curiosity_gap.thumbnail_generator import select_approach
+        from title_idea.curiosity_gap.thumbnail_generator import select_approach
 
         approach = select_approach(
             structure=CuriosityStructure.HIDDEN_FLAW,
@@ -74,7 +74,7 @@ class TestApproachSelection:
 
     def test_asymmetric_prefers_from_hook(self):
         """Asymmetric structure prefers from_hook (surprising detail)."""
-        from curiosity_gap.thumbnail_generator import select_approach
+        from title_idea.curiosity_gap.thumbnail_generator import select_approach
 
         approach = select_approach(
             structure=CuriosityStructure.ASYMMETRIC_DG,

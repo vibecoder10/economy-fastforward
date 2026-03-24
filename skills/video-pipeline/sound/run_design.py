@@ -6,7 +6,7 @@ Advances: Ready For Sound Design → Ready For Sound Effects
 Clients: anthropic, airtable
 """
 
-from pipeline_constants import Statuses
+from orchestrator.pipeline_constants import Statuses
 from bots.sound_prompt_bot import SoundPromptBot
 
 

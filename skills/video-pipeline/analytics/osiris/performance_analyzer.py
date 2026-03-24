@@ -30,7 +30,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from pipeline_constants import IdeaFields
+from orchestrator.pipeline_constants import IdeaFields
 
 logger = logging.getLogger(__name__)
 

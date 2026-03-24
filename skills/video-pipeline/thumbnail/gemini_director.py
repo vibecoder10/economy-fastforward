@@ -13,7 +13,7 @@ from typing import Optional
 
 import httpx
 
-from json_utils import parse_json_response
+from shared.json_utils import parse_json_response
 
 
 async def run_gemini_director(

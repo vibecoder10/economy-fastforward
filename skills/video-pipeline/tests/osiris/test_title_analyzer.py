@@ -3,7 +3,7 @@
 import pytest
 from unittest.mock import MagicMock, AsyncMock
 
-from osiris.title_analyzer import TitleAnalyzer, TitlePattern
+from analytics.osiris.title_analyzer import TitleAnalyzer, TitlePattern
 
 
 class TestGroupByVphTier:

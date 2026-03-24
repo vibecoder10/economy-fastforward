@@ -39,7 +39,7 @@ from dotenv import load_dotenv
 env_path = Path(__file__).parent.parent.parent / ".env"
 load_dotenv(env_path)
 
-from pipeline_constants import IdeaFields
+from orchestrator.pipeline_constants import IdeaFields
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials

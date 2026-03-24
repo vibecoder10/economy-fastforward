@@ -6,8 +6,8 @@ import os
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from pipeline_config import VideoConfig
-from segmentation_engine import (
+from orchestrator.pipeline_config import VideoConfig
+from script.segmentation_engine import (
     segment_script, _split_into_sentences, _score_intensity,
     enforce_duration_caps, recalculate_durations,
 )

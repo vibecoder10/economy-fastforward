@@ -38,7 +38,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Must be after load_dotenv and sys.path setup
-from pipeline_constants import IdeaFields, Statuses  # noqa: E402
+from orchestrator.pipeline_constants import IdeaFields, Statuses  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -163,7 +163,7 @@ class DiscoveryBot:
         Returns:
             Message timestamp if successful, None if failed.
         """
-        from discovery_scanner import run_discovery, format_ideas_for_slack
+        from discovery.scanner import run_discovery, format_ideas_for_slack
 
         logger.info(f"Running discovery scan (focus={focus})")
 
@@ -277,7 +277,7 @@ class DiscoveryBot:
 
     async def _approve_idea_to_airtable(self, idea: dict, idea_number: int) -> dict:
         """Write an approved discovery idea to Airtable with all rich fields."""
-        from discovery_scanner import build_idea_record_from_discovery
+        from discovery.scanner import build_idea_record_from_discovery
 
         idea_record = build_idea_record_from_discovery(idea, idea_number)
 

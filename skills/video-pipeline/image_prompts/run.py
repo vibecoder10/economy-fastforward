@@ -8,7 +8,7 @@ Clients: anthropic, airtable, google, slack
 
 import json
 
-from pipeline_constants import Statuses, Models, IdeaFields, ScriptFields, ImageFields
+from orchestrator.pipeline_constants import Statuses, Models, IdeaFields, ScriptFields, ImageFields
 
 
 def _get_visual_seeds(idea: dict) -> str:
@@ -47,9 +47,9 @@ async def run(pipeline) -> dict:
 
     Audio sync runs after both passes to populate real durations.
     """
-    from image_prompt_engine.prompt_builder import build_prompt, build_prompt_from_block, assign_profile_styles
-    from image_prompt_engine.sequencer import assign_styles
-    from brief_translator.scene_expander import expand_scene_concepts, expand_scene_concepts_deterministic
+    from image_prompts.engine.prompt_builder import build_prompt, build_prompt_from_block, assign_profile_styles
+    from image_prompts.engine.sequencer import assign_styles
+    from script.brief_translator.scene_expander import expand_scene_concepts, expand_scene_concepts_deterministic
 
     if not pipeline.current_idea:
         idea = pipeline.get_idea_by_status(Statuses.READY_IMAGE_PROMPTS)
@@ -62,7 +62,7 @@ async def run(pipeline) -> dict:
 
     # Detect active visual profile for profile-aware sequencing
     try:
-        from visual_profiles import load_profile as _load_vp_seq
+        from shared.profiles.visual import load_profile as _load_vp_seq
         _active_profile = _load_vp_seq()
     except Exception:
         _active_profile = None
@@ -452,7 +452,7 @@ async def _generate_story_bible(pipeline, scripts: list) -> dict | None:
     print(f"  📖 Generating Story Bible for visual consistency...")
     try:
         from bots.story_bible import generate_story_bible, has_scene_blocks
-        from pipeline_config import VideoConfig
+        from orchestrator.pipeline_config import VideoConfig
 
         video_length = pipeline.current_idea.get(IdeaFields.VIDEO_LENGTH_MIN, 10)
         try:
@@ -517,7 +517,7 @@ async def _regenerate_visual_descriptions(
 ):
     """Regenerate visual descriptions for duration-adjusted concepts."""
     try:
-        from visual_profiles import load_profile as _load_vp
+        from shared.profiles.visual import load_profile as _load_vp
         _regen_profile = _load_vp()
     except Exception:
         _regen_profile = None

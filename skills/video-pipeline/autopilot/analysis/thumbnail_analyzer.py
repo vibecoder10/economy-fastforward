@@ -65,7 +65,7 @@ Set confidence based on image clarity and how certain you are about the analysis
         """Initialize analyzer.
 
         Args:
-            anthropic_client: Anthropic client instance. If None, will import from clients.
+            anthropic_client: Anthropic client instance. If None, will import from shared.clients.
         """
         self.client = anthropic_client
 

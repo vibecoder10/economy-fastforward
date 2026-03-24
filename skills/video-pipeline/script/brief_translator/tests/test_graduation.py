@@ -4,12 +4,12 @@ import json
 import os
 import tempfile
 import pytest
-from brief_translator.pipeline_writer import (
+from script.brief_translator.pipeline_writer import (
     save_scene_list,
     build_pipeline_record,
     generate_video_id,
 )
-from pipeline_constants import IdeaFields
+from orchestrator.pipeline_constants import IdeaFields
 
 
 SAMPLE_BRIEF = {

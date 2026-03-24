@@ -14,7 +14,7 @@ import os
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from animation_prompt_engine import (
+from image_prompts.animation_prompt_engine import (
     generate_animation_prompt,
     generate_prompts_for_segments,
     generate_prompts_for_segments_async,
@@ -146,7 +146,7 @@ class TestCameraPurpose:
         assert classify_camera_purpose("Oil prices dropped last quarter") == CAMERA_PURPOSE_STATIC
 
     def test_valid_purposes(self):
-        from animation_prompt_engine import VALID_CAMERA_PURPOSES
+        from image_prompts.animation_prompt_engine import VALID_CAMERA_PURPOSES
         assert CAMERA_PURPOSE_STATIC in VALID_CAMERA_PURPOSES
         assert CAMERA_PURPOSE_REVEAL in VALID_CAMERA_PURPOSES
         assert CAMERA_PURPOSE_SCALE in VALID_CAMERA_PURPOSES

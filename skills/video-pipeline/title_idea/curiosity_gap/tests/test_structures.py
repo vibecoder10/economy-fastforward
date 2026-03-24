@@ -2,7 +2,7 @@
 """Tests for curiosity gap structures."""
 
 import pytest
-from curiosity_gap.structures import (
+from title_idea.curiosity_gap.structures import (
     CuriosityStructure,
     STRUCTURE_DEFINITIONS,
     get_structure_prompt,
@@ -101,14 +101,14 @@ class TestGetMainStructures:
 
     def test_excludes_other(self):
         """get_main_structures should return 5 structures, excluding OTHER."""
-        from curiosity_gap.structures import get_main_structures
+        from title_idea.curiosity_gap.structures import get_main_structures
         main = get_main_structures()
         assert len(main) == 5
         assert CuriosityStructure.OTHER not in main
 
     def test_includes_all_main_structures(self):
         """Should include all 5 main curiosity gap structures."""
-        from curiosity_gap.structures import get_main_structures
+        from title_idea.curiosity_gap.structures import get_main_structures
         main = get_main_structures()
         assert CuriosityStructure.HIDDEN_FLAW in main
         assert CuriosityStructure.ASYMMETRIC_DG in main

@@ -1,7 +1,7 @@
 """Tests for concept duration validation in scene_expander."""
 
 import pytest
-from brief_translator.scene_expander import (
+from script.brief_translator.scene_expander import (
     _validate_concept_durations,
     _split_at_clause_boundary,
     MIN_WORDS_PER_CONCEPT,

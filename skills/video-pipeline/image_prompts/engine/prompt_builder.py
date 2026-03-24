@@ -23,7 +23,7 @@ from typing import Optional
 def _get_profile():
     """Return the active visual profile, or None."""
     try:
-        from visual_profiles import load_profile
+        from shared.profiles.visual import load_profile
         return load_profile()
     except Exception:
         return None

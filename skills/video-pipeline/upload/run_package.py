@@ -14,7 +14,7 @@ Writes: props.json
 Clients: airtable
 """
 
-from pipeline_constants import ImageFields, ScriptFields
+from orchestrator.pipeline_constants import ImageFields, ScriptFields
 
 
 async def run(pipeline) -> dict:

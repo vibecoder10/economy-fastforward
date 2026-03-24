@@ -1,7 +1,7 @@
 """Tests for post-generation script validation (editorial voice v2)."""
 
 import pytest
-from brief_translator.script_validator import (
+from script.brief_translator.script_validator import (
     ScriptValidationConfig,
     ScriptValidationResult,
     validate_script_editorial,
@@ -731,7 +731,7 @@ class TestConfig:
         assert config.max_retries == 1
 
     def test_from_profile(self):
-        from script_profiles.schema import (
+        from shared.profiles.script.schema import (
             ScriptProfile,
             ValidationConfig,
             NumberDensityConfig,
@@ -769,7 +769,7 @@ class TestConfig:
 
     def test_from_production_profile(self):
         """Ensure the production power_doctrine_v2 profile loads correctly."""
-        from script_profiles import load_script_profile
+        from shared.profiles.script import load_script_profile
 
         profile = load_script_profile("power_doctrine_v2")
         assert profile is not None

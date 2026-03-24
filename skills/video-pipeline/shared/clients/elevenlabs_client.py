@@ -5,7 +5,7 @@ import httpx
 from typing import Optional
 import asyncio
 
-from pipeline_constants import Endpoints, Models
+from orchestrator.pipeline_constants import Endpoints, Models
 
 
 class ElevenLabsClient:

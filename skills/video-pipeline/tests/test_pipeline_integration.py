@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from pipeline_constants import IdeaFields, Statuses
+from orchestrator.pipeline_constants import IdeaFields, Statuses
 
 
 # ---------------------------------------------------------------------------
@@ -79,7 +79,7 @@ class TestResearchToIdeasBank:
 
     def test_brief_has_required_validation_fields(self):
         """The brief must have all fields the validator expects."""
-        from brief_translator.validator import build_validation_prompt
+        from script.brief_translator.validator import build_validation_prompt
 
         # This should not raise — all fields are present
         prompt = build_validation_prompt(SAMPLE_BRIEF)
@@ -127,7 +127,7 @@ class TestIdeasBankToBriefTranslator:
 
     def test_validator_accepts_idea_mapped_brief(self):
         """The validation prompt builder doesn't error on mapped fields."""
-        from brief_translator.validator import build_validation_prompt
+        from script.brief_translator.validator import build_validation_prompt
 
         idea = SAMPLE_IDEA_RECORD
         brief = {
@@ -158,7 +158,7 @@ class TestBriefTranslatorToPipeline:
 
     def test_pipeline_record_has_core_fields(self):
         """build_pipeline_record produces all fields the pipeline expects."""
-        from brief_translator.pipeline_writer import build_pipeline_record
+        from script.brief_translator.pipeline_writer import build_pipeline_record
 
         record = build_pipeline_record(
             brief=SAMPLE_BRIEF,
@@ -186,7 +186,7 @@ class TestBriefTranslatorToPipeline:
 
     def test_original_dna_is_traceable(self):
         """Original DNA links back to the source idea."""
-        from brief_translator.pipeline_writer import build_pipeline_record
+        from script.brief_translator.pipeline_writer import build_pipeline_record
 
         record = build_pipeline_record(
             brief=SAMPLE_BRIEF,
@@ -218,7 +218,7 @@ class TestSceneListToImagePromptEngine:
 
     def test_generate_prompts_accepts_scene_list(self):
         """The image prompt engine processes the scene list without error."""
-        from image_prompt_engine import generate_prompts
+        from image_prompts.engine import generate_prompts
 
         prompts = generate_prompts(
             SAMPLE_SCENE_LIST,
@@ -231,7 +231,7 @@ class TestSceneListToImagePromptEngine:
 
     def test_generated_prompts_have_required_keys(self):
         """Each prompt has the keys the pipeline writes to Airtable."""
-        from image_prompt_engine import generate_prompts
+        from image_prompts.engine import generate_prompts
 
         prompts = generate_prompts(SAMPLE_SCENE_LIST, accent_color="cold teal", seed=42)
 
@@ -241,7 +241,7 @@ class TestSceneListToImagePromptEngine:
 
     def test_styled_prompts_contain_identity_markers(self):
         """All prompts contain holographic suffix markers."""
-        from image_prompt_engine import generate_prompts
+        from image_prompts.engine import generate_prompts
 
         prompts = generate_prompts(SAMPLE_SCENE_LIST, accent_color="cold teal", seed=42)
 
@@ -256,7 +256,7 @@ class TestSceneListToImagePromptEngine:
 
     def test_color_mood_applied_to_prompts(self):
         """Every prompt has a valid color_mood value."""
-        from image_prompt_engine import generate_prompts
+        from image_prompts.engine import generate_prompts
 
         prompts = generate_prompts(SAMPLE_SCENE_LIST, accent_color="cold teal", seed=42)
 
@@ -268,8 +268,8 @@ class TestSceneListToImagePromptEngine:
 
     def test_scene_list_roundtrip_through_file(self):
         """Scene list survives save → load → generate_prompts cycle."""
-        from image_prompt_engine import generate_prompts
-        from brief_translator.pipeline_writer import save_scene_list
+        from image_prompts.engine import generate_prompts
+        from script.brief_translator.pipeline_writer import save_scene_list
 
         with tempfile.TemporaryDirectory() as tmpdir:
             filepath = save_scene_list("vid_test", SAMPLE_SCENE_LIST, tmpdir)
@@ -289,7 +289,7 @@ class TestStyledPromptsToNanoBanana:
 
     def test_prompts_are_strings(self):
         """NanoBanana expects prompts as plain strings."""
-        from image_prompt_engine import generate_prompts
+        from image_prompts.engine import generate_prompts
 
         prompts = generate_prompts(SAMPLE_SCENE_LIST, accent_color="cold teal", seed=42)
 
@@ -299,7 +299,7 @@ class TestStyledPromptsToNanoBanana:
 
     def test_prompts_contain_holographic_suffix(self):
         """All prompts contain holographic system suffix."""
-        from image_prompt_engine import generate_prompts
+        from image_prompts.engine import generate_prompts
 
         prompts = generate_prompts(SAMPLE_SCENE_LIST, accent_color="cold teal", seed=42)
 
@@ -318,7 +318,7 @@ class TestKenBurnsDirections:
 
     def test_ken_burns_not_all_same(self):
         """At least 3 different Ken Burns directions in a full video."""
-        from image_prompt_engine import generate_prompts
+        from image_prompts.engine import generate_prompts
 
         prompts = generate_prompts(SAMPLE_SCENE_LIST, accent_color="cold teal", seed=42)
         kb_directions = {p["ken_burns"] for p in prompts}
@@ -326,7 +326,7 @@ class TestKenBurnsDirections:
 
     def test_pan_directions_alternate(self):
         """Pan directions should alternate left/right."""
-        from image_prompt_engine import generate_prompts
+        from image_prompts.engine import generate_prompts
 
         prompts = generate_prompts(SAMPLE_SCENE_LIST, accent_color="cold teal", seed=42)
         pan_prompts = [p for p in prompts if "pan" in p["ken_burns"]]
@@ -427,7 +427,7 @@ class TestSceneOutputDir:
 
     def test_default_scene_dir_is_project_relative(self):
         """DEFAULT_SCENE_DIR should be under the project, not /home/bot/."""
-        from brief_translator.pipeline_writer import DEFAULT_SCENE_DIR
+        from script.brief_translator.pipeline_writer import DEFAULT_SCENE_DIR
 
         assert "/home/bot/" not in DEFAULT_SCENE_DIR, (
             f"Scene dir still points to VPS path: {DEFAULT_SCENE_DIR}"
@@ -437,7 +437,7 @@ class TestSceneOutputDir:
 
     def test_save_scene_list_creates_dir(self):
         """save_scene_list creates the output directory if it doesn't exist."""
-        from brief_translator.pipeline_writer import save_scene_list
+        from script.brief_translator.pipeline_writer import save_scene_list
 
         with tempfile.TemporaryDirectory() as tmpdir:
             nested = os.path.join(tmpdir, "deep", "nested", "scenes")
@@ -456,7 +456,7 @@ class TestStyleDistribution:
 
     def test_content_types_are_valid(self):
         """All content types are valid ContentType enum values."""
-        from image_prompt_engine import generate_prompts
+        from image_prompts.engine import generate_prompts
 
         prompts = generate_prompts(SAMPLE_SCENE_LIST, accent_color="cold teal", seed=42)
         valid_types = {
@@ -471,7 +471,7 @@ class TestStyleDistribution:
 
     def test_no_excessive_consecutive_repeats(self):
         """No more than 4 consecutive images with the same content_type."""
-        from image_prompt_engine import generate_prompts
+        from image_prompts.engine import generate_prompts
 
         prompts = generate_prompts(SAMPLE_SCENE_LIST, accent_color="cold teal", seed=42)
         for i in range(len(prompts) - 4):
@@ -482,7 +482,7 @@ class TestStyleDistribution:
 
     def test_distribution_has_variety(self):
         """At least 4 different content types are used across the video."""
-        from image_prompt_engine import generate_prompts
+        from image_prompts.engine import generate_prompts
 
         prompts = generate_prompts(SAMPLE_SCENE_LIST, accent_color="cold teal", seed=42)
         unique_types = set(p["content_type"] for p in prompts)

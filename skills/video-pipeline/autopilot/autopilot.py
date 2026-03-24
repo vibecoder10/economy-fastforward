@@ -93,8 +93,8 @@ class Autopilot:
         # Initialize external API clients if not already provided
         if not self._clients_initialized:
             try:
-                from clients.airtable_client import AirtableClient
-                from clients.slack_client import SlackClient
+                from shared.clients.airtable_client import AirtableClient
+                from shared.clients.slack_client import SlackClient
                 self.airtable = AirtableClient()
                 self.slack = SlackClient()
                 self._clients_initialized = True

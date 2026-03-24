@@ -8,12 +8,12 @@ Clients: anthropic, image_client, google, airtable, slack
 
 import json
 
-from pipeline_constants import Statuses, IdeaFields, ScriptFields
+from orchestrator.pipeline_constants import Statuses, IdeaFields, ScriptFields
 
 
 async def run(pipeline) -> dict:
     """Generate matched thumbnail + title pair for the video."""
-    from thumbnail_title.engine import ThumbnailTitleEngine
+    from thumbnail.engine import ThumbnailTitleEngine
 
     # Verify status
     if not pipeline.current_idea:

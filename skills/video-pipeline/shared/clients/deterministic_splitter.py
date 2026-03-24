@@ -16,7 +16,7 @@ try:
     from .sentence_utils import split_into_sentences
 except ImportError:
     # When running as __main__, use absolute import
-    from sentence_utils import split_into_sentences
+    from .sentence_utils import split_into_sentences
 
 try:
     from pipeline_config import VideoConfig

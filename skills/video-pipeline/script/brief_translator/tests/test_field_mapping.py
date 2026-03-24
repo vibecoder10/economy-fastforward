@@ -2,13 +2,13 @@
 
 import json
 import pytest
-from brief_translator.pipeline_writer import (
+from script.brief_translator.pipeline_writer import (
     build_writer_guidance,
     build_original_dna,
     build_pipeline_record,
     generate_video_id,
 )
-from pipeline_constants import IdeaFields
+from orchestrator.pipeline_constants import IdeaFields
 
 
 SAMPLE_BRIEF = {

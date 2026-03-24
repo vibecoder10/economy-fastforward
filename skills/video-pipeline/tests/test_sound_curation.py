@@ -15,8 +15,8 @@ import pytest
 sys.modules.setdefault("clients.anthropic_client", MagicMock())
 sys.modules.setdefault("clients.airtable_client", MagicMock())
 
-from bots.sound_prompt_bot import SoundPromptBot, MIN_SOUND_PERCENT, MAX_SOUND_PERCENT
-from pipeline_constants import ImageFields
+from sound_prompt_bot import SoundPromptBot, MIN_SOUND_PERCENT, MAX_SOUND_PERCENT
+from orchestrator.pipeline_constants import ImageFields
 
 
 def _make_image(scene: int, index: int, text: str = "narration", prompt: str = "visual") -> dict:

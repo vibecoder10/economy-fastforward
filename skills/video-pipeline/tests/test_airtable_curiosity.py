@@ -3,8 +3,8 @@
 import os
 import pytest
 from unittest.mock import Mock, patch
-from clients.airtable_client import AirtableClient
-from pipeline_constants import IdeaFields
+from shared.clients.airtable_client import AirtableClient
+from orchestrator.pipeline_constants import IdeaFields
 
 
 class TestIdeaFieldsConstants:

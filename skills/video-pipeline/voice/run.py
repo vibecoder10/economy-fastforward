@@ -6,7 +6,7 @@ Advances: Ready For Voice → Ready For Image Prompts
 Clients: elevenlabs, google, airtable, slack
 """
 
-from pipeline_constants import Statuses, IdeaFields, ScriptFields
+from orchestrator.pipeline_constants import Statuses, IdeaFields, ScriptFields
 
 
 async def run(pipeline) -> dict:
