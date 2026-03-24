@@ -82,7 +82,7 @@ export default function HomePage() {
   if (isLoading || !data) {
     return (
       <div className="space-y-4">
-        <h1 className="text-xl font-bold">Dashboard <span className="text-xs text-[var(--accent)]">v2</span></h1>
+        <h1 className="text-xl font-bold">Dashboard</h1>
         {/* Autopilot skeleton */}
         <div className="h-32 animate-pulse rounded-xl bg-[var(--surface)]" />
         <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4">
@@ -96,7 +96,7 @@ export default function HomePage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-xl font-bold">Dashboard <span className="text-xs text-[var(--accent)]">v2</span></h1>
+      <h1 className="text-xl font-bold">Dashboard</h1>
 
       {/* Autopilot Card - Intelligence Layer */}
       <AutopilotCard
