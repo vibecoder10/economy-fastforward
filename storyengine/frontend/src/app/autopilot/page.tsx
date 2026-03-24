@@ -41,12 +41,12 @@ interface Candidate {
   id: string;
   title: string;
   source: string;
-  url?: string;
+  url: string | null;
   vph: number;
   hours_old: number;
   confidence: number;
   confidence_breakdown?: ConfidenceBreakdown;
-  published_date?: string;
+  published_date: string | null;
   modeled: boolean;
 }
 
@@ -62,10 +62,10 @@ interface Learning {
 
 interface AutopilotState {
   enabled: boolean;
-  last_cycle?: string;
+  last_cycle: string | null;
   videos_produced: number;
   channel_avg_ctr: number;
-  next_production_date?: string;
+  next_production_date: string | null;
   days_until_next: number;
 }
 
