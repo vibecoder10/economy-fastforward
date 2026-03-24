@@ -147,6 +147,63 @@ export function InfoTab({ video }: InfoTabProps) {
         </div>
       )}
 
+      {/* Quality Pipeline */}
+      {(video.agent_hook_score != null || video.agent_body_score != null) && (
+        <Section title="Quality Pipeline">
+          <div className="flex flex-wrap gap-4 mb-3">
+            {video.agent_tier && (
+              <div>
+                <span className="text-xs" style={{ color: "var(--text-muted)" }}>Tier</span>
+                <p className="text-sm font-bold uppercase" style={{ color: "var(--amber)" }}>
+                  {video.agent_tier}
+                </p>
+              </div>
+            )}
+            {video.agent_hook_score != null && (
+              <div>
+                <span className="text-xs" style={{ color: "var(--text-muted)" }}>Hook Score</span>
+                <p className="text-sm font-bold" style={{ color: video.agent_hook_score >= 70 ? "var(--green)" : "var(--amber)" }}>
+                  {video.agent_hook_score.toFixed(0)}/100
+                </p>
+              </div>
+            )}
+            {video.agent_body_score != null && (
+              <div>
+                <span className="text-xs" style={{ color: "var(--text-muted)" }}>Body Score</span>
+                <p className="text-sm font-bold" style={{ color: video.agent_body_score >= 70 ? "var(--green)" : "var(--amber)" }}>
+                  {video.agent_body_score.toFixed(0)}/100
+                </p>
+              </div>
+            )}
+            {video.agent_cost != null && (
+              <div>
+                <span className="text-xs" style={{ color: "var(--text-muted)" }}>Agent Cost</span>
+                <p className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>
+                  ${video.agent_cost.toFixed(2)}
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* Suggestion banner */}
+          {video.suggestion_status === "pending" && (
+            <div
+              className="rounded-lg p-3 mt-2"
+              style={{ background: "rgba(212, 168, 68, 0.1)", border: "1px solid rgba(212, 168, 68, 0.3)" }}
+            >
+              <p className="text-sm font-medium" style={{ color: "var(--amber)" }}>
+                Agent suggests improvements — review in Script and Thumbnail tabs
+              </p>
+              {video.suggestion_scores?.reasoning && (
+                <p className="text-xs mt-1" style={{ color: "var(--text-secondary)" }}>
+                  {video.suggestion_scores.reasoning}
+                </p>
+              )}
+            </div>
+          )}
+        </Section>
+      )}
+
       {/* Actions */}
       <Section title="Actions">
         <div className="flex flex-wrap gap-3">

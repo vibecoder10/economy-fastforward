@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { getVideoScript } from "@/lib/api";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { getVideoScript, acceptSuggestion, rejectSuggestion } from "@/lib/api";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
 interface ScriptTabProps {
@@ -12,6 +12,22 @@ interface ScriptTabProps {
 
 export function ScriptTab({ videoId, video }: ScriptTabProps) {
   const [currentScene, setCurrentScene] = useState(0);
+  const queryClient = useQueryClient();
+
+  const acceptMutation = useMutation({
+    mutationFn: () => acceptSuggestion(videoId, ["script"]),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["video", videoId] });
+      queryClient.invalidateQueries({ queryKey: ["video-script", videoId] });
+    },
+  });
+
+  const rejectMutation = useMutation({
+    mutationFn: () => rejectSuggestion(videoId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["video", videoId] });
+    },
+  });
 
   const { data: scenes, isLoading } = useQuery({
     queryKey: ["video-script", videoId],
@@ -49,6 +65,61 @@ export function ScriptTab({ videoId, video }: ScriptTabProps) {
 
   return (
     <div className="space-y-4">
+      {/* Suggestion diff */}
+      {video.suggested_script && (
+        <div
+          className="rounded-xl overflow-hidden"
+          style={{ background: "var(--bg-card)", border: "1px solid rgba(212, 168, 68, 0.3)" }}
+        >
+          <div className="p-4" style={{ background: "rgba(212, 168, 68, 0.1)" }}>
+            <p className="text-sm font-semibold" style={{ color: "var(--amber)" }}>
+              Agent suggests script improvements
+              {video.suggestion_source && ` based on ${video.suggestion_source} pattern`}
+              {video.suggestion_scores?.hook && ` (hook score: ${video.suggestion_scores.hook})`}
+            </p>
+          </div>
+
+          {/* Side-by-side on desktop, stacked on mobile */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-0">
+            <div className="p-4" style={{ borderRight: "1px solid var(--border)" }}>
+              <h4 className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: "var(--text-muted)" }}>
+                Current Script
+              </h4>
+              <p className="text-sm leading-relaxed whitespace-pre-wrap" style={{ color: "var(--text-secondary)" }}>
+                {video.script?.slice(0, 500)}{video.script && video.script.length > 500 ? "..." : ""}
+              </p>
+            </div>
+            <div className="p-4">
+              <h4 className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: "var(--amber)" }}>
+                Suggested Script
+              </h4>
+              <p className="text-sm leading-relaxed whitespace-pre-wrap" style={{ color: "var(--text-primary)" }}>
+                {video.suggested_script.slice(0, 500)}{video.suggested_script.length > 500 ? "..." : ""}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex gap-3 p-4" style={{ borderTop: "1px solid var(--border)" }}>
+            <button
+              onClick={() => acceptMutation.mutate()}
+              disabled={acceptMutation.isPending}
+              className="px-4 py-2 rounded-lg text-sm font-medium"
+              style={{ background: "var(--amber)", color: "var(--bg-primary)" }}
+            >
+              {acceptMutation.isPending ? "Accepting..." : "Accept Script"}
+            </button>
+            <button
+              onClick={() => rejectMutation.mutate()}
+              disabled={rejectMutation.isPending}
+              className="px-4 py-2 rounded-lg text-sm font-medium"
+              style={{ color: "var(--text-secondary)", border: "1px solid var(--border)" }}
+            >
+              {rejectMutation.isPending ? "Rejecting..." : "Keep Original"}
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Script stats */}
       <div className="flex items-center gap-4 text-sm" style={{ color: "var(--text-muted)" }}>
         <span>{totalWords.toLocaleString()} words</span>
