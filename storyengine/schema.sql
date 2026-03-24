@@ -451,6 +451,8 @@ CREATE TABLE autopilot_config (
       "ctr_failure_threshold": 2.5
   }'::jsonb,
   last_cycle TIMESTAMPTZ,
+  niche_category TEXT,
+  sub_niche TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
