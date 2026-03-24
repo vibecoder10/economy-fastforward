@@ -173,11 +173,18 @@ async def get_autopilot_summary(tenant_id: str = Depends(get_tenant_id)):
         print(f"Note: autopilot_config table may not exist: {e}")
 
     if config_row:
+        import json as _json
+        _w = config_row.get("weights", {})
+        _t = config_row.get("thresholds", {})
+        if isinstance(_w, str):
+            _w = _json.loads(_w)
+        if isinstance(_t, str):
+            _t = _json.loads(_t)
         config = AutopilotConfig(
             videos_per_month=config_row.get("videos_per_month", 15),
             production_interval_days=config_row.get("production_interval_days", 2),
-            weights=config_row.get("weights", {}),
-            thresholds=config_row.get("thresholds", {}),
+            weights=_w,
+            thresholds=_t,
         )
         enabled = config_row.get("enabled", True)
         last_cycle = config_row.get("last_cycle")
@@ -435,11 +442,18 @@ async def update_config(
     )
 
     if config_row:
+        import json as _json
+        _w = config_row.get("weights", {})
+        _t = config_row.get("thresholds", {})
+        if isinstance(_w, str):
+            _w = _json.loads(_w)
+        if isinstance(_t, str):
+            _t = _json.loads(_t)
         config = AutopilotConfig(
             videos_per_month=config_row.get("videos_per_month", 15),
             production_interval_days=config_row.get("production_interval_days", 2),
-            weights=config_row.get("weights", {}),
-            thresholds=config_row.get("thresholds", {}),
+            weights=_w,
+            thresholds=_t,
         )
     else:
         config = AutopilotConfig()
