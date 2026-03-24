@@ -1,0 +1,21 @@
+{
+  "skill_id": "agents",
+  "name": "Quality Agent Pipeline",
+  "type": "quality_agent",
+  "description": "Multi-agent quality pipeline with blocking gates. Hook agent (AVD), body agent (retention), weapons check (line-by-line scoring). Tiered: fast ($3), standard ($8), premium ($20).",
+  "entry_point": "agents.hook_agent",
+  "function": "run_with_variants",
+  "pipeline_stage": false,
+  "required_status": "ready_for_scripting",
+  "output_status": "ready_for_scripting",
+  "required_keys": ["anthropic_api_key"],
+  "inputs": ["research_payload", "video_title"],
+  "outputs": ["scored_hook", "paper_trail"],
+  "cost_estimate": {"per_run": 8.00, "unit": "USD"},
+  "dependencies": ["research"],
+  "configurable_params": {
+    "quality_tier": {"type": "string", "default": "standard", "description": "fast ($3), standard ($8), premium ($20)"},
+    "hook_min_score": {"type": "integer", "default": 70, "description": "Minimum hook score to pass gate (0-100)"},
+    "brand_voice": {"type": "string", "default": null, "description": "Channel-specific voice description injected into all agent prompts"}
+  }
+}
