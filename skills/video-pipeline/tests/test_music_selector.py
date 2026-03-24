@@ -36,7 +36,7 @@ import os
 
 _module_path = os.path.join(
     os.path.dirname(os.path.dirname(__file__)),
-    "bots",
+    "sound",
     "music_selector.py"
 )
 _spec = importlib.util.spec_from_file_location("music_selector", _module_path)

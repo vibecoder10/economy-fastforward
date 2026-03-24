@@ -386,8 +386,8 @@ class TestStatusProgression:
         """
         import re
 
-        # Image bot logic now lives in steps/step_images.py
-        step_path = Path(__file__).parent.parent / "steps" / "step_images.py"
+        # Image bot logic now lives in images/run.py
+        step_path = Path(__file__).parent.parent / "images" / "run.py"
         source = step_path.read_text()
 
         # Extract the full run function (top-level async def)
@@ -505,7 +505,7 @@ class TestExecutionModes:
             "video_scripts", "video_gen", "thumbnail", "render",
         ]
         # Read pipeline source to verify the mapping exists
-        pipeline_path = Path(__file__).parent.parent / "pipeline.py"
+        pipeline_path = Path(__file__).parent.parent / "orchestrator" / "pipeline.py"
         source = pipeline_path.read_text()
 
         for stage in valid_stages:
@@ -513,7 +513,7 @@ class TestExecutionModes:
 
     def test_cli_commands_exist(self):
         """All new CLI commands are registered in main()."""
-        pipeline_path = Path(__file__).parent.parent / "pipeline.py"
+        pipeline_path = Path(__file__).parent.parent / "orchestrator" / "pipeline.py"
         source = pipeline_path.read_text()
 
         for cmd in ["--translate", "--styled-prompts", "--full", "--produce", "--from-stage"]:
@@ -521,7 +521,7 @@ class TestExecutionModes:
 
     def test_help_documents_new_commands(self):
         """Help text includes the new execution mode commands."""
-        pipeline_path = Path(__file__).parent.parent / "pipeline.py"
+        pipeline_path = Path(__file__).parent.parent / "orchestrator" / "pipeline.py"
         source = pipeline_path.read_text()
 
         for cmd in ["--translate", "--styled-prompts", "--full", "--produce", "--from-stage"]:

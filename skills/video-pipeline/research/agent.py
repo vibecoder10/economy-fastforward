@@ -1,0 +1,1205 @@
+"""
+Research Agent — Standalone deep research module for Economy FastForward.
+
+Performs deep thematic research on a topic and produces a structured
+research_payload that feeds directly into the brief_translator pipeline.
+
+This module was extracted during Pipeline Unification (Story 0) to serve
+as the single source of deep research for all video ideas.
+
+Usage (standalone):
+    python research_agent.py --topic "Why the US Dollar Could Collapse by 2030"
+
+Usage (imported):
+    from research_agent import ResearchAgent, run_research
+
+    agent = ResearchAgent(anthropic_client)
+    payload = await agent.research("Why the US Dollar Could Collapse by 2030")
+"""
+
+import asyncio
+import json
+import logging
+import sys
+from pathlib import Path
+from typing import Optional
+
+from clients.narrative_extractor import extract_narrative_fields
+from pipeline_constants import IdeaFields, Models, CURIOSITY_GAP_ENABLED
+from json_utils import parse_json_response
+
+# Curiosity gap imports (lazy loaded to avoid circular deps at module level)
+if CURIOSITY_GAP_ENABLED:
+    from curiosity_gap.gap_title_engine import GapTitleEngine
+    from autopilot.learning.pattern_library import PatternLibrary
+
+logger = logging.getLogger(__name__)
+
+
+# === Title Intelligence System ===
+
+def _load_title_patterns() -> dict:
+    """Load the title pattern library from title_patterns.json."""
+    patterns_path = Path(__file__).parent / "title_patterns.json"
+    if not patterns_path.exists():
+        raise FileNotFoundError(f"title_patterns.json not found at {patterns_path}")
+    with open(patterns_path) as f:
+        return json.load(f)
+
+
+def _build_title_formulas_text(patterns: dict) -> str:
+    """Build a text summary of master formulas for the title generation prompt.
+
+    Legacy PD formulas are excluded from primary generation — only MF formulas are used.
+    """
+    lines = []
+    for f in patterns.get("master_formulas", []):
+        lines.append(
+            f"- {f['id']}: {f['name']} — Template: \"{f['template']}\" "
+            f"(Tier: {f.get('performance_tier', '?')}, Best for: {f.get('best_for', '?')})"
+        )
+        examples = f.get("examples", [])
+        if examples:
+            lines.append(f"  Examples: {'; '.join(examples[:2])}")
+    return "\n".join(lines)
+
+
+def _build_scoring_rules_text(patterns: dict) -> str:
+    """Build a text summary of the scoring rules for prompts."""
+    rules = patterns.get("scoring_rules", {})
+    lines = []
+    for c in rules.get("criteria", []):
+        lines.append(f"- {c['name']} (weight: {c['weight']}): {c['rule']}")
+    hard_rules = rules.get("hard_rules", [])
+    if hard_rules:
+        lines.append("\nHARD RULES:")
+        for r in hard_rules:
+            lines.append(f"- {r}")
+    return "\n".join(lines)
+
+
+# === Cinematic Writer Guidance Generator ===
+
+async def _generate_cinematic_direction(
+    anthropic_client,
+    payload: dict,
+) -> str:
+    """Generate scene-specific writer guidance from research payload.
+
+    Uses Claude Haiku to create cinematic direction that tells the
+    scriptwriter WHO, WHERE, WHAT, and the MICRO-INSIGHT for each act.
+    This replaces the old approach of just copying the thesis.
+
+    Args:
+        anthropic_client: AnthropicClient instance
+        payload: Research payload dict with executive_hook, character_dossier,
+                 historical_parallels, psychological_angles, fact_sheet,
+                 framework_analysis
+
+    Returns:
+        Cinematic direction string (under 200 words), or empty string on failure
+    """
+    # Extract first 5 facts from fact_sheet
+    fact_sheet = payload.get("fact_sheet", "")
+    facts_lines = [l.strip() for l in fact_sheet.split("\n") if l.strip()][:5]
+    key_facts = "\n".join(facts_lines) if facts_lines else "(no facts available)"
+
+    prompt = f"""You are a cinematographic director planning a 12-15 minute animated documentary.
+Using the research below, write scene direction for the scriptwriter — one paragraph per act.
+
+For each act, specify:
+- WHO (the character type for this act)
+- WHERE (specific physical location from research)
+- WHAT (one vivid action moment)
+- THE MICRO-INSIGHT (a single quotable truth for this act)
+
+ACT STRUCTURE (follow this character progression):
+- Act 1: ORDINARY PERSON — viewer surrogate experiencing the situation
+- Act 2: OPERATOR — someone doing the work on the ground
+- Act 3: ARCHITECT — the system designer or strategist
+- Act 4: PROPHET — delivers the apex insight (the "why it all matters" moment)
+- Act 5: RETURN TO ORDINARY PERSON — how the system affects regular people
+- Act 6: RETURN TO OPERATOR — what practitioners do next
+
+FRAMEWORK ANGLE: {payload.get("framework_analysis", "")}
+
+RESEARCH HOOK: {payload.get("executive_hook", "")}
+
+CHARACTER DOSSIER: {payload.get("character_dossier", "")}
+
+HISTORICAL PARALLELS: {payload.get("historical_parallels", "")}
+
+KEY FACTS:
+{key_facts}
+
+Format as flowing direction, not templates.
+Example: "Act 1: We're in a shipping container at Long Beach — a trucker checks his phone, delivery canceled. Micro-insight: 'When containers stop moving, shelves go empty.' Act 2: At Shenzhen port, a logistics coordinator reroutes 40 ships..."
+
+Keep it under 200 words. No headers, no bullet points, just cinematic direction with micro-insights."""
+
+    try:
+        result = await anthropic_client.generate(
+            prompt=prompt,
+            model=Models.CLAUDE_HAIKU,
+            max_tokens=300,
+            temperature=0.7,
+        )
+
+        if result and len(result.strip()) > 50:
+            logger.info(f"Generated cinematic direction ({len(result)} chars)")
+            return result.strip()
+
+    except Exception as e:
+        logger.warning(f"Cinematic direction generation failed: {e}")
+
+    return ""
+
+
+TITLE_GENERATION_PROMPT = """\
+You are the title strategist for Economy FastForward, a faceless \
+YouTube channel producing 15-20 minute geopolitical and economic analysis videos.
+
+TOPIC DATA:
+- Headline: {headline}
+- Key Entities: {entities}
+- Hook/Thesis: {thesis}
+- Analytical Framework: {framework}
+
+TITLE FORMULA LIBRARY:
+{formulas}
+
+SCORING CRITERIA:
+{scoring_rules}
+
+MODEL THESE CHANNELS (study their title patterns):
+- CaspianReport (1.8M subs): "How the Iran War set off a regional conflict" — short, declarative, proper noun first
+- AiTelly (2M subs): "How Iran Breached US Israeli Air Defenses" — direct mechanism, tells you exactly what you'll learn
+
+TASK:
+Generate exactly 3 title candidates. Each must use a DIFFERENT formula from the library. For each:
+1. Write the title (MAXIMUM 55 characters. Ideal is 35-50. Count every character.)
+2. Identify which formula ID you used (e.g., MF-0, MF-2)
+3. Score it 0-100 using the weighted criteria
+4. Write 1 sentence explaining why this angle works
+5. Generate matching 2-word thumbnail verdict (strategic judgment, no YOUR language)
+
+HARD RULES:
+1. MAXIMUM 55 characters. HARD CEILING. Under 45 is ideal.
+2. Start with "How" or "Why" — the two highest-performing openers in this niche
+3. First word after How/Why MUST be a proper noun (country, company, institution, person)
+4. NEVER use "YOU" or "YOUR" — this is analysis, not self-help
+5. NEVER use commands (NEVER, STOP, DON'T) — no imperatives
+6. NEVER use ALL CAPS words except acronyms (US, NATO, PBOC, LNG)
+7. No em dashes (—), no parenthetical asides, no pipe separators (|)
+8. No cleverness. The event itself is interesting. Just state what the video explains.
+9. Declarative statements only. No question marks unless genuinely unanswered.
+10. The 3 titles should offer genuinely different angles, not variations of the same idea
+
+PREFERRED FORMULAS:
+- MF-0: "How [Entity] [Clear Action] [Target]" — for breaking events, mechanisms
+- MF-1: "How [Entity] [Secret Action] [Surprising Detail]" — for hidden strategies
+- MF-2: "Why [Country/Entity] [Dramatic Present-Tense Claim]" — for causal analysis
+- MF-6: "[Country]'s [Adjective] [Crisis/Collapse/Trap]" — for decline stories
+
+Respond ONLY in this JSON format (no markdown, raw JSON):
+{{
+  "candidates": [
+    {{
+      "title": "...",
+      "formula_id": "MF-X",
+      "score": 85,
+      "rationale": "...",
+      "thumbnail_text": "..."
+    }}
+  ],
+  "recommended_winner": 0
+}}
+"""
+
+
+TITLE_REFINEMENT_PROMPT = """\
+You are refining the title for an Economy FastForward video. \
+The script is now written and you have access to the actual content.
+
+CURRENT TITLE: {current_title}
+ANALYTICAL FRAMEWORK: {framework}
+
+SCRIPT CONTENT (all scenes):
+{script_text}
+
+TITLE FORMULA LIBRARY:
+{formulas}
+
+SCORING CRITERIA:
+{scoring_rules}
+
+MODEL THESE CHANNELS for title style:
+- CaspianReport (1.8M subs): "How the Iran War set off a regional conflict" — short, declarative
+- AiTelly (2M subs): "How Iran Breached US Israeli Air Defenses" — direct mechanism
+
+YOUR TASK:
+The current title was a working title generated before the script existed. \
+Now that the script is written, you can see the ACTUAL most compelling details.
+
+Step 1: Extract from the script:
+- The single most surprising statistic or data point
+- The most specific mechanism or strategy described
+- The strongest emotional hook or consequence
+- All proper nouns (countries, companies, people, institutions)
+- The core "hidden playbook" being revealed
+
+Step 2: Generate 3 NEW title candidates that leverage these specific details. \
+Each must use a DIFFERENT formula. The new titles should be MORE specific than \
+the working title because you now know what the video actually contains.
+
+Step 3: Score all titles (including the current one) using the criteria.
+
+Step 4: If any new title scores higher than the current title, recommend the switch. \
+If the current title is already optimal, say so.
+
+HARD RULES:
+1. MAXIMUM 55 characters. HARD CEILING. Under 45 is ideal.
+2. Start with "How" or "Why" — the two highest-performing openers
+3. First word after How/Why MUST be a proper noun
+4. NEVER use "YOU" or "YOUR" — this is analysis, not self-help
+5. NEVER use commands (NEVER, STOP, DON'T) — no imperatives
+6. NEVER use ALL CAPS words except acronyms (US, NATO, PBOC, LNG)
+7. No em dashes (—), no parenthetical asides, no pipe separators (|)
+8. Declarative statements only. No question marks unless genuinely unanswered.
+
+When refining the title post-script, prefer SHORTER over LONGER. \
+If the working title is 50 characters and a refinement is 55 characters \
+but only slightly better, keep the shorter one. Brevity wins.
+
+CRITICAL: The #1 reason titles underperform is vagueness. The script gives you \
+specific numbers, names, and mechanisms — USE THEM. But keep it SHORT.
+Example: "China's Economic Problems" (vague, score: 35) → \
+"Why China Is Dumping $800B in US Treasuries" (specific + short, score: 88)
+
+Respond ONLY in this JSON format (no markdown, raw JSON):
+{{
+  "script_extractions": {{
+    "best_statistic": "...",
+    "best_mechanism": "...",
+    "best_hook": "...",
+    "proper_nouns": ["..."],
+    "hidden_playbook": "..."
+  }},
+  "candidates": [
+    {{
+      "title": "...",
+      "formula_id": "MF-X",
+      "score": 85,
+      "rationale": "...",
+      "thumbnail_text": "..."
+    }}
+  ],
+  "current_title_score": 70,
+  "recommended_winner": 0,
+  "should_switch": true
+}}
+"""
+
+
+def _parse_title_response(response_text: str) -> dict:
+    """Parse JSON title generation response with fallback chain."""
+    return parse_json_response(response_text)
+
+
+async def generate_title_candidates(
+    anthropic_client,
+    topic_data: dict,
+    framework: str,
+    model: str = Models.CLAUDE_SONNET,
+) -> dict:
+    """Generate 3 title candidates using the master formula library.
+
+    Phase 1 of the Title Intelligence System — called at idea generation time.
+
+    Args:
+        anthropic_client: AnthropicClient instance
+        topic_data: Dict with keys 'headline', 'entities', 'hook', 'thesis'
+        framework: The analytical framework selected (e.g., 'Thucydides Trap')
+        model: LLM model to use
+
+    Returns:
+        dict with 'winner' (str), 'winner_thumbnail' (str),
+        'candidates' (list of dicts with title + score + formula_id)
+    """
+    patterns = _load_title_patterns()
+    formulas_text = _build_title_formulas_text(patterns)
+    scoring_text = _build_scoring_rules_text(patterns)
+
+    # Extract entities from topic data
+    entities = topic_data.get("entities", "")
+    if not entities:
+        # Try to infer entities from headline and thesis
+        entities = ", ".join(filter(None, [
+            topic_data.get("headline", ""),
+            topic_data.get("hook", ""),
+        ]))
+
+    prompt = TITLE_GENERATION_PROMPT.format(
+        headline=topic_data.get("headline", ""),
+        entities=entities,
+        thesis=topic_data.get("thesis", topic_data.get("hook", "")),
+        framework=framework,
+        formulas=formulas_text,
+        scoring_rules=scoring_text,
+    )
+
+    response = await anthropic_client.generate(
+        prompt=prompt,
+        system_prompt="You are a YouTube title optimization expert. Respond only in valid JSON.",
+        model=model,
+        max_tokens=2000,
+        temperature=0.7,
+    )
+
+    result = _parse_title_response(response)
+    candidates = result.get("candidates", [])
+    winner_idx = result.get("recommended_winner", 0)
+
+    if not candidates:
+        logger.warning("Title generation returned no candidates")
+        return {
+            "winner": topic_data.get("headline", ""),
+            "winner_thumbnail": "",
+            "candidates": [],
+        }
+
+    # Clamp winner index
+    winner_idx = max(0, min(winner_idx, len(candidates) - 1))
+    winner = candidates[winner_idx]
+
+    return {
+        "winner": winner.get("title", ""),
+        "winner_thumbnail": winner.get("thumbnail_text", ""),
+        "candidates": candidates,
+    }
+
+
+async def refine_title_post_script(
+    anthropic_client,
+    airtable_client,
+    record_id: str,
+    model: str = Models.CLAUDE_SONNET,
+) -> dict:
+    """Phase 2: Refine title using actual script content.
+
+    Fires after script is complete (status = Ready For Voice).
+
+    1. Read the full script from Script table (all scenes for this title)
+    2. Extract most surprising details from the actual content
+    3. Regenerate 3 titles using the formula library + script specifics
+    4. Score and pick winner
+    5. Update Video Title if better, archive in Title Candidates
+
+    Args:
+        anthropic_client: AnthropicClient instance
+        airtable_client: AirtableClient instance
+        record_id: Airtable record ID of the idea
+        model: LLM model to use
+
+    Returns:
+        dict with 'should_switch', 'old_title', 'new_title', 'score',
+        'thumbnail_text', 'candidates'
+    """
+    # Read the idea record
+    idea = airtable_client.get_idea(record_id)
+    if not idea:
+        raise ValueError(f"Idea record {record_id} not found")
+
+    current_title = idea.get(IdeaFields.VIDEO_TITLE, "")
+    framework = idea.get(IdeaFields.FRAMEWORK_ANGLE, "48 Laws")
+
+    # Get all script scenes for this video
+    scripts = airtable_client.get_scripts_by_title(current_title)
+    if not scripts:
+        logger.warning(f"No scripts found for '{current_title}', skipping refinement")
+        return {"should_switch": False, "old_title": current_title, "candidates": []}
+
+    # Combine all scene text
+    script_text = "\n\n".join(
+        f"Scene {s.get('scene', '?')}: {s.get('scene_text', '')}"
+        for s in sorted(scripts, key=lambda s: s.get("scene", 0))
+    )
+
+    # Truncate if too long (keep prompt under token limits)
+    if len(script_text) > 15000:
+        script_text = script_text[:15000] + "\n\n[... truncated for length ...]"
+
+    patterns = _load_title_patterns()
+    formulas_text = _build_title_formulas_text(patterns)
+    scoring_text = _build_scoring_rules_text(patterns)
+
+    prompt = TITLE_REFINEMENT_PROMPT.format(
+        current_title=current_title,
+        framework=framework,
+        script_text=script_text,
+        formulas=formulas_text,
+        scoring_rules=scoring_text,
+    )
+
+    response = await anthropic_client.generate(
+        prompt=prompt,
+        system_prompt="You are a YouTube title optimization expert. Respond only in valid JSON.",
+        model=model,
+        max_tokens=2000,
+        temperature=0.7,
+    )
+
+    result = _parse_title_response(response)
+    candidates = result.get("candidates", [])
+    should_switch = result.get("should_switch", False)
+    winner_idx = result.get("recommended_winner", 0)
+    current_score = result.get("current_title_score", 0)
+
+    if not candidates:
+        logger.warning("Title refinement returned no candidates")
+        return {"should_switch": False, "old_title": current_title, "candidates": []}
+
+    winner_idx = max(0, min(winner_idx, len(candidates) - 1))
+    winner = candidates[winner_idx]
+
+    # Load existing title candidates from Airtable
+    existing_candidates_json = idea.get("Title Candidates", "")
+    existing_candidates = []
+    if existing_candidates_json:
+        try:
+            existing_candidates = json.loads(existing_candidates_json)
+        except (json.JSONDecodeError, TypeError):
+            existing_candidates = []
+
+    # Build updated candidates list
+    # Archive the current title with its score
+    archived_entry = {
+        "title": current_title,
+        "formula_id": "original",
+        "score": current_score,
+        "rationale": "Original/Phase 1 title",
+        "thumbnail_text": idea.get("Thumbnail Text", ""),
+        "phase": "phase_1",
+    }
+    # Tag new candidates as phase 2
+    for c in candidates:
+        c["phase"] = "phase_2"
+
+    all_candidates = existing_candidates + [archived_entry] + candidates
+
+    # Write to Airtable
+    update_fields = {
+        "Title Candidates": json.dumps(all_candidates),
+    }
+
+    if should_switch:
+        update_fields[IdeaFields.VIDEO_TITLE] = winner.get("title", "")
+        update_fields[IdeaFields.THUMBNAIL_TEXT] = winner.get("thumbnail_text", "")
+
+    airtable_client.update_idea_fields(record_id, update_fields)
+
+    new_title = winner.get("title", "") if should_switch else current_title
+    logger.info(
+        f"Title refinement for '{current_title}': "
+        f"{'SWITCHED to' if should_switch else 'kept'} '{new_title}' "
+        f"(score: {winner.get('score', '?')})"
+    )
+
+    return {
+        "should_switch": should_switch,
+        "old_title": current_title,
+        "new_title": new_title,
+        "score": winner.get("score", 0),
+        "thumbnail_text": winner.get("thumbnail_text", ""),
+        "candidates": candidates,
+    }
+
+# Research prompt template
+RESEARCH_SYSTEM_PROMPT = """\
+You are a deep research analyst for Economy FastForward (Power Doctrine), a
+documentary-style YouTube channel that reveals hidden mechanisms behind major
+geopolitical and economic events. Your voice is investigative — you follow the
+money trail and find who actually benefits.
+
+Your job is to conduct exhaustive research on a topic and produce a structured
+research brief that will be used to write a 15-20 minute narration script with
+~120 AI-generated images.
+
+The research must be DEEP — not surface-level summaries. You are producing the
+intellectual foundation for a video that will be watched by hundreds of thousands
+of people. Every fact must be specific, every parallel must be illuminating,
+every angle must hook the viewer.
+
+NUMBER DENSITY REQUIREMENT (NON-NEGOTIABLE):
+The script system requires a MINIMUM of 19 specific, verifiable numbers. Your
+fact sheet must provide at LEAST 25 specific numbers to give the script writer
+enough material. "Specific number" means: a dollar amount, a percentage, a date,
+a count, a ratio, or a named statistic. "Massive", "significant", and
+"unprecedented" are NOT numbers.
+
+INCENTIVE CHAIN REQUIREMENT:
+Every research brief must include an explicit chain of incentives connecting the
+headline event to the viewer's financial life. Template: Player A needs X →
+which requires Y → which depends on Z → which is what the headline event
+threatens/enables → which means [specific dollar impact] for the viewer.
+
+You have web search available. USE IT to verify facts before including them.
+- Search for every key claim, statistic, and date
+- Include only facts you can verify via web search
+- Cite real sources for key claims
+- If you cannot verify a fact, mark it as unverified
+- For niche topics, search multiple query variations"""
+
+RESEARCH_PROMPT_TEMPLATE = """\
+Research the following topic in depth:
+
+<topic>{TOPIC}</topic>
+
+{SEED_URLS_SECTION}
+{CONTEXT_SECTION}
+
+Produce a structured research brief with ALL of the following sections.
+Each section should be substantial (200-500 words). Do not skip any section.
+
+Respond in the following JSON format (no markdown code blocks, just raw JSON):
+
+{{
+  "headline": "A compelling, specific video title (not generic)",
+  "thesis": "The core argument or revelation of this video in 2-3 sentences",
+  "executive_hook": "The opening 15-second hook that stops the scroll. Must create immediate curiosity gap.",
+  "fact_sheet": "Detailed facts with inline source tags. Format EVERY fact as: 'The Strait of Hormuz is 21 nautical miles wide [EIA World Oil Transit Chokepoints 2024].' MINIMUM 25 specific numbers (dollar amounts, percentages, dates, counts, ratios), EACH with a [Source Name Year] tag immediately after the claim. If a source is uncertain, use [unverified]. Every [Source] tag must match an entry in source_bibliography. Not 'significant growth' but '$847 billion in 18 months [Federal Reserve Q4 2025 Report].' Not 'growing influence' but 'from 3 trade agreements to 17 in four years [State Department 2024].'",
+  "historical_parallels": "Historical events that mirror or illuminate this topic. Include specific dates, figures, and outcomes. At least 3 distinct parallels with rich detail.",
+  "framework_analysis": "The analytical framework for understanding this topic. What mental model explains why this is happening? Reference specific thinkers, theories, or frameworks (e.g., Machiavellian power dynamics, game theory, systems thinking).",
+  "character_dossier": "Key figures involved. For each: name, role, specific actions taken, motivations, and visual description for imagery. At least 3 figures.",
+  "narrative_arc": "The story structure: What happened → Why it matters → What comes next. MUST include the explicit INCENTIVE CHAIN: Player A needs X → requires Y → depends on Z → headline event threatens/enables this → specific dollar impact for the viewer. Include specific turning points and revelations.",
+  "counter_arguments": "The strongest arguments against the thesis. Acknowledge them honestly, then explain why the thesis still holds.",
+  "visual_seeds": "Specific visual concepts for AI image generation. Describe scenes, settings, objects, and moods. At least 5 distinct visual concepts.",
+  "source_bibliography": "Key sources used — each entry MUST appear at least once as a [Source] tag in the fact_sheet. Format: 'Source Name Year: Full citation or URL'. Example: 'EIA 2024: US Energy Information Administration, World Oil Transit Chokepoints Report, June 2024'. Every source you cite in fact_sheet brackets must have a matching entry here.",
+  "themes": "Thematic frameworks that give the video intellectual depth (e.g., 'Machiavellian power dynamics', 'technological disruption cycle', 'wealth inequality feedback loop'). At least 3 themes.",
+  "psychological_angles": "Viewer hooks and emotional triggers. What makes this personally relevant to the audience? What fears, aspirations, or curiosities does it tap into?",
+  "narrative_arc_suggestion": "Recommended 6-act structure with brief description of each act's focus and emotional arc.",
+  "title_options": "3 alternative viral-worthy video titles, each on a new line",
+  "thumbnail_concepts": "2-3 thumbnail visual concepts following the Problem→Payoff split composition"
+}}
+
+IMPORTANT:
+- Every fact must be SPECIFIC (names, numbers, dates) — no vague generalizations
+- The fact_sheet must contain MINIMUM 25 specific, verifiable numbers
+- Historical parallels must be ILLUMINATING, not just tangentially related
+- The framework must feel like an intellectual revelation, not a textbook summary
+- Visual seeds must describe SCENES, not abstract concepts
+- The hook must create an irresistible curiosity gap in under 15 seconds of speech
+- The narrative_arc MUST include an explicit incentive chain connecting the event to the viewer's wallet
+- Include "who benefits" analysis: trace the money trail for every major player
+"""
+
+
+def _build_research_prompt(
+    topic: str,
+    seed_urls: Optional[list[str]] = None,
+    context: Optional[str] = None,
+) -> str:
+    """Build the research prompt with optional seed URLs and context."""
+    seed_section = ""
+    if seed_urls:
+        urls_text = "\n".join(f"- {url}" for url in seed_urls)
+        seed_section = f"Use these URLs as starting points for research:\n{urls_text}"
+
+    context_section = ""
+    if context:
+        context_section = f"Additional context:\n{context}"
+
+    return RESEARCH_PROMPT_TEMPLATE.format(
+        TOPIC=topic,
+        SEED_URLS_SECTION=seed_section,
+        CONTEXT_SECTION=context_section,
+    )
+
+
+def _parse_research_payload(response_text: str) -> dict:
+    """Parse the JSON research payload from Claude's response.
+
+    Handles potential formatting issues (markdown code blocks, etc.)
+    Raises json.JSONDecodeError if parsing fails completely.
+    """
+    payload = parse_json_response(response_text, default=None)
+    if payload is None:
+        raise json.JSONDecodeError("Failed to parse research payload", response_text, 0)
+
+    # Validate required fields
+    required_fields = [
+        "headline", "thesis", "executive_hook", "fact_sheet",
+        "historical_parallels", "framework_analysis", "character_dossier",
+        "narrative_arc", "counter_arguments", "visual_seeds",
+        "source_bibliography",
+    ]
+
+    missing = [f for f in required_fields if not payload.get(f)]
+    if missing:
+        logger.warning(f"Research payload missing fields: {missing}")
+
+    return payload
+
+
+class ResearchAgent:
+    """Standalone deep research agent for video production.
+
+    Produces structured research_payload objects that feed into the
+    brief_translator pipeline.
+
+    Usage:
+        agent = ResearchAgent(anthropic_client)
+        payload = await agent.research("Topic here")
+    """
+
+    def __init__(
+        self,
+        anthropic_client,
+        model: str = Models.CLAUDE_SONNET,
+    ):
+        """Initialize the research agent.
+
+        Args:
+            anthropic_client: AnthropicClient instance for LLM calls
+            model: Model to use for research (Sonnet for cost, Opus for depth)
+        """
+        self.anthropic = anthropic_client
+        self.model = model
+
+    async def research(
+        self,
+        topic: str,
+        seed_urls: Optional[list[str]] = None,
+        context: Optional[str] = None,
+    ) -> dict:
+        """Run deep research on a topic.
+
+        Args:
+            topic: The topic or idea to research
+            seed_urls: Optional list of URLs to seed research
+            context: Optional additional context
+
+        Returns:
+            Structured research_payload dict containing:
+                - headline (str)
+                - thesis (str)
+                - executive_hook (str)
+                - fact_sheet (str)
+                - historical_parallels (str)
+                - framework_analysis (str)
+                - character_dossier (str)
+                - narrative_arc (str)
+                - counter_arguments (str)
+                - visual_seeds (str)
+                - source_bibliography (str)
+                - themes (str)
+                - psychological_angles (str)
+                - narrative_arc_suggestion (str)
+                - title_options (str)
+                - thumbnail_concepts (str)
+        """
+        from clients.anthropic_client import WEB_SEARCH_TOOL
+
+        logger.info(f"Starting deep research on: {topic}")
+
+        prompt = _build_research_prompt(topic, seed_urls, context)
+
+        response = await self.anthropic.generate(
+            prompt=prompt,
+            system_prompt=RESEARCH_SYSTEM_PROMPT,
+            model=self.model,
+            max_tokens=16000,
+            temperature=0.7,
+            tools=[WEB_SEARCH_TOOL],
+        )
+
+        payload = _parse_research_payload(response)
+        logger.info(
+            f"Research complete: {payload.get('headline', 'Untitled')} — "
+            f"{len(payload)} fields populated"
+        )
+
+        return payload
+
+
+def infer_framework_from_research(payload: dict) -> str:
+    """Determine the best analytical framework from a research payload.
+
+    The research agent has deep context about the topic at this point,
+    so it can make a more informed framework choice than the discovery scanner.
+    This field is CRITICAL — the brief translator reads it to determine
+    which voice to write the script in.
+
+    Returns:
+        One of the 17 valid Framework Angle values.
+    """
+    # Combine all rich text fields for analysis
+    text = " ".join([
+        payload.get("framework_analysis", ""),
+        payload.get("themes", ""),
+        payload.get("thesis", ""),
+        payload.get("historical_parallels", ""),
+        payload.get("narrative_arc", ""),
+    ]).lower()
+
+    # Score each framework based on keyword presence
+    # Must match all 17 frameworks in script_generator._build_framework_lens_section()
+    framework_signals = {
+        "48 Laws": ["law of power", "48 laws", "robert greene", "conceal your intentions",
+                     "crush your enemy", "court power", "appear weak",
+                     "power dynamics", "power play", "strategic deception"],
+        "Machiavelli": ["machiavelli", "the prince", "virtù", "fortuna",
+                         "feared or loved", "fox and lion", "principality",
+                         "statecraft", "political realism"],
+        "Thucydides Trap": ["thucydides", "rising power", "established power",
+                             "security dilemma", "power transition", "athens and sparta",
+                             "inevitable conflict", "graham allison", "hegemonic war",
+                             "challenger", "status quo power"],
+        "Antifragile": ["antifragile", "black swan", "nassim taleb", "taleb",
+                         "fragility", "tail risk", "skin in the game",
+                         "barbell strategy", "fat tail", "lindy effect",
+                         "robust", "convexity"],
+        "Game Theory": ["game theory", "nash equilibrium", "prisoner's dilemma",
+                         "zero-sum", "positive-sum", "dominant strategy",
+                         "payoff matrix", "incentive structure", "tit for tat"],
+        "Sun Tzu": ["sun tzu", "art of war", "all warfare is deception",
+                     "supreme excellence", "know your enemy", "terrain",
+                     "military strategy", "flanking", "strategic retreat"],
+        "Grand Chessboard": ["brzezinski", "grand chessboard", "mackinder",
+                              "heartland", "rimland", "spykman", "pivot state",
+                              "chokepoint", "strait of hormuz", "eurasia",
+                              "geopolitics of geography", "great game"],
+        "Kindleberger Trap": ["kindleberger", "hegemonic stability", "public goods",
+                               "power vacuum", "stabilizer", "reserve currency",
+                               "dollar weaponization", "bretton woods",
+                               "systemic collapse", "hegemon withdrawal"],
+        "Schelling": ["schelling", "focal point", "brinkmanship", "credible threat",
+                       "commitment device", "red line", "escalation dominance",
+                       "mutual assured destruction", "deterrence", "coercive diplomacy"],
+        "Collective Action": ["collective action", "mancur olson", "free rider",
+                               "concentrated benefits", "diffuse costs", "lobbying",
+                               "regulatory capture", "cartel", "special interest",
+                               "organized minority"],
+        "Soft Power": ["soft power", "joseph nye", "sharp power", "cultural hegemony",
+                        "gramsci", "influence operation", "confucius institute",
+                        "smart power", "cultural dominance", "narrative warfare"],
+        "Jung Shadow": ["shadow self", "jung", "collective unconscious", "projection",
+                         "persona", "archetype", "individuation", "shadow work"],
+        "Behavioral Econ": ["behavioral economics", "loss aversion", "anchoring",
+                             "sunk cost", "nudge", "kahneman", "tversky",
+                             "cognitive bias", "irrational"],
+        "Stoicism": ["stoic", "marcus aurelius", "seneca", "epictetus",
+                      "what you can control", "memento mori", "amor fati",
+                      "virtue ethics", "tranquility"],
+        "Propaganda": ["propaganda", "bernays", "chomsky", "manufacturing consent",
+                        "media manipulation", "narrative control", "information warfare",
+                        "public relations", "perception management"],
+        "Systems Thinking": ["systems thinking", "feedback loop", "second-order effects",
+                              "unintended consequences", "complexity", "emergent behavior",
+                              "cascade", "systemic risk", "interconnected"],
+        "Evolutionary Psych": ["evolutionary psychology", "tribal instinct",
+                                "dominance hierarchy", "in-group", "out-group",
+                                "status signaling", "survival instinct", "primal"],
+    }
+
+    best_framework = "48 Laws"
+    best_score = 0
+
+    for framework, keywords in framework_signals.items():
+        score = sum(1 for kw in keywords if kw in text)
+        if score > best_score:
+            best_score = score
+            best_framework = framework
+
+    return best_framework
+
+
+def write_to_airtable(
+    airtable_client,
+    payload: dict,
+    record_id: str = None,
+    title_candidates: dict = None,
+) -> dict:
+    """Write a research payload to the Idea Concepts table.
+
+    When record_id is provided, updates the existing record (e.g. after
+    discovery → approval → research).  Otherwise creates a new record
+    (standalone research run).
+
+    Args:
+        airtable_client: AirtableClient instance
+        payload: Structured research_payload dict from ResearchAgent
+        record_id: Optional existing Airtable record ID to update
+        title_candidates: Optional title intelligence output from
+                          generate_title_candidates()
+
+    Returns:
+        Airtable record dict with id
+    """
+    # Serialize full payload as JSON for the research_payload field
+    research_payload_json = json.dumps(payload)
+
+    # Validate payload size (Airtable long text limit ~100k chars)
+    if len(research_payload_json) > 100000:
+        logger.warning(
+            f"Research payload is {len(research_payload_json)} chars — "
+            f"may exceed Airtable field limit"
+        )
+
+    # Determine the best framework angle
+    framework_angle = infer_framework_from_research(payload)
+    logger.info(f"Inferred Framework Angle: {framework_angle}")
+
+    # Use title intelligence winner if available, else fall back to headline
+    video_title = payload.get("headline", "")
+    if title_candidates and title_candidates.get("winner"):
+        video_title = title_candidates["winner"]
+
+    if record_id:
+        # Update existing record — don't create a duplicate
+        # Extract narrative fields from research payload
+        narrative = extract_narrative_fields(payload)
+
+        research_fields = {
+            IdeaFields.RESEARCH_PAYLOAD: research_payload_json,
+            IdeaFields.SOURCE_URLS: payload.get("source_bibliography", ""),
+            IdeaFields.EXECUTIVE_HOOK: payload.get("executive_hook", ""),
+            IdeaFields.THESIS: payload.get("thesis", ""),
+            IdeaFields.FRAMEWORK_ANGLE: framework_angle,
+            IdeaFields.THEMATIC_FRAMEWORK: payload.get("themes", ""),
+            IdeaFields.HEADLINE: payload.get("headline", ""),
+            IdeaFields.VIDEO_TITLE: video_title,
+            # Narrative fields for Past → Present → Future framing
+            IdeaFields.PAST_CONTEXT: narrative["past_context"],
+            IdeaFields.PRESENT_PARALLEL: narrative["present_parallel"],
+            IdeaFields.FUTURE_PREDICTION: narrative["future_prediction"],
+        }
+        # Add title candidates if generated
+        if title_candidates and title_candidates.get("candidates"):
+            research_fields["Title Candidates"] = json.dumps(
+                title_candidates["candidates"]
+            )
+        if title_candidates and title_candidates.get("winner_thumbnail"):
+            research_fields[IdeaFields.THUMBNAIL_TEXT] = title_candidates["winner_thumbnail"]
+
+        airtable_client.update_idea_fields(record_id, research_fields)
+        logger.info(f"Research updated on existing record: {record_id}")
+        return {"id": record_id}
+
+    # No record_id — create a brand-new record
+    # Extract narrative fields from research payload
+    narrative = extract_narrative_fields(payload)
+
+    # Build the idea data dict compatible with AirtableClient.create_idea()
+    idea_data = {
+        "viral_title": video_title,
+        "hook_script": payload.get("executive_hook", ""),
+        "narrative_logic": narrative,  # Uses extract_narrative_fields for proper extraction
+        "thumbnail_visual": (
+            payload.get("thumbnail_concepts", "").split("\n")[0]
+            if payload.get("thumbnail_concepts")
+            else ""
+        ),
+        "writer_guidance": payload.get("_writer_guidance", ""),  # Cinematic direction, not thesis
+        "original_dna": json.dumps({
+            "source": "research_agent",
+            "themes": payload.get("themes", ""),
+            "psychological_angles": payload.get("psychological_angles", ""),
+        }),
+        # Rich schema fields
+        IdeaFields.FRAMEWORK_ANGLE: framework_angle,
+        IdeaFields.HEADLINE: payload.get("headline", ""),
+        IdeaFields.EXECUTIVE_HOOK: payload.get("executive_hook", ""),
+        IdeaFields.THESIS: payload.get("thesis", ""),
+        IdeaFields.SOURCE_URLS: payload.get("source_bibliography", ""),
+        IdeaFields.RESEARCH_PAYLOAD: research_payload_json,
+        IdeaFields.THEMATIC_FRAMEWORK: payload.get("themes", ""),
+    }
+
+    # Add title candidates if generated
+    if title_candidates and title_candidates.get("candidates"):
+        idea_data["Title Candidates"] = json.dumps(title_candidates["candidates"])
+    if title_candidates and title_candidates.get("winner_thumbnail"):
+        idea_data[IdeaFields.THUMBNAIL_TEXT] = title_candidates["winner_thumbnail"]
+
+    # Create the record with source="research_agent"
+    record = airtable_client.create_idea(idea_data, source="research_agent")
+    record_id = record["id"]
+
+    logger.info(f"Research written to Idea Concepts: {record_id}")
+    return record
+
+
+async def run_research(
+    anthropic_client,
+    topic: str,
+    seed_urls: Optional[list[str]] = None,
+    context: Optional[str] = None,
+    model: str = Models.CLAUDE_SONNET,
+    airtable_client=None,
+    record_id: str = None,
+) -> dict:
+    """Convenience function to run deep research.
+
+    This is the main entry point for external callers.
+
+    Args:
+        anthropic_client: AnthropicClient instance
+        topic: Topic to research
+        seed_urls: Optional seed URLs
+        context: Optional context
+        model: LLM model to use
+        airtable_client: Optional AirtableClient — if provided, writes
+                         research payload to Idea Concepts table
+        record_id: Optional existing Airtable record ID to update
+                   instead of creating a new record
+
+    Returns:
+        Structured research_payload dict (with airtable_record_id if written)
+    """
+    agent = ResearchAgent(anthropic_client, model=model)
+    payload = await agent.research(topic, seed_urls, context)
+
+    # Phase 1: Generate title candidates using the formula library
+    title_candidates = None
+    try:
+        framework = infer_framework_from_research(payload)
+        topic_data = {
+            "headline": payload.get("headline", ""),
+            "entities": ", ".join(
+                payload.get("character_dossier", "").split("\n")[:3]
+            ),
+            "hook": payload.get("executive_hook", ""),
+            "thesis": payload.get("thesis", ""),
+        }
+        title_candidates = await generate_title_candidates(
+            anthropic_client, topic_data, framework, model=model,
+        )
+        logger.info(
+            f"Title intelligence: winner='{title_candidates.get('winner', '')}' "
+            f"({len(title_candidates.get('candidates', []))} candidates)"
+        )
+    except Exception as e:
+        # Non-blocking — title generation failure should NOT stop research
+        logger.warning(f"Title candidate generation failed: {e}")
+
+    # Phase 2: Enhance title with curiosity gap structure (if enabled)
+    curiosity_data = None
+    if CURIOSITY_GAP_ENABLED:
+        try:
+            engine = GapTitleEngine(anthropic_client)
+            pattern_lib = PatternLibrary()
+
+            # Build rich story context from research payload
+            story_context = {
+                "hook": payload.get("executive_hook", ""),
+                "thesis": payload.get("thesis", ""),
+                "facts": payload.get("fact_sheet", "")[:1000],  # Truncate for context
+            }
+
+            titles = await engine.generate_titles(
+                story_context,
+                pattern_library=pattern_lib,
+                target_count=1,
+            )
+
+            if titles:
+                best = titles[0]
+                # Override title candidates winner with curiosity gap title
+                if title_candidates:
+                    title_candidates["winner"] = best.text
+                    title_candidates["winner_thumbnail"] = best.thumbnail_text
+                else:
+                    title_candidates = {
+                        "winner": best.text,
+                        "winner_thumbnail": best.thumbnail_text,
+                        "candidates": [],
+                    }
+
+                curiosity_data = {
+                    "structure": best.structure.value,
+                    "confidence": best.structure_confidence,
+                    "thumbnail_text": best.thumbnail_text,
+                    "thumbnail_approach": best.thumbnail_approach,
+                }
+                logger.info(
+                    f"Curiosity gap: '{best.text}' "
+                    f"({best.structure.value}, {best.structure_confidence}%)"
+                )
+        except Exception as e:
+            # Non-blocking — keep original title on failure
+            logger.warning(f"Curiosity gap enhancement failed: {e}")
+
+    # Phase 3: Generate cinematic writer guidance from research payload
+    # This creates scene-specific direction instead of just copying the thesis
+    writer_guidance = ""
+    try:
+        writer_guidance = await _generate_cinematic_direction(anthropic_client, payload)
+        if writer_guidance:
+            logger.info("Generated cinematic writer guidance")
+    except Exception as e:
+        # Non-blocking — empty guidance is fine, script generator has its own rules
+        logger.warning(f"Writer guidance generation failed: {e}")
+
+    # Store in payload for write_to_airtable
+    payload["_writer_guidance"] = writer_guidance
+
+    # Write to Airtable if client provided
+    if airtable_client is not None:
+        record = write_to_airtable(
+            airtable_client, payload,
+            record_id=record_id,
+            title_candidates=title_candidates,
+        )
+        payload["_airtable_record_id"] = record["id"]
+
+        # Save curiosity structure metadata if generated
+        if curiosity_data:
+            try:
+                airtable_client.update_idea_curiosity_structure(
+                    record_id=record["id"],
+                    structure=curiosity_data["structure"],
+                    confidence=curiosity_data["confidence"],
+                    thumbnail_text=curiosity_data["thumbnail_text"],
+                    thumbnail_approach=curiosity_data["thumbnail_approach"],
+                )
+            except Exception as e:
+                logger.warning(f"Could not save curiosity structure: {e}")
+
+    # Attach title candidates to payload for callers
+    if title_candidates:
+        payload["_title_candidates"] = title_candidates
+
+    # Attach curiosity data if generated
+    if curiosity_data:
+        payload["_curiosity_structure"] = curiosity_data
+
+    return payload
+
+
+# === CLI Entry Point ===
+
+async def _cli_main():
+    """CLI entry point for standalone research agent testing."""
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Economy FastForward Deep Research Agent",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""\
+Examples:
+  python research_agent.py --topic "Why the US Dollar Could Collapse by 2030"
+  python research_agent.py --topic "AI replacing jobs" --urls "https://example.com/report"
+  python research_agent.py --topic "Federal Reserve rate cuts" --output research.json
+""",
+    )
+    parser.add_argument(
+        "--topic",
+        required=True,
+        help="The topic to research",
+    )
+    parser.add_argument(
+        "--urls",
+        nargs="*",
+        help="Optional seed URLs for research",
+    )
+    parser.add_argument(
+        "--context",
+        help="Optional additional context",
+    )
+    parser.add_argument(
+        "--output",
+        help="Output file path (default: stdout as JSON)",
+    )
+    parser.add_argument(
+        "--model",
+        default=Models.CLAUDE_SONNET,
+        help="Model to use (default: claude-sonnet-4-5-20250929)",
+    )
+    parser.add_argument(
+        "--save",
+        action="store_true",
+        help="Save research payload to Airtable Idea Concepts table",
+    )
+    parser.add_argument(
+        "--test-title",
+        help="Test title generation only (skip full research). Provide a headline.",
+    )
+
+    args = parser.parse_args()
+
+    # Load environment
+    from dotenv import load_dotenv
+    load_dotenv()
+
+    from clients.anthropic_client import AnthropicClient
+
+    anthropic = AnthropicClient()
+
+    # Title-only test mode
+    if args.test_title:
+        print(f"\n{'=' * 60}")
+        print("TITLE INTELLIGENCE — Test Mode")
+        print(f"{'=' * 60}")
+        print(f"Headline: {args.test_title}")
+        print(f"Model: {args.model}")
+        print(f"{'=' * 60}\n")
+
+        topic_data = {
+            "headline": args.test_title,
+            "entities": "",
+            "hook": args.test_title,
+            "thesis": args.test_title,
+        }
+        result = await generate_title_candidates(
+            anthropic, topic_data, framework="48 Laws", model=args.model,
+        )
+        print(json.dumps(result, indent=2))
+        print(f"\n{'=' * 60}")
+        print(f"Winner: {result.get('winner', 'N/A')}")
+        print(f"Thumbnail: {result.get('winner_thumbnail', 'N/A')}")
+        print(f"{'=' * 60}")
+        return
+
+    # Optionally initialize Airtable client
+    airtable = None
+    if args.save:
+        from clients.airtable_client import AirtableClient
+        airtable = AirtableClient()
+
+    print(f"\n{'=' * 60}")
+    print(f"RESEARCH AGENT — Deep Research")
+    print(f"{'=' * 60}")
+    print(f"Topic: {args.topic}")
+    if args.urls:
+        print(f"Seed URLs: {args.urls}")
+    print(f"Model: {args.model}")
+    print(f"Save to Airtable: {'Yes' if args.save else 'No'}")
+    print(f"{'=' * 60}\n")
+
+    payload = await run_research(
+        anthropic_client=anthropic,
+        topic=args.topic,
+        seed_urls=args.urls,
+        context=args.context,
+        model=args.model,
+        airtable_client=airtable,
+    )
+
+    output_json = json.dumps(payload, indent=2)
+
+    if args.output:
+        Path(args.output).write_text(output_json)
+        print(f"\n✅ Research saved to: {args.output}")
+        print(f"   Headline: {payload.get('headline', 'N/A')}")
+        print(f"   Fields: {len(payload)}")
+    else:
+        print(output_json)
+
+    print(f"\n{'=' * 60}")
+    print("Research complete.")
+    print(f"{'=' * 60}")
+
+
+if __name__ == "__main__":
+    asyncio.run(_cli_main())

@@ -3,6 +3,16 @@
 
 ---
 
+## Structural Change Rule
+**MANDATORY:** Any session that moves, renames, creates, or deletes files/folders MUST update `SYSTEM_STATE.md` before committing. This includes:
+- New bots, steps, or modules
+- Renamed or moved files
+- Changed import paths
+- New cron jobs or Slack commands
+- New Airtable tables or fields
+
+---
+
 ## 🦸 Superpowers Skill Integration
 
 **Skills are NOT optional. Invoke them BEFORE acting.** Use the `Skill` tool.

@@ -1,1 +1,1 @@
-"""Slack command handler modules extracted from pipeline_control.py."""
+"""Backward compatibility shim — real code at orchestrator/handlers/."""

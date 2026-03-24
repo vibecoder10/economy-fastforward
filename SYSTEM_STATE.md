@@ -1,6 +1,6 @@
 # System State — Economy FastForward
 
-> Last updated: 2026-03-01
+> Last updated: 2026-03-24
 
 ---
 
@@ -19,32 +19,46 @@
 
 ---
 
-## 2. Key File Paths
+## 2. Pipeline Architecture (Reorganized March 2026)
 
-### Pipeline Core (`skills/video-pipeline/`)
+Each production tool is a standalone folder in orchestration order. Shared infrastructure lives in `shared/`.
 
-| File | Purpose |
-|------|---------|
-| `pipeline.py` | Main orchestrator — reads Airtable status, routes to correct bot |
-| `pipeline_control.py` | Slack bot — receives `!` commands, triggers pipeline stages |
-| `approval_watcher.py` | Monitors Airtable for manual approvals |
-| `discovery_scanner.py` | Finds trending topics for video ideas |
-| `research_agent.py` | Deep research on topics using Claude |
-| `render_video.py` | Calls Remotion to produce final MP4 |
-| `performance_tracker.py` | Daily YouTube metrics sync → Airtable |
+### Bot Folders (`skills/video-pipeline/`)
 
-### API Clients (`skills/video-pipeline/clients/`)
+| Folder | Purpose | Key Files |
+|--------|---------|-----------|
+| `orchestrator/` | Pipeline brain — status-driven router, Slack bot | `pipeline.py`, `pipeline_control.py`, `pipeline_constants.py`, `handlers/` |
+| `autopilot/` | Autonomous intelligence — CTR/VPH data-driven video selection | `autopilot.py`, `core/`, `analysis/`, `monitoring/`, `learning/`, `memory/` |
+| `competitor_scraper/` | Pull competitor YouTube data | `scraper.py`, `run.py` |
+| `discovery/` | Headline scanning + trending topics | `scanner.py`, `bot.py`, `tracker.py` |
+| `title_idea/` | Title creation from data-backed research | `idea_bot.py`, `trending_idea_bot.py`, `curiosity_gap/` |
+| `research/` | Deep-dive factual research | `agent.py` |
+| `script/` | 6-scene script writing | `run.py`, `story_bible.py`, `brief_translator/` (11 files + 7 tests) |
+| `voice/` | Voice synthesis (ElevenLabs) | `run.py` |
+| `image_prompts/` | Image prompt generation (3-style system) | `run.py`, `engine/` (prompt_builder, sequencer, style_config) |
+| `storyboard/` | Storyboard grid generation | `run.py`, `run_images.py`, `run_extract.py` |
+| `images/` | Image creation (Seed Dream 4.5) | `run.py` |
+| `video_motion/` | Video scripts + clip generation (Veo 3.1) | `run_scripts.py`, `run_generate.py` |
+| `sound/` | Sound FX + Music selection | `run_design.py`, `run_effects.py`, `music_selector.py` |
+| `thumbnail/` | Thumbnail generation | `run.py`, `engine.py`, `selector.py`, `templates.py` |
+| `render/` | Audio sync + Remotion rendering | `run.py`, `render_video.py`, `audio_sync/` (7 files + 4 tests) |
+| `upload/` | YouTube upload + SEO | `run.py`, `youtube_uploader.py`, `seo_generator.py` |
+| `analytics/` | Performance tracking + Osiris learning | `performance_tracker.py`, `osiris/` |
 
-| File | Service |
-|------|---------|
-| `airtable_client.py` | Airtable — record CRUD, status transitions |
-| `google_client.py` | Google Drive & Docs — file upload, folder management |
-| `image_client.py` | Kie.ai — image/video generation (Seed Dream 4.5, Veo 3.1) |
-| `elevenlabs_client.py` | ElevenLabs via Wavespeed — voice synthesis |
-| `anthropic_client.py` | Claude AI — scripts, prompts, analysis |
-| `slack_client.py` | Slack — notifications (non-blocking) |
-| `gemini_client.py` | Gemini Vision — thumbnail spec extraction |
-| `style_engine.py` | Internal — scene types, camera patterns |
+### Shared Infrastructure
+
+| Folder | Purpose |
+|--------|---------|
+| `shared/clients/` | API wrappers (airtable, anthropic, image, elevenlabs, google, slack, etc.) |
+| `shared/profiles/visual/` | Visual style profiles (cinematic_illustration, dossier, hud, mannequin) |
+| `shared/profiles/script/` | Script voice profiles (power_doctrine_v1, v2) |
+| `shared/json_utils.py` | JSON parsing utilities |
+| `shared/channel_profile.py` | Channel-specific settings |
+| `infra/` | Setup scripts, cron, healthcheck, auth utilities |
+
+### Backward Compatibility
+
+Old import paths (e.g., `from clients.airtable_client import ...`) still work via shim files that re-export from new locations. Shims exist at: `clients/`, `bots/`, `steps/`, `visual_profiles/`, `script_profiles/`, `brief_translator/`, `image_prompt_engine/`, `audio_sync/`, `osiris/`, `curiosity_gap/`, `handlers/`.
 
 ### Remotion
 
@@ -196,6 +210,8 @@ Both methods:
 
 **Bot commands:** `!status`, `!run`, `!update`, `!logs`, `!health`, `!queue`, `!approve`, `!reject`
 
+**Autopilot commands:** `autopilot on/off`, `autopilot status`, `autopilot force`, `autopilot config`, `autopilot learnings`, `autopilot patterns thumb/title`, `autopilot ctr [title]`
+
 **Notification methods (all non-blocking):**
 
 | Method | When |
@@ -216,17 +232,24 @@ Both methods:
 ## 6. Cron Schedule
 
 **Timezone:** `America/Los_Angeles` (US/Pacific)
-**Source:** `skills/video-pipeline/setup_cron.sh`
+**Source:** `skills/video-pipeline/infra/setup_cron.sh`
 
 Each job auto-pulls from GitHub (`git pull origin main --ff-only`) before running.
 
 | Time | Job | Command | Timeout |
 |------|-----|---------|---------|
-| 2:00 PM UTC (6:00 AM PST) daily | Discovery Scanner | `pipeline.py --discover` | 10 min |
-| 6:00 AM UTC daily | Performance Tracker | `performance_tracker.py` | 10 min |
-| 8:00 AM PT daily | Pipeline Queue Runner | `pipeline.py --run-queue` | 4 hours |
+| 5:00 AM PT | Competitor Scraper | `osiris.competitor_scraper` | 10 min |
+| 5:30 AM PT | Channel Scraper | `pipeline.py --competitors` | 10 min |
+| **6:30 AM PT** | **Autopilot Decision Cycle** | `autopilot --check-cycle` | 15 min |
+| 7:00 AM PT | Performance Tracker | `performance_tracker.py --recent` | 10 min |
+| **7:30 AM PT** | **Autopilot CTR Monitor** | `autopilot.ctr_monitor` | 10 min |
+| 8:00 AM PT | Pipeline Queue Runner | `pipeline.py --run-queue` | 4 hours |
+| **8:30 AM PT** | **Autopilot Learning Extractor** | `autopilot.learning_extractor` | 10 min |
+| 9:00 AM PT | Discovery Scanner | `pipeline.py --discover` | 10 min |
 | Every 15 min | Bot Health Check | `bot_healthcheck.sh` | — |
 | Every 30 min | Approval Watcher | `approval_watcher.py` | 10 min |
+
+**Bold = Autopilot jobs** (added March 2026)
 
 > **Note:** `setup_cron.sh` says `0 5 * * *` with `CRON_TZ=America/Los_Angeles`, but the actual VPS crontab runs discovery at 2PM UTC. Actual crontab takes precedence.
 
@@ -276,7 +299,39 @@ Done
 
 ---
 
-## 8. Known Issues / Tech Debt
+## 8. Autopilot Brain (March 2026)
+
+Autonomous orchestration layer above the pipeline. Learns from CTR/VPH/retention data to auto-select and produce winning videos.
+
+**Status:** Chunks 1-3 complete (102 tests). Foundation, thumbnail analysis, CTR monitoring, and learning extraction all implemented.
+
+**Components:**
+- `core/` — Config parser, state manager, cadence manager, confidence scorer, notifier
+- `analysis/` — Thumbnail analyzer (Claude Vision), adapter (REPLACE:/APPEND:), title selector
+- `monitoring/` — CTR monitor (6h/24h/48h), early warning system, performance comparator
+- `learning/` — Pattern library, learning extractor, memory writer
+- `memory/` — LEARNINGS.md, thumbnail_patterns.md, title_patterns.md, experiments_log.md
+
+**Commands:** `python -m autopilot.autopilot --status`, `--check-cycle`, `--force`
+
+**Design spec:** `docs/superpowers/specs/2026-03-18-autopilot-brain-design.md`
+
+---
+
+## 9. Osiris Learning System (March 2026)
+
+Performance analysis system that extracts patterns from video metrics and competitor data.
+
+- `osiris/competitor_scraper.py` — Scrapes all competitor videos into Competitor Videos table
+- `osiris/performance_analyzer.py` — 48h/7d post-mortem analysis → learnings extraction
+- `osiris/title_analyzer.py` — Title pattern analysis (structural vs semantic)
+- `osiris/learnings_engine.py` — Injects learned patterns into generation prompts
+
+**Related tables:** Competitor Videos, Osiris Learnings, Title Insights
+
+---
+
+## 10. Known Issues / Tech Debt
 
 ### Critical
 
