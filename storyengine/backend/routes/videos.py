@@ -280,3 +280,73 @@ async def update_video_styles(
             "image_model_override": image_model_override,
         },
     }
+
+
+@router.post("/{video_id}/accept-suggestion")
+async def accept_suggestion(video_id: str, request: dict, tenant_id: str = Depends(get_tenant_id)):
+    """Accept agent suggestions — copies selected suggested_* fields to current fields."""
+    accept_fields = request.get("accept", [])  # ["script", "title", "thumbnail"]
+
+    # Verify video exists and belongs to tenant
+    video = await fetch_one(
+        "SELECT id FROM videos WHERE id = $1 AND tenant_id = $2",
+        video_id, tenant_id,
+    )
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+
+    # Build SET clauses dynamically based on what's being accepted
+    set_clauses = []
+    if "script" in accept_fields:
+        set_clauses.append("script = suggested_script")
+    if "title" in accept_fields:
+        set_clauses.append("video_title = suggested_title")
+    if "thumbnail" in accept_fields:
+        set_clauses.append("thumbnail_prompt = suggested_thumbnail_prompt")
+
+    if not set_clauses:
+        raise HTTPException(status_code=400, detail="No fields specified to accept")
+
+    # Also clear suggestion fields and set status
+    set_clauses.extend([
+        "suggested_script = NULL",
+        "suggested_title = NULL",
+        "suggested_thumbnail_prompt = NULL",
+        "suggested_thumbnail_urls = NULL",
+        "suggestion_source = NULL",
+        "suggestion_scores = NULL",
+        "suggestion_status = 'accepted'",
+        "updated_at = NOW()",
+    ])
+
+    query = f"UPDATE videos SET {', '.join(set_clauses)} WHERE id = $1"
+    await execute(query, video_id)
+
+    return {"status": "ok", "video_id": video_id, "accepted": accept_fields}
+
+
+@router.post("/{video_id}/reject-suggestion")
+async def reject_suggestion(video_id: str, tenant_id: str = Depends(get_tenant_id)):
+    """Reject agent suggestions — clears all suggested_* fields."""
+    # Verify video exists and belongs to tenant
+    video = await fetch_one(
+        "SELECT id FROM videos WHERE id = $1 AND tenant_id = $2",
+        video_id, tenant_id,
+    )
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+
+    await execute("""
+        UPDATE videos SET
+            suggested_script = NULL,
+            suggested_title = NULL,
+            suggested_thumbnail_prompt = NULL,
+            suggested_thumbnail_urls = NULL,
+            suggestion_source = NULL,
+            suggestion_scores = NULL,
+            suggestion_status = 'rejected',
+            updated_at = NOW()
+        WHERE id = $1
+    """, video_id)
+
+    return {"status": "ok", "video_id": video_id}
