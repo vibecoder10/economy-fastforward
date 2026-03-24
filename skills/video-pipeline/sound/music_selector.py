@@ -157,7 +157,7 @@ def _list_music_tracks() -> list[dict]:
     Returns:
         List of dicts with 'name' and 'id' keys
     """
-    from clients.google_client import GoogleClient
+    from shared.clients.google_client import GoogleClient
 
     client = GoogleClient()
     files = client.list_files_in_folder(MUSIC_FOLDER_ID)

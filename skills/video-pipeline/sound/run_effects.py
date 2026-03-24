@@ -7,7 +7,7 @@ Clients: sound_client, google, airtable, slack
 """
 
 from orchestrator.pipeline_constants import Statuses
-from bots.sound_bot import SoundBot
+from sound.sound_bot import SoundBot
 from shared.clients.sound_client import SoundClient
 
 

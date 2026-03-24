@@ -7,7 +7,7 @@ Clients: anthropic, airtable
 """
 
 from orchestrator.pipeline_constants import Statuses
-from bots.sound_prompt_bot import SoundPromptBot
+from sound.sound_prompt_bot import SoundPromptBot
 
 
 async def run(pipeline) -> dict:

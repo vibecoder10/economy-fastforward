@@ -33,7 +33,7 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 # Import competitor VPH calculation
-from bots.competitor_scraper import calculate_vph
+from competitor_scraper.scraper import calculate_vph
 from shared.clients.narrative_extractor import extract_narrative_fields_from_concept
 from orchestrator.pipeline_constants import IdeaFields, Models
 from shared.json_utils import parse_json_response
@@ -354,7 +354,7 @@ class DiscoveryScanner:
         Returns:
             String containing gathered headlines
         """
-        from clients.anthropic_client import WEB_SEARCH_TOOL
+        from shared.clients.anthropic_client import WEB_SEARCH_TOOL
 
         if focus:
             scan_prompt = f"""\
@@ -1208,7 +1208,7 @@ Examples:
     from dotenv import load_dotenv
     load_dotenv()
 
-    from clients.anthropic_client import AnthropicClient
+    from shared.clients.anthropic_client import AnthropicClient
 
     anthropic = AnthropicClient()
 

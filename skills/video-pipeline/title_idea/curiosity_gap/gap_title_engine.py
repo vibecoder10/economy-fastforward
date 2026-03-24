@@ -349,7 +349,7 @@ class GapTitleEngine:
     @property
     def anthropic_client(self):
         if self._anthropic_client is None:
-            from clients.anthropic_client import AnthropicClient
+            from shared.clients.anthropic_client import AnthropicClient
             self._anthropic_client = AnthropicClient()
         return self._anthropic_client
 

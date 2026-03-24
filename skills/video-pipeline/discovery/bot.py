@@ -135,21 +135,21 @@ class DiscoveryBot:
     @property
     def anthropic(self):
         if self._anthropic is None:
-            from clients.anthropic_client import AnthropicClient
+            from shared.clients.anthropic_client import AnthropicClient
             self._anthropic = AnthropicClient()
         return self._anthropic
 
     @property
     def airtable(self):
         if self._airtable is None:
-            from clients.airtable_client import AirtableClient
+            from shared.clients.airtable_client import AirtableClient
             self._airtable = AirtableClient()
         return self._airtable
 
     @property
     def slack(self):
         if self._slack is None:
-            from clients.slack_client import SlackClient
+            from shared.clients.slack_client import SlackClient
             self._slack = SlackClient()
         return self._slack
 
@@ -298,7 +298,7 @@ class DiscoveryBot:
         channel_id: str,
     ):
         """Auto-trigger deep research on an approved idea."""
-        from research_agent import run_research, infer_framework_from_research
+        from research.agent import run_research, infer_framework_from_research
 
         context_parts = [idea.get("our_angle", ""), idea.get("hook", "")]
         if idea.get("historical_parallel_hint"):

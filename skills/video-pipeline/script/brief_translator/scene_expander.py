@@ -73,7 +73,7 @@ async def _expand_with_scene_blocks(
     """
     import sys
     from pathlib import Path
-    from bots.story_bible import get_all_images_from_blocks
+    from script.story_bible import get_all_images_from_blocks
 
     # --- Step 1: Deterministic text splitting (verbatim segments) -----------
     sys.path.insert(0, str(Path(__file__).parent.parent / "clients"))
@@ -178,7 +178,7 @@ async def _expand_with_scene_blocks(
     is_holographic = profile is None or profile.profile_id == "holographic_hud"
 
     try:
-        from bots.story_bible import format_bible_for_prompt
+        from script.story_bible import format_bible_for_prompt
         bible_context = format_bible_for_prompt(story_bible, scene_number)
     except ImportError:
         bible_context = ""
@@ -500,7 +500,7 @@ async def expand_scene_concepts_deterministic(
 
     # Import Story Bible helpers
     try:
-        from bots.story_bible import (
+        from script.story_bible import (
             format_bible_for_prompt,
             has_scene_blocks,
             get_all_images_from_blocks,
@@ -558,7 +558,7 @@ async def expand_scene_concepts_deterministic(
         bible_context = format_bible_for_prompt(story_bible, scene_number)
         # Get ALL visual arc entries for this scene (Claude generates multiple per scene)
         try:
-            from bots.story_bible import get_scene_arcs
+            from script.story_bible import get_scene_arcs
             scene_arcs = get_scene_arcs(story_bible, scene_number)
         except ImportError:
             scene_arcs = []

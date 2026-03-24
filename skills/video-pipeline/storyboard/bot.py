@@ -241,7 +241,7 @@ async def generate_storyboard_prompts_for_video(
         Dict with scene_number -> list of storyboard prompts
     """
     if airtable_client is None:
-        from clients.airtable_client import AirtableClient
+        from shared.clients.airtable_client import AirtableClient
         airtable_client = AirtableClient()
 
     # Get script records to find scene IDs
@@ -811,7 +811,7 @@ async def generate_storyboard_directive(
         keyframes (parsed list), contact_sheet_prompt, full_response.
     """
     if anthropic_client is None:
-        from clients.anthropic_client import AnthropicClient
+        from shared.clients.anthropic_client import AnthropicClient
         anthropic_client = AnthropicClient()
 
     system_prompt = _build_directive_system_prompt(profile, beat_duration_seconds)
@@ -1040,7 +1040,7 @@ async def generate_storyboard_plan(
     Called by !storyboard command to show cost estimate and beat breakdown.
     """
     if airtable_client is None:
-        from clients.airtable_client import AirtableClient
+        from shared.clients.airtable_client import AirtableClient
         airtable_client = AirtableClient()
 
     fields = idea_record.get("fields", idea_record)
@@ -1098,10 +1098,10 @@ async def run_storyboard_preview(
     formatted preview. Used by !storyboard-preview and --directive-only.
     """
     if airtable_client is None:
-        from clients.airtable_client import AirtableClient
+        from shared.clients.airtable_client import AirtableClient
         airtable_client = AirtableClient()
     if anthropic_client is None:
-        from clients.anthropic_client import AnthropicClient
+        from shared.clients.anthropic_client import AnthropicClient
         anthropic_client = AnthropicClient()
 
     fields = idea_record.get("fields", idea_record)
@@ -1488,7 +1488,7 @@ async def generate_contact_sheet(
     Returns Google Drive URL of the generated grid image.
     """
     if image_client is None:
-        from clients.image_client import ImageClient
+        from shared.clients.image_client import ImageClient
         image_client = ImageClient()
 
     # Prepend technical grid wrapper
@@ -1540,7 +1540,7 @@ async def upscale_panel(
     to ensure the upscaled image matches the storyboard's cinematic intent.
     """
     if image_client is None:
-        from clients.image_client import ImageClient
+        from shared.clients.image_client import ImageClient
         image_client = ImageClient()
 
     prompt = (
@@ -1578,10 +1578,10 @@ async def run_storyboard_prompts(
     Returns dict with beat_count, prompts_generated, and cost.
     """
     if airtable_client is None:
-        from clients.airtable_client import AirtableClient
+        from shared.clients.airtable_client import AirtableClient
         airtable_client = AirtableClient()
     if anthropic_client is None:
-        from clients.anthropic_client import AnthropicClient
+        from shared.clients.anthropic_client import AnthropicClient
         anthropic_client = AnthropicClient()
 
     def notify(msg: str):
@@ -1783,10 +1783,10 @@ async def run_storyboard_images(
     Returns dict with grids_generated and cost.
     """
     if airtable_client is None:
-        from clients.airtable_client import AirtableClient
+        from shared.clients.airtable_client import AirtableClient
         airtable_client = AirtableClient()
     if image_client is None:
-        from clients.image_client import ImageClient
+        from shared.clients.image_client import ImageClient
         image_client = ImageClient()
 
     def notify(msg: str):
@@ -1995,7 +1995,7 @@ async def run_storyboard_grids(
 
     # Refresh idea record to get updated prompts
     if airtable_client is None:
-        from clients.airtable_client import AirtableClient
+        from shared.clients.airtable_client import AirtableClient
         airtable_client = AirtableClient()
 
     idea_id = idea_record.get("id", "")
@@ -2038,13 +2038,13 @@ async def run_storyboard_extract(
     Resume-safe: checks existing panel status before processing.
     """
     if airtable_client is None:
-        from clients.airtable_client import AirtableClient
+        from shared.clients.airtable_client import AirtableClient
         airtable_client = AirtableClient()
     if image_client is None:
-        from clients.image_client import ImageClient
+        from shared.clients.image_client import ImageClient
         image_client = ImageClient()
     if google_client is None:
-        from clients.google_client import GoogleClient
+        from shared.clients.google_client import GoogleClient
         google_client = GoogleClient()
 
     fields = idea_record.get("fields", idea_record)
@@ -2219,7 +2219,7 @@ async def _generate_story_bible_for_storyboard(
         Generated Story Bible dict, or None on failure
     """
     import json
-    from bots.story_bible import generate_story_bible, has_scene_blocks
+    from script.story_bible import generate_story_bible, has_scene_blocks
 
     def notify(msg: str):
         if slack_client:

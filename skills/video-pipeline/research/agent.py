@@ -11,7 +11,7 @@ Usage (standalone):
     python research_agent.py --topic "Why the US Dollar Could Collapse by 2030"
 
 Usage (imported):
-    from research_agent import ResearchAgent, run_research
+    from research.agent import ResearchAgent, run_research
 
     agent = ResearchAgent(anthropic_client)
     payload = await agent.research("Why the US Dollar Could Collapse by 2030")
@@ -698,7 +698,7 @@ class ResearchAgent:
                 - title_options (str)
                 - thumbnail_concepts (str)
         """
-        from clients.anthropic_client import WEB_SEARCH_TOOL
+        from shared.clients.anthropic_client import WEB_SEARCH_TOOL
 
         logger.info(f"Starting deep research on: {topic}")
 
@@ -1132,7 +1132,7 @@ Examples:
     from dotenv import load_dotenv
     load_dotenv()
 
-    from clients.anthropic_client import AnthropicClient
+    from shared.clients.anthropic_client import AnthropicClient
 
     anthropic = AnthropicClient()
 
@@ -1164,7 +1164,7 @@ Examples:
     # Optionally initialize Airtable client
     airtable = None
     if args.save:
-        from clients.airtable_client import AirtableClient
+        from shared.clients.airtable_client import AirtableClient
         airtable = AirtableClient()
 
     print(f"\n{'=' * 60}")

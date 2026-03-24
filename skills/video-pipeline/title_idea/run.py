@@ -9,8 +9,8 @@ Clients: anthropic, airtable, gemini, slack, apify (trending only)
 from typing import Optional
 
 from orchestrator.pipeline_constants import Statuses
-from bots.idea_bot import IdeaBot
-from bots.trending_idea_bot import TrendingIdeaBot
+from title_idea.idea_bot import IdeaBot
+from title_idea.trending_idea_bot import TrendingIdeaBot
 
 
 async def run_idea(pipeline, input_text: str) -> dict:

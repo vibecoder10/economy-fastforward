@@ -199,8 +199,8 @@ async def _select_and_download_music(
     Returns:
         music_beds array for render_config.json
     """
-    from bots.music_selector import select_music_for_script
-    from clients.anthropic_client import AnthropicClient
+    from sound.music_selector import select_music_for_script
+    from shared.clients.anthropic_client import AnthropicClient
 
     # Build scene-to-act mapping from render_config
     scene_to_act: dict[int, int] = {}

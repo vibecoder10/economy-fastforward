@@ -26,7 +26,7 @@ async def run(pipeline) -> dict:
     # --- STEP 1: Generate SEO metadata ---
     print("  Generating SEO metadata...")
     try:
-        from bots.seo_generator import SEOGenerator
+        from upload.seo_generator import SEOGenerator
 
         seo = SEOGenerator(pipeline.anthropic)
         scripts = pipeline.airtable.get_scripts_by_title(pipeline.video_title)
@@ -74,7 +74,7 @@ async def run(pipeline) -> dict:
     # --- STEP 2: Upload to YouTube ---
     print("  Uploading to YouTube...")
     try:
-        from bots.youtube_uploader import YouTubeUploader
+        from upload.youtube_uploader import YouTubeUploader
 
         yt = YouTubeUploader()
         upload_result = yt.upload_from_drive(

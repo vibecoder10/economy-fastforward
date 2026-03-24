@@ -199,7 +199,7 @@ async def run(pipeline) -> dict:
             voice_url = voice_over[0].get("url")
             if voice_url:
                 try:
-                    from clients.sentence_utils import get_audio_duration
+                    from shared.clients.sentence_utils import get_audio_duration
                     voice_duration = get_audio_duration(voice_url)
                     if voice_duration:
                         print(f"    Voice duration: {voice_duration:.1f}s "
@@ -406,7 +406,7 @@ def _load_or_generate_story_bible(pipeline, scripts: list) -> dict | None:
     existing_bible_json = (pipeline.current_idea.get(IdeaFields.STORY_BIBLE) or "").strip()
     if existing_bible_json:
         try:
-            from bots.story_bible import has_scene_blocks
+            from script.story_bible import has_scene_blocks
 
             story_bible = json.loads(existing_bible_json)
             char_count = len(story_bible.get("characters", []))
@@ -451,7 +451,7 @@ async def _generate_story_bible(pipeline, scripts: list) -> dict | None:
     """Generate a new Story Bible asynchronously."""
     print(f"  📖 Generating Story Bible for visual consistency...")
     try:
-        from bots.story_bible import generate_story_bible, has_scene_blocks
+        from script.story_bible import generate_story_bible, has_scene_blocks
         from orchestrator.pipeline_config import VideoConfig
 
         video_length = pipeline.current_idea.get(IdeaFields.VIDEO_LENGTH_MIN, 10)
@@ -530,7 +530,7 @@ async def _regenerate_visual_descriptions(
     _regen_bible_context = ""
     if story_bible and not _regen_is_holographic:
         try:
-            from bots.story_bible import format_bible_for_prompt
+            from script.story_bible import format_bible_for_prompt
             _regen_bible_context = format_bible_for_prompt(story_bible, scene_num)
         except ImportError:
             pass

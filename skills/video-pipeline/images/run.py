@@ -123,8 +123,8 @@ async def _generate_images(pipeline) -> dict:
         return {"image_count": 0, "failed_count": 0}
 
     # Check for image model override (hot-swap via Slack !model command)
-    from clients.image_client import ImageClient
-    from clients.airtable_client import get_image_model_override
+    from shared.clients.image_client import ImageClient
+    from shared.clients.airtable_client import get_image_model_override
     model_override = get_image_model_override(pipeline.current_idea)
     if model_override and model_override not in ImageClient.VALID_SCENE_MODELS:
         print(f"     ⚠️ Invalid model override '{model_override}', falling back to default")

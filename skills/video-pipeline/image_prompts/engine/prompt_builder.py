@@ -679,7 +679,7 @@ def build_prompt_from_block(
     color_mood : str, optional
         Sequencer-assigned color mood (e.g. "cold teal", "warm amber")
     """
-    from bots.story_bible import get_character_by_id
+    from script.story_bible import get_character_by_id
 
     # Load profile for intelligent assembly
     profile = _get_profile()

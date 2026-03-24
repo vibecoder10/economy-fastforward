@@ -608,7 +608,7 @@ def main(recent_only: bool = False, dry_run: bool = False):
 
     # Initialize Airtable client
     sys.path.insert(0, str(Path(__file__).parent))
-    from clients.airtable_client import AirtableClient
+    from shared.clients.airtable_client import AirtableClient
     airtable = AirtableClient()
 
     # Get uploaded videos
@@ -735,7 +735,7 @@ def main(recent_only: bool = False, dry_run: bool = False):
     # Send Slack summary (non-blocking)
     if not dry_run:
         try:
-            from clients.slack_client import SlackClient
+            from shared.clients.slack_client import SlackClient
             slack = SlackClient()
             summary = build_slack_summary(results, len(videos))
             slack.send_message(summary)

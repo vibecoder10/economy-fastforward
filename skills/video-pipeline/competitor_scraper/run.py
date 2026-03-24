@@ -26,7 +26,7 @@ from shared.clients.apify_client import ApifyYouTubeClient
 from shared.clients.anthropic_client import AnthropicClient
 from shared.clients.airtable_client import AirtableClient
 from shared.clients.slack_client import SlackClient
-from bots.competitor_scraper import CompetitorScraper
+from competitor_scraper.scraper import CompetitorScraper
 
 
 async def main():

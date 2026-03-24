@@ -24,6 +24,7 @@ RULES:
 """
 
 import os
+import sys
 import asyncio
 import json
 from datetime import datetime, timezone
@@ -31,6 +32,11 @@ from pathlib import Path
 from typing import Optional
 from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
+
+# Ensure the pipeline root (skills/video-pipeline/) is on sys.path
+_pipeline_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _pipeline_root not in sys.path:
+    sys.path.insert(0, _pipeline_root)
 
 # Load environment variables
 load_dotenv()
@@ -44,10 +50,10 @@ from shared.clients.image_client import ImageClient
 from shared.clients.gemini_client import GeminiClient
 from shared.clients.apify_client import ApifyYouTubeClient
 from shared.clients.sound_client import SoundClient
-from bots.idea_bot import IdeaBot
-from bots.trending_idea_bot import TrendingIdeaBot
-from bots.sound_prompt_bot import SoundPromptBot
-from bots.sound_bot import SoundBot
+from title_idea.idea_bot import IdeaBot
+from title_idea.trending_idea_bot import TrendingIdeaBot
+from sound.sound_prompt_bot import SoundPromptBot
+from sound.sound_bot import SoundBot
 from orchestrator.pipeline_config import VideoConfig
 from orchestrator.pipeline_constants import Models, Statuses, IdeaFields, ScriptFields, ImageFields
 
@@ -180,7 +186,7 @@ class VideoPipeline:
             self._duration_was_set = False
 
         # Load visual style from Airtable (for visual profile selection)
-        from clients.airtable_client import get_visual_style
+        from shared.clients.airtable_client import get_visual_style
         self.visual_style = get_visual_style(idea)
         # Set env var so load_profile() picks it up everywhere in the pipeline
         os.environ["VISUAL_PROFILE"] = self.visual_style
@@ -532,14 +538,14 @@ class VideoPipeline:
 
     async def run_idea_bot(self, input_text: str) -> dict:
         """Generate video ideas from a YouTube URL or concept."""
-        from steps.step_idea import run_idea as _step_run
+        from title_idea.run import run_idea as _step_run
         return await _step_run(self, input_text)
 
     async def run_trending_idea_bot(
         self, search_queries: list[str] = None, num_ideas: int = 3
     ) -> dict:
         """Generate ideas from trending YouTube videos."""
-        from steps.step_idea import run_trending as _step_run
+        from title_idea.run import run_trending as _step_run
         return await _step_run(self, search_queries, num_ideas)
 
     
@@ -552,7 +558,7 @@ class VideoPipeline:
 
         Has a 30-second timeout to prevent pipeline stalls.
         """
-        from research_agent import refine_title_post_script
+        from research.agent import refine_title_post_script
 
         try:
             result = await asyncio.wait_for(
@@ -587,37 +593,37 @@ class VideoPipeline:
 
     async def run_voice_bot(self) -> dict:
         """Generate voiceovers for script scenes."""
-        from steps.step_voice import run as _step_run
+        from voice.run import run as _step_run
         return await _step_run(self)
 
     async def run_sound_prompt_bot(self) -> dict:
         """Generate sound design prompts from image descriptions."""
-        from steps.step_sound_design import run as _step_run
+        from sound.run_design import run as _step_run
         return await _step_run(self)
 
     async def run_sound_bot(self) -> dict:
         """Generate sound effects from prompts."""
-        from steps.step_sound_effects import run as _step_run
+        from sound.run_effects import run as _step_run
         return await _step_run(self)
 
     async def run_image_bot(self) -> dict:
         """Generate images from prompts (outer wrapper with status management)."""
-        from steps.step_images import run as _step_run
+        from images.run import run as _step_run
         return await _step_run(self)
 
     async def run_video_script_bot(self) -> dict:
         """Generate video motion prompts for images."""
-        from steps.step_video_scripts import run as _step_run
+        from video_motion.run_scripts import run as _step_run
         return await _step_run(self)
 
     async def run_video_gen_bot(self) -> dict:
         """Generate video clips from images with motion prompts."""
-        from steps.step_video_gen import run as _step_run
+        from video_motion.run_generate import run as _step_run
         return await _step_run(self)
 
     async def run_brief_translator(self, brief: dict = None) -> dict:
         """Generate a script from a research brief."""
-        from steps.step_script import run as _step_run
+        from script.run import run as _step_run
         return await _step_run(self, brief=brief)
 
     def _get_visual_seeds(self) -> str:
@@ -641,22 +647,22 @@ class VideoPipeline:
 
     async def run_styled_image_prompts(self, scene_filepath: str = None) -> dict:
         """Expand script scenes into visual concepts and generate styled image prompts."""
-        from steps.step_image_prompts import run as _step_run
+        from image_prompts.run import run as _step_run
         return await _step_run(self)
 
     async def run_storyboard_prompts(self) -> dict:
         """Generate storyboard prompts via Claude (Phase 1A)."""
-        from steps.step_storyboard import run as _step_run
+        from storyboard.run import run as _step_run
         return await _step_run(self)
 
     async def run_storyboard_images(self) -> dict:
         """Generate storyboard contact sheets from prompts (Phase 1B)."""
-        from steps.step_storyboard_images import run as _step_run
+        from storyboard.run_images import run as _step_run
         return await _step_run(self)
 
     async def run_storyboard_extract(self) -> dict:
         """Extract panels from storyboard grids (Phase 2, after review)."""
-        from steps.step_storyboard_extract import run as _step_run
+        from storyboard.run_extract import run as _step_run
         return await _step_run(self)
 
     async def run_full_pipeline(self, input_text: str) -> dict:
@@ -819,37 +825,37 @@ class VideoPipeline:
 
     async def run_thumbnail_bot(self) -> dict:
         """Generate matched thumbnail + title pair for the video."""
-        from steps.step_thumbnail import run as _step_run
+        from thumbnail.run import run as _step_run
         return await _step_run(self)
     
     def _clean_render_assets(self, label: str = "stale") -> int:
         """Remove all render assets from disk (public/, captions/, out/)."""
-        from steps.step_render import _clean_render_assets
+        from render.run import _clean_render_assets
         return _clean_render_assets(label)
 
     async def run_render_bot(self) -> dict:
         """Render video with Remotion and upload to Google Drive."""
-        from steps.step_render import run as _step_run
+        from render.run import run as _step_run
         return await _step_run(self)
 
     async def run_audio_sync(self, audio_path: str = None, scene_list: list = None) -> dict:
         """Calculate per-image durations by matching Sentence Text to audio."""
-        from steps.step_audio_sync import run as _step_run
+        from render.run_audio_sync import run as _step_run
         return await _step_run(self, audio_path, scene_list)
 
     async def run_youtube_upload_bot(self) -> dict:
         """Generate SEO metadata and upload video to YouTube as unlisted draft."""
-        from steps.step_upload import run as _step_run
+        from upload.run import run as _step_run
         return await _step_run(self)
 
     async def package_for_remotion(self) -> dict:
         """Package all assets for Remotion video editing."""
-        from steps.step_package import run as _step_run
+        from upload.run_package import run as _step_run
         return await _step_run(self)
 
     async def regenerate_images(self, scene_list: list[int] = None, image_indices: list[tuple[int, int]] = None) -> dict:
         """Regenerate specific missing images for the current video."""
-        from steps.step_regenerate import run as _step_run
+        from render.run import run as _step_run
         return await _step_run(self, scene_list, image_indices)
 
 
@@ -925,7 +931,7 @@ async def main():
 
     # === DEEP RESEARCH ===
     if len(sys.argv) > 1 and sys.argv[1] == "--research":
-        from research_agent import run_research
+        from research.agent import run_research
 
         if len(sys.argv) < 3:
             print("=" * 60)
@@ -958,7 +964,7 @@ async def main():
     # === MORE IDEAS FROM FORMAT LIBRARY ===
     if len(sys.argv) > 1 and sys.argv[1] == "--more-ideas":
         import os as os_mod
-        from bots.idea_modeling import generate_modeled_ideas
+        from title_idea.idea_modeling import generate_modeled_ideas
 
         config_path = os_mod.path.join(os_mod.path.dirname(__file__), "config", "idea_modeling_config.json")
 
@@ -989,8 +995,8 @@ async def main():
             print(f"  - {formula_display} (seen {seen}x)")
 
         load_dotenv()
-        from clients.anthropic_client import AnthropicClient as _AnthropicClient
-        from clients.airtable_client import AirtableClient as _AirtableClient
+        from shared.clients.anthropic_client import AnthropicClient as _AnthropicClient
+        from shared.clients.airtable_client import AirtableClient as _AirtableClient
 
         anthropic = _AnthropicClient()
         airtable = _AirtableClient()
@@ -1047,7 +1053,7 @@ async def main():
 
     # === COMPETITOR SCRAPER ===
     if len(sys.argv) > 1 and sys.argv[1] == "--competitors":
-        from bots.competitor_scraper import CompetitorScraper
+        from title_idea.competitor_scraper import CompetitorScraper
 
         if not pipeline.apify:
             print("ERROR: APIFY_API_KEY not configured. Add it to .env")

@@ -750,7 +750,7 @@ async def _select_and_download_music(pipeline, props: dict, public_dir: Path) ->
 
     Returns list of music_bed dicts with: act, file, mood, volume
     """
-    from bots.music_selector import select_music_for_script, MUSIC_FOLDER_ID
+    from sound.music_selector import select_music_for_script, MUSIC_FOLDER_ID
 
     # Get render_config to extract act boundaries
     rc_data = props.get("renderConfig", {})
@@ -799,7 +799,7 @@ async def _select_and_download_music(pipeline, props: dict, public_dir: Path) ->
     print(f"  🎵 Selecting background music for {len(acts)} acts...")
 
     # Create Anthropic client and select music
-    from clients.anthropic_client import AnthropicClient
+    from shared.clients.anthropic_client import AnthropicClient
     anthropic = AnthropicClient()
     music_beds = await select_music_for_script(anthropic, acts)
 

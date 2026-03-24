@@ -13,7 +13,7 @@ from typing import Optional
 import json
 import os
 
-from bots.idea_modeling import decompose_title, extract_format, generate_modeled_ideas
+from title_idea.idea_modeling import decompose_title, extract_format, generate_modeled_ideas
 from shared.clients.narrative_extractor import extract_narrative_fields_from_concept
 from orchestrator.pipeline_constants import Models, CURIOSITY_GAP_ENABLED
 

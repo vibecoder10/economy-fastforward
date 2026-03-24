@@ -15,7 +15,11 @@ import logging
 import subprocess
 import signal
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# Ensure the pipeline root (skills/video-pipeline/) is on sys.path
+# so imports like `from orchestrator.X` and `from shared.clients.X` resolve
+_pipeline_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _pipeline_root not in sys.path:
+    sys.path.insert(0, _pipeline_root)
 
 from dotenv import load_dotenv
 
@@ -45,8 +49,8 @@ from orchestrator.pipeline_constants import IdeaFields, ImageFields, Models, Scr
 # Initialize Slack app
 app = AsyncApp(token=os.environ.get("SLACK_BOT_TOKEN"))
 
-# Get the base directory for running scripts
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# Get the pipeline root for running CLI scripts (e.g., script/cli.py, render/cli.py)
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # Track running process for kill command
 current_process = None
@@ -398,7 +402,7 @@ async def handle_queue(message, say):
     """Show all ideas in the Airtable pipeline with their current status."""
     await say(":mag: Checking pipeline queue...")
     try:
-        from clients.airtable_client import AirtableClient
+        from shared.clients.airtable_client import AirtableClient
         airtable = AirtableClient()
 
         all_ideas = airtable.get_all_ideas()
@@ -441,7 +445,7 @@ async def handle_skip(message, say):
     """Skip the current pipeline step — advance status to the next stage."""
     await say(":mag: Looking for the current idea to skip...")
     try:
-        from clients.airtable_client import AirtableClient
+        from shared.clients.airtable_client import AirtableClient
         airtable = AirtableClient()
 
         # Status progression order
@@ -486,7 +490,7 @@ async def handle_approve_recent_script(message, say):
     when the script was blocked (required for voice synthesis).
     """
     try:
-        from clients.airtable_client import AirtableClient
+        from shared.clients.airtable_client import AirtableClient
         from script.brief_translator.script_generator import extract_acts
         from script.brief_translator.pipeline_writer import build_sources_list
 
@@ -573,7 +577,7 @@ async def handle_approve_script(message, say):
     await say(f":mag: Looking for blocked scripts matching: _{search_title}_")
 
     try:
-        from clients.airtable_client import AirtableClient
+        from shared.clients.airtable_client import AirtableClient
         airtable = AirtableClient()
 
         # Find ideas with "Needs Script Review" status
@@ -1156,8 +1160,8 @@ async def handle_sound_design(message, say):
     current_task_name = "sound design"
 
     async def _run_sound_design():
-        from clients.airtable_client import AirtableClient
-        from bots.sound_prompt_bot import SoundPromptBot
+        from shared.clients.airtable_client import AirtableClient
+        from sound.sound_prompt_bot import SoundPromptBot
 
         airtable = AirtableClient()
         idea = airtable.find_idea_by_title(title_query)
@@ -1211,9 +1215,9 @@ async def handle_sound_effects(message, say):
     current_task_name = "sound effects"
 
     async def _run_sound_effects():
-        from clients.airtable_client import AirtableClient
-        from clients.google_client import GoogleClient
-        from bots.sound_bot import SoundBot
+        from shared.clients.airtable_client import AirtableClient
+        from shared.clients.google_client import GoogleClient
+        from sound.sound_bot import SoundBot
 
         airtable = AirtableClient()
         idea = airtable.find_idea_by_title(title_query)
@@ -1268,10 +1272,10 @@ async def handle_sound_all(message, say):
     current_task_name = "sound all"
 
     async def _run_sound_all():
-        from clients.airtable_client import AirtableClient
-        from clients.google_client import GoogleClient
-        from bots.sound_prompt_bot import SoundPromptBot
-        from bots.sound_bot import SoundBot
+        from shared.clients.airtable_client import AirtableClient
+        from shared.clients.google_client import GoogleClient
+        from sound.sound_prompt_bot import SoundPromptBot
+        from sound.sound_bot import SoundBot
 
         airtable = AirtableClient()
         idea = airtable.find_idea_by_title(title_query)
@@ -1555,9 +1559,9 @@ async def handle_discover(message, say, client):
     await say(f":mag: Scanning headlines + competitors{focus_msg}... This may take a moment.")
 
     try:
-        from clients.anthropic_client import AnthropicClient
-        from clients.airtable_client import AirtableClient
-        from clients.apify_client import ApifyYouTubeClient
+        from shared.clients.anthropic_client import AnthropicClient
+        from shared.clients.airtable_client import AirtableClient
+        from shared.clients.apify_client import ApifyYouTubeClient
         from discovery.scanner import run_discovery, format_ideas_for_slack, build_option_map
 
         anthropic = AnthropicClient()
@@ -1622,10 +1626,10 @@ async def handle_competitors(message, say, client):
     await say(":mag: Scraping competitor channels... This may take a moment.")
 
     try:
-        from clients.apify_client import ApifyYouTubeClient
-        from clients.anthropic_client import AnthropicClient
-        from clients.airtable_client import AirtableClient
-        from bots.competitor_scraper import CompetitorScraper
+        from shared.clients.apify_client import ApifyYouTubeClient
+        from shared.clients.anthropic_client import AnthropicClient
+        from shared.clients.airtable_client import AirtableClient
+        from competitor_scraper.scraper import CompetitorScraper
 
         apify = ApifyYouTubeClient()
         anthropic = AnthropicClient()
@@ -1954,10 +1958,10 @@ async def _handle_discovery_approval(
     )
 
     try:
-        from clients.anthropic_client import AnthropicClient
-        from clients.airtable_client import AirtableClient
+        from shared.clients.anthropic_client import AnthropicClient
+        from shared.clients.airtable_client import AirtableClient
         from discovery.scanner import build_idea_record_from_discovery
-        from research_agent import run_research
+        from research.agent import run_research
 
         anthropic = AnthropicClient()
         airtable = AirtableClient()
@@ -2079,10 +2083,10 @@ async def _handle_cron_discovery_approval(
     )
 
     try:
-        from clients.anthropic_client import AnthropicClient
-        from clients.airtable_client import AirtableClient
+        from shared.clients.anthropic_client import AnthropicClient
+        from shared.clients.airtable_client import AirtableClient
         from discovery.scanner import build_idea_record_from_discovery
-        from research_agent import run_research
+        from research.agent import run_research
 
         anthropic = AnthropicClient()
         airtable = AirtableClient()
@@ -2192,9 +2196,9 @@ async def handle_research(message, say):
     _stop_event.clear()  # reset stop signal for this run
 
     try:
-        from clients.anthropic_client import AnthropicClient
-        from clients.airtable_client import AirtableClient
-        from research_agent import run_research
+        from shared.clients.anthropic_client import AnthropicClient
+        from shared.clients.airtable_client import AirtableClient
+        from research.agent import run_research
 
         anthropic = AnthropicClient()
         airtable = AirtableClient()
@@ -2232,7 +2236,7 @@ async def handle_research(message, say):
             # Write research payload back to the SAME record
             research_json = json.dumps(payload)
             try:
-                from research_agent import infer_framework_from_research
+                from research.agent import infer_framework_from_research
                 research_fields = {
                     IdeaFields.RESEARCH_PAYLOAD: research_json,
                     "Source URLs": payload.get("source_bibliography", ""),
@@ -2640,9 +2644,9 @@ async def handle_gap_titles(message, say):
     await say(f":dart: Generating curiosity gap titles for `{record_id}`...")
 
     try:
-        from clients.airtable_client import AirtableClient
-        from clients.anthropic_client import AnthropicClient
-        from curiosity_gap.gap_title_engine import GapTitleEngine
+        from shared.clients.airtable_client import AirtableClient
+        from shared.clients.anthropic_client import AnthropicClient
+        from title_idea.curiosity_gap.gap_title_engine import GapTitleEngine
         from autopilot.learning.pattern_library import PatternLibrary
 
         airtable = AirtableClient()
@@ -2698,9 +2702,9 @@ async def handle_gap_select(message, say):
     selection = int(match.group(2))
 
     try:
-        from clients.airtable_client import AirtableClient
-        from clients.anthropic_client import AnthropicClient
-        from curiosity_gap.gap_title_engine import GapTitleEngine
+        from shared.clients.airtable_client import AirtableClient
+        from shared.clients.anthropic_client import AnthropicClient
+        from title_idea.curiosity_gap.gap_title_engine import GapTitleEngine
         from autopilot.learning.pattern_library import PatternLibrary
 
         airtable = AirtableClient()
@@ -2885,8 +2889,8 @@ async def handle_storyboard_preview(message, say):
     await say(":film_projector: Running storyboard preview (directives only)...")
 
     try:
-        from clients.airtable_client import AirtableClient
-        from clients.slack_client import SlackClient
+        from shared.clients.airtable_client import AirtableClient
+        from shared.clients.slack_client import SlackClient
         from storyboard.bot import run_storyboard_preview
 
         airtable = AirtableClient()
@@ -2928,8 +2932,8 @@ async def handle_storyboard_prompts(message, say):
     await say(":memo: Starting storyboard prompt generation (Phase 1A)...")
 
     try:
-        from clients.airtable_client import AirtableClient
-        from clients.slack_client import SlackClient
+        from shared.clients.airtable_client import AirtableClient
+        from shared.clients.slack_client import SlackClient
         from storyboard.bot import run_storyboard_prompts
 
         airtable = AirtableClient()
@@ -2976,8 +2980,8 @@ async def handle_storyboard_images(message, say):
     await say(":art: Starting storyboard image generation (Phase 1B)...")
 
     try:
-        from clients.airtable_client import AirtableClient
-        from clients.slack_client import SlackClient
+        from shared.clients.airtable_client import AirtableClient
+        from shared.clients.slack_client import SlackClient
         from storyboard.bot import run_storyboard_images
 
         airtable = AirtableClient()
@@ -3024,8 +3028,8 @@ async def handle_storyboard_go(message, say):
     await say(":art: Starting storyboard grid generation (Phase 1)...")
 
     try:
-        from clients.airtable_client import AirtableClient
-        from clients.slack_client import SlackClient
+        from shared.clients.airtable_client import AirtableClient
+        from shared.clients.slack_client import SlackClient
         from storyboard.bot import run_storyboard_grids
 
         airtable = AirtableClient()
@@ -3073,7 +3077,7 @@ async def handle_storyboard_approve(message, say):
     await say(":scissors: Starting panel extraction + upscale (Phase 2)...")
 
     try:
-        from clients.airtable_client import AirtableClient
+        from shared.clients.airtable_client import AirtableClient
         from storyboard.bot import run_storyboard_extract
 
         airtable = AirtableClient()
@@ -3119,7 +3123,7 @@ async def handle_storyboard_beat(message, say):
     await say(f":art: Generating storyboard for beat {beat_num}...")
 
     try:
-        from clients.airtable_client import AirtableClient
+        from shared.clients.airtable_client import AirtableClient
         from storyboard.bot import run_storyboard_grids
 
         airtable = AirtableClient()
@@ -3159,7 +3163,7 @@ async def handle_storyboard_status(message, say):
     title_arg = match.group(1).strip().strip("\"'") if match and match.group(1).strip() else None
 
     try:
-        from clients.airtable_client import AirtableClient
+        from shared.clients.airtable_client import AirtableClient
 
         airtable = AirtableClient()
 
@@ -3219,7 +3223,7 @@ async def handle_storyboard_regenerate(message, say):
     await say(f":arrows_counterclockwise: Regenerating beat {beat_num}...")
 
     try:
-        from clients.airtable_client import AirtableClient
+        from shared.clients.airtable_client import AirtableClient
         from storyboard.bot import run_storyboard_grids
 
         airtable = AirtableClient()
@@ -3263,7 +3267,7 @@ async def handle_storyboard_on(message, say):
     title_arg = match.group(1).strip().strip("\"'")
 
     try:
-        from clients.airtable_client import AirtableClient
+        from shared.clients.airtable_client import AirtableClient
 
         airtable = AirtableClient()
         idea = await _find_idea_by_title(airtable, title_arg, say)
@@ -3298,7 +3302,7 @@ async def handle_storyboard_off(message, say):
     title_arg = match.group(1).strip().strip("\"'")
 
     try:
-        from clients.airtable_client import AirtableClient
+        from shared.clients.airtable_client import AirtableClient
 
         airtable = AirtableClient()
         idea = await _find_idea_by_title(airtable, title_arg, say)
@@ -3333,8 +3337,8 @@ async def handle_storyboard_plan(message, say):
     title_arg = match.group(1).strip().strip("\"'")
 
     try:
-        from clients.airtable_client import AirtableClient
-        from clients.slack_client import SlackClient
+        from shared.clients.airtable_client import AirtableClient
+        from shared.clients.slack_client import SlackClient
         from storyboard.bot import generate_storyboard_plan
 
         airtable = AirtableClient()
@@ -3510,7 +3514,7 @@ async def handle_fallback(event, say):
         return
 
     try:
-        from clients.anthropic_client import AnthropicClient
+        from shared.clients.anthropic_client import AnthropicClient
         anthropic = AnthropicClient()
 
         command = await anthropic.generate(

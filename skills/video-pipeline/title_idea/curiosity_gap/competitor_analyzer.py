@@ -57,7 +57,7 @@ def get_recent_channel_videos(channel_name: str, limit: int = 20) -> List[Dict]:
         List of video dicts with 'vph' field
     """
     # Import here to avoid circular dependency
-    from clients.airtable_client import AirtableClient
+    from shared.clients.airtable_client import AirtableClient
 
     client = AirtableClient()
     # Synchronous call - Airtable client is not async
@@ -124,7 +124,7 @@ class CompetitorAnalyzer:
     @property
     def anthropic_client(self):
         if self._anthropic_client is None:
-            from clients.anthropic_client import AnthropicClient
+            from shared.clients.anthropic_client import AnthropicClient
             self._anthropic_client = AnthropicClient()
         return self._anthropic_client
 
@@ -277,7 +277,7 @@ Return ONLY valid JSON, no markdown fences."""
             ThumbnailAnalysis or None
         """
         # Import lazily
-        from clients.gemini_client import GeminiClient
+        from shared.clients.gemini_client import GeminiClient
 
         if self._gemini_client is None:
             self._gemini_client = GeminiClient()

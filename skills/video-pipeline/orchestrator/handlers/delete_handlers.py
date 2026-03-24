@@ -19,7 +19,7 @@ async def handle_delete_scripts(message, say):
     title = match.group(1).strip()
 
     try:
-        from clients.airtable_client import AirtableClient
+        from shared.clients.airtable_client import AirtableClient
         airtable = AirtableClient()
         idea = airtable.find_idea_by_title(title)
         if not idea:
@@ -56,7 +56,7 @@ async def handle_delete_images(message, say):
     title = match.group(1).strip()
 
     try:
-        from clients.airtable_client import AirtableClient
+        from shared.clients.airtable_client import AirtableClient
         airtable = AirtableClient()
         idea = airtable.find_idea_by_title(title)
         if not idea:

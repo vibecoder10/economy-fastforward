@@ -160,7 +160,7 @@ async def run(pipeline, brief: dict = None) -> dict:
 
 async def _refine_title_post_script(pipeline):
     """Phase 2 title refinement — non-blocking post-script step."""
-    from research_agent import refine_title_post_script
+    from research.agent import refine_title_post_script
 
     try:
         result = await asyncio.wait_for(

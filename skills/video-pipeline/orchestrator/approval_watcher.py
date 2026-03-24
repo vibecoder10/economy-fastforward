@@ -113,7 +113,7 @@ class ApprovalWatcher:
         Returns:
             List of processed idea records (with research payloads)
         """
-        from research_agent import run_research
+        from research.agent import run_research
 
         # Find approved ideas
         try:
@@ -172,7 +172,7 @@ class ApprovalWatcher:
                 )
 
                 # Write research payload and rich fields back to the same record
-                from research_agent import infer_framework_from_research
+                from research.agent import infer_framework_from_research
 
                 research_json = json.dumps(payload)
                 research_fields = {
@@ -303,8 +303,8 @@ Examples:
     from dotenv import load_dotenv
     load_dotenv()
 
-    from clients.anthropic_client import AnthropicClient
-    from clients.airtable_client import AirtableClient
+    from shared.clients.anthropic_client import AnthropicClient
+    from shared.clients.airtable_client import AirtableClient
 
     anthropic = AnthropicClient()
     airtable = AirtableClient()
@@ -312,7 +312,7 @@ Examples:
     # Optional Slack client
     slack = None
     try:
-        from clients.slack_client import SlackClient
+        from shared.clients.slack_client import SlackClient
         slack = SlackClient()
     except Exception:
         logger.info("Slack client not available — notifications disabled")

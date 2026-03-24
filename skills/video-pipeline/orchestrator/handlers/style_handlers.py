@@ -24,7 +24,7 @@ async def handle_style_image(message, say):
     instructions = match.group(2).strip()
 
     try:
-        from clients.airtable_client import AirtableClient
+        from shared.clients.airtable_client import AirtableClient
         airtable = AirtableClient()
         idea = airtable.find_idea_by_title(title)
         if not idea:
@@ -50,7 +50,7 @@ async def handle_style_thumbnail(message, say):
     instructions = match.group(2).strip()
 
     try:
-        from clients.airtable_client import AirtableClient
+        from shared.clients.airtable_client import AirtableClient
         airtable = AirtableClient()
         idea = airtable.find_idea_by_title(title)
         if not idea:
@@ -82,7 +82,7 @@ async def handle_style_color(message, say):
         return
 
     try:
-        from clients.airtable_client import AirtableClient
+        from shared.clients.airtable_client import AirtableClient
         airtable = AirtableClient()
         idea = airtable.find_idea_by_title(title)
         if not idea:
@@ -106,7 +106,7 @@ async def handle_style_reset(message, say):
     title = match.group(1).strip()
 
     try:
-        from clients.airtable_client import AirtableClient
+        from shared.clients.airtable_client import AirtableClient
         airtable = AirtableClient()
         idea = airtable.find_idea_by_title(title)
         if not idea:
@@ -140,14 +140,14 @@ async def handle_model_set(message, say):
     title = match.group(1).strip()
     model_name = match.group(2).strip().lower()
 
-    from clients.image_client import ImageClient
+    from shared.clients.image_client import ImageClient
     if model_name not in ImageClient.VALID_SCENE_MODELS:
         valid = "\n".join(f"  • `{k}` — {v}" for k, v in ImageClient.VALID_SCENE_MODELS.items())
         await say(f":x: Invalid model *{model_name}*. Available models:\n{valid}")
         return
 
     try:
-        from clients.airtable_client import AirtableClient
+        from shared.clients.airtable_client import AirtableClient
         airtable = AirtableClient()
         idea = airtable.find_idea_by_title(title)
         if not idea:
@@ -172,7 +172,7 @@ async def handle_model_reset(message, say):
     title = match.group(1).strip()
 
     try:
-        from clients.airtable_client import AirtableClient
+        from shared.clients.airtable_client import AirtableClient
         airtable = AirtableClient()
         idea = airtable.find_idea_by_title(title)
         if not idea:
@@ -188,7 +188,7 @@ async def handle_model_reset(message, say):
 
 async def handle_model_list(message, say):
     """List all available image generation models."""
-    from clients.image_client import ImageClient
+    from shared.clients.image_client import ImageClient
     lines = [":camera: *Available Image Generation Models:*\n"]
     for model_id, desc in ImageClient.VALID_SCENE_MODELS.items():
         default = " _(default)_" if model_id == ImageClient.SCENE_MODEL else ""
@@ -211,14 +211,14 @@ async def handle_visualstyle_set(message, say):
     title = match.group(1).strip()
     style_name = match.group(2).strip().lower().replace(" ", "_")
 
-    from clients.airtable_client import VALID_VISUAL_STYLES
+    from shared.clients.airtable_client import VALID_VISUAL_STYLES
     if style_name not in VALID_VISUAL_STYLES:
         valid = "\n".join(f"  • `{s}`" for s in sorted(VALID_VISUAL_STYLES))
         await say(f":x: Invalid style *{style_name}*. Available styles:\n{valid}")
         return
 
     try:
-        from clients.airtable_client import AirtableClient
+        from shared.clients.airtable_client import AirtableClient
         airtable = AirtableClient()
         idea = airtable.find_idea_by_title(title)
         if not idea:
@@ -242,8 +242,8 @@ async def handle_visualstyle_reset(message, say):
     title = match.group(1).strip()
 
     try:
-        from clients.airtable_client import AirtableClient
-        from clients.airtable_client import DEFAULT_VISUAL_STYLE
+        from shared.clients.airtable_client import AirtableClient
+        from shared.clients.airtable_client import DEFAULT_VISUAL_STYLE
         airtable = AirtableClient()
         idea = airtable.find_idea_by_title(title)
         if not idea:
@@ -259,7 +259,7 @@ async def handle_visualstyle_reset(message, say):
 
 async def handle_visualstyle_list(message, say):
     """List all available visual styles."""
-    from clients.airtable_client import VALID_VISUAL_STYLES, DEFAULT_VISUAL_STYLE
+    from shared.clients.airtable_client import VALID_VISUAL_STYLES, DEFAULT_VISUAL_STYLE
     lines = [":art: *Available Visual Styles:*\n"]
     for style in sorted(VALID_VISUAL_STYLES):
         default = " _(default)_" if style == DEFAULT_VISUAL_STYLE else ""

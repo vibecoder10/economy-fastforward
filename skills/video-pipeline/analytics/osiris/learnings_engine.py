@@ -11,7 +11,7 @@ prompts (idea_bot, script_generator, thumbnail_bot). It:
 
 Usage:
     from analytics.osiris.learnings_engine import LearningsEngine
-    from clients.airtable_client import AirtableClient
+    from shared.clients.airtable_client import AirtableClient
 
     engine = LearningsEngine(AirtableClient())
     title_learnings = engine.get_title_learnings()

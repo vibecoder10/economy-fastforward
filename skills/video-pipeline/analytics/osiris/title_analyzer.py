@@ -547,16 +547,16 @@ async def run_title_analysis(
         TitleAnalysisResult with patterns and insights
     """
     if airtable_client is None:
-        from clients.airtable_client import AirtableClient
+        from shared.clients.airtable_client import AirtableClient
         airtable_client = AirtableClient()
 
     if anthropic_client is None:
-        from clients.anthropic_client import AnthropicClient
+        from shared.clients.anthropic_client import AnthropicClient
         anthropic_client = AnthropicClient()
 
     if slack_client is None and not dry_run:
         try:
-            from clients.slack_client import SlackClient
+            from shared.clients.slack_client import SlackClient
             slack_client = SlackClient()
         except Exception:
             slack_client = None
