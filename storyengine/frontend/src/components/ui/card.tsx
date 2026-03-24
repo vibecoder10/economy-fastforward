@@ -23,7 +23,7 @@ export function Card({ children, className }: CardProps) {
   return (
     <div
       className={cn(
-        "rounded-xl border border-[var(--border)] bg-[var(--surface)]",
+        "rounded-[var(--card-radius)] border border-[var(--border)] bg-[var(--bg-card)] transition-colors hover:bg-[var(--bg-card-hover)]",
         className
       )}
     >
@@ -40,7 +40,7 @@ export function CardHeader({ children, className, action }: CardHeaderProps) {
         className
       )}
     >
-      <h3 className="text-sm font-semibold">{children}</h3>
+      <h3 className="text-sm font-semibold text-[var(--text-primary)]">{children}</h3>
       {action}
     </div>
   );
@@ -48,7 +48,7 @@ export function CardHeader({ children, className, action }: CardHeaderProps) {
 
 export function CardBody({ children, className }: CardBodyProps) {
   return (
-    <div className={cn("p-4", className)}>
+    <div className={cn("p-[var(--card-padding)] text-[var(--text-secondary)]", className)}>
       {children}
     </div>
   );
