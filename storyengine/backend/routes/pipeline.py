@@ -791,3 +791,68 @@ async def get_task_status(
     if not task:
         return {"status": "idle", "message": None}
     return task
+
+
+# --- Claude Orchestration ---
+
+class OrchestrateRequest(BaseModel):
+    """Request for Claude-driven orchestration."""
+    video_id: str
+    user_intent: Optional[str] = None
+
+
+@router.post("/orchestrate")
+async def orchestrate(
+    request: OrchestrateRequest,
+    background_tasks: BackgroundTasks,
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """Ask Claude to decide and execute the next pipeline step.
+
+    If Claude orchestration is disabled for this tenant, falls back to
+    status-based routing. If confidence is low, returns alternatives
+    for user approval instead of auto-executing.
+    """
+    executor = PipelineExecutor(tenant_id)
+
+    async def _run():
+        _set_task_status(request.video_id, "running", "Claude is deciding...")
+        try:
+            result = await executor.run_next_step(
+                request.video_id,
+                user_intent=request.user_intent,
+            )
+            status = "completed" if result.get("status") != "failed" else "failed"
+            _set_task_status(request.video_id, status, result.get("message"))
+        except Exception as e:
+            _set_task_status(request.video_id, "failed", str(e))
+
+    background_tasks.add_task(_run)
+    return {"status": "started", "video_id": request.video_id}
+
+
+@router.post("/orchestrate/decide")
+async def orchestrate_decide_only(
+    request: OrchestrateRequest,
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """Ask Claude what it would do, without executing.
+
+    Returns the decision with reasoning, alternatives, and cost estimate.
+    Useful for the chat UI to show Claude's thinking before user confirms.
+    """
+    try:
+        from claude_orchestrator import ClaudeOrchestrator
+
+        orchestrator = ClaudeOrchestrator(tenant_id)
+        decision = await orchestrator.decide(
+            request.video_id,
+            user_intent=request.user_intent,
+        )
+        return decision.model_dump()
+    except Exception as e:
+        return {
+            "action": "skip",
+            "reasoning": f"Orchestrator error: {e}",
+            "confidence": 0.0,
+        }

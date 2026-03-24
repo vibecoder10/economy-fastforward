@@ -71,7 +71,7 @@ class PipelineExecutor:
                 os.environ[env_name] = value
 
         # Now import and initialize pipeline
-        from pipeline import VideoPipeline
+        from orchestrator.pipeline import VideoPipeline
         self._pipeline = VideoPipeline()
         self._initialized = True
 
@@ -368,19 +368,68 @@ class PipelineExecutor:
             await self._log_activity(bot_name, video_id, "failed", error_msg)
             return {"status": "failed", "error": error_msg}
 
-    async def run_next_step(self, video_id: str) -> dict:
+    async def run_next_step(self, video_id: str, user_intent: str = None) -> dict:
         """Run the next pipeline step for a video.
 
-        Determines what step to run based on current status and executes it.
+        If CLAUDE_ORCHESTRATION is enabled for this tenant, uses Claude to
+        decide which skill to invoke. Otherwise falls back to the status map.
 
         Args:
             video_id: Supabase video UUID
+            user_intent: Optional natural language from user
 
         Returns:
             Dict with status and result
         """
         await self._ensure_initialized()
 
+        # Feature flag: Claude orchestration
+        use_claude = await self._is_claude_orchestration_enabled()
+
+        if use_claude:
+            return await self._run_next_step_claude(video_id, user_intent)
+        else:
+            return await self._run_next_step_status_map(video_id)
+
+    async def _is_claude_orchestration_enabled(self) -> bool:
+        """Check if Claude orchestration is enabled for this tenant."""
+        try:
+            from vault import get_secret
+            flag = await get_secret("claude_orchestration", self.tenant_id)
+            return flag and flag.lower() in ("true", "1", "yes", "on")
+        except Exception:
+            return False
+
+    async def _run_next_step_claude(self, video_id: str, user_intent: str = None) -> dict:
+        """Claude-driven next step decision."""
+        try:
+            from claude_orchestrator import ClaudeOrchestrator
+
+            orchestrator = ClaudeOrchestrator(self.tenant_id)
+            decision = await orchestrator.decide(video_id, user_intent=user_intent)
+
+            if decision.confidence < ClaudeOrchestrator.CONFIDENCE_THRESHOLD:
+                return {
+                    "status": "needs_input",
+                    "decision": decision.model_dump(),
+                    "message": f"Low confidence ({decision.confidence:.0%}). {decision.reasoning}",
+                    "alternatives": decision.alternatives,
+                }
+
+            result = await orchestrator.execute(decision, video_id, executor=self)
+            return {
+                "status": "completed" if result.success else "failed",
+                "decision": decision.model_dump(),
+                "result": result.execution_result,
+                "error": result.error,
+            }
+        except Exception as e:
+            # Fallback to status map on any failure
+            print(f"[orchestrator] Claude orchestration failed: {e}, falling back to status map")
+            return await self._run_next_step_status_map(video_id)
+
+    async def _run_next_step_status_map(self, video_id: str) -> dict:
+        """Original status-driven next step (fallback)."""
         video = await self._get_video(video_id)
         if not video:
             return {"status": "failed", "error": "Video not found"}
