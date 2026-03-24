@@ -162,11 +162,15 @@ async def get_autopilot_summary(tenant_id: str = Depends(get_tenant_id)):
         tenant_id,
     )
 
-    # Try to get autopilot config from Supabase
-    config_row = await fetch_one(
-        "SELECT * FROM autopilot_config WHERE tenant_id = $1",
-        tenant_id,
-    )
+    # Try to get autopilot config from Supabase (table may not exist yet)
+    config_row = None
+    try:
+        config_row = await fetch_one(
+            "SELECT * FROM autopilot_config WHERE tenant_id = $1",
+            tenant_id,
+        )
+    except Exception as e:
+        print(f"Note: autopilot_config table may not exist: {e}")
 
     if config_row:
         config = AutopilotConfig(
