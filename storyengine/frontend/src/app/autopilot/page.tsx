@@ -26,62 +26,10 @@ import {
   toggleAutopilot,
   updateAutopilotConfig,
   launchCandidate,
+  AutopilotSummary,
+  CompetitorCandidate,
+  ConfidenceBreakdown,
 } from "@/lib/api";
-
-// Types matching the API response
-interface ConfidenceBreakdown {
-  vph_score: number;
-  vph_reasoning: string;
-  freshness_score: number;
-  freshness_reasoning: string;
-  total_score: number;
-}
-
-interface Candidate {
-  id: string;
-  title: string;
-  source: string;
-  url: string | null;
-  vph: number;
-  hours_old: number;
-  confidence: number;
-  confidence_breakdown?: ConfidenceBreakdown;
-  published_date: string | null;
-  modeled: boolean;
-}
-
-interface Learning {
-  id: string;
-  pattern: string;
-  category: string;
-  effect: string;
-  confidence: number;
-  sample_size: number;
-  avg_ctr?: number;
-}
-
-interface AutopilotState {
-  enabled: boolean;
-  last_cycle: string | null;
-  videos_produced: number;
-  channel_avg_ctr: number;
-  next_production_date: string | null;
-  days_until_next: number;
-}
-
-interface AutopilotConfig {
-  videos_per_month: number;
-  production_interval_days: number;
-  weights: Record<string, number>;
-  thresholds: Record<string, number>;
-}
-
-interface AutopilotSummary {
-  state: AutopilotState;
-  config: AutopilotConfig;
-  candidates: Candidate[];
-  learnings: Learning[];
-}
 
 // Default weights for display when API doesn't return them
 const DEFAULT_WEIGHTS = {
