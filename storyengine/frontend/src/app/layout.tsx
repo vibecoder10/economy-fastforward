@@ -22,7 +22,7 @@ export const viewport: Viewport = {
   initialScale: 1,
   maximumScale: 1,
   viewportFit: "cover",
-  themeColor: "#121212",
+  themeColor: "#0A0A0B",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -31,7 +31,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <head>
         <link rel="apple-touch-icon" href="/icon-192.png" />
       </head>
-      <body className="bg-[var(--background)] text-[var(--text-primary)] antialiased">
+      <body className="bg-[var(--bg-primary)] text-[var(--text-primary)] antialiased">
         <Providers>
           <div className="flex min-h-screen">
             {/* Desktop sidebar */}
