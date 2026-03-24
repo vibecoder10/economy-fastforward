@@ -42,6 +42,7 @@ autopilot ctr [title]     # Force CTR check for video
 ## Rules
 
 - Code pushed to `main` auto-deploys via the hourly `git pull --ff-only`. Don't push broken code to main.
-- The Slack bot (`pipeline_control.py`) runs as a background process. PID tracked at `/tmp/pipeline-bot.pid`.
-- Healthcheck auto-restarts the bot and sends Slack alert. Don't assume the bot is always running.
+- The Slack bot (`orchestrator/pipeline_control.py`) runs as a background process. PID tracked at `/tmp/pipeline-bot.pid`.
+- Healthcheck (`infra/bot_healthcheck.sh`) auto-restarts the bot and sends Slack alert.
+- Cron jobs defined in `infra/setup_cron.sh`. Run `bash infra/setup_cron.sh` to install changes.
 - All logs go to `/tmp/pipeline-*.log` on VPS. Reference these when debugging production issues.

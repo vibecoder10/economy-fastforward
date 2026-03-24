@@ -1,76 +1,101 @@
 # Critical File Map
 
-## Pipeline Core (`skills/video-pipeline/`)
+All paths relative to `skills/video-pipeline/`.
+
+## Orchestrator (`orchestrator/`)
 
 | File | What It Does |
 |------|-------------|
-| `pipeline.py` | Main orchestrator - reads Airtable status, routes to correct bot |
-| `pipeline_control.py` | Slack bot - receives commands, triggers pipeline stages |
-| `approval_watcher.py` | Monitors for manual approvals in Slack |
-| `discovery_scanner.py` | Finds trending topics for video ideas |
-| `research_agent.py` | Deep research on topics using Claude |
-| `render_video.py` | Calls Remotion to produce final MP4 |
-| `performance_tracker.py` | Daily YouTube metrics sync → Airtable (views, CTR, retention, snapshots) |
-| `run_*_bot.py` | Individual stage runners (9 scripts) |
+| `pipeline.py` | Main status-driven router — reads Airtable status, dispatches to bots |
+| `pipeline_control.py` | Slack bot — receives `!` commands, triggers pipeline stages |
+| `pipeline_constants.py` | Airtable field names, status enums, table IDs |
+| `pipeline_config.py` | Environment/config loading |
+| `approval_watcher.py` | Monitors Slack for manual approvals |
+| `webhook_server.py` | External webhook receiver |
+| `handlers/admin_handlers.py` | Admin Slack commands (reset, clear, rebuild) |
+| `handlers/style_handlers.py` | Style commands (!style, !visualstyle, !model) |
+| `handlers/delete_handlers.py` | Delete/redo commands |
 
-## Bot Modules (`skills/video-pipeline/bots/`)
+## Bot Folders (Orchestration Order)
 
-| Bot | Stage | Input | Output |
-|-----|-------|-------|--------|
-| `idea_bot.py` | Idea generation | YouTube URL or topic | 3 concept variations in Airtable |
-| `trending_idea_bot.py` | Trend discovery | YouTube trending scrape | Ideas modeled from viral patterns |
-| `idea_modeling.py` | Format extraction | Trending titles | Variable decomposition + format library |
-| `script_bot.py` | Scriptwriting | Concept from Ideas table | 6-act, 3000-4500 word script |
-| `voice_bot.py` | Voice synthesis | Script text | MP3 narration via ElevenLabs |
-| `image_prompt_bot.py` | Prompt engineering | Script scenes | 6 image prompts per scene (120 total) |
-| `prompt_validator.py` | Post-prompt validation | Generated prompts | Auto-fixes + violation report (blocks critical issues) |
-| `image_bot.py` | Image generation | Image prompts | PNG images via Seed Dream 4.5 |
-| `video_script_bot.py` | Motion prompts | Images + script | Animation motion descriptions |
-| `video_bot.py` | Animation | Images + motion prompts | Video clips via Veo 3.1 Fast |
-| `thumbnail_bot.py` | Thumbnail | Video title + concept | YouTube thumbnail via Nano Banana Pro |
-| `seo_generator.py` | SEO metadata | Title + script | YouTube description, tags, hashtags |
-| `youtube_uploader.py` | Upload | Drive video + Airtable record | YouTube unlisted draft + update Airtable |
+| Folder | Stage | Key Files | What It Does |
+|--------|-------|-----------|-------------|
+| `competitor_scraper/` | Data gathering | `scraper.py`, `run.py` | Scrape competitor YouTube videos |
+| `discovery/` | Data gathering | `scanner.py`, `bot.py`, `tracker.py` | Headline scanning + trending topics |
+| `title_idea/` | Ideation | `idea_bot.py`, `trending_idea_bot.py`, `curiosity_gap/` | Create title ideas from competitor data |
+| `research/` | Research | `agent.py` | Deep factual research via Claude |
+| `script/` | Scripting | `run.py`, `story_bible.py`, `brief_translator/` | 6-act script writing (3000-4500 words) |
+| `voice/` | Audio | `run.py` | Voice synthesis via ElevenLabs |
+| `image_prompts/` | Prompts | `run.py`, `engine/` | 120 image prompts (3-style system) |
+| `storyboard/` | Boards | `run.py`, `run_images.py`, `run_extract.py`, `bot.py` | 3x3 storyboard grids |
+| `images/` | Generation | `run.py` | Scene images via Seed Dream 4.5 |
+| `video_motion/` | Animation | `run_scripts.py`, `run_generate.py`, `animation/` | Video clips via Veo 3.1 |
+| `sound/` | Audio | `run_design.py`, `run_effects.py`, `music_selector.py` | Sound FX + background music |
+| `thumbnail/` | Thumbnail | `run.py`, `engine.py`, `selector.py`, `templates.py` | YouTube thumbnail via Nano Banana |
+| `render/` | Render | `run.py`, `render_video.py`, `audio_sync/` | Remotion rendering + audio alignment |
+| `upload/` | Upload | `run.py`, `youtube_uploader.py`, `seo_generator.py` | YouTube draft upload + SEO |
 
-## API Clients (`skills/video-pipeline/clients/`)
+## Shared Infrastructure (`shared/`)
 
-| Client | Service | Key Methods |
-|--------|---------|-------------|
-| `anthropic_client.py` | Claude AI | `generate()`, `generate_beat_sheet()`, `write_scene()`, `generate_image_prompts()`, `generate_video_prompt()`, `segment_scene_into_concepts()` |
-| `airtable_client.py` | Airtable | `get_ideas_by_status()`, `create_idea()`, `create_script_record()`, `update_image_record()`, `update_image_animation_fields()`, `update_image_prompt_fields()`, `get_all_images_for_video()` |
-| `elevenlabs_client.py` | ElevenLabs (via Wavespeed) | `generate_and_wait()` (create task + poll + return audio URL) |
-| `image_client.py` | Kie.ai | `generate_scene_image()` (Seed Dream 4.5), `generate_video()` (Grok Imagine), `generate_video_veo()` (Veo 3.1), `upgrade_veo_to_1080p()` |
-| `google_client.py` | Drive & Docs | `upload_file()`, `create_folder()`, `download_file_to_local()`, `make_file_public()`, `create_document()` |
-| `gemini_client.py` | Gemini Vision | `generate_thumbnail_spec()` (extracts style elements from reference image) |
-| `slack_client.py` | Slack | `send_message()`, `notify_*()` (pipeline stage notifications, non-blocking) |
-| `apify_client.py` | YouTube scraping | `search_trending_videos()`, `analyze_trending_patterns()` |
-| `style_engine.py` | Internal | `STYLE_ENGINE_PREFIX/SUFFIX`, `SceneType` enum, `get_documentary_pattern()`, `get_camera_motion()` |
-| `sentence_utils.py` | Internal | `split_into_sentences()`, `estimate_sentence_duration()` (173 WPM average) |
+| File | Service |
+|------|---------|
+| `clients/airtable_client.py` | Airtable — record CRUD, status transitions |
+| `clients/anthropic_client.py` | Claude AI — scripts, prompts, analysis, vision |
+| `clients/image_client.py` | Kie.ai — images (Seed Dream 4.5), video (Veo 3.1), thumbnails (Nano Banana) |
+| `clients/elevenlabs_client.py` | ElevenLabs via Wavespeed — voice synthesis |
+| `clients/google_client.py` | Google Drive & Docs — file upload, folder management |
+| `clients/slack_client.py` | Slack — notifications (non-blocking) |
+| `clients/gemini_client.py` | Gemini Vision — thumbnail spec extraction |
+| `clients/apify_client.py` | Apify — YouTube scraping |
+| `clients/style_engine.py` | Internal — scene types, camera patterns, holographic system |
+| `clients/sentence_utils.py` | Sentence splitting, duration estimation (173 WPM) |
+| `clients/sound_client.py` | Sound effect/music selection |
+| `profiles/visual/` | 4 visual styles (cinematic_illustration, dossier, hud, mannequin) |
+| `profiles/script/` | Script voice profiles (power_doctrine_v1, v2) |
+| `json_utils.py` | JSON parsing with 5-step fallback chain |
+| `channel_profile.py` | Channel-specific model and profile settings |
 
-## Content Generation (`skills/video-pipeline/`)
+## Analytics (`analytics/`)
 
-| Module | Purpose |
-|--------|---------|
-| `image_prompt_engine/` | 3-style cinematic prompt system (Dossier 60%, Schema 22%, Echo 18%) |
-| `brief_translator/` | Script generation: `script_generator.py` (6-act, 3000-4500 words, Claude Sonnet, 8000 token budget), `scene_expander.py` (20 scenes with narration + visual seeds), `scene_validator.py` (count, format, word distribution), `pipeline_writer.py` (maps brief to pipeline schema), `supplementer.py` (narrative arcs, character dossiers) |
-| `audio_sync/` | `transcriber.py` (Whisper API), `aligner.py` (3-strategy matching), `config.py` (timing constraints), `ken_burns_calculator.py` (motion presets), `render_config_writer.py` (Remotion JSON output), `timing_adjuster.py`, `transition_engine.py` |
-| `thumbnail_generator/` | Formula-based YouTube thumbnails with 14+ title patterns and 3 template variants |
-| `animation/` | Veo 3.1 Fast video clip generation |
+| File | Purpose |
+|------|---------|
+| `performance_tracker.py` | Daily YouTube metrics sync (views, CTR, retention, snapshots) |
+| `osiris/competitor_scraper.py` | Scrape ALL competitor videos to Competitor Videos table |
+| `osiris/performance_analyzer.py` | 48h/7d post-mortem analysis → learnings extraction |
+| `osiris/title_analyzer.py` | Title pattern analysis (structural vs semantic) |
+| `osiris/learnings_engine.py` | Inject learned patterns into generation prompts |
+
+## Autopilot (`autopilot/`)
+
+| File | Purpose |
+|------|---------|
+| `autopilot.py` | Main loop (--status, --check-cycle, --force) |
+| `autopilot_program.md` | Human-editable config (mission, cadence, weights, thresholds) |
+| `core/confidence_scorer.py` | Score ideas using weighted signals (VPH, freshness, topic fit) |
+| `core/cadence_manager.py` | Check if production slot available |
+| `analysis/thumbnail_analyzer.py` | Claude Vision extraction from competitor thumbnails |
+| `monitoring/ctr_monitor.py` | 6h/24h/48h YouTube Analytics checks |
+| `learning/learning_extractor.py` | Extract patterns from 48h+ video performance |
+| `memory/LEARNINGS.md` | Master summary (always loaded into context) |
 
 ## Video Rendering (`remotion-video/`)
 
 | File | Purpose |
 |------|---------|
-| `src/Main.tsx` | Entry point - maps scenes from render_config.json |
-| `src/Scene.tsx` | Core scene composition (karaoke captions, Ken Burns motion, crossfades) |
-| `src/segments.ts` | Image-to-audio timing logic |
-| `src/transcripts.ts` | Word-level transcript loading |
-| `src/captions/Scene [1-20].json` | Per-scene word timestamps |
+| `src/Main.tsx` | Entry point — maps scenes from render_config.json |
+| `src/Scene.tsx` | Core composition (~450 lines) — karaoke captions, Ken Burns, crossfades |
+| `src/renderConfig.ts` | Loads render config from `getInputProps()` CLI props |
+| `src/transcripts.ts` | Derives word-level timing from render_config |
+| `src/segments.ts` | Builds image-to-audio timing segments |
+| `remotion.config.ts` | Render settings: concurrency 3, swangle GL, 1GB cache |
 
-## Infrastructure
+## Infrastructure (`infra/`)
 
 | File | Purpose |
 |------|---------|
-| `setup_cron.sh` | Installs 4 cron jobs (discovery, queue, healthcheck, approvals) |
-| `bot_healthcheck.sh` | Auto-restarts Slack bot if dead |
-| `setup_swap.sh` | Creates 4GB swap for Remotion rendering on 8GB VPS |
-| `MANUAL_STEP.md` | VPS deployment instructions |
+| `setup_cron.sh` | VPS cron job definitions |
+| `bot_healthcheck.sh` | Auto-restart Slack bot if dead |
+| `setup_swap.sh` | Create 4GB swap for Remotion on 8GB VPS |
+| `setup_*.py` | Airtable/YouTube field setup scripts |
+| `youtube_auth.py` | YouTube OAuth setup |
+| `test_connections.py` | API connection verification |
