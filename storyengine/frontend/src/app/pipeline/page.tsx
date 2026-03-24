@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   getVideos,
@@ -17,10 +17,10 @@ import { DetailPanel } from "@/components/detail-panel";
 import { StageTracker } from "@/components/stage-tracker";
 import { Accordion, Spinner } from "@/components/ui";
 import { Select } from "@/components/forms";
-import { FILTER_OPTIONS, getStageLabel } from "@/lib/constants";
+import { getStageLabel } from "@/lib/constants";
 import { formatCost, timeAgo } from "@/lib/utils";
 import { cn } from "@/lib/utils";
-import { LayoutList, LayoutGrid, Play, AlertCircle, CheckCircle } from "lucide-react";
+import { Play, AlertCircle, CheckCircle, Search, Plus } from "lucide-react";
 
 // Pipeline stage buttons configuration
 const PIPELINE_STAGES = [
@@ -55,15 +55,51 @@ const ACCENT_COLORS = [
   { value: "muted green", label: "Muted Green" },
 ];
 
+// Status filter options
+const STATUS_FILTERS = [
+  { value: "all", label: "All" },
+  { value: "in_progress", label: "In Progress" },
+  { value: "needs_approval", label: "Needs Approval" },
+  { value: "done", label: "Done" },
+];
+
+// Sort options
+const SORT_OPTIONS = [
+  { value: "newest", label: "Newest" },
+  { value: "oldest", label: "Oldest" },
+  { value: "views", label: "Most Views" },
+  { value: "ctr", label: "Highest CTR" },
+];
+
+// Statuses that count as "in progress"
+const IN_PROGRESS_STATUSES = new Set([
+  "ready_for_scripting",
+  "ready_for_voice",
+  "ready_for_storyboards",
+  "ready_for_images",
+  "ready_for_thumbnail",
+  "ready_to_render",
+  "rendered",
+]);
+
+// Statuses that count as "needs approval"
+const NEEDS_APPROVAL_STATUSES = new Set([
+  "ready_for_scripting",
+  "ready_for_storyboards",
+  "ready_for_thumbnail",
+]);
+
 export default function PipelinePage() {
-  const [filter, setFilter] = useState("all");
-  const [viewMode, setViewMode] = useState<"list" | "grid">("list");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [sortBy, setSortBy] = useState("newest");
+  const [searchQuery, setSearchQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
-  const { data: videos = [], isLoading } = useQuery({
-    queryKey: ["videos", filter],
-    queryFn: () => getVideos(filter === "all" ? undefined : filter),
+  // Fetch all videos (no server-side filter — we filter client-side for the new categories)
+  const { data: allVideos = [], isLoading } = useQuery({
+    queryKey: ["videos"],
+    queryFn: () => getVideos(),
   });
 
   const { data: selectedVideo } = useQuery({
@@ -71,6 +107,49 @@ export default function PipelinePage() {
     queryFn: () => getVideo(selectedId!),
     enabled: !!selectedId,
   });
+
+  // Filter and sort videos client-side
+  const videos = useMemo(() => {
+    let filtered = [...allVideos];
+
+    // Search filter
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      filtered = filtered.filter((v) =>
+        (v.video_title || "").toLowerCase().includes(q)
+      );
+    }
+
+    // Status filter
+    if (statusFilter === "in_progress") {
+      filtered = filtered.filter((v) => IN_PROGRESS_STATUSES.has(v.status || ""));
+    } else if (statusFilter === "needs_approval") {
+      filtered = filtered.filter((v) => NEEDS_APPROVAL_STATUSES.has(v.status || ""));
+    } else if (statusFilter === "done") {
+      filtered = filtered.filter((v) => v.status === "done" || v.status === "uploaded_draft");
+    }
+
+    // Sort
+    if (sortBy === "newest") {
+      filtered.sort((a, b) => {
+        const da = a.created_at ? new Date(a.created_at).getTime() : 0;
+        const db = b.created_at ? new Date(b.created_at).getTime() : 0;
+        return db - da;
+      });
+    } else if (sortBy === "oldest") {
+      filtered.sort((a, b) => {
+        const da = a.created_at ? new Date(a.created_at).getTime() : 0;
+        const db = b.created_at ? new Date(b.created_at).getTime() : 0;
+        return da - db;
+      });
+    } else if (sortBy === "views") {
+      filtered.sort((a, b) => (b.views || 0) - (a.views || 0));
+    } else if (sortBy === "ctr") {
+      filtered.sort((a, b) => (b.ctr ?? -1) - (a.ctr ?? -1));
+    }
+
+    return filtered;
+  }, [allVideos, searchQuery, statusFilter, sortBy]);
 
   // Pipeline state
   const [pipelineRunning, setPipelineRunning] = useState(false);
@@ -90,7 +169,6 @@ export default function PipelinePage() {
       setRunningStage("next");
     },
     onSuccess: () => {
-      // Start polling for completion
       pollTaskStatus();
     },
     onError: (error: Error) => {
@@ -131,7 +209,6 @@ export default function PipelinePage() {
       setStyleUpdateStatus("success");
       queryClient.invalidateQueries({ queryKey: ["video", selectedId] });
       queryClient.invalidateQueries({ queryKey: ["videos"] });
-      // Reset after 2 seconds
       setTimeout(() => setStyleUpdateStatus("idle"), 2000);
     },
     onError: (error: Error) => {
@@ -144,7 +221,7 @@ export default function PipelinePage() {
   const pollTaskStatus = async () => {
     if (!selectedId) return;
 
-    const maxAttempts = 60; // 5 minutes with 5s intervals
+    const maxAttempts = 60;
     let attempts = 0;
 
     const poll = async () => {
@@ -175,13 +252,12 @@ export default function PipelinePage() {
           setRunningStage(null);
         }
       } catch {
-        // If polling fails, just stop and let user retry
         setPipelineRunning(false);
         setRunningStage(null);
       }
     };
 
-    setTimeout(poll, 2000); // Initial delay
+    setTimeout(poll, 2000);
   };
 
   // Reset pipeline state when video changes
@@ -204,44 +280,55 @@ export default function PipelinePage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold">Pipeline</h1>
-        <div className="flex items-center gap-1 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-0.5">
-          <button
-            onClick={() => setViewMode("list")}
-            className={cn(
-              "rounded-md p-1.5",
-              viewMode === "list" ? "bg-[var(--surface-elevated)]" : "text-[var(--text-secondary)]"
-            )}
-          >
-            <LayoutList size={16} />
-          </button>
-          <button
-            onClick={() => setViewMode("grid")}
-            className={cn(
-              "rounded-md p-1.5",
-              viewMode === "grid" ? "bg-[var(--surface-elevated)]" : "text-[var(--text-secondary)]"
-            )}
-          >
-            <LayoutGrid size={16} />
-          </button>
-        </div>
+        <a
+          href="#"
+          className="flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium transition-opacity hover:opacity-90"
+          style={{ backgroundColor: "var(--amber)", color: "var(--bg-primary)" }}
+        >
+          <Plus size={16} />
+          New
+        </a>
       </div>
 
-      {/* Filter chips */}
-      <div className="flex gap-2 overflow-x-auto pb-1">
-        {FILTER_OPTIONS.map((opt) => (
-          <button
-            key={opt.key}
-            onClick={() => setFilter(opt.key)}
-            className={cn(
-              "flex-shrink-0 rounded-full px-3 py-1.5 text-xs font-medium transition-colors",
-              filter === opt.key
-                ? "bg-[var(--accent)] text-black"
-                : "bg-[var(--surface)] text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)]"
-            )}
-          >
-            {opt.label}
-          </button>
-        ))}
+      {/* Search */}
+      <div className="relative">
+        <Search
+          size={16}
+          className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-secondary)]"
+        />
+        <input
+          type="text"
+          placeholder="Search videos..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="w-full rounded-lg border border-[var(--border)] bg-[var(--bg-card)] py-2 pl-9 pr-3 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-secondary)] focus:outline-none focus:ring-1 focus:ring-[var(--border)]"
+        />
+      </div>
+
+      {/* Filters */}
+      <div className="flex gap-3">
+        <select
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value)}
+          className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-3 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--border)]"
+        >
+          {STATUS_FILTERS.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
+        <select
+          value={sortBy}
+          onChange={(e) => setSortBy(e.target.value)}
+          className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-3 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--border)]"
+        >
+          {SORT_OPTIONS.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
       </div>
 
       {/* Loading skeletons */}
@@ -257,53 +344,21 @@ export default function PipelinePage() {
       {!isLoading && videos.length === 0 && (
         <div className="flex h-40 items-center justify-center rounded-xl border border-[var(--border)] bg-[var(--surface)]">
           <p className="text-sm text-[var(--text-secondary)]">
-            No videos{filter !== "all" ? ` in ${getStageLabel(filter)}` : ""}
+            {searchQuery
+              ? `No videos matching "${searchQuery}"`
+              : statusFilter !== "all"
+                ? `No ${STATUS_FILTERS.find((f) => f.value === statusFilter)?.label ?? ""} videos`
+                : "No videos"}
           </p>
         </div>
       )}
 
-      {/* List view */}
-      {viewMode === "list" && (
-        <div className="space-y-2">
-          {videos.map((video) => (
-            <VideoCard key={video.id} video={video} onClick={() => setSelectedId(video.id)} />
-          ))}
-        </div>
-      )}
-
-      {/* Grid view */}
-      {viewMode === "grid" && (
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4">
-          {videos.map((video) => (
-            <button
-              key={video.id}
-              onClick={() => setSelectedId(video.id)}
-              className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)] text-left transition-colors hover:bg-[var(--surface-elevated)]"
-            >
-              <div className="aspect-video w-full bg-[var(--surface-elevated)]">
-                {video.thumbnail_url ? (
-                  <img src={video.thumbnail_url} alt="" className="h-full w-full object-cover" />
-                ) : (
-                  <div
-                    className="flex h-full w-full items-center justify-center text-2xl font-bold text-white/10"
-                    style={{ background: `${video.accent_color}15` }}
-                  >
-                    {(video.video_title || "?").charAt(0)}
-                  </div>
-                )}
-              </div>
-              <div className="p-2.5">
-                <p className="line-clamp-2 text-xs font-medium">{video.video_title || "Untitled"}</p>
-                <div className="mt-1.5 flex items-center gap-2">
-                  <span className="rounded-full bg-[var(--surface-elevated)] px-1.5 py-0.5 text-[9px] font-medium text-[var(--text-secondary)]">
-                    {getStageLabel(video.status || "idea_logged")}
-                  </span>
-                </div>
-              </div>
-            </button>
-          ))}
-        </div>
-      )}
+      {/* Video list */}
+      <div className="space-y-2">
+        {videos.map((video) => (
+          <VideoCard key={video.id} video={video} onClick={() => setSelectedId(video.id)} />
+        ))}
+      </div>
 
       {/* Detail panel */}
       <DetailPanel
