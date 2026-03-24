@@ -1,0 +1,771 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>StoryEngine - Storyboard Review</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg: #0a0a0a;
+      --surface: #141414;
+      --surface-elevated: #1a1a1a;
+      --border: #2a2a2a;
+      --text-primary: #ffffff;
+      --text-secondary: #888888;
+      --accent: #6366f1;
+      --accent-dim: rgba(99, 102, 241, 0.15);
+      --success: #22c55e;
+      --warning: #f59e0b;
+      --error: #ef4444;
+      --purple: #8b5cf6;
+      --blue: #3b82f6;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #1a1a1a;
+      color: var(--text-primary);
+      padding: 40px;
+      min-height: 100vh;
+    }
+
+    .design-label {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background: var(--accent);
+      color: white;
+      padding: 8px 16px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      z-index: 100;
+    }
+
+    h1 {
+      font-size: 28px;
+      margin-bottom: 8px;
+      text-align: center;
+    }
+
+    .subtitle {
+      color: var(--text-secondary);
+      margin-bottom: 40px;
+      text-align: center;
+    }
+
+    /* Phone Mockup Container */
+    .phones-container {
+      display: flex;
+      justify-content: center;
+      gap: 40px;
+      flex-wrap: wrap;
+      margin-bottom: 60px;
+    }
+
+    .phone-wrapper {
+      text-align: center;
+    }
+
+    .phone-label {
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 16px;
+      color: var(--accent);
+    }
+
+    .phone {
+      width: 375px;
+      height: 812px;
+      background: var(--bg);
+      border-radius: 40px;
+      border: 4px solid #333;
+      overflow: hidden;
+      position: relative;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+    }
+
+    .phone-notch {
+      position: absolute;
+      top: 0;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 150px;
+      height: 30px;
+      background: #333;
+      border-radius: 0 0 20px 20px;
+      z-index: 10;
+    }
+
+    .phone-screen {
+      height: 100%;
+      padding-top: 44px;
+      padding-bottom: 34px;
+      overflow-y: auto;
+    }
+
+    /* Bottom Nav */
+    .bottom-nav {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 80px;
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      display: flex;
+      justify-content: space-around;
+      align-items: flex-start;
+      padding-top: 12px;
+    }
+
+    .nav-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      font-size: 10px;
+      color: var(--text-secondary);
+    }
+
+    .nav-item.active {
+      color: var(--accent);
+    }
+
+    .nav-icon {
+      font-size: 20px;
+    }
+
+    /* Content */
+    .content {
+      padding: 16px;
+      padding-bottom: 100px;
+    }
+
+    /* Header */
+    .page-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .back-btn {
+      color: var(--text-secondary);
+      font-size: 14px;
+    }
+
+    .page-title {
+      flex: 1;
+      font-size: 18px;
+      font-weight: 600;
+    }
+
+    /* Progress indicator */
+    .progress-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 20px;
+      padding: 12px;
+      background: var(--surface);
+      border-radius: 12px;
+    }
+
+    .progress-track {
+      flex: 1;
+      height: 6px;
+      background: var(--surface-elevated);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+
+    .progress-fill {
+      height: 100%;
+      background: var(--accent);
+      border-radius: 3px;
+    }
+
+    .progress-text {
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+
+    /* Storyboard Card */
+    .storyboard-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      margin-bottom: 20px;
+      overflow: hidden;
+    }
+
+    .storyboard-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .storyboard-scene {
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    .storyboard-badge {
+      font-size: 10px;
+      padding: 4px 8px;
+      border-radius: 6px;
+      background: var(--accent-dim);
+      color: var(--accent);
+    }
+
+    .storyboard-badge.done {
+      background: rgba(34, 197, 94, 0.2);
+      color: var(--success);
+    }
+
+    /* 3x3 Grid */
+    .storyboard-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 2px;
+      padding: 2px;
+      background: var(--border);
+    }
+
+    .grid-cell {
+      aspect-ratio: 16/9;
+      background: var(--surface-elevated);
+      position: relative;
+    }
+
+    .grid-cell img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .grid-cell-number {
+      position: absolute;
+      top: 4px;
+      left: 4px;
+      font-size: 10px;
+      background: rgba(0,0,0,0.7);
+      color: white;
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+
+    /* Narration text */
+    .storyboard-narration {
+      padding: 12px 16px;
+      font-size: 12px;
+      color: var(--text-secondary);
+      line-height: 1.5;
+      border-top: 1px solid var(--border);
+      background: var(--surface-elevated);
+    }
+
+    /* Actions */
+    .storyboard-actions {
+      display: flex;
+      gap: 8px;
+      padding: 12px 16px;
+      border-top: 1px solid var(--border);
+    }
+
+    .btn {
+      flex: 1;
+      padding: 10px;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 500;
+      text-align: center;
+      border: none;
+      cursor: pointer;
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: white;
+    }
+
+    .btn-secondary {
+      background: var(--surface-elevated);
+      color: var(--text-secondary);
+    }
+
+    .btn-success {
+      background: rgba(34, 197, 94, 0.2);
+      color: var(--success);
+    }
+
+    /* Floating Action */
+    .fab {
+      position: absolute;
+      bottom: 100px;
+      right: 20px;
+      padding: 14px 24px;
+      background: var(--accent);
+      color: white;
+      border-radius: 30px;
+      font-size: 14px;
+      font-weight: 600;
+      box-shadow: 0 4px 20px rgba(99, 102, 241, 0.4);
+    }
+
+    /* Placeholder images - comic style gradient */
+    .placeholder-1 { background: linear-gradient(135deg, #1a2a4a, #0f1525); }
+    .placeholder-2 { background: linear-gradient(135deg, #2a1a4a, #150f25); }
+    .placeholder-3 { background: linear-gradient(135deg, #1a4a2a, #0f2515); }
+    .placeholder-4 { background: linear-gradient(135deg, #4a2a1a, #25150f); }
+    .placeholder-5 { background: linear-gradient(135deg, #4a4a1a, #25250f); }
+    .placeholder-6 { background: linear-gradient(135deg, #1a4a4a, #0f2525); }
+    .placeholder-7 { background: linear-gradient(135deg, #3a1a4a, #1d0f25); }
+    .placeholder-8 { background: linear-gradient(135deg, #1a3a4a, #0f1d25); }
+    .placeholder-9 { background: linear-gradient(135deg, #4a1a3a, #250f1d); }
+
+    /* Notes */
+    .notes-section {
+      margin-top: 40px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 24px;
+    }
+
+    .notes-section h2 {
+      font-size: 18px;
+      color: var(--accent);
+      margin-bottom: 20px;
+    }
+
+    .notes-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 24px;
+    }
+
+    .note-group h3 {
+      font-size: 14px;
+      margin-bottom: 10px;
+    }
+
+    .note-group ul {
+      padding-left: 16px;
+    }
+
+    .note-group li {
+      font-size: 13px;
+      color: var(--text-secondary);
+      margin-bottom: 6px;
+      line-height: 1.5;
+    }
+
+    .note-group li strong {
+      color: var(--text-primary);
+    }
+
+    /* Flow diagram */
+    .flow-diagram {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 24px;
+      margin-top: 40px;
+    }
+
+    .flow-diagram h2 {
+      font-size: 18px;
+      margin-bottom: 20px;
+      text-align: center;
+    }
+
+    .flow-steps {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .flow-step {
+      padding: 12px 20px;
+      background: var(--surface-elevated);
+      border-radius: 10px;
+      font-size: 13px;
+      text-align: center;
+    }
+
+    .flow-step.active {
+      background: var(--accent);
+      color: white;
+    }
+
+    .flow-arrow {
+      color: var(--text-secondary);
+    }
+  </style>
+</head>
+<body>
+  <div class="design-label">Storyboard Review</div>
+
+  <h1>Storyboard Visualization</h1>
+  <p class="subtitle">Comic book style — scroll through all storyboards in sequence before extraction</p>
+
+  <div class="phones-container">
+    <!-- Phone: Storyboard Review -->
+    <div class="phone-wrapper">
+      <div class="phone-label">Storyboard Review (Comic Book View)</div>
+      <div class="phone">
+        <div class="phone-notch"></div>
+        <div class="phone-screen">
+          <div class="content">
+            <!-- Header -->
+            <div class="page-header">
+              <span class="back-btn">← Back</span>
+              <span class="page-title">Storyboards</span>
+              <span style="color: var(--text-secondary);">•••</span>
+            </div>
+
+            <!-- Video Title -->
+            <div style="margin-bottom: 12px;">
+              <div style="font-size: 16px; font-weight: 600;">China's $3T Dollar Trap</div>
+              <div style="font-size: 12px; color: var(--text-secondary);">20 scenes • 60 storyboard panels</div>
+            </div>
+
+            <!-- Progress -->
+            <div class="progress-bar">
+              <div class="progress-track">
+                <div class="progress-fill" style="width: 35%;"></div>
+              </div>
+              <span class="progress-text">7/20 scenes</span>
+            </div>
+
+            <!-- Storyboard 1 -->
+            <div class="storyboard-card">
+              <div class="storyboard-header">
+                <span class="storyboard-scene">Scene 1 — The Hook</span>
+                <span class="storyboard-badge done">✓ Approved</span>
+              </div>
+              <div class="storyboard-grid">
+                <div class="grid-cell placeholder-1"><span class="grid-cell-number">1</span></div>
+                <div class="grid-cell placeholder-2"><span class="grid-cell-number">2</span></div>
+                <div class="grid-cell placeholder-3"><span class="grid-cell-number">3</span></div>
+                <div class="grid-cell placeholder-4"><span class="grid-cell-number">4</span></div>
+                <div class="grid-cell placeholder-5"><span class="grid-cell-number">5</span></div>
+                <div class="grid-cell placeholder-6"><span class="grid-cell-number">6</span></div>
+                <div class="grid-cell placeholder-7"><span class="grid-cell-number">7</span></div>
+                <div class="grid-cell placeholder-8"><span class="grid-cell-number">8</span></div>
+                <div class="grid-cell placeholder-9"><span class="grid-cell-number">9</span></div>
+              </div>
+              <div class="storyboard-narration">
+                "China holds three trillion dollars in foreign reserves. But here's the problem — they can't spend it..."
+              </div>
+            </div>
+
+            <!-- Storyboard 2 -->
+            <div class="storyboard-card">
+              <div class="storyboard-header">
+                <span class="storyboard-scene">Scene 2 — The Setup</span>
+                <span class="storyboard-badge">Pending Review</span>
+              </div>
+              <div class="storyboard-grid">
+                <div class="grid-cell placeholder-2"><span class="grid-cell-number">1</span></div>
+                <div class="grid-cell placeholder-3"><span class="grid-cell-number">2</span></div>
+                <div class="grid-cell placeholder-1"><span class="grid-cell-number">3</span></div>
+                <div class="grid-cell placeholder-5"><span class="grid-cell-number">4</span></div>
+                <div class="grid-cell placeholder-4"><span class="grid-cell-number">5</span></div>
+                <div class="grid-cell placeholder-6"><span class="grid-cell-number">6</span></div>
+                <div class="grid-cell placeholder-8"><span class="grid-cell-number">7</span></div>
+                <div class="grid-cell placeholder-9"><span class="grid-cell-number">8</span></div>
+                <div class="grid-cell placeholder-7"><span class="grid-cell-number">9</span></div>
+              </div>
+              <div class="storyboard-narration">
+                "To understand why, we need to go back to 1994 when China pegged the yuan to the dollar..."
+              </div>
+              <div class="storyboard-actions">
+                <button class="btn btn-secondary">Regenerate</button>
+                <button class="btn btn-primary">Approve</button>
+              </div>
+            </div>
+
+            <!-- Storyboard 3 (partial view) -->
+            <div class="storyboard-card" style="opacity: 0.7;">
+              <div class="storyboard-header">
+                <span class="storyboard-scene">Scene 3 — Historical Context</span>
+                <span class="storyboard-badge">Generating...</span>
+              </div>
+              <div class="storyboard-grid" style="opacity: 0.5;">
+                <div class="grid-cell placeholder-3"><span class="grid-cell-number">1</span></div>
+                <div class="grid-cell placeholder-1"><span class="grid-cell-number">2</span></div>
+                <div class="grid-cell placeholder-2"><span class="grid-cell-number">3</span></div>
+                <div class="grid-cell" style="background: var(--surface-elevated);"></div>
+                <div class="grid-cell" style="background: var(--surface-elevated);"></div>
+                <div class="grid-cell" style="background: var(--surface-elevated);"></div>
+                <div class="grid-cell" style="background: var(--surface-elevated);"></div>
+                <div class="grid-cell" style="background: var(--surface-elevated);"></div>
+                <div class="grid-cell" style="background: var(--surface-elevated);"></div>
+              </div>
+            </div>
+
+            <!-- Floating extract button -->
+            <div class="fab">Extract All → Images</div>
+          </div>
+        </div>
+
+        <div class="bottom-nav">
+          <div class="nav-item">
+            <span class="nav-icon">🏠</span>
+            <span>Home</span>
+          </div>
+          <div class="nav-item active">
+            <span class="nav-icon">🎬</span>
+            <span>Pipeline</span>
+          </div>
+          <div class="nav-item">
+            <span class="nav-icon">✅</span>
+            <span>Review</span>
+          </div>
+          <div class="nav-item">
+            <span class="nav-icon">📈</span>
+            <span>Analytics</span>
+          </div>
+          <div class="nav-item">
+            <span class="nav-icon">⚙️</span>
+            <span>More</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Phone: Panel Detail (tap on cell) -->
+    <div class="phone-wrapper">
+      <div class="phone-label">Panel Detail (Tap to Enlarge)</div>
+      <div class="phone">
+        <div class="phone-notch"></div>
+        <div class="phone-screen">
+          <div class="content">
+            <!-- Header -->
+            <div class="page-header">
+              <span class="back-btn">← Scene 2</span>
+              <span class="page-title">Panel 3 of 9</span>
+              <span style="color: var(--text-secondary);">•••</span>
+            </div>
+
+            <!-- Large panel view -->
+            <div style="aspect-ratio: 16/9; background: linear-gradient(135deg, #1a4a2a, #0f2515); border-radius: 12px; margin-bottom: 16px;"></div>
+
+            <!-- Panel navigation -->
+            <div style="display: flex; justify-content: center; gap: 8px; margin-bottom: 20px;">
+              <button style="width: 32px; height: 32px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; color: var(--text-secondary);">←</button>
+              <span style="padding: 8px 16px; background: var(--surface); border-radius: 8px; font-size: 13px;">3 / 9</span>
+              <button style="width: 32px; height: 32px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; color: var(--text-secondary);">→</button>
+            </div>
+
+            <!-- Associated narration -->
+            <div style="background: var(--surface); border-radius: 12px; padding: 16px; margin-bottom: 16px;">
+              <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 6px;">NARRATION</div>
+              <div style="font-size: 14px; line-height: 1.6;">"The Chinese government maintained this peg for years, accumulating massive dollar reserves..."</div>
+            </div>
+
+            <!-- X/Y Extraction Preview -->
+            <div style="background: var(--surface); border-radius: 12px; padding: 16px; margin-bottom: 16px;">
+              <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 10px;">EXTRACTION PREVIEW</div>
+              <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;">
+                <div style="aspect-ratio: 16/9; background: linear-gradient(135deg, #1a4a2a, #0f2515); border-radius: 6px; border: 2px solid var(--accent);"></div>
+                <div style="aspect-ratio: 16/9; background: linear-gradient(135deg, #1a4a2a, #0f2515); border-radius: 6px; opacity: 0.5;"></div>
+                <div style="aspect-ratio: 16/9; background: linear-gradient(135deg, #1a4a2a, #0f2515); border-radius: 6px; opacity: 0.5;"></div>
+              </div>
+              <div style="font-size: 11px; color: var(--text-secondary); margin-top: 8px; text-align: center;">Tap to select extraction region</div>
+            </div>
+
+            <!-- Actions -->
+            <div style="display: flex; gap: 8px;">
+              <button class="btn btn-secondary" style="flex: 1;">Regenerate Panel</button>
+              <button class="btn btn-primary" style="flex: 1;">Use This</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="bottom-nav">
+          <div class="nav-item">
+            <span class="nav-icon">🏠</span>
+            <span>Home</span>
+          </div>
+          <div class="nav-item active">
+            <span class="nav-icon">🎬</span>
+            <span>Pipeline</span>
+          </div>
+          <div class="nav-item">
+            <span class="nav-icon">✅</span>
+            <span>Review</span>
+          </div>
+          <div class="nav-item">
+            <span class="nav-icon">📈</span>
+            <span>Analytics</span>
+          </div>
+          <div class="nav-item">
+            <span class="nav-icon">⚙️</span>
+            <span>More</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Phone: After Extraction -->
+    <div class="phone-wrapper">
+      <div class="phone-label">Extracted Images (Final)</div>
+      <div class="phone">
+        <div class="phone-notch"></div>
+        <div class="phone-screen">
+          <div class="content">
+            <!-- Header -->
+            <div class="page-header">
+              <span class="back-btn">← Back</span>
+              <span class="page-title">Scene 1 Images</span>
+              <span style="color: var(--text-secondary);">•••</span>
+            </div>
+
+            <!-- Info bar -->
+            <div style="display: flex; align-items: center; gap: 8px; padding: 12px; background: rgba(34, 197, 94, 0.1); border: 1px solid rgba(34, 197, 94, 0.3); border-radius: 10px; margin-bottom: 16px;">
+              <span style="color: var(--success);">✓</span>
+              <span style="font-size: 13px;">6 images extracted from storyboard</span>
+            </div>
+
+            <!-- Extracted images in sequence -->
+            <div style="display: flex; flex-direction: column; gap: 12px;">
+              <div style="display: flex; gap: 12px; align-items: flex-start;">
+                <div style="width: 48px; height: 48px; background: var(--surface); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 600; flex-shrink: 0;">1</div>
+                <div style="flex: 1;">
+                  <div style="aspect-ratio: 16/9; background: linear-gradient(135deg, #1a2a4a, #0f1525); border-radius: 10px; margin-bottom: 8px;"></div>
+                  <div style="font-size: 11px; color: var(--text-secondary);">Wide shot • Establishing • 4.2s</div>
+                </div>
+              </div>
+
+              <div style="display: flex; gap: 12px; align-items: flex-start;">
+                <div style="width: 48px; height: 48px; background: var(--surface); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 600; flex-shrink: 0;">2</div>
+                <div style="flex: 1;">
+                  <div style="aspect-ratio: 16/9; background: linear-gradient(135deg, #2a1a4a, #150f25); border-radius: 10px; margin-bottom: 8px;"></div>
+                  <div style="font-size: 11px; color: var(--text-secondary);">Medium • Character focus • 3.8s</div>
+                </div>
+              </div>
+
+              <div style="display: flex; gap: 12px; align-items: flex-start;">
+                <div style="width: 48px; height: 48px; background: var(--surface); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 600; flex-shrink: 0;">3</div>
+                <div style="flex: 1;">
+                  <div style="aspect-ratio: 16/9; background: linear-gradient(135deg, #1a4a2a, #0f2515); border-radius: 10px; margin-bottom: 8px;"></div>
+                  <div style="font-size: 11px; color: var(--text-secondary);">Close-up • Detail • 2.9s</div>
+                </div>
+              </div>
+
+              <div style="display: flex; gap: 12px; align-items: flex-start;">
+                <div style="width: 48px; height: 48px; background: var(--surface); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 600; flex-shrink: 0;">4</div>
+                <div style="flex: 1;">
+                  <div style="aspect-ratio: 16/9; background: linear-gradient(135deg, #4a2a1a, #25150f); border-radius: 10px; margin-bottom: 8px;"></div>
+                  <div style="font-size: 11px; color: var(--text-secondary);">Wide • Data overlay • 4.5s</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Next action -->
+            <div style="margin-top: 20px;">
+              <button class="btn btn-primary" style="width: 100%;">Continue to Scene 2 →</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="bottom-nav">
+          <div class="nav-item">
+            <span class="nav-icon">🏠</span>
+            <span>Home</span>
+          </div>
+          <div class="nav-item active">
+            <span class="nav-icon">🎬</span>
+            <span>Pipeline</span>
+          </div>
+          <div class="nav-item">
+            <span class="nav-icon">✅</span>
+            <span>Review</span>
+          </div>
+          <div class="nav-item">
+            <span class="nav-icon">📈</span>
+            <span>Analytics</span>
+          </div>
+          <div class="nav-item">
+            <span class="nav-icon">⚙️</span>
+            <span>More</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Flow Diagram -->
+  <div class="flow-diagram">
+    <h2>Storyboard → Images Flow</h2>
+    <div class="flow-steps">
+      <div class="flow-step">Generate Storyboards<br><small style="color: var(--text-secondary);">3x3 grids per scene</small></div>
+      <span class="flow-arrow">→</span>
+      <div class="flow-step active">Review & Approve<br><small style="color: var(--text-secondary);">Comic book scroll</small></div>
+      <span class="flow-arrow">→</span>
+      <div class="flow-step">Extract X/Y<br><small style="color: var(--text-secondary);">Select regions</small></div>
+      <span class="flow-arrow">→</span>
+      <div class="flow-step">Final Images<br><small style="color: var(--text-secondary);">6 per scene</small></div>
+      <span class="flow-arrow">→</span>
+      <div class="flow-step">Continue Pipeline<br><small style="color: var(--text-secondary);">Sound → Video</small></div>
+    </div>
+  </div>
+
+  <!-- Design Notes -->
+  <div class="notes-section">
+    <h2>Storyboard Review UX</h2>
+    <div class="notes-grid">
+      <div class="note-group">
+        <h3>Comic Book Scroll</h3>
+        <ul>
+          <li><strong>Vertical scroll</strong> — natural on mobile, each scene is a card</li>
+          <li>Scene number + title in header</li>
+          <li>3x3 grid shows all 9 panels at once</li>
+          <li>Narration text below each grid</li>
+          <li>Approve/Regenerate actions per scene</li>
+        </ul>
+      </div>
+      <div class="note-group">
+        <h3>Panel Detail View</h3>
+        <ul>
+          <li><strong>Tap any cell</strong> to enlarge</li>
+          <li>Swipe left/right between panels</li>
+          <li>Shows associated narration</li>
+          <li>X/Y extraction preview overlay</li>
+          <li>Regenerate individual panels</li>
+        </ul>
+      </div>
+      <div class="note-group">
+        <h3>Extraction Process</h3>
+        <ul>
+          <li><strong>"Extract All"</strong> FAB for batch processing</li>
+          <li>Or tap individual cells to select regions</li>
+          <li>Shows preview of extraction crop</li>
+          <li>Final images shown in sequence with timing</li>
+        </ul>
+      </div>
+      <div class="note-group">
+        <h3>Progress Tracking</h3>
+        <ul>
+          <li>Progress bar shows scenes reviewed / total</li>
+          <li>Badges: Approved, Pending, Generating</li>
+          <li>Partially generated scenes show with placeholders</li>
+          <li>Can review while generation continues</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

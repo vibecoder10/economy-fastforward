@@ -1,0 +1,6 @@
+{"type":"server-started","port":64846,"host":"127.0.0.1","url_host":"localhost","url":"http://localhost:64846","screen_dir":"/Users/ryanayler/economy-fastforward/.superpowers/brainstorm/91813-1774308105"}
+{"type":"screen-added","file":"/Users/ryanayler/economy-fastforward/.superpowers/brainstorm/91813-1774308105/screen.html"}
+{"type":"screen-updated","file":"/Users/ryanayler/economy-fastforward/.superpowers/brainstorm/91813-1774308105/screen.html"}
+{"type":"screen-updated","file":"/Users/ryanayler/economy-fastforward/.superpowers/brainstorm/91813-1774308105/screen.html"}
+{"type":"screen-updated","file":"/Users/ryanayler/economy-fastforward/.superpowers/brainstorm/91813-1774308105/screen.html"}
+{"type":"server-stopped","reason":"idle timeout"}
