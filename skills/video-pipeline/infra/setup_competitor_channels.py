@@ -40,7 +40,7 @@ load_dotenv()
 
 def verify_setup():
     """Verify Competitor Channels table is set up correctly."""
-    from clients.airtable_client import AirtableClient
+    from shared.clients.airtable_client import AirtableClient
 
     print("=" * 60)
     print("COMPETITOR CHANNELS TABLE SETUP")
@@ -111,7 +111,7 @@ def verify_setup():
 
 def add_sample_channels():
     """Add sample competitor channels (for testing)."""
-    from clients.airtable_client import AirtableClient
+    from shared.clients.airtable_client import AirtableClient
 
     sample_channels = [
         {

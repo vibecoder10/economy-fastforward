@@ -12,7 +12,8 @@
 # Usage: bash diagnose_cron.sh
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+PIPELINE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+REPO_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 
 echo "=================================================="
 echo "  Pipeline Cron Diagnostics"
@@ -112,7 +113,7 @@ PYTHON_FOUND=""
 candidates=(
     "/home/clawd/pipeline-bot/venv/bin/python"
     "$REPO_DIR/venv/bin/python"
-    "$SCRIPT_DIR/venv/bin/python"
+    "$PIPELINE_DIR/venv/bin/python"
 )
 for candidate in "${candidates[@]}"; do
     if [ -x "$candidate" ]; then

@@ -8,15 +8,18 @@
 # Logs: /tmp/pipeline-bot-health.log
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+PIPELINE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+REPO_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 PID_FILE="/tmp/pipeline-bot.pid"
-BOT_SCRIPT="pipeline_control.py"
+BOT_SCRIPT="orchestrator/pipeline_control.py"
 
 # Find Python — prefer repo venv, fall back to system python3
-if [ -x "$REPO_DIR/venv/bin/python" ]; then
+if [ -x "/home/clawd/pipeline-bot/venv/bin/python" ]; then
+    PYTHON3="/home/clawd/pipeline-bot/venv/bin/python"
+elif [ -x "$REPO_DIR/venv/bin/python" ]; then
     PYTHON3="$REPO_DIR/venv/bin/python"
-elif [ -x "$SCRIPT_DIR/venv/bin/python" ]; then
-    PYTHON3="$SCRIPT_DIR/venv/bin/python"
+elif [ -x "$PIPELINE_DIR/venv/bin/python" ]; then
+    PYTHON3="$PIPELINE_DIR/venv/bin/python"
 else
     PYTHON3="python3"
 fi
@@ -70,8 +73,8 @@ if bot_is_running; then
 else
     echo "[$(date)] Bot is DOWN! Attempting restart..."
 
-    # Start the bot in the background
-    cd "$SCRIPT_DIR"
+    # Start the bot in the background (from pipeline root)
+    cd "$PIPELINE_DIR"
     nohup $PYTHON3 "$BOT_SCRIPT" > /tmp/pipeline-bot.log 2>&1 &
     NEW_PID=$!
     echo "$NEW_PID" > "$PID_FILE"
@@ -84,6 +87,6 @@ else
         send_slack_alert ":warning: *Pipeline Bot Restarted*\nThe Slack bot (pipeline_control.py) was found dead and has been auto-restarted.\nEmoji reactions on discovery messages should work again.\nPID: $NEW_PID"
     else
         echo "[$(date)] FAILED to restart bot!"
-        send_slack_alert ":rotating_light: *Pipeline Bot FAILED to Restart*\nThe Slack bot is down and could not be restarted automatically.\nEmoji reactions on discovery messages will NOT work.\nPlease SSH in and start it manually: cd $SCRIPT_DIR && python3 pipeline_control.py"
+        send_slack_alert ":rotating_light: *Pipeline Bot FAILED to Restart*\nThe Slack bot is down and could not be restarted automatically.\nEmoji reactions on discovery messages will NOT work.\nPlease SSH in and start it manually: cd $PIPELINE_DIR && python3 orchestrator/pipeline_control.py"
     fi
 fi

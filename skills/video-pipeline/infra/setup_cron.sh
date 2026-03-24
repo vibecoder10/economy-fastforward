@@ -1,17 +1,21 @@
 #!/bin/bash
 # Setup cron jobs for the Economy FastForward pipeline.
 #
-# Usage: bash setup_cron.sh
+# Usage: bash infra/setup_cron.sh   (from skills/video-pipeline/)
 #
-# This installs six cron jobs:
+# This installs ten cron jobs:
 #   1. 5:00 AM  — Osiris competitor scraper (persists ALL competitor videos to training table)
-#   2. 9:00 AM  — Daily idea discovery scan (posts ideas to Slack for approval)
+#   2. 6:30 AM  — Autopilot decision cycle (score ideas, select best, notify Slack)
 #   3. 7:00 AM  — Daily YouTube performance tracker (syncs analytics to Airtable)
-#   4. 12:00 PM — Daily pipeline queue run (processes all stages through to Ready To Render)
-#   5. Every 15 min — Bot health check (restarts Slack bot if it died, notifies you)
-#   6. Every 30 min — Approval watcher (catches manual Airtable approvals)
+#   4. 7:30 AM  — Osiris performance analyzer (48h/7d post-mortems + learnings)
+#   5. 7:45 AM  — Autopilot CTR monitor (early warnings for underperforming videos)
+#   6. 8:30 AM  — Autopilot learning extractor (extract patterns from 48h+ videos)
+#   7. 9:00 AM  — Daily idea discovery scan (posts ideas to Slack for approval)
+#   8. 12:00 PM — Daily pipeline queue run (processes all stages through to render)
+#   9. Every 15 min — Bot health check (restarts Slack bot if it died)
+#  10. Every 30 min — Approval watcher (catches manual Airtable approvals)
 #
-# Times are in US/Pacific (America/Los_Angeles) via TZ env var.
+# Times are in US/Pacific (America/Los_Angeles).
 # Logs are written to /tmp/pipeline-*.log
 # All jobs use cron_wrapper.sh for: env setup, locking, Slack failure alerts.
 #
@@ -21,9 +25,9 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
-PIPELINE_DIR="$SCRIPT_DIR"
-WRAPPER="$PIPELINE_DIR/cron_wrapper.sh"
+REPO_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+PIPELINE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+WRAPPER="$SCRIPT_DIR/cron_wrapper.sh"
 
 # Detect Python — prefer the pipeline venv, fall back to repo venv, then system
 detect_python() {
@@ -78,6 +82,7 @@ echo "=================================================="
 echo ""
 echo "  Repo dir:     $REPO_DIR"
 echo "  Pipeline dir: $PIPELINE_DIR"
+echo "  Infra dir:    $SCRIPT_DIR"
 echo "  Python:       $PYTHON3"
 echo "  Wrapper:      $WRAPPER"
 echo "  System TZ:    $SYS_TZ (mode: $TZ_MODE)"
@@ -95,9 +100,16 @@ chmod +x "$WRAPPER"
 # Build the crontab entries
 # Hours are computed above based on system timezone (Pacific direct or UTC-converted)
 # MAX_LOCK_AGE prevents stale locks from blocking jobs forever
+#
+# NOTE: All python commands run from PIPELINE_DIR (skills/video-pipeline/).
+# Module paths use the reorganized structure (March 2026):
+#   orchestrator/pipeline.py    — main pipeline router
+#   analytics/                  — performance_tracker, osiris
+#   autopilot/                  — autonomous brain
+#   orchestrator/               — approval_watcher
 CRON_ENTRIES=$(cat <<EOF
 # Economy FastForward Pipeline Cron Jobs
-# Installed by setup_cron.sh — $(date)
+# Installed by infra/setup_cron.sh — $(date)
 # System timezone: $SYS_TZ (mode: $TZ_MODE)
 
 # Force bash shell (cron defaults to /bin/sh which may not handle our syntax)
@@ -113,15 +125,9 @@ TZ=America/Los_Angeles
 # Scrapes ALL competitor videos and persists to Competitor Videos table
 # Builds training data for topic/title performance analysis over time
 # Timeout: 10 min max | Lock expires after 15 min
-0 $OSIRIS_HOUR * * * MAX_LOCK_AGE=900 $WRAPPER osiris /tmp/osiris-scraper.log timeout 600 python -m osiris.competitor_scraper
+0 $OSIRIS_HOUR * * * MAX_LOCK_AGE=900 $WRAPPER osiris /tmp/osiris-scraper.log timeout 600 python -m analytics.osiris.competitor_scraper
 
-# $DISCOVER_HOUR:00 (~9 AM PT) — Daily idea discovery scan
-# Scans world news headlines + competitor top performers (50/50 split)
-# Posts interactive Slack message with both idea types for approval
-# Timeout: 15 min max | Lock expires after 20 min (includes competitor scrape)
-0 $DISCOVER_HOUR * * * MAX_LOCK_AGE=1200 $WRAPPER discovery /tmp/pipeline-discover.log timeout 900 python pipeline.py --discover
-
-# $OSIRIS_HOUR+1:30 (~6:30 AM PT) — Autopilot decision cycle
+# $(($OSIRIS_HOUR + 1)):30 (~6:30 AM PT) — Autopilot decision cycle
 # Checks cadence, scores candidates, selects best idea, notifies Slack
 # Runs BEFORE pipeline queue so overrides are set before production
 # Timeout: 15 min max | Lock expires after 20 min
@@ -130,13 +136,13 @@ TZ=America/Los_Angeles
 # $PERF_HOUR:00 (~7 AM PT) — Daily YouTube performance tracker
 # Syncs YouTube metrics (views, CTR, retention, snapshots) to Airtable
 # Timeout: 10 min max | Lock expires after 15 min
-0 $PERF_HOUR * * * MAX_LOCK_AGE=900 $WRAPPER performance /tmp/performance-tracker.log timeout 600 python performance_tracker.py --recent
+0 $PERF_HOUR * * * MAX_LOCK_AGE=900 $WRAPPER performance /tmp/performance-tracker.log timeout 600 python analytics/performance_tracker.py --recent
 
 # $PERF_HOUR:30 (~7:30 AM PT) — Osiris performance analyzer (post-mortems)
 # Runs AFTER performance_tracker so metrics are fresh
 # Analyzes videos at 48h/7d milestones, extracts learnings for prompt injection
 # Timeout: 10 min max | Lock expires after 15 min
-30 $PERF_HOUR * * * MAX_LOCK_AGE=900 $WRAPPER osiris-analyze /tmp/osiris-analyze.log timeout 600 python -m osiris analyze
+30 $PERF_HOUR * * * MAX_LOCK_AGE=900 $WRAPPER osiris-analyze /tmp/osiris-analyze.log timeout 600 python -m analytics.osiris analyze
 
 # $PERF_HOUR:45 (~7:45 AM PT) — Autopilot CTR monitor
 # Monitors CTR at 6h/24h/48h milestones for videos in "monitoring" state
@@ -150,24 +156,30 @@ TZ=America/Los_Angeles
 # Timeout: 10 min max | Lock expires after 15 min
 30 $(($PERF_HOUR + 1)) * * * MAX_LOCK_AGE=900 $WRAPPER autopilot-learn /tmp/autopilot-learn.log timeout 600 python -m autopilot.learning.learning_extractor --daily
 
+# $DISCOVER_HOUR:00 (~9 AM PT) — Daily idea discovery scan
+# Scans world news headlines + competitor top performers (50/50 split)
+# Posts interactive Slack message with both idea types for approval
+# Timeout: 15 min max | Lock expires after 20 min (includes competitor scrape)
+0 $DISCOVER_HOUR * * * MAX_LOCK_AGE=1200 $WRAPPER discovery /tmp/pipeline-discover.log timeout 900 python orchestrator/pipeline.py --discover
+
 # $QUEUE_HOUR:00 (~12 PM PT) — Daily pipeline queue run
 # Processes all stages: Script → Voice → Image Prompts → Images → Thumbnail → Render → Upload
 # Timeout: 4 hours max | Lock expires after 5 hours
-0 $QUEUE_HOUR * * * MAX_LOCK_AGE=18000 $WRAPPER pipeline-queue /tmp/pipeline-queue.log timeout 14400 python pipeline.py --run-queue
+0 $QUEUE_HOUR * * * MAX_LOCK_AGE=18000 $WRAPPER pipeline-queue /tmp/pipeline-queue.log timeout 14400 python orchestrator/pipeline.py --run-queue
 
 # Every 15 min — Slack bot health check
 # Verifies pipeline_control.py is running. If it died, restarts it and sends alert.
-*/15 * * * * cd $PIPELINE_DIR && bash bot_healthcheck.sh >> /tmp/pipeline-bot-health.log 2>&1
+*/15 * * * * cd $PIPELINE_DIR && bash infra/bot_healthcheck.sh >> /tmp/pipeline-bot-health.log 2>&1
 
 # Every 30 min — Approval watcher
 # Catches ideas manually approved in Airtable (status set to "Approved")
 # Lock expires after 15 min
-*/30 * * * * MAX_LOCK_AGE=900 $WRAPPER approvals /tmp/pipeline-approval.log timeout 600 python approval_watcher.py
+*/30 * * * * MAX_LOCK_AGE=900 $WRAPPER approvals /tmp/pipeline-approval.log timeout 600 python orchestrator/approval_watcher.py
 EOF
 )
 
 # Preserve any existing cron entries not from this script
-EXISTING=$(crontab -l 2>/dev/null | grep -v "pipeline-discover\|pipeline-queue\|pipeline-bot-health\|pipeline-approval\|performance-tracker\|osiris-scraper\|osiris-analyze\|autopilot-cycle\|autopilot-ctr\|autopilot-learn\|pipeline\.log\|Pipeline Cron\|setup_cron\|Daily idea\|Daily pipeline\|performance tracker\|bot health\|Approval watcher\|run-queue\|--discover\|performance_tracker\|cron_wrapper\|osiris\.competitor\|osiris analyze\|autopilot\.autopilot\|autopilot\.monitoring\|autopilot\.learning" || true)
+EXISTING=$(crontab -l 2>/dev/null | grep -v "pipeline-discover\|pipeline-queue\|pipeline-bot-health\|pipeline-approval\|performance-tracker\|osiris-scraper\|osiris-analyze\|autopilot-cycle\|autopilot-ctr\|autopilot-learn\|pipeline\.log\|Pipeline Cron\|setup_cron\|Daily idea\|Daily pipeline\|performance tracker\|bot health\|Approval watcher\|run-queue\|--discover\|performance_tracker\|cron_wrapper\|osiris\.competitor\|osiris analyze\|autopilot\.autopilot\|autopilot\.monitoring\|autopilot\.learning\|analytics\.osiris" || true)
 
 # Install combined crontab
 if [ -n "$EXISTING" ]; then
@@ -221,7 +233,7 @@ echo ""
 if pgrep -x "cron" > /dev/null 2>&1 || pgrep -x "crond" > /dev/null 2>&1; then
     echo "  Cron daemon: RUNNING"
 else
-    echo "  ⚠️  WARNING: Cron daemon is NOT running!"
+    echo "  WARNING: Cron daemon is NOT running!"
     echo "     Jobs are installed but will NOT fire until cron is started."
     echo "     Start it with:"
     echo "       sudo systemctl start cron && sudo systemctl enable cron"
@@ -229,5 +241,5 @@ else
 fi
 
 echo "  Verify with: crontab -l"
-echo "  Diagnose:    bash diagnose_cron.sh"
+echo "  Diagnose:    bash infra/diagnose_cron.sh"
 echo "=================================================="

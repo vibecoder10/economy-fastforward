@@ -16,7 +16,7 @@ async def test_anthropic():
     """Test Anthropic Claude API."""
     print("\n1️⃣  Testing Anthropic (Claude)...")
     try:
-        from clients.anthropic_client import AnthropicClient
+        from shared.clients.anthropic_client import AnthropicClient
         client = AnthropicClient()
         response = await client.generate(
             prompt="Say 'API connection successful!' in exactly 4 words.",
@@ -32,7 +32,7 @@ async def test_airtable():
     """Test Airtable API."""
     print("\n2️⃣  Testing Airtable...")
     try:
-        from clients.airtable_client import AirtableClient
+        from shared.clients.airtable_client import AirtableClient
         client = AirtableClient()
         # Just try to access the ideas table
         records = client.ideas_table.all(max_records=1)
@@ -46,7 +46,7 @@ async def test_google():
     """Test Google Drive API."""
     print("\n3️⃣  Testing Google Drive...")
     try:
-        from clients.google_client import GoogleClient
+        from shared.clients.google_client import GoogleClient
         client = GoogleClient()
         # Search for any folder
         results = client.drive_service.files().list(
@@ -68,7 +68,7 @@ async def test_slack():
     """Test Slack API."""
     print("\n4️⃣  Testing Slack...")
     try:
-        from clients.slack_client import SlackClient
+        from shared.clients.slack_client import SlackClient
         client = SlackClient()
         # Test by getting bot info
         response = client.client.auth_test()
@@ -82,7 +82,7 @@ async def test_wavespeed():
     """Test Wavespeed/ElevenLabs API."""
     print("\n5️⃣  Testing Wavespeed (Voice)...")
     try:
-        from clients.elevenlabs_client import ElevenLabsClient
+        from shared.clients.elevenlabs_client import ElevenLabsClient
         client = ElevenLabsClient()
         # Just verify the client initializes (don't actually generate voice)
         print(f"   ✅ Wavespeed: Client initialized (API key set, voice ID: {client.voice_id})")
@@ -95,7 +95,7 @@ async def test_kieai():
     """Test Kie.ai Image API."""
     print("\n6️⃣  Testing Kie.ai (Images)...")
     try:
-        from clients.image_client import ImageClient
+        from shared.clients.image_client import ImageClient
         client = ImageClient()
         # Just verify the client initializes
         print(f"   ✅ Kie.ai: Client initialized (API key set)")

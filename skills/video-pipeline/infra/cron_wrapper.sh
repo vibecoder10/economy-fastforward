@@ -18,7 +18,8 @@
 set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+PIPELINE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+REPO_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 
 JOB_NAME="${1:?Usage: cron_wrapper.sh <job-name> <log-file> <command...>}"
 LOG_FILE="${2:?Usage: cron_wrapper.sh <job-name> <log-file> <command...>}"
@@ -88,7 +89,7 @@ detect_python() {
     local candidates=(
         "/home/clawd/pipeline-bot/venv/bin/python"
         "$REPO_DIR/venv/bin/python"
-        "$SCRIPT_DIR/venv/bin/python"
+        "$PIPELINE_DIR/venv/bin/python"
     )
     for candidate in "${candidates[@]}"; do
         if [ -x "$candidate" ]; then
@@ -150,9 +151,10 @@ if ! timeout 30 git pull origin main --ff-only >> "$LOG_FILE" 2>&1; then
 fi
 
 # ── Run the command ──────────────────────────────────────────────────
-cd "$SCRIPT_DIR" || {
-    echo "[$(date)] FATAL: Cannot cd to $SCRIPT_DIR" >> "$LOG_FILE"
-    send_failure_alert 1 "Cannot cd to $SCRIPT_DIR"
+# Commands run from the pipeline root (skills/video-pipeline/), not infra/
+cd "$PIPELINE_DIR" || {
+    echo "[$(date)] FATAL: Cannot cd to $PIPELINE_DIR" >> "$LOG_FILE"
+    send_failure_alert 1 "Cannot cd to $PIPELINE_DIR"
     exit 1
 }
 
