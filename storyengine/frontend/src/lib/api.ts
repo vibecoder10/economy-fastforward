@@ -148,6 +148,38 @@ export const launchCandidate = (candidateId: string) =>
     { method: "POST" }
   );
 
+// Agent Quality Pipeline
+export const getAgentStats = () =>
+  fetchApi<AgentStats>("/api/agents/stats");
+
+export const getAgentVideos = () =>
+  fetchApi<AgentVideoResult[]>("/api/agents/videos");
+
+export const getAgentResults = (videoId: string) =>
+  fetchApi<AgentVideoResult>(`/api/agents/videos/${videoId}`);
+
+export const runAgentPipeline = (videoId: string, tier: string = "standard") =>
+  fetchApi<{ status: string; message: string }>(`/api/agents/videos/${videoId}/run`, {
+    method: "POST",
+    body: JSON.stringify({ quality_tier: tier }),
+  });
+
+export const getAgentTaskStatus = (videoId: string) =>
+  fetchApi<{ status: string; message: string }>(`/api/agents/videos/${videoId}/task`);
+
+// Suggestion Accept/Reject
+export const acceptSuggestion = (videoId: string, fields: string[]) =>
+  fetchApi<{ status: string; video_id: string; accepted: string[] }>(
+    `/api/videos/${videoId}/accept-suggestion`,
+    { method: "POST", body: JSON.stringify({ accept: fields }) }
+  );
+
+export const rejectSuggestion = (videoId: string) =>
+  fetchApi<{ status: string; video_id: string }>(
+    `/api/videos/${videoId}/reject-suggestion`,
+    { method: "POST" }
+  );
+
 // Types
 export interface DashboardSummary {
   active_bots: number;
@@ -216,6 +248,20 @@ export interface VideoDetail extends VideoSummary {
   post_mortem_48h: string | null;
   post_mortem_7d: string | null;
   // total_cost already defined in VideoSummary
+  // Agent quality
+  agent_paper_trail: Record<string, unknown> | null;
+  agent_hook_score: number | null;
+  agent_body_score: number | null;
+  agent_tier: string | null;
+  agent_cost: number | null;
+  // Suggestions
+  suggested_script: string | null;
+  suggested_title: string | null;
+  suggested_thumbnail_prompt: string | null;
+  suggested_thumbnail_urls: { url: string; approach: string }[] | null;
+  suggestion_source: string | null;
+  suggestion_scores: { hook?: number; body?: number; reasoning?: string } | null;
+  suggestion_status: string | null;
 }
 
 export interface Asset {
@@ -393,4 +439,23 @@ export interface AutopilotSummary {
   config: AutopilotConfig;
   candidates: CompetitorCandidate[];
   learnings: Learning[];
+}
+
+// Agent Quality Pipeline
+export interface AgentStats {
+  total_scripts: number;
+  avg_hook_score: number;
+  avg_body_score: number;
+  avg_cost: number;
+  total_cost: number;
+}
+
+export interface AgentVideoResult {
+  video_id: string;
+  video_title: string;
+  tier: string;
+  hook_score: number | null;
+  body_score: number | null;
+  cost: number | null;
+  paper_trail: Record<string, unknown> | null;
 }
