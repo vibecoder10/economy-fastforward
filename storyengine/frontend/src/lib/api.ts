@@ -202,6 +202,21 @@ export interface VideoDetail extends VideoSummary {
   likes: number;
   comments: number;
   performance_verdict: string | null;
+  // Performance snapshots
+  avg_view_duration_seconds: number | null;
+  views_24h: number | null;
+  views_48h: number | null;
+  views_7d: number | null;
+  views_30d: number | null;
+  ctr_12h: number | null;
+  ctr_24h: number | null;
+  ctr_48h: number | null;
+  retention_48h: number | null;
+  // Post-mortem
+  post_mortem_48h: string | null;
+  post_mortem_7d: string | null;
+  // Cost
+  total_cost: number | null;
 }
 
 export interface Asset {
@@ -229,6 +244,13 @@ export interface ScriptScene {
   script_status: string | null;
   sources: string | null;
   storyboard_on_off: string | null;
+  // Storyboard
+  storyboard_1_url: string | null;
+  storyboard_2_url: string | null;
+  storyboard_3_url: string | null;
+  storyboard_prompts: string | null;
+  storyboard_beat_count: number | null;
+  storyboard_status: string | null;
 }
 
 export interface ActivityEntry {
