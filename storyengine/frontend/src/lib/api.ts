@@ -117,6 +117,37 @@ export const updateVideoStyles = (
     Object.entries(styles).filter(([, v]) => v !== undefined) as [string, string][]
   ).toString()}`, { method: "PATCH" });
 
+// Autopilot
+export const getAutopilotSummary = () => fetchApi<AutopilotSummary>("/api/autopilot/summary");
+
+export const getAutopilotCandidates = (limit?: number, minVph?: number) =>
+  fetchApi<CompetitorCandidate[]>(
+    `/api/autopilot/candidates?limit=${limit || 20}&min_vph=${minVph || 50}`
+  );
+
+export const getAutopilotLearnings = (category?: string, limit?: number) =>
+  fetchApi<Learning[]>(
+    `/api/autopilot/learnings?limit=${limit || 20}${category ? `&category=${category}` : ""}`
+  );
+
+export const toggleAutopilot = (enabled: boolean) =>
+  fetchApi<{ status: string; enabled: boolean }>("/api/autopilot/toggle", {
+    method: "POST",
+    body: JSON.stringify({ enabled }),
+  });
+
+export const updateAutopilotConfig = (videosPerMonth: number) =>
+  fetchApi<{ status: string; config: AutopilotConfig }>("/api/autopilot/config", {
+    method: "POST",
+    body: JSON.stringify({ videos_per_month: videosPerMonth }),
+  });
+
+export const launchCandidate = (candidateId: string) =>
+  fetchApi<{ status: string; candidate_id: string; message: string }>(
+    `/api/autopilot/launch/${candidateId}`,
+    { method: "POST" }
+  );
+
 // Types
 export interface DashboardSummary {
   active_bots: number;
@@ -286,4 +317,59 @@ export interface StyleUpdateResponse {
     accent_color: string | null;
     image_model_override: string | null;
   };
+}
+
+// Autopilot Types
+export interface AutopilotState {
+  enabled: boolean;
+  last_cycle: string | null;
+  videos_produced: number;
+  channel_avg_ctr: number;
+  next_production_date: string | null;
+  days_until_next: number;
+}
+
+export interface AutopilotConfig {
+  videos_per_month: number;
+  production_interval_days: number;
+  weights: Record<string, number>;
+  thresholds: Record<string, number>;
+}
+
+export interface ConfidenceBreakdown {
+  vph_score: number;
+  vph_reasoning: string;
+  freshness_score: number;
+  freshness_reasoning: string;
+  total_score: number;
+}
+
+export interface CompetitorCandidate {
+  id: string;
+  title: string;
+  source: string;
+  url: string | null;
+  vph: number;
+  hours_old: number;
+  confidence: number;
+  confidence_breakdown?: ConfidenceBreakdown;
+  published_date: string | null;
+  modeled: boolean;
+}
+
+export interface Learning {
+  id: string;
+  pattern: string;
+  category: string;
+  effect: string;
+  confidence: number;
+  sample_size: number;
+  avg_ctr: number | null;
+}
+
+export interface AutopilotSummary {
+  state: AutopilotState;
+  config: AutopilotConfig;
+  candidates: CompetitorCandidate[];
+  learnings: Learning[];
 }

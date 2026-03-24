@@ -9,7 +9,7 @@ load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from database import get_pool, close_pool
-from routes import dashboard, videos, assets, activity, review, pipeline, settings
+from routes import dashboard, videos, assets, activity, review, pipeline, settings, autopilot
 
 
 @asynccontextmanager
@@ -55,6 +55,7 @@ app.include_router(activity.router)
 app.include_router(review.router)
 app.include_router(pipeline.router)
 app.include_router(settings.router)
+app.include_router(autopilot.router)
 
 
 @app.get("/api/health")
