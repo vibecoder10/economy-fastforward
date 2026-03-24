@@ -183,6 +183,22 @@ CREATE TABLE videos (
   ctr_12h NUMERIC,
   ctr_24h NUMERIC,
 
+  -- Agent quality
+  agent_paper_trail JSONB,
+  agent_hook_score NUMERIC,
+  agent_body_score NUMERIC,
+  agent_tier TEXT,
+  agent_cost NUMERIC,
+
+  -- Suggestions (agent proposes, human approves)
+  suggested_script TEXT,
+  suggested_title TEXT,
+  suggested_thumbnail_prompt TEXT,
+  suggested_thumbnail_urls JSONB,
+  suggestion_source TEXT,
+  suggestion_scores JSONB,
+  suggestion_status TEXT,
+
   -- Costs
   total_cost NUMERIC DEFAULT 0,
 
