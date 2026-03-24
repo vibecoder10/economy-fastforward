@@ -180,6 +180,30 @@ export const rejectSuggestion = (videoId: string) =>
     { method: "POST" }
   );
 
+// Niche
+export const getNicheConfig = () =>
+  fetchApi<NicheConfig>("/api/niche/config");
+
+export const setupNiche = (niche_category: string, sub_niche: string) =>
+  fetchApi<{ status: string }>("/api/niche/setup", {
+    method: "POST",
+    body: JSON.stringify({ niche_category, sub_niche }),
+  });
+
+export const getNicheChannels = () =>
+  fetchApi<CompetitorChannel[]>("/api/niche/channels");
+
+export const addNicheChannel = (channel_name: string, channel_url: string) =>
+  fetchApi<{ status: string }>("/api/niche/channels", {
+    method: "POST",
+    body: JSON.stringify({ channel_name, channel_url }),
+  });
+
+export const removeNicheChannel = (channelId: string) =>
+  fetchApi<{ status: string }>(`/api/niche/channels/${channelId}`, {
+    method: "DELETE",
+  });
+
 // Types
 export interface DashboardSummary {
   active_bots: number;
@@ -458,4 +482,26 @@ export interface AgentVideoResult {
   body_score: number | null;
   cost: number | null;
   paper_trail: Record<string, unknown> | null;
+}
+
+// Niche
+export interface NicheConfig {
+  niche_category: string | null;
+  sub_niche: string | null;
+  has_channels: boolean;
+}
+
+export interface CompetitorChannel {
+  id: string;
+  channel_name: string;
+  channel_url: string;
+  category: string | null;
+  active: boolean;
+  last_scraped: string | null;
+}
+
+export interface ThumbnailVersion {
+  prompt: string;
+  image_url: string | null;
+  created_at: string;
 }
