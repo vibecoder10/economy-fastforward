@@ -3,6 +3,7 @@
 --
 -- Drop all existing tables first if they exist (fresh start — no data in Supabase yet):
 
+DROP TABLE IF EXISTS autopilot_config CASCADE;
 DROP TABLE IF EXISTS learnings CASCADE;
 DROP TABLE IF EXISTS competitor_videos CASCADE;
 DROP TABLE IF EXISTS competitor_channels CASCADE;
@@ -97,7 +98,7 @@ CREATE TABLE videos (
   thumbnail_approach TEXT,
   accent_color TEXT DEFAULT '#00D4AA',
   visual_style TEXT,
-  image_model TEXT,
+  image_model_override TEXT,
   image_style_override TEXT,
   story_bible TEXT,
   script_validation TEXT,
@@ -141,6 +142,46 @@ CREATE TABLE videos (
   post_mortem_48h TEXT,
   post_mortem_7d TEXT,
   performance_verdict TEXT,
+
+  -- Storyboard
+  storyboard_status TEXT,
+  storyboard_preview_url TEXT,
+  storyboard_beat_count INTEGER,
+  video_model TEXT,
+
+  -- Pipeline state
+  scene_file_path TEXT,
+  core_image_url TEXT,
+  scene_count INTEGER,
+  validation_status TEXT,
+  video_id_internal TEXT,
+  framework TEXT,
+  sources TEXT,
+  pipeline_mode TEXT,
+  notes TEXT,
+
+  -- Source tracking
+  reference_url TEXT,
+  idea_reasoning TEXT,
+  source_views INTEGER,
+  source_channel TEXT,
+
+  -- Upload (additional)
+  final_video_attachment_url TEXT,
+
+  -- Curiosity Gap (additional)
+  structure_source TEXT,
+  pattern_library_snapshot TEXT,
+  title_poll_result TEXT,
+  poll_closed BOOLEAN DEFAULT false,
+
+  -- Thumbnail (additional)
+  thumbnail_palette TEXT,
+  summary TEXT,
+
+  -- Performance snapshots (additional)
+  ctr_12h NUMERIC,
+  ctr_24h NUMERIC,
 
   -- Costs
   total_cost NUMERIC DEFAULT 0,
@@ -228,6 +269,15 @@ CREATE TABLE assets (
   -- Flags
   hero_shot BOOLEAN DEFAULT false,
 
+  -- Storyboard tracking
+  drive_image_url TEXT,
+  storyboard_grid_url TEXT,
+  panel_position INTEGER,
+  generation_method TEXT,
+  camera_movement TEXT,
+  assigned_video_duration NUMERIC,
+  estimated_clip_cost NUMERIC,
+
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
@@ -280,6 +330,12 @@ CREATE TABLE competitor_videos (
   analysis_date DATE,
   modeled_by_us BOOLEAN DEFAULT false,
   our_ctr_result NUMERIC,
+
+  modeled_at TIMESTAMPTZ,
+  our_video_id UUID REFERENCES videos(id),
+  updated_at TIMESTAMPTZ DEFAULT now(),
+
+  UNIQUE(tenant_id, video_id),
 
   created_at TIMESTAMPTZ DEFAULT now()
 );
@@ -361,6 +417,29 @@ CREATE TABLE title_tests (
 );
 
 -- =============================================
+-- AUTOPILOT CONFIG (per-tenant settings)
+-- =============================================
+
+CREATE TABLE autopilot_config (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE UNIQUE NOT NULL,
+  enabled BOOLEAN DEFAULT TRUE,
+  videos_per_month INT DEFAULT 15,
+  production_interval_days INT DEFAULT 2,
+  weights JSONB DEFAULT '{"competitor_vph": 0.55, "timing_freshness": 0.45}'::jsonb,
+  thresholds JSONB DEFAULT '{
+      "min_confidence_score": 60,
+      "min_competitor_vph": 50,
+      "max_idea_age_days": 7,
+      "ctr_success_threshold": 4.0,
+      "ctr_failure_threshold": 2.5
+  }'::jsonb,
+  last_cycle TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- =============================================
 -- PIPELINE TRACKING (StoryEngine internal)
 -- =============================================
 
@@ -425,6 +504,7 @@ ALTER TABLE title_insights ENABLE ROW LEVEL SECURITY;
 ALTER TABLE title_tests ENABLE ROW LEVEL SECURITY;
 ALTER TABLE stage_transitions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE bot_activity ENABLE ROW LEVEL SECURITY;
+ALTER TABLE autopilot_config ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "Tenant isolation" ON videos FOR ALL TO authenticated
   USING (tenant_id IN (SELECT m.tenant_id FROM memberships m WHERE m.user_id = (SELECT auth.uid())));
@@ -445,6 +525,8 @@ CREATE POLICY "Tenant isolation" ON title_tests FOR ALL TO authenticated
 CREATE POLICY "Tenant isolation" ON stage_transitions FOR ALL TO authenticated
   USING (tenant_id IN (SELECT m.tenant_id FROM memberships m WHERE m.user_id = (SELECT auth.uid())));
 CREATE POLICY "Tenant isolation" ON bot_activity FOR ALL TO authenticated
+  USING (tenant_id IN (SELECT m.tenant_id FROM memberships m WHERE m.user_id = (SELECT auth.uid())));
+CREATE POLICY "Tenant isolation" ON autopilot_config FOR ALL TO authenticated
   USING (tenant_id IN (SELECT m.tenant_id FROM memberships m WHERE m.user_id = (SELECT auth.uid())));
 
 -- =============================================
