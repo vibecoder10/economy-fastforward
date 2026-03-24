@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { formatCost, timeAgo } from "@/lib/utils";
 import { getStageLabel, getStageColor } from "@/lib/constants";
 import { ProgressDots } from "./progress-dots";
@@ -7,7 +8,6 @@ import type { VideoSummary } from "@/lib/api";
 
 interface VideoCardProps {
   video: VideoSummary;
-  onClick?: () => void;
 }
 
 function dotColor(color: string): string {
@@ -29,13 +29,13 @@ function dotColor(color: string): string {
   }
 }
 
-export function VideoCard({ video, onClick }: VideoCardProps) {
+export function VideoCard({ video }: VideoCardProps) {
   const stageColor = getStageColor(video.status || "idea_logged");
   const stageLabel = getStageLabel(video.status || "idea_logged");
 
   return (
-    <button
-      onClick={onClick}
+    <Link
+      href={`/pipeline/${video.id}`}
       className="flex w-full flex-col gap-2 rounded-[var(--card-radius)] border border-[var(--border)] bg-[var(--bg-card)] p-3 text-left transition-colors hover:bg-[var(--bg-card-hover)]"
     >
       {/* Title */}
@@ -64,6 +64,6 @@ export function VideoCard({ video, onClick }: VideoCardProps) {
           {formatCost(video.total_cost)}
         </span>
       </div>
-    </button>
+    </Link>
   );
 }
