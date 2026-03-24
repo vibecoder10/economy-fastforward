@@ -50,6 +50,14 @@ thresholds:
 
 ---
 
+## Agent Quality Pipeline
+
+quality_tier: standard
+agent_hook_min_score: 70
+agent_body_min_score: 70
+
+---
+
 ## Scope Boundaries
 
 **What the autopilot CAN do:**
