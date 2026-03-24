@@ -96,8 +96,8 @@ export default function AnalyticsPage() {
                 <YAxis type="category" dataKey="name" width={140} tick={{ fill: "var(--text-secondary)", fontSize: 11 }} />
                 <Tooltip
                   contentStyle={{ background: "var(--bg-card-hover)", border: "1px solid var(--border)", borderRadius: 8, color: "var(--text-primary)", fontSize: 13 }}
-                  formatter={(value: number) => [`${value.toFixed(1)}%`, "CTR"]}
-                  labelFormatter={(label: string, payload: any[]) => payload?.[0]?.payload?.fullTitle || label}
+                  formatter={(value: any) => [`${Number(value).toFixed(1)}%`, "CTR"]}
+                  labelFormatter={(label: any, payload: any) => payload?.[0]?.payload?.fullTitle || label}
                 />
                 <ReferenceLine x={3} stroke="var(--amber)" strokeDasharray="3 3" label={{ value: "3% threshold", fill: "var(--amber)", fontSize: 11, position: "top" }} />
                 <Bar dataKey="ctr" radius={[0, 4, 4, 0]}>
