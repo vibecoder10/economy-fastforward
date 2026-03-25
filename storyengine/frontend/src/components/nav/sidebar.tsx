@@ -9,6 +9,8 @@ import {
   FolderOpen,
   BarChart3,
   Settings,
+  Palette,
+  Key,
   PanelLeftClose,
   PanelLeft,
   Menu,
@@ -18,9 +20,10 @@ import {
 const navItems = [
   { href: "/", icon: LayoutGrid, label: "Dashboard" },
   { href: "/pipeline", icon: List, label: "Queue" },
-  { href: "/assets", icon: FolderOpen, label: "Assets" },
+  { href: "/profile", icon: Palette, label: "Visual Profile" },
   { href: "/analytics", icon: BarChart3, label: "Analytics" },
   { href: "/settings", icon: Settings, label: "Settings" },
+  { href: "/settings/keys", icon: Key, label: "API Keys" },
 ];
 
 export function Sidebar() {

@@ -1,15 +1,20 @@
 "use client";
 
+import { useState, useMemo } from "react";
 import { useParams } from "next/navigation";
 import { motion } from "framer-motion";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, FileText, Mic, Image as ImageIcon, LayoutGrid, Film, BarChart3 } from "lucide-react";
 import Link from "next/link";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { StatusPill } from "@/components/ui/StatusPill";
-import { SegmentBadge } from "@/components/ui/SegmentBadge";
 import { ProgressStepper } from "@/components/ui/ProgressStepper";
-import { ActionButton } from "@/components/ui/ActionButton";
-import { MOCK_VIDEOS, MOCK_SCRIPT_SCENES } from "@/lib/mock-data";
+import { ScriptTab } from "@/components/production/ScriptTab";
+import { VoiceReviewTab } from "@/components/production/VoiceReviewTab";
+import { VisualsTab } from "@/components/production/VisualsTab";
+import { StoryboardTab } from "@/components/production/StoryboardTab";
+import { RenderTab } from "@/components/production/RenderTab";
+import { PerformanceTab } from "@/components/production/PerformanceTab";
+import { MOCK_VIDEOS } from "@/lib/mock-data";
 
 const container = {
   hidden: { opacity: 0 },
@@ -20,21 +25,66 @@ const item = {
   show: { opacity: 1, y: 0, transition: { duration: 0.5, ease: "easeOut" as const } },
 };
 
+const STATUS_PILL: Record<string, { label: string; color: string }> = {
+  idea_logged: { label: "Idea Logged", color: "turquoise" },
+  researching: { label: "Researching", color: "turquoise" },
+  scripting: { label: "Scripting", color: "orange" },
+  voice: { label: "Voice Generation", color: "green" },
+  visuals: { label: "Generating Visuals", color: "purple" },
+  storyboard_review: { label: "Storyboard Review", color: "turquoise" },
+  rendering: { label: "Rendering", color: "red" },
+  uploaded: { label: "Uploaded", color: "gold" },
+  published: { label: "Published", color: "green" },
+  done: { label: "Published", color: "green" },
+};
+
+const PIPELINE_STAGES = [
+  "researching", "scripting", "voice", "visuals", "storyboard_review", "rendering",
+];
+
+const TABS = [
+  { id: "script", label: "Script", icon: FileText },
+  { id: "voice", label: "Voice & Storyboard", icon: Mic },
+  { id: "visuals", label: "Visuals", icon: ImageIcon },
+  { id: "storyboard", label: "Storyboard", icon: LayoutGrid },
+  { id: "render", label: "Render", icon: Film },
+  { id: "performance", label: "Performance", icon: BarChart3 },
+];
+
+function getStepFromStatus(status: string): number {
+  const idx = PIPELINE_STAGES.indexOf(status);
+  return idx >= 0 ? idx + 1 : status === "done" || status === "uploaded" || status === "published" ? 7 : 1;
+}
+
+function getCompletedSteps(status: string): number[] {
+  const current = getStepFromStatus(status);
+  return Array.from({ length: Math.min(current - 1, 6) }, (_, i) => i + 1);
+}
+
+function getDefaultTab(status: string): string {
+  if (status === "scripting") return "script";
+  if (status === "voice" || status === "storyboard_review") return "voice";
+  if (status === "visuals") return "visuals";
+  if (status === "rendering") return "render";
+  if (status === "done" || status === "uploaded" || status === "published") return "performance";
+  return "script";
+}
+
 export default function VideoDetailPage() {
   const params = useParams();
   const videoId = params.videoId as string;
-  const video = MOCK_VIDEOS.find((v) => v.id === videoId) || MOCK_VIDEOS[4]; // Default to scripting video
+  const video = MOCK_VIDEOS.find((v) => v.id === videoId) || MOCK_VIDEOS[4];
 
-  // Group scenes by act
-  const actGroups = MOCK_SCRIPT_SCENES.reduce((acc, scene) => {
-    if (!acc[scene.actNumber]) acc[scene.actNumber] = [];
-    acc[scene.actNumber].push(scene);
-    return acc;
-  }, {} as Record<number, typeof MOCK_SCRIPT_SCENES>);
+  const defaultTab = useMemo(() => getDefaultTab(video.status), [video.status]);
+  const [activeTab, setActiveTab] = useState(defaultTab);
+
+  const pill = STATUS_PILL[video.status] || { label: video.status, color: "turquoise" };
+  const currentStep = getStepFromStatus(video.status);
+  const completedSteps = getCompletedSteps(video.status);
 
   return (
     <motion.div className="space-y-6" variants={container} initial="hidden" animate="show">
-      {/* Back link */}
+      {/* Back */}
       <motion.div variants={item}>
         <Link
           href="/pipeline"
@@ -47,126 +97,73 @@ export default function VideoDetailPage() {
       </motion.div>
 
       {/* Header */}
-      <motion.div variants={item} className="flex items-start gap-4 flex-wrap">
-        <div className="flex-1">
+      <motion.div variants={item} className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
           <h1 className="text-3xl font-display mb-2" style={{ color: "var(--text-primary)" }}>
             &ldquo;{video.title}&rdquo;
           </h1>
-          <StatusPill label="Scripting" color="orange" pulse size="md" />
+          <div className="flex items-center gap-3 flex-wrap">
+            <StatusPill label={pill.label} color={pill.color} pulse size="md" />
+            {video.framework && (
+              <span className="text-xs font-mono" style={{ color: "var(--text-tertiary)" }}>
+                {video.framework}
+              </span>
+            )}
+            {video.videoLengthMin && (
+              <span className="text-xs font-mono" style={{ color: "var(--text-tertiary)" }}>
+                {video.videoLengthMin} min
+              </span>
+            )}
+          </div>
+        </div>
+        <div className="text-right">
+          <p className="text-xs font-mono" style={{ color: "var(--text-tertiary)" }}>
+            Est. Cost
+          </p>
+          <p className="text-lg font-mono font-semibold" style={{ color: "var(--gold)" }}>
+            ${(video.estimatedCost || 0).toFixed(2)}
+          </p>
         </div>
       </motion.div>
 
       {/* Progress stepper */}
       <motion.div variants={item}>
-        <ProgressStepper steps={6} currentStep={3} completedSteps={[1, 2]} />
+        <ProgressStepper steps={6} currentStep={Math.min(currentStep, 6)} completedSteps={completedSteps} />
       </motion.div>
 
-      {/* Main content: 70/30 split */}
-      <motion.div variants={item} className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-6">
-        {/* Left: Script scenes */}
-        <div className="space-y-6">
-          {Object.entries(actGroups).map(([actNum, scenes]) => (
-            <div key={actNum}>
-              {/* Act divider */}
-              <div className="flex items-center gap-4 mb-4">
-                <div className="flex-1 h-px" style={{ background: "var(--orange)", opacity: 0.3 }} />
-                <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--orange)" }}>
-                  Act {actNum}
-                </span>
-                <div className="flex-1 h-px" style={{ background: "var(--orange)", opacity: 0.3 }} />
-              </div>
-
-              <div className="space-y-3">
-                {scenes.map((scene) => (
-                  <GlassCard
-                    key={scene.sceneNumber}
-                    className="p-4"
-                    style={{
-                      borderLeftWidth: 3,
-                      borderLeftColor: scene.imageGenerated ? "var(--turquoise)" : "var(--orange)",
-                    }}
-                  >
-                    <div className="flex items-start gap-3">
-                      <SegmentBadge
-                        label={`S-${String(scene.sceneNumber).padStart(2, "0")}`}
-                        color={scene.imageGenerated ? undefined : "var(--orange)"}
-                      />
-                      <div className="flex-1">
-                        <p className="text-sm leading-relaxed" style={{ color: "var(--text-primary)" }}>
-                          {scene.narrationText}
-                        </p>
-                        {scene.sources && scene.sources.length > 0 && (
-                          <div className="flex gap-2 mt-2 flex-wrap">
-                            {scene.sources.map((src) => (
-                              <span
-                                key={src}
-                                className="text-[10px] font-mono px-2 py-0.5 rounded"
-                                style={{
-                                  background: "var(--yellow-dim)",
-                                  color: "var(--yellow)",
-                                }}
-                              >
-                                [{src}]
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Left border label */}
-                    <div
-                      className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-full pr-2 text-[9px] font-mono writing-vertical"
-                      style={{
-                        color: scene.imageGenerated ? "var(--turquoise)" : "var(--text-tertiary)",
-                        writingMode: "vertical-rl",
-                        textOrientation: "mixed",
-                        opacity: 0.6,
-                      }}
-                    >
-                      {scene.imageGenerated ? "image generated" : "pending"}
-                    </div>
-                  </GlassCard>
-                ))}
-              </div>
-            </div>
-          ))}
+      {/* Tab navigation */}
+      <motion.div variants={item}>
+        <div className="flex gap-1 overflow-x-auto pb-1" style={{ borderBottom: "1px solid var(--border-subtle)" }}>
+          {TABS.map((tab) => {
+            const isActive = activeTab === tab.id;
+            const Icon = tab.icon;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium font-body whitespace-nowrap transition-all rounded-t-lg"
+                style={{
+                  color: isActive ? "var(--turquoise)" : "var(--text-tertiary)",
+                  background: isActive ? "var(--turquoise-bg)" : "transparent",
+                  borderBottom: isActive ? "2px solid var(--turquoise)" : "2px solid transparent",
+                }}
+              >
+                <Icon size={16} />
+                {tab.label}
+              </button>
+            );
+          })}
         </div>
+      </motion.div>
 
-        {/* Right: Metadata sidebar */}
-        <div className="space-y-4">
-          <GlassCard className="p-5">
-            <div className="space-y-3">
-              {[
-                { label: "Framework", value: video.framework || "Panel 2" },
-                { label: "Word Count", value: String(video.wordCount || 228) },
-                { label: "Scene Count", value: String(video.sceneCount || 6) },
-                { label: "Est. Cost", value: `$${(video.estimatedCost || 15).toFixed(2)}` },
-              ].map((row) => (
-                <div key={row.label} className="flex items-center justify-between">
-                  <span className="text-xs" style={{ color: "var(--text-secondary)" }}>
-                    {row.label}
-                  </span>
-                  <span className="text-sm font-mono font-medium" style={{ color: "var(--text-primary)" }}>
-                    {row.value}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </GlassCard>
-
-          <div className="space-y-2">
-            <ActionButton variant="filled" className="w-full">
-              Approve
-            </ActionButton>
-            <ActionButton variant="outline" className="w-full">
-              Revise
-            </ActionButton>
-            <ActionButton variant="warning" className="w-full">
-              Regenerate
-            </ActionButton>
-          </div>
-        </div>
+      {/* Tab content */}
+      <motion.div variants={item}>
+        {activeTab === "script" && <ScriptTab video={video} />}
+        {activeTab === "voice" && <VoiceReviewTab video={video} />}
+        {activeTab === "visuals" && <VisualsTab video={video} />}
+        {activeTab === "storyboard" && <StoryboardTab video={video} />}
+        {activeTab === "render" && <RenderTab video={video} />}
+        {activeTab === "performance" && <PerformanceTab video={video} />}
       </motion.div>
     </motion.div>
   );
