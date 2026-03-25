@@ -24,7 +24,7 @@ export function StoryboardProgressBar({ current, total, className }: ProgressBar
         <motion.div
           initial={{ width: 0 }}
           animate={{ width: `${percentage}%` }}
-          transition={{ duration: 0.5, ease: "easeOut" }}
+          transition={{ duration: 0.5, ease: "easeOut" as const }}
           className={cn(
             "h-full rounded-full",
             percentage === 100 ? "bg-green-500" : "bg-[var(--accent)]"
