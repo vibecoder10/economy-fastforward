@@ -19,10 +19,9 @@ Full codebase reorganization of `skills/video-pipeline/`. Each tool is now a sta
 - Dashboard: action-first (approvals, activity, stats)
 - Pipeline: dropdown filters, search, progress dot cards
 
-**Module 2: Video Detail (6 tabs) + Create** ✅
-- `/pipeline/[videoId]` — Info, Script, Visuals, Storyboard, Thumbnail, Performance tabs
+**Module 2: Video Detail (5 tabs) + Create** ✅
+- `/pipeline/[videoId]` — Info, Script, Visuals, Thumbnail, Performance tabs (Board merged into Visuals)
 - `/create` — New video form (title, angle, thesis + advanced options)
-- Read-only V1 (interactive features deferred)
 
 **Module 4: Autopilot + Analytics + Agent Suggestions** ✅
 - `/analytics` — CTR bar chart (Recharts), revenue estimates, per-video cards
@@ -38,19 +37,18 @@ Full codebase reorganization of `skills/video-pipeline/`. Each tool is now a sta
 - Niche setup wizard (category → sub-niche → channels)
 - `/autopilot` simplified to top 3 decision maker with "View All →" link
 
-### In Progress
-
-**Small enhancement requested:**
-- Add a YouTube link input bar at the top of `/competitors` page to quickly add new competitor channels
-- Just a text input + "Add" button that calls `addNicheChannel()`
+**Module 3: Interactive Features** ✅
+- Script tab: inline text editing, tone dropdown, per-scene voice generation, collapsible sentence segments
+- Visuals tab: storyboard mode toggle (ON: grids side-by-side with magnified CSS panel viewer + VO, OFF: direct image generation cards)
+- Per-tab pipeline advancement via StageAdvancer (calls specific stage endpoints, not generic advance)
+- Background task polling (useTaskPoller hook)
+- Tab consolidation: 6→5 tabs (storyboard merged into visuals)
+- Thumbnail tab: "Approve → Render" advancement
+- Competitor channel URL input bar on `/competitors`
+- Backend: 5 new scene endpoints, expanded script query, targeted voice/image regen with status gate bypass
+- Migration 007: tone column on scripts
 
 ### Not Yet Built
-
-**Module 3: Interactive Features**
-- Script editing inline, regeneration triggers
-- Image generation from UI
-- Approve/advance pipeline stages from video detail
-- Storyboard panel review (approve/reject individual panels)
 
 **Future Modules:**
 - Channel onboarding + baseline learning (import existing YouTube data)
@@ -82,5 +80,6 @@ Full codebase reorganization of `skills/video-pipeline/`. Each tool is now a sta
 - Autopilot = decision maker (top 3), Competitors = research/browse (all cards)
 
 **What to start next session with:**
-1. Add the quick "add competitor" input bar to `/competitors` page
-2. Then Module 3 (interactive features) or continue building out niche discovery
+1. Apply migration 007 to live Supabase (tone column on scripts)
+2. Module 3 needs visual QA — check all tabs render correctly with real data
+3. Future modules: Settings page, channel onboarding, calendar view, multi-tenant
