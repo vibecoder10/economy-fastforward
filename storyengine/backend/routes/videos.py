@@ -223,9 +223,13 @@ async def get_video_script(video_id: str, tenant_id: str = Depends(get_tenant_id
                   storyboard_prompts, storyboard_beat_count, storyboard_status,
                   created_at::text
            FROM scripts WHERE video_id = $1 AND tenant_id = $2
-           ORDER BY scene""",
+           ORDER BY scene NULLS FIRST, created_at""",
         video_id, tenant_id,
     )
+    # Backfill scene numbers when null (Airtable imports don't always set them)
+    for i, row in enumerate(rows):
+        if row.get("scene") is None:
+            row["scene"] = i + 1
     return rows
 
 
