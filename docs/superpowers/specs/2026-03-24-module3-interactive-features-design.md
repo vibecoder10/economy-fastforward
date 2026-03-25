@@ -113,10 +113,16 @@ Horizontal step indicator at top showing where the scene is in the visual pipeli
    - Status indicators on each panel: ✓ green (approved), ✗ red (rejected), no icon (pending)
    - Regen button per grid (regenerates that 3×3 contact sheet)
    - Grids scroll horizontally when 3+ grids exist
-4. **Magnified panel viewer** — click any panel in a grid to open detail below
+4. **Storyboard prompt (collapsible)** — below the grids, an expandable section showing the full storyboard directive prompt
+   - Collapsed by default (one-line preview)
+   - Expand to see the full prompt that was sent to the grid generator
+   - Editable — user can manually alter the prompt before regenerating a grid
+   - "Regen with edited prompt" button appears when prompt text is modified
+   - This is the directive-level prompt (controls the whole grid composition), separate from per-panel image prompts
+5. **Magnified panel viewer** — click any panel in a grid to open detail below
    - **This is a CSS crop/zoom of the grid image region, NOT an extracted image**
    - No API calls, no credits — purely a UI magnification
-   - Shows: enlarged panel, sentence text for that segment, collapsible prompt
+   - Shows: enlarged panel, sentence text for that segment, collapsible prompt (per-panel image prompt)
    - Actions: Approve, Reject, Regen Panel, Edit Prompt, Hero Shot toggle
    - Arrow key navigation crosses grid boundaries seamlessly (panel 9 → panel 10 = grid 1 → grid 2)
 5. **Keyboard shortcuts** — ← → navigate panels, Space play/pause VO, A approve, R reject
