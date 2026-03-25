@@ -1,284 +1,206 @@
 "use client";
 
-import Link from "next/link";
-import { useQuery } from "@tanstack/react-query";
-import { getDashboardSummary, getVideos } from "@/lib/api";
-import { ActionCard } from "@/components/action-card";
-import { formatCost, timeAgo } from "@/lib/utils";
-import {
-  CheckCircle2,
-  Clock,
-  DollarSign,
-  Film,
-  AlertCircle,
-} from "lucide-react";
+import { motion } from "framer-motion";
+import { Film, TrendingUp, DollarSign, AlertTriangle } from "lucide-react";
+import { GlassCard } from "@/components/ui/GlassCard";
+import { StatCard } from "@/components/ui/StatCard";
+import { StatusPill } from "@/components/ui/StatusPill";
+import { MOCK_VIDEOS, MOCK_ACTIVITY, PIPELINE_FUNNEL } from "@/lib/mock-data";
 
-const ATTENTION_STATUSES = [
-  "ready_for_scripting",
-  "ready_for_storyboards",
-  "ready_for_thumbnail",
-];
+const container = {
+  hidden: { opacity: 0 },
+  show: { opacity: 1, transition: { staggerChildren: 0.1 } },
+};
 
-function getAttentionMessage(status: string): string {
-  const messages: Record<string, string> = {
-    ready_for_scripting: "Script ready for review",
-    ready_for_storyboards: "Storyboard ready for review",
-    ready_for_thumbnail: "Thumbnail ready for review",
-  };
-  return messages[status] || "Needs attention";
-}
+const item = {
+  hidden: { opacity: 0, y: 16 },
+  show: { opacity: 1, y: 0, transition: { duration: 0.6, ease: "easeOut" as const } },
+};
+
+const publishedCount = MOCK_VIDEOS.filter((v) => v.status === "done").length;
+const inProduction = MOCK_VIDEOS.filter((v) => v.status !== "done").length;
+const avgCost =
+  MOCK_VIDEOS.filter((v) => v.estimatedCost).reduce((sum, v) => sum + (v.estimatedCost || 0), 0) /
+  MOCK_VIDEOS.filter((v) => v.estimatedCost).length;
+const avgCtr =
+  MOCK_VIDEOS.filter((v) => v.ctr).reduce((sum, v) => sum + (v.ctr || 0), 0) /
+  MOCK_VIDEOS.filter((v) => v.ctr).length;
+
+const upNext = MOCK_VIDEOS.filter((v) => v.status !== "done")
+  .sort((a, b) => (b.progress || 0) - (a.progress || 0))
+  .slice(0, 3);
+
+const STATUS_COLOR_MAP: Record<string, string> = {
+  researching: "turquoise",
+  scripting: "orange",
+  voice: "green",
+  visuals: "purple",
+  storyboard_review: "turquoise",
+  rendering: "red",
+  done: "green",
+  published: "green",
+  uploaded: "gold",
+  idea_logged: "turquoise",
+};
+
+const ACTIVITY_DOT_COLOR: Record<string, string> = {
+  success: "var(--green)",
+  warning: "var(--orange)",
+  info: "var(--turquoise)",
+  error: "var(--red)",
+};
 
 export default function DashboardPage() {
-  const { data: summary, isLoading: summaryLoading } = useQuery({
-    queryKey: ["dashboard-summary"],
-    queryFn: getDashboardSummary,
-  });
-
-  const { data: videos, isLoading: videosLoading } = useQuery({
-    queryKey: ["videos"],
-    queryFn: () => getVideos(),
-  });
-
-  const actionItems = (videos || []).filter((v: any) =>
-    ATTENTION_STATUSES.includes(v.status)
-  );
-
-  const recentActivity = (videos || [])
-    .filter(
-      (v: any) =>
-        v.status === "done" ||
-        v.status === "uploaded_draft" ||
-        v.status === "rendered"
-    )
-    .sort(
-      (a: any, b: any) =>
-        new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
-    )
-    .slice(0, 5);
-
-  const isLoading = summaryLoading || videosLoading;
-
   return (
-    <div className="space-y-8">
-      {/* Header */}
-      <div>
-        <h1
-          className="text-2xl font-bold"
-          style={{ color: "var(--text-primary)" }}
-        >
-          Good morning, Ryan
+    <motion.div className="space-y-8" variants={container} initial="hidden" animate="show">
+      {/* Page title */}
+      <motion.div variants={item}>
+        <h1 className="text-4xl font-display" style={{ color: "var(--text-primary)" }}>
+          Production Overview
         </h1>
-        <p className="mt-1" style={{ color: "var(--text-secondary)" }}>
-          {actionItems.length > 0
-            ? `${actionItems.length} video${actionItems.length !== 1 ? "s" : ""} need${actionItems.length === 1 ? "s" : ""} approval`
-            : "All clear — no approvals pending"}
-        </p>
-      </div>
+      </motion.div>
 
-      {/* Main grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left: Action items */}
-        <div className="space-y-3">
-          {isLoading ? (
-            <>
-              <SkeletonCard />
-              <SkeletonCard />
-            </>
-          ) : actionItems.length > 0 ? (
-            actionItems.map((v: any) => (
-              <ActionCard
-                key={v.id}
-                title={v.video_title}
-                message={getAttentionMessage(v.status)}
-                href={`/pipeline?video=${v.id}`}
-              />
-            ))
-          ) : (
-            <div
-              className="rounded-xl p-6 text-center"
-              style={{
-                background: "var(--bg-card)",
-                border: "1px solid var(--border)",
-              }}
-            >
-              <CheckCircle2
-                size={32}
-                className="mx-auto mb-2"
-                style={{ color: "var(--green)" }}
-              />
-              <p
-                className="text-sm"
-                style={{ color: "var(--text-secondary)" }}
-              >
-                No approvals needed
-              </p>
-            </div>
-          )}
-        </div>
+      {/* Stat cards row */}
+      <motion.div variants={item} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatCard
+          label="Videos This Month"
+          value={publishedCount}
+          color="var(--turquoise)"
+          ringValue={(publishedCount / 15) * 100}
+        />
+        <StatCard
+          label="In Production"
+          value={inProduction}
+          color="var(--green)"
+          icon={Film}
+        />
+        <StatCard
+          label="Avg Cost/Video"
+          value={`$${avgCost.toFixed(2)}`}
+          color="var(--gold)"
+          icon={DollarSign}
+        />
+        <StatCard
+          label="Avg CTR"
+          value={`${avgCtr.toFixed(2)}%`}
+          color="var(--red)"
+          trend={avgCtr > 5 ? "up" : "down"}
+          icon={AlertTriangle}
+        />
+      </motion.div>
 
-        {/* Center: Recent activity */}
-        <div>
-          <h2
-            className="text-sm font-semibold uppercase tracking-wider mb-3"
-            style={{ color: "var(--text-muted)" }}
-          >
-            Recent Activity
-          </h2>
-          <div className="space-y-1">
-            {isLoading ? (
-              <>
-                <SkeletonLine />
-                <SkeletonLine />
-                <SkeletonLine />
-              </>
-            ) : recentActivity.length > 0 ? (
-              recentActivity.map((v: any) => (
-                <Link
-                  key={v.id}
-                  href={`/pipeline?video=${v.id}`}
-                  className="flex items-center gap-3 py-2 rounded-lg px-2 -mx-2 transition-colors hover:bg-[var(--bg-card)]"
+      {/* Pipeline funnel */}
+      <motion.div variants={item}>
+        <GlassCard className="p-5">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>
+              Pipeline
+            </h2>
+            <span className="text-xs" style={{ color: "var(--text-tertiary)" }}>...</span>
+          </div>
+          <div className="flex items-center gap-2 overflow-x-auto pb-2">
+            {PIPELINE_FUNNEL.map((stage, i) => (
+              <div key={stage.label} className="flex items-center gap-2">
+                <div
+                  className="flex items-center gap-2 px-4 py-2 rounded-full whitespace-nowrap"
+                  style={{
+                    background: `${stage.color}18`,
+                    border: `1px solid ${stage.color}33`,
+                  }}
                 >
-                  <div
-                    className="w-2 h-2 rounded-full shrink-0"
+                  <span className="text-xs font-medium" style={{ color: stage.color }}>
+                    {stage.label}
+                  </span>
+                  <span
+                    className="text-[10px] font-mono px-1.5 py-0.5 rounded-full"
                     style={{
-                      background:
-                        v.status === "done"
-                          ? "var(--green)"
-                          : "var(--teal)",
+                      background: `${stage.color}22`,
+                      color: stage.color,
                     }}
-                  />
-                  <span
-                    className="text-sm truncate flex-1"
-                    style={{ color: "var(--text-primary)" }}
                   >
-                    {v.video_title}
+                    {stage.count}
                   </span>
-                  <span
-                    className="text-xs shrink-0"
-                    style={{ color: "var(--text-muted)" }}
-                  >
-                    {v.status === "done"
-                      ? "published"
-                      : v.status.replace(/_/g, " ")}
-                  </span>
-                </Link>
-              ))
-            ) : (
-              <p
-                className="text-sm"
-                style={{ color: "var(--text-muted)" }}
-              >
-                No recent activity
-              </p>
-            )}
+                </div>
+                {i < PIPELINE_FUNNEL.length - 1 && (
+                  <div className="w-4 h-px" style={{ background: "var(--text-tertiary)", opacity: 0.3 }} />
+                )}
+              </div>
+            ))}
           </div>
-        </div>
+        </GlassCard>
+      </motion.div>
 
-        {/* Right: Quick stats */}
-        <div>
-          <h2
-            className="text-sm font-semibold uppercase tracking-wider mb-3"
-            style={{ color: "var(--text-muted)" }}
-          >
-            Quick Stats
-          </h2>
-          <div className="grid grid-cols-2 gap-3">
-            <QuickStat
-              label="Published"
-              value={`${summary?.pipeline_distribution?.done || 0} videos`}
-              icon={Film}
-            />
-            <QuickStat
-              label="Pending"
-              value={`${summary?.pending_review || 0} reviews`}
-              icon={AlertCircle}
-            />
-            <QuickStat
-              label="Pipeline"
-              value={`${summary?.total_videos || 0} total`}
-              icon={Clock}
-            />
-            <QuickStat
-              label="Spend"
-              value={
-                summary?.cost_today
-                  ? formatCost(summary.cost_today)
-                  : "$0"
-              }
-              icon={DollarSign}
-            />
+      {/* Two-column: Activity + Up Next */}
+      <motion.div variants={item} className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Activity Feed */}
+        <GlassCard className="p-5">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>
+              Activity
+            </h2>
+            <span className="text-xs" style={{ color: "var(--text-tertiary)" }}>...</span>
           </div>
-        </div>
-      </div>
-    </div>
-  );
-}
+          <div className="space-y-3">
+            {MOCK_ACTIVITY.map((a) => (
+              <div key={a.id} className="flex items-start gap-3">
+                <div
+                  className="w-2 h-2 rounded-full mt-1.5 shrink-0"
+                  style={{ background: ACTIVITY_DOT_COLOR[a.type] }}
+                />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm" style={{ color: "var(--text-primary)" }}>
+                    {a.message}{" "}
+                    <span style={{ color: "var(--text-secondary)" }}>
+                      — {a.videoTitle}
+                    </span>
+                  </p>
+                  <p className="text-[11px] font-mono mt-0.5" style={{ color: "var(--text-tertiary)" }}>
+                    {a.timestamp}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </GlassCard>
 
-function QuickStat({
-  label,
-  value,
-  icon: Icon,
-}: {
-  label: string;
-  value: string;
-  icon: any;
-}) {
-  return (
-    <div
-      className="rounded-xl p-4"
-      style={{
-        background: "var(--bg-card)",
-        border: "1px solid var(--border)",
-      }}
-    >
-      <div className="flex items-center justify-between mb-2">
-        <span
-          className="text-xs uppercase tracking-wider"
-          style={{ color: "var(--text-muted)" }}
-        >
-          {label}
-        </span>
-        <Icon size={14} style={{ color: "var(--text-muted)" }} />
-      </div>
-      <p
-        className="text-lg font-bold"
-        style={{ color: "var(--text-primary)" }}
-      >
-        {value}
-      </p>
-    </div>
-  );
-}
-
-function SkeletonCard() {
-  return (
-    <div
-      className="rounded-xl p-4 animate-pulse"
-      style={{ background: "var(--bg-card)" }}
-    >
-      <div
-        className="h-4 rounded w-3/4 mb-2"
-        style={{ background: "var(--border)" }}
-      />
-      <div
-        className="h-3 rounded w-1/2"
-        style={{ background: "var(--border)" }}
-      />
-    </div>
-  );
-}
-
-function SkeletonLine() {
-  return (
-    <div className="flex items-center gap-3 py-2 animate-pulse">
-      <div
-        className="w-2 h-2 rounded-full"
-        style={{ background: "var(--border)" }}
-      />
-      <div
-        className="h-3 rounded flex-1"
-        style={{ background: "var(--border)" }}
-      />
-    </div>
+        {/* Up Next */}
+        <GlassCard className="p-5">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>
+              Video
+            </h2>
+            <span className="text-xs" style={{ color: "var(--text-tertiary)" }}>...</span>
+          </div>
+          <div className="space-y-4">
+            {upNext.map((v) => (
+              <div key={v.id} className="flex items-center gap-4">
+                {/* Thumbnail placeholder */}
+                <div
+                  className="w-16 h-10 rounded-lg shrink-0 flex items-center justify-center"
+                  style={{ background: "var(--bg-elevated)", border: "1px solid var(--border-subtle)" }}
+                >
+                  <Film size={14} style={{ color: "var(--text-tertiary)" }} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium truncate" style={{ color: "var(--text-primary)" }}>
+                    {v.title}
+                  </p>
+                  {/* Progress bar */}
+                  <div className="mt-1.5 h-1 rounded-full overflow-hidden" style={{ background: "var(--bg-elevated)" }}>
+                    <div
+                      className="h-full rounded-full transition-all"
+                      style={{
+                        width: `${v.progress || 0}%`,
+                        background: "var(--turquoise)",
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </GlassCard>
+      </motion.div>
+    </motion.div>
   );
 }

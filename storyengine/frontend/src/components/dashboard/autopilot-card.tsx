@@ -98,7 +98,7 @@ export function AutopilotCard({ status, onLaunch }: AutopilotCardProps) {
               <motion.div
                 initial={{ width: 0 }}
                 animate={{ width: `${nextRecommendation.confidence}%` }}
-                transition={{ duration: 0.8, ease: "easeOut" }}
+                transition={{ duration: 0.8, ease: "easeOut" as const }}
                 className={cn(
                   "h-full rounded-full",
                   nextRecommendation.confidence >= 70
