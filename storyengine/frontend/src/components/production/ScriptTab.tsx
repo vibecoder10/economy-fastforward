@@ -8,8 +8,8 @@ import {
   CheckCircle, Clock, AlertCircle,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
-import { getVideoScript } from "@/lib/api";
-import type { ScriptScene as ApiScriptScene } from "@/lib/api";
+import { getVideoScript, getVideoAssets } from "@/lib/api";
+import type { ScriptScene as ApiScriptScene, Asset } from "@/lib/api";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { SegmentBadge } from "@/components/ui/SegmentBadge";
 import { ActionButton } from "@/components/ui/ActionButton";
@@ -66,29 +66,51 @@ interface SceneState {
   sentences: SentenceState[];
 }
 
-function initFromApi(apiScenes: ApiScriptScene[]): SceneState[] {
+function initFromApi(apiScenes: ApiScriptScene[], assets?: Asset[]): SceneState[] {
   const sorted = [...apiScenes].sort((a, b) => (a.scene || 0) - (b.scene || 0));
   const total = sorted.length;
   const actsCount = Math.min(total, 6);
-  return sorted.map((s) => ({
-    sceneNumber: s.scene || 0,
-    actNumber: Math.ceil((s.scene || 1) / Math.ceil(total / actsCount)),
-    narrationText: s.scene_text || "",
-    visualStyle: "dossier",
-    composition: "wide",
-    sources: s.sources ? (() => { try { return JSON.parse(s.sources!); } catch { return []; } })() : [],
-    imageGenerated: false,
-    voiceOverUrl: s.voice_over_url,
-    voiceStatus: s.voice_status,
-    scriptStatus: s.script_status,
-    tone: s.tone,
-    sentences: splitSentences(s.scene_text || "").map((text) => ({
-      text,
-      sfxMode: "none" as const,
-      sfxLibraryValue: "",
-      sfxCustomPrompt: "",
-    })),
-  }));
+  return sorted.map((s) => {
+    // Use real sentence_text from assets (pipeline-generated) instead of regex splitting
+    const sceneAssets = (assets || [])
+      .filter((a) => a.scene === s.scene)
+      .sort((a, b) => (a.image_index || 0) - (b.image_index || 0));
+
+    const sentences: SentenceState[] = sceneAssets.length > 0
+      ? sceneAssets
+          .map((a) => a.sentence_text)
+          .filter((t): t is string => !!t)
+          // Deduplicate consecutive identical sentence texts (multiple images per sentence)
+          .filter((t, i, arr) => i === 0 || t !== arr[i - 1])
+          .map((text) => ({
+            text,
+            sfxMode: "none" as const,
+            sfxLibraryValue: "",
+            sfxCustomPrompt: "",
+          }))
+      : // Fallback: split narration if no assets exist yet
+        splitSentences(s.scene_text || "").map((text) => ({
+          text,
+          sfxMode: "none" as const,
+          sfxLibraryValue: "",
+          sfxCustomPrompt: "",
+        }));
+
+    return {
+      sceneNumber: s.scene || 0,
+      actNumber: Math.ceil((s.scene || 1) / Math.ceil(total / actsCount)),
+      narrationText: s.scene_text || "",
+      visualStyle: "dossier",
+      composition: "wide",
+      sources: s.sources ? (() => { try { return JSON.parse(s.sources!); } catch { return []; } })() : [],
+      imageGenerated: sceneAssets.some((a) => !!a.image_url),
+      voiceOverUrl: s.voice_over_url,
+      voiceStatus: s.voice_status,
+      scriptStatus: s.script_status,
+      tone: s.tone,
+      sentences,
+    };
+  });
 }
 
 function VoiceStatusBadge({ status }: { status: string | null | undefined }) {
@@ -141,13 +163,22 @@ function ScriptStatusBadge({ status }: { status: string | null | undefined }) {
 }
 
 export function ScriptTab({ video }: ScriptTabProps) {
-  const { data: apiScenes, isLoading, error } = useQuery({
+  const { data: apiScenes, isLoading } = useQuery({
     queryKey: ["video-script", video.id],
     queryFn: () => getVideoScript(video.id),
     enabled: !!video.id,
   });
 
-  const computed = useMemo(() => apiScenes ? initFromApi(apiScenes) : [], [apiScenes]);
+  const { data: apiAssets } = useQuery({
+    queryKey: ["video-assets", video.id],
+    queryFn: () => getVideoAssets(video.id),
+    enabled: !!video.id,
+  });
+
+  const computed = useMemo(
+    () => apiScenes ? initFromApi(apiScenes, apiAssets || undefined) : [],
+    [apiScenes, apiAssets]
+  );
 
   const [scenes, setScenes] = useState<SceneState[]>([]);
   const [collapsedActs, setCollapsedActs] = useState<Record<number, boolean>>({});
@@ -191,17 +222,6 @@ export function ScriptTab({ video }: ScriptTabProps) {
         <Loader2 size={24} className="animate-spin" style={{ color: "var(--orange)" }} />
         <span className="ml-3 text-sm" style={{ color: "var(--text-secondary)" }}>Loading script...</span>
       </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <GlassCard className="p-8 text-center">
-        <AlertCircle size={24} className="mx-auto mb-3" style={{ color: "var(--red)" }} />
-        <p className="text-sm" style={{ color: "var(--red)" }}>
-          Failed to load script: {(error as Error).message}
-        </p>
-      </GlassCard>
     );
   }
 
