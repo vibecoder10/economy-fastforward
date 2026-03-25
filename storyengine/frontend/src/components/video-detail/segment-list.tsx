@@ -31,7 +31,7 @@ export function SegmentList({ videoId, scene }: SegmentListProps) {
   if (segments.length === 0) {
     return (
       <div className="text-xs py-2" style={{ color: "var(--text-muted)" }}>
-        No segments
+        Segments will appear after image prompts are generated
       </div>
     );
   }

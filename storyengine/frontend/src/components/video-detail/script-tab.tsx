@@ -168,10 +168,11 @@ export function ScriptTab({ videoId, video }: ScriptTabProps) {
 
       {/* Scene editor cards */}
       <div className="space-y-3">
-        {sortedScenes.map((scene) => (
+        {sortedScenes.map((scene, i) => (
           <SceneEditor
             key={scene.id}
             scene={scene}
+            sceneIndex={i}
             videoId={videoId}
             videoStatus={status}
             onRefresh={() => queryClient.invalidateQueries({ queryKey: ["video-script", videoId] })}
