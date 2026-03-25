@@ -1,10 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { Check, RefreshCw, PenLine, Loader2 } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { ActionButton } from "@/components/ui/ActionButton";
-import { runPipelineStage } from "@/lib/api";
+import { runPipelineStage, advanceVideo, updateVideoStyles } from "@/lib/api";
 import type { Video } from "@/lib/types";
 
 const ACCENT_COLORS = [
@@ -26,6 +26,8 @@ export function ThumbnailTab({ video }: ThumbnailTabProps) {
   const currentAccent = video.accent_color || "Cold Teal";
   const [selectedAccent, setSelectedAccent] = useState(currentAccent);
   const [isRegenerating, setIsRegenerating] = useState(false);
+  const [isApproving, setIsApproving] = useState(false);
+  const [isSavingColor, setIsSavingColor] = useState(false);
   const [prompt, setPrompt] = useState(video.thumbnail_prompt || "");
 
   const handleRegenerate = async () => {
@@ -36,6 +38,25 @@ export function ThumbnailTab({ video }: ThumbnailTabProps) {
       setIsRegenerating(false);
     }
   };
+
+  const handleApprove = useCallback(async () => {
+    setIsApproving(true);
+    try {
+      await advanceVideo(video.id);
+    } finally {
+      setIsApproving(false);
+    }
+  }, [video.id]);
+
+  const handleAccentChange = useCallback(async (colorName: string) => {
+    setSelectedAccent(colorName);
+    setIsSavingColor(true);
+    try {
+      await updateVideoStyles(video.id, { accent_color: colorName.toLowerCase().replace(" ", "_") });
+    } finally {
+      setIsSavingColor(false);
+    }
+  }, [video.id]);
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-6">
@@ -174,7 +195,8 @@ export function ThumbnailTab({ video }: ThumbnailTabProps) {
             {ACCENT_COLORS.map((c) => (
               <button
                 key={c.name}
-                onClick={() => setSelectedAccent(c.name)}
+                onClick={() => handleAccentChange(c.name)}
+                disabled={isSavingColor}
                 className="flex items-center gap-2 px-2 py-1.5 rounded-lg transition-all text-left"
                 style={{
                   background:
@@ -200,8 +222,14 @@ export function ThumbnailTab({ video }: ThumbnailTabProps) {
         </GlassCard>
 
         <div className="space-y-2">
-          <ActionButton variant="filled" icon={Check} className="w-full">
-            Approve Thumbnail
+          <ActionButton
+            variant="filled"
+            icon={isApproving ? Loader2 : Check}
+            className="w-full"
+            onClick={handleApprove}
+            disabled={isApproving}
+          >
+            {isApproving ? "Approving..." : "Approve Thumbnail"}
           </ActionButton>
           <ActionButton
             variant="outline"

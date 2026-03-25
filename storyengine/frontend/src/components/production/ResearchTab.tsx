@@ -1,9 +1,10 @@
 "use client";
 
-import { useMemo } from "react";
-import { RefreshCw, FileText, Search } from "lucide-react";
+import { useMemo, useState, useCallback } from "react";
+import { RefreshCw, FileText, Search, Loader2 } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { ActionButton } from "@/components/ui/ActionButton";
+import { runPipelineStage } from "@/lib/api";
 
 interface ResearchTabProps {
   video: any;
@@ -33,6 +34,17 @@ const FIELDS: FieldDef[] = [
 ];
 
 export function ResearchTab({ video }: ResearchTabProps) {
+  const [isResearching, setIsResearching] = useState(false);
+
+  const handleReResearch = useCallback(async () => {
+    setIsResearching(true);
+    try {
+      await runPipelineStage(video.id, "research");
+    } finally {
+      setIsResearching(false);
+    }
+  }, [video.id]);
+
   // Parse research_payload from the video detail
   const research = useMemo(() => {
     if (!video) return null;

@@ -7,8 +7,8 @@ import {
   Library, Wand2, Play, Pause, Layers, Mic, Pencil, Loader2,
   CheckCircle, Clock, AlertCircle,
 } from "lucide-react";
-import { useQuery } from "@tanstack/react-query";
-import { getVideoScript, getVideoAssets } from "@/lib/api";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { getVideoScript, getVideoAssets, advanceVideo, rejectVideo, runPipelineStage, updateSceneText } from "@/lib/api";
 import type { ScriptScene as ApiScriptScene, Asset } from "@/lib/api";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { SegmentBadge } from "@/components/ui/SegmentBadge";
@@ -185,6 +185,79 @@ export function ScriptTab({ video }: ScriptTabProps) {
   const [expandedScenes, setExpandedScenes] = useState<Set<number>>(new Set());
   const [playingScene, setPlayingScene] = useState<number | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const queryClient = useQueryClient();
+  const [approving, setApproving] = useState(false);
+  const [rejecting, setRejecting] = useState(false);
+  const [regenerating, setRegenerating] = useState(false);
+  const [deletingScene, setDeletingScene] = useState<number | null>(null);
+  const [savingScene, setSavingScene] = useState<number | null>(null);
+
+  const invalidateVideoQueries = () => {
+    queryClient.invalidateQueries({ queryKey: ["video", video.id] });
+    queryClient.invalidateQueries({ queryKey: ["video-script", video.id] });
+    queryClient.invalidateQueries({ queryKey: ["video-assets", video.id] });
+  };
+
+  const handleApprove = async () => {
+    setApproving(true);
+    try {
+      await advanceVideo(video.id);
+      invalidateVideoQueries();
+    } catch (err) {
+      alert(`Failed to approve: ${(err as Error).message}`);
+    } finally {
+      setApproving(false);
+    }
+  };
+
+  const handleReject = async () => {
+    setRejecting(true);
+    try {
+      await rejectVideo(video.id, "Revision requested from UI");
+      invalidateVideoQueries();
+    } catch (err) {
+      alert(`Failed to request revision: ${(err as Error).message}`);
+    } finally {
+      setRejecting(false);
+    }
+  };
+
+  const handleRegenerate = async () => {
+    setRegenerating(true);
+    try {
+      await runPipelineStage(video.id, "script");
+      invalidateVideoQueries();
+    } catch (err) {
+      alert(`Failed to regenerate: ${(err as Error).message}`);
+    } finally {
+      setRegenerating(false);
+    }
+  };
+
+  const handleDeleteScene = async (sceneNum: number) => {
+    setDeletingScene(sceneNum);
+    try {
+      await updateSceneText(video.id, sceneNum, "");
+      invalidateVideoQueries();
+      // Also remove from local state
+      setScenes((prev) => prev.filter((s) => s.sceneNumber !== sceneNum));
+    } catch (err) {
+      alert(`Failed to delete scene: ${(err as Error).message}`);
+    } finally {
+      setDeletingScene(null);
+    }
+  };
+
+  const handleNarrationBlur = async (sceneNum: number, text: string) => {
+    setSavingScene(sceneNum);
+    try {
+      await updateSceneText(video.id, sceneNum, text);
+    } catch (err) {
+      console.error(`Failed to save scene ${sceneNum}:`, err);
+    } finally {
+      setSavingScene(null);
+    }
+  };
 
   // Sync API data into local state (once)
   useEffect(() => {
@@ -507,20 +580,39 @@ export function ScriptTab({ video }: ScriptTabProps) {
 
                           <button onClick={() => mergeSceneUp(scene.sceneNumber)} title="Merge into scene above" className="p-1 rounded transition-colors hover:bg-[var(--bg-surface)]" style={{ color: "var(--text-tertiary)" }}><Merge size={12} /></button>
                           <button onClick={() => addSceneAfter(scene.sceneNumber)} title="Add scene below" className="p-1 rounded transition-colors hover:bg-[var(--bg-surface)]" style={{ color: "var(--text-tertiary)" }}><Plus size={12} /></button>
-                          <button onClick={() => deleteScene(scene.sceneNumber)} title="Delete scene" className="p-1 rounded transition-colors hover:bg-[var(--bg-surface)]" style={{ color: "var(--text-tertiary)" }}><Trash2 size={12} /></button>
+                          <button
+                            onClick={() => handleDeleteScene(scene.sceneNumber)}
+                            disabled={deletingScene === scene.sceneNumber}
+                            title="Delete scene"
+                            className="p-1 rounded transition-colors hover:bg-[var(--bg-surface)] group/trash"
+                            style={{ color: "var(--text-tertiary)" }}
+                            onMouseEnter={(e) => { e.currentTarget.style.color = "var(--orange)"; }}
+                            onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-tertiary)"; }}
+                          >
+                            {deletingScene === scene.sceneNumber ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
+                          </button>
                         </div>
 
                         {/* === COLLAPSED: Unified text view === */}
                         {!isExpanded && (
-                          <textarea
-                            value={scene.narrationText}
-                            onChange={(e) => updateNarration(scene.sceneNumber, e.target.value)}
-                            rows={Math.max(2, Math.ceil(scene.narrationText.length / 100))}
-                            className="w-full text-sm leading-relaxed resize-none outline-none rounded-lg px-3 py-2 transition-all"
-                            style={{ color: "var(--text-primary)", background: "transparent", border: "1px solid transparent" }}
-                            onFocus={(e) => { e.target.style.background = "var(--bg-elevated)"; e.target.style.borderColor = "var(--orange)"; }}
-                            onBlur={(e) => { e.target.style.background = "transparent"; e.target.style.borderColor = "transparent"; }}
-                          />
+                          <div className="relative">
+                            <textarea
+                              value={scene.narrationText}
+                              onChange={(e) => updateNarration(scene.sceneNumber, e.target.value)}
+                              rows={Math.max(2, Math.ceil(scene.narrationText.length / 100))}
+                              className="w-full text-sm leading-relaxed resize-none outline-none rounded-lg px-3 py-2 transition-all"
+                              style={{ color: "var(--text-primary)", background: "transparent", border: "1px solid transparent" }}
+                              onFocus={(e) => { e.target.style.background = "var(--bg-elevated)"; e.target.style.borderColor = "var(--orange)"; }}
+                              onBlur={(e) => {
+                                e.target.style.background = "transparent";
+                                e.target.style.borderColor = "transparent";
+                                handleNarrationBlur(scene.sceneNumber, scene.narrationText);
+                              }}
+                            />
+                            {savingScene === scene.sceneNumber && (
+                              <Loader2 size={12} className="animate-spin absolute top-2 right-2" style={{ color: "var(--turquoise)" }} />
+                            )}
+                          </div>
                         )}
 
                         {/* === EXPANDED: Individual sentence cards === */}
@@ -724,9 +816,20 @@ export function ScriptTab({ video }: ScriptTabProps) {
         </GlassCard>
 
         <div className="space-y-2">
-          <ActionButton variant="filled" className="w-full">Approve Script</ActionButton>
-          <ActionButton variant="outline" className="w-full">Request Revision</ActionButton>
-          <ActionButton variant="warning" className="w-full">Regenerate</ActionButton>
+          <ActionButton variant="filled" className="w-full" onClick={handleApprove} disabled={approving}>
+            {approving ? <><Loader2 size={14} className="animate-spin" /> Approving...</> : "Approve Script"}
+          </ActionButton>
+          <ActionButton variant="outline" className="w-full" onClick={handleReject} disabled={rejecting}>
+            {rejecting ? <><Loader2 size={14} className="animate-spin" /> Requesting...</> : "Request Revision"}
+          </ActionButton>
+          <button
+            onClick={handleRegenerate}
+            disabled={regenerating}
+            className="inline-flex items-center justify-center gap-2 w-full px-5 py-2.5 rounded-xl text-sm font-semibold font-body transition-all hover:brightness-110 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
+            style={{ background: "rgba(255, 120, 73, 0.15)", color: "var(--orange)", border: "1px solid var(--orange)" }}
+          >
+            {regenerating ? <><Loader2 size={14} className="animate-spin" /> Regenerating...</> : "Regenerate"}
+          </button>
         </div>
       </div>
     </div>

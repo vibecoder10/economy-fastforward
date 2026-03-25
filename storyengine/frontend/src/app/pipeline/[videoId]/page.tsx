@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { getVideo, resetPipeline } from "@/lib/api";
+import { getVideo, resetPipeline, runNextStep, advanceVideo } from "@/lib/api";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { ProgressStepper } from "@/components/ui/ProgressStepper";
 import { ResearchTab } from "@/components/production/ResearchTab";
@@ -125,7 +125,37 @@ export default function VideoDetailPage() {
   const [activeTab, setActiveTab] = useState<string | null>(null);
   const [resetting, setResetting] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [runningNext, setRunningNext] = useState(false);
+  const [skipping, setSkipping] = useState(false);
   const currentTab = activeTab || defaultTab;
+
+  const handleRunNext = async () => {
+    setRunningNext(true);
+    try {
+      await runNextStep(videoId);
+      queryClient.invalidateQueries({ queryKey: ["video", videoId] });
+      queryClient.invalidateQueries({ queryKey: ["video-script", videoId] });
+      queryClient.invalidateQueries({ queryKey: ["video-assets", videoId] });
+    } catch (err) {
+      alert(`Run next step failed: ${(err as Error).message}`);
+    } finally {
+      setRunningNext(false);
+    }
+  };
+
+  const handleSkipStage = async () => {
+    setSkipping(true);
+    try {
+      await advanceVideo(videoId);
+      queryClient.invalidateQueries({ queryKey: ["video", videoId] });
+      queryClient.invalidateQueries({ queryKey: ["video-script", videoId] });
+      queryClient.invalidateQueries({ queryKey: ["video-assets", videoId] });
+    } catch (err) {
+      alert(`Skip stage failed: ${(err as Error).message}`);
+    } finally {
+      setSkipping(false);
+    }
+  };
 
   const handleReset = async (resetTo: string) => {
     setResetting(true);
@@ -231,6 +261,28 @@ export default function VideoDetailPage() {
               ${(video.total_cost || 0).toFixed(2)}
             </p>
           </div>
+
+          {/* Run Next Step button */}
+          <button
+            onClick={handleRunNext}
+            disabled={runningNext}
+            className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all hover:brightness-110 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
+            style={{ background: "var(--turquoise)", color: "var(--bg-void)", border: "1px solid var(--turquoise)" }}
+          >
+            {runningNext ? <Loader2 size={14} className="animate-spin inline mr-1" /> : null}
+            {runningNext ? "Running..." : "Run Next Step"}
+          </button>
+
+          {/* Skip Stage button */}
+          <button
+            onClick={handleSkipStage}
+            disabled={skipping}
+            className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all hover:brightness-110 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
+            style={{ background: "rgba(255, 120, 73, 0.15)", color: "var(--orange)", border: "1px solid var(--orange)" }}
+          >
+            {skipping ? <Loader2 size={14} className="animate-spin inline mr-1" /> : null}
+            {skipping ? "Skipping..." : "Skip Stage"}
+          </button>
 
           {/* Reset button */}
           <div className="relative">

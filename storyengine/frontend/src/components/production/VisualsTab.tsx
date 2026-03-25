@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useState, useMemo, useEffect, useCallback } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { Play, Pause, Check, Loader2, Pencil, Image as ImageIcon } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
@@ -10,7 +10,7 @@ import { StatusPill } from "@/components/ui/StatusPill";
 import { MiniWaveform } from "@/components/ui/MiniWaveform";
 import { ProgressRing } from "@/components/ui/ProgressRing";
 import { FilterSelect } from "@/components/ui/FilterSelect";
-import { getVideoScript, getVideoAssets } from "@/lib/api";
+import { getVideoScript, getVideoAssets, updateStoryboardMode, runPipelineStage, updateSceneSegments } from "@/lib/api";
 import type { ScriptScene as ApiScriptScene, Asset } from "@/lib/api";
 import type { Video, SceneVisualGroup } from "@/lib/types";
 
@@ -25,6 +25,7 @@ const STATUS_ICON: Record<string, { icon: React.ReactNode; color: string; label:
 };
 
 export function VisualsTab({ video }: VisualsTabProps) {
+  const queryClient = useQueryClient();
   const { data: scriptScenes, isLoading: loadingScripts } = useQuery({
     queryKey: ["video-script", video.id],
     queryFn: () => getVideoScript(video.id),
@@ -67,6 +68,8 @@ export function VisualsTab({ video }: VisualsTabProps) {
 
   const [scenes, setScenes] = useState<SceneVisualGroup[]>([]);
   const [storyboardOn, setStoryboardOn] = useState(false);
+  const [isTogglingStoryboard, setIsTogglingStoryboard] = useState(false);
+  const [regeneratingScene, setRegeneratingScene] = useState<number | null>(null);
   const [model, setModel] = useState("nano-banana-2");
   const [styleProfile, setStyleProfile] = useState("holographic-hud");
   const [playingScene, setPlayingScene] = useState<number | null>(null);
@@ -119,6 +122,46 @@ export function VisualsTab({ video }: VisualsTabProps) {
     );
   };
 
+  const handleToggleStoryboard = useCallback(async () => {
+    const newValue = !storyboardOn;
+    setStoryboardOn(newValue);
+    setIsTogglingStoryboard(true);
+    try {
+      await updateStoryboardMode(video.id, newValue);
+      queryClient.invalidateQueries({ queryKey: ["video-script", video.id] });
+    } catch {
+      setStoryboardOn(!newValue); // revert on error
+    } finally {
+      setIsTogglingStoryboard(false);
+    }
+  }, [storyboardOn, video.id, queryClient]);
+
+  const handleRegenerateStoryboard = useCallback(async (sceneNum: number) => {
+    setRegeneratingScene(sceneNum);
+    try {
+      await runPipelineStage(video.id, "storyboards");
+      queryClient.invalidateQueries({ queryKey: ["video-script", video.id] });
+      queryClient.invalidateQueries({ queryKey: ["video-assets", video.id] });
+    } finally {
+      setRegeneratingScene(null);
+    }
+  }, [video.id, queryClient]);
+
+  const persistSegment = useCallback(async (segId: string) => {
+    // Find the scene and segment to persist
+    const scene = scenes.find((s) => s.segments.some((seg) => seg.id === segId));
+    if (!scene) return;
+    const updatedSegments = scene.segments.map((seg) => ({
+      image_index: parseInt(seg.segmentId.replace("S-", ""), 10),
+      sentence_text: seg.sentenceText,
+    }));
+    try {
+      await updateSceneSegments(video.id, scene.sceneNumber, updatedSegments);
+    } catch {
+      // silent — local state already updated
+    }
+  }, [scenes, video.id]);
+
   const selectStoryboardPanel = (sceneNum: number, panelIdx: number) => {
     setScenes((prev) =>
       prev.map((s) => (s.sceneNumber === sceneNum ? { ...s, selectedStoryboardPanel: panelIdx } : s))
@@ -158,9 +201,10 @@ export function VisualsTab({ video }: VisualsTabProps) {
               Storyboard
             </span>
             <button
-              onClick={() => setStoryboardOn(!storyboardOn)}
+              onClick={handleToggleStoryboard}
+              disabled={isTogglingStoryboard}
               className="relative w-12 h-6 rounded-full transition-all"
-              style={{ background: storyboardOn ? "var(--turquoise)" : "var(--bg-surface)" }}
+              style={{ background: storyboardOn ? "var(--turquoise)" : "var(--bg-surface)", opacity: isTogglingStoryboard ? 0.5 : 1 }}
             >
               <div
                 className="w-5 h-5 rounded-full absolute top-0.5 transition-all"
@@ -253,7 +297,7 @@ export function VisualsTab({ video }: VisualsTabProps) {
                                   className="w-full text-sm outline-none rounded-lg px-2 py-1 mt-0.5 transition-all"
                                   style={{ color: "var(--text-primary)", background: "transparent", border: "1px solid transparent" }}
                                   onFocus={(e) => { e.target.style.background = "var(--bg-elevated)"; e.target.style.borderColor = "var(--turquoise)"; }}
-                                  onBlur={(e) => { e.target.style.background = "transparent"; e.target.style.borderColor = "transparent"; }}
+                                  onBlur={(e) => { e.target.style.background = "transparent"; e.target.style.borderColor = "transparent"; persistSegment(seg.id); }}
                                 />
                               </div>
                               <div>
@@ -278,6 +322,7 @@ export function VisualsTab({ video }: VisualsTabProps) {
                                     setEditingPrompt(null);
                                     e.target.style.background = "transparent";
                                     e.target.style.borderColor = "transparent";
+                                    persistSegment(seg.id);
                                   }}
                                 />
                               </div>
@@ -346,10 +391,17 @@ export function VisualsTab({ video }: VisualsTabProps) {
                             {scene.storyboardApproved ? "Approved" : "Approve"}
                           </button>
                           <button
+                            onClick={() => handleRegenerateStoryboard(scene.sceneNumber)}
+                            disabled={regeneratingScene === scene.sceneNumber}
                             className="text-[10px] px-2.5 py-1 rounded-lg"
-                            style={{ border: "1px solid var(--border)", color: "var(--text-secondary)" }}
+                            style={{
+                              background: "rgba(255, 120, 73, 0.15)",
+                              color: "var(--orange)",
+                              border: "1px solid var(--orange)",
+                              opacity: regeneratingScene === scene.sceneNumber ? 0.5 : 1,
+                            }}
                           >
-                            Regenerate
+                            {regeneratingScene === scene.sceneNumber ? "Regenerating..." : "Regenerate"}
                           </button>
                         </div>
                       </div>
