@@ -1,15 +1,20 @@
 "use client";
 
-import { Image as ImageIcon, Video, Mic, Volume2 } from "lucide-react";
+import { useState } from "react";
+import { Image as ImageIcon, Video, Mic, Volume2, Loader2 } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { ProgressRing } from "@/components/ui/ProgressRing";
 import { ActionButton } from "@/components/ui/ActionButton";
 import { FilterSelect } from "@/components/ui/FilterSelect";
-import { MOCK_RENDER_STATE } from "@/lib/mock-data";
+import { getVideoAssets, runPipelineStage } from "@/lib/api";
 import type { Video as VideoType } from "@/lib/types";
+import type { Asset } from "@/lib/api";
 
 interface RenderTabProps {
-  video: VideoType;
+  video: VideoType & {
+    video_length_minutes?: number | null;
+  };
 }
 
 const BLOCK_ICONS: Record<string, React.ElementType> = {
@@ -19,9 +24,66 @@ const BLOCK_ICONS: Record<string, React.ElementType> = {
   sound: Volume2,
 };
 
+function formatDuration(minutes: number | null | undefined): string {
+  if (!minutes) return "0:00";
+  const mins = Math.floor(minutes);
+  const secs = Math.round((minutes - mins) * 60);
+  return `${mins}:${String(secs).padStart(2, "0")}`;
+}
+
+interface TimelineBlock {
+  type: "image" | "video" | "voice" | "sound";
+  label: string;
+  color: string;
+}
+
+function buildTimeline(assets: Asset[]): TimelineBlock[] {
+  if (assets.length === 0) return [];
+
+  const blocks: TimelineBlock[] = [];
+  // Group assets by scene, then create timeline blocks per scene
+  const sorted = [...assets].sort((a, b) => (a.scene || 0) - (b.scene || 0));
+
+  for (const asset of sorted) {
+    // Each asset contributes image block
+    if (asset.image_url) {
+      blocks.push({ type: "image", label: "", color: "var(--turquoise)" });
+    }
+    // If it has a video clip, add a video block
+    if (asset.video_clip_url) {
+      blocks.push({ type: "video", label: "Clip", color: "var(--red)" });
+    }
+  }
+
+  // Add voice blocks (one per unique scene)
+  const scenes = new Set(sorted.map((a) => a.scene).filter(Boolean));
+  for (const _s of scenes) {
+    blocks.push({ type: "voice", label: "Voice", color: "var(--green)" });
+  }
+
+  return blocks;
+}
+
 export function RenderTab({ video }: RenderTabProps) {
-  const r = MOCK_RENDER_STATE;
-  const isRendering = video.status === "rendering";
+  const [isRendering, setIsRendering] = useState(false);
+  const isRenderStatus = video.status === "rendering";
+
+  const { data: assets = [] } = useQuery({
+    queryKey: ["video-assets", video.id],
+    queryFn: () => getVideoAssets(video.id),
+  });
+
+  const timeline = buildTimeline(assets);
+  const duration = formatDuration(video.video_length_minutes ?? video.videoLengthMin);
+
+  const handleRender = async () => {
+    setIsRendering(true);
+    try {
+      await runPipelineStage(video.id, "render");
+    } finally {
+      setIsRendering(false);
+    }
+  };
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-6">
@@ -38,12 +100,10 @@ export function RenderTab({ video }: RenderTabProps) {
               <line x1="55" y1="8" x2="65" y2="2" stroke="var(--text-tertiary)" strokeWidth="1.5" />
               <rect x="15" y="2" width="50" height="40" fill="none" stroke="var(--text-tertiary)" strokeWidth="1.5" />
             </svg>
-            {isRendering && (
+            {(isRenderStatus || isRendering) && (
               <div className="absolute inset-0 flex items-center justify-center">
-                <ProgressRing value={r.progress} size={120} color="var(--red)" strokeWidth={6}>
-                  <span className="text-2xl font-bold font-mono" style={{ color: "var(--red)" }}>
-                    {r.progress}%
-                  </span>
+                <ProgressRing value={0} size={120} color="var(--red)" strokeWidth={6}>
+                  <Loader2 size={24} className="animate-spin" style={{ color: "var(--red)" }} />
                 </ProgressRing>
               </div>
             )}
@@ -55,36 +115,44 @@ export function RenderTab({ video }: RenderTabProps) {
           <h3 className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: "var(--text-secondary)" }}>
             Scene Composition Timeline
           </h3>
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
-            {r.scenes.map((block, i) => {
-              const Icon = BLOCK_ICONS[block.type] || ImageIcon;
-              return (
-                <div
-                  key={i}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg shrink-0"
-                  style={{
-                    background: `color-mix(in srgb, ${block.color} 15%, transparent)`,
-                    border: `1px solid color-mix(in srgb, ${block.color} 25%, transparent)`,
-                  }}
-                >
-                  <Icon size={12} style={{ color: block.color }} />
-                  {block.label && (
-                    <span className="text-[11px] font-medium" style={{ color: block.color }}>{block.label}</span>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+          {timeline.length > 0 ? (
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+              {timeline.map((block, i) => {
+                const Icon = BLOCK_ICONS[block.type] || ImageIcon;
+                return (
+                  <div
+                    key={i}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg shrink-0"
+                    style={{
+                      background: `color-mix(in srgb, ${block.color} 15%, transparent)`,
+                      border: `1px solid color-mix(in srgb, ${block.color} 25%, transparent)`,
+                    }}
+                  >
+                    <Icon size={12} style={{ color: block.color }} />
+                    {block.label && (
+                      <span className="text-[11px] font-medium" style={{ color: block.color }}>{block.label}</span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="text-xs italic" style={{ color: "var(--text-tertiary)" }}>
+              No assets yet. Generate images and clips to build the timeline.
+            </p>
+          )}
         </GlassCard>
 
-        {/* System resources */}
-        <GlassCard className="p-4">
-          <div className="flex items-center gap-6 text-xs font-mono flex-wrap">
-            <span>RAM: <span style={{ color: "var(--turquoise)" }}>{r.ramUsage}</span></span>
-            <span>CPU load: <span style={{ color: "var(--turquoise)" }}>{r.cpuLoad}</span></span>
-            <span>Time remaining: <span style={{ color: "var(--gold)" }}>{r.timeRemaining}</span></span>
-          </div>
-        </GlassCard>
+        {/* System resources (shown only during render) */}
+        {(isRenderStatus || isRendering) && (
+          <GlassCard className="p-4">
+            <div className="flex items-center gap-6 text-xs font-mono flex-wrap">
+              <span>Status: <span style={{ color: "var(--turquoise)" }}>Rendering...</span></span>
+              <span>Resolution: <span style={{ color: "var(--turquoise)" }}>1920x1080</span></span>
+              <span>FPS: <span style={{ color: "var(--gold)" }}>30</span></span>
+            </div>
+          </GlassCard>
+        )}
       </div>
 
       {/* Sidebar */}
@@ -92,9 +160,9 @@ export function RenderTab({ video }: RenderTabProps) {
         <GlassCard className="p-5">
           <div className="space-y-3">
             {[
-              { label: "Resolution", value: r.resolution },
-              { label: "FPS", value: String(r.fps) },
-              { label: "Duration", value: r.duration },
+              { label: "Resolution", value: "1920x1080" },
+              { label: "FPS", value: "30" },
+              { label: "Duration", value: duration },
             ].map((row) => (
               <div key={row.label} className="flex items-center justify-between">
                 <span className="text-xs" style={{ color: "var(--text-secondary)" }}>{row.label}</span>
@@ -109,7 +177,15 @@ export function RenderTab({ video }: RenderTabProps) {
         </GlassCard>
 
         <div className="space-y-2">
-          <ActionButton variant="warning" className="w-full">Render Now</ActionButton>
+          <ActionButton
+            variant="warning"
+            icon={isRendering ? Loader2 : undefined}
+            className="w-full"
+            onClick={handleRender}
+            disabled={isRendering || isRenderStatus}
+          >
+            {isRendering || isRenderStatus ? "Rendering..." : "Render Now"}
+          </ActionButton>
           <ActionButton variant="filled" className="w-full">Preview Draft</ActionButton>
           <button
             className="w-full py-2.5 rounded-xl text-sm font-semibold font-body transition-all hover:brightness-110"
