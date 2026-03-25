@@ -186,7 +186,20 @@ export function RenderTab({ video }: RenderTabProps) {
           >
             {isRendering || isRenderStatus ? "Rendering..." : "Render Now"}
           </ActionButton>
-          <ActionButton variant="filled" className="w-full">Preview Draft</ActionButton>
+          <ActionButton
+            variant="filled"
+            className="w-full"
+            onClick={() => {
+              const url = (video as any).final_video_url || (video as any).youtube_url;
+              if (url) {
+                window.open(url, "_blank");
+              } else {
+                alert("No preview available yet. Render the video first.");
+              }
+            }}
+          >
+            Preview Draft
+          </ActionButton>
           <button
             className="w-full py-2.5 rounded-xl text-sm font-semibold font-body transition-all hover:brightness-110"
             style={{ background: "transparent", color: "var(--gold)", border: "1px solid var(--gold)" }}

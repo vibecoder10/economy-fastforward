@@ -89,8 +89,13 @@ export function ResearchTab({ video }: ResearchTabProps) {
         <p className="text-sm mb-6" style={{ color: "var(--text-tertiary)" }}>
           Deep research will analyze the topic and generate a comprehensive payload for scripting.
         </p>
-        <ActionButton variant="filled" icon={RefreshCw}>
-          Run Research
+        <ActionButton
+          variant="filled"
+          icon={isResearching ? Loader2 : RefreshCw}
+          onClick={handleReResearch}
+          disabled={isResearching}
+        >
+          {isResearching ? "Researching..." : "Run Research"}
         </ActionButton>
       </GlassCard>
     );
@@ -143,7 +148,20 @@ export function ResearchTab({ video }: ResearchTabProps) {
 
       {/* Actions */}
       <div className="flex gap-3 justify-end">
-        <ActionButton variant="outline" icon={RefreshCw}>Re-research</ActionButton>
+        <button
+          className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold font-body transition-all hover:brightness-110 active:scale-[0.98]"
+          style={{
+            background: "rgba(255, 120, 73, 0.15)",
+            color: "var(--orange)",
+            border: "1px solid var(--orange)",
+            opacity: isResearching ? 0.5 : 1,
+          }}
+          onClick={handleReResearch}
+          disabled={isResearching}
+        >
+          {isResearching ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
+          {isResearching ? "Researching..." : "Re-research"}
+        </button>
         <ActionButton variant="outline" icon={FileText}>Export to Google Docs</ActionButton>
       </div>
     </div>

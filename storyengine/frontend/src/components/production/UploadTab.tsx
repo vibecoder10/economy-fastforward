@@ -1,11 +1,10 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { Upload, Copy, ExternalLink, CheckCircle, Loader2 } from "lucide-react";
+import { Upload, Copy, ExternalLink, CheckCircle } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { ActionButton } from "@/components/ui/ActionButton";
-import { runPipelineStage } from "@/lib/api";
 import type { Video } from "@/lib/types";
 
 const PIPELINE_ORDER = [
@@ -87,7 +86,6 @@ export function UploadTab({ video }: UploadTabProps) {
   const [description, setDescription] = useState(defaultDescription);
   const [copied, setCopied] = useState(false);
   const [confirmUpload, setConfirmUpload] = useState(false);
-  const [isUploading, setIsUploading] = useState(false);
 
   const handleCopy = () => {
     if (!youtubeUrl) return;
@@ -97,13 +95,8 @@ export function UploadTab({ video }: UploadTabProps) {
   };
 
   const handleUpload = async () => {
-    setIsUploading(true);
-    try {
-      await runPipelineStage(video.id, "render");
-    } finally {
-      setIsUploading(false);
-      setConfirmUpload(false);
-    }
+    alert("Upload not yet available from UI — use Slack `upload` command");
+    setConfirmUpload(false);
   };
 
   if (isNotRendered) {
@@ -352,12 +345,11 @@ export function UploadTab({ video }: UploadTabProps) {
           {confirmUpload ? (
             <ActionButton
               variant="filled"
-              icon={isUploading ? Loader2 : Upload}
+              icon={Upload}
               className="w-full"
               onClick={handleUpload}
-              disabled={isUploading}
             >
-              {isUploading ? "Uploading..." : "Confirm Upload"}
+              Confirm Upload
             </ActionButton>
           ) : (
             <button
