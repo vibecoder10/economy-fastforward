@@ -4,8 +4,8 @@ import { useState, useMemo } from "react";
 import { useParams } from "next/navigation";
 import { motion } from "framer-motion";
 import {
-  ArrowLeft, FileText, Mic, Image as ImageIcon, LayoutGrid, Film,
-  BarChart3, Search, Volume2, Video, Upload, ImageIcon as Thumbnail,
+  ArrowLeft, FileText, Mic, Image as ImageIcon, Film,
+  BarChart3, Search, Video, Upload,
 } from "lucide-react";
 import Link from "next/link";
 import { StatusPill } from "@/components/ui/StatusPill";
@@ -15,7 +15,6 @@ import { ScriptTab } from "@/components/production/ScriptTab";
 import { VoiceReviewTab } from "@/components/production/VoiceReviewTab";
 import { VisualsTab } from "@/components/production/VisualsTab";
 import { VideoClipsTab } from "@/components/production/VideoClipsTab";
-import { SoundTab } from "@/components/production/SoundTab";
 
 import { ThumbnailTab } from "@/components/production/ThumbnailTab";
 import { RenderTab } from "@/components/production/RenderTab";
@@ -55,7 +54,6 @@ const TABS = [
   { id: "voice", label: "Voice & Storyboard", icon: Mic },
   { id: "visuals", label: "Visuals", icon: ImageIcon },
   { id: "clips", label: "Video Clips", icon: Video },
-  { id: "sound", label: "Sound", icon: Volume2 },
   { id: "thumbnail", label: "Thumbnail", icon: Film },
   { id: "render", label: "Render", icon: Film },
   { id: "upload", label: "Upload", icon: Upload },
@@ -175,8 +173,6 @@ export default function VideoDetailPage() {
         {activeTab === "voice" && <VoiceReviewTab video={video} />}
         {activeTab === "visuals" && <VisualsTab video={video} />}
         {activeTab === "clips" && <VideoClipsTab video={video} />}
-        {activeTab === "sound" && <SoundTab video={video} />}
-
         {activeTab === "thumbnail" && <ThumbnailTab video={video} />}
         {activeTab === "render" && <RenderTab video={video} />}
         {activeTab === "upload" && <UploadTab video={video} />}
