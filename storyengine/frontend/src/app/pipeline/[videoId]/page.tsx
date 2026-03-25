@@ -5,11 +5,11 @@ import { useParams } from "next/navigation";
 import { motion } from "framer-motion";
 import {
   ArrowLeft, FileText, Mic, Image as ImageIcon, Film,
-  BarChart3, Search, Video, Upload, Loader2,
+  BarChart3, Search, Video, Upload, Loader2, RotateCcw,
 } from "lucide-react";
 import Link from "next/link";
-import { useQuery } from "@tanstack/react-query";
-import { getVideo } from "@/lib/api";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { getVideo, resetPipeline } from "@/lib/api";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { ProgressStepper } from "@/components/ui/ProgressStepper";
 import { ResearchTab } from "@/components/production/ResearchTab";
@@ -113,6 +113,7 @@ function getDefaultTab(status: string): string {
 export default function VideoDetailPage() {
   const params = useParams();
   const videoId = params.videoId as string;
+  const queryClient = useQueryClient();
 
   const { data: video, isLoading, error } = useQuery({
     queryKey: ["video", videoId],
@@ -122,7 +123,26 @@ export default function VideoDetailPage() {
   const status = video?.status || "idea_logged";
   const defaultTab = useMemo(() => getDefaultTab(status), [status]);
   const [activeTab, setActiveTab] = useState<string | null>(null);
+  const [resetting, setResetting] = useState(false);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
   const currentTab = activeTab || defaultTab;
+
+  const handleReset = async (resetTo: string) => {
+    setResetting(true);
+    try {
+      await resetPipeline(videoId, resetTo);
+      // Invalidate all queries for this video to refetch fresh data
+      queryClient.invalidateQueries({ queryKey: ["video", videoId] });
+      queryClient.invalidateQueries({ queryKey: ["video-script", videoId] });
+      queryClient.invalidateQueries({ queryKey: ["video-assets", videoId] });
+      setShowResetConfirm(false);
+      setActiveTab("research");
+    } catch (err) {
+      alert(`Reset failed: ${(err as Error).message}`);
+    } finally {
+      setResetting(false);
+    }
+  };
 
   if (isLoading) {
     return (
@@ -202,13 +222,67 @@ export default function VideoDetailPage() {
             )}
           </div>
         </div>
-        <div className="text-right">
-          <p className="text-xs font-mono" style={{ color: "var(--text-tertiary)" }}>
-            Est. Cost
-          </p>
-          <p className="text-lg font-mono font-semibold" style={{ color: "var(--gold)" }}>
-            ${(video.total_cost || 0).toFixed(2)}
-          </p>
+        <div className="flex items-center gap-4">
+          <div className="text-right">
+            <p className="text-xs font-mono" style={{ color: "var(--text-tertiary)" }}>
+              Est. Cost
+            </p>
+            <p className="text-lg font-mono font-semibold" style={{ color: "var(--gold)" }}>
+              ${(video.total_cost || 0).toFixed(2)}
+            </p>
+          </div>
+
+          {/* Reset button */}
+          <div className="relative">
+            <button
+              onClick={() => setShowResetConfirm(!showResetConfirm)}
+              className="p-2 rounded-lg transition-all hover:bg-[var(--bg-surface)]"
+              style={{ color: "var(--text-tertiary)" }}
+              title="Reset pipeline"
+            >
+              <RotateCcw size={16} />
+            </button>
+
+            {showResetConfirm && (
+              <div
+                className="absolute right-0 top-full mt-2 z-50 w-56 rounded-xl p-4 space-y-2"
+                style={{ background: "var(--bg-deep)", border: "1px solid var(--border)", boxShadow: "0 8px 32px rgba(0,0,0,0.5)" }}
+              >
+                <p className="text-xs font-semibold mb-2" style={{ color: "var(--text-primary)" }}>Reset to:</p>
+                <button
+                  onClick={() => handleReset("ready_for_scripting")}
+                  disabled={resetting}
+                  className="w-full text-left text-xs px-3 py-2 rounded-lg transition-all hover:bg-[var(--bg-surface)]"
+                  style={{ color: "var(--orange)" }}
+                >
+                  {resetting ? "Resetting..." : "Script Stage"} <span style={{ color: "var(--text-tertiary)" }}>— delete scripts + images</span>
+                </button>
+                <button
+                  onClick={() => handleReset("ready_for_voice")}
+                  disabled={resetting}
+                  className="w-full text-left text-xs px-3 py-2 rounded-lg transition-all hover:bg-[var(--bg-surface)]"
+                  style={{ color: "var(--green)" }}
+                >
+                  Voice Stage <span style={{ color: "var(--text-tertiary)" }}>— keep scripts, redo voice</span>
+                </button>
+                <button
+                  onClick={() => handleReset("ready_for_images")}
+                  disabled={resetting}
+                  className="w-full text-left text-xs px-3 py-2 rounded-lg transition-all hover:bg-[var(--bg-surface)]"
+                  style={{ color: "var(--purple)" }}
+                >
+                  Images Stage <span style={{ color: "var(--text-tertiary)" }}>— keep scripts, redo images</span>
+                </button>
+                <button
+                  onClick={() => setShowResetConfirm(false)}
+                  className="w-full text-xs px-3 py-1.5 rounded-lg mt-1"
+                  style={{ color: "var(--text-tertiary)" }}
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </motion.div>
 
