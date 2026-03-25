@@ -13,8 +13,21 @@ import {
 import { NicheSetup } from "@/components/autopilot/niche-setup";
 import { PlayingCard } from "@/components/autopilot/playing-card";
 import { CardExpanded } from "@/components/autopilot/card-expanded";
-import { AnimatePresence } from "framer-motion";
+import { GlassCard } from "@/components/ui/GlassCard";
+import { StatusPill } from "@/components/ui/StatusPill";
+import { FilterSelect } from "@/components/ui/FilterSelect";
+import { ActionButton } from "@/components/ui/ActionButton";
+import { AnimatePresence, motion } from "framer-motion";
 import { Filter, Plus, Loader2 } from "lucide-react";
+
+const container = {
+  hidden: { opacity: 0 },
+  show: { opacity: 1, transition: { staggerChildren: 0.1 } },
+};
+const item = {
+  hidden: { opacity: 0, y: 16 },
+  show: { opacity: 1, y: 0, transition: { duration: 0.5, ease: "easeOut" as const } },
+};
 
 export default function CompetitorsPage() {
   const queryClient = useQueryClient();
@@ -84,6 +97,11 @@ export default function CompetitorsPage() {
     return autopilotData.candidates.filter((c) => c.source === channelFilter);
   }, [autopilotData, channelFilter]);
 
+  const filterOptions = useMemo(() => [
+    { value: "all", label: `All Channels (${autopilotData?.candidates?.length || 0})` },
+    ...channelNames.map((name) => ({ value: name, label: name })),
+  ], [autopilotData, channelNames]);
+
   if (!nicheConfigured) {
     return <NicheSetup onComplete={() => setNicheConfigured(true)} />;
   }
@@ -94,7 +112,7 @@ export default function CompetitorsPage() {
         <div className="h-8 w-48 rounded animate-pulse" style={{ background: "var(--border)" }} />
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {[1, 2, 3, 4, 5, 6].map((i) => (
-            <div key={i} className="h-72 rounded-xl animate-pulse" style={{ background: "var(--bg-card)" }} />
+            <div key={i} className="h-72 rounded-xl animate-pulse glass-card" />
           ))}
         </div>
       </div>
@@ -102,105 +120,103 @@ export default function CompetitorsPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <motion.div
+      className="space-y-6"
+      variants={container}
+      initial="hidden"
+      animate="show"
+    >
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <motion.div variants={item} className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold" style={{ color: "var(--text-primary)" }}>
+          <h1 className="text-2xl font-display" style={{ color: "var(--text-primary)" }}>
             Competitor Analysis
           </h1>
           {nicheConfig?.sub_niche && (
-            <p className="text-sm mt-1" style={{ color: "var(--text-secondary)" }}>
+            <p className="text-sm mt-1 font-body" style={{ color: "var(--text-secondary)" }}>
               {nicheConfig.niche_category} · {nicheConfig.sub_niche}
             </p>
           )}
         </div>
-      </div>
+      </motion.div>
 
       {/* Add channel bar */}
-      <div className="flex items-center gap-2">
-        <input
-          type="text"
-          value={channelUrl}
-          onChange={(e) => { setChannelUrl(e.target.value); setAddError(""); }}
-          onKeyDown={(e) => e.key === "Enter" && handleAddChannel()}
-          placeholder="Paste YouTube channel URL (e.g. youtube.com/@ChannelName)"
-          className="flex-1 rounded-lg px-4 py-2.5 text-sm outline-none placeholder:opacity-40"
-          style={{
-            background: "var(--bg-card)",
-            border: `1px solid ${addError ? "var(--red, #ef4444)" : "var(--border)"}`,
-            color: "var(--text-primary)",
-          }}
-        />
-        <button
-          onClick={handleAddChannel}
-          disabled={addingChannel || !channelUrl.trim()}
-          className="flex items-center gap-1.5 rounded-lg px-4 py-2.5 text-sm font-medium transition-opacity disabled:opacity-40"
-          style={{
-            background: "var(--amber)",
-            color: "var(--bg-primary)",
-          }}
-        >
-          {addingChannel ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
-          Add
-        </button>
-        {addError && (
-          <span className="text-xs" style={{ color: "var(--red, #ef4444)" }}>{addError}</span>
-        )}
-      </div>
+      <motion.div variants={item}>
+        <GlassCard className="!p-3">
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              value={channelUrl}
+              onChange={(e) => { setChannelUrl(e.target.value); setAddError(""); }}
+              onKeyDown={(e) => e.key === "Enter" && handleAddChannel()}
+              placeholder="Paste YouTube channel URL (e.g. youtube.com/@ChannelName)"
+              className="flex-1 rounded-lg px-4 py-2.5 text-sm font-body outline-none placeholder:opacity-40 transition-all"
+              style={{
+                background: "var(--bg-elevated)",
+                border: `1px solid ${addError ? "var(--red)" : "var(--border)"}`,
+                color: "var(--text-primary)",
+              }}
+              onFocus={(e) => {
+                if (!addError) e.target.style.borderColor = "var(--turquoise)";
+              }}
+              onBlur={(e) => {
+                if (!addError) e.target.style.borderColor = "var(--border)";
+              }}
+            />
+            <ActionButton
+              onClick={handleAddChannel}
+              disabled={addingChannel || !channelUrl.trim()}
+              icon={addingChannel ? undefined : Plus}
+            >
+              {addingChannel ? <Loader2 size={14} className="animate-spin" /> : "Add"}
+            </ActionButton>
+            {addError && (
+              <span className="text-xs font-body" style={{ color: "var(--red)" }}>{addError}</span>
+            )}
+          </div>
+        </GlassCard>
+      </motion.div>
 
       {/* Filter bar */}
-      <div className="flex items-center gap-3 flex-wrap">
+      <motion.div variants={item} className="flex items-center gap-3 flex-wrap">
         <div className="flex items-center gap-2">
           <Filter size={14} style={{ color: "var(--text-muted)" }} />
-          <select
+          <FilterSelect
+            options={filterOptions}
             value={channelFilter}
-            onChange={(e) => setChannelFilter(e.target.value)}
-            className="rounded-lg px-3 py-2 text-sm outline-none"
-            style={{
-              background: "var(--bg-card)",
-              border: "1px solid var(--border)",
-              color: "var(--text-primary)",
-            }}
-          >
-            <option value="all">All Channels ({autopilotData?.candidates?.length || 0})</option>
-            {channelNames.map((name) => (
-              <option key={name} value={name}>{name}</option>
-            ))}
-          </select>
+            onChange={setChannelFilter}
+          />
         </div>
 
         <div className="flex-1" />
 
-        <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+        <span className="text-xs font-body" style={{ color: "var(--text-muted)" }}>
           {filteredCandidates.length} video{filteredCandidates.length !== 1 ? "s" : ""}
         </span>
-      </div>
+      </motion.div>
 
       {/* Channels strip */}
       {channels && channels.length > 0 && (
-        <div className="flex items-center gap-2 overflow-x-auto pb-1">
+        <motion.div variants={item} className="flex items-center gap-2 overflow-x-auto pb-1">
           {channels.map((ch: any) => (
             <div
               key={ch.id}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium shrink-0"
-              style={{
-                background: channelFilter === ch.channel_name ? "rgba(212, 168, 68, 0.15)" : "var(--bg-card)",
-                color: channelFilter === ch.channel_name ? "var(--amber)" : "var(--text-secondary)",
-                border: `1px solid ${channelFilter === ch.channel_name ? "rgba(212, 168, 68, 0.3)" : "var(--border)"}`,
-                cursor: "pointer",
-              }}
               onClick={() => setChannelFilter(channelFilter === ch.channel_name ? "all" : ch.channel_name)}
+              style={{ cursor: "pointer" }}
             >
-              {ch.channel_name}
+              <StatusPill
+                label={ch.channel_name}
+                color={channelFilter === ch.channel_name ? "turquoise" : "gold"}
+                size="md"
+              />
             </div>
           ))}
-        </div>
+        </motion.div>
       )}
 
       {/* Playing cards grid */}
       {filteredCandidates.length > 0 ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <motion.div variants={item} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredCandidates.map((candidate) => (
             <PlayingCard
               key={candidate.id}
@@ -208,18 +224,17 @@ export default function CompetitorsPage() {
               onModel={setSelectedCandidate}
             />
           ))}
-        </div>
+        </motion.div>
       ) : (
-        <div
-          className="rounded-xl p-12 text-center"
-          style={{ background: "var(--bg-card)", border: "1px solid var(--border)" }}
-        >
-          <p style={{ color: "var(--text-muted)" }}>
-            {channelFilter !== "all"
-              ? `No videos from ${channelFilter} above threshold`
-              : "No competitor videos found. Add channels to start scanning."}
-          </p>
-        </div>
+        <motion.div variants={item}>
+          <GlassCard className="!p-12 text-center">
+            <p className="font-body" style={{ color: "var(--text-muted)" }}>
+              {channelFilter !== "all"
+                ? `No videos from ${channelFilter} above threshold`
+                : "No competitor videos found. Add channels to start scanning."}
+            </p>
+          </GlassCard>
+        </motion.div>
       )}
 
       {/* Expanded card modal */}
@@ -240,6 +255,6 @@ export default function CompetitorsPage() {
           />
         )}
       </AnimatePresence>
-    </div>
+    </motion.div>
   );
 }

@@ -4,16 +4,27 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { getActivity, getActivityStats } from "@/lib/api";
 import { ActivityFeed } from "@/components/activity-feed";
-import { StatCard } from "@/components/stat-card";
+import { GlassCard } from "@/components/ui/GlassCard";
+import { StatCard } from "@/components/ui/StatCard";
+import { StatusPill } from "@/components/ui/StatusPill";
 import { formatCost } from "@/lib/utils";
-import { cn } from "@/lib/utils";
+import { motion } from "framer-motion";
 import { Bot, AlertTriangle, DollarSign } from "lucide-react";
 
+const container = {
+  hidden: { opacity: 0 },
+  show: { opacity: 1, transition: { staggerChildren: 0.1 } },
+};
+const item = {
+  hidden: { opacity: 0, y: 16 },
+  show: { opacity: 1, y: 0, transition: { duration: 0.5, ease: "easeOut" as const } },
+};
+
 const FILTER_OPTIONS = [
-  { key: "all", label: "All" },
-  { key: "running", label: "Running" },
-  { key: "failed", label: "Errors" },
-  { key: "completed", label: "Completed" },
+  { key: "all", label: "All", color: "turquoise" as const },
+  { key: "running", label: "Running", color: "green" as const },
+  { key: "failed", label: "Errors", color: "red" as const },
+  { key: "completed", label: "Completed", color: "gold" as const },
 ];
 
 export default function ActivityPage() {
@@ -32,59 +43,70 @@ export default function ActivityPage() {
   });
 
   return (
-    <div className="space-y-4">
-      <h1 className="text-xl font-bold">Activity</h1>
+    <motion.div
+      className="space-y-5"
+      variants={container}
+      initial="hidden"
+      animate="show"
+    >
+      <motion.h1 variants={item} className="text-2xl font-display" style={{ color: "var(--text-primary)" }}>
+        Activity
+      </motion.h1>
 
-      {/* Stats mini cards */}
-      <div className="grid grid-cols-3 gap-2">
+      {/* Stats cards */}
+      <motion.div variants={item} className="grid grid-cols-3 gap-3">
         <StatCard
           label="Bots Running"
           value={`${stats?.bots_running ?? 0}`}
-          icon={<Bot size={14} />}
-          accent={(stats?.bots_running ?? 0) > 0}
+          color={(stats?.bots_running ?? 0) > 0 ? "var(--turquoise)" : "var(--text-secondary)"}
+          icon={Bot}
         />
         <StatCard
           label="Errors Today"
-          value={stats?.errors_today ?? 0}
-          icon={<AlertTriangle size={14} />}
-          error={(stats?.errors_today ?? 0) > 0}
+          value={`${stats?.errors_today ?? 0}`}
+          color={(stats?.errors_today ?? 0) > 0 ? "var(--red)" : "var(--text-secondary)"}
+          icon={AlertTriangle}
         />
         <StatCard
           label="Cost Today"
           value={formatCost(stats?.cost_today ?? 0)}
-          icon={<DollarSign size={14} />}
+          color="var(--gold)"
+          icon={DollarSign}
         />
-      </div>
+      </motion.div>
 
       {/* Filter chips */}
-      <div className="flex gap-2">
+      <motion.div variants={item} className="flex gap-2">
         {FILTER_OPTIONS.map((opt) => (
-          <button
+          <div
             key={opt.key}
             onClick={() => setFilter(opt.key)}
-            className={cn(
-              "rounded-full px-3 py-1.5 text-xs font-medium transition-colors",
-              filter === opt.key
-                ? "bg-[var(--accent)] text-black"
-                : "bg-[var(--surface)] text-[var(--text-secondary)]"
-            )}
+            style={{ cursor: "pointer" }}
           >
-            {opt.label}
-          </button>
+            <StatusPill
+              label={opt.label}
+              color={filter === opt.key ? opt.color : "gold"}
+              size="md"
+            />
+          </div>
         ))}
-      </div>
+      </motion.div>
 
       {/* Loading */}
       {isLoading && (
-        <div className="space-y-2">
+        <motion.div variants={item} className="space-y-2">
           {[...Array(5)].map((_, i) => (
-            <div key={i} className="h-16 animate-pulse rounded-xl bg-[var(--surface)]" />
+            <div key={i} className="h-16 animate-pulse rounded-xl glass-card" />
           ))}
-        </div>
+        </motion.div>
       )}
 
       {/* Feed */}
-      {!isLoading && <ActivityFeed entries={entries} />}
-    </div>
+      {!isLoading && (
+        <motion.div variants={item}>
+          <ActivityFeed entries={entries} />
+        </motion.div>
+      )}
+    </motion.div>
   );
 }

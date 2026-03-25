@@ -3,16 +3,23 @@
 import { useState, useMemo } from "react";
 import { useParams } from "next/navigation";
 import { motion } from "framer-motion";
-import { ArrowLeft, FileText, Mic, Image as ImageIcon, LayoutGrid, Film, BarChart3 } from "lucide-react";
+import {
+  ArrowLeft, FileText, Mic, Image as ImageIcon, LayoutGrid, Film,
+  BarChart3, Search, Volume2, Video, Upload, ImageIcon as Thumbnail,
+} from "lucide-react";
 import Link from "next/link";
-import { GlassCard } from "@/components/ui/GlassCard";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { ProgressStepper } from "@/components/ui/ProgressStepper";
+import { ResearchTab } from "@/components/production/ResearchTab";
 import { ScriptTab } from "@/components/production/ScriptTab";
 import { VoiceReviewTab } from "@/components/production/VoiceReviewTab";
 import { VisualsTab } from "@/components/production/VisualsTab";
+import { VideoClipsTab } from "@/components/production/VideoClipsTab";
+import { SoundTab } from "@/components/production/SoundTab";
 import { StoryboardTab } from "@/components/production/StoryboardTab";
+import { ThumbnailTab } from "@/components/production/ThumbnailTab";
 import { RenderTab } from "@/components/production/RenderTab";
+import { UploadTab } from "@/components/production/UploadTab";
 import { PerformanceTab } from "@/components/production/PerformanceTab";
 import { MOCK_VIDEOS } from "@/lib/mock-data";
 
@@ -43,11 +50,16 @@ const PIPELINE_STAGES = [
 ];
 
 const TABS = [
+  { id: "research", label: "Research", icon: Search },
   { id: "script", label: "Script", icon: FileText },
   { id: "voice", label: "Voice & Storyboard", icon: Mic },
   { id: "visuals", label: "Visuals", icon: ImageIcon },
+  { id: "clips", label: "Video Clips", icon: Video },
+  { id: "sound", label: "Sound", icon: Volume2 },
   { id: "storyboard", label: "Storyboard", icon: LayoutGrid },
+  { id: "thumbnail", label: "Thumbnail", icon: Film },
   { id: "render", label: "Render", icon: Film },
+  { id: "upload", label: "Upload", icon: Upload },
   { id: "performance", label: "Performance", icon: BarChart3 },
 ];
 
@@ -62,6 +74,7 @@ function getCompletedSteps(status: string): number[] {
 }
 
 function getDefaultTab(status: string): string {
+  if (status === "researching") return "research";
   if (status === "scripting") return "script";
   if (status === "voice" || status === "storyboard_review") return "voice";
   if (status === "visuals") return "visuals";
@@ -133,7 +146,7 @@ export default function VideoDetailPage() {
 
       {/* Tab navigation */}
       <motion.div variants={item}>
-        <div className="flex gap-1 overflow-x-auto pb-1" style={{ borderBottom: "1px solid var(--border-subtle)" }}>
+        <div className="flex gap-0.5 overflow-x-auto pb-1 -mx-2 px-2" style={{ borderBottom: "1px solid var(--border-subtle)" }}>
           {TABS.map((tab) => {
             const isActive = activeTab === tab.id;
             const Icon = tab.icon;
@@ -141,14 +154,14 @@ export default function VideoDetailPage() {
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium font-body whitespace-nowrap transition-all rounded-t-lg"
+                className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium font-body whitespace-nowrap transition-all rounded-t-lg shrink-0"
                 style={{
                   color: isActive ? "var(--turquoise)" : "var(--text-tertiary)",
                   background: isActive ? "var(--turquoise-bg)" : "transparent",
                   borderBottom: isActive ? "2px solid var(--turquoise)" : "2px solid transparent",
                 }}
               >
-                <Icon size={16} />
+                <Icon size={14} />
                 {tab.label}
               </button>
             );
@@ -158,11 +171,16 @@ export default function VideoDetailPage() {
 
       {/* Tab content */}
       <motion.div variants={item}>
+        {activeTab === "research" && <ResearchTab video={video} />}
         {activeTab === "script" && <ScriptTab video={video} />}
         {activeTab === "voice" && <VoiceReviewTab video={video} />}
         {activeTab === "visuals" && <VisualsTab video={video} />}
+        {activeTab === "clips" && <VideoClipsTab video={video} />}
+        {activeTab === "sound" && <SoundTab video={video} />}
         {activeTab === "storyboard" && <StoryboardTab video={video} />}
+        {activeTab === "thumbnail" && <ThumbnailTab video={video} />}
         {activeTab === "render" && <RenderTab video={video} />}
+        {activeTab === "upload" && <UploadTab video={video} />}
         {activeTab === "performance" && <PerformanceTab video={video} />}
       </motion.div>
     </motion.div>
