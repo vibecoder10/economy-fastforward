@@ -6,7 +6,7 @@ import {
   Home,
   LayoutList,
   FileText,
-  Clapperboard,
+  Users,
   BarChart3,
   Settings,
 } from "lucide-react";
@@ -15,7 +15,7 @@ const tabs = [
   { href: "/", icon: Home, label: "Home" },
   { href: "/pipeline", icon: LayoutList, label: "Pipeline" },
   { href: "/review", icon: FileText, label: "Script" },
-  { href: "/review?tab=storyboards", icon: Clapperboard, label: "Board" },
+  { href: "/competitors", icon: Users, label: "Compete" },
   { href: "/analytics", icon: BarChart3, label: "Stats" },
   { href: "/settings", icon: Settings, label: "Settings" },
 ];

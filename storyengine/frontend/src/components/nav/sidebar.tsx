@@ -8,6 +8,7 @@ import {
   LayoutList,
   FileText,
   Clapperboard,
+  Users,
   BarChart3,
   Bot,
   Settings,
@@ -18,6 +19,7 @@ import {
 const navItems = [
   { href: "/", icon: Home, label: "Home" },
   { href: "/pipeline", icon: LayoutList, label: "Pipeline" },
+  { href: "/competitors", icon: Users, label: "Competitors" },
   { href: "/review", icon: FileText, label: "Scripts" },
   { href: "/review?tab=storyboards", icon: Clapperboard, label: "Storyboards" },
   { href: "/analytics", icon: BarChart3, label: "Analytics" },

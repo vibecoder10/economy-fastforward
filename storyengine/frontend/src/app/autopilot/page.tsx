@@ -2,13 +2,12 @@
 
 import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import {
   Brain,
   Power,
   Calendar,
   TrendingUp,
-  Clock,
   BarChart3,
   Lightbulb,
   ChevronRight,
@@ -21,15 +20,9 @@ import {
   getAutopilotSummary,
   toggleAutopilot,
   updateAutopilotConfig,
-  launchCandidate,
   getAgentStats,
-  getNicheConfig,
   AutopilotSummary,
-  CompetitorCandidate,
 } from "@/lib/api";
-import { NicheSetup } from "@/components/autopilot/niche-setup";
-import { PlayingCard } from "@/components/autopilot/playing-card";
-import { CardExpanded } from "@/components/autopilot/card-expanded";
 
 // Default weights for display when API doesn't return them
 const DEFAULT_WEIGHTS = {
@@ -53,26 +46,11 @@ export default function AutopilotPage() {
   const [editingTarget, setEditingTarget] = useState(false);
   const [targetValue, setTargetValue] = useState(15);
   const [savingTarget, setSavingTarget] = useState(false);
-  const [selectedCandidate, setSelectedCandidate] = useState<CompetitorCandidate | null>(null);
-  const [nicheConfigured, setNicheConfigured] = useState(true);
 
   const { data: agentStats } = useQuery({
     queryKey: ["agent-stats"],
     queryFn: getAgentStats,
   });
-
-  const { data: nicheConfig } = useQuery({
-    queryKey: ["niche-config"],
-    queryFn: getNicheConfig,
-  });
-
-  useEffect(() => {
-    if (nicheConfig && !nicheConfig.niche_category) {
-      setNicheConfigured(false);
-    } else if (nicheConfig) {
-      setNicheConfigured(true);
-    }
-  }, [nicheConfig]);
 
   // Fetch data on mount
   useEffect(() => {
@@ -118,10 +96,6 @@ export default function AutopilotPage() {
       setSavingTarget(false);
     }
   };
-
-  if (!nicheConfigured) {
-    return <NicheSetup onComplete={() => setNicheConfigured(true)} />;
-  }
 
   if (loading) {
     return (
@@ -296,47 +270,57 @@ export default function AutopilotPage() {
         </div>
       )}
 
-      {/* Topic Discovery — Playing Cards */}
+      {/* Top Recommendations */}
       {data?.candidates && data.candidates.length > 0 && (
-        <div>
-          <h2 className="text-sm font-semibold uppercase tracking-wider mb-4"
-              style={{ color: "var(--text-muted)" }}>
-            Topic Discovery
-            {nicheConfig?.sub_niche && (
-              <span style={{ color: "var(--text-secondary)" }}> · {nicheConfig.sub_niche}</span>
-            )}
-          </h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {data.candidates.map((candidate: CompetitorCandidate) => (
-              <PlayingCard
-                key={candidate.id}
-                candidate={candidate}
-                onModel={setSelectedCandidate}
-              />
-            ))}
+        <div
+          className="rounded-xl p-4"
+          style={{ background: "var(--bg-card)", border: "1px solid var(--border)" }}
+        >
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-sm font-semibold uppercase tracking-wider"
+                style={{ color: "var(--text-muted)" }}>
+              Top Recommendations
+            </h2>
+            <a href="/competitors" className="text-xs font-medium" style={{ color: "var(--amber)" }}>
+              View All →
+            </a>
+          </div>
+          <div className="space-y-3">
+            {data.candidates.slice(0, 3).map((candidate: any, i: number) => {
+              const medal = ["\u{1F3C6}", "\u{1F948}", "\u{1F949}"][i];
+              const videoId = candidate.url?.match(/(?:v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/)?.[1];
+              const thumbUrl = videoId ? `https://img.youtube.com/vi/${videoId}/mqdefault.jpg` : null;
+
+              return (
+                <a
+                  key={candidate.id}
+                  href="/competitors"
+                  className="flex items-center gap-4 p-3 rounded-lg transition-colors hover:bg-[var(--bg-card-hover)]"
+                >
+                  <span className="text-lg">{medal}</span>
+                  {thumbUrl && (
+                    <img src={thumbUrl} alt="" className="w-20 h-12 rounded object-cover shrink-0" />
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate" style={{ color: "var(--text-primary)" }}>
+                      {candidate.title}
+                    </p>
+                    <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+                      {candidate.source} · {Math.round(candidate.hours_old)}h ago
+                    </p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="text-sm font-bold" style={{ color: "var(--amber)" }}>
+                      {candidate.confidence.toFixed(0)}
+                    </p>
+                    <p className="text-xs" style={{ color: "var(--text-muted)" }}>conf</p>
+                  </div>
+                </a>
+              );
+            })}
           </div>
         </div>
       )}
-
-      {/* Expanded card modal */}
-      <AnimatePresence>
-        {selectedCandidate && (
-          <CardExpanded
-            candidate={selectedCandidate}
-            onClose={() => setSelectedCandidate(null)}
-            onProduce={async (candidate, thumbnailVersion) => {
-              try {
-                await launchCandidate(candidate.id);
-                setSelectedCandidate(null);
-                const summary = await getAutopilotSummary();
-                setData(summary);
-              } catch (err) {
-                console.error("Failed to launch:", err);
-              }
-            }}
-          />
-        )}
-      </AnimatePresence>
 
       {/* Configuration */}
       <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-5">
@@ -480,19 +464,6 @@ export default function AutopilotPage() {
           </div>
         </div>
       </div>
-
-      {/* Niche Settings */}
-      {nicheConfig && nicheConfig.niche_category && (
-        <div className="rounded-xl p-4" style={{ background: "var(--bg-card)", border: "1px solid var(--border)" }}>
-          <h2 className="text-sm font-semibold uppercase tracking-wider mb-3" style={{ color: "var(--text-muted)" }}>
-            Niche Settings
-          </h2>
-          <div className="space-y-1 text-sm" style={{ color: "var(--text-secondary)" }}>
-            <p>Category: <span style={{ color: "var(--text-primary)" }}>{nicheConfig.niche_category}</span></p>
-            <p>Sub-niche: <span style={{ color: "var(--text-primary)" }}>{nicheConfig.sub_niche}</span></p>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
