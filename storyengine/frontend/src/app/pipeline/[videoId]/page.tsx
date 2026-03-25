@@ -110,7 +110,7 @@ export default function VideoDetailPage({
       <div>
         {activeTab === "info" && <InfoTab video={video} />}
         {activeTab === "script" && <ScriptTab videoId={videoId} video={video} />}
-        {activeTab === "visuals" && <VisualsTab videoId={videoId} />}
+        {activeTab === "visuals" && <VisualsTab videoId={videoId} videoStatus={video.status || ""} />}
         {activeTab === "storyboard" && <StoryboardTab videoId={videoId} />}
         {activeTab === "thumbnail" && <ThumbnailTab video={video} />}
         {activeTab === "performance" && <PerformanceTab video={video} />}

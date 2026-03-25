@@ -1,174 +1,253 @@
 "use client";
 
-import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { getVideoAssets } from "@/lib/api";
-import { ChevronLeft, ChevronRight, Star, Download } from "lucide-react";
-import { formatCost } from "@/lib/utils";
+import { useMemo } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  getVideoScript,
+  getVideoAssets,
+  updateStoryboardMode,
+  Asset,
+} from "@/lib/api";
+import { StoryboardViewer } from "./storyboard-viewer";
+import { ImageSegmentCard } from "./image-segment-card";
+import { VoicePlayer } from "./voice-player";
+import { StageAdvancer } from "./stage-advancer";
 
 interface VisualsTabProps {
   videoId: string;
+  videoStatus: string;
 }
 
-export function VisualsTab({ videoId }: VisualsTabProps) {
-  const [currentScene, setCurrentScene] = useState(1);
+export function VisualsTab({ videoId, videoStatus }: VisualsTabProps) {
+  const queryClient = useQueryClient();
 
-  const { data: assets, isLoading } = useQuery({
+  const { data: scenes } = useQuery({
+    queryKey: ["video-script", videoId],
+    queryFn: () => getVideoScript(videoId),
+  });
+
+  const { data: assets, refetch: refetchAssets } = useQuery({
     queryKey: ["video-assets", videoId],
     queryFn: () => getVideoAssets(videoId),
   });
 
-  if (isLoading) {
-    return (
-      <div className="space-y-4">
-        {[1, 2, 3].map((i) => (
-          <div key={i} className="h-48 rounded-xl animate-pulse" style={{ background: "var(--bg-card)" }} />
-        ))}
-      </div>
-    );
-  }
+  const storyboardMode =
+    scenes?.some((s) => s.storyboard_on_off === "On") ?? false;
 
-  if (!assets || assets.length === 0) {
-    return (
-      <div className="text-center py-12" style={{ color: "var(--text-muted)" }}>
-        No images yet. Images will appear after the image prompts stage.
-      </div>
-    );
-  }
+  const handleToggleStoryboard = async () => {
+    await updateStoryboardMode(videoId, !storyboardMode);
+    queryClient.invalidateQueries({ queryKey: ["video-script", videoId] });
+  };
 
-  // Group assets by scene
-  const scenes = new Map<number, any[]>();
-  assets.forEach((a: any) => {
-    const scene = a.scene || 1;
-    if (!scenes.has(scene)) scenes.set(scene, []);
-    scenes.get(scene)!.push(a);
-  });
+  const assetsByScene = useMemo(() => {
+    if (!assets) return {};
+    const grouped: Record<number, Asset[]> = {};
+    for (const a of assets) {
+      const s = a.scene ?? 0;
+      if (!grouped[s]) grouped[s] = [];
+      grouped[s].push(a);
+    }
+    for (const s of Object.keys(grouped)) {
+      grouped[Number(s)].sort(
+        (a, b) => (a.image_index ?? 0) - (b.image_index ?? 0)
+      );
+    }
+    return grouped;
+  }, [assets]);
 
-  const sceneNumbers = Array.from(scenes.keys()).sort((a, b) => a - b);
-  const sceneAssets = scenes.get(currentScene) || [];
-  const totalImages = assets.length;
-  const generatedImages = assets.filter((a: any) => a.image_url).length;
-
-  // Sort by image_index within scene
-  sceneAssets.sort((a: any, b: any) => (a.image_index || 0) - (b.image_index || 0));
+  // Determine which StageAdvancer to show
+  const advancer = (() => {
+    if (storyboardMode) {
+      if (videoStatus === "ready_for_storyboards") {
+        return { stage: "storyboards", label: "Generate Storyboard Grids" };
+      }
+      if (videoStatus === "ready_for_storyboard_images") {
+        return {
+          stage: "storyboard-images",
+          label: "Generate Grid Images",
+        };
+      }
+      if (videoStatus === "ready_for_storyboard_extraction") {
+        return {
+          stage: "storyboard-extract",
+          label: "Extract & Upscale Approved",
+        };
+      }
+    } else {
+      if (videoStatus === "ready_for_images") {
+        return { stage: "images", label: "Generate All Images" };
+      }
+    }
+    if (
+      videoStatus === "ready_for_thumbnail" ||
+      videoStatus === "images_done"
+    ) {
+      return { stage: "thumbnail", label: "Advance to Thumbnail" };
+    }
+    return null;
+  })();
 
   return (
-    <div className="space-y-4">
-      {/* Stats */}
-      <div className="flex items-center gap-4 text-sm" style={{ color: "var(--text-muted)" }}>
-        <span>{generatedImages}/{totalImages} images generated</span>
-        <span>{sceneNumbers.length} scenes</span>
-        <span>~{formatCost(totalImages * 0.045)} estimated</span>
-      </div>
-
-      {/* Scene segments */}
-      <div className="space-y-3">
-        {sceneAssets.map((asset: any) => (
-          <div
-            key={asset.id}
-            className="rounded-xl overflow-hidden"
-            style={{ background: "var(--bg-card)", border: "1px solid var(--border)" }}
+    <div className="space-y-5">
+      {/* Header with storyboard toggle */}
+      <div className="flex items-center justify-between">
+        <h2
+          className="text-lg font-semibold"
+          style={{ color: "var(--text-primary)" }}
+        >
+          Visuals
+        </h2>
+        <div className="flex items-center gap-2">
+          <span
+            className="text-xs"
+            style={{ color: "var(--text-muted)" }}
           >
-            {/* Script text */}
-            {asset.sentence_text && (
-              <div className="p-4 pb-2">
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>
-                    Segment {asset.image_index || "?"}
-                  </span>
-                  {asset.shot_type && (
-                    <span
-                      className="text-xs px-1.5 py-0.5 rounded"
-                      style={{ background: "rgba(26, 138, 122, 0.15)", color: "var(--teal)" }}
-                    >
-                      {asset.shot_type}
-                    </span>
-                  )}
-                  {asset.hero_shot && (
-                    <Star size={12} style={{ color: "var(--amber)" }} fill="var(--amber)" />
-                  )}
-                </div>
-                <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
-                  {asset.sentence_text}
-                </p>
-              </div>
-            )}
-
-            {/* Prompt */}
-            {asset.image_prompt && (
-              <div className="px-4 pb-2">
-                <p className="text-xs italic" style={{ color: "var(--text-muted)" }}>
-                  {asset.image_prompt.length > 150
-                    ? asset.image_prompt.slice(0, 150) + "..."
-                    : asset.image_prompt}
-                </p>
-              </div>
-            )}
-
-            {/* Image or placeholder */}
-            <div className="px-4 pb-4">
-              {asset.image_url ? (
-                <div className="relative group">
-                  <img
-                    src={asset.image_url}
-                    alt={asset.sentence_text || "Scene image"}
-                    className="w-full rounded-lg aspect-video object-cover"
-                  />
-                  <div className="absolute bottom-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <a
-                      href={asset.image_url}
-                      target="_blank"
-                      rel="noopener"
-                      className="p-1.5 rounded-lg"
-                      style={{ background: "rgba(0,0,0,0.7)" }}
-                    >
-                      <Download size={14} style={{ color: "var(--text-primary)" }} />
-                    </a>
-                  </div>
-                </div>
-              ) : (
-                <div
-                  className="w-full rounded-lg aspect-video flex items-center justify-center"
-                  style={{ background: "var(--bg-card-hover)", border: "2px dashed var(--border)" }}
-                >
-                  <span className="text-sm" style={{ color: "var(--text-muted)" }}>
-                    Not generated
-                  </span>
-                </div>
-              )}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Scene navigation */}
-      {sceneNumbers.length > 1 && (
-        <div className="flex items-center justify-between">
-          <button
-            onClick={() => {
-              const idx = sceneNumbers.indexOf(currentScene);
-              if (idx > 0) setCurrentScene(sceneNumbers[idx - 1]);
-            }}
-            disabled={sceneNumbers.indexOf(currentScene) === 0}
-            className="flex items-center gap-1 px-3 py-2 rounded-lg text-sm disabled:opacity-30"
-            style={{ color: "var(--text-secondary)" }}
-          >
-            <ChevronLeft size={16} /> Prev Scene
-          </button>
-          <span className="text-sm" style={{ color: "var(--text-muted)" }}>
-            Scene {currentScene} / {sceneNumbers.length}
+            Storyboard
           </span>
-          <button
-            onClick={() => {
-              const idx = sceneNumbers.indexOf(currentScene);
-              if (idx < sceneNumbers.length - 1) setCurrentScene(sceneNumbers[idx + 1]);
+          <div
+            onClick={handleToggleStoryboard}
+            style={{
+              width: 40,
+              height: 22,
+              background: storyboardMode ? "var(--amber)" : "var(--border)",
+              borderRadius: 11,
+              position: "relative",
+              cursor: "pointer",
             }}
-            disabled={sceneNumbers.indexOf(currentScene) === sceneNumbers.length - 1}
-            className="flex items-center gap-1 px-3 py-2 rounded-lg text-sm disabled:opacity-30"
-            style={{ color: "var(--text-secondary)" }}
           >
-            Next Scene <ChevronRight size={16} />
-          </button>
+            <div
+              style={{
+                width: 18,
+                height: 18,
+                background: storyboardMode
+                  ? "var(--bg-primary)"
+                  : "var(--text-muted)",
+                borderRadius: "50%",
+                position: "absolute",
+                top: 2,
+                left: storyboardMode ? undefined : 2,
+                right: storyboardMode ? 2 : undefined,
+                transition: "all 0.2s",
+              }}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Info banner */}
+      {storyboardMode ? (
+        <div
+          className="rounded-lg px-4 py-3 text-sm"
+          style={{
+            background: "rgba(245, 158, 11, 0.1)",
+            border: "1px solid rgba(245, 158, 11, 0.25)",
+            color: "var(--amber)",
+          }}
+        >
+          Storyboard mode: Generate grids, approve panels, then extract
+          and upscale selected images.
+        </div>
+      ) : (
+        <div
+          className="rounded-lg px-4 py-3 text-sm"
+          style={{
+            background: "var(--bg-card)",
+            border: "1px solid var(--border)",
+            color: "var(--text-muted)",
+          }}
+        >
+          Direct mode: Images generated individually per segment from
+          prompts.
+        </div>
+      )}
+
+      {/* Stage advancer */}
+      {advancer && (
+        <StageAdvancer
+          videoId={videoId}
+          stage={advancer.stage}
+          label={advancer.label}
+        />
+      )}
+
+      {/* Scene cards */}
+      {scenes && scenes.length > 0 ? (
+        <div className="space-y-6">
+          {scenes.map((s) => {
+            const sceneNum = s.scene ?? 0;
+            const sceneAssets = assetsByScene[sceneNum] ?? [];
+
+            if (storyboardMode) {
+              return (
+                <StoryboardViewer
+                  key={s.id}
+                  scene={s}
+                  assets={sceneAssets}
+                  videoId={videoId}
+                  onRefresh={refetchAssets}
+                />
+              );
+            }
+
+            return (
+              <div
+                key={s.id}
+                className="rounded-xl overflow-hidden"
+                style={{
+                  background: "var(--bg-card)",
+                  border: "1px solid var(--border)",
+                }}
+              >
+                {/* Scene header */}
+                <div className="flex items-center gap-2 px-4 py-3">
+                  <span
+                    className="text-xs font-bold px-2 py-0.5 rounded"
+                    style={{
+                      background: "rgba(26, 138, 122, 0.15)",
+                      color: "var(--teal)",
+                    }}
+                  >
+                    Scene {sceneNum}
+                  </span>
+                </div>
+
+                {/* Voice player */}
+                {s.voice_over_url && (
+                  <div className="px-4 pb-3">
+                    <VoicePlayer audioUrl={s.voice_over_url} />
+                  </div>
+                )}
+
+                {/* Image segment cards */}
+                {sceneAssets.length > 0 ? (
+                  <div className="px-4 pb-4 space-y-3">
+                    {sceneAssets.map((asset) => (
+                      <ImageSegmentCard
+                        key={asset.id}
+                        asset={asset}
+                        videoId={videoId}
+                        onRefresh={refetchAssets}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <div
+                    className="px-4 pb-4 text-sm"
+                    style={{ color: "var(--text-muted)" }}
+                  >
+                    No images yet for this scene.
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div
+          className="text-center py-12"
+          style={{ color: "var(--text-muted)" }}
+        >
+          No scenes found. Script must be generated first.
         </div>
       )}
     </div>
