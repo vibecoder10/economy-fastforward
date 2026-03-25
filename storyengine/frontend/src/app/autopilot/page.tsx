@@ -2,21 +2,16 @@
 
 import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   Brain,
   Power,
   Calendar,
-  Target,
   TrendingUp,
   Clock,
-  Zap,
   BarChart3,
   Lightbulb,
   ChevronRight,
-  ChevronDown,
-  Info,
-  ExternalLink,
   Check,
   X,
 } from "lucide-react";
@@ -28,10 +23,13 @@ import {
   updateAutopilotConfig,
   launchCandidate,
   getAgentStats,
+  getNicheConfig,
   AutopilotSummary,
   CompetitorCandidate,
-  ConfidenceBreakdown,
 } from "@/lib/api";
+import { NicheSetup } from "@/components/autopilot/niche-setup";
+import { PlayingCard } from "@/components/autopilot/playing-card";
+import { CardExpanded } from "@/components/autopilot/card-expanded";
 
 // Default weights for display when API doesn't return them
 const DEFAULT_WEIGHTS = {
@@ -52,16 +50,29 @@ export default function AutopilotPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isEnabled, setIsEnabled] = useState(true);
-  const [expandedCandidate, setExpandedCandidate] = useState<string | null>(null);
   const [editingTarget, setEditingTarget] = useState(false);
   const [targetValue, setTargetValue] = useState(15);
   const [savingTarget, setSavingTarget] = useState(false);
-  const [launchingId, setLaunchingId] = useState<string | null>(null);
+  const [selectedCandidate, setSelectedCandidate] = useState<CompetitorCandidate | null>(null);
+  const [nicheConfigured, setNicheConfigured] = useState(true);
 
   const { data: agentStats } = useQuery({
     queryKey: ["agent-stats"],
     queryFn: getAgentStats,
   });
+
+  const { data: nicheConfig } = useQuery({
+    queryKey: ["niche-config"],
+    queryFn: getNicheConfig,
+  });
+
+  useEffect(() => {
+    if (nicheConfig && !nicheConfig.niche_category) {
+      setNicheConfigured(false);
+    } else if (nicheConfig) {
+      setNicheConfigured(true);
+    }
+  }, [nicheConfig]);
 
   // Fetch data on mount
   useEffect(() => {
@@ -108,19 +119,9 @@ export default function AutopilotPage() {
     }
   };
 
-  const handleLaunch = async (candidateId: string) => {
-    setLaunchingId(candidateId);
-    try {
-      await launchCandidate(candidateId);
-      // Refresh data
-      const summary = await getAutopilotSummary();
-      setData(summary);
-    } catch (err) {
-      console.error("Error launching candidate:", err);
-    } finally {
-      setLaunchingId(null);
-    }
-  };
+  if (!nicheConfigured) {
+    return <NicheSetup onComplete={() => setNicheConfigured(true)} />;
+  }
 
   if (loading) {
     return (
@@ -150,7 +151,7 @@ export default function AutopilotPage() {
     );
   }
 
-  const { state, config, candidates, learnings } = data;
+  const { state, config, learnings } = data;
   const weights = Object.keys(config.weights).length > 0 ? config.weights : DEFAULT_WEIGHTS;
   const thresholds = Object.keys(config.thresholds).length > 0 ? config.thresholds : DEFAULT_THRESHOLDS;
 
@@ -295,199 +296,47 @@ export default function AutopilotPage() {
         </div>
       )}
 
-      {/* Candidates Section */}
-      <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-5">
-        <div className="flex items-center gap-2 text-sm font-semibold">
-          <Target size={16} className="text-[var(--amber)]" />
-          Top Candidates
-        </div>
-        <p className="mt-1 text-xs text-[var(--text-secondary)]">
-          Ideas being evaluated for next production slot
-        </p>
-
-        {candidates.length === 0 ? (
-          <div className="mt-4 rounded-lg bg-[var(--bg-card-hover)] p-4 text-center text-sm text-[var(--text-secondary)]">
-            No candidates found. Waiting for competitor videos to be scraped.
-          </div>
-        ) : (
-          <div className="mt-4 space-y-3">
-            {candidates.map((candidate, i) => (
-              <div key={candidate.id}>
-                <button
-                  onClick={() => setExpandedCandidate(
-                    expandedCandidate === candidate.id ? null : candidate.id
-                  )}
-                  className={cn(
-                    "flex w-full items-center gap-3 rounded-lg p-3 text-left transition-colors",
-                    i === 0
-                      ? "border border-[var(--amber)]/30 bg-[var(--amber)]/5"
-                      : "bg-[var(--bg-card-hover)] hover:bg-[var(--bg-card-hover)]/80"
-                  )}
-                >
-                  <div
-                    className={cn(
-                      "flex h-8 w-8 items-center justify-center rounded-full text-sm font-bold",
-                      i === 0
-                        ? "bg-[var(--amber)] text-black"
-                        : "bg-[var(--border)] text-[var(--text-secondary)]"
-                    )}
-                  >
-                    {i + 1}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium">{candidate.title}</p>
-                    <p className="text-xs text-[var(--text-secondary)]">
-                      {candidate.source} · VPH {candidate.vph.toLocaleString()} · {Math.round(candidate.hours_old)}h old
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <div className="text-right">
-                      <p
-                        className={cn(
-                          "text-sm font-bold",
-                          candidate.confidence >= 70
-                            ? "text-green-500"
-                            : candidate.confidence >= 50
-                            ? "text-[var(--amber)]"
-                            : "text-[var(--text-secondary)]"
-                        )}
-                      >
-                        {Math.round(candidate.confidence)}%
-                      </p>
-                      <p className="text-xs text-[var(--text-secondary)]">confidence</p>
-                    </div>
-                    <ChevronDown
-                      size={16}
-                      className={cn(
-                        "text-[var(--text-secondary)] transition-transform",
-                        expandedCandidate === candidate.id && "rotate-180"
-                      )}
-                    />
-                  </div>
-                </button>
-
-                {/* Expanded Confidence Breakdown */}
-                {expandedCandidate === candidate.id && candidate.confidence_breakdown && (
-                  <motion.div
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: "auto", opacity: 1 }}
-                    exit={{ height: 0, opacity: 0 }}
-                    className="mt-2 overflow-hidden rounded-lg bg-[var(--bg-card-hover)] p-4"
-                  >
-                    <div className="flex items-center gap-2 text-xs font-semibold text-[var(--text-secondary)] mb-3">
-                      <Info size={14} />
-                      Why this score?
-                    </div>
-
-                    <div className="space-y-3">
-                      {/* VPH Score */}
-                      <div>
-                        <div className="flex items-center justify-between text-xs mb-1">
-                          <span className="text-[var(--text-secondary)]">
-                            VPH Score (55% weight)
-                          </span>
-                          <span className="font-medium">
-                            {Math.round(candidate.confidence_breakdown.vph_score)}/100
-                          </span>
-                        </div>
-                        <div className="h-2 rounded-full bg-[var(--border)] overflow-hidden">
-                          <div
-                            className="h-full bg-[var(--amber)] rounded-full transition-all"
-                            style={{ width: `${candidate.confidence_breakdown.vph_score}%` }}
-                          />
-                        </div>
-                        <p className="text-xs text-[var(--text-secondary)] mt-1">
-                          {candidate.confidence_breakdown.vph_reasoning}
-                        </p>
-                      </div>
-
-                      {/* Freshness Score */}
-                      <div>
-                        <div className="flex items-center justify-between text-xs mb-1">
-                          <span className="text-[var(--text-secondary)]">
-                            Freshness Score (45% weight)
-                          </span>
-                          <span className="font-medium">
-                            {Math.round(candidate.confidence_breakdown.freshness_score)}/100
-                          </span>
-                        </div>
-                        <div className="h-2 rounded-full bg-[var(--border)] overflow-hidden">
-                          <div
-                            className="h-full bg-green-500 rounded-full transition-all"
-                            style={{ width: `${candidate.confidence_breakdown.freshness_score}%` }}
-                          />
-                        </div>
-                        <p className="text-xs text-[var(--text-secondary)] mt-1">
-                          {candidate.confidence_breakdown.freshness_reasoning}
-                        </p>
-                      </div>
-
-                      {/* Total */}
-                      <div className="pt-2 border-t border-[var(--border)]">
-                        <div className="flex items-center justify-between text-sm">
-                          <span className="font-medium">Total Confidence</span>
-                          <span className={cn(
-                            "font-bold",
-                            candidate.confidence >= 70
-                              ? "text-green-500"
-                              : candidate.confidence >= 50
-                              ? "text-[var(--amber)]"
-                              : "text-[var(--text-secondary)]"
-                          )}>
-                            {Math.round(candidate.confidence_breakdown.total_score)}%
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Actions */}
-                    <div className="flex items-center gap-2 mt-4 pt-3 border-t border-[var(--border)]">
-                      {candidate.url && (
-                        <a
-                          href={candidate.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex items-center gap-1 rounded-md px-3 py-1.5 text-xs font-medium bg-[var(--border)] hover:bg-[var(--border)]/80 transition-colors"
-                        >
-                          <ExternalLink size={12} />
-                          Watch Video
-                        </a>
-                      )}
-                      <button
-                        onClick={() => handleLaunch(candidate.id)}
-                        disabled={launchingId === candidate.id}
-                        className={cn(
-                          "flex items-center gap-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
-                          "bg-[var(--amber)] text-black hover:opacity-90",
-                          launchingId === candidate.id && "opacity-50 cursor-not-allowed"
-                        )}
-                      >
-                        <Zap size={12} />
-                        {launchingId === candidate.id ? "Launching..." : "Launch This"}
-                      </button>
-                    </div>
-                  </motion.div>
-                )}
-              </div>
+      {/* Topic Discovery — Playing Cards */}
+      {data?.candidates && data.candidates.length > 0 && (
+        <div>
+          <h2 className="text-sm font-semibold uppercase tracking-wider mb-4"
+              style={{ color: "var(--text-muted)" }}>
+            Topic Discovery
+            {nicheConfig?.sub_niche && (
+              <span style={{ color: "var(--text-secondary)" }}> · {nicheConfig.sub_niche}</span>
+            )}
+          </h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {data.candidates.map((candidate: CompetitorCandidate) => (
+              <PlayingCard
+                key={candidate.id}
+                candidate={candidate}
+                onModel={setSelectedCandidate}
+              />
             ))}
           </div>
-        )}
+        </div>
+      )}
 
-        {candidates.length > 0 && candidates[0].confidence >= (thresholds.min_confidence_score || 60) && (
-          <button
-            onClick={() => handleLaunch(candidates[0].id)}
-            disabled={launchingId === candidates[0].id}
-            className={cn(
-              "mt-4 flex w-full items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-medium transition-opacity",
-              "bg-[var(--amber)] text-black hover:opacity-90",
-              launchingId === candidates[0].id && "opacity-50 cursor-not-allowed"
-            )}
-          >
-            <Zap size={16} />
-            {launchingId === candidates[0].id ? "Launching..." : "Launch Top Candidate Now"}
-          </button>
+      {/* Expanded card modal */}
+      <AnimatePresence>
+        {selectedCandidate && (
+          <CardExpanded
+            candidate={selectedCandidate}
+            onClose={() => setSelectedCandidate(null)}
+            onProduce={async (candidate, thumbnailVersion) => {
+              try {
+                await launchCandidate(candidate.id);
+                setSelectedCandidate(null);
+                const summary = await getAutopilotSummary();
+                setData(summary);
+              } catch (err) {
+                console.error("Failed to launch:", err);
+              }
+            }}
+          />
         )}
-      </div>
+      </AnimatePresence>
 
       {/* Configuration */}
       <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-5">
@@ -631,6 +480,19 @@ export default function AutopilotPage() {
           </div>
         </div>
       </div>
+
+      {/* Niche Settings */}
+      {nicheConfig && nicheConfig.niche_category && (
+        <div className="rounded-xl p-4" style={{ background: "var(--bg-card)", border: "1px solid var(--border)" }}>
+          <h2 className="text-sm font-semibold uppercase tracking-wider mb-3" style={{ color: "var(--text-muted)" }}>
+            Niche Settings
+          </h2>
+          <div className="space-y-1 text-sm" style={{ color: "var(--text-secondary)" }}>
+            <p>Category: <span style={{ color: "var(--text-primary)" }}>{nicheConfig.niche_category}</span></p>
+            <p>Sub-niche: <span style={{ color: "var(--text-primary)" }}>{nicheConfig.sub_niche}</span></p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
