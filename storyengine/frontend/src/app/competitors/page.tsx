@@ -1,11 +1,12 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   getAutopilotSummary,
   getNicheConfig,
   getNicheChannels,
+  addNicheChannel,
   launchCandidate,
   CompetitorCandidate,
 } from "@/lib/api";
@@ -13,12 +14,16 @@ import { NicheSetup } from "@/components/autopilot/niche-setup";
 import { PlayingCard } from "@/components/autopilot/playing-card";
 import { CardExpanded } from "@/components/autopilot/card-expanded";
 import { AnimatePresence } from "framer-motion";
-import { Filter } from "lucide-react";
+import { Filter, Plus, Loader2 } from "lucide-react";
 
 export default function CompetitorsPage() {
+  const queryClient = useQueryClient();
   const [selectedCandidate, setSelectedCandidate] = useState<CompetitorCandidate | null>(null);
   const [nicheConfigured, setNicheConfigured] = useState(true);
   const [channelFilter, setChannelFilter] = useState("all");
+  const [channelUrl, setChannelUrl] = useState("");
+  const [addingChannel, setAddingChannel] = useState(false);
+  const [addError, setAddError] = useState("");
 
   const { data: nicheConfig } = useQuery({
     queryKey: ["niche-config"],
@@ -49,6 +54,28 @@ export default function CompetitorsPage() {
     const names = new Set(autopilotData.candidates.map((c) => c.source));
     return Array.from(names).sort();
   }, [autopilotData]);
+
+  const handleAddChannel = async () => {
+    const url = channelUrl.trim();
+    if (!url) return;
+    setAddError("");
+    setAddingChannel(true);
+    try {
+      // Extract channel name from URL: @Handle or /c/Name or /channel/ID
+      const match = url.match(/@([^/?]+)/)?.[1]
+        || url.match(/\/c\/([^/?]+)/)?.[1]
+        || url.match(/\/channel\/([^/?]+)/)?.[1];
+      const name = match || new URL(url).pathname.split("/").filter(Boolean).pop() || "Unknown";
+      await addNicheChannel(name, url);
+      setChannelUrl("");
+      queryClient.invalidateQueries({ queryKey: ["niche-channels"] });
+      queryClient.invalidateQueries({ queryKey: ["autopilot-summary"] });
+    } catch (err: any) {
+      setAddError(err.message || "Failed to add channel");
+    } finally {
+      setAddingChannel(false);
+    }
+  };
 
   // Filter candidates by channel
   const filteredCandidates = useMemo(() => {
@@ -88,6 +115,38 @@ export default function CompetitorsPage() {
             </p>
           )}
         </div>
+      </div>
+
+      {/* Add channel bar */}
+      <div className="flex items-center gap-2">
+        <input
+          type="text"
+          value={channelUrl}
+          onChange={(e) => { setChannelUrl(e.target.value); setAddError(""); }}
+          onKeyDown={(e) => e.key === "Enter" && handleAddChannel()}
+          placeholder="Paste YouTube channel URL (e.g. youtube.com/@ChannelName)"
+          className="flex-1 rounded-lg px-4 py-2.5 text-sm outline-none placeholder:opacity-40"
+          style={{
+            background: "var(--bg-card)",
+            border: `1px solid ${addError ? "var(--red, #ef4444)" : "var(--border)"}`,
+            color: "var(--text-primary)",
+          }}
+        />
+        <button
+          onClick={handleAddChannel}
+          disabled={addingChannel || !channelUrl.trim()}
+          className="flex items-center gap-1.5 rounded-lg px-4 py-2.5 text-sm font-medium transition-opacity disabled:opacity-40"
+          style={{
+            background: "var(--amber)",
+            color: "var(--bg-primary)",
+          }}
+        >
+          {addingChannel ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
+          Add
+        </button>
+        {addError && (
+          <span className="text-xs" style={{ color: "var(--red, #ef4444)" }}>{addError}</span>
+        )}
       </div>
 
       {/* Filter bar */}

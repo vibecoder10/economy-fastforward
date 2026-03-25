@@ -72,3 +72,4 @@ storyengine/config/.env.local
 
 # Pipeline runtime artifacts
 skills/video-pipeline/timing/
+.superpowers/
