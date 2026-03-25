@@ -204,6 +204,55 @@ export const removeNicheChannel = (channelId: string) =>
     method: "DELETE",
   });
 
+// Scene Editing
+export const updateSceneText = (videoId: string, scene: number, text: string) =>
+  fetchApi<{ status: string }>(`/api/videos/${videoId}/scenes/${scene}/text`, {
+    method: "PATCH",
+    body: JSON.stringify({ text }),
+  });
+
+export const updateSceneTone = (videoId: string, scene: number, tone: string) =>
+  fetchApi<{ status: string }>(`/api/videos/${videoId}/scenes/${scene}/tone`, {
+    method: "PATCH",
+    body: JSON.stringify({ tone }),
+  });
+
+export const getSceneSegments = (videoId: string, scene: number) =>
+  fetchApi<SegmentResponse>(`/api/videos/${videoId}/scenes/${scene}/segments`);
+
+export const updateSceneSegments = (
+  videoId: string, scene: number,
+  segments: { image_index: number; sentence_text: string }[]
+) =>
+  fetchApi<{ status: string }>(`/api/videos/${videoId}/scenes/${scene}/segments`, {
+    method: "PUT",
+    body: JSON.stringify({ segments }),
+  });
+
+export const updateStoryboardMode = (videoId: string, enabled: boolean) =>
+  fetchApi<{ status: string }>(`/api/videos/${videoId}/storyboard-mode`, {
+    method: "PATCH",
+    body: JSON.stringify({ enabled }),
+  });
+
+// Targeted regeneration (single scene/image, bypasses status gate)
+export const runVoiceForScene = (videoId: string, scene: number) =>
+  fetchApi<PipelineResponse>(`/api/pipeline/voice/${videoId}?scene=${scene}`, {
+    method: "POST",
+  });
+
+export const runImageForSegment = (videoId: string, scene: number, index: number) =>
+  fetchApi<PipelineResponse>(
+    `/api/pipeline/images/${videoId}?scene=${scene}&index=${index}`,
+    { method: "POST" }
+  );
+
+export const runImageVariants = (videoId: string, scene: number, index: number, count = 3) =>
+  fetchApi<PipelineResponse>(
+    `/api/pipeline/images/${videoId}?scene=${scene}&index=${index}&variants=${count}`,
+    { method: "POST" }
+  );
+
 // Types
 export interface DashboardSummary {
   active_bots: number;
@@ -320,6 +369,7 @@ export interface ScriptScene {
   storyboard_prompts: string | null;
   storyboard_beat_count: number | null;
   storyboard_status: string | null;
+  tone: string | null; // serious | conversational | urgent | concise
 }
 
 export interface ActivityEntry {
@@ -504,4 +554,19 @@ export interface ThumbnailVersion {
   prompt: string;
   image_url: string | null;
   created_at: string;
+}
+
+export interface Segment {
+  id: string;
+  image_index: number;
+  sentence_text: string;
+  shot_type: string | null;
+  status: string | null;
+  word_count: number;
+  duration_seconds: number;
+}
+
+export interface SegmentResponse {
+  scene: number;
+  segments: Segment[];
 }
