@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Play, Pause, SkipBack, SkipForward, Shuffle, Volume2, Check, Loader2 } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { StatusPill } from "@/components/ui/StatusPill";
@@ -9,7 +9,7 @@ import { SegmentBadge } from "@/components/ui/SegmentBadge";
 import { MiniWaveform } from "@/components/ui/MiniWaveform";
 import { ProgressRing } from "@/components/ui/ProgressRing";
 import { ActionButton } from "@/components/ui/ActionButton";
-import { getVideoScript, getVideoAssets } from "@/lib/api";
+import { getVideoScript, getVideoAssets, approveAsset, runImageVariants, runImageForSegment } from "@/lib/api";
 import type { ScriptScene as ApiScriptScene, Asset } from "@/lib/api";
 import type { Video, VoiceSegment } from "@/lib/types";
 
@@ -35,6 +35,7 @@ interface VoiceSegmentData extends VoiceSegment {
 }
 
 export function VoiceReviewTab({ video }: VoiceReviewTabProps) {
+  const queryClient = useQueryClient();
   const { data: scriptScenes, isLoading: loadingScripts } = useQuery({
     queryKey: ["video-script", video.id],
     queryFn: () => getVideoScript(video.id),
@@ -69,6 +70,9 @@ export function VoiceReviewTab({ video }: VoiceReviewTabProps) {
   const [playbackSpeed, setPlaybackSpeed] = useState("1.0x");
   const [volume, setVolume] = useState(75);
   const [activeSegment, setActiveSegment] = useState<string | null>(null);
+  const [isApprovingScene, setIsApprovingScene] = useState(false);
+  const [isRegeneratingGrid, setIsRegeneratingGrid] = useState(false);
+  const [isRegeneratingPanel, setIsRegeneratingPanel] = useState(false);
 
   // Audio refs for per-segment playback
   const audioRefs = useRef<Record<string, HTMLAudioElement>>({});
@@ -96,6 +100,59 @@ export function VoiceReviewTab({ video }: VoiceReviewTabProps) {
       prev.map((s) => (s.id === segmentId ? { ...s, approved: true } : s))
     );
   };
+
+  const handleApproveScene = useCallback(async () => {
+    if (!activeSegment && segments.length === 0) return;
+    // Approve the currently active segment, or the first unapproved one
+    const target = activeSegment
+      ? segments.find((s) => s.id === activeSegment)
+      : segments.find((s) => !s.approved);
+    if (!target) return;
+
+    setIsApprovingScene(true);
+    try {
+      // Approve all panels for this segment
+      for (const panel of target.panels) {
+        if (panel.id) {
+          await approveAsset(panel.id);
+        }
+      }
+      approveSegment(target.id);
+      queryClient.invalidateQueries({ queryKey: ["video-assets", video.id] });
+    } finally {
+      setIsApprovingScene(false);
+    }
+  }, [activeSegment, segments, video.id, queryClient]);
+
+  const handleRegenerateGrid = useCallback(async () => {
+    const target = activeSegment
+      ? segments.find((s) => s.id === activeSegment)
+      : segments.find((s) => !s.approved);
+    if (!target) return;
+
+    setIsRegeneratingGrid(true);
+    try {
+      await runImageVariants(video.id, target.sceneNumber, 1, 9);
+      queryClient.invalidateQueries({ queryKey: ["video-assets", video.id] });
+    } finally {
+      setIsRegeneratingGrid(false);
+    }
+  }, [activeSegment, segments, video.id, queryClient]);
+
+  const handleRegeneratePanel = useCallback(async () => {
+    const target = activeSegment
+      ? segments.find((s) => s.id === activeSegment)
+      : segments.find((s) => !s.approved);
+    if (!target || target.selectedPanel === undefined) return;
+
+    setIsRegeneratingPanel(true);
+    try {
+      await runImageForSegment(video.id, target.sceneNumber, target.selectedPanel + 1);
+      queryClient.invalidateQueries({ queryKey: ["video-assets", video.id] });
+    } finally {
+      setIsRegeneratingPanel(false);
+    }
+  }, [activeSegment, segments, video.id, queryClient]);
 
   // Play/pause a specific segment's voice-over
   const toggleSegmentPlay = useCallback(
@@ -408,13 +465,39 @@ export function VoiceReviewTab({ video }: VoiceReviewTabProps) {
           </GlassCard>
 
           <div className="space-y-2">
-            <ActionButton variant="filled" className="w-full">Approve Scene</ActionButton>
-            <ActionButton variant="outline" className="w-full">Regenerate Grid</ActionButton>
+            <ActionButton
+              variant="filled"
+              className="w-full"
+              onClick={handleApproveScene}
+              disabled={isApprovingScene}
+            >
+              {isApprovingScene ? "Approving..." : "Approve Scene"}
+            </ActionButton>
             <button
               className="w-full py-2.5 rounded-xl text-sm font-semibold font-body transition-all hover:brightness-110"
-              style={{ background: "transparent", color: "var(--orange)", border: "1px solid var(--orange)" }}
+              style={{
+                background: "rgba(255, 120, 73, 0.15)",
+                color: "var(--orange)",
+                border: "1px solid var(--orange)",
+                opacity: isRegeneratingGrid ? 0.5 : 1,
+              }}
+              onClick={handleRegenerateGrid}
+              disabled={isRegeneratingGrid}
             >
-              Regenerate Single Panel
+              {isRegeneratingGrid ? "Regenerating..." : "Regenerate Grid"}
+            </button>
+            <button
+              className="w-full py-2.5 rounded-xl text-sm font-semibold font-body transition-all hover:brightness-110"
+              style={{
+                background: "rgba(255, 120, 73, 0.15)",
+                color: "var(--orange)",
+                border: "1px solid var(--orange)",
+                opacity: isRegeneratingPanel ? 0.5 : 1,
+              }}
+              onClick={handleRegeneratePanel}
+              disabled={isRegeneratingPanel}
+            >
+              {isRegeneratingPanel ? "Regenerating..." : "Regenerate Single Panel"}
             </button>
           </div>
         </div>
