@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   ChevronDown, ChevronRight, Merge, Trash2, Plus, Volume2,
   Library, Wand2, Play, Pause, Layers, Mic, Pencil, Loader2,
+  CheckCircle, Clock, AlertCircle,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { getVideoScript } from "@/lib/api";
@@ -13,7 +14,6 @@ import { GlassCard } from "@/components/ui/GlassCard";
 import { SegmentBadge } from "@/components/ui/SegmentBadge";
 import { ActionButton } from "@/components/ui/ActionButton";
 import { MiniWaveform } from "@/components/ui/MiniWaveform";
-import { StatusPill } from "@/components/ui/StatusPill";
 
 interface ScriptTabProps {
   video: any;
@@ -90,8 +90,57 @@ function initFromApi(apiScenes: ApiScriptScene[]): SceneState[] {
   }));
 }
 
+function VoiceStatusBadge({ status }: { status: string | null | undefined }) {
+  if (!status) return null;
+  const lower = status.toLowerCase();
+  if (lower === "finished" || lower === "done") {
+    return (
+      <span className="flex items-center gap-1 text-[9px] font-medium px-1.5 py-0.5 rounded-full"
+        style={{ background: "rgba(0, 230, 138, 0.12)", color: "var(--green)" }}>
+        <CheckCircle size={8} /> Voice Done
+      </span>
+    );
+  }
+  if (lower === "create" || lower === "pending") {
+    return (
+      <span className="flex items-center gap-1 text-[9px] font-medium px-1.5 py-0.5 rounded-full"
+        style={{ background: "rgba(255, 186, 8, 0.12)", color: "var(--gold)" }}>
+        <Clock size={8} /> Voice Pending
+      </span>
+    );
+  }
+  return (
+    <span className="flex items-center gap-1 text-[9px] font-medium px-1.5 py-0.5 rounded-full"
+      style={{ background: "rgba(255,255,255,0.06)", color: "var(--text-tertiary)" }}>
+      {status}
+    </span>
+  );
+}
+
+function ScriptStatusBadge({ status }: { status: string | null | undefined }) {
+  if (!status) return null;
+  const lower = status.toLowerCase();
+  if (lower === "finished" || lower === "done") {
+    return (
+      <span className="flex items-center gap-1 text-[9px] font-medium px-1.5 py-0.5 rounded-full"
+        style={{ background: "rgba(0, 188, 212, 0.12)", color: "var(--turquoise)" }}>
+        <CheckCircle size={8} /> Script Done
+      </span>
+    );
+  }
+  if (lower === "create" || lower === "pending") {
+    return (
+      <span className="flex items-center gap-1 text-[9px] font-medium px-1.5 py-0.5 rounded-full"
+        style={{ background: "rgba(255, 120, 73, 0.12)", color: "var(--orange)" }}>
+        <AlertCircle size={8} /> Script Pending
+      </span>
+    );
+  }
+  return null;
+}
+
 export function ScriptTab({ video }: ScriptTabProps) {
-  const { data: apiScenes, isLoading } = useQuery({
+  const { data: apiScenes, isLoading, error } = useQuery({
     queryKey: ["video-script", video.id],
     queryFn: () => getVideoScript(video.id),
     enabled: !!video.id,
@@ -141,6 +190,31 @@ export function ScriptTab({ video }: ScriptTabProps) {
         <Loader2 size={24} className="animate-spin" style={{ color: "var(--orange)" }} />
         <span className="ml-3 text-sm" style={{ color: "var(--text-secondary)" }}>Loading script...</span>
       </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <GlassCard className="p-8 text-center">
+        <AlertCircle size={24} className="mx-auto mb-3" style={{ color: "var(--red)" }} />
+        <p className="text-sm" style={{ color: "var(--red)" }}>
+          Failed to load script: {(error as Error).message}
+        </p>
+      </GlassCard>
+    );
+  }
+
+  if (!apiScenes || apiScenes.length === 0) {
+    return (
+      <GlassCard className="p-8 text-center">
+        <Pencil size={24} className="mx-auto mb-3" style={{ color: "var(--text-tertiary)" }} />
+        <p className="text-sm font-medium mb-1" style={{ color: "var(--text-secondary)" }}>
+          Script not generated yet
+        </p>
+        <p className="text-xs" style={{ color: "var(--text-tertiary)" }}>
+          The script will appear here once the scripting step completes.
+        </p>
+      </GlassCard>
     );
   }
 
@@ -366,15 +440,33 @@ export function ScriptTab({ video }: ScriptTabProps) {
                         <div className="flex items-center gap-2 mb-2">
                           <SegmentBadge label={`S-${String(scene.sceneNumber).padStart(2, "0")}`} color={scene.imageGenerated ? undefined : "var(--orange)"} />
                           <button
-                            onClick={() => setPlayingScene(playingScene === scene.sceneNumber ? null : scene.sceneNumber)}
-                            className="w-6 h-6 rounded-full flex items-center justify-center shrink-0"
-                            style={{ background: "var(--green)", color: "var(--bg-void)" }}
+                            onClick={() => scene.voiceOverUrl && setPlayingScene(playingScene === scene.sceneNumber ? null : scene.sceneNumber)}
+                            className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 transition-opacity"
+                            style={{
+                              background: scene.voiceOverUrl ? "var(--green)" : "var(--bg-surface)",
+                              color: scene.voiceOverUrl ? "var(--bg-void)" : "var(--text-tertiary)",
+                              opacity: scene.voiceOverUrl ? 1 : 0.4,
+                              cursor: scene.voiceOverUrl ? "pointer" : "default",
+                            }}
+                            title={scene.voiceOverUrl ? "Play voice-over" : "No voice-over available"}
                           >
                             {playingScene === scene.sceneNumber ? <Pause size={10} /> : <Play size={10} className="ml-0.5" />}
                           </button>
                           <MiniWaveform color="var(--green)" width={60} height={16} bars={15} />
 
+                          {/* Status badges */}
+                          <VoiceStatusBadge status={scene.voiceStatus} />
+                          <ScriptStatusBadge status={scene.scriptStatus} />
+
                           <div className="flex-1" />
+
+                          {/* Tone badge */}
+                          {scene.tone && (
+                            <span className="text-[9px] font-mono px-1.5 py-0.5 rounded"
+                              style={{ background: "rgba(255,255,255,0.06)", color: "var(--text-tertiary)" }}>
+                              {scene.tone}
+                            </span>
+                          )}
 
                           {/* Expand/collapse toggle */}
                           <button
