@@ -458,6 +458,23 @@ CREATE TABLE autopilot_config (
 );
 
 -- =============================================
+-- CHANNEL PROFILES (per-tenant settings)
+-- =============================================
+
+CREATE TABLE channel_profiles (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE UNIQUE NOT NULL,
+
+  channel_name TEXT DEFAULT '',
+  niche TEXT DEFAULT '',
+  target_audience TEXT DEFAULT '',
+  frameworks JSONB DEFAULT '[]'::jsonb,
+
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- =============================================
 -- PIPELINE TRACKING (StoryEngine internal)
 -- =============================================
 
@@ -507,6 +524,7 @@ CREATE INDEX idx_title_insights_tenant ON title_insights(tenant_id);
 CREATE INDEX idx_title_tests_tenant ON title_tests(tenant_id);
 CREATE INDEX idx_bot_activity_tenant ON bot_activity(tenant_id, created_at DESC);
 CREATE INDEX idx_stage_transitions_video ON stage_transitions(video_id);
+CREATE INDEX idx_channel_profiles_tenant ON channel_profiles(tenant_id);
 
 -- =============================================
 -- ROW LEVEL SECURITY
@@ -523,6 +541,7 @@ ALTER TABLE title_tests ENABLE ROW LEVEL SECURITY;
 ALTER TABLE stage_transitions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE bot_activity ENABLE ROW LEVEL SECURITY;
 ALTER TABLE autopilot_config ENABLE ROW LEVEL SECURITY;
+ALTER TABLE channel_profiles ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "Tenant isolation" ON videos FOR ALL TO authenticated
   USING (tenant_id IN (SELECT m.tenant_id FROM memberships m WHERE m.user_id = (SELECT auth.uid())));
@@ -545,6 +564,8 @@ CREATE POLICY "Tenant isolation" ON stage_transitions FOR ALL TO authenticated
 CREATE POLICY "Tenant isolation" ON bot_activity FOR ALL TO authenticated
   USING (tenant_id IN (SELECT m.tenant_id FROM memberships m WHERE m.user_id = (SELECT auth.uid())));
 CREATE POLICY "Tenant isolation" ON autopilot_config FOR ALL TO authenticated
+  USING (tenant_id IN (SELECT m.tenant_id FROM memberships m WHERE m.user_id = (SELECT auth.uid())));
+CREATE POLICY "Tenant isolation" ON channel_profiles FOR ALL TO authenticated
   USING (tenant_id IN (SELECT m.tenant_id FROM memberships m WHERE m.user_id = (SELECT auth.uid())));
 
 -- =============================================
