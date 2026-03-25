@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { Play, Pause, Check, Loader2, Pencil, Image as ImageIcon } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
@@ -9,7 +10,8 @@ import { StatusPill } from "@/components/ui/StatusPill";
 import { MiniWaveform } from "@/components/ui/MiniWaveform";
 import { ProgressRing } from "@/components/ui/ProgressRing";
 import { FilterSelect } from "@/components/ui/FilterSelect";
-import { MOCK_SCENE_VISUALS } from "@/lib/mock-data";
+import { getVideoScript, getVideoAssets } from "@/lib/api";
+import type { ScriptScene as ApiScriptScene, Asset } from "@/lib/api";
 import type { Video, SceneVisualGroup } from "@/lib/types";
 
 interface VisualsTabProps {
@@ -23,12 +25,66 @@ const STATUS_ICON: Record<string, { icon: React.ReactNode; color: string; label:
 };
 
 export function VisualsTab({ video }: VisualsTabProps) {
-  const [scenes, setScenes] = useState<SceneVisualGroup[]>(MOCK_SCENE_VISUALS);
+  const { data: scriptScenes, isLoading: loadingScripts } = useQuery({
+    queryKey: ["video-script", video.id],
+    queryFn: () => getVideoScript(video.id),
+  });
+  const { data: assets, isLoading: loadingAssets } = useQuery({
+    queryKey: ["video-assets", video.id],
+    queryFn: () => getVideoAssets(video.id),
+  });
+
+  const computedScenes = useMemo<SceneVisualGroup[]>(() => {
+    if (!scriptScenes || !assets) return [];
+    const totalScenes = scriptScenes.length;
+    return scriptScenes.map((scene) => ({
+      sceneNumber: scene.scene || 0,
+      actNumber: Math.ceil((scene.scene || 1) / Math.ceil(totalScenes / 6)),
+      narrationText: scene.scene_text || "",
+      visualStyle: "dossier",
+      composition: "wide",
+      duration: `${Math.round((scene.scene_text || "").split(/\s+/).length / 2.5)}s`,
+      segments: assets
+        .filter((a) => a.scene === scene.scene)
+        .sort((a, b) => (a.image_index || 0) - (b.image_index || 0))
+        .map((asset) => ({
+          id: asset.id,
+          segmentId: `S-${String(asset.image_index || 0).padStart(2, "0")}`,
+          sentenceText: asset.sentence_text || "",
+          imagePrompt: asset.image_prompt || "",
+          imageUrl: asset.image_url || undefined,
+          status: (asset.status === "approved" || asset.status === "Done" || asset.image_url)
+            ? ("done" as const)
+            : ("pending" as const),
+        })),
+      storyboardPanels: [scene.storyboard_1_url, scene.storyboard_2_url, scene.storyboard_3_url]
+        .filter(Boolean)
+        .map((url, i) => ({ id: `sb-${scene.scene}-${i}`, imageUrl: url as string })),
+      storyboardApproved: false,
+      selectedStoryboardPanel: undefined,
+    }));
+  }, [scriptScenes, assets]);
+
+  const [scenes, setScenes] = useState<SceneVisualGroup[]>([]);
   const [storyboardOn, setStoryboardOn] = useState(false);
   const [model, setModel] = useState("nano-banana-2");
   const [styleProfile, setStyleProfile] = useState("holographic-hud");
   const [playingScene, setPlayingScene] = useState<number | null>(null);
   const [editingPrompt, setEditingPrompt] = useState<string | null>(null);
+
+  // Sync computed scenes into local state (for edits)
+  useEffect(() => {
+    if (computedScenes.length > 0 && scenes.length === 0) {
+      setScenes(computedScenes);
+    }
+  }, [computedScenes, scenes.length]);
+
+  // Initialize storyboardOn from first scene
+  useEffect(() => {
+    if (scriptScenes && scriptScenes.length > 0) {
+      setStoryboardOn(scriptScenes[0].storyboard_on_off === "On");
+    }
+  }, [scriptScenes]);
 
   const totalSegments = scenes.reduce((sum, s) => sum + s.segments.length, 0);
   const doneSegments = scenes.reduce((sum, s) => sum + s.segments.filter((seg) => seg.status === "done").length, 0);
@@ -81,6 +137,15 @@ export function VisualsTab({ video }: VisualsTabProps) {
     acc[scene.actNumber].push(scene);
     return acc;
   }, {} as Record<number, SceneVisualGroup[]>);
+
+  if (loadingScripts || loadingAssets) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Loader2 size={24} className="animate-spin" style={{ color: "var(--purple)" }} />
+        <span className="ml-3 text-sm" style={{ color: "var(--text-secondary)" }}>Loading visuals...</span>
+      </div>
+    );
+  }
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[1fr_260px] gap-6">
@@ -222,14 +287,18 @@ export function VisualsTab({ video }: VisualsTabProps) {
                                 className="w-20 h-14 rounded-lg relative flex items-center justify-center overflow-hidden"
                                 style={{ background: "var(--bg-elevated)", border: "1px solid var(--border-subtle)" }}
                               >
-                                <svg className="absolute inset-0 w-full h-full opacity-15">
-                                  <defs>
-                                    <pattern id={`vg-${seg.id}`} width="12" height="12" patternUnits="userSpaceOnUse">
-                                      <path d="M 12 0 L 0 0 0 12" fill="none" stroke="var(--purple)" strokeWidth="0.3" />
-                                    </pattern>
-                                  </defs>
-                                  <rect width="100%" height="100%" fill={`url(#vg-${seg.id})`} />
-                                </svg>
+                                {seg.imageUrl ? (
+                                  <img src={seg.imageUrl} alt={seg.segmentId} className="absolute inset-0 w-full h-full object-cover" />
+                                ) : (
+                                  <svg className="absolute inset-0 w-full h-full opacity-15">
+                                    <defs>
+                                      <pattern id={`vg-${seg.id}`} width="12" height="12" patternUnits="userSpaceOnUse">
+                                        <path d="M 12 0 L 0 0 0 12" fill="none" stroke="var(--purple)" strokeWidth="0.3" />
+                                      </pattern>
+                                    </defs>
+                                    <rect width="100%" height="100%" fill={`url(#vg-${seg.id})`} />
+                                  </svg>
+                                )}
                                 {seg.status === "done" && (
                                   <div className="absolute top-1 right-1 w-4 h-4 rounded-full flex items-center justify-center" style={{ background: "var(--green)" }}>
                                     <Check size={8} style={{ color: "var(--bg-void)" }} />
@@ -251,7 +320,7 @@ export function VisualsTab({ video }: VisualsTabProps) {
                   </div>
 
                   {/* Storyboard section (conditional) */}
-                  {storyboardOn && scene.storyboardPanels && (
+                  {storyboardOn && scene.storyboardPanels && scene.storyboardPanels.length > 0 && (
                     <motion.div
                       initial={{ opacity: 0, height: 0 }}
                       animate={{ opacity: 1, height: "auto" }}
@@ -299,14 +368,18 @@ export function VisualsTab({ video }: VisualsTabProps) {
                                 opacity: scene.storyboardApproved && !isSelected ? 0.3 : 1,
                               }}
                             >
-                              <svg className="absolute inset-0 w-full h-full opacity-15">
-                                <defs>
-                                  <pattern id={`sb-${panel.id}`} width="10" height="10" patternUnits="userSpaceOnUse">
-                                    <path d="M 10 0 L 0 0 0 10" fill="none" stroke="var(--turquoise)" strokeWidth="0.3" />
-                                  </pattern>
-                                </defs>
-                                <rect width="100%" height="100%" fill={`url(#sb-${panel.id})`} />
-                              </svg>
+                              {panel.imageUrl ? (
+                                <img src={panel.imageUrl} alt={`Storyboard ${panelIdx + 1}`} className="absolute inset-0 w-full h-full object-cover" />
+                              ) : (
+                                <svg className="absolute inset-0 w-full h-full opacity-15">
+                                  <defs>
+                                    <pattern id={`sb-${panel.id}`} width="10" height="10" patternUnits="userSpaceOnUse">
+                                      <path d="M 10 0 L 0 0 0 10" fill="none" stroke="var(--turquoise)" strokeWidth="0.3" />
+                                    </pattern>
+                                  </defs>
+                                  <rect width="100%" height="100%" fill={`url(#sb-${panel.id})`} />
+                                </svg>
+                              )}
                               {isApproved && (
                                 <div className="absolute inset-0 flex items-center justify-center bg-black/30">
                                   <div className="w-6 h-6 rounded-full flex items-center justify-center" style={{ background: "var(--turquoise)" }}>
@@ -351,7 +424,7 @@ export function VisualsTab({ video }: VisualsTabProps) {
             Generation Stats
           </h3>
           <div className="flex justify-center mb-4">
-            <ProgressRing value={(doneSegments / totalSegments) * 100} size={90} color="var(--purple)" strokeWidth={7}>
+            <ProgressRing value={totalSegments > 0 ? (doneSegments / totalSegments) * 100 : 0} size={90} color="var(--purple)" strokeWidth={7}>
               <span className="text-lg font-bold" style={{ color: "var(--text-primary)" }}>{doneSegments}</span>
               <span className="text-[8px] uppercase" style={{ color: "var(--text-secondary)" }}>/ {totalSegments}</span>
             </ProgressRing>

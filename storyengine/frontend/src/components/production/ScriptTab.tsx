@@ -1,20 +1,22 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   ChevronDown, ChevronRight, Merge, Trash2, Plus, Volume2,
-  Library, Wand2, Play, Pause, Layers, Mic, Pencil,
+  Library, Wand2, Play, Pause, Layers, Mic, Pencil, Loader2,
 } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { getVideoScript } from "@/lib/api";
+import type { ScriptScene as ApiScriptScene } from "@/lib/api";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { SegmentBadge } from "@/components/ui/SegmentBadge";
 import { ActionButton } from "@/components/ui/ActionButton";
 import { MiniWaveform } from "@/components/ui/MiniWaveform";
-import { MOCK_SCRIPT_SCENES } from "@/lib/mock-data";
-import type { Video, ScriptScene } from "@/lib/types";
+import { StatusPill } from "@/components/ui/StatusPill";
 
 interface ScriptTabProps {
-  video: Video;
+  video: any;
 }
 
 // SFX library presets
@@ -49,16 +51,39 @@ interface SentenceState {
   sfxCustomPrompt: string;
 }
 
-interface SceneState extends ScriptScene {
+interface SceneState {
+  sceneNumber: number;
+  actNumber: number;
+  narrationText: string;
+  visualStyle: string;
+  composition: string;
+  sources?: string[];
+  imageGenerated?: boolean;
+  voiceOverUrl?: string | null;
+  voiceStatus?: string | null;
+  scriptStatus?: string | null;
+  tone?: string | null;
   sentences: SentenceState[];
 }
 
-function initScenes(scenes: ScriptScene[]): SceneState[] {
-  return scenes.map((s) => ({
-    ...s,
-    sentences: splitSentences(s.narrationText).map((text) => ({
+function initFromApi(apiScenes: ApiScriptScene[]): SceneState[] {
+  const total = apiScenes.length;
+  const actsCount = Math.min(total, 6);
+  return apiScenes.map((s) => ({
+    sceneNumber: s.scene || 0,
+    actNumber: Math.ceil((s.scene || 1) / Math.ceil(total / actsCount)),
+    narrationText: s.scene_text || "",
+    visualStyle: "dossier",
+    composition: "wide",
+    sources: s.sources ? (() => { try { return JSON.parse(s.sources!); } catch { return []; } })() : [],
+    imageGenerated: false,
+    voiceOverUrl: s.voice_over_url,
+    voiceStatus: s.voice_status,
+    scriptStatus: s.script_status,
+    tone: s.tone,
+    sentences: splitSentences(s.scene_text || "").map((text) => ({
       text,
-      sfxMode: "none",
+      sfxMode: "none" as const,
       sfxLibraryValue: "",
       sfxCustomPrompt: "",
     })),
@@ -66,10 +91,42 @@ function initScenes(scenes: ScriptScene[]): SceneState[] {
 }
 
 export function ScriptTab({ video }: ScriptTabProps) {
-  const [scenes, setScenes] = useState<SceneState[]>(() => initScenes(MOCK_SCRIPT_SCENES));
+  const { data: apiScenes, isLoading } = useQuery({
+    queryKey: ["video-script", video.id],
+    queryFn: () => getVideoScript(video.id),
+    enabled: !!video.id,
+  });
+
+  const computed = useMemo(() => apiScenes ? initFromApi(apiScenes) : [], [apiScenes]);
+
+  const [scenes, setScenes] = useState<SceneState[]>([]);
   const [collapsedActs, setCollapsedActs] = useState<Record<number, boolean>>({});
   const [expandedScenes, setExpandedScenes] = useState<Set<number>>(new Set());
   const [playingScene, setPlayingScene] = useState<number | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  // Sync API data into local state (once)
+  useEffect(() => {
+    if (computed.length > 0 && scenes.length === 0) {
+      setScenes(computed);
+    }
+  }, [computed, scenes.length]);
+
+  // Audio playback
+  useEffect(() => {
+    if (playingScene !== null) {
+      const scene = scenes.find((s) => s.sceneNumber === playingScene);
+      if (scene?.voiceOverUrl) {
+        if (audioRef.current) audioRef.current.pause();
+        audioRef.current = new Audio(scene.voiceOverUrl);
+        audioRef.current.play().catch(() => {});
+        audioRef.current.onended = () => setPlayingScene(null);
+      }
+    } else {
+      if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
+    }
+    return () => { if (audioRef.current) audioRef.current.pause(); };
+  }, [playingScene, scenes]);
 
   // Group by act
   const actGroups = scenes.reduce((acc, scene) => {
@@ -77,6 +134,15 @@ export function ScriptTab({ video }: ScriptTabProps) {
     acc[scene.actNumber].push(scene);
     return acc;
   }, {} as Record<number, SceneState[]>);
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Loader2 size={24} className="animate-spin" style={{ color: "var(--orange)" }} />
+        <span className="ml-3 text-sm" style={{ color: "var(--text-secondary)" }}>Loading script...</span>
+      </div>
+    );
+  }
 
   const toggleAct = (actNum: number) => {
     setCollapsedActs((prev) => ({ ...prev, [actNum]: !prev[actNum] }));

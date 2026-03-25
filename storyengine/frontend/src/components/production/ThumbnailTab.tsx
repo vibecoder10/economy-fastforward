@@ -1,9 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { Check, RefreshCw, PenLine } from "lucide-react";
+import { Check, RefreshCw, PenLine, Loader2 } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { ActionButton } from "@/components/ui/ActionButton";
+import { runPipelineStage } from "@/lib/api";
 import type { Video } from "@/lib/types";
 
 const ACCENT_COLORS = [
@@ -13,20 +14,28 @@ const ACCENT_COLORS = [
   { name: "Muted Green", value: "#5E8C61" },
 ] as const;
 
-const MOCK_THUMBNAIL = {
-  prompt:
-    "Stern leader portrait on deep red gradient, yellow bold text overlay, editorial illustration, high saturation",
-  accentColor: "Cold Teal",
-  styleOverride: "REPLACE: Red gradient background transitioning from deep crimson top to darker red bottom.",
-  thumbnailText: "THE $3 TRILLION TRAP",
-};
-
 interface ThumbnailTabProps {
-  video: Video;
+  video: Video & {
+    thumbnail_prompt?: string | null;
+    thumbnail_style_override?: string | null;
+    accent_color?: string | null;
+  };
 }
 
 export function ThumbnailTab({ video }: ThumbnailTabProps) {
-  const [selectedAccent, setSelectedAccent] = useState(MOCK_THUMBNAIL.accentColor);
+  const currentAccent = video.accent_color || "Cold Teal";
+  const [selectedAccent, setSelectedAccent] = useState(currentAccent);
+  const [isRegenerating, setIsRegenerating] = useState(false);
+  const [prompt, setPrompt] = useState(video.thumbnail_prompt || "");
+
+  const handleRegenerate = async () => {
+    setIsRegenerating(true);
+    try {
+      await runPipelineStage(video.id, "thumbnail");
+    } finally {
+      setIsRegenerating(false);
+    }
+  };
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-6">
@@ -76,7 +85,7 @@ export function ThumbnailTab({ video }: ThumbnailTabProps) {
                     </svg>
                   </div>
                   <p className="text-xs font-mono" style={{ color: "var(--text-tertiary)" }}>
-                    Thumbnail not generated yet
+                    Not generated yet
                   </p>
                 </div>
               </>
@@ -84,7 +93,7 @@ export function ThumbnailTab({ video }: ThumbnailTabProps) {
           </div>
         </GlassCard>
 
-        {/* Prompt display */}
+        {/* Prompt display (editable) */}
         <GlassCard
           className="p-4"
           style={{ borderLeftWidth: 3, borderLeftColor: "var(--gold)" }}
@@ -95,9 +104,19 @@ export function ThumbnailTab({ video }: ThumbnailTabProps) {
           >
             Thumbnail Prompt
           </h3>
-          <p className="text-sm leading-relaxed" style={{ color: "var(--text-primary)" }}>
-            {MOCK_THUMBNAIL.prompt}
-          </p>
+          {prompt ? (
+            <textarea
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              rows={3}
+              className="w-full text-sm leading-relaxed bg-transparent outline-none resize-none"
+              style={{ color: "var(--text-primary)" }}
+            />
+          ) : (
+            <p className="text-sm italic" style={{ color: "var(--text-tertiary)" }}>
+              No prompt generated yet. Run the thumbnail stage to generate one.
+            </p>
+          )}
         </GlassCard>
       </div>
 
@@ -111,25 +130,20 @@ export function ThumbnailTab({ video }: ThumbnailTabProps) {
             Thumbnail Details
           </h3>
           <div className="space-y-3">
-            {[
-              { label: "Accent Color", value: selectedAccent },
-              { label: "Thumbnail Text", value: MOCK_THUMBNAIL.thumbnailText },
-            ].map((row) => (
-              <div key={row.label}>
-                <span
-                  className="text-[10px] font-medium uppercase tracking-wider block mb-1"
-                  style={{ color: "var(--text-tertiary)" }}
-                >
-                  {row.label}
-                </span>
-                <span
-                  className="text-sm font-mono"
-                  style={{ color: "var(--text-primary)" }}
-                >
-                  {row.value}
-                </span>
-              </div>
-            ))}
+            <div>
+              <span
+                className="text-[10px] font-medium uppercase tracking-wider block mb-1"
+                style={{ color: "var(--text-tertiary)" }}
+              >
+                Accent Color
+              </span>
+              <span
+                className="text-sm font-mono"
+                style={{ color: "var(--text-primary)" }}
+              >
+                {selectedAccent}
+              </span>
+            </div>
 
             <div>
               <span
@@ -142,7 +156,7 @@ export function ThumbnailTab({ video }: ThumbnailTabProps) {
                 className="text-[11px] font-mono leading-relaxed"
                 style={{ color: "var(--text-secondary)" }}
               >
-                {MOCK_THUMBNAIL.styleOverride}
+                {video.thumbnail_style_override || "None"}
               </p>
             </div>
           </div>
@@ -189,8 +203,14 @@ export function ThumbnailTab({ video }: ThumbnailTabProps) {
           <ActionButton variant="filled" icon={Check} className="w-full">
             Approve Thumbnail
           </ActionButton>
-          <ActionButton variant="outline" icon={RefreshCw} className="w-full">
-            Regenerate
+          <ActionButton
+            variant="outline"
+            icon={isRegenerating ? Loader2 : RefreshCw}
+            className="w-full"
+            onClick={handleRegenerate}
+            disabled={isRegenerating}
+          >
+            {isRegenerating ? "Regenerating..." : "Regenerate"}
           </ActionButton>
           <ActionButton variant="outline" icon={PenLine} className="w-full">
             Edit Text
