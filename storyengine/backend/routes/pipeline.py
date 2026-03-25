@@ -183,11 +183,13 @@ async def run_script(
 async def run_voice(
     video_id: str,
     background_tasks: BackgroundTasks,
+    scene: Optional[int] = None,
     tenant_id: str = Depends(get_tenant_id),
 ):
     """Generate voice narration for a video.
 
-    Video must be at 'ready_for_voice' status.
+    Video must be at 'ready_for_voice' status unless scene is specified
+    (targeted single-scene regen bypasses status gate).
     """
     video = await fetch_one(
         "SELECT id, status FROM videos WHERE id = $1 AND tenant_id = $2",
@@ -196,7 +198,7 @@ async def run_voice(
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
 
-    if video["status"] != "ready_for_voice":
+    if scene is None and video["status"] != "ready_for_voice":
         raise HTTPException(
             status_code=400,
             detail=f"Video not ready for voice (status: {video['status']})",
@@ -391,9 +393,16 @@ async def run_storyboard_extract(
 async def run_images(
     video_id: str,
     background_tasks: BackgroundTasks,
+    scene: Optional[int] = None,
+    index: Optional[int] = None,
+    variants: Optional[int] = None,
     tenant_id: str = Depends(get_tenant_id),
 ):
-    """Generate images for a video."""
+    """Generate images for a video.
+
+    When scene/index are specified, performs targeted single-image regen
+    and bypasses the status gate.
+    """
     video = await fetch_one(
         "SELECT id, status FROM videos WHERE id = $1 AND tenant_id = $2",
         video_id, tenant_id,
@@ -401,7 +410,7 @@ async def run_images(
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
 
-    if video["status"] != "ready_for_images":
+    if scene is None and video["status"] != "ready_for_images":
         raise HTTPException(
             status_code=400,
             detail=f"Video not ready for images (status: {video['status']})",
