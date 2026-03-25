@@ -80,7 +80,7 @@ export default function VideoDetailPage({
           </span>
         </div>
         <div className="mt-3">
-          <ProgressDots status={video.status || ""} size="md" />
+          <ProgressDots status={video.status || ""} size="lg" showLabel />
         </div>
       </div>
 

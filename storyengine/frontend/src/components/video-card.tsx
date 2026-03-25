@@ -44,16 +44,7 @@ export function VideoCard({ video }: VideoCardProps) {
       </h3>
 
       {/* Progress dots */}
-      <ProgressDots status={video.status || "idea_logged"} />
-
-      {/* Status badge: dot + label */}
-      <div className="flex items-center gap-1.5">
-        <span
-          className="inline-block h-2 w-2 flex-shrink-0 rounded-full"
-          style={{ backgroundColor: dotColor(stageColor) }}
-        />
-        <span className="text-xs text-[var(--text-muted)]">{stageLabel}</span>
-      </div>
+      <ProgressDots status={video.status || "idea_logged"} size="md" showLabel />
 
       {/* Bottom row: time ago | cost */}
       <div className="flex items-center justify-between">
