@@ -89,6 +89,19 @@ export const testApiKey = (name: string) =>
 export const revealApiKey = (name: string) =>
   fetchApi<{ value: string }>(`/api/settings/keys/${name}/reveal`);
 
+// Channel Profile
+export const getChannelProfile = () =>
+  fetchApi<ChannelProfile>("/api/channel-profile");
+
+export const updateChannelProfile = (data: ChannelProfileUpdate) =>
+  fetchApi<ChannelProfile>("/api/channel-profile", {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+
+export const getIntegrationStatuses = () =>
+  fetchApi<IntegrationStatusItem[]>("/api/channel-profile/integrations");
+
 // Pipeline - Stage Triggers
 export const createIdea = (topic: string, source?: string) =>
   fetchApi<PipelineResponse>("/api/pipeline/create-idea", {
@@ -576,4 +589,24 @@ export interface Segment {
 export interface SegmentResponse {
   scene: number;
   segments: Segment[];
+}
+
+// Channel Profile
+export interface ChannelProfile {
+  channel_name: string;
+  niche: string;
+  target_audience: string;
+  frameworks: string[];
+}
+
+export interface ChannelProfileUpdate {
+  channel_name?: string;
+  niche?: string;
+  target_audience?: string;
+  frameworks?: string[];
+}
+
+export interface IntegrationStatusItem {
+  name: string;
+  connected: boolean;
 }
