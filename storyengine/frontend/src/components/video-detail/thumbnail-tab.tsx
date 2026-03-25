@@ -2,6 +2,7 @@
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { acceptSuggestion, rejectSuggestion } from "@/lib/api";
+import { StageAdvancer } from "./stage-advancer";
 
 interface ThumbnailTabProps {
   video: any;
@@ -21,6 +22,15 @@ export function ThumbnailTab({ video }: ThumbnailTabProps) {
   });
   return (
     <div className="space-y-6">
+      <div className="flex justify-end mb-4">
+        <StageAdvancer
+          videoId={video.id}
+          stage="render"
+          label="Approve Thumbnail → Render"
+          disabled={!video.thumbnail_url}
+          disabledReason="No thumbnail generated yet"
+        />
+      </div>
       {/* Current thumbnail */}
       <div
         className="rounded-xl overflow-hidden"

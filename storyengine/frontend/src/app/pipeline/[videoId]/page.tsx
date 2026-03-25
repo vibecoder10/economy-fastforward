@@ -10,7 +10,6 @@ import { ArrowLeft } from "lucide-react";
 import { InfoTab } from "@/components/video-detail/info-tab";
 import { ScriptTab } from "@/components/video-detail/script-tab";
 import { VisualsTab } from "@/components/video-detail/visuals-tab";
-import { StoryboardTab } from "@/components/video-detail/storyboard-tab";
 import { ThumbnailTab } from "@/components/video-detail/thumbnail-tab";
 import { PerformanceTab } from "@/components/video-detail/performance-tab";
 
@@ -18,7 +17,6 @@ const TABS = [
   { id: "info", label: "Info" },
   { id: "script", label: "Script" },
   { id: "visuals", label: "Visuals" },
-  { id: "storyboard", label: "Board" },
   { id: "thumbnail", label: "Thumb" },
   { id: "performance", label: "Perf" },
 ];
@@ -111,7 +109,6 @@ export default function VideoDetailPage({
         {activeTab === "info" && <InfoTab video={video} />}
         {activeTab === "script" && <ScriptTab videoId={videoId} video={video} />}
         {activeTab === "visuals" && <VisualsTab videoId={videoId} videoStatus={video.status || ""} />}
-        {activeTab === "storyboard" && <StoryboardTab videoId={videoId} />}
         {activeTab === "thumbnail" && <ThumbnailTab video={video} />}
         {activeTab === "performance" && <PerformanceTab video={video} />}
       </div>
