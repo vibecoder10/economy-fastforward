@@ -1,12 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronDown, ChevronRight, Merge, Trash2, Plus, Volume2, Library, Wand2, Play, Pause } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import {
+  ChevronDown, ChevronRight, Merge, Trash2, Plus, Volume2,
+  Library, Wand2, Play, Pause, Layers, Mic, Pencil,
+} from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { SegmentBadge } from "@/components/ui/SegmentBadge";
 import { ActionButton } from "@/components/ui/ActionButton";
 import { MiniWaveform } from "@/components/ui/MiniWaveform";
-import { FilterSelect } from "@/components/ui/FilterSelect";
 import { MOCK_SCRIPT_SCENES } from "@/lib/mock-data";
 import type { Video, ScriptScene } from "@/lib/types";
 
@@ -29,28 +32,46 @@ const SFX_LIBRARY = [
   { value: "wind", label: "Desert Wind" },
   { value: "helicopter", label: "Helicopter Flyover" },
   { value: "news-broadcast", label: "News Broadcast Chatter" },
-  { value: "custom", label: "✦ Generate Custom..." },
 ];
 
+// Split narration into sentences
+function splitSentences(text: string): string[] {
+  return text
+    .split(/(?<=[.!?—])\s+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+interface SentenceState {
+  text: string;
+  sfxMode: "none" | "library" | "elevenlabs" | "custom";
+  sfxLibraryValue: string;
+  sfxCustomPrompt: string;
+}
+
 interface SceneState extends ScriptScene {
-  soundMode: "none" | "library" | "custom";
-  soundLibraryValue: string;
-  soundCustomPrompt: string;
+  sentences: SentenceState[];
+}
+
+function initScenes(scenes: ScriptScene[]): SceneState[] {
+  return scenes.map((s) => ({
+    ...s,
+    sentences: splitSentences(s.narrationText).map((text) => ({
+      text,
+      sfxMode: "none",
+      sfxLibraryValue: "",
+      sfxCustomPrompt: "",
+    })),
+  }));
 }
 
 export function ScriptTab({ video }: ScriptTabProps) {
-  const [scenes, setScenes] = useState<SceneState[]>(
-    MOCK_SCRIPT_SCENES.map((s) => ({
-      ...s,
-      soundMode: "none",
-      soundLibraryValue: "",
-      soundCustomPrompt: "",
-    }))
-  );
+  const [scenes, setScenes] = useState<SceneState[]>(() => initScenes(MOCK_SCRIPT_SCENES));
   const [collapsedActs, setCollapsedActs] = useState<Record<number, boolean>>({});
+  const [expandedScenes, setExpandedScenes] = useState<Set<number>>(new Set());
   const [playingScene, setPlayingScene] = useState<number | null>(null);
 
-  // Group scenes by act
+  // Group by act
   const actGroups = scenes.reduce((acc, scene) => {
     if (!acc[scene.actNumber]) acc[scene.actNumber] = [];
     acc[scene.actNumber].push(scene);
@@ -61,31 +82,142 @@ export function ScriptTab({ video }: ScriptTabProps) {
     setCollapsedActs((prev) => ({ ...prev, [actNum]: !prev[actNum] }));
   };
 
-  const updateNarration = (sceneNum: number, text: string) => {
-    setScenes((prev) => prev.map((s) => (s.sceneNumber === sceneNum ? { ...s, narrationText: text } : s)));
+  const toggleExpand = (sceneNum: number) => {
+    setExpandedScenes((prev) => {
+      const next = new Set(prev);
+      if (next.has(sceneNum)) next.delete(sceneNum);
+      else next.add(sceneNum);
+      return next;
+    });
   };
 
-  const updateSource = (sceneNum: number, srcIdx: number, text: string) => {
+  // Update unified narration text (collapsed view edit)
+  const updateNarration = (sceneNum: number, text: string) => {
     setScenes((prev) =>
       prev.map((s) => {
-        if (s.sceneNumber !== sceneNum || !s.sources) return s;
-        const newSources = [...s.sources];
-        newSources[srcIdx] = text;
-        return { ...s, sources: newSources };
+        if (s.sceneNumber !== sceneNum) return s;
+        const newSentences = splitSentences(text).map((t, i) => ({
+          ...(s.sentences[i] || { sfxMode: "none" as const, sfxLibraryValue: "", sfxCustomPrompt: "" }),
+          text: t,
+        }));
+        return { ...s, narrationText: text, sentences: newSentences };
       })
     );
   };
 
-  const updateVisualStyle = (sceneNum: number, style: string) => {
-    setScenes((prev) => prev.map((s) => (s.sceneNumber === sceneNum ? { ...s, visualStyle: style } : s)));
+  // Update individual sentence text (expanded view edit)
+  const updateSentence = (sceneNum: number, sentIdx: number, text: string) => {
+    setScenes((prev) =>
+      prev.map((s) => {
+        if (s.sceneNumber !== sceneNum) return s;
+        const newSentences = s.sentences.map((sent, i) =>
+          i === sentIdx ? { ...sent, text } : sent
+        );
+        return {
+          ...s,
+          sentences: newSentences,
+          narrationText: newSentences.map((sent) => sent.text).join(" "),
+        };
+      })
+    );
   };
 
-  const updateComposition = (sceneNum: number, comp: string) => {
-    setScenes((prev) => prev.map((s) => (s.sceneNumber === sceneNum ? { ...s, composition: comp } : s)));
+  // Merge sentence into previous
+  const mergeSentenceUp = (sceneNum: number, sentIdx: number) => {
+    if (sentIdx === 0) return;
+    setScenes((prev) =>
+      prev.map((s) => {
+        if (s.sceneNumber !== sceneNum) return s;
+        const newSentences = [...s.sentences];
+        newSentences[sentIdx - 1] = {
+          ...newSentences[sentIdx - 1],
+          text: newSentences[sentIdx - 1].text + " " + newSentences[sentIdx].text,
+        };
+        newSentences.splice(sentIdx, 1);
+        return {
+          ...s,
+          sentences: newSentences,
+          narrationText: newSentences.map((sent) => sent.text).join(" "),
+        };
+      })
+    );
   };
 
-  // Merge scene into the one above (append text, delete this scene)
-  const mergeUp = (sceneNum: number) => {
+  // Delete sentence
+  const deleteSentence = (sceneNum: number, sentIdx: number) => {
+    setScenes((prev) =>
+      prev.map((s) => {
+        if (s.sceneNumber !== sceneNum) return s;
+        const newSentences = s.sentences.filter((_, i) => i !== sentIdx);
+        return {
+          ...s,
+          sentences: newSentences,
+          narrationText: newSentences.map((sent) => sent.text).join(" "),
+        };
+      })
+    );
+  };
+
+  // Add sentence after
+  const addSentenceAfter = (sceneNum: number, sentIdx: number) => {
+    setScenes((prev) =>
+      prev.map((s) => {
+        if (s.sceneNumber !== sceneNum) return s;
+        const newSentences = [...s.sentences];
+        newSentences.splice(sentIdx + 1, 0, {
+          text: "",
+          sfxMode: "none",
+          sfxLibraryValue: "",
+          sfxCustomPrompt: "",
+        });
+        return {
+          ...s,
+          sentences: newSentences,
+          narrationText: newSentences.map((sent) => sent.text).join(" "),
+        };
+      })
+    );
+  };
+
+  // SFX controls per sentence
+  const updateSfxMode = (sceneNum: number, sentIdx: number, mode: SentenceState["sfxMode"]) => {
+    setScenes((prev) =>
+      prev.map((s) => {
+        if (s.sceneNumber !== sceneNum) return s;
+        const newSentences = s.sentences.map((sent, i) =>
+          i === sentIdx ? { ...sent, sfxMode: mode } : sent
+        );
+        return { ...s, sentences: newSentences };
+      })
+    );
+  };
+
+  const updateSfxLibrary = (sceneNum: number, sentIdx: number, value: string) => {
+    setScenes((prev) =>
+      prev.map((s) => {
+        if (s.sceneNumber !== sceneNum) return s;
+        const newSentences = s.sentences.map((sent, i) =>
+          i === sentIdx ? { ...sent, sfxLibraryValue: value, sfxMode: (value ? "library" : "none") as SentenceState["sfxMode"] } : sent
+        );
+        return { ...s, sentences: newSentences };
+      })
+    );
+  };
+
+  const updateSfxPrompt = (sceneNum: number, sentIdx: number, prompt: string) => {
+    setScenes((prev) =>
+      prev.map((s) => {
+        if (s.sceneNumber !== sceneNum) return s;
+        const newSentences = s.sentences.map((sent, i) =>
+          i === sentIdx ? { ...sent, sfxCustomPrompt: prompt } : sent
+        );
+        return { ...s, sentences: newSentences };
+      })
+    );
+  };
+
+  // Scene-level actions
+  const mergeSceneUp = (sceneNum: number) => {
     setScenes((prev) => {
       const idx = prev.findIndex((s) => s.sceneNumber === sceneNum);
       if (idx <= 0) return prev;
@@ -93,18 +225,17 @@ export function ScriptTab({ video }: ScriptTabProps) {
       merged[idx - 1] = {
         ...merged[idx - 1],
         narrationText: merged[idx - 1].narrationText + " " + merged[idx].narrationText,
+        sentences: [...merged[idx - 1].sentences, ...merged[idx].sentences],
       };
       merged.splice(idx, 1);
       return merged;
     });
   };
 
-  // Delete a scene
   const deleteScene = (sceneNum: number) => {
     setScenes((prev) => prev.filter((s) => s.sceneNumber !== sceneNum));
   };
 
-  // Add a new scene after the given one
   const addSceneAfter = (sceneNum: number) => {
     setScenes((prev) => {
       const idx = prev.findIndex((s) => s.sceneNumber === sceneNum);
@@ -117,9 +248,7 @@ export function ScriptTab({ video }: ScriptTabProps) {
         composition: "medium",
         sources: [],
         imageGenerated: false,
-        soundMode: "none",
-        soundLibraryValue: "",
-        soundCustomPrompt: "",
+        sentences: [{ text: "", sfxMode: "none", sfxLibraryValue: "", sfxCustomPrompt: "" }],
       };
       const result = [...prev];
       result.splice(idx + 1, 0, newScene);
@@ -127,26 +256,8 @@ export function ScriptTab({ video }: ScriptTabProps) {
     });
   };
 
-  // Sound controls
-  const updateSoundMode = (sceneNum: number, mode: "none" | "library" | "custom") => {
-    setScenes((prev) => prev.map((s) => (s.sceneNumber === sceneNum ? { ...s, soundMode: mode } : s)));
-  };
-
-  const updateSoundLibrary = (sceneNum: number, value: string) => {
-    setScenes((prev) =>
-      prev.map((s) => {
-        if (s.sceneNumber !== sceneNum) return s;
-        if (value === "custom") return { ...s, soundMode: "custom", soundLibraryValue: "" };
-        return { ...s, soundLibraryValue: value, soundMode: value ? "library" : "none" };
-      })
-    );
-  };
-
-  const updateSoundPrompt = (sceneNum: number, prompt: string) => {
-    setScenes((prev) => prev.map((s) => (s.sceneNumber === sceneNum ? { ...s, soundCustomPrompt: prompt } : s)));
-  };
-
   const totalScenes = scenes.length;
+  const totalSentences = scenes.reduce((sum, s) => sum + s.sentences.length, 0);
   const wordCount = scenes.reduce((sum, s) => sum + s.narrationText.split(/\s+/).filter(Boolean).length, 0);
 
   return (
@@ -159,204 +270,232 @@ export function ScriptTab({ video }: ScriptTabProps) {
 
           return (
             <div key={actNum}>
-              {/* Act header — clickable to collapse */}
-              <button
-                onClick={() => toggleAct(Number(actNum))}
-                className="flex items-center gap-3 w-full mb-3 group"
-              >
+              {/* Act header */}
+              <button onClick={() => toggleAct(Number(actNum))} className="flex items-center gap-3 w-full mb-3 group">
                 <div className="flex-1 h-px" style={{ background: "var(--orange)", opacity: 0.3 }} />
                 <div className="flex items-center gap-2 px-3 py-1 rounded-full transition-all"
                   style={{ background: isCollapsed ? "rgba(255, 120, 73, 0.1)" : "transparent" }}>
-                  {isCollapsed ? (
-                    <ChevronRight size={14} style={{ color: "var(--orange)" }} />
-                  ) : (
-                    <ChevronDown size={14} style={{ color: "var(--orange)" }} />
-                  )}
-                  <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--orange)" }}>
-                    Act {actNum}
-                  </span>
-                  <span className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>
-                    {actScenes.length} scenes · {actWordCount} words
-                  </span>
+                  {isCollapsed ? <ChevronRight size={14} style={{ color: "var(--orange)" }} /> : <ChevronDown size={14} style={{ color: "var(--orange)" }} />}
+                  <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--orange)" }}>Act {actNum}</span>
+                  <span className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>{actScenes.length} scenes · {actWordCount} words</span>
                 </div>
                 <div className="flex-1 h-px" style={{ background: "var(--orange)", opacity: 0.3 }} />
               </button>
 
-              {/* Scenes (collapsible) */}
               {!isCollapsed && (
                 <div className="space-y-3">
-                  {actScenes.map((scene, sceneIdx) => (
-                    <GlassCard
-                      key={scene.sceneNumber}
-                      className="p-4"
-                      style={{
-                        borderLeftWidth: 3,
-                        borderLeftColor: scene.imageGenerated ? "var(--turquoise)" : "var(--orange)",
-                      }}
-                    >
-                      {/* Scene header row */}
-                      <div className="flex items-center gap-2 mb-2">
-                        <SegmentBadge
-                          label={`S-${String(scene.sceneNumber).padStart(2, "0")}`}
-                          color={scene.imageGenerated ? undefined : "var(--orange)"}
-                        />
-                        {/* Play button */}
-                        <button
-                          onClick={() => setPlayingScene(playingScene === scene.sceneNumber ? null : scene.sceneNumber)}
-                          className="w-6 h-6 rounded-full flex items-center justify-center shrink-0"
-                          style={{ background: "var(--green)", color: "var(--bg-void)" }}
-                        >
-                          {playingScene === scene.sceneNumber ? <Pause size={10} /> : <Play size={10} className="ml-0.5" />}
-                        </button>
-                        <MiniWaveform color="var(--green)" width={60} height={16} bars={15} />
+                  {actScenes.map((scene) => {
+                    const isExpanded = expandedScenes.has(scene.sceneNumber);
 
-                        <div className="flex-1" />
-
-                        {/* Scene actions */}
-                        <button
-                          onClick={() => mergeUp(scene.sceneNumber)}
-                          title="Merge into scene above"
-                          className="p-1 rounded transition-colors hover:bg-[var(--bg-surface)]"
-                          style={{ color: "var(--text-tertiary)" }}
-                        >
-                          <Merge size={12} />
-                        </button>
-                        <button
-                          onClick={() => addSceneAfter(scene.sceneNumber)}
-                          title="Add scene below"
-                          className="p-1 rounded transition-colors hover:bg-[var(--bg-surface)]"
-                          style={{ color: "var(--text-tertiary)" }}
-                        >
-                          <Plus size={12} />
-                        </button>
-                        <button
-                          onClick={() => deleteScene(scene.sceneNumber)}
-                          title="Delete scene"
-                          className="p-1 rounded transition-colors hover:bg-[var(--bg-surface)]"
-                          style={{ color: "var(--text-tertiary)" }}
-                        >
-                          <Trash2 size={12} />
-                        </button>
-                      </div>
-
-                      {/* Narration text — editable */}
-                      <textarea
-                        value={scene.narrationText}
-                        onChange={(e) => updateNarration(scene.sceneNumber, e.target.value)}
-                        rows={Math.max(2, Math.ceil(scene.narrationText.length / 100))}
-                        className="w-full text-sm leading-relaxed resize-none outline-none rounded-lg px-3 py-2 transition-all"
+                    return (
+                      <GlassCard
+                        key={scene.sceneNumber}
+                        className="p-4"
                         style={{
-                          color: "var(--text-primary)",
-                          background: "transparent",
-                          border: "1px solid transparent",
+                          borderLeftWidth: 3,
+                          borderLeftColor: scene.imageGenerated ? "var(--turquoise)" : "var(--orange)",
                         }}
-                        onFocus={(e) => { e.target.style.background = "var(--bg-elevated)"; e.target.style.borderColor = "var(--orange)"; }}
-                        onBlur={(e) => { e.target.style.background = "transparent"; e.target.style.borderColor = "transparent"; }}
-                      />
+                      >
+                        {/* Scene header */}
+                        <div className="flex items-center gap-2 mb-2">
+                          <SegmentBadge label={`S-${String(scene.sceneNumber).padStart(2, "0")}`} color={scene.imageGenerated ? undefined : "var(--orange)"} />
+                          <button
+                            onClick={() => setPlayingScene(playingScene === scene.sceneNumber ? null : scene.sceneNumber)}
+                            className="w-6 h-6 rounded-full flex items-center justify-center shrink-0"
+                            style={{ background: "var(--green)", color: "var(--bg-void)" }}
+                          >
+                            {playingScene === scene.sceneNumber ? <Pause size={10} /> : <Play size={10} className="ml-0.5" />}
+                          </button>
+                          <MiniWaveform color="var(--green)" width={60} height={16} bars={15} />
 
-                      {/* Sources — editable */}
-                      {scene.sources && scene.sources.length > 0 && (
-                        <div className="flex gap-2 mt-1 flex-wrap items-center">
-                          {scene.sources.map((src, srcIdx) => (
-                            <input
-                              key={srcIdx}
-                              type="text"
-                              value={src}
-                              onChange={(e) => updateSource(scene.sceneNumber, srcIdx, e.target.value)}
-                              className="text-[10px] font-mono px-2 py-0.5 rounded outline-none w-auto"
-                              style={{
-                                background: "var(--yellow-dim)",
-                                color: "var(--yellow)",
-                                border: "1px solid transparent",
-                                width: `${Math.max(src.length * 7 + 20, 60)}px`,
-                              }}
-                              onFocus={(e) => { e.target.style.borderColor = "var(--yellow)"; }}
-                              onBlur={(e) => { e.target.style.borderColor = "transparent"; }}
-                            />
-                          ))}
-                        </div>
-                      )}
+                          <div className="flex-1" />
 
-                      {/* Visual style + composition — editable */}
-                      <div className="flex items-center gap-2 mt-2">
-                        <input
-                          type="text"
-                          value={scene.visualStyle}
-                          onChange={(e) => updateVisualStyle(scene.sceneNumber, e.target.value)}
-                          className="text-[10px] font-mono px-2 py-0.5 rounded outline-none w-20"
-                          style={{ color: "var(--text-tertiary)", background: "transparent", border: "1px solid transparent" }}
-                          onFocus={(e) => { e.target.style.background = "var(--bg-elevated)"; e.target.style.borderColor = "var(--turquoise)"; }}
-                          onBlur={(e) => { e.target.style.background = "transparent"; e.target.style.borderColor = "transparent"; }}
-                        />
-                        <input
-                          type="text"
-                          value={scene.composition}
-                          onChange={(e) => updateComposition(scene.sceneNumber, e.target.value)}
-                          className="text-[10px] font-mono px-2 py-0.5 rounded outline-none w-24"
-                          style={{ color: "var(--text-tertiary)", background: "transparent", border: "1px solid transparent" }}
-                          onFocus={(e) => { e.target.style.background = "var(--bg-elevated)"; e.target.style.borderColor = "var(--turquoise)"; }}
-                          onBlur={(e) => { e.target.style.background = "transparent"; e.target.style.borderColor = "transparent"; }}
-                        />
-                      </div>
-
-                      {/* Sound FX section — inline */}
-                      <div className="mt-3 pt-3" style={{ borderTop: "1px solid rgba(255,255,255,0.04)" }}>
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <Volume2 size={12} style={{ color: "var(--gold)", opacity: 0.6 }} />
-                          <span className="text-[9px] uppercase tracking-wider font-medium" style={{ color: "var(--gold)" }}>
-                            SFX
-                          </span>
-
-                          {/* Library selector */}
-                          <select
-                            value={scene.soundMode === "library" ? scene.soundLibraryValue : scene.soundMode === "custom" ? "custom" : ""}
-                            onChange={(e) => updateSoundLibrary(scene.sceneNumber, e.target.value)}
-                            className="text-[11px] font-mono px-2 py-1 rounded-lg outline-none flex-1 max-w-[200px]"
+                          {/* Expand/collapse toggle */}
+                          <button
+                            onClick={() => toggleExpand(scene.sceneNumber)}
+                            title={isExpanded ? "Collapse to unified text" : "Expand into sentence cards"}
+                            className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium transition-all"
                             style={{
-                              background: "var(--bg-elevated)",
-                              color: "var(--text-secondary)",
-                              border: "1px solid var(--border-subtle)",
+                              background: isExpanded ? "var(--turquoise-dim)" : "transparent",
+                              color: isExpanded ? "var(--turquoise)" : "var(--text-tertiary)",
+                              border: `1px solid ${isExpanded ? "var(--turquoise-dim)" : "transparent"}`,
                             }}
                           >
-                            {SFX_LIBRARY.map((sfx) => (
-                              <option key={sfx.value} value={sfx.value}>{sfx.label}</option>
-                            ))}
-                          </select>
+                            <Layers size={11} />
+                            {isExpanded ? "Collapse" : "Expand"}
+                            <span className="font-mono">{scene.sentences.length}</span>
+                          </button>
 
-                          {scene.soundMode === "library" && scene.soundLibraryValue && (
-                            <button
-                              className="w-5 h-5 rounded-full flex items-center justify-center"
-                              style={{ background: "var(--green)", color: "var(--bg-void)" }}
-                              title="Preview sound"
-                            >
-                              <Play size={8} className="ml-px" />
-                            </button>
-                          )}
+                          <button onClick={() => mergeSceneUp(scene.sceneNumber)} title="Merge into scene above" className="p-1 rounded transition-colors hover:bg-[var(--bg-surface)]" style={{ color: "var(--text-tertiary)" }}><Merge size={12} /></button>
+                          <button onClick={() => addSceneAfter(scene.sceneNumber)} title="Add scene below" className="p-1 rounded transition-colors hover:bg-[var(--bg-surface)]" style={{ color: "var(--text-tertiary)" }}><Plus size={12} /></button>
+                          <button onClick={() => deleteScene(scene.sceneNumber)} title="Delete scene" className="p-1 rounded transition-colors hover:bg-[var(--bg-surface)]" style={{ color: "var(--text-tertiary)" }}><Trash2 size={12} /></button>
                         </div>
 
-                        {/* Custom prompt — only when "Generate Custom" selected */}
-                        {scene.soundMode === "custom" && (
-                          <div className="mt-2 flex items-start gap-2">
-                            <Wand2 size={12} style={{ color: "var(--purple)", marginTop: 6 }} />
-                            <textarea
-                              value={scene.soundCustomPrompt}
-                              onChange={(e) => updateSoundPrompt(scene.sceneNumber, e.target.value)}
-                              placeholder="Describe the sound effect you want AI to generate..."
-                              rows={2}
-                              className="flex-1 text-[11px] font-mono outline-none rounded-lg px-2 py-1.5 resize-none transition-all"
-                              style={{
-                                color: "var(--text-secondary)",
-                                background: "var(--bg-elevated)",
-                                border: "1px solid var(--purple-dim)",
-                              }}
-                              onFocus={(e) => { e.target.style.borderColor = "var(--purple)"; }}
-                              onBlur={(e) => { e.target.style.borderColor = "var(--purple-dim)"; }}
-                            />
-                          </div>
+                        {/* === COLLAPSED: Unified text view === */}
+                        {!isExpanded && (
+                          <textarea
+                            value={scene.narrationText}
+                            onChange={(e) => updateNarration(scene.sceneNumber, e.target.value)}
+                            rows={Math.max(2, Math.ceil(scene.narrationText.length / 100))}
+                            className="w-full text-sm leading-relaxed resize-none outline-none rounded-lg px-3 py-2 transition-all"
+                            style={{ color: "var(--text-primary)", background: "transparent", border: "1px solid transparent" }}
+                            onFocus={(e) => { e.target.style.background = "var(--bg-elevated)"; e.target.style.borderColor = "var(--orange)"; }}
+                            onBlur={(e) => { e.target.style.background = "transparent"; e.target.style.borderColor = "transparent"; }}
+                          />
                         )}
-                      </div>
-                    </GlassCard>
-                  ))}
+
+                        {/* === EXPANDED: Individual sentence cards === */}
+                        <AnimatePresence>
+                          {isExpanded && (
+                            <motion.div
+                              initial={{ opacity: 0, height: 0 }}
+                              animate={{ opacity: 1, height: "auto" }}
+                              exit={{ opacity: 0, height: 0 }}
+                              transition={{ duration: 0.3 }}
+                              className="space-y-2"
+                            >
+                              {scene.sentences.map((sent, sentIdx) => (
+                                <div
+                                  key={sentIdx}
+                                  className="rounded-xl p-3 transition-all"
+                                  style={{
+                                    background: "rgba(255,255,255,0.02)",
+                                    border: "1px solid rgba(255,255,255,0.05)",
+                                  }}
+                                >
+                                  {/* Sentence header */}
+                                  <div className="flex items-center gap-2 mb-1.5">
+                                    <span className="text-[9px] font-mono font-medium px-1.5 py-0.5 rounded"
+                                      style={{ background: "var(--orange-dim)", color: "var(--orange)" }}>
+                                      {sentIdx + 1}/{scene.sentences.length}
+                                    </span>
+                                    <div className="flex-1" />
+                                    <button onClick={() => mergeSentenceUp(scene.sceneNumber, sentIdx)} title="Merge up" className="p-0.5 rounded hover:bg-[var(--bg-surface)]" style={{ color: "var(--text-tertiary)" }}><Merge size={10} /></button>
+                                    <button onClick={() => addSentenceAfter(scene.sceneNumber, sentIdx)} title="Add below" className="p-0.5 rounded hover:bg-[var(--bg-surface)]" style={{ color: "var(--text-tertiary)" }}><Plus size={10} /></button>
+                                    <button onClick={() => deleteSentence(scene.sceneNumber, sentIdx)} title="Delete" className="p-0.5 rounded hover:bg-[var(--bg-surface)]" style={{ color: "var(--text-tertiary)" }}><Trash2 size={10} /></button>
+                                  </div>
+
+                                  {/* Sentence text — editable */}
+                                  <textarea
+                                    value={sent.text}
+                                    onChange={(e) => updateSentence(scene.sceneNumber, sentIdx, e.target.value)}
+                                    rows={Math.max(1, Math.ceil(sent.text.length / 90))}
+                                    className="w-full text-sm leading-relaxed resize-none outline-none rounded-lg px-2 py-1 transition-all"
+                                    style={{ color: "var(--text-primary)", background: "transparent", border: "1px solid transparent" }}
+                                    onFocus={(e) => { e.target.style.background = "var(--bg-elevated)"; e.target.style.borderColor = "var(--turquoise)"; }}
+                                    onBlur={(e) => { e.target.style.background = "transparent"; e.target.style.borderColor = "transparent"; }}
+                                  />
+
+                                  {/* SFX per sentence */}
+                                  <div className="flex items-center gap-2 mt-2 flex-wrap">
+                                    <Volume2 size={10} style={{ color: "var(--gold)", opacity: 0.5 }} />
+
+                                    {/* Mode selector pills */}
+                                    {(["none", "library", "elevenlabs", "custom"] as const).map((mode) => {
+                                      const labels = { none: "None", library: "Library", elevenlabs: "ElevenLabs", custom: "AI Prompt" };
+                                      const icons = { none: null, library: <Library size={9} />, elevenlabs: <Mic size={9} />, custom: <Wand2 size={9} /> };
+                                      const colors = { none: "var(--text-tertiary)", library: "var(--gold)", elevenlabs: "var(--green)", custom: "var(--purple)" };
+                                      const isActive = sent.sfxMode === mode;
+                                      return (
+                                        <button
+                                          key={mode}
+                                          onClick={() => updateSfxMode(scene.sceneNumber, sentIdx, mode)}
+                                          className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-medium transition-all"
+                                          style={{
+                                            background: isActive ? `${colors[mode]}15` : "transparent",
+                                            color: isActive ? colors[mode] : "var(--text-tertiary)",
+                                            border: `1px solid ${isActive ? `${colors[mode]}30` : "transparent"}`,
+                                          }}
+                                        >
+                                          {icons[mode]}
+                                          {labels[mode]}
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+
+                                  {/* Library dropdown */}
+                                  {sent.sfxMode === "library" && (
+                                    <div className="flex items-center gap-2 mt-1.5">
+                                      <select
+                                        value={sent.sfxLibraryValue}
+                                        onChange={(e) => updateSfxLibrary(scene.sceneNumber, sentIdx, e.target.value)}
+                                        className="text-[10px] font-mono px-2 py-1 rounded-lg outline-none flex-1"
+                                        style={{ background: "var(--bg-elevated)", color: "var(--text-secondary)", border: "1px solid var(--border-subtle)" }}
+                                      >
+                                        <option value="">Select sound...</option>
+                                        {SFX_LIBRARY.map((sfx) => (
+                                          <option key={sfx.value} value={sfx.value}>{sfx.label}</option>
+                                        ))}
+                                      </select>
+                                      {sent.sfxLibraryValue && (
+                                        <button className="w-5 h-5 rounded-full flex items-center justify-center" style={{ background: "var(--green)", color: "var(--bg-void)" }}>
+                                          <Play size={8} className="ml-px" />
+                                        </button>
+                                      )}
+                                    </div>
+                                  )}
+
+                                  {/* ElevenLabs SFX design */}
+                                  {sent.sfxMode === "elevenlabs" && (
+                                    <div className="mt-1.5 flex items-start gap-2">
+                                      <Mic size={11} style={{ color: "var(--green)", marginTop: 5 }} />
+                                      <div className="flex-1">
+                                        <textarea
+                                          value={sent.sfxCustomPrompt}
+                                          onChange={(e) => updateSfxPrompt(scene.sceneNumber, sentIdx, e.target.value)}
+                                          placeholder="Describe the sound for ElevenLabs to generate (e.g. 'distant thunder rolling across mountains')..."
+                                          rows={2}
+                                          className="w-full text-[10px] font-mono outline-none rounded-lg px-2 py-1.5 resize-none transition-all"
+                                          style={{ color: "var(--text-secondary)", background: "var(--bg-elevated)", border: "1px solid rgba(0, 230, 138, 0.15)" }}
+                                          onFocus={(e) => { e.target.style.borderColor = "var(--green)"; }}
+                                          onBlur={(e) => { e.target.style.borderColor = "rgba(0, 230, 138, 0.15)"; }}
+                                        />
+                                        <div className="flex items-center gap-2 mt-1">
+                                          <button className="text-[9px] font-medium px-2 py-0.5 rounded-lg" style={{ background: "var(--green)", color: "var(--bg-void)" }}>
+                                            Generate SFX
+                                          </button>
+                                          <span className="text-[9px] font-mono" style={{ color: "var(--text-tertiary)" }}>~$0.03</span>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {/* AI custom prompt */}
+                                  {sent.sfxMode === "custom" && (
+                                    <div className="mt-1.5 flex items-start gap-2">
+                                      <Wand2 size={11} style={{ color: "var(--purple)", marginTop: 5 }} />
+                                      <textarea
+                                        value={sent.sfxCustomPrompt}
+                                        onChange={(e) => updateSfxPrompt(scene.sceneNumber, sentIdx, e.target.value)}
+                                        placeholder="Describe the SFX for AI generation..."
+                                        rows={2}
+                                        className="flex-1 text-[10px] font-mono outline-none rounded-lg px-2 py-1.5 resize-none transition-all"
+                                        style={{ color: "var(--text-secondary)", background: "var(--bg-elevated)", border: "1px solid var(--purple-dim)" }}
+                                        onFocus={(e) => { e.target.style.borderColor = "var(--purple)"; }}
+                                        onBlur={(e) => { e.target.style.borderColor = "var(--purple-dim)"; }}
+                                      />
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+
+                        {/* Sources + metadata (always visible) */}
+                        <div className="flex items-center gap-2 mt-2 flex-wrap">
+                          {scene.sources?.map((src, srcIdx) => (
+                            <span key={srcIdx} className="text-[10px] font-mono px-2 py-0.5 rounded" style={{ background: "var(--yellow-dim)", color: "var(--yellow)" }}>
+                              [{src}]
+                            </span>
+                          ))}
+                          <span className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>{scene.visualStyle}</span>
+                          <span className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>{scene.composition}</span>
+                        </div>
+                      </GlassCard>
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -364,17 +503,16 @@ export function ScriptTab({ video }: ScriptTabProps) {
         })}
       </div>
 
-      {/* Metadata sidebar */}
+      {/* Sidebar */}
       <div className="space-y-4">
         <GlassCard className="p-5">
-          <h3 className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: "var(--text-secondary)" }}>
-            Script Details
-          </h3>
+          <h3 className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: "var(--text-secondary)" }}>Script Details</h3>
           <div className="space-y-3">
             {[
               { label: "Framework", value: video.framework || "—" },
               { label: "Word Count", value: String(wordCount) },
-              { label: "Scene Count", value: String(totalScenes) },
+              { label: "Scenes", value: String(totalScenes) },
+              { label: "Sentences", value: String(totalSentences) },
               { label: "Target Length", value: `${video.videoLengthMin || 0} min` },
               { label: "Est. Cost", value: `$${(video.estimatedCost || 0).toFixed(2)}` },
             ].map((row) => (
@@ -387,15 +525,22 @@ export function ScriptTab({ video }: ScriptTabProps) {
         </GlassCard>
 
         <GlassCard className="p-4">
-          <h3 className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: "var(--gold)" }}>
-            SFX Library
-          </h3>
+          <h3 className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: "var(--gold)" }}>Sound Design</h3>
           <p className="text-[10px] mb-3" style={{ color: "var(--text-tertiary)" }}>
-            Select from presets or generate custom SFX per scene. Library sounds are free, custom generation costs ~$0.02 each.
+            Expand a scene, then choose per-sentence:
           </p>
-          <div className="flex items-center gap-2 text-[10px] font-mono">
-            <Library size={12} style={{ color: "var(--gold)" }} />
-            <span style={{ color: "var(--text-secondary)" }}>{SFX_LIBRARY.length - 2} presets</span>
+          <div className="space-y-1.5">
+            {[
+              { icon: <Library size={10} />, label: "Library", desc: "Free presets", color: "var(--gold)" },
+              { icon: <Mic size={10} />, label: "ElevenLabs", desc: "Design your own SFX", color: "var(--green)" },
+              { icon: <Wand2 size={10} />, label: "AI Prompt", desc: "Text-to-sound", color: "var(--purple)" },
+            ].map((opt) => (
+              <div key={opt.label} className="flex items-center gap-2 text-[10px]">
+                <span style={{ color: opt.color }}>{opt.icon}</span>
+                <span className="font-medium" style={{ color: opt.color }}>{opt.label}</span>
+                <span style={{ color: "var(--text-tertiary)" }}>— {opt.desc}</span>
+              </div>
+            ))}
           </div>
         </GlassCard>
 
