@@ -127,3 +127,25 @@ export interface ImageGenItem {
   completed: boolean;
   imageUrl?: string;
 }
+
+export interface VisualSegment {
+  id: string;
+  sentenceText: string;
+  imagePrompt: string;
+  imageUrl?: string;
+  status: "pending" | "generating" | "done";
+  segmentId: string;
+}
+
+export interface SceneVisualGroup {
+  sceneNumber: number;
+  actNumber: number;
+  narrationText: string;
+  visualStyle: string;
+  composition: string;
+  duration: string;
+  segments: VisualSegment[];
+  storyboardPanels?: StoryboardPanel[];
+  storyboardApproved?: boolean;
+  selectedStoryboardPanel?: number;
+}

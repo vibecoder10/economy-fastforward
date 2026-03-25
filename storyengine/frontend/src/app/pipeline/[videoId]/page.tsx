@@ -16,7 +16,7 @@ import { VoiceReviewTab } from "@/components/production/VoiceReviewTab";
 import { VisualsTab } from "@/components/production/VisualsTab";
 import { VideoClipsTab } from "@/components/production/VideoClipsTab";
 import { SoundTab } from "@/components/production/SoundTab";
-import { StoryboardTab } from "@/components/production/StoryboardTab";
+
 import { ThumbnailTab } from "@/components/production/ThumbnailTab";
 import { RenderTab } from "@/components/production/RenderTab";
 import { UploadTab } from "@/components/production/UploadTab";
@@ -56,7 +56,6 @@ const TABS = [
   { id: "visuals", label: "Visuals", icon: ImageIcon },
   { id: "clips", label: "Video Clips", icon: Video },
   { id: "sound", label: "Sound", icon: Volume2 },
-  { id: "storyboard", label: "Storyboard", icon: LayoutGrid },
   { id: "thumbnail", label: "Thumbnail", icon: Film },
   { id: "render", label: "Render", icon: Film },
   { id: "upload", label: "Upload", icon: Upload },
@@ -177,7 +176,7 @@ export default function VideoDetailPage() {
         {activeTab === "visuals" && <VisualsTab video={video} />}
         {activeTab === "clips" && <VideoClipsTab video={video} />}
         {activeTab === "sound" && <SoundTab video={video} />}
-        {activeTab === "storyboard" && <StoryboardTab video={video} />}
+
         {activeTab === "thumbnail" && <ThumbnailTab video={video} />}
         {activeTab === "render" && <RenderTab video={video} />}
         {activeTab === "upload" && <UploadTab video={video} />}

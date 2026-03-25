@@ -9,6 +9,7 @@ import type {
   SettingsData,
   VoiceSegment,
   ImageGenItem,
+  SceneVisualGroup,
 } from "./types";
 
 export const MOCK_VIDEOS: Video[] = [
@@ -395,6 +396,54 @@ export const MOCK_IMAGE_GEN_ITEMS: ImageGenItem[] = Array.from({ length: 12 }, (
   progress: i < 3 ? 100 : i < 6 ? 100 : i < 9 ? Math.random() * 80 + 10 : 0,
   completed: i < 6,
 }));
+
+// Unified scene visuals — maps scenes → sentence texts → image prompts → images
+export const MOCK_SCENE_VISUALS: SceneVisualGroup[] = [
+  {
+    sceneNumber: 1, actNumber: 1,
+    narrationText: "In the shadow of a crumbling empire, one decision would reshape the balance of power across three continents — and almost nobody saw it coming.",
+    visualStyle: "dossier", composition: "wide", duration: "9s",
+    segments: [
+      { id: "v1-s1", segmentId: "S-01", sentenceText: "In the shadow of a crumbling empire,", imagePrompt: "Aerial dusk shot of a decaying imperial palace, crumbling marble columns, deep crimson sky fading to dark navy. Dossier style, Rembrandt side-lighting, wide establishing composition.", status: "done" },
+      { id: "v1-s2", segmentId: "S-02", sentenceText: "one decision would reshape the balance of power across three continents", imagePrompt: "Three-panel split screen showing continental maps — Europe, Middle East, Asia — connected by glowing red lines converging on a single point. Schema overlay, HUD grid elements, medium shot.", status: "done" },
+      { id: "v1-s3", segmentId: "S-03", sentenceText: "and almost nobody saw it coming.", imagePrompt: "Close-up of a diplomat's hands clasped on a mahogany table, documents scattered, a red 'CLASSIFIED' stamp visible. Dossier style, shallow depth of field, warm amber accent.", status: "generating" },
+    ],
+    storyboardPanels: Array.from({ length: 9 }, (_, i) => ({ id: `sb1-p${i + 1}`, selected: i === 0 })),
+  },
+  {
+    sceneNumber: 2, actNumber: 1,
+    narrationText: "The year was 2024. Behind closed doors in Tehran, a delegation sat across from envoys they had every reason to distrust — but desperation has a way of rewriting old grudges.",
+    visualStyle: "echo", composition: "medium", duration: "11s",
+    segments: [
+      { id: "v2-s1", segmentId: "S-04", sentenceText: "The year was 2024.", imagePrompt: "Title card style — bold '2024' in serif font overlaid on a blurred Tehran skyline at twilight. Echo painterly style, warm candlelit glow, cinematic grain.", status: "done" },
+      { id: "v2-s2", segmentId: "S-05", sentenceText: "Behind closed doors in Tehran, a delegation sat across from envoys they had every reason to distrust", imagePrompt: "Interior of an ornate Persian meeting room, two groups of officials seated across a long table, tension visible in body language. Echo historical style, oil painting texture, medium shot.", status: "done" },
+      { id: "v2-s3", segmentId: "S-06", sentenceText: "but desperation has a way of rewriting old grudges.", imagePrompt: "Close-up of two hands reaching across a table in a reluctant handshake, gold rings catching candlelight. Echo style, Caravaggio lighting, tight portrait crop.", status: "pending" },
+    ],
+    storyboardPanels: Array.from({ length: 9 }, (_, i) => ({ id: `sb2-p${i + 1}`, selected: false, approved: i === 4 })),
+    storyboardApproved: true,
+    selectedStoryboardPanel: 4,
+  },
+  {
+    sceneNumber: 3, actNumber: 1,
+    narrationText: "What they didn't know was that every word was being relayed in real-time to a situation room 4,000 miles away, where analysts were already calculating the cost of betrayal.",
+    visualStyle: "schema", composition: "closeup", duration: "10s",
+    segments: [
+      { id: "v3-s1", segmentId: "S-07", sentenceText: "What they didn't know was that every word was being relayed in real-time", imagePrompt: "Glowing data streams flowing through fiber optic cables, digital signal visualization with turquoise HUD overlay. Schema style, neon accents on dark background, environmental shot.", status: "done" },
+      { id: "v3-s2", segmentId: "S-08", sentenceText: "to a situation room 4,000 miles away,", imagePrompt: "Pentagon-style situation room with multiple screens showing satellite feeds, blue-lit operators at workstations. Schema HUD overlay, wide establishing shot, cold teal lighting.", status: "generating" },
+      { id: "v3-s3", segmentId: "S-09", sentenceText: "where analysts were already calculating the cost of betrayal.", imagePrompt: "Close-up of a screen showing risk assessment calculations, red warning indicators, a hand pointing at key data. Schema data overlay style, close-up composition, turquoise and red accent.", status: "pending" },
+    ],
+  },
+  {
+    sceneNumber: 4, actNumber: 2,
+    narrationText: "To understand how Iran fell into this trap, we need to rewind — not years, but decades — to a pattern that political theorists call the Thucydides Trap.",
+    visualStyle: "dossier", composition: "wide", duration: "10s",
+    segments: [
+      { id: "v4-s1", segmentId: "S-10", sentenceText: "To understand how Iran fell into this trap,", imagePrompt: "A chess board with Persian-styled pieces, one king piece tipping over in slow motion, dramatic spotlight. Dossier style, Rembrandt lighting, overhead shot.", status: "pending" },
+      { id: "v4-s2", segmentId: "S-11", sentenceText: "we need to rewind — not years, but decades", imagePrompt: "Time-lapse montage of Tehran skyline transforming from 1970s to present day, overlaid calendar pages peeling away. Dossier documentary style, wide pan composition.", status: "pending" },
+      { id: "v4-s3", segmentId: "S-12", sentenceText: "to a pattern that political theorists call the Thucydides Trap.", imagePrompt: "Ancient Greek marble bust of Thucydides with modern geopolitical map projected onto it, glowing connection lines. Echo/Schema hybrid, medium portrait composition.", status: "pending" },
+    ],
+  },
+];
 
 // Pipeline stage counts for the funnel
 export const PIPELINE_FUNNEL = [
