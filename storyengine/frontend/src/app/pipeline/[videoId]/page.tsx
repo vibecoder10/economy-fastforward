@@ -12,6 +12,7 @@ import { ScriptTab } from "@/components/video-detail/script-tab";
 import { VisualsTab } from "@/components/video-detail/visuals-tab";
 import { ThumbnailTab } from "@/components/video-detail/thumbnail-tab";
 import { PerformanceTab } from "@/components/video-detail/performance-tab";
+import { PipelineActionBar } from "@/components/video-detail/pipeline-action-bar";
 
 const TABS = [
   { id: "info", label: "Info" },
@@ -83,6 +84,9 @@ export default function VideoDetailPage({
           <ProgressDots status={video.status || ""} size="lg" showLabel />
         </div>
       </div>
+
+      {/* Pipeline action bar — always visible */}
+      <PipelineActionBar videoId={videoId} status={video.status || ""} />
 
       {/* Tab bar */}
       <div
