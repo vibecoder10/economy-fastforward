@@ -7,7 +7,7 @@ import { StatusPill } from "@/components/ui/StatusPill";
 import { ActionButton } from "@/components/ui/ActionButton";
 import type { Video } from "@/lib/types";
 
-const MOCK_STATUS = "uploaded_draft";
+const MOCK_STATUS: string = "uploaded_draft";
 const MOCK_VIDEO_ID = "dQw4w9WgXcQ";
 const MOCK_URL = `https://www.youtube.com/watch?v=${MOCK_VIDEO_ID}`;
 const MOCK_UPLOAD_DATE = "2026-03-24T14:30:00Z";
