@@ -9,7 +9,6 @@ import {
   rejectSuggestion,
 } from "@/lib/api";
 import { SceneEditor } from "./scene-editor";
-import { StageAdvancer } from "./stage-advancer";
 
 interface ScriptTabProps {
   videoId: string;
@@ -67,21 +66,7 @@ export function ScriptTab({ videoId, video }: ScriptTabProps) {
 
   const estimatedMinutes = Math.round(totalWords / 150);
 
-  const hasPendingSuggestion =
-    video.suggested_script && video.suggestion_status === "pending";
-
-  const hasEmptyScene = sortedScenes.some((s) => !s.scene_text?.trim());
-  const allVoicesReady = sortedScenes.every((s) => s.voice_over_url);
-
   const status = video.status || "";
-
-  // Determine which StageAdvancer to show
-  const showVoiceAdvancer =
-    status !== "ready_for_scripting" &&
-    status !== "idea_logged" &&
-    !allVoicesReady;
-
-  const showPromptsAdvancer = allVoicesReady;
 
   return (
     <div className="space-y-4">
@@ -139,31 +124,11 @@ export function ScriptTab({ videoId, video }: ScriptTabProps) {
         </div>
       )}
 
-      {/* Stats bar + Stage advancer */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4 text-sm" style={{ color: "var(--text-muted)" }}>
-          <span>{sortedScenes.length} scenes</span>
-          <span>{totalWords.toLocaleString()} words</span>
-          <span>~{estimatedMinutes} min</span>
-        </div>
-
-        {showPromptsAdvancer ? (
-          <StageAdvancer
-            videoId={videoId}
-            stage="prompts"
-            label="All Voices Ready — Prompts"
-            nextLabel="Prompts started"
-          />
-        ) : showVoiceAdvancer ? (
-          <StageAdvancer
-            videoId={videoId}
-            stage="voice"
-            label="Approve Script — Generate Voice"
-            nextLabel="Voice generation started"
-            disabled={hasEmptyScene}
-            disabledReason={hasEmptyScene ? "All scenes must have text before generating voice" : undefined}
-          />
-        ) : null}
+      {/* Stats bar */}
+      <div className="flex items-center gap-4 text-sm" style={{ color: "var(--text-muted)" }}>
+        <span>{sortedScenes.length} scenes</span>
+        <span>{totalWords.toLocaleString()} words</span>
+        <span>~{estimatedMinutes} min</span>
       </div>
 
       {/* Scene editor cards */}

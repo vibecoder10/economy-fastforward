@@ -4,8 +4,6 @@ import { use, useState } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { getVideo } from "@/lib/api";
-import { ProgressDots } from "@/components/progress-dots";
-import { getStageLabel } from "@/lib/constants";
 import { ArrowLeft } from "lucide-react";
 import { InfoTab } from "@/components/video-detail/info-tab";
 import { ScriptTab } from "@/components/video-detail/script-tab";
@@ -54,38 +52,23 @@ export default function VideoDetailPage({
   }
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
+    <div className="space-y-4">
+      {/* Back + Title */}
       <div>
         <Link
           href="/pipeline"
-          className="inline-flex items-center gap-1 text-sm mb-4 transition-colors hover:opacity-80"
+          className="inline-flex items-center gap-1 text-sm mb-3 transition-colors hover:opacity-80"
           style={{ color: "var(--text-muted)" }}
         >
           <ArrowLeft size={16} />
           Back
         </Link>
-
         <h1 className="text-xl font-bold" style={{ color: "var(--text-primary)" }}>
           {video.video_title}
         </h1>
-        <div className="flex items-center gap-3 mt-2">
-          <span
-            className="text-sm px-2 py-0.5 rounded"
-            style={{
-              color: "var(--amber)",
-              background: "rgba(212, 168, 68, 0.1)",
-            }}
-          >
-            {getStageLabel(video.status || "")}
-          </span>
-        </div>
-        <div className="mt-3">
-          <ProgressDots status={video.status || ""} size="lg" showLabel />
-        </div>
       </div>
 
-      {/* Pipeline action bar — always visible */}
+      {/* Pipeline progress + action — unified component */}
       <PipelineActionBar videoId={videoId} status={video.status || ""} />
 
       {/* Tab bar */}

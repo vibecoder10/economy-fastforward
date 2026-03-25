@@ -2,18 +2,17 @@
 
 import { useState, useCallback } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { RefreshCw, ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import {
   ScriptScene,
   updateSceneText,
   updateSceneTone,
-  runPipelineStage,
 } from "@/lib/api";
 import { SegmentList } from "./segment-list";
 
 interface SceneEditorProps {
   scene: ScriptScene;
-  sceneIndex: number; // 0-based index from parent, used as fallback when scene.scene is null
+  sceneIndex: number;
   videoId: string;
   videoStatus: string;
   onRefresh: () => void;
@@ -21,16 +20,14 @@ interface SceneEditorProps {
 
 const TONE_OPTIONS = ["serious", "conversational", "urgent", "concise"] as const;
 
-export function SceneEditor({ scene, sceneIndex, videoId, videoStatus, onRefresh }: SceneEditorProps) {
+export function SceneEditor({ scene, sceneIndex, videoId, onRefresh }: SceneEditorProps) {
   const queryClient = useQueryClient();
   const sceneNum = scene.scene ?? (sceneIndex + 1);
 
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(true);
   const [editing, setEditing] = useState(false);
   const [localText, setLocalText] = useState(scene.scene_text || "");
-  const [showRegenWarning, setShowRegenWarning] = useState(false);
 
-  // Optimistic text update
   const textMutation = useMutation({
     mutationFn: (text: string) => updateSceneText(videoId, sceneNum, text),
     onSuccess: () => {
@@ -38,21 +35,10 @@ export function SceneEditor({ scene, sceneIndex, videoId, videoStatus, onRefresh
     },
   });
 
-  // Tone update
   const toneMutation = useMutation({
     mutationFn: (tone: string) => updateSceneTone(videoId, sceneNum, tone),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["video-script", videoId] });
-    },
-  });
-
-  // Regenerate full script
-  const regenMutation = useMutation({
-    mutationFn: () => runPipelineStage(videoId, "script"),
-    onSuccess: () => {
-      setShowRegenWarning(false);
-      queryClient.invalidateQueries({ queryKey: ["video-script", videoId] });
-      onRefresh();
     },
   });
 
@@ -72,9 +58,9 @@ export function SceneEditor({ scene, sceneIndex, videoId, videoStatus, onRefresh
       className="rounded-xl overflow-hidden"
       style={{ background: "var(--bg-card)", border: "1px solid var(--border)" }}
     >
-      {/* Header — always visible, clickable to collapse */}
+      {/* Header — clickable to expand/collapse */}
       <div
-        className="flex items-center justify-between px-4 py-3 cursor-pointer"
+        className="flex items-center justify-between px-4 py-3 cursor-pointer select-none"
         style={{ borderBottom: collapsed ? undefined : "1px solid var(--border)" }}
         onClick={() => setCollapsed(!collapsed)}
       >
@@ -91,12 +77,11 @@ export function SceneEditor({ scene, sceneIndex, videoId, videoStatus, onRefresh
             Scene {sceneNum}
           </span>
           <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-            {wordCount}w · ~{estimatedDuration}s · ~{estimatedImages} images
+            {wordCount}w · ~{estimatedDuration}s · ~{estimatedImages} img
           </span>
         </div>
 
         <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-          {/* Tone dropdown */}
           <select
             value={scene.tone || "serious"}
             onChange={(e) => toneMutation.mutate(e.target.value)}
@@ -115,46 +100,13 @@ export function SceneEditor({ scene, sceneIndex, videoId, videoStatus, onRefresh
               </option>
             ))}
           </select>
-
-          {/* Regenerate button */}
-          {!showRegenWarning ? (
-            <button
-              onClick={() => setShowRegenWarning(true)}
-              className="flex items-center gap-1 text-xs px-2 py-1 rounded"
-              style={{
-                background: "var(--bg-card-hover)",
-                border: "1px solid var(--border)",
-                color: "var(--text-muted)",
-              }}
-            >
-              <RefreshCw size={10} /> Regen
-            </button>
-          ) : (
-            <div className="flex items-center gap-1">
-              <button
-                onClick={() => regenMutation.mutate()}
-                disabled={regenMutation.isPending}
-                className="text-xs px-2 py-1 rounded font-medium"
-                style={{ background: "#C44545", color: "#fff", border: "none" }}
-              >
-                {regenMutation.isPending ? "..." : "Confirm"}
-              </button>
-              <button
-                onClick={() => setShowRegenWarning(false)}
-                className="text-xs px-2 py-1 rounded"
-                style={{ color: "var(--text-muted)", background: "none", border: "none" }}
-              >
-                Cancel
-              </button>
-            </div>
-          )}
         </div>
       </div>
 
-      {/* Collapsible content */}
+      {/* Expanded content */}
       {!collapsed && (
         <>
-          {/* Script text */}
+          {/* Script text — click to edit */}
           <div className="px-4 py-3">
             {editing ? (
               <textarea
@@ -162,35 +114,37 @@ export function SceneEditor({ scene, sceneIndex, videoId, videoStatus, onRefresh
                 onChange={(e) => setLocalText(e.target.value)}
                 onBlur={handleBlur}
                 autoFocus
-                className="w-full text-sm leading-relaxed resize-none rounded-lg p-2"
+                className="w-full text-sm leading-relaxed resize-none rounded-lg p-3"
                 style={{
                   background: "var(--bg-card-hover)",
                   border: "1px solid var(--border)",
                   color: "var(--text-primary)",
                   outline: "none",
-                  minHeight: 120,
+                  minHeight: 150,
                 }}
               />
             ) : (
-              <p
+              <div
                 onClick={() => {
                   setLocalText(scene.scene_text || "");
                   setEditing(true);
                 }}
-                className="text-sm leading-relaxed whitespace-pre-wrap cursor-text rounded-lg p-2 transition-colors"
+                className="text-sm leading-relaxed whitespace-pre-wrap cursor-text rounded-lg p-3 transition-colors"
                 style={{ color: "var(--text-primary)" }}
                 onMouseEnter={(e) => (e.currentTarget.style.background = "var(--bg-card-hover)")}
                 onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
               >
                 {scene.scene_text || "Click to add script text..."}
-              </p>
+              </div>
             )}
             {textMutation.isPending && (
-              <span className="text-xs" style={{ color: "var(--text-muted)" }}>Saving...</span>
+              <span className="text-xs mt-1 block" style={{ color: "var(--text-muted)" }}>
+                Saving...
+              </span>
             )}
           </div>
 
-          {/* Segments — sentence text breakout */}
+          {/* Sentence segments — image breakout */}
           <div
             className="px-4 pb-3"
             style={{ borderTop: "1px solid var(--border)", paddingTop: 12 }}
