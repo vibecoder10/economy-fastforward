@@ -7,13 +7,13 @@ import {
   List,
   BarChart3,
   Settings,
-  FolderOpen,
+  Palette,
 } from "lucide-react";
 
 const tabs = [
   { href: "/", icon: LayoutGrid, label: "Home" },
   { href: "/pipeline", icon: List, label: "Queue" },
-  { href: "/assets", icon: FolderOpen, label: "Assets" },
+  { href: "/profile", icon: Palette, label: "Profile" },
   { href: "/analytics", icon: BarChart3, label: "Stats" },
   { href: "/settings", icon: Settings, label: "Settings" },
 ];
