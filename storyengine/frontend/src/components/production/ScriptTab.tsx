@@ -67,9 +67,10 @@ interface SceneState {
 }
 
 function initFromApi(apiScenes: ApiScriptScene[]): SceneState[] {
-  const total = apiScenes.length;
+  const sorted = [...apiScenes].sort((a, b) => (a.scene || 0) - (b.scene || 0));
+  const total = sorted.length;
   const actsCount = Math.min(total, 6);
-  return apiScenes.map((s) => ({
+  return sorted.map((s) => ({
     sceneNumber: s.scene || 0,
     actNumber: Math.ceil((s.scene || 1) / Math.ceil(total / actsCount)),
     narrationText: s.scene_text || "",
