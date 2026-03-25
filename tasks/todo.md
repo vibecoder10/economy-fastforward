@@ -2,51 +2,85 @@
 
 ## Completed: Pipeline Reorganization (2026-03-24)
 
-Full codebase reorganization of `skills/video-pipeline/`. Each tool is now a standalone folder:
+Full codebase reorganization of `skills/video-pipeline/`. Each tool is now a standalone folder with its own manifest.json. Agent quality pipeline added (hook/body/CTA with iterative scoring).
 
-```
-skills/video-pipeline/
-├── orchestrator/        # Pipeline brain (pipeline.py, Slack bot, constants)
-├── autopilot/           # Autonomous CTR-driven intelligence (102 tests)
-├── competitor_scraper/  # YouTube competitor data
-├── discovery/           # Headline + trending topic scanning
-├── title_idea/          # Title creation (with curiosity_gap/)
-├── research/            # Factual research
-├── script/              # Script writing (with brief_translator/)
-├── voice/               # Voice synthesis
-├── image_prompts/       # Prompt generation (with engine/)
-├── storyboard/          # Storyboard grids
-├── images/              # Image creation
-├── video_motion/        # Video scripts + clips (with animation/)
-├── sound/               # Sound FX + Music
-├── thumbnail/           # Thumbnail generation
-├── render/              # Rendering (with audio_sync/)
-├── upload/              # YouTube upload + SEO
-├── analytics/           # Performance tracking (with osiris/)
-├── shared/              # Clients, profiles, utilities
-└── infra/               # Setup scripts, cron, healthcheck
-```
+## StoryEngine SaaS UI — Current State (2026-03-24)
 
-All old import paths removed. No backward-compat shims.
+### Completed Modules
 
-## Autopilot Brain: All 3 Chunks ✅ COMPLETE (102 tests)
+**Module 0: Supabase Migration Verification** ✅
+- 51 columns added across 5 tables, 5 schema bugs fixed
+- Migrations: 004 (schema parity), 005 (agent + suggestion columns), 006 (niche columns)
+- All migrations applied to live Supabase
 
-- Chunk 1: Foundation (config, state, cadence, scorer, notifier)
-- Chunk 2: Thumbnail Intel + Memory System
-- Chunk 3: CTR Monitoring + Learning Loop
+**Module 1: Design System + Dashboard + Pipeline** ✅
+- Dark editorial design tokens (charcoal #0A0A0B, amber #D4A844, teal #1A8A7A)
+- 6-tab mobile bottom bar, 7-item collapsible desktop sidebar
+- Dashboard: action-first (approvals, activity, stats)
+- Pipeline: dropdown filters, search, progress dot cards
+
+**Module 2: Video Detail (6 tabs) + Create** ✅
+- `/pipeline/[videoId]` — Info, Script, Visuals, Storyboard, Thumbnail, Performance tabs
+- `/create` — New video form (title, angle, thesis + advanced options)
+- Read-only V1 (interactive features deferred)
+
+**Module 4: Autopilot + Analytics + Agent Suggestions** ✅
+- `/analytics` — CTR bar chart (Recharts), revenue estimates, per-video cards
+- `/autopilot` — Restyled, agent quality stats, top 3 recommendations
+- Suggestion system: suggested_script/title/thumbnail with accept/reject
+- Script diff UI, thumbnail variant visual UI
+
+**Module 5: Niche Selection + Topic Discovery** ✅
+- `/competitors` — Playing card grid with YouTube thumbnails, VPH, confidence
+- Channel filter pills + dropdown
+- Card expanded modal (theirs vs yours + thumbnail workshop)
+- Thumbnail workshop with prompt iteration carousel
+- Niche setup wizard (category → sub-niche → channels)
+- `/autopilot` simplified to top 3 decision maker with "View All →" link
+
+### In Progress
+
+**Small enhancement requested:**
+- Add a YouTube link input bar at the top of `/competitors` page to quickly add new competitor channels
+- Just a text input + "Add" button that calls `addNicheChannel()`
+
+### Not Yet Built
+
+**Module 3: Interactive Features**
+- Script editing inline, regeneration triggers
+- Image generation from UI
+- Approve/advance pipeline stages from video detail
+- Storyboard panel review (approve/reject individual panels)
+
+**Future Modules:**
+- Channel onboarding + baseline learning (import existing YouTube data)
+- Batch topic selection / "Queue All"
+- Calendar production view
+- Settings page (Channel Profile, API keys, pipeline config)
+- Multi-tenant architecture
+- Billing & subscriptions
 
 ---
 
 ## Handoff Notes
 
-**What was done this session:**
-- Reorganized 300+ files into 18 standalone bot folders
-- Deleted all `run_*.py`, `bots/`, `steps/`, shim directories
-- Updated ~100+ import paths across all source and test files
-- Updated SYSTEM_STATE.md, CLAUDE.md, pipeline_control.py paths
-- 780+ tests passing, 0 new failures
+**VPS Info:**
+- SSH: `ssh clawd@76.13.119.181` (password: Economyfastforward)
+- Frontend: `http://76.13.119.181:3001` (Next.js, port 3001)
+- Backend: `http://76.13.119.181:8001` (FastAPI, port 8001)
+- Auto-deploy cron: every 5 min pulls git + rebuilds frontend
 
-**What's next:**
-- Productize StoryEngine: make Claude the orchestrator calling each bot as a skill
-- Remove remaining `timing/` and `config/` directories if stale
-- Consider updating VPS cron paths in `infra/setup_cron.sh` for new CLI locations
+**Key specs:**
+- UI/UX spec: `docs/superpowers/specs/2026-03-23-storyengine-ui-ux-addendum.md`
+- Module 5 spec: `docs/superpowers/specs/2026-03-24-module5-niche-discovery-design.md`
+
+**Architecture decisions:**
+- Agent pipeline is the PRIMARY script generation path (not a polish layer)
+- Brief translator is legacy (VPS cron pipeline)
+- Supabase is single source of truth, Airtable data imported
+- Suggestions stored as proposed overwrites (human approves inline)
+- Autopilot = decision maker (top 3), Competitors = research/browse (all cards)
+
+**What to start next session with:**
+1. Add the quick "add competitor" input bar to `/competitors` page
+2. Then Module 3 (interactive features) or continue building out niche discovery
