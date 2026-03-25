@@ -148,6 +148,13 @@ export const launchCandidate = (candidateId: string) =>
     { method: "POST" }
   );
 
+// Pipeline reset
+export const resetPipeline = (videoId: string, resetTo: string) =>
+  fetchApi<{ status: string; video_id: string; reset_to: string; deleted: { scripts: number; assets: number } }>(
+    `/api/pipeline/reset/${videoId}`,
+    { method: "POST", body: JSON.stringify({ reset_to: resetTo }) }
+  );
+
 // Agent Quality Pipeline
 export const getAgentStats = () =>
   fetchApi<AgentStats>("/api/agents/stats");

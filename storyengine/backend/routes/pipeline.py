@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 
 from auth import get_tenant_id
-from database import fetch_one
+from database import fetch_one, execute
 from pipeline_executor import PipelineExecutor
 from status_map import to_supabase, to_pipeline, get_next_status_supabase
 
@@ -865,3 +865,92 @@ async def orchestrate_decide_only(
             "reasoning": f"Orchestrator error: {e}",
             "confidence": 0.0,
         }
+
+
+# --- Reset Pipeline ---
+
+class ResetRequest(BaseModel):
+    """Request to reset a video's pipeline stage."""
+    reset_to: str = "ready_for_scripting"  # Which status to reset to
+
+
+@router.post("/reset/{video_id}")
+async def reset_pipeline(
+    video_id: str,
+    request: ResetRequest,
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """Reset a video's pipeline — delete downstream data and set status back.
+
+    reset_to options:
+    - "ready_for_scripting" — delete scripts + assets, keep research
+    - "ready_for_voice" — delete voice audio, keep scripts
+    - "ready_for_images" — delete images, keep prompts
+    """
+    video = await fetch_one(
+        "SELECT id, status FROM videos WHERE id = $1 AND tenant_id = $2",
+        video_id, tenant_id,
+    )
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+
+    reset_to = request.reset_to
+    deleted = {"scripts": 0, "assets": 0}
+
+    if reset_to == "ready_for_scripting":
+        # Delete all scripts and assets for this video
+        result = await execute(
+            "DELETE FROM scripts WHERE video_id = $1 AND tenant_id = $2",
+            video_id, tenant_id,
+        )
+        deleted["scripts"] = int(result.split()[-1]) if result else 0
+
+        result = await execute(
+            "DELETE FROM assets WHERE video_id = $1 AND tenant_id = $2",
+            video_id, tenant_id,
+        )
+        deleted["assets"] = int(result.split()[-1]) if result else 0
+
+        # Clear script field on video
+        await execute(
+            "UPDATE videos SET script = NULL, status = $1 WHERE id = $2 AND tenant_id = $3",
+            reset_to, video_id, tenant_id,
+        )
+
+    elif reset_to == "ready_for_voice":
+        # Clear voice URLs from scripts
+        await execute(
+            "UPDATE scripts SET voice_over_url = NULL, voice_status = 'Create' WHERE video_id = $1 AND tenant_id = $2",
+            video_id, tenant_id,
+        )
+        await execute(
+            "UPDATE videos SET status = $1 WHERE id = $2 AND tenant_id = $3",
+            reset_to, video_id, tenant_id,
+        )
+
+    elif reset_to in ("ready_for_image_prompts", "ready_for_images"):
+        # Delete assets (images)
+        result = await execute(
+            "DELETE FROM assets WHERE video_id = $1 AND tenant_id = $2",
+            video_id, tenant_id,
+        )
+        deleted["assets"] = int(result.split()[-1]) if result else 0
+
+        await execute(
+            "UPDATE videos SET status = $1 WHERE id = $2 AND tenant_id = $3",
+            reset_to, video_id, tenant_id,
+        )
+
+    else:
+        # Just update status
+        await execute(
+            "UPDATE videos SET status = $1 WHERE id = $2 AND tenant_id = $3",
+            reset_to, video_id, tenant_id,
+        )
+
+    return {
+        "status": "reset",
+        "video_id": video_id,
+        "reset_to": reset_to,
+        "deleted": deleted,
+    }
