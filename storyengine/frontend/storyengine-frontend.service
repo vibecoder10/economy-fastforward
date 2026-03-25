@@ -1,0 +1,16 @@
+[Unit]
+Description=StoryEngine Frontend (Next.js)
+After=network.target
+
+[Service]
+Type=simple
+User=clawd
+WorkingDirectory=/home/clawd/projects/economy-fastforward/storyengine/frontend
+ExecStart=/usr/bin/npm run start
+Restart=always
+RestartSec=5
+Environment=NODE_ENV=production
+Environment=PORT=3001
+
+[Install]
+WantedBy=multi-user.target
