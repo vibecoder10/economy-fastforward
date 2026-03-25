@@ -3,7 +3,10 @@
 import json
 from fastapi import APIRouter, Depends, HTTPException, Query
 from auth import get_tenant_id
-from models import VideoSummary, VideoDetail, STAGE_ORDER, PIPELINE_STAGES
+from models import (
+    VideoSummary, VideoDetail, STAGE_ORDER, PIPELINE_STAGES,
+    SceneTextUpdate, SceneToneUpdate, SegmentUpdate, StoryboardModeUpdate,
+)
 from database import fetch_all, fetch_one, execute
 from typing import Optional, Any
 
@@ -215,7 +218,9 @@ async def get_video_script(video_id: str, tenant_id: str = Depends(get_tenant_id
     """Get full script for a video."""
     rows = await fetch_all(
         """SELECT id, video_id, scene, scene_text, voice_over_url, voice_status,
-                  script_status, sources, storyboard_on_off,
+                  script_status, sources, storyboard_on_off, tone,
+                  storyboard_1_url, storyboard_2_url, storyboard_3_url,
+                  storyboard_prompts, storyboard_beat_count, storyboard_status,
                   created_at::text
            FROM scripts WHERE video_id = $1 AND tenant_id = $2
            ORDER BY scene""",
@@ -350,3 +355,87 @@ async def reject_suggestion(video_id: str, tenant_id: str = Depends(get_tenant_i
     """, video_id)
 
     return {"status": "ok", "video_id": video_id}
+
+
+@router.patch("/{video_id}/scenes/{scene}/text")
+async def update_scene_text(
+    video_id: str, scene: int, body: SceneTextUpdate, tenant_id: str = Depends(get_tenant_id)
+):
+    result = await execute(
+        "UPDATE scripts SET scene_text = $1, updated_at = now() "
+        "WHERE video_id = $2 AND scene = $3 AND tenant_id = $4",
+        body.text, video_id, scene, tenant_id,
+    )
+    if not result or "UPDATE 0" in result:
+        raise HTTPException(404, "Scene not found")
+    return {"status": "updated", "scene": scene}
+
+
+@router.patch("/{video_id}/scenes/{scene}/tone")
+async def update_scene_tone(
+    video_id: str, scene: int, body: SceneToneUpdate, tenant_id: str = Depends(get_tenant_id)
+):
+    valid_tones = {"serious", "conversational", "urgent", "concise"}
+    if body.tone not in valid_tones:
+        raise HTTPException(400, f"Invalid tone. Must be one of: {valid_tones}")
+    await execute(
+        "UPDATE scripts SET tone = $1, updated_at = now() "
+        "WHERE video_id = $2 AND scene = $3 AND tenant_id = $4",
+        body.tone, video_id, scene, tenant_id,
+    )
+    return {"status": "updated", "scene": scene, "tone": body.tone}
+
+
+@router.get("/{video_id}/scenes/{scene}/segments")
+async def get_scene_segments(
+    video_id: str, scene: int, tenant_id: str = Depends(get_tenant_id)
+):
+    rows = await fetch_all(
+        "SELECT id, image_index, sentence_text, shot_type, status "
+        "FROM assets WHERE video_id = $1 AND scene = $2 AND tenant_id = $3 "
+        "ORDER BY image_index",
+        video_id, scene, tenant_id,
+    )
+    segments = []
+    for row in rows:
+        text = row.get("sentence_text") or ""
+        word_count = len(text.split()) if text else 0
+        segments.append({
+            "id": row["id"],
+            "image_index": row.get("image_index"),
+            "sentence_text": text,
+            "shot_type": row.get("shot_type"),
+            "status": row.get("status"),
+            "word_count": word_count,
+            "duration_seconds": round(word_count / 2.5, 1),
+        })
+    return {"scene": scene, "segments": segments}
+
+
+@router.put("/{video_id}/scenes/{scene}/segments")
+async def update_scene_segments(
+    video_id: str, scene: int, body: SegmentUpdate, tenant_id: str = Depends(get_tenant_id)
+):
+    updated = 0
+    for seg in body.segments:
+        result = await execute(
+            "UPDATE assets SET sentence_text = $1, updated_at = now() "
+            "WHERE video_id = $2 AND scene = $3 AND image_index = $4 AND tenant_id = $5",
+            seg["sentence_text"], video_id, scene, seg["image_index"], tenant_id,
+        )
+        if result and "UPDATE 1" in result:
+            updated += 1
+    return {"status": "updated", "scene": scene, "updated_count": updated}
+
+
+@router.patch("/{video_id}/storyboard-mode")
+async def update_storyboard_mode(
+    video_id: str, body: StoryboardModeUpdate, tenant_id: str = Depends(get_tenant_id)
+):
+    value = "On" if body.enabled else "Off"
+    await execute(
+        "UPDATE scripts SET storyboard_on_off = $1, updated_at = now() "
+        "WHERE video_id = $2 AND tenant_id = $3",
+        value, video_id, tenant_id,
+    )
+    return {"status": "updated", "storyboard_mode": value}

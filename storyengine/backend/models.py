@@ -105,6 +105,22 @@ class BatchApproval(BaseModel):
     status: str  # 'approved' or 'rejected'
 
 
+class SceneTextUpdate(BaseModel):
+    text: str
+
+
+class SceneToneUpdate(BaseModel):
+    tone: str  # serious | conversational | urgent | concise
+
+
+class SegmentUpdate(BaseModel):
+    segments: list[dict]  # [{image_index: int, sentence_text: str}, ...]
+
+
+class StoryboardModeUpdate(BaseModel):
+    enabled: bool
+
+
 # --- Scripts ---
 
 class ScriptScene(BaseModel):
