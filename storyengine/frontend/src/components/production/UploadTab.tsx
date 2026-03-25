@@ -1,69 +1,124 @@
 "use client";
 
-import { useState } from "react";
-import { Upload, Copy, ExternalLink, CheckCircle } from "lucide-react";
+import { useState, useMemo } from "react";
+import { Upload, Copy, ExternalLink, CheckCircle, Loader2 } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { ActionButton } from "@/components/ui/ActionButton";
+import { runPipelineStage } from "@/lib/api";
 import type { Video } from "@/lib/types";
 
-const MOCK_STATUS: string = "uploaded_draft";
-const MOCK_VIDEO_ID = "dQw4w9WgXcQ";
-const MOCK_URL = `https://www.youtube.com/watch?v=${MOCK_VIDEO_ID}`;
-const MOCK_UPLOAD_DATE = "2026-03-24T14:30:00Z";
-
-const MOCK_DESCRIPTION = `Iran's shadow economy has been quietly building an alternative financial infrastructure that Western sanctions failed to anticipate.
-
-Key insights:
-- The IRGC controls over 40% of Iran's non-oil GDP through a network of front companies
-- China's Belt and Road Initiative provided the critical bypass to SWIFT sanctions
-- The parallel banking system now processes $12B annually outside Western oversight
-- Three decades of sanctions created the very economic resilience the West sought to prevent
-
-Sources:
-- RAND Corporation: "Iran's Political Economy" (2024)
-- Council on Foreign Relations: Shadow Banking Report
-- IMF Working Paper: Sanctions Evasion Mechanisms
-
-#economy #iran #geopolitics #sanctions #finance`;
-
-const MOCK_TAGS = [
-  "Iran Economy",
-  "Sanctions",
-  "Shadow Banking",
-  "Geopolitics",
-  "IRGC",
-  "Belt and Road",
-  "China Iran",
-  "Economic Warfare",
+const PIPELINE_ORDER = [
+  "idea_logged", "approved", "researching", "ready_for_scripting", "scripting",
+  "ready_for_voice", "voice", "ready_for_image_prompts", "ready_for_images",
+  "ready_for_storyboards", "ready_for_storyboard_images",
+  "ready_for_sound_design", "ready_for_sound_effects",
+  "ready_for_video_scripts", "ready_for_video_generation",
+  "ready_for_thumbnail", "ready_to_render", "rendering", "rendered",
+  "uploaded", "uploaded_draft", "done",
 ];
 
-const MOCK_HASHTAGS = ["#economy", "#iran", "#geopolitics", "#sanctions"];
+function getUploadStatus(status: string, youtubeUrl?: string | null): string {
+  if (youtubeUrl) return "uploaded_draft";
+  const idx = PIPELINE_ORDER.indexOf(status);
+  if (idx < 0) return "pending";
+  if (status === "done" || status === "uploaded" || status === "uploaded_draft") return status;
+  if (idx >= PIPELINE_ORDER.indexOf("rendered")) return "ready";
+  return "pending";
+}
 
 const STATUS_MAP: Record<string, { label: string; color: string }> = {
-  pending: { label: "Not Uploaded", color: "orange" },
+  pending: { label: "Not Rendered", color: "orange" },
+  ready: { label: "Ready to Upload", color: "turquoise" },
+  uploaded: { label: "Uploaded", color: "green" },
   uploaded_draft: { label: "Draft", color: "gold" },
-  published: { label: "Published", color: "green" },
+  done: { label: "Published", color: "green" },
 };
 
 interface UploadTabProps {
-  video: Video;
+  video: Video & {
+    youtube_url?: string | null;
+    hook_script?: string | null;
+    thesis?: string | null;
+  };
+}
+
+function buildDescription(hookScript?: string | null, thesis?: string | null, title?: string): string {
+  const parts: string[] = [];
+  if (thesis) parts.push(thesis);
+  if (hookScript) parts.push(`\n\n${hookScript}`);
+  if (parts.length === 0) {
+    return `${title || "Video"}\n\n#economy #geopolitics #finance`;
+  }
+  parts.push("\n\n#economy #geopolitics #finance");
+  return parts.join("");
+}
+
+function extractVideoId(url: string | null | undefined): string | null {
+  if (!url) return null;
+  const match = url.match(/(?:v=|youtu\.be\/)([A-Za-z0-9_-]{11})/);
+  return match ? match[1] : null;
+}
+
+function extractTags(title: string): string[] {
+  // Generate tags from title words (3+ chars, no stop words)
+  const stopWords = new Set(["the", "and", "for", "that", "this", "with", "from", "are", "was", "has", "its", "how", "why", "what"]);
+  return title
+    .replace(/[^a-zA-Z0-9\s]/g, "")
+    .split(/\s+/)
+    .filter((w) => w.length >= 3 && !stopWords.has(w.toLowerCase()))
+    .slice(0, 8);
 }
 
 export function UploadTab({ video }: UploadTabProps) {
-  const [title, setTitle] = useState(video.title || "Iran's $400B Shadow Empire");
-  const [description, setDescription] = useState(MOCK_DESCRIPTION);
+  const youtubeUrl = video.youtube_url;
+  const videoId = extractVideoId(youtubeUrl);
+  const uploadStatus = getUploadStatus(video.status, youtubeUrl);
+  const statusCfg = STATUS_MAP[uploadStatus] || STATUS_MAP.pending;
+  const isNotRendered = uploadStatus === "pending";
+
+  const defaultDescription = useMemo(
+    () => buildDescription(video.hook_script, video.thesis, video.title),
+    [video.hook_script, video.thesis, video.title],
+  );
+  const tags = useMemo(() => extractTags(video.title || ""), [video.title]);
+
+  const [title, setTitle] = useState(video.title || "");
+  const [description, setDescription] = useState(defaultDescription);
   const [copied, setCopied] = useState(false);
   const [confirmUpload, setConfirmUpload] = useState(false);
-
-  const statusCfg = STATUS_MAP[MOCK_STATUS] || STATUS_MAP.pending;
-  const isPublished = MOCK_STATUS === "published";
+  const [isUploading, setIsUploading] = useState(false);
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(MOCK_URL);
+    if (!youtubeUrl) return;
+    navigator.clipboard.writeText(youtubeUrl);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
+
+  const handleUpload = async () => {
+    setIsUploading(true);
+    try {
+      await runPipelineStage(video.id, "render");
+    } finally {
+      setIsUploading(false);
+      setConfirmUpload(false);
+    }
+  };
+
+  if (isNotRendered) {
+    return (
+      <GlassCard className="p-12 text-center">
+        <Upload size={32} className="mx-auto mb-3" style={{ color: "var(--text-tertiary)", opacity: 0.4 }} />
+        <p className="text-lg font-display mb-2" style={{ color: "var(--text-secondary)" }}>
+          Not Yet Rendered
+        </p>
+        <p className="text-sm" style={{ color: "var(--text-tertiary)" }}>
+          The video must be rendered before it can be uploaded to YouTube. Go to the Render tab to start rendering.
+        </p>
+      </GlassCard>
+    );
+  }
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-6">
@@ -188,58 +243,35 @@ export function UploadTab({ video }: UploadTabProps) {
           </div>
 
           {/* Tags */}
-          <div className="mb-4">
-            <label
-              className="text-[10px] font-medium uppercase tracking-wider block mb-2"
-              style={{ color: "var(--text-tertiary)" }}
-            >
-              Tags
-            </label>
-            <div className="flex flex-wrap gap-1.5">
-              {MOCK_TAGS.map((tag) => (
-                <span
-                  key={tag}
-                  className="text-[10px] font-mono px-2 py-1 rounded-full"
-                  style={{
-                    background: "var(--turquoise-dim)",
-                    color: "var(--turquoise)",
-                    border: "1px solid rgba(0, 212, 170, 0.2)",
-                  }}
-                >
-                  {tag}
-                </span>
-              ))}
+          {tags.length > 0 && (
+            <div className="mb-4">
+              <label
+                className="text-[10px] font-medium uppercase tracking-wider block mb-2"
+                style={{ color: "var(--text-tertiary)" }}
+              >
+                Tags
+              </label>
+              <div className="flex flex-wrap gap-1.5">
+                {tags.map((tag) => (
+                  <span
+                    key={tag}
+                    className="text-[10px] font-mono px-2 py-1 rounded-full"
+                    style={{
+                      background: "var(--turquoise-dim)",
+                      color: "var(--turquoise)",
+                      border: "1px solid rgba(0, 212, 170, 0.2)",
+                    }}
+                  >
+                    {tag}
+                  </span>
+                ))}
+              </div>
             </div>
-          </div>
-
-          {/* Hashtags */}
-          <div>
-            <label
-              className="text-[10px] font-medium uppercase tracking-wider block mb-2"
-              style={{ color: "var(--text-tertiary)" }}
-            >
-              Hashtags
-            </label>
-            <div className="flex flex-wrap gap-1.5">
-              {MOCK_HASHTAGS.map((ht) => (
-                <span
-                  key={ht}
-                  className="text-[10px] font-mono px-2 py-1 rounded-full"
-                  style={{
-                    background: "rgba(212, 168, 82, 0.1)",
-                    color: "var(--gold)",
-                    border: "1px solid rgba(212, 168, 82, 0.2)",
-                  }}
-                >
-                  {ht}
-                </span>
-              ))}
-            </div>
-          </div>
+          )}
         </GlassCard>
 
         {/* YouTube URL display */}
-        {MOCK_VIDEO_ID && (
+        {youtubeUrl && (
           <GlassCard className="p-4">
             <div className="flex items-center gap-3">
               <div
@@ -251,13 +283,13 @@ export function UploadTab({ video }: UploadTabProps) {
                 </svg>
               </div>
               <a
-                href={MOCK_URL}
+                href={youtubeUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-sm font-mono flex-1 truncate hover:underline"
                 style={{ color: "var(--turquoise)" }}
               >
-                {MOCK_URL}
+                {youtubeUrl}
               </a>
               <button
                 onClick={handleCopy}
@@ -288,16 +320,21 @@ export function UploadTab({ video }: UploadTabProps) {
           </div>
           <div className="space-y-3">
             {[
+              ...(video.uploadDate
+                ? [{
+                    label: "Upload Date",
+                    value: new Date(video.uploadDate).toLocaleDateString("en-US", {
+                      month: "short",
+                      day: "numeric",
+                      year: "numeric",
+                    }),
+                  }]
+                : []),
+              ...(videoId ? [{ label: "Video ID", value: videoId }] : []),
               {
-                label: "Upload Date",
-                value: new Date(MOCK_UPLOAD_DATE).toLocaleDateString("en-US", {
-                  month: "short",
-                  day: "numeric",
-                  year: "numeric",
-                }),
+                label: "Visibility",
+                value: uploadStatus === "done" ? "Public" : "Unlisted",
               },
-              { label: "Video ID", value: MOCK_VIDEO_ID },
-              { label: "Visibility", value: isPublished ? "Public" : "Unlisted" },
             ].map((row) => (
               <div key={row.label} className="flex items-center justify-between">
                 <span className="text-xs" style={{ color: "var(--text-secondary)" }}>
@@ -315,11 +352,12 @@ export function UploadTab({ video }: UploadTabProps) {
           {confirmUpload ? (
             <ActionButton
               variant="filled"
-              icon={Upload}
+              icon={isUploading ? Loader2 : Upload}
               className="w-full"
-              onClick={() => setConfirmUpload(false)}
+              onClick={handleUpload}
+              disabled={isUploading}
             >
-              Confirm Upload
+              {isUploading ? "Uploading..." : "Confirm Upload"}
             </ActionButton>
           ) : (
             <button
@@ -328,15 +366,24 @@ export function UploadTab({ video }: UploadTabProps) {
               onClick={() => setConfirmUpload(true)}
             >
               <Upload size={16} />
-              Upload to YouTube
+              Upload as Draft
             </button>
           )}
-          <ActionButton variant="outline" icon={Copy} className="w-full" onClick={handleCopy}>
-            {copied ? "Copied!" : "Copy URL"}
-          </ActionButton>
-          <ActionButton variant="outline" icon={ExternalLink} className="w-full">
-            Open in YouTube Studio
-          </ActionButton>
+          {youtubeUrl && (
+            <>
+              <ActionButton variant="outline" icon={Copy} className="w-full" onClick={handleCopy}>
+                {copied ? "Copied!" : "Copy URL"}
+              </ActionButton>
+              <ActionButton
+                variant="outline"
+                icon={ExternalLink}
+                className="w-full"
+                onClick={() => window.open(youtubeUrl, "_blank")}
+              >
+                Open in YouTube Studio
+              </ActionButton>
+            </>
+          )}
         </div>
       </div>
     </div>
