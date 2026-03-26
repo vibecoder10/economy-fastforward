@@ -316,7 +316,10 @@ class PipelineExecutor:
             }
 
         except Exception as e:
+            import traceback
             error_msg = str(e)
+            tb = traceback.format_exc()
+            print(f"\n{'='*60}\nPIPELINE ERROR in run_script:\n{tb}\n{'='*60}\n", flush=True)
             await self._log_activity(bot_name, video_id, "failed", error_msg)
             return {"status": "failed", "error": error_msg}
 
