@@ -88,13 +88,27 @@ Full codebase reorganization of `skills/video-pipeline/`. Each tool is now a sta
 - Adapter wired into PipelineExecutor (replaces `pipeline.airtable`)
 - Status gates fixed to use `is_at_or_past_stage()`
 - psycopg2-binary installed on VPS, deployed
+- **✅ Pipeline initialization unblocked** (2026-03-26): LightPipeline replaces VideoPipeline. No full pipeline import needed.
+- **✅ Script generation works end-to-end** (2026-03-26): "Generate Script" button → 6 scenes created → status → Ready For Voice
+  - Fixed: `airtable_record_id` lookup → direct Supabase UUID lookup (all 13 `run_*` methods)
+  - Fixed: `VideoConfig(target_minutes=...)` → `VideoConfig(video_length_minutes=...)`
+  - Fixed: Bot subdirs (script/, voice/, etc.) added to sys.path for internal imports
+  - Fixed: NoOpSlack/NoOpGoogle with `__getattr__` for safe fallback
+  - Fixed: `_update_status()`, `image_filter`, `scene_filter` added to LightPipeline
+  - Fixed: `update_idea_fields` returns written fields for verification checks
+  - Fixed: Research agent import path (`research.agent` not `research_agent`)
 
-**BLOCKED: Background task hangs on pipeline initialization**
-- POST `/api/pipeline/script/{id}` returns 200 (task queued)
-- Background thread starts `executor.run_script()`
-- Thread goes silent — no output, no traceback, no error
-- Likely cause: `_ensure_initialized()` creates `VideoPipeline()` which inits Airtable client + all API clients, then we swap adapter. The init may hang on import/connection.
-- Fix: Add granular print statements inside `_ensure_initialized()` to find exact hang point. If `VideoPipeline()` hangs, may need to skip its Airtable init entirely.
+**Missing clients (non-blocking for now):**
+- GoogleClient: OAuth credentials not on VPS → Drive folders skip, Google Docs skip
+- SlackClient: No SLACK_BOT_TOKEN on VPS → notifications skip
+- ElevenLabsClient: No WAVESPEED_API_KEY → voice generation will fail
+
+**Next steps:**
+1. Test voice generation (needs ElevenLabs API key in vault)
+2. Test image prompts generation
+3. Apply migration 007 to live Supabase (tone column on scripts)
+4. Add Google OAuth + Slack credentials to VPS vault for full pipeline
+5. Future modules: Settings page, channel onboarding, calendar view
 
 **Dev tools built:**
 - Voice Typer: `~/whisper-dictation/` (Fn key dictation, auto-starts on login)
@@ -102,10 +116,3 @@ Full codebase reorganization of `skills/video-pipeline/`. Each tool is now a sta
 - Chrome Extension: `~/browser-watcher/extension/` (session recorder with voice + screenshots)
 - Session Server: `~/browser-watcher/session_server.py` (bundles sessions → Claude CLI)
 - Auto-deploy: `~/browser-watcher/deploy.sh` (commit → push → VPS pull + restart)
-
-**What to start next session with:**
-1. Debug the hang: add prints inside `_ensure_initialized()` around each step
-2. Fix the deadlock (likely async/sync mixing or import issue)
-3. Once script generation works end-to-end, test all other stages
-4. Apply migration 007 to live Supabase (tone column on scripts)
-5. Future modules: Settings page, channel onboarding, calendar view
