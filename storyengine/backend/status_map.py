@@ -160,3 +160,17 @@ def get_bot_name(supabase_status: str) -> str:
 
 # Supabase flow order (must be after to_supabase function)
 SUPABASE_ORDER: list[str] = [to_supabase(s) for s in PIPELINE_ORDER]
+
+
+def is_at_or_past_stage(current_status: str, required_status: str) -> bool:
+    """Check if current status is at or past the required stage.
+
+    Used by pipeline routes to allow re-running stages (e.g., regenerating
+    a script when the video is already past scripting).
+    """
+    try:
+        current_idx = SUPABASE_ORDER.index(current_status)
+        required_idx = SUPABASE_ORDER.index(required_status)
+        return current_idx >= required_idx
+    except ValueError:
+        return False

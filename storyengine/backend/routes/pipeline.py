@@ -12,7 +12,7 @@ from pydantic import BaseModel
 from auth import get_tenant_id
 from database import fetch_one, execute
 from pipeline_executor import PipelineExecutor
-from status_map import to_supabase, to_pipeline, get_next_status_supabase
+from status_map import to_supabase, to_pipeline, get_next_status_supabase, is_at_or_past_stage
 
 router = APIRouter(prefix="/api/pipeline", tags=["pipeline"])
 
@@ -173,7 +173,7 @@ async def run_script(
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
 
-    if video["status"] != "ready_for_scripting":
+    if not is_at_or_past_stage(video["status"], "ready_for_scripting"):
         raise HTTPException(
             status_code=400,
             detail=f"Video not ready for scripting (status: {video['status']})",
@@ -219,7 +219,7 @@ async def run_voice(
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
 
-    if scene is None and video["status"] != "ready_for_voice":
+    if scene is None and not is_at_or_past_stage(video["status"], "ready_for_voice"):
         raise HTTPException(
             status_code=400,
             detail=f"Video not ready for voice (status: {video['status']})",
@@ -260,7 +260,7 @@ async def run_prompts(
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
 
-    if video["status"] != "ready_for_image_prompts":
+    if not is_at_or_past_stage(video["status"], "ready_for_image_prompts"):
         raise HTTPException(
             status_code=400,
             detail=f"Video not ready for prompts (status: {video['status']})",
@@ -301,7 +301,7 @@ async def run_storyboards(
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
 
-    if video["status"] != "ready_for_storyboards":
+    if not is_at_or_past_stage(video["status"], "ready_for_storyboards"):
         raise HTTPException(
             status_code=400,
             detail=f"Video not ready for storyboards (status: {video['status']})",
@@ -342,7 +342,7 @@ async def run_storyboard_images(
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
 
-    if video["status"] != "ready_for_storyboard_images":
+    if not is_at_or_past_stage(video["status"], "ready_for_storyboard_images"):
         raise HTTPException(
             status_code=400,
             detail=f"Video not ready for storyboard images (status: {video['status']})",
@@ -383,7 +383,7 @@ async def run_storyboard_extract(
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
 
-    if video["status"] != "ready_for_storyboard_extraction":
+    if not is_at_or_past_stage(video["status"], "ready_for_storyboard_extraction"):
         raise HTTPException(
             status_code=400,
             detail=f"Video not ready for storyboard extraction (status: {video['status']})",
@@ -431,7 +431,7 @@ async def run_images(
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
 
-    if scene is None and video["status"] != "ready_for_images":
+    if scene is None and not is_at_or_past_stage(video["status"], "ready_for_images"):
         raise HTTPException(
             status_code=400,
             detail=f"Video not ready for images (status: {video['status']})",
@@ -472,7 +472,7 @@ async def run_sound_prompts(
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
 
-    if video["status"] != "ready_for_sound_design":
+    if not is_at_or_past_stage(video["status"], "ready_for_sound_design"):
         raise HTTPException(
             status_code=400,
             detail=f"Video not ready for sound design (status: {video['status']})",
@@ -513,7 +513,7 @@ async def run_sound_effects(
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
 
-    if video["status"] != "ready_for_sound_effects":
+    if not is_at_or_past_stage(video["status"], "ready_for_sound_effects"):
         raise HTTPException(
             status_code=400,
             detail=f"Video not ready for sound effects (status: {video['status']})",
@@ -554,7 +554,7 @@ async def run_video_scripts(
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
 
-    if video["status"] != "ready_for_video_scripts":
+    if not is_at_or_past_stage(video["status"], "ready_for_video_scripts"):
         raise HTTPException(
             status_code=400,
             detail=f"Video not ready for video scripts (status: {video['status']})",
@@ -595,7 +595,7 @@ async def run_video_generation(
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
 
-    if video["status"] != "ready_for_video_generation":
+    if not is_at_or_past_stage(video["status"], "ready_for_video_generation"):
         raise HTTPException(
             status_code=400,
             detail=f"Video not ready for video generation (status: {video['status']})",
@@ -636,7 +636,7 @@ async def run_thumbnail(
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
 
-    if video["status"] != "ready_for_thumbnail":
+    if not is_at_or_past_stage(video["status"], "ready_for_thumbnail"):
         raise HTTPException(
             status_code=400,
             detail=f"Video not ready for thumbnail (status: {video['status']})",
@@ -677,7 +677,7 @@ async def run_render(
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
 
-    if video["status"] != "ready_to_render":
+    if not is_at_or_past_stage(video["status"], "ready_to_render"):
         raise HTTPException(
             status_code=400,
             detail=f"Video not ready to render (status: {video['status']})",
