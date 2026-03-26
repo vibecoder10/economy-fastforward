@@ -167,10 +167,10 @@ class PipelineExecutor:
             video_length = idea.get(IdeaFields.VIDEO_LENGTH_MIN)
             if video_length:
                 self._pipeline._duration_was_set = True
-                self._pipeline.video_config = VideoConfig(target_minutes=float(video_length))
+                self._pipeline.video_config = VideoConfig(video_length_minutes=int(float(video_length)))
             else:
                 self._pipeline._duration_was_set = False
-                self._pipeline.video_config = VideoConfig(target_minutes=10)
+                self._pipeline.video_config = VideoConfig(video_length_minutes=10)
             # Core image
             core_img = idea.get(IdeaFields.CORE_IMAGE)
             if isinstance(core_img, list) and core_img:
