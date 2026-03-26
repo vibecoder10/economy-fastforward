@@ -24,7 +24,7 @@ if str(PIPELINE_PATH) not in sys.path:
     sys.path.insert(0, str(PIPELINE_PATH))
 
 from database import fetch_one, execute
-from status_map import to_supabase, to_pipeline, get_bot_name, STAGE_BOT_MAP
+from status_map import to_supabase, to_pipeline, get_bot_name, STAGE_BOT_MAP, is_at_or_past_stage
 from vault import get_secret
 
 
@@ -73,6 +73,11 @@ class PipelineExecutor:
         # Now import and initialize pipeline
         from orchestrator.pipeline import VideoPipeline
         self._pipeline = VideoPipeline()
+
+        # Swap Airtable client with Supabase adapter
+        from supabase_adapter import SupabaseAdapter
+        self._pipeline.airtable = SupabaseAdapter(tenant_id=self.tenant_id)
+
         self._initialized = True
 
     async def _log_activity(
@@ -278,7 +283,7 @@ class PipelineExecutor:
                 return {"status": "failed", "error": "Video not found"}
 
             current_status = video.get("status")
-            if current_status != "ready_for_scripting":
+            if not is_at_or_past_stage(current_status, "ready_for_scripting"):
                 return {"status": "failed", "error": f"Video not ready for scripting (status: {current_status})"}
 
             await self._log_activity(bot_name, video_id, "started", "Generating script")
@@ -333,7 +338,7 @@ class PipelineExecutor:
                 return {"status": "failed", "error": "Video not found"}
 
             current_status = video.get("status")
-            if current_status != "ready_for_voice":
+            if not is_at_or_past_stage(current_status, "ready_for_voice"):
                 return {"status": "failed", "error": f"Video not ready for voice (status: {current_status})"}
 
             await self._log_activity(bot_name, video_id, "started", "Generating voice")
