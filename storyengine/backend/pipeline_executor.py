@@ -53,8 +53,10 @@ class PipelineExecutor:
         if self._initialized:
             return
 
+        import sys
+        print("[INIT] Starting pipeline initialization...", flush=True)
+
         # Load API keys from Vault into environment
-        # Pipeline clients read from os.environ
         keys_to_load = [
             "anthropic_api_key",
             "airtable_api_key",
@@ -65,18 +67,30 @@ class PipelineExecutor:
         ]
 
         for key_name in keys_to_load:
-            value = await get_secret(key_name, self.tenant_id)
-            if value:
-                env_name = key_name.upper()
-                os.environ[env_name] = value
+            print(f"[INIT] Loading key: {key_name}...", flush=True)
+            try:
+                value = await get_secret(key_name, self.tenant_id)
+                if value:
+                    env_name = key_name.upper()
+                    os.environ[env_name] = value
+                    print(f"[INIT]   ✓ {key_name} loaded", flush=True)
+                else:
+                    print(f"[INIT]   - {key_name} not found", flush=True)
+            except Exception as e:
+                print(f"[INIT]   ✗ {key_name} error: {e}", flush=True)
 
         # Now import and initialize pipeline
+        print("[INIT] Importing VideoPipeline...", flush=True)
         from orchestrator.pipeline import VideoPipeline
+        print("[INIT] Creating VideoPipeline instance...", flush=True)
         self._pipeline = VideoPipeline()
+        print("[INIT] VideoPipeline created OK", flush=True)
 
         # Swap Airtable client with Supabase adapter
+        print("[INIT] Swapping in SupabaseAdapter...", flush=True)
         from supabase_adapter import SupabaseAdapter
         self._pipeline.airtable = SupabaseAdapter(tenant_id=self.tenant_id)
+        print("[INIT] SupabaseAdapter installed", flush=True)
 
         self._initialized = True
 
