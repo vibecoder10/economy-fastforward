@@ -4,7 +4,7 @@ import { useState, useMemo } from "react";
 import { useParams } from "next/navigation";
 import { motion } from "framer-motion";
 import {
-  ArrowLeft, FileText, Mic, Image as ImageIcon, Film,
+  ArrowLeft, FileText, Image as ImageIcon, Film,
   BarChart3, Search, Video, Upload, Loader2, RotateCcw,
 } from "lucide-react";
 import Link from "next/link";
@@ -14,9 +14,8 @@ import { useTaskPoller } from "@/hooks/use-task-poller";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { ProgressStepper } from "@/components/ui/ProgressStepper";
 import { ResearchTab } from "@/components/production/ResearchTab";
-import { ScriptTab } from "@/components/production/ScriptTab";
-import { VoiceReviewTab } from "@/components/production/VoiceReviewTab";
-import { VisualsTab } from "@/components/production/VisualsTab";
+import { ScriptVoiceTab } from "@/components/production/ScriptVoiceTab";
+import { StoryboardVisualsTab } from "@/components/production/StoryboardVisualsTab";
 import { VideoClipsTab } from "@/components/production/VideoClipsTab";
 import { ThumbnailTab } from "@/components/production/ThumbnailTab";
 import { RenderTab } from "@/components/production/RenderTab";
@@ -70,9 +69,8 @@ const PIPELINE_ORDER = [
 
 const TABS = [
   { id: "research", label: "Research", icon: Search },
-  { id: "script", label: "Script", icon: FileText },
-  { id: "voice", label: "Voice & Storyboard", icon: Mic },
-  { id: "visuals", label: "Visuals", icon: ImageIcon },
+  { id: "script-voice", label: "Script & Voice", icon: FileText },
+  { id: "storyboard-visuals", label: "Storyboard & Visuals", icon: ImageIcon },
   { id: "clips", label: "Video Clips", icon: Video },
   { id: "thumbnail", label: "Thumbnail", icon: Film },
   { id: "render", label: "Render", icon: Film },
@@ -80,16 +78,25 @@ const TABS = [
   { id: "performance", label: "Performance", icon: BarChart3 },
 ];
 
+const STEP_LABELS = [
+  "Research",
+  "Script & Voice",
+  "Storyboard & Visuals",
+  "Video Clips",
+  "Thumbnail",
+  "Render & Upload",
+];
+
 function getStepFromStatus(status: string): number {
   const idx = PIPELINE_ORDER.indexOf(status);
   if (idx < 0) return 1;
   // Map 22 statuses to 6 visual steps
   if (idx <= 2) return 1;   // Research
-  if (idx <= 4) return 2;   // Script
-  if (idx <= 6) return 3;   // Voice
-  if (idx <= 12) return 4;  // Visuals/Sound
-  if (idx <= 15) return 5;  // Video/Thumbnail
-  return 6;                  // Render/Upload/Done
+  if (idx <= 6) return 2;   // Script & Voice
+  if (idx <= 12) return 3;  // Storyboard & Visuals
+  if (idx <= 14) return 4;  // Video Clips
+  if (idx <= 15) return 5;  // Thumbnail
+  return 6;                  // Render & Upload
 }
 
 function getCompletedSteps(status: string): number[] {
@@ -103,10 +110,10 @@ function getCompletedSteps(status: string): number[] {
 function getDefaultTab(status: string): string {
   const idx = PIPELINE_ORDER.indexOf(status);
   if (idx <= 2) return "research";
-  if (idx <= 4) return "script";
-  if (idx <= 6) return "voice";
-  if (idx <= 12) return "visuals";
-  if (idx <= 15) return "clips";
+  if (idx <= 6) return "script-voice";
+  if (idx <= 12) return "storyboard-visuals";
+  if (idx <= 14) return "clips";
+  if (idx <= 15) return "thumbnail";
   if (idx <= 18) return "render";
   return "performance";
 }
@@ -129,17 +136,23 @@ export default function VideoDetailPage() {
   const [runningNext, setRunningNext] = useState(false);
   const [skipping, setSkipping] = useState(false);
   const [taskRunning, setTaskRunning] = useState(false);
+  const [approvalMessage, setApprovalMessage] = useState<string | null>(null);
 
   const { status: taskStatus, message: taskMessage, reset: resetTask } = useTaskPoller({
     videoId,
     enabled: taskRunning,
     interval: 3000,
-    onComplete: () => {
+    onComplete: (message) => {
       setTaskRunning(false);
       setRunningNext(false);
       queryClient.invalidateQueries({ queryKey: ["video", videoId] });
       queryClient.invalidateQueries({ queryKey: ["video-script", videoId] });
       queryClient.invalidateQueries({ queryKey: ["video-assets", videoId] });
+      // Show approval gate messages
+      if (message && message.includes("needs approval")) {
+        setApprovalMessage(message);
+        setTimeout(() => setApprovalMessage(null), 8000);
+      }
     },
     onFailed: (error) => {
       setTaskRunning(false);
@@ -230,22 +243,23 @@ export default function VideoDetailPage() {
   const completedSteps = getCompletedSteps(status);
 
   // Build a normalized video object for tab components (they expect certain field names)
+  // All field accesses use optional chaining to handle published videos that may lack pipeline fields
   const videoForTabs: any = {
     ...video,
-    id: video.id,
-    title: video.video_title || "Untitled",
-    status: video.status,
-    framework: video.framework_angle || video.thematic_framework,
-    videoLengthMin: video.video_length_minutes,
-    wordCount: video.script ? video.script.split(/\s+/).length : 0,
+    id: video?.id,
+    title: video?.video_title || "Untitled",
+    status: video?.status,
+    framework: video?.framework_angle || video?.thematic_framework,
+    videoLengthMin: video?.video_length_minutes,
+    wordCount: video?.script ? video.script.split(/\s+/).length : 0,
     sceneCount: 0, // Will be populated from script endpoint
-    estimatedCost: video.total_cost || 0,
-    views: video.views,
-    ctr: video.ctr,
-    retention: video.avg_retention,
-    verdict: video.performance_verdict,
-    uploadDate: video.created_at?.split("T")[0],
-    thumbnailUrl: video.thumbnail_url,
+    estimatedCost: video?.total_cost ?? 0,
+    views: video?.views ?? 0,
+    ctr: video?.ctr ?? null,
+    retention: video?.avg_retention ?? null,
+    verdict: video?.performance_verdict ?? null,
+    uploadDate: video?.created_at?.split("T")[0] ?? null,
+    thumbnailUrl: video?.thumbnail_url ?? null,
   };
 
   return (
@@ -370,7 +384,7 @@ export default function VideoDetailPage() {
 
       {/* Progress stepper */}
       <motion.div variants={item}>
-        <ProgressStepper steps={6} currentStep={Math.min(currentStep, 6)} completedSteps={completedSteps} />
+        <ProgressStepper steps={6} currentStep={Math.min(currentStep, 6)} completedSteps={completedSteps} labels={STEP_LABELS} />
       </motion.div>
 
       {/* Tab navigation */}
@@ -398,12 +412,34 @@ export default function VideoDetailPage() {
         </div>
       </motion.div>
 
+      {/* Approval gate message */}
+      {approvalMessage && (
+        <motion.div variants={item}>
+          <div
+            className="flex items-center gap-3 px-4 py-3 rounded-xl text-sm"
+            style={{
+              background: "rgba(255, 186, 8, 0.1)",
+              border: "1px solid rgba(255, 186, 8, 0.2)",
+              color: "var(--gold)",
+            }}
+          >
+            <span className="shrink-0">⚠</span>
+            <span>{approvalMessage}</span>
+            <button
+              onClick={() => setApprovalMessage(null)}
+              className="ml-auto text-xs opacity-60 hover:opacity-100"
+            >
+              ✕
+            </button>
+          </div>
+        </motion.div>
+      )}
+
       {/* Tab content */}
       <motion.div variants={item}>
-        {currentTab === "research" && <ResearchTab video={videoForTabs} onApproved={() => setActiveTab("script")} />}
-        {currentTab === "script" && <ScriptTab video={videoForTabs} />}
-        {currentTab === "voice" && <VoiceReviewTab video={videoForTabs} />}
-        {currentTab === "visuals" && <VisualsTab video={videoForTabs} />}
+        {currentTab === "research" && <ResearchTab video={videoForTabs} onApproved={() => setActiveTab("script-voice")} />}
+        {currentTab === "script-voice" && <ScriptVoiceTab video={videoForTabs} />}
+        {currentTab === "storyboard-visuals" && <StoryboardVisualsTab video={videoForTabs} onGoToScriptVoice={() => setActiveTab("script-voice")} />}
         {currentTab === "clips" && <VideoClipsTab video={videoForTabs} />}
         {currentTab === "thumbnail" && <ThumbnailTab video={videoForTabs} />}
         {currentTab === "render" && <RenderTab video={videoForTabs} />}

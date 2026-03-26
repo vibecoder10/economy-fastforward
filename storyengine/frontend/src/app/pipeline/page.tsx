@@ -320,27 +320,31 @@ export default function QueuePage() {
                         borderBottom: "1px solid var(--border-subtle)",
                       }}
                     >
-                      {video.thumbnail_url ? (
+                      {/* Grid pattern fallback (always rendered, thumbnail covers it when loaded) */}
+                      <div className="absolute inset-0 opacity-10">
+                        <svg width="100%" height="100%">
+                          <defs>
+                            <pattern id={`grid-${video.id}`} width="20" height="20" patternUnits="userSpaceOnUse">
+                              <path d="M 20 0 L 0 0 0 20" fill="none" stroke="var(--turquoise)" strokeWidth="0.5" />
+                            </pattern>
+                          </defs>
+                          <rect width="100%" height="100%" fill={`url(#grid-${video.id})`} />
+                        </svg>
+                      </div>
+                      {!video.thumbnail_url && (
+                        <Film size={24} style={{ color: "var(--text-tertiary)", opacity: 0.5 }} />
+                      )}
+                      {video.thumbnail_url && (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img
                           src={video.thumbnail_url}
                           alt={title}
                           className="absolute inset-0 w-full h-full object-cover"
+                          onError={(e) => {
+                            // Hide broken image so grid pattern fallback shows through
+                            (e.target as HTMLImageElement).style.display = "none";
+                          }}
                         />
-                      ) : (
-                        <>
-                          <div className="absolute inset-0 opacity-10">
-                            <svg width="100%" height="100%">
-                              <defs>
-                                <pattern id={`grid-${video.id}`} width="20" height="20" patternUnits="userSpaceOnUse">
-                                  <path d="M 20 0 L 0 0 0 20" fill="none" stroke="var(--turquoise)" strokeWidth="0.5" />
-                                </pattern>
-                              </defs>
-                              <rect width="100%" height="100%" fill={`url(#grid-${video.id})`} />
-                            </svg>
-                          </div>
-                          <Film size={24} style={{ color: "var(--text-tertiary)", opacity: 0.5 }} />
-                        </>
                       )}
                     </div>
 

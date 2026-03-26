@@ -32,7 +32,7 @@ for bot_dir in ["script", "voice", "image_prompts", "images", "video_motion",
     if bot_path not in sys.path:
         sys.path.append(bot_path)
 
-from database import fetch_one, execute
+from database import fetch_one, fetch_all, execute
 from status_map import to_supabase, to_pipeline, get_bot_name, STAGE_BOT_MAP, is_at_or_past_stage
 from vault import get_secret
 
@@ -328,6 +328,19 @@ class PipelineExecutor:
             self._pipeline._load_idea(idea)
         else:
             print(f"[WARN] Could not load idea for video_id={video_id}", flush=True)
+
+    async def _check_voice_exists(self, video_id: str) -> tuple[bool, int, int]:
+        """Check if voice has been generated for all scenes.
+
+        Returns (all_have_voice, total_scenes, scenes_with_voice).
+        """
+        rows = await fetch_all(
+            "SELECT voice_over_url FROM scripts WHERE video_id = $1",
+            video_id,
+        )
+        total = len(rows)
+        with_voice = sum(1 for r in rows if r.get("voice_over_url"))
+        return (total > 0 and with_voice == total), total, with_voice
 
     async def _update_video_status(self, video_id: str, new_status: str):
         """Update video status in Supabase.
@@ -642,30 +655,50 @@ class PipelineExecutor:
             print(f"[orchestrator] Claude orchestration failed: {e}, falling back to status map")
             return await self._run_next_step_status_map(video_id)
 
+    # Statuses that require explicit user approval before running the next stage.
+    # "Run Next Step" will NOT auto-advance past these — user must approve in the UI.
+    APPROVAL_GATE_STATUSES = {
+        "researching": "Research needs approval before proceeding. Go to the Research tab to review and approve.",
+        "scripting": "Script & Voice needs approval before proceeding. Go to the Script & Voice tab to review, generate voice, and approve.",
+        "ready_for_voice": "Script & Voice needs approval before proceeding. Generate voice for all scenes, then approve.",
+        "voice": "Script & Voice needs approval before proceeding. Go to the Script & Voice tab to approve.",
+        "ready_for_images": "Visuals need approval before proceeding. Go to the Storyboard & Visuals tab to review and approve.",
+        "ready_for_thumbnail": "Thumbnail needs approval before proceeding. Go to the Thumbnail tab to review and approve.",
+    }
+
     async def _run_next_step_status_map(self, video_id: str) -> dict:
-        """Original status-driven next step (fallback)."""
+        """Original status-driven next step (fallback).
+
+        Runs ONE stage and stops. Respects approval gates — certain statuses
+        require explicit user approval before advancing.
+        """
         video = await self._get_video(video_id)
         if not video:
             return {"status": "failed", "error": "Video not found"}
 
         current_status = video.get("status")
 
+        # Check approval gates — block auto-advance at these statuses
+        gate_message = self.APPROVAL_GATE_STATUSES.get(current_status)
+        if gate_message:
+            return {
+                "status": "needs_approval",
+                "message": gate_message,
+            }
+
         # Map status to handler
         handlers = {
             "idea_logged": self.run_research,
             "approved": self.run_research,
             "ready_for_scripting": self.run_script,
-            "ready_for_voice": self.run_voice,
             "ready_for_image_prompts": self.run_prompts,
             "ready_for_storyboards": self.run_storyboard_prompts,
             "ready_for_storyboard_images": self.run_storyboard_images,
             "ready_for_storyboard_extraction": self.run_storyboard_extract,
-            "ready_for_images": self.run_images,
             "ready_for_sound_design": self.run_sound_prompts,
             "ready_for_sound_effects": self.run_sound_effects,
             "ready_for_video_scripts": self.run_video_scripts,
             "ready_for_video_generation": self.run_video_generation,
-            "ready_for_thumbnail": self.run_thumbnail,
             "ready_to_render": self.run_render,
         }
 
@@ -687,6 +720,14 @@ class PipelineExecutor:
             video = await self._get_video(video_id)
             if not video:
                 return {"status": "failed", "error": "Video not found"}
+
+            # Pipeline integrity check: voice must exist before image prompts
+            all_voiced, total, voiced = await self._check_voice_exists(video_id)
+            if not all_voiced:
+                msg = f"Voice generation must complete before image prompts. Missing voice for {total - voiced}/{total} scenes."
+                await self._log_activity(bot_name, video_id, "failed", msg)
+                await self._update_video_status(video_id, "ready_for_voice")
+                return {"status": "failed", "error": msg}
 
             current_status = video.get("status")
             await self._log_activity(bot_name, video_id, "started", "Generating prompts")
@@ -819,6 +860,14 @@ class PipelineExecutor:
             video = await self._get_video(video_id)
             if not video:
                 return {"status": "failed", "error": "Video not found"}
+
+            # Pipeline integrity check: voice must exist before image generation
+            all_voiced, total, voiced = await self._check_voice_exists(video_id)
+            if not all_voiced:
+                msg = f"Voice generation must complete before image generation. Missing voice for {total - voiced}/{total} scenes."
+                await self._log_activity(bot_name, video_id, "failed", msg)
+                await self._update_video_status(video_id, "ready_for_voice")
+                return {"status": "failed", "error": msg}
 
             current_status = video.get("status")
             await self._log_activity(bot_name, video_id, "started", "Generating images")

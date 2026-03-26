@@ -59,6 +59,7 @@ export default function ProfilePage() {
   const [uploadedImage, setUploadedImage] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<string | null>(null);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [isEditingJson, setIsEditingJson] = useState(false);
   const [editableJson, setEditableJson] = useState("");
   const [newStyleName, setNewStyleName] = useState("");
@@ -139,29 +140,55 @@ export default function ProfilePage() {
   });
 
   // --- AI Upload handler ---
+  const runAnalysis = useCallback((imageData: string) => {
+    setIsAnalyzing(true);
+    setAnalysisResult(null);
+    setAnalysisError(null);
+    setIsEditingJson(false);
+
+    const timeout = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("Analysis timed out after 30 seconds")), 30000)
+    );
+
+    Promise.race([analyzeStyleImage(imageData), timeout])
+      .then((data) => {
+        console.log("[StyleAnalysis] Raw response:", data);
+        if (!data || !data.profile) {
+          throw new Error("Analysis returned empty result. Try again with a different image.");
+        }
+        let result: string;
+        try {
+          result = JSON.stringify(data.profile, null, 2);
+        } catch {
+          throw new Error("Analysis returned unparseable data. Try again with a different image.");
+        }
+        setAnalysisResult(result);
+        setEditableJson(result);
+        setAnalysisError(null);
+      })
+      .catch((err) => {
+        console.error("[StyleAnalysis] Error:", err);
+        setAnalysisResult(null);
+        const message = err instanceof Error ? err.message : "Analysis failed";
+        if (message.includes("timed out")) {
+          setAnalysisError("Analysis timed out. Try again with a different image.");
+        } else {
+          setAnalysisError(message);
+        }
+      })
+      .finally(() => {
+        setIsAnalyzing(false);
+      });
+  }, []);
+
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
     reader.onload = (ev) => {
-      setUploadedImage(ev.target?.result as string);
-      setIsAnalyzing(true);
-      setAnalysisResult(null);
-      setIsEditingJson(false);
-      // Call real Gemini Vision API
-      analyzeStyleImage(ev.target?.result as string)
-        .then((data) => {
-          const result = JSON.stringify(data.profile, null, 2);
-          setAnalysisResult(result);
-          setEditableJson(result);
-        })
-        .catch((err) => {
-          setAnalysisResult(null);
-          alert(`Style analysis failed: ${err.message}`);
-        })
-        .finally(() => {
-          setIsAnalyzing(false);
-        });
+      const imageData = ev.target?.result as string;
+      setUploadedImage(imageData);
+      runAnalysis(imageData);
     };
     reader.readAsDataURL(file);
   };
@@ -225,13 +252,15 @@ export default function ProfilePage() {
         name: newCharName.trim(),
         image_url: newCharImage,
       });
-      invalidate();
+      await queryClient.invalidateQueries({ queryKey: ["visualStyles"] });
       setNewCharName("");
       setNewCharImage(null);
       setCharSaveStatus("saved");
       setTimeout(() => setCharSaveStatus("idle"), 2000);
-    } catch {
+    } catch (err) {
       setCharSaveStatus("idle");
+      const msg = err instanceof Error ? err.message : "Failed to save character";
+      alert(`Character save failed: ${msg}`);
     }
   };
 
@@ -264,14 +293,16 @@ export default function ProfilePage() {
         name: genCharName.trim(),
         image_url: generatedImageUrl,
       });
-      invalidate();
+      await queryClient.invalidateQueries({ queryKey: ["visualStyles"] });
       setGeneratedImageUrl(null);
       setGeneratePrompt("");
       setGenCharName("");
       setCharSaveStatus("saved");
       setTimeout(() => setCharSaveStatus("idle"), 2000);
-    } catch {
+    } catch (err) {
       setCharSaveStatus("idle");
+      const msg = err instanceof Error ? err.message : "Failed to save character";
+      alert(`Character save failed: ${msg}`);
     }
   };
 
@@ -351,8 +382,8 @@ export default function ProfilePage() {
                 {uploadedImage && isAnalyzing && (
                   <div className="absolute inset-0 bg-black/60 rounded-xl flex items-center justify-center">
                     <div className="flex items-center gap-3">
-                      <Sparkles size={20} className="animate-pulse" style={{ color: "var(--purple)" }} />
-                      <span className="text-sm font-medium" style={{ color: "var(--purple)" }}>Analyzing visual style...</span>
+                      <Loader2 size={20} className="animate-spin" style={{ color: "var(--purple)" }} />
+                      <span className="text-sm font-medium" style={{ color: "var(--purple)" }}>Analyzing style...</span>
                     </div>
                   </div>
                 )}
@@ -366,11 +397,28 @@ export default function ProfilePage() {
 
             {/* JSON output + save controls */}
             <div>
-              {!analysisResult && !isAnalyzing && (
+              {!analysisResult && !isAnalyzing && !analysisError && (
                 <div className="w-full aspect-video rounded-xl flex items-center justify-center" style={{ background: "var(--bg-surface)", border: "1px solid var(--border-subtle)" }}>
                   <div className="text-center">
                     <Eye size={24} style={{ color: "var(--text-tertiary)" }} className="mx-auto mb-2" />
                     <p className="text-xs" style={{ color: "var(--text-tertiary)" }}>JSON profile will appear here</p>
+                  </div>
+                </div>
+              )}
+              {analysisError && !isAnalyzing && (
+                <div className="w-full aspect-video rounded-xl flex items-center justify-center" style={{ background: "var(--bg-surface)", border: "1px solid var(--red, #e94560)" }}>
+                  <div className="text-center px-4 space-y-3">
+                    <X size={24} style={{ color: "var(--red, #e94560)" }} className="mx-auto" />
+                    <p className="text-xs" style={{ color: "var(--red, #e94560)" }}>{analysisError}</p>
+                    {uploadedImage && (
+                      <button
+                        onClick={() => runAnalysis(uploadedImage)}
+                        className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition-all hover:brightness-110"
+                        style={{ background: "var(--purple)", color: "#fff" }}
+                      >
+                        <Loader2 size={12} /> Try Again
+                      </button>
+                    )}
                   </div>
                 </div>
               )}

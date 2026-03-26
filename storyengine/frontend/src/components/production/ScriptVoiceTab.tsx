@@ -1,0 +1,1601 @@
+"use client";
+
+import { useState, useMemo, useEffect, useRef, useCallback } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import {
+  ChevronDown, ChevronRight, Merge, Trash2, Plus, Volume2,
+  Library, Wand2, Play, Pause, Layers, Mic, Pencil, Loader2,
+  CheckCircle, Clock, AlertCircle, SkipBack, SkipForward,
+} from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  getVideoScript, getVideoAssets, advanceVideo, rejectVideo,
+  runPipelineStage, updateSceneText, updateVideo, clearStaleTask,
+  runVoiceForScene,
+} from "@/lib/api";
+import type { ScriptScene as ApiScriptScene, Asset } from "@/lib/api";
+import { useTaskPoller } from "@/hooks/use-task-poller";
+import { GlassCard } from "@/components/ui/GlassCard";
+import { SegmentBadge } from "@/components/ui/SegmentBadge";
+import { ActionButton } from "@/components/ui/ActionButton";
+import { MiniWaveform } from "@/components/ui/MiniWaveform";
+import { ProgressRing } from "@/components/ui/ProgressRing";
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+interface ScriptVoiceTabProps {
+  video: any;
+}
+
+interface SentenceState {
+  text: string;
+  sfxMode: "none" | "library" | "elevenlabs" | "custom";
+  sfxLibraryValue: string;
+  sfxCustomPrompt: string;
+}
+
+interface SceneState {
+  id: string;
+  sceneNumber: number;
+  actNumber: number;
+  narrationText: string;
+  displayText: string; // narrationText with style directives stripped
+  visualStyle: string;
+  composition: string;
+  sources?: string[];
+  imageGenerated?: boolean;
+  voiceOverUrl: string | null;
+  voiceStatus: string | null;
+  scriptStatus: string | null;
+  tone: string | null;
+  sentences: SentenceState[];
+}
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+const SFX_LIBRARY = [
+  { value: "", label: "-- No SFX --" },
+  { value: "ambient-tension", label: "Ambient Tension" },
+  { value: "war-drums", label: "War Drums (distant)" },
+  { value: "paper-shuffle", label: "Paper Shuffle" },
+  { value: "door-close", label: "Heavy Door Close" },
+  { value: "crowd-murmur", label: "Crowd Murmur" },
+  { value: "typing", label: "Keyboard Typing" },
+  { value: "explosion-distant", label: "Distant Explosion" },
+  { value: "clock-ticking", label: "Clock Ticking" },
+  { value: "heartbeat", label: "Heartbeat" },
+  { value: "wind", label: "Desert Wind" },
+  { value: "helicopter", label: "Helicopter Flyover" },
+  { value: "news-broadcast", label: "News Broadcast Chatter" },
+];
+
+/** Regex to match visual style directive lines (e.g. "dossier wide", "schema medium") */
+const STYLE_DIRECTIVE_RE =
+  /^(dossier|schema|echo|holographic hud|cinematic illustration|clay mannequin)\s*(wide|medium|closeup|environmental|portrait|overhead|low_angle)?\s*$/im;
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function splitSentences(text: string): string[] {
+  return text
+    .split(/(?<=[.!?\u2014])\s+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+/** Strip visual style directive lines from scene text for display. */
+function stripStyleDirectives(text: string): string {
+  return text
+    .split("\n")
+    .filter((line) => !STYLE_DIRECTIVE_RE.test(line.trim()))
+    .join("\n")
+    .trim();
+}
+
+function initFromApi(apiScenes: ApiScriptScene[], assets?: Asset[]): SceneState[] {
+  const sorted = [...apiScenes].sort((a, b) => (a.scene || 0) - (b.scene || 0));
+  const total = sorted.length;
+  const actsCount = Math.min(total, 6);
+
+  return sorted.map((s) => {
+    const sceneAssets = (assets || [])
+      .filter((a) => a.scene === s.scene)
+      .sort((a, b) => (a.image_index || 0) - (b.image_index || 0));
+
+    const sentences: SentenceState[] =
+      sceneAssets.length > 0
+        ? sceneAssets
+            .map((a) => a.sentence_text)
+            .filter((t): t is string => !!t)
+            .filter((t, i, arr) => i === 0 || t !== arr[i - 1])
+            .map((text) => ({
+              text,
+              sfxMode: "none" as const,
+              sfxLibraryValue: "",
+              sfxCustomPrompt: "",
+            }))
+        : splitSentences(s.scene_text || "").map((text) => ({
+            text,
+            sfxMode: "none" as const,
+            sfxLibraryValue: "",
+            sfxCustomPrompt: "",
+          }));
+
+    const rawText = s.scene_text || "";
+    return {
+      id: s.id,
+      sceneNumber: s.scene || 0,
+      actNumber: Math.ceil((s.scene || 1) / Math.ceil(total / actsCount)),
+      narrationText: rawText,
+      displayText: stripStyleDirectives(rawText),
+      visualStyle: "dossier",
+      composition: "wide",
+      sources: s.sources
+        ? (() => {
+            try {
+              return JSON.parse(s.sources!);
+            } catch {
+              return [];
+            }
+          })()
+        : [],
+      imageGenerated: sceneAssets.some((a) => !!a.image_url),
+      voiceOverUrl: s.voice_over_url || null,
+      voiceStatus: s.voice_status || null,
+      scriptStatus: s.script_status || null,
+      tone: s.tone || null,
+      sentences,
+    };
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Status badges
+// ---------------------------------------------------------------------------
+
+function VoiceStatusBadge({ status }: { status: string | null | undefined }) {
+  if (!status) return null;
+  const lower = status.toLowerCase();
+  if (lower === "finished" || lower === "done") {
+    return (
+      <span
+        className="flex items-center gap-1 text-[9px] font-medium px-1.5 py-0.5 rounded-full"
+        style={{ background: "rgba(0, 230, 138, 0.12)", color: "var(--green)" }}
+      >
+        <CheckCircle size={8} /> Voice Done
+      </span>
+    );
+  }
+  if (lower === "create" || lower === "pending") {
+    return (
+      <span
+        className="flex items-center gap-1 text-[9px] font-medium px-1.5 py-0.5 rounded-full"
+        style={{ background: "rgba(255, 186, 8, 0.12)", color: "var(--gold)" }}
+      >
+        <Clock size={8} /> Voice Pending
+      </span>
+    );
+  }
+  return (
+    <span
+      className="flex items-center gap-1 text-[9px] font-medium px-1.5 py-0.5 rounded-full"
+      style={{ background: "rgba(255,255,255,0.06)", color: "var(--text-tertiary)" }}
+    >
+      {status}
+    </span>
+  );
+}
+
+function ScriptStatusBadge({ status }: { status: string | null | undefined }) {
+  if (!status) return null;
+  const lower = status.toLowerCase();
+  if (lower === "finished" || lower === "done") {
+    return (
+      <span
+        className="flex items-center gap-1 text-[9px] font-medium px-1.5 py-0.5 rounded-full"
+        style={{ background: "rgba(0, 188, 212, 0.12)", color: "var(--turquoise)" }}
+      >
+        <CheckCircle size={8} /> Script Done
+      </span>
+    );
+  }
+  if (lower === "create" || lower === "pending") {
+    return (
+      <span
+        className="flex items-center gap-1 text-[9px] font-medium px-1.5 py-0.5 rounded-full"
+        style={{ background: "rgba(255, 120, 73, 0.12)", color: "var(--orange)" }}
+      >
+        <AlertCircle size={8} /> Script Pending
+      </span>
+    );
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// Main component
+// ---------------------------------------------------------------------------
+
+export function ScriptVoiceTab({ video }: ScriptVoiceTabProps) {
+  const queryClient = useQueryClient();
+
+  // ---- Data fetching ----
+  const { data: apiScenes, isLoading } = useQuery({
+    queryKey: ["video-script", video.id],
+    queryFn: () => getVideoScript(video.id),
+    enabled: !!video.id,
+  });
+
+  const { data: apiAssets } = useQuery({
+    queryKey: ["video-assets", video.id],
+    queryFn: () => getVideoAssets(video.id),
+    enabled: !!video.id,
+  });
+
+  const computed = useMemo(
+    () => (apiScenes ? initFromApi(apiScenes, apiAssets || undefined) : []),
+    [apiScenes, apiAssets],
+  );
+
+  // ---- Local state ----
+  const [scenes, setScenes] = useState<SceneState[]>([]);
+  const [collapsedActs, setCollapsedActs] = useState<Record<number, boolean>>({});
+  const [expandedScenes, setExpandedScenes] = useState<Set<number>>(new Set());
+
+  // Script actions
+  const [approving, setApproving] = useState(false);
+  const [rejecting, setRejecting] = useState(false);
+  const [regeneratingScript, setRegeneratingScript] = useState(false);
+  const [deletingScene, setDeletingScene] = useState<number | null>(null);
+  const [savingScene, setSavingScene] = useState<number | null>(null);
+  const [savedScene, setSavedScene] = useState<number | null>(null);
+  const [showRevisionModal, setShowRevisionModal] = useState(false);
+  const [revisionNotes, setRevisionNotes] = useState("");
+  const [revisionScope, setRevisionScope] = useState("Minor tweaks");
+  const [approved, setApproved] = useState(false);
+
+  // Voice actions
+  const [generatingVoiceAll, setGeneratingVoiceAll] = useState(false);
+  const [generatingVoiceScene, setGeneratingVoiceScene] = useState<number | null>(null);
+
+  // Audio playback
+  const [activeSegment, setActiveSegment] = useState<string | null>(null);
+  const [volume, setVolume] = useState(75);
+  const [playbackSpeed, setPlaybackSpeed] = useState("1.0x");
+  const audioRefs = useRef<Record<string, HTMLAudioElement>>({});
+
+  // Task polling (script generation)
+  const [scriptTaskRunning, setScriptTaskRunning] = useState(false);
+  const { message: scriptTaskMessage } = useTaskPoller({
+    videoId: video.id,
+    enabled: scriptTaskRunning,
+    interval: 3000,
+    onComplete: () => {
+      setScriptTaskRunning(false);
+      setRegeneratingScript(false);
+      invalidateAll();
+    },
+    onFailed: (error) => {
+      setScriptTaskRunning(false);
+      setRegeneratingScript(false);
+      alert(`Script generation failed: ${error}`);
+    },
+  });
+
+  // Task polling (voice generation)
+  const [voiceTaskRunning, setVoiceTaskRunning] = useState(false);
+  const { message: voiceTaskMessage } = useTaskPoller({
+    videoId: video.id,
+    enabled: voiceTaskRunning,
+    interval: 3000,
+    onComplete: () => {
+      setVoiceTaskRunning(false);
+      setGeneratingVoiceAll(false);
+      setGeneratingVoiceScene(null);
+      invalidateAll();
+    },
+    onFailed: (error) => {
+      setVoiceTaskRunning(false);
+      setGeneratingVoiceAll(false);
+      setGeneratingVoiceScene(null);
+      alert(`Voice generation failed: ${error}`);
+    },
+  });
+
+  const invalidateAll = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ["video", video.id] });
+    queryClient.invalidateQueries({ queryKey: ["video-script", video.id] });
+    queryClient.invalidateQueries({ queryKey: ["video-assets", video.id] });
+  }, [queryClient, video.id]);
+
+  // Sync API data into local state (once)
+  useEffect(() => {
+    if (computed.length > 0 && scenes.length === 0) {
+      setScenes(computed);
+    }
+  }, [computed, scenes.length]);
+
+  // Re-sync voice data when API data refreshes (voice URLs may have appeared)
+  useEffect(() => {
+    if (computed.length > 0 && scenes.length > 0) {
+      setScenes((prev) =>
+        prev.map((s) => {
+          const fresh = computed.find((c) => c.sceneNumber === s.sceneNumber);
+          if (!fresh) return s;
+          return {
+            ...s,
+            voiceOverUrl: fresh.voiceOverUrl,
+            voiceStatus: fresh.voiceStatus,
+          };
+        }),
+      );
+    }
+  }, [computed]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ---- Act grouping ----
+  const actGroups = useMemo(
+    () =>
+      scenes.reduce(
+        (acc, scene) => {
+          if (!acc[scene.actNumber]) acc[scene.actNumber] = [];
+          acc[scene.actNumber].push(scene);
+          return acc;
+        },
+        {} as Record<number, SceneState[]>,
+      ),
+    [scenes],
+  );
+
+  // ---- Derived stats ----
+  const totalScenes = scenes.length;
+  const totalSentences = scenes.reduce((sum, s) => sum + s.sentences.length, 0);
+  const wordCount = scenes.reduce(
+    (sum, s) => sum + s.narrationText.split(/\s+/).filter(Boolean).length,
+    0,
+  );
+  const scenesWithVoice = scenes.filter((s) => !!s.voiceOverUrl).length;
+  const scenesWithScript = scenes.filter(
+    (s) => !!s.narrationText.trim(),
+  ).length;
+  const allReady = totalScenes > 0 && scenesWithVoice === totalScenes && scenesWithScript === totalScenes;
+
+  // ---------------------------------------------------------------------------
+  // Script handlers
+  // ---------------------------------------------------------------------------
+
+  const handleApprove = useCallback(async () => {
+    if (!confirm("Approve script & voice and advance to next stage?")) return;
+    setApproving(true);
+    try {
+      await advanceVideo(video.id);
+      invalidateAll();
+      setApproved(true);
+    } catch (err) {
+      alert(`Failed to approve: ${(err as Error).message}`);
+      setApproving(false);
+    }
+  }, [video.id, invalidateAll]);
+
+  const handleReject = useCallback(() => {
+    setShowRevisionModal(true);
+  }, []);
+
+  const handleSubmitRevision = useCallback(async () => {
+    setRejecting(true);
+    try {
+      const notes = `[${revisionScope}] ${revisionNotes}`;
+      await updateVideo(video.id, { revision_notes: notes });
+      await rejectVideo(video.id, notes);
+      invalidateAll();
+      setShowRevisionModal(false);
+      setRevisionNotes("");
+      setRevisionScope("Minor tweaks");
+    } catch (err) {
+      alert(`Failed to request revision: ${(err as Error).message}`);
+    } finally {
+      setRejecting(false);
+    }
+  }, [video.id, revisionScope, revisionNotes, invalidateAll]);
+
+  const handleRegenerateScript = useCallback(async () => {
+    setRegeneratingScript(true);
+    try {
+      await runPipelineStage(video.id, "script");
+      setScriptTaskRunning(true);
+    } catch (err: unknown) {
+      const message = (err as Error).message || "";
+      if (message.includes("409")) {
+        try {
+          await clearStaleTask(video.id);
+          await runPipelineStage(video.id, "script");
+          setScriptTaskRunning(true);
+          return;
+        } catch (retryErr) {
+          alert(`Failed to regenerate: ${(retryErr as Error).message}`);
+        }
+      } else {
+        alert(`Failed to regenerate: ${message}`);
+      }
+      setRegeneratingScript(false);
+    }
+  }, [video.id]);
+
+  const handleDeleteScene = useCallback(
+    async (sceneNum: number) => {
+      setDeletingScene(sceneNum);
+      try {
+        await updateSceneText(video.id, sceneNum, "");
+        invalidateAll();
+        setScenes((prev) => prev.filter((s) => s.sceneNumber !== sceneNum));
+      } catch (err) {
+        alert(`Failed to delete scene: ${(err as Error).message}`);
+      } finally {
+        setDeletingScene(null);
+      }
+    },
+    [video.id, invalidateAll],
+  );
+
+  const handleNarrationBlur = useCallback(
+    async (sceneNum: number, text: string) => {
+      setSavingScene(sceneNum);
+      try {
+        await updateSceneText(video.id, sceneNum, text);
+        setSavedScene(sceneNum);
+        setTimeout(() => setSavedScene(null), 1500);
+      } catch (err) {
+        console.error(`Failed to save scene ${sceneNum}:`, err);
+      } finally {
+        setSavingScene(null);
+      }
+    },
+    [video.id],
+  );
+
+  // ---------------------------------------------------------------------------
+  // Voice handlers
+  // ---------------------------------------------------------------------------
+
+  const handleGenerateAllVoice = useCallback(async () => {
+    setGeneratingVoiceAll(true);
+    try {
+      await runPipelineStage(video.id, "voice");
+      setVoiceTaskRunning(true);
+    } catch (err: unknown) {
+      const message = (err as Error).message || "";
+      if (message.includes("409")) {
+        try {
+          await clearStaleTask(video.id);
+          await runPipelineStage(video.id, "voice");
+          setVoiceTaskRunning(true);
+          return;
+        } catch (retryErr) {
+          alert(`Voice generation failed: ${(retryErr as Error).message}`);
+        }
+      } else {
+        alert(`Voice generation failed: ${message}`);
+      }
+      setGeneratingVoiceAll(false);
+    }
+  }, [video.id]);
+
+  const handleGenerateSceneVoice = useCallback(
+    async (sceneNum: number) => {
+      setGeneratingVoiceScene(sceneNum);
+      try {
+        await runVoiceForScene(video.id, sceneNum);
+        setVoiceTaskRunning(true);
+      } catch (err: unknown) {
+        const message = (err as Error).message || "";
+        if (message.includes("409")) {
+          try {
+            await clearStaleTask(video.id);
+            await runVoiceForScene(video.id, sceneNum);
+            setVoiceTaskRunning(true);
+            return;
+          } catch (retryErr) {
+            alert(`Voice generation failed: ${(retryErr as Error).message}`);
+          }
+        } else {
+          alert(`Voice generation failed: ${message}`);
+        }
+        setGeneratingVoiceScene(null);
+      }
+    },
+    [video.id],
+  );
+
+  // ---------------------------------------------------------------------------
+  // Audio playback
+  // ---------------------------------------------------------------------------
+
+  const toggleSegmentPlay = useCallback(
+    (segmentId: string, voiceOverUrl: string | null) => {
+      if (activeSegment === segmentId) {
+        const audio = audioRefs.current[segmentId];
+        if (audio) {
+          audio.pause();
+          audio.currentTime = 0;
+        }
+        setActiveSegment(null);
+        return;
+      }
+
+      // Stop any currently playing
+      if (activeSegment && audioRefs.current[activeSegment]) {
+        audioRefs.current[activeSegment].pause();
+        audioRefs.current[activeSegment].currentTime = 0;
+      }
+
+      if (!voiceOverUrl) {
+        setActiveSegment(null);
+        return;
+      }
+
+      if (!audioRefs.current[segmentId]) {
+        audioRefs.current[segmentId] = new Audio(voiceOverUrl);
+        audioRefs.current[segmentId].addEventListener("ended", () => {
+          setActiveSegment(null);
+        });
+      }
+
+      const audio = audioRefs.current[segmentId];
+      audio.volume = volume / 100;
+      audio.playbackRate = parseFloat(playbackSpeed);
+      audio.play().catch(() => setActiveSegment(null));
+      setActiveSegment(segmentId);
+    },
+    [activeSegment, volume, playbackSpeed],
+  );
+
+  useEffect(() => {
+    if (activeSegment && audioRefs.current[activeSegment]) {
+      audioRefs.current[activeSegment].volume = volume / 100;
+    }
+  }, [volume, activeSegment]);
+
+  useEffect(() => {
+    if (activeSegment && audioRefs.current[activeSegment]) {
+      audioRefs.current[activeSegment].playbackRate = parseFloat(playbackSpeed);
+    }
+  }, [playbackSpeed, activeSegment]);
+
+  const playPrev = useCallback(() => {
+    if (!scenes.length) return;
+    const idx = scenes.findIndex((s) => s.id === activeSegment);
+    const prevIdx = idx > 0 ? idx - 1 : scenes.length - 1;
+    toggleSegmentPlay(scenes[prevIdx].id, scenes[prevIdx].voiceOverUrl);
+  }, [scenes, activeSegment, toggleSegmentPlay]);
+
+  const playNext = useCallback(() => {
+    if (!scenes.length) return;
+    const idx = scenes.findIndex((s) => s.id === activeSegment);
+    const nextIdx = idx < scenes.length - 1 ? idx + 1 : 0;
+    toggleSegmentPlay(scenes[nextIdx].id, scenes[nextIdx].voiceOverUrl);
+  }, [scenes, activeSegment, toggleSegmentPlay]);
+
+  // ---------------------------------------------------------------------------
+  // Scene editing helpers
+  // ---------------------------------------------------------------------------
+
+  const toggleAct = (actNum: number) => {
+    setCollapsedActs((prev) => ({ ...prev, [actNum]: !prev[actNum] }));
+  };
+
+  const toggleExpand = (sceneNum: number) => {
+    setExpandedScenes((prev) => {
+      const next = new Set(prev);
+      if (next.has(sceneNum)) next.delete(sceneNum);
+      else next.add(sceneNum);
+      return next;
+    });
+  };
+
+  const updateNarration = (sceneNum: number, text: string) => {
+    setScenes((prev) =>
+      prev.map((s) => {
+        if (s.sceneNumber !== sceneNum) return s;
+        const newSentences = splitSentences(text).map((t, i) => ({
+          ...(s.sentences[i] || { sfxMode: "none" as const, sfxLibraryValue: "", sfxCustomPrompt: "" }),
+          text: t,
+        }));
+        return { ...s, narrationText: text, displayText: stripStyleDirectives(text), sentences: newSentences };
+      }),
+    );
+  };
+
+  const updateSentence = (sceneNum: number, sentIdx: number, text: string) => {
+    setScenes((prev) =>
+      prev.map((s) => {
+        if (s.sceneNumber !== sceneNum) return s;
+        const newSentences = s.sentences.map((sent, i) => (i === sentIdx ? { ...sent, text } : sent));
+        const narrationText = newSentences.map((sent) => sent.text).join(" ");
+        return { ...s, sentences: newSentences, narrationText, displayText: stripStyleDirectives(narrationText) };
+      }),
+    );
+  };
+
+  const mergeSentenceUp = (sceneNum: number, sentIdx: number) => {
+    if (sentIdx === 0) return;
+    setScenes((prev) =>
+      prev.map((s) => {
+        if (s.sceneNumber !== sceneNum) return s;
+        const newSentences = [...s.sentences];
+        newSentences[sentIdx - 1] = {
+          ...newSentences[sentIdx - 1],
+          text: newSentences[sentIdx - 1].text + " " + newSentences[sentIdx].text,
+        };
+        newSentences.splice(sentIdx, 1);
+        const narrationText = newSentences.map((sent) => sent.text).join(" ");
+        return { ...s, sentences: newSentences, narrationText, displayText: stripStyleDirectives(narrationText) };
+      }),
+    );
+  };
+
+  const deleteSentence = (sceneNum: number, sentIdx: number) => {
+    setScenes((prev) =>
+      prev.map((s) => {
+        if (s.sceneNumber !== sceneNum) return s;
+        const newSentences = s.sentences.filter((_, i) => i !== sentIdx);
+        const narrationText = newSentences.map((sent) => sent.text).join(" ");
+        return { ...s, sentences: newSentences, narrationText, displayText: stripStyleDirectives(narrationText) };
+      }),
+    );
+  };
+
+  const addSentenceAfter = (sceneNum: number, sentIdx: number) => {
+    setScenes((prev) =>
+      prev.map((s) => {
+        if (s.sceneNumber !== sceneNum) return s;
+        const newSentences = [...s.sentences];
+        newSentences.splice(sentIdx + 1, 0, {
+          text: "",
+          sfxMode: "none",
+          sfxLibraryValue: "",
+          sfxCustomPrompt: "",
+        });
+        const narrationText = newSentences.map((sent) => sent.text).join(" ");
+        return { ...s, sentences: newSentences, narrationText, displayText: stripStyleDirectives(narrationText) };
+      }),
+    );
+  };
+
+  const updateSfxMode = (sceneNum: number, sentIdx: number, mode: SentenceState["sfxMode"]) => {
+    setScenes((prev) =>
+      prev.map((s) => {
+        if (s.sceneNumber !== sceneNum) return s;
+        const newSentences = s.sentences.map((sent, i) => (i === sentIdx ? { ...sent, sfxMode: mode } : sent));
+        return { ...s, sentences: newSentences };
+      }),
+    );
+  };
+
+  const updateSfxLibrary = (sceneNum: number, sentIdx: number, value: string) => {
+    setScenes((prev) =>
+      prev.map((s) => {
+        if (s.sceneNumber !== sceneNum) return s;
+        const newSentences = s.sentences.map((sent, i) =>
+          i === sentIdx
+            ? { ...sent, sfxLibraryValue: value, sfxMode: (value ? "library" : "none") as SentenceState["sfxMode"] }
+            : sent,
+        );
+        return { ...s, sentences: newSentences };
+      }),
+    );
+  };
+
+  const updateSfxPrompt = (sceneNum: number, sentIdx: number, prompt: string) => {
+    setScenes((prev) =>
+      prev.map((s) => {
+        if (s.sceneNumber !== sceneNum) return s;
+        const newSentences = s.sentences.map((sent, i) =>
+          i === sentIdx ? { ...sent, sfxCustomPrompt: prompt } : sent,
+        );
+        return { ...s, sentences: newSentences };
+      }),
+    );
+  };
+
+  const mergeSceneUp = (sceneNum: number) => {
+    setScenes((prev) => {
+      const idx = prev.findIndex((s) => s.sceneNumber === sceneNum);
+      if (idx <= 0) return prev;
+      const merged = [...prev];
+      const narrationText = merged[idx - 1].narrationText + " " + merged[idx].narrationText;
+      merged[idx - 1] = {
+        ...merged[idx - 1],
+        narrationText,
+        displayText: stripStyleDirectives(narrationText),
+        sentences: [...merged[idx - 1].sentences, ...merged[idx].sentences],
+      };
+      merged.splice(idx, 1);
+      return merged;
+    });
+  };
+
+  const addSceneAfter = (sceneNum: number) => {
+    setScenes((prev) => {
+      const idx = prev.findIndex((s) => s.sceneNumber === sceneNum);
+      const actNum = prev[idx]?.actNumber || 1;
+      const newScene: SceneState = {
+        id: `new-${Date.now()}`,
+        sceneNumber: Math.max(...prev.map((s) => s.sceneNumber)) + 1,
+        actNumber: actNum,
+        narrationText: "",
+        displayText: "",
+        visualStyle: "dossier",
+        composition: "medium",
+        sources: [],
+        imageGenerated: false,
+        voiceOverUrl: null,
+        voiceStatus: null,
+        scriptStatus: null,
+        tone: null,
+        sentences: [{ text: "", sfxMode: "none", sfxLibraryValue: "", sfxCustomPrompt: "" }],
+      };
+      const result = [...prev];
+      result.splice(idx + 1, 0, newScene);
+      return result;
+    });
+  };
+
+  // ---------------------------------------------------------------------------
+  // Loading state
+  // ---------------------------------------------------------------------------
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Loader2 size={24} className="animate-spin" style={{ color: "var(--orange)" }} />
+        <span className="ml-3 text-sm" style={{ color: "var(--text-secondary)" }}>
+          Loading script & voice...
+        </span>
+      </div>
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Empty state
+  // ---------------------------------------------------------------------------
+
+  if (!apiScenes || apiScenes.length === 0) {
+    return (
+      <GlassCard className="p-12 text-center">
+        <Pencil size={32} className="mx-auto mb-3" style={{ color: "var(--text-tertiary)", opacity: 0.4 }} />
+        <p className="text-lg font-display mb-2" style={{ color: "var(--text-secondary)" }}>
+          Script Not Generated Yet
+        </p>
+        <p className="text-sm mb-6" style={{ color: "var(--text-tertiary)" }}>
+          Research must be approved before script generation can begin. Current stage:{" "}
+          <span style={{ color: "var(--turquoise)" }}>{(video.status || "").replace(/_/g, " ")}</span>
+        </p>
+        <button
+          onClick={handleRegenerateScript}
+          disabled={regeneratingScript || scriptTaskRunning}
+          className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl text-base font-semibold font-body transition-all hover:brightness-110 active:scale-[0.98] disabled:opacity-50"
+          style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}
+        >
+          {regeneratingScript || scriptTaskRunning ? (
+            <Loader2 size={18} className="animate-spin" />
+          ) : (
+            <Pencil size={18} />
+          )}
+          {scriptTaskRunning
+            ? scriptTaskMessage || "Generating Script..."
+            : regeneratingScript
+              ? "Starting..."
+              : "Generate Script"}
+        </button>
+      </GlassCard>
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Render
+  // ---------------------------------------------------------------------------
+
+  const isVoiceBusy = generatingVoiceAll || generatingVoiceScene !== null || voiceTaskRunning;
+
+  return (
+    <div className="space-y-6 pb-24">
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-6">
+        {/* ============================================================= */}
+        {/* Main content area                                              */}
+        {/* ============================================================= */}
+        <div className="space-y-4">
+          {Object.entries(actGroups).map(([actNum, actScenes]) => {
+            const isCollapsed = collapsedActs[Number(actNum)];
+            const actWordCount = actScenes.reduce(
+              (sum, s) => sum + s.narrationText.split(/\s+/).filter(Boolean).length,
+              0,
+            );
+
+            return (
+              <div key={actNum}>
+                {/* Act header */}
+                <button
+                  onClick={() => toggleAct(Number(actNum))}
+                  className="flex items-center gap-3 w-full mb-3 group"
+                >
+                  <div className="flex-1 h-px" style={{ background: "var(--orange)", opacity: 0.3 }} />
+                  <div
+                    className="flex items-center gap-2 px-3 py-1 rounded-full transition-all"
+                    style={{ background: isCollapsed ? "rgba(255, 120, 73, 0.1)" : "transparent" }}
+                  >
+                    {isCollapsed ? (
+                      <ChevronRight size={14} style={{ color: "var(--orange)" }} />
+                    ) : (
+                      <ChevronDown size={14} style={{ color: "var(--orange)" }} />
+                    )}
+                    <span
+                      className="text-xs font-semibold uppercase tracking-wider"
+                      style={{ color: "var(--orange)" }}
+                    >
+                      Act {actNum}
+                    </span>
+                    <span className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>
+                      {actScenes.length} scenes &middot; {actWordCount} words
+                    </span>
+                  </div>
+                  <div className="flex-1 h-px" style={{ background: "var(--orange)", opacity: 0.3 }} />
+                </button>
+
+                {!isCollapsed && (
+                  <div className="space-y-3">
+                    {actScenes.map((scene) => {
+                      const isExpanded = expandedScenes.has(scene.sceneNumber);
+                      const hasVoice = !!scene.voiceOverUrl;
+                      const isPlayingThis = activeSegment === scene.id;
+                      const isGeneratingThisVoice = generatingVoiceScene === scene.sceneNumber;
+
+                      return (
+                        <GlassCard
+                          key={scene.sceneNumber}
+                          className="p-4"
+                          style={{
+                            borderLeftWidth: 3,
+                            borderLeftColor: hasVoice
+                              ? "var(--green)"
+                              : scene.imageGenerated
+                                ? "var(--turquoise)"
+                                : "var(--orange)",
+                          }}
+                        >
+                          {/* ---- Scene header ---- */}
+                          <div className="flex items-center gap-2 mb-2">
+                            <SegmentBadge
+                              label={`S-${String(scene.sceneNumber).padStart(2, "0")}`}
+                              color={scene.imageGenerated ? undefined : "var(--orange)"}
+                            />
+
+                            {/* Status badges */}
+                            <ScriptStatusBadge status={scene.scriptStatus} />
+                            <VoiceStatusBadge status={scene.voiceStatus} />
+
+                            <div className="flex-1" />
+
+                            {/* Tone badge */}
+                            {scene.tone && (
+                              <span
+                                className="text-[9px] font-mono px-1.5 py-0.5 rounded"
+                                style={{ background: "rgba(255,255,255,0.06)", color: "var(--text-tertiary)" }}
+                              >
+                                {scene.tone}
+                              </span>
+                            )}
+
+                            {/* Expand/collapse toggle */}
+                            <button
+                              onClick={() => toggleExpand(scene.sceneNumber)}
+                              title={isExpanded ? "Collapse to unified text" : "Expand into sentence cards"}
+                              className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium transition-all"
+                              style={{
+                                background: isExpanded ? "var(--turquoise-dim)" : "transparent",
+                                color: isExpanded ? "var(--turquoise)" : "var(--text-tertiary)",
+                                border: `1px solid ${isExpanded ? "var(--turquoise-dim)" : "transparent"}`,
+                              }}
+                            >
+                              <Layers size={11} />
+                              {isExpanded ? "Collapse" : "Expand"}
+                              <span className="font-mono">{scene.sentences.length}</span>
+                            </button>
+
+                            <button
+                              onClick={() => mergeSceneUp(scene.sceneNumber)}
+                              title="Merge into scene above"
+                              className="p-1 rounded transition-colors hover:bg-[var(--bg-surface)]"
+                              style={{ color: "var(--text-tertiary)" }}
+                            >
+                              <Merge size={12} />
+                            </button>
+                            <button
+                              onClick={() => addSceneAfter(scene.sceneNumber)}
+                              title="Add scene below"
+                              className="p-1 rounded transition-colors hover:bg-[var(--bg-surface)]"
+                              style={{ color: "var(--text-tertiary)" }}
+                            >
+                              <Plus size={12} />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteScene(scene.sceneNumber)}
+                              disabled={deletingScene === scene.sceneNumber}
+                              title="Delete scene"
+                              className="p-1 rounded transition-colors hover:bg-[var(--bg-surface)]"
+                              style={{ color: "var(--text-tertiary)" }}
+                              onMouseEnter={(e) => {
+                                e.currentTarget.style.color = "var(--orange)";
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.color = "var(--text-tertiary)";
+                              }}
+                            >
+                              {deletingScene === scene.sceneNumber ? (
+                                <Loader2 size={12} className="animate-spin" />
+                              ) : (
+                                <Trash2 size={12} />
+                              )}
+                            </button>
+                          </div>
+
+                          {/* ---- COLLAPSED: Unified text view ---- */}
+                          {!isExpanded && (
+                            <div className="relative">
+                              <textarea
+                                value={scene.displayText}
+                                onChange={(e) => updateNarration(scene.sceneNumber, e.target.value)}
+                                rows={Math.max(2, Math.ceil(scene.displayText.length / 100))}
+                                className="w-full text-sm leading-relaxed resize-none outline-none rounded-lg px-3 py-2 transition-all"
+                                style={{
+                                  color: "var(--text-primary)",
+                                  background: "transparent",
+                                  border: "1px solid transparent",
+                                }}
+                                onFocus={(e) => {
+                                  e.target.style.background = "var(--bg-elevated)";
+                                  e.target.style.borderColor = "var(--orange)";
+                                }}
+                                onBlur={(e) => {
+                                  e.target.style.background = "transparent";
+                                  e.target.style.borderColor = "transparent";
+                                  handleNarrationBlur(scene.sceneNumber, scene.narrationText);
+                                }}
+                              />
+                              {savingScene === scene.sceneNumber && (
+                                <Loader2
+                                  size={12}
+                                  className="animate-spin absolute top-2 right-2"
+                                  style={{ color: "var(--turquoise)" }}
+                                />
+                              )}
+                              {savedScene === scene.sceneNumber && (
+                                <span
+                                  className="absolute top-2 right-2 text-[10px] font-medium"
+                                  style={{ color: "var(--green)" }}
+                                >
+                                  Saved
+                                </span>
+                              )}
+                            </div>
+                          )}
+
+                          {/* ---- EXPANDED: Individual sentence cards ---- */}
+                          <AnimatePresence>
+                            {isExpanded && (
+                              <motion.div
+                                initial={{ opacity: 0, height: 0 }}
+                                animate={{ opacity: 1, height: "auto" }}
+                                exit={{ opacity: 0, height: 0 }}
+                                transition={{ duration: 0.3 }}
+                                className="space-y-2"
+                              >
+                                {scene.sentences.map((sent, sentIdx) => (
+                                  <div
+                                    key={sentIdx}
+                                    className="rounded-xl p-3 transition-all"
+                                    style={{
+                                      background: "rgba(255,255,255,0.02)",
+                                      border: "1px solid rgba(255,255,255,0.05)",
+                                    }}
+                                  >
+                                    <div className="flex items-center gap-2 mb-1.5">
+                                      <span
+                                        className="text-[9px] font-mono font-medium px-1.5 py-0.5 rounded"
+                                        style={{ background: "var(--orange-dim)", color: "var(--orange)" }}
+                                      >
+                                        {sentIdx + 1}/{scene.sentences.length}
+                                      </span>
+                                      <div className="flex-1" />
+                                      <button
+                                        onClick={() => mergeSentenceUp(scene.sceneNumber, sentIdx)}
+                                        title="Merge up"
+                                        className="p-0.5 rounded hover:bg-[var(--bg-surface)]"
+                                        style={{ color: "var(--text-tertiary)" }}
+                                      >
+                                        <Merge size={10} />
+                                      </button>
+                                      <button
+                                        onClick={() => addSentenceAfter(scene.sceneNumber, sentIdx)}
+                                        title="Add below"
+                                        className="p-0.5 rounded hover:bg-[var(--bg-surface)]"
+                                        style={{ color: "var(--text-tertiary)" }}
+                                      >
+                                        <Plus size={10} />
+                                      </button>
+                                      <button
+                                        onClick={() => deleteSentence(scene.sceneNumber, sentIdx)}
+                                        title="Delete"
+                                        className="p-0.5 rounded hover:bg-[var(--bg-surface)]"
+                                        style={{ color: "var(--text-tertiary)" }}
+                                      >
+                                        <Trash2 size={10} />
+                                      </button>
+                                    </div>
+
+                                    <textarea
+                                      value={sent.text}
+                                      onChange={(e) => updateSentence(scene.sceneNumber, sentIdx, e.target.value)}
+                                      rows={Math.max(1, Math.ceil(sent.text.length / 90))}
+                                      className="w-full text-sm leading-relaxed resize-none outline-none rounded-lg px-2 py-1 transition-all"
+                                      style={{
+                                        color: "var(--text-primary)",
+                                        background: "transparent",
+                                        border: "1px solid transparent",
+                                      }}
+                                      onFocus={(e) => {
+                                        e.target.style.background = "var(--bg-elevated)";
+                                        e.target.style.borderColor = "var(--turquoise)";
+                                      }}
+                                      onBlur={(e) => {
+                                        e.target.style.background = "transparent";
+                                        e.target.style.borderColor = "transparent";
+                                      }}
+                                    />
+
+                                    {/* SFX per sentence */}
+                                    <div className="flex items-center gap-2 mt-2 flex-wrap">
+                                      <Volume2 size={10} style={{ color: "var(--gold)", opacity: 0.5 }} />
+                                      {(["none", "library", "elevenlabs", "custom"] as const).map((mode) => {
+                                        const labels = {
+                                          none: "None",
+                                          library: "Library",
+                                          elevenlabs: "ElevenLabs",
+                                          custom: "AI Prompt",
+                                        };
+                                        const icons = {
+                                          none: null,
+                                          library: <Library size={9} />,
+                                          elevenlabs: <Mic size={9} />,
+                                          custom: <Wand2 size={9} />,
+                                        };
+                                        const colors = {
+                                          none: "var(--text-tertiary)",
+                                          library: "var(--gold)",
+                                          elevenlabs: "var(--green)",
+                                          custom: "var(--purple)",
+                                        };
+                                        const isActive = sent.sfxMode === mode;
+                                        return (
+                                          <button
+                                            key={mode}
+                                            onClick={() => updateSfxMode(scene.sceneNumber, sentIdx, mode)}
+                                            className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-medium transition-all"
+                                            style={{
+                                              background: isActive ? `${colors[mode]}15` : "transparent",
+                                              color: isActive ? colors[mode] : "var(--text-tertiary)",
+                                              border: `1px solid ${isActive ? `${colors[mode]}30` : "transparent"}`,
+                                            }}
+                                          >
+                                            {icons[mode]}
+                                            {labels[mode]}
+                                          </button>
+                                        );
+                                      })}
+                                    </div>
+
+                                    {sent.sfxMode === "library" && (
+                                      <div className="flex items-center gap-2 mt-1.5">
+                                        <select
+                                          value={sent.sfxLibraryValue}
+                                          onChange={(e) =>
+                                            updateSfxLibrary(scene.sceneNumber, sentIdx, e.target.value)
+                                          }
+                                          className="text-[10px] font-mono px-2 py-1 rounded-lg outline-none flex-1"
+                                          style={{
+                                            background: "var(--bg-elevated)",
+                                            color: "var(--text-secondary)",
+                                            border: "1px solid var(--border-subtle)",
+                                          }}
+                                        >
+                                          <option value="">Select sound...</option>
+                                          {SFX_LIBRARY.map((sfx) => (
+                                            <option key={sfx.value} value={sfx.value}>
+                                              {sfx.label}
+                                            </option>
+                                          ))}
+                                        </select>
+                                        {sent.sfxLibraryValue && (
+                                          <button
+                                            className="w-5 h-5 rounded-full flex items-center justify-center"
+                                            style={{ background: "var(--green)", color: "var(--bg-void)" }}
+                                          >
+                                            <Play size={8} className="ml-px" />
+                                          </button>
+                                        )}
+                                      </div>
+                                    )}
+
+                                    {sent.sfxMode === "elevenlabs" && (
+                                      <div className="mt-1.5 flex items-start gap-2">
+                                        <Mic size={11} style={{ color: "var(--green)", marginTop: 5 }} />
+                                        <div className="flex-1">
+                                          <textarea
+                                            value={sent.sfxCustomPrompt}
+                                            onChange={(e) =>
+                                              updateSfxPrompt(scene.sceneNumber, sentIdx, e.target.value)
+                                            }
+                                            placeholder="Describe the sound for ElevenLabs to generate..."
+                                            rows={2}
+                                            className="w-full text-[10px] font-mono outline-none rounded-lg px-2 py-1.5 resize-none transition-all"
+                                            style={{
+                                              color: "var(--text-secondary)",
+                                              background: "var(--bg-elevated)",
+                                              border: "1px solid rgba(0, 230, 138, 0.15)",
+                                            }}
+                                            onFocus={(e) => {
+                                              e.target.style.borderColor = "var(--green)";
+                                            }}
+                                            onBlur={(e) => {
+                                              e.target.style.borderColor = "rgba(0, 230, 138, 0.15)";
+                                            }}
+                                          />
+                                          <div className="flex items-center gap-2 mt-1">
+                                            <button
+                                              className="text-[9px] font-medium px-2 py-0.5 rounded-lg"
+                                              style={{ background: "var(--green)", color: "var(--bg-void)" }}
+                                            >
+                                              Generate SFX
+                                            </button>
+                                            <span
+                                              className="text-[9px] font-mono"
+                                              style={{ color: "var(--text-tertiary)" }}
+                                            >
+                                              ~$0.03
+                                            </span>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    )}
+
+                                    {sent.sfxMode === "custom" && (
+                                      <div className="mt-1.5 flex items-start gap-2">
+                                        <Wand2 size={11} style={{ color: "var(--purple)", marginTop: 5 }} />
+                                        <textarea
+                                          value={sent.sfxCustomPrompt}
+                                          onChange={(e) =>
+                                            updateSfxPrompt(scene.sceneNumber, sentIdx, e.target.value)
+                                          }
+                                          placeholder="Describe the SFX for AI generation..."
+                                          rows={2}
+                                          className="flex-1 text-[10px] font-mono outline-none rounded-lg px-2 py-1.5 resize-none transition-all"
+                                          style={{
+                                            color: "var(--text-secondary)",
+                                            background: "var(--bg-elevated)",
+                                            border: "1px solid var(--purple-dim)",
+                                          }}
+                                          onFocus={(e) => {
+                                            e.target.style.borderColor = "var(--purple)";
+                                          }}
+                                          onBlur={(e) => {
+                                            e.target.style.borderColor = "var(--purple-dim)";
+                                          }}
+                                        />
+                                      </div>
+                                    )}
+                                  </div>
+                                ))}
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
+
+                          {/* ---- Voice section (below script text, same card) ---- */}
+                          <div
+                            className="mt-3 pt-3 flex items-center gap-3 flex-wrap"
+                            style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}
+                          >
+                            {/* Play/pause button */}
+                            <button
+                              onClick={() => toggleSegmentPlay(scene.id, scene.voiceOverUrl)}
+                              disabled={!hasVoice}
+                              className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 transition-opacity"
+                              style={{
+                                background: hasVoice ? "var(--green)" : "var(--bg-surface)",
+                                color: "var(--bg-void)",
+                                opacity: hasVoice ? 1 : 0.4,
+                                cursor: hasVoice ? "pointer" : "default",
+                              }}
+                            >
+                              {isPlayingThis ? <Pause size={12} /> : <Play size={12} className="ml-0.5" />}
+                            </button>
+
+                            {hasVoice ? (
+                              <>
+                                <MiniWaveform color="var(--green)" width={120} height={20} bars={25} />
+                                <span
+                                  className="text-[10px] font-mono shrink-0"
+                                  style={{ color: "var(--text-tertiary)" }}
+                                >
+                                  {Math.round((scene.narrationText.split(/\s+/).filter(Boolean).length || 0) / 2.5)}s
+                                </span>
+                                <button
+                                  onClick={() => handleGenerateSceneVoice(scene.sceneNumber)}
+                                  disabled={isVoiceBusy}
+                                  className="text-[10px] font-medium px-2 py-1 rounded-lg transition-all hover:brightness-110 disabled:opacity-40"
+                                  style={{
+                                    border: "1px solid var(--turquoise)",
+                                    color: "var(--turquoise)",
+                                    background: "transparent",
+                                  }}
+                                >
+                                  {isGeneratingThisVoice || (voiceTaskRunning && generatingVoiceScene === scene.sceneNumber)
+                                    ? "Regenerating..."
+                                    : "Regenerate Voice"}
+                                </button>
+                              </>
+                            ) : (
+                              <>
+                                <MiniWaveform color="var(--text-tertiary)" width={120} height={20} bars={25} />
+                                <button
+                                  onClick={() => handleGenerateSceneVoice(scene.sceneNumber)}
+                                  disabled={isVoiceBusy}
+                                  className="text-[10px] font-semibold px-3 py-1.5 rounded-lg transition-all hover:brightness-110 disabled:opacity-40"
+                                  style={{
+                                    background: "var(--turquoise)",
+                                    color: "var(--bg-void)",
+                                  }}
+                                >
+                                  {isGeneratingThisVoice
+                                    ? voiceTaskMessage || "Generating..."
+                                    : "Generate Voice"}
+                                </button>
+                              </>
+                            )}
+                          </div>
+
+                          {/* Sources + metadata */}
+                          <div className="flex items-center gap-2 mt-2 flex-wrap">
+                            {scene.sources?.map((src, srcIdx) => (
+                              <span
+                                key={srcIdx}
+                                className="text-[10px] font-mono px-2 py-0.5 rounded"
+                                style={{ background: "var(--yellow-dim)", color: "var(--yellow)" }}
+                              >
+                                [{src}]
+                              </span>
+                            ))}
+                            <span className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>
+                              {scene.visualStyle}
+                            </span>
+                            <span className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>
+                              {scene.composition}
+                            </span>
+                          </div>
+                        </GlassCard>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* ============================================================= */}
+        {/* Sidebar                                                        */}
+        {/* ============================================================= */}
+        <div className="space-y-4">
+          {/* Script details */}
+          <GlassCard className="p-5">
+            <h3
+              className="text-xs font-semibold uppercase tracking-wider mb-3"
+              style={{ color: "var(--text-secondary)" }}
+            >
+              Script &amp; Voice Details
+            </h3>
+            <div className="space-y-3">
+              {[
+                { label: "Framework", value: video.framework || video.framework_angle || "--" },
+                { label: "Word Count", value: String(wordCount) },
+                { label: "Scenes", value: String(totalScenes) },
+                { label: "Sentences", value: String(totalSentences) },
+                { label: "Target Length", value: `${video.videoLengthMin || video.video_length_minutes || 0} min` },
+                { label: "Est. Cost", value: `$${(video.estimatedCost || video.total_cost || 0).toFixed(2)}` },
+              ].map((row) => (
+                <div key={row.label} className="flex items-center justify-between">
+                  <span className="text-xs" style={{ color: "var(--text-secondary)" }}>
+                    {row.label}
+                  </span>
+                  <span className="text-sm font-mono font-medium" style={{ color: "var(--text-primary)" }}>
+                    {row.value}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </GlassCard>
+
+          {/* Voice progress */}
+          <GlassCard className="p-5">
+            <div className="space-y-4">
+              <div>
+                <p className="text-[10px] uppercase tracking-wider mb-2" style={{ color: "var(--text-tertiary)" }}>
+                  Voice Progress
+                </p>
+                <div className="flex items-center gap-3">
+                  <p className="text-2xl font-bold" style={{ color: "var(--text-primary)" }}>
+                    {scenesWithVoice}/{totalScenes}
+                  </p>
+                  <ProgressRing
+                    value={totalScenes > 0 ? (scenesWithVoice / totalScenes) * 100 : 0}
+                    size={50}
+                    color="var(--green)"
+                    strokeWidth={4}
+                  />
+                </div>
+                <p className="text-[10px] font-mono mt-1" style={{ color: "var(--text-tertiary)" }}>
+                  {totalScenes > 0 ? Math.round((scenesWithVoice / totalScenes) * 100) : 0}% voiced
+                </p>
+              </div>
+            </div>
+          </GlassCard>
+
+          {/* Action buttons */}
+          <div className="space-y-2">
+            {/* Generate All Voice */}
+            <ActionButton
+              variant="outline"
+              icon={isVoiceBusy ? Loader2 : Mic}
+              className="w-full"
+              onClick={handleGenerateAllVoice}
+              disabled={isVoiceBusy || scenesWithVoice === totalScenes}
+            >
+              {voiceTaskRunning && generatingVoiceAll
+                ? voiceTaskMessage || "Generating Voice..."
+                : generatingVoiceAll
+                  ? "Starting..."
+                  : scenesWithVoice === totalScenes
+                    ? "All Voiced"
+                    : "Generate All Voice"}
+            </ActionButton>
+
+            {/* Regenerate Script */}
+            <button
+              onClick={handleRegenerateScript}
+              disabled={regeneratingScript || scriptTaskRunning}
+              className="inline-flex items-center justify-center gap-2 w-full px-5 py-2.5 rounded-xl text-sm font-semibold font-body transition-all hover:brightness-110 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
+              style={{
+                background: "rgba(255, 120, 73, 0.15)",
+                color: "var(--orange)",
+                border: "1px solid var(--orange)",
+              }}
+            >
+              {regeneratingScript || scriptTaskRunning ? (
+                <>
+                  <Loader2 size={14} className="animate-spin" />{" "}
+                  {scriptTaskRunning ? scriptTaskMessage || "Generating..." : "Starting..."}
+                </>
+              ) : (
+                "Regenerate Script"
+              )}
+            </button>
+
+            {/* Divider */}
+            <div className="pt-2" style={{ borderTop: "1px solid var(--border-subtle)" }} />
+
+            {/* Approve / Reject / Approved */}
+            {approved ? (
+              <div
+                className="flex items-center justify-center gap-2 w-full px-5 py-2.5 rounded-xl text-sm font-semibold"
+                style={{ color: "var(--green)" }}
+              >
+                <CheckCircle size={14} /> Script &amp; Voice Approved
+              </div>
+            ) : (
+              <>
+                <ActionButton
+                  variant="filled"
+                  className="w-full"
+                  onClick={handleApprove}
+                  disabled={approving || !allReady}
+                >
+                  {approving ? (
+                    <>
+                      <Loader2 size={14} className="animate-spin" /> Advancing...
+                    </>
+                  ) : (
+                    "Approve Script & Voice"
+                  )}
+                </ActionButton>
+                {!allReady && (
+                  <p className="text-[10px] text-center" style={{ color: "var(--text-tertiary)" }}>
+                    All scenes need script text and voice audio before approval.
+                  </p>
+                )}
+                <ActionButton variant="outline" className="w-full" onClick={handleReject} disabled={rejecting}>
+                  {rejecting ? (
+                    <>
+                      <Loader2 size={14} className="animate-spin" /> Requesting...
+                    </>
+                  ) : (
+                    "Request Revision"
+                  )}
+                </ActionButton>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* ============================================================= */}
+      {/* Bottom transport bar (audio playback controls)                  */}
+      {/* ============================================================= */}
+      {scenes.some((s) => s.voiceOverUrl) && (
+        <div className="fixed bottom-0 left-0 right-0 z-40 md:pl-60">
+          <div
+            className="mx-auto px-6 py-3 flex items-center justify-between gap-4"
+            style={{
+              background: "rgba(10, 14, 22, 0.95)",
+              borderTop: "1px solid var(--border)",
+              backdropFilter: "blur(12px)",
+            }}
+          >
+            {/* Now playing */}
+            <div className="flex items-center gap-2 shrink-0 min-w-0">
+              {activeSegment && (
+                <span className="text-xs font-mono truncate" style={{ color: "var(--text-secondary)" }}>
+                  S-{String(scenes.find((s) => s.id === activeSegment)?.sceneNumber || 0).padStart(2, "0")}
+                </span>
+              )}
+            </div>
+
+            {/* Playback controls */}
+            <div className="flex items-center gap-3">
+              <button onClick={playPrev} style={{ color: "var(--text-secondary)" }}>
+                <SkipBack size={18} />
+              </button>
+              <button
+                onClick={() => {
+                  if (activeSegment) {
+                    toggleSegmentPlay(
+                      activeSegment,
+                      scenes.find((s) => s.id === activeSegment)?.voiceOverUrl || null,
+                    );
+                  } else if (scenes.length > 0) {
+                    const first = scenes.find((s) => s.voiceOverUrl);
+                    if (first) toggleSegmentPlay(first.id, first.voiceOverUrl);
+                  }
+                }}
+                className="w-10 h-10 rounded-full flex items-center justify-center"
+                style={{ background: "var(--green)" }}
+              >
+                {activeSegment ? (
+                  <Pause size={18} style={{ color: "var(--bg-void)" }} />
+                ) : (
+                  <Play size={18} style={{ color: "var(--bg-void)" }} className="ml-0.5" />
+                )}
+              </button>
+              <button onClick={playNext} style={{ color: "var(--text-secondary)" }}>
+                <SkipForward size={18} />
+              </button>
+
+              <select
+                value={playbackSpeed}
+                onChange={(e) => setPlaybackSpeed(e.target.value)}
+                className="text-xs font-mono px-2 py-1 rounded"
+                style={{ background: "var(--bg-elevated)", color: "var(--text-secondary)", border: "none" }}
+              >
+                <option value="0.5x">0.5x</option>
+                <option value="0.75x">0.75x</option>
+                <option value="1.0x">1.0x</option>
+                <option value="1.25x">1.25x</option>
+                <option value="1.5x">1.5x</option>
+                <option value="2.0x">2.0x</option>
+              </select>
+            </div>
+
+            {/* Volume */}
+            <div className="flex items-center gap-2 shrink-0">
+              <Volume2 size={16} style={{ color: "var(--text-secondary)" }} />
+              <input
+                type="range"
+                min={0}
+                max={100}
+                value={volume}
+                onChange={(e) => setVolume(Number(e.target.value))}
+                className="w-20 accent-[var(--green)]"
+                style={{ accentColor: "var(--green)" }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================= */}
+      {/* Revision Modal                                                  */}
+      {/* ============================================================= */}
+      {showRevisionModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+          onClick={() => setShowRevisionModal(false)}
+        >
+          <div
+            className="w-full max-w-md rounded-xl p-6 space-y-4"
+            style={{ background: "var(--bg-deep)", border: "1px solid var(--border)" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-base font-semibold" style={{ color: "var(--text-primary)" }}>
+              Request Revision
+            </h3>
+            <div>
+              <label className="block text-xs font-medium mb-1.5" style={{ color: "var(--text-secondary)" }}>
+                Revision Scope
+              </label>
+              <select
+                value={revisionScope}
+                onChange={(e) => setRevisionScope(e.target.value)}
+                className="w-full px-3 py-2 rounded-lg text-sm outline-none"
+                style={{
+                  background: "var(--bg-elevated)",
+                  color: "var(--text-primary)",
+                  border: "1px solid var(--border)",
+                }}
+              >
+                <option>Minor tweaks</option>
+                <option>Major rewrite</option>
+                <option>Different angle entirely</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium mb-1.5" style={{ color: "var(--text-secondary)" }}>
+                What needs to change?
+              </label>
+              <textarea
+                value={revisionNotes}
+                onChange={(e) => setRevisionNotes(e.target.value)}
+                placeholder="Describe the changes needed..."
+                rows={4}
+                className="w-full px-3 py-2 rounded-lg text-sm outline-none resize-none"
+                style={{
+                  background: "var(--bg-elevated)",
+                  color: "var(--text-primary)",
+                  border: "1px solid var(--border)",
+                }}
+                autoFocus
+              />
+            </div>
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => setShowRevisionModal(false)}
+                className="px-4 py-2 rounded-lg text-sm"
+                style={{ color: "var(--text-secondary)" }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSubmitRevision}
+                disabled={rejecting || !revisionNotes.trim()}
+                className="px-4 py-2 rounded-lg text-sm font-semibold disabled:opacity-40"
+                style={{ background: "var(--orange)", color: "var(--bg-void)" }}
+              >
+                {rejecting ? "Submitting..." : "Submit Revision"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

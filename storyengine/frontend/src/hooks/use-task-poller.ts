@@ -7,7 +7,7 @@ interface UseTaskPollerOptions {
   videoId: string;
   enabled: boolean;
   interval?: number;
-  onComplete?: () => void;
+  onComplete?: (message?: string | null) => void;
   onFailed?: (error: string) => void;
 }
 
@@ -56,7 +56,7 @@ export function useTaskPoller({
 
         if (task.status === "completed") {
           stopPolling();
-          onCompleteRef.current?.();
+          onCompleteRef.current?.(task.message);
         } else if (task.status === "failed") {
           stopPolling();
           onFailedRef.current?.(task.error || "Unknown error");
