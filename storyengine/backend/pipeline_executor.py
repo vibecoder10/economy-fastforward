@@ -217,6 +217,20 @@ class PipelineExecutor:
         self._pipeline.scene_filter = None
         self._pipeline.channel_profile = None
 
+        @property
+        def _is_targeted_run(pipe):
+            return pipe.scene_filter is not None or pipe.image_filter is not None
+
+        LightPipeline._is_targeted_run = _is_targeted_run
+
+        def _log_filters():
+            if self._pipeline.scene_filter is not None:
+                print(f"  🎯 Scene filter: {self._pipeline.scene_filter}", flush=True)
+            if self._pipeline.image_filter is not None:
+                print(f"  🎯 Image filter: {self._pipeline.image_filter}", flush=True)
+
+        self._pipeline._log_filters = _log_filters
+
         # Import pipeline stage runners (lazy — they import their own deps)
         async def run_brief_translator():
             from script.run import run
