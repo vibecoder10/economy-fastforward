@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import {
@@ -14,19 +14,24 @@ import {
   Check,
   Plus,
   Loader2,
-  Save,
   CheckCircle2,
   Trash2,
   Pencil,
+  Zap,
+  Image as ImageIcon,
 } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { StatusPill } from "@/components/ui/StatusPill";
 import {
-  getCurrentProject,
-  updateProject,
-  type Project,
-  type ProjectUpdate,
-  type CharacterReference,
+  getVisualStyles,
+  createVisualStyle,
+  activateVisualStyle,
+  deleteVisualStyle,
+  createStyleCharacter,
+  deleteStyleCharacter,
+  generateCharacterImage,
+  type VisualStyle,
+  type StyleCharacter,
 } from "@/lib/api";
 
 const container = {
@@ -38,153 +43,92 @@ const item = {
   show: { opacity: 1, y: 0, transition: { duration: 0.5, ease: "easeOut" as const } },
 };
 
-const VISUAL_STYLES = [
-  {
-    id: "cinematic_illustration",
-    name: "Cinematic Illustration",
-    description: "Photorealistic editorial illustration with Rembrandt lighting and dramatic compositions",
-    tags: ["Editorial", "Dramatic Lighting", "Photorealistic"],
-    previewColor: "#1A1A2E",
-    previewAccent: "#E94560",
-  },
-  {
-    id: "holographic_hud",
-    name: "Holographic HUD",
-    description: "Data overlay aesthetics with glowing nodes, circuit patterns, and sci-fi interfaces",
-    tags: ["Neon", "Data Overlay", "Sci-fi"],
-    previewColor: "#0A192F",
-    previewAccent: "#00D4FF",
-  },
-  {
-    id: "cinematic_dossier",
-    name: "Cinematic Dossier",
-    description: "Intelligence briefing style with redacted text, stamps, and classified document aesthetics",
-    tags: ["Documents", "Stamps", "Intelligence Briefing"],
-    previewColor: "#2C1810",
-    previewAccent: "#C44545",
-  },
-  {
-    id: "clay_mannequin",
-    name: "Clay Mannequin",
-    description: "3D clay render with faceless mannequin figures, matte gray surfaces, golden chest glow",
-    tags: ["3D", "Faceless", "Minimalist"],
-    previewColor: "#2A2A2A",
-    previewAccent: "#D4A852",
-  },
-];
-
-const ACCENT_COLORS = [
-  { name: "Cold Teal", value: "#00D4AA" },
-  { name: "Muted Crimson", value: "#C44545" },
-  { name: "Warm Amber", value: "#D4A852" },
-  { name: "Muted Green", value: "#3A9A5A" },
-];
-
 export default function ProfilePage() {
   const queryClient = useQueryClient();
 
-  // Fetch project data from Supabase
-  const { data: project, isLoading } = useQuery({
-    queryKey: ["currentProject"],
-    queryFn: getCurrentProject,
+  // Fetch all visual styles (includes characters per style)
+  const { data: styles, isLoading } = useQuery({
+    queryKey: ["visualStyles"],
+    queryFn: getVisualStyles,
   });
 
-  // Local state — synced from server on load
-  const [activeStyle, setActiveStyle] = useState("cinematic_illustration");
-  const [accentColor, setAccentColor] = useState("#00D4AA");
-  const [customAccentColor, setCustomAccentColor] = useState("");
-  const [useCustomColor, setUseCustomColor] = useState(false);
-  const [characters, setCharacters] = useState<CharacterReference[]>([]);
+  const activeStyle = styles?.find((s) => s.is_active) ?? null;
+
+  // --- AI Generator state ---
   const [uploadedImage, setUploadedImage] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<string | null>(null);
   const [isEditingJson, setIsEditingJson] = useState(false);
   const [editableJson, setEditableJson] = useState("");
-  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
-  const [applyStatus, setApplyStatus] = useState<"idle" | "saving" | "saved">("idle");
-  const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null);
-
-  // New character form
-  const [newCharName, setNewCharName] = useState("");
-  const [newCharDescription, setNewCharDescription] = useState("");
-  const [newCharImage, setNewCharImage] = useState<string | null>(null);
-
-  // Editing existing character
-  const [editingCharIdx, setEditingCharIdx] = useState<number | null>(null);
-
+  const [newStyleName, setNewStyleName] = useState("");
+  const [saveStyleStatus, setSaveStyleStatus] = useState<"idle" | "saving" | "saved">("idle");
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // --- Style management ---
+  const [deleteStyleConfirm, setDeleteStyleConfirm] = useState<string | null>(null);
+
+  // --- Character state ---
+  const [newCharName, setNewCharName] = useState("");
+  const [newCharImage, setNewCharImage] = useState<string | null>(null);
+  const [charSaveStatus, setCharSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
+  const [deleteCharConfirm, setDeleteCharConfirm] = useState<string | null>(null);
   const charFileRef = useRef<HTMLInputElement>(null);
+  // Generate tab
+  const [charTab, setCharTab] = useState<"upload" | "generate">("upload");
+  const [generatePrompt, setGeneratePrompt] = useState("");
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [generatedImageUrl, setGeneratedImageUrl] = useState<string | null>(null);
+  const [generateError, setGenerateError] = useState<string | null>(null);
 
-  // Sync state from server
-  useEffect(() => {
-    if (project) {
-      setActiveStyle(project.visual_style || "cinematic_illustration");
-      setAccentColor(project.accent_color || "#00D4AA");
-      if (project.custom_accent_color) {
-        setCustomAccentColor(project.custom_accent_color);
-        setUseCustomColor(!ACCENT_COLORS.some(c => c.value === project.accent_color));
-      }
-      setCharacters(project.character_references || []);
-      if (project.visual_profile_json) {
-        setAnalysisResult(JSON.stringify(project.visual_profile_json, null, 2));
-      }
-    }
-  }, [project]);
+  // --- Mutations ---
+  const invalidate = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ["visualStyles"] });
+  }, [queryClient]);
 
-  // Save mutation
-  const saveMutation = useMutation({
-    mutationFn: (data: ProjectUpdate) => updateProject(data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["currentProject"] });
+  const activateMutation = useMutation({
+    mutationFn: activateVisualStyle,
+    onSuccess: (data) => {
+      queryClient.setQueryData(["visualStyles"], data);
     },
   });
 
-  // Quick-save a single field
-  const saveField = useCallback(
-    (data: ProjectUpdate) => {
-      saveMutation.mutate(data);
-    },
-    [saveMutation]
-  );
+  const deleteStyleMutation = useMutation({
+    mutationFn: deleteVisualStyle,
+    onSuccess: invalidate,
+  });
 
-  // ---- AI Visual Profile Generator ----
+  const createCharMutation = useMutation({
+    mutationFn: ({ styleId, name, image_url }: { styleId: string; name: string; image_url: string }) =>
+      createStyleCharacter(styleId, { name, image_url }),
+    onSuccess: invalidate,
+  });
 
+  const deleteCharMutation = useMutation({
+    mutationFn: ({ styleId, charId }: { styleId: string; charId: string }) =>
+      deleteStyleCharacter(styleId, charId),
+    onSuccess: invalidate,
+  });
+
+  // --- AI Upload handler ---
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
     const reader = new FileReader();
     reader.onload = (ev) => {
       setUploadedImage(ev.target?.result as string);
       setIsAnalyzing(true);
       setAnalysisResult(null);
       setIsEditingJson(false);
-
-      // Simulate AI analysis (in production, this would call Claude Vision API)
+      // Simulate AI analysis (production: Claude Vision / Gemini API)
       setTimeout(() => {
         setIsAnalyzing(false);
         const result = JSON.stringify({
-          style_profile: {
-            name: "Custom Profile",
-            base_style: "cinematic_illustration",
-            color_palette: {
-              primary: "#1A1A2E",
-              accent: "#E94560",
-              secondary: "#0F3460",
-              highlight: "#F0C75E",
-            },
-            lighting: "Rembrandt with warm fill, dramatic shadows",
-            composition: "Rule of thirds, subject left, negative space right",
-            texture: "Film grain 15%, vignette, subtle chromatic aberration",
-            mood: "Tense, conspiratorial, high-stakes",
-          },
-          detected_elements: [
-            "Dark background with gradient",
-            "Strong directional lighting from upper left",
-            "Saturated accent colors on muted base",
-            "Editorial illustration style",
-            "Dramatic facial expressions",
-          ],
+          mood: "Tense, conspiratorial, high-stakes",
+          lighting: "Rembrandt with warm fill, dramatic shadows",
+          composition: "Rule of thirds, subject left, negative space right",
+          texture: "Film grain 15%, vignette, subtle chromatic aberration",
+          color_palette: { primary: "#1A1A2E", accent: "#E94560", secondary: "#0F3460", highlight: "#F0C75E" },
+          keywords: ["Dark Editorial", "Dramatic", "Cinematic"],
         }, null, 2);
         setAnalysisResult(result);
         setEditableJson(result);
@@ -193,73 +137,47 @@ export default function ProfilePage() {
     reader.readAsDataURL(file);
   };
 
-  const handleApplyProfile = async () => {
+  // --- Save as new style ---
+  const handleSaveAsNewStyle = async () => {
     const jsonStr = isEditingJson ? editableJson : analysisResult;
-    if (!jsonStr) return;
-
+    if (!jsonStr || !newStyleName.trim()) return;
     try {
       const parsed = JSON.parse(jsonStr);
-      setApplyStatus("saving");
-      await updateProject({ visual_profile_json: parsed });
-      queryClient.invalidateQueries({ queryKey: ["currentProject"] });
-      setAnalysisResult(JSON.stringify(parsed, null, 2));
+      setSaveStyleStatus("saving");
+      await createVisualStyle({
+        name: newStyleName.trim(),
+        style_profile: parsed,
+        reference_image_url: uploadedImage || undefined,
+      });
+      invalidate();
+      setSaveStyleStatus("saved");
+      setNewStyleName("");
+      setAnalysisResult(null);
+      setUploadedImage(null);
       setIsEditingJson(false);
-      setApplyStatus("saved");
-      setTimeout(() => setApplyStatus("idle"), 2000);
+      setTimeout(() => setSaveStyleStatus("idle"), 2000);
     } catch {
-      // Invalid JSON
+      setSaveStyleStatus("idle");
     }
   };
 
-  // ---- Style Selection ----
-
-  const handleStyleSelect = (styleId: string) => {
-    setActiveStyle(styleId);
-    saveField({ visual_style: styleId });
+  // --- Style activation ---
+  const handleActivate = (styleId: string) => {
+    activateMutation.mutate(styleId);
   };
 
-  // ---- Accent Color ----
-
-  const handlePresetColor = (color: string) => {
-    setAccentColor(color);
-    setUseCustomColor(false);
-    saveField({ accent_color: color, custom_accent_color: undefined });
-  };
-
-  const handleCustomColor = (color: string) => {
-    setCustomAccentColor(color);
-    setUseCustomColor(true);
-    setAccentColor(color);
-    saveField({ accent_color: color, custom_accent_color: color });
-  };
-
-  // ---- Characters ----
-
-  const handleAddCharacter = () => {
-    if (!newCharName.trim()) return;
-    const newChar: CharacterReference = {
-      name: newCharName.trim(),
-      description: newCharDescription.trim(),
-      image_url: newCharImage || undefined,
-    };
-    const updated = [...characters, newChar];
-    setCharacters(updated);
-    setNewCharName("");
-    setNewCharDescription("");
-    setNewCharImage(null);
-  };
-
-  const handleRemoveCharacter = (idx: number) => {
-    if (deleteConfirm !== idx) {
-      setDeleteConfirm(idx);
-      setTimeout(() => setDeleteConfirm(null), 3000);
+  // --- Style deletion ---
+  const handleDeleteStyle = (styleId: string) => {
+    if (deleteStyleConfirm !== styleId) {
+      setDeleteStyleConfirm(styleId);
+      setTimeout(() => setDeleteStyleConfirm(null), 3000);
       return;
     }
-    const updated = characters.filter((_, i) => i !== idx);
-    setCharacters(updated);
-    setDeleteConfirm(null);
+    deleteStyleMutation.mutate(styleId);
+    setDeleteStyleConfirm(null);
   };
 
+  // --- Character upload ---
   const handleCharImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -270,30 +188,64 @@ export default function ProfilePage() {
     reader.readAsDataURL(file);
   };
 
-  const handleUpdateCharacter = (idx: number, field: keyof CharacterReference, value: string) => {
-    const updated = characters.map((c, i) =>
-      i === idx ? { ...c, [field]: value } : c
-    );
-    setCharacters(updated);
+  const handleAddCharacter = async () => {
+    if (!activeStyle || !newCharName.trim() || !newCharImage) return;
+    setCharSaveStatus("saving");
+    try {
+      await createStyleCharacter(activeStyle.id, {
+        name: newCharName.trim(),
+        image_url: newCharImage,
+      });
+      invalidate();
+      setNewCharName("");
+      setNewCharImage(null);
+      setCharSaveStatus("saved");
+      setTimeout(() => setCharSaveStatus("idle"), 2000);
+    } catch {
+      setCharSaveStatus("idle");
+    }
   };
 
-  // ---- Save All ----
-
-  const handleSaveAll = async () => {
-    setSaveStatus("saving");
+  // --- Character generation ---
+  const handleGenerateCharacter = async () => {
+    if (!activeStyle || !generatePrompt.trim()) return;
+    setIsGenerating(true);
+    setGenerateError(null);
+    setGeneratedImageUrl(null);
     try {
-      await updateProject({
-        visual_style: activeStyle,
-        accent_color: accentColor,
-        custom_accent_color: useCustomColor ? customAccentColor : undefined,
-        character_references: characters,
-      });
-      queryClient.invalidateQueries({ queryKey: ["currentProject"] });
-      setSaveStatus("saved");
-      setTimeout(() => setSaveStatus("idle"), 2000);
-    } catch {
-      setSaveStatus("idle");
+      const result = await generateCharacterImage(generatePrompt.trim(), activeStyle.id);
+      setGeneratedImageUrl(result.image_url);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Generation failed";
+      if (msg.includes("Kie.ai API key not configured") || msg.includes("400")) {
+        setGenerateError("Configure your Kie.ai API key in Settings → API Keys to generate characters.");
+      } else {
+        setGenerateError(msg);
+      }
+    } finally {
+      setIsGenerating(false);
     }
+  };
+
+  const handleUseGeneratedImage = () => {
+    if (generatedImageUrl) {
+      setNewCharImage(generatedImageUrl);
+      setCharTab("upload");
+      setGeneratedImageUrl(null);
+      setGeneratePrompt("");
+    }
+  };
+
+  // --- Character deletion ---
+  const handleDeleteChar = (charId: string) => {
+    if (!activeStyle) return;
+    if (deleteCharConfirm !== charId) {
+      setDeleteCharConfirm(charId);
+      setTimeout(() => setDeleteCharConfirm(null), 3000);
+      return;
+    }
+    deleteCharMutation.mutate({ styleId: activeStyle.id, charId });
+    setDeleteCharConfirm(null);
   };
 
   if (isLoading) {
@@ -312,11 +264,11 @@ export default function ProfilePage() {
           Visual Profile
         </h1>
         <p className="text-sm mt-2" style={{ color: "var(--text-secondary)" }}>
-          Configure your channel&apos;s visual identity, style system, and character consistency.
+          Create visual styles from reference images, then assign characters to each style.
         </p>
       </motion.div>
 
-      {/* === SECTION 1: AI Image-to-Visual Profile === */}
+      {/* === SECTION 1: AI Visual Profile Generator === */}
       <motion.div variants={item}>
         <div className="flex items-center gap-3 mb-4" style={{ borderLeft: "3px solid var(--purple)", paddingLeft: 16 }}>
           <Wand2 size={18} style={{ color: "var(--purple)" }} />
@@ -327,160 +279,122 @@ export default function ProfilePage() {
 
         <GlassCard className="p-6">
           <p className="text-sm mb-4" style={{ color: "var(--text-secondary)" }}>
-            Upload a reference image and AI will analyze it to generate a JSON visual profile — extracting colors, lighting, composition, texture, and mood.
+            Upload a reference image and AI will extract colors, lighting, composition, texture, and mood into a reusable style profile.
           </p>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Upload area */}
+            {/* Upload area — object-fit: contain */}
             <div>
-              <input
-                type="file"
-                ref={fileInputRef}
-                onChange={handleImageUpload}
-                accept="image/*"
-                className="hidden"
-              />
+              <input type="file" ref={fileInputRef} onChange={handleImageUpload} accept="image/*" className="hidden" />
               <button
                 onClick={() => fileInputRef.current?.click()}
                 className="w-full aspect-video rounded-xl flex flex-col items-center justify-center gap-3 transition-all hover:brightness-110 relative overflow-hidden"
                 style={{
-                  background: uploadedImage ? "var(--bg-elevated)" : "var(--bg-surface)",
+                  background: "var(--bg-surface)",
                   border: `2px dashed ${uploadedImage ? "var(--purple)" : "var(--border)"}`,
-                  backgroundImage: uploadedImage ? `url(${uploadedImage})` : undefined,
-                  backgroundSize: "cover",
-                  backgroundPosition: "center",
                 }}
               >
-                {!uploadedImage && (
+                {uploadedImage ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={uploadedImage}
+                    alt="Reference"
+                    className="w-full h-full rounded-xl"
+                    style={{ objectFit: "contain" }}
+                  />
+                ) : (
                   <>
                     <Upload size={32} style={{ color: "var(--text-tertiary)" }} />
-                    <span className="text-sm" style={{ color: "var(--text-secondary)" }}>
-                      Drop image or click to upload
-                    </span>
-                    <span className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>
-                      PNG, JPG up to 10MB
-                    </span>
+                    <span className="text-sm" style={{ color: "var(--text-secondary)" }}>Drop image or click to upload</span>
+                    <span className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>PNG, JPG up to 10MB</span>
                   </>
                 )}
                 {uploadedImage && isAnalyzing && (
                   <div className="absolute inset-0 bg-black/60 rounded-xl flex items-center justify-center">
                     <div className="flex items-center gap-3">
                       <Sparkles size={20} className="animate-pulse" style={{ color: "var(--purple)" }} />
-                      <span className="text-sm font-medium" style={{ color: "var(--purple)" }}>
-                        Analyzing visual style...
-                      </span>
+                      <span className="text-sm font-medium" style={{ color: "var(--purple)" }}>Analyzing visual style...</span>
                     </div>
                   </div>
                 )}
               </button>
               {uploadedImage && (
-                <button
-                  onClick={() => {
-                    setUploadedImage(null);
-                    // Don't clear analysisResult — saved profile stays
-                  }}
-                  className="mt-2 text-xs flex items-center gap-1"
-                  style={{ color: "var(--text-tertiary)" }}
-                >
+                <button onClick={() => setUploadedImage(null)} className="mt-2 text-xs flex items-center gap-1" style={{ color: "var(--text-tertiary)" }}>
                   <X size={12} /> Clear image
                 </button>
               )}
             </div>
 
-            {/* Result / JSON output */}
+            {/* JSON output + save controls */}
             <div>
               {!analysisResult && !isAnalyzing && (
-                <div
-                  className="w-full aspect-video rounded-xl flex items-center justify-center"
-                  style={{ background: "var(--bg-surface)", border: "1px solid var(--border-subtle)" }}
-                >
+                <div className="w-full aspect-video rounded-xl flex items-center justify-center" style={{ background: "var(--bg-surface)", border: "1px solid var(--border-subtle)" }}>
                   <div className="text-center">
                     <Eye size={24} style={{ color: "var(--text-tertiary)" }} className="mx-auto mb-2" />
-                    <p className="text-xs" style={{ color: "var(--text-tertiary)" }}>
-                      {project?.visual_profile_json
-                        ? "Saved profile loaded"
-                        : "JSON profile will appear here"}
-                    </p>
+                    <p className="text-xs" style={{ color: "var(--text-tertiary)" }}>JSON profile will appear here</p>
                   </div>
                 </div>
               )}
               {isAnalyzing && (
-                <div
-                  className="w-full aspect-video rounded-xl flex items-center justify-center"
-                  style={{ background: "var(--bg-surface)", border: "1px solid var(--purple-dim)" }}
-                >
+                <div className="w-full aspect-video rounded-xl flex items-center justify-center" style={{ background: "var(--bg-surface)", border: "1px solid var(--purple-dim)" }}>
                   <div className="space-y-2 w-3/4">
                     {[80, 60, 90, 45, 70].map((w, i) => (
-                      <div
-                        key={i}
-                        className="h-2 rounded animate-pulse"
-                        style={{ width: `${w}%`, background: "var(--purple-dim)" }}
-                      />
+                      <div key={i} className="h-2 rounded animate-pulse" style={{ width: `${w}%`, background: "var(--purple-dim)" }} />
                     ))}
                   </div>
                 </div>
               )}
               {analysisResult && !isAnalyzing && (
-                <div className="relative">
+                <div className="space-y-3">
                   {isEditingJson ? (
                     <textarea
                       value={editableJson}
                       onChange={(e) => setEditableJson(e.target.value)}
-                      className="text-[11px] font-mono p-4 rounded-xl w-full h-64 resize-none outline-none"
-                      style={{
-                        background: "var(--bg-surface)",
-                        color: "var(--turquoise)",
-                        border: "1px solid var(--turquoise)",
-                      }}
+                      className="text-[11px] font-mono p-4 rounded-xl w-full h-48 resize-none outline-none"
+                      style={{ background: "var(--bg-surface)", color: "var(--turquoise)", border: "1px solid var(--turquoise)" }}
                     />
                   ) : (
                     <pre
-                      className="text-[11px] font-mono p-4 rounded-xl overflow-auto max-h-64"
-                      style={{
-                        background: "var(--bg-surface)",
-                        color: "var(--turquoise)",
-                        border: "1px solid var(--turquoise-dim)",
-                      }}
+                      className="text-[11px] font-mono p-4 rounded-xl overflow-auto max-h-48"
+                      style={{ background: "var(--bg-surface)", color: "var(--turquoise)", border: "1px solid var(--turquoise-dim)" }}
                     >
                       {analysisResult}
                     </pre>
                   )}
-                  <div className="flex gap-2 mt-3">
+
+                  <button
+                    onClick={() => { if (isEditingJson) setIsEditingJson(false); else { setEditableJson(analysisResult); setIsEditingJson(true); } }}
+                    className="text-xs flex items-center gap-1" style={{ color: "var(--orange)" }}
+                  >
+                    <Pencil size={12} /> {isEditingJson ? "Cancel Edit" : "Edit JSON"}
+                  </button>
+
+                  {/* Style name + save */}
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={newStyleName}
+                      onChange={(e) => setNewStyleName(e.target.value)}
+                      placeholder="Give your style a name..."
+                      className="flex-1 px-3 py-2 rounded-lg text-sm font-body outline-none"
+                      style={{ background: "var(--bg-elevated)", color: "var(--text-primary)", border: "1px solid var(--border)" }}
+                    />
                     <button
-                      onClick={handleApplyProfile}
-                      disabled={applyStatus === "saving"}
-                      className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all hover:brightness-110"
+                      onClick={handleSaveAsNewStyle}
+                      disabled={!newStyleName.trim() || saveStyleStatus === "saving"}
+                      className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all hover:brightness-110 disabled:opacity-40 shrink-0"
                       style={{
-                        background: applyStatus === "saved" ? "var(--green)" : "var(--turquoise)",
+                        background: saveStyleStatus === "saved" ? "var(--green)" : "var(--green)",
                         color: "var(--bg-void)",
                       }}
                     >
-                      {applyStatus === "saving" ? (
+                      {saveStyleStatus === "saving" ? (
                         <><Loader2 size={14} className="animate-spin" /> Saving...</>
-                      ) : applyStatus === "saved" ? (
+                      ) : saveStyleStatus === "saved" ? (
                         <><CheckCircle2 size={14} /> Saved</>
                       ) : (
-                        <><Check size={14} /> Apply Profile</>
+                        <><Plus size={14} /> Save as New Style</>
                       )}
-                    </button>
-                    <button
-                      onClick={() => {
-                        if (isEditingJson) {
-                          setIsEditingJson(false);
-                        } else {
-                          setEditableJson(analysisResult);
-                          setIsEditingJson(true);
-                        }
-                      }}
-                      className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all hover:brightness-110"
-                      style={{
-                        background: "transparent",
-                        color: "var(--orange)",
-                        border: "1px solid var(--orange)",
-                      }}
-                    >
-                      <Pencil size={14} />
-                      {isEditingJson ? "Cancel Edit" : "Edit JSON"}
                     </button>
                   </div>
                 </div>
@@ -490,291 +404,281 @@ export default function ProfilePage() {
         </GlassCard>
       </motion.div>
 
-      {/* === SECTION 2: Visual Style Selector === */}
+      {/* === SECTION 2: Your Visual Styles === */}
       <motion.div variants={item}>
         <div className="flex items-center gap-3 mb-4" style={{ borderLeft: "3px solid var(--turquoise)", paddingLeft: 16 }}>
           <Palette size={18} style={{ color: "var(--turquoise)" }} />
           <h2 className="text-lg font-semibold font-body" style={{ color: "var(--text-primary)" }}>
-            Visual Style System
+            Your Visual Styles
           </h2>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {VISUAL_STYLES.map((style) => {
-            const isActive = activeStyle === style.id;
+          {styles?.map((style) => {
+            const isActive = style.is_active;
+            const palette = style.style_profile?.color_palette;
+            const primary = palette?.primary || "#1A1A2E";
+            const accent = palette?.accent || "#E94560";
+            const keywords = style.style_profile?.keywords || [];
+
             return (
               <GlassCard
                 key={style.id}
                 hover
-                onClick={() => handleStyleSelect(style.id)}
-                className="p-0 cursor-pointer overflow-hidden"
+                onClick={() => handleActivate(style.id)}
+                className="p-0 cursor-pointer overflow-hidden relative"
                 style={{
                   borderColor: isActive ? "var(--turquoise)" : undefined,
                   borderWidth: isActive ? 2 : undefined,
                 }}
               >
-                {/* Style preview — colored placeholder with visual description */}
-                {/* TODO: Replace with real preview images for each style */}
-                <div
-                  className="h-28 flex items-center justify-center relative"
-                  style={{
-                    background: `linear-gradient(135deg, ${style.previewColor} 0%, ${style.previewColor}DD 60%, ${style.previewAccent}40 100%)`,
-                  }}
-                >
-                  <span
-                    className="text-xs font-mono px-3 py-1 rounded-full"
-                    style={{
-                      background: `${style.previewAccent}30`,
-                      color: style.previewAccent,
-                      border: `1px solid ${style.previewAccent}50`,
-                    }}
-                  >
-                    {style.name}
-                  </span>
+                {/* Preview area */}
+                <div className="h-28 flex items-center justify-center relative" style={{
+                  background: style.reference_image_url
+                    ? undefined
+                    : `linear-gradient(135deg, ${primary} 0%, ${primary}DD 60%, ${accent}40 100%)`,
+                }}>
+                  {style.reference_image_url ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={style.reference_image_url}
+                      alt={style.name}
+                      className="w-full h-full"
+                      style={{ objectFit: "cover" }}
+                    />
+                  ) : (
+                    <span className="text-xs font-mono px-3 py-1 rounded-full" style={{
+                      background: `${accent}30`, color: accent, border: `1px solid ${accent}50`,
+                    }}>
+                      {style.name}
+                    </span>
+                  )}
                   {isActive && (
                     <div className="absolute top-3 right-3">
                       <StatusPill label="Active" color="turquoise" size="sm" />
                     </div>
                   )}
+                  {/* Delete button — only for non-default styles */}
+                  {!style.is_default && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleDeleteStyle(style.id); }}
+                      className="absolute top-3 left-3 w-7 h-7 rounded-full flex items-center justify-center transition-all"
+                      style={{
+                        background: deleteStyleConfirm === style.id ? "rgba(220,50,50,0.9)" : "rgba(0,0,0,0.5)",
+                        color: deleteStyleConfirm === style.id ? "#fff" : "var(--text-secondary)",
+                      }}
+                      title={deleteStyleConfirm === style.id ? "Click again to confirm" : "Delete style"}
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  )}
                 </div>
+
+                {/* Info */}
                 <div className="p-4">
                   <h3 className="text-sm font-semibold mb-1" style={{ color: "var(--text-primary)" }}>
                     {style.name}
                   </h3>
-                  <p className="text-xs mb-3" style={{ color: "var(--text-secondary)" }}>
-                    {style.description}
-                  </p>
+                  {style.style_profile?.mood && (
+                    <p className="text-xs mb-2 truncate" style={{ color: "var(--text-secondary)" }}>
+                      {style.style_profile.mood}
+                    </p>
+                  )}
                   <div className="flex gap-1.5 flex-wrap">
-                    {style.tags.map((tag) => (
-                      <span
-                        key={tag}
-                        className="text-[10px] font-mono px-2 py-0.5 rounded"
-                        style={{ background: "var(--bg-elevated)", color: "var(--text-tertiary)" }}
-                      >
+                    {(keywords as string[]).slice(0, 3).map((tag) => (
+                      <span key={tag} className="text-[10px] font-mono px-2 py-0.5 rounded" style={{ background: "var(--bg-elevated)", color: "var(--text-tertiary)" }}>
                         {tag}
                       </span>
                     ))}
+                    {style.characters.length > 0 && (
+                      <span className="text-[10px] font-mono px-2 py-0.5 rounded" style={{ background: "var(--green-dim, var(--bg-elevated))", color: "var(--green)" }}>
+                        {style.characters.length} character{style.characters.length !== 1 ? "s" : ""}
+                      </span>
+                    )}
                   </div>
                 </div>
               </GlassCard>
             );
           })}
         </div>
-
-        {/* Accent color */}
-        <GlassCard className="p-5 mt-4">
-          <h3 className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: "var(--text-secondary)" }}>
-            Channel Accent Color
-          </h3>
-          <div className="flex gap-4 flex-wrap items-end">
-            {ACCENT_COLORS.map((c) => {
-              const isSelected = !useCustomColor && accentColor === c.value;
-              return (
-                <button
-                  key={c.value}
-                  onClick={() => handlePresetColor(c.value)}
-                  className="flex items-center gap-2 px-3 py-2 rounded-lg transition-all"
-                  style={{
-                    background: isSelected ? `${c.value}15` : "var(--bg-elevated)",
-                    border: `2px solid ${isSelected ? c.value : "var(--border-subtle)"}`,
-                  }}
-                >
-                  <div className="w-4 h-4 rounded-full" style={{ background: c.value }} />
-                  <span className="text-xs font-medium" style={{ color: isSelected ? c.value : "var(--text-secondary)" }}>
-                    {c.name}
-                  </span>
-                </button>
-              );
-            })}
-
-            {/* Custom color picker */}
-            <div className="flex items-center gap-2">
-              <div className="relative">
-                <input
-                  type="color"
-                  value={customAccentColor || "#00D4AA"}
-                  onChange={(e) => handleCustomColor(e.target.value)}
-                  className="w-8 h-8 rounded-lg cursor-pointer border-0 p-0"
-                  style={{ background: "transparent" }}
-                />
-              </div>
-              <div className="flex flex-col gap-1">
-                <input
-                  type="text"
-                  value={useCustomColor ? customAccentColor : ""}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    setCustomAccentColor(val);
-                    if (/^#[0-9A-Fa-f]{6}$/.test(val)) {
-                      handleCustomColor(val);
-                    }
-                  }}
-                  placeholder="#Custom"
-                  className="w-24 px-2 py-1 rounded text-xs font-mono outline-none"
-                  style={{
-                    background: "var(--bg-elevated)",
-                    color: "var(--text-primary)",
-                    border: `1px solid ${useCustomColor ? customAccentColor : "var(--border-subtle)"}`,
-                  }}
-                />
-              </div>
-            </div>
-          </div>
-        </GlassCard>
       </motion.div>
 
-      {/* === SECTION 3: Character Consistency === */}
-      <motion.div variants={item}>
-        <div className="flex items-center gap-3 mb-4" style={{ borderLeft: "3px solid var(--green)", paddingLeft: 16 }}>
-          <User size={18} style={{ color: "var(--green)" }} />
-          <h2 className="text-lg font-semibold font-body" style={{ color: "var(--text-primary)" }}>
-            Character Consistency
-          </h2>
-        </div>
+      {/* === SECTION 3: Characters for Active Style === */}
+      {activeStyle && (
+        <motion.div variants={item}>
+          <div className="flex items-center gap-3 mb-4" style={{ borderLeft: "3px solid var(--green)", paddingLeft: 16 }}>
+            <User size={18} style={{ color: "var(--green)" }} />
+            <h2 className="text-lg font-semibold font-body" style={{ color: "var(--text-primary)" }}>
+              Characters — {activeStyle.name}
+            </h2>
+          </div>
 
-        <p className="text-sm mb-4" style={{ color: "var(--text-secondary)" }}>
-          Define recurring characters to maintain visual identity across all scenes. The pipeline uses these as BYOC (Bring Your Own Character) references.
-        </p>
+          <p className="text-sm mb-4" style={{ color: "var(--text-secondary)" }}>
+            These characters will be used as visual references for all videos using this style.
+          </p>
 
-        {/* Character cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {characters.map((char, idx) => (
-            <GlassCard key={idx} className="p-0 overflow-hidden">
-              {/* Image area */}
-              <div
-                className="aspect-[4/3] relative flex items-center justify-center"
-                style={{
-                  background: char.image_url ? undefined : "var(--bg-elevated)",
-                  backgroundImage: char.image_url ? `url(${char.image_url})` : undefined,
-                  backgroundSize: "cover",
-                  backgroundPosition: "center",
-                }}
-              >
-                {!char.image_url && (
-                  <User size={40} style={{ color: "var(--text-tertiary)", opacity: 0.3 }} />
-                )}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {/* Existing characters */}
+            {activeStyle.characters.map((char) => (
+              <GlassCard key={char.id} className="p-0 overflow-hidden">
+                <div className="aspect-square relative flex items-center justify-center" style={{ background: "var(--bg-elevated)" }}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={char.image_url} alt={char.name} className="w-full h-full" style={{ objectFit: "contain" }} />
+                  <button
+                    onClick={() => handleDeleteChar(char.id)}
+                    className="absolute top-2 right-2 w-7 h-7 rounded-full flex items-center justify-center transition-all"
+                    style={{
+                      background: deleteCharConfirm === char.id ? "rgba(220,50,50,0.9)" : "rgba(0,0,0,0.6)",
+                      color: deleteCharConfirm === char.id ? "#fff" : "var(--text-secondary)",
+                    }}
+                    title={deleteCharConfirm === char.id ? "Click again to confirm" : "Remove character"}
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
+                <div className="p-3">
+                  <p className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>{char.name}</p>
+                </div>
+              </GlassCard>
+            ))}
+
+            {/* Add character card */}
+            <GlassCard className="p-0 overflow-hidden">
+              {/* Tab bar */}
+              <div className="flex border-b" style={{ borderColor: "var(--border-subtle)" }}>
                 <button
-                  onClick={() => handleRemoveCharacter(idx)}
-                  className="absolute top-2 right-2 w-7 h-7 rounded-full flex items-center justify-center transition-all"
+                  onClick={() => setCharTab("upload")}
+                  className="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-medium transition-all"
                   style={{
-                    background: deleteConfirm === idx ? "rgba(220,50,50,0.9)" : "rgba(0,0,0,0.6)",
-                    color: deleteConfirm === idx ? "#fff" : "var(--text-secondary)",
+                    color: charTab === "upload" ? "var(--turquoise)" : "var(--text-tertiary)",
+                    borderBottom: charTab === "upload" ? "2px solid var(--turquoise)" : "2px solid transparent",
                   }}
-                  title={deleteConfirm === idx ? "Click again to confirm" : "Remove character"}
                 >
-                  <Trash2 size={12} />
+                  <ImageIcon size={13} /> Upload
+                </button>
+                <button
+                  onClick={() => setCharTab("generate")}
+                  className="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-medium transition-all"
+                  style={{
+                    color: charTab === "generate" ? "var(--purple)" : "var(--text-tertiary)",
+                    borderBottom: charTab === "generate" ? "2px solid var(--purple)" : "2px solid transparent",
+                  }}
+                >
+                  <Zap size={13} /> Generate
                 </button>
               </div>
-              <div className="p-4 space-y-2">
+
+              {charTab === "upload" ? (
+                <>
+                  <input type="file" ref={charFileRef} onChange={handleCharImageUpload} accept="image/*" className="hidden" />
+                  <button
+                    onClick={() => charFileRef.current?.click()}
+                    className="w-full aspect-square flex flex-col items-center justify-center gap-3 cursor-pointer transition-all hover:brightness-110"
+                    style={{ background: "var(--bg-surface)" }}
+                  >
+                    {newCharImage ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={newCharImage} alt="Preview" className="w-full h-full" style={{ objectFit: "contain" }} />
+                    ) : (
+                      <>
+                        <Plus size={32} style={{ color: "var(--text-tertiary)" }} />
+                        <span className="text-xs" style={{ color: "var(--text-tertiary)" }}>Upload Image</span>
+                      </>
+                    )}
+                  </button>
+                </>
+              ) : (
+                /* Generate tab */
+                <div className="aspect-square flex flex-col" style={{ background: "var(--bg-surface)" }}>
+                  {generatedImageUrl ? (
+                    <div className="flex-1 relative">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={generatedImageUrl} alt="Generated" className="w-full h-full" style={{ objectFit: "contain" }} />
+                      <div className="absolute bottom-2 left-2 right-2 flex gap-2">
+                        <button
+                          onClick={handleUseGeneratedImage}
+                          className="flex-1 py-1.5 rounded-lg text-xs font-semibold"
+                          style={{ background: "var(--green)", color: "var(--bg-void)" }}
+                        >
+                          Use This
+                        </button>
+                        <button
+                          onClick={handleGenerateCharacter}
+                          className="flex-1 py-1.5 rounded-lg text-xs font-semibold"
+                          style={{ background: "var(--bg-elevated)", color: "var(--text-secondary)", border: "1px solid var(--border)" }}
+                        >
+                          Regenerate
+                        </button>
+                      </div>
+                    </div>
+                  ) : isGenerating ? (
+                    <div className="flex-1 flex items-center justify-center">
+                      <div className="text-center">
+                        <Loader2 size={24} className="animate-spin mx-auto mb-2" style={{ color: "var(--purple)" }} />
+                        <p className="text-xs" style={{ color: "var(--purple)" }}>Generating character...</p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex-1 flex flex-col p-3 gap-2">
+                      <textarea
+                        value={generatePrompt}
+                        onChange={(e) => setGeneratePrompt(e.target.value)}
+                        placeholder="Male figure in dark tactical suit, silver hair, commanding posture..."
+                        rows={4}
+                        className="flex-1 px-3 py-2 rounded-lg text-xs font-body outline-none resize-none"
+                        style={{ background: "var(--bg-elevated)", color: "var(--text-primary)", border: "1px solid var(--border)" }}
+                      />
+                      {generateError && (
+                        <p className="text-[10px] px-1" style={{ color: "var(--red)" }}>{generateError}</p>
+                      )}
+                      <button
+                        onClick={handleGenerateCharacter}
+                        disabled={!generatePrompt.trim()}
+                        className="w-full py-2 rounded-lg text-xs font-semibold transition-all hover:brightness-110 disabled:opacity-40"
+                        style={{ background: "var(--purple)", color: "#fff" }}
+                      >
+                        Generate
+                      </button>
+                      <p className="text-[9px] text-center" style={{ color: "var(--text-tertiary)" }}>
+                        Uses 1 Nano Banana 2 credit (~$0.045)
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Name input + save */}
+              <div className="p-3 space-y-2">
                 <input
                   type="text"
-                  value={char.name}
-                  onChange={(e) => handleUpdateCharacter(idx, "name", e.target.value)}
-                  className="w-full text-sm font-semibold outline-none bg-transparent"
-                  style={{ color: "var(--text-primary)" }}
                   placeholder="Character name..."
+                  value={newCharName}
+                  onChange={(e) => setNewCharName(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg text-sm font-body outline-none"
+                  style={{ background: "var(--bg-elevated)", color: "var(--text-primary)", border: "1px solid var(--border)" }}
                 />
-                <textarea
-                  value={char.description}
-                  onChange={(e) => handleUpdateCharacter(idx, "description", e.target.value)}
-                  rows={2}
-                  className="w-full text-[11px] outline-none bg-transparent resize-none"
-                  style={{ color: "var(--text-secondary)" }}
-                  placeholder="Describe appearance, clothing, distinguishing features..."
-                />
+                <button
+                  onClick={handleAddCharacter}
+                  disabled={!newCharName.trim() || !newCharImage || charSaveStatus === "saving"}
+                  className="w-full py-2 rounded-lg text-xs font-semibold transition-all hover:brightness-110 disabled:opacity-40"
+                  style={{
+                    background: charSaveStatus === "saved" ? "var(--green)" : "var(--green)",
+                    color: "var(--bg-void)",
+                  }}
+                >
+                  {charSaveStatus === "saving" ? (
+                    "Saving..."
+                  ) : charSaveStatus === "saved" ? (
+                    "Saved"
+                  ) : (
+                    "Add Character"
+                  )}
+                </button>
               </div>
             </GlassCard>
-          ))}
-
-          {/* Add character card */}
-          <GlassCard className="p-0 overflow-hidden">
-            <input
-              type="file"
-              ref={charFileRef}
-              onChange={handleCharImageUpload}
-              accept="image/*"
-              className="hidden"
-            />
-            <button
-              onClick={() => charFileRef.current?.click()}
-              className="w-full aspect-[4/3] flex flex-col items-center justify-center gap-3 cursor-pointer transition-all hover:brightness-110"
-              style={{
-                background: newCharImage ? undefined : "var(--bg-surface)",
-                backgroundImage: newCharImage ? `url(${newCharImage})` : undefined,
-                backgroundSize: "cover",
-                backgroundPosition: "center",
-              }}
-            >
-              {!newCharImage && (
-                <>
-                  <Plus size={32} style={{ color: "var(--text-tertiary)" }} />
-                  <span className="text-xs" style={{ color: "var(--text-tertiary)" }}>
-                    Upload Image (optional)
-                  </span>
-                </>
-              )}
-            </button>
-            <div className="p-4 space-y-2">
-              <input
-                type="text"
-                placeholder="Character name..."
-                value={newCharName}
-                onChange={(e) => setNewCharName(e.target.value)}
-                className="w-full px-3 py-2 rounded-lg text-sm font-body outline-none"
-                style={{
-                  background: "var(--bg-elevated)",
-                  color: "var(--text-primary)",
-                  border: "1px solid var(--border)",
-                }}
-              />
-              <textarea
-                placeholder="Description — appearance, clothing, features..."
-                value={newCharDescription}
-                onChange={(e) => setNewCharDescription(e.target.value)}
-                rows={2}
-                className="w-full px-3 py-2 rounded-lg text-xs font-body outline-none resize-none"
-                style={{
-                  background: "var(--bg-elevated)",
-                  color: "var(--text-primary)",
-                  border: "1px solid var(--border)",
-                }}
-              />
-              <button
-                onClick={handleAddCharacter}
-                disabled={!newCharName.trim()}
-                className="w-full py-2 rounded-lg text-xs font-semibold transition-all hover:brightness-110 disabled:opacity-40"
-                style={{
-                  background: "var(--green)",
-                  color: "var(--bg-void)",
-                }}
-              >
-                Add Character
-              </button>
-            </div>
-          </GlassCard>
-        </div>
-      </motion.div>
-
-      {/* === Save All === */}
-      <motion.div variants={item} className="flex justify-center pt-4 pb-8">
-        <button
-          onClick={handleSaveAll}
-          disabled={saveStatus === "saving"}
-          className="flex items-center gap-2 px-8 py-3 rounded-xl text-sm font-semibold transition-all hover:brightness-110"
-          style={{
-            background: saveStatus === "saved" ? "var(--green)" : "var(--turquoise)",
-            color: "var(--bg-void)",
-          }}
-        >
-          {saveStatus === "saving" ? (
-            <><Loader2 size={16} className="animate-spin" /> Saving...</>
-          ) : saveStatus === "saved" ? (
-            <><CheckCircle2 size={16} /> All Changes Saved</>
-          ) : (
-            <><Save size={16} /> Save All Changes</>
-          )}
-        </button>
-      </motion.div>
+          </div>
+        </motion.div>
+      )}
     </motion.div>
   );
 }
