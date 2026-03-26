@@ -191,6 +191,10 @@ export function ScriptTab({ video }: ScriptTabProps) {
   const [regenerating, setRegenerating] = useState(false);
   const [deletingScene, setDeletingScene] = useState<number | null>(null);
   const [savingScene, setSavingScene] = useState<number | null>(null);
+  const [savedScene, setSavedScene] = useState<number | null>(null);
+  const [showRevisionModal, setShowRevisionModal] = useState(false);
+  const [revisionNotes, setRevisionNotes] = useState("");
+  const [revisionScope, setRevisionScope] = useState("Minor tweaks");
 
   const invalidateVideoQueries = () => {
     queryClient.invalidateQueries({ queryKey: ["video", video.id] });
@@ -211,10 +215,17 @@ export function ScriptTab({ video }: ScriptTabProps) {
   };
 
   const handleReject = async () => {
+    setShowRevisionModal(true);
+  };
+
+  const handleSubmitRevision = async () => {
     setRejecting(true);
     try {
-      await rejectVideo(video.id, "Revision requested from UI");
+      await rejectVideo(video.id, `[${revisionScope}] ${revisionNotes}`);
       invalidateVideoQueries();
+      setShowRevisionModal(false);
+      setRevisionNotes("");
+      setRevisionScope("Minor tweaks");
     } catch (err) {
       alert(`Failed to request revision: ${(err as Error).message}`);
     } finally {
@@ -252,6 +263,8 @@ export function ScriptTab({ video }: ScriptTabProps) {
     setSavingScene(sceneNum);
     try {
       await updateSceneText(video.id, sceneNum, text);
+      setSavedScene(sceneNum);
+      setTimeout(() => setSavedScene(null), 1500);
     } catch (err) {
       console.error(`Failed to save scene ${sceneNum}:`, err);
     } finally {
@@ -306,7 +319,7 @@ export function ScriptTab({ video }: ScriptTabProps) {
           Script not generated yet
         </p>
         <p className="text-xs" style={{ color: "var(--text-tertiary)" }}>
-          The script will appear here once the scripting step completes.
+          Script will be generated when research is approved. Current stage: {video.status?.replace(/_/g, " ") || "unknown"}
         </p>
       </GlassCard>
     );
@@ -612,6 +625,9 @@ export function ScriptTab({ video }: ScriptTabProps) {
                             {savingScene === scene.sceneNumber && (
                               <Loader2 size={12} className="animate-spin absolute top-2 right-2" style={{ color: "var(--turquoise)" }} />
                             )}
+                            {savedScene === scene.sceneNumber && (
+                              <span className="absolute top-2 right-2 text-[10px] font-medium" style={{ color: "var(--green)" }}>Saved</span>
+                            )}
                           </div>
                         )}
 
@@ -795,26 +811,6 @@ export function ScriptTab({ video }: ScriptTabProps) {
           </div>
         </GlassCard>
 
-        <GlassCard className="p-4">
-          <h3 className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: "var(--gold)" }}>Sound Design</h3>
-          <p className="text-[10px] mb-3" style={{ color: "var(--text-tertiary)" }}>
-            Expand a scene, then choose per-sentence:
-          </p>
-          <div className="space-y-1.5">
-            {[
-              { icon: <Library size={10} />, label: "Library", desc: "Free presets", color: "var(--gold)" },
-              { icon: <Mic size={10} />, label: "ElevenLabs", desc: "Design your own SFX", color: "var(--green)" },
-              { icon: <Wand2 size={10} />, label: "AI Prompt", desc: "Text-to-sound", color: "var(--purple)" },
-            ].map((opt) => (
-              <div key={opt.label} className="flex items-center gap-2 text-[10px]">
-                <span style={{ color: opt.color }}>{opt.icon}</span>
-                <span className="font-medium" style={{ color: opt.color }}>{opt.label}</span>
-                <span style={{ color: "var(--text-tertiary)" }}>— {opt.desc}</span>
-              </div>
-            ))}
-          </div>
-        </GlassCard>
-
         <div className="space-y-2">
           <ActionButton variant="filled" className="w-full" onClick={handleApprove} disabled={approving}>
             {approving ? <><Loader2 size={14} className="animate-spin" /> Approving...</> : "Approve Script"}
@@ -832,6 +828,51 @@ export function ScriptTab({ video }: ScriptTabProps) {
           </button>
         </div>
       </div>
+
+      {/* Revision Modal */}
+      {showRevisionModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setShowRevisionModal(false)}>
+          <div className="w-full max-w-md rounded-xl p-6 space-y-4" style={{ background: "var(--bg-deep)", border: "1px solid var(--border)" }} onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-base font-semibold" style={{ color: "var(--text-primary)" }}>Request Revision</h3>
+            <div>
+              <label className="block text-xs font-medium mb-1.5" style={{ color: "var(--text-secondary)" }}>Revision Scope</label>
+              <select
+                value={revisionScope}
+                onChange={(e) => setRevisionScope(e.target.value)}
+                className="w-full px-3 py-2 rounded-lg text-sm outline-none"
+                style={{ background: "var(--bg-elevated)", color: "var(--text-primary)", border: "1px solid var(--border)" }}
+              >
+                <option>Minor tweaks</option>
+                <option>Major rewrite</option>
+                <option>Different angle entirely</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium mb-1.5" style={{ color: "var(--text-secondary)" }}>What needs to change?</label>
+              <textarea
+                value={revisionNotes}
+                onChange={(e) => setRevisionNotes(e.target.value)}
+                placeholder="Describe the changes needed..."
+                rows={4}
+                className="w-full px-3 py-2 rounded-lg text-sm outline-none resize-none"
+                style={{ background: "var(--bg-elevated)", color: "var(--text-primary)", border: "1px solid var(--border)" }}
+                autoFocus
+              />
+            </div>
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setShowRevisionModal(false)} className="px-4 py-2 rounded-lg text-sm" style={{ color: "var(--text-secondary)" }}>Cancel</button>
+              <button
+                onClick={handleSubmitRevision}
+                disabled={rejecting || !revisionNotes.trim()}
+                className="px-4 py-2 rounded-lg text-sm font-semibold disabled:opacity-40"
+                style={{ background: "var(--orange)", color: "var(--bg-void)" }}
+              >
+                {rejecting ? "Submitting..." : "Submit Revision"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

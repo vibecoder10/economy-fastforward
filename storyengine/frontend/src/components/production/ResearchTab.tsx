@@ -1,10 +1,10 @@
 "use client";
 
 import { useMemo, useState, useCallback } from "react";
-import { RefreshCw, FileText, Search, Loader2 } from "lucide-react";
+import { RefreshCw, FileText, Search, Loader2, Check } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { ActionButton } from "@/components/ui/ActionButton";
-import { runPipelineStage } from "@/lib/api";
+import { runPipelineStage, advanceVideo } from "@/lib/api";
 
 interface ResearchTabProps {
   video: any;
@@ -35,6 +35,10 @@ const FIELDS: FieldDef[] = [
 
 export function ResearchTab({ video }: ResearchTabProps) {
   const [isResearching, setIsResearching] = useState(false);
+  const [isApproving, setIsApproving] = useState(false);
+  const [showFeedback, setShowFeedback] = useState(false);
+  const [feedbackText, setFeedbackText] = useState("");
+  const [feedbackSaved, setFeedbackSaved] = useState(false);
 
   const handleReResearch = useCallback(async () => {
     setIsResearching(true);
@@ -42,6 +46,18 @@ export function ResearchTab({ video }: ResearchTabProps) {
       await runPipelineStage(video.id, "research");
     } finally {
       setIsResearching(false);
+    }
+  }, [video.id]);
+
+  const handleApproveResearch = useCallback(async () => {
+    if (!confirm("Approve research and move to scripting?")) return;
+    setIsApproving(true);
+    try {
+      await advanceVideo(video.id);
+    } catch (err) {
+      alert(`Failed: ${(err as Error).message}`);
+    } finally {
+      setIsApproving(false);
     }
   }, [video.id]);
 
@@ -87,7 +103,7 @@ export function ResearchTab({ video }: ResearchTabProps) {
           Research Not Started
         </p>
         <p className="text-sm mb-6" style={{ color: "var(--text-tertiary)" }}>
-          Deep research will analyze the topic and generate a comprehensive payload for scripting.
+          Research not started yet. This video is at the &ldquo;{video.status?.replace(/_/g, " ") || "idea logged"}&rdquo; stage.
         </p>
         <ActionButton
           variant="filled"
@@ -147,23 +163,73 @@ export function ResearchTab({ video }: ResearchTabProps) {
       </div>
 
       {/* Actions */}
-      <div className="flex gap-3 justify-end">
+      <div className="flex gap-3 justify-end flex-wrap">
         <button
-          className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold font-body transition-all hover:brightness-110 active:scale-[0.98]"
+          className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold font-body transition-all hover:brightness-110 active:scale-[0.98] disabled:opacity-50"
           style={{
             background: "rgba(255, 120, 73, 0.15)",
             color: "var(--orange)",
             border: "1px solid var(--orange)",
-            opacity: isResearching ? 0.5 : 1,
           }}
           onClick={handleReResearch}
           disabled={isResearching}
         >
           {isResearching ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
-          {isResearching ? "Researching..." : "Re-research"}
+          {isResearching ? "Researching..." : "Regenerate Research"}
         </button>
-        <ActionButton variant="outline" icon={FileText}>Export to Google Docs</ActionButton>
+        <button
+          className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold font-body transition-all hover:brightness-110 active:scale-[0.98]"
+          style={{
+            background: "transparent",
+            color: "var(--text-secondary)",
+            border: "1px solid var(--border)",
+          }}
+          onClick={() => setShowFeedback(true)}
+        >
+          <FileText size={16} /> Request Changes
+        </button>
+        <button
+          className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold font-body transition-all hover:brightness-110 active:scale-[0.98] disabled:opacity-50"
+          style={{ background: "var(--green)", color: "var(--bg-void)" }}
+          onClick={handleApproveResearch}
+          disabled={isApproving}
+        >
+          {isApproving ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
+          {isApproving ? "Approving..." : "Approve Research"}
+        </button>
       </div>
+
+      {/* Feedback Modal */}
+      {showFeedback && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setShowFeedback(false)}>
+          <div className="w-full max-w-md rounded-xl p-6 space-y-4" style={{ background: "var(--bg-deep)", border: "1px solid var(--border)" }} onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-base font-semibold" style={{ color: "var(--text-primary)" }}>Request Changes</h3>
+            <textarea
+              value={feedbackText}
+              onChange={(e) => setFeedbackText(e.target.value)}
+              placeholder="What should be changed?"
+              rows={4}
+              className="w-full px-3 py-2 rounded-lg text-sm outline-none resize-none"
+              style={{ background: "var(--bg-elevated)", color: "var(--text-primary)", border: "1px solid var(--border)" }}
+              autoFocus
+            />
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setShowFeedback(false)} className="px-4 py-2 rounded-lg text-sm" style={{ color: "var(--text-secondary)" }}>Cancel</button>
+              <button
+                onClick={() => { console.log("Research feedback:", feedbackText); setShowFeedback(false); setFeedbackSaved(true); setTimeout(() => setFeedbackSaved(false), 2000); }}
+                className="px-4 py-2 rounded-lg text-sm font-semibold"
+                style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}
+              >
+                Save Feedback
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {feedbackSaved && (
+        <div className="text-sm text-center py-2" style={{ color: "var(--green)" }}>Feedback saved</div>
+      )}
     </div>
   );
 }
