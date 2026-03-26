@@ -8,7 +8,7 @@ import { ProgressRing } from "@/components/ui/ProgressRing";
 import { ActionButton } from "@/components/ui/ActionButton";
 import { FilterSelect } from "@/components/ui/FilterSelect";
 import { SegmentBadge } from "@/components/ui/SegmentBadge";
-import { getVideoAssets, getVideoScript, runPipelineStage, getPipelineTaskStatus } from "@/lib/api";
+import { getVideoAssets, getVideoScript, runPipelineStage, clearStaleTask } from "@/lib/api";
 import { useTaskPoller } from "@/hooks/use-task-poller";
 import type { VideoDetail, Asset } from "@/lib/api";
 
@@ -41,6 +41,24 @@ export function RenderTab({ video }: RenderTabProps) {
   const [confirmRender, setConfirmRender] = useState(false);
   const [musicTrack, setMusicTrack] = useState("tension");
   const [exportFormat, setExportFormat] = useState("mp4");
+  const [taskRunning, setTaskRunning] = useState(false);
+
+  const { message: taskMessage } = useTaskPoller({
+    videoId: video.id,
+    enabled: taskRunning,
+    interval: 10000,
+    onComplete: () => {
+      setTaskRunning(false);
+      setIsRendering(false);
+      queryClient.invalidateQueries({ queryKey: ["video", video.id] });
+      queryClient.invalidateQueries({ queryKey: ["video-assets", video.id] });
+    },
+    onFailed: (error) => {
+      setTaskRunning(false);
+      setIsRendering(false);
+      alert(`Render failed: ${error}`);
+    },
+  });
 
   const isRenderStatus = video.status === "rendering";
 
@@ -76,13 +94,26 @@ export function RenderTab({ video }: RenderTabProps) {
     setConfirmRender(false);
     try {
       await runPipelineStage(video.id, "render");
-      queryClient.invalidateQueries({ queryKey: ["video", video.id] });
-    } finally {
+      setTaskRunning(true);
+    } catch (err: unknown) {
+      const message = (err as Error).message || "";
+      if (message.includes("409")) {
+        try {
+          await clearStaleTask(video.id);
+          await runPipelineStage(video.id, "render");
+          setTaskRunning(true);
+          return;
+        } catch (retryErr) {
+          alert(`Render failed: ${(retryErr as Error).message}`);
+        }
+      } else {
+        alert(`Render failed: ${message}`);
+      }
       setIsRendering(false);
     }
-  }, [video.id, queryClient]);
+  }, [video.id]);
 
-  const renderActive = isRendering || isRenderStatus;
+  const renderActive = isRendering || isRenderStatus || taskRunning;
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-6">
@@ -177,7 +208,7 @@ export function RenderTab({ video }: RenderTabProps) {
             <div className="flex items-center gap-6 text-xs font-mono flex-wrap">
               <span>
                 Status:{" "}
-                <span style={{ color: "var(--turquoise)" }}>Rendering...</span>
+                <span style={{ color: "var(--turquoise)" }}>{taskMessage || "Rendering..."}</span>
               </span>
               <span>
                 Resolution:{" "}

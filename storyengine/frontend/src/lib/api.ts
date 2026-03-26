@@ -231,6 +231,10 @@ export const launchCandidate = (candidateId: string) =>
     { method: "POST" }
   );
 
+// Pipeline task management
+export const clearStaleTask = (videoId: string) =>
+  fetchApi<{ status: string }>(`/api/pipeline/task/${videoId}/clear`);
+
 // Pipeline reset
 export const resetPipeline = (videoId: string, resetTo: string) =>
   fetchApi<{ status: string; video_id: string; reset_to: string; deleted: { scripts: number; assets: number } }>(

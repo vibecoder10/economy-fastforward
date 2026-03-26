@@ -8,8 +8,9 @@ import {
   CheckCircle, Clock, AlertCircle,
 } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { getVideoScript, getVideoAssets, advanceVideo, rejectVideo, runPipelineStage, updateSceneText, updateVideo } from "@/lib/api";
+import { getVideoScript, getVideoAssets, advanceVideo, rejectVideo, runPipelineStage, updateSceneText, updateVideo, clearStaleTask } from "@/lib/api";
 import type { ScriptScene as ApiScriptScene, Asset } from "@/lib/api";
+import { useTaskPoller } from "@/hooks/use-task-poller";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { SegmentBadge } from "@/components/ui/SegmentBadge";
 import { ActionButton } from "@/components/ui/ActionButton";
@@ -195,6 +196,25 @@ export function ScriptTab({ video }: ScriptTabProps) {
   const [showRevisionModal, setShowRevisionModal] = useState(false);
   const [revisionNotes, setRevisionNotes] = useState("");
   const [revisionScope, setRevisionScope] = useState("Minor tweaks");
+  const [taskRunning, setTaskRunning] = useState(false);
+
+  const { message: taskMessage } = useTaskPoller({
+    videoId: video.id,
+    enabled: taskRunning,
+    interval: 3000,
+    onComplete: () => {
+      setTaskRunning(false);
+      setRegenerating(false);
+      queryClient.invalidateQueries({ queryKey: ["video", video.id] });
+      queryClient.invalidateQueries({ queryKey: ["video-script", video.id] });
+      queryClient.invalidateQueries({ queryKey: ["video-assets", video.id] });
+    },
+    onFailed: (error) => {
+      setTaskRunning(false);
+      setRegenerating(false);
+      alert(`Script generation failed: ${error}`);
+    },
+  });
 
   const invalidateVideoQueries = () => {
     queryClient.invalidateQueries({ queryKey: ["video", video.id] });
@@ -242,10 +262,21 @@ export function ScriptTab({ video }: ScriptTabProps) {
     setRegenerating(true);
     try {
       await runPipelineStage(video.id, "script");
-      invalidateVideoQueries();
-    } catch (err) {
-      alert(`Failed to regenerate: ${(err as Error).message}`);
-    } finally {
+      setTaskRunning(true);
+    } catch (err: unknown) {
+      const message = (err as Error).message || "";
+      if (message.includes("409")) {
+        try {
+          await clearStaleTask(video.id);
+          await runPipelineStage(video.id, "script");
+          setTaskRunning(true);
+          return;
+        } catch (retryErr) {
+          alert(`Failed to regenerate: ${(retryErr as Error).message}`);
+        }
+      } else {
+        alert(`Failed to regenerate: ${message}`);
+      }
       setRegenerating(false);
     }
   };
@@ -831,11 +862,11 @@ export function ScriptTab({ video }: ScriptTabProps) {
               </ActionButton>
               <button
                 onClick={handleRegenerate}
-                disabled={regenerating}
+                disabled={regenerating || taskRunning}
                 className="inline-flex items-center justify-center gap-2 w-full px-5 py-2.5 rounded-xl text-sm font-semibold font-body transition-all hover:brightness-110 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
                 style={{ background: "rgba(255, 120, 73, 0.15)", color: "var(--orange)", border: "1px solid var(--orange)" }}
               >
-                {regenerating ? <><Loader2 size={14} className="animate-spin" /> Regenerating...</> : "Regenerate"}
+                {(regenerating || taskRunning) ? <><Loader2 size={14} className="animate-spin" /> {taskRunning ? (taskMessage || "Generating...") : "Starting..."}</> : "Regenerate"}
               </button>
             </>
           )}

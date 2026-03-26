@@ -2,9 +2,11 @@
 
 import { useMemo, useState, useCallback } from "react";
 import { RefreshCw, FileText, Search, Loader2, Check, ChevronDown, ChevronRight } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { ActionButton } from "@/components/ui/ActionButton";
-import { runPipelineStage, advanceVideo, updateVideo } from "@/lib/api";
+import { runPipelineStage, advanceVideo, updateVideo, resetPipeline, clearStaleTask } from "@/lib/api";
+import { useTaskPoller } from "@/hooks/use-task-poller";
 
 interface ResearchTabProps {
   video: any;
@@ -119,6 +121,7 @@ function EditableText({ text, mono }: { text: string; mono?: boolean }) {
 }
 
 export function ResearchTab({ video }: ResearchTabProps) {
+  const queryClient = useQueryClient();
   const [isResearching, setIsResearching] = useState(false);
   const [isApproving, setIsApproving] = useState(false);
   const [approved, setApproved] = useState(false);
@@ -127,12 +130,45 @@ export function ResearchTab({ video }: ResearchTabProps) {
   const [feedbackSaved, setFeedbackSaved] = useState(false);
   const [feedbackSaving, setFeedbackSaving] = useState(false);
   const [approveError, setApproveError] = useState<string | null>(null);
+  const [taskRunning, setTaskRunning] = useState(false);
+
+  const { message: taskMessage } = useTaskPoller({
+    videoId: video.id,
+    enabled: taskRunning,
+    interval: 3000,
+    onComplete: () => {
+      setTaskRunning(false);
+      setIsResearching(false);
+      queryClient.invalidateQueries({ queryKey: ["video", video.id] });
+      queryClient.invalidateQueries({ queryKey: ["video-script", video.id] });
+      queryClient.invalidateQueries({ queryKey: ["video-assets", video.id] });
+    },
+    onFailed: (error) => {
+      setTaskRunning(false);
+      setIsResearching(false);
+      alert(`Research failed: ${error}`);
+    },
+  });
 
   const handleReResearch = useCallback(async () => {
     setIsResearching(true);
     try {
       await runPipelineStage(video.id, "research");
-    } finally {
+      setTaskRunning(true);
+    } catch (err: unknown) {
+      const message = (err as Error).message || "";
+      if (message.includes("409")) {
+        try {
+          await clearStaleTask(video.id);
+          await runPipelineStage(video.id, "research");
+          setTaskRunning(true);
+          return;
+        } catch (retryErr) {
+          alert(`Research failed: ${(retryErr as Error).message}`);
+        }
+      } else {
+        alert(`Research failed: ${message}`);
+      }
       setIsResearching(false);
     }
   }, [video.id]);
@@ -191,11 +227,11 @@ export function ResearchTab({ video }: ResearchTabProps) {
         </p>
         <ActionButton
           variant="filled"
-          icon={isResearching ? Loader2 : RefreshCw}
+          icon={isResearching || taskRunning ? Loader2 : RefreshCw}
           onClick={handleReResearch}
-          disabled={isResearching}
+          disabled={isResearching || taskRunning}
         >
-          {isResearching ? "Researching..." : "Run Research"}
+          {taskRunning ? (taskMessage || "Researching...") : isResearching ? "Starting..." : "Run Research"}
         </ActionButton>
       </GlassCard>
     );
@@ -325,10 +361,10 @@ export function ResearchTab({ video }: ResearchTabProps) {
               className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold font-body transition-all hover:brightness-110 active:scale-[0.98] disabled:opacity-50"
               style={{ background: "rgba(255, 120, 73, 0.15)", color: "var(--orange)", border: "1px solid var(--orange)" }}
               onClick={handleReResearch}
-              disabled={isResearching}
+              disabled={isResearching || taskRunning}
             >
-              {isResearching ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
-              {isResearching ? "Researching..." : "Regenerate Research"}
+              {(isResearching || taskRunning) ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
+              {taskRunning ? (taskMessage || "Researching...") : isResearching ? "Starting..." : "Regenerate Research"}
             </button>
             <button
               className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold font-body transition-all hover:brightness-110 active:scale-[0.98]"

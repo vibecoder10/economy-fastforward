@@ -9,7 +9,8 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { getVideo, resetPipeline, runNextStep, advanceVideo } from "@/lib/api";
+import { getVideo, resetPipeline, runNextStep, advanceVideo, clearStaleTask } from "@/lib/api";
+import { useTaskPoller } from "@/hooks/use-task-poller";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { ProgressStepper } from "@/components/ui/ProgressStepper";
 import { ResearchTab } from "@/components/production/ResearchTab";
@@ -127,18 +128,47 @@ export default function VideoDetailPage() {
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [runningNext, setRunningNext] = useState(false);
   const [skipping, setSkipping] = useState(false);
+  const [taskRunning, setTaskRunning] = useState(false);
+
+  const { status: taskStatus, message: taskMessage, reset: resetTask } = useTaskPoller({
+    videoId,
+    enabled: taskRunning,
+    interval: 3000,
+    onComplete: () => {
+      setTaskRunning(false);
+      setRunningNext(false);
+      queryClient.invalidateQueries({ queryKey: ["video", videoId] });
+      queryClient.invalidateQueries({ queryKey: ["video-script", videoId] });
+      queryClient.invalidateQueries({ queryKey: ["video-assets", videoId] });
+    },
+    onFailed: (error) => {
+      setTaskRunning(false);
+      setRunningNext(false);
+      alert(`Pipeline step failed: ${error}`);
+    },
+  });
+
   const currentTab = activeTab || defaultTab;
 
   const handleRunNext = async () => {
     setRunningNext(true);
     try {
       await runNextStep(videoId);
-      queryClient.invalidateQueries({ queryKey: ["video", videoId] });
-      queryClient.invalidateQueries({ queryKey: ["video-script", videoId] });
-      queryClient.invalidateQueries({ queryKey: ["video-assets", videoId] });
-    } catch (err) {
-      alert(`Run next step failed: ${(err as Error).message}`);
-    } finally {
+      setTaskRunning(true);
+    } catch (err: unknown) {
+      const message = (err as Error).message || "";
+      if (message.includes("409")) {
+        try {
+          await clearStaleTask(videoId);
+          await runNextStep(videoId);
+          setTaskRunning(true);
+          return;
+        } catch (retryErr) {
+          alert(`Run next step failed: ${(retryErr as Error).message}`);
+        }
+      } else {
+        alert(`Run next step failed: ${message}`);
+      }
       setRunningNext(false);
     }
   };
@@ -265,12 +295,12 @@ export default function VideoDetailPage() {
           {/* Run Next Step button */}
           <button
             onClick={handleRunNext}
-            disabled={runningNext}
+            disabled={runningNext || taskRunning}
             className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all hover:brightness-110 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
             style={{ background: "var(--turquoise)", color: "var(--bg-void)", border: "1px solid var(--turquoise)" }}
           >
-            {runningNext ? <Loader2 size={14} className="animate-spin inline mr-1" /> : null}
-            {runningNext ? "Running..." : "Run Next Step"}
+            {(runningNext || taskRunning) ? <Loader2 size={14} className="animate-spin inline mr-1" /> : null}
+            {taskRunning ? (taskMessage || "Running...") : runningNext ? "Starting..." : "Run Next Step"}
           </button>
 
           {/* Skip Stage button */}

@@ -10,7 +10,8 @@ import { SegmentBadge } from "@/components/ui/SegmentBadge";
 import { ProgressRing } from "@/components/ui/ProgressRing";
 import { FilterSelect } from "@/components/ui/FilterSelect";
 import { ActionButton } from "@/components/ui/ActionButton";
-import { getVideoAssets, runPipelineStage } from "@/lib/api";
+import { getVideoAssets, runPipelineStage, clearStaleTask } from "@/lib/api";
+import { useTaskPoller } from "@/hooks/use-task-poller";
 import type { VideoDetail, Asset } from "@/lib/api";
 
 function getClipStatus(asset: Asset): "pending" | "generating" | "done" {
@@ -35,6 +36,27 @@ export function VideoClipsTab({ video }: VideoClipsTabProps) {
   const [confirmGenerate, setConfirmGenerate] = useState(false);
   const [isGeneratingPrompts, setIsGeneratingPrompts] = useState(false);
   const [isGeneratingClips, setIsGeneratingClips] = useState(false);
+  const [taskRunning, setTaskRunning] = useState(false);
+  const [taskStage, setTaskStage] = useState<"prompts" | "clips">("prompts");
+
+  const { message: taskMessage } = useTaskPoller({
+    videoId: video.id,
+    enabled: taskRunning,
+    interval: 3000,
+    onComplete: () => {
+      setTaskRunning(false);
+      if (taskStage === "prompts") setIsGeneratingPrompts(false);
+      else { setIsGeneratingClips(false); setConfirmGenerate(false); }
+      queryClient.invalidateQueries({ queryKey: ["video", video.id] });
+      queryClient.invalidateQueries({ queryKey: ["video-assets", video.id] });
+    },
+    onFailed: (error) => {
+      setTaskRunning(false);
+      if (taskStage === "prompts") setIsGeneratingPrompts(false);
+      else { setIsGeneratingClips(false); setConfirmGenerate(false); }
+      alert(`${taskStage === "prompts" ? "Prompt generation" : "Clip generation"} failed: ${error}`);
+    },
+  });
 
   const { data: assets = [] } = useQuery({
     queryKey: ["video-assets", video.id],
@@ -58,22 +80,52 @@ export function VideoClipsTab({ video }: VideoClipsTabProps) {
     setIsGeneratingPrompts(true);
     try {
       await runPipelineStage(video.id, "video-scripts");
-      queryClient.invalidateQueries({ queryKey: ["video-assets", video.id] });
-    } finally {
+      setTaskStage("prompts");
+      setTaskRunning(true);
+    } catch (err: unknown) {
+      const message = (err as Error).message || "";
+      if (message.includes("409")) {
+        try {
+          await clearStaleTask(video.id);
+          await runPipelineStage(video.id, "video-scripts");
+          setTaskStage("prompts");
+          setTaskRunning(true);
+          return;
+        } catch (retryErr) {
+          alert(`Prompt generation failed: ${(retryErr as Error).message}`);
+        }
+      } else {
+        alert(`Prompt generation failed: ${message}`);
+      }
       setIsGeneratingPrompts(false);
     }
-  }, [video.id, queryClient]);
+  }, [video.id]);
 
   const handleGenerateClips = useCallback(async () => {
     setIsGeneratingClips(true);
     try {
       await runPipelineStage(video.id, "video-generation");
-      queryClient.invalidateQueries({ queryKey: ["video-assets", video.id] });
-    } finally {
+      setTaskStage("clips");
+      setTaskRunning(true);
+    } catch (err: unknown) {
+      const message = (err as Error).message || "";
+      if (message.includes("409")) {
+        try {
+          await clearStaleTask(video.id);
+          await runPipelineStage(video.id, "video-generation");
+          setTaskStage("clips");
+          setTaskRunning(true);
+          return;
+        } catch (retryErr) {
+          alert(`Clip generation failed: ${(retryErr as Error).message}`);
+        }
+      } else {
+        alert(`Clip generation failed: ${message}`);
+      }
       setIsGeneratingClips(false);
       setConfirmGenerate(false);
     }
-  }, [video.id, queryClient]);
+  }, [video.id]);
 
   if (totalCount === 0) {
     return (
@@ -87,11 +139,11 @@ export function VideoClipsTab({ video }: VideoClipsTabProps) {
         </p>
         <ActionButton
           variant="outline"
-          icon={isGeneratingPrompts ? Loader2 : Sparkles}
+          icon={(isGeneratingPrompts || (taskRunning && taskStage === "prompts")) ? Loader2 : Sparkles}
           onClick={handleGeneratePrompts}
-          disabled={isGeneratingPrompts}
+          disabled={isGeneratingPrompts || taskRunning}
         >
-          {isGeneratingPrompts ? "Generating..." : "Generate Video Prompts"}
+          {(taskRunning && taskStage === "prompts") ? (taskMessage || "Generating...") : isGeneratingPrompts ? "Starting..." : "Generate Video Prompts"}
         </ActionButton>
       </GlassCard>
     );
@@ -295,22 +347,22 @@ export function VideoClipsTab({ video }: VideoClipsTabProps) {
         <div className="space-y-2">
           <ActionButton
             variant="outline"
-            icon={isGeneratingPrompts ? Loader2 : Sparkles}
+            icon={(isGeneratingPrompts || (taskRunning && taskStage === "prompts")) ? Loader2 : Sparkles}
             className="w-full"
             onClick={handleGeneratePrompts}
-            disabled={isGeneratingPrompts}
+            disabled={isGeneratingPrompts || taskRunning}
           >
-            {isGeneratingPrompts ? "Generating..." : "Generate Prompts"}
+            {(taskRunning && taskStage === "prompts") ? (taskMessage || "Generating...") : isGeneratingPrompts ? "Starting..." : "Generate Prompts"}
           </ActionButton>
           {confirmGenerate ? (
             <ActionButton
               variant="filled"
-              icon={isGeneratingClips ? Loader2 : Film}
+              icon={(isGeneratingClips || (taskRunning && taskStage === "clips")) ? Loader2 : Film}
               className="w-full"
               onClick={handleGenerateClips}
-              disabled={isGeneratingClips}
+              disabled={isGeneratingClips || taskRunning}
             >
-              {isGeneratingClips ? "Generating..." : `Confirm — $${estimatedCost.toFixed(2)}`}
+              {(taskRunning && taskStage === "clips") ? (taskMessage || "Generating...") : isGeneratingClips ? "Starting..." : `Confirm — $${estimatedCost.toFixed(2)}`}
             </ActionButton>
           ) : (
             <ActionButton

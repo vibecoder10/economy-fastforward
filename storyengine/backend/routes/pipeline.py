@@ -44,20 +44,41 @@ class PipelineStatus(BaseModel):
 
 # --- Background Task Tracking ---
 # Maps video_id -> task info
+import time as _time
+
 _running_tasks: dict[str, dict] = {}
+
+# Tasks older than 10 minutes are considered stale (server restart, crash, etc.)
+_STALE_TASK_SECONDS = 600
 
 
 def _set_task_status(video_id: str, status: str, message: Optional[str] = None):
-    """Update task status for polling."""
+    """Update task status for polling.
+
+    Normalizes status to: running | completed | failed
+    """
+    # Normalize: anything not running/failed is completed
+    if status not in ("running", "failed"):
+        normalized = "completed"
+    else:
+        normalized = status
     _running_tasks[video_id] = {
-        "status": status,
+        "status": normalized,
         "message": message,
+        "started_at": _running_tasks.get(video_id, {}).get("started_at", _time.time()),
     }
 
 
 def _get_task_status(video_id: str) -> Optional[dict]:
-    """Get task status for a video."""
-    return _running_tasks.get(video_id)
+    """Get task status for a video. Auto-clears stale tasks."""
+    task = _running_tasks.get(video_id)
+    if not task:
+        return None
+    # Auto-clear stale tasks (older than 10 minutes and still "running")
+    if task["status"] == "running" and _time.time() - task.get("started_at", 0) > _STALE_TASK_SECONDS:
+        _running_tasks.pop(video_id, None)
+        return None
+    return task
 
 
 def _clear_task_status(video_id: str):
@@ -799,7 +820,20 @@ async def get_task_status(
     task = _get_task_status(video_id)
     if not task:
         return {"status": "idle", "message": None}
-    return task
+    return {"status": task["status"], "message": task.get("message")}
+
+
+@router.get("/task/{video_id}/clear")
+async def clear_task_status(
+    video_id: str,
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """Clear stale task status for a video.
+
+    Used when a 409 is returned but the task is actually dead.
+    """
+    _clear_task_status(video_id)
+    return {"status": "cleared"}
 
 
 # --- Claude Orchestration ---

@@ -12,7 +12,8 @@ import { SegmentBadge } from "@/components/ui/SegmentBadge";
 import { MiniWaveform } from "@/components/ui/MiniWaveform";
 import { ProgressRing } from "@/components/ui/ProgressRing";
 import { ActionButton } from "@/components/ui/ActionButton";
-import { getVideoScript, getVideoAssets, advanceVideo } from "@/lib/api";
+import { getVideoScript, getVideoAssets, advanceVideo, runPipelineStage, clearStaleTask } from "@/lib/api";
+import { useTaskPoller } from "@/hooks/use-task-poller";
 import type { VideoDetail, ScriptScene as ApiScriptScene, Asset } from "@/lib/api";
 
 interface VoiceReviewTabProps {
@@ -68,6 +69,49 @@ export function VoiceReviewTab({ video }: VoiceReviewTabProps) {
   const [volume, setVolume] = useState(75);
   const [playbackSpeed, setPlaybackSpeed] = useState("1.0x");
   const audioRefs = useRef<Record<string, HTMLAudioElement>>({});
+  const [isGeneratingVoice, setIsGeneratingVoice] = useState(false);
+  const [taskRunning, setTaskRunning] = useState(false);
+
+  const { message: taskMessage } = useTaskPoller({
+    videoId: video.id,
+    enabled: taskRunning,
+    interval: 3000,
+    onComplete: () => {
+      setTaskRunning(false);
+      setIsGeneratingVoice(false);
+      queryClient.invalidateQueries({ queryKey: ["video", video.id] });
+      queryClient.invalidateQueries({ queryKey: ["video-script", video.id] });
+      queryClient.invalidateQueries({ queryKey: ["video-assets", video.id] });
+    },
+    onFailed: (error) => {
+      setTaskRunning(false);
+      setIsGeneratingVoice(false);
+      alert(`Voice generation failed: ${error}`);
+    },
+  });
+
+  const handleGenerateVoice = useCallback(async () => {
+    setIsGeneratingVoice(true);
+    try {
+      await runPipelineStage(video.id, "voice");
+      setTaskRunning(true);
+    } catch (err: unknown) {
+      const message = (err as Error).message || "";
+      if (message.includes("409")) {
+        try {
+          await clearStaleTask(video.id);
+          await runPipelineStage(video.id, "voice");
+          setTaskRunning(true);
+          return;
+        } catch (retryErr) {
+          alert(`Voice generation failed: ${(retryErr as Error).message}`);
+        }
+      } else {
+        alert(`Voice generation failed: ${message}`);
+      }
+      setIsGeneratingVoice(false);
+    }
+  }, [video.id]);
 
   // Seed approved set from data
   useEffect(() => {
@@ -197,10 +241,18 @@ export function VoiceReviewTab({ video }: VoiceReviewTabProps) {
         <p className="text-lg font-display mb-2" style={{ color: "var(--text-secondary)" }}>
           Voice Not Generated Yet
         </p>
-        <p className="text-sm" style={{ color: "var(--text-tertiary)" }}>
+        <p className="text-sm mb-6" style={{ color: "var(--text-tertiary)" }}>
           The script must be completed before voice generation can begin.
           Current stage: <span style={{ color: "var(--turquoise)" }}>{(video.status || "").replace(/_/g, " ")}</span>
         </p>
+        <ActionButton
+          variant="filled"
+          icon={(isGeneratingVoice || taskRunning) ? Loader2 : Mic}
+          onClick={handleGenerateVoice}
+          disabled={isGeneratingVoice || taskRunning}
+        >
+          {taskRunning ? (taskMessage || "Generating Voice...") : isGeneratingVoice ? "Starting..." : "Generate Voice"}
+        </ActionButton>
       </GlassCard>
     );
   }

@@ -4,7 +4,9 @@ import { useState, useCallback } from "react";
 import { Check, RefreshCw, Loader2, ChevronDown, ChevronUp } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { ActionButton } from "@/components/ui/ActionButton";
-import { runPipelineStage, advanceVideo, updateVideoStyles } from "@/lib/api";
+import { useQueryClient } from "@tanstack/react-query";
+import { runPipelineStage, advanceVideo, updateVideoStyles, clearStaleTask } from "@/lib/api";
+import { useTaskPoller } from "@/hooks/use-task-poller";
 import type { VideoDetail } from "@/lib/api";
 
 const ACCENT_COLORS = [
@@ -23,6 +25,7 @@ interface ThumbnailTabProps {
 }
 
 export function ThumbnailTab({ video }: ThumbnailTabProps) {
+  const queryClient = useQueryClient();
   const currentAccent = video.accent_color || "Cold Teal";
   const [selectedAccent, setSelectedAccent] = useState(currentAccent);
   const [isRegenerating, setIsRegenerating] = useState(false);
@@ -31,6 +34,24 @@ export function ThumbnailTab({ video }: ThumbnailTabProps) {
   const [isSavingColor, setIsSavingColor] = useState(false);
   const [prompt, setPrompt] = useState(video.thumbnail_prompt || "");
   const [promptExpanded, setPromptExpanded] = useState(false);
+  const [taskRunning, setTaskRunning] = useState(false);
+
+  const { message: taskMessage } = useTaskPoller({
+    videoId: video.id,
+    enabled: taskRunning,
+    interval: 3000,
+    onComplete: () => {
+      setTaskRunning(false);
+      setIsRegenerating(false);
+      queryClient.invalidateQueries({ queryKey: ["video", video.id] });
+      queryClient.invalidateQueries({ queryKey: ["video-assets", video.id] });
+    },
+    onFailed: (error) => {
+      setTaskRunning(false);
+      setIsRegenerating(false);
+      alert(`Thumbnail generation failed: ${error}`);
+    },
+  });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const vid = video as any;
   const [thumbnailText, setThumbnailText] = useState(
@@ -42,7 +63,21 @@ export function ThumbnailTab({ video }: ThumbnailTabProps) {
     setIsApproved(false);
     try {
       await runPipelineStage(video.id, "thumbnail");
-    } finally {
+      setTaskRunning(true);
+    } catch (err: unknown) {
+      const message = (err as Error).message || "";
+      if (message.includes("409")) {
+        try {
+          await clearStaleTask(video.id);
+          await runPipelineStage(video.id, "thumbnail");
+          setTaskRunning(true);
+          return;
+        } catch (retryErr) {
+          alert(`Thumbnail generation failed: ${(retryErr as Error).message}`);
+        }
+      } else {
+        alert(`Thumbnail generation failed: ${message}`);
+      }
       setIsRegenerating(false);
     }
   }, [video.id]);
@@ -262,12 +297,12 @@ export function ThumbnailTab({ video }: ThumbnailTabProps) {
           </ActionButton>
           <ActionButton
             variant="outline"
-            icon={isRegenerating ? Loader2 : RefreshCw}
+            icon={(isRegenerating || taskRunning) ? Loader2 : RefreshCw}
             className="w-full"
             onClick={handleRegenerate}
-            disabled={isRegenerating}
+            disabled={isRegenerating || taskRunning}
           >
-            {isRegenerating ? "Regenerating..." : "Regenerate"}
+            {taskRunning ? (taskMessage || "Regenerating...") : isRegenerating ? "Starting..." : "Regenerate"}
           </ActionButton>
         </div>
       </div>

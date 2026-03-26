@@ -15,8 +15,9 @@ import { FilterSelect } from "@/components/ui/FilterSelect";
 import { ActionButton } from "@/components/ui/ActionButton";
 import {
   getVideoScript, getVideoAssets, updateStoryboardMode,
-  runPipelineStage, updateSceneSegments, runImageForSegment,
+  runPipelineStage, updateSceneSegments, runImageForSegment, clearStaleTask,
 } from "@/lib/api";
+import { useTaskPoller } from "@/hooks/use-task-poller";
 import type { VideoDetail, ScriptScene as ApiScriptScene, Asset } from "@/lib/api";
 
 interface VisualsTabProps {
@@ -92,6 +93,24 @@ export function VisualsTab({ video }: VisualsTabProps) {
   const [regeneratingSegment, setRegeneratingSegment] = useState<string | null>(null);
   const [generatingAll, setGeneratingAll] = useState(false);
   const [model, setModel] = useState("nano-banana-2");
+  const [taskRunning, setTaskRunning] = useState(false);
+
+  const { message: taskMessage } = useTaskPoller({
+    videoId: video.id,
+    enabled: taskRunning,
+    interval: 3000,
+    onComplete: () => {
+      setTaskRunning(false);
+      setGeneratingAll(false);
+      queryClient.invalidateQueries({ queryKey: ["video", video.id] });
+      queryClient.invalidateQueries({ queryKey: ["video-assets", video.id] });
+    },
+    onFailed: (error) => {
+      setTaskRunning(false);
+      setGeneratingAll(false);
+      alert(`Image generation failed: ${error}`);
+    },
+  });
 
   useEffect(() => {
     if (computedScenes.length > 0 && scenes.length === 0) {
@@ -147,11 +166,24 @@ export function VisualsTab({ video }: VisualsTabProps) {
     setGeneratingAll(true);
     try {
       await runPipelineStage(video.id, "images");
-      queryClient.invalidateQueries({ queryKey: ["video-assets", video.id] });
-    } finally {
+      setTaskRunning(true);
+    } catch (err: unknown) {
+      const message = (err as Error).message || "";
+      if (message.includes("409")) {
+        try {
+          await clearStaleTask(video.id);
+          await runPipelineStage(video.id, "images");
+          setTaskRunning(true);
+          return;
+        } catch (retryErr) {
+          alert(`Image generation failed: ${(retryErr as Error).message}`);
+        }
+      } else {
+        alert(`Image generation failed: ${message}`);
+      }
       setGeneratingAll(false);
     }
-  }, [video.id, queryClient]);
+  }, [video.id]);
 
   // Group by act
   const actGroups = scenes.reduce<Record<number, SceneGroup[]>>((acc, scene) => {
@@ -430,14 +462,16 @@ export function VisualsTab({ video }: VisualsTabProps) {
 
         <ActionButton
           variant="filled"
-          icon={generatingAll ? Loader2 : ImageIcon}
+          icon={(generatingAll || taskRunning) ? Loader2 : ImageIcon}
           className="w-full"
           onClick={handleGenerateAll}
-          disabled={generatingAll || pendingSegments === 0}
+          disabled={generatingAll || taskRunning || pendingSegments === 0}
         >
-          {generatingAll
-            ? "Generating..."
-            : `Generate All Remaining (${pendingSegments})`}
+          {taskRunning
+            ? (taskMessage || "Generating...")
+            : generatingAll
+              ? "Starting..."
+              : `Generate All Remaining (${pendingSegments})`}
         </ActionButton>
       </div>
     </div>
