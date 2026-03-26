@@ -23,6 +23,15 @@ PIPELINE_PATH = Path(__file__).parent.parent.parent / "skills" / "video-pipeline
 if str(PIPELINE_PATH) not in sys.path:
     sys.path.insert(0, str(PIPELINE_PATH))
 
+# Each bot folder has internal imports (e.g., script/run.py imports brief_translator).
+# Add bot subdirectories to sys.path so these resolve correctly.
+for bot_dir in ["script", "voice", "image_prompts", "images", "video_motion",
+                "thumbnail", "render", "sound", "storyboard", "research",
+                "upload", "analytics"]:
+    bot_path = str(PIPELINE_PATH / bot_dir)
+    if bot_path not in sys.path:
+        sys.path.append(bot_path)
+
 from database import fetch_one, execute
 from status_map import to_supabase, to_pipeline, get_bot_name, STAGE_BOT_MAP, is_at_or_past_stage
 from vault import get_secret
@@ -103,7 +112,13 @@ class PipelineExecutor:
             print("[INIT] GoogleClient OK", flush=True)
         except Exception as e:
             print(f"[INIT] GoogleClient skipped: {e}", flush=True)
-            self._pipeline.google = None
+            # No-op google client that returns safe defaults
+            class NoOpGoogle:
+                def get_or_create_folder(self, *a, **kw):
+                    return {"id": "no-google-drive"}
+                def __getattr__(self, name):
+                    return lambda *a, **kw: None
+            self._pipeline.google = NoOpGoogle()
 
         try:
             from shared.clients.slack_client import SlackClient
@@ -113,8 +128,9 @@ class PipelineExecutor:
             print(f"[INIT] SlackClient skipped: {e}", flush=True)
             # Create a no-op slack client
             class NoOpSlack:
-                def send_message(self, *a, **kw): pass
-                def send_notification(self, *a, **kw): pass
+                def __getattr__(self, name):
+                    """Return a no-op for any method call."""
+                    return lambda *a, **kw: None
             self._pipeline.slack = NoOpSlack()
 
         try:
@@ -178,11 +194,25 @@ class PipelineExecutor:
 
         self._pipeline._load_idea = _load_idea
 
+        def _update_status(new_status):
+            """Update status via adapter (pipeline skills call this)."""
+            if self._pipeline.current_idea_id:
+                self._pipeline.airtable.update_idea_status(
+                    self._pipeline.current_idea_id, new_status
+                )
+
+        self._pipeline._update_status = _update_status
+
         def get_idea_by_status(status):
             ideas = self._pipeline.airtable.get_ideas_by_status(status, limit=1)
             return ideas[0] if ideas else None
 
         self._pipeline.get_idea_by_status = get_idea_by_status
+
+        # Pipeline filter properties (used by some bot stages)
+        self._pipeline.image_filter = None
+        self._pipeline.scene_filter = None
+        self._pipeline.channel_profile = None
 
         # Import pipeline stage runners (lazy — they import their own deps)
         async def run_brief_translator():
