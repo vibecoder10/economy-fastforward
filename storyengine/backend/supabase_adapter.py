@@ -415,10 +415,14 @@ class SupabaseAdapter:
         return self.update_idea_fields(record_id, {field_name: value})
 
     def update_idea_fields(self, record_id: str, fields: dict) -> dict:
-        """Update multiple fields on a video."""
+        """Update multiple fields on a video.
+
+        Returns dict with 'id' and all written Airtable-named fields,
+        so verification checks like `if 'Script' not in result` work.
+        """
         columns = _idea_fields_to_columns(fields)
         if not columns:
-            return {"id": record_id}
+            return {"id": record_id, **fields}
 
         # Build dynamic UPDATE with %s placeholders
         sets = []
@@ -442,7 +446,8 @@ class SupabaseAdapter:
                     )
                 except Exception:
                     pass
-        return {"id": record_id}
+        # Return the fields that were written (Airtable names) for verification
+        return {"id": record_id, **fields}
 
     def update_idea_thumbnail(self, record_id: str, thumbnail_url: str) -> dict:
         """Update thumbnail URL."""
