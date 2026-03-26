@@ -149,6 +149,12 @@ export const generateCharacterImage = (prompt: string, styleId: string) =>
     { method: "POST", body: JSON.stringify({ prompt, style_id: styleId }) }
   );
 
+export const analyzeStyleImage = (imageData: string) =>
+  fetchApi<{ status: string; profile: Record<string, unknown> }>(
+    "/api/visual-styles/analyze-image",
+    { method: "POST", body: JSON.stringify({ image_data: imageData }) }
+  );
+
 // Pipeline - Stage Triggers
 export const createIdea = (topic: string, source?: string) =>
   fetchApi<PipelineResponse>("/api/pipeline/create-idea", {

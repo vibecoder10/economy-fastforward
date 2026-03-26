@@ -30,6 +30,7 @@ import {
   createStyleCharacter,
   deleteStyleCharacter,
   generateCharacterImage,
+  analyzeStyleImage,
   type VisualStyle,
   type StyleCharacter,
 } from "@/lib/api";
@@ -66,6 +67,7 @@ export default function ProfilePage() {
 
   // --- Style management ---
   const [deleteStyleConfirm, setDeleteStyleConfirm] = useState<string | null>(null);
+  const [expandedPromptId, setExpandedPromptId] = useState<string | null>(null);
 
   // --- Character state ---
   const [newCharName, setNewCharName] = useState("");
@@ -79,6 +81,7 @@ export default function ProfilePage() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedImageUrl, setGeneratedImageUrl] = useState<string | null>(null);
   const [generateError, setGenerateError] = useState<string | null>(null);
+  const [genCharName, setGenCharName] = useState("");
 
   // --- Mutations ---
   const invalidate = useCallback(() => {
@@ -94,7 +97,19 @@ export default function ProfilePage() {
 
   const deleteStyleMutation = useMutation({
     mutationFn: deleteVisualStyle,
-    onSuccess: invalidate,
+    onMutate: async (styleId) => {
+      await queryClient.cancelQueries({ queryKey: ["visualStyles"] });
+      const previous = queryClient.getQueryData<VisualStyle[]>(["visualStyles"]);
+      queryClient.setQueryData<VisualStyle[]>(["visualStyles"], (old) =>
+        old?.filter((s) => s.id !== styleId) ?? []
+      );
+      return { previous };
+    },
+    onError: (_err, _styleId, context) => {
+      if (context?.previous) queryClient.setQueryData(["visualStyles"], context.previous);
+      alert("Failed to delete style. It has been restored.");
+    },
+    onSettled: () => invalidate(),
   });
 
   const createCharMutation = useMutation({
@@ -106,7 +121,21 @@ export default function ProfilePage() {
   const deleteCharMutation = useMutation({
     mutationFn: ({ styleId, charId }: { styleId: string; charId: string }) =>
       deleteStyleCharacter(styleId, charId),
-    onSuccess: invalidate,
+    onMutate: async ({ styleId, charId }) => {
+      await queryClient.cancelQueries({ queryKey: ["visualStyles"] });
+      const previous = queryClient.getQueryData<VisualStyle[]>(["visualStyles"]);
+      queryClient.setQueryData<VisualStyle[]>(["visualStyles"], (old) =>
+        old?.map((s) =>
+          s.id === styleId ? { ...s, characters: s.characters.filter((c) => c.id !== charId) } : s
+        ) ?? []
+      );
+      return { previous };
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.previous) queryClient.setQueryData(["visualStyles"], context.previous);
+      alert("Failed to delete character. It has been restored.");
+    },
+    onSettled: () => invalidate(),
   });
 
   // --- AI Upload handler ---
@@ -119,41 +148,20 @@ export default function ProfilePage() {
       setIsAnalyzing(true);
       setAnalysisResult(null);
       setIsEditingJson(false);
-      // Simulate AI analysis (production: call Gemini Vision API with detailed extraction prompt)
-      // TODO: Replace with real Gemini API call using the detailed style extraction prompt
-      setTimeout(() => {
-        setIsAnalyzing(false);
-        const result = JSON.stringify({
-          style_name_suggestion: "Dark Editorial Cinema",
-          art_medium: "Digital painting with photorealistic rendering",
-          rendering_style: "Soft gradient shading with subtle brush strokes, volumetric lighting effects",
-          line_work: "No outlines, soft edges with atmospheric blending",
-          color_palette: {
-            primary: "#1A1A2E",
-            secondary: "#0F3460",
-            accent: "#E94560",
-            highlight: "#F0C75E",
-            shadow: "#0A0A14",
-            palette_description: "Dark navy base with deep blue midtones, crimson red accent used sparingly, warm gold highlights",
-          },
-          lighting: "Single key light upper-left 45deg warm tone, cool blue fill from right, strong rim light on subject edges",
-          shadow_style: "Soft gradient shadows with ambient occlusion, deepest shadows approach pure black",
-          composition: "Rule of thirds with subject positioned left, negative space right for text overlay",
-          texture: "Film grain 15%, subtle vignette, minimal chromatic aberration on edges",
-          character_rendering: "Realistic anatomical proportions, detailed facial features, editorial portrait style",
-          background_style: "Abstract bokeh gradient with subtle environmental elements, depth-of-field blur",
-          mood: "Tense, conspiratorial, high-stakes",
-          era_influence: "Contemporary editorial illustration, magazine cover aesthetic",
-          unique_elements: [
-            "Warm rim lighting on subject silhouette",
-            "Desaturated base with single saturated accent",
-            "Cinematic aspect ratio framing",
-          ],
-          prompt_prefix: "Cinematic digital painting with photorealistic rendering, soft gradient shading, single warm key light upper-left 45deg with cool blue fill, dark navy palette with crimson accent and gold highlights, film grain texture, editorial portrait composition, atmospheric bokeh background",
-        }, null, 2);
-        setAnalysisResult(result);
-        setEditableJson(result);
-      }, 3000);
+      // Call real Gemini Vision API
+      analyzeStyleImage(ev.target?.result as string)
+        .then((data) => {
+          const result = JSON.stringify(data.profile, null, 2);
+          setAnalysisResult(result);
+          setEditableJson(result);
+        })
+        .catch((err) => {
+          setAnalysisResult(null);
+          alert(`Style analysis failed: ${err.message}`);
+        })
+        .finally(() => {
+          setIsAnalyzing(false);
+        });
     };
     reader.readAsDataURL(file);
   };
@@ -248,12 +256,22 @@ export default function ProfilePage() {
     }
   };
 
-  const handleUseGeneratedImage = () => {
-    if (generatedImageUrl) {
-      setNewCharImage(generatedImageUrl);
-      setCharTab("upload");
+  const handleUseGeneratedImage = async () => {
+    if (!generatedImageUrl || !activeStyle || !genCharName.trim()) return;
+    setCharSaveStatus("saving");
+    try {
+      await createStyleCharacter(activeStyle.id, {
+        name: genCharName.trim(),
+        image_url: generatedImageUrl,
+      });
+      invalidate();
       setGeneratedImageUrl(null);
       setGeneratePrompt("");
+      setGenCharName("");
+      setCharSaveStatus("saved");
+      setTimeout(() => setCharSaveStatus("idle"), 2000);
+    } catch {
+      setCharSaveStatus("idle");
     }
   };
 
@@ -548,6 +566,38 @@ export default function ProfilePage() {
                       </span>
                     )}
                   </div>
+                  {/* View Prompt toggle */}
+                  {typeof style.style_profile?.prompt_prefix === "string" && style.style_profile.prompt_prefix && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setExpandedPromptId(expandedPromptId === style.id ? null : style.id);
+                      }}
+                      className="mt-2 text-[10px] font-medium flex items-center gap-1 transition-all"
+                      style={{ color: "var(--purple)" }}
+                    >
+                      <Eye size={10} />
+                      {expandedPromptId === style.id ? "Hide Prompt" : "View Prompt"}
+                    </button>
+                  )}
+                  {expandedPromptId === style.id && typeof style.style_profile?.prompt_prefix === "string" && style.style_profile.prompt_prefix && (
+                    <div className="mt-2 p-2.5 rounded-lg" style={{ background: "var(--bg-elevated)", border: "1px solid var(--purple-dim)" }}
+                      onClick={(e) => e.stopPropagation()}>
+                      <p className="text-[10px] font-mono leading-relaxed mb-2" style={{ color: "var(--text-secondary)" }}>
+                        {style.style_profile.prompt_prefix}
+                      </p>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          navigator.clipboard.writeText(style.style_profile.prompt_prefix as string);
+                        }}
+                        className="text-[9px] font-medium px-2 py-0.5 rounded transition-all hover:brightness-110"
+                        style={{ background: "var(--purple-dim)", color: "var(--purple)" }}
+                      >
+                        Copy to Clipboard
+                      </button>
+                    </div>
+                  )}
                 </div>
               </GlassCard>
             );
@@ -646,13 +696,22 @@ export default function ProfilePage() {
                     <div className="flex-1 relative">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img src={generatedImageUrl} alt="Generated" className="w-full h-full" style={{ objectFit: "contain" }} />
+                      <input
+                        type="text"
+                        placeholder="Character name..."
+                        value={genCharName}
+                        onChange={(e) => setGenCharName(e.target.value)}
+                        className="absolute bottom-14 left-2 right-2 px-3 py-1.5 rounded-lg text-xs font-body outline-none"
+                        style={{ background: "var(--bg-elevated)", color: "var(--text-primary)", border: "1px solid var(--border)" }}
+                      />
                       <div className="absolute bottom-2 left-2 right-2 flex gap-2">
                         <button
                           onClick={handleUseGeneratedImage}
-                          className="flex-1 py-1.5 rounded-lg text-xs font-semibold"
+                          disabled={!genCharName.trim() || charSaveStatus === "saving"}
+                          className="flex-1 py-1.5 rounded-lg text-xs font-semibold disabled:opacity-40"
                           style={{ background: "var(--green)", color: "var(--bg-void)" }}
                         >
-                          Use This
+                          {charSaveStatus === "saving" ? "Saving..." : "Use This"}
                         </button>
                         <button
                           onClick={handleGenerateCharacter}

@@ -237,6 +237,121 @@ async def generate_character(
         raise HTTPException(status_code=502, detail=f"Kie.ai API error: {str(e)}")
 
 
+# --- Image analysis (Gemini Vision) — must be before /{style_id} routes ---
+
+class AnalyzeImageRequest(BaseModel):
+    image_data: str  # base64 data URL or URL
+
+@router.post("/analyze-image")
+async def analyze_image(
+    req: AnalyzeImageRequest,
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """Analyze a reference image using Gemini Vision to extract visual style profile."""
+    import httpx
+    from vault import get_secret
+
+    api_key = await get_secret("gemini_api_key", tenant_id)
+    if not api_key:
+        raise HTTPException(
+            status_code=400,
+            detail="Gemini API key not configured. Go to Settings → API Keys to add it.",
+        )
+
+    # Build the Gemini request
+    prompt = """Describe EXACTLY what you see in this specific image. Do not use generic descriptions. Every field must reference specific visual elements visible in the image.
+
+Analyze this image and extract a detailed visual style profile as JSON. Return ONLY valid JSON with these exact fields:
+
+{
+  "style_name_suggestion": "A short descriptive name for this visual style",
+  "art_medium": "The specific art medium or technique used",
+  "rendering_style": "How the image is rendered (brushstrokes, gradients, etc.)",
+  "line_work": "Description of outlines, edges, and line quality",
+  "color_palette": {
+    "primary": "#hex",
+    "secondary": "#hex",
+    "accent": "#hex",
+    "highlight": "#hex",
+    "shadow": "#hex",
+    "palette_description": "Describe the overall color feel"
+  },
+  "lighting": "Describe the light sources, direction, and quality",
+  "shadow_style": "How shadows are rendered",
+  "composition": "Layout and framing description",
+  "texture": "Surface textures, grain, effects",
+  "character_rendering": "How people/figures are depicted",
+  "background_style": "Background treatment and detail level",
+  "mood": "Emotional tone and atmosphere",
+  "era_influence": "Historical or cultural aesthetic influence",
+  "unique_elements": ["element1", "element2", "element3"],
+  "prompt_prefix": "A single sentence that captures the complete visual style for use as an image generation prompt prefix. Include medium, lighting, color palette, texture, and composition."
+}"""
+
+    # Prepare the image content
+    image_parts = []
+    if req.image_data.startswith("data:"):
+        # Base64 data URL
+        header, b64data = req.image_data.split(",", 1)
+        mime_type = header.split(":")[1].split(";")[0]
+        image_parts.append({
+            "inline_data": {
+                "mime_type": mime_type,
+                "data": b64data,
+            }
+        })
+    else:
+        # URL
+        image_parts.append({
+            "file_data": {
+                "mime_type": "image/jpeg",
+                "file_uri": req.image_data,
+            }
+        })
+
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            resp = await client.post(
+                f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}",
+                json={
+                    "contents": [{
+                        "parts": [
+                            {"text": prompt},
+                            *image_parts,
+                        ]
+                    }],
+                    "generationConfig": {
+                        "temperature": 0.3,
+                        "maxOutputTokens": 2048,
+                    }
+                },
+            )
+
+            if resp.status_code != 200:
+                raise HTTPException(status_code=502, detail=f"Gemini API error: {resp.status_code} — {resp.text[:300]}")
+
+            data = resp.json()
+            text = data["candidates"][0]["content"]["parts"][0]["text"]
+
+            # Parse JSON from response (handle markdown fences)
+            text = text.strip()
+            if text.startswith("```"):
+                text = text.split("\n", 1)[1] if "\n" in text else text[3:]
+                if text.endswith("```"):
+                    text = text[:-3]
+                text = text.strip()
+
+            result = json.loads(text)
+            return {"status": "ok", "profile": result}
+
+    except HTTPException:
+        raise
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=500, detail=f"Failed to parse Gemini response as JSON: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Gemini API error: {str(e)}")
+
+
 # --- List + Create (non-parameterized) ---
 
 @router.get("", response_model=list[VisualStyleRead])
