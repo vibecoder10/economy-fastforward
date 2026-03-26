@@ -187,7 +187,8 @@ async def generate_character(
                 raise HTTPException(status_code=502, detail=detail)
 
             task_data = create_resp.json()
-            task_id = task_data.get("data", {}).get("task_id") or task_data.get("task_id")
+            data = task_data.get("data", {})
+            task_id = data.get("task_id") or data.get("taskId") or task_data.get("task_id") or task_data.get("taskId")
 
             if not task_id:
                 raise HTTPException(
@@ -195,38 +196,38 @@ async def generate_character(
                     detail=f"No task_id in response: {json.dumps(task_data)[:300]}",
                 )
 
-            # Poll for completion — 5s interval, 60 attempts (5 minutes)
+            # Poll for completion — correct endpoint: /jobs/recordInfo?taskId=xxx
+            # 5s interval, 60 attempts (5 minutes)
             for attempt in range(60):
                 await asyncio.sleep(5)
                 status_resp = await client.get(
-                    f"https://api.kie.ai/api/v1/jobs/getTaskStatus/{task_id}",
+                    "https://api.kie.ai/api/v1/jobs/recordInfo",
+                    params={"taskId": task_id},
                     headers={"Authorization": f"Bearer {api_key}"},
                 )
                 if status_resp.status_code != 200:
                     continue  # Transient error, keep polling
 
                 status_data = status_resp.json()
-                task_status = status_data.get("data", {}).get("status")
+                data = status_data.get("data", {})
+                task_status = data.get("status")
+                task_state = data.get("state")
 
-                if task_status == "completed" or task_status == 2:
-                    # Extract image URL
-                    output = status_data.get("data", {}).get("output")
-                    if isinstance(output, list) and output:
-                        image_url = output[0]
-                    elif isinstance(output, str):
-                        image_url = output
-                    else:
-                        image_url = None
-
-                    if image_url:
-                        return {"status": "ok", "image_url": image_url, "prompt": full_prompt}
-                    raise HTTPException(
-                        status_code=500,
-                        detail=f"Completed but no image URL: {json.dumps(status_data.get('data', {}))[:300]}",
-                    )
-                elif task_status == "failed" or task_status == 3:
-                    error_msg = status_data.get("data", {}).get("error", "Unknown error")
+                # Check for failure (status=3 or state contains "fail")
+                if (task_status == 3
+                    or str(task_status).lower() in ("failed", "failure", "error")
+                    or str(task_state).lower() in ("fail", "failed", "failure", "error")):
+                    error_msg = data.get("errorMessage") or data.get("error") or "Unknown error"
                     raise HTTPException(status_code=500, detail=f"Generation failed: {error_msg}")
+
+                # Check for completion — extract from resultJson.resultUrls
+                result_json = data.get("resultJson")
+                if result_json:
+                    if isinstance(result_json, str):
+                        result_json = json.loads(result_json)
+                    result_urls = result_json.get("resultUrls", [])
+                    if result_urls:
+                        return {"status": "ok", "image_url": result_urls[0], "prompt": full_prompt}
 
             raise HTTPException(status_code=504, detail="Generation timed out after 5 minutes")
 
