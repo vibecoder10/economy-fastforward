@@ -52,7 +52,8 @@ If there's even a **1% chance** a skill applies → **invoke it**.
 ---
 
 ## Stack
-Python 3.11+ (async) · TypeScript · Remotion · Airtable (orchestration DB) · Claude (scripts) · Kie.ai (images/video) · ElevenLabs (voice) · Whisper (transcription) · Google Drive (storage) · Slack (control) · Next.js (frontend)
+**Pipeline:** Python 3.11+ (async) · Remotion · Airtable (orchestration DB) · Claude (scripts) · Kie.ai (images/video) · ElevenLabs (voice) · Whisper (transcription) · Google Drive (storage) · Slack (control)
+**StoryEngine:** Next.js 16 · React 19 · TypeScript · TailwindCSS 4 · Framer Motion · React Query · FastAPI · Supabase PostgreSQL · asyncpg
 
 ## Repo Structure
 
@@ -123,7 +124,18 @@ skills/video-pipeline/           # Core pipeline (each tool = standalone folder)
 └── requirements.txt
 
 remotion-video/                  # TypeScript/Remotion video renderer
-storyengine/                     # Research UI (backend + frontend)
+storyengine/                     # Production dashboard (Next.js 16 + FastAPI + Supabase)
+├── frontend/                    # Next.js 16, React 19, TailwindCSS 4, Framer Motion
+│   ├── src/app/                 # App Router: dashboard, pipeline, create, analytics, etc.
+│   ├── src/components/          # production/, video-detail/, ui/, autopilot/, nav/
+│   ├── src/hooks/               # use-task-poller (background task polling)
+│   └── src/lib/                 # api.ts, types.ts, constants.ts
+├── backend/                     # FastAPI, asyncpg, 14 route modules
+│   ├── main.py                  # Route registration (ALWAYS check when adding routes)
+│   ├── models.py                # Pydantic models (source of truth for API shapes)
+│   ├── routes/                  # dashboard, videos, pipeline, assets, autopilot, etc.
+│   └── pipeline_executor.py     # Background task orchestrator
+└── schema.sql                   # Canonical DB schema (9 tables, 51+ columns)
 tasks/                           # Task tracking, lessons learned
 docs/                            # Reference documentation
 ```
@@ -215,6 +227,7 @@ Claude Code has NO memory between sessions. Before ending ANY session:
 
 ## Commands
 ```bash
+# Video Pipeline tests
 cd skills/video-pipeline
 python -m pytest tests/ -x                                    # Integration tests
 python -m pytest script/brief_translator/tests/ -x            # Script tests
@@ -223,6 +236,12 @@ python -m pytest autopilot/tests/ -x                          # Autopilot tests
 python -m pytest title_idea/curiosity_gap/tests/ -x           # Curiosity gap tests
 python -m pytest render/audio_sync/tests/ -x                  # Audio sync tests
 cd remotion-video && npm run typecheck                        # TypeScript check
+
+# StoryEngine
+cd storyengine/frontend && npx tsc --noEmit                   # Frontend type check
+cd storyengine/frontend && npm run build                      # Frontend production build
+cd storyengine/frontend && npm run dev                        # Frontend dev (port 3001)
+cd storyengine/backend && python -m uvicorn main:app --reload --port 8001  # Backend dev
 ```
 
 ## Key Reference Docs (read ONLY when relevant)
@@ -315,3 +334,174 @@ cd remotion-video && npm run typecheck                        # TypeScript check
 - Airtable UNKNOWN_FIELD_NAME errors are silent — the write appears to succeed but drops the field
 - Cron jobs written to setup_cron.sh are NOT automatically installed — must run `bash infra/setup_cron.sh`
 - Slack commands in orchestrator/pipeline_control.py require both the command handler AND the import
+
+---
+
+## 🎯 StoryEngine Full-Stack Development Protocol
+
+**Goal: One-shot shipping. Build it wired the first time. Debug less, ship faster.**
+
+Inspired by [Anthropic's harness design](https://www.anthropic.com/engineering/harness-design-long-running-apps): separate planning from building from verification. Never self-evaluate — prove it works.
+
+### The Rule
+
+**Every StoryEngine feature touches 4 layers. All 4 must be wired in one pass:**
+
+```
+Database (schema.sql / migration)
+    ↕ column names must match exactly
+Backend (routes/*.py + models.py + main.py)
+    ↕ response shape must match exactly
+Frontend Types (lib/types.ts or inline)
+    ↕ field names must match exactly
+Frontend UI (components/*.tsx + pages/*.tsx)
+```
+
+**If you build a layer without wiring it to the layers above and below, you've created dead code.** This is the #1 source of bugs in this project.
+
+### StoryEngine Architecture Reference
+
+```
+storyengine/
+├── frontend/                   # Next.js 16 + React 19 + TypeScript
+│   ├── src/app/                # App Router pages
+│   ├── src/components/         # UI components (production/, video-detail/, ui/, autopilot/)
+│   ├── src/hooks/              # Custom hooks (use-task-poller)
+│   └── src/lib/                # api.ts (fetchApi wrapper), types, constants
+│
+├── backend/                    # FastAPI + asyncpg + Supabase PostgreSQL
+│   ├── main.py                 # Route registration (14 routers)
+│   ├── models.py               # Pydantic request/response models
+│   ├── database.py             # Connection pool
+│   ├── routes/                 # 14 route files
+│   ├── pipeline_executor.py    # Background task orchestrator
+│   └── migrations/             # SQL migration files
+│
+├── schema.sql                  # Canonical DB schema (source of truth)
+└── MIGRATION_REPORT.md         # Migration history
+```
+
+**Key files to always check:**
+- `backend/main.py` — Is the new router registered?
+- `backend/models.py` — Does the Pydantic model match what the route returns?
+- `frontend/src/lib/api.ts` — Does fetchApi call the right endpoint?
+- `frontend/src/lib/types.ts` — Do TypeScript types match the backend response?
+
+### Development Workflow (Plan → Build → Wire → Verify)
+
+**EVERY StoryEngine feature follows this sequence. No exceptions.**
+
+#### Step 1: TRACE (before writing any code)
+
+Map the full wiring chain for the feature:
+```
+1. What DB table/columns are involved? Do they exist in schema.sql?
+2. What backend route handles this? Is it registered in main.py?
+3. What Pydantic model defines the request/response shape?
+4. What frontend API call fetches/sends this data?
+5. What component renders/submits this data?
+6. What happens on error? Loading state? Empty state?
+```
+
+Write this trace as a comment before coding. If any layer is missing, build it.
+
+#### Step 2: BUILD (bottom-up, one layer at a time)
+
+Build in this order — each layer validated before moving up:
+
+1. **Database** — Add migration if new columns needed. Verify column exists:
+   ```sql
+   SELECT column_name FROM information_schema.columns
+   WHERE table_name = 'videos' AND column_name = 'new_field';
+   ```
+
+2. **Backend route** — Add/modify route. Verify:
+   - Route registered in `main.py` (`app.include_router(...)`)
+   - Pydantic model in `models.py` matches response shape
+   - SQL query column names match schema.sql EXACTLY
+   - Test with curl: `curl http://localhost:8001/api/endpoint`
+
+3. **Frontend API** — Add fetch call. Verify:
+   - Endpoint path matches backend route EXACTLY (including `/api/` prefix)
+   - Request/response types match Pydantic model field names EXACTLY
+   - Error handling exists (loading, error, empty states)
+
+4. **Frontend UI** — Wire component to API data. Verify:
+   - Component receives data from the API call (not hardcoded/mock)
+   - Field names in JSX match the API response EXACTLY
+   - User actions trigger the right API mutations
+   - Loading/error/empty states render correctly
+
+#### Step 3: VERIFY (prove it works end-to-end)
+
+**Use `webapp-testing` skill (Playwright) to verify the running app.** This is NOT optional.
+
+```bash
+# Start both servers
+cd storyengine/backend && python -m uvicorn main:app --reload --port 8001 &
+cd storyengine/frontend && npm run dev &
+
+# Then use Playwright to:
+# 1. Navigate to the page
+# 2. Verify data loads (no console errors, no empty states when data exists)
+# 3. Test the user action (click, submit, etc.)
+# 4. Verify the result (UI updates, no errors)
+```
+
+**Self-evaluation is unreliable.** "The code looks right" is not verification. Run the app, see the result.
+
+### StoryEngine Wiring Checklist (before marking ANY feature complete)
+
+```
+□ DB column exists (not just in schema.sql — actually in Supabase)
+□ Backend route registered in main.py
+□ Backend route returns correct shape (curl test)
+□ Pydantic model matches route response
+□ Frontend fetchApi calls correct endpoint path
+□ Frontend types match backend response field names
+□ Component wired to real API data (not mock/hardcoded)
+□ Loading state shows while fetching
+□ Error state handles API failures
+□ Empty state handles no data
+□ TypeScript compiles: cd storyengine/frontend && npx tsc --noEmit
+□ No console errors in browser (check via Playwright or manual)
+```
+
+### StoryEngine Commands
+
+```bash
+# Frontend
+cd storyengine/frontend && npm run dev                    # Dev server (port 3001)
+cd storyengine/frontend && npx tsc --noEmit               # Type check
+cd storyengine/frontend && npm run build                   # Production build
+
+# Backend
+cd storyengine/backend && python -m uvicorn main:app --reload --port 8001  # Dev server
+
+# Full-stack verification
+# Use webapp-testing skill with Playwright for end-to-end checks
+```
+
+### Skill Integration For StoryEngine Work
+
+When working on StoryEngine, skills trigger in this order:
+
+| Phase | Skills to Invoke | What They Catch |
+|-------|-----------------|-----------------|
+| **Before coding** | `next-best-practices` (routes/pages), `react-best-practices` (components) | Wrong patterns, waterfalls, RSC boundary mistakes |
+| **Component design** | `composition-patterns` (if 3+ props or reusable) | Boolean prop sprawl, missed compound component opportunities |
+| **Database changes** | `supabase-postgres-best-practices` | Missing indexes, bad schema patterns, RLS issues |
+| **After building** | `webapp-testing` (Playwright verification) | Broken wiring, console errors, missing states |
+| **Before "done"** | `web-design-guidelines` (visual audit) | Design system violations, accessibility gaps |
+
+### Common StoryEngine Wiring Failures
+
+| Failure | How It Happens | Prevention |
+|---------|---------------|------------|
+| Route not registered | New file in routes/ but `app.include_router()` missing from main.py | Always check main.py after creating a route file |
+| Field name mismatch | Backend returns `video_title`, frontend expects `title` | Copy field names from Pydantic model to TypeScript type — don't retype |
+| Column doesn't exist | SQL references column from schema.sql that was never migrated | Run migration BEFORE writing route code |
+| API path wrong | Frontend calls `/api/videos/detail` but route is `/api/videos/{id}` | curl the endpoint first, then copy the exact path |
+| Stale React Query cache | Data updates but UI shows old data | Invalidate the right query key after mutations |
+| Missing loading state | Component renders empty div while data loads | Always destructure `{ data, isLoading, error }` from useQuery |
+| POST body shape wrong | Frontend sends `{ title: "..." }` but Pydantic expects `{ video_title: "..." }` | Match Pydantic model field names exactly in fetch body |
