@@ -110,6 +110,23 @@ Full codebase reorganization of `skills/video-pipeline/`. Each tool is now a sta
 4. Add Google OAuth + Slack credentials to VPS vault for full pipeline
 5. Future modules: Settings page, channel onboarding, calendar view
 
+---
+
+## Completed: Page-by-Page UI/UX Overhaul (2026-03-26)
+
+**Branch:** `claude/page-fixes-round1` (pushed, not merged)
+**Completion Report:** `COMPLETION_REPORT_D.md`
+
+All 6 sections done:
+1. Tab restructure (9→8 tabs, 6-step labeled stepper)
+2. ScriptVoiceTab — combined script editing + inline voice per scene
+3. StoryboardVisualsTab — voice guard rail + visuals workflow
+4. Approval gates — Run Next Step stops at checkpoints
+5. Pipeline integrity — voice required before image generation
+6. Bug fixes — analytics crash, thumbnails, Gemini retry, character persistence
+
+30/30 checklist items PASS. TypeScript compiles clean.
+
 **Dev tools built:**
 - Voice Typer: `~/whisper-dictation/` (Fn key dictation, auto-starts on login)
 - Browser Watcher: `~/browser-watcher/watcher.py` (Playwright monitoring)
