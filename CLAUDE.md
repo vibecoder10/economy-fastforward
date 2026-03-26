@@ -37,6 +37,13 @@
 | **Ready to merge/PR** | `finishing-a-development-branch` | Structured completion options |
 | **2+ independent tasks** | `dispatching-parallel-agents` | Parallelize for speed |
 | **Need feature isolation** | `using-git-worktrees` | Safe experimentation |
+| **Next.js code (pages, routes, API, RSC)** | `next-best-practices` | Correct patterns for routing, data fetching, caching |
+| **React components (hooks, state, props)** | `react-best-practices` | 65 performance rules, avoid waterfalls and re-renders |
+| **Component architecture / refactoring** | `composition-patterns` | Compound components, avoid boolean prop sprawl |
+| **Database schema, queries, Postgres** | `supabase-postgres-best-practices` | Indexes, RLS, schema design, connection pooling |
+| **Remotion video code (scenes, timing, audio)** | `remotion-best-practices` | Domain-specific Remotion patterns |
+| **Testing UI / verifying frontend works** | `webapp-testing` | Playwright scripts catch broken icons, links, wiring |
+| **UI review / design audit** | `web-design-guidelines` | Audit against Web Interface Guidelines |
 
 ### The 1% Rule
 
