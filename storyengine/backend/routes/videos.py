@@ -6,6 +6,7 @@ from auth import get_tenant_id
 from models import (
     VideoSummary, VideoDetail, STAGE_ORDER, PIPELINE_STAGES,
     SceneTextUpdate, SceneToneUpdate, SegmentUpdate, StoryboardModeUpdate,
+    CreateVideoRequest,
 )
 from database import fetch_all, fetch_one, execute
 from typing import Optional, Any
@@ -87,6 +88,40 @@ async def list_videos(
         )
         for r in rows
     ]
+
+
+@router.post("", response_model=VideoSummary)
+async def create_video(
+    body: CreateVideoRequest,
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """Create a new video idea."""
+    from routes.projects import _get_or_create_project
+
+    project = await _get_or_create_project(tenant_id)
+    project_id = str(project["id"])
+
+    row = await fetch_one(
+        """INSERT INTO videos (tenant_id, project_id, video_title, status, source, framework_angle, video_length_minutes, accent_color)
+           VALUES ($1, $2, $3, 'idea_logged', $4, $5, $6, '#00D4AA')
+           RETURNING id, video_title, status, thumbnail_url, accent_color, total_cost, views, ctr,
+                     created_at::text, updated_at::text""",
+        tenant_id, project_id, body.title.strip(), body.source_url, body.framework_angle,
+        body.video_length_minutes,
+    )
+
+    return VideoSummary(
+        id=str(row["id"]),
+        video_title=row.get("video_title"),
+        status=row.get("status"),
+        thumbnail_url=row.get("thumbnail_url"),
+        accent_color=row.get("accent_color", "#00D4AA"),
+        total_cost=float(row.get("total_cost") or 0),
+        views=row.get("views") or 0,
+        ctr=float(row["ctr"]) if row.get("ctr") else None,
+        created_at=row.get("created_at"),
+        updated_at=row.get("updated_at"),
+    )
 
 
 @router.get("/{video_id}", response_model=VideoDetail)

@@ -121,6 +121,13 @@ class StoryboardModeUpdate(BaseModel):
     enabled: bool
 
 
+class CreateVideoRequest(BaseModel):
+    title: str
+    source_url: Optional[str] = None
+    framework_angle: Optional[str] = None
+    video_length_minutes: Optional[int] = 10
+
+
 # --- Scripts ---
 
 class ScriptScene(BaseModel):

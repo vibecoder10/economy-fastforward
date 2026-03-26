@@ -31,6 +31,17 @@ export const getVideos = (status?: string) =>
 
 export const getVideo = (id: string) => fetchApi<VideoDetail>(`/api/videos/${id}`);
 
+export const createVideo = (data: {
+  title: string;
+  source_url?: string;
+  framework_angle?: string;
+  video_length_minutes?: number;
+}) =>
+  fetchApi<VideoSummary>("/api/videos", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+
 export const advanceVideo = (id: string) =>
   fetchApi<{ status: string }>(`/api/videos/${id}/advance`, { method: "PATCH" });
 
