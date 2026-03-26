@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useMemo } from "react";
-import { Upload, Copy, ExternalLink, CheckCircle } from "lucide-react";
+import { useState, useMemo, useCallback } from "react";
+import { Upload, Copy, ExternalLink, CheckCircle, AlertTriangle } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { ActionButton } from "@/components/ui/ActionButton";
-import type { Video } from "@/lib/types";
+import { runPipelineStage } from "@/lib/api";
+import type { VideoDetail } from "@/lib/api";
 
 const PIPELINE_ORDER = [
   "idea_logged", "approved", "researching", "ready_for_scripting", "scripting",
@@ -35,14 +36,19 @@ const STATUS_MAP: Record<string, { label: string; color: string }> = {
 };
 
 interface UploadTabProps {
-  video: Video & {
-    youtube_url?: string | null;
-    hook_script?: string | null;
-    thesis?: string | null;
+  video: VideoDetail & {
+    id: string;
+    title?: string;
+    thumbnailUrl?: string | null;
+    uploadDate?: string | null;
   };
 }
 
-function buildDescription(hookScript?: string | null, thesis?: string | null, title?: string): string {
+function buildDescription(
+  hookScript?: string | null,
+  thesis?: string | null,
+  title?: string,
+): string {
   const parts: string[] = [];
   if (thesis) parts.push(thesis);
   if (hookScript) parts.push(`\n\n${hookScript}`);
@@ -60,8 +66,10 @@ function extractVideoId(url: string | null | undefined): string | null {
 }
 
 function extractTags(title: string): string[] {
-  // Generate tags from title words (3+ chars, no stop words)
-  const stopWords = new Set(["the", "and", "for", "that", "this", "with", "from", "are", "was", "has", "its", "how", "why", "what"]);
+  const stopWords = new Set([
+    "the", "and", "for", "that", "this", "with", "from", "are",
+    "was", "has", "its", "how", "why", "what",
+  ]);
   return title
     .replace(/[^a-zA-Z0-9\s]/g, "")
     .split(/\s+/)
@@ -71,43 +79,62 @@ function extractTags(title: string): string[] {
 
 export function UploadTab({ video }: UploadTabProps) {
   const youtubeUrl = video.youtube_url;
-  const videoId = extractVideoId(youtubeUrl);
-  const uploadStatus = getUploadStatus(video.status, youtubeUrl);
+  const videoIdYt = extractVideoId(youtubeUrl);
+  const uploadStatus = getUploadStatus(video.status || "", youtubeUrl);
   const statusCfg = STATUS_MAP[uploadStatus] || STATUS_MAP.pending;
   const isNotRendered = uploadStatus === "pending";
 
-  const defaultDescription = useMemo(
-    () => buildDescription(video.hook_script, video.thesis, video.title),
-    [video.hook_script, video.thesis, video.title],
-  );
-  const tags = useMemo(() => extractTags(video.title || ""), [video.title]);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const vid = video as any;
+  const videoTitle = vid.video_title || video.title || "";
 
-  const [title, setTitle] = useState(video.title || "");
+  const defaultDescription = useMemo(
+    () => buildDescription(video.hook_script, video.thesis, videoTitle),
+    [video.hook_script, video.thesis, videoTitle],
+  );
+  const tags = useMemo(() => extractTags(videoTitle), [videoTitle]);
+
+  const [title, setTitle] = useState(videoTitle);
   const [description, setDescription] = useState(defaultDescription);
   const [copied, setCopied] = useState(false);
   const [confirmUpload, setConfirmUpload] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadComplete, setUploadComplete] = useState(!!youtubeUrl);
 
-  const handleCopy = () => {
+  const handleCopy = useCallback(() => {
     if (!youtubeUrl) return;
     navigator.clipboard.writeText(youtubeUrl);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
-  };
+  }, [youtubeUrl]);
 
-  const handleUpload = async () => {
-    alert("Upload not yet available from UI — use Slack `upload` command");
-    setConfirmUpload(false);
-  };
+  const handleUpload = useCallback(async () => {
+    setIsUploading(true);
+    try {
+      await runPipelineStage(video.id, "upload");
+      setUploadComplete(true);
+    } catch {
+      alert("Upload failed. Try using the Slack `upload` command instead.");
+    } finally {
+      setIsUploading(false);
+      setConfirmUpload(false);
+    }
+  }, [video.id]);
 
   if (isNotRendered) {
     return (
       <GlassCard className="p-12 text-center">
-        <Upload size={32} className="mx-auto mb-3" style={{ color: "var(--text-tertiary)", opacity: 0.4 }} />
+        <Upload
+          size={32}
+          className="mx-auto mb-3"
+          style={{ color: "var(--text-tertiary)", opacity: 0.4 }}
+        />
         <p className="text-lg font-display mb-2" style={{ color: "var(--text-secondary)" }}>
           Not Yet Rendered
         </p>
         <p className="text-sm" style={{ color: "var(--text-tertiary)" }}>
-          The video must be rendered before it can be uploaded to YouTube. Go to the Render tab to start rendering.
+          The video must be rendered before it can be uploaded to YouTube.
+          Go to the Render tab to start rendering.
         </p>
       </GlassCard>
     );
@@ -117,10 +144,9 @@ export function UploadTab({ video }: UploadTabProps) {
     <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-6">
       {/* Left column */}
       <div className="space-y-4">
-        {/* Preview card: video + thumbnail side by side */}
+        {/* Preview */}
         <GlassCard className="p-0 overflow-hidden">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-0">
-            {/* Video placeholder */}
             <div
               className="aspect-video relative flex items-center justify-center"
               style={{ background: "var(--bg-elevated)" }}
@@ -148,13 +174,16 @@ export function UploadTab({ video }: UploadTabProps) {
               </div>
             </div>
 
-            {/* Thumbnail placeholder */}
             <div
               className="aspect-video relative flex items-center justify-center"
               style={{ background: "var(--bg-void)" }}
             >
-              {video.thumbnailUrl ? (
-                <img src={video.thumbnailUrl} alt="Thumbnail" className="w-full h-full object-cover" />
+              {video.thumbnail_url || vid.thumbnailUrl ? (
+                <img
+                  src={(video.thumbnail_url || vid.thumbnailUrl) as string}
+                  alt="Thumbnail"
+                  className="w-full h-full object-cover"
+                />
               ) : (
                 <>
                   <svg className="absolute inset-0 w-full h-full opacity-10">
@@ -183,7 +212,6 @@ export function UploadTab({ video }: UploadTabProps) {
             SEO Preview
           </h3>
 
-          {/* Title input */}
           <div className="mb-4">
             <label
               className="text-[10px] font-medium uppercase tracking-wider block mb-1"
@@ -212,7 +240,6 @@ export function UploadTab({ video }: UploadTabProps) {
             </span>
           </div>
 
-          {/* Description textarea */}
           <div className="mb-4">
             <label
               className="text-[10px] font-medium uppercase tracking-wider block mb-1"
@@ -235,7 +262,6 @@ export function UploadTab({ video }: UploadTabProps) {
             />
           </div>
 
-          {/* Tags */}
           {tags.length > 0 && (
             <div className="mb-4">
               <label
@@ -313,17 +339,19 @@ export function UploadTab({ video }: UploadTabProps) {
           </div>
           <div className="space-y-3">
             {[
-              ...(video.uploadDate
+              ...(video.uploadDate || video.created_at
                 ? [{
                     label: "Upload Date",
-                    value: new Date(video.uploadDate).toLocaleDateString("en-US", {
+                    value: new Date(
+                      (video.uploadDate || video.created_at) as string,
+                    ).toLocaleDateString("en-US", {
                       month: "short",
                       day: "numeric",
                       year: "numeric",
                     }),
                   }]
                 : []),
-              ...(videoId ? [{ label: "Video ID", value: videoId }] : []),
+              ...(videoIdYt ? [{ label: "Video ID", value: videoIdYt }] : []),
               {
                 label: "Visibility",
                 value: uploadStatus === "done" ? "Public" : "Unlisted",
@@ -333,7 +361,10 @@ export function UploadTab({ video }: UploadTabProps) {
                 <span className="text-xs" style={{ color: "var(--text-secondary)" }}>
                   {row.label}
                 </span>
-                <span className="text-sm font-mono font-medium" style={{ color: "var(--text-primary)" }}>
+                <span
+                  className="text-sm font-mono font-medium"
+                  style={{ color: "var(--text-primary)" }}
+                >
                   {row.value}
                 </span>
               </div>
@@ -343,27 +374,65 @@ export function UploadTab({ video }: UploadTabProps) {
 
         <div className="space-y-2">
           {confirmUpload ? (
-            <ActionButton
-              variant="filled"
-              icon={Upload}
-              className="w-full"
-              onClick={handleUpload}
-            >
-              Confirm Upload
-            </ActionButton>
+            <>
+              {/* Confirmation warning */}
+              <GlassCard className="p-3" style={{ borderColor: "var(--gold)", borderWidth: 1 }}>
+                <div className="flex items-start gap-2">
+                  <AlertTriangle
+                    size={14}
+                    className="flex-shrink-0 mt-0.5"
+                    style={{ color: "var(--gold)" }}
+                  />
+                  <p className="text-[11px] leading-relaxed" style={{ color: "var(--gold)" }}>
+                    This will upload the video as an UNLISTED draft on YouTube.
+                    You will need to publish it manually.
+                  </p>
+                </div>
+              </GlassCard>
+              <button
+                className="w-full inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold font-body transition-all hover:brightness-110 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
+                style={{
+                  background: "transparent",
+                  color: "var(--gold)",
+                  border: "1px solid var(--gold)",
+                }}
+                onClick={handleUpload}
+                disabled={isUploading}
+              >
+                <Upload size={16} />
+                {isUploading ? "Uploading..." : "Confirm Upload"}
+              </button>
+              <ActionButton
+                variant="outline"
+                className="w-full"
+                onClick={() => setConfirmUpload(false)}
+              >
+                Cancel
+              </ActionButton>
+            </>
           ) : (
             <button
-              className="w-full inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold font-body transition-all hover:brightness-110 active:scale-[0.98]"
-              style={{ background: "var(--gold)", color: "var(--bg-void)", border: "1px solid var(--gold)" }}
+              className="w-full inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold font-body transition-all hover:brightness-110 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
+              style={{
+                background: "transparent",
+                color: "var(--gold)",
+                border: "1px solid var(--gold)",
+              }}
               onClick={() => setConfirmUpload(true)}
+              disabled={uploadComplete && !!youtubeUrl}
             >
               <Upload size={16} />
-              Upload as Draft
+              {uploadComplete && youtubeUrl ? "Uploaded" : "Upload to YouTube"}
             </button>
           )}
           {youtubeUrl && (
             <>
-              <ActionButton variant="outline" icon={Copy} className="w-full" onClick={handleCopy}>
+              <ActionButton
+                variant="outline"
+                icon={Copy}
+                className="w-full"
+                onClick={handleCopy}
+              >
                 {copied ? "Copied!" : "Copy URL"}
               </ActionButton>
               <ActionButton

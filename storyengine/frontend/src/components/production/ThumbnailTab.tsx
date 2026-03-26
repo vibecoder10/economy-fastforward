@@ -1,11 +1,11 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { Check, RefreshCw, PenLine, Loader2 } from "lucide-react";
+import { Check, RefreshCw, Loader2, ChevronDown, ChevronUp } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { ActionButton } from "@/components/ui/ActionButton";
 import { runPipelineStage, advanceVideo, updateVideoStyles } from "@/lib/api";
-import type { Video } from "@/lib/types";
+import type { VideoDetail } from "@/lib/api";
 
 const ACCENT_COLORS = [
   { name: "Cold Teal", value: "#4A9E9E" },
@@ -15,10 +15,10 @@ const ACCENT_COLORS = [
 ] as const;
 
 interface ThumbnailTabProps {
-  video: Video & {
-    thumbnail_prompt?: string | null;
-    thumbnail_style_override?: string | null;
-    accent_color?: string | null;
+  video: VideoDetail & {
+    id: string;
+    title?: string;
+    thumbnailUrl?: string | null;
   };
 }
 
@@ -27,22 +27,33 @@ export function ThumbnailTab({ video }: ThumbnailTabProps) {
   const [selectedAccent, setSelectedAccent] = useState(currentAccent);
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [isApproving, setIsApproving] = useState(false);
+  const [isApproved, setIsApproved] = useState(false);
   const [isSavingColor, setIsSavingColor] = useState(false);
   const [prompt, setPrompt] = useState(video.thumbnail_prompt || "");
+  const [promptExpanded, setPromptExpanded] = useState(false);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const vid = video as any;
+  const [thumbnailText, setThumbnailText] = useState(
+    vid.video_title || video.title || "",
+  );
 
-  const handleRegenerate = async () => {
+  const handleRegenerate = useCallback(async () => {
     setIsRegenerating(true);
+    setIsApproved(false);
     try {
       await runPipelineStage(video.id, "thumbnail");
     } finally {
       setIsRegenerating(false);
     }
-  };
+  }, [video.id]);
 
   const handleApprove = useCallback(async () => {
     setIsApproving(true);
     try {
       await advanceVideo(video.id);
+      setIsApproved(true);
+    } catch {
+      // silent
     } finally {
       setIsApproving(false);
     }
@@ -52,25 +63,39 @@ export function ThumbnailTab({ video }: ThumbnailTabProps) {
     setSelectedAccent(colorName);
     setIsSavingColor(true);
     try {
-      await updateVideoStyles(video.id, { accent_color: colorName.toLowerCase().replace(" ", "_") });
+      await updateVideoStyles(video.id, {
+        accent_color: colorName.toLowerCase().replace(" ", "_"),
+      });
     } finally {
       setIsSavingColor(false);
     }
   }, [video.id]);
 
+  const thumbnailUrl = video.thumbnail_url || vid.thumbnailUrl;
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-6">
       {/* Main content */}
       <div className="space-y-4">
+        {/* Video title */}
+        <div>
+          <h2
+            className="text-xl font-display"
+            style={{ color: "var(--text-primary)" }}
+          >
+            {vid.video_title || video.title || "Untitled"}
+          </h2>
+        </div>
+
         {/* 16:9 thumbnail preview */}
         <GlassCard className="p-0 overflow-hidden">
           <div
             className="aspect-video relative flex items-center justify-center"
             style={{ background: "var(--bg-elevated)" }}
           >
-            {video.thumbnailUrl ? (
+            {thumbnailUrl ? (
               <img
-                src={video.thumbnailUrl}
+                src={thumbnailUrl}
                 alt="Thumbnail preview"
                 className="w-full h-full object-cover"
               />
@@ -114,76 +139,55 @@ export function ThumbnailTab({ video }: ThumbnailTabProps) {
           </div>
         </GlassCard>
 
-        {/* Prompt display (editable) */}
+        {/* Prompt (collapsible, editable) */}
         <GlassCard
           className="p-4"
           style={{ borderLeftWidth: 3, borderLeftColor: "var(--gold)" }}
         >
-          <h3
-            className="text-xs font-semibold uppercase tracking-wider mb-2"
-            style={{ color: "var(--text-secondary)" }}
+          <button
+            className="w-full flex items-center justify-between"
+            onClick={() => setPromptExpanded(!promptExpanded)}
           >
-            Thumbnail Prompt
-          </h3>
-          {prompt ? (
-            <textarea
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              rows={3}
-              className="w-full text-sm leading-relaxed bg-transparent outline-none resize-none"
-              style={{ color: "var(--text-primary)" }}
-            />
-          ) : (
-            <p className="text-sm italic" style={{ color: "var(--text-tertiary)" }}>
-              No prompt generated yet. Run the thumbnail stage to generate one.
-            </p>
+            <h3
+              className="text-xs font-semibold uppercase tracking-wider"
+              style={{ color: "var(--text-secondary)" }}
+            >
+              Thumbnail Prompt
+            </h3>
+            {promptExpanded ? (
+              <ChevronUp size={14} style={{ color: "var(--text-tertiary)" }} />
+            ) : (
+              <ChevronDown size={14} style={{ color: "var(--text-tertiary)" }} />
+            )}
+          </button>
+          {promptExpanded && (
+            <div className="mt-3">
+              {prompt ? (
+                <textarea
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
+                  rows={4}
+                  className="w-full text-sm leading-relaxed bg-transparent outline-none resize-none rounded-lg px-2 py-1 transition-all"
+                  style={{
+                    color: "var(--text-primary)",
+                    border: "1px solid var(--border-subtle)",
+                  }}
+                  onFocus={(e) => { e.target.style.borderColor = "var(--gold)"; }}
+                  onBlur={(e) => { e.target.style.borderColor = "var(--border-subtle)"; }}
+                />
+              ) : (
+                <p className="text-sm italic" style={{ color: "var(--text-tertiary)" }}>
+                  No prompt generated yet. Run the thumbnail stage to generate one.
+                </p>
+              )}
+            </div>
           )}
         </GlassCard>
       </div>
 
       {/* Sidebar */}
       <div className="space-y-4">
-        <GlassCard className="p-5">
-          <h3
-            className="text-xs font-semibold uppercase tracking-wider mb-3"
-            style={{ color: "var(--text-secondary)" }}
-          >
-            Thumbnail Details
-          </h3>
-          <div className="space-y-3">
-            <div>
-              <span
-                className="text-[10px] font-medium uppercase tracking-wider block mb-1"
-                style={{ color: "var(--text-tertiary)" }}
-              >
-                Accent Color
-              </span>
-              <span
-                className="text-sm font-mono"
-                style={{ color: "var(--text-primary)" }}
-              >
-                {selectedAccent}
-              </span>
-            </div>
-
-            <div>
-              <span
-                className="text-[10px] font-medium uppercase tracking-wider block mb-1"
-                style={{ color: "var(--text-tertiary)" }}
-              >
-                Style Override
-              </span>
-              <p
-                className="text-[11px] font-mono leading-relaxed"
-                style={{ color: "var(--text-secondary)" }}
-              >
-                {video.thumbnail_style_override || "None"}
-              </p>
-            </div>
-          </div>
-        </GlassCard>
-
-        {/* Color swatches */}
+        {/* Accent Color */}
         <GlassCard className="p-5">
           <h3
             className="text-xs font-semibold uppercase tracking-wider mb-3"
@@ -199,8 +203,7 @@ export function ThumbnailTab({ video }: ThumbnailTabProps) {
                 disabled={isSavingColor}
                 className="flex items-center gap-2 px-2 py-1.5 rounded-lg transition-all text-left"
                 style={{
-                  background:
-                    selectedAccent === c.name ? `${c.value}22` : "transparent",
+                  background: selectedAccent === c.name ? `${c.value}22` : "transparent",
                   border: `1px solid ${selectedAccent === c.name ? c.value : "var(--border-subtle)"}`,
                 }}
               >
@@ -210,9 +213,7 @@ export function ThumbnailTab({ video }: ThumbnailTabProps) {
                 />
                 <span
                   className="text-[10px] font-medium"
-                  style={{
-                    color: selectedAccent === c.name ? c.value : "var(--text-secondary)",
-                  }}
+                  style={{ color: selectedAccent === c.name ? c.value : "var(--text-secondary)" }}
                 >
                   {c.name}
                 </span>
@@ -221,15 +222,43 @@ export function ThumbnailTab({ video }: ThumbnailTabProps) {
           </div>
         </GlassCard>
 
+        {/* Thumbnail Text */}
+        <GlassCard className="p-5">
+          <h3
+            className="text-xs font-semibold uppercase tracking-wider mb-2"
+            style={{ color: "var(--text-secondary)" }}
+          >
+            Thumbnail Text
+          </h3>
+          <input
+            type="text"
+            value={thumbnailText}
+            onChange={(e) => setThumbnailText(e.target.value)}
+            className="w-full px-3 py-2 rounded-lg text-sm font-body outline-none transition-all"
+            style={{
+              background: "var(--bg-elevated)",
+              color: "var(--text-primary)",
+              border: "1px solid var(--border)",
+            }}
+            onFocus={(e) => { e.target.style.borderColor = "var(--turquoise)"; }}
+            onBlur={(e) => { e.target.style.borderColor = "var(--border)"; }}
+          />
+        </GlassCard>
+
+        {/* Actions */}
         <div className="space-y-2">
           <ActionButton
             variant="filled"
-            icon={isApproving ? Loader2 : Check}
+            icon={isApproving ? Loader2 : isApproved ? Check : undefined}
             className="w-full"
             onClick={handleApprove}
-            disabled={isApproving}
+            disabled={isApproving || isApproved}
           >
-            {isApproving ? "Approving..." : "Approve Thumbnail"}
+            {isApproving
+              ? "Approving..."
+              : isApproved
+                ? "Approved"
+                : "Approve Thumbnail"}
           </ActionButton>
           <ActionButton
             variant="outline"
@@ -239,9 +268,6 @@ export function ThumbnailTab({ video }: ThumbnailTabProps) {
             disabled={isRegenerating}
           >
             {isRegenerating ? "Regenerating..." : "Regenerate"}
-          </ActionButton>
-          <ActionButton variant="outline" icon={PenLine} className="w-full">
-            Edit Text
           </ActionButton>
         </div>
       </div>

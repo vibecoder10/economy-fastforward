@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { Check, Loader2, Play, AlertTriangle, Sparkles, Film } from "lucide-react";
 import { motion } from "framer-motion";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { SegmentBadge } from "@/components/ui/SegmentBadge";
@@ -11,8 +11,7 @@ import { ProgressRing } from "@/components/ui/ProgressRing";
 import { FilterSelect } from "@/components/ui/FilterSelect";
 import { ActionButton } from "@/components/ui/ActionButton";
 import { getVideoAssets, runPipelineStage } from "@/lib/api";
-import type { Video } from "@/lib/types";
-import type { Asset } from "@/lib/api";
+import type { VideoDetail, Asset } from "@/lib/api";
 
 function getClipStatus(asset: Asset): "pending" | "generating" | "done" {
   if (asset.video_clip_url) return "done";
@@ -27,10 +26,11 @@ const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
 };
 
 interface VideoClipsTabProps {
-  video: Video;
+  video: VideoDetail & { id: string };
 }
 
 export function VideoClipsTab({ video }: VideoClipsTabProps) {
+  const queryClient = useQueryClient();
   const [model, setModel] = useState("veo3_fast");
   const [confirmGenerate, setConfirmGenerate] = useState(false);
   const [isGeneratingPrompts, setIsGeneratingPrompts] = useState(false);
@@ -41,7 +41,7 @@ export function VideoClipsTab({ video }: VideoClipsTabProps) {
     queryFn: () => getVideoAssets(video.id),
   });
 
-  // Filter to hero shots first; if none, show all assets with video_clip_url or video prompts
+  // Hero shots first; fallback to all assets with video content or prompts
   const heroShots = assets.filter((a) => a.hero_shot);
   const clips = heroShots.length > 0
     ? heroShots
@@ -54,24 +54,26 @@ export function VideoClipsTab({ video }: VideoClipsTabProps) {
   const progressPct = totalCount > 0 ? (doneCount / totalCount) * 100 : 0;
   const estimatedCost = totalCount * 0.3;
 
-  const handleGeneratePrompts = async () => {
+  const handleGeneratePrompts = useCallback(async () => {
     setIsGeneratingPrompts(true);
     try {
       await runPipelineStage(video.id, "video-scripts");
+      queryClient.invalidateQueries({ queryKey: ["video-assets", video.id] });
     } finally {
       setIsGeneratingPrompts(false);
     }
-  };
+  }, [video.id, queryClient]);
 
-  const handleGenerateClips = async () => {
+  const handleGenerateClips = useCallback(async () => {
     setIsGeneratingClips(true);
     try {
       await runPipelineStage(video.id, "video-generation");
+      queryClient.invalidateQueries({ queryKey: ["video-assets", video.id] });
     } finally {
       setIsGeneratingClips(false);
       setConfirmGenerate(false);
     }
-  };
+  }, [video.id, queryClient]);
 
   if (totalCount === 0) {
     return (
@@ -99,26 +101,28 @@ export function VideoClipsTab({ video }: VideoClipsTabProps) {
     <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-6">
       {/* Clip grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
-        {clips.map((asset) => {
+        {clips.map((asset, idx) => {
           const status = getClipStatus(asset);
           const cfg = STATUS_CONFIG[status];
+          // Use scene + image_index for display label
+          const sceneNum = asset.scene ?? 0;
+          const imageIdx = asset.image_index ?? (idx + 1);
+
           return (
             <GlassCard key={asset.id} className="p-0 overflow-hidden">
-              {/* Image / video placeholder */}
+              {/* Video/image placeholder */}
               <div
                 className="aspect-video relative flex items-center justify-center"
                 style={{ background: "var(--bg-elevated)" }}
               >
-                {/* Show image thumbnail if available */}
                 {asset.image_url && status !== "done" && (
                   <img
                     src={asset.image_url}
-                    alt={`Scene ${asset.scene}`}
+                    alt={`Scene ${sceneNum}`}
                     className="absolute inset-0 w-full h-full object-cover opacity-60"
                   />
                 )}
 
-                {/* Video player for completed clips */}
                 {status === "done" && asset.video_clip_url && (
                   <video
                     src={asset.video_clip_url}
@@ -135,7 +139,6 @@ export function VideoClipsTab({ video }: VideoClipsTabProps) {
                   />
                 )}
 
-                {/* Holographic grid for pending */}
                 {!asset.image_url && status !== "done" && (
                   <svg className="absolute inset-0 w-full h-full opacity-10">
                     <defs>
@@ -145,19 +148,13 @@ export function VideoClipsTab({ video }: VideoClipsTabProps) {
                         height="30"
                         patternUnits="userSpaceOnUse"
                       >
-                        <path
-                          d="M 30 0 L 0 0 0 30"
-                          fill="none"
-                          stroke="var(--purple)"
-                          strokeWidth="0.5"
-                        />
+                        <path d="M 30 0 L 0 0 0 30" fill="none" stroke="var(--purple)" strokeWidth="0.5" />
                       </pattern>
                     </defs>
                     <rect width="100%" height="100%" fill={`url(#vc-grid-${asset.id})`} />
                   </svg>
                 )}
 
-                {/* Status overlay */}
                 {status === "done" && (
                   <div
                     className="absolute top-2 right-2 w-7 h-7 rounded-full flex items-center justify-center z-10"
@@ -196,11 +193,11 @@ export function VideoClipsTab({ video }: VideoClipsTabProps) {
                 )}
               </div>
 
-              {/* Prompt overlay */}
+              {/* Info */}
               <div className="p-3">
                 <div className="flex items-center gap-2 mb-2">
                   <SegmentBadge
-                    label={`S-${String(asset.scene || 0).padStart(2, "0")}`}
+                    label={`S-${String(sceneNum).padStart(2, "0")}.${imageIdx}`}
                     color={status === "generating" ? "var(--purple)" : undefined}
                   />
                   <StatusPill
@@ -213,7 +210,7 @@ export function VideoClipsTab({ video }: VideoClipsTabProps) {
                   className="text-[11px] leading-relaxed line-clamp-2"
                   style={{ color: "var(--text-secondary)" }}
                 >
-                  {asset.image_prompt || "No prompt"}
+                  {asset.sentence_text || asset.image_prompt || "No prompt"}
                 </p>
               </div>
             </GlassCard>
@@ -232,7 +229,14 @@ export function VideoClipsTab({ video }: VideoClipsTabProps) {
             Clip Stats
           </h3>
           <div className="flex justify-center mb-4">
-            <ProgressRing value={progressPct} size={90} color="var(--purple)" label="done" />
+            <ProgressRing value={progressPct} size={90} color="var(--purple)" strokeWidth={7}>
+              <span className="text-lg font-bold" style={{ color: "var(--text-primary)" }}>
+                {doneCount}
+              </span>
+              <span className="text-[8px] uppercase" style={{ color: "var(--text-secondary)" }}>
+                / {totalCount}
+              </span>
+            </ProgressRing>
           </div>
           <div className="space-y-3">
             {[
@@ -267,7 +271,6 @@ export function VideoClipsTab({ video }: VideoClipsTabProps) {
             value={model}
             onChange={setModel}
           />
-
           <div className="pt-3 mt-3" style={{ borderTop: "1px solid var(--border-subtle)" }}>
             <p className="text-xs font-semibold mb-1" style={{ color: "var(--text-secondary)" }}>
               Estimated Cost
@@ -278,12 +281,12 @@ export function VideoClipsTab({ video }: VideoClipsTabProps) {
           </div>
         </GlassCard>
 
-        {/* Warning */}
+        {/* Cost warning */}
         <GlassCard className="p-4" style={{ borderColor: "var(--orange)", borderWidth: 1 }}>
           <div className="flex items-start gap-2">
             <AlertTriangle size={14} className="flex-shrink-0 mt-0.5" style={{ color: "var(--orange)" }} />
             <p className="text-[11px] leading-relaxed" style={{ color: "var(--orange)" }}>
-              Video generation is manual only. Each clip costs ~$0.30. Review prompts carefully before generating.
+              Video generation costs ~$0.30 per clip. Review prompts carefully before generating.
             </p>
           </div>
         </GlassCard>
@@ -307,7 +310,7 @@ export function VideoClipsTab({ video }: VideoClipsTabProps) {
               onClick={handleGenerateClips}
               disabled={isGeneratingClips}
             >
-              {isGeneratingClips ? "Generating..." : "Confirm Generate All"}
+              {isGeneratingClips ? "Generating..." : `Confirm — $${estimatedCost.toFixed(2)}`}
             </ActionButton>
           ) : (
             <ActionButton

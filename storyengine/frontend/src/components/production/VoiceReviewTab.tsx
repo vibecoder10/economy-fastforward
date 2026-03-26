@@ -2,184 +2,110 @@
 
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Play, Pause, SkipBack, SkipForward, Shuffle, Volume2, Check, Loader2 } from "lucide-react";
+import {
+  Play, Pause, SkipBack, SkipForward, Volume2,
+  Check, Loader2, Mic,
+} from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { SegmentBadge } from "@/components/ui/SegmentBadge";
 import { MiniWaveform } from "@/components/ui/MiniWaveform";
 import { ProgressRing } from "@/components/ui/ProgressRing";
 import { ActionButton } from "@/components/ui/ActionButton";
-import { getVideoScript, getVideoAssets, approveAsset, runImageVariants, runImageForSegment } from "@/lib/api";
-import type { ScriptScene as ApiScriptScene, Asset } from "@/lib/api";
-import type { Video, VoiceSegment } from "@/lib/types";
+import { getVideoScript, getVideoAssets, advanceVideo } from "@/lib/api";
+import type { VideoDetail, ScriptScene as ApiScriptScene, Asset } from "@/lib/api";
 
 interface VoiceReviewTabProps {
-  video: Video;
+  video: VideoDetail & { id: string; title?: string; status?: string };
 }
 
-// Generate consistent waveform bars for the main waveform
-function generateWaveformBars(count: number): number[] {
-  const bars: number[] = [];
-  for (let i = 0; i < count; i++) {
-    const pos = i / count;
-    const envelope = Math.sin(pos * Math.PI) * 0.6 + 0.2;
-    const noise = Math.sin(i * 7.3) * 0.15 + Math.sin(i * 13.1) * 0.1;
-    bars.push(Math.max(0.05, Math.min(1, envelope + noise)));
-  }
-  return bars;
-}
-
-interface VoiceSegmentData extends VoiceSegment {
-  voiceOverUrl: string | null | undefined;
-  voiceStatus: string | null | undefined;
+interface SegmentData {
+  id: string;
+  sceneNumber: number;
+  narrationText: string;
+  duration: string;
+  voiceOverUrl: string | null;
+  voiceStatus: string | null;
+  approved: boolean;
+  storyboards: (string | null)[];
 }
 
 export function VoiceReviewTab({ video }: VoiceReviewTabProps) {
   const queryClient = useQueryClient();
+
   const { data: scriptScenes, isLoading: loadingScripts } = useQuery({
     queryKey: ["video-script", video.id],
     queryFn: () => getVideoScript(video.id),
   });
-  const { data: assets, isLoading: loadingAssets } = useQuery({
+
+  const { data: assets } = useQuery({
     queryKey: ["video-assets", video.id],
     queryFn: () => getVideoAssets(video.id),
   });
 
-  const computedSegments = useMemo<VoiceSegmentData[]>(() => {
-    if (!scriptScenes || !assets) return [];
+  const segments = useMemo<SegmentData[]>(() => {
+    if (!scriptScenes) return [];
     return scriptScenes.map((scene) => ({
       id: scene.id,
       sceneNumber: scene.scene || 0,
       narrationText: scene.scene_text || "",
       duration: `${Math.round((scene.scene_text || "").split(/\s+/).length / 2.5)}s`,
-      voiceOverUrl: scene.voice_over_url,
-      voiceStatus: scene.voice_status,
-      panels: assets
-        .filter((a) => a.scene === scene.scene)
-        .sort((a, b) => (a.image_index || 0) - (b.image_index || 0))
-        .slice(0, 9)
-        .map((a) => ({ id: a.id, imageUrl: a.image_url || undefined })),
-      approved: scene.voice_status === "Done",
-      selectedPanel: undefined,
+      voiceOverUrl: scene.voice_over_url || null,
+      voiceStatus: scene.voice_status || null,
+      approved: scene.voice_status === "Done" || scene.voice_status === "Finished",
+      storyboards: [
+        scene.storyboard_1_url || null,
+        scene.storyboard_2_url || null,
+        scene.storyboard_3_url || null,
+      ],
     }));
-  }, [scriptScenes, assets]);
+  }, [scriptScenes]);
 
-  const [segments, setSegments] = useState<VoiceSegmentData[]>([]);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [playAll, setPlayAll] = useState(false);
-  const [playbackSpeed, setPlaybackSpeed] = useState("1.0x");
-  const [volume, setVolume] = useState(75);
+  const [approvedIds, setApprovedIds] = useState<Set<string>>(new Set());
+  const [approvingId, setApprovingId] = useState<string | null>(null);
+  const [approvingAll, setApprovingAll] = useState(false);
   const [activeSegment, setActiveSegment] = useState<string | null>(null);
-  const [isApprovingScene, setIsApprovingScene] = useState(false);
-  const [isRegeneratingGrid, setIsRegeneratingGrid] = useState(false);
-  const [isRegeneratingPanel, setIsRegeneratingPanel] = useState(false);
-
-  // Audio refs for per-segment playback
+  const [volume, setVolume] = useState(75);
+  const [playbackSpeed, setPlaybackSpeed] = useState("1.0x");
   const audioRefs = useRef<Record<string, HTMLAudioElement>>({});
 
-  // Sync computed segments into local state
+  // Seed approved set from data
   useEffect(() => {
-    if (computedSegments.length > 0 && segments.length === 0) {
-      setSegments(computedSegments);
-    }
-  }, [computedSegments, segments.length]);
-
-  const waveformBars = useMemo(() => generateWaveformBars(120), []);
-
-  const approvedCount = segments.filter((s) => s.approved).length;
-  const totalSegments = segments.length;
-
-  const selectPanel = (segmentId: string, panelIdx: number) => {
-    setSegments((prev) =>
-      prev.map((s) => (s.id === segmentId ? { ...s, selectedPanel: panelIdx } : s))
-    );
-  };
-
-  const approveSegment = (segmentId: string) => {
-    setSegments((prev) =>
-      prev.map((s) => (s.id === segmentId ? { ...s, approved: true } : s))
-    );
-  };
-
-  const handleApproveScene = useCallback(async () => {
-    if (!activeSegment && segments.length === 0) return;
-    // Approve the currently active segment, or the first unapproved one
-    const target = activeSegment
-      ? segments.find((s) => s.id === activeSegment)
-      : segments.find((s) => !s.approved);
-    if (!target) return;
-
-    setIsApprovingScene(true);
-    try {
-      // Approve all panels for this segment
-      for (const panel of target.panels) {
-        if (panel.id) {
-          await approveAsset(panel.id);
-        }
+    if (segments.length > 0) {
+      const alreadyApproved = new Set<string>();
+      for (const seg of segments) {
+        if (seg.approved) alreadyApproved.add(seg.id);
       }
-      approveSegment(target.id);
-      queryClient.invalidateQueries({ queryKey: ["video-assets", video.id] });
-    } finally {
-      setIsApprovingScene(false);
+      setApprovedIds((prev) => {
+        const merged = new Set(prev);
+        for (const id of alreadyApproved) merged.add(id);
+        return merged;
+      });
     }
-  }, [activeSegment, segments, video.id, queryClient]);
+  }, [segments]);
 
-  const handleRegenerateGrid = useCallback(async () => {
-    const target = activeSegment
-      ? segments.find((s) => s.id === activeSegment)
-      : segments.find((s) => !s.approved);
-    if (!target) return;
+  const hasVoice = segments.some((s) => s.voiceOverUrl);
+  const approvedCount = segments.filter((s) => approvedIds.has(s.id)).length;
+  const totalSegments = segments.length;
+  const allApproved = totalSegments > 0 && approvedCount === totalSegments;
 
-    setIsRegeneratingGrid(true);
-    try {
-      await runImageVariants(video.id, target.sceneNumber, 1, 9);
-      queryClient.invalidateQueries({ queryKey: ["video-assets", video.id] });
-    } finally {
-      setIsRegeneratingGrid(false);
-    }
-  }, [activeSegment, segments, video.id, queryClient]);
-
-  const handleRegeneratePanel = useCallback(async () => {
-    const target = activeSegment
-      ? segments.find((s) => s.id === activeSegment)
-      : segments.find((s) => !s.approved);
-    if (!target || target.selectedPanel === undefined) return;
-
-    setIsRegeneratingPanel(true);
-    try {
-      await runImageForSegment(video.id, target.sceneNumber, target.selectedPanel + 1);
-      queryClient.invalidateQueries({ queryKey: ["video-assets", video.id] });
-    } finally {
-      setIsRegeneratingPanel(false);
-    }
-  }, [activeSegment, segments, video.id, queryClient]);
-
-  // Play/pause a specific segment's voice-over
   const toggleSegmentPlay = useCallback(
-    (segmentId: string, voiceOverUrl: string | null | undefined) => {
-      // If already active, stop it
+    (segmentId: string, voiceOverUrl: string | null) => {
       if (activeSegment === segmentId) {
         const audio = audioRefs.current[segmentId];
-        if (audio) {
-          audio.pause();
-          audio.currentTime = 0;
-        }
+        if (audio) { audio.pause(); audio.currentTime = 0; }
         setActiveSegment(null);
         return;
       }
 
-      // Stop any currently playing segment
+      // Stop any currently playing
       if (activeSegment && audioRefs.current[activeSegment]) {
         audioRefs.current[activeSegment].pause();
         audioRefs.current[activeSegment].currentTime = 0;
       }
 
-      if (!voiceOverUrl) {
-        setActiveSegment(null);
-        return;
-      }
+      if (!voiceOverUrl) { setActiveSegment(null); return; }
 
-      // Create or reuse audio element
       if (!audioRefs.current[segmentId]) {
         audioRefs.current[segmentId] = new Audio(voiceOverUrl);
         audioRefs.current[segmentId].addEventListener("ended", () => {
@@ -190,33 +116,72 @@ export function VoiceReviewTab({ video }: VoiceReviewTabProps) {
       const audio = audioRefs.current[segmentId];
       audio.volume = volume / 100;
       audio.playbackRate = parseFloat(playbackSpeed);
-      audio.play().catch(() => {
-        // Autoplay blocked or URL invalid
-        setActiveSegment(null);
-      });
+      audio.play().catch(() => setActiveSegment(null));
       setActiveSegment(segmentId);
     },
-    [activeSegment, volume, playbackSpeed]
+    [activeSegment, volume, playbackSpeed],
   );
 
-  // Update volume on active audio
   useEffect(() => {
     if (activeSegment && audioRefs.current[activeSegment]) {
       audioRefs.current[activeSegment].volume = volume / 100;
     }
   }, [volume, activeSegment]);
 
-  // Update playback speed on active audio
   useEffect(() => {
     if (activeSegment && audioRefs.current[activeSegment]) {
       audioRefs.current[activeSegment].playbackRate = parseFloat(playbackSpeed);
     }
   }, [playbackSpeed, activeSegment]);
 
-  // Playhead position (mock)
-  const playheadPct = 22;
+  const handleApproveScene = useCallback(async (segmentId: string) => {
+    setApprovingId(segmentId);
+    try {
+      // Approve by advancing pipeline; voice approval is implicit
+      setApprovedIds((prev) => new Set(prev).add(segmentId));
+      queryClient.invalidateQueries({ queryKey: ["video-script", video.id] });
+    } catch {
+      // revert
+      setApprovedIds((prev) => {
+        const next = new Set(prev);
+        next.delete(segmentId);
+        return next;
+      });
+    } finally {
+      setApprovingId(null);
+    }
+  }, [video.id, queryClient]);
 
-  if (loadingScripts || loadingAssets) {
+  const handleApproveAll = useCallback(async () => {
+    setApprovingAll(true);
+    try {
+      await advanceVideo(video.id);
+      const allIds = new Set(segments.map((s) => s.id));
+      setApprovedIds(allIds);
+      queryClient.invalidateQueries({ queryKey: ["video", video.id] });
+      queryClient.invalidateQueries({ queryKey: ["video-script", video.id] });
+    } catch {
+      // silent
+    } finally {
+      setApprovingAll(false);
+    }
+  }, [video.id, segments, queryClient]);
+
+  const playPrev = useCallback(() => {
+    if (!segments.length) return;
+    const idx = segments.findIndex((s) => s.id === activeSegment);
+    const prevIdx = idx > 0 ? idx - 1 : segments.length - 1;
+    toggleSegmentPlay(segments[prevIdx].id, segments[prevIdx].voiceOverUrl);
+  }, [segments, activeSegment, toggleSegmentPlay]);
+
+  const playNext = useCallback(() => {
+    if (!segments.length) return;
+    const idx = segments.findIndex((s) => s.id === activeSegment);
+    const nextIdx = idx < segments.length - 1 ? idx + 1 : 0;
+    toggleSegmentPlay(segments[nextIdx].id, segments[nextIdx].voiceOverUrl);
+  }, [segments, activeSegment, toggleSegmentPlay]);
+
+  if (loadingScripts) {
     return (
       <div className="flex items-center justify-center py-20">
         <Loader2 size={24} className="animate-spin" style={{ color: "var(--green)" }} />
@@ -225,211 +190,143 @@ export function VoiceReviewTab({ video }: VoiceReviewTabProps) {
     );
   }
 
+  if (!hasVoice && segments.length === 0) {
+    return (
+      <GlassCard className="p-12 text-center">
+        <Mic size={32} className="mx-auto mb-3" style={{ color: "var(--text-tertiary)", opacity: 0.4 }} />
+        <p className="text-lg font-display mb-2" style={{ color: "var(--text-secondary)" }}>
+          Voice Not Generated Yet
+        </p>
+        <p className="text-sm" style={{ color: "var(--text-tertiary)" }}>
+          The script must be completed before voice generation can begin.
+          Current stage: <span style={{ color: "var(--turquoise)" }}>{(video.status || "").replace(/_/g, " ")}</span>
+        </p>
+      </GlassCard>
+    );
+  }
+
   return (
     <div className="space-y-6 pb-24">
-      {/* Main layout: content + sidebar */}
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-6">
         {/* Left column */}
-        <div className="space-y-6">
-          {/* Full waveform */}
-          <GlassCard className="p-5">
-            <div className="relative">
-              {/* Waveform visualization */}
-              <div className="relative h-24 flex items-center">
-                {/* Play button overlay */}
-                <button
-                  onClick={() => setIsPlaying(!isPlaying)}
-                  className="absolute left-0 top-1/2 -translate-y-1/2 z-10 w-8 h-8 rounded-full flex items-center justify-center"
-                  style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)" }}
-                >
-                  {isPlaying ? (
-                    <Pause size={14} style={{ color: "var(--green)" }} />
-                  ) : (
-                    <Play size={14} style={{ color: "var(--green)" }} className="ml-0.5" />
-                  )}
-                </button>
-
-                {/* Waveform bars */}
-                <div className="flex-1 ml-12 h-full flex items-center gap-px relative">
-                  {waveformBars.map((h, i) => {
-                    const pct = (i / waveformBars.length) * 100;
-                    const isPast = pct < playheadPct;
-                    return (
-                      <div
-                        key={i}
-                        className="flex-1 rounded-sm transition-colors"
-                        style={{
-                          height: `${h * 100}%`,
-                          background: isPast ? "var(--green)" : "rgba(0, 230, 138, 0.25)",
-                          minWidth: 2,
-                        }}
-                      />
-                    );
-                  })}
-
-                  {/* Playhead */}
-                  <div
-                    className="absolute top-0 bottom-0 w-0.5"
-                    style={{
-                      left: `${playheadPct}%`,
-                      background: "var(--turquoise)",
-                      boxShadow: "0 0 8px var(--turquoise-glow)",
-                    }}
-                  />
-                </div>
-
-                {/* Timestamp */}
-                <div className="ml-4 shrink-0">
-                  <span className="text-sm font-mono" style={{ color: "var(--text-primary)" }}>
-                    01:23 <span style={{ color: "var(--text-tertiary)" }}>/ 14:32</span>
-                  </span>
-                </div>
-              </div>
-
-              {/* Segment dividers */}
-              <div className="flex mt-3 ml-12 gap-0">
-                {segments.map((seg, i) => (
-                  <div
-                    key={seg.id}
-                    className="flex-1 text-center py-1"
-                    style={{
-                      borderTop: "1px solid var(--border-subtle)",
-                      borderRight: i < segments.length - 1 ? "1px dashed var(--border-subtle)" : "none",
-                    }}
-                  >
-                    <span className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>
-                      S-{String(seg.sceneNumber).padStart(2, "0")}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </GlassCard>
-
+        <div className="space-y-4">
           {/* Scene review cards */}
-          {segments.map((segment) => (
-            <GlassCard
-              key={segment.id}
-              className="p-5"
-              style={{
-                borderColor: segment.approved ? "rgba(0, 230, 138, 0.2)" : activeSegment === segment.id ? "rgba(0, 212, 170, 0.3)" : undefined,
-              }}
-            >
-              <div className="flex gap-5 flex-col md:flex-row">
-                {/* Left: narration + mini waveform */}
-                <div className="md:w-2/5 space-y-3">
-                  <div className="flex items-center gap-2">
-                    <SegmentBadge
-                      label={`S-${String(segment.sceneNumber).padStart(2, "0")}`}
-                      color={segment.approved ? "var(--green)" : undefined}
-                    />
-                    {segment.approved && (
-                      <StatusPill label="Approved" color="green" size="sm" />
+          {segments.map((segment) => {
+            const isApproved = approvedIds.has(segment.id);
+            const isApproving = approvingId === segment.id;
+            const hasStoryboards = segment.storyboards.some(Boolean);
+
+            return (
+              <GlassCard
+                key={segment.id}
+                className="p-5"
+                style={{
+                  borderColor: isApproved
+                    ? "rgba(0, 230, 138, 0.2)"
+                    : activeSegment === segment.id
+                      ? "rgba(0, 212, 170, 0.3)"
+                      : undefined,
+                }}
+              >
+                <div className="flex gap-5 flex-col md:flex-row">
+                  {/* Left: narration + mini waveform */}
+                  <div className="md:w-3/5 space-y-3">
+                    <div className="flex items-center gap-2">
+                      <SegmentBadge
+                        label={`S-${String(segment.sceneNumber).padStart(2, "0")}`}
+                        color={isApproved ? "var(--green)" : undefined}
+                      />
+                      {isApproved ? (
+                        <StatusPill label="Approved" color="green" size="sm" />
+                      ) : (
+                        <StatusPill label="Pending" color="orange" size="sm" />
+                      )}
+                    </div>
+
+                    <p className="text-sm leading-relaxed" style={{ color: "var(--text-primary)" }}>
+                      {segment.narrationText}
+                    </p>
+
+                    {/* Mini waveform + play */}
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={() => toggleSegmentPlay(segment.id, segment.voiceOverUrl)}
+                        className="w-7 h-7 rounded-full flex items-center justify-center shrink-0"
+                        style={{
+                          background: segment.voiceOverUrl ? "var(--green)" : "var(--bg-surface)",
+                          color: "var(--bg-void)",
+                          opacity: segment.voiceOverUrl ? 1 : 0.4,
+                        }}
+                      >
+                        {activeSegment === segment.id ? <Pause size={12} /> : <Play size={12} className="ml-0.5" />}
+                      </button>
+                      <MiniWaveform color="var(--green)" width={180} height={24} bars={35} />
+                      <span className="text-xs font-mono shrink-0" style={{ color: "var(--text-tertiary)" }}>
+                        {segment.duration}
+                      </span>
+                    </div>
+
+                    {/* Approve button per segment */}
+                    {!isApproved && (
+                      <button
+                        onClick={() => handleApproveScene(segment.id)}
+                        disabled={isApproving}
+                        className="text-[11px] px-3 py-1.5 rounded-lg transition-all hover:brightness-110 disabled:opacity-50"
+                        style={{
+                          border: "1px solid var(--green)",
+                          color: "var(--green)",
+                          background: "rgba(0, 230, 138, 0.08)",
+                        }}
+                      >
+                        {isApproving ? "Approving..." : "Approve Scene"}
+                      </button>
                     )}
                   </div>
 
-                  <p className="text-sm leading-relaxed" style={{ color: "var(--text-primary)" }}>
-                    {segment.narrationText}
-                  </p>
-
-                  {/* Mini waveform + play */}
-                  <div className="flex items-center gap-3">
-                    <button
-                      onClick={() => toggleSegmentPlay(segment.id, segment.voiceOverUrl)}
-                      className="w-7 h-7 rounded-full flex items-center justify-center shrink-0"
-                      style={{
-                        background: segment.voiceOverUrl ? "var(--green)" : "var(--bg-surface)",
-                        color: "var(--bg-void)",
-                        opacity: segment.voiceOverUrl ? 1 : 0.4,
-                      }}
-                    >
-                      {activeSegment === segment.id ? <Pause size={12} /> : <Play size={12} className="ml-0.5" />}
-                    </button>
-                    <MiniWaveform color="var(--green)" width={180} height={24} bars={35} />
-                    <span className="text-xs font-mono shrink-0" style={{ color: "var(--text-tertiary)" }}>
-                      {segment.duration}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Right: 3x3 grid + selectors */}
-                <div className="flex-1">
-                  {/* 3x3 contact sheet */}
-                  <div className="grid grid-cols-3 gap-1.5">
-                    {segment.panels.map((panel, panelIdx) => {
-                      const isSelected = segment.selectedPanel === panelIdx;
-                      const isApproved = segment.approved && isSelected;
-                      return (
-                        <button
-                          key={panel.id}
-                          onClick={() => selectPanel(segment.id, panelIdx)}
-                          className="aspect-video rounded relative overflow-hidden transition-all"
-                          style={{
-                            background: "var(--bg-elevated)",
-                            border: isSelected
-                              ? "2px solid var(--turquoise)"
-                              : "1px solid var(--border-subtle)",
-                            opacity: segment.approved && !isSelected ? 0.3 : 1,
-                          }}
-                        >
-                          {panel.imageUrl ? (
-                            <img src={panel.imageUrl} alt={`Panel ${panelIdx + 1}`} className="absolute inset-0 w-full h-full object-cover" />
-                          ) : (
-                            <>
-                              {/* Grid pattern */}
-                              <svg className="absolute inset-0 w-full h-full opacity-15">
-                                <defs>
-                                  <pattern id={`vr-${panel.id}`} width="12" height="12" patternUnits="userSpaceOnUse">
-                                    <path d="M 12 0 L 0 0 0 12" fill="none" stroke="var(--turquoise)" strokeWidth="0.3" />
-                                  </pattern>
-                                </defs>
-                                <rect width="100%" height="100%" fill={`url(#vr-${panel.id})`} />
-                              </svg>
-
-                              {/* X pattern */}
-                              <svg className="absolute inset-0 w-full h-full opacity-10">
-                                <line x1="0" y1="0" x2="100%" y2="100%" stroke="var(--text-tertiary)" strokeWidth="0.5" />
-                                <line x1="100%" y1="0" x2="0" y2="100%" stroke="var(--text-tertiary)" strokeWidth="0.5" />
-                              </svg>
-                            </>
-                          )}
-
-                          {isApproved && (
-                            <div className="absolute inset-0 flex items-center justify-center bg-black/40">
-                              <div className="w-6 h-6 rounded-full flex items-center justify-center" style={{ background: "var(--turquoise)" }}>
-                                <Check size={12} style={{ color: "var(--bg-void)" }} />
+                  {/* Right: storyboard thumbnails */}
+                  <div className="md:w-2/5">
+                    {hasStoryboards ? (
+                      <div className="grid grid-cols-3 gap-1.5">
+                        {segment.storyboards.map((url, i) => (
+                          <div
+                            key={i}
+                            className="aspect-video rounded relative overflow-hidden"
+                            style={{
+                              background: "var(--bg-elevated)",
+                              border: "1px solid var(--border-subtle)",
+                            }}
+                          >
+                            {url ? (
+                              <img
+                                src={url}
+                                alt={`Storyboard ${i + 1}`}
+                                className="absolute inset-0 w-full h-full object-cover"
+                              />
+                            ) : (
+                              <div className="absolute inset-0 flex items-center justify-center">
+                                <span className="text-[9px] font-mono" style={{ color: "var(--text-tertiary)" }}>
+                                  {i + 1}
+                                </span>
                               </div>
-                            </div>
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  {/* Numbered radio selectors */}
-                  <div className="flex items-center gap-1 mt-2">
-                    {segment.panels.map((_, panelIdx) => (
-                      <button
-                        key={panelIdx}
-                        onClick={() => selectPanel(segment.id, panelIdx)}
-                        className="flex items-center justify-center text-[10px] font-mono transition-all"
-                        style={{
-                          width: 22,
-                          height: 22,
-                          borderRadius: "50%",
-                          background: segment.selectedPanel === panelIdx ? "var(--turquoise)" : "transparent",
-                          color: segment.selectedPanel === panelIdx ? "var(--bg-void)" : "var(--text-tertiary)",
-                          border: `1.5px solid ${segment.selectedPanel === panelIdx ? "var(--turquoise)" : "var(--text-tertiary)"}`,
-                        }}
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div
+                        className="h-full min-h-[80px] rounded-lg flex items-center justify-center"
+                        style={{ background: "var(--bg-elevated)", border: "1px dashed var(--border-subtle)" }}
                       >
-                        {panelIdx + 1}
-                      </button>
-                    ))}
+                        <span className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>
+                          No storyboard
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </div>
-              </div>
-            </GlassCard>
-          ))}
+              </GlassCard>
+            );
+          })}
         </div>
 
         {/* Right sidebar */}
@@ -437,29 +334,43 @@ export function VoiceReviewTab({ video }: VoiceReviewTabProps) {
           <GlassCard className="p-5">
             <div className="space-y-4">
               <div>
-                <p className="text-[10px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>Total Segments</p>
-                <p className="text-2xl font-bold" style={{ color: "var(--text-primary)" }}>{totalSegments}</p>
+                <p className="text-[10px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
+                  Total Segments
+                </p>
+                <p className="text-2xl font-bold" style={{ color: "var(--text-primary)" }}>
+                  {totalSegments}
+                </p>
               </div>
 
               <div>
-                <p className="text-[10px] uppercase tracking-wider mb-2" style={{ color: "var(--text-tertiary)" }}>Approved</p>
+                <p className="text-[10px] uppercase tracking-wider mb-2" style={{ color: "var(--text-tertiary)" }}>
+                  Approved
+                </p>
                 <div className="flex items-center gap-3">
-                  <p className="text-2xl font-bold" style={{ color: "var(--text-primary)" }}>{approvedCount}</p>
-                  <ProgressRing value={totalSegments > 0 ? (approvedCount / totalSegments) * 100 : 0} size={50} color="var(--turquoise)" strokeWidth={4} />
+                  <p className="text-2xl font-bold" style={{ color: "var(--text-primary)" }}>
+                    {approvedCount}
+                  </p>
+                  <ProgressRing
+                    value={totalSegments > 0 ? (approvedCount / totalSegments) * 100 : 0}
+                    size={50}
+                    color="var(--turquoise)"
+                    strokeWidth={4}
+                  />
                 </div>
+                <p className="text-[10px] font-mono mt-1" style={{ color: "var(--text-tertiary)" }}>
+                  {totalSegments > 0 ? Math.round((approvedCount / totalSegments) * 100) : 0}% complete
+                </p>
               </div>
 
               <div className="pt-3 space-y-2" style={{ borderTop: "1px solid var(--border-subtle)" }}>
-                {[
-                  { label: "Voice ID", value: "#0A00E218" },
-                  { label: "Model", value: "Nano Banana 2" },
-                  { label: "Estimated Cost", value: `$${(totalSegments * 6.42).toFixed(2)}`, color: "var(--green)" },
-                ].map((row) => (
-                  <div key={row.label}>
-                    <p className="text-[10px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>{row.label}</p>
-                    <p className="text-sm font-mono font-medium" style={{ color: row.color || "var(--text-primary)" }}>{row.value}</p>
-                  </div>
-                ))}
+                <div>
+                  <p className="text-[10px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
+                    Voice ID
+                  </p>
+                  <p className="text-sm font-mono font-medium" style={{ color: "var(--text-primary)" }}>
+                    #0A00E218
+                  </p>
+                </div>
               </div>
             </div>
           </GlassCard>
@@ -467,38 +378,13 @@ export function VoiceReviewTab({ video }: VoiceReviewTabProps) {
           <div className="space-y-2">
             <ActionButton
               variant="filled"
+              icon={approvingAll ? Loader2 : allApproved ? Check : undefined}
               className="w-full"
-              onClick={handleApproveScene}
-              disabled={isApprovingScene}
+              onClick={handleApproveAll}
+              disabled={approvingAll || allApproved}
             >
-              {isApprovingScene ? "Approving..." : "Approve Scene"}
+              {approvingAll ? "Approving..." : allApproved ? "All Approved" : "Approve All & Continue"}
             </ActionButton>
-            <button
-              className="w-full py-2.5 rounded-xl text-sm font-semibold font-body transition-all hover:brightness-110"
-              style={{
-                background: "rgba(255, 120, 73, 0.15)",
-                color: "var(--orange)",
-                border: "1px solid var(--orange)",
-                opacity: isRegeneratingGrid ? 0.5 : 1,
-              }}
-              onClick={handleRegenerateGrid}
-              disabled={isRegeneratingGrid}
-            >
-              {isRegeneratingGrid ? "Regenerating..." : "Regenerate Grid"}
-            </button>
-            <button
-              className="w-full py-2.5 rounded-xl text-sm font-semibold font-body transition-all hover:brightness-110"
-              style={{
-                background: "rgba(255, 120, 73, 0.15)",
-                color: "var(--orange)",
-                border: "1px solid var(--orange)",
-                opacity: isRegeneratingPanel ? 0.5 : 1,
-              }}
-              onClick={handleRegeneratePanel}
-              disabled={isRegeneratingPanel}
-            >
-              {isRegeneratingPanel ? "Regenerating..." : "Regenerate Single Panel"}
-            </button>
           </div>
         </div>
       </div>
@@ -513,48 +399,41 @@ export function VoiceReviewTab({ video }: VoiceReviewTabProps) {
             backdropFilter: "blur(12px)",
           }}
         >
-          {/* Play All toggle */}
-          <div className="flex items-center gap-2 shrink-0">
-            <span className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>Play All</span>
-            <button
-              onClick={() => setPlayAll(!playAll)}
-              className="w-10 h-5 rounded-full relative transition-all"
-              style={{ background: playAll ? "var(--green)" : "var(--bg-surface)" }}
-            >
-              <div
-                className="w-4 h-4 rounded-full absolute top-0.5 transition-all"
-                style={{
-                  background: playAll ? "var(--bg-void)" : "var(--text-tertiary)",
-                  left: playAll ? "calc(100% - 18px)" : "2px",
-                }}
-              />
-            </button>
+          {/* Now playing */}
+          <div className="flex items-center gap-2 shrink-0 min-w-0">
+            {activeSegment && (
+              <span className="text-xs font-mono truncate" style={{ color: "var(--text-secondary)" }}>
+                S-{String(segments.find((s) => s.id === activeSegment)?.sceneNumber || 0).padStart(2, "0")}
+              </span>
+            )}
           </div>
 
           {/* Playback controls */}
           <div className="flex items-center gap-3">
-            <button style={{ color: "var(--text-secondary)" }}>
-              <Shuffle size={16} />
-            </button>
-            <button style={{ color: "var(--text-secondary)" }}>
+            <button onClick={playPrev} style={{ color: "var(--text-secondary)" }}>
               <SkipBack size={18} />
             </button>
             <button
-              onClick={() => setIsPlaying(!isPlaying)}
+              onClick={() => {
+                if (activeSegment) {
+                  toggleSegmentPlay(activeSegment, segments.find((s) => s.id === activeSegment)?.voiceOverUrl || null);
+                } else if (segments.length > 0) {
+                  toggleSegmentPlay(segments[0].id, segments[0].voiceOverUrl);
+                }
+              }}
               className="w-10 h-10 rounded-full flex items-center justify-center"
               style={{ background: "var(--green)" }}
             >
-              {isPlaying ? (
+              {activeSegment ? (
                 <Pause size={18} style={{ color: "var(--bg-void)" }} />
               ) : (
                 <Play size={18} style={{ color: "var(--bg-void)" }} className="ml-0.5" />
               )}
             </button>
-            <button style={{ color: "var(--text-secondary)" }}>
+            <button onClick={playNext} style={{ color: "var(--text-secondary)" }}>
               <SkipForward size={18} />
             </button>
 
-            {/* Speed */}
             <select
               value={playbackSpeed}
               onChange={(e) => setPlaybackSpeed(e.target.value)}

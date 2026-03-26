@@ -1,28 +1,24 @@
 "use client";
 
-import { useState } from "react";
-import { Image as ImageIcon, Video, Mic, Volume2, Loader2 } from "lucide-react";
-import { useQuery } from "@tanstack/react-query";
+import { useState, useCallback } from "react";
+import { Image as ImageIcon, Video, Mic, Volume2, Loader2, Play } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { ProgressRing } from "@/components/ui/ProgressRing";
 import { ActionButton } from "@/components/ui/ActionButton";
 import { FilterSelect } from "@/components/ui/FilterSelect";
-import { getVideoAssets, runPipelineStage } from "@/lib/api";
-import type { Video as VideoType } from "@/lib/types";
-import type { Asset } from "@/lib/api";
+import { SegmentBadge } from "@/components/ui/SegmentBadge";
+import { getVideoAssets, getVideoScript, runPipelineStage, getPipelineTaskStatus } from "@/lib/api";
+import { useTaskPoller } from "@/hooks/use-task-poller";
+import type { VideoDetail, Asset } from "@/lib/api";
 
 interface RenderTabProps {
-  video: VideoType & {
-    video_length_minutes?: number | null;
+  video: VideoDetail & {
+    id: string;
+    status?: string;
+    videoLengthMin?: number | null;
   };
 }
-
-const BLOCK_ICONS: Record<string, React.ElementType> = {
-  image: ImageIcon,
-  video: Video,
-  voice: Mic,
-  sound: Volume2,
-};
 
 function formatDuration(minutes: number | null | undefined): string {
   if (!minutes) return "0:00";
@@ -31,41 +27,21 @@ function formatDuration(minutes: number | null | undefined): string {
   return `${mins}:${String(secs).padStart(2, "0")}`;
 }
 
-interface TimelineBlock {
-  type: "image" | "video" | "voice" | "sound";
-  label: string;
-  color: string;
-}
-
-function buildTimeline(assets: Asset[]): TimelineBlock[] {
-  if (assets.length === 0) return [];
-
-  const blocks: TimelineBlock[] = [];
-  // Group assets by scene, then create timeline blocks per scene
-  const sorted = [...assets].sort((a, b) => (a.scene || 0) - (b.scene || 0));
-
-  for (const asset of sorted) {
-    // Each asset contributes image block
-    if (asset.image_url) {
-      blocks.push({ type: "image", label: "", color: "var(--turquoise)" });
-    }
-    // If it has a video clip, add a video block
-    if (asset.video_clip_url) {
-      blocks.push({ type: "video", label: "Clip", color: "var(--red)" });
-    }
-  }
-
-  // Add voice blocks (one per unique scene)
-  const scenes = new Set(sorted.map((a) => a.scene).filter(Boolean));
-  for (const _s of scenes) {
-    blocks.push({ type: "voice", label: "Voice", color: "var(--green)" });
-  }
-
-  return blocks;
+interface TimelineSegment {
+  sceneNumber: number;
+  hasImage: boolean;
+  hasClip: boolean;
+  hasVoice: boolean;
+  duration: string;
 }
 
 export function RenderTab({ video }: RenderTabProps) {
+  const queryClient = useQueryClient();
   const [isRendering, setIsRendering] = useState(false);
+  const [confirmRender, setConfirmRender] = useState(false);
+  const [musicTrack, setMusicTrack] = useState("tension");
+  const [exportFormat, setExportFormat] = useState("mp4");
+
   const isRenderStatus = video.status === "rendering";
 
   const { data: assets = [] } = useQuery({
@@ -73,17 +49,40 @@ export function RenderTab({ video }: RenderTabProps) {
     queryFn: () => getVideoAssets(video.id),
   });
 
-  const timeline = buildTimeline(assets);
-  const duration = formatDuration(video.video_length_minutes ?? video.videoLengthMin);
+  const { data: scriptScenes = [] } = useQuery({
+    queryKey: ["video-script", video.id],
+    queryFn: () => getVideoScript(video.id),
+  });
 
-  const handleRender = async () => {
+  // Build scene timeline
+  const timeline: TimelineSegment[] = scriptScenes.map((scene) => {
+    const sceneAssets = assets.filter((a) => a.scene === scene.scene);
+    const wordCount = (scene.scene_text || "").split(/\s+/).length;
+    return {
+      sceneNumber: scene.scene || 0,
+      hasImage: sceneAssets.some((a) => a.image_url),
+      hasClip: sceneAssets.some((a) => a.video_clip_url),
+      hasVoice: !!scene.voice_over_url,
+      duration: `${Math.round(wordCount / 2.5)}s`,
+    };
+  });
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const vid = video as any;
+  const duration = formatDuration(video.video_length_minutes ?? vid.videoLengthMin);
+
+  const handleRender = useCallback(async () => {
     setIsRendering(true);
+    setConfirmRender(false);
     try {
       await runPipelineStage(video.id, "render");
+      queryClient.invalidateQueries({ queryKey: ["video", video.id] });
     } finally {
       setIsRendering(false);
     }
-  };
+  }, [video.id, queryClient]);
+
+  const renderActive = isRendering || isRenderStatus;
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-6">
@@ -94,62 +93,99 @@ export function RenderTab({ video }: RenderTabProps) {
             className="aspect-video relative flex items-center justify-center"
             style={{ background: "var(--bg-elevated)" }}
           >
-            <svg width="80" height="60" viewBox="0 0 80 60" className="opacity-20">
-              <rect x="5" y="8" width="50" height="40" fill="none" stroke="var(--text-tertiary)" strokeWidth="1.5" />
-              <line x1="5" y1="8" x2="15" y2="2" stroke="var(--text-tertiary)" strokeWidth="1.5" />
-              <line x1="55" y1="8" x2="65" y2="2" stroke="var(--text-tertiary)" strokeWidth="1.5" />
-              <rect x="15" y="2" width="50" height="40" fill="none" stroke="var(--text-tertiary)" strokeWidth="1.5" />
-            </svg>
-            {(isRenderStatus || isRendering) && (
+            {video.youtube_url && !renderActive ? (
+              <div className="absolute inset-0 flex items-center justify-center">
+                <button
+                  className="w-16 h-16 rounded-full flex items-center justify-center transition-transform hover:scale-110"
+                  style={{ background: "rgba(0, 212, 170, 0.2)" }}
+                  onClick={() => {
+                    if (video.youtube_url) window.open(video.youtube_url, "_blank");
+                  }}
+                >
+                  <Play size={28} style={{ color: "var(--turquoise)" }} className="ml-1" />
+                </button>
+              </div>
+            ) : renderActive ? (
               <div className="absolute inset-0 flex items-center justify-center">
                 <ProgressRing value={0} size={120} color="var(--red)" strokeWidth={6}>
                   <Loader2 size={24} className="animate-spin" style={{ color: "var(--red)" }} />
                 </ProgressRing>
               </div>
+            ) : (
+              <svg width="80" height="60" viewBox="0 0 80 60" className="opacity-20">
+                <rect x="5" y="8" width="50" height="40" fill="none" stroke="var(--text-tertiary)" strokeWidth="1.5" />
+                <line x1="5" y1="8" x2="15" y2="2" stroke="var(--text-tertiary)" strokeWidth="1.5" />
+                <line x1="55" y1="8" x2="65" y2="2" stroke="var(--text-tertiary)" strokeWidth="1.5" />
+                <rect x="15" y="2" width="50" height="40" fill="none" stroke="var(--text-tertiary)" strokeWidth="1.5" />
+              </svg>
             )}
           </div>
         </GlassCard>
 
-        {/* Scene Composition Timeline */}
+        {/* Scene timeline */}
         <GlassCard className="p-4">
-          <h3 className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: "var(--text-secondary)" }}>
-            Scene Composition Timeline
+          <h3
+            className="text-xs font-semibold uppercase tracking-wider mb-3"
+            style={{ color: "var(--text-secondary)" }}
+          >
+            Scene Timeline
           </h3>
           {timeline.length > 0 ? (
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
-              {timeline.map((block, i) => {
-                const Icon = BLOCK_ICONS[block.type] || ImageIcon;
+            <div className="flex items-stretch gap-1 overflow-x-auto pb-1">
+              {timeline.map((seg) => {
+                // Color based on readiness
+                const color = seg.hasVoice && seg.hasImage
+                  ? "var(--green)"
+                  : seg.hasImage
+                    ? "var(--turquoise)"
+                    : "var(--text-tertiary)";
+
                 return (
                   <div
-                    key={i}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg shrink-0"
+                    key={seg.sceneNumber}
+                    className="flex-1 min-w-[40px] rounded-lg px-1.5 py-2 text-center"
                     style={{
-                      background: `color-mix(in srgb, ${block.color} 15%, transparent)`,
-                      border: `1px solid color-mix(in srgb, ${block.color} 25%, transparent)`,
+                      background: `color-mix(in srgb, ${color} 12%, transparent)`,
+                      border: `1px solid color-mix(in srgb, ${color} 25%, transparent)`,
                     }}
                   >
-                    <Icon size={12} style={{ color: block.color }} />
-                    {block.label && (
-                      <span className="text-[11px] font-medium" style={{ color: block.color }}>{block.label}</span>
-                    )}
+                    <span className="text-[9px] font-mono block" style={{ color }}>
+                      S{seg.sceneNumber}
+                    </span>
+                    <span className="text-[8px] font-mono block mt-0.5" style={{ color: "var(--text-tertiary)" }}>
+                      {seg.duration}
+                    </span>
+                    <div className="flex items-center justify-center gap-0.5 mt-1">
+                      {seg.hasImage && <ImageIcon size={7} style={{ color: "var(--turquoise)" }} />}
+                      {seg.hasClip && <Video size={7} style={{ color: "var(--purple)" }} />}
+                      {seg.hasVoice && <Mic size={7} style={{ color: "var(--green)" }} />}
+                    </div>
                   </div>
                 );
               })}
             </div>
           ) : (
             <p className="text-xs italic" style={{ color: "var(--text-tertiary)" }}>
-              No assets yet. Generate images and clips to build the timeline.
+              No scenes yet. Generate scripts and assets to build the timeline.
             </p>
           )}
         </GlassCard>
 
-        {/* System resources (shown only during render) */}
-        {(isRenderStatus || isRendering) && (
+        {/* Render status info */}
+        {renderActive && (
           <GlassCard className="p-4">
             <div className="flex items-center gap-6 text-xs font-mono flex-wrap">
-              <span>Status: <span style={{ color: "var(--turquoise)" }}>Rendering...</span></span>
-              <span>Resolution: <span style={{ color: "var(--turquoise)" }}>1920x1080</span></span>
-              <span>FPS: <span style={{ color: "var(--gold)" }}>30</span></span>
+              <span>
+                Status:{" "}
+                <span style={{ color: "var(--turquoise)" }}>Rendering...</span>
+              </span>
+              <span>
+                Resolution:{" "}
+                <span style={{ color: "var(--turquoise)" }}>1920x1080</span>
+              </span>
+              <span>
+                FPS: <span style={{ color: "var(--gold)" }}>30</span>
+              </span>
             </div>
           </GlassCard>
         )}
@@ -163,49 +199,77 @@ export function RenderTab({ video }: RenderTabProps) {
               { label: "Resolution", value: "1920x1080" },
               { label: "FPS", value: "30" },
               { label: "Duration", value: duration },
+              { label: "Scenes", value: String(scriptScenes.length) },
             ].map((row) => (
               <div key={row.label} className="flex items-center justify-between">
-                <span className="text-xs" style={{ color: "var(--text-secondary)" }}>{row.label}</span>
-                <span className="text-sm font-mono font-medium" style={{ color: "var(--text-primary)" }}>{row.value}</span>
+                <span className="text-xs" style={{ color: "var(--text-secondary)" }}>
+                  {row.label}
+                </span>
+                <span
+                  className="text-sm font-mono font-medium"
+                  style={{ color: "var(--text-primary)" }}
+                >
+                  {row.value}
+                </span>
               </div>
             ))}
           </div>
           <div className="mt-4 space-y-3">
-            <FilterSelect label="Music Track" options={[{ value: "tension", label: "Tension Rising - Cinematic" }, { value: "ambient", label: "Dark Ambient" }]} value="tension" onChange={() => {}} />
-            <FilterSelect label="Export Format" options={[{ value: "mp4", label: "MP4 (H.264)" }, { value: "webm", label: "WebM (VP9)" }]} value="mp4" onChange={() => {}} />
+            <FilterSelect
+              label="Music Track"
+              options={[
+                { value: "tension", label: "Tension Rising" },
+                { value: "ambient", label: "Dark Ambient" },
+                { value: "none", label: "No Music" },
+              ]}
+              value={musicTrack}
+              onChange={setMusicTrack}
+            />
+            <FilterSelect
+              label="Export Format"
+              options={[
+                { value: "mp4", label: "MP4 (H.264)" },
+                { value: "webm", label: "WebM (VP9)" },
+              ]}
+              value={exportFormat}
+              onChange={setExportFormat}
+            />
           </div>
         </GlassCard>
 
         <div className="space-y-2">
-          <ActionButton
-            variant="warning"
-            icon={isRendering ? Loader2 : undefined}
-            className="w-full"
-            onClick={handleRender}
-            disabled={isRendering || isRenderStatus}
-          >
-            {isRendering || isRenderStatus ? "Rendering..." : "Render Now"}
-          </ActionButton>
-          <ActionButton
-            variant="filled"
-            className="w-full"
-            onClick={() => {
-              const url = (video as any).final_video_url || (video as any).youtube_url;
-              if (url) {
-                window.open(url, "_blank");
-              } else {
-                alert("No preview available yet. Render the video first.");
-              }
-            }}
-          >
-            Preview Draft
-          </ActionButton>
-          <button
-            className="w-full py-2.5 rounded-xl text-sm font-semibold font-body transition-all hover:brightness-110"
-            style={{ background: "transparent", color: "var(--gold)", border: "1px solid var(--gold)" }}
-          >
-            Upload to YouTube
-          </button>
+          {confirmRender ? (
+            <>
+              <p className="text-[11px] text-center mb-2" style={{ color: "var(--text-secondary)" }}>
+                This will start rendering the video. Continue?
+              </p>
+              <ActionButton
+                variant="warning"
+                icon={isRendering ? Loader2 : undefined}
+                className="w-full"
+                onClick={handleRender}
+                disabled={renderActive}
+              >
+                {renderActive ? "Rendering..." : "Confirm Render"}
+              </ActionButton>
+              <ActionButton
+                variant="outline"
+                className="w-full"
+                onClick={() => setConfirmRender(false)}
+              >
+                Cancel
+              </ActionButton>
+            </>
+          ) : (
+            <ActionButton
+              variant="warning"
+              className="w-full"
+              onClick={() => setConfirmRender(true)}
+              disabled={renderActive}
+            >
+              {renderActive ? "Rendering..." : "Render Now"}
+            </ActionButton>
+          )}
         </div>
       </div>
     </div>
