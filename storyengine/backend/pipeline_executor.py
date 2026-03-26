@@ -79,18 +79,179 @@ class PipelineExecutor:
             except Exception as e:
                 print(f"[INIT]   ✗ {key_name} error: {e}", flush=True)
 
-        # Now import and initialize pipeline
-        print("[INIT] Importing VideoPipeline...", flush=True)
-        from orchestrator.pipeline import VideoPipeline
-        print("[INIT] Creating VideoPipeline instance...", flush=True)
-        self._pipeline = VideoPipeline()
-        print("[INIT] VideoPipeline created OK", flush=True)
+        # Create a lightweight pipeline object that only has what we need.
+        # We can't import VideoPipeline directly because it imports ALL clients
+        # (Slack, Google, ElevenLabs, etc.) which hang if services are unavailable.
+        print("[INIT] Creating lightweight pipeline...", flush=True)
 
-        # Swap Airtable client with Supabase adapter
-        print("[INIT] Swapping in SupabaseAdapter...", flush=True)
         from supabase_adapter import SupabaseAdapter
+        from shared.clients.anthropic_client import AnthropicClient
+
+        class LightPipeline:
+            """Minimal pipeline that only has the clients we need."""
+            pass
+
+        self._pipeline = LightPipeline()
         self._pipeline.airtable = SupabaseAdapter(tenant_id=self.tenant_id)
-        print("[INIT] SupabaseAdapter installed", flush=True)
+        self._pipeline.anthropic = AnthropicClient()
+        print("[INIT] SupabaseAdapter + AnthropicClient OK", flush=True)
+
+        # Try to load optional clients (non-blocking)
+        try:
+            from shared.clients.google_client import GoogleClient
+            self._pipeline.google = GoogleClient()
+            print("[INIT] GoogleClient OK", flush=True)
+        except Exception as e:
+            print(f"[INIT] GoogleClient skipped: {e}", flush=True)
+            self._pipeline.google = None
+
+        try:
+            from shared.clients.slack_client import SlackClient
+            self._pipeline.slack = SlackClient()
+            print("[INIT] SlackClient OK", flush=True)
+        except Exception as e:
+            print(f"[INIT] SlackClient skipped: {e}", flush=True)
+            # Create a no-op slack client
+            class NoOpSlack:
+                def send_message(self, *a, **kw): pass
+                def send_notification(self, *a, **kw): pass
+            self._pipeline.slack = NoOpSlack()
+
+        try:
+            from shared.clients.image_client import ImageClient
+            self._pipeline.image_client = ImageClient(google_client=self._pipeline.google)
+            print("[INIT] ImageClient OK", flush=True)
+        except Exception as e:
+            print(f"[INIT] ImageClient skipped: {e}", flush=True)
+            self._pipeline.image_client = None
+
+        try:
+            from shared.clients.elevenlabs_client import ElevenLabsClient
+            self._pipeline.elevenlabs = ElevenLabsClient()
+            print("[INIT] ElevenLabsClient OK", flush=True)
+        except Exception as e:
+            print(f"[INIT] ElevenLabsClient skipped: {e}", flush=True)
+            self._pipeline.elevenlabs = None
+
+        try:
+            from shared.clients.gemini_client import GeminiClient
+            self._pipeline.gemini = GeminiClient()
+            print("[INIT] GeminiClient OK", flush=True)
+        except Exception as e:
+            print(f"[INIT] GeminiClient skipped: {e}", flush=True)
+            self._pipeline.gemini = None
+
+        # Pipeline state properties (set by _load_idea)
+        self._pipeline.current_idea = None
+        self._pipeline.current_idea_id = None
+        self._pipeline.video_title = None
+        self._pipeline.visual_style = None
+        self._pipeline.project_folder_id = None
+        self._pipeline.google_doc_id = None
+        self._pipeline.core_image_url = None
+        self._pipeline.video_config = None
+        self._pipeline._duration_was_set = True
+
+        # Import pipeline helper methods we need
+        from orchestrator.pipeline_config import VideoConfig
+        from orchestrator.pipeline_constants import IdeaFields, Statuses
+
+        def _load_idea(idea):
+            """Load an idea record into pipeline state."""
+            self._pipeline.current_idea = idea
+            self._pipeline.current_idea_id = idea.get("id")
+            self._pipeline.video_title = idea.get(IdeaFields.VIDEO_TITLE, "")
+            self._pipeline.visual_style = idea.get(IdeaFields.VISUAL_STYLE, "cinematic_illustration")
+            self._pipeline.project_folder_id = idea.get(IdeaFields.DRIVE_FOLDER_ID, "")
+            # Video config
+            video_length = idea.get(IdeaFields.VIDEO_LENGTH_MIN)
+            if video_length:
+                self._pipeline._duration_was_set = True
+                self._pipeline.video_config = VideoConfig(target_minutes=float(video_length))
+            else:
+                self._pipeline._duration_was_set = False
+                self._pipeline.video_config = VideoConfig(target_minutes=10)
+            # Core image
+            core_img = idea.get(IdeaFields.CORE_IMAGE)
+            if isinstance(core_img, list) and core_img:
+                self._pipeline.core_image_url = core_img[0].get("url")
+
+        self._pipeline._load_idea = _load_idea
+
+        def get_idea_by_status(status):
+            ideas = self._pipeline.airtable.get_ideas_by_status(status, limit=1)
+            return ideas[0] if ideas else None
+
+        self._pipeline.get_idea_by_status = get_idea_by_status
+
+        # Import pipeline stage runners (lazy — they import their own deps)
+        async def run_brief_translator():
+            from script.run import run
+            return await run(self._pipeline)
+
+        async def run_voice_bot():
+            from voice.run import run
+            return await run(self._pipeline)
+
+        async def run_styled_image_prompts():
+            from image_prompts.run import run
+            return await run(self._pipeline)
+
+        async def run_image_bot():
+            from images.run import run
+            return await run(self._pipeline)
+
+        async def run_video_script_bot():
+            from video_motion.run_scripts import run
+            return await run(self._pipeline)
+
+        async def run_video_gen_bot():
+            from video_motion.run_generate import run
+            return await run(self._pipeline)
+
+        async def run_thumbnail_bot():
+            from thumbnail.run import run
+            return await run(self._pipeline)
+
+        async def run_render_bot():
+            from render.run import run
+            return await run(self._pipeline)
+
+        async def run_sound_prompt_bot():
+            from sound.run_design import run
+            return await run(self._pipeline)
+
+        async def run_sound_bot():
+            from sound.run_effects import run
+            return await run(self._pipeline)
+
+        async def run_storyboard_prompts():
+            from storyboard.run import run
+            return await run(self._pipeline)
+
+        async def run_storyboard_images():
+            from storyboard.run_images import run
+            return await run(self._pipeline)
+
+        async def run_storyboard_extract():
+            from storyboard.run_extract import run
+            return await run(self._pipeline)
+
+        self._pipeline.run_brief_translator = run_brief_translator
+        self._pipeline.run_voice_bot = run_voice_bot
+        self._pipeline.run_styled_image_prompts = run_styled_image_prompts
+        self._pipeline.run_image_bot = run_image_bot
+        self._pipeline.run_video_script_bot = run_video_script_bot
+        self._pipeline.run_video_gen_bot = run_video_gen_bot
+        self._pipeline.run_thumbnail_bot = run_thumbnail_bot
+        self._pipeline.run_render_bot = run_render_bot
+        self._pipeline.run_sound_prompt_bot = run_sound_prompt_bot
+        self._pipeline.run_sound_bot = run_sound_bot
+        self._pipeline.run_storyboard_prompts = run_storyboard_prompts
+        self._pipeline.run_storyboard_images = run_storyboard_images
+        self._pipeline.run_storyboard_extract = run_storyboard_extract
+
+        print("[INIT] Pipeline ready!", flush=True)
 
         self._initialized = True
 
