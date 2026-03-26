@@ -112,6 +112,43 @@ export const updateProject = (data: ProjectUpdate) =>
     body: JSON.stringify(data),
   });
 
+// Visual Styles
+export const getVisualStyles = () =>
+  fetchApi<VisualStyle[]>("/api/visual-styles");
+
+export const createVisualStyle = (data: CreateVisualStyleRequest) =>
+  fetchApi<VisualStyle>("/api/visual-styles", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+
+export const activateVisualStyle = (styleId: string) =>
+  fetchApi<VisualStyle[]>(`/api/visual-styles/${styleId}/activate`, {
+    method: "PUT",
+  });
+
+export const deleteVisualStyle = (styleId: string) =>
+  fetchApi<{ status: string }>(`/api/visual-styles/${styleId}`, {
+    method: "DELETE",
+  });
+
+export const createStyleCharacter = (styleId: string, data: { name: string; image_url: string }) =>
+  fetchApi<StyleCharacter>(`/api/visual-styles/${styleId}/characters`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+
+export const deleteStyleCharacter = (styleId: string, characterId: string) =>
+  fetchApi<{ status: string }>(`/api/visual-styles/${styleId}/characters/${characterId}`, {
+    method: "DELETE",
+  });
+
+export const generateCharacterImage = (prompt: string, styleId: string) =>
+  fetchApi<{ status: string; image_url: string; prompt: string }>(
+    "/api/visual-styles/characters/generate",
+    { method: "POST", body: JSON.stringify({ prompt, style_id: styleId }) }
+  );
+
 // Pipeline - Stage Triggers
 export const createIdea = (topic: string, source?: string) =>
   fetchApi<PipelineResponse>("/api/pipeline/create-idea", {
@@ -651,4 +688,36 @@ export interface ProjectUpdate {
   custom_accent_color?: string | null;
   frameworks?: string[];
   character_references?: CharacterReference[];
+}
+
+// Visual Styles
+export interface StyleCharacter {
+  id: string;
+  name: string;
+  image_url: string;
+  sort_order: number;
+}
+
+export interface VisualStyle {
+  id: string;
+  name: string;
+  style_profile: {
+    mood?: string;
+    lighting?: string;
+    composition?: string;
+    texture?: string;
+    color_palette?: { primary?: string; secondary?: string; accent?: string; highlight?: string };
+    keywords?: string[];
+    [key: string]: unknown;
+  };
+  reference_image_url: string | null;
+  is_active: boolean;
+  is_default: boolean;
+  characters: StyleCharacter[];
+}
+
+export interface CreateVisualStyleRequest {
+  name: string;
+  style_profile: Record<string, unknown>;
+  reference_image_url?: string;
 }
