@@ -572,6 +572,12 @@ class PipelineExecutor:
             # Load idea into pipeline state from Supabase
             self._load_idea_from_video(video_id)
 
+            # Override status to "Ready For Voice" so the bot's internal check passes.
+            # The executor already validated the status gate above — the bot's check
+            # is redundant when called from StoryEngine (which allows re-running stages).
+            if self._pipeline.current_idea:
+                self._pipeline.current_idea["Status"] = "Ready For Voice"
+
             # Run voice generation
             result = await self._pipeline.run_voice_bot()
 
@@ -734,6 +740,10 @@ class PipelineExecutor:
 
             self._load_idea_from_video(video_id)
 
+            # Override status so the bot's internal check passes on re-runs
+            if self._pipeline.current_idea:
+                self._pipeline.current_idea["Status"] = "Ready For Image Prompts"
+
             result = await self._pipeline.run_styled_image_prompts()
 
             if result.get("error"):
@@ -873,6 +883,10 @@ class PipelineExecutor:
             await self._log_activity(bot_name, video_id, "started", "Generating images")
 
             self._load_idea_from_video(video_id)
+
+            # Override status so the bot's internal check passes on re-runs
+            if self._pipeline.current_idea:
+                self._pipeline.current_idea["Status"] = "Ready For Images"
 
             result = await self._pipeline.run_image_bot()
 
