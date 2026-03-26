@@ -119,16 +119,37 @@ export default function ProfilePage() {
       setIsAnalyzing(true);
       setAnalysisResult(null);
       setIsEditingJson(false);
-      // Simulate AI analysis (production: Claude Vision / Gemini API)
+      // Simulate AI analysis (production: call Gemini Vision API with detailed extraction prompt)
+      // TODO: Replace with real Gemini API call using the detailed style extraction prompt
       setTimeout(() => {
         setIsAnalyzing(false);
         const result = JSON.stringify({
+          style_name_suggestion: "Dark Editorial Cinema",
+          art_medium: "Digital painting with photorealistic rendering",
+          rendering_style: "Soft gradient shading with subtle brush strokes, volumetric lighting effects",
+          line_work: "No outlines, soft edges with atmospheric blending",
+          color_palette: {
+            primary: "#1A1A2E",
+            secondary: "#0F3460",
+            accent: "#E94560",
+            highlight: "#F0C75E",
+            shadow: "#0A0A14",
+            palette_description: "Dark navy base with deep blue midtones, crimson red accent used sparingly, warm gold highlights",
+          },
+          lighting: "Single key light upper-left 45deg warm tone, cool blue fill from right, strong rim light on subject edges",
+          shadow_style: "Soft gradient shadows with ambient occlusion, deepest shadows approach pure black",
+          composition: "Rule of thirds with subject positioned left, negative space right for text overlay",
+          texture: "Film grain 15%, subtle vignette, minimal chromatic aberration on edges",
+          character_rendering: "Realistic anatomical proportions, detailed facial features, editorial portrait style",
+          background_style: "Abstract bokeh gradient with subtle environmental elements, depth-of-field blur",
           mood: "Tense, conspiratorial, high-stakes",
-          lighting: "Rembrandt with warm fill, dramatic shadows",
-          composition: "Rule of thirds, subject left, negative space right",
-          texture: "Film grain 15%, vignette, subtle chromatic aberration",
-          color_palette: { primary: "#1A1A2E", accent: "#E94560", secondary: "#0F3460", highlight: "#F0C75E" },
-          keywords: ["Dark Editorial", "Dramatic", "Cinematic"],
+          era_influence: "Contemporary editorial illustration, magazine cover aesthetic",
+          unique_elements: [
+            "Warm rim lighting on subject silhouette",
+            "Desaturated base with single saturated accent",
+            "Cinematic aspect ratio framing",
+          ],
+          prompt_prefix: "Cinematic digital painting with photorealistic rendering, soft gradient shading, single warm key light upper-left 45deg with cool blue fill, dark navy palette with crimson accent and gold highlights, film grain texture, editorial portrait composition, atmospheric bokeh background",
         }, null, 2);
         setAnalysisResult(result);
         setEditableJson(result);
@@ -346,16 +367,35 @@ export default function ProfilePage() {
               )}
               {analysisResult && !isAnalyzing && (
                 <div className="space-y-3">
+                  {/* Prompt prefix highlight */}
+                  {(() => {
+                    try {
+                      const parsed = JSON.parse(isEditingJson ? editableJson : analysisResult);
+                      if (parsed.prompt_prefix) {
+                        return (
+                          <div className="p-3 rounded-lg" style={{ background: "var(--turquoise-dim)", border: "1px solid var(--turquoise)" }}>
+                            <p className="text-[10px] font-semibold uppercase tracking-wider mb-1" style={{ color: "var(--turquoise)" }}>
+                              Prompt Prefix (injected into every image)
+                            </p>
+                            <p className="text-xs font-mono" style={{ color: "var(--text-primary)" }}>
+                              {parsed.prompt_prefix}
+                            </p>
+                          </div>
+                        );
+                      }
+                    } catch { /* ignore parse errors */ }
+                    return null;
+                  })()}
                   {isEditingJson ? (
                     <textarea
                       value={editableJson}
                       onChange={(e) => setEditableJson(e.target.value)}
-                      className="text-[11px] font-mono p-4 rounded-xl w-full h-48 resize-none outline-none"
+                      className="text-[11px] font-mono p-4 rounded-xl w-full h-64 resize-none outline-none"
                       style={{ background: "var(--bg-surface)", color: "var(--turquoise)", border: "1px solid var(--turquoise)" }}
                     />
                   ) : (
                     <pre
-                      className="text-[11px] font-mono p-4 rounded-xl overflow-auto max-h-48"
+                      className="text-[11px] font-mono p-4 rounded-xl overflow-auto max-h-64"
                       style={{ background: "var(--bg-surface)", color: "var(--turquoise)", border: "1px solid var(--turquoise-dim)" }}
                     >
                       {analysisResult}
@@ -419,7 +459,19 @@ export default function ProfilePage() {
             const palette = style.style_profile?.color_palette;
             const primary = palette?.primary || "#1A1A2E";
             const accent = palette?.accent || "#E94560";
-            const keywords = style.style_profile?.keywords || [];
+            // Build tags from detailed schema fields, fallback to keywords
+            const sp = style.style_profile || {} as Record<string, unknown>;
+            const tags: string[] = [];
+            const artMedium = sp.art_medium as string | undefined;
+            const renderStyle = sp.rendering_style as string | undefined;
+            const eraInfluence = sp.era_influence as string | undefined;
+            if (artMedium) tags.push(artMedium.split(",")[0].split("with")[0].trim());
+            if (renderStyle) tags.push(renderStyle.split(",")[0].trim());
+            if (eraInfluence) tags.push(eraInfluence.split(",")[0].trim());
+            // Fallback to keywords if no detailed fields
+            if (tags.length === 0 && Array.isArray(sp.keywords)) {
+              tags.push(...(sp.keywords as string[]).slice(0, 3));
+            }
 
             return (
               <GlassCard
@@ -485,7 +537,7 @@ export default function ProfilePage() {
                     </p>
                   )}
                   <div className="flex gap-1.5 flex-wrap">
-                    {(keywords as string[]).slice(0, 3).map((tag) => (
+                    {tags.slice(0, 3).map((tag) => (
                       <span key={tag} className="text-[10px] font-mono px-2 py-0.5 rounded" style={{ background: "var(--bg-elevated)", color: "var(--text-tertiary)" }}>
                         {tag}
                       </span>

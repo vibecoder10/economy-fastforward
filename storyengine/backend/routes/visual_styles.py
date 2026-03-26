@@ -5,6 +5,7 @@ Only one style per project can be active at a time.
 Characters belong to a specific style and cascade-delete with it.
 """
 
+import asyncio
 import json
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
@@ -110,7 +111,132 @@ async def _list_styles_with_characters(project_id: str) -> list[VisualStyleRead]
     return result
 
 
-# --- Endpoints ---
+# =============================================================
+# IMPORTANT: Non-parameterized routes MUST come BEFORE /{style_id}
+# routes to avoid FastAPI matching "characters" as a style_id.
+# =============================================================
+
+# --- Character generation (Kie.ai) — must be before /{style_id} routes ---
+
+@router.post("/characters/generate")
+async def generate_character(
+    req: GenerateCharacterRequest,
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """Generate a character image using Kie.ai Nano Banana 2.
+
+    Assembles a prompt from the user's description + the active style's profile.
+    Uses the user's own Kie.ai API key from Vault.
+    """
+    import httpx
+    from vault import get_secret
+
+    project_id = await _get_project_id(tenant_id)
+
+    # Get the style's profile for context
+    style = await fetch_one(
+        "SELECT id, style_profile FROM visual_styles WHERE id = $1 AND project_id = $2",
+        req.style_id, project_id,
+    )
+    if not style:
+        raise HTTPException(status_code=404, detail="Style not found")
+
+    # Get Kie.ai API key
+    api_key = await get_secret("kie_ai_api_key", tenant_id)
+    if not api_key:
+        raise HTTPException(
+            status_code=400,
+            detail="Kie.ai API key not configured. Go to Settings → API Keys to add it.",
+        )
+
+    # Build prompt from style context + user description
+    profile = _parse_jsonb(style["style_profile"], {})
+
+    # Prefer prompt_prefix (new detailed schema) over assembling from parts
+    prompt_prefix = profile.get("prompt_prefix", "")
+    if not prompt_prefix:
+        # Fallback: assemble from individual fields (old schema)
+        lighting = profile.get("lighting", "")
+        mood = profile.get("mood", "")
+        texture = profile.get("texture", "")
+        prompt_prefix = f"{lighting}. {mood}. {texture}."
+
+    full_prompt = f"{prompt_prefix.rstrip('.')}. {req.prompt.strip()}. No text, no watermarks."
+
+    # Call Kie.ai API — correct format per image_client.py
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(300, connect=10)) as client:
+            # Create task
+            create_resp = await client.post(
+                "https://api.kie.ai/api/v1/jobs/createTask",
+                json={
+                    "model": "nano-banana-2",
+                    "input": {
+                        "prompt": full_prompt,
+                        "aspect_ratio": "1:1",
+                        "output_format": "png",
+                    },
+                },
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+            )
+            if create_resp.status_code != 200:
+                detail = f"Kie.ai createTask failed: HTTP {create_resp.status_code} — {create_resp.text[:300]}"
+                raise HTTPException(status_code=502, detail=detail)
+
+            task_data = create_resp.json()
+            task_id = task_data.get("data", {}).get("task_id") or task_data.get("task_id")
+
+            if not task_id:
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"No task_id in response: {json.dumps(task_data)[:300]}",
+                )
+
+            # Poll for completion — 5s interval, 60 attempts (5 minutes)
+            for attempt in range(60):
+                await asyncio.sleep(5)
+                status_resp = await client.get(
+                    f"https://api.kie.ai/api/v1/jobs/getTaskStatus/{task_id}",
+                    headers={"Authorization": f"Bearer {api_key}"},
+                )
+                if status_resp.status_code != 200:
+                    continue  # Transient error, keep polling
+
+                status_data = status_resp.json()
+                task_status = status_data.get("data", {}).get("status")
+
+                if task_status == "completed" or task_status == 2:
+                    # Extract image URL
+                    output = status_data.get("data", {}).get("output")
+                    if isinstance(output, list) and output:
+                        image_url = output[0]
+                    elif isinstance(output, str):
+                        image_url = output
+                    else:
+                        image_url = None
+
+                    if image_url:
+                        return {"status": "ok", "image_url": image_url, "prompt": full_prompt}
+                    raise HTTPException(
+                        status_code=500,
+                        detail=f"Completed but no image URL: {json.dumps(status_data.get('data', {}))[:300]}",
+                    )
+                elif task_status == "failed" or task_status == 3:
+                    error_msg = status_data.get("data", {}).get("error", "Unknown error")
+                    raise HTTPException(status_code=500, detail=f"Generation failed: {error_msg}")
+
+            raise HTTPException(status_code=504, detail="Generation timed out after 5 minutes")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Kie.ai API error: {str(e)}")
+
+
+# --- List + Create (non-parameterized) ---
 
 @router.get("", response_model=list[VisualStyleRead])
 async def list_visual_styles(tenant_id: str = Depends(get_tenant_id)):
@@ -153,6 +279,8 @@ async def create_visual_style(
     )
 
 
+# --- Parameterized routes (/{style_id}) ---
+
 @router.put("/{style_id}/activate", response_model=list[VisualStyleRead])
 async def activate_visual_style(
     style_id: str,
@@ -161,7 +289,6 @@ async def activate_visual_style(
     """Set a style as active. Deactivates all others for this project."""
     project_id = await _get_project_id(tenant_id)
 
-    # Verify style belongs to this project
     style = await fetch_one(
         "SELECT id FROM visual_styles WHERE id = $1 AND project_id = $2",
         style_id, project_id,
@@ -169,7 +296,6 @@ async def activate_visual_style(
     if not style:
         raise HTTPException(status_code=404, detail="Style not found")
 
-    # Deactivate all, then activate the selected one
     await execute(
         "UPDATE visual_styles SET is_active = false, updated_at = now() WHERE project_id = $1",
         project_id,
@@ -201,12 +327,15 @@ async def delete_visual_style(
 
     # If deleting the active style, activate the first default
     if style["is_active"]:
-        await execute(
-            """UPDATE visual_styles SET is_active = true, updated_at = now()
-               WHERE project_id = $1 AND is_default = true
-               ORDER BY created_at LIMIT 1""",
+        first_default = await fetch_one(
+            "SELECT id FROM visual_styles WHERE project_id = $1 AND is_default = true ORDER BY created_at LIMIT 1",
             project_id,
         )
+        if first_default:
+            await execute(
+                "UPDATE visual_styles SET is_active = true, updated_at = now() WHERE id = $1",
+                str(first_default["id"]),
+            )
 
     # Cascade deletes characters via FK
     await execute("DELETE FROM visual_styles WHERE id = $1", style_id)
@@ -225,7 +354,6 @@ async def create_character(
     """Create a character for a visual style."""
     project_id = await _get_project_id(tenant_id)
 
-    # Verify style belongs to project
     style = await fetch_one(
         "SELECT id FROM visual_styles WHERE id = $1 AND project_id = $2",
         style_id, project_id,
@@ -238,7 +366,6 @@ async def create_character(
     if not req.image_url or not req.image_url.strip():
         raise HTTPException(status_code=400, detail="Character image is required")
 
-    # Get next sort order
     max_order = await fetch_one(
         "SELECT COALESCE(MAX(sort_order), -1) as max_order FROM style_characters WHERE visual_style_id = $1",
         style_id,
@@ -272,7 +399,6 @@ async def delete_character(
     """Delete a character from a style."""
     project_id = await _get_project_id(tenant_id)
 
-    # Verify style belongs to project
     style = await fetch_one(
         "SELECT id FROM visual_styles WHERE id = $1 AND project_id = $2",
         style_id, project_id,
@@ -280,96 +406,9 @@ async def delete_character(
     if not style:
         raise HTTPException(status_code=404, detail="Style not found")
 
-    result = await execute(
+    await execute(
         "DELETE FROM style_characters WHERE id = $1 AND visual_style_id = $2",
         character_id, style_id,
     )
 
     return {"status": "ok"}
-
-
-# --- Character generation (Kie.ai) ---
-
-@router.post("/characters/generate")
-async def generate_character(
-    req: GenerateCharacterRequest,
-    tenant_id: str = Depends(get_tenant_id),
-):
-    """Generate a character image using Kie.ai Nano Banana 2.
-
-    Assembles a prompt from the user's description + the active style's profile.
-    Uses the user's own Kie.ai API key from Vault.
-    """
-    import httpx
-    from vault import get_secret
-
-    project_id = await _get_project_id(tenant_id)
-
-    # Get the style's profile for context
-    style = await fetch_one(
-        "SELECT id, style_profile FROM visual_styles WHERE id = $1 AND project_id = $2",
-        req.style_id, project_id,
-    )
-    if not style:
-        raise HTTPException(status_code=404, detail="Style not found")
-
-    # Get Kie.ai API key
-    api_key = await get_secret("kie_ai_api_key", tenant_id)
-    if not api_key:
-        raise HTTPException(
-            status_code=400,
-            detail="Kie.ai API key not configured. Go to Settings → API Keys to add it.",
-        )
-
-    # Build prompt from style context + user description
-    profile = _parse_jsonb(style["style_profile"], {})
-    lighting = profile.get("lighting", "")
-    mood = profile.get("mood", "")
-    texture = profile.get("texture", "")
-
-    full_prompt = f"{lighting}. {mood}. {req.prompt.strip()}. {texture}. No text, no watermarks."
-
-    # Call Kie.ai API
-    try:
-        async with httpx.AsyncClient(timeout=60) as client:
-            # Create task
-            create_resp = await client.post(
-                "https://api.kie.ai/api/v1/jobs/createTask",
-                json={
-                    "model": "nano-banana-2",
-                    "prompt": full_prompt,
-                    "aspect_ratio": "1:1",
-                },
-                headers={"Authorization": f"Bearer {api_key}"},
-            )
-            create_resp.raise_for_status()
-            task_data = create_resp.json()
-            task_id = task_data.get("data", {}).get("task_id") or task_data.get("task_id")
-
-            if not task_id:
-                raise HTTPException(status_code=500, detail="Failed to create generation task")
-
-            # Poll for completion (up to 60s)
-            import asyncio
-            for _ in range(30):
-                await asyncio.sleep(2)
-                status_resp = await client.get(
-                    f"https://api.kie.ai/api/v1/jobs/getTaskStatus/{task_id}",
-                    headers={"Authorization": f"Bearer {api_key}"},
-                )
-                status_resp.raise_for_status()
-                status_data = status_resp.json()
-                task_status = status_data.get("data", {}).get("status", 0)
-
-                if task_status == 2:  # Success
-                    image_url = status_data.get("data", {}).get("output", [None])[0]
-                    if image_url:
-                        return {"status": "ok", "image_url": image_url, "prompt": full_prompt}
-                    raise HTTPException(status_code=500, detail="Generation succeeded but no image URL returned")
-                elif task_status == 3:  # Failed
-                    raise HTTPException(status_code=500, detail="Image generation failed")
-
-            raise HTTPException(status_code=504, detail="Generation timed out after 60s")
-
-    except httpx.HTTPError as e:
-        raise HTTPException(status_code=502, detail=f"Kie.ai API error: {str(e)}")
