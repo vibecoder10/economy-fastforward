@@ -54,6 +54,7 @@ CREATE TABLE memberships (
 CREATE TABLE videos (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE NOT NULL,
+  project_id UUID REFERENCES projects(id),
   airtable_record_id TEXT UNIQUE,
 
   -- Core
@@ -458,7 +459,7 @@ CREATE TABLE autopilot_config (
 );
 
 -- =============================================
--- CHANNEL PROFILES (per-tenant settings)
+-- CHANNEL PROFILES (legacy — kept for backward compat)
 -- =============================================
 
 CREATE TABLE channel_profiles (
@@ -469,6 +470,49 @@ CREATE TABLE channel_profiles (
   niche TEXT DEFAULT '',
   target_audience TEXT DEFAULT '',
   frameworks JSONB DEFAULT '[]'::jsonb,
+
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- =============================================
+-- ACCOUNTS (the human who logs in)
+-- =============================================
+
+CREATE TABLE accounts (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email TEXT,
+  display_name TEXT,
+  plan TEXT DEFAULT 'free',
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- =============================================
+-- PROJECTS (a channel — replaces channel_profiles)
+-- =============================================
+
+CREATE TABLE projects (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  account_id UUID REFERENCES accounts(id) ON DELETE CASCADE NOT NULL,
+  tenant_id UUID REFERENCES tenants(id),
+
+  -- Channel identity
+  name TEXT NOT NULL DEFAULT '',
+  niche TEXT,
+  target_audience TEXT,
+
+  -- Visual system
+  visual_style TEXT DEFAULT 'cinematic_illustration',
+  visual_profile_json JSONB,
+  accent_color TEXT DEFAULT '#00D4AA',
+  custom_accent_color TEXT,
+
+  -- Frameworks
+  frameworks JSONB DEFAULT '[]'::jsonb,
+
+  -- Character consistency
+  character_references JSONB DEFAULT '[]'::jsonb,
 
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
@@ -525,12 +569,18 @@ CREATE INDEX idx_title_tests_tenant ON title_tests(tenant_id);
 CREATE INDEX idx_bot_activity_tenant ON bot_activity(tenant_id, created_at DESC);
 CREATE INDEX idx_stage_transitions_video ON stage_transitions(video_id);
 CREATE INDEX idx_channel_profiles_tenant ON channel_profiles(tenant_id);
+CREATE INDEX idx_accounts_email ON accounts(email);
+CREATE INDEX idx_projects_account ON projects(account_id);
+CREATE INDEX idx_projects_tenant ON projects(tenant_id);
+CREATE INDEX idx_videos_project ON videos(project_id);
 
 -- =============================================
 -- ROW LEVEL SECURITY
 -- =============================================
 
 ALTER TABLE videos ENABLE ROW LEVEL SECURITY;
+ALTER TABLE accounts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE projects ENABLE ROW LEVEL SECURITY;
 ALTER TABLE scripts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE assets ENABLE ROW LEVEL SECURITY;
 ALTER TABLE competitor_channels ENABLE ROW LEVEL SECURITY;
@@ -567,9 +617,17 @@ CREATE POLICY "Tenant isolation" ON autopilot_config FOR ALL TO authenticated
   USING (tenant_id IN (SELECT m.tenant_id FROM memberships m WHERE m.user_id = (SELECT auth.uid())));
 CREATE POLICY "Tenant isolation" ON channel_profiles FOR ALL TO authenticated
   USING (tenant_id IN (SELECT m.tenant_id FROM memberships m WHERE m.user_id = (SELECT auth.uid())));
+CREATE POLICY "Own account only" ON accounts FOR ALL TO authenticated
+  USING (id = (SELECT auth.uid()));
+CREATE POLICY "Owner or tenant member" ON projects FOR ALL TO authenticated
+  USING (
+    account_id = (SELECT auth.uid())
+    OR tenant_id IN (SELECT m.tenant_id FROM memberships m WHERE m.user_id = (SELECT auth.uid()))
+  );
 
 -- =============================================
 -- SEED DATA
 -- =============================================
 
 INSERT INTO tenants (name, slug) VALUES ('Economy FastForward', 'eff');
+INSERT INTO accounts (id, email, display_name) VALUES ('00000000-0000-0000-0000-000000000001', 'dev@local', 'Dev User');

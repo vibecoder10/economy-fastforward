@@ -3,6 +3,11 @@
 
 ---
 
+## Web Design Rule (MANDATORY)
+**For ANY website/UI work** — building pages, components, layouts, styling, or visual changes — **invoke the `web-design-system` skill FIRST** before writing any code. This skill establishes design foundations, component choices, and visual best practices. No exceptions, even for "small" UI tweaks.
+
+---
+
 ## Structural Change Rule
 **MANDATORY:** Any session that moves, renames, creates, or deletes files/folders MUST update `SYSTEM_STATE.md` before committing. This includes:
 - New bots, steps, or modules
@@ -21,6 +26,7 @@
 
 | Scenario | Skill to Invoke FIRST | Why |
 |----------|----------------------|-----|
+| **ANY website/UI work** | `web-design-system` | Design foundations FIRST. No exceptions. |
 | **Bug report / test failure** | `systematic-debugging` | Diagnose before fixing. No guessing. |
 | **New feature request** | `brainstorming` | Clarify intent and requirements before coding |
 | **Multi-step task (3+ steps)** | `writing-plans` | Plan THEN implement. No improvising. |

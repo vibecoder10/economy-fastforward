@@ -89,7 +89,7 @@ export const testApiKey = (name: string) =>
 export const revealApiKey = (name: string) =>
   fetchApi<{ value: string }>(`/api/settings/keys/${name}/reveal`);
 
-// Channel Profile
+// Channel Profile (legacy — redirects to projects)
 export const getChannelProfile = () =>
   fetchApi<ChannelProfile>("/api/channel-profile");
 
@@ -101,6 +101,16 @@ export const updateChannelProfile = (data: ChannelProfileUpdate) =>
 
 export const getIntegrationStatuses = () =>
   fetchApi<IntegrationStatusItem[]>("/api/channel-profile/integrations");
+
+// Projects (new — replaces channel_profiles)
+export const getCurrentProject = () =>
+  fetchApi<Project>("/api/projects/current");
+
+export const updateProject = (data: ProjectUpdate) =>
+  fetchApi<Project>("/api/projects/current", {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
 
 // Pipeline - Stage Triggers
 export const createIdea = (topic: string, source?: string) =>
@@ -609,4 +619,36 @@ export interface ChannelProfileUpdate {
 export interface IntegrationStatusItem {
   name: string;
   connected: boolean;
+}
+
+// Project (replaces ChannelProfile)
+export interface CharacterReference {
+  name: string;
+  description: string;
+  image_url?: string;
+}
+
+export interface Project {
+  id: string;
+  name: string;
+  niche: string;
+  target_audience: string;
+  visual_style: string;
+  visual_profile_json: Record<string, unknown> | null;
+  accent_color: string;
+  custom_accent_color: string | null;
+  frameworks: string[];
+  character_references: CharacterReference[];
+}
+
+export interface ProjectUpdate {
+  name?: string;
+  niche?: string;
+  target_audience?: string;
+  visual_style?: string;
+  visual_profile_json?: Record<string, unknown>;
+  accent_color?: string;
+  custom_accent_color?: string | null;
+  frameworks?: string[];
+  character_references?: CharacterReference[];
 }
