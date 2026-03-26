@@ -185,6 +185,35 @@ async def get_video(video_id: str, tenant_id: str = Depends(get_tenant_id)):
     )
 
 
+@router.patch("/{video_id}")
+async def update_video(video_id: str, body: dict, tenant_id: str = Depends(get_tenant_id)):
+    """Update arbitrary video fields (revision_notes, etc.)."""
+    video = await fetch_one(
+        "SELECT id FROM videos WHERE id = $1 AND tenant_id = $2",
+        video_id, tenant_id,
+    )
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+
+    allowed_fields = {"revision_notes", "video_title", "headline", "thumbnail_prompt", "thumbnail_style_override"}
+    updates = []
+    params = []
+    idx = 1
+    for key, val in body.items():
+        if key in allowed_fields:
+            updates.append(f"{key} = ${idx}")
+            params.append(val)
+            idx += 1
+    if not updates:
+        raise HTTPException(status_code=400, detail="No valid fields to update")
+
+    updates.append("updated_at = now()")
+    params.append(video_id)
+    query = f"UPDATE videos SET {', '.join(updates)} WHERE id = ${idx}"
+    await execute(query, *params)
+    return {"status": "updated", "video_id": video_id}
+
+
 @router.patch("/{video_id}/advance")
 async def advance_video(video_id: str, tenant_id: str = Depends(get_tenant_id)):
     """Move video to the next pipeline stage."""

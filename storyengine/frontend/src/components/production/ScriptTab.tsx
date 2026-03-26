@@ -8,7 +8,7 @@ import {
   CheckCircle, Clock, AlertCircle,
 } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { getVideoScript, getVideoAssets, advanceVideo, rejectVideo, runPipelineStage, updateSceneText } from "@/lib/api";
+import { getVideoScript, getVideoAssets, advanceVideo, rejectVideo, runPipelineStage, updateSceneText, updateVideo } from "@/lib/api";
 import type { ScriptScene as ApiScriptScene, Asset } from "@/lib/api";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { SegmentBadge } from "@/components/ui/SegmentBadge";
@@ -202,14 +202,17 @@ export function ScriptTab({ video }: ScriptTabProps) {
     queryClient.invalidateQueries({ queryKey: ["video-assets", video.id] });
   };
 
+  const [scriptApproved, setScriptApproved] = useState(false);
+
   const handleApprove = async () => {
+    if (!confirm("Approve script and advance to next stage?")) return;
     setApproving(true);
     try {
       await advanceVideo(video.id);
       invalidateVideoQueries();
+      setScriptApproved(true);
     } catch (err) {
       alert(`Failed to approve: ${(err as Error).message}`);
-    } finally {
       setApproving(false);
     }
   };
@@ -221,7 +224,9 @@ export function ScriptTab({ video }: ScriptTabProps) {
   const handleSubmitRevision = async () => {
     setRejecting(true);
     try {
-      await rejectVideo(video.id, `[${revisionScope}] ${revisionNotes}`);
+      const notes = `[${revisionScope}] ${revisionNotes}`;
+      await updateVideo(video.id, { revision_notes: notes });
+      await rejectVideo(video.id, notes);
       invalidateVideoQueries();
       setShowRevisionModal(false);
       setRevisionNotes("");
@@ -812,20 +817,28 @@ export function ScriptTab({ video }: ScriptTabProps) {
         </GlassCard>
 
         <div className="space-y-2">
-          <ActionButton variant="filled" className="w-full" onClick={handleApprove} disabled={approving}>
-            {approving ? <><Loader2 size={14} className="animate-spin" /> Approving...</> : "Approve Script"}
-          </ActionButton>
-          <ActionButton variant="outline" className="w-full" onClick={handleReject} disabled={rejecting}>
-            {rejecting ? <><Loader2 size={14} className="animate-spin" /> Requesting...</> : "Request Revision"}
-          </ActionButton>
-          <button
-            onClick={handleRegenerate}
-            disabled={regenerating}
-            className="inline-flex items-center justify-center gap-2 w-full px-5 py-2.5 rounded-xl text-sm font-semibold font-body transition-all hover:brightness-110 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
-            style={{ background: "rgba(255, 120, 73, 0.15)", color: "var(--orange)", border: "1px solid var(--orange)" }}
-          >
-            {regenerating ? <><Loader2 size={14} className="animate-spin" /> Regenerating...</> : "Regenerate"}
-          </button>
+          {scriptApproved ? (
+            <div className="flex items-center justify-center gap-2 w-full px-5 py-2.5 rounded-xl text-sm font-semibold" style={{ color: "var(--green)" }}>
+              <CheckCircle size={14} /> Script Approved
+            </div>
+          ) : (
+            <>
+              <ActionButton variant="filled" className="w-full" onClick={handleApprove} disabled={approving}>
+                {approving ? <><Loader2 size={14} className="animate-spin" /> Advancing...</> : "Approve Script"}
+              </ActionButton>
+              <ActionButton variant="outline" className="w-full" onClick={handleReject} disabled={rejecting}>
+                {rejecting ? <><Loader2 size={14} className="animate-spin" /> Requesting...</> : "Request Revision"}
+              </ActionButton>
+              <button
+                onClick={handleRegenerate}
+                disabled={regenerating}
+                className="inline-flex items-center justify-center gap-2 w-full px-5 py-2.5 rounded-xl text-sm font-semibold font-body transition-all hover:brightness-110 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
+                style={{ background: "rgba(255, 120, 73, 0.15)", color: "var(--orange)", border: "1px solid var(--orange)" }}
+              >
+                {regenerating ? <><Loader2 size={14} className="animate-spin" /> Regenerating...</> : "Regenerate"}
+              </button>
+            </>
+          )}
         </div>
       </div>
 

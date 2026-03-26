@@ -1,44 +1,132 @@
 "use client";
 
 import { useMemo, useState, useCallback } from "react";
-import { RefreshCw, FileText, Search, Loader2, Check } from "lucide-react";
+import { RefreshCw, FileText, Search, Loader2, Check, ChevronDown, ChevronRight } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { ActionButton } from "@/components/ui/ActionButton";
-import { runPipelineStage, advanceVideo } from "@/lib/api";
+import { runPipelineStage, advanceVideo, updateVideo } from "@/lib/api";
 
 interface ResearchTabProps {
   video: any;
 }
 
-interface FieldDef {
-  key: string;
-  label: string;
-  fullWidth: boolean;
-  borderColor?: string;
-  mono?: boolean;
+function CollapsibleSection({ label, borderColor, children, defaultOpen = false }: {
+  label: string; borderColor?: string; children: React.ReactNode; defaultOpen?: boolean;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <GlassCard className="p-5" style={borderColor ? { borderLeftWidth: 3, borderLeftColor: borderColor } : undefined}>
+      <button
+        className="flex items-center gap-2 w-full text-left"
+        onClick={() => setOpen(!open)}
+      >
+        {open ? <ChevronDown size={14} style={{ color: "var(--text-tertiary)" }} /> : <ChevronRight size={14} style={{ color: "var(--text-tertiary)" }} />}
+        <h3 className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
+          {label}
+        </h3>
+      </button>
+      {open && <div className="mt-3">{children}</div>}
+    </GlassCard>
+  );
 }
 
-const FIELDS: FieldDef[] = [
-  { key: "thesis", label: "Thesis", fullWidth: true, borderColor: "var(--turquoise)" },
-  { key: "executive_hook", label: "Executive Hook", fullWidth: true, borderColor: "var(--orange)" },
-  { key: "fact_sheet", label: "Fact Sheet", fullWidth: false },
-  { key: "historical_parallels", label: "Historical Parallels", fullWidth: false },
-  { key: "framework_analysis", label: "Framework Analysis", fullWidth: false },
-  { key: "character_dossier", label: "Character Dossier", fullWidth: false },
-  { key: "narrative_arc", label: "Narrative Arc", fullWidth: true },
-  { key: "counter_arguments", label: "Counter Arguments", fullWidth: false },
-  { key: "visual_seeds", label: "Visual Seeds", fullWidth: false },
-  { key: "themes", label: "Themes", fullWidth: false },
-  { key: "psychological_angles", label: "Psychological Angles", fullWidth: false },
-  { key: "source_bibliography", label: "Sources", fullWidth: true, mono: true },
-];
+function TagChips({ text }: { text: string }) {
+  // Split on bullet points, numbered lists, newlines, or semicolons
+  const items = text
+    .split(/[\n•;]|(?:\d+\.\s)/)
+    .map(s => s.replace(/^[-–—]\s*/, "").trim())
+    .filter(s => s.length > 0 && s.length < 120);
+
+  if (items.length <= 1) {
+    return <p className="text-sm leading-relaxed whitespace-pre-line" style={{ color: "var(--text-primary)" }}>{text}</p>;
+  }
+
+  return (
+    <div className="flex flex-wrap gap-2">
+      {items.map((item, i) => (
+        <span
+          key={i}
+          className="inline-block px-3 py-1.5 rounded-lg text-xs font-medium"
+          style={{ background: "var(--bg-elevated)", color: "var(--text-secondary)", border: "1px solid var(--border)" }}
+        >
+          {item}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function BulletList({ text }: { text: string }) {
+  // Parse facts/parallels into separate items by splitting on numbered patterns or bullet-like separators
+  const items = text
+    .split(/\n(?=[-•\d])|(?<=\.)\s*(?=\d+\.)/)
+    .map(s => s.replace(/^[-•\d]+[.)]\s*/, "").trim())
+    .filter(Boolean);
+
+  if (items.length <= 1) {
+    return <p className="text-sm leading-relaxed whitespace-pre-line" style={{ color: "var(--text-primary)" }}>{text}</p>;
+  }
+
+  return (
+    <ul className="space-y-2">
+      {items.map((item, i) => (
+        <li key={i} className="flex gap-2 text-sm leading-relaxed" style={{ color: "var(--text-primary)" }}>
+          <span className="shrink-0 mt-1.5 w-1.5 h-1.5 rounded-full" style={{ background: "var(--turquoise)" }} />
+          <span>{item}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function SourceList({ text }: { text: string }) {
+  const lines = text.split("\n").map(s => s.trim()).filter(Boolean);
+  return (
+    <div className="space-y-1">
+      {lines.map((line, i) => {
+        // Try to extract URL from the line
+        const urlMatch = line.match(/(https?:\/\/[^\s)]+)/);
+        return (
+          <div key={i} className="text-xs font-mono leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+            {urlMatch ? (
+              <>
+                {line.replace(urlMatch[0], "").replace(/[-–—]\s*$/, "").trim()}{" "}
+                <a href={urlMatch[0]} target="_blank" rel="noopener noreferrer" className="underline" style={{ color: "var(--turquoise)" }}>
+                  {urlMatch[0].length > 60 ? urlMatch[0].slice(0, 60) + "..." : urlMatch[0]}
+                </a>
+              </>
+            ) : (
+              line
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function EditableText({ text, mono }: { text: string; mono?: boolean }) {
+  return (
+    <textarea
+      defaultValue={text}
+      rows={Math.max(3, Math.ceil(text.length / 100))}
+      className={`w-full text-sm leading-relaxed whitespace-pre-line resize-none outline-none rounded-lg px-2 py-1 transition-all ${mono ? "font-mono text-xs" : ""}`}
+      style={{ color: "var(--text-primary)", background: "transparent", border: "1px solid transparent" }}
+      onFocus={(e) => { e.target.style.background = "var(--bg-elevated)"; e.target.style.borderColor = "var(--turquoise)"; }}
+      onBlur={(e) => { e.target.style.background = "transparent"; e.target.style.borderColor = "transparent"; }}
+    />
+  );
+}
 
 export function ResearchTab({ video }: ResearchTabProps) {
   const [isResearching, setIsResearching] = useState(false);
   const [isApproving, setIsApproving] = useState(false);
+  const [approved, setApproved] = useState(false);
   const [showFeedback, setShowFeedback] = useState(false);
   const [feedbackText, setFeedbackText] = useState("");
   const [feedbackSaved, setFeedbackSaved] = useState(false);
+  const [feedbackSaving, setFeedbackSaving] = useState(false);
+  const [approveError, setApproveError] = useState<string | null>(null);
 
   const handleReResearch = useCallback(async () => {
     setIsResearching(true);
@@ -52,20 +140,18 @@ export function ResearchTab({ video }: ResearchTabProps) {
   const handleApproveResearch = useCallback(async () => {
     if (!confirm("Approve research and move to scripting?")) return;
     setIsApproving(true);
+    setApproveError(null);
     try {
       await advanceVideo(video.id);
+      setApproved(true);
     } catch (err) {
-      alert(`Failed: ${(err as Error).message}`);
-    } finally {
+      setApproveError((err as Error).message);
       setIsApproving(false);
     }
   }, [video.id]);
 
-  // Parse research_payload from the video detail
   const research = useMemo(() => {
     if (!video) return null;
-
-    // Try parsing research_payload JSON
     let payload: Record<string, string> = {};
     if (video.research_payload) {
       try {
@@ -76,8 +162,6 @@ export function ResearchTab({ video }: ResearchTabProps) {
         payload = {};
       }
     }
-
-    // Merge top-level fields (fallback to payload values)
     return {
       headline: video.headline || payload.headline || null,
       thesis: video.thesis || payload.thesis || null,
@@ -103,7 +187,7 @@ export function ResearchTab({ video }: ResearchTabProps) {
           Research Not Started
         </p>
         <p className="text-sm mb-6" style={{ color: "var(--text-tertiary)" }}>
-          Research not started yet. This video is at the &ldquo;{video.status?.replace(/_/g, " ") || "idea logged"}&rdquo; stage.
+          This video is at the &ldquo;{video.status?.replace(/_/g, " ") || "idea logged"}&rdquo; stage.
         </p>
         <ActionButton
           variant="filled"
@@ -134,69 +218,141 @@ export function ResearchTab({ video }: ResearchTabProps) {
         />
       </GlassCard>
 
-      {/* Research fields */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {FIELDS.map((field) => {
-          const content = research[field.key as keyof typeof research];
-          if (!content) return null;
+      {/* Thesis — full width with accent border */}
+      {research.thesis && (
+        <GlassCard className="p-5" style={{ borderLeftWidth: 3, borderLeftColor: "var(--turquoise)" }}>
+          <h3 className="text-[10px] font-semibold uppercase tracking-wider mb-3" style={{ color: "var(--text-tertiary)" }}>Thesis</h3>
+          <EditableText text={research.thesis} />
+        </GlassCard>
+      )}
 
-          return (
-            <GlassCard
-              key={field.key}
-              className={`p-5 ${field.fullWidth ? "lg:col-span-2" : ""}`}
-              style={field.borderColor ? { borderLeftWidth: 3, borderLeftColor: field.borderColor } : undefined}
-            >
-              <h3 className="text-[10px] font-semibold uppercase tracking-wider mb-3" style={{ color: "var(--text-tertiary)" }}>
-                {field.label}
-              </h3>
-              <textarea
-                defaultValue={content}
-                rows={Math.max(3, Math.ceil(content.length / 100))}
-                className={`w-full text-sm leading-relaxed whitespace-pre-line resize-none outline-none rounded-lg px-2 py-1 transition-all ${field.mono ? "font-mono text-xs" : ""}`}
-                style={{ color: "var(--text-primary)", background: "transparent", border: "1px solid transparent" }}
-                onFocus={(e) => { e.target.style.background = "var(--bg-elevated)"; e.target.style.borderColor = "var(--turquoise)"; }}
-                onBlur={(e) => { e.target.style.background = "transparent"; e.target.style.borderColor = "transparent"; }}
-              />
-            </GlassCard>
-          );
-        })}
+      {/* Executive Hook — full width with accent border */}
+      {research.executive_hook && (
+        <GlassCard className="p-5" style={{ borderLeftWidth: 3, borderLeftColor: "var(--orange)" }}>
+          <h3 className="text-[10px] font-semibold uppercase tracking-wider mb-3" style={{ color: "var(--text-tertiary)" }}>Executive Hook</h3>
+          <EditableText text={research.executive_hook} />
+        </GlassCard>
+      )}
+
+      {/* Two-column grid for main content */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* Fact Sheet — bullet list */}
+        {research.fact_sheet && (
+          <GlassCard className="p-5" style={{ borderLeftWidth: 3, borderLeftColor: "var(--turquoise)" }}>
+            <h3 className="text-[10px] font-semibold uppercase tracking-wider mb-3" style={{ color: "var(--text-tertiary)" }}>Fact Sheet</h3>
+            <BulletList text={research.fact_sheet} />
+          </GlassCard>
+        )}
+
+        {/* Historical Parallels — bullet list */}
+        {research.historical_parallels && (
+          <GlassCard className="p-5" style={{ borderLeftWidth: 3, borderLeftColor: "var(--turquoise)" }}>
+            <h3 className="text-[10px] font-semibold uppercase tracking-wider mb-3" style={{ color: "var(--text-tertiary)" }}>Historical Parallels</h3>
+            <BulletList text={research.historical_parallels} />
+          </GlassCard>
+        )}
+
+        {/* Character Dossier */}
+        {research.character_dossier && (
+          <GlassCard className="p-5" style={{ borderLeftWidth: 3, borderLeftColor: "var(--turquoise)" }}>
+            <h3 className="text-[10px] font-semibold uppercase tracking-wider mb-3" style={{ color: "var(--text-tertiary)" }}>Character Dossier</h3>
+            <BulletList text={research.character_dossier} />
+          </GlassCard>
+        )}
+
+        {/* Visual Seeds */}
+        {research.visual_seeds && (
+          <GlassCard className="p-5" style={{ borderLeftWidth: 3, borderLeftColor: "var(--turquoise)" }}>
+            <h3 className="text-[10px] font-semibold uppercase tracking-wider mb-3" style={{ color: "var(--text-tertiary)" }}>Visual Seeds</h3>
+            <BulletList text={research.visual_seeds} />
+          </GlassCard>
+        )}
       </div>
 
+      {/* Narrative Arc — full width */}
+      {research.narrative_arc && (
+        <GlassCard className="p-5 lg:col-span-2" style={{ borderLeftWidth: 3, borderLeftColor: "var(--turquoise)" }}>
+          <h3 className="text-[10px] font-semibold uppercase tracking-wider mb-3" style={{ color: "var(--text-tertiary)" }}>Narrative Arc</h3>
+          <EditableText text={research.narrative_arc} />
+        </GlassCard>
+      )}
+
+      {/* Themes + Psychological Angles — tag chips */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {research.themes && (
+          <GlassCard className="p-5" style={{ borderLeftWidth: 3, borderLeftColor: "var(--turquoise)" }}>
+            <h3 className="text-[10px] font-semibold uppercase tracking-wider mb-3" style={{ color: "var(--text-tertiary)" }}>Themes</h3>
+            <TagChips text={research.themes} />
+          </GlassCard>
+        )}
+        {research.psychological_angles && (
+          <GlassCard className="p-5" style={{ borderLeftWidth: 3, borderLeftColor: "var(--turquoise)" }}>
+            <h3 className="text-[10px] font-semibold uppercase tracking-wider mb-3" style={{ color: "var(--text-tertiary)" }}>Psychological Angles</h3>
+            <TagChips text={research.psychological_angles} />
+          </GlassCard>
+        )}
+      </div>
+
+      {/* Collapsible sections */}
+      {research.framework_analysis && (
+        <CollapsibleSection label="Framework Analysis" borderColor="var(--turquoise)">
+          <EditableText text={research.framework_analysis} />
+        </CollapsibleSection>
+      )}
+
+      {research.counter_arguments && (
+        <CollapsibleSection label="Counter Arguments" borderColor="var(--turquoise)">
+          <EditableText text={research.counter_arguments} />
+        </CollapsibleSection>
+      )}
+
+      {research.source_bibliography && (
+        <CollapsibleSection label="Sources" borderColor="var(--turquoise)">
+          <SourceList text={research.source_bibliography} />
+        </CollapsibleSection>
+      )}
+
       {/* Actions */}
+      {approveError && (
+        <div className="text-sm text-center py-2 px-4 rounded-lg" style={{ color: "var(--orange)", background: "rgba(255, 120, 73, 0.1)" }}>
+          Failed to approve: {approveError}
+        </div>
+      )}
       <div className="flex gap-3 justify-end flex-wrap">
-        <button
-          className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold font-body transition-all hover:brightness-110 active:scale-[0.98] disabled:opacity-50"
-          style={{
-            background: "rgba(255, 120, 73, 0.15)",
-            color: "var(--orange)",
-            border: "1px solid var(--orange)",
-          }}
-          onClick={handleReResearch}
-          disabled={isResearching}
-        >
-          {isResearching ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
-          {isResearching ? "Researching..." : "Regenerate Research"}
-        </button>
-        <button
-          className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold font-body transition-all hover:brightness-110 active:scale-[0.98]"
-          style={{
-            background: "transparent",
-            color: "var(--text-secondary)",
-            border: "1px solid var(--border)",
-          }}
-          onClick={() => setShowFeedback(true)}
-        >
-          <FileText size={16} /> Request Changes
-        </button>
-        <button
-          className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold font-body transition-all hover:brightness-110 active:scale-[0.98] disabled:opacity-50"
-          style={{ background: "var(--green)", color: "var(--bg-void)" }}
-          onClick={handleApproveResearch}
-          disabled={isApproving}
-        >
-          {isApproving ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
-          {isApproving ? "Approving..." : "Approve Research"}
-        </button>
+        {!approved && (
+          <>
+            <button
+              className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold font-body transition-all hover:brightness-110 active:scale-[0.98] disabled:opacity-50"
+              style={{ background: "rgba(255, 120, 73, 0.15)", color: "var(--orange)", border: "1px solid var(--orange)" }}
+              onClick={handleReResearch}
+              disabled={isResearching}
+            >
+              {isResearching ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
+              {isResearching ? "Researching..." : "Regenerate Research"}
+            </button>
+            <button
+              className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold font-body transition-all hover:brightness-110 active:scale-[0.98]"
+              style={{ background: "transparent", color: "var(--text-secondary)", border: "1px solid var(--border)" }}
+              onClick={() => setShowFeedback(true)}
+            >
+              <FileText size={16} /> Request Changes
+            </button>
+            <button
+              className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold font-body transition-all hover:brightness-110 active:scale-[0.98] disabled:opacity-50"
+              style={{ background: "var(--green)", color: "var(--bg-void)" }}
+              onClick={handleApproveResearch}
+              disabled={isApproving}
+            >
+              {isApproving ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
+              {isApproving ? "Advancing..." : "Approve Research"}
+            </button>
+          </>
+        )}
+        {approved && (
+          <div className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold" style={{ color: "var(--green)" }}>
+            <Check size={16} /> Research Approved
+          </div>
+        )}
       </div>
 
       {/* Feedback Modal */}
@@ -214,13 +370,26 @@ export function ResearchTab({ video }: ResearchTabProps) {
               autoFocus
             />
             <div className="flex gap-2 justify-end">
-              <button onClick={() => setShowFeedback(false)} className="px-4 py-2 rounded-lg text-sm" style={{ color: "var(--text-secondary)" }}>Cancel</button>
+              <button onClick={() => setShowFeedback(false)} className="px-4 py-2 rounded-lg text-sm" style={{ color: "var(--text-secondary)" }} disabled={feedbackSaving}>Cancel</button>
               <button
-                onClick={() => { console.log("Research feedback:", feedbackText); setShowFeedback(false); setFeedbackSaved(true); setTimeout(() => setFeedbackSaved(false), 2000); }}
-                className="px-4 py-2 rounded-lg text-sm font-semibold"
+                onClick={async () => {
+                  setFeedbackSaving(true);
+                  try {
+                    await updateVideo(video.id, { revision_notes: feedbackText });
+                    setShowFeedback(false);
+                    setFeedbackSaved(true);
+                    setTimeout(() => setFeedbackSaved(false), 3000);
+                  } catch (err) {
+                    alert(`Failed to save: ${(err as Error).message}`);
+                  } finally {
+                    setFeedbackSaving(false);
+                  }
+                }}
+                className="px-4 py-2 rounded-lg text-sm font-semibold disabled:opacity-50"
                 style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}
+                disabled={feedbackSaving || !feedbackText.trim()}
               >
-                Save Feedback
+                {feedbackSaving ? "Saving..." : "Save Feedback"}
               </button>
             </div>
           </div>

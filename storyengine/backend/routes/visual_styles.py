@@ -334,12 +334,11 @@ Analyze this image and extract a detailed visual style profile as JSON. Return O
             text = data["candidates"][0]["content"]["parts"][0]["text"]
 
             # Parse JSON from response (handle markdown fences)
+            import re
             text = text.strip()
-            if text.startswith("```"):
-                text = text.split("\n", 1)[1] if "\n" in text else text[3:]
-                if text.endswith("```"):
-                    text = text[:-3]
-                text = text.strip()
+            text = re.sub(r'^```json?\s*', '', text)
+            text = re.sub(r'\s*```$', '', text)
+            text = text.strip()
 
             result = json.loads(text)
             return {"status": "ok", "profile": result}

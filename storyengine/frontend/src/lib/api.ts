@@ -45,6 +45,12 @@ export const createVideo = (data: {
 export const advanceVideo = (id: string) =>
   fetchApi<{ status: string }>(`/api/videos/${id}/advance`, { method: "PATCH" });
 
+export const updateVideo = (id: string, data: Record<string, unknown>) =>
+  fetchApi<{ status: string }>(`/api/videos/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+
 export const rejectVideo = (id: string, reason?: string) =>
   fetchApi<{ status: string }>(`/api/videos/${id}/reject`, {
     method: "PATCH",
