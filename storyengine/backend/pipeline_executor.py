@@ -288,6 +288,17 @@ class PipelineExecutor:
             video_id, self.tenant_id,
         )
 
+    def _load_idea_from_video(self, video_id: str):
+        """Load idea into pipeline state from Supabase video UUID.
+
+        Uses the SupabaseAdapter which returns Airtable-shaped dicts.
+        """
+        idea = self._pipeline.airtable.get_idea(video_id)
+        if idea:
+            self._pipeline._load_idea(idea)
+        else:
+            print(f"[WARN] Could not load idea for video_id={video_id}", flush=True)
+
     async def _update_video_status(self, video_id: str, new_status: str):
         """Update video status in Supabase.
 
@@ -397,7 +408,7 @@ class PipelineExecutor:
             await self._log_activity(bot_name, video_id, "started", f"Researching: {topic}")
 
             # Import research agent
-            from research_agent import run_research
+            from research.agent import run_research
 
             # Run research
             payload = await run_research(
@@ -463,14 +474,8 @@ class PipelineExecutor:
 
             await self._log_activity(bot_name, video_id, "started", "Generating script")
 
-            # Get the Airtable record ID to load into pipeline
-            airtable_id = video.get("airtable_record_id")
-
-            # Load idea into pipeline state
-            if airtable_id:
-                idea = self._pipeline.airtable.get_idea(airtable_id)
-                if idea:
-                    self._pipeline._load_idea(idea)
+            # Load idea into pipeline state from Supabase
+            self._load_idea_from_video(video_id)
 
             # Run script generation
             result = await self._pipeline.run_brief_translator()
@@ -521,12 +526,8 @@ class PipelineExecutor:
 
             await self._log_activity(bot_name, video_id, "started", "Generating voice")
 
-            # Load idea into pipeline
-            airtable_id = video.get("airtable_record_id")
-            if airtable_id:
-                idea = self._pipeline.airtable.get_idea(airtable_id)
-                if idea:
-                    self._pipeline._load_idea(idea)
+            # Load idea into pipeline state from Supabase
+            self._load_idea_from_video(video_id)
 
             # Run voice generation
             result = await self._pipeline.run_voice_bot()
@@ -660,11 +661,7 @@ class PipelineExecutor:
             current_status = video.get("status")
             await self._log_activity(bot_name, video_id, "started", "Generating prompts")
 
-            airtable_id = video.get("airtable_record_id")
-            if airtable_id:
-                idea = self._pipeline.airtable.get_idea(airtable_id)
-                if idea:
-                    self._pipeline._load_idea(idea)
+            self._load_idea_from_video(video_id)
 
             result = await self._pipeline.run_styled_image_prompts()
 
@@ -697,11 +694,7 @@ class PipelineExecutor:
             current_status = video.get("status")
             await self._log_activity(bot_name, video_id, "started", "Generating storyboard prompts")
 
-            airtable_id = video.get("airtable_record_id")
-            if airtable_id:
-                idea = self._pipeline.airtable.get_idea(airtable_id)
-                if idea:
-                    self._pipeline._load_idea(idea)
+            self._load_idea_from_video(video_id)
 
             result = await self._pipeline.run_storyboard_prompts()
 
@@ -734,11 +727,7 @@ class PipelineExecutor:
             current_status = video.get("status")
             await self._log_activity(bot_name, video_id, "started", "Generating storyboard images")
 
-            airtable_id = video.get("airtable_record_id")
-            if airtable_id:
-                idea = self._pipeline.airtable.get_idea(airtable_id)
-                if idea:
-                    self._pipeline._load_idea(idea)
+            self._load_idea_from_video(video_id)
 
             result = await self._pipeline.run_storyboard_images()
 
@@ -771,11 +760,7 @@ class PipelineExecutor:
             current_status = video.get("status")
             await self._log_activity(bot_name, video_id, "started", "Extracting storyboard frames")
 
-            airtable_id = video.get("airtable_record_id")
-            if airtable_id:
-                idea = self._pipeline.airtable.get_idea(airtable_id)
-                if idea:
-                    self._pipeline._load_idea(idea)
+            self._load_idea_from_video(video_id)
 
             result = await self._pipeline.run_storyboard_extract()
 
@@ -808,11 +793,7 @@ class PipelineExecutor:
             current_status = video.get("status")
             await self._log_activity(bot_name, video_id, "started", "Generating images")
 
-            airtable_id = video.get("airtable_record_id")
-            if airtable_id:
-                idea = self._pipeline.airtable.get_idea(airtable_id)
-                if idea:
-                    self._pipeline._load_idea(idea)
+            self._load_idea_from_video(video_id)
 
             result = await self._pipeline.run_image_bot()
 
@@ -845,11 +826,7 @@ class PipelineExecutor:
             current_status = video.get("status")
             await self._log_activity(bot_name, video_id, "started", "Generating sound prompts")
 
-            airtable_id = video.get("airtable_record_id")
-            if airtable_id:
-                idea = self._pipeline.airtable.get_idea(airtable_id)
-                if idea:
-                    self._pipeline._load_idea(idea)
+            self._load_idea_from_video(video_id)
 
             result = await self._pipeline.run_sound_prompt_bot()
 
@@ -882,11 +859,7 @@ class PipelineExecutor:
             current_status = video.get("status")
             await self._log_activity(bot_name, video_id, "started", "Generating sound effects")
 
-            airtable_id = video.get("airtable_record_id")
-            if airtable_id:
-                idea = self._pipeline.airtable.get_idea(airtable_id)
-                if idea:
-                    self._pipeline._load_idea(idea)
+            self._load_idea_from_video(video_id)
 
             result = await self._pipeline.run_sound_bot()
 
@@ -919,11 +892,7 @@ class PipelineExecutor:
             current_status = video.get("status")
             await self._log_activity(bot_name, video_id, "started", "Generating video scripts")
 
-            airtable_id = video.get("airtable_record_id")
-            if airtable_id:
-                idea = self._pipeline.airtable.get_idea(airtable_id)
-                if idea:
-                    self._pipeline._load_idea(idea)
+            self._load_idea_from_video(video_id)
 
             result = await self._pipeline.run_video_script_bot()
 
@@ -956,11 +925,7 @@ class PipelineExecutor:
             current_status = video.get("status")
             await self._log_activity(bot_name, video_id, "started", "Generating video clips")
 
-            airtable_id = video.get("airtable_record_id")
-            if airtable_id:
-                idea = self._pipeline.airtable.get_idea(airtable_id)
-                if idea:
-                    self._pipeline._load_idea(idea)
+            self._load_idea_from_video(video_id)
 
             result = await self._pipeline.run_video_gen_bot()
 
@@ -993,11 +958,7 @@ class PipelineExecutor:
             current_status = video.get("status")
             await self._log_activity(bot_name, video_id, "started", "Generating thumbnail")
 
-            airtable_id = video.get("airtable_record_id")
-            if airtable_id:
-                idea = self._pipeline.airtable.get_idea(airtable_id)
-                if idea:
-                    self._pipeline._load_idea(idea)
+            self._load_idea_from_video(video_id)
 
             result = await self._pipeline.run_thumbnail_bot()
 
@@ -1030,11 +991,7 @@ class PipelineExecutor:
             current_status = video.get("status")
             await self._log_activity(bot_name, video_id, "started", "Rendering video")
 
-            airtable_id = video.get("airtable_record_id")
-            if airtable_id:
-                idea = self._pipeline.airtable.get_idea(airtable_id)
-                if idea:
-                    self._pipeline._load_idea(idea)
+            self._load_idea_from_video(video_id)
 
             result = await self._pipeline.run_render_bot()
 
