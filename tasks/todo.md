@@ -79,7 +79,33 @@ Full codebase reorganization of `skills/video-pipeline/`. Each tool is now a sta
 - Suggestions stored as proposed overwrites (human approves inline)
 - Autopilot = decision maker (top 3), Competitors = research/browse (all cards)
 
+## Current: Airtable → Supabase Pipeline Wiring (2026-03-26)
+
+**Plan:** `~/.claude/plans/snappy-launching-lantern.md`
+
+**Done:**
+- SupabaseAdapter created (`storyengine/backend/supabase_adapter.py`) — 42 sync psycopg2 methods mirroring AirtableClient
+- Adapter wired into PipelineExecutor (replaces `pipeline.airtable`)
+- Status gates fixed to use `is_at_or_past_stage()`
+- psycopg2-binary installed on VPS, deployed
+
+**BLOCKED: Background task hangs on pipeline initialization**
+- POST `/api/pipeline/script/{id}` returns 200 (task queued)
+- Background thread starts `executor.run_script()`
+- Thread goes silent — no output, no traceback, no error
+- Likely cause: `_ensure_initialized()` creates `VideoPipeline()` which inits Airtable client + all API clients, then we swap adapter. The init may hang on import/connection.
+- Fix: Add granular print statements inside `_ensure_initialized()` to find exact hang point. If `VideoPipeline()` hangs, may need to skip its Airtable init entirely.
+
+**Dev tools built:**
+- Voice Typer: `~/whisper-dictation/` (Fn key dictation, auto-starts on login)
+- Browser Watcher: `~/browser-watcher/watcher.py` (Playwright monitoring)
+- Chrome Extension: `~/browser-watcher/extension/` (session recorder with voice + screenshots)
+- Session Server: `~/browser-watcher/session_server.py` (bundles sessions → Claude CLI)
+- Auto-deploy: `~/browser-watcher/deploy.sh` (commit → push → VPS pull + restart)
+
 **What to start next session with:**
-1. Apply migration 007 to live Supabase (tone column on scripts)
-2. Module 3 needs visual QA — check all tabs render correctly with real data
-3. Future modules: Settings page, channel onboarding, calendar view, multi-tenant
+1. Debug the hang: add prints inside `_ensure_initialized()` around each step
+2. Fix the deadlock (likely async/sync mixing or import issue)
+3. Once script generation works end-to-end, test all other stages
+4. Apply migration 007 to live Supabase (tone column on scripts)
+5. Future modules: Settings page, channel onboarding, calendar view
