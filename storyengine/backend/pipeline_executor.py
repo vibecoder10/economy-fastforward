@@ -82,6 +82,9 @@ class PipelineExecutor:
                 if value:
                     env_name = key_name.upper()
                     os.environ[env_name] = value
+                    # ElevenLabs client looks for WAVESPEED_API_KEY, not ELEVENLABS_API_KEY
+                    if key_name == "elevenlabs_api_key":
+                        os.environ["WAVESPEED_API_KEY"] = value
                     print(f"[INIT]   ✓ {key_name} loaded", flush=True)
                 else:
                     print(f"[INIT]   - {key_name} not found", flush=True)
