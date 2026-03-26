@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import {
   Upload,
@@ -11,13 +12,22 @@ import {
   Sparkles,
   X,
   Check,
-  Image as ImageIcon,
   Plus,
+  Loader2,
+  Save,
+  CheckCircle2,
+  Trash2,
+  Pencil,
 } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { StatusPill } from "@/components/ui/StatusPill";
-import { ActionButton } from "@/components/ui/ActionButton";
-import { FilterSelect } from "@/components/ui/FilterSelect";
+import {
+  getCurrentProject,
+  updateProject,
+  type Project,
+  type ProjectUpdate,
+  type CharacterReference,
+} from "@/lib/api";
 
 const container = {
   hidden: { opacity: 0 },
@@ -33,25 +43,33 @@ const VISUAL_STYLES = [
     id: "cinematic_illustration",
     name: "Cinematic Illustration",
     description: "Photorealistic editorial illustration with Rembrandt lighting and dramatic compositions",
-    tags: ["Dossier 60%", "Schema 22%", "Echo 18%"],
+    tags: ["Editorial", "Dramatic Lighting", "Photorealistic"],
+    previewColor: "#1A1A2E",
+    previewAccent: "#E94560",
   },
   {
     id: "holographic_hud",
     name: "Holographic HUD",
     description: "Data overlay aesthetics with glowing nodes, circuit patterns, and sci-fi interfaces",
-    tags: ["Neon", "Data Grid", "Tech"],
+    tags: ["Neon", "Data Overlay", "Sci-fi"],
+    previewColor: "#0A192F",
+    previewAccent: "#00D4FF",
   },
   {
     id: "cinematic_dossier",
     name: "Cinematic Dossier",
     description: "Intelligence briefing style with redacted text, stamps, and classified document aesthetics",
-    tags: ["Documents", "Stamps", "Intel"],
+    tags: ["Documents", "Stamps", "Intelligence Briefing"],
+    previewColor: "#2C1810",
+    previewAccent: "#C44545",
   },
   {
     id: "clay_mannequin",
     name: "Clay Mannequin",
     description: "3D clay render with faceless mannequin figures, matte gray surfaces, golden chest glow",
-    tags: ["3D", "Faceless", "Minimal"],
+    tags: ["3D", "Faceless", "Minimalist"],
+    previewColor: "#2A2A2A",
+    previewAccent: "#D4A852",
   },
 ];
 
@@ -62,31 +80,75 @@ const ACCENT_COLORS = [
   { name: "Muted Green", value: "#3A9A5A" },
 ];
 
-interface CharacterRef {
-  id: string;
-  name: string;
-  description: string;
-  imagePreview?: string;
-}
-
 export default function ProfilePage() {
+  const queryClient = useQueryClient();
+
+  // Fetch project data from Supabase
+  const { data: project, isLoading } = useQuery({
+    queryKey: ["currentProject"],
+    queryFn: getCurrentProject,
+  });
+
+  // Local state — synced from server on load
   const [activeStyle, setActiveStyle] = useState("cinematic_illustration");
   const [accentColor, setAccentColor] = useState("#00D4AA");
-  const [characters, setCharacters] = useState<CharacterRef[]>([
-    {
-      id: "c1",
-      name: "The Narrator",
-      description: "Stern middle-aged man in dark suit, silver temples, authoritative presence",
-    },
-  ]);
+  const [customAccentColor, setCustomAccentColor] = useState("");
+  const [useCustomColor, setUseCustomColor] = useState(false);
+  const [characters, setCharacters] = useState<CharacterReference[]>([]);
   const [uploadedImage, setUploadedImage] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<string | null>(null);
+  const [isEditingJson, setIsEditingJson] = useState(false);
+  const [editableJson, setEditableJson] = useState("");
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
+  const [applyStatus, setApplyStatus] = useState<"idle" | "saving" | "saved">("idle");
+  const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null);
+
+  // New character form
   const [newCharName, setNewCharName] = useState("");
+  const [newCharDescription, setNewCharDescription] = useState("");
+  const [newCharImage, setNewCharImage] = useState<string | null>(null);
+
+  // Editing existing character
+  const [editingCharIdx, setEditingCharIdx] = useState<number | null>(null);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const charFileRef = useRef<HTMLInputElement>(null);
 
-  // Simulate AI visual profile analysis
+  // Sync state from server
+  useEffect(() => {
+    if (project) {
+      setActiveStyle(project.visual_style || "cinematic_illustration");
+      setAccentColor(project.accent_color || "#00D4AA");
+      if (project.custom_accent_color) {
+        setCustomAccentColor(project.custom_accent_color);
+        setUseCustomColor(!ACCENT_COLORS.some(c => c.value === project.accent_color));
+      }
+      setCharacters(project.character_references || []);
+      if (project.visual_profile_json) {
+        setAnalysisResult(JSON.stringify(project.visual_profile_json, null, 2));
+      }
+    }
+  }, [project]);
+
+  // Save mutation
+  const saveMutation = useMutation({
+    mutationFn: (data: ProjectUpdate) => updateProject(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["currentProject"] });
+    },
+  });
+
+  // Quick-save a single field
+  const saveField = useCallback(
+    (data: ProjectUpdate) => {
+      saveMutation.mutate(data);
+    },
+    [saveMutation]
+  );
+
+  // ---- AI Visual Profile Generator ----
+
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -96,11 +158,12 @@ export default function ProfilePage() {
       setUploadedImage(ev.target?.result as string);
       setIsAnalyzing(true);
       setAnalysisResult(null);
+      setIsEditingJson(false);
 
-      // Simulate AI analysis delay
+      // Simulate AI analysis (in production, this would call Claude Vision API)
       setTimeout(() => {
         setIsAnalyzing(false);
-        setAnalysisResult(JSON.stringify({
+        const result = JSON.stringify({
           style_profile: {
             name: "Custom Profile",
             base_style: "cinematic_illustration",
@@ -122,35 +185,124 @@ export default function ProfilePage() {
             "Editorial illustration style",
             "Dramatic facial expressions",
           ],
-        }, null, 2));
+        }, null, 2);
+        setAnalysisResult(result);
+        setEditableJson(result);
       }, 3000);
     };
     reader.readAsDataURL(file);
   };
 
-  const handleCharacterUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !newCharName) return;
+  const handleApplyProfile = async () => {
+    const jsonStr = isEditingJson ? editableJson : analysisResult;
+    if (!jsonStr) return;
 
+    try {
+      const parsed = JSON.parse(jsonStr);
+      setApplyStatus("saving");
+      await updateProject({ visual_profile_json: parsed });
+      queryClient.invalidateQueries({ queryKey: ["currentProject"] });
+      setAnalysisResult(JSON.stringify(parsed, null, 2));
+      setIsEditingJson(false);
+      setApplyStatus("saved");
+      setTimeout(() => setApplyStatus("idle"), 2000);
+    } catch {
+      // Invalid JSON
+    }
+  };
+
+  // ---- Style Selection ----
+
+  const handleStyleSelect = (styleId: string) => {
+    setActiveStyle(styleId);
+    saveField({ visual_style: styleId });
+  };
+
+  // ---- Accent Color ----
+
+  const handlePresetColor = (color: string) => {
+    setAccentColor(color);
+    setUseCustomColor(false);
+    saveField({ accent_color: color, custom_accent_color: undefined });
+  };
+
+  const handleCustomColor = (color: string) => {
+    setCustomAccentColor(color);
+    setUseCustomColor(true);
+    setAccentColor(color);
+    saveField({ accent_color: color, custom_accent_color: color });
+  };
+
+  // ---- Characters ----
+
+  const handleAddCharacter = () => {
+    if (!newCharName.trim()) return;
+    const newChar: CharacterReference = {
+      name: newCharName.trim(),
+      description: newCharDescription.trim(),
+      image_url: newCharImage || undefined,
+    };
+    const updated = [...characters, newChar];
+    setCharacters(updated);
+    setNewCharName("");
+    setNewCharDescription("");
+    setNewCharImage(null);
+  };
+
+  const handleRemoveCharacter = (idx: number) => {
+    if (deleteConfirm !== idx) {
+      setDeleteConfirm(idx);
+      setTimeout(() => setDeleteConfirm(null), 3000);
+      return;
+    }
+    const updated = characters.filter((_, i) => i !== idx);
+    setCharacters(updated);
+    setDeleteConfirm(null);
+  };
+
+  const handleCharImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
     const reader = new FileReader();
     reader.onload = (ev) => {
-      setCharacters((prev) => [
-        ...prev,
-        {
-          id: `c${Date.now()}`,
-          name: newCharName,
-          description: "Uploaded character reference — AI will extract visual traits for consistency",
-          imagePreview: ev.target?.result as string,
-        },
-      ]);
-      setNewCharName("");
+      setNewCharImage(ev.target?.result as string);
     };
     reader.readAsDataURL(file);
   };
 
-  const removeCharacter = (id: string) => {
-    setCharacters((prev) => prev.filter((c) => c.id !== id));
+  const handleUpdateCharacter = (idx: number, field: keyof CharacterReference, value: string) => {
+    const updated = characters.map((c, i) =>
+      i === idx ? { ...c, [field]: value } : c
+    );
+    setCharacters(updated);
   };
+
+  // ---- Save All ----
+
+  const handleSaveAll = async () => {
+    setSaveStatus("saving");
+    try {
+      await updateProject({
+        visual_style: activeStyle,
+        accent_color: accentColor,
+        custom_accent_color: useCustomColor ? customAccentColor : undefined,
+        character_references: characters,
+      });
+      queryClient.invalidateQueries({ queryKey: ["currentProject"] });
+      setSaveStatus("saved");
+      setTimeout(() => setSaveStatus("idle"), 2000);
+    } catch {
+      setSaveStatus("idle");
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Loader2 size={32} className="animate-spin" style={{ color: "var(--turquoise)" }} />
+      </div>
+    );
+  }
 
   return (
     <motion.div className="space-y-8" variants={container} initial="hidden" animate="show">
@@ -160,7 +312,7 @@ export default function ProfilePage() {
           Visual Profile
         </h1>
         <p className="text-sm mt-2" style={{ color: "var(--text-secondary)" }}>
-          Configure your channel's visual identity, style system, and character consistency.
+          Configure your channel&apos;s visual identity, style system, and character consistency.
         </p>
       </motion.div>
 
@@ -190,7 +342,7 @@ export default function ProfilePage() {
               />
               <button
                 onClick={() => fileInputRef.current?.click()}
-                className="w-full aspect-video rounded-xl flex flex-col items-center justify-center gap-3 transition-all hover:brightness-110"
+                className="w-full aspect-video rounded-xl flex flex-col items-center justify-center gap-3 transition-all hover:brightness-110 relative overflow-hidden"
                 style={{
                   background: uploadedImage ? "var(--bg-elevated)" : "var(--bg-surface)",
                   border: `2px dashed ${uploadedImage ? "var(--purple)" : "var(--border)"}`,
@@ -213,7 +365,7 @@ export default function ProfilePage() {
                 {uploadedImage && isAnalyzing && (
                   <div className="absolute inset-0 bg-black/60 rounded-xl flex items-center justify-center">
                     <div className="flex items-center gap-3">
-                      <Sparkles size={20} className="animate-spin-slow" style={{ color: "var(--purple)" }} />
+                      <Sparkles size={20} className="animate-pulse" style={{ color: "var(--purple)" }} />
                       <span className="text-sm font-medium" style={{ color: "var(--purple)" }}>
                         Analyzing visual style...
                       </span>
@@ -225,7 +377,7 @@ export default function ProfilePage() {
                 <button
                   onClick={() => {
                     setUploadedImage(null);
-                    setAnalysisResult(null);
+                    // Don't clear analysisResult — saved profile stays
                   }}
                   className="mt-2 text-xs flex items-center gap-1"
                   style={{ color: "var(--text-tertiary)" }}
@@ -245,7 +397,9 @@ export default function ProfilePage() {
                   <div className="text-center">
                     <Eye size={24} style={{ color: "var(--text-tertiary)" }} className="mx-auto mb-2" />
                     <p className="text-xs" style={{ color: "var(--text-tertiary)" }}>
-                      JSON profile will appear here
+                      {project?.visual_profile_json
+                        ? "Saved profile loaded"
+                        : "JSON profile will appear here"}
                     </p>
                   </div>
                 </div>
@@ -266,23 +420,68 @@ export default function ProfilePage() {
                   </div>
                 </div>
               )}
-              {analysisResult && (
+              {analysisResult && !isAnalyzing && (
                 <div className="relative">
-                  <pre
-                    className="text-[11px] font-mono p-4 rounded-xl overflow-auto max-h-64"
-                    style={{
-                      background: "var(--bg-surface)",
-                      color: "var(--turquoise)",
-                      border: "1px solid var(--turquoise-dim)",
-                    }}
-                  >
-                    {analysisResult}
-                  </pre>
+                  {isEditingJson ? (
+                    <textarea
+                      value={editableJson}
+                      onChange={(e) => setEditableJson(e.target.value)}
+                      className="text-[11px] font-mono p-4 rounded-xl w-full h-64 resize-none outline-none"
+                      style={{
+                        background: "var(--bg-surface)",
+                        color: "var(--turquoise)",
+                        border: "1px solid var(--turquoise)",
+                      }}
+                    />
+                  ) : (
+                    <pre
+                      className="text-[11px] font-mono p-4 rounded-xl overflow-auto max-h-64"
+                      style={{
+                        background: "var(--bg-surface)",
+                        color: "var(--turquoise)",
+                        border: "1px solid var(--turquoise-dim)",
+                      }}
+                    >
+                      {analysisResult}
+                    </pre>
+                  )}
                   <div className="flex gap-2 mt-3">
-                    <ActionButton variant="filled">
-                      <Check size={14} /> Apply Profile
-                    </ActionButton>
-                    <ActionButton variant="outline">Edit JSON</ActionButton>
+                    <button
+                      onClick={handleApplyProfile}
+                      disabled={applyStatus === "saving"}
+                      className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all hover:brightness-110"
+                      style={{
+                        background: applyStatus === "saved" ? "var(--green)" : "var(--turquoise)",
+                        color: "var(--bg-void)",
+                      }}
+                    >
+                      {applyStatus === "saving" ? (
+                        <><Loader2 size={14} className="animate-spin" /> Saving...</>
+                      ) : applyStatus === "saved" ? (
+                        <><CheckCircle2 size={14} /> Saved</>
+                      ) : (
+                        <><Check size={14} /> Apply Profile</>
+                      )}
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (isEditingJson) {
+                          setIsEditingJson(false);
+                        } else {
+                          setEditableJson(analysisResult);
+                          setIsEditingJson(true);
+                        }
+                      }}
+                      className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all hover:brightness-110"
+                      style={{
+                        background: "transparent",
+                        color: "var(--orange)",
+                        border: "1px solid var(--orange)",
+                      }}
+                    >
+                      <Pencil size={14} />
+                      {isEditingJson ? "Cancel Edit" : "Edit JSON"}
+                    </button>
                   </div>
                 </div>
               )}
@@ -301,41 +500,65 @@ export default function ProfilePage() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {VISUAL_STYLES.map((style) => (
-            <GlassCard
-              key={style.id}
-              hover
-              onClick={() => setActiveStyle(style.id)}
-              className="p-5 cursor-pointer"
-              style={{
-                borderColor: activeStyle === style.id ? "var(--turquoise)" : undefined,
-                borderWidth: activeStyle === style.id ? 2 : undefined,
-              }}
-            >
-              <div className="flex items-start justify-between mb-2">
-                <h3 className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
-                  {style.name}
-                </h3>
-                {activeStyle === style.id && (
-                  <StatusPill label="Active" color="turquoise" size="sm" />
-                )}
-              </div>
-              <p className="text-xs mb-3" style={{ color: "var(--text-secondary)" }}>
-                {style.description}
-              </p>
-              <div className="flex gap-1.5 flex-wrap">
-                {style.tags.map((tag) => (
+          {VISUAL_STYLES.map((style) => {
+            const isActive = activeStyle === style.id;
+            return (
+              <GlassCard
+                key={style.id}
+                hover
+                onClick={() => handleStyleSelect(style.id)}
+                className="p-0 cursor-pointer overflow-hidden"
+                style={{
+                  borderColor: isActive ? "var(--turquoise)" : undefined,
+                  borderWidth: isActive ? 2 : undefined,
+                }}
+              >
+                {/* Style preview — colored placeholder with visual description */}
+                {/* TODO: Replace with real preview images for each style */}
+                <div
+                  className="h-28 flex items-center justify-center relative"
+                  style={{
+                    background: `linear-gradient(135deg, ${style.previewColor} 0%, ${style.previewColor}DD 60%, ${style.previewAccent}40 100%)`,
+                  }}
+                >
                   <span
-                    key={tag}
-                    className="text-[10px] font-mono px-2 py-0.5 rounded"
-                    style={{ background: "var(--bg-elevated)", color: "var(--text-tertiary)" }}
+                    className="text-xs font-mono px-3 py-1 rounded-full"
+                    style={{
+                      background: `${style.previewAccent}30`,
+                      color: style.previewAccent,
+                      border: `1px solid ${style.previewAccent}50`,
+                    }}
                   >
-                    {tag}
+                    {style.name}
                   </span>
-                ))}
-              </div>
-            </GlassCard>
-          ))}
+                  {isActive && (
+                    <div className="absolute top-3 right-3">
+                      <StatusPill label="Active" color="turquoise" size="sm" />
+                    </div>
+                  )}
+                </div>
+                <div className="p-4">
+                  <h3 className="text-sm font-semibold mb-1" style={{ color: "var(--text-primary)" }}>
+                    {style.name}
+                  </h3>
+                  <p className="text-xs mb-3" style={{ color: "var(--text-secondary)" }}>
+                    {style.description}
+                  </p>
+                  <div className="flex gap-1.5 flex-wrap">
+                    {style.tags.map((tag) => (
+                      <span
+                        key={tag}
+                        className="text-[10px] font-mono px-2 py-0.5 rounded"
+                        style={{ background: "var(--bg-elevated)", color: "var(--text-tertiary)" }}
+                      >
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              </GlassCard>
+            );
+          })}
         </div>
 
         {/* Accent color */}
@@ -343,23 +566,59 @@ export default function ProfilePage() {
           <h3 className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: "var(--text-secondary)" }}>
             Channel Accent Color
           </h3>
-          <div className="flex gap-4 flex-wrap">
-            {ACCENT_COLORS.map((c) => (
-              <button
-                key={c.value}
-                onClick={() => setAccentColor(c.value)}
-                className="flex items-center gap-2 px-3 py-2 rounded-lg transition-all"
-                style={{
-                  background: accentColor === c.value ? `${c.value}15` : "var(--bg-elevated)",
-                  border: `2px solid ${accentColor === c.value ? c.value : "var(--border-subtle)"}`,
-                }}
-              >
-                <div className="w-4 h-4 rounded-full" style={{ background: c.value }} />
-                <span className="text-xs font-medium" style={{ color: accentColor === c.value ? c.value : "var(--text-secondary)" }}>
-                  {c.name}
-                </span>
-              </button>
-            ))}
+          <div className="flex gap-4 flex-wrap items-end">
+            {ACCENT_COLORS.map((c) => {
+              const isSelected = !useCustomColor && accentColor === c.value;
+              return (
+                <button
+                  key={c.value}
+                  onClick={() => handlePresetColor(c.value)}
+                  className="flex items-center gap-2 px-3 py-2 rounded-lg transition-all"
+                  style={{
+                    background: isSelected ? `${c.value}15` : "var(--bg-elevated)",
+                    border: `2px solid ${isSelected ? c.value : "var(--border-subtle)"}`,
+                  }}
+                >
+                  <div className="w-4 h-4 rounded-full" style={{ background: c.value }} />
+                  <span className="text-xs font-medium" style={{ color: isSelected ? c.value : "var(--text-secondary)" }}>
+                    {c.name}
+                  </span>
+                </button>
+              );
+            })}
+
+            {/* Custom color picker */}
+            <div className="flex items-center gap-2">
+              <div className="relative">
+                <input
+                  type="color"
+                  value={customAccentColor || "#00D4AA"}
+                  onChange={(e) => handleCustomColor(e.target.value)}
+                  className="w-8 h-8 rounded-lg cursor-pointer border-0 p-0"
+                  style={{ background: "transparent" }}
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <input
+                  type="text"
+                  value={useCustomColor ? customAccentColor : ""}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setCustomAccentColor(val);
+                    if (/^#[0-9A-Fa-f]{6}$/.test(val)) {
+                      handleCustomColor(val);
+                    }
+                  }}
+                  placeholder="#Custom"
+                  className="w-24 px-2 py-1 rounded text-xs font-mono outline-none"
+                  style={{
+                    background: "var(--bg-elevated)",
+                    color: "var(--text-primary)",
+                    border: `1px solid ${useCustomColor ? customAccentColor : "var(--border-subtle)"}`,
+                  }}
+                />
+              </div>
+            </div>
           </div>
         </GlassCard>
       </motion.div>
@@ -374,58 +633,88 @@ export default function ProfilePage() {
         </div>
 
         <p className="text-sm mb-4" style={{ color: "var(--text-secondary)" }}>
-          Upload character reference images to lock visual identity across all scenes. The pipeline will use these as BYOC (Bring Your Own Character) references for consistent faces, clothing, and poses.
+          Define recurring characters to maintain visual identity across all scenes. The pipeline uses these as BYOC (Bring Your Own Character) references.
         </p>
 
         {/* Character cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {characters.map((char) => (
-            <GlassCard key={char.id} className="p-0 overflow-hidden">
+          {characters.map((char, idx) => (
+            <GlassCard key={idx} className="p-0 overflow-hidden">
               {/* Image area */}
               <div
-                className="aspect-square relative flex items-center justify-center"
+                className="aspect-[4/3] relative flex items-center justify-center"
                 style={{
-                  background: char.imagePreview ? undefined : "var(--bg-elevated)",
-                  backgroundImage: char.imagePreview ? `url(${char.imagePreview})` : undefined,
+                  background: char.image_url ? undefined : "var(--bg-elevated)",
+                  backgroundImage: char.image_url ? `url(${char.image_url})` : undefined,
                   backgroundSize: "cover",
                   backgroundPosition: "center",
                 }}
               >
-                {!char.imagePreview && (
+                {!char.image_url && (
                   <User size={40} style={{ color: "var(--text-tertiary)", opacity: 0.3 }} />
                 )}
                 <button
-                  onClick={() => removeCharacter(char.id)}
-                  className="absolute top-2 right-2 w-6 h-6 rounded-full flex items-center justify-center"
-                  style={{ background: "rgba(0,0,0,0.6)", color: "var(--text-secondary)" }}
+                  onClick={() => handleRemoveCharacter(idx)}
+                  className="absolute top-2 right-2 w-7 h-7 rounded-full flex items-center justify-center transition-all"
+                  style={{
+                    background: deleteConfirm === idx ? "rgba(220,50,50,0.9)" : "rgba(0,0,0,0.6)",
+                    color: deleteConfirm === idx ? "#fff" : "var(--text-secondary)",
+                  }}
+                  title={deleteConfirm === idx ? "Click again to confirm" : "Remove character"}
                 >
-                  <X size={12} />
+                  <Trash2 size={12} />
                 </button>
               </div>
-              <div className="p-4">
-                <h4 className="text-sm font-semibold mb-1" style={{ color: "var(--text-primary)" }}>
-                  {char.name}
-                </h4>
-                <p className="text-[11px]" style={{ color: "var(--text-secondary)" }}>
-                  {char.description}
-                </p>
+              <div className="p-4 space-y-2">
+                <input
+                  type="text"
+                  value={char.name}
+                  onChange={(e) => handleUpdateCharacter(idx, "name", e.target.value)}
+                  className="w-full text-sm font-semibold outline-none bg-transparent"
+                  style={{ color: "var(--text-primary)" }}
+                  placeholder="Character name..."
+                />
+                <textarea
+                  value={char.description}
+                  onChange={(e) => handleUpdateCharacter(idx, "description", e.target.value)}
+                  rows={2}
+                  className="w-full text-[11px] outline-none bg-transparent resize-none"
+                  style={{ color: "var(--text-secondary)" }}
+                  placeholder="Describe appearance, clothing, distinguishing features..."
+                />
               </div>
             </GlassCard>
           ))}
 
           {/* Add character card */}
           <GlassCard className="p-0 overflow-hidden">
-            <div
-              className="aspect-square flex flex-col items-center justify-center gap-3 cursor-pointer"
-              style={{ background: "var(--bg-surface)" }}
+            <input
+              type="file"
+              ref={charFileRef}
+              onChange={handleCharImageUpload}
+              accept="image/*"
+              className="hidden"
+            />
+            <button
               onClick={() => charFileRef.current?.click()}
+              className="w-full aspect-[4/3] flex flex-col items-center justify-center gap-3 cursor-pointer transition-all hover:brightness-110"
+              style={{
+                background: newCharImage ? undefined : "var(--bg-surface)",
+                backgroundImage: newCharImage ? `url(${newCharImage})` : undefined,
+                backgroundSize: "cover",
+                backgroundPosition: "center",
+              }}
             >
-              <Plus size={32} style={{ color: "var(--text-tertiary)" }} />
-              <span className="text-xs" style={{ color: "var(--text-tertiary)" }}>
-                Add Character
-              </span>
-            </div>
-            <div className="p-4">
+              {!newCharImage && (
+                <>
+                  <Plus size={32} style={{ color: "var(--text-tertiary)" }} />
+                  <span className="text-xs" style={{ color: "var(--text-tertiary)" }}>
+                    Upload Image (optional)
+                  </span>
+                </>
+              )}
+            </button>
+            <div className="p-4 space-y-2">
               <input
                 type="text"
                 placeholder="Character name..."
@@ -438,21 +727,53 @@ export default function ProfilePage() {
                   border: "1px solid var(--border)",
                 }}
               />
-              <input
-                type="file"
-                ref={charFileRef}
-                onChange={handleCharacterUpload}
-                accept="image/*"
-                className="hidden"
+              <textarea
+                placeholder="Description — appearance, clothing, features..."
+                value={newCharDescription}
+                onChange={(e) => setNewCharDescription(e.target.value)}
+                rows={2}
+                className="w-full px-3 py-2 rounded-lg text-xs font-body outline-none resize-none"
+                style={{
+                  background: "var(--bg-elevated)",
+                  color: "var(--text-primary)",
+                  border: "1px solid var(--border)",
+                }}
               />
+              <button
+                onClick={handleAddCharacter}
+                disabled={!newCharName.trim()}
+                className="w-full py-2 rounded-lg text-xs font-semibold transition-all hover:brightness-110 disabled:opacity-40"
+                style={{
+                  background: "var(--green)",
+                  color: "var(--bg-void)",
+                }}
+              >
+                Add Character
+              </button>
             </div>
           </GlassCard>
         </div>
       </motion.div>
 
-      {/* Save */}
+      {/* === Save All === */}
       <motion.div variants={item} className="flex justify-center pt-4 pb-8">
-        <ActionButton variant="filled">Save Visual Profile</ActionButton>
+        <button
+          onClick={handleSaveAll}
+          disabled={saveStatus === "saving"}
+          className="flex items-center gap-2 px-8 py-3 rounded-xl text-sm font-semibold transition-all hover:brightness-110"
+          style={{
+            background: saveStatus === "saved" ? "var(--green)" : "var(--turquoise)",
+            color: "var(--bg-void)",
+          }}
+        >
+          {saveStatus === "saving" ? (
+            <><Loader2 size={16} className="animate-spin" /> Saving...</>
+          ) : saveStatus === "saved" ? (
+            <><CheckCircle2 size={16} /> All Changes Saved</>
+          ) : (
+            <><Save size={16} /> Save All Changes</>
+          )}
+        </button>
       </motion.div>
     </motion.div>
   );

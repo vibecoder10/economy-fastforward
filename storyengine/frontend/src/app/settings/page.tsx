@@ -3,17 +3,16 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import { Youtube, HardDrive, CheckCircle2, ArrowRight, Loader2 } from "lucide-react";
+import { Youtube, HardDrive, CheckCircle2, ArrowRight, Loader2, Save } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { FilterSelect } from "@/components/ui/FilterSelect";
 import {
-  getChannelProfile,
-  updateChannelProfile,
-  getIntegrationStatuses,
+  getCurrentProject,
+  updateProject,
   getApiKeys,
-  type ChannelProfile,
-  type ChannelProfileUpdate,
+  type Project,
+  type ProjectUpdate,
 } from "@/lib/api";
 
 const container = {
@@ -56,12 +55,13 @@ export default function SettingsPage() {
 
   // Saved indicator state
   const [savedField, setSavedField] = useState<string | null>(null);
+  const [saveAllStatus, setSaveAllStatus] = useState<"idle" | "saving" | "saved">("idle");
   const savedTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Fetch channel profile
-  const { data: profile, isLoading: profileLoading } = useQuery({
-    queryKey: ["channelProfile"],
-    queryFn: getChannelProfile,
+  // Fetch project (replaces channel profile)
+  const { data: project, isLoading: projectLoading } = useQuery({
+    queryKey: ["currentProject"],
+    queryFn: getCurrentProject,
   });
 
   // Fetch API keys for integration status
@@ -75,22 +75,23 @@ export default function SettingsPage() {
   const [niche, setNiche] = useState("Geopolitics");
   const [targetAudience, setTargetAudience] = useState("");
   const [enabledFrameworks, setEnabledFrameworks] = useState<string[]>([]);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
   // Sync from server data
   useEffect(() => {
-    if (profile) {
-      setChannelName(profile.channel_name);
-      setNiche(profile.niche || "Geopolitics");
-      setTargetAudience(profile.target_audience);
-      setEnabledFrameworks(profile.frameworks || []);
+    if (project) {
+      setChannelName(project.name);
+      setNiche(project.niche || "Geopolitics");
+      setTargetAudience(project.target_audience);
+      setEnabledFrameworks(project.frameworks || []);
     }
-  }, [profile]);
+  }, [project]);
 
   // Save mutation
   const saveMutation = useMutation({
-    mutationFn: (data: ChannelProfileUpdate) => updateChannelProfile(data),
+    mutationFn: (data: ProjectUpdate) => updateProject(data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["channelProfile"] });
+      queryClient.invalidateQueries({ queryKey: ["currentProject"] });
     },
   });
 
@@ -101,18 +102,19 @@ export default function SettingsPage() {
     savedTimeoutRef.current = setTimeout(() => setSavedField(null), 2000);
   }, []);
 
-  // Auto-save handlers
+  // Auto-save handlers (on blur)
   const saveField = useCallback(
-    (field: keyof ChannelProfileUpdate, value: string | string[]) => {
+    (field: keyof ProjectUpdate, value: string | string[]) => {
       saveMutation.mutate({ [field]: value });
       showSaved(field);
+      setHasUnsavedChanges(false);
     },
     [saveMutation, showSaved]
   );
 
   const handleChannelNameBlur = () => {
-    if (channelName !== (profile?.channel_name ?? "")) {
-      saveField("channel_name", channelName);
+    if (channelName !== (project?.name ?? "")) {
+      saveField("name", channelName);
     }
   };
 
@@ -122,7 +124,7 @@ export default function SettingsPage() {
   };
 
   const handleTargetAudienceBlur = () => {
-    if (targetAudience !== (profile?.target_audience ?? "")) {
+    if (targetAudience !== (project?.target_audience ?? "")) {
       saveField("target_audience", targetAudience);
     }
   };
@@ -132,7 +134,26 @@ export default function SettingsPage() {
       ? enabledFrameworks.filter((f) => f !== name)
       : [...enabledFrameworks, name];
     setEnabledFrameworks(next);
-    saveField("frameworks", next);
+    setHasUnsavedChanges(true);
+  };
+
+  // Save All handler
+  const handleSaveAll = async () => {
+    setSaveAllStatus("saving");
+    try {
+      await updateProject({
+        name: channelName,
+        niche,
+        target_audience: targetAudience,
+        frameworks: enabledFrameworks,
+      });
+      queryClient.invalidateQueries({ queryKey: ["currentProject"] });
+      setSaveAllStatus("saved");
+      setHasUnsavedChanges(false);
+      setTimeout(() => setSaveAllStatus("idle"), 2000);
+    } catch {
+      setSaveAllStatus("idle");
+    }
   };
 
   // Compute integration statuses from API keys data
@@ -144,7 +165,7 @@ export default function SettingsPage() {
     return { name, connected };
   });
 
-  if (profileLoading) {
+  if (projectLoading) {
     return (
       <div className="flex items-center justify-center py-20">
         <Loader2 size={32} className="animate-spin" style={{ color: "var(--turquoise)" }} />
@@ -167,7 +188,7 @@ export default function SettingsPage() {
           <h2 className="text-lg font-semibold font-body" style={{ color: "var(--text-primary)" }}>
             Channel Profile
           </h2>
-          <SavedIndicator visible={savedField === "channel_name" || savedField === "niche" || savedField === "target_audience"} />
+          <SavedIndicator visible={savedField === "name" || savedField === "niche" || savedField === "target_audience"} />
         </div>
         <GlassCard className="p-6">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -178,7 +199,7 @@ export default function SettingsPage() {
               <input
                 type="text"
                 value={channelName}
-                onChange={(e) => setChannelName(e.target.value)}
+                onChange={(e) => { setChannelName(e.target.value); setHasUnsavedChanges(true); }}
                 onBlur={handleChannelNameBlur}
                 className="w-full px-3 py-2 rounded-lg text-sm font-body outline-none"
                 style={{ background: "var(--bg-elevated)", color: "var(--text-primary)", border: "1px solid var(--border)" }}
@@ -206,7 +227,7 @@ export default function SettingsPage() {
               </label>
               <textarea
                 value={targetAudience}
-                onChange={(e) => setTargetAudience(e.target.value)}
+                onChange={(e) => { setTargetAudience(e.target.value); setHasUnsavedChanges(true); }}
                 onBlur={handleTargetAudienceBlur}
                 rows={3}
                 className="w-full px-3 py-2 rounded-lg text-sm font-body outline-none resize-none"
@@ -335,6 +356,36 @@ export default function SettingsPage() {
             );
           })}
         </div>
+      </motion.div>
+
+      {/* Save Button */}
+      <motion.div variants={item} className="flex justify-end pb-8">
+        <button
+          onClick={handleSaveAll}
+          disabled={saveAllStatus === "saving"}
+          className="flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-semibold transition-all hover:brightness-110"
+          style={{
+            background: saveAllStatus === "saved" ? "var(--green)" : "var(--turquoise)",
+            color: "var(--bg-void)",
+          }}
+        >
+          {saveAllStatus === "saving" ? (
+            <>
+              <Loader2 size={16} className="animate-spin" />
+              Saving...
+            </>
+          ) : saveAllStatus === "saved" ? (
+            <>
+              <CheckCircle2 size={16} />
+              Saved
+            </>
+          ) : (
+            <>
+              <Save size={16} />
+              Save Changes
+            </>
+          )}
+        </button>
       </motion.div>
     </motion.div>
   );
