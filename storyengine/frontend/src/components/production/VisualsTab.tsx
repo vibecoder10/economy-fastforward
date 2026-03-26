@@ -169,6 +169,18 @@ export function VisualsTab({ video }: VisualsTabProps) {
     );
   }
 
+  if (scenes.length === 0) {
+    return (
+      <GlassCard className="p-12 text-center">
+        <ImageIcon size={32} className="mx-auto mb-3" style={{ color: "var(--text-tertiary)", opacity: 0.4 }} />
+        <p className="text-lg font-display mb-2" style={{ color: "var(--text-secondary)" }}>No Visual Segments Yet</p>
+        <p className="text-sm" style={{ color: "var(--text-tertiary)" }}>
+          Generate scripts and image prompts first. This video is at the &ldquo;{video.status?.replace(/_/g, " ") || "unknown"}&rdquo; stage.
+        </p>
+      </GlassCard>
+    );
+  }
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[1fr_260px] gap-6">
       {/* Main content */}
