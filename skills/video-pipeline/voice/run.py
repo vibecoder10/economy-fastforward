@@ -56,15 +56,21 @@ async def run(pipeline) -> dict:
         audio_url = await pipeline.elevenlabs.generate_and_wait(scene_text)
 
         if audio_url:
-            # Download audio
+            # Download audio (reads temp file or URL)
             audio_content = await pipeline.elevenlabs.download_audio(audio_url)
 
             # Upload to Google Drive
             filename = f"Scene {scene_number}.mp3"
-            pipeline.google.upload_audio(audio_content, filename, pipeline.project_folder_id)
+            drive_result = pipeline.google.upload_audio(audio_content, filename, pipeline.project_folder_id)
 
-            # Update Airtable
-            pipeline.airtable.mark_script_finished(script["id"], audio_url)
+            # Use Drive URL for persistent storage (temp file paths expire)
+            if drive_result and drive_result.get("id"):
+                persistent_url = f"https://drive.google.com/uc?id={drive_result['id']}&export=download"
+            else:
+                persistent_url = audio_url  # fallback to original URL
+
+            # Update Supabase with persistent Drive URL
+            pipeline.airtable.mark_script_finished(script["id"], persistent_url)
             voice_count += 1
 
     # UPDATE STATUS (skip if targeted run)
