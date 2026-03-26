@@ -206,9 +206,18 @@ export function VisualsTab({ video }: VisualsTabProps) {
       <GlassCard className="p-12 text-center">
         <ImageIcon size={32} className="mx-auto mb-3" style={{ color: "var(--text-tertiary)", opacity: 0.4 }} />
         <p className="text-lg font-display mb-2" style={{ color: "var(--text-secondary)" }}>No Visual Segments Yet</p>
-        <p className="text-sm" style={{ color: "var(--text-tertiary)" }}>
-          Generate scripts and image prompts first. This video is at the &ldquo;{video.status?.replace(/_/g, " ") || "unknown"}&rdquo; stage.
+        <p className="text-sm mb-6" style={{ color: "var(--text-tertiary)" }}>
+          Generate scripts and image prompts first. Current stage: <span style={{ color: "var(--purple)" }}>{(video.status || "").replace(/_/g, " ")}</span>
         </p>
+        <button
+          onClick={handleGenerateAll}
+          disabled={generatingAll || taskRunning}
+          className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl text-base font-semibold font-body transition-all hover:brightness-110 active:scale-[0.98] disabled:opacity-50"
+          style={{ background: "var(--purple)", color: "var(--bg-void)" }}
+        >
+          {(generatingAll || taskRunning) ? <Loader2 size={18} className="animate-spin" /> : <ImageIcon size={18} />}
+          {taskRunning ? (taskMessage || "Generating Visuals...") : generatingAll ? "Starting..." : "Generate Visuals"}
+        </button>
       </GlassCard>
     );
   }

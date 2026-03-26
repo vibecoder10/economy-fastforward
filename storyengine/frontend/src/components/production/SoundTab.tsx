@@ -1,71 +1,28 @@
 "use client";
 
-import { useState } from "react";
-import { Play, Volume2, Zap, SkipForward } from "lucide-react";
+import { useState, useMemo, useCallback } from "react";
+import { Play, Pause, Volume2, Zap, SkipForward, Loader2 } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { SegmentBadge } from "@/components/ui/SegmentBadge";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { ActionButton } from "@/components/ui/ActionButton";
-import type { Video } from "@/lib/types";
+import { getVideoScript, getVideoAssets, runPipelineStage, advanceVideo, clearStaleTask } from "@/lib/api";
+import { useTaskPoller } from "@/hooks/use-task-poller";
+import type { ScriptScene, Asset } from "@/lib/api";
+
+interface SoundTabProps {
+  video: any;
+}
 
 interface SoundScene {
   sceneNumber: number;
   narrationText: string;
   soundPrompt: string;
   sfxStatus: "generated" | "pending" | "skipped";
+  soundUrl: string | null;
   volume: number;
 }
-
-const MOCK_SOUND_SCENES: SoundScene[] = [
-  {
-    sceneNumber: 1,
-    narrationText:
-      "In the shadowed corridors of Tehran, a decision was being made that would reshape the balance of power in the Middle East...",
-    soundPrompt: "Subtle tension strings, low frequency hum, distant echo",
-    sfxStatus: "generated",
-    volume: 15,
-  },
-  {
-    sceneNumber: 2,
-    narrationText:
-      "The sanctions had been devastating. Iran's economy contracted by 12% in a single year, the rial collapsing to historic lows...",
-    soundPrompt: "Paper rustling, pen writing on parchment, soft wind",
-    sfxStatus: "generated",
-    volume: 12,
-  },
-  {
-    sceneNumber: 3,
-    narrationText:
-      "But what Western analysts failed to understand was the parallel economy that had been quietly built over decades...",
-    soundPrompt: "SKIP",
-    sfxStatus: "skipped",
-    volume: 0,
-  },
-  {
-    sceneNumber: 4,
-    narrationText:
-      "China's Belt and Road Initiative offered Tehran exactly what it needed: an alternative financial infrastructure...",
-    soundPrompt: "Industrial machinery hum, container ship horn in distance",
-    sfxStatus: "pending",
-    volume: 15,
-  },
-  {
-    sceneNumber: 5,
-    narrationText:
-      "The IRGC-controlled conglomerates now managed over 40% of Iran's non-oil GDP, a shadow state within a state...",
-    soundPrompt: "Mechanical keyboard typing, surveillance camera click, server room ambient",
-    sfxStatus: "pending",
-    volume: 18,
-  },
-  {
-    sceneNumber: 6,
-    narrationText:
-      "And so the question remains: has the West created the very monster it sought to contain?",
-    soundPrompt: "SILENCE",
-    sfxStatus: "skipped",
-    volume: 0,
-  },
-];
 
 const SFX_STATUS_MAP: Record<string, { label: string; color: string }> = {
   generated: { label: "Generated", color: "green" },
@@ -73,30 +30,146 @@ const SFX_STATUS_MAP: Record<string, { label: string; color: string }> = {
   skipped: { label: "Skipped", color: "purple" },
 };
 
-interface SoundTabProps {
-  video: Video;
+function buildSoundScenes(scripts: ScriptScene[], assets: Asset[]): SoundScene[] {
+  return scripts.map((s) => {
+    // Find first asset for this scene that has sound data
+    const sceneAssets = assets.filter((a) => a.scene === s.scene);
+    const withSound = sceneAssets.find((a) => a.sound_prompt);
+
+    const prompt = withSound?.sound_prompt || "";
+    const isSkip = !prompt || prompt === "SKIP" || prompt === "SILENCE";
+    const hasUrl = !!withSound?.sound_effect_url;
+
+    return {
+      sceneNumber: s.scene || 0,
+      narrationText: s.scene_text || "",
+      soundPrompt: prompt || "No prompt",
+      sfxStatus: isSkip ? "skipped" : hasUrl ? "generated" : "pending",
+      soundUrl: withSound?.sound_effect_url || null,
+      volume: withSound?.sound_volume ?? 15,
+    };
+  });
 }
 
 export function SoundTab({ video }: SoundTabProps) {
-  const [scenes, setScenes] = useState(MOCK_SOUND_SCENES);
+  const queryClient = useQueryClient();
+  const [taskRunning, setTaskRunning] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [playingScene, setPlayingScene] = useState<number | null>(null);
+
+  const { data: scriptScenes, isLoading: loadingScripts } = useQuery({
+    queryKey: ["video-script", video.id],
+    queryFn: () => getVideoScript(video.id),
+  });
+
+  const { data: assets, isLoading: loadingAssets } = useQuery({
+    queryKey: ["video-assets", video.id],
+    queryFn: () => getVideoAssets(video.id),
+  });
+
+  const { message: taskMessage } = useTaskPoller({
+    videoId: video.id,
+    enabled: taskRunning,
+    interval: 3000,
+    onComplete: () => {
+      setTaskRunning(false);
+      setGenerating(false);
+      queryClient.invalidateQueries({ queryKey: ["video-assets", video.id] });
+      queryClient.invalidateQueries({ queryKey: ["video", video.id] });
+    },
+    onFailed: (error) => {
+      setTaskRunning(false);
+      setGenerating(false);
+      alert(`Sound generation failed: ${error}`);
+    },
+  });
+
+  const scenes = useMemo(
+    () => (scriptScenes && assets ? buildSoundScenes(scriptScenes, assets) : []),
+    [scriptScenes, assets]
+  );
+
+  const [volumes, setVolumes] = useState<Record<number, number>>({});
+  const getVolume = (sceneNum: number, defaultVol: number) =>
+    volumes[sceneNum] ?? defaultVol;
+
+  const handleVolumeChange = (sceneNum: number, value: number) => {
+    setVolumes((prev) => ({ ...prev, [sceneNum]: value }));
+  };
+
+  const handleGenerate = useCallback(async (stage: string) => {
+    setGenerating(true);
+    try {
+      await runPipelineStage(video.id, stage);
+      setTaskRunning(true);
+    } catch (err: unknown) {
+      const message = (err as Error).message || "";
+      if (message.includes("409")) {
+        try {
+          await clearStaleTask(video.id);
+          await runPipelineStage(video.id, stage);
+          setTaskRunning(true);
+          return;
+        } catch (retryErr) {
+          alert(`Failed: ${(retryErr as Error).message}`);
+        }
+      } else {
+        alert(`Failed: ${message}`);
+      }
+      setGenerating(false);
+    }
+  }, [video.id]);
+
+  const handleApproveAndContinue = useCallback(async () => {
+    try {
+      await advanceVideo(video.id);
+      queryClient.invalidateQueries({ queryKey: ["video", video.id] });
+    } catch (err) {
+      alert(`Failed to advance: ${(err as Error).message}`);
+    }
+  }, [video.id, queryClient]);
+
+  const isLoading = loadingScripts || loadingAssets;
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Loader2 size={24} className="animate-spin" style={{ color: "var(--gold)" }} />
+        <span className="ml-3 text-sm" style={{ color: "var(--text-secondary)" }}>Loading sound data...</span>
+      </div>
+    );
+  }
+
+  if (!scriptScenes || scriptScenes.length === 0) {
+    return (
+      <GlassCard className="p-8 text-center">
+        <Volume2 size={24} className="mx-auto mb-3" style={{ color: "var(--text-tertiary)" }} />
+        <p className="text-sm font-medium mb-1" style={{ color: "var(--text-secondary)" }}>
+          No scenes available
+        </p>
+        <p className="text-xs" style={{ color: "var(--text-tertiary)" }}>
+          Generate a script first to enable sound design.
+        </p>
+      </GlassCard>
+    );
+  }
 
   const generatedCount = scenes.filter((s) => s.sfxStatus === "generated").length;
   const skippedCount = scenes.filter((s) => s.sfxStatus === "skipped").length;
   const pendingCount = scenes.filter((s) => s.sfxStatus === "pending").length;
-  const estimatedCost = generatedCount * 0.05 + pendingCount * 0.05;
+  const estimatedCost = (generatedCount + pendingCount) * 0.05;
 
-  const handleVolumeChange = (index: number, value: number) => {
-    setScenes((prev) =>
-      prev.map((s, i) => (i === index ? { ...s, volume: value } : s))
-    );
-  };
+  // No prompts generated yet
+  const hasAnyPrompts = scenes.some((s) => s.sfxStatus !== "skipped" && s.soundPrompt !== "No prompt");
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-6">
       {/* Scene list */}
       <div className="space-y-3">
-        {scenes.map((scene, idx) => {
+        {scenes.map((scene) => {
           const sfx = SFX_STATUS_MAP[scene.sfxStatus];
+          const vol = getVolume(scene.sceneNumber, scene.volume);
+          const isPlaying = playingScene === scene.sceneNumber;
           return (
             <GlassCard
               key={scene.sceneNumber}
@@ -132,7 +205,7 @@ export function SoundTab({ video }: SoundTabProps) {
                       size={12}
                       style={{
                         color:
-                          scene.soundPrompt === "SKIP" || scene.soundPrompt === "SILENCE"
+                          scene.sfxStatus === "skipped"
                             ? "var(--text-tertiary)"
                             : "var(--gold)",
                       }}
@@ -141,11 +214,11 @@ export function SoundTab({ video }: SoundTabProps) {
                       className="text-xs font-mono flex-1"
                       style={{
                         color:
-                          scene.soundPrompt === "SKIP" || scene.soundPrompt === "SILENCE"
+                          scene.sfxStatus === "skipped"
                             ? "var(--text-tertiary)"
                             : "var(--text-secondary)",
                         fontStyle:
-                          scene.soundPrompt === "SKIP" || scene.soundPrompt === "SILENCE"
+                          scene.sfxStatus === "skipped"
                             ? "italic"
                             : "normal",
                       }}
@@ -169,9 +242,9 @@ export function SoundTab({ video }: SoundTabProps) {
                           type="range"
                           min={0}
                           max={100}
-                          value={scene.volume}
+                          value={vol}
                           onChange={(e) =>
-                            handleVolumeChange(idx, Number(e.target.value))
+                            handleVolumeChange(scene.sceneNumber, Number(e.target.value))
                           }
                           className="flex-1 h-1 appearance-none rounded-full"
                           style={{ accentColor: "var(--turquoise)" }}
@@ -180,20 +253,21 @@ export function SoundTab({ video }: SoundTabProps) {
                           className="text-[10px] font-mono w-8 text-right"
                           style={{ color: "var(--text-secondary)" }}
                         >
-                          {scene.volume}%
+                          {vol}%
                         </span>
                       </div>
                     )}
 
-                    {scene.sfxStatus === "generated" && (
+                    {scene.sfxStatus === "generated" && scene.soundUrl && (
                       <button
+                        onClick={() => setPlayingScene(isPlaying ? null : scene.sceneNumber)}
                         className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0"
                         style={{
                           background: "var(--turquoise-dim)",
                           color: "var(--turquoise)",
                         }}
                       >
-                        <Play size={10} />
+                        {isPlaying ? <Pause size={10} /> : <Play size={10} />}
                       </button>
                     )}
                   </div>
@@ -251,12 +325,37 @@ export function SoundTab({ video }: SoundTabProps) {
         </GlassCard>
 
         <div className="space-y-2">
-          <ActionButton variant="filled" icon={Zap} className="w-full">
-            Generate All SFX
-          </ActionButton>
-          <ActionButton variant="outline" icon={SkipForward} className="w-full">
-            Skip Remaining
-          </ActionButton>
+          {!hasAnyPrompts ? (
+            <ActionButton
+              variant="filled"
+              icon={generating || taskRunning ? Loader2 : Zap}
+              className="w-full"
+              onClick={() => handleGenerate("sound-prompts")}
+              disabled={generating || taskRunning}
+            >
+              {taskRunning ? (taskMessage || "Generating...") : "Generate Sound Prompts"}
+            </ActionButton>
+          ) : (
+            <>
+              <ActionButton
+                variant="filled"
+                icon={generating || taskRunning ? Loader2 : Zap}
+                className="w-full"
+                onClick={() => handleGenerate("sound-effects")}
+                disabled={generating || taskRunning}
+              >
+                {taskRunning ? (taskMessage || "Generating...") : "Generate All SFX"}
+              </ActionButton>
+              <ActionButton
+                variant="outline"
+                icon={SkipForward}
+                className="w-full"
+                onClick={handleApproveAndContinue}
+              >
+                Approve & Continue
+              </ActionButton>
+            </>
+          )}
         </div>
       </div>
     </div>

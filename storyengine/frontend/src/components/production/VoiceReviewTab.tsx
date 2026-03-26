@@ -417,10 +417,10 @@ export function VoiceReviewTab({ video }: VoiceReviewTabProps) {
               <div className="pt-3 space-y-2" style={{ borderTop: "1px solid var(--border-subtle)" }}>
                 <div>
                   <p className="text-[10px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
-                    Voice ID
+                    Voice Status
                   </p>
-                  <p className="text-sm font-mono font-medium" style={{ color: "var(--text-primary)" }}>
-                    #0A00E218
+                  <p className="text-sm font-mono font-medium" style={{ color: hasVoice ? "var(--green)" : "var(--text-tertiary)" }}>
+                    {hasVoice ? "Voice Ready" : "Pending"}
                   </p>
                 </div>
               </div>

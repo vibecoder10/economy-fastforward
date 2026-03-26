@@ -349,14 +349,24 @@ export function ScriptTab({ video }: ScriptTabProps) {
 
   if (!apiScenes || apiScenes.length === 0) {
     return (
-      <GlassCard className="p-8 text-center">
-        <Pencil size={24} className="mx-auto mb-3" style={{ color: "var(--text-tertiary)" }} />
-        <p className="text-sm font-medium mb-1" style={{ color: "var(--text-secondary)" }}>
-          Script not generated yet
+      <GlassCard className="p-12 text-center">
+        <Pencil size={32} className="mx-auto mb-3" style={{ color: "var(--text-tertiary)", opacity: 0.4 }} />
+        <p className="text-lg font-display mb-2" style={{ color: "var(--text-secondary)" }}>
+          Script Not Generated Yet
         </p>
-        <p className="text-xs" style={{ color: "var(--text-tertiary)" }}>
-          Script will be generated when research is approved. Current stage: {video.status?.replace(/_/g, " ") || "unknown"}
+        <p className="text-sm mb-6" style={{ color: "var(--text-tertiary)" }}>
+          Research must be approved before script generation can begin.
+          Current stage: <span style={{ color: "var(--turquoise)" }}>{(video.status || "").replace(/_/g, " ")}</span>
         </p>
+        <button
+          onClick={handleRegenerate}
+          disabled={regenerating || taskRunning}
+          className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl text-base font-semibold font-body transition-all hover:brightness-110 active:scale-[0.98] disabled:opacity-50"
+          style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}
+        >
+          {(regenerating || taskRunning) ? <Loader2 size={18} className="animate-spin" /> : <Pencil size={18} />}
+          {taskRunning ? (taskMessage || "Generating Script...") : regenerating ? "Starting..." : "Generate Script"}
+        </button>
       </GlassCard>
     );
   }

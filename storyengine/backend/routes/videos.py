@@ -269,6 +269,7 @@ async def get_video_assets(video_id: str, tenant_id: str = Depends(get_tenant_id
     rows = await fetch_all(
         """SELECT id, video_id, scene, image_index, image_url, image_prompt,
                   status, shot_type, hero_shot, sentence_text, video_clip_url,
+                  sound_prompt, sound_effect_url, sound_volume,
                   created_at::text
            FROM assets WHERE video_id = $1 AND tenant_id = $2
            ORDER BY scene, image_index""",

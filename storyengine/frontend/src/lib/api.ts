@@ -443,6 +443,9 @@ export interface Asset {
   hero_shot: boolean;
   sentence_text: string | null;
   video_clip_url: string | null;
+  sound_prompt: string | null;
+  sound_effect_url: string | null;
+  sound_volume: number | null;
   created_at: string | null;
 }
 

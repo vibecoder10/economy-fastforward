@@ -400,7 +400,7 @@ export default function VideoDetailPage() {
 
       {/* Tab content */}
       <motion.div variants={item}>
-        {currentTab === "research" && <ResearchTab video={videoForTabs} />}
+        {currentTab === "research" && <ResearchTab video={videoForTabs} onApproved={() => setActiveTab("script")} />}
         {currentTab === "script" && <ScriptTab video={videoForTabs} />}
         {currentTab === "voice" && <VoiceReviewTab video={videoForTabs} />}
         {currentTab === "visuals" && <VisualsTab video={videoForTabs} />}

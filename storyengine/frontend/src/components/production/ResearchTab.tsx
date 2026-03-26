@@ -10,6 +10,7 @@ import { useTaskPoller } from "@/hooks/use-task-poller";
 
 interface ResearchTabProps {
   video: any;
+  onApproved?: () => void;
 }
 
 function CollapsibleSection({ label, borderColor, children, defaultOpen = false }: {
@@ -120,7 +121,7 @@ function EditableText({ text, mono }: { text: string; mono?: boolean }) {
   );
 }
 
-export function ResearchTab({ video }: ResearchTabProps) {
+export function ResearchTab({ video, onApproved }: ResearchTabProps) {
   const queryClient = useQueryClient();
   const [isResearching, setIsResearching] = useState(false);
   const [isApproving, setIsApproving] = useState(false);
@@ -180,11 +181,14 @@ export function ResearchTab({ video }: ResearchTabProps) {
     try {
       await advanceVideo(video.id);
       setApproved(true);
+      queryClient.invalidateQueries({ queryKey: ["video", video.id] });
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      onApproved?.();
     } catch (err) {
       setApproveError((err as Error).message);
       setIsApproving(false);
     }
-  }, [video.id]);
+  }, [video.id, queryClient, onApproved]);
 
   const research = useMemo(() => {
     if (!video) return null;
