@@ -247,6 +247,47 @@ async def run_voice(
     return PipelineResponse(video_id=video_id, status="running", message=msg)
 
 
+@router.post("/split/{video_id}", response_model=PipelineResponse)
+async def run_split(
+    video_id: str,
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """Split scene text into timed sentence segments using the deterministic splitter.
+
+    Runs synchronously (fast, no API calls). Creates asset records with
+    sentence_text, duration_seconds, and timing for each segment.
+
+    Requires voice to be generated first (uses voice duration for WPS calculation).
+    """
+    video = await fetch_one(
+        "SELECT id, status FROM videos WHERE id = $1 AND tenant_id = $2",
+        video_id, tenant_id,
+    )
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+
+    if not is_at_or_past_stage(video["status"], "ready_for_voice"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Video not ready for splitting (needs voice first, status: {video['status']})",
+        )
+
+    try:
+        executor = PipelineExecutor(tenant_id)
+        result = await executor.run_split(video_id)
+        if result.get("status") == "failed":
+            raise HTTPException(status_code=500, detail=result.get("error", "Split failed"))
+        return PipelineResponse(
+            video_id=video_id,
+            status="completed",
+            message=f"Split {result.get('total_segments', 0)} segments across {result.get('scenes_split', 0)} scenes",
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/prompts/{video_id}", response_model=PipelineResponse)
 async def run_prompts(
     video_id: str,

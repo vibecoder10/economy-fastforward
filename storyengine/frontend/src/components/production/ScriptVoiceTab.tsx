@@ -11,9 +11,9 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   getVideoScript, getVideoAssets, advanceVideo, rejectVideo,
   runPipelineStage, updateSceneText, updateVideo, clearStaleTask,
-  runVoiceForScene,
+  runVoiceForScene, runSplit, getSceneSegments,
 } from "@/lib/api";
-import type { ScriptScene as ApiScriptScene, Asset } from "@/lib/api";
+import type { ScriptScene as ApiScriptScene, Asset, Segment } from "@/lib/api";
 import { useTaskPoller } from "@/hooks/use-task-poller";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { SegmentBadge } from "@/components/ui/SegmentBadge";
@@ -34,6 +34,10 @@ interface SentenceState {
   sfxMode: "none" | "library" | "elevenlabs" | "custom";
   sfxLibraryValue: string;
   sfxCustomPrompt: string;
+  durationSeconds: number | null;
+  cumulativeStart: number | null;
+  imagePrompt: string | null;
+  imageIndex: number | null;
 }
 
 interface SceneState {
@@ -110,20 +114,26 @@ function initFromApi(apiScenes: ApiScriptScene[], assets?: Asset[]): SceneState[
     const sentences: SentenceState[] =
       sceneAssets.length > 0
         ? sceneAssets
-            .map((a) => a.sentence_text)
-            .filter((t): t is string => !!t)
-            .filter((t, i, arr) => i === 0 || t !== arr[i - 1])
-            .map((text) => ({
-              text,
+            .filter((a) => !!a.sentence_text)
+            .map((a) => ({
+              text: a.sentence_text!,
               sfxMode: "none" as const,
               sfxLibraryValue: "",
               sfxCustomPrompt: "",
+              durationSeconds: (a as any).duration_seconds ?? null,
+              cumulativeStart: null,
+              imagePrompt: (a as any).image_prompt ?? null,
+              imageIndex: a.image_index ?? null,
             }))
         : splitSentences(s.scene_text || "").map((text) => ({
             text,
             sfxMode: "none" as const,
             sfxLibraryValue: "",
             sfxCustomPrompt: "",
+            durationSeconds: null,
+            cumulativeStart: null,
+            imagePrompt: null,
+            imageIndex: null,
           }));
 
     const rawText = s.scene_text || "";
@@ -600,13 +610,71 @@ export function ScriptVoiceTab({ video }: ScriptVoiceTabProps) {
     setCollapsedActs((prev) => ({ ...prev, [actNum]: !prev[actNum] }));
   };
 
-  const toggleExpand = (sceneNum: number) => {
+  const [loadingSegments, setLoadingSegments] = useState<Set<number>>(new Set());
+  const [splitting, setSplitting] = useState(false);
+
+  const toggleExpand = async (sceneNum: number) => {
+    if (expandedScenes.has(sceneNum)) {
+      // Collapse
+      setExpandedScenes((prev) => {
+        const next = new Set(prev);
+        next.delete(sceneNum);
+        return next;
+      });
+      return;
+    }
+
+    // Expand — fetch real segments from API
+    setLoadingSegments((prev) => new Set(prev).add(sceneNum));
+    try {
+      const resp = await getSceneSegments(video.id, sceneNum);
+      if (resp.segments && resp.segments.length > 0) {
+        // Replace local sentences with real segments from the splitter
+        setScenes((prev) =>
+          prev.map((s) => {
+            if (s.sceneNumber !== sceneNum) return s;
+            const newSentences: SentenceState[] = resp.segments.map((seg: Segment) => ({
+              text: seg.sentence_text || "",
+              sfxMode: "none" as const,
+              sfxLibraryValue: "",
+              sfxCustomPrompt: "",
+              durationSeconds: seg.duration_seconds ?? null,
+              cumulativeStart: seg.cumulative_start ?? null,
+              imagePrompt: seg.image_prompt ?? null,
+              imageIndex: seg.image_index ?? null,
+            }));
+            return { ...s, sentences: newSentences };
+          }),
+        );
+      }
+    } catch {
+      // Fall back to existing local sentences
+    } finally {
+      setLoadingSegments((prev) => {
+        const next = new Set(prev);
+        next.delete(sceneNum);
+        return next;
+      });
+    }
+
     setExpandedScenes((prev) => {
       const next = new Set(prev);
-      if (next.has(sceneNum)) next.delete(sceneNum);
-      else next.add(sceneNum);
+      next.add(sceneNum);
       return next;
     });
+  };
+
+  const handleSplitScenes = async () => {
+    setSplitting(true);
+    try {
+      await runSplit(video.id);
+      // Refresh assets to pick up new segments
+      queryClient.invalidateQueries({ queryKey: ["video-assets", video.id] });
+    } catch (e) {
+      console.error("Split failed:", e);
+    } finally {
+      setSplitting(false);
+    }
   };
 
   const updateNarration = (sceneNum: number, text: string) => {
@@ -614,7 +682,7 @@ export function ScriptVoiceTab({ video }: ScriptVoiceTabProps) {
       prev.map((s) => {
         if (s.sceneNumber !== sceneNum) return s;
         const newSentences = splitSentences(text).map((t, i) => ({
-          ...(s.sentences[i] || { sfxMode: "none" as const, sfxLibraryValue: "", sfxCustomPrompt: "" }),
+          ...(s.sentences[i] || { sfxMode: "none" as const, sfxLibraryValue: "", sfxCustomPrompt: "", durationSeconds: null, cumulativeStart: null, imagePrompt: null, imageIndex: null }),
           text: t,
         }));
         return { ...s, narrationText: text, displayText: stripStyleDirectives(text), sentences: newSentences };
@@ -671,6 +739,10 @@ export function ScriptVoiceTab({ video }: ScriptVoiceTabProps) {
           sfxMode: "none",
           sfxLibraryValue: "",
           sfxCustomPrompt: "",
+          durationSeconds: null,
+          cumulativeStart: null,
+          imagePrompt: null,
+          imageIndex: null,
         });
         const narrationText = newSentences.map((sent) => sent.text).join(" ");
         return { ...s, sentences: newSentences, narrationText, displayText: stripStyleDirectives(narrationText) };
@@ -749,7 +821,7 @@ export function ScriptVoiceTab({ video }: ScriptVoiceTabProps) {
         voiceStatus: null,
         scriptStatus: null,
         tone: null,
-        sentences: [{ text: "", sfxMode: "none", sfxLibraryValue: "", sfxCustomPrompt: "" }],
+        sentences: [{ text: "", sfxMode: "none", sfxLibraryValue: "", sfxCustomPrompt: "", durationSeconds: null, cumulativeStart: null, imagePrompt: null, imageIndex: null }],
       };
       const result = [...prev];
       result.splice(idx + 1, 0, newScene);
@@ -905,7 +977,8 @@ export function ScriptVoiceTab({ video }: ScriptVoiceTabProps) {
                             {/* Expand/collapse toggle */}
                             <button
                               onClick={() => toggleExpand(scene.sceneNumber)}
-                              title={isExpanded ? "Collapse to unified text" : "Expand into sentence cards"}
+                              disabled={loadingSegments.has(scene.sceneNumber)}
+                              title={isExpanded ? "Collapse to unified text" : "Expand into timed sentence segments"}
                               className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium transition-all"
                               style={{
                                 background: isExpanded ? "var(--turquoise-dim)" : "transparent",
@@ -913,7 +986,11 @@ export function ScriptVoiceTab({ video }: ScriptVoiceTabProps) {
                                 border: `1px solid ${isExpanded ? "var(--turquoise-dim)" : "transparent"}`,
                               }}
                             >
-                              <Layers size={11} />
+                              {loadingSegments.has(scene.sceneNumber) ? (
+                                <Loader2 size={11} className="animate-spin" />
+                              ) : (
+                                <Layers size={11} />
+                              )}
                               {isExpanded ? "Collapse" : "Expand"}
                               <span className="font-mono">{scene.sentences.length}</span>
                             </button>
@@ -1022,6 +1099,23 @@ export function ScriptVoiceTab({ video }: ScriptVoiceTabProps) {
                                       >
                                         {sentIdx + 1}/{scene.sentences.length}
                                       </span>
+                                      {sent.durationSeconds != null && (
+                                        <span
+                                          className="text-[9px] font-mono px-1.5 py-0.5 rounded"
+                                          style={{ background: "rgba(0, 188, 212, 0.1)", color: "var(--turquoise)" }}
+                                          title={sent.cumulativeStart != null ? `Starts at ${sent.cumulativeStart.toFixed(1)}s` : undefined}
+                                        >
+                                          {sent.durationSeconds.toFixed(1)}s
+                                        </span>
+                                      )}
+                                      {sent.cumulativeStart != null && (
+                                        <span
+                                          className="text-[8px] font-mono"
+                                          style={{ color: "var(--text-tertiary)" }}
+                                        >
+                                          @{sent.cumulativeStart.toFixed(1)}s
+                                        </span>
+                                      )}
                                       <div className="flex-1" />
                                       <button
                                         onClick={() => mergeSentenceUp(scene.sceneNumber, sentIdx)}
@@ -1209,6 +1303,52 @@ export function ScriptVoiceTab({ video }: ScriptVoiceTabProps) {
                                         />
                                       </div>
                                     )}
+
+                                    {/* Image prompt section */}
+                                    {sent.imagePrompt != null && (
+                                      <div
+                                        className="mt-2 pt-2"
+                                        style={{ borderTop: "1px solid rgba(255,255,255,0.04)" }}
+                                      >
+                                        <div className="flex items-center gap-1.5 mb-1">
+                                          <Pencil size={9} style={{ color: "var(--turquoise)", opacity: 0.6 }} />
+                                          <span
+                                            className="text-[9px] font-medium"
+                                            style={{ color: "var(--turquoise)", opacity: 0.7 }}
+                                          >
+                                            Image Prompt
+                                          </span>
+                                        </div>
+                                        <textarea
+                                          value={sent.imagePrompt || ""}
+                                          onChange={(e) => {
+                                            const val = e.target.value;
+                                            setScenes((prev) =>
+                                              prev.map((sc) => {
+                                                if (sc.sceneNumber !== scene.sceneNumber) return sc;
+                                                const newSentences = sc.sentences.map((sn, i) =>
+                                                  i === sentIdx ? { ...sn, imagePrompt: val } : sn
+                                                );
+                                                return { ...sc, sentences: newSentences };
+                                              }),
+                                            );
+                                          }}
+                                          rows={2}
+                                          className="w-full text-[10px] font-mono leading-relaxed outline-none rounded-lg px-2 py-1.5 resize-none transition-all"
+                                          style={{
+                                            color: "var(--text-secondary)",
+                                            background: "rgba(0, 188, 212, 0.04)",
+                                            border: "1px solid rgba(0, 188, 212, 0.1)",
+                                          }}
+                                          onFocus={(e) => {
+                                            e.target.style.borderColor = "var(--turquoise)";
+                                          }}
+                                          onBlur={(e) => {
+                                            e.target.style.borderColor = "rgba(0, 188, 212, 0.1)";
+                                          }}
+                                        />
+                                      </div>
+                                    )}
                                   </div>
                                 ))}
                               </motion.div>
@@ -1378,6 +1518,28 @@ export function ScriptVoiceTab({ video }: ScriptVoiceTabProps) {
                     ? "All Voiced"
                     : "Generate All Voice"}
             </ActionButton>
+
+            {/* Split Sentences */}
+            <button
+              onClick={handleSplitScenes}
+              disabled={splitting || scenesWithVoice === 0}
+              className="inline-flex items-center justify-center gap-2 w-full px-5 py-2.5 rounded-xl text-sm font-semibold font-body transition-all hover:brightness-110 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
+              style={{
+                background: "rgba(0, 188, 212, 0.15)",
+                color: "var(--turquoise)",
+                border: "1px solid var(--turquoise)",
+              }}
+            >
+              {splitting ? (
+                <>
+                  <Loader2 size={14} className="animate-spin" /> Splitting...
+                </>
+              ) : (
+                <>
+                  <Layers size={14} /> Split Sentences
+                </>
+              )}
+            </button>
 
             {/* Regenerate Script */}
             <button
