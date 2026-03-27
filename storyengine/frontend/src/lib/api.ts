@@ -323,6 +323,11 @@ export const updateSceneSegments = (
     body: JSON.stringify({ segments }),
   });
 
+export const runSplit = (videoId: string) =>
+  fetchApi<PipelineResponse>(`/api/pipeline/split/${videoId}`, {
+    method: "POST",
+  });
+
 export const updateStoryboardMode = (videoId: string, enabled: boolean) =>
   fetchApi<{ status: string }>(`/api/videos/${videoId}/storyboard-mode`, {
     method: "PATCH",
@@ -661,6 +666,8 @@ export interface Segment {
   status: string | null;
   word_count: number;
   duration_seconds: number;
+  cumulative_start: number;
+  image_prompt: string | null;
 }
 
 export interface SegmentResponse {

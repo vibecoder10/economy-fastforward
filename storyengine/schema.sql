@@ -224,6 +224,7 @@ CREATE TABLE scripts (
   script_status TEXT,
   voice_status TEXT,
   voice_over_url TEXT,
+  voice_duration_seconds NUMERIC,
   voice_id TEXT,
   sources TEXT,
   framework TEXT,

@@ -622,6 +622,102 @@ class PipelineExecutor:
             await self._log_activity(bot_name, video_id, "failed", error_msg)
             return {"status": "failed", "error": error_msg}
 
+    async def run_split(self, video_id: str) -> dict:
+        """Split scene text into timed sentence segments.
+
+        Uses the deterministic splitter with voice duration for accurate WPS.
+        Creates asset records with sentence_text, duration, and timing.
+        No API calls — pure Python, fast and free.
+
+        Args:
+            video_id: Supabase video UUID
+
+        Returns:
+            Dict with status, scenes_split, total_segments
+        """
+        bot_name = "Sentence Splitter"
+
+        try:
+            # Import the deterministic splitter
+            from shared.clients.deterministic_splitter import segment_scene_deterministic
+
+            # Load scripts with voice for this video
+            scripts = await fetch_all(
+                "SELECT id, scene, scene_text, voice_over_url, voice_duration_seconds "
+                "FROM scripts WHERE video_id = $1 AND tenant_id = $2 "
+                "ORDER BY scene",
+                video_id, self.tenant_id,
+            )
+
+            if not scripts:
+                return {"status": "failed", "error": "No scripts found for this video"}
+
+            # Get the video title for asset records
+            video = await fetch_one(
+                "SELECT video_title FROM videos WHERE id = $1 AND tenant_id = $2",
+                video_id, self.tenant_id,
+            )
+            video_title = video.get("video_title", "") if video else ""
+
+            total_segments = 0
+            scenes_split = 0
+
+            for script in scripts:
+                scene_num = script.get("scene")
+                scene_text = script.get("scene_text")
+                voice_duration = script.get("voice_duration_seconds")
+
+                if not scene_text or not scene_text.strip():
+                    continue
+
+                # Convert voice_duration to float if present
+                if voice_duration is not None:
+                    voice_duration = float(voice_duration)
+
+                # Run the deterministic splitter
+                segments = segment_scene_deterministic(scene_text, voice_duration)
+
+                if not segments:
+                    continue
+
+                # Delete existing assets for this scene (idempotent re-split)
+                await execute(
+                    "DELETE FROM assets WHERE video_id = $1 AND scene = $2 AND tenant_id = $3",
+                    video_id, scene_num, self.tenant_id,
+                )
+
+                # Insert new asset records for each segment
+                for seg in segments:
+                    await execute(
+                        """INSERT INTO assets (
+                            tenant_id, video_id, video_title, scene,
+                            image_index, sentence_index, sentence_text,
+                            duration_seconds, status
+                        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)""",
+                        self.tenant_id, video_id, video_title, scene_num,
+                        seg['segment_index'], seg['segment_index'], seg['text'],
+                        seg['duration'], 'pending',
+                    )
+
+                total_segments += len(segments)
+                scenes_split += 1
+
+            await self._log_activity(
+                bot_name, video_id, "completed",
+                f"Split {total_segments} segments across {scenes_split} scenes",
+            )
+
+            return {
+                "status": "completed",
+                "scenes_split": scenes_split,
+                "total_segments": total_segments,
+            }
+
+        except Exception as e:
+            error_msg = str(e)
+            await self._log_activity(bot_name, video_id, "failed", error_msg)
+            return {"status": "failed", "error": error_msg}
+
     async def run_next_step(self, video_id: str, user_intent: str = None) -> dict:
         """Run the next pipeline step for a video.
 

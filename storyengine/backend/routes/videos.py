@@ -496,24 +496,32 @@ async def get_scene_segments(
     video_id: str, scene: int, tenant_id: str = Depends(get_tenant_id)
 ):
     rows = await fetch_all(
-        "SELECT id, image_index, sentence_text, shot_type, status "
+        "SELECT id, image_index, sentence_text, shot_type, status, "
+        "duration_seconds, image_prompt "
         "FROM assets WHERE video_id = $1 AND scene = $2 AND tenant_id = $3 "
         "ORDER BY image_index",
         video_id, scene, tenant_id,
     )
     segments = []
+    cumulative_start = 0.0
     for row in rows:
         text = row.get("sentence_text") or ""
         word_count = len(text.split()) if text else 0
+        # Use real duration from splitter if available, fall back to WPS estimate
+        db_duration = row.get("duration_seconds")
+        duration = float(db_duration) if db_duration is not None else round(word_count / 2.5, 1)
         segments.append({
-            "id": row["id"],
+            "id": str(row["id"]),
             "image_index": row.get("image_index"),
             "sentence_text": text,
             "shot_type": row.get("shot_type"),
             "status": row.get("status"),
             "word_count": word_count,
-            "duration_seconds": round(word_count / 2.5, 1),
+            "duration_seconds": duration,
+            "cumulative_start": round(cumulative_start, 1),
+            "image_prompt": row.get("image_prompt"),
         })
+        cumulative_start += duration
     return {"scene": scene, "segments": segments}
 
 
