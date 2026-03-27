@@ -12,6 +12,7 @@ import {
   getVideoScript, getVideoAssets, advanceVideo, rejectVideo,
   runPipelineStage, updateSceneText, updateVideo, clearStaleTask,
   runVoiceForScene, runSplit, getSceneSegments,
+  runPromptsForScene, runPromptsForSegment,
 } from "@/lib/api";
 import type { ScriptScene as ApiScriptScene, Asset, Segment } from "@/lib/api";
 import { useTaskPoller } from "@/hooks/use-task-poller";
@@ -273,6 +274,12 @@ export function ScriptVoiceTab({ video }: ScriptVoiceTabProps) {
   const [generatingVoiceAll, setGeneratingVoiceAll] = useState(false);
   const [generatingVoiceScene, setGeneratingVoiceScene] = useState<number | null>(null);
 
+  // Image prompt generation actions
+  const [generatingPromptsAll, setGeneratingPromptsAll] = useState(false);
+  const [generatingPromptsScene, setGeneratingPromptsScene] = useState<number | null>(null);
+  const [generatingPromptsSegment, setGeneratingPromptsSegment] = useState<string | null>(null);
+  const [promptTaskRunning, setPromptTaskRunning] = useState(false);
+
   // Audio playback
   const [activeSegment, setActiveSegment] = useState<string | null>(null);
   const [volume, setVolume] = useState(75);
@@ -317,8 +324,68 @@ export function ScriptVoiceTab({ video }: ScriptVoiceTabProps) {
     },
   });
 
+  // Scene segment state (declared here so fetchAndExpandScene is available to the prompt poller below)
+  const [loadingSegments, setLoadingSegments] = useState<Set<number>>(new Set());
+
+  const fetchAndExpandScene = useCallback(async (sceneNum: number) => {
+    setLoadingSegments((prev) => new Set(prev).add(sceneNum));
+    try {
+      const resp = await getSceneSegments(video.id, sceneNum);
+      if (resp.segments && resp.segments.length > 0) {
+        setScenes((prev) =>
+          prev.map((s) => {
+            if (s.sceneNumber !== sceneNum) return s;
+            const newSentences: SentenceState[] = resp.segments.map((seg: Segment) => ({
+              text: seg.sentence_text || "",
+              sfxMode: "none" as const,
+              sfxLibraryValue: "",
+              sfxCustomPrompt: "",
+              durationSeconds: seg.duration_seconds ?? null,
+              cumulativeStart: seg.cumulative_start ?? null,
+              imagePrompt: seg.image_prompt ?? null,
+              imageIndex: seg.image_index ?? null,
+            }));
+            return { ...s, sentences: newSentences };
+          }),
+        );
+      }
+    } catch {
+      // Fall back to existing local sentences
+    } finally {
+      setLoadingSegments((prev) => {
+        const next = new Set(prev);
+        next.delete(sceneNum);
+        return next;
+      });
+    }
+    setExpandedScenes((prev) => new Set(prev).add(sceneNum));
+  }, [video.id]);
+
+  // Task polling (image prompt generation)
+  const { message: promptTaskMessage } = useTaskPoller({
+    videoId: video.id,
+    enabled: promptTaskRunning,
+    interval: 3000,
+    onComplete: () => {
+      setPromptTaskRunning(false);
+      setGeneratingPromptsAll(false);
+      setGeneratingPromptsScene(null);
+      setGeneratingPromptsSegment(null);
+      // Refresh expanded scenes to pick up new imagePrompt values
+      expandedScenes.forEach((sceneNum) => fetchAndExpandScene(sceneNum));
+    },
+    onFailed: (error) => {
+      setPromptTaskRunning(false);
+      setGeneratingPromptsAll(false);
+      setGeneratingPromptsScene(null);
+      setGeneratingPromptsSegment(null);
+      alert(`Image prompt generation failed: ${error}`);
+    },
+  });
+
   // Sentence splitting
   const [splitDone, setSplitDone] = useState(false);
+  const [splitting, setSplitting] = useState(false);
 
   const invalidateAll = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ["video", video.id] });
@@ -446,12 +513,15 @@ export function ScriptVoiceTab({ video }: ScriptVoiceTabProps) {
       setSplitDone(true);
       invalidateAll();
       setTimeout(() => setSplitDone(false), 3000);
+      // Auto-expand all scenes to show the split results
+      const sceneNums = scenes.map((s) => s.sceneNumber);
+      await Promise.allSettled(sceneNums.map((n) => fetchAndExpandScene(n)));
     } catch (err) {
       alert(`Split failed: ${(err as Error).message}`);
     } finally {
       setSplitting(false);
     }
-  }, [video.id, invalidateAll]);
+  }, [video.id, invalidateAll, scenes, fetchAndExpandScene]);
 
   const handleDeleteScene = useCallback(
     async (sceneNum: number) => {
@@ -537,6 +607,56 @@ export function ScriptVoiceTab({ video }: ScriptVoiceTabProps) {
     },
     [video.id],
   );
+
+  // ---------------------------------------------------------------------------
+  // Image prompt handlers
+  // ---------------------------------------------------------------------------
+
+  const handleGenerateAllPrompts = useCallback(async () => {
+    setGeneratingPromptsAll(true);
+    try {
+      await runPipelineStage(video.id, "prompts");
+      setPromptTaskRunning(true);
+    } catch (err: unknown) {
+      const message = (err as Error).message || "";
+      if (message.includes("409")) {
+        try {
+          await clearStaleTask(video.id);
+          await runPipelineStage(video.id, "prompts");
+          setPromptTaskRunning(true);
+          return;
+        } catch (retryErr) {
+          alert(`Failed: ${(retryErr as Error).message}`);
+        }
+      } else {
+        alert(`Failed: ${message}`);
+      }
+      setGeneratingPromptsAll(false);
+    }
+  }, [video.id]);
+
+  const handleGenerateScenePrompts = useCallback(async (sceneNum: number) => {
+    setGeneratingPromptsScene(sceneNum);
+    try {
+      await runPromptsForScene(video.id, sceneNum);
+      setPromptTaskRunning(true);
+    } catch (err) {
+      alert(`Failed: ${(err as Error).message}`);
+      setGeneratingPromptsScene(null);
+    }
+  }, [video.id]);
+
+  const handleGenerateSegmentPrompt = useCallback(async (sceneNum: number, imageIndex: number) => {
+    const key = `${sceneNum}:${imageIndex}`;
+    setGeneratingPromptsSegment(key);
+    try {
+      await runPromptsForSegment(video.id, sceneNum, imageIndex);
+      setPromptTaskRunning(true);
+    } catch (err) {
+      alert(`Failed: ${(err as Error).message}`);
+      setGeneratingPromptsSegment(null);
+    }
+  }, [video.id]);
 
   // ---------------------------------------------------------------------------
   // Audio playback
@@ -628,12 +748,8 @@ export function ScriptVoiceTab({ video }: ScriptVoiceTabProps) {
     setCollapsedActs((prev) => ({ ...prev, [actNum]: !prev[actNum] }));
   };
 
-  const [loadingSegments, setLoadingSegments] = useState<Set<number>>(new Set());
-  const [splitting, setSplitting] = useState(false);
-
   const toggleExpand = async (sceneNum: number) => {
     if (expandedScenes.has(sceneNum)) {
-      // Collapse
       setExpandedScenes((prev) => {
         const next = new Set(prev);
         next.delete(sceneNum);
@@ -641,45 +757,7 @@ export function ScriptVoiceTab({ video }: ScriptVoiceTabProps) {
       });
       return;
     }
-
-    // Expand — fetch real segments from API
-    setLoadingSegments((prev) => new Set(prev).add(sceneNum));
-    try {
-      const resp = await getSceneSegments(video.id, sceneNum);
-      if (resp.segments && resp.segments.length > 0) {
-        // Replace local sentences with real segments from the splitter
-        setScenes((prev) =>
-          prev.map((s) => {
-            if (s.sceneNumber !== sceneNum) return s;
-            const newSentences: SentenceState[] = resp.segments.map((seg: Segment) => ({
-              text: seg.sentence_text || "",
-              sfxMode: "none" as const,
-              sfxLibraryValue: "",
-              sfxCustomPrompt: "",
-              durationSeconds: seg.duration_seconds ?? null,
-              cumulativeStart: seg.cumulative_start ?? null,
-              imagePrompt: seg.image_prompt ?? null,
-              imageIndex: seg.image_index ?? null,
-            }));
-            return { ...s, sentences: newSentences };
-          }),
-        );
-      }
-    } catch {
-      // Fall back to existing local sentences
-    } finally {
-      setLoadingSegments((prev) => {
-        const next = new Set(prev);
-        next.delete(sceneNum);
-        return next;
-      });
-    }
-
-    setExpandedScenes((prev) => {
-      const next = new Set(prev);
-      next.add(sceneNum);
-      return next;
-    });
+    await fetchAndExpandScene(sceneNum);
   };
 
   const updateNarration = (sceneNum: number, text: string) => {
@@ -890,6 +968,7 @@ export function ScriptVoiceTab({ video }: ScriptVoiceTabProps) {
   // ---------------------------------------------------------------------------
 
   const isVoiceBusy = generatingVoiceAll || generatingVoiceScene !== null || voiceTaskRunning;
+  const isPromptBusy = generatingPromptsAll || generatingPromptsScene !== null || generatingPromptsSegment !== null || promptTaskRunning;
 
   return (
     <div className="space-y-6 pb-24">
@@ -998,6 +1077,19 @@ export function ScriptVoiceTab({ video }: ScriptVoiceTabProps) {
                               )}
                               {isExpanded ? "Collapse" : "Expand"}
                               <span className="font-mono">{scene.sentences.length}</span>
+                            </button>
+
+                            <button
+                              onClick={() => handleGenerateScenePrompts(scene.sceneNumber)}
+                              disabled={isPromptBusy}
+                              title="Generate image prompts for this scene"
+                              className="flex items-center gap-1 px-1.5 py-0.5 rounded-lg text-[9px] font-medium transition-all"
+                              style={{
+                                color: generatingPromptsScene === scene.sceneNumber ? "var(--purple)" : "var(--text-tertiary)",
+                                background: generatingPromptsScene === scene.sceneNumber ? "rgba(168, 85, 247, 0.12)" : "transparent",
+                              }}
+                            >
+                              {generatingPromptsScene === scene.sceneNumber ? <Loader2 size={10} className="animate-spin" /> : <Wand2 size={10} />}
                             </button>
 
                             <button
@@ -1309,51 +1401,41 @@ export function ScriptVoiceTab({ video }: ScriptVoiceTabProps) {
                                       </div>
                                     )}
 
-                                    {/* Image prompt section */}
-                                    {sent.imagePrompt != null && (
-                                      <div
-                                        className="mt-2 pt-2"
-                                        style={{ borderTop: "1px solid rgba(255,255,255,0.04)" }}
-                                      >
-                                        <div className="flex items-center gap-1.5 mb-1">
-                                          <Pencil size={9} style={{ color: "var(--turquoise)", opacity: 0.6 }} />
-                                          <span
-                                            className="text-[9px] font-medium"
-                                            style={{ color: "var(--turquoise)", opacity: 0.7 }}
-                                          >
-                                            Image Prompt
-                                          </span>
-                                        </div>
-                                        <textarea
-                                          value={sent.imagePrompt || ""}
-                                          onChange={(e) => {
-                                            const val = e.target.value;
-                                            setScenes((prev) =>
-                                              prev.map((sc) => {
-                                                if (sc.sceneNumber !== scene.sceneNumber) return sc;
-                                                const newSentences = sc.sentences.map((sn, i) =>
-                                                  i === sentIdx ? { ...sn, imagePrompt: val } : sn
-                                                );
-                                                return { ...sc, sentences: newSentences };
-                                              }),
-                                            );
-                                          }}
-                                          rows={2}
-                                          className="w-full text-[10px] font-mono leading-relaxed outline-none rounded-lg px-2 py-1.5 resize-none transition-all"
-                                          style={{
-                                            color: "var(--text-secondary)",
-                                            background: "rgba(0, 188, 212, 0.04)",
-                                            border: "1px solid rgba(0, 188, 212, 0.1)",
-                                          }}
-                                          onFocus={(e) => {
-                                            e.target.style.borderColor = "var(--turquoise)";
-                                          }}
-                                          onBlur={(e) => {
-                                            e.target.style.borderColor = "rgba(0, 188, 212, 0.1)";
-                                          }}
-                                        />
+                                    {/* Image prompt — always visible in expanded view */}
+                                    <div className="mt-2 pt-2" style={{ borderTop: "1px solid rgba(255,255,255,0.04)" }}>
+                                      <div className="flex items-center gap-1.5 mb-1">
+                                        <Pencil size={9} style={{ color: "var(--purple)" }} />
+                                        <span
+                                          className="text-[9px] font-medium uppercase tracking-wider"
+                                          style={{ color: "var(--purple)" }}
+                                        >
+                                          Image Prompt
+                                        </span>
+                                        <div className="flex-1" />
+                                        <button
+                                          onClick={() => handleGenerateSegmentPrompt(scene.sceneNumber, sent.imageIndex!)}
+                                          disabled={isPromptBusy || sent.imageIndex == null}
+                                          title="Generate image prompt for this segment"
+                                          className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[8px] font-medium transition-all hover:brightness-110 disabled:opacity-40"
+                                          style={{ background: "rgba(168, 85, 247, 0.12)", color: "var(--purple)" }}
+                                        >
+                                          <Wand2 size={8} /> Generate
+                                        </button>
                                       </div>
-                                    )}
+                                      <textarea
+                                        value={sent.imagePrompt || ""}
+                                        placeholder="No image prompt yet — click Generate"
+                                        readOnly
+                                        rows={2}
+                                        className="w-full text-[11px] font-mono leading-relaxed resize-none outline-none rounded-lg px-2 py-1.5"
+                                        style={{
+                                          color: sent.imagePrompt ? "var(--text-secondary)" : "var(--text-tertiary)",
+                                          background: "rgba(168, 85, 247, 0.04)",
+                                          border: "1px solid rgba(168, 85, 247, 0.1)",
+                                          opacity: sent.imagePrompt ? 1 : 0.6,
+                                        }}
+                                      />
+                                    </div>
                                   </div>
                                 ))}
                               </motion.div>
@@ -1537,6 +1619,21 @@ export function ScriptVoiceTab({ video }: ScriptVoiceTabProps) {
                 : splitDone
                   ? "Split Complete"
                   : "Split Sentences"}
+            </ActionButton>
+
+            {/* Generate All Image Prompts */}
+            <ActionButton
+              variant="outline"
+              icon={generatingPromptsAll || promptTaskRunning ? Loader2 : Wand2}
+              className="w-full"
+              onClick={handleGenerateAllPrompts}
+              disabled={isPromptBusy || totalScenes === 0}
+            >
+              {promptTaskRunning && generatingPromptsAll
+                ? promptTaskMessage || "Generating Prompts..."
+                : generatingPromptsAll
+                  ? "Starting..."
+                  : "Generate Image Prompts"}
             </ActionButton>
 
             {/* Regenerate Script */}

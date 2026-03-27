@@ -292,9 +292,15 @@ async def run_split(
 async def run_prompts(
     video_id: str,
     background_tasks: BackgroundTasks,
+    scene: Optional[int] = None,
+    index: Optional[int] = None,
     tenant_id: str = Depends(get_tenant_id),
 ):
-    """Generate image prompts for a video."""
+    """Generate image prompts for a video.
+
+    Video must be at 'ready_for_image_prompts' status unless scene is specified
+    (targeted single-scene or single-segment regen bypasses status gate).
+    """
     video = await fetch_one(
         "SELECT id, status FROM videos WHERE id = $1 AND tenant_id = $2",
         video_id, tenant_id,
@@ -302,7 +308,7 @@ async def run_prompts(
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
 
-    if not is_at_or_past_stage(video["status"], "ready_for_image_prompts"):
+    if scene is None and not is_at_or_past_stage(video["status"], "ready_for_image_prompts"):
         raise HTTPException(
             status_code=400,
             detail=f"Video not ready for prompts (status: {video['status']})",
@@ -316,7 +322,7 @@ async def run_prompts(
     async def _run():
         try:
             executor = PipelineExecutor(tenant_id)
-            result = await executor.run_prompts(video_id)
+            result = await executor.run_prompts(video_id, scene=scene, index=index)
             _set_task_status(video_id, result.get("status", "unknown"), result.get("error"))
         except Exception as e:
             _set_task_status(video_id, "failed", str(e))
@@ -326,7 +332,13 @@ async def run_prompts(
 
     background_tasks.add_task(_run)
 
-    return PipelineResponse(video_id=video_id, status="running", message="Prompt generation started")
+    if scene is not None and index is not None:
+        msg = f"Generating prompt for scene {scene} segment {index}"
+    elif scene is not None:
+        msg = f"Generating prompts for scene {scene}"
+    else:
+        msg = "Prompt generation started"
+    return PipelineResponse(video_id=video_id, status="running", message=msg)
 
 
 @router.post("/storyboards/{video_id}", response_model=PipelineResponse)

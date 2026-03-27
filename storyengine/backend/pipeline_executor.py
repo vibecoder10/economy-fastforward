@@ -844,8 +844,17 @@ class PipelineExecutor:
 
         return await handler(video_id)
 
-    async def run_prompts(self, video_id: str) -> dict:
-        """Generate image prompts for a video."""
+    async def run_prompts(self, video_id: str, scene: int = None, index: int = None) -> dict:
+        """Generate image prompts for a video.
+
+        Args:
+            video_id: Supabase video UUID
+            scene: Optional scene number for single-scene generation
+            index: Optional segment index within a scene for single-segment generation
+
+        Returns:
+            Dict with status and result
+        """
         await self._ensure_initialized()
         bot_name = "Image Prompt Bot"
 
@@ -854,16 +863,24 @@ class PipelineExecutor:
             if not video:
                 return {"status": "failed", "error": "Video not found"}
 
-            # Pipeline integrity check: voice must exist before image prompts
-            all_voiced, total, voiced = await self._check_voice_exists(video_id)
-            if not all_voiced:
-                msg = f"Voice generation must complete before image prompts. Missing voice for {total - voiced}/{total} scenes."
-                await self._log_activity(bot_name, video_id, "failed", msg)
-                await self._update_video_status(video_id, "ready_for_voice")
-                return {"status": "failed", "error": msg}
+            # Pipeline integrity check: voice must exist before image prompts (full runs only)
+            if scene is None:
+                all_voiced, total, voiced = await self._check_voice_exists(video_id)
+                if not all_voiced:
+                    msg = f"Voice generation must complete before image prompts. Missing voice for {total - voiced}/{total} scenes."
+                    await self._log_activity(bot_name, video_id, "failed", msg)
+                    await self._update_video_status(video_id, "ready_for_voice")
+                    return {"status": "failed", "error": msg}
 
             current_status = video.get("status")
-            await self._log_activity(bot_name, video_id, "started", "Generating prompts")
+
+            if scene is not None and index is not None:
+                log_msg = f"Generating prompt for scene {scene} segment {index}"
+            elif scene is not None:
+                log_msg = f"Generating prompts for scene {scene}"
+            else:
+                log_msg = "Generating prompts"
+            await self._log_activity(bot_name, video_id, "started", log_msg)
 
             self._load_idea_from_video(video_id)
 
@@ -871,10 +888,25 @@ class PipelineExecutor:
             if self._pipeline.current_idea:
                 self._pipeline.current_idea["Status"] = "Ready For Image Prompts"
 
+            # Set filters for targeted generation
+            if scene is not None:
+                self._pipeline.scene_filter = scene
+            if index is not None:
+                self._pipeline.image_filter = index
+
             result = await self._pipeline.run_styled_image_prompts()
+
+            # Reset filters after run
+            self._pipeline.scene_filter = None
+            self._pipeline.image_filter = None
 
             if result.get("error"):
                 raise Exception(result["error"])
+
+            # For targeted runs, skip status advancement
+            if scene is not None:
+                await self._log_activity(bot_name, video_id, "completed", log_msg)
+                return {"status": current_status, "video_id": video_id}
 
             new_status = result.get("new_status", "ready_for_images")
 
@@ -885,6 +917,9 @@ class PipelineExecutor:
             return {"status": to_supabase(new_status), "video_id": video_id}
 
         except Exception as e:
+            # Reset filters on error
+            self._pipeline.scene_filter = None
+            self._pipeline.image_filter = None
             error_msg = str(e)
             await self._log_activity(bot_name, video_id, "failed", error_msg)
             return {"status": "failed", "error": error_msg}
