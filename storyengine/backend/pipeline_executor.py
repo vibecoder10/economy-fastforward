@@ -680,11 +680,21 @@ class PipelineExecutor:
                 if not segments:
                     continue
 
-                # Delete existing assets for this scene (idempotent re-split)
+                # Delete existing assets that don't have images yet (safe re-split)
+                # Preserve assets with generated images to avoid data loss
                 await execute(
-                    "DELETE FROM assets WHERE video_id = $1 AND scene = $2 AND tenant_id = $3",
+                    "DELETE FROM assets WHERE video_id = $1 AND scene = $2 AND tenant_id = $3 "
+                    "AND (image_url IS NULL OR image_url = '')",
                     video_id, scene_num, self.tenant_id,
                 )
+                # Check if scene still has assets with images (skip if so)
+                existing = await fetch_one(
+                    "SELECT COUNT(*) as cnt FROM assets WHERE video_id = $1 AND scene = $2 AND tenant_id = $3",
+                    video_id, scene_num, self.tenant_id,
+                )
+                if existing and existing.get("cnt", 0) > 0:
+                    # Scene has assets with images — skip to avoid duplicates
+                    continue
 
                 # Insert new asset records for each segment
                 for seg in segments:
