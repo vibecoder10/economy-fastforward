@@ -499,7 +499,7 @@ async def run_images(
     async def _run():
         try:
             executor = PipelineExecutor(tenant_id)
-            result = await executor.run_images(video_id)
+            result = await executor.run_images(video_id, scene=scene, index=index)
             _set_task_status(video_id, result.get("status", "unknown"), result.get("error"))
         except Exception as e:
             _set_task_status(video_id, "failed", str(e))
@@ -509,7 +509,14 @@ async def run_images(
 
     background_tasks.add_task(_run)
 
-    return PipelineResponse(video_id=video_id, status="running", message="Image generation started")
+    if scene is not None and index is not None:
+        msg = f"Generating image for scene {scene} segment {index}"
+    elif scene is not None:
+        msg = f"Generating images for scene {scene}"
+    else:
+        msg = "Image generation started"
+
+    return PipelineResponse(video_id=video_id, status="running", message=msg)
 
 
 @router.post("/sound-prompts/{video_id}", response_model=PipelineResponse)
