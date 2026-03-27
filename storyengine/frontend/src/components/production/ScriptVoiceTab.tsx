@@ -1277,12 +1277,7 @@ export function ScriptVoiceTab({ video }: ScriptVoiceTabProps) {
                                 [{src}]
                               </span>
                             ))}
-                            <span className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>
-                              {scene.visualStyle}
-                            </span>
-                            <span className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>
-                              {scene.composition}
-                            </span>
+                            {/* Visual style/composition hidden — internal pipeline metadata */}
                           </div>
                         </GlassCard>
                       );

@@ -563,11 +563,12 @@ class PipelineExecutor:
             await self._log_activity(bot_name, video_id, "failed", error_msg)
             return {"status": "failed", "error": error_msg}
 
-    async def run_voice(self, video_id: str) -> dict:
+    async def run_voice(self, video_id: str, scene: int = None) -> dict:
         """Generate voice narration for a video.
 
         Args:
             video_id: Supabase video UUID
+            scene: Optional scene number for single-scene generation
 
         Returns:
             Dict with status and result
@@ -581,19 +582,22 @@ class PipelineExecutor:
                 return {"status": "failed", "error": "Video not found"}
 
             current_status = video.get("status")
-            if not is_at_or_past_stage(current_status, "ready_for_voice"):
+            if scene is None and not is_at_or_past_stage(current_status, "ready_for_voice"):
                 return {"status": "failed", "error": f"Video not ready for voice (status: {current_status})"}
 
-            await self._log_activity(bot_name, video_id, "started", "Generating voice")
+            msg = f"Generating voice (scene {scene})" if scene else "Generating voice"
+            await self._log_activity(bot_name, video_id, "started", msg)
 
             # Load idea into pipeline state from Supabase
             self._load_idea_from_video(video_id)
 
             # Override status to "Ready For Voice" so the bot's internal check passes.
-            # The executor already validated the status gate above — the bot's check
-            # is redundant when called from StoryEngine (which allows re-running stages).
             if self._pipeline.current_idea:
                 self._pipeline.current_idea["Status"] = "Ready For Voice"
+
+            # Set scene filter for targeted generation
+            if scene is not None:
+                self._pipeline.scene_filter = scene
 
             # Run voice generation
             result = await self._pipeline.run_voice_bot()

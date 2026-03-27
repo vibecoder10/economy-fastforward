@@ -233,7 +233,7 @@ async def run_voice(
     async def _run():
         try:
             executor = PipelineExecutor(tenant_id)
-            result = await executor.run_voice(video_id)
+            result = await executor.run_voice(video_id, scene=scene)
             _set_task_status(video_id, result.get("status", "unknown"), result.get("error"))
         except Exception as e:
             _set_task_status(video_id, "failed", str(e))
@@ -243,7 +243,8 @@ async def run_voice(
 
     background_tasks.add_task(_run)
 
-    return PipelineResponse(video_id=video_id, status="running", message="Voice generation started")
+    msg = f"Voice generation started (scene {scene})" if scene else "Voice generation started"
+    return PipelineResponse(video_id=video_id, status="running", message=msg)
 
 
 @router.post("/prompts/{video_id}", response_model=PipelineResponse)
