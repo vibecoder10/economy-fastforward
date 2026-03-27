@@ -9,6 +9,7 @@ See `.env.example` for all required variables. Critical ones:
 | `AIRTABLE_BASE_ID` | Airtable | `appCIcC58YSTwK3CE` |
 | `ELEVENLABS_API_KEY` | ElevenLabs | Voice synthesis |
 | `ELEVENLABS_VOICE_ID` | ElevenLabs | `G17SuINrv2H9FC6nvetn` |
+| `ELEVENLABS_MODEL_ID` | ElevenLabs | Usually `eleven_multilingual_v2` |
 | `OPENAI_API_KEY` | Whisper API | Audio transcription |
 | `KIE_AI_API_KEY` | Kie.ai | Images, video, thumbnails |
 | `GOOGLE_CLIENT_ID/SECRET/REFRESH_TOKEN` | Google | Drive & Docs OAuth |
