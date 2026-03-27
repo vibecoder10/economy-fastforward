@@ -508,9 +508,8 @@ async def get_scene_segments(
     for row in rows:
         text = row.get("sentence_text") or ""
         word_count = len(text.split()) if text else 0
-        # Use real duration from splitter if available, fall back to WPS estimate
         db_duration = row.get("duration_seconds")
-        duration = float(db_duration) if db_duration is not None else round(word_count / 2.5, 1)
+        duration = round(float(db_duration), 1) if db_duration is not None else round(word_count / 2.5, 1)
         segments.append({
             "id": str(row["id"]),
             "image_index": row.get("image_index"),

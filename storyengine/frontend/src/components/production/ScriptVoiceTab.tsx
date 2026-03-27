@@ -317,6 +317,9 @@ export function ScriptVoiceTab({ video }: ScriptVoiceTabProps) {
     },
   });
 
+  // Sentence splitting
+  const [splitDone, setSplitDone] = useState(false);
+
   const invalidateAll = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ["video", video.id] });
     queryClient.invalidateQueries({ queryKey: ["video-script", video.id] });
@@ -434,6 +437,21 @@ export function ScriptVoiceTab({ video }: ScriptVoiceTabProps) {
       setRegeneratingScript(false);
     }
   }, [video.id]);
+
+  const handleSplitSentences = useCallback(async () => {
+    setSplitting(true);
+    setSplitDone(false);
+    try {
+      await runSplit(video.id);
+      setSplitDone(true);
+      invalidateAll();
+      setTimeout(() => setSplitDone(false), 3000);
+    } catch (err) {
+      alert(`Split failed: ${(err as Error).message}`);
+    } finally {
+      setSplitting(false);
+    }
+  }, [video.id, invalidateAll]);
 
   const handleDeleteScene = useCallback(
     async (sceneNum: number) => {
@@ -662,19 +680,6 @@ export function ScriptVoiceTab({ video }: ScriptVoiceTabProps) {
       next.add(sceneNum);
       return next;
     });
-  };
-
-  const handleSplitScenes = async () => {
-    setSplitting(true);
-    try {
-      await runSplit(video.id);
-      // Refresh assets to pick up new segments
-      queryClient.invalidateQueries({ queryKey: ["video-assets", video.id] });
-    } catch (e) {
-      console.error("Split failed:", e);
-    } finally {
-      setSplitting(false);
-    }
   };
 
   const updateNarration = (sceneNum: number, text: string) => {
@@ -1520,26 +1525,19 @@ export function ScriptVoiceTab({ video }: ScriptVoiceTabProps) {
             </ActionButton>
 
             {/* Split Sentences */}
-            <button
-              onClick={handleSplitScenes}
-              disabled={splitting || scenesWithVoice === 0}
-              className="inline-flex items-center justify-center gap-2 w-full px-5 py-2.5 rounded-xl text-sm font-semibold font-body transition-all hover:brightness-110 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
-              style={{
-                background: "rgba(0, 188, 212, 0.15)",
-                color: "var(--turquoise)",
-                border: "1px solid var(--turquoise)",
-              }}
+            <ActionButton
+              variant="outline"
+              icon={splitting ? Loader2 : Layers}
+              className="w-full"
+              onClick={handleSplitSentences}
+              disabled={splitting || totalScenes === 0}
             >
-              {splitting ? (
-                <>
-                  <Loader2 size={14} className="animate-spin" /> Splitting...
-                </>
-              ) : (
-                <>
-                  <Layers size={14} /> Split Sentences
-                </>
-              )}
-            </button>
+              {splitting
+                ? "Splitting..."
+                : splitDone
+                  ? "Split Complete"
+                  : "Split Sentences"}
+            </ActionButton>
 
             {/* Regenerate Script */}
             <button

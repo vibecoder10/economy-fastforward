@@ -314,6 +314,16 @@ export const updateSceneTone = (videoId: string, scene: number, tone: string) =>
 export const getSceneSegments = (videoId: string, scene: number) =>
   fetchApi<SegmentResponse>(`/api/videos/${videoId}/scenes/${scene}/segments`);
 
+export interface SplitResult {
+  status: string;
+  video_id: string;
+  total_segments: number;
+  scenes: { scene: number; segments: number }[];
+}
+
+export const runSplit = (videoId: string) =>
+  fetchApi<SplitResult>(`/api/pipeline/split/${videoId}`, { method: "POST" });
+
 export const updateSceneSegments = (
   videoId: string, scene: number,
   segments: { image_index: number; sentence_text: string }[]
@@ -321,11 +331,6 @@ export const updateSceneSegments = (
   fetchApi<{ status: string }>(`/api/videos/${videoId}/scenes/${scene}/segments`, {
     method: "PUT",
     body: JSON.stringify({ segments }),
-  });
-
-export const runSplit = (videoId: string) =>
-  fetchApi<PipelineResponse>(`/api/pipeline/split/${videoId}`, {
-    method: "POST",
   });
 
 export const updateStoryboardMode = (videoId: string, enabled: boolean) =>

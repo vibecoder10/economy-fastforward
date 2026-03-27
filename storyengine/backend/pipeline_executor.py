@@ -1238,3 +1238,4 @@ class PipelineExecutor:
             error_msg = str(e)
             await self._log_activity(bot_name, video_id, "failed", error_msg)
             return {"status": "failed", "error": error_msg}
+

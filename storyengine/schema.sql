@@ -244,7 +244,10 @@ CREATE TABLE scripts (
   storyboard_2_url TEXT,
   storyboard_3_url TEXT,
 
-  created_at TIMESTAMPTZ DEFAULT now()
+  voice_duration_seconds NUMERIC,
+
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
 );
 
 -- =============================================
@@ -296,7 +299,8 @@ CREATE TABLE assets (
   assigned_video_duration NUMERIC,
   estimated_clip_cost NUMERIC,
 
-  created_at TIMESTAMPTZ DEFAULT now()
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
 );
 
 -- =============================================
