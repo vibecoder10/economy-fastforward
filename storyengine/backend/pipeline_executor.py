@@ -1023,8 +1023,14 @@ class PipelineExecutor:
             await self._log_activity(bot_name, video_id, "failed", error_msg)
             return {"status": "failed", "error": error_msg}
 
-    async def run_images(self, video_id: str) -> dict:
-        """Generate images for a video."""
+    async def run_images(self, video_id: str, scene: int = None, index: int = None) -> dict:
+        """Generate images for a video.
+
+        Args:
+            video_id: Supabase video UUID
+            scene: Optional scene number for single-scene generation
+            index: Optional segment index within a scene for single-image generation
+        """
         await self._ensure_initialized()
         bot_name = "Image Bot"
 
@@ -1033,16 +1039,24 @@ class PipelineExecutor:
             if not video:
                 return {"status": "failed", "error": "Video not found"}
 
-            # Pipeline integrity check: voice must exist before image generation
-            all_voiced, total, voiced = await self._check_voice_exists(video_id)
-            if not all_voiced:
-                msg = f"Voice generation must complete before image generation. Missing voice for {total - voiced}/{total} scenes."
-                await self._log_activity(bot_name, video_id, "failed", msg)
-                await self._update_video_status(video_id, "ready_for_voice")
-                return {"status": "failed", "error": msg}
-
             current_status = video.get("status")
-            await self._log_activity(bot_name, video_id, "started", "Generating images")
+
+            # Full runs require voice completion; targeted re-runs bypass the stage gate.
+            if scene is None:
+                all_voiced, total, voiced = await self._check_voice_exists(video_id)
+                if not all_voiced:
+                    msg = f"Voice generation must complete before image generation. Missing voice for {total - voiced}/{total} scenes."
+                    await self._log_activity(bot_name, video_id, "failed", msg)
+                    await self._update_video_status(video_id, "ready_for_voice")
+                    return {"status": "failed", "error": msg}
+
+            if scene is not None and index is not None:
+                log_msg = f"Generating image for scene {scene} segment {index}"
+            elif scene is not None:
+                log_msg = f"Generating images for scene {scene}"
+            else:
+                log_msg = "Generating images"
+            await self._log_activity(bot_name, video_id, "started", log_msg)
 
             self._load_idea_from_video(video_id)
 
@@ -1050,10 +1064,25 @@ class PipelineExecutor:
             if self._pipeline.current_idea:
                 self._pipeline.current_idea["Status"] = "Ready For Images"
 
+            # Targeted re-generation hooks already exist in the underlying pipeline.
+            if scene is not None:
+                self._pipeline.scene_filter = scene
+            if index is not None:
+                self._pipeline.image_filter = index
+
             result = await self._pipeline.run_image_bot()
+
+            # Always reset filters after run
+            self._pipeline.scene_filter = None
+            self._pipeline.image_filter = None
 
             if result.get("error"):
                 raise Exception(result["error"])
+
+            # For targeted runs, keep the current video status stable.
+            if scene is not None:
+                await self._log_activity(bot_name, video_id, "completed", log_msg)
+                return {"status": current_status, "video_id": video_id}
 
             new_status = result.get("new_status", "ready_for_thumbnail")
 
@@ -1064,6 +1093,8 @@ class PipelineExecutor:
             return {"status": to_supabase(new_status), "video_id": video_id}
 
         except Exception as e:
+            self._pipeline.scene_filter = None
+            self._pipeline.image_filter = None
             error_msg = str(e)
             await self._log_activity(bot_name, video_id, "failed", error_msg)
             return {"status": "failed", "error": error_msg}
@@ -1273,4 +1304,3 @@ class PipelineExecutor:
             error_msg = str(e)
             await self._log_activity(bot_name, video_id, "failed", error_msg)
             return {"status": "failed", "error": error_msg}
-
