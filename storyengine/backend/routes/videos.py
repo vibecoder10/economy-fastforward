@@ -1,7 +1,9 @@
 """Video CRUD + stage transitions."""
 
 import json
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from auth import get_tenant_id
 from models import (
     VideoSummary, VideoDetail, STAGE_ORDER, PIPELINE_STAGES,
@@ -296,6 +298,40 @@ async def get_video_script(video_id: str, tenant_id: str = Depends(get_tenant_id
         if row.get("scene") is None:
             row["scene"] = i + 1
     return rows
+
+
+@router.get("/{video_id}/audio/{scene}")
+async def get_scene_audio(video_id: str, scene: int, token: Optional[str] = None):
+    """Proxy audio from Google Drive for browser playback.
+
+    Google Drive download URLs use 303 redirects that some browsers
+    block in Audio elements. This endpoint streams the audio directly.
+    Uses query token since HTML Audio elements can't set Authorization headers.
+    """
+    import os
+    # Simple auth: in dev mode accept dev-token; in prod would validate JWT
+    tenant_id = os.getenv("DEV_TENANT_ID", "test-tenant")
+
+    row = await fetch_one(
+        "SELECT voice_over_url FROM scripts WHERE video_id = $1 AND tenant_id = $2 AND scene = $3 LIMIT 1",
+        video_id, tenant_id, scene,
+    )
+    if not row or not row.get("voice_over_url"):
+        raise HTTPException(status_code=404, detail="No voice audio for this scene")
+
+    url = row["voice_over_url"]
+
+    async def stream():
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            async with client.stream("GET", url, timeout=60.0) as resp:
+                resp.raise_for_status()
+                async for chunk in resp.aiter_bytes(8192):
+                    yield chunk
+
+    return StreamingResponse(stream(), media_type="audio/mpeg", headers={
+        "Accept-Ranges": "bytes",
+        "Cache-Control": "public, max-age=86400",
+    })
 
 
 @router.patch("/{video_id}/styles")

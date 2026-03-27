@@ -537,9 +537,19 @@ export function ScriptVoiceTab({ video }: ScriptVoiceTabProps) {
         return;
       }
 
+      // Use backend audio proxy instead of raw Drive URL (avoids redirect/CORS issues)
+      const scene = scenes.find((s) => s.id === segmentId);
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
+      const token = typeof window !== "undefined" ? localStorage.getItem("token") || "dev-token" : "dev-token";
+      const proxyUrl = `${apiUrl}/api/videos/${video.id}/audio/${scene?.sceneNumber || 1}?token=${token}`;
+
       if (!audioRefs.current[segmentId]) {
-        audioRefs.current[segmentId] = new Audio(voiceOverUrl);
+        audioRefs.current[segmentId] = new Audio(proxyUrl);
         audioRefs.current[segmentId].addEventListener("ended", () => {
+          setActiveSegment(null);
+        });
+        audioRefs.current[segmentId].addEventListener("error", (e) => {
+          console.error("[Audio] Playback error:", e);
           setActiveSegment(null);
         });
       }
@@ -547,10 +557,13 @@ export function ScriptVoiceTab({ video }: ScriptVoiceTabProps) {
       const audio = audioRefs.current[segmentId];
       audio.volume = volume / 100;
       audio.playbackRate = parseFloat(playbackSpeed);
-      audio.play().catch(() => setActiveSegment(null));
+      audio.play().catch((err) => {
+        console.error("[Audio] Play failed:", err);
+        setActiveSegment(null);
+      });
       setActiveSegment(segmentId);
     },
-    [activeSegment, volume, playbackSpeed],
+    [activeSegment, volume, playbackSpeed, scenes, video.id],
   );
 
   useEffect(() => {
