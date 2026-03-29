@@ -585,7 +585,12 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
               value={model}
               onChange={setModel}
               className="mb-3"
+              disabled
+              title="Image model selection is not wired to the production backend yet."
             />
+            <p className="text-[10px] mb-3" style={{ color: "var(--text-tertiary)" }}>
+              Model selection will be enabled once provider overrides are wired end to end.
+            </p>
 
             <div className="space-y-2 mb-3 pt-3" style={{ borderTop: "1px solid var(--border-subtle)" }}>
               <div className="flex items-center justify-between">

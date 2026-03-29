@@ -22,7 +22,7 @@ export function ImageSegmentCard({ asset, videoId, onRefresh }: ImageSegmentCard
     enabled: generating,
     onComplete: () => {
       setGenerating(false);
-      queryClient.invalidateQueries({ queryKey: ["assets", videoId] });
+      queryClient.invalidateQueries({ queryKey: ["video-assets", videoId] });
       onRefresh();
     },
     onFailed: () => {
@@ -192,16 +192,17 @@ export function ImageSegmentCard({ asset, videoId, onRefresh }: ImageSegmentCard
               </button>
               <button
                 onClick={handleVariants}
-                disabled={generating}
+                disabled
                 className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded disabled:opacity-50"
                 style={{
                   border: "1px solid var(--border)",
                   color: "var(--text-secondary)",
                   background: "var(--bg-card-hover)",
                 }}
+                title="Image variants are not wired in the production backend yet."
               >
                 <Star size={11} />
-                3 Variants · $0.075
+                Variants Soon
               </button>
             </>
           )}

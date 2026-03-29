@@ -255,6 +255,8 @@ export function RenderTab({ video }: RenderTabProps) {
               ]}
               value={musicTrack}
               onChange={setMusicTrack}
+              disabled
+              title="Render music selection is not wired to the production backend yet."
             />
             <FilterSelect
               label="Export Format"
@@ -264,7 +266,12 @@ export function RenderTab({ video }: RenderTabProps) {
               ]}
               value={exportFormat}
               onChange={setExportFormat}
+              disabled
+              title="Render export format selection is not wired to the production backend yet."
             />
+            <p className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>
+              Render overrides will be enabled once backend render options are wired end to end.
+            </p>
           </div>
         </GlassCard>
 

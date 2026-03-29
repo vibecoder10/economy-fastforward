@@ -485,6 +485,12 @@ async def run_images(
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
 
+    if variants is not None and variants > 1:
+        raise HTTPException(
+            status_code=501,
+            detail="Image variants are not wired in the production backend yet.",
+        )
+
     if scene is None and not is_at_or_past_stage(video["status"], "ready_for_images"):
         raise HTTPException(
             status_code=400,
