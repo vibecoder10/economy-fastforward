@@ -135,7 +135,7 @@ async def get_video(video_id: str, tenant_id: str = Depends(get_tenant_id)):
                   present_parallel, future_prediction, writer_guidance, thesis, executive_hook,
                   research_payload, original_dna, script, story_bible,
                   thumbnail_url, thumbnail_prompt, thumbnail_style_override,
-                  accent_color, visual_style, image_style_override, image_model_override,
+                  accent_color, visual_style, image_style_override, image_model_override, video_model,
                   video_length_minutes, youtube_url, total_cost, views, ctr, avg_retention,
                   impressions, likes, comments, performance_verdict,
                   created_at::text, updated_at::text
@@ -172,6 +172,7 @@ async def get_video(video_id: str, tenant_id: str = Depends(get_tenant_id)):
         visual_style=r.get("visual_style"),
         image_style_override=r.get("image_style_override"),
         image_model_override=r.get("image_model_override"),
+        video_model=r.get("video_model"),
         video_length_minutes=float(r["video_length_minutes"]) if r.get("video_length_minutes") else None,
         youtube_url=r.get("youtube_url"),
         total_cost=float(r.get("total_cost") or 0),
@@ -341,6 +342,7 @@ async def update_video_styles(
     visual_style: Optional[str] = None,
     accent_color: Optional[str] = None,
     image_model_override: Optional[str] = None,
+    video_model: Optional[str] = None,
     tenant_id: str = Depends(get_tenant_id),
 ):
     """Update video style override fields."""
@@ -372,6 +374,11 @@ async def update_video_styles(
         params.append(image_model_override)
         param_idx += 1
 
+    if video_model is not None:
+        updates.append(f"video_model = ${param_idx}")
+        params.append(video_model)
+        param_idx += 1
+
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
 
@@ -389,6 +396,7 @@ async def update_video_styles(
             "visual_style": visual_style,
             "accent_color": accent_color,
             "image_model_override": image_model_override,
+            "video_model": video_model,
         },
     }
 

@@ -10,7 +10,7 @@ import { SegmentBadge } from "@/components/ui/SegmentBadge";
 import { ProgressRing } from "@/components/ui/ProgressRing";
 import { FilterSelect } from "@/components/ui/FilterSelect";
 import { ActionButton } from "@/components/ui/ActionButton";
-import { getVideoAssets, runPipelineStage, clearStaleTask } from "@/lib/api";
+import { getVideoAssets, runPipelineStage, clearStaleTask, updateVideoStyles } from "@/lib/api";
 import { useTaskPoller } from "@/hooks/use-task-poller";
 import type { VideoDetail, Asset } from "@/lib/api";
 
@@ -32,7 +32,8 @@ interface VideoClipsTabProps {
 
 export function VideoClipsTab({ video }: VideoClipsTabProps) {
   const queryClient = useQueryClient();
-  const [model, setModel] = useState("veo3_fast");
+  const [model, setModel] = useState(video.video_model || "grok-imagine");
+  const [savingModel, setSavingModel] = useState(false);
   const [confirmGenerate, setConfirmGenerate] = useState(false);
   const [isGeneratingPrompts, setIsGeneratingPrompts] = useState(false);
   const [isGeneratingClips, setIsGeneratingClips] = useState(false);
@@ -63,6 +64,17 @@ export function VideoClipsTab({ video }: VideoClipsTabProps) {
     queryFn: () => getVideoAssets(video.id),
   });
 
+  const modelLabels: Record<string, string> = {
+    "grok-imagine": "Grok Imagine",
+    "veo-3.1-fast": "Veo 3.1 Fast",
+    "veo-3.1-quality": "Veo 3.1 Quality",
+    "kling-3.0-pro": "Kling 3.0 Pro",
+    "runway-gen4-turbo": "Runway Gen-4 Turbo",
+    "hailuo-2.3-standard": "Hailuo 2.3 Standard",
+  };
+
+  const selectedModelLabel = modelLabels[model] || model;
+
   // Hero shots first; fallback to all assets with video content or prompts
   const heroShots = assets.filter((a) => a.hero_shot);
   const clips = heroShots.length > 0
@@ -75,6 +87,20 @@ export function VideoClipsTab({ video }: VideoClipsTabProps) {
   const totalCount = clips.length;
   const progressPct = totalCount > 0 ? (doneCount / totalCount) * 100 : 0;
   const estimatedCost = totalCount * 0.3;
+
+  const handleModelChange = useCallback(async (nextModel: string) => {
+    setModel(nextModel);
+    setSavingModel(true);
+    try {
+      await updateVideoStyles(video.id, { video_model: nextModel });
+      queryClient.invalidateQueries({ queryKey: ["video", video.id] });
+    } catch (err) {
+      alert(`Failed to update video model: ${(err as Error).message}`);
+      setModel(video.video_model || "grok-imagine");
+    } finally {
+      setSavingModel(false);
+    }
+  }, [queryClient, video.id, video.video_model]);
 
   const handleGeneratePrompts = useCallback(async () => {
     setIsGeneratingPrompts(true);
@@ -317,16 +343,20 @@ export function VideoClipsTab({ video }: VideoClipsTabProps) {
           <FilterSelect
             label="Video Model"
             options={[
-              { value: "veo3_fast", label: "Veo 3.1 Fast" },
-              { value: "veo3", label: "Veo 3.1 Quality" },
+              { value: "grok-imagine", label: "Grok Imagine" },
+              { value: "veo-3.1-fast", label: "Veo 3.1 Fast" },
+              { value: "veo-3.1-quality", label: "Veo 3.1 Quality" },
+              { value: "kling-3.0-pro", label: "Kling 3.0 Pro" },
+              { value: "runway-gen4-turbo", label: "Runway Gen-4 Turbo" },
+              { value: "hailuo-2.3-standard", label: "Hailuo 2.3 Standard" },
             ]}
             value={model}
-            onChange={setModel}
-            disabled
-            title="Video model selection is not wired to the production backend yet."
+            onChange={handleModelChange}
+            disabled={savingModel}
+            title={savingModel ? "Saving video model override..." : "Choose the clip generation model for this video."}
           />
           <p className="text-[10px] mt-3" style={{ color: "var(--text-tertiary)" }}>
-            Video model selection will be enabled once provider overrides are wired end to end.
+            {savingModel ? "Saving video model override..." : `Saved model: ${selectedModelLabel}`}
           </p>
           <div className="pt-3 mt-3" style={{ borderTop: "1px solid var(--border-subtle)" }}>
             <p className="text-xs font-semibold mb-1" style={{ color: "var(--text-secondary)" }}>
