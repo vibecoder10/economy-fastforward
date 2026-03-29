@@ -954,7 +954,7 @@ class PipelineExecutor:
             return {"status": to_supabase(new_status), "video_id": video_id}
 
         except Exception as e:
-            error_msg = str(e)
+            error_msg = str(e) or e.__class__.__name__
             await self._log_activity(bot_name, video_id, "failed", error_msg)
             return {"status": "failed", "error": error_msg}
 
@@ -987,7 +987,7 @@ class PipelineExecutor:
             return {"status": to_supabase(new_status), "video_id": video_id}
 
         except Exception as e:
-            error_msg = str(e)
+            error_msg = str(e) or e.__class__.__name__
             await self._log_activity(bot_name, video_id, "failed", error_msg)
             return {"status": "failed", "error": error_msg}
 
@@ -1020,7 +1020,7 @@ class PipelineExecutor:
             return {"status": to_supabase(new_status), "video_id": video_id}
 
         except Exception as e:
-            error_msg = str(e)
+            error_msg = str(e) or e.__class__.__name__
             await self._log_activity(bot_name, video_id, "failed", error_msg)
             return {"status": "failed", "error": error_msg}
 

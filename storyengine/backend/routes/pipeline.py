@@ -52,7 +52,12 @@ _running_tasks: dict[str, dict] = {}
 _STALE_TASK_SECONDS = 600
 
 
-def _set_task_status(video_id: str, status: str, message: Optional[str] = None):
+def _set_task_status(
+    video_id: str,
+    status: str,
+    message: Optional[str] = None,
+    error: Optional[str] = None,
+):
     """Update task status for polling.
 
     Normalizes status to: running | completed | failed
@@ -62,9 +67,14 @@ def _set_task_status(video_id: str, status: str, message: Optional[str] = None):
         normalized = "completed"
     else:
         normalized = status
+    resolved_error = error
+    resolved_message = message
+    if normalized == "failed" and not resolved_error:
+        resolved_error = message
     _running_tasks[video_id] = {
         "status": normalized,
-        "message": message,
+        "message": resolved_message,
+        "error": resolved_error,
         "started_at": _running_tasks.get(video_id, {}).get("started_at", _time.time()),
     }
 
@@ -370,9 +380,14 @@ async def run_storyboards(
         try:
             executor = PipelineExecutor(tenant_id)
             result = await executor.run_storyboard_prompts(video_id)
-            _set_task_status(video_id, result.get("status", "unknown"), result.get("error"))
+            _set_task_status(
+                video_id,
+                result.get("status", "unknown"),
+                result.get("message") or result.get("error"),
+                result.get("error"),
+            )
         except Exception as e:
-            _set_task_status(video_id, "failed", str(e))
+            _set_task_status(video_id, "failed", str(e), str(e))
         finally:
             await asyncio.sleep(30)
             _clear_task_status(video_id)
@@ -411,9 +426,14 @@ async def run_storyboard_images(
         try:
             executor = PipelineExecutor(tenant_id)
             result = await executor.run_storyboard_images(video_id)
-            _set_task_status(video_id, result.get("status", "unknown"), result.get("error"))
+            _set_task_status(
+                video_id,
+                result.get("status", "unknown"),
+                result.get("message") or result.get("error"),
+                result.get("error"),
+            )
         except Exception as e:
-            _set_task_status(video_id, "failed", str(e))
+            _set_task_status(video_id, "failed", str(e), str(e))
         finally:
             await asyncio.sleep(30)
             _clear_task_status(video_id)
@@ -452,9 +472,14 @@ async def run_storyboard_extract(
         try:
             executor = PipelineExecutor(tenant_id)
             result = await executor.run_storyboard_extract(video_id)
-            _set_task_status(video_id, result.get("status", "unknown"), result.get("error"))
+            _set_task_status(
+                video_id,
+                result.get("status", "unknown"),
+                result.get("message") or result.get("error"),
+                result.get("error"),
+            )
         except Exception as e:
-            _set_task_status(video_id, "failed", str(e))
+            _set_task_status(video_id, "failed", str(e), str(e))
         finally:
             await asyncio.sleep(30)
             _clear_task_status(video_id)
@@ -891,8 +916,12 @@ async def get_task_status(
     """
     task = _get_task_status(video_id)
     if not task:
-        return {"status": "idle", "message": None}
-    return {"status": task["status"], "message": task.get("message")}
+        return {"status": "idle", "message": None, "error": None}
+    return {
+        "status": task["status"],
+        "message": task.get("message"),
+        "error": task.get("error"),
+    }
 
 
 @router.get("/task/{video_id}/clear")
