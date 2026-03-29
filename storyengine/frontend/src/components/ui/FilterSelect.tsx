@@ -8,9 +8,11 @@ interface FilterSelectProps {
   onChange: (value: string) => void;
   label?: string;
   className?: string;
+  disabled?: boolean;
+  title?: string;
 }
 
-export function FilterSelect({ options, value, onChange, label, className }: FilterSelectProps) {
+export function FilterSelect({ options, value, onChange, label, className, disabled = false, title }: FilterSelectProps) {
   return (
     <div className={cn("flex flex-col gap-1", className)}>
       {label && (
@@ -21,11 +23,15 @@ export function FilterSelect({ options, value, onChange, label, className }: Fil
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        disabled={disabled}
+        title={title}
         className="px-3 py-2 rounded-lg text-sm font-body outline-none transition-all"
         style={{
           background: "var(--bg-elevated)",
-          color: "var(--text-primary)",
+          color: disabled ? "var(--text-tertiary)" : "var(--text-primary)",
           border: "1px solid var(--border)",
+          opacity: disabled ? 0.65 : 1,
+          cursor: disabled ? "not-allowed" : "pointer",
         }}
         onFocus={(e) => (e.target.style.borderColor = "var(--turquoise)")}
         onBlur={(e) => (e.target.style.borderColor = "var(--border)")}

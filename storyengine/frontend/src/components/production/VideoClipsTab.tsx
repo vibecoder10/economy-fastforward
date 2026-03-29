@@ -322,7 +322,12 @@ export function VideoClipsTab({ video }: VideoClipsTabProps) {
             ]}
             value={model}
             onChange={setModel}
+            disabled
+            title="Video model selection is not wired to the production backend yet."
           />
+          <p className="text-[10px] mt-3" style={{ color: "var(--text-tertiary)" }}>
+            Video model selection will be enabled once provider overrides are wired end to end.
+          </p>
           <div className="pt-3 mt-3" style={{ borderTop: "1px solid var(--border-subtle)" }}>
             <p className="text-xs font-semibold mb-1" style={{ color: "var(--text-secondary)" }}>
               Estimated Cost

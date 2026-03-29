@@ -454,7 +454,12 @@ export function VisualsTab({ video }: VisualsTabProps) {
             value={model}
             onChange={setModel}
             className="mb-3"
+            disabled
+            title="Image model selection is not wired to the production backend yet."
           />
+          <p className="text-[10px] mb-3" style={{ color: "var(--text-tertiary)" }}>
+            Model selection will be enabled once provider overrides are wired end to end.
+          </p>
 
           <div className="pt-3" style={{ borderTop: "1px solid var(--border-subtle)" }}>
             <p className="text-xs font-semibold mb-1" style={{ color: "var(--text-secondary)" }}>
