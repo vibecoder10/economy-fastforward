@@ -485,10 +485,10 @@ async def run_images(
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
 
-    if variants is not None and variants > 1:
+    if variants is not None and variants > 1 and (scene is None or index is None):
         raise HTTPException(
-            status_code=501,
-            detail="Image variants are not wired in the production backend yet.",
+            status_code=400,
+            detail="Image variants require both scene and index.",
         )
 
     if scene is None and not is_at_or_past_stage(video["status"], "ready_for_images"):
@@ -505,7 +505,10 @@ async def run_images(
     async def _run():
         try:
             executor = PipelineExecutor(tenant_id)
-            result = await executor.run_images(video_id, scene=scene, index=index)
+            if variants is not None and variants > 1:
+                result = await executor.run_image_variants(video_id, scene=scene, index=index, variants=variants)
+            else:
+                result = await executor.run_images(video_id, scene=scene, index=index)
             _set_task_status(video_id, result.get("status", "unknown"), result.get("error"))
         except Exception as e:
             _set_task_status(video_id, "failed", str(e))
@@ -515,7 +518,9 @@ async def run_images(
 
     background_tasks.add_task(_run)
 
-    if scene is not None and index is not None:
+    if variants is not None and variants > 1 and scene is not None and index is not None:
+        msg = f"Generating {variants} image variants for scene {scene} segment {index}"
+    elif scene is not None and index is not None:
         msg = f"Generating image for scene {scene} segment {index}"
     elif scene is not None:
         msg = f"Generating images for scene {scene}"
