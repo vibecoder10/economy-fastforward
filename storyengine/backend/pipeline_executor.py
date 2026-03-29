@@ -14,6 +14,7 @@ Usage:
 import os
 import sys
 import asyncio
+import uuid
 from datetime import datetime, timezone
 from typing import Optional, Any
 from pathlib import Path
@@ -1095,6 +1096,137 @@ class PipelineExecutor:
         except Exception as e:
             self._pipeline.scene_filter = None
             self._pipeline.image_filter = None
+            error_msg = str(e)
+            await self._log_activity(bot_name, video_id, "failed", error_msg)
+            return {"status": "failed", "error": error_msg}
+
+    async def run_image_variants(self, video_id: str, scene: int, index: int, variants: int = 3) -> dict:
+        """Generate image variants for a single scene/index without affecting primary assets."""
+        await self._ensure_initialized()
+        bot_name = "Image Variant Bot"
+
+        if not self._pipeline.image_client:
+            return {"status": "failed", "error": "Image client not available"}
+
+        try:
+            video = await self._get_video(video_id)
+            if not video:
+                return {"status": "failed", "error": "Video not found"}
+
+            asset = await fetch_one(
+                """SELECT id, sentence_index, sentence_text, image_prompt, shot_type, hero_shot
+                   FROM assets
+                   WHERE video_id = $1 AND tenant_id = $2 AND scene = $3 AND image_index = $4
+                     AND (generation_method IS NULL OR generation_method <> 'variant_candidate')
+                   ORDER BY created_at
+                   LIMIT 1""",
+                video_id, self.tenant_id, scene, index,
+            )
+            if not asset:
+                return {"status": "failed", "error": f"Base asset not found for scene {scene} image {index}"}
+
+            prompt = asset.get("image_prompt")
+            if not prompt:
+                return {"status": "failed", "error": "Base asset has no image prompt"}
+
+            await self._log_activity(
+                bot_name,
+                video_id,
+                "started",
+                f"Generating {variants} variant(s) for scene {scene} image {index}",
+            )
+
+            self._load_idea_from_video(video_id)
+
+            from orchestrator.pipeline_constants import Models
+            from shared.clients.image_client import ImageClient
+            from shared.clients.airtable_client import get_image_model_override
+
+            model_override = get_image_model_override(self._pipeline.current_idea or {})
+            if model_override and model_override not in ImageClient.VALID_SCENE_MODELS:
+                model_override = ""
+
+            use_reference = bool(self._pipeline.core_image_url) and model_override != Models.IMAGE_ZIMAGE
+
+            existing = await fetch_one(
+                """SELECT COALESCE(MAX(panel_position), 0) AS max_variant
+                   FROM assets
+                   WHERE video_id = $1 AND tenant_id = $2 AND scene = $3 AND image_index = $4
+                     AND generation_method = 'variant_candidate'""",
+                video_id, self.tenant_id, scene, index,
+            )
+            next_variant_position = int(existing.get("max_variant") or 0) + 1
+            created = 0
+
+            for offset in range(variants):
+                if model_override == Models.IMAGE_ZIMAGE:
+                    result = await self._pipeline.image_client.generate_scene_image_zimage(prompt, aspect_ratio="16:9")
+                elif use_reference:
+                    result = await self._pipeline.image_client.generate_scene_image(prompt, self._pipeline.core_image_url)
+                else:
+                    result_urls = await self._pipeline.image_client.generate_and_wait(prompt, aspect_ratio="16:9")
+                    result = {"url": result_urls[0]} if result_urls else None
+
+                if not result or not result.get("url"):
+                    continue
+
+                image_url = result["url"]
+                drive_download_url = None
+                try:
+                    image_content = await self._pipeline.image_client.download_image(image_url)
+                    filename = (
+                        f"Scene_{str(scene).zfill(2)}_{str(index).zfill(2)}"
+                        f"_variant_{str(next_variant_position + offset).zfill(2)}.png"
+                    )
+                    drive_file = self._pipeline.google.upload_image(
+                        image_content, filename, self._pipeline.project_folder_id
+                    )
+                    if drive_file and drive_file.get("id"):
+                        drive_download_url = self._pipeline.google.make_file_public(drive_file["id"])
+                except Exception as drive_err:
+                    print(f"      ⚠️ Variant Drive upload failed: {drive_err}", flush=True)
+
+                await execute(
+                    """INSERT INTO assets (
+                        id, tenant_id, video_id, video_title, scene, image_index, sentence_index,
+                        sentence_text, image_prompt, shot_type, hero_shot, image_url, drive_image_url,
+                        status, generation_method, panel_position, created_at, updated_at
+                    ) VALUES (
+                        $1, $2, $3, $4, $5, $6, $7,
+                        $8, $9, $10, $11, $12, $13,
+                        $14, $15, $16, now(), now()
+                    )""",
+                    str(uuid.uuid4()),
+                    self.tenant_id,
+                    video_id,
+                    video.get("video_title"),
+                    scene,
+                    index,
+                    asset.get("sentence_index") or index,
+                    asset.get("sentence_text"),
+                    prompt,
+                    asset.get("shot_type"),
+                    asset.get("hero_shot") or False,
+                    image_url,
+                    drive_download_url,
+                    "Done",
+                    "variant_candidate",
+                    next_variant_position + offset,
+                )
+                created += 1
+
+            if created == 0:
+                raise Exception("No image variants were generated successfully")
+
+            await self._log_activity(
+                bot_name,
+                video_id,
+                "completed",
+                f"Generated {created} variant(s) for scene {scene} image {index}",
+            )
+            return {"status": video.get("status"), "video_id": video_id, "variants_created": created}
+
+        except Exception as e:
             error_msg = str(e)
             await self._log_activity(bot_name, video_id, "failed", error_msg)
             return {"status": "failed", "error": error_msg}

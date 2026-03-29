@@ -59,6 +59,11 @@ export const rejectVideo = (id: string, reason?: string) =>
 
 export const getVideoAssets = (id: string) => fetchApi<Asset[]>(`/api/videos/${id}/assets`);
 
+export const getImageVariants = (videoId: string, scene: number, index: number) =>
+  fetchApi<ImageVariant[]>(
+    `/api/videos/${videoId}/assets/variants?scene=${scene}&index=${index}`
+  );
+
 export const getVideoScript = (id: string) => fetchApi<ScriptScene[]>(`/api/videos/${id}/script`);
 
 // Assets
@@ -463,6 +468,23 @@ export interface Asset {
   sound_prompt: string | null;
   sound_effect_url: string | null;
   sound_volume: number | null;
+  created_at: string | null;
+}
+
+export interface ImageVariant {
+  id: string;
+  video_id: string | null;
+  scene: number | null;
+  image_index: number | null;
+  image_url: string | null;
+  drive_image_url?: string | null;
+  image_prompt: string | null;
+  status: string | null;
+  shot_type: string | null;
+  hero_shot: boolean;
+  sentence_text: string | null;
+  panel_position?: number | null;
+  generation_method?: string | null;
   created_at: string | null;
 }
 

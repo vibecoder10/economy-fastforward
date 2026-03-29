@@ -276,8 +276,30 @@ async def get_video_assets(video_id: str, tenant_id: str = Depends(get_tenant_id
                   duration_seconds,
                   created_at::text
            FROM assets WHERE video_id = $1 AND tenant_id = $2
+             AND (generation_method IS NULL OR generation_method <> 'variant_candidate')
            ORDER BY scene, image_index""",
         video_id, tenant_id,
+    )
+    return rows
+
+
+@router.get("/{video_id}/assets/variants")
+async def get_video_asset_variants(
+    video_id: str,
+    scene: int = Query(...),
+    index: int = Query(...),
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """Get variant candidate assets for a specific scene/index."""
+    rows = await fetch_all(
+        """SELECT id, video_id, scene, image_index, image_url, drive_image_url, image_prompt,
+                  status, shot_type, hero_shot, sentence_text, panel_position,
+                  generation_method, created_at::text
+           FROM assets
+           WHERE video_id = $1 AND tenant_id = $2 AND scene = $3 AND image_index = $4
+             AND generation_method = 'variant_candidate'
+           ORDER BY panel_position, created_at""",
+        video_id, tenant_id, scene, index,
     )
     return rows
 
@@ -508,6 +530,7 @@ async def get_scene_segments(
         "SELECT id, image_index, sentence_text, shot_type, status, "
         "duration_seconds, image_prompt "
         "FROM assets WHERE video_id = $1 AND scene = $2 AND tenant_id = $3 "
+        "AND (generation_method IS NULL OR generation_method <> 'variant_candidate') "
         "ORDER BY image_index",
         video_id, scene, tenant_id,
     )
@@ -541,7 +564,8 @@ async def update_scene_segments(
     for seg in body.segments:
         result = await execute(
             "UPDATE assets SET sentence_text = $1, updated_at = now() "
-            "WHERE video_id = $2 AND scene = $3 AND image_index = $4 AND tenant_id = $5",
+            "WHERE video_id = $2 AND scene = $3 AND image_index = $4 AND tenant_id = $5 "
+            "AND (generation_method IS NULL OR generation_method <> 'variant_candidate')",
             seg["sentence_text"], video_id, scene, seg["image_index"], tenant_id,
         )
         if result and "UPDATE 1" in result:

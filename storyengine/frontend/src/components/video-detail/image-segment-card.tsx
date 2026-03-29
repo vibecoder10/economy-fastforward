@@ -2,10 +2,10 @@
 
 import { useState } from "react";
 import { Loader2, RefreshCw, Image as ImageIcon, Star } from "lucide-react";
-import { Asset, runImageForSegment, runImageVariants } from "@/lib/api";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Asset, getImageVariants, runImageForSegment, runImageVariants } from "@/lib/api";
 import { PromptExpander } from "./prompt-expander";
 import { useTaskPoller } from "@/hooks/use-task-poller";
-import { useQueryClient } from "@tanstack/react-query";
 
 interface ImageSegmentCardProps {
   asset: Asset;
@@ -16,6 +16,14 @@ interface ImageSegmentCardProps {
 export function ImageSegmentCard({ asset, videoId, onRefresh }: ImageSegmentCardProps) {
   const [generating, setGenerating] = useState(false);
   const queryClient = useQueryClient();
+  const scene = asset.scene;
+  const imageIndex = asset.image_index;
+
+  const { data: variants = [] } = useQuery({
+    queryKey: ["image-variants", videoId, scene, imageIndex],
+    queryFn: () => getImageVariants(videoId, scene as number, imageIndex as number),
+    enabled: scene != null && imageIndex != null,
+  });
 
   useTaskPoller({
     videoId,
@@ -23,6 +31,7 @@ export function ImageSegmentCard({ asset, videoId, onRefresh }: ImageSegmentCard
     onComplete: () => {
       setGenerating(false);
       queryClient.invalidateQueries({ queryKey: ["video-assets", videoId] });
+      queryClient.invalidateQueries({ queryKey: ["image-variants", videoId, scene, imageIndex] });
       onRefresh();
     },
     onFailed: () => {
@@ -31,9 +40,9 @@ export function ImageSegmentCard({ asset, videoId, onRefresh }: ImageSegmentCard
   });
 
   const handleGenerate = async () => {
-    if (asset.scene == null || asset.image_index == null) return;
+    if (scene == null || imageIndex == null) return;
     try {
-      await runImageForSegment(videoId, asset.scene, asset.image_index);
+      await runImageForSegment(videoId, scene, imageIndex);
       setGenerating(true);
     } catch (err) {
       console.error("Failed to start image generation", err);
@@ -41,9 +50,9 @@ export function ImageSegmentCard({ asset, videoId, onRefresh }: ImageSegmentCard
   };
 
   const handleVariants = async () => {
-    if (asset.scene == null || asset.image_index == null) return;
+    if (scene == null || imageIndex == null) return;
     try {
-      await runImageVariants(videoId, asset.scene, asset.image_index);
+      await runImageVariants(videoId, scene, imageIndex);
       setGenerating(true);
     } catch (err) {
       console.error("Failed to start variants generation", err);
@@ -192,21 +201,49 @@ export function ImageSegmentCard({ asset, videoId, onRefresh }: ImageSegmentCard
               </button>
               <button
                 onClick={handleVariants}
-                disabled
+                disabled={generating}
                 className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded disabled:opacity-50"
                 style={{
                   border: "1px solid var(--border)",
                   color: "var(--text-secondary)",
                   background: "var(--bg-card-hover)",
                 }}
-                title="Image variants are not wired in the production backend yet."
               >
                 <Star size={11} />
-                Variants Soon
+                3 Variants · $0.075
               </button>
             </>
           )}
         </div>
+
+        {variants.length > 0 && (
+          <div className="flex gap-2 flex-wrap pt-1">
+            {variants.map((variant) => (
+              <a
+                key={variant.id}
+                href={variant.drive_image_url || variant.image_url || "#"}
+                target="_blank"
+                rel="noreferrer"
+                className="block rounded overflow-hidden"
+                style={{
+                  width: 72,
+                  height: 40,
+                  border: "1px solid var(--border)",
+                  background: "var(--bg-card-hover)",
+                }}
+                title={`Variant ${variant.panel_position || "?"}`}
+              >
+                {variant.image_url ? (
+                  <img
+                    src={variant.image_url}
+                    alt={`Variant ${variant.panel_position || ""}`}
+                    className="w-full h-full object-cover"
+                  />
+                ) : null}
+              </a>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
