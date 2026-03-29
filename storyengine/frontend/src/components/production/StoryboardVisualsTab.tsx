@@ -16,7 +16,7 @@ import { FilterSelect } from "@/components/ui/FilterSelect";
 import { ActionButton } from "@/components/ui/ActionButton";
 import {
   getVideoScript, getVideoAssets, updateStoryboardMode,
-  runPipelineStage, updateSceneSegments, runImageForSegment, clearStaleTask,
+  runPipelineStage, updateSceneSegments, runImageForSegment, clearStaleTask, updateVideoStyles,
 } from "@/lib/api";
 import { useTaskPoller } from "@/hooks/use-task-poller";
 import type { VideoDetail, ScriptScene as ApiScriptScene, Asset } from "@/lib/api";
@@ -125,7 +125,8 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
   const [regeneratingSegment, setRegeneratingSegment] = useState<string | null>(null);
   const [generatingAll, setGeneratingAll] = useState(false);
   const [generatingPrompts, setGeneratingPrompts] = useState(false);
-  const [model, setModel] = useState("nano-banana-2");
+  const [model, setModel] = useState(video.image_model_override || "nano-banana-2");
+  const [savingModel, setSavingModel] = useState(false);
   const [taskRunning, setTaskRunning] = useState(false);
 
   const { message: taskMessage } = useTaskPoller({
@@ -152,6 +153,10 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
       setScenes(computedScenes);
     }
   }, [computedScenes, scenes.length]);
+
+  useEffect(() => {
+    setModel(video.image_model_override || "nano-banana-2");
+  }, [video.image_model_override]);
 
   const totalSegments = scenes.reduce((sum, s) => sum + s.segments.length, 0);
   const doneSegments = scenes.reduce(
@@ -236,6 +241,20 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
       setGeneratingAll(false);
     }
   }, [runStageWith409Retry]);
+
+  const handleModelChange = useCallback(async (nextModel: string) => {
+    setModel(nextModel);
+    setSavingModel(true);
+    try {
+      await updateVideoStyles(video.id, { image_model_override: nextModel });
+      queryClient.invalidateQueries({ queryKey: ["video", video.id] });
+    } catch (err) {
+      alert(`Failed to update image model: ${(err as Error).message}`);
+      setModel(video.image_model_override || "nano-banana-2");
+    } finally {
+      setSavingModel(false);
+    }
+  }, [queryClient, video.id, video.image_model_override]);
 
   // Group by act
   const actGroups = scenes.reduce<Record<number, SceneGroup[]>>((acc, scene) => {
@@ -580,16 +599,16 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
               label="Model"
               options={[
                 { value: "nano-banana-2", label: "Nano Banana 2" },
-                { value: "seed-dream-4.5", label: "Seed Dream 4.5" },
+                { value: "z-image", label: "Z Image" },
               ]}
               value={model}
-              onChange={setModel}
+              onChange={handleModelChange}
               className="mb-3"
-              disabled
-              title="Image model selection is not wired to the production backend yet."
+              disabled={savingModel}
+              title={savingModel ? "Saving image model override..." : "Choose the image generation model for this video."}
             />
             <p className="text-[10px] mb-3" style={{ color: "var(--text-tertiary)" }}>
-              Model selection will be enabled once provider overrides are wired end to end.
+              {savingModel ? "Saving model override..." : "This override is saved on the video and used by image generation."}
             </p>
 
             <div className="space-y-2 mb-3 pt-3" style={{ borderTop: "1px solid var(--border-subtle)" }}>
