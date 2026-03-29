@@ -1,9 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { Loader2, RefreshCw, Image as ImageIcon, Star } from "lucide-react";
+import { Check, Loader2, RefreshCw, Image as ImageIcon, Star } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Asset, getImageVariants, runImageForSegment, runImageVariants } from "@/lib/api";
+import { Asset, getImageVariants, promoteVariantAsset, runImageForSegment, runImageVariants } from "@/lib/api";
 import { PromptExpander } from "./prompt-expander";
 import { useTaskPoller } from "@/hooks/use-task-poller";
 
@@ -15,6 +15,7 @@ interface ImageSegmentCardProps {
 
 export function ImageSegmentCard({ asset, videoId, onRefresh }: ImageSegmentCardProps) {
   const [generating, setGenerating] = useState(false);
+  const [promotingId, setPromotingId] = useState<string | null>(null);
   const queryClient = useQueryClient();
   const scene = asset.scene;
   const imageIndex = asset.image_index;
@@ -60,6 +61,20 @@ export function ImageSegmentCard({ asset, videoId, onRefresh }: ImageSegmentCard
   };
 
   const hasImage = !!asset.image_url;
+
+  const handlePromoteVariant = async (variantId: string) => {
+    setPromotingId(variantId);
+    try {
+      await promoteVariantAsset(variantId);
+      queryClient.invalidateQueries({ queryKey: ["video-assets", videoId] });
+      queryClient.invalidateQueries({ queryKey: ["image-variants", videoId, scene, imageIndex] });
+      onRefresh();
+    } catch (err) {
+      console.error("Failed to promote variant", err);
+    } finally {
+      setPromotingId(null);
+    }
+  };
 
   return (
     <div
@@ -219,28 +234,46 @@ export function ImageSegmentCard({ asset, videoId, onRefresh }: ImageSegmentCard
         {variants.length > 0 && (
           <div className="flex gap-2 flex-wrap pt-1">
             {variants.map((variant) => (
-              <a
+              <div
                 key={variant.id}
-                href={variant.drive_image_url || variant.image_url || "#"}
-                target="_blank"
-                rel="noreferrer"
-                className="block rounded overflow-hidden"
-                style={{
-                  width: 72,
-                  height: 40,
-                  border: "1px solid var(--border)",
-                  background: "var(--bg-card-hover)",
-                }}
-                title={`Variant ${variant.panel_position || "?"}`}
+                className="flex flex-col gap-1"
               >
-                {variant.image_url ? (
-                  <img
-                    src={variant.image_url}
-                    alt={`Variant ${variant.panel_position || ""}`}
-                    className="w-full h-full object-cover"
-                  />
-                ) : null}
-              </a>
+                <a
+                  href={variant.drive_image_url || variant.image_url || "#"}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="block rounded overflow-hidden"
+                  style={{
+                    width: 72,
+                    height: 40,
+                    border: "1px solid var(--border)",
+                    background: "var(--bg-card-hover)",
+                  }}
+                  title={`Variant ${variant.panel_position || "?"}`}
+                >
+                  {variant.image_url ? (
+                    <img
+                      src={variant.image_url}
+                      alt={`Variant ${variant.panel_position || ""}`}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : null}
+                </a>
+                <button
+                  onClick={() => handlePromoteVariant(variant.id)}
+                  disabled={promotingId === variant.id}
+                  className="flex items-center justify-center gap-1 text-[10px] px-2 py-1 rounded disabled:opacity-50"
+                  style={{
+                    border: "1px solid var(--border)",
+                    color: "var(--text-secondary)",
+                    background: "var(--bg-card-hover)",
+                  }}
+                  title="Replace the primary scene image with this variant"
+                >
+                  {promotingId === variant.id ? <Loader2 size={10} className="animate-spin" /> : <Check size={10} />}
+                  Pick
+                </button>
+              </div>
             ))}
           </div>
         )}

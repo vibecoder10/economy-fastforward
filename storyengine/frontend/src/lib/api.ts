@@ -79,6 +79,12 @@ export const batchApproveAssets = (assetIds: string[], status: "approved" | "rej
     body: JSON.stringify({ asset_ids: assetIds, status }),
   });
 
+export const promoteVariantAsset = (id: string) =>
+  fetchApi<{ status: string; asset_id: string; variant_id: string }>(
+    `/api/assets/${id}/promote-variant`,
+    { method: "POST" }
+  );
+
 // Review
 export const getPendingReview = () => fetchApi<PendingReview>("/api/review/pending");
 
