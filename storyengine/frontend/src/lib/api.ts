@@ -194,7 +194,7 @@ export const getPipelineTaskStatus = (videoId: string) =>
 // Video Style Updates
 export const updateVideoStyles = (
   videoId: string,
-  styles: { visual_style?: string; accent_color?: string; image_model_override?: string }
+  styles: { visual_style?: string; accent_color?: string; image_model_override?: string; video_model?: string }
 ) =>
   fetchApi<StyleUpdateResponse>(`/api/videos/${videoId}/styles?${new URLSearchParams(
     Object.entries(styles).filter(([, v]) => v !== undefined) as [string, string][]
@@ -410,6 +410,7 @@ export interface VideoDetail extends VideoSummary {
   visual_style: string | null;
   image_style_override: string | null;
   image_model_override: string | null;
+  video_model: string | null;
   video_length_minutes: number | null;
   youtube_url: string | null;
   avg_retention: number | null;
