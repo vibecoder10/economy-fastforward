@@ -1,14 +1,14 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { Check, Loader2, Image as ImageIcon, RefreshCw } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { StatusPill } from "@/components/ui/StatusPill";
-import { ActionButton } from "@/components/ui/ActionButton";
 import { getVideoScript, runPipelineStage, advanceVideo, clearStaleTask } from "@/lib/api";
 import { useTaskPoller } from "@/hooks/use-task-poller";
 import type { ScriptScene } from "@/lib/api";
+import { PromptExpander } from "@/components/video-detail/prompt-expander";
 
 interface StoryboardTabProps {
   video: any;
@@ -17,10 +17,12 @@ interface StoryboardTabProps {
 interface StoryboardSceneData {
   sceneNumber: number;
   narrationText: string;
+  storyboardPrompt: string | null;
   panels: { id: string; url: string | null }[];
   selectedPanel: number;
   approved: boolean;
   hasAnyPanels: boolean;
+  hasPrompt: boolean;
 }
 
 function buildScenes(scriptScenes: ScriptScene[]): StoryboardSceneData[] {
@@ -34,10 +36,12 @@ function buildScenes(scriptScenes: ScriptScene[]): StoryboardSceneData[] {
     return {
       sceneNumber: s.scene || 0,
       narrationText: s.scene_text || "",
+      storyboardPrompt: s.storyboard_prompts,
       panels,
       selectedPanel: 0,
       approved: false,
       hasAnyPanels,
+      hasPrompt: !!s.storyboard_prompts,
     };
   });
 }
@@ -76,10 +80,25 @@ export function StoryboardTab({ video }: StoryboardTabProps) {
 
   const [scenes, setScenes] = useState<StoryboardSceneData[]>([]);
 
-  // Sync computed → local state when data arrives
-  if (computed.length > 0 && scenes.length === 0) {
-    setScenes(computed);
-  }
+  useEffect(() => {
+    if (computed.length === 0) {
+      setScenes([]);
+      return;
+    }
+
+    setScenes((prev) =>
+      computed.map((scene) => {
+        const existing = prev.find((s) => s.sceneNumber === scene.sceneNumber);
+        return existing
+          ? {
+              ...scene,
+              selectedPanel: existing.selectedPanel,
+              approved: existing.approved,
+            }
+          : scene;
+      })
+    );
+  }, [computed]);
 
   const selectPanel = (sceneIdx: number, panelIdx: number) => {
     setScenes((prev) =>
@@ -128,6 +147,7 @@ export function StoryboardTab({ video }: StoryboardTabProps) {
 
   const approvedCount = scenes.filter((s) => s.approved).length;
   const totalWithPanels = scenes.filter((s) => s.hasAnyPanels).length;
+  const totalWithPrompts = scenes.filter((s) => s.hasPrompt).length;
 
   if (isLoading) {
     return (
@@ -152,8 +172,8 @@ export function StoryboardTab({ video }: StoryboardTabProps) {
     );
   }
 
-  // No storyboard panels generated yet
-  if (totalWithPanels === 0) {
+  // No storyboard prompt/image output generated yet
+  if (totalWithPanels === 0 && totalWithPrompts === 0) {
     return (
       <GlassCard className="p-8 text-center">
         <ImageIcon size={24} className="mx-auto mb-3" style={{ color: "var(--text-tertiary)" }} />
@@ -183,6 +203,11 @@ export function StoryboardTab({ video }: StoryboardTabProps) {
           <span className="text-sm" style={{ color: "var(--text-secondary)" }}>
             Approved: {approvedCount}/{scenes.length}
           </span>
+          {totalWithPrompts > 0 && totalWithPanels === 0 && (
+            <span className="text-xs" style={{ color: "var(--text-tertiary)" }}>
+              Storyboard prompts generated. Generate storyboard images next to create grids.
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -224,6 +249,11 @@ export function StoryboardTab({ video }: StoryboardTabProps) {
             </div>
 
             <div className="flex-1">
+              {scene.storyboardPrompt && (
+                <div className="mb-3">
+                  <PromptExpander prompt={scene.storyboardPrompt} label="Storyboard Prompt" previewLength={120} />
+                </div>
+              )}
               <div className="grid grid-cols-3 gap-2">
                 {scene.panels.map((panel, panelIdx) => {
                   const isSelected = scene.selectedPanel === panelIdx;
