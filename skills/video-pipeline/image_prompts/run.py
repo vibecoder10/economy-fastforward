@@ -100,16 +100,35 @@ async def run(pipeline) -> dict:
     )
     visual_seeds = _get_visual_seeds(pipeline.current_idea)
 
-    # Check which scenes already have image records (for resume)
+    # Check which scenes already have image records (for resume/update)
     existing_images = pipeline.airtable.get_all_images_for_video(pipeline.video_title)
-    existing_scenes: set[int] = set()
+    existing_images_by_scene: dict[int, list[dict]] = {}
+    existing_images_by_scene_and_index: dict[tuple[int, int], dict] = {}
+    completed_scenes: set[int] = set()
+
     for img in existing_images:
         scene_num = img.get(ImageFields.SCENE)
-        if scene_num is not None:
-            existing_scenes.add(int(scene_num))
+        image_idx = img.get(ImageFields.IMAGE_INDEX)
+        if scene_num is None:
+            continue
 
-    if existing_scenes:
-        print(f"  Found existing records for scenes {sorted(existing_scenes)} — will skip")
+        scene_num = int(scene_num)
+        existing_images_by_scene.setdefault(scene_num, []).append(img)
+
+        if image_idx is not None:
+            existing_images_by_scene_and_index[(scene_num, int(image_idx))] = img
+
+    for scene_num, scene_images in existing_images_by_scene.items():
+        if scene_images and all((img.get(ImageFields.IMAGE_PROMPT) or "").strip() for img in scene_images):
+            completed_scenes.add(scene_num)
+
+    if existing_images_by_scene:
+        completed = sorted(completed_scenes)
+        pending = sorted(scene for scene in existing_images_by_scene if scene not in completed_scenes)
+        if completed:
+            print(f"  Found completed prompt records for scenes {completed} — will resume past them")
+        if pending:
+            print(f"  Found existing image rows without prompts for scenes {pending} — will fill them")
 
     # ---------------------------------------------------------------
     # Pre-generate style assignments for all images using sequencer
@@ -139,10 +158,16 @@ async def run(pipeline) -> dict:
         _active_profile is not None
         and _active_profile.profile_id not in ("holographic_hud",)
     )
+    needs_prompt_backfill = any(
+        scene not in completed_scenes
+        for scene in existing_images_by_scene
+    )
 
     if uses_story_bible:
         story_bible = _load_or_generate_story_bible(pipeline, scripts)
-        if story_bible is None:
+        if story_bible is None and needs_prompt_backfill:
+            print("  📖 Skipping Story Bible generation during prompt backfill — filling existing image rows first")
+        elif story_bible is None:
             story_bible = await _generate_story_bible(pipeline, scripts)
 
     # ---------------------------------------------------------------
@@ -168,23 +193,24 @@ async def run(pipeline) -> dict:
             print(f"  Scene {scene_num}: empty text, skipping")
             continue
 
-        if scene_num in existing_scenes:
-            existing_image_count = sum(1 for img in existing_images if img.get(ImageFields.SCENE) == scene_num)
+        scene_existing_images = existing_images_by_scene.get(scene_num, [])
+        if scene_num in completed_scenes:
+            existing_image_count = len(scene_existing_images)
             if pipeline.image_filter is not None:
                 has_target = any(
-                    img.get(ImageFields.SCENE) == scene_num and img.get(ImageFields.IMAGE_INDEX) == pipeline.image_filter
-                    for img in existing_images
+                    img.get(ImageFields.IMAGE_INDEX) == pipeline.image_filter
+                    for img in scene_existing_images
                 )
                 if has_target:
                     image_index += existing_image_count
                     scenes_skipped += 1
-                    print(f"  Scene {scene_num}, Image {pipeline.image_filter}: Skipped (already exists)")
+                    print(f"  Scene {scene_num}, Image {pipeline.image_filter}: Skipped (prompt already exists)")
                     continue
                 print(f"  Scene {scene_num}: {existing_image_count} images exist, but index {pipeline.image_filter} missing — generating")
             else:
                 image_index += existing_image_count
                 scenes_skipped += 1
-                print(f"  Scene {scene_num}: Skipped (has {existing_image_count} images), advanced index to {image_index}")
+                print(f"  Scene {scene_num}: Skipped (has {existing_image_count} prompted images), advanced index to {image_index}")
                 continue
 
         act_number = min(6, (scene_num - 1) * 6 // total_scripts + 1) if total_scripts > 0 else 1
@@ -288,14 +314,22 @@ async def run(pipeline) -> dict:
 
             camera_composition = concept.get("composition", "medium")
 
-            pipeline.airtable.create_concept_record(
-                scene_number=scene_num,
-                concept_index=concept["concept_index"],
-                sentence_text=concept["sentence_text"],
-                image_prompt=prompt,
-                composition=camera_composition,
-                video_title=pipeline.video_title,
-            )
+            existing_record = existing_images_by_scene_and_index.get((scene_num, concept["concept_index"]))
+            if existing_record:
+                pipeline.airtable.update_image_prompt_fields(
+                    existing_record["id"],
+                    image_prompt=prompt,
+                    shot_type=camera_composition,
+                )
+            else:
+                pipeline.airtable.create_concept_record(
+                    scene_number=scene_num,
+                    concept_index=concept["concept_index"],
+                    sentence_text=concept["sentence_text"],
+                    image_prompt=prompt,
+                    composition=camera_composition,
+                    video_title=pipeline.video_title,
+                )
 
             style_counts[display_format] = style_counts.get(display_format, 0) + 1
             image_index += 1

@@ -397,6 +397,46 @@ async def run_storyboards(
     return PipelineResponse(video_id=video_id, status="running", message="Storyboard generation started")
 
 
+@router.post("/story-bible/{video_id}", response_model=PipelineResponse)
+async def run_story_bible(
+    video_id: str,
+    background_tasks: BackgroundTasks,
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """Generate a Story Bible for a video."""
+    video = await fetch_one(
+        "SELECT id, status FROM videos WHERE id = $1 AND tenant_id = $2",
+        video_id, tenant_id,
+    )
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+
+    if _get_task_status(video_id):
+        raise HTTPException(status_code=409, detail="Task already running")
+
+    _set_task_status(video_id, "running", "Story Bible generation in progress")
+
+    async def _run():
+        try:
+            executor = PipelineExecutor(tenant_id)
+            result = await executor.run_story_bible(video_id)
+            _set_task_status(
+                video_id,
+                result.get("status", "unknown"),
+                result.get("message") or "Story Bible generated",
+                result.get("error"),
+            )
+        except Exception as e:
+            _set_task_status(video_id, "failed", str(e), str(e))
+        finally:
+            await asyncio.sleep(30)
+            _clear_task_status(video_id)
+
+    background_tasks.add_task(_run)
+
+    return PipelineResponse(video_id=video_id, status="running", message="Story Bible generation started")
+
+
 @router.post("/storyboard-images/{video_id}", response_model=PipelineResponse)
 async def run_storyboard_images(
     video_id: str,

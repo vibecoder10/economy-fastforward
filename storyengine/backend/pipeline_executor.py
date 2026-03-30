@@ -958,6 +958,54 @@ class PipelineExecutor:
             await self._log_activity(bot_name, video_id, "failed", error_msg)
             return {"status": "failed", "error": error_msg}
 
+    async def run_story_bible(self, video_id: str) -> dict:
+        """Generate and persist a Story Bible for a video."""
+        await self._ensure_initialized()
+        bot_name = "Story Bible Bot"
+
+        try:
+            video = await self._get_video(video_id)
+            if not video:
+                return {"status": "failed", "error": "Video not found"}
+
+            current_status = video.get("status")
+            await self._log_activity(bot_name, video_id, "started", "Generating Story Bible")
+
+            self._load_idea_from_video(video_id)
+            idea = getattr(self._pipeline, "current_idea", None)
+            idea_id = getattr(self._pipeline, "current_idea_id", None)
+            if not idea or not idea_id:
+                raise Exception("Could not load idea for Story Bible generation")
+
+            from storyboard.bot import _generate_story_bible_for_storyboard
+
+            fields = idea.get("fields", idea)
+            video_title = fields.get("Video Title", "")
+            video_length_min = fields.get("Video Length Min", 10) or 10
+            script_records = self._pipeline.airtable.get_scripts_by_title(video_title)
+            if not script_records:
+                raise Exception(f"No script found for '{video_title}'")
+
+            result = await _generate_story_bible_for_storyboard(
+                anthropic_client=self._pipeline.anthropic,
+                airtable_client=self._pipeline.airtable,
+                idea_id=idea_id,
+                video_title=video_title,
+                script_records=script_records,
+                video_length_min=int(video_length_min),
+                slack_client=getattr(self._pipeline, "slack", None),
+            )
+            if not result:
+                raise Exception("Story Bible generation returned empty result")
+
+            await self._log_activity(bot_name, video_id, "completed", "Story Bible generated")
+            return {"status": current_status or "ready_for_storyboards", "video_id": video_id}
+
+        except Exception as e:
+            error_msg = str(e) or e.__class__.__name__
+            await self._log_activity(bot_name, video_id, "failed", error_msg)
+            return {"status": "failed", "error": error_msg}
+
     async def run_storyboard_images(self, video_id: str) -> dict:
         """Generate storyboard images for a video."""
         await self._ensure_initialized()

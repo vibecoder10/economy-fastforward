@@ -350,6 +350,16 @@ export const updateStoryboardMode = (videoId: string, enabled: boolean) =>
     body: JSON.stringify({ enabled }),
   });
 
+export const clearSceneStoryboard = (videoId: string, scene: number) =>
+  fetchApi<{ status: string }>(`/api/videos/${videoId}/storyboards/${scene}`, {
+    method: "DELETE",
+  });
+
+export const clearAllStoryboards = (videoId: string) =>
+  fetchApi<{ status: string }>(`/api/videos/${videoId}/storyboards`, {
+    method: "DELETE",
+  });
+
 // Targeted regeneration (single scene/image, bypasses status gate)
 export const runVoiceForScene = (videoId: string, scene: number) =>
   fetchApi<PipelineResponse>(`/api/pipeline/voice/${videoId}?scene=${scene}`, {

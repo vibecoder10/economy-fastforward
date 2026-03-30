@@ -4,7 +4,7 @@ import { useState, useMemo, useEffect, useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import {
-  Play, Pause, Check, Loader2, Pencil, Image as ImageIcon, RefreshCw,
+  Play, Pause, Check, Loader2, Pencil, Image as ImageIcon, RefreshCw, Trash2, AlertTriangle,
   Lock, ArrowLeft, ToggleLeft, ToggleRight,
 } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
@@ -14,8 +14,9 @@ import { MiniWaveform } from "@/components/ui/MiniWaveform";
 import { ProgressRing } from "@/components/ui/ProgressRing";
 import { FilterSelect } from "@/components/ui/FilterSelect";
 import { ActionButton } from "@/components/ui/ActionButton";
+import { PromptExpander } from "@/components/video-detail/prompt-expander";
 import {
-  getVideoScript, getVideoAssets, updateStoryboardMode,
+  getVideoScript, getVideoAssets, updateStoryboardMode, clearSceneStoryboard, clearAllStoryboards,
   runPipelineStage, updateSceneSegments, runImageForSegment, clearStaleTask, updateVideoStyles,
 } from "@/lib/api";
 import { useTaskPoller } from "@/hooks/use-task-poller";
@@ -48,7 +49,33 @@ interface SceneGroup {
   actNumber: number;
   narrationText: string;
   duration: string;
+  storyboardPrompt: string | null;
+  storyboardBeats: Array<{
+    beatNumber: number;
+    prompt: string;
+    gridUrl: string | null;
+  }>;
+  storyboardStatus: string | null;
+  storyboardBeatCount: number | null;
+  storyboardGridCount: number;
+  hasStoryboardPrompt: boolean;
+  hasStoryboardData: boolean;
   segments: VisualSegment[];
+}
+
+function parseStoryboardPromptBlocks(promptText: string | null | undefined) {
+  const prompt = (promptText || "").trim();
+  if (!prompt) return [];
+
+  const beatRegex = /--- BEAT (\d+) ---\s*\n([\s\S]*?)(?=\n--- BEAT \d+ ---|$)/g;
+  const beats = Array.from(prompt.matchAll(beatRegex)).map((match) => ({
+    beatNumber: Number(match[1]),
+    prompt: match[2].trim(),
+  }));
+
+  if (beats.length > 0) return beats;
+
+  return [{ beatNumber: 1, prompt }];
 }
 
 export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVisualsTabProps) {
@@ -97,27 +124,53 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
   const computedScenes = useMemo<SceneGroup[]>(() => {
     if (!scriptScenes || !assets) return [];
     const totalScenes = scriptScenes.length;
-    return scriptScenes.map((scene) => ({
-      sceneNumber: scene.scene || 0,
-      actNumber: Math.ceil((scene.scene || 1) / Math.ceil(totalScenes / 6)),
-      narrationText: scene.scene_text || "",
-      duration: `${Math.round((scene.scene_text || "").split(/\s+/).length / 2.5)}s`,
-      segments: assets
-        .filter((a) => a.scene === scene.scene)
-        .sort((a, b) => (a.image_index || 0) - (b.image_index || 0))
-        .map((asset) => ({
-          id: asset.id,
-          segmentId: `S-${String(asset.scene || 0).padStart(2, "0")}.${asset.image_index || 0}`,
-          sentenceText: asset.sentence_text || "",
-          imagePrompt: asset.image_prompt || "",
-          imageUrl: asset.image_url || undefined,
-          status: (asset.status === "approved" || asset.status === "Done" || asset.image_url)
-            ? ("done" as const)
-            : ("pending" as const),
-          sceneNumber: asset.scene || 0,
-          imageIndex: asset.image_index || 0,
-        })),
-    }));
+    return scriptScenes.map((scene) => {
+      const storyboardGridUrls = [
+        scene.storyboard_1_url || null,
+        scene.storyboard_2_url || null,
+        scene.storyboard_3_url || null,
+      ];
+      const storyboardBeats = parseStoryboardPromptBlocks(scene.storyboard_prompts).map((beat) => ({
+        ...beat,
+        gridUrl: storyboardGridUrls[beat.beatNumber - 1] || null,
+      }));
+
+      return {
+        sceneNumber: scene.scene || 0,
+        actNumber: Math.ceil((scene.scene || 1) / Math.ceil(totalScenes / 6)),
+        narrationText: scene.scene_text || "",
+        duration: `${Math.round((scene.scene_text || "").split(/\s+/).length / 2.5)}s`,
+        storyboardPrompt: scene.storyboard_prompts || null,
+        storyboardBeats,
+        storyboardStatus: scene.storyboard_status || null,
+        storyboardBeatCount: scene.storyboard_beat_count ?? (storyboardBeats.length || null),
+        storyboardGridCount: storyboardGridUrls.filter(Boolean).length,
+        hasStoryboardPrompt: !!scene.storyboard_prompts,
+        hasStoryboardData: !!(
+          scene.storyboard_prompts ||
+          scene.storyboard_status ||
+          scene.storyboard_beat_count != null ||
+          scene.storyboard_1_url ||
+          scene.storyboard_2_url ||
+          scene.storyboard_3_url
+        ),
+        segments: assets
+          .filter((a) => a.scene === scene.scene)
+          .sort((a, b) => (a.image_index || 0) - (b.image_index || 0))
+          .map((asset) => ({
+            id: asset.id,
+            segmentId: `S-${String(asset.scene || 0).padStart(2, "0")}.${asset.image_index || 0}`,
+            sentenceText: asset.sentence_text || "",
+            imagePrompt: asset.image_prompt || "",
+            imageUrl: asset.image_url || undefined,
+            status: (asset.status === "approved" || asset.status === "Done" || asset.image_url)
+              ? ("done" as const)
+              : ("pending" as const),
+            sceneNumber: asset.scene || 0,
+            imageIndex: asset.image_index || 0,
+          })),
+      };
+    });
   }, [scriptScenes, assets]);
 
   const [scenes, setScenes] = useState<SceneGroup[]>([]);
@@ -128,6 +181,8 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
   const [model, setModel] = useState(video.image_model_override || "nano-banana-2");
   const [savingModel, setSavingModel] = useState(false);
   const [taskRunning, setTaskRunning] = useState(false);
+  const [clearingScene, setClearingScene] = useState<number | null>(null);
+  const [clearingAllStoryboards, setClearingAllStoryboards] = useState(false);
 
   const { message: taskMessage } = useTaskPoller({
     videoId: video.id,
@@ -138,6 +193,7 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
       setGeneratingAll(false);
       setGeneratingPrompts(false);
       queryClient.invalidateQueries({ queryKey: ["video", video.id] });
+      queryClient.invalidateQueries({ queryKey: ["video-script", video.id] });
       queryClient.invalidateQueries({ queryKey: ["video-assets", video.id] });
     },
     onFailed: (error) => {
@@ -149,10 +205,28 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
   });
 
   useEffect(() => {
-    if (computedScenes.length > 0 && scenes.length === 0) {
-      setScenes(computedScenes);
+    if (computedScenes.length === 0) {
+      setScenes([]);
+      return;
     }
-  }, [computedScenes, scenes.length]);
+
+    setScenes((prev) =>
+      computedScenes.map((scene) => {
+        const existingScene = prev.find((s) => s.sceneNumber === scene.sceneNumber);
+        if (!existingScene) return scene;
+
+        return {
+          ...scene,
+          segments: scene.segments.map((seg) => {
+            const existingSeg = existingScene.segments.find((s) => s.id === seg.id);
+            return existingSeg
+              ? { ...seg, imagePrompt: existingSeg.imagePrompt }
+              : seg;
+          }),
+        };
+      }),
+    );
+  }, [computedScenes]);
 
   useEffect(() => {
     setModel(video.image_model_override || "nano-banana-2");
@@ -163,7 +237,17 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
     (sum, s) => sum + s.segments.filter((seg) => seg.status === "done").length,
     0,
   );
+  const promptReadySegments = scenes.reduce(
+    (sum, s) => sum + s.segments.filter((seg) => seg.imagePrompt.trim().length > 0).length,
+    0,
+  );
+  const storyboardPromptScenes = scenes.filter((s) => s.hasStoryboardPrompt).length;
+  const storyboardReadyScenes = scenes.filter((s) => !!s.storyboardStatus).length;
+  const storyboardScenesWithData = scenes.filter((s) => s.hasStoryboardData).length;
   const pendingSegments = totalSegments - doneSegments;
+  const missingPromptSegments = totalSegments - promptReadySegments;
+  const hasStoryBible = !!(video.story_bible && video.story_bible.trim().length > 0);
+  const storyboardPrereqsMet = totalSegments > 0 && missingPromptSegments === 0;
   const estimatedCostDone = doneSegments * 0.025;
   const estimatedCostTotal = totalSegments * 0.025;
 
@@ -202,6 +286,66 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
     }
   }, [video.id, queryClient]);
 
+  const handleClearSceneStoryboard = useCallback(async (sceneNumber: number) => {
+    const confirmed = window.confirm(`Clear storyboard prompts and storyboard grids for Scene ${sceneNumber}?`);
+    if (!confirmed) return;
+
+    setClearingScene(sceneNumber);
+    try {
+      await clearSceneStoryboard(video.id, sceneNumber);
+      setScenes((prev) =>
+        prev.map((scene) =>
+          scene.sceneNumber === sceneNumber
+            ? {
+                ...scene,
+                storyboardPrompt: null,
+                storyboardStatus: null,
+                storyboardBeatCount: null,
+                storyboardGridCount: 0,
+                hasStoryboardPrompt: false,
+                hasStoryboardData: false,
+              }
+            : scene,
+        ),
+      );
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["video-script", video.id] }),
+        queryClient.invalidateQueries({ queryKey: ["video", video.id] }),
+      ]);
+    } finally {
+      setClearingScene(null);
+    }
+  }, [video.id, queryClient]);
+
+  const handleClearAllStoryboards = useCallback(async () => {
+    const confirmed = window.confirm(
+      "Clear all storyboard prompts and storyboard grids for this video? This will keep your sentence image prompts intact.",
+    );
+    if (!confirmed) return;
+
+    setClearingAllStoryboards(true);
+    try {
+      await clearAllStoryboards(video.id);
+      setScenes((prev) =>
+        prev.map((scene) => ({
+          ...scene,
+          storyboardPrompt: null,
+          storyboardStatus: null,
+          storyboardBeatCount: null,
+          storyboardGridCount: 0,
+          hasStoryboardPrompt: false,
+          hasStoryboardData: false,
+        })),
+      );
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["video-script", video.id] }),
+        queryClient.invalidateQueries({ queryKey: ["video", video.id] }),
+      ]);
+    } finally {
+      setClearingAllStoryboards(false);
+    }
+  }, [video.id, queryClient]);
+
   const runStageWith409Retry = useCallback(async (stage: string) => {
     try {
       await runPipelineStage(video.id, stage);
@@ -224,23 +368,34 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
 
   const handleGenerateAllPrompts = useCallback(async () => {
     setGeneratingPrompts(true);
+    const stage = storyboardMode
+      ? (!hasStoryBible ? "story-bible" : (storyboardPrereqsMet ? "storyboards" : "prompts"))
+      : "prompts";
+    const label =
+      stage === "story-bible"
+        ? "Story Bible generation"
+        : stage === "storyboards"
+          ? "Storyboard prompt generation"
+          : "Image prompt generation";
     try {
-      await runStageWith409Retry("prompts");
+      await runStageWith409Retry(stage);
     } catch (err: unknown) {
-      alert(`Prompt generation failed: ${(err as Error).message}`);
+      alert(`${label} failed: ${(err as Error).message}`);
       setGeneratingPrompts(false);
     }
-  }, [runStageWith409Retry]);
+  }, [runStageWith409Retry, storyboardMode, storyboardPrereqsMet, hasStoryBible]);
 
   const handleGenerateAllImages = useCallback(async () => {
     setGeneratingAll(true);
+    const stage = storyboardMode ? "storyboard-images" : "images";
+    const label = storyboardMode ? "Storyboard grid generation" : "Image generation";
     try {
-      await runStageWith409Retry("images");
+      await runStageWith409Retry(stage);
     } catch (err: unknown) {
-      alert(`Image generation failed: ${(err as Error).message}`);
+      alert(`${label} failed: ${(err as Error).message}`);
       setGeneratingAll(false);
     }
-  }, [runStageWith409Retry]);
+  }, [runStageWith409Retry, storyboardMode]);
 
   const handleModelChange = useCallback(async (nextModel: string) => {
     setModel(nextModel);
@@ -337,16 +492,22 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
               style={{ background: "var(--purple)", color: "var(--bg-void)" }}
             >
               {(generatingPrompts || taskRunning) ? <Loader2 size={18} className="animate-spin" /> : <Pencil size={18} />}
-              {taskRunning ? (taskMessage || "Generating Prompts...") : generatingPrompts ? "Starting..." : "Generate All Image Prompts"}
+              {taskRunning
+                ? (taskMessage || "Generating Prompts...")
+                : generatingPrompts
+                  ? "Starting..."
+                  : storyboardMode
+                    ? (!hasStoryBible ? "Generate Story Bible First" : (storyboardPrereqsMet ? "Generate Storyboard Prompts" : "Generate Image Prompts First"))
+                    : "Generate All Image Prompts"}
             </button>
             <button
               onClick={handleGenerateAllImages}
-              disabled={generatingAll || taskRunning}
+              disabled={generatingAll || taskRunning || (storyboardMode ? (!storyboardPrereqsMet || storyboardPromptScenes === 0) : false)}
               className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl text-base font-semibold font-body transition-all hover:brightness-110 active:scale-[0.98] disabled:opacity-50"
               style={{ background: "var(--orange)", color: "var(--bg-void)" }}
             >
               {(generatingAll || taskRunning) ? <Loader2 size={18} className="animate-spin" /> : <ImageIcon size={18} />}
-              {taskRunning ? (taskMessage || "Generating Images...") : generatingAll ? "Starting..." : "Generate All Images"}
+              {taskRunning ? (taskMessage || (storyboardMode ? "Generating Storyboard Grids..." : "Generating Images...")) : generatingAll ? "Starting..." : (storyboardMode ? "Generate Storyboard Grids" : "Generate All Images")}
             </button>
           </div>
         </GlassCard>
@@ -398,6 +559,142 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
                         </span>
                       </div>
                     </div>
+
+                    {(storyboardMode || scene.hasStoryboardPrompt || scene.storyboardStatus || scene.storyboardGridCount > 0) && (
+                      <div
+                        className="rounded-xl p-3 mb-4"
+                        style={{
+                          background: "rgba(168, 85, 247, 0.06)",
+                          border: "1px solid rgba(168, 85, 247, 0.16)",
+                        }}
+                      >
+                        <div className="flex flex-wrap items-start justify-between gap-3 mb-2">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <StatusPill
+                              label={
+                                scene.storyboardStatus
+                                  ? `Storyboard ${scene.storyboardStatus.replace(/_/g, " ")}`
+                                  : scene.hasStoryboardPrompt
+                                    ? "Storyboard Prompt Ready"
+                                    : taskRunning
+                                      ? "Storyboard Running"
+                                      : "Storyboard Waiting"
+                              }
+                              color={
+                                scene.hasStoryboardData
+                                  ? "purple"
+                                  : "orange"
+                              }
+                              size="sm"
+                            />
+                            {scene.storyboardBeatCount != null && (
+                              <span
+                                className="text-[10px] font-mono px-2 py-1 rounded-full"
+                                style={{
+                                  color: "var(--text-secondary)",
+                                  background: "rgba(255,255,255,0.05)",
+                                  border: "1px solid var(--border-subtle)",
+                                }}
+                              >
+                                {scene.storyboardBeatCount} beat{scene.storyboardBeatCount === 1 ? "" : "s"}
+                              </span>
+                            )}
+                            {scene.storyboardGridCount > 0 && (
+                              <span
+                                className="text-[10px] font-mono px-2 py-1 rounded-full"
+                                style={{
+                                  color: "var(--text-secondary)",
+                                  background: "rgba(255,255,255,0.05)",
+                                  border: "1px solid var(--border-subtle)",
+                                }}
+                              >
+                                {scene.storyboardGridCount} grid{scene.storyboardGridCount === 1 ? "" : "s"}
+                              </span>
+                            )}
+                          </div>
+
+                          <button
+                            onClick={() => handleClearSceneStoryboard(scene.sceneNumber)}
+                            disabled={taskRunning || clearingAllStoryboards || clearingScene === scene.sceneNumber || !scene.hasStoryboardData}
+                            className="inline-flex items-center gap-1.5 text-[10px] uppercase tracking-wider font-semibold px-3 py-1.5 rounded-lg transition-all disabled:opacity-40"
+                            style={{
+                              color: "#FF8A65",
+                              background: "rgba(255, 138, 101, 0.08)",
+                              border: "1px solid rgba(255, 138, 101, 0.35)",
+                            }}
+                            title="Clear storyboard prompt, status, and generated storyboard grids for this scene"
+                          >
+                            {clearingScene === scene.sceneNumber ? (
+                              <Loader2 size={12} className="animate-spin" />
+                            ) : (
+                              <Trash2 size={12} />
+                            )}
+                            Clear Storyboard
+                          </button>
+                        </div>
+
+                        {scene.storyboardBeats.length > 0 ? (
+                          <div className="space-y-3">
+                            {scene.storyboardBeats.map((beat) => (
+                              <div
+                                key={`${scene.sceneNumber}-beat-${beat.beatNumber}`}
+                                className="rounded-xl p-3"
+                                style={{
+                                  background: "rgba(255,255,255,0.03)",
+                                  border: "1px solid rgba(170, 120, 255, 0.14)",
+                                }}
+                              >
+                                <div className="flex items-center justify-between gap-3 mb-2">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span
+                                      className="text-[10px] font-mono px-2 py-1 rounded-full"
+                                      style={{
+                                        color: "var(--purple)",
+                                        background: "rgba(170, 120, 255, 0.08)",
+                                        border: "1px solid rgba(170, 120, 255, 0.22)",
+                                      }}
+                                    >
+                                      Beat {beat.beatNumber}
+                                    </span>
+                                    <span
+                                      className="text-[10px] font-mono px-2 py-1 rounded-full"
+                                      style={{
+                                        color: "var(--text-secondary)",
+                                        background: "rgba(255,255,255,0.05)",
+                                        border: "1px solid var(--border-subtle)",
+                                      }}
+                                    >
+                                      Storyboard {beat.beatNumber}
+                                    </span>
+                                    <span
+                                      className="text-[10px] font-mono px-2 py-1 rounded-full"
+                                      style={{
+                                        color: beat.gridUrl ? "var(--green)" : "var(--orange)",
+                                        background: beat.gridUrl ? "rgba(0, 230, 138, 0.08)" : "rgba(255, 138, 101, 0.08)",
+                                        border: beat.gridUrl
+                                          ? "1px solid rgba(0, 230, 138, 0.24)"
+                                          : "1px solid rgba(255, 138, 101, 0.24)",
+                                      }}
+                                    >
+                                      {beat.gridUrl ? "Grid Ready" : "Grid Pending"}
+                                    </span>
+                                  </div>
+                                </div>
+                                <PromptExpander
+                                  prompt={beat.prompt}
+                                  label={`Storyboard ${beat.beatNumber} Prompt`}
+                                  previewLength={180}
+                                />
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-xs" style={{ color: "var(--text-tertiary)" }}>
+                            Storyboard prompt output for this scene will appear here when generation completes.
+                          </p>
+                        )}
+                      </div>
+                    )}
 
                     {/* Segment cards */}
                     <div className="space-y-3">
@@ -614,6 +911,38 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
             <div className="space-y-2 mb-3 pt-3" style={{ borderTop: "1px solid var(--border-subtle)" }}>
               <div className="flex items-center justify-between">
                 <span className="text-[10px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
+                  Story Bible
+                </span>
+                <span className="text-xs font-mono" style={{ color: hasStoryBible ? "var(--green)" : "var(--orange)" }}>
+                  {hasStoryBible ? "Ready" : "Missing"}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
+                  Image Prompts
+                </span>
+                <span className="text-xs font-mono" style={{ color: missingPromptSegments === 0 ? "var(--green)" : "var(--orange)" }}>
+                  {promptReadySegments}/{totalSegments}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
+                  Storyboard Prompts
+                </span>
+                <span className="text-xs font-mono" style={{ color: "var(--text-secondary)" }}>
+                  {storyboardPromptScenes}/{scenes.length}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
+                  Storyboard Status
+                </span>
+                <span className="text-xs font-mono" style={{ color: "var(--text-secondary)" }}>
+                  {storyboardReadyScenes}/{scenes.length}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
                   Style Profile
                 </span>
                 <span className="text-xs font-mono" style={{ color: "var(--text-secondary)" }}>
@@ -621,6 +950,34 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
                 </span>
               </div>
             </div>
+
+            {storyboardMode && !hasStoryBible && (
+              <div
+                className="rounded-lg px-3 py-2 mb-3"
+                style={{
+                  background: "rgba(255, 165, 0, 0.08)",
+                  border: "1px solid rgba(255, 165, 0, 0.18)",
+                }}
+              >
+                <p className="text-[11px]" style={{ color: "var(--text-secondary)" }}>
+                  Storyboard generation requires a Story Bible first. Generate it here so the storyboard stage has consistent characters, locations, and beat context.
+                </p>
+              </div>
+            )}
+
+            {storyboardMode && hasStoryBible && !storyboardPrereqsMet && (
+              <div
+                className="rounded-lg px-3 py-2 mb-3"
+                style={{
+                  background: "rgba(255, 165, 0, 0.08)",
+                  border: "1px solid rgba(255, 165, 0, 0.18)",
+                }}
+              >
+                <p className="text-[11px]" style={{ color: "var(--text-secondary)" }}>
+                  Storyboard prompts require sentence image prompts first. {missingPromptSegments} segment{missingPromptSegments === 1 ? "" : "s"} still need image prompts.
+                </p>
+              </div>
+            )}
 
             <div className="pt-3" style={{ borderTop: "1px solid var(--border-subtle)" }}>
               <p className="text-xs font-semibold mb-1" style={{ color: "var(--text-secondary)" }}>
@@ -635,18 +992,85 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
             </div>
           </GlassCard>
 
+          <GlassCard
+            className="p-4"
+            style={{
+              background: "linear-gradient(180deg, rgba(255,138,101,0.10) 0%, rgba(255,138,101,0.04) 100%)",
+              border: "1px solid rgba(255, 138, 101, 0.22)",
+            }}
+          >
+            <div className="flex items-start gap-3 mb-3">
+              <div
+                className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
+                style={{
+                  background: "rgba(255, 138, 101, 0.14)",
+                  color: "#FF8A65",
+                  border: "1px solid rgba(255, 138, 101, 0.22)",
+                }}
+              >
+                <AlertTriangle size={16} />
+              </div>
+              <div>
+                <h4 className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+                  Reset Storyboards
+                </h4>
+                <p className="text-[11px] mt-1" style={{ color: "var(--text-secondary)" }}>
+                  Clear saved storyboard prompts and storyboard grids without touching your sentence image prompts.
+                </p>
+              </div>
+            </div>
+
+            <div
+              className="rounded-lg px-3 py-2 mb-3"
+              style={{
+                background: "rgba(0,0,0,0.16)",
+                border: "1px solid rgba(255,255,255,0.05)",
+              }}
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
+                  Scenes With Storyboards
+                </span>
+                <span className="text-sm font-mono" style={{ color: "#FFD9CF" }}>
+                  {storyboardScenesWithData}/{scenes.length}
+                </span>
+              </div>
+            </div>
+
+            <button
+              onClick={handleClearAllStoryboards}
+              disabled={taskRunning || generatingAll || generatingPrompts || clearingAllStoryboards || storyboardScenesWithData === 0}
+              className="w-full inline-flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold transition-all disabled:opacity-40"
+              style={{
+                color: "#FFF3EE",
+                background: "linear-gradient(135deg, rgba(255, 107, 71, 0.95) 0%, rgba(255, 138, 101, 0.82) 100%)",
+                boxShadow: "0 12px 30px rgba(255, 107, 71, 0.18)",
+              }}
+              title="Clear storyboard prompts, status, and generated storyboard grids for every scene in this video"
+            >
+              {clearingAllStoryboards ? (
+                <Loader2 size={16} className="animate-spin" />
+              ) : (
+                <Trash2 size={16} />
+              )}
+              Clear All Storyboards
+            </button>
+          </GlassCard>
+
           <ActionButton
             variant="filled"
             icon={(generatingPrompts || taskRunning) ? Loader2 : Pencil}
             className="w-full"
             onClick={handleGenerateAllPrompts}
-            disabled={generatingPrompts || generatingAll || taskRunning}
+            disabled={generatingPrompts || generatingAll || taskRunning || clearingAllStoryboards || clearingScene !== null}
           >
             {taskRunning && generatingPrompts
-              ? (taskMessage || "Generating Prompts...")
+              ? (taskMessage || (storyboardMode ? (!hasStoryBible ? "Generating Story Bible..." : (storyboardPrereqsMet ? "Generating Storyboards..." : "Generating Prompts...")) : "Generating Prompts..."))
               : generatingPrompts
                 ? "Starting..."
-                : "Generate All Image Prompts"}
+                : storyboardMode
+                  ? (!hasStoryBible ? "Generate Story Bible First" : (storyboardPrereqsMet ? "Generate Storyboard Prompts" : "Generate Image Prompts First"))
+                  : "Generate All Image Prompts"}
           </ActionButton>
 
           <ActionButton
@@ -654,13 +1078,13 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
             icon={(generatingAll || taskRunning) ? Loader2 : ImageIcon}
             className="w-full"
             onClick={handleGenerateAllImages}
-            disabled={generatingAll || generatingPrompts || taskRunning || pendingSegments === 0}
+            disabled={generatingAll || generatingPrompts || taskRunning || (storyboardMode ? (!hasStoryBible || !storyboardPrereqsMet || storyboardPromptScenes === 0) : pendingSegments === 0) || clearingAllStoryboards || clearingScene !== null}
           >
             {taskRunning && generatingAll
-              ? (taskMessage || "Generating Images...")
+              ? (taskMessage || (storyboardMode ? "Generating Storyboard Grids..." : "Generating Images..."))
               : generatingAll
                 ? "Starting..."
-                : `Generate All Remaining (${pendingSegments})`}
+                : (storyboardMode ? "Generate Storyboard Grids" : `Generate All Remaining (${pendingSegments})`)}
           </ActionButton>
         </div>
       </div>

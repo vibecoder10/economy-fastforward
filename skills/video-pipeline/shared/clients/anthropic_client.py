@@ -189,7 +189,7 @@ class AnthropicClient:
         if tools:
             kwargs["tools"] = tools
 
-        response = self.client.messages.create(**kwargs)
+        response = await _asyncio.to_thread(self.client.messages.create, **kwargs)
 
         text = self._extract_text(response)
         if text:
@@ -198,7 +198,7 @@ class AnthropicClient:
         # Empty content — retry once after a short delay
         print("    ⚠️ API returned empty content, retrying in 2s...")
         await _asyncio.sleep(2)
-        response = self.client.messages.create(**kwargs)
+        response = await _asyncio.to_thread(self.client.messages.create, **kwargs)
 
         text = self._extract_text(response)
         if text:

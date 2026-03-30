@@ -584,3 +584,51 @@ async def update_storyboard_mode(
         value, video_id, tenant_id,
     )
     return {"status": "updated", "storyboard_mode": value}
+
+
+@router.delete("/{video_id}/storyboards")
+async def clear_all_storyboards(
+    video_id: str,
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """Clear all storyboard prompt/image fields for a video."""
+    result = await execute(
+        """UPDATE scripts
+           SET storyboard_prompts = NULL,
+               storyboard_beat_count = NULL,
+               storyboard_status = NULL,
+               storyboard_1_url = NULL,
+               storyboard_2_url = NULL,
+               storyboard_3_url = NULL,
+               updated_at = now()
+           WHERE video_id = $1 AND tenant_id = $2""",
+        video_id,
+        tenant_id,
+    )
+    return {"status": "cleared", "scope": "all", "video_id": video_id, "result": result}
+
+
+@router.delete("/{video_id}/storyboards/{scene}")
+async def clear_scene_storyboard(
+    video_id: str,
+    scene: int,
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """Clear storyboard prompt/image fields for a single scene."""
+    result = await execute(
+        """UPDATE scripts
+           SET storyboard_prompts = NULL,
+               storyboard_beat_count = NULL,
+               storyboard_status = NULL,
+               storyboard_1_url = NULL,
+               storyboard_2_url = NULL,
+               storyboard_3_url = NULL,
+               updated_at = now()
+           WHERE video_id = $1 AND scene = $2 AND tenant_id = $3""",
+        video_id,
+        scene,
+        tenant_id,
+    )
+    if not result or "UPDATE 0" in result:
+        raise HTTPException(status_code=404, detail="Scene not found")
+    return {"status": "cleared", "scope": "scene", "video_id": video_id, "scene": scene}

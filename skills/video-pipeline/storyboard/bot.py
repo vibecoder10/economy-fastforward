@@ -949,6 +949,30 @@ def extract_contact_sheet_prompt(directive_text: str) -> str:
     return prompt_text
 
 
+def _parse_storyboard_prompt_blocks(prompts_text: str) -> dict[int, str]:
+    """Parse saved storyboard prompt text into beat-numbered blocks."""
+    beat_pattern = r"--- BEAT (\d+) ---\s*\n(.*?)(?=\n--- BEAT \d+ ---|\Z)"
+    return {
+        int(beat_num): prompt.strip()
+        for beat_num, prompt in re.findall(beat_pattern, prompts_text or "", re.DOTALL)
+    }
+
+
+def _render_storyboard_prompt_blocks(prompt_blocks: dict[int, str]) -> str:
+    """Render beat-numbered storyboard prompt blocks in a stable order."""
+    if not prompt_blocks:
+        return ""
+
+    ordered_blocks = []
+    for beat_num in sorted(prompt_blocks):
+        prompt = (prompt_blocks[beat_num] or "").strip()
+        if not prompt:
+            continue
+        ordered_blocks.append(f"--- BEAT {beat_num} ---\n{prompt}")
+
+    return "\n\n".join(ordered_blocks)
+
+
 def _extract_section(text: str, section_name: str) -> str:
     """Extract a named ## section from the directive response."""
     pattern = rf"##\s*{re.escape(section_name)}\s*\n(.*?)(?=\n##\s|\Z)"
@@ -1605,20 +1629,8 @@ async def run_storyboard_prompts(
     if not script_records:
         return {"error": f"No script found for '{video_title}'"}
 
-    # Generate Story Bible if missing — CRITICAL for visual consistency
     if story_bible is None:
-        logger.info(f"Story Bible missing for '{video_title}' — generating now...")
-        story_bible = await _generate_story_bible_for_storyboard(
-            anthropic_client=anthropic_client,
-            airtable_client=airtable_client,
-            idea_id=idea_id,
-            video_title=video_title,
-            script_records=script_records,
-            video_length_min=int(video_length_min),
-            slack_client=slack_client,
-        )
-        if story_bible:
-            logger.info(f"Story Bible generated successfully for '{video_title}'")
+        return {"error": f"Storyboard prompts require Story Bible first for '{video_title}'"}
 
     # Build scene_to_record_id map for per-scene saving
     scene_to_record_id: dict[int, str] = {}
@@ -1637,37 +1649,44 @@ async def run_storyboard_prompts(
     if not image_records:
         return {"error": f"No images found for '{video_title}' — run image prompts first"}
 
+    missing_prompt_images: list[dict] = []
+    for img in image_records:
+        fields = img.get("fields", img)
+        sentence_text = (fields.get(ImageFields.SENTENCE_TEXT, "") or "").strip()
+        image_prompt = (fields.get(ImageFields.IMAGE_PROMPT, "") or "").strip()
+        if sentence_text and not image_prompt:
+            missing_prompt_images.append(fields)
+
+    if missing_prompt_images:
+        sample_missing = ", ".join(
+            f"scene {img.get(ImageFields.SCENE, '?')} #{img.get(ImageFields.IMAGE_INDEX, '?')}"
+            for img in missing_prompt_images[:5]
+        )
+        return {
+            "error": (
+                f"Storyboard prompts require sentence image prompts first. "
+                f"Missing {len(missing_prompt_images)} image prompt(s)"
+                f"{f' ({sample_missing})' if sample_missing else ''}."
+            )
+        }
+
     # Calculate beats based on image count (9 images per beat/grid)
     beats = segment_script_into_beats(script_records, image_records=image_records)
     logger.info(f"Calculated {len(beats)} beats for {len(image_records)} images")
     notify(f"📝 Storyboard prompts: *{video_title}*\n• {len(image_records)} images → {len(beats)} beat(s)")
 
-    # Track per-scene prompts for resume support
-    scene_prompts: dict[int, str] = {}
-    scene_beat_counts: dict[int, int] = {}
+    # Track per-scene prompt blocks for clean overwrite behavior.
+    # We intentionally rebuild beat blocks by beat number instead of blindly
+    # appending to old prompt text, which keeps reruns deterministic.
+    scene_prompt_blocks: dict[int, dict[int, str]] = {}
     for rec in script_records:
         fields = rec.get("fields", rec)
         scene_num = fields.get(ScriptFields.SCENE, 0)
-        existing = fields.get("Storyboard Prompts", "") or ""
-        scene_prompts[scene_num] = existing
-        scene_beat_counts[scene_num] = existing.count("--- BEAT ")
+        scene_prompt_blocks[scene_num] = {}
 
     total_cost = 0.0
     prompts_generated = 0
     failed_beats: list[tuple[int, int]] = []  # (scene, beat)
-
-    # Count how many beats we'll skip (already exist)
-    skipped_count = 0
-    for beat in beats:
-        target_scene = beat["scenes"][0] if beat["scenes"] else 1
-        scene_beat_idx = beat.get("scene_beat_index", 1)
-        existing_count = scene_beat_counts.get(target_scene, 0)
-        if scene_beat_idx <= existing_count:
-            skipped_count += 1
-
-    if skipped_count > 0:
-        notify(f"⏭️ Skipping {skipped_count} already-generated beats, resuming from beat {skipped_count + 1}")
-        logger.info(f"Resuming: skipping {skipped_count} beats that already exist")
 
     for beat in beats:
         beat_num = beat["beat_number"]
@@ -1678,12 +1697,6 @@ async def run_storyboard_prompts(
         # Use per-scene beat info from segment_script_into_beats
         scene_beat_idx = beat.get("scene_beat_index", 1)
         total_scene_beats = beat.get("scene_beat_total", 1)
-
-        # Skip already-completed beats for this scene
-        existing_count = scene_beat_counts.get(target_scene, 0)
-        if scene_beat_idx <= existing_count:
-            logger.info(f"Scene {target_scene}, Beat {scene_beat_idx}/{total_scene_beats} already exists, skipping")
-            continue
 
         beat_images = _get_images_for_beat(image_records, beat)
         image_prompts = [
@@ -1723,13 +1736,14 @@ async def run_storyboard_prompts(
 
         # Save prompt to THIS scene's Scripts record
         contact_sheet_prompt = directive["contact_sheet_prompt"]
-        prompt_block = f"\n\n--- BEAT {scene_beat_idx} ---\n{contact_sheet_prompt}"
-        scene_prompts[target_scene] = scene_prompts.get(target_scene, "") + prompt_block
+        scene_blocks = scene_prompt_blocks.setdefault(target_scene, {})
+        scene_blocks[scene_beat_idx] = contact_sheet_prompt.strip()
+        rendered_prompts = _render_storyboard_prompt_blocks(scene_blocks)
 
         if target_record_id:
             try:
                 airtable_client.update_script_record(target_record_id, {
-                    "Storyboard Prompts": scene_prompts[target_scene],
+                    "Storyboard Prompts": rendered_prompts,
                     "Storyboard Status": f"prompts_{scene_beat_idx}_of_{total_scene_beats}",
                 })
                 logger.info(f"Scene {target_scene}, Beat {scene_beat_idx}/{total_scene_beats} prompt saved")
@@ -2267,6 +2281,18 @@ async def _generate_story_bible_for_storyboard(
                 idea_id,
                 {IdeaFields.STORY_BIBLE: json.dumps(story_bible, ensure_ascii=False)}
             )
+
+            updated_idea = airtable_client.get_idea(idea_id)
+            updated_fields = updated_idea.get("fields", updated_idea) if updated_idea else {}
+            persisted_story_bible = (
+                updated_fields.get(IdeaFields.STORY_BIBLE)
+                or updated_fields.get("Story Bible")
+            )
+            if not persisted_story_bible:
+                raise RuntimeError(
+                    f"Story Bible save verification failed for '{video_title}' (idea_id={idea_id})"
+                )
+
             logger.info(f"Story Bible saved to Airtable for '{video_title}'")
 
             # Log and notify

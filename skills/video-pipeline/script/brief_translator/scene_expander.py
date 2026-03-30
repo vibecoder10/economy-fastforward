@@ -71,13 +71,10 @@ async def _expand_with_scene_blocks(
     scene script while visual descriptions get the consistency benefits
     of the Story Bible's shared-block system.
     """
-    import sys
-    from pathlib import Path
     from script.story_bible import get_all_images_from_blocks
 
     # --- Step 1: Deterministic text splitting (verbatim segments) -----------
-    sys.path.insert(0, str(Path(__file__).parent.parent / "clients"))
-    from deterministic_splitter import segment_scene_deterministic
+    from shared.clients.deterministic_splitter import segment_scene_deterministic
 
     segments = segment_scene_deterministic(scene_text, voice_duration)
     if not segments:
@@ -524,9 +521,7 @@ async def expand_scene_concepts_deterministic(
         )
 
     # V1 path: Use deterministic splitter + LLM visual descriptions
-    # Import deterministic splitter
-    sys.path.insert(0, str(Path(__file__).parent.parent / "clients"))
-    from deterministic_splitter import segment_scene_deterministic
+    from shared.clients.deterministic_splitter import segment_scene_deterministic
 
     # Step 1: Use deterministic splitter to get text segments with guaranteed durations
     segments = segment_scene_deterministic(scene_text, voice_duration)

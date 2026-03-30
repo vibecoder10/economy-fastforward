@@ -186,6 +186,8 @@ SCRIPT_FIELD_MAP = {
     "Sound Map": "sound_map",
     "Story Board On/OFF": "storyboard_on_off",
     "Storyboard Prompts": "storyboard_prompts",
+    "Storyboard Beat Count": "storyboard_beat_count",
+    "Storyboard Status": "storyboard_status",
     "Storyboard 1": "storyboard_1_url",
     "Storyboard 2": "storyboard_2_url",
     "Storyboard 3": "storyboard_3_url",
@@ -301,12 +303,14 @@ def _idea_fields_to_columns(fields: dict) -> dict:
             # Handle attachment → URL extraction
             if isinstance(value, list) and len(value) > 0 and isinstance(value[0], dict) and "url" in value[0]:
                 result[col] = value[0]["url"]
-            # Handle JSONB: if value is a string that looks like JSON, keep as string for now
+            # Handle JSONB fields by adapting Python objects and JSON strings explicitly.
             elif col in ("research_payload", "original_dna", "story_bible") and isinstance(value, str):
                 try:
-                    result[col] = json.loads(value)
+                    result[col] = psycopg2.extras.Json(json.loads(value))
                 except (json.JSONDecodeError, TypeError):
                     result[col] = value
+            elif col in ("research_payload", "original_dna", "story_bible") and isinstance(value, (dict, list)):
+                result[col] = psycopg2.extras.Json(value)
             else:
                 result[col] = value
     return result
@@ -545,6 +549,7 @@ class SupabaseAdapter:
             for col, val in columns.items():
                 sets.append(f"{col} = %s")
                 args.append(val)
+            sets.append("updated_at = now()")
             args.append(record_id)
             _execute(
                 f"UPDATE scripts SET {', '.join(sets)} WHERE id = %s",
@@ -961,6 +966,30 @@ class SupabaseAdapter:
             return self.update_idea_fields(record_id, fields)
         elif "script" in table_name.lower():
             return self.update_script_record(record_id, fields)
+        elif "image" in table_name.lower() or "asset" in table_name.lower():
+            columns = {}
+            for airtable_name, val in fields.items():
+                col = IMAGE_FIELD_MAP.get(airtable_name)
+                if not col:
+                    continue
+                if isinstance(val, list) and len(val) > 0 and isinstance(val[0], dict) and "url" in val[0]:
+                    columns[col] = val[0]["url"]
+                else:
+                    columns[col] = val
+
+            if columns:
+                sets = []
+                args = []
+                for col, val in columns.items():
+                    sets.append(f"{col} = %s")
+                    args.append(val)
+                sets.append("updated_at = now()")
+                args.append(record_id)
+                _execute(
+                    f"UPDATE assets SET {', '.join(sets)} WHERE id = %s",
+                    tuple(args),
+                )
+            return {"id": record_id}
         else:
             print(f"  Warning: update_record for unknown table '{table_name}'")
             return {"id": record_id}

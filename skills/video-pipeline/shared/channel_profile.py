@@ -17,6 +17,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional
 
+from shared.profiles.visual import get_profile_or_default as load_visual_profile
+
 
 @dataclass
 class LensProfile:
@@ -324,6 +326,32 @@ DEFAULT_PROFILE = ChannelProfile(
 )
 
 
+def _build_visual_style_directive(profile_id: str) -> Optional[str]:
+    """Resolve a storyboard-ready style directive from a visual profile id."""
+    visual_profile = load_visual_profile(profile_id)
+    if visual_profile is None:
+        return None
+
+    parts: list[str] = []
+    if visual_profile.profile_name:
+        parts.append(visual_profile.profile_name)
+    if visual_profile.description:
+        parts.append(visual_profile.description)
+
+    style_system = getattr(visual_profile, "style_system", None)
+    if style_system is not None:
+        if getattr(style_system, "style_prefix", ""):
+            parts.append(style_system.style_prefix.strip())
+        if getattr(style_system, "style_suffix", ""):
+            parts.append(style_system.style_suffix.strip().lstrip(','))
+
+    figure_rules = getattr(visual_profile, "figure_rules", None)
+    if figure_rules is not None and getattr(figure_rules, "negative_prompt_suffix", ""):
+        parts.append(f"Figure rules: {figure_rules.negative_prompt_suffix.strip()}")
+
+    return " ".join(part for part in parts if part).strip() or None
+
+
 def load_profile(idea_record: Optional[dict] = None) -> ChannelProfile:
     """Load channel profile for storyboard generation.
 
@@ -345,12 +373,18 @@ def load_profile(idea_record: Optional[dict] = None) -> ChannelProfile:
     )
 
     if idea_record:
-        # Per-video visual style override from Airtable
-        style_override = (
-            idea_record.get("Image Style Override")
-            or idea_record.get("Visual Style")
-        )
-        if style_override and isinstance(style_override, str):
-            profile.visual_style_directive = style_override
+        # Freeform per-video instructions should win over any preset style id.
+        image_style_override = idea_record.get("Image Style Override")
+        if image_style_override and isinstance(image_style_override, str):
+            profile.visual_style_directive = image_style_override
+            return profile
+
+        visual_style = idea_record.get("Visual Style")
+        if visual_style and isinstance(visual_style, str):
+            resolved_directive = _build_visual_style_directive(visual_style.strip())
+            if resolved_directive:
+                profile.visual_style_directive = resolved_directive
+            else:
+                profile.visual_style_directive = visual_style
 
     return profile
