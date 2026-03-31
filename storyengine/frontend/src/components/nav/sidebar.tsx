@@ -20,7 +20,7 @@ import {
 
 const navItems = [
   { href: "/", icon: LayoutGrid, label: "Dashboard" },
-  { href: "/pipeline", icon: List, label: "Queue" },
+  { href: "/pipeline", icon: List, label: "Videos" },
   { href: "/autopilot", icon: Bot, label: "Autopilot" },
   { href: "/competitors", icon: Users, label: "Competitors" },
   { href: "/profile", icon: Palette, label: "Visual Profile" },

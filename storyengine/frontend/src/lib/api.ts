@@ -279,6 +279,36 @@ export const rejectSuggestion = (videoId: string) =>
     { method: "POST" }
   );
 
+// Discovery Ideas
+export const getDiscoveryIdeas = (status?: string, limit?: number) =>
+  fetchApi<DiscoveryIdea[]>(
+    `/api/discovery/ideas?status=${status || "fresh"}&limit=${limit || 20}`
+  );
+
+export const getDiscoveryStatus = () =>
+  fetchApi<DiscoveryStatus>("/api/discovery/status");
+
+export const refreshDiscoveryIdeas = () =>
+  fetchApi<{ status: string; batch_id: string; message: string }>(
+    "/api/discovery/refresh",
+    { method: "POST" }
+  );
+
+export const launchIdea = (ideaId: string, titleIndex: number, videoLengthMinutes: number = 15) =>
+  fetchApi<{ status: string; video_id: string; video_title: string; message: string }>(
+    `/api/discovery/ideas/${ideaId}/launch`,
+    {
+      method: "POST",
+      body: JSON.stringify({ title_index: titleIndex, video_length_minutes: videoLengthMinutes }),
+    }
+  );
+
+export const dismissIdea = (ideaId: string) =>
+  fetchApi<{ status: string; idea_id: string }>(
+    `/api/discovery/ideas/${ideaId}/dismiss`,
+    { method: "POST" }
+  );
+
 // Niche
 export const getNicheConfig = () =>
   fetchApi<NicheConfig>("/api/niche/config");
@@ -801,4 +831,38 @@ export interface CreateVisualStyleRequest {
   name: string;
   style_profile: Record<string, unknown>;
   reference_image_url?: string;
+}
+
+// Discovery Ideas
+export interface DiscoveryIdea {
+  id: string;
+  source_type: string;
+  competitor_title: string | null;
+  competitor_channel: string | null;
+  competitor_url: string | null;
+  competitor_vph: number | null;
+  competitor_thumbnail_url: string | null;
+  our_angle: string;
+  hook: string | null;
+  framework: string | null;
+  estimated_appeal: number | null;
+  appeal_breakdown: Record<string, number> | null;
+  title_options: TitleOption[];
+  status: string;
+  batch_date: string | null;
+  created_at: string | null;
+}
+
+export interface TitleOption {
+  title: string;
+  formula_id: string;
+  thumbnail_text: string;
+  score: number;
+}
+
+export interface DiscoveryStatus {
+  is_refreshing: boolean;
+  last_batch_date: string | null;
+  idea_count: number;
+  fresh_count: number;
 }

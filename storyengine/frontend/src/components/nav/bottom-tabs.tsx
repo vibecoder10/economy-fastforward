@@ -12,7 +12,7 @@ import {
 
 const tabs = [
   { href: "/", icon: LayoutGrid, label: "Home" },
-  { href: "/pipeline", icon: List, label: "Queue" },
+  { href: "/pipeline", icon: List, label: "Videos" },
   { href: "/profile", icon: Palette, label: "Profile" },
   { href: "/analytics", icon: BarChart3, label: "Stats" },
   { href: "/settings", icon: Settings, label: "Settings" },
