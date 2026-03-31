@@ -69,6 +69,14 @@
 - **New validator checks need matching config flags.** When adding a new check to `validate_script_editorial()`, add a corresponding `*_check: bool = True` flag to `ScriptValidationConfig` or the "disable all checks" test will fail. Test fixtures must also be updated — cliffhangers in `_make_good_script()` must use keywords that actually appear in subsequent acts.
 - **System prompt ordering matters.** Voice/tone rules (like `_CINEMATIC_VOICE_RULES`) must come EARLY in the assembled system prompt — right after role identity, BEFORE structural rules. Claude prioritizes early instructions; rules appended at the end get deprioritized. Assembly order: (1) Role identity/preamble, (2) Voice/style rules, (3) Research brief, (4) Structural rules, (5) Act-specific rules, (6) Grounding rules.
 
+### StoryEngine Pipeline (Supabase)
+- **Database schema gaps are silent killers.** The pipeline writes to columns that may not exist in Supabase. PostgreSQL throws errors but `SupabaseAdapter.update_idea_fields()` catches them gracefully — the write "succeeds" but the field is dropped. Always run migration 013+ before testing pipeline steps.
+- **Missing columns discovered during E2E testing (2026-03-31):** `stage_transitions.cost`, `stage_transitions.error_message`, `videos.drive_folder_link`, `videos.drive_folder_id`, `videos.idea_reasoning`, `videos.script_validation`, `assets.video_title`, `assets.sentence_index`, `assets.aspect_ratio`. All added in migration 013.
+- **`shared/clients/__init__.py` imports ALL clients at package level.** This means importing `AnthropicClient` also imports `GoogleClient` (needs `google-auth`), `SlackClient` (needs `slack_sdk`), etc. If any dependency is missing, ALL client imports fail. Install: `google-auth google-auth-oauthlib google-api-python-client slack_sdk pyairtable mutagen`.
+- **`title_idea/` must be in sys.path for research agent.** The research agent imports from `curiosity_gap.gap_title_engine` which lives under `title_idea/curiosity_gap/`. Without `title_idea` in the bot directory list, research fails with `ModuleNotFoundError`.
+- **Voice is a hard dependency for image prompts.** `_check_voice_exists()` verifies `voice_over_url` is set on ALL scripts rows before allowing prompt generation. Without ElevenLabs, set placeholder URLs and estimated durations (word_count / 2.5 wps).
+- **Script validation can BLOCK scene creation.** If editorial validation fails, `BriefTranslator.translate()` returns `status: "blocked"` before reaching the scene-writing code at line 575. The full script IS saved to `videos.script`, but no `scripts` table rows are created. For testing, create scene rows manually from the saved script text.
+
 ## Project-Specific Rules
 
 1. **Async everywhere.** All bots, all clients, all pipeline code uses async Python. Don't introduce sync blocking calls.

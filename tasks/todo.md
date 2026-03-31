@@ -103,12 +103,28 @@ Full codebase reorganization of `skills/video-pipeline/`. Each tool is now a sta
 - SlackClient: No SLACK_BOT_TOKEN on VPS → notifications skip
 - ElevenLabsClient: No WAVESPEED_API_KEY → voice generation will fail
 
+**Pipeline E2E Test Results (2026-03-31):**
+- ✅ Research: 20-field payload generated (Claude API)
+- ✅ Script: 15,781 char 6-act script (Claude API, blocked by validation but script saved)
+- ✅ Split: 117 sentence segments across 6 scenes (pure Python, no API)
+- ✅ Image Prompts: 117 cinematic prompts generated (Claude API)
+- ⏭️ Voice: SKIPPED (no ElevenLabs key — mock durations set for testing)
+- 🔜 Image Generation: Ready (Kie.ai key available, ~$3 cost)
+- 🔜 Remaining: Video Scripts, Video Gen, Sound, Thumbnail, Render, Upload
+
+**Fixes applied:**
+- `pipeline_executor.py`: Added `title_idea` to sys.path for research imports
+- Migration 013: 9 missing columns across 3 tables
+- `AnthropicClient` made optional (try/except) in pipeline init
+- Python deps installed: pyairtable, google-auth, google-api-python-client, slack_sdk, mutagen, anthropic, psycopg2-binary
+
 **Next steps:**
-1. Test voice generation (needs ElevenLabs API key in vault)
-2. Test image prompts generation
-3. Apply migration 007 to live Supabase (tone column on scripts)
-4. Add Google OAuth + Slack credentials to VPS vault for full pipeline
-5. Future modules: Settings page, channel onboarding, calendar view
+1. ⚠️ Run migration 013 on production Supabase (required before VPS pipeline works)
+2. Add ElevenLabs API key to vault for voice generation
+3. Test image generation step (Kie.ai, $3 cost)
+4. Test remaining pipeline steps (video scripts → render)
+5. Add Google OAuth + Slack credentials for full pipeline
+6. Fix frontend wiring: 4 mock pages, 7 dead buttons, 17 orphan API functions (see WIRING_STATUS.md)
 
 ---
 
