@@ -28,7 +28,7 @@ if str(PIPELINE_PATH) not in sys.path:
 # Add bot subdirectories to sys.path so these resolve correctly.
 for bot_dir in ["script", "voice", "image_prompts", "images", "video_motion",
                 "thumbnail", "render", "sound", "storyboard", "research",
-                "upload", "analytics"]:
+                "upload", "analytics", "title_idea"]:
     bot_path = str(PIPELINE_PATH / bot_dir)
     if bot_path not in sys.path:
         sys.path.append(bot_path)
