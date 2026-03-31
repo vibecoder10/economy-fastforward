@@ -265,6 +265,10 @@ class PipelineExecutor:
             from render.run import run
             return await run(self._pipeline)
 
+        async def run_upload_bot():
+            from upload.run import run
+            return await run(self._pipeline)
+
         async def run_sound_prompt_bot():
             from sound.run_design import run
             return await run(self._pipeline)
@@ -298,6 +302,7 @@ class PipelineExecutor:
         self._pipeline.run_storyboard_prompts = run_storyboard_prompts
         self._pipeline.run_storyboard_images = run_storyboard_images
         self._pipeline.run_storyboard_extract = run_storyboard_extract
+        self._pipeline.run_upload_bot = run_upload_bot
 
         print("[INIT] Pipeline ready!", flush=True)
 
@@ -396,6 +401,9 @@ class PipelineExecutor:
     ) -> dict:
         """Create a new video idea.
 
+        Creates a video record in Supabase with status 'idea_logged'.
+        Research and scripting are triggered separately from the video detail page.
+
         Args:
             topic: Topic or headline for the video
             source: Source identifier
@@ -403,28 +411,26 @@ class PipelineExecutor:
         Returns:
             Dict with video_id and status
         """
-        await self._ensure_initialized()
+        # No pipeline initialization needed — just a DB insert
         bot_name = "Idea Bot"
         video_id = None
 
         try:
             await self._log_activity(bot_name, None, "started", f"Creating idea: {topic}")
 
-            # Create in Supabase first
+            # Resolve project for tenant
+            from routes.projects import _get_or_create_project
+            project = await _get_or_create_project(self.tenant_id)
+            project_id = str(project["id"])
+
+            # Create video record in Supabase
             result = await fetch_one(
-                """INSERT INTO videos (tenant_id, video_title, status, headline, source, created_at)
-                   VALUES ($1, $2, $3, $4, $5, now())
+                """INSERT INTO videos (tenant_id, project_id, video_title, status, headline, source, created_at)
+                   VALUES ($1, $2, $3, $4, $5, $6, now())
                    RETURNING id""",
-                self.tenant_id, topic, "idea_logged", topic, source,
+                self.tenant_id, project_id, topic, "idea_logged", topic, source,
             )
             video_id = str(result["id"])
-
-            # Also create in Airtable via pipeline
-            # The pipeline's idea_bot expects input_text
-            idea_result = await self._pipeline.run_idea_bot(topic)
-
-            if idea_result.get("error"):
-                raise Exception(idea_result["error"])
 
             await self._log_activity(bot_name, video_id, "completed", "Idea created")
 
@@ -1477,6 +1483,47 @@ class PipelineExecutor:
             await self._update_video_status(video_id, to_supabase(new_status))
             await self._log_transition(video_id, current_status, to_supabase(new_status), "api")
             await self._log_activity(bot_name, video_id, "completed", "Video rendered")
+
+            return {"status": to_supabase(new_status), "video_id": video_id}
+
+        except Exception as e:
+            error_msg = str(e)
+            await self._log_activity(bot_name, video_id, "failed", error_msg)
+            return {"status": "failed", "error": error_msg}
+
+    async def run_upload(self, video_id: str) -> dict:
+        """Generate SEO metadata and upload video to YouTube as unlisted draft."""
+        await self._ensure_initialized()
+        bot_name = "YouTube Upload Bot"
+
+        try:
+            video = await self._get_video(video_id)
+            if not video:
+                return {"status": "failed", "error": "Video not found"}
+
+            current_status = video.get("status")
+            await self._log_activity(bot_name, video_id, "started", "Uploading to YouTube")
+
+            self._load_idea_from_video(video_id)
+
+            result = await self._pipeline.run_upload_bot()
+
+            if result.get("error"):
+                raise Exception(result["error"])
+
+            new_status = result.get("new_status", "Uploaded (Draft)")
+
+            # Update with YouTube URL if available
+            video_url = result.get("video_url")
+            if video_url:
+                await execute(
+                    "UPDATE videos SET youtube_url = $1 WHERE id = $2",
+                    video_url, video_id,
+                )
+
+            await self._update_video_status(video_id, to_supabase(new_status))
+            await self._log_transition(video_id, current_status, to_supabase(new_status), "api")
+            await self._log_activity(bot_name, video_id, "completed", "Video uploaded to YouTube")
 
             return {"status": to_supabase(new_status), "video_id": video_id}
 
