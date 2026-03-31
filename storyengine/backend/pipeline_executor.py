@@ -98,7 +98,6 @@ class PipelineExecutor:
         print("[INIT] Creating lightweight pipeline...", flush=True)
 
         from supabase_adapter import SupabaseAdapter
-        from shared.clients.anthropic_client import AnthropicClient
 
         class LightPipeline:
             """Minimal pipeline that only has the clients we need."""
@@ -106,8 +105,16 @@ class PipelineExecutor:
 
         self._pipeline = LightPipeline()
         self._pipeline.airtable = SupabaseAdapter(tenant_id=self.tenant_id)
-        self._pipeline.anthropic = AnthropicClient()
-        print("[INIT] SupabaseAdapter + AnthropicClient OK", flush=True)
+        print("[INIT] SupabaseAdapter OK", flush=True)
+
+        # Anthropic client — required for research, script, prompts
+        try:
+            from shared.clients.anthropic_client import AnthropicClient
+            self._pipeline.anthropic = AnthropicClient()
+            print("[INIT] AnthropicClient OK", flush=True)
+        except Exception as e:
+            print(f"[INIT] AnthropicClient skipped: {e}", flush=True)
+            self._pipeline.anthropic = None
 
         # Try to load optional clients (non-blocking)
         try:
