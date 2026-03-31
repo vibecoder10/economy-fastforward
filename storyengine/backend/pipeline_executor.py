@@ -406,7 +406,7 @@ class PipelineExecutor:
         Returns:
             Dict with video_id and status
         """
-        await self._ensure_initialized()
+        # No pipeline initialization needed — just a DB insert
         bot_name = "Idea Bot"
         video_id = None
 
