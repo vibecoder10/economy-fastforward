@@ -347,8 +347,12 @@ async def _run_discovery_generation(tenant_id: str, batch_id: str):
 
         # Call Claude to generate ideas
         import httpx
+
+        # Get learning context from Supabase for prompt injection
+        learnings_context = await _get_learnings_context(tenant_id)
+
         async with httpx.AsyncClient(timeout=60.0) as client:
-            prompt = _build_discovery_prompt(comp_list)
+            prompt = _build_discovery_prompt(comp_list, learnings_context)
             resp = await client.post(
                 "https://api.anthropic.com/v1/messages",
                 headers={
@@ -437,15 +441,130 @@ async def _run_discovery_generation(tenant_id: str, batch_id: str):
         _refresh_tasks[tenant_id] = {"running": False, "error": str(e)}
 
 
-def _build_discovery_prompt(competitors: list[dict]) -> str:
-    """Build the Claude prompt for idea generation."""
+async def _get_learnings_context(tenant_id: str) -> str:
+    """Query Supabase learnings + title_insights, format for prompt injection.
+
+    This is the READ side of the learning loop. When videos perform well/poorly,
+    patterns are extracted and stored in the learnings table. This function reads
+    those patterns and formats them for Claude to use when generating new titles.
+    """
+    sections = []
+
+    try:
+        # 1. Title learnings from our own video performance
+        title_learnings = await fetch_all(
+            """SELECT pattern, avg_ctr, sample_size, confidence
+               FROM learnings
+               WHERE tenant_id = $1 AND active = true AND category = 'title'
+                 AND confidence >= 40 AND sample_size >= 2
+               ORDER BY avg_ctr DESC NULLS LAST LIMIT 5""",
+            tenant_id,
+        )
+        if title_learnings:
+            lines = ["## Channel-Specific Title Performance",
+                      "Based on your channel's historical data:"]
+            for row in title_learnings:
+                ctr = float(row["avg_ctr"]) if row.get("avg_ctr") else 0
+                n = int(row.get("sample_size", 0))
+                conf = float(row.get("confidence", 0))
+                verdict = "PROVEN" if conf >= 60 else "AVOID" if conf <= 40 else "TESTING"
+                lines.append(f"- {row['pattern']}: avg {ctr:.1f}% CTR ({n} videos) [{verdict}]")
+            sections.append("\n".join(lines))
+
+        # 2. Hook learnings
+        hook_learnings = await fetch_all(
+            """SELECT pattern, avg_ctr, avg_retention, sample_size
+               FROM learnings
+               WHERE tenant_id = $1 AND active = true AND category = 'hook'
+                 AND confidence >= 40
+               ORDER BY avg_retention DESC NULLS LAST LIMIT 4""",
+            tenant_id,
+        )
+        if hook_learnings:
+            lines = ["## Hook Performance"]
+            for row in hook_learnings:
+                ret = float(row["avg_retention"]) if row.get("avg_retention") else 0
+                ctr_str = f", {float(row['avg_ctr']):.1f}% CTR" if row.get("avg_ctr") else ""
+                lines.append(f"- {row['pattern']}: {ret:.0f}% retention{ctr_str}")
+            sections.append("\n".join(lines))
+
+        # 3. Framework learnings
+        fw_learnings = await fetch_all(
+            """SELECT pattern, avg_ctr, avg_retention, sample_size
+               FROM learnings
+               WHERE tenant_id = $1 AND active = true AND category = 'framework'
+                 AND confidence >= 40
+               ORDER BY avg_ctr DESC NULLS LAST LIMIT 4""",
+            tenant_id,
+        )
+        if fw_learnings:
+            lines = ["## Framework Performance"]
+            for row in fw_learnings:
+                ctr = float(row["avg_ctr"]) if row.get("avg_ctr") else 0
+                ret = float(row["avg_retention"]) if row.get("avg_retention") else 0
+                lines.append(f"- {row['pattern']}: {ctr:.1f}% CTR, {ret:.0f}% retention")
+            sections.append("\n".join(lines))
+
+        # 4. Title insights from competitor analysis
+        insights = await fetch_all(
+            """SELECT pattern_name, description, avg_vph, count, confidence
+               FROM title_insights
+               WHERE tenant_id = $1 AND confidence >= 50
+               ORDER BY avg_vph DESC NULLS LAST LIMIT 5""",
+            tenant_id,
+        )
+        if insights:
+            lines = ["## Competitor Title Patterns (What Works in This Niche)"]
+            for row in insights:
+                vph = float(row["avg_vph"]) if row.get("avg_vph") else 0
+                lines.append(f"- {row['pattern_name']}: avg {vph:.0f} VPH ({row.get('count', 0)} videos)")
+                if row.get("description"):
+                    lines.append(f"  {row['description']}")
+            sections.append("\n".join(lines))
+
+    except Exception as e:
+        print(f"[Discovery] Error loading learnings context: {e}")
+
+    if not sections:
+        return ""
+
+    return "\n\nCHANNEL PERFORMANCE DATA (Use this to inform your title suggestions — favor proven patterns, avoid anti-patterns):\n\n" + "\n\n".join(sections)
+
+
+def _build_discovery_prompt(competitors: list[dict], learnings_context: str = "") -> str:
+    """Build the Claude prompt for idea generation.
+
+    Includes static Master Formula rules + dynamic learnings from Supabase.
+    """
     comp_text = "\n".join(
         f"- \"{c['title']}\" by {c['channel']} (VPH: {c['vph']:.0f}, {c['hours_old']:.0f}h old, URL: {c['url']})"
         for c in competitors
     )
 
+    # Master Formula title rules (from title_patterns.json)
+    mf_rules = """
+TITLE RULES (Master Formula System):
+- MF-0: "How [Entity] [Clear Action] [Target]" — Maximum clarity, S-tier
+- MF-1: "How [Entity] Secretly/Quietly [Evil Action] [Mechanism]" — Hidden exposé, S-tier
+- MF-2: "Why [Country/Entity] [Dramatic Present-Tense Claim]" — Causal authority, S-tier
+- MF-6: "[Country]'s [Ominous Adjective] [Decline Noun]" — Compact authority, A-tier
+
+Hard rules:
+- 30-55 characters (HARD CEILING at 55)
+- First word after How/Why MUST be a proper noun
+- NEVER use "YOU/YOUR" — declarative statements only
+- NEVER use ALL CAPS except acronyms (US, NATO, PBOC)
+- Prefer "How" or "Why" openers — highest CTR in this niche
+- Use numbers/dollar amounts when available (+15-25% CTR)
+- Negative framing outperforms positive by 63%
+- Thumbnail text: EXACTLY 2 words, strategic judgment (e.g., CHOKE POINT, POWER GRAB)
+"""
+
     return f"""You are a YouTube content strategist for a geopolitics/economy channel called "Economy FastForward".
 Your channel uses a "Past → Present → Future" narrative framework and covers topics through a Machiavellian power analysis lens.
+
+{mf_rules}
+{learnings_context}
 
 Below are recent high-performing competitor videos (sorted by Views Per Hour):
 
@@ -460,9 +579,9 @@ For the TOP 5 most promising videos, generate a unique angle for OUR channel. Fo
 5. **estimated_appeal**: Score 1-10 for how well this fits our channel
 6. **appeal_breakdown**: Object with scores for {{  "timeliness": 1-10, "audience_fit": 1-10, "content_gap": 1-10, "virality": 1-10, "depth_potential": 1-10, "visual_potential": 1-10 }}
 7. **title_options**: Array of exactly 3 title options, each with:
-   - **title**: The video title (compelling, specific, under 70 chars)
-   - **formula_id**: Title formula used (e.g., "question", "revelation", "countdown")
-   - **thumbnail_text**: Short bold text for thumbnail (2-5 words)
+   - **title**: The video title (compelling, specific, under 55 chars, follow Master Formula rules above)
+   - **formula_id**: Which MF formula used (e.g., "MF-0", "MF-1", "MF-2", "MF-6")
+   - **thumbnail_text**: Short bold text for thumbnail (EXACTLY 2 words, strategic judgment)
    - **score**: Predicted CTR score 1-10
 
 Return ONLY valid JSON array. No markdown, no explanation. Example format:
@@ -475,9 +594,9 @@ Return ONLY valid JSON array. No markdown, no explanation. Example format:
     "estimated_appeal": 8,
     "appeal_breakdown": {{ "timeliness": 9, "audience_fit": 8, "content_gap": 7, "virality": 8, "depth_potential": 9, "visual_potential": 7 }},
     "title_options": [
-      {{ "title": "...", "formula_id": "question", "thumbnail_text": "...", "score": 8 }},
-      {{ "title": "...", "formula_id": "revelation", "thumbnail_text": "...", "score": 7 }},
-      {{ "title": "...", "formula_id": "countdown", "thumbnail_text": "...", "score": 6 }}
+      {{ "title": "...", "formula_id": "MF-2", "thumbnail_text": "CHOKE POINT", "score": 8 }},
+      {{ "title": "...", "formula_id": "MF-1", "thumbnail_text": "POWER GRAB", "score": 7 }},
+      {{ "title": "...", "formula_id": "MF-0", "thumbnail_text": "PROXY WAR", "score": 6 }}
     ]
   }}
 ]"""
