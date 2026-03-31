@@ -132,27 +132,6 @@ async def list_skills(tenant_id: str = Depends(get_tenant_id)):
     )
 
 
-@router.get("/{skill_id}", response_model=SkillResponse)
-async def get_skill(skill_id: str, tenant_id: str = Depends(get_tenant_id)):
-    """Get details for a specific skill."""
-    registry = get_registry(_pipeline_root)
-    manifest = registry.get_skill(skill_id)
-
-    if not manifest:
-        from fastapi import HTTPException
-        raise HTTPException(status_code=404, detail=f"Skill '{skill_id}' not found")
-
-    # Check availability
-    try:
-        tenant_secrets = await list_secrets(tenant_id)
-        configured_keys = [s["name"] for s in tenant_secrets if s.get("configured")]
-    except Exception:
-        configured_keys = []
-
-    available = all(k in configured_keys for k in manifest.required_keys)
-    return _manifest_to_response(manifest, available)
-
-
 @router.get("/pipeline/order", response_model=List[SkillResponse])
 async def get_pipeline_order(tenant_id: str = Depends(get_tenant_id)):
     """Get pipeline skills in execution order."""
@@ -181,3 +160,24 @@ async def get_pipeline_cost(tenant_id: str = Depends(get_tenant_id)):
         "currency": "USD",
         "breakdown": breakdown,
     }
+
+
+@router.get("/{skill_id}", response_model=SkillResponse)
+async def get_skill(skill_id: str, tenant_id: str = Depends(get_tenant_id)):
+    """Get details for a specific skill."""
+    registry = get_registry(_pipeline_root)
+    manifest = registry.get_skill(skill_id)
+
+    if not manifest:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail=f"Skill '{skill_id}' not found")
+
+    # Check availability
+    try:
+        tenant_secrets = await list_secrets(tenant_id)
+        configured_keys = [s["name"] for s in tenant_secrets if s.get("configured")]
+    except Exception:
+        configured_keys = []
+
+    available = all(k in configured_keys for k in manifest.required_keys)
+    return _manifest_to_response(manifest, available)
