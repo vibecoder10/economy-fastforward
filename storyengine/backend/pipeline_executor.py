@@ -396,6 +396,9 @@ class PipelineExecutor:
     ) -> dict:
         """Create a new video idea.
 
+        Creates a video record in Supabase with status 'idea_logged'.
+        Research and scripting are triggered separately from the video detail page.
+
         Args:
             topic: Topic or headline for the video
             source: Source identifier
@@ -410,21 +413,19 @@ class PipelineExecutor:
         try:
             await self._log_activity(bot_name, None, "started", f"Creating idea: {topic}")
 
-            # Create in Supabase first
+            # Resolve project for tenant
+            from routes.projects import _get_or_create_project
+            project = await _get_or_create_project(self.tenant_id)
+            project_id = str(project["id"])
+
+            # Create video record in Supabase
             result = await fetch_one(
-                """INSERT INTO videos (tenant_id, video_title, status, headline, source, created_at)
-                   VALUES ($1, $2, $3, $4, $5, now())
+                """INSERT INTO videos (tenant_id, project_id, video_title, status, headline, source, created_at)
+                   VALUES ($1, $2, $3, $4, $5, $6, now())
                    RETURNING id""",
-                self.tenant_id, topic, "idea_logged", topic, source,
+                self.tenant_id, project_id, topic, "idea_logged", topic, source,
             )
             video_id = str(result["id"])
-
-            # Also create in Airtable via pipeline
-            # The pipeline's idea_bot expects input_text
-            idea_result = await self._pipeline.run_idea_bot(topic)
-
-            if idea_result.get("error"):
-                raise Exception(idea_result["error"])
 
             await self._log_activity(bot_name, video_id, "completed", "Idea created")
 
