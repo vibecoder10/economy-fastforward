@@ -841,6 +841,47 @@ async def run_render(
     return PipelineResponse(video_id=video_id, status="running", message="Render started")
 
 
+@router.post("/upload/{video_id}", response_model=PipelineResponse)
+async def run_upload(
+    video_id: str,
+    background_tasks: BackgroundTasks,
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """Upload video to YouTube as unlisted draft."""
+    video = await fetch_one(
+        "SELECT id, status FROM videos WHERE id = $1 AND tenant_id = $2",
+        video_id, tenant_id,
+    )
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+
+    if not is_at_or_past_stage(video["status"], "rendered"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Video not ready for upload (status: {video['status']})",
+        )
+
+    if _get_task_status(video_id):
+        raise HTTPException(status_code=409, detail="Task already running")
+
+    _set_task_status(video_id, "running", "Upload in progress")
+
+    async def _run():
+        try:
+            executor = PipelineExecutor(tenant_id)
+            result = await executor.run_upload(video_id)
+            _set_task_status(video_id, result.get("status", "unknown"), result.get("error"))
+        except Exception as e:
+            _set_task_status(video_id, "failed", str(e))
+        finally:
+            await asyncio.sleep(30)
+            _clear_task_status(video_id)
+
+    background_tasks.add_task(_run)
+
+    return PipelineResponse(video_id=video_id, status="running", message="Upload started")
+
+
 @router.post("/run-next/{video_id}", response_model=PipelineResponse)
 async def run_next_step(
     video_id: str,
