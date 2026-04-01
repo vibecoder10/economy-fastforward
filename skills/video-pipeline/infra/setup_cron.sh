@@ -14,6 +14,7 @@
 #   8. 12:00 PM — Daily pipeline queue run (processes all stages through to render)
 #   9. Every 15 min — Bot health check (restarts Slack bot if it died)
 #  10. Every 30 min — Approval watcher (catches manual Airtable approvals)
+#  11. Every 30 min — StoryEngine frontend auto-deploy (rebuild on code changes)
 #
 # Times are in US/Pacific (America/Los_Angeles).
 # Logs are written to /tmp/pipeline-*.log
@@ -175,11 +176,16 @@ TZ=America/Los_Angeles
 # Catches ideas manually approved in Airtable (status set to "Approved")
 # Lock expires after 15 min
 */30 * * * * MAX_LOCK_AGE=900 $WRAPPER approvals /tmp/pipeline-approval.log timeout 600 python orchestrator/approval_watcher.py
+
+# Every 30 min — StoryEngine frontend auto-deploy
+# Detects frontend code changes after git pull and rebuilds + restarts Next.js
+# Prevents the "stale build" issue where server serves old JS chunks
+*/30 * * * * cd $REPO_DIR && bash skills/video-pipeline/infra/storyengine_deploy.sh >> /tmp/storyengine-deploy.log 2>&1
 EOF
 )
 
 # Preserve any existing cron entries not from this script
-EXISTING=$(crontab -l 2>/dev/null | grep -v "pipeline-discover\|pipeline-queue\|pipeline-bot-health\|pipeline-approval\|performance-tracker\|osiris-scraper\|osiris-analyze\|autopilot-cycle\|autopilot-ctr\|autopilot-learn\|pipeline\.log\|Pipeline Cron\|setup_cron\|Daily idea\|Daily pipeline\|performance tracker\|bot health\|Approval watcher\|run-queue\|--discover\|performance_tracker\|cron_wrapper\|osiris\.competitor\|osiris analyze\|autopilot\.autopilot\|autopilot\.monitoring\|autopilot\.learning\|analytics\.osiris" || true)
+EXISTING=$(crontab -l 2>/dev/null | grep -v "pipeline-discover\|pipeline-queue\|pipeline-bot-health\|pipeline-approval\|performance-tracker\|osiris-scraper\|osiris-analyze\|autopilot-cycle\|autopilot-ctr\|autopilot-learn\|storyengine_deploy\|pipeline\.log\|Pipeline Cron\|setup_cron\|Daily idea\|Daily pipeline\|performance tracker\|bot health\|Approval watcher\|run-queue\|--discover\|performance_tracker\|cron_wrapper\|osiris\.competitor\|osiris analyze\|autopilot\.autopilot\|autopilot\.monitoring\|autopilot\.learning\|analytics\.osiris\|StoryEngine frontend" || true)
 
 # Install combined crontab
 if [ -n "$EXISTING" ]; then
@@ -201,6 +207,7 @@ echo "    $DISCOVER_HOUR:00 daily (~9 AM PT)  ->  Discovery scan (news + competi
 echo "    $QUEUE_HOUR:00 daily (~12 PM PT)    ->  Pipeline queue (process all stages to render)"
 echo "    Every 15 min             ->  Bot health check (auto-restart if down)"
 echo "    Every 30 min             ->  Approval watcher (catch manual approvals)"
+echo "    Every 30 min             ->  StoryEngine deploy (rebuild frontend on code changes)"
 echo ""
 echo "  Failure alerts:"
 echo "    All jobs (except healthcheck) send Slack notifications on failure."
@@ -228,6 +235,7 @@ echo "    /tmp/pipeline-discover.log"
 echo "    /tmp/pipeline-queue.log"
 echo "    /tmp/pipeline-bot-health.log"
 echo "    /tmp/pipeline-approval.log"
+echo "    /tmp/storyengine-deploy.log"
 echo ""
 # ── Verify cron daemon is running ─────────────────────────────────────
 if pgrep -x "cron" > /dev/null 2>&1 || pgrep -x "crond" > /dev/null 2>&1; then

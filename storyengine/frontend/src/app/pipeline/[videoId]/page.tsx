@@ -69,7 +69,7 @@ const PIPELINE_ORDER = [
 
 const TABS = [
   { id: "research", label: "Research", icon: Search },
-  { id: "script-voice", label: "Script & Voice", icon: FileText },
+  { id: "script-voice", label: "Script", icon: FileText },
   { id: "storyboard-visuals", label: "Storyboard & Visuals", icon: ImageIcon },
   { id: "clips", label: "Video Clips", icon: Video },
   { id: "thumbnail", label: "Thumbnail", icon: Film },

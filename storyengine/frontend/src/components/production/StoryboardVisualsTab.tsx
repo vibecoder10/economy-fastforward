@@ -15,6 +15,7 @@ import { ProgressRing } from "@/components/ui/ProgressRing";
 import { FilterSelect } from "@/components/ui/FilterSelect";
 import { ActionButton } from "@/components/ui/ActionButton";
 import { PromptExpander } from "@/components/video-detail/prompt-expander";
+import { VoicePlayer } from "@/components/video-detail/voice-player";
 import {
   getVideoScript, getVideoAssets, updateStoryboardMode, clearSceneStoryboard, clearAllStoryboards,
   runPipelineStage, updateSceneSegments, runImageForSegment, clearStaleTask, updateVideoStyles,
@@ -49,6 +50,7 @@ interface SceneGroup {
   actNumber: number;
   narrationText: string;
   duration: string;
+  voiceOverUrl: string | null;
   storyboardPrompt: string | null;
   storyboardBeats: Array<{
     beatNumber: number;
@@ -140,6 +142,7 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
         actNumber: Math.ceil((scene.scene || 1) / Math.ceil(totalScenes / 6)),
         narrationText: scene.scene_text || "",
         duration: `${Math.round((scene.scene_text || "").split(/\s+/).length / 2.5)}s`,
+        voiceOverUrl: scene.voice_over_url || null,
         storyboardPrompt: scene.storyboard_prompts || null,
         storyboardBeats,
         storyboardStatus: scene.storyboard_status || null,
@@ -560,144 +563,114 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
                       </div>
                     </div>
 
-                    {(storyboardMode || scene.hasStoryboardPrompt || scene.storyboardStatus || scene.storyboardGridCount > 0) && (
-                      <div
-                        className="rounded-xl p-3 mb-4"
-                        style={{
-                          background: "rgba(168, 85, 247, 0.06)",
-                          border: "1px solid rgba(168, 85, 247, 0.16)",
-                        }}
-                      >
-                        <div className="flex flex-wrap items-start justify-between gap-3 mb-2">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <StatusPill
-                              label={
-                                scene.storyboardStatus
-                                  ? `Storyboard ${scene.storyboardStatus.replace(/_/g, " ")}`
-                                  : scene.hasStoryboardPrompt
-                                    ? "Storyboard Prompt Ready"
-                                    : taskRunning
-                                      ? "Storyboard Running"
-                                      : "Storyboard Waiting"
-                              }
-                              color={
-                                scene.hasStoryboardData
-                                  ? "purple"
-                                  : "orange"
-                              }
-                              size="sm"
-                            />
-                            {scene.storyboardBeatCount != null && (
-                              <span
-                                className="text-[10px] font-mono px-2 py-1 rounded-full"
-                                style={{
-                                  color: "var(--text-secondary)",
-                                  background: "rgba(255,255,255,0.05)",
-                                  border: "1px solid var(--border-subtle)",
-                                }}
-                              >
-                                {scene.storyboardBeatCount} beat{scene.storyboardBeatCount === 1 ? "" : "s"}
-                              </span>
-                            )}
-                            {scene.storyboardGridCount > 0 && (
-                              <span
-                                className="text-[10px] font-mono px-2 py-1 rounded-full"
-                                style={{
-                                  color: "var(--text-secondary)",
-                                  background: "rgba(255,255,255,0.05)",
-                                  border: "1px solid var(--border-subtle)",
-                                }}
-                              >
-                                {scene.storyboardGridCount} grid{scene.storyboardGridCount === 1 ? "" : "s"}
-                              </span>
-                            )}
-                          </div>
-
+                    {/* Storyboard grids — horizontal scroll */}
+                    {(scene.storyboardBeats.length > 0 || scene.hasStoryboardData) && (
+                      <div className="mb-4">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-[10px] uppercase tracking-wider font-medium" style={{ color: "var(--purple)" }}>
+                            Storyboard Grids
+                          </span>
                           <button
                             onClick={() => handleClearSceneStoryboard(scene.sceneNumber)}
                             disabled={taskRunning || clearingAllStoryboards || clearingScene === scene.sceneNumber || !scene.hasStoryboardData}
-                            className="inline-flex items-center gap-1.5 text-[10px] uppercase tracking-wider font-semibold px-3 py-1.5 rounded-lg transition-all disabled:opacity-40"
-                            style={{
-                              color: "#FF8A65",
-                              background: "rgba(255, 138, 101, 0.08)",
-                              border: "1px solid rgba(255, 138, 101, 0.35)",
-                            }}
-                            title="Clear storyboard prompt, status, and generated storyboard grids for this scene"
+                            className="inline-flex items-center gap-1 text-[9px] uppercase tracking-wider font-medium px-2 py-1 rounded-md transition-all disabled:opacity-30"
+                            style={{ color: "#FF8A65", background: "rgba(255, 138, 101, 0.08)", border: "1px solid rgba(255, 138, 101, 0.25)" }}
                           >
-                            {clearingScene === scene.sceneNumber ? (
-                              <Loader2 size={12} className="animate-spin" />
-                            ) : (
-                              <Trash2 size={12} />
-                            )}
-                            Clear Storyboard
+                            {clearingScene === scene.sceneNumber ? <Loader2 size={10} className="animate-spin" /> : <Trash2 size={10} />}
+                            Clear
                           </button>
                         </div>
-
-                        {scene.storyboardBeats.length > 0 ? (
-                          <div className="space-y-3">
-                            {scene.storyboardBeats.map((beat) => (
+                        <div className="flex gap-3 overflow-x-auto pb-2" style={{ scrollbarWidth: "thin" }}>
+                          {scene.storyboardBeats.map((beat) => (
+                            <div key={`grid-${scene.sceneNumber}-${beat.beatNumber}`} className="flex-shrink-0">
                               <div
-                                key={`${scene.sceneNumber}-beat-${beat.beatNumber}`}
-                                className="rounded-xl p-3"
+                                className="rounded-lg overflow-hidden"
                                 style={{
-                                  background: "rgba(255,255,255,0.03)",
-                                  border: "1px solid rgba(170, 120, 255, 0.14)",
+                                  width: 200,
+                                  height: 120,
+                                  background: "var(--bg-elevated)",
+                                  border: beat.gridUrl
+                                    ? "1px solid rgba(0, 230, 138, 0.25)"
+                                    : "1px dashed rgba(255,255,255,0.1)",
                                 }}
                               >
-                                <div className="flex items-center justify-between gap-3 mb-2">
-                                  <div className="flex items-center gap-2 flex-wrap">
-                                    <span
-                                      className="text-[10px] font-mono px-2 py-1 rounded-full"
-                                      style={{
-                                        color: "var(--purple)",
-                                        background: "rgba(170, 120, 255, 0.08)",
-                                        border: "1px solid rgba(170, 120, 255, 0.22)",
-                                      }}
-                                    >
-                                      Beat {beat.beatNumber}
-                                    </span>
-                                    <span
-                                      className="text-[10px] font-mono px-2 py-1 rounded-full"
-                                      style={{
-                                        color: "var(--text-secondary)",
-                                        background: "rgba(255,255,255,0.05)",
-                                        border: "1px solid var(--border-subtle)",
-                                      }}
-                                    >
-                                      Storyboard {beat.beatNumber}
-                                    </span>
-                                    <span
-                                      className="text-[10px] font-mono px-2 py-1 rounded-full"
-                                      style={{
-                                        color: beat.gridUrl ? "var(--green)" : "var(--orange)",
-                                        background: beat.gridUrl ? "rgba(0, 230, 138, 0.08)" : "rgba(255, 138, 101, 0.08)",
-                                        border: beat.gridUrl
-                                          ? "1px solid rgba(0, 230, 138, 0.24)"
-                                          : "1px solid rgba(255, 138, 101, 0.24)",
-                                      }}
-                                    >
-                                      {beat.gridUrl ? "Grid Ready" : "Grid Pending"}
+                                {beat.gridUrl ? (
+                                  <img
+                                    src={beat.gridUrl}
+                                    alt={`S${scene.sceneNumber}.${beat.beatNumber}`}
+                                    className="w-full h-full object-cover"
+                                  />
+                                ) : (
+                                  <div className="w-full h-full flex items-center justify-center">
+                                    <span className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>
+                                      {taskRunning ? "Generating..." : "Pending"}
                                     </span>
                                   </div>
-                                </div>
-                                <PromptExpander
-                                  prompt={beat.prompt}
-                                  label={`Storyboard ${beat.beatNumber} Prompt`}
-                                  previewLength={180}
-                                />
+                                )}
                               </div>
+                              <p className="text-center mt-1.5 text-[9px] font-mono" style={{ color: "var(--text-tertiary)" }}>
+                                S{scene.sceneNumber}.{beat.beatNumber}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                        {/* Beat prompts (expandable) */}
+                        <details className="mt-2">
+                          <summary className="text-[10px] cursor-pointer" style={{ color: "var(--text-tertiary)" }}>
+                            {scene.storyboardBeats.length} beat prompt{scene.storyboardBeats.length !== 1 ? "s" : ""}
+                          </summary>
+                          <div className="space-y-2 mt-2">
+                            {scene.storyboardBeats.map((beat) => (
+                              <PromptExpander
+                                key={`prompt-${scene.sceneNumber}-${beat.beatNumber}`}
+                                prompt={beat.prompt}
+                                label={`Beat ${beat.beatNumber}`}
+                                previewLength={120}
+                              />
                             ))}
                           </div>
-                        ) : (
-                          <p className="text-xs" style={{ color: "var(--text-tertiary)" }}>
-                            Storyboard prompt output for this scene will appear here when generation completes.
-                          </p>
-                        )}
+                        </details>
                       </div>
                     )}
 
-                    {/* Segment cards */}
-                    <div className="space-y-3">
+                    {/* Voice player */}
+                    {scene.voiceOverUrl && (
+                      <div className="mb-4">
+                        <VoicePlayer
+                          audioUrl={(() => {
+                            const apiBase = typeof window !== "undefined"
+                              ? (localStorage.getItem("storyengine_api_url") || `${window.location.protocol}//${window.location.hostname}:8001`)
+                              : "";
+                            const token = typeof window !== "undefined" ? (localStorage.getItem("storyengine_token") || "") : "";
+                            return `${apiBase}/api/videos/${video.id}/audio/${scene.sceneNumber}?token=${token}`;
+                          })()}
+                        />
+                      </div>
+                    )}
+                    {!scene.voiceOverUrl && (
+                      <p className="text-[10px] mb-4" style={{ color: "var(--text-tertiary)" }}>No voice generated yet</p>
+                    )}
+
+                    {/* Segment cards — collapsed by default */}
+                    <details>
+                      <summary className="text-[11px] cursor-pointer py-1" style={{ color: "var(--text-secondary)" }}>
+                        <span style={{ color: "var(--text-tertiary)" }}>
+                          {scene.segments.length} image segment{scene.segments.length !== 1 ? "s" : ""}
+                        </span>
+                        {" · "}
+                        <span style={{ color: "var(--green)" }}>
+                          {scene.segments.filter((s) => s.status === "done").length} generated
+                        </span>
+                        {scene.segments.filter((s) => s.status !== "done").length > 0 && (
+                          <>
+                            {" · "}
+                            <span style={{ color: "var(--orange)" }}>
+                              {scene.segments.filter((s) => s.status !== "done").length} pending
+                            </span>
+                          </>
+                        )}
+                      </summary>
+                    <div className="space-y-3 mt-3">
                       {scene.segments.map((seg) => {
                         const statusInfo = STATUS_ICON[seg.status];
                         const isEditing = editingPrompt === seg.id;
@@ -860,6 +833,7 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
                         );
                       })}
                     </div>
+                    </details>
                   </GlassCard>
                 ))}
               </div>

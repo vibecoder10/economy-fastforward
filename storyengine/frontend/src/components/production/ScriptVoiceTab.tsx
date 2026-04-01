@@ -4,8 +4,8 @@ import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   ChevronDown, ChevronRight, Merge, Trash2, Plus, Volume2,
-  Library, Wand2, Play, Pause, Layers, Mic, Pencil, Loader2,
-  CheckCircle, Clock, AlertCircle, SkipBack, SkipForward,
+  Library, Wand2, Play, Layers, Mic, Pencil, Loader2,
+  CheckCircle, Clock, AlertCircle,
 } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -279,12 +279,6 @@ export function ScriptVoiceTab({ video }: ScriptVoiceTabProps) {
   const [generatingPromptsScene, setGeneratingPromptsScene] = useState<number | null>(null);
   const [generatingPromptsSegment, setGeneratingPromptsSegment] = useState<string | null>(null);
   const [promptTaskRunning, setPromptTaskRunning] = useState(false);
-
-  // Audio playback
-  const [activeSegment, setActiveSegment] = useState<string | null>(null);
-  const [volume, setVolume] = useState(75);
-  const [playbackSpeed, setPlaybackSpeed] = useState("1.0x");
-  const audioRefs = useRef<Record<string, HTMLAudioElement>>({});
 
   // Task polling (script generation)
   const [scriptTaskRunning, setScriptTaskRunning] = useState(false);
@@ -659,88 +653,6 @@ export function ScriptVoiceTab({ video }: ScriptVoiceTabProps) {
   }, [video.id]);
 
   // ---------------------------------------------------------------------------
-  // Audio playback
-  // ---------------------------------------------------------------------------
-
-  const toggleSegmentPlay = useCallback(
-    (segmentId: string, voiceOverUrl: string | null) => {
-      if (activeSegment === segmentId) {
-        const audio = audioRefs.current[segmentId];
-        if (audio) {
-          audio.pause();
-          audio.currentTime = 0;
-        }
-        setActiveSegment(null);
-        return;
-      }
-
-      // Stop any currently playing
-      if (activeSegment && audioRefs.current[activeSegment]) {
-        audioRefs.current[activeSegment].pause();
-        audioRefs.current[activeSegment].currentTime = 0;
-      }
-
-      if (!voiceOverUrl) {
-        setActiveSegment(null);
-        return;
-      }
-
-      // Use backend audio proxy instead of raw Drive URL (avoids redirect/CORS issues)
-      const scene = scenes.find((s) => s.id === segmentId);
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
-      const token = typeof window !== "undefined" ? localStorage.getItem("token") || "dev-token" : "dev-token";
-      const proxyUrl = `${apiUrl}/api/videos/${video.id}/audio/${scene?.sceneNumber || 1}?token=${token}`;
-
-      if (!audioRefs.current[segmentId]) {
-        audioRefs.current[segmentId] = new Audio(proxyUrl);
-        audioRefs.current[segmentId].addEventListener("ended", () => {
-          setActiveSegment(null);
-        });
-        audioRefs.current[segmentId].addEventListener("error", (e) => {
-          console.error("[Audio] Playback error:", e);
-          setActiveSegment(null);
-        });
-      }
-
-      const audio = audioRefs.current[segmentId];
-      audio.volume = volume / 100;
-      audio.playbackRate = parseFloat(playbackSpeed);
-      audio.play().catch((err) => {
-        console.error("[Audio] Play failed:", err);
-        setActiveSegment(null);
-      });
-      setActiveSegment(segmentId);
-    },
-    [activeSegment, volume, playbackSpeed, scenes, video.id],
-  );
-
-  useEffect(() => {
-    if (activeSegment && audioRefs.current[activeSegment]) {
-      audioRefs.current[activeSegment].volume = volume / 100;
-    }
-  }, [volume, activeSegment]);
-
-  useEffect(() => {
-    if (activeSegment && audioRefs.current[activeSegment]) {
-      audioRefs.current[activeSegment].playbackRate = parseFloat(playbackSpeed);
-    }
-  }, [playbackSpeed, activeSegment]);
-
-  const playPrev = useCallback(() => {
-    if (!scenes.length) return;
-    const idx = scenes.findIndex((s) => s.id === activeSegment);
-    const prevIdx = idx > 0 ? idx - 1 : scenes.length - 1;
-    toggleSegmentPlay(scenes[prevIdx].id, scenes[prevIdx].voiceOverUrl);
-  }, [scenes, activeSegment, toggleSegmentPlay]);
-
-  const playNext = useCallback(() => {
-    if (!scenes.length) return;
-    const idx = scenes.findIndex((s) => s.id === activeSegment);
-    const nextIdx = idx < scenes.length - 1 ? idx + 1 : 0;
-    toggleSegmentPlay(scenes[nextIdx].id, scenes[nextIdx].voiceOverUrl);
-  }, [scenes, activeSegment, toggleSegmentPlay]);
-
-  // ---------------------------------------------------------------------------
   // Scene editing helpers
   // ---------------------------------------------------------------------------
 
@@ -1019,7 +931,7 @@ export function ScriptVoiceTab({ video }: ScriptVoiceTabProps) {
                     {actScenes.map((scene) => {
                       const isExpanded = expandedScenes.has(scene.sceneNumber);
                       const hasVoice = !!scene.voiceOverUrl;
-                      const isPlayingThis = activeSegment === scene.id;
+                      const isPlayingThis = false;
                       const isGeneratingThisVoice = generatingVoiceScene === scene.sceneNumber;
 
                       return (
@@ -1442,68 +1354,41 @@ export function ScriptVoiceTab({ video }: ScriptVoiceTabProps) {
                             )}
                           </AnimatePresence>
 
-                          {/* ---- Voice section (below script text, same card) ---- */}
+                          {/* ---- Voice status (generation controls only, playback moved to Storyboard tab) ---- */}
                           <div
                             className="mt-3 pt-3 flex items-center gap-3 flex-wrap"
                             style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}
                           >
-                            {/* Play/pause button */}
-                            <button
-                              onClick={() => toggleSegmentPlay(scene.id, scene.voiceOverUrl)}
-                              disabled={!hasVoice}
-                              className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 transition-opacity"
+                            <span
+                              className="text-[10px] font-mono px-2 py-0.5 rounded-full"
                               style={{
-                                background: hasVoice ? "var(--green)" : "var(--bg-surface)",
-                                color: "var(--bg-void)",
-                                opacity: hasVoice ? 1 : 0.4,
-                                cursor: hasVoice ? "pointer" : "default",
+                                color: hasVoice ? "var(--green)" : "var(--text-tertiary)",
+                                background: hasVoice ? "rgba(0, 200, 83, 0.08)" : "rgba(255,255,255,0.04)",
+                                border: `1px solid ${hasVoice ? "rgba(0, 200, 83, 0.2)" : "rgba(255,255,255,0.06)"}`,
                               }}
                             >
-                              {isPlayingThis ? <Pause size={12} /> : <Play size={12} className="ml-0.5" />}
+                              {hasVoice ? "Voice Ready" : "No Voice"}
+                            </span>
+                            <span
+                              className="text-[10px] font-mono shrink-0"
+                              style={{ color: "var(--text-tertiary)" }}
+                            >
+                              {Math.round((scene.narrationText.split(/\s+/).filter(Boolean).length || 0) / 2.5)}s
+                            </span>
+                            <button
+                              onClick={() => handleGenerateSceneVoice(scene.sceneNumber)}
+                              disabled={isVoiceBusy}
+                              className="text-[10px] font-medium px-2 py-1 rounded-lg transition-all hover:brightness-110 disabled:opacity-40"
+                              style={{
+                                border: hasVoice ? "1px solid var(--turquoise)" : "none",
+                                color: hasVoice ? "var(--turquoise)" : "var(--bg-void)",
+                                background: hasVoice ? "transparent" : "var(--turquoise)",
+                              }}
+                            >
+                              {isGeneratingThisVoice || (voiceTaskRunning && generatingVoiceScene === scene.sceneNumber)
+                                ? (voiceTaskMessage || "Generating...")
+                                : hasVoice ? "Regenerate Voice" : "Generate Voice"}
                             </button>
-
-                            {hasVoice ? (
-                              <>
-                                <MiniWaveform color="var(--green)" width={120} height={20} bars={25} />
-                                <span
-                                  className="text-[10px] font-mono shrink-0"
-                                  style={{ color: "var(--text-tertiary)" }}
-                                >
-                                  {Math.round((scene.narrationText.split(/\s+/).filter(Boolean).length || 0) / 2.5)}s
-                                </span>
-                                <button
-                                  onClick={() => handleGenerateSceneVoice(scene.sceneNumber)}
-                                  disabled={isVoiceBusy}
-                                  className="text-[10px] font-medium px-2 py-1 rounded-lg transition-all hover:brightness-110 disabled:opacity-40"
-                                  style={{
-                                    border: "1px solid var(--turquoise)",
-                                    color: "var(--turquoise)",
-                                    background: "transparent",
-                                  }}
-                                >
-                                  {isGeneratingThisVoice || (voiceTaskRunning && generatingVoiceScene === scene.sceneNumber)
-                                    ? "Regenerating..."
-                                    : "Regenerate Voice"}
-                                </button>
-                              </>
-                            ) : (
-                              <>
-                                <MiniWaveform color="var(--text-tertiary)" width={120} height={20} bars={25} />
-                                <button
-                                  onClick={() => handleGenerateSceneVoice(scene.sceneNumber)}
-                                  disabled={isVoiceBusy}
-                                  className="text-[10px] font-semibold px-3 py-1.5 rounded-lg transition-all hover:brightness-110 disabled:opacity-40"
-                                  style={{
-                                    background: "var(--turquoise)",
-                                    color: "var(--bg-void)",
-                                  }}
-                                >
-                                  {isGeneratingThisVoice
-                                    ? voiceTaskMessage || "Generating..."
-                                    : "Generate Voice"}
-                                </button>
-                              </>
-                            )}
                           </div>
 
                           {/* Sources + metadata */}
@@ -1704,89 +1589,7 @@ export function ScriptVoiceTab({ video }: ScriptVoiceTabProps) {
         </div>
       </div>
 
-      {/* ============================================================= */}
-      {/* Bottom transport bar (audio playback controls)                  */}
-      {/* ============================================================= */}
-      {scenes.some((s) => s.voiceOverUrl) && (
-        <div className="fixed bottom-0 left-0 right-0 z-40 md:pl-60">
-          <div
-            className="mx-auto px-6 py-3 flex items-center justify-between gap-4"
-            style={{
-              background: "rgba(10, 14, 22, 0.95)",
-              borderTop: "1px solid var(--border)",
-              backdropFilter: "blur(12px)",
-            }}
-          >
-            {/* Now playing */}
-            <div className="flex items-center gap-2 shrink-0 min-w-0">
-              {activeSegment && (
-                <span className="text-xs font-mono truncate" style={{ color: "var(--text-secondary)" }}>
-                  S-{String(scenes.find((s) => s.id === activeSegment)?.sceneNumber || 0).padStart(2, "0")}
-                </span>
-              )}
-            </div>
-
-            {/* Playback controls */}
-            <div className="flex items-center gap-3">
-              <button onClick={playPrev} style={{ color: "var(--text-secondary)" }}>
-                <SkipBack size={18} />
-              </button>
-              <button
-                onClick={() => {
-                  if (activeSegment) {
-                    toggleSegmentPlay(
-                      activeSegment,
-                      scenes.find((s) => s.id === activeSegment)?.voiceOverUrl || null,
-                    );
-                  } else if (scenes.length > 0) {
-                    const first = scenes.find((s) => s.voiceOverUrl);
-                    if (first) toggleSegmentPlay(first.id, first.voiceOverUrl);
-                  }
-                }}
-                className="w-10 h-10 rounded-full flex items-center justify-center"
-                style={{ background: "var(--green)" }}
-              >
-                {activeSegment ? (
-                  <Pause size={18} style={{ color: "var(--bg-void)" }} />
-                ) : (
-                  <Play size={18} style={{ color: "var(--bg-void)" }} className="ml-0.5" />
-                )}
-              </button>
-              <button onClick={playNext} style={{ color: "var(--text-secondary)" }}>
-                <SkipForward size={18} />
-              </button>
-
-              <select
-                value={playbackSpeed}
-                onChange={(e) => setPlaybackSpeed(e.target.value)}
-                className="text-xs font-mono px-2 py-1 rounded"
-                style={{ background: "var(--bg-elevated)", color: "var(--text-secondary)", border: "none" }}
-              >
-                <option value="0.5x">0.5x</option>
-                <option value="0.75x">0.75x</option>
-                <option value="1.0x">1.0x</option>
-                <option value="1.25x">1.25x</option>
-                <option value="1.5x">1.5x</option>
-                <option value="2.0x">2.0x</option>
-              </select>
-            </div>
-
-            {/* Volume */}
-            <div className="flex items-center gap-2 shrink-0">
-              <Volume2 size={16} style={{ color: "var(--text-secondary)" }} />
-              <input
-                type="range"
-                min={0}
-                max={100}
-                value={volume}
-                onChange={(e) => setVolume(Number(e.target.value))}
-                className="w-20 accent-[var(--green)]"
-                style={{ accentColor: "var(--green)" }}
-              />
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Audio playback moved to Storyboard & Visuals tab */}
 
       {/* ============================================================= */}
       {/* Revision Modal                                                  */}
