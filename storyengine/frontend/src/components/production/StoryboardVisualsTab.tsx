@@ -583,9 +583,13 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
                                     : "1px dashed rgba(255,255,255,0.1)",
                                 }}
                                 onClick={() => {
-                                  if (beat.gridUrl) window.open(beat.gridUrl, "_blank");
+                                  if (beat.gridUrl) {
+                                    window.open(beat.gridUrl, "_blank");
+                                  } else if (!taskRunning && !generatingAll) {
+                                    handleGenerateAllImages();
+                                  }
                                 }}
-                                title={beat.gridUrl ? "Click to open full size" : ""}
+                                title={beat.gridUrl ? "Click to open full size" : "Click to generate storyboard grids"}
                               >
                                 {beat.gridUrl ? (
                                   <img
@@ -594,10 +598,22 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
                                     className="w-full h-full object-cover"
                                   />
                                 ) : (
-                                  <div className="w-full h-full flex items-center justify-center">
-                                    <span className="text-xs" style={{ color: "var(--text-tertiary)" }}>
-                                      {taskRunning ? "Generating..." : "Pending"}
-                                    </span>
+                                  <div className="w-full h-full flex flex-col items-center justify-center gap-2 transition-colors hover:bg-[rgba(168,85,247,0.08)]">
+                                    {(taskRunning || generatingAll) ? (
+                                      <>
+                                        <Loader2 size={20} className="animate-spin" style={{ color: "var(--purple)" }} />
+                                        <span className="text-[11px] font-medium" style={{ color: "var(--purple)" }}>
+                                          Generating...
+                                        </span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <ImageIcon size={20} style={{ color: "var(--purple)", opacity: 0.6 }} />
+                                        <span className="text-[11px] font-medium" style={{ color: "var(--purple)" }}>
+                                          Click to Generate
+                                        </span>
+                                      </>
+                                    )}
                                   </div>
                                 )}
                               </div>
