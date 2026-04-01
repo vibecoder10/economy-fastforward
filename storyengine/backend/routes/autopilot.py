@@ -10,7 +10,7 @@ Tables used:
 
 import os
 import math
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from pydantic import BaseModel
 from typing import Optional, List, Dict
 from datetime import datetime, timedelta
@@ -498,25 +498,75 @@ async def toggle_autopilot(
 @router.post("/launch/{candidate_id}")
 async def launch_candidate(
     candidate_id: str,
-    tenant_id: str = Depends(get_tenant_id)
+    background_tasks: BackgroundTasks,
+    tenant_id: str = Depends(get_tenant_id),
 ):
-    """Launch production for a specific candidate."""
-    try:
-        # Mark as modeled in Supabase
-        await execute(
-            """UPDATE competitor_videos
-               SET modeled = true, modeled_at = NOW()
-               WHERE id = $1 AND tenant_id = $2""",
-            candidate_id, tenant_id,
-        )
-    except Exception as e:
-        print(f"Error marking candidate as modeled in Supabase: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to launch: {e}")
+    """Launch production for a specific candidate.
 
-    # TODO: Trigger actual pipeline execution
+    Creates a video record from the competitor video and triggers the full
+    pipeline (research → script → voice → images → render → upload).
+    """
+    # 1. Fetch candidate
+    candidate = await fetch_one(
+        "SELECT * FROM competitor_videos WHERE id = $1 AND tenant_id = $2",
+        candidate_id, tenant_id,
+    )
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    if candidate.get("our_video_id"):
+        raise HTTPException(status_code=400, detail="Candidate already launched")
+
+    # 2. Get or create project
+    from routes.projects import _get_or_create_project
+    project = await _get_or_create_project(tenant_id)
+    project_id = str(project["id"])
+
+    # 3. Create video record
+    video_title = candidate.get("title", "Untitled")
+    channel = candidate.get("channel", "competitor")
+    result = await fetch_one(
+        """INSERT INTO videos (
+            tenant_id, project_id, video_title, status, headline,
+            source, reference_url, created_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, now())
+        RETURNING id""",
+        tenant_id, project_id, video_title, "idea_logged",
+        video_title, f"autopilot_{channel}", candidate.get("url"),
+    )
+    video_id = str(result["id"])
+
+    # 4. Mark candidate as modeled
+    await execute(
+        """UPDATE competitor_videos
+           SET modeled = true, modeled_at = NOW(), our_video_id = $1
+           WHERE id = $2 AND tenant_id = $3""",
+        video_id, candidate_id, tenant_id,
+    )
+
+    # 5. Trigger full pipeline in background
+    async def _run_full_pipeline():
+        from pipeline_executor import PipelineExecutor
+        executor = PipelineExecutor(tenant_id)
+        res = await executor.run_research(video_id)
+        if res.get("status") == "failed":
+            return
+        terminal = {"rendered", "uploaded", "uploaded_draft", "done", "published"}
+        for _ in range(20):
+            video = await fetch_one("SELECT status FROM videos WHERE id = $1", video_id)
+            status = (video or {}).get("status", "")
+            if status in terminal:
+                break
+            step_result = await executor.run_next_step(video_id)
+            step_status = step_result.get("status", "")
+            if step_status in ("failed", "needs_approval", "idle"):
+                break
+
+    background_tasks.add_task(_run_full_pipeline)
 
     return {
         "status": "launched",
         "candidate_id": candidate_id,
-        "message": "Production pipeline triggered",
+        "video_id": video_id,
+        "video_title": video_title,
+        "message": "Video created and pipeline started",
     }

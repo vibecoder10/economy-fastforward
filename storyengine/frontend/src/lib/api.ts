@@ -231,7 +231,7 @@ export const updateAutopilotConfig = (videosPerMonth: number) =>
   });
 
 export const launchCandidate = (candidateId: string) =>
-  fetchApi<{ status: string; candidate_id: string; message: string }>(
+  fetchApi<{ status: string; candidate_id: string; video_id: string; video_title: string; message: string }>(
     `/api/autopilot/launch/${candidateId}`,
     { method: "POST" }
   );

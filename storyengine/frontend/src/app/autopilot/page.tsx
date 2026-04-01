@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
+import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import {
   Brain,
@@ -12,6 +13,8 @@ import {
   ChevronRight,
   Check,
   X,
+  Rocket,
+  Loader2,
 } from "lucide-react";
 import Link from "next/link";
 import { GlassCard } from "@/components/ui/GlassCard";
@@ -22,6 +25,7 @@ import {
   getAutopilotSummary,
   toggleAutopilot,
   updateAutopilotConfig,
+  launchCandidate,
   type AutopilotSummary,
 } from "@/lib/api";
 
@@ -50,10 +54,23 @@ const CATEGORY_COLORS: Record<string, string> = {
 
 export default function AutopilotPage() {
   const queryClient = useQueryClient();
+  const router = useRouter();
   const [isToggling, setIsToggling] = useState(false);
   const [editingTarget, setEditingTarget] = useState(false);
   const [targetValue, setTargetValue] = useState(15);
   const [savingTarget, setSavingTarget] = useState(false);
+  const [launchingId, setLaunchingId] = useState<string | null>(null);
+
+  const launchMutation = useMutation({
+    mutationFn: launchCandidate,
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["autopilot-summary"] });
+      router.push(`/pipeline/${data.video_id}`);
+    },
+    onError: () => {
+      setLaunchingId(null);
+    },
+  });
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["autopilot-summary"],
@@ -370,6 +387,29 @@ export default function AutopilotPage() {
                         conf
                       </p>
                     </div>
+                    <button
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setLaunchingId(candidate.id);
+                        launchMutation.mutate(candidate.id);
+                      }}
+                      disabled={launchingId === candidate.id}
+                      className="ml-1 shrink-0 flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all cursor-pointer"
+                      style={{
+                        background: "rgba(0, 212, 170, 0.15)",
+                        color: "var(--turquoise)",
+                        border: "1px solid rgba(0, 212, 170, 0.25)",
+                        opacity: launchingId === candidate.id ? 0.5 : 1,
+                      }}
+                    >
+                      {launchingId === candidate.id ? (
+                        <Loader2 size={12} className="animate-spin" />
+                      ) : (
+                        <Rocket size={12} />
+                      )}
+                      {launchingId === candidate.id ? "Launching..." : "Launch"}
+                    </button>
                   </Link>
                 );
               })}
