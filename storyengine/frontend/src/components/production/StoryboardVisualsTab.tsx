@@ -349,16 +349,16 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
     }
   }, [video.id, queryClient]);
 
-  const runStageWith409Retry = useCallback(async (stage: string) => {
+  const runStageWith409Retry = useCallback(async (stage: string, params?: Record<string, string | number>) => {
     try {
-      await runPipelineStage(video.id, stage);
+      await runPipelineStage(video.id, stage, params);
       setTaskRunning(true);
     } catch (err: unknown) {
       const message = (err as Error).message || "";
       if (message.includes("409")) {
         try {
           await clearStaleTask(video.id);
-          await runPipelineStage(video.id, stage);
+          await runPipelineStage(video.id, stage, params);
           setTaskRunning(true);
           return;
         } catch (retryErr) {
@@ -399,6 +399,22 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
       setGeneratingAll(false);
     }
   }, [runStageWith409Retry, storyboardMode]);
+
+  const handleGenerateScenePrompts = useCallback(async (sceneNumber: number) => {
+    try {
+      await runStageWith409Retry("storyboards", { scene: sceneNumber });
+    } catch (err: unknown) {
+      alert(`Scene ${sceneNumber} prompt generation failed: ${(err as Error).message}`);
+    }
+  }, [runStageWith409Retry]);
+
+  const handleGenerateSceneGrids = useCallback(async (sceneNumber: number) => {
+    try {
+      await runStageWith409Retry("storyboard-images", { scene: sceneNumber });
+    } catch (err: unknown) {
+      alert(`Scene ${sceneNumber} grid generation failed: ${(err as Error).message}`);
+    }
+  }, [runStageWith409Retry]);
 
   const handleModelChange = useCallback(async (nextModel: string) => {
     setModel(nextModel);
@@ -621,6 +637,22 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
         </div>
       )}
 
+      {/* Live progress banner */}
+      {taskRunning && taskMessage && (
+        <div
+          className="rounded-xl px-4 py-3 flex items-center gap-3"
+          style={{
+            background: "rgba(168, 85, 247, 0.06)",
+            border: "1px solid rgba(168, 85, 247, 0.2)",
+          }}
+        >
+          <Loader2 size={14} className="animate-spin flex-shrink-0" style={{ color: "var(--purple)" }} />
+          <span className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>
+            {taskMessage}
+          </span>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_260px] gap-6">
         {/* Main content */}
         <div className="space-y-6">
@@ -646,17 +678,52 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
                       <span className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>
                         {scene.duration}
                       </span>
-                      {(scene.hasStoryboardData) && (
-                        <button
-                          onClick={() => handleClearSceneStoryboard(scene.sceneNumber)}
-                          disabled={taskRunning || clearingAllStoryboards || clearingScene === scene.sceneNumber || !scene.hasStoryboardData}
-                          className="ml-auto inline-flex items-center gap-1 text-[9px] uppercase tracking-wider font-medium px-2 py-1 rounded-md transition-all disabled:opacity-30"
-                          style={{ color: "#FF8A65", background: "rgba(255, 138, 101, 0.08)", border: "1px solid rgba(255, 138, 101, 0.25)" }}
-                        >
-                          {clearingScene === scene.sceneNumber ? <Loader2 size={10} className="animate-spin" /> : <Trash2 size={10} />}
-                          Clear
-                        </button>
-                      )}
+                      {/* Per-scene action buttons */}
+                      <div className="ml-auto flex items-center gap-1.5">
+                        {storyboardMode && scene.storyboardStatus && (
+                          <span className="text-[8px] font-mono px-1.5 py-0.5 rounded" style={{
+                            background: scene.storyboardStatus === "prompts_ready" || scene.storyboardStatus === "grids_generated"
+                              ? "rgba(0, 230, 138, 0.1)"
+                              : "rgba(168, 85, 247, 0.1)",
+                            color: scene.storyboardStatus === "prompts_ready" || scene.storyboardStatus === "grids_generated"
+                              ? "var(--green)"
+                              : "var(--purple)",
+                          }}>
+                            {scene.storyboardStatus.replace(/_/g, " ")}
+                          </span>
+                        )}
+                        {storyboardMode && !scene.hasStoryboardPrompt && (
+                          <button
+                            onClick={() => handleGenerateScenePrompts(scene.sceneNumber)}
+                            disabled={taskRunning || generatingPrompts}
+                            className="inline-flex items-center gap-1 text-[9px] font-medium px-2 py-1 rounded-md transition-all disabled:opacity-30"
+                            style={{ background: "var(--purple)", color: "var(--bg-void)" }}
+                          >
+                            <Pencil size={9} /> Gen Prompts
+                          </button>
+                        )}
+                        {storyboardMode && scene.hasStoryboardPrompt && scene.storyboardGridCount === 0 && (
+                          <button
+                            onClick={() => handleGenerateSceneGrids(scene.sceneNumber)}
+                            disabled={taskRunning || generatingAll}
+                            className="inline-flex items-center gap-1 text-[9px] font-medium px-2 py-1 rounded-md transition-all disabled:opacity-30"
+                            style={{ background: "var(--orange)", color: "var(--bg-void)" }}
+                          >
+                            <ImageIcon size={9} /> Gen Grids
+                          </button>
+                        )}
+                        {(scene.hasStoryboardData) && (
+                          <button
+                            onClick={() => handleClearSceneStoryboard(scene.sceneNumber)}
+                            disabled={taskRunning || clearingAllStoryboards || clearingScene === scene.sceneNumber || !scene.hasStoryboardData}
+                            className="inline-flex items-center gap-1 text-[9px] uppercase tracking-wider font-medium px-2 py-1 rounded-md transition-all disabled:opacity-30"
+                            style={{ color: "#FF8A65", background: "rgba(255, 138, 101, 0.08)", border: "1px solid rgba(255, 138, 101, 0.25)" }}
+                          >
+                            {clearingScene === scene.sceneNumber ? <Loader2 size={10} className="animate-spin" /> : <Trash2 size={10} />}
+                            Clear
+                          </button>
+                        )}
+                      </div>
                     </div>
 
                     {/* ★ STORYBOARD GRIDS — PRIMARY FOCAL POINT */}
@@ -679,10 +746,10 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
                                   if (beat.gridUrl) {
                                     window.open(beat.gridUrl, "_blank");
                                   } else if (!taskRunning && !generatingAll) {
-                                    handleGenerateAllImages();
+                                    handleGenerateSceneGrids(scene.sceneNumber);
                                   }
                                 }}
-                                title={beat.gridUrl ? "Click to open full size" : "Click to generate storyboard grids"}
+                                title={beat.gridUrl ? "Click to open full size" : `Click to generate Scene ${scene.sceneNumber} grids`}
                               >
                                 {beat.gridUrl ? (
                                   <img

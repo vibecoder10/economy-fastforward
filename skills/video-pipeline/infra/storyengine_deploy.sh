@@ -64,11 +64,22 @@ if echo "$FRONTEND_CHANGES" | grep -q "package-lock.json"; then
     cd "$FRONTEND_DIR" && npm install >> "$LOG_FILE" 2>&1
 fi
 
+# CRITICAL: Kill the server BEFORE building.
+# If we build while the old server runs, Next.js can serve HTML referencing
+# OLD chunk hashes. Those chunks no longer exist after build → 500 errors.
+# Order: stop → build → start. The site is briefly offline during build (~60s).
+log "Stopping Next.js server before build..."
+pkill -f "next start --port 3001" 2>/dev/null || true
+pkill -f "next-server" 2>/dev/null || true
+sleep 2
+
 # Build
 log "Running npm run build..."
 cd "$FRONTEND_DIR"
 if ! npm run build >> "$LOG_FILE" 2>&1; then
     log "BUILD FAILED — will retry on next run"
+    # Restart server with old build so site isn't down indefinitely
+    nohup npm run start >> /tmp/storyengine-frontend.log 2>&1 &
     # Send Slack alert if possible
     if [ -f "$REPO_DIR/.env" ]; then
         set -a; source "$REPO_DIR/.env"; set +a
@@ -84,12 +95,8 @@ if ! npm run build >> "$LOG_FILE" 2>&1; then
     exit 1
 fi
 
-# Restart Next.js server
-log "Build succeeded — restarting Next.js server..."
-pkill -f "next start --port 3001" 2>/dev/null || true
-pkill -f "next-server" 2>/dev/null || true
-sleep 3
-
+# Start Next.js server with fresh build
+log "Build succeeded — starting Next.js server..."
 cd "$FRONTEND_DIR"
 nohup npm run start >> /tmp/storyengine-frontend.log 2>&1 &
 sleep 8
