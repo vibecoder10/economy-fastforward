@@ -528,6 +528,99 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
         onToggle={handleToggleStoryboard}
       />
 
+      {/* Storyboard pipeline steps */}
+      {storyboardMode && (
+        <div
+          className="rounded-xl p-4"
+          style={{ background: "rgba(168, 85, 247, 0.04)", border: "1px solid rgba(168, 85, 247, 0.12)" }}
+        >
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-[10px] uppercase tracking-wider font-semibold" style={{ color: "var(--purple)" }}>
+              Storyboard Pipeline
+            </span>
+          </div>
+          <div className="flex items-center gap-0">
+            {[
+              { label: "Image Prompts", done: promptReadySegments >= totalSegments && totalSegments > 0, count: `${promptReadySegments}/${totalSegments}` },
+              { label: "Storyboard Prompts", done: storyboardPromptScenes >= scenes.length && scenes.length > 0, count: `${storyboardPromptScenes}/${scenes.length}` },
+              { label: "Storyboard Grids", done: storyboardReadyScenes >= scenes.length && scenes.length > 0, count: `${storyboardReadyScenes}/${scenes.length}` },
+            ].map((step, i, arr) => {
+              const isNext = !step.done && (i === 0 || arr[i - 1].done);
+              return (
+                <div key={step.label} className="flex items-center gap-0 flex-1">
+                  <div className="flex flex-col items-center flex-1">
+                    <div
+                      className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold mb-1"
+                      style={{
+                        background: step.done ? "var(--green)" : isNext ? "var(--purple)" : "rgba(255,255,255,0.06)",
+                        color: step.done || isNext ? "var(--bg-void)" : "var(--text-tertiary)",
+                        border: isNext ? "2px solid var(--purple)" : "none",
+                      }}
+                    >
+                      {step.done ? "✓" : i + 1}
+                    </div>
+                    <span className="text-[9px] font-medium" style={{ color: step.done ? "var(--green)" : isNext ? "var(--purple)" : "var(--text-tertiary)" }}>
+                      {step.label}
+                    </span>
+                    <span className="text-[8px] font-mono" style={{ color: "var(--text-tertiary)" }}>
+                      {step.count}
+                    </span>
+                  </div>
+                  {i < arr.length - 1 && (
+                    <div className="w-8 h-px mx-1" style={{ background: step.done ? "var(--green)" : "rgba(255,255,255,0.1)" }} />
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          {/* Next action CTA */}
+          {(() => {
+            const promptsDone = promptReadySegments >= totalSegments && totalSegments > 0;
+            const sbPromptsDone = storyboardPromptScenes >= scenes.length && scenes.length > 0;
+            const sbGridsDone = storyboardReadyScenes >= scenes.length && scenes.length > 0;
+
+            if (!promptsDone) return (
+              <button
+                onClick={handleGenerateAllPrompts}
+                disabled={generatingPrompts || taskRunning}
+                className="mt-3 w-full inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-xs font-semibold transition-all disabled:opacity-50"
+                style={{ background: "var(--purple)", color: "var(--bg-void)" }}
+              >
+                {(generatingPrompts || taskRunning) ? <Loader2 size={14} className="animate-spin" /> : <Pencil size={14} />}
+                Step 1: Generate Image Prompts
+              </button>
+            );
+            if (!sbPromptsDone) return (
+              <button
+                onClick={handleGenerateAllPrompts}
+                disabled={generatingPrompts || taskRunning}
+                className="mt-3 w-full inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-xs font-semibold transition-all disabled:opacity-50"
+                style={{ background: "var(--purple)", color: "var(--bg-void)" }}
+              >
+                {(generatingPrompts || taskRunning) ? <Loader2 size={14} className="animate-spin" /> : <Pencil size={14} />}
+                Step 2: Generate Storyboard Prompts
+              </button>
+            );
+            if (!sbGridsDone) return (
+              <button
+                onClick={handleGenerateAllImages}
+                disabled={generatingAll || taskRunning}
+                className="mt-3 w-full inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-xs font-semibold transition-all disabled:opacity-50"
+                style={{ background: "var(--purple)", color: "var(--bg-void)" }}
+              >
+                {(generatingAll || taskRunning) ? <Loader2 size={14} className="animate-spin" /> : <ImageIcon size={14} />}
+                Step 3: Generate Storyboard Grids
+              </button>
+            );
+            return (
+              <p className="mt-3 text-[10px] text-center" style={{ color: "var(--green)" }}>
+                ✓ All storyboard steps complete
+              </p>
+            );
+          })()}
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_260px] gap-6">
         {/* Main content */}
         <div className="space-y-6">
