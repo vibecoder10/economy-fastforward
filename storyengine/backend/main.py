@@ -13,43 +13,49 @@ from database import get_pool, close_pool, fetch_all, fetch_one, execute
 from routes import dashboard, videos, assets, activity, review, pipeline, settings, autopilot, skills, agents, niche, channel_profile, projects, visual_styles, discovery, learning_extraction, youtube_sync
 
 
+async def _get_all_tenant_ids() -> list[str]:
+    """Get all tenant IDs for background task iteration."""
+    rows = await fetch_all("SELECT id FROM tenants")
+    return [str(r["id"]) for r in rows] if rows else []
+
+
 async def _auto_extract_learnings():
     """Background task: extract learnings from videos with CTR data every 24h.
 
-    This closes the learning feedback loop automatically:
+    Loops ALL tenants. Closes the learning feedback loop automatically:
     Videos get CTR data → patterns extracted → stored in learnings table →
     next discovery prompt includes proven/anti patterns → better titles.
     """
     await asyncio.sleep(30)  # Wait for DB pool to stabilize after startup
     while True:
         try:
-            # Get the default tenant
-            tenant = await fetch_one("SELECT id FROM tenants LIMIT 1")
-            if not tenant:
-                print("[AutoExtract] No tenant found, skipping")
+            tenant_ids = await _get_all_tenant_ids()
+            if not tenant_ids:
+                print("[AutoExtract] No tenants found, skipping")
                 await asyncio.sleep(86400)
                 continue
 
-            tenant_id = str(tenant["id"])
+            for tenant_id in tenant_ids:
+                try:
+                    # Check for unprocessed videos with CTR data
+                    videos = await fetch_all(
+                        """SELECT id FROM videos
+                           WHERE tenant_id = $1
+                             AND ctr IS NOT NULL
+                             AND COALESCE(impressions, 0) >= 1000
+                             AND learnings_extracted_at IS NULL
+                           LIMIT 1""",
+                        tenant_id,
+                    )
 
-            # Check for unprocessed videos with CTR data
-            videos = await fetch_all(
-                """SELECT id FROM videos
-                   WHERE tenant_id = $1
-                     AND ctr IS NOT NULL
-                     AND COALESCE(impressions, 0) >= 1000
-                     AND learnings_extracted_at IS NULL
-                   LIMIT 1""",
-                tenant_id,
-            )
-
-            if videos:
-                # Trigger extraction via the existing route logic
-                from routes.learning_extraction import extract_learnings as _extract
-                result = await _extract(tenant_id=tenant_id)
-                print(f"[AutoExtract] Extracted {result.patterns_extracted} patterns from {result.videos_analyzed} videos ({result.patterns_new} new, {result.patterns_updated} updated)")
-            else:
-                print("[AutoExtract] No new videos to extract from")
+                    if videos:
+                        from routes.learning_extraction import extract_learnings as _extract
+                        result = await _extract(tenant_id=tenant_id)
+                        print(f"[AutoExtract] Tenant {tenant_id[:8]}: {result.patterns_extracted} patterns from {result.videos_analyzed} videos ({result.patterns_new} new, {result.patterns_updated} updated)")
+                    else:
+                        print(f"[AutoExtract] Tenant {tenant_id[:8]}: no new videos")
+                except Exception as e:
+                    print(f"[AutoExtract] Tenant {tenant_id[:8]} error: {e}")
 
         except Exception as e:
             print(f"[AutoExtract] Error: {e}")
@@ -60,21 +66,53 @@ async def _auto_extract_learnings():
 async def _auto_sync_youtube():
     """Background task: sync YouTube metrics every 6 hours.
 
-    Pulls views, CTR, impressions, retention from YouTube APIs
+    Loops ALL tenants. Pulls views, CTR, impressions, retention from YouTube APIs
     into the videos table so the learning extraction can process them.
     """
     await asyncio.sleep(60)  # Wait for DB pool to stabilize
     while True:
         try:
-            tenant = await fetch_one("SELECT id FROM tenants LIMIT 1")
-            if tenant:
-                tenant_id = str(tenant["id"])
-                from routes.youtube_sync import _run_sync
-                await _run_sync(tenant_id)
+            tenant_ids = await _get_all_tenant_ids()
+            for tenant_id in tenant_ids:
+                try:
+                    from routes.youtube_sync import _run_sync
+                    await _run_sync(tenant_id)
+                    print(f"[AutoYTSync] Tenant {tenant_id[:8]}: sync complete")
+                except Exception as e:
+                    print(f"[AutoYTSync] Tenant {tenant_id[:8]} error: {e}")
         except Exception as e:
             print(f"[AutoYTSync] Error: {e}")
 
         await asyncio.sleep(21600)  # Run every 6 hours
+
+
+async def _auto_analyze_competitor_titles():
+    """Background task: analyze competitor title patterns every 24h.
+
+    Loops ALL tenants. Reads high-VPH competitor videos, detects title
+    patterns, writes to title_insights table. This feeds into the discovery
+    prompt so Claude knows which title structures work in this niche.
+    """
+    await asyncio.sleep(90)  # Offset from other tasks
+    while True:
+        try:
+            tenant_ids = await _get_all_tenant_ids()
+            for tenant_id in tenant_ids:
+                try:
+                    from routes.learning_extraction import analyze_competitor_titles, analyze_competitor_transcripts
+                    # Analyze title patterns
+                    result = await analyze_competitor_titles(tenant_id=tenant_id)
+                    title_insights = result.get("insights_saved", 0) if isinstance(result, dict) else 0
+                    # Analyze transcript hook patterns
+                    result2 = await analyze_competitor_transcripts(tenant_id=tenant_id)
+                    hook_insights = result2.get("insights_saved", 0) if isinstance(result2, dict) else 0
+                    print(f"[AutoTitleAnalysis] Tenant {tenant_id[:8]}: {title_insights} title + {hook_insights} hook insights saved")
+                except Exception as e:
+                    print(f"[AutoTitleAnalysis] Tenant {tenant_id[:8]} error: {e}")
+        except Exception as e:
+            print(f"[AutoTitleAnalysis] Error: {e}")
+
+        await asyncio.sleep(86400)  # Run every 24 hours
 
 
 @asynccontextmanager
@@ -87,15 +125,17 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"⚠️  Database connection failed (will retry on first query): {e}")
 
-    # Start background tasks
+    # Start background tasks (the continuous learning loops)
     extraction_task = asyncio.create_task(_auto_extract_learnings())
     youtube_sync_task = asyncio.create_task(_auto_sync_youtube())
+    title_analysis_task = asyncio.create_task(_auto_analyze_competitor_titles())
 
     yield
 
     # Shutdown
     extraction_task.cancel()
     youtube_sync_task.cancel()
+    title_analysis_task.cancel()
     await close_pool()
 
 

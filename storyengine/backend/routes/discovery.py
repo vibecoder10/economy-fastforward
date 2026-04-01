@@ -331,8 +331,10 @@ async def _run_discovery_generation(tenant_id: str, batch_id: str):
             return
 
         # Fetch recent high-VPH competitor videos (not yet modeled)
+        # Include transcript for hook/structure analysis
         competitors = await fetch_all(
-            """SELECT id, video_id, title, url, channel, vph, hours_old, published_date
+            """SELECT id, video_id, title, url, channel, vph, hours_old, published_date,
+                      transcript, thumbnail_url, duration_seconds
                FROM competitor_videos
                WHERE tenant_id = $1
                  AND vph >= 50
@@ -348,16 +350,21 @@ async def _run_discovery_generation(tenant_id: str, batch_id: str):
             _refresh_tasks[tenant_id] = {"running": False, "message": "No competitor videos found"}
             return
 
-        # Build competitor list for Claude
+        # Build competitor list for Claude (include transcript hooks)
         comp_list = []
         for c in competitors:
-            comp_list.append({
+            entry = {
                 "title": c.get("title", ""),
                 "channel": c.get("channel", ""),
                 "vph": float(c.get("vph", 0)),
                 "hours_old": float(c.get("hours_old", 0)),
                 "url": c.get("url", ""),
-            })
+            }
+            # Extract first ~300 chars of transcript as the competitor's hook
+            transcript = c.get("transcript") or ""
+            if transcript:
+                entry["opening_hook"] = transcript[:300].strip()
+            comp_list.append(entry)
 
         # Call Claude to generate ideas
         import httpx
@@ -365,8 +372,35 @@ async def _run_discovery_generation(tenant_id: str, batch_id: str):
         # Get learning context from Supabase for prompt injection
         learnings_context = await _get_learnings_context(tenant_id)
 
+        # Get channel identity for tenant-aware prompt (not hardcoded)
+        channel_name, channel_niche = "", ""
+        try:
+            profile = await fetch_one(
+                "SELECT channel_name, niche FROM channel_profiles WHERE tenant_id = $1",
+                tenant_id,
+            )
+            if profile:
+                channel_name = profile.get("channel_name", "")
+                channel_niche = profile.get("niche", "")
+            if not channel_name:
+                # Fallback to projects table
+                project = await fetch_one(
+                    "SELECT name, niche FROM projects WHERE tenant_id = $1 LIMIT 1",
+                    tenant_id,
+                )
+                if project:
+                    channel_name = project.get("name", "")
+                    channel_niche = channel_niche or project.get("niche", "")
+            if not channel_name:
+                # Final fallback to tenant name
+                tenant = await fetch_one("SELECT name FROM tenants WHERE id = $1", tenant_id)
+                if tenant:
+                    channel_name = tenant.get("name", "")
+        except Exception as e:
+            print(f"[Discovery] Error loading channel profile: {e}")
+
         async with httpx.AsyncClient(timeout=60.0) as client:
-            prompt = _build_discovery_prompt(comp_list, learnings_context)
+            prompt = _build_discovery_prompt(comp_list, learnings_context, channel_name, channel_niche)
             resp = await client.post(
                 "https://api.anthropic.com/v1/messages",
                 headers={
@@ -409,9 +443,9 @@ async def _run_discovery_generation(tenant_id: str, batch_id: str):
             comp_url = comp_match.get("url") if comp_match else None
             comp_vph = float(comp_match.get("vph", 0)) if comp_match else None
 
-            # Build YouTube thumbnail URL from video URL
-            thumb_url = None
-            if comp_url and "youtube.com" in str(comp_url):
+            # Use yt-dlp thumbnail URL if available, fallback to hqdefault
+            thumb_url = comp_match.get("thumbnail_url") if comp_match else None
+            if not thumb_url and comp_url and "youtube.com" in str(comp_url):
                 vid_id = comp_url.split("v=")[-1].split("&")[0] if "v=" in str(comp_url) else None
                 if vid_id:
                     thumb_url = f"https://img.youtube.com/vi/{vid_id}/hqdefault.jpg"
@@ -536,6 +570,23 @@ async def _get_learnings_context(tenant_id: str) -> str:
                     lines.append(f"  {row['description']}")
             sections.append("\n".join(lines))
 
+        # 5. Script/hook learnings from our own videos
+        script_learnings = await fetch_all(
+            """SELECT pattern, avg_ctr, avg_retention, sample_size
+               FROM learnings
+               WHERE tenant_id = $1 AND active = true AND category = 'script'
+                 AND confidence >= 40
+               ORDER BY avg_retention DESC NULLS LAST LIMIT 4""",
+            tenant_id,
+        )
+        if script_learnings:
+            lines = ["## Script Structure Performance"]
+            for row in script_learnings:
+                ret = float(row["avg_retention"]) if row.get("avg_retention") else 0
+                ctr = float(row["avg_ctr"]) if row.get("avg_ctr") else 0
+                lines.append(f"- {row['pattern']}: {ret:.0f}% retention, {ctr:.1f}% CTR ({row.get('sample_size', 0)} videos)")
+            sections.append("\n".join(lines))
+
     except Exception as e:
         print(f"[Discovery] Error loading learnings context: {e}")
 
@@ -545,15 +596,27 @@ async def _get_learnings_context(tenant_id: str) -> str:
     return "\n\nCHANNEL PERFORMANCE DATA (Use this to inform your title suggestions — favor proven patterns, avoid anti-patterns):\n\n" + "\n\n".join(sections)
 
 
-def _build_discovery_prompt(competitors: list[dict], learnings_context: str = "") -> str:
+def _build_discovery_prompt(competitors: list[dict], learnings_context: str = "",
+                            channel_name: str = "", channel_niche: str = "") -> str:
     """Build the Claude prompt for idea generation.
 
     Includes static Master Formula rules + dynamic learnings from Supabase.
+    Channel identity is pulled from the database — no hardcoded channel names.
     """
-    comp_text = "\n".join(
-        f"- \"{c['title']}\" by {c['channel']} (VPH: {c['vph']:.0f}, {c['hours_old']:.0f}h old, URL: {c['url']})"
-        for c in competitors
-    )
+    # Build competitor list with transcript hooks when available
+    comp_lines = []
+    for c in competitors:
+        line = f"- \"{c['title']}\" by {c['channel']} (VPH: {c['vph']:.0f}, {c['hours_old']:.0f}h old, URL: {c['url']})"
+        if c.get("opening_hook"):
+            # Show first ~200 chars of their opening for hook analysis
+            hook_preview = c["opening_hook"][:200].replace("\n", " ")
+            line += f"\n  Opening: \"{hook_preview}...\""
+        comp_lines.append(line)
+    comp_text = "\n".join(comp_lines)
+
+    # Dynamic channel identity (falls back to generic if not configured)
+    ch_name = channel_name or "your YouTube channel"
+    ch_niche = channel_niche or "educational content"
 
     # Master Formula title rules (from title_patterns.json)
     mf_rules = """
@@ -574,13 +637,14 @@ Hard rules:
 - Thumbnail text: EXACTLY 2 words, strategic judgment (e.g., CHOKE POINT, POWER GRAB)
 """
 
-    return f"""You are a YouTube content strategist for a geopolitics/economy channel called "Economy FastForward".
-Your channel uses a "Past → Present → Future" narrative framework and covers topics through a Machiavellian power analysis lens.
+    return f"""You are a YouTube content strategist for a {ch_niche} channel called "{ch_name}".
+Analyze what makes these competitor videos successful — their titles, hooks, and structures — then generate unique angles for OUR channel.
 
 {mf_rules}
 {learnings_context}
 
-Below are recent high-performing competitor videos (sorted by Views Per Hour):
+Below are recent high-performing competitor videos (sorted by Views Per Hour).
+When an "Opening:" is shown, that's the competitor's actual opening hook — study what makes it compelling:
 
 {comp_text}
 
@@ -588,7 +652,7 @@ For the TOP 5 most promising videos, generate a unique angle for OUR channel. Fo
 
 1. **source_title**: The competitor video title you're modeling
 2. **our_angle**: Our unique take (2-3 sentences) — NOT a copy, but inspired by the same topic
-3. **hook**: A compelling 15-second opening hook
+3. **hook**: A compelling 15-second opening hook (study the competitor openings above for inspiration)
 4. **framework**: The analytical framework (e.g., "Machiavellian Power Analysis", "Systems Thinking", "Game Theory")
 5. **estimated_appeal**: Score 1-10 for how well this fits our channel
 6. **appeal_breakdown**: Object with scores for {{  "timeliness": 1-10, "audience_fit": 1-10, "content_gap": 1-10, "virality": 1-10, "depth_potential": 1-10, "visual_potential": 1-10 }}

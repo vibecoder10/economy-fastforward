@@ -110,6 +110,68 @@ def _detect_hook_patterns(hook: str) -> list[str]:
     return patterns
 
 
+def _detect_script_patterns(script: str) -> list[str]:
+    """Detect structural patterns in a full script/transcript."""
+    patterns = []
+    if not script:
+        return patterns
+
+    words = script.split()
+    word_count = len(words)
+
+    # Length pattern
+    if word_count < 1500:
+        patterns.append("short_form_script")
+    elif word_count > 3500:
+        patterns.append("long_form_script")
+    else:
+        patterns.append("medium_form_script")
+
+    lower = script.lower()
+
+    # Question density (high question density = engagement hooks throughout)
+    question_count = script.count("?")
+    if word_count > 0 and question_count / (word_count / 100) > 2:
+        patterns.append("high_question_density")
+
+    # Narrative structures
+    if any(w in lower for w in ["years ago", "decades ago", "in the 19", "in the 20", "historically"]):
+        patterns.append("historical_anchor")
+    if any(w in lower for w in ["what happens next", "the future", "going forward", "will likely"]):
+        patterns.append("future_projection")
+    if re.search(r"(first|second|third|step \d|number \d)", lower):
+        patterns.append("numbered_structure")
+    if any(w in lower for w in ["the real question", "here's the thing", "the truth is", "what most people"]):
+        patterns.append("insider_framing")
+    if any(w in lower for w in ["billion", "million", "trillion", "percent"]):
+        patterns.append("data_heavy")
+
+    return patterns
+
+
+def _detect_competitor_hook_patterns(transcript: str) -> list[str]:
+    """Detect hook patterns from a competitor's transcript opening (first 500 words)."""
+    if not transcript:
+        return []
+
+    # Only analyze the opening hook (first ~500 words)
+    words = transcript.split()[:500]
+    opening = " ".join(words)
+
+    patterns = _detect_hook_patterns(opening)
+
+    # Additional patterns specific to competitor transcripts
+    lower = opening.lower()
+    if any(w in lower for w in ["breaking", "just happened", "just announced", "right now"]):
+        patterns.append("urgency_hook")
+    if any(w in lower for w in ["story", "once", "there was", "back in"]):
+        patterns.append("story_hook")
+    if any(w in lower for w in ["nobody", "no one", "most people don't", "what they don't"]):
+        patterns.append("exclusivity_hook")
+
+    return patterns
+
+
 def _get_verdict(ctr: float) -> tuple[str, int]:
     """Determine KEEP/DISCARD/NEUTRAL from CTR."""
     if ctr >= CTR_STRONG:
@@ -137,6 +199,20 @@ def _format_pattern_name(category: str, pattern: str) -> str:
         "question_opening": "Question opening hook",
         "statistic_hook": "Statistic hook",
         "visualization_hook": "Visualization hook",
+        # Script structure patterns
+        "short_form_script": "Short-form script (<1500 words)",
+        "medium_form_script": "Medium-form script (1500-3500 words)",
+        "long_form_script": "Long-form script (>3500 words)",
+        "high_question_density": "High question density throughout",
+        "historical_anchor": "Historical anchor in narrative",
+        "future_projection": "Future projection structure",
+        "numbered_structure": "Numbered/sequential structure",
+        "insider_framing": "Insider framing language",
+        "data_heavy": "Data-heavy narrative",
+        # Competitor hook patterns
+        "urgency_hook": "Urgency/breaking news hook",
+        "story_hook": "Story-based opening hook",
+        "exclusivity_hook": "Exclusivity/secret knowledge hook",
     }
     return labels.get(pattern, pattern.replace("_", " ").title())
 
@@ -204,7 +280,7 @@ async def extract_learnings(
     # Find videos with CTR data that haven't been analyzed yet
     videos = await fetch_all(
         """SELECT id, video_title, ctr, avg_retention, hook_script,
-                  framework_angle, impressions, source
+                  framework_angle, impressions, source, script
            FROM videos
            WHERE tenant_id = $1
              AND ctr IS NOT NULL
@@ -291,6 +367,26 @@ async def extract_learnings(
 
             result = await _upsert_learning(
                 tenant_id, "framework", pattern_name, ctr, retention, title,
+                verdict, confidence, existing_set,
+            )
+            if result == "new":
+                new_count += 1
+            elif result == "updated":
+                updated_count += 1
+
+        # Detect script structure patterns (from full script text)
+        script_text = video.get("script", "")
+        for pattern in _detect_script_patterns(script_text):
+            pattern_name = _format_pattern_name("script", pattern)
+            ep = ExtractedPattern(
+                category="script", pattern=pattern_name, verdict=verdict,
+                confidence=confidence, avg_ctr=ctr, avg_retention=retention,
+                source_video=title,
+            )
+            all_patterns.append(ep)
+
+            result = await _upsert_learning(
+                tenant_id, "script", pattern_name, ctr, retention, title,
                 verdict, confidence, existing_set,
             )
             if result == "new":
@@ -481,6 +577,83 @@ async def analyze_competitor_titles(
             inserted += 1
         except Exception as e:
             print(f"[Learnings] Error inserting title insight: {e}")
+
+    return {
+        "status": "ok",
+        "patterns_found": len(pattern_stats),
+        "insights_saved": inserted,
+        "videos_analyzed": len(competitors),
+    }
+
+
+@router.post("/analyze-transcripts")
+async def analyze_competitor_transcripts(
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """Analyze competitor video transcripts for hook/structure patterns.
+
+    Reads high-VPH competitor videos WITH transcripts, detects opening hook
+    patterns, and writes results to the title_insights table (as 'hook' type).
+    This teaches the system what hook structures work in the niche.
+    """
+    competitors = await fetch_all(
+        """SELECT title, vph, channel, transcript
+           FROM competitor_videos
+           WHERE tenant_id = $1 AND vph >= 50
+             AND transcript IS NOT NULL AND transcript != ''
+           ORDER BY vph DESC LIMIT 50""",
+        tenant_id,
+    )
+
+    if not competitors:
+        return {"status": "no_data", "message": "No competitor videos with transcripts found"}
+
+    # Aggregate hook patterns across competitor transcripts
+    pattern_stats: dict[str, dict] = {}
+
+    for comp in competitors:
+        transcript = comp.get("transcript", "")
+        vph = float(comp.get("vph", 0))
+        title = comp.get("title", "")
+
+        for pattern in _detect_competitor_hook_patterns(transcript):
+            if pattern not in pattern_stats:
+                pattern_stats[pattern] = {"count": 0, "total_vph": 0, "examples": []}
+            stats = pattern_stats[pattern]
+            stats["count"] += 1
+            stats["total_vph"] += vph
+            if len(stats["examples"]) < 5:
+                stats["examples"].append(title)
+
+    # Write insights to title_insights table (as 'hook' pattern type)
+    from datetime import date
+    today = date.today().isoformat()
+    inserted = 0
+
+    for pattern, stats in pattern_stats.items():
+        if stats["count"] < 2:
+            continue
+
+        avg_vph = stats["total_vph"] / stats["count"]
+        confidence = min(95, 50 + stats["count"] * 3)
+        pattern_name = _format_pattern_name("hook", pattern)
+
+        try:
+            await execute(
+                """INSERT INTO title_insights (
+                    tenant_id, analysis_date, pattern_type, pattern_name,
+                    description, example_titles, avg_vph, count,
+                    confidence, videos_analyzed, vph_threshold
+                ) VALUES ($1, $2::date, 'hook', $3, $4, $5, $6, $7, $8, $9, 50)
+                ON CONFLICT DO NOTHING""",
+                tenant_id, today, pattern_name,
+                f"Competitor hook pattern: {pattern_name.lower()}",
+                json.dumps(stats["examples"]),
+                avg_vph, stats["count"], confidence, len(competitors),
+            )
+            inserted += 1
+        except Exception as e:
+            print(f"[Learnings] Error inserting hook insight: {e}")
 
     return {
         "status": "ok",
