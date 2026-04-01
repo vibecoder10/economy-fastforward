@@ -439,43 +439,80 @@ async def _run_scrape(tenant_id: str, max_videos_per_channel: int = 20):
 
         saved = 0
         for video in videos:
+            vid = video.get("video_id", "")
             try:
-                await execute(
-                    """INSERT INTO competitor_videos (
-                        tenant_id, video_id, title, url, channel, channel_url,
-                        views, vph, hours_old, published_date, scrape_date,
-                        thumbnail_url, transcript, duration_seconds, description, likes
-                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::date, now(),
-                              $11, $12, $13, $14, $15)
-                    ON CONFLICT (tenant_id, video_id) DO UPDATE SET
-                        views = EXCLUDED.views,
-                        vph = EXCLUDED.vph,
-                        hours_old = EXCLUDED.hours_old,
-                        scrape_date = now(),
-                        thumbnail_url = COALESCE(EXCLUDED.thumbnail_url, competitor_videos.thumbnail_url),
-                        transcript = COALESCE(EXCLUDED.transcript, competitor_videos.transcript),
-                        duration_seconds = COALESCE(EXCLUDED.duration_seconds, competitor_videos.duration_seconds),
-                        description = COALESCE(EXCLUDED.description, competitor_videos.description),
-                        likes = COALESCE(EXCLUDED.likes, competitor_videos.likes)""",
-                    tenant_id,
-                    video["video_id"],
-                    video["title"],
-                    video["url"],
-                    video["channel"],
-                    video.get("channel_url", ""),
-                    video["views"],
-                    video["vph"],
-                    video["hours_old"],
-                    video.get("published_at") or None,
-                    video.get("thumbnail_url"),
-                    video.get("transcript"),
-                    video.get("duration_seconds") or None,
-                    video.get("description"),
-                    video.get("likes") or None,
-                )
+                # Parse published_at into a date string for Postgres, or None
+                pub_date = None
+                if video.get("published_at"):
+                    try:
+                        pa = video["published_at"]
+                        if "T" in str(pa):
+                            pub_date = datetime.fromisoformat(str(pa).replace("Z", "+00:00")).date()
+                        elif isinstance(pa, str) and len(pa) >= 10:
+                            pub_date = datetime.strptime(pa[:10], "%Y-%m-%d").date()
+                    except (ValueError, TypeError):
+                        pub_date = None
+
+                if vid in existing_ids:
+                    # UPDATE existing record
+                    await execute(
+                        """UPDATE competitor_videos SET
+                            views = $1, vph = $2, hours_old = $3, scrape_date = now(),
+                            thumbnail_url = COALESCE($4, thumbnail_url),
+                            transcript = COALESCE($5, transcript),
+                            duration_seconds = COALESCE($6, duration_seconds),
+                            description = COALESCE($7, description),
+                            likes = COALESCE($8, likes)
+                        WHERE tenant_id = $9 AND video_id = $10""",
+                        video.get("views", 0),
+                        video.get("vph", 0),
+                        video.get("hours_old", 0),
+                        video.get("thumbnail_url"),
+                        video.get("transcript"),
+                        video.get("duration_seconds") or None,
+                        video.get("description"),
+                        video.get("likes") or None,
+                        tenant_id,
+                        vid,
+                    )
+                else:
+                    # INSERT new record
+                    await execute(
+                        """INSERT INTO competitor_videos (
+                            tenant_id, video_id, title, url, channel, channel_url,
+                            views, vph, hours_old, published_date, scrape_date,
+                            thumbnail_url, transcript, duration_seconds, description, likes
+                        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now(),
+                                  $11, $12, $13, $14, $15)""",
+                        tenant_id,
+                        vid,
+                        video.get("title", ""),
+                        video.get("url", ""),
+                        video.get("channel", ""),
+                        video.get("channel_url", ""),
+                        video.get("views", 0),
+                        video.get("vph", 0),
+                        video.get("hours_old", 0),
+                        pub_date,
+                        video.get("thumbnail_url"),
+                        video.get("transcript"),
+                        video.get("duration_seconds") or None,
+                        video.get("description"),
+                        video.get("likes") or None,
+                    )
                 saved += 1
+                # Update progress every 20 saves
+                if saved % 20 == 0:
+                    _scrape_tasks[tenant_id] = {
+                        **_scrape_tasks.get(tenant_id, {}),
+                        "videos_saved": saved,
+                    }
             except Exception as e:
-                print(f"[Scrape] Error saving video {video.get('video_id')}: {e}")
+                print(f"[Scrape] Error saving video {vid}: {e}")
+                # Log first few failures with full detail to aid debugging
+                if saved == 0:
+                    import traceback
+                    traceback.print_exc()
 
         # Update last_scraped on channels + fix missing names from yt-dlp data
         for ch in channels:
