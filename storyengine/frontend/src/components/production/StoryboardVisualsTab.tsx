@@ -547,52 +547,45 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
               <div className="space-y-4">
                 {actScenes.map((scene) => (
                   <GlassCard key={scene.sceneNumber} className="p-5">
-                    {/* Scene header */}
-                    <div className="flex items-start gap-3 mb-4">
+                    {/* Scene badge + duration (compact header) */}
+                    <div className="flex items-center gap-2 mb-3">
                       <SegmentBadge label={`Scene ${scene.sceneNumber}`} color="var(--purple)" />
-                      <div className="flex-1">
-                        <p
-                          className="text-sm leading-relaxed"
-                          style={{ color: "var(--text-primary)" }}
+                      <span className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>
+                        {scene.duration}
+                      </span>
+                      {(scene.hasStoryboardData) && (
+                        <button
+                          onClick={() => handleClearSceneStoryboard(scene.sceneNumber)}
+                          disabled={taskRunning || clearingAllStoryboards || clearingScene === scene.sceneNumber || !scene.hasStoryboardData}
+                          className="ml-auto inline-flex items-center gap-1 text-[9px] uppercase tracking-wider font-medium px-2 py-1 rounded-md transition-all disabled:opacity-30"
+                          style={{ color: "#FF8A65", background: "rgba(255, 138, 101, 0.08)", border: "1px solid rgba(255, 138, 101, 0.25)" }}
                         >
-                          {scene.narrationText}
-                        </p>
-                        <span className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>
-                          {scene.duration}
-                        </span>
-                      </div>
+                          {clearingScene === scene.sceneNumber ? <Loader2 size={10} className="animate-spin" /> : <Trash2 size={10} />}
+                          Clear
+                        </button>
+                      )}
                     </div>
 
-                    {/* Storyboard grids — horizontal scroll */}
+                    {/* ★ STORYBOARD GRIDS — PRIMARY FOCAL POINT */}
                     {(scene.storyboardBeats.length > 0 || scene.hasStoryboardData) && (
-                      <div className="mb-4">
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-[10px] uppercase tracking-wider font-medium" style={{ color: "var(--purple)" }}>
-                            Storyboard Grids
-                          </span>
-                          <button
-                            onClick={() => handleClearSceneStoryboard(scene.sceneNumber)}
-                            disabled={taskRunning || clearingAllStoryboards || clearingScene === scene.sceneNumber || !scene.hasStoryboardData}
-                            className="inline-flex items-center gap-1 text-[9px] uppercase tracking-wider font-medium px-2 py-1 rounded-md transition-all disabled:opacity-30"
-                            style={{ color: "#FF8A65", background: "rgba(255, 138, 101, 0.08)", border: "1px solid rgba(255, 138, 101, 0.25)" }}
-                          >
-                            {clearingScene === scene.sceneNumber ? <Loader2 size={10} className="animate-spin" /> : <Trash2 size={10} />}
-                            Clear
-                          </button>
-                        </div>
-                        <div className="flex gap-3 overflow-x-auto pb-2" style={{ scrollbarWidth: "thin" }}>
+                      <div className="mb-3">
+                        <div className="flex gap-4 overflow-x-auto pb-2" style={{ scrollbarWidth: "thin" }}>
                           {scene.storyboardBeats.map((beat) => (
                             <div key={`grid-${scene.sceneNumber}-${beat.beatNumber}`} className="flex-shrink-0">
                               <div
-                                className="rounded-lg overflow-hidden"
+                                className="rounded-lg overflow-hidden cursor-pointer transition-all hover:ring-2 hover:ring-[var(--purple)]"
                                 style={{
-                                  width: 200,
-                                  height: 120,
+                                  width: 340,
+                                  height: 200,
                                   background: "var(--bg-elevated)",
                                   border: beat.gridUrl
                                     ? "1px solid rgba(0, 230, 138, 0.25)"
                                     : "1px dashed rgba(255,255,255,0.1)",
                                 }}
+                                onClick={() => {
+                                  if (beat.gridUrl) window.open(beat.gridUrl, "_blank");
+                                }}
+                                title={beat.gridUrl ? "Click to open full size" : ""}
                               >
                                 {beat.gridUrl ? (
                                   <img
@@ -602,40 +595,24 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
                                   />
                                 ) : (
                                   <div className="w-full h-full flex items-center justify-center">
-                                    <span className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>
+                                    <span className="text-xs" style={{ color: "var(--text-tertiary)" }}>
                                       {taskRunning ? "Generating..." : "Pending"}
                                     </span>
                                   </div>
                                 )}
                               </div>
-                              <p className="text-center mt-1.5 text-[9px] font-mono" style={{ color: "var(--text-tertiary)" }}>
+                              <p className="text-center mt-1.5 text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>
                                 S{scene.sceneNumber}.{beat.beatNumber}
                               </p>
                             </div>
                           ))}
                         </div>
-                        {/* Beat prompts (expandable) */}
-                        <details className="mt-2">
-                          <summary className="text-[10px] cursor-pointer" style={{ color: "var(--text-tertiary)" }}>
-                            {scene.storyboardBeats.length} beat prompt{scene.storyboardBeats.length !== 1 ? "s" : ""}
-                          </summary>
-                          <div className="space-y-2 mt-2">
-                            {scene.storyboardBeats.map((beat) => (
-                              <PromptExpander
-                                key={`prompt-${scene.sceneNumber}-${beat.beatNumber}`}
-                                prompt={beat.prompt}
-                                label={`Beat ${beat.beatNumber}`}
-                                previewLength={120}
-                              />
-                            ))}
-                          </div>
-                        </details>
                       </div>
                     )}
 
                     {/* Voice player */}
                     {scene.voiceOverUrl && (
-                      <div className="mb-4">
+                      <div className="mb-3">
                         <VoicePlayer
                           audioUrl={(() => {
                             const apiBase = typeof window !== "undefined"
@@ -648,7 +625,41 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
                       </div>
                     )}
                     {!scene.voiceOverUrl && (
-                      <p className="text-[10px] mb-4" style={{ color: "var(--text-tertiary)" }}>No voice generated yet</p>
+                      <p className="text-[10px] mb-3" style={{ color: "var(--text-tertiary)" }}>No voice generated yet</p>
+                    )}
+
+                    {/* Narration text — collapsed, expandable */}
+                    <details className="mb-3">
+                      <summary className="text-[11px] cursor-pointer" style={{ color: "var(--text-secondary)" }}>
+                        <span style={{ color: "var(--text-tertiary)" }}>
+                          {scene.narrationText.slice(0, 80).trim()}{scene.narrationText.length > 80 ? "..." : ""}
+                        </span>
+                      </summary>
+                      <p
+                        className="text-sm leading-relaxed mt-2 pl-4"
+                        style={{ color: "var(--text-primary)", borderLeft: "2px solid var(--border-subtle)" }}
+                      >
+                        {scene.narrationText}
+                      </p>
+                    </details>
+
+                    {/* Beat prompts (expandable) */}
+                    {scene.storyboardBeats.length > 0 && (
+                      <details className="mb-3">
+                        <summary className="text-[10px] cursor-pointer" style={{ color: "var(--text-tertiary)" }}>
+                          {scene.storyboardBeats.length} beat prompt{scene.storyboardBeats.length !== 1 ? "s" : ""}
+                        </summary>
+                        <div className="space-y-2 mt-2">
+                          {scene.storyboardBeats.map((beat) => (
+                            <PromptExpander
+                              key={`prompt-${scene.sceneNumber}-${beat.beatNumber}`}
+                              prompt={beat.prompt}
+                              label={`Beat ${beat.beatNumber}`}
+                              previewLength={120}
+                            />
+                          ))}
+                        </div>
+                      </details>
                     )}
 
                     {/* Segment cards — collapsed by default */}
