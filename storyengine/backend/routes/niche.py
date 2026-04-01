@@ -1,6 +1,7 @@
-"""Niche selection + competitor channel management + scraping."""
+"""Niche selection + competitor channel management + scraping via yt-dlp."""
 
 import asyncio
+import re
 from datetime import datetime, timezone
 from typing import Optional
 from fastapi import APIRouter, BackgroundTasks, Depends
@@ -110,10 +111,9 @@ async def scrape_channels(
     background_tasks: BackgroundTasks,
     tenant_id: str = Depends(get_tenant_id),
 ):
-    """Trigger scraping of all active competitor channels.
+    """Trigger scraping of all active competitor channels via yt-dlp.
 
-    Calls Apify YouTube scraper, calculates VPH, and inserts into
-    competitor_videos table with proper tenant_id.
+    Extracts video metadata, thumbnails, and transcripts. No API key needed.
     """
     if _scrape_tasks.get(tenant_id, {}).get("running"):
         return {"status": "already_running", "message": "Scrape already in progress"}
@@ -136,16 +136,201 @@ async def scrape_status(tenant_id: str = Depends(get_tenant_id)):
     }
 
 
-async def _run_scrape(tenant_id: str):
-    """Background task: scrape YouTube channels and save to Supabase."""
+# --- yt-dlp helpers (synchronous — called via asyncio.to_thread) ---
+
+
+def _normalize_channel_url(url: str) -> str:
+    """Normalize YouTube channel URL to /videos tab for yt-dlp playlist extraction."""
+    url = url.rstrip("/")
+    # Strip existing tab paths (/videos, /shorts, /streams, /featured, etc.)
+    url = re.sub(r"/(videos|shorts|streams|featured|playlists|community|about)$", "", url)
+    return url + "/videos"
+
+
+def _list_channel_videos(channel_url: str, max_results: int = 20) -> list[dict]:
+    """List recent videos from a YouTube channel using yt-dlp flat extraction.
+
+    Returns list of {id, title, url} without downloading full video info.
+    """
+    import yt_dlp
+
+    normalized = _normalize_channel_url(channel_url)
+    opts = {
+        "extract_flat": "in_playlist",
+        "playlistend": max_results,
+        "quiet": True,
+        "no_warnings": True,
+        "ignoreerrors": True,
+    }
+
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        result = ydl.extract_info(normalized, download=False)
+
+    if not result or "entries" not in result:
+        return []
+
+    videos = []
+    for entry in result["entries"]:
+        if not entry:
+            continue
+        vid = entry.get("id") or entry.get("url", "").split("v=")[-1]
+        if vid and entry.get("title"):
+            videos.append({
+                "id": vid,
+                "title": entry["title"],
+                "url": f"https://www.youtube.com/watch?v={vid}",
+            })
+    return videos
+
+
+def _extract_video_info(video_id: str) -> Optional[dict]:
+    """Extract full metadata + transcript for a single video via yt-dlp."""
+    import yt_dlp
+
+    url = f"https://www.youtube.com/watch?v={video_id}"
+    opts = {
+        "skip_download": True,
+        "writeautomaticsub": True,
+        "subtitleslangs": ["en"],
+        "quiet": True,
+        "no_warnings": True,
+        "ignoreerrors": True,
+    }
+
     try:
-        from vault import get_secret
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+    except Exception as e:
+        print(f"[yt-dlp] Error extracting {video_id}: {e}")
+        return None
 
-        api_key = await get_secret("apify_api_key", tenant_id)
-        if not api_key:
-            _scrape_tasks[tenant_id] = {"running": False, "error": "No Apify API key configured. Add it in Settings > Keys."}
-            return
+    if not info:
+        return None
 
+    # Best thumbnail (prefer maxresdefault)
+    thumbnail_url = None
+    thumbnails = info.get("thumbnails") or []
+    for thumb in sorted(thumbnails, key=lambda t: t.get("width", 0) * t.get("height", 0), reverse=True):
+        if thumb.get("url"):
+            thumbnail_url = thumb["url"]
+            break
+    if not thumbnail_url:
+        thumbnail_url = info.get("thumbnail")
+
+    # Extract transcript from automatic captions
+    transcript = _extract_transcript(info)
+
+    # Published date
+    upload_date = info.get("upload_date") or ""  # YYYYMMDD format
+    published_at = ""
+    if upload_date and len(upload_date) == 8:
+        published_at = f"{upload_date[:4]}-{upload_date[4:6]}-{upload_date[6:8]}"
+
+    return {
+        "video_id": info.get("id") or video_id,
+        "title": info.get("title") or "",
+        "url": url,
+        "views": info.get("view_count") or 0,
+        "likes": info.get("like_count") or 0,
+        "channel": info.get("channel") or info.get("uploader") or "",
+        "channel_url": info.get("channel_url") or info.get("uploader_url") or "",
+        "published_at": published_at,
+        "thumbnail_url": thumbnail_url,
+        "transcript": transcript,
+        "duration_seconds": info.get("duration") or 0,
+        "description": (info.get("description") or "")[:2000],  # Cap at 2000 chars
+    }
+
+
+def _extract_transcript(info: dict) -> Optional[str]:
+    """Extract auto-generated English transcript text from yt-dlp info dict."""
+    auto_captions = info.get("automatic_captions") or {}
+    captions = info.get("subtitles") or {}
+
+    # Prefer manual English subs, fallback to auto-generated
+    en_subs = captions.get("en") or auto_captions.get("en") or []
+    if not en_subs:
+        return None
+
+    # Prefer json3 format (structured with timestamps), fallback to vtt
+    sub_entry = None
+    for fmt in ["json3", "vtt", "srv3", "ttml"]:
+        for entry in en_subs:
+            if entry.get("ext") == fmt:
+                sub_entry = entry
+                break
+        if sub_entry:
+            break
+
+    if not sub_entry or not sub_entry.get("url"):
+        return None
+
+    # Fetch subtitle content
+    try:
+        import httpx
+
+        resp = httpx.get(sub_entry["url"], timeout=15.0)
+        if resp.status_code != 200:
+            return None
+
+        if sub_entry.get("ext") == "json3":
+            return _parse_json3_transcript(resp.text)
+        else:
+            return _parse_vtt_transcript(resp.text)
+    except Exception as e:
+        print(f"[yt-dlp] Transcript fetch failed: {e}")
+        return None
+
+
+def _parse_json3_transcript(raw: str) -> Optional[str]:
+    """Parse json3 subtitle format into plain text."""
+    import json
+
+    try:
+        data = json.loads(raw)
+        events = data.get("events") or []
+        words = []
+        for event in events:
+            segs = event.get("segs") or []
+            for seg in segs:
+                text = seg.get("utf8", "").strip()
+                if text and text != "\n":
+                    words.append(text)
+        transcript = " ".join(words).strip()
+        return transcript if transcript else None
+    except (json.JSONDecodeError, KeyError):
+        return None
+
+
+def _parse_vtt_transcript(raw: str) -> Optional[str]:
+    """Parse VTT subtitle format into plain text (strip timestamps + tags)."""
+    lines = raw.split("\n")
+    text_lines = []
+    for line in lines:
+        line = line.strip()
+        # Skip VTT headers, timestamps, empty lines
+        if not line or line.startswith("WEBVTT") or line.startswith("NOTE") or "-->" in line:
+            continue
+        if re.match(r"^\d+$", line):
+            continue
+        # Strip HTML-like tags
+        clean = re.sub(r"<[^>]+>", "", line).strip()
+        if clean:
+            text_lines.append(clean)
+
+    # Deduplicate consecutive identical lines (VTT repeats)
+    deduped = []
+    for line in text_lines:
+        if not deduped or line != deduped[-1]:
+            deduped.append(line)
+
+    transcript = " ".join(deduped).strip()
+    return transcript if transcript else None
+
+
+async def _run_scrape(tenant_id: str):
+    """Background task: scrape YouTube channels via yt-dlp and save to Supabase."""
+    try:
         # Get active channels
         channels = await fetch_all(
             """SELECT id, channel_name, channel_url, category
@@ -158,97 +343,96 @@ async def _run_scrape(tenant_id: str):
             return
 
         channel_urls = [c["channel_url"] for c in channels if c.get("channel_url")]
-        print(f"[Scrape] Scraping {len(channel_urls)} channels for tenant {tenant_id}")
+        print(f"[Scrape] Scraping {len(channel_urls)} channels via yt-dlp for tenant {tenant_id}")
 
-        # Call Apify YouTube scraper via REST API (no SDK dependency needed)
-        import httpx
+        # Phase 1: List recent videos from each channel (flat extraction — fast)
+        all_video_stubs = []
+        channel_map = {}  # video_id → channel info
+        for ch in channels:
+            url = ch.get("channel_url")
+            if not url:
+                continue
+            try:
+                stubs = await asyncio.to_thread(_list_channel_videos, url, 20)
+                for stub in stubs:
+                    stub["channel_name"] = ch.get("channel_name", "")
+                    stub["channel_url"] = url
+                    channel_map[stub["id"]] = ch
+                all_video_stubs.extend(stubs)
+                print(f"[Scrape] {ch.get('channel_name')}: {len(stubs)} videos listed")
+            except Exception as e:
+                print(f"[Scrape] Error listing {ch.get('channel_name')}: {e}")
 
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            # Start actor run
-            run_resp = await client.post(
-                "https://api.apify.com/v2/acts/streamers~youtube-scraper/runs",
-                params={"token": api_key},
-                json={
-                    "startUrls": [{"url": url} for url in channel_urls],
-                    "maxResults": 20 * len(channel_urls),
-                    "maxResultsShorts": 0,
-                    "maxResultStreams": 0,
-                },
-            )
-            if run_resp.status_code != 201:
-                _scrape_tasks[tenant_id] = {"running": False, "error": f"Apify API error: {run_resp.status_code}"}
-                return
+        if not all_video_stubs:
+            _scrape_tasks[tenant_id] = {"running": False, "error": "No videos found from any channel."}
+            return
 
-            run_data = run_resp.json().get("data", {})
-            run_id = run_data.get("id")
-            dataset_id = run_data.get("defaultDatasetId")
+        _scrape_tasks[tenant_id] = {
+            **_scrape_tasks.get(tenant_id, {}),
+            "videos_found": len(all_video_stubs),
+        }
+        print(f"[Scrape] Phase 1 done: {len(all_video_stubs)} video stubs. Extracting metadata...")
 
-            if not run_id:
-                _scrape_tasks[tenant_id] = {"running": False, "error": "Failed to start Apify run"}
-                return
-
-            # Poll for completion (max 5 minutes)
-            for _ in range(60):
-                await asyncio.sleep(5)
-                status_resp = await client.get(
-                    f"https://api.apify.com/v2/actor-runs/{run_id}",
-                    params={"token": api_key},
-                )
-                status = status_resp.json().get("data", {}).get("status")
-                if status == "SUCCEEDED":
-                    break
-                if status in ("FAILED", "ABORTED", "TIMED-OUT"):
-                    _scrape_tasks[tenant_id] = {"running": False, "error": f"Apify run {status}"}
-                    return
-            else:
-                _scrape_tasks[tenant_id] = {"running": False, "error": "Apify run timed out"}
-                return
-
-            # Fetch results from dataset
-            items_resp = await client.get(
-                f"https://api.apify.com/v2/datasets/{dataset_id}/items",
-                params={"token": api_key, "format": "json"},
-            )
-            items = items_resp.json() if items_resp.status_code == 200 else []
-
-        # Normalize and calculate VPH
+        # Phase 2: Extract full metadata for each video (runs in thread pool)
         now = datetime.now(timezone.utc)
         videos = []
-        for item in items:
-            video = _normalize_apify_item(item)
-            if not video:
-                continue
+        for i, stub in enumerate(all_video_stubs):
+            try:
+                info = await asyncio.to_thread(_extract_video_info, stub["id"])
+                if not info:
+                    continue
 
-            # Calculate VPH
-            vph, hours_old = _calculate_vph(video.get("views", 0), video.get("published_at", ""), now)
-            video["vph"] = round(vph, 1)
-            video["hours_old"] = round(hours_old, 1)
-            videos.append(video)
+                # Fill in channel info from Phase 1 if yt-dlp didn't return it
+                if not info.get("channel"):
+                    info["channel"] = stub.get("channel_name", "")
+                if not info.get("channel_url"):
+                    info["channel_url"] = stub.get("channel_url", "")
 
-        _scrape_tasks[tenant_id] = {**_scrape_tasks.get(tenant_id, {}), "videos_found": len(videos)}
-        print(f"[Scrape] Found {len(videos)} videos, inserting into Supabase...")
+                # Calculate VPH
+                vph, hours_old = _calculate_vph(info.get("views", 0), info.get("published_at", ""), now)
+                info["vph"] = round(vph, 1)
+                info["hours_old"] = round(hours_old, 1)
+                videos.append(info)
+            except Exception as e:
+                print(f"[Scrape] Error extracting {stub['id']}: {e}")
 
-        # Get existing video_ids for this tenant to count new vs updated
+            # Progress update every 10 videos
+            if (i + 1) % 10 == 0:
+                _scrape_tasks[tenant_id] = {
+                    **_scrape_tasks.get(tenant_id, {}),
+                    "videos_found": len(all_video_stubs),
+                    "videos_saved": len(videos),
+                }
+
+        print(f"[Scrape] Phase 2 done: {len(videos)} videos extracted with metadata")
+
+        # Phase 3: Upsert into Supabase
         existing = await fetch_all(
             "SELECT video_id FROM competitor_videos WHERE tenant_id = $1",
             tenant_id,
         )
         existing_ids = {r["video_id"] for r in existing}
 
-        # Insert/update videos in Supabase
         saved = 0
         for video in videos:
             try:
                 await execute(
                     """INSERT INTO competitor_videos (
                         tenant_id, video_id, title, url, channel, channel_url,
-                        views, vph, hours_old, published_date, scrape_date
-                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::timestamptz, now())
+                        views, vph, hours_old, published_date, scrape_date,
+                        thumbnail_url, transcript, duration_seconds, description, likes
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::date, now(),
+                              $11, $12, $13, $14, $15)
                     ON CONFLICT (tenant_id, video_id) DO UPDATE SET
                         views = EXCLUDED.views,
                         vph = EXCLUDED.vph,
                         hours_old = EXCLUDED.hours_old,
-                        scrape_date = now()""",
+                        scrape_date = now(),
+                        thumbnail_url = COALESCE(EXCLUDED.thumbnail_url, competitor_videos.thumbnail_url),
+                        transcript = COALESCE(EXCLUDED.transcript, competitor_videos.transcript),
+                        duration_seconds = COALESCE(EXCLUDED.duration_seconds, competitor_videos.duration_seconds),
+                        description = COALESCE(EXCLUDED.description, competitor_videos.description),
+                        likes = COALESCE(EXCLUDED.likes, competitor_videos.likes)""",
                     tenant_id,
                     video["video_id"],
                     video["title"],
@@ -259,6 +443,11 @@ async def _run_scrape(tenant_id: str):
                     video["vph"],
                     video["hours_old"],
                     video.get("published_at") or None,
+                    video.get("thumbnail_url"),
+                    video.get("transcript"),
+                    video.get("duration_seconds") or None,
+                    video.get("description"),
+                    video.get("likes") or None,
                 )
                 saved += 1
             except Exception as e:
@@ -275,45 +464,21 @@ async def _run_scrape(tenant_id: str):
                 pass
 
         new_count = sum(1 for v in videos if v["video_id"] not in existing_ids)
-        print(f"[Scrape] Done: {saved} saved ({new_count} new, {saved - new_count} updated)")
+        with_transcripts = sum(1 for v in videos if v.get("transcript"))
+        print(f"[Scrape] Done: {saved} saved ({new_count} new, {saved - new_count} updated), {with_transcripts} with transcripts")
 
         _scrape_tasks[tenant_id] = {
             "running": False,
-            "videos_found": len(videos),
+            "videos_found": len(all_video_stubs),
             "videos_saved": saved,
             "new_videos": new_count,
+            "with_transcripts": with_transcripts,
             "finished": datetime.now(timezone.utc).isoformat(),
         }
 
     except Exception as e:
         print(f"[Scrape] Error: {e}")
         _scrape_tasks[tenant_id] = {"running": False, "error": str(e)}
-
-
-def _normalize_apify_item(raw: dict) -> Optional[dict]:
-    """Normalize Apify YouTube scraper output to standard format."""
-    video_id = raw.get("id") or raw.get("videoId") or raw.get("video_id")
-    title = raw.get("title") or raw.get("name") or ""
-
-    if not video_id or not title:
-        return None
-
-    views_raw = raw.get("viewCount") or raw.get("views") or raw.get("view_count") or 0
-    views = _parse_count(views_raw)
-
-    return {
-        "video_id": video_id,
-        "title": title,
-        "url": f"https://www.youtube.com/watch?v={video_id}",
-        "views": views,
-        "channel": raw.get("channelName") or raw.get("channel") or "",
-        "channel_url": raw.get("channelUrl") or "",
-        "published_at": (
-            raw.get("publishedAt") or raw.get("uploadDate") or
-            raw.get("date") or raw.get("datePublished") or
-            raw.get("publishDate") or raw.get("uploadedAt") or ""
-        ),
-    }
 
 
 def _parse_count(raw) -> int:

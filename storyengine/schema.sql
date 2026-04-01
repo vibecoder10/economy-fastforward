@@ -361,6 +361,13 @@ CREATE TABLE competitor_videos (
   our_video_id UUID REFERENCES videos(id),
   updated_at TIMESTAMPTZ DEFAULT now(),
 
+  -- yt-dlp enrichment columns (migration 016)
+  thumbnail_url TEXT,
+  transcript TEXT,
+  duration_seconds INTEGER,
+  description TEXT,
+  likes INTEGER,
+
   UNIQUE(tenant_id, video_id),
 
   created_at TIMESTAMPTZ DEFAULT now()
