@@ -991,20 +991,40 @@ def map_storyboard_shot_type(shot_type: str) -> str:
     return STORYBOARD_SHOT_MAP.get(shot_type.strip().upper(), "medium")
 
 
+_KF_PREFIX = "Cinematic 2D animated illustration of"
+_KF_SUFFIX = (
+    " Stylized ink outlines, muted earthy palette, film grain texture, "
+    "full-bleed 16:9 composition, no black bars"
+)
+
+
 def build_image_prompt_from_keyframe(
     keyframe: dict,
-    profile,
+    profile=None,
     image_style_override: str = "",
 ) -> str:
     """Build a styled image prompt from a storyboard keyframe.
 
     Takes the keyframe's composition + action as core visual description,
-    wraps with the profile's style prefix/suffix. Excludes camera/lens/sound
+    wraps with cinematic style prefix/suffix. Excludes camera/lens/sound
     (those are for animation, not image generation).
 
     Target: ~60-80 words (within image model sweet spot).
+
+    Note: profile param is the ChannelProfile (from storyboard bot), not
+    VisualProfile (from prompt_builder). We use hardcoded prefix/suffix
+    matching the cinematic illustration style.
     """
-    from image_prompts.engine.prompt_builder import get_style_wrapping
+    # Try to use VisualProfile if available (has style_system)
+    prefix, suffix = _KF_PREFIX, _KF_SUFFIX
+    try:
+        from image_prompts.engine.prompt_builder import get_style_wrapping
+        from shared.profiles.visual import load_profile as load_visual_profile
+        visual_profile = load_visual_profile()
+        if visual_profile and hasattr(visual_profile, "style_system"):
+            prefix, suffix = get_style_wrapping(visual_profile, "", image_style_override)
+    except Exception:
+        pass  # Fall back to hardcoded prefix/suffix
 
     # Combine composition and action as the core description
     parts = []
@@ -1024,22 +1044,16 @@ def build_image_prompt_from_keyframe(
         core = (keyframe.get("full_description") or "").strip()
         if not core:
             return ""
-        # Take first 100 words as description
         words = core.split()
         core = " ".join(words[:100])
         parts.append(core)
 
     core_description = ". ".join(parts)
 
-    # Strip any existing prefix the description might start with
-    for prefix_text in [
-        "Cinematic 2D animated illustration of",
-        "cinematic 2d animated illustration of",
-    ]:
+    # Strip any existing prefix
+    for prefix_text in [_KF_PREFIX, _KF_PREFIX.lower()]:
         if core_description.lower().startswith(prefix_text.lower()):
             core_description = core_description[len(prefix_text):].strip().lstrip(",").strip()
-
-    prefix, suffix = get_style_wrapping(profile, core_description, image_style_override)
 
     if prefix:
         return f"{prefix} {core_description}.{suffix}"
