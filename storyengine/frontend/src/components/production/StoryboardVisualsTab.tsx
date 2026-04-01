@@ -184,6 +184,7 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
   const [model, setModel] = useState(video.image_model_override || "nano-banana-2");
   const [savingModel, setSavingModel] = useState(false);
   const [taskRunning, setTaskRunning] = useState(false);
+  const [generatingScene, setGeneratingScene] = useState<number | null>(null);
   const [clearingScene, setClearingScene] = useState<number | null>(null);
   const [clearingAllStoryboards, setClearingAllStoryboards] = useState(false);
 
@@ -195,6 +196,7 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
       setTaskRunning(false);
       setGeneratingAll(false);
       setGeneratingPrompts(false);
+      setGeneratingScene(null);
       queryClient.invalidateQueries({ queryKey: ["video", video.id] });
       queryClient.invalidateQueries({ queryKey: ["video-script", video.id] });
       queryClient.invalidateQueries({ queryKey: ["video-assets", video.id] });
@@ -203,6 +205,7 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
       setTaskRunning(false);
       setGeneratingAll(false);
       setGeneratingPrompts(false);
+      setGeneratingScene(null);
       alert(`Generation failed: ${error}`);
     },
   });
@@ -401,17 +404,21 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
   }, [runStageWith409Retry, storyboardMode]);
 
   const handleGenerateScenePrompts = useCallback(async (sceneNumber: number) => {
+    setGeneratingScene(sceneNumber);
     try {
       await runStageWith409Retry("storyboards", { scene: sceneNumber });
     } catch (err: unknown) {
+      setGeneratingScene(null);
       alert(`Scene ${sceneNumber} prompt generation failed: ${(err as Error).message}`);
     }
   }, [runStageWith409Retry]);
 
   const handleGenerateSceneGrids = useCallback(async (sceneNumber: number) => {
+    setGeneratingScene(sceneNumber);
     try {
       await runStageWith409Retry("storyboard-images", { scene: sceneNumber });
     } catch (err: unknown) {
+      setGeneratingScene(null);
       alert(`Scene ${sceneNumber} grid generation failed: ${(err as Error).message}`);
     }
   }, [runStageWith409Retry]);
@@ -759,7 +766,7 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
                                   />
                                 ) : (
                                   <div className="w-full h-full flex flex-col items-center justify-center gap-2 transition-colors hover:bg-[rgba(168,85,247,0.08)]">
-                                    {(taskRunning || generatingAll) ? (
+                                    {(generatingAll || generatingScene === scene.sceneNumber) ? (
                                       <>
                                         <Loader2 size={20} className="animate-spin" style={{ color: "var(--purple)" }} />
                                         <span className="text-[11px] font-medium" style={{ color: "var(--purple)" }}>
