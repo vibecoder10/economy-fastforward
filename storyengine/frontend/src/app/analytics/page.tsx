@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useState, useMemo, useEffect, useRef } from "react";
+import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import {
@@ -14,13 +14,15 @@ import {
   ResponsiveContainer,
   Legend,
 } from "recharts";
-import { ArrowUpDown } from "lucide-react";
+import { ArrowUpDown, RefreshCw, Loader2 } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { VerdictBadge } from "@/components/ui/VerdictBadge";
 import { FilterSelect } from "@/components/ui/FilterSelect";
+import { ActionButton } from "@/components/ui/ActionButton";
 import { Spinner } from "@/components/ui/spinner";
-import { getVideos, type VideoSummary } from "@/lib/api";
+import { getVideos, syncYouTubeMetrics, getYouTubeSyncStatus, type VideoSummary } from "@/lib/api";
 import { COMPLETED_STATUSES } from "@/lib/constants";
+import { timeAgo } from "@/lib/utils";
 
 const container = {
   hidden: { opacity: 0 },
@@ -81,6 +83,7 @@ function CustomTooltip({ active, payload, label }: { active?: boolean; payload?:
 
 export default function AnalyticsPage() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [dateRange, setDateRange] = useState("12m");
   const [sortKey, setSortKey] = useState<SortKey>("created_at");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
@@ -89,6 +92,33 @@ export default function AnalyticsPage() {
     queryKey: ["videos"],
     queryFn: () => getVideos(),
   });
+
+  // YouTube sync status
+  const { data: syncStatus } = useQuery({
+    queryKey: ["youtube-sync-status"],
+    queryFn: getYouTubeSyncStatus,
+    refetchInterval: (query) => {
+      if (query.state.data?.is_running) return 3000;
+      return false;
+    },
+  });
+
+  const syncMutation = useMutation({
+    mutationFn: syncYouTubeMetrics,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["youtube-sync-status"] });
+    },
+  });
+
+  const syncRunning = syncStatus?.is_running ?? false;
+  const prevRunning = useRef(false);
+
+  useEffect(() => {
+    if (prevRunning.current && !syncRunning) {
+      queryClient.invalidateQueries({ queryKey: ["videos"] });
+    }
+    prevRunning.current = syncRunning;
+  }, [syncRunning, queryClient]);
 
   // Filter to published/uploaded videos with some performance data
   const publishedVideos = useMemo(() => {
@@ -194,15 +224,38 @@ export default function AnalyticsPage() {
         <h1 className="text-4xl font-display" style={{ color: "var(--text-primary)" }}>
           Analytics
         </h1>
-        <FilterSelect
-          options={[
-            { value: "30d", label: "Last 30 days" },
-            { value: "3m", label: "Last 3 months" },
-            { value: "12m", label: "Last 12 months" },
-          ]}
-          value={dateRange}
-          onChange={setDateRange}
-        />
+        <div className="flex items-center gap-3">
+          <ActionButton
+            icon={syncRunning ? undefined : RefreshCw}
+            onClick={() => syncMutation.mutate()}
+            disabled={syncRunning || syncMutation.isPending}
+          >
+            {syncRunning ? (
+              <>
+                <Loader2 size={14} className="animate-spin" />
+                <span className="ml-1">
+                  Syncing {syncStatus?.videos_synced ?? 0}/{syncStatus?.videos_total ?? 0}...
+                </span>
+              </>
+            ) : (
+              "Sync YouTube"
+            )}
+          </ActionButton>
+          {syncStatus?.last_run && !syncRunning && (
+            <span className="text-[11px] font-mono" style={{ color: "var(--text-tertiary)" }}>
+              Last sync: {timeAgo(syncStatus.last_run)}
+            </span>
+          )}
+          <FilterSelect
+            options={[
+              { value: "30d", label: "Last 30 days" },
+              { value: "3m", label: "Last 3 months" },
+              { value: "12m", label: "Last 12 months" },
+            ]}
+            value={dateRange}
+            onChange={setDateRange}
+          />
+        </div>
       </motion.div>
 
       {/* Chart */}

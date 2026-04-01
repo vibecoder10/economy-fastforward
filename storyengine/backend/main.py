@@ -10,7 +10,7 @@ load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from database import get_pool, close_pool, fetch_all, fetch_one, execute
-from routes import dashboard, videos, assets, activity, review, pipeline, settings, autopilot, skills, agents, niche, channel_profile, projects, visual_styles, discovery, learning_extraction
+from routes import dashboard, videos, assets, activity, review, pipeline, settings, autopilot, skills, agents, niche, channel_profile, projects, visual_styles, discovery, learning_extraction, youtube_sync
 
 
 async def _auto_extract_learnings():
@@ -57,6 +57,26 @@ async def _auto_extract_learnings():
         await asyncio.sleep(86400)  # Run every 24 hours
 
 
+async def _auto_sync_youtube():
+    """Background task: sync YouTube metrics every 6 hours.
+
+    Pulls views, CTR, impressions, retention from YouTube APIs
+    into the videos table so the learning extraction can process them.
+    """
+    await asyncio.sleep(60)  # Wait for DB pool to stabilize
+    while True:
+        try:
+            tenant = await fetch_one("SELECT id FROM tenants LIMIT 1")
+            if tenant:
+                tenant_id = str(tenant["id"])
+                from routes.youtube_sync import _run_sync
+                await _run_sync(tenant_id)
+        except Exception as e:
+            print(f"[AutoYTSync] Error: {e}")
+
+        await asyncio.sleep(21600)  # Run every 6 hours
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup/shutdown lifecycle."""
@@ -67,13 +87,15 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"⚠️  Database connection failed (will retry on first query): {e}")
 
-    # Start background learning extraction loop
+    # Start background tasks
     extraction_task = asyncio.create_task(_auto_extract_learnings())
+    youtube_sync_task = asyncio.create_task(_auto_sync_youtube())
 
     yield
 
     # Shutdown
     extraction_task.cancel()
+    youtube_sync_task.cancel()
     await close_pool()
 
 
@@ -115,6 +137,7 @@ app.include_router(projects.router)
 app.include_router(visual_styles.router)
 app.include_router(discovery.router)
 app.include_router(learning_extraction.router)
+app.include_router(youtube_sync.router)
 
 
 @app.get("/api/health")

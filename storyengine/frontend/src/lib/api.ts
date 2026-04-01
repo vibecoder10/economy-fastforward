@@ -386,6 +386,23 @@ export const scrapeCompetitorChannels = () =>
 export const getScrapeStatus = () =>
   fetchApi<ScrapeStatus>("/api/niche/scrape/status");
 
+// YouTube Metrics Sync
+export interface YouTubeSyncStatus {
+  is_running: boolean;
+  videos_synced: number;
+  videos_total: number;
+  error: string | null;
+  last_run: string | null;
+}
+
+export const syncYouTubeMetrics = () =>
+  fetchApi<{ status: string; message: string }>("/api/youtube/sync", {
+    method: "POST",
+  });
+
+export const getYouTubeSyncStatus = () =>
+  fetchApi<YouTubeSyncStatus>("/api/youtube/sync/status");
+
 // Scene Editing
 export const updateSceneText = (videoId: string, scene: number, text: string) =>
   fetchApi<{ status: string }>(`/api/videos/${videoId}/scenes/${scene}/text`, {
