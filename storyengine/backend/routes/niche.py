@@ -176,6 +176,28 @@ def _list_channel_videos(channel_url: str, max_results: int = 20) -> list[dict]:
             continue
         vid = entry.get("id") or entry.get("url", "").split("v=")[-1]
         if vid and entry.get("title"):
+            # Try to get publish date from flat extraction
+            upload_date = entry.get("upload_date")  # YYYYMMDD format
+            timestamp = entry.get("timestamp")  # Unix timestamp
+            release_timestamp = entry.get("release_timestamp")
+
+            published_at = None
+            if upload_date and len(str(upload_date)) == 8:
+                try:
+                    published_at = f"{upload_date[:4]}-{upload_date[4:6]}-{upload_date[6:8]}"
+                except (IndexError, TypeError):
+                    pass
+            elif timestamp:
+                try:
+                    published_at = datetime.fromtimestamp(int(timestamp), tz=timezone.utc).isoformat()
+                except (ValueError, TypeError, OSError):
+                    pass
+            elif release_timestamp:
+                try:
+                    published_at = datetime.fromtimestamp(int(release_timestamp), tz=timezone.utc).isoformat()
+                except (ValueError, TypeError, OSError):
+                    pass
+
             videos.append({
                 "id": vid,
                 "title": entry["title"],
@@ -185,6 +207,7 @@ def _list_channel_videos(channel_url: str, max_results: int = 20) -> list[dict]:
                 "duration": entry.get("duration") or 0,
                 "description": (entry.get("description") or "")[:2000],
                 "thumbnail": entry.get("thumbnails", [{}])[-1].get("url") if entry.get("thumbnails") else None,
+                "published_at": published_at,
             })
     return videos
 
@@ -407,7 +430,7 @@ async def _run_scrape(tenant_id: str, max_videos_per_channel: int = 20):
                     "likes": 0,
                     "channel": stub.get("channel_name", ""),
                     "channel_url": stub.get("channel_url", ""),
-                    "published_at": None,
+                    "published_at": stub.get("published_at"),
                     "thumbnail_url": stub.get("thumbnail"),
                     "transcript": None,
                     "duration_seconds": stub.get("duration", 0),
@@ -428,7 +451,8 @@ async def _run_scrape(tenant_id: str, max_videos_per_channel: int = 20):
                     "videos_saved": len(videos),
                 }
 
-        print(f"[Scrape] Phase 2 done: {len(videos)} videos ({enriched_count} enriched, {len(videos) - enriched_count} from stubs)")
+        with_dates = sum(1 for v in videos if v.get("published_at"))
+        print(f"[Scrape] Phase 2 done: {len(videos)} videos ({enriched_count} enriched, {len(videos) - enriched_count} from stubs, {with_dates} with publish dates)")
 
         # Phase 3: Upsert into Supabase
         existing = await fetch_all(

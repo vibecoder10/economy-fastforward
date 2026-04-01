@@ -118,20 +118,35 @@ export default function CompetitorsPage() {
 
   const nicheConfigured = nicheConfig?.niche_category != null;
 
-  // Unique channel names from candidates
+  // Unique channel names — merge from candidates + channels table
   const channelNames = useMemo(() => {
-    if (!autopilotData?.candidates) return [];
-    const names = new Set(autopilotData.candidates.map((c) => c.source));
+    const names = new Set<string>();
+    // Add source names from candidate data (these are filterable)
+    if (autopilotData?.candidates) {
+      for (const c of autopilotData.candidates) {
+        if (c.source && c.source !== "Unknown") names.add(c.source);
+      }
+    }
+    // Add channel names from channels table (for display completeness)
+    if (channels) {
+      for (const ch of channels) {
+        const displayName = (ch.channel_name && ch.channel_name !== "None")
+          ? ch.channel_name
+          : ch.channel_url?.match(/@([^/]+)/)?.[1];
+        if (displayName) names.add(displayName);
+      }
+    }
     return Array.from(names).sort();
-  }, [autopilotData]);
+  }, [autopilotData, channels]);
 
   // Filter + sort candidates
   const filteredCandidates = useMemo(() => {
     if (!autopilotData?.candidates) return [];
+    const filterLower = channelFilter.toLowerCase();
     let list =
       channelFilter === "all"
         ? autopilotData.candidates
-        : autopilotData.candidates.filter((c) => c.source === channelFilter);
+        : autopilotData.candidates.filter((c) => c.source.toLowerCase() === filterLower);
 
     switch (sortBy) {
       case "vph":
