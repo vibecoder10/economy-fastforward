@@ -329,21 +329,27 @@ export default function CompetitorsPage() {
       {/* Channels strip */}
       {channels && channels.length > 0 && (
         <motion.div variants={item} className="flex items-center gap-2 overflow-x-auto pb-1">
-          {channels.map((ch) => (
-            <div
-              key={ch.id}
-              onClick={() =>
-                setChannelFilter(channelFilter === ch.channel_name ? "all" : ch.channel_name)
-              }
-              style={{ cursor: "pointer" }}
-            >
-              <StatusPill
-                label={ch.channel_name}
-                color={channelFilter === ch.channel_name ? "turquoise" : "gold"}
-                size="md"
-              />
-            </div>
-          ))}
+          {channels.map((ch) => {
+            // Derive display name: channel_name → extract from URL → fallback
+            const displayName = (ch.channel_name && ch.channel_name !== "None")
+              ? ch.channel_name
+              : ch.channel_url?.match(/@([^/]+)/)?.[1] || `Channel ${ch.id.slice(0, 6)}`;
+            return (
+              <div
+                key={ch.id}
+                onClick={() =>
+                  setChannelFilter(channelFilter === displayName ? "all" : displayName)
+                }
+                style={{ cursor: "pointer" }}
+              >
+                <StatusPill
+                  label={displayName}
+                  color={channelFilter === displayName ? "turquoise" : "gold"}
+                  size="md"
+                />
+              </div>
+            );
+          })}
         </motion.div>
       )}
 
