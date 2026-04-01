@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
@@ -12,41 +12,62 @@ import {
   StoryboardProgressBar,
   type SceneData,
 } from "@/components/storyboard";
-import { getVideo, getVideoScript, type ScriptScene } from "@/lib/api";
+import {
+  getVideo,
+  getVideoScript,
+  advanceVideo,
+  clearSceneStoryboard,
+  runPipelineStage,
+  clearStaleTask,
+  type ScriptScene,
+} from "@/lib/api";
+import { useTaskPoller } from "@/hooks/use-task-poller";
 
-// Mock function to get storyboard data - will be replaced with real API
-function getStoryboardsForVideo(
-  videoId: string,
-  scripts: ScriptScene[]
-): SceneData[] {
-  // Generate mock scene data from scripts
+/**
+ * Transform script scenes into storyboard scene data.
+ * Each script scene has up to 3 storyboard grid URLs (3x3 contact sheets).
+ */
+function buildSceneData(scripts: ScriptScene[]): SceneData[] {
   return scripts
     .filter((s) => s.scene !== null)
-    .slice(0, 6) // Limit to 6 scenes for demo
-    .map((script, idx) => {
-      // Check if storyboards exist
-      const hasStoryboards = !!(
-        script.storyboard_on_off === "On" ||
-        idx < 3 // First 3 scenes have storyboards for demo
-      );
+    .map((script) => {
+      const gridUrls = [
+        script.storyboard_1_url,
+        script.storyboard_2_url,
+        script.storyboard_3_url,
+      ].filter(Boolean) as string[];
+
+      const hasBoards = gridUrls.length > 0;
+
+      // Determine status from script data
+      let status: SceneData["status"] = "generating";
+      if (hasBoards) {
+        status = script.storyboard_status === "approved" ? "approved" : "pending";
+      }
+
+      // Build panels from the 3x3 grids — each grid is one panel in our view
+      // (panels here represent the grid options to pick from)
+      const panels = gridUrls.length > 0
+        ? gridUrls.map((url, idx) => ({
+            index: idx,
+            url,
+            prompt: script.storyboard_prompts
+              ? `Grid ${idx + 1} — ${(script.storyboard_prompts || "").slice(0, 100)}`
+              : `Storyboard grid ${idx + 1}`,
+          }))
+        : Array.from({ length: 3 }, (_, idx) => ({
+            index: idx,
+            url: null,
+            prompt: `Grid ${idx + 1} — awaiting generation`,
+          }));
 
       return {
-        sceneNumber: script.scene || idx + 1,
-        title: `Scene ${script.scene || idx + 1}`,
+        sceneNumber: script.scene || 0,
+        title: `Scene ${script.scene || 0}`,
         narration: script.scene_text || "Narration text...",
-        status: hasStoryboards
-          ? idx < 2
-            ? "approved"
-            : "pending"
-          : "generating",
-        panels: Array.from({ length: 9 }, (_, panelIdx) => ({
-          index: panelIdx,
-          url: hasStoryboards
-            ? `https://picsum.photos/seed/${videoId}-${idx}-${panelIdx}/400/400`
-            : null,
-          prompt: `Panel ${panelIdx + 1} prompt for scene ${idx + 1}`,
-        })),
-      } as SceneData;
+        panels,
+        status,
+      };
     });
 }
 
@@ -59,6 +80,23 @@ export default function StoryboardsPage() {
   // Panel detail state
   const [selectedScene, setSelectedScene] = useState<number | null>(null);
   const [selectedPanel, setSelectedPanel] = useState<number>(0);
+  const [taskRunning, setTaskRunning] = useState(false);
+  const [taskAction, setTaskAction] = useState<"extract" | "regenerate">("extract");
+
+  const { message: taskMessage } = useTaskPoller({
+    videoId,
+    enabled: taskRunning,
+    interval: 3000,
+    onComplete: () => {
+      setTaskRunning(false);
+      queryClient.invalidateQueries({ queryKey: ["video", videoId] });
+      queryClient.invalidateQueries({ queryKey: ["video", videoId, "script"] });
+    },
+    onFailed: (error) => {
+      setTaskRunning(false);
+      alert(`${taskAction === "extract" ? "Extraction" : "Regeneration"} failed: ${error}`);
+    },
+  });
 
   // Fetch video data
   const { data: video, isLoading: videoLoading } = useQuery({
@@ -74,27 +112,77 @@ export default function StoryboardsPage() {
     enabled: !!videoId,
   });
 
-  // Generate storyboard scenes from script data
+  // Build storyboard scenes from real script data
   const scenes = useMemo(() => {
     if (!scripts.length) return [];
-    return getStoryboardsForVideo(videoId, scripts);
-  }, [videoId, scripts]);
+    return buildSceneData(scripts);
+  }, [scripts]);
 
   // Calculate progress
   const approvedCount = scenes.filter((s) => s.status === "approved").length;
   const totalCount = scenes.length;
 
-  // Approve mutation (mock)
+  // Advance (approve) video past storyboard stage
   const approveMutation = useMutation({
-    mutationFn: async (sceneNumber: number) => {
-      // TODO: Implement actual API call
-      await new Promise((resolve) => setTimeout(resolve, 500));
-      return { sceneNumber };
-    },
+    mutationFn: () => advanceVideo(videoId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["video", videoId] });
+      queryClient.invalidateQueries({ queryKey: ["video", videoId, "script"] });
+    },
+    onError: (err) => {
+      alert(`Advance failed: ${(err as Error).message}`);
     },
   });
+
+  // Extract all approved storyboard panels
+  const handleExtractAll = useCallback(async () => {
+    setTaskAction("extract");
+    try {
+      await runPipelineStage(videoId, "storyboard-extract");
+      setTaskRunning(true);
+    } catch (err: unknown) {
+      const message = (err as Error).message || "";
+      if (message.includes("409")) {
+        try {
+          await clearStaleTask(videoId);
+          await runPipelineStage(videoId, "storyboard-extract");
+          setTaskRunning(true);
+          return;
+        } catch (retryErr) {
+          alert(`Extraction failed: ${(retryErr as Error).message}`);
+        }
+      } else {
+        alert(`Extraction failed: ${message}`);
+      }
+    }
+  }, [videoId]);
+
+  // Regenerate storyboard for a specific scene
+  const handleRegenerate = useCallback(
+    async (sceneNumber: number) => {
+      setTaskAction("regenerate");
+      try {
+        await clearSceneStoryboard(videoId, sceneNumber);
+        await runPipelineStage(videoId, "storyboard-images");
+        setTaskRunning(true);
+      } catch (err: unknown) {
+        const message = (err as Error).message || "";
+        if (message.includes("409")) {
+          try {
+            await clearStaleTask(videoId);
+            await runPipelineStage(videoId, "storyboard-images");
+            setTaskRunning(true);
+            return;
+          } catch (retryErr) {
+            alert(`Regeneration failed: ${(retryErr as Error).message}`);
+          }
+        } else {
+          alert(`Regeneration failed: ${message}`);
+        }
+      }
+    },
+    [videoId]
+  );
 
   // Handle panel click
   const handlePanelClick = (sceneIndex: number, panelIndex: number) => {
@@ -175,6 +263,17 @@ export default function StoryboardsPage() {
         )}
       </div>
 
+      {/* Task status banner */}
+      {taskRunning && (
+        <div
+          className="flex items-center gap-2 rounded-lg px-4 py-2 text-sm"
+          style={{ background: "var(--bg-elevated)", color: "var(--turquoise)" }}
+        >
+          <Loader2 size={14} className="animate-spin" />
+          {taskMessage || (taskAction === "extract" ? "Extracting storyboard panels..." : "Regenerating storyboard grids...")}
+        </div>
+      )}
+
       {/* Progress bar */}
       <div className="sticky top-0 z-10 -mx-4 bg-[var(--background)] px-4 py-2">
         <StoryboardProgressBar current={approvedCount} total={totalCount} />
@@ -192,36 +291,34 @@ export default function StoryboardsPage() {
             <SceneGrid
               scene={scene}
               onPanelClick={(panelIndex) => handlePanelClick(sceneIndex, panelIndex)}
-              onApprove={() => approveMutation.mutate(scene.sceneNumber)}
-              onRegenerate={() => {
-                // TODO: Implement regenerate
-                console.log("Regenerate scene", scene.sceneNumber);
-              }}
-              isApproving={
-                approveMutation.isPending &&
-                approveMutation.variables === scene.sceneNumber
-              }
+              onApprove={() => approveMutation.mutate()}
+              onRegenerate={() => handleRegenerate(scene.sceneNumber)}
+              isApproving={approveMutation.isPending}
             />
           </motion.div>
         ))}
       </div>
 
       {/* Extract All FAB */}
-      {approvedCount > 0 && (
+      {totalCount > 0 && (
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           className="fixed bottom-20 left-4 right-4 md:bottom-8 md:left-auto md:right-8"
         >
           <button
-            onClick={() => {
-              // TODO: Implement extract all
-              console.log("Extract all approved scenes");
-            }}
-            className="flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--accent)] py-4 text-sm font-medium text-black shadow-lg md:w-auto md:px-6"
+            onClick={handleExtractAll}
+            disabled={taskRunning}
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--accent)] py-4 text-sm font-medium text-black shadow-lg disabled:opacity-50 md:w-auto md:px-6"
           >
-            <CheckCircle size={18} />
-            Extract All ({approvedCount} scenes)
+            {taskRunning && taskAction === "extract" ? (
+              <Loader2 size={18} className="animate-spin" />
+            ) : (
+              <CheckCircle size={18} />
+            )}
+            {taskRunning && taskAction === "extract"
+              ? "Extracting..."
+              : `Extract All (${totalCount} scenes)`}
           </button>
         </motion.div>
       )}
@@ -236,12 +333,10 @@ export default function StoryboardsPage() {
           open={selectedScene !== null}
           onClose={() => setSelectedScene(null)}
           onRegenerate={(panelIndex) => {
-            // TODO: Implement panel regeneration
-            console.log("Regenerate panel", selectedScene, panelIndex);
+            handleRegenerate(scenes[selectedScene].sceneNumber);
+            void panelIndex; // panel-level regen not available, regenerates whole scene
           }}
-          onUseThis={(panelIndex) => {
-            // TODO: Implement use this panel
-            console.log("Use panel", selectedScene, panelIndex);
+          onUseThis={() => {
             setSelectedScene(null);
           }}
         />

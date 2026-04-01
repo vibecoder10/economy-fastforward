@@ -1,13 +1,34 @@
 "use client";
 
+import { useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { Image as ImageIcon, Video, Mic, Volume2 } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  Image as ImageIcon,
+  Video,
+  Mic,
+  Loader2,
+  ChevronRight,
+  Film,
+} from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { StatusPill } from "@/components/ui/StatusPill";
-import { ProgressRing } from "@/components/ui/ProgressRing";
 import { ActionButton } from "@/components/ui/ActionButton";
-import { FilterSelect } from "@/components/ui/FilterSelect";
-import { MOCK_RENDER_STATE } from "@/lib/mock-data";
+import { Spinner } from "@/components/ui/spinner";
+import {
+  getVideos,
+  getVideoAssets,
+  getVideoScript,
+  runPipelineStage,
+  clearStaleTask,
+  type VideoSummary,
+  type Asset,
+  type ScriptScene,
+} from "@/lib/api";
+import { getStageLabel } from "@/lib/constants";
+import { useTaskPoller } from "@/hooks/use-task-poller";
+import { timeAgo } from "@/lib/utils";
 
 const container = {
   hidden: { opacity: 0 },
@@ -18,15 +39,194 @@ const item = {
   show: { opacity: 1, y: 0, transition: { duration: 0.5, ease: "easeOut" as const } },
 };
 
-const BLOCK_ICONS: Record<string, React.ElementType> = {
-  image: ImageIcon,
-  video: Video,
-  voice: Mic,
-  sound: Volume2,
-};
+const RENDER_STATUSES = new Set([
+  "ready_to_render",
+  "rendering",
+  "rendered",
+  "uploaded_draft",
+  "uploaded",
+]);
+
+interface RenderCardProps {
+  video: VideoSummary;
+}
+
+function RenderCard({ video }: RenderCardProps) {
+  const router = useRouter();
+  const queryClient = useQueryClient();
+  const [isRendering, setIsRendering] = useState(false);
+  const [taskRunning, setTaskRunning] = useState(false);
+
+  const { message: taskMessage } = useTaskPoller({
+    videoId: video.id,
+    enabled: taskRunning,
+    interval: 10000,
+    onComplete: () => {
+      setTaskRunning(false);
+      setIsRendering(false);
+      queryClient.invalidateQueries({ queryKey: ["videos"] });
+    },
+    onFailed: (error) => {
+      setTaskRunning(false);
+      setIsRendering(false);
+      alert(`Render failed: ${error}`);
+    },
+  });
+
+  const { data: assets = [] } = useQuery({
+    queryKey: ["video-assets", video.id],
+    queryFn: () => getVideoAssets(video.id),
+    enabled: video.status === "ready_to_render",
+  });
+
+  const { data: scripts = [] } = useQuery({
+    queryKey: ["video-script", video.id],
+    queryFn: () => getVideoScript(video.id),
+    enabled: video.status === "ready_to_render",
+  });
+
+  const imageCount = assets.filter((a: Asset) => a.image_url).length;
+  const clipCount = assets.filter((a: Asset) => a.video_clip_url).length;
+  const voiceCount = scripts.filter((s: ScriptScene) => s.voice_over_url).length;
+
+  const handleRender = useCallback(async () => {
+    setIsRendering(true);
+    try {
+      await runPipelineStage(video.id, "render");
+      setTaskRunning(true);
+    } catch (err: unknown) {
+      const message = (err as Error).message || "";
+      if (message.includes("409")) {
+        try {
+          await clearStaleTask(video.id);
+          await runPipelineStage(video.id, "render");
+          setTaskRunning(true);
+          return;
+        } catch (retryErr) {
+          alert(`Render failed: ${(retryErr as Error).message}`);
+        }
+      } else {
+        alert(`Render failed: ${message}`);
+      }
+      setIsRendering(false);
+    }
+  }, [video.id]);
+
+  const isActive = isRendering || taskRunning || video.status === "rendering";
+  const isReady = video.status === "ready_to_render";
+  const isDone = video.status === "rendered" || video.status === "uploaded_draft" || video.status === "uploaded";
+
+  const statusColor = isDone ? "green" : isActive ? "red" : isReady ? "orange" : "turquoise";
+
+  return (
+    <GlassCard className="p-5">
+      <div className="flex items-start gap-4">
+        {/* Thumbnail placeholder */}
+        <div
+          className="w-24 h-14 rounded-lg shrink-0 flex items-center justify-center overflow-hidden"
+          style={{ background: "var(--bg-elevated)" }}
+        >
+          {video.thumbnail_url ? (
+            <img
+              src={video.thumbnail_url}
+              alt={video.video_title || ""}
+              className="w-full h-full object-cover"
+            />
+          ) : (
+            <Film size={20} style={{ color: "var(--text-tertiary)", opacity: 0.4 }} />
+          )}
+        </div>
+
+        {/* Info */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-1">
+            <h3
+              className="text-sm font-semibold truncate"
+              style={{ color: "var(--text-primary)" }}
+            >
+              {video.video_title || "Untitled"}
+            </h3>
+            <StatusPill
+              label={isActive ? (taskMessage || "Rendering...") : getStageLabel(video.status || "")}
+              color={statusColor}
+              pulse={isActive}
+              size="sm"
+            />
+          </div>
+
+          {/* Asset readiness */}
+          {isReady && (
+            <div className="flex items-center gap-4 text-[11px] font-mono mt-1">
+              <span style={{ color: imageCount > 0 ? "var(--turquoise)" : "var(--text-tertiary)" }}>
+                <ImageIcon size={10} className="inline mr-1" />
+                {imageCount} images
+              </span>
+              <span style={{ color: clipCount > 0 ? "var(--purple)" : "var(--text-tertiary)" }}>
+                <Video size={10} className="inline mr-1" />
+                {clipCount} clips
+              </span>
+              <span style={{ color: voiceCount > 0 ? "var(--green)" : "var(--text-tertiary)" }}>
+                <Mic size={10} className="inline mr-1" />
+                {voiceCount} voices
+              </span>
+            </div>
+          )}
+
+          {video.updated_at && (
+            <p className="text-[10px] mt-1" style={{ color: "var(--text-tertiary)" }}>
+              Updated {timeAgo(video.updated_at)}
+            </p>
+          )}
+        </div>
+
+        {/* Actions */}
+        <div className="flex items-center gap-2 shrink-0">
+          {isReady && (
+            <ActionButton
+              variant="warning"
+              icon={isActive ? Loader2 : undefined}
+              onClick={handleRender}
+              disabled={isActive}
+            >
+              {isActive ? "Rendering..." : "Render"}
+            </ActionButton>
+          )}
+          <button
+            onClick={() => router.push(`/pipeline/${video.id}`)}
+            className="p-2 rounded-lg transition-colors hover:bg-[var(--bg-elevated)]"
+          >
+            <ChevronRight size={16} style={{ color: "var(--text-secondary)" }} />
+          </button>
+        </div>
+      </div>
+    </GlassCard>
+  );
+}
 
 export default function RenderPage() {
-  const r = MOCK_RENDER_STATE;
+  const { data: videos = [], isLoading } = useQuery({
+    queryKey: ["videos"],
+    queryFn: () => getVideos(),
+    refetchInterval: 15000,
+  });
+
+  const renderVideos = videos.filter(
+    (v: VideoSummary) => v.status && RENDER_STATUSES.has(v.status)
+  );
+
+  const readyCount = renderVideos.filter((v) => v.status === "ready_to_render").length;
+  const activeCount = renderVideos.filter((v) => v.status === "rendering").length;
+  const doneCount = renderVideos.filter(
+    (v) => v.status === "rendered" || v.status === "uploaded_draft" || v.status === "uploaded"
+  ).length;
+
+  if (isLoading) {
+    return (
+      <div className="flex min-h-[60vh] items-center justify-center">
+        <Spinner />
+      </div>
+    );
+  }
 
   return (
     <motion.div className="space-y-6" variants={container} initial="hidden" animate="show">
@@ -36,148 +236,52 @@ export default function RenderPage() {
           <h1 className="text-4xl font-display" style={{ color: "var(--text-primary)" }}>
             Render Pipeline
           </h1>
-          <StatusPill label="Rendering" color="red" pulse size="md" />
-        </div>
-        <ActionButton variant="warning" className="hidden sm:flex">
-          Render Now
-        </ActionButton>
-      </motion.div>
-
-      {/* Main: preview + sidebar */}
-      <motion.div variants={item} className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-6">
-        {/* Video preview */}
-        <div className="space-y-4">
-          <GlassCard className="p-0 overflow-hidden">
-            <div
-              className="aspect-video relative flex items-center justify-center"
-              style={{ background: "var(--bg-elevated)" }}
-            >
-              {/* Wireframe placeholder */}
-              <svg width="80" height="60" viewBox="0 0 80 60" className="opacity-20">
-                <rect x="5" y="8" width="50" height="40" fill="none" stroke="var(--text-tertiary)" strokeWidth="1.5" />
-                <line x1="5" y1="8" x2="15" y2="2" stroke="var(--text-tertiary)" strokeWidth="1.5" />
-                <line x1="55" y1="8" x2="65" y2="2" stroke="var(--text-tertiary)" strokeWidth="1.5" />
-                <line x1="55" y1="48" x2="65" y2="42" stroke="var(--text-tertiary)" strokeWidth="1.5" />
-                <rect x="15" y="2" width="50" height="40" fill="none" stroke="var(--text-tertiary)" strokeWidth="1.5" />
-                <circle cx="40" cy="25" r="4" fill="none" stroke="var(--text-tertiary)" strokeWidth="1.5" />
-              </svg>
-
-              {/* Progress ring overlay */}
-              <div className="absolute inset-0 flex items-center justify-center">
-                <ProgressRing value={r.progress} size={120} color="var(--red)" strokeWidth={6}>
-                  <span className="text-2xl font-bold font-mono" style={{ color: "var(--red)" }}>
-                    {r.progress}%
-                  </span>
-                </ProgressRing>
-              </div>
-            </div>
-          </GlassCard>
-
-          {/* Scene Composition Timeline */}
-          <GlassCard className="p-4">
-            <h3 className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: "var(--text-secondary)" }}>
-              Scene Composition Timeline
-            </h3>
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
-              {r.scenes.map((block, i) => {
-                const Icon = BLOCK_ICONS[block.type] || ImageIcon;
-                return (
-                  <div
-                    key={i}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg shrink-0"
-                    style={{
-                      background: `color-mix(in srgb, ${block.color} 15%, transparent)`,
-                      border: `1px solid color-mix(in srgb, ${block.color} 25%, transparent)`,
-                    }}
-                  >
-                    <Icon size={12} style={{ color: block.color }} />
-                    {block.label && (
-                      <span className="text-[11px] font-medium" style={{ color: block.color }}>
-                        {block.label}
-                      </span>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </GlassCard>
-
-          {/* System resources */}
-          <GlassCard className="p-4">
-            <div className="flex items-center gap-6 text-xs font-mono flex-wrap">
-              <span>
-                RAM: <span style={{ color: "var(--turquoise)" }}>{r.ramUsage}</span>
-              </span>
-              <span>
-                CPU load: <span style={{ color: "var(--turquoise)" }}>{r.cpuLoad}</span>
-              </span>
-              <span>
-                Time remaining: <span style={{ color: "var(--gold)" }}>{r.timeRemaining}</span>
-              </span>
-            </div>
-          </GlassCard>
-        </div>
-
-        {/* Sidebar */}
-        <div className="space-y-4">
-          <GlassCard className="p-5">
-            <div className="space-y-3">
-              {[
-                { label: "Resolution", value: r.resolution },
-                { label: "FPS", value: String(r.fps) },
-                { label: "Duration", value: r.duration },
-              ].map((row) => (
-                <div key={row.label} className="flex items-center justify-between">
-                  <span className="text-xs" style={{ color: "var(--text-secondary)" }}>{row.label}</span>
-                  <span className="text-sm font-mono font-medium" style={{ color: "var(--text-primary)" }}>{row.value}</span>
-                </div>
-              ))}
-            </div>
-
-            <div className="mt-4 space-y-3">
-              <FilterSelect
-                label="Music Track"
-                options={[
-                  { value: "tension-rising", label: "Tension Rising - Cinematic" },
-                  { value: "dark-ambient", label: "Dark Ambient" },
-                  { value: "none", label: "No Music" },
-                ]}
-                value="tension-rising"
-                onChange={() => {}}
-              />
-              <FilterSelect
-                label="Export Format"
-                options={[
-                  { value: "mp4-h264", label: "MP4 (H.264)" },
-                  { value: "mp4-h265", label: "MP4 (H.265)" },
-                  { value: "webm", label: "WebM (VP9)" },
-                ]}
-                value="mp4-h264"
-                onChange={() => {}}
-              />
-            </div>
-          </GlassCard>
-
-          <div className="space-y-2">
-            <ActionButton variant="warning" className="w-full">
-              Render Now
-            </ActionButton>
-            <ActionButton variant="filled" className="w-full">
-              Preview Draft
-            </ActionButton>
-            <button
-              className="w-full py-2.5 rounded-xl text-sm font-semibold font-body transition-all hover:brightness-110"
-              style={{
-                background: "transparent",
-                color: "var(--gold)",
-                border: "1px solid var(--gold)",
-              }}
-            >
-              Upload to YouTube
-            </button>
-          </div>
+          {activeCount > 0 && (
+            <StatusPill label={`${activeCount} Rendering`} color="red" pulse size="md" />
+          )}
         </div>
       </motion.div>
+
+      {/* Stats */}
+      <motion.div variants={item} className="flex gap-4">
+        {[
+          { label: "Ready", count: readyCount, color: "var(--orange)" },
+          { label: "Rendering", count: activeCount, color: "var(--red)" },
+          { label: "Complete", count: doneCount, color: "var(--green)" },
+        ].map(({ label, count, color }) => (
+          <GlassCard key={label} className="px-4 py-3 flex-1">
+            <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>
+              {label}
+            </p>
+            <p className="text-2xl font-mono font-bold mt-1" style={{ color }}>
+              {count}
+            </p>
+          </GlassCard>
+        ))}
+      </motion.div>
+
+      {/* Video list */}
+      {renderVideos.length === 0 ? (
+        <motion.div variants={item}>
+          <GlassCard className="p-12 text-center">
+            <Film size={32} className="mx-auto mb-3" style={{ color: "var(--text-tertiary)", opacity: 0.4 }} />
+            <p className="text-lg font-display mb-2" style={{ color: "var(--text-secondary)" }}>
+              No Videos in Render Stage
+            </p>
+            <p className="text-sm" style={{ color: "var(--text-tertiary)" }}>
+              Videos will appear here once they reach the render stage of the pipeline.
+            </p>
+          </GlassCard>
+        </motion.div>
+      ) : (
+        <motion.div variants={container} className="space-y-3">
+          {renderVideos.map((video) => (
+            <motion.div key={video.id} variants={item}>
+              <RenderCard video={video} />
+            </motion.div>
+          ))}
+        </motion.div>
+      )}
     </motion.div>
   );
 }

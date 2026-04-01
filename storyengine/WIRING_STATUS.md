@@ -42,16 +42,16 @@
 | `/dashboard` | WIRED | Reads dashboard summary, videos, pending review. All navigation buttons. |
 | `/pipeline` | WIRED | Lists videos. Create modal → `POST /api/videos`. |
 | `/pipeline/[videoId]` | WIRED | Full video detail with 7 tab components. Run Next, Skip, Reset all wired. |
-| `/pipeline/[videoId]/storyboards` | STUB | Approve button is a mock (`setTimeout(500)`, TODO comment). |
+| `/pipeline/[videoId]/storyboards` | WIRED | Real storyboard data from scripts API. Approve → advanceVideo. Regenerate → clearSceneStoryboard + storyboard-images. Extract All → storyboard-extract pipeline stage. |
 | `/create` | WIRED | "Generate Story" → `POST /api/pipeline/create-idea`. Note: backend handler is BROKEN (see bugs). |
 | `/analytics` | WIRED | Reads videos list, computes stats client-side. Read-only. |
 | `/autopilot` | WIRED | Reads summary, toggle ON/OFF, update target. Error handling: console.error only (no user feedback). |
 | `/competitors` | WIRED | Reads niche config + channels + candidates. Add channel, model candidate → create video. |
 | `/activity` | WIRED | Reads activity log + stats. Auto-polls every 10s. Read-only. |
 | `/review` | PARTIAL | Approve script/storyboard/thumbnail/images all WIRED. Storyboard "Reject" button has NO onClick handler. |
-| `/render` | MOCK | All buttons ("Render Now", "Preview Draft", "Upload to YouTube") have no onClick handlers. Uses mock data. |
-| `/storyboard` | MOCK | Uses mock data. "Regenerate" button has no onClick. "Approve" operates on local mock state only. |
-| `/visuals` | MOCK | Uses mock data. No API calls. |
+| `/render` | WIRED | Render queue dashboard. Lists videos in render stages. Render Now triggers pipeline. Links to video detail. |
+| `/storyboard` | WIRED | Storyboard review queue. Lists videos with pending storyboards. Review links to per-video editor. Advance button wired. |
+| `/visuals` | WIRED | Image generation dashboard. Shows real assets for videos in image stages. Generate buttons trigger pipeline. |
 | `/settings` | WIRED | Channel name, niche, audience, frameworks → `PUT /api/projects/current`. Auto-save on blur. |
 | `/settings/keys` | WIRED | List/test/set API keys. Full CRUD via vault endpoints. |
 | `/profile` | WIRED | Visual styles CRUD. Character generation via Kie.ai. Image analysis via Gemini. |
@@ -170,8 +170,8 @@ sys.path += [script/, voice/, image_prompts/, images/, video_motion/,
 5. **Autopilot launch is a stub**
    - `routes/autopilot.py`: `POST /api/autopilot/launch/{candidate_id}` marks candidate as `modeled=true` but has a `# TODO: Trigger actual pipeline execution` comment. No pipeline work is triggered.
 
-6. **Storyboard approve is a mock**
-   - `/pipeline/[videoId]/storyboards` page: Approve mutation is `await new Promise(resolve => setTimeout(resolve, 500))` — a hardcoded 500ms delay with no real API call. Has TODO comment.
+6. **~~Storyboard approve is a mock~~** (FIXED)
+   - `/pipeline/[videoId]/storyboards` page: Approve now calls `advanceVideo()`. Extract All calls `storyboard-extract` pipeline stage. Regenerate clears scene + re-runs storyboard-images.
 
 7. **Review page "Reject" storyboard button is dead**
    - `/review` page: Storyboard "Reject" button has no onClick handler. It renders but does nothing.
@@ -181,8 +181,9 @@ sys.path += [script/, voice/, image_prompts/, images/, video_motion/,
 
 ### Low
 
-9. **Four mock pages with no API integration**
-   - `/` (root), `/render`, `/storyboard`, `/visuals` — all use hardcoded mock data. Buttons exist but are not wired.
+9. **~~Four mock pages with no API integration~~** (3 of 4 FIXED)
+   - `/render`, `/storyboard`, `/visuals` — now fully wired to real API data. `mock-data.ts` deleted.
+   - `/` (root) — was already wired (uses getDashboardSummary, getVideos, getActivity, getPendingReview).
 
 10. **Silent error handling on multiple pages**
     - Autopilot toggle/config: errors go to `console.error` only, no user feedback.
