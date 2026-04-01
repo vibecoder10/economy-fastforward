@@ -159,6 +159,22 @@ Full codebase reorganization of `skills/video-pipeline/`. Each tool is now a sta
 
 ---
 
+## Completed: Cinematic Continuity Contact Sheets (2026-04-01)
+
+Restructured storyboard directive system prompt to produce structured contact sheet prompts that generate visually continuous 3×3 grids. Tested with Gemini — father character consistent across panels, strait geography consistent across 5 panels, data screens share visual language.
+
+**Changes (all in `storyboard/bot.py`):**
+1. **Rules 7-8 added** to `<non_negotiable_rules>`: continuity threading (character position, setting locks, visual bridges) + narration-visual alignment (panels must show what narration says)
+2. **Contact sheet prompt format restructured**: Preamble with character/setting locks → per-panel descriptions with Kelvin color temps, focal lengths, frame positions, gaze direction → technical footer. Replaces the old freeform format.
+3. **Cross-beat state passing**: `prev_beat_exit` dict tracks last keyframe's shot type, composition, and lighting. Injected into next beat's user prompt as `PREVIOUS BEAT EXIT` context block. Wired through `_build_directive_user_prompt()` → `generate_storyboard_directive()` → beat loop.
+4. `build_image_prompt_from_keyframe()` already included lighting (no change needed).
+
+**Next:**
+- Test on a real video with storyboard generation
+- Consider switching contact sheet model from Nano Banana Pro to Gemini (produced much better results in manual testing)
+
+---
+
 ## Completed: Page-by-Page UI/UX Overhaul (2026-03-26)
 
 **Branch:** `claude/page-fixes-round1` (pushed, not merged)

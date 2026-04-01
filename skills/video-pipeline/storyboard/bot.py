@@ -699,6 +699,17 @@ location descriptions. Use the EXACT costume/appearance for each character and t
 environment description for each location. These are visual anchors that ensure consistency \
 across the entire video — do NOT deviate from them. The visual bible is your single source \
 of truth for what characters look like and what environments look like.
+7) CONTINUITY THREADING — when the same character appears in consecutive panels, their \
+screen position must be consistent or move motivatedly (e.g., right-of-center in KF1 → \
+right-third in KF2). If the same setting appears in non-consecutive panels, reference it \
+explicitly with "SAME [element] from KF[N]". Color temperature must be consistent within \
+a location. When transitioning between locations, use a visual bridge: shared color, shared \
+shape, or shared object that appears in both panels.
+8) NARRATION-VISUAL ALIGNMENT — each panel MUST depict what is being SAID in its assigned \
+sentence_text. The viewer will HEAR the narration while SEEING the panel. If the narration \
+says "150 oil tankers sit frozen," the panel must show tankers. If it says "The father \
+stares at the screen," the panel must show a father staring at a screen. Show what the \
+words describe — not abstract or metaphorical interpretations.
 </non_negotiable_rules>
 
 <goal>
@@ -782,16 +793,54 @@ Rules for hero expansion:
 ## CONTACT SHEET PROMPT
 Finally, output a SINGLE image generation prompt that will produce a 3×3 contact sheet \
 grid containing all 9 keyframes as panels. This prompt will be sent directly to an image \
-generation model.
+generation model (NOT a language model — it must be pure visual description).
 
-The contact sheet prompt MUST:
-- Start with: "Generate in 16:9 widescreen aspect ratio."
-- Begin with the channel's visual style directive
-- Describe a 3×3 grid layout (3 rows, 3 columns) with clearly separated panels
-- Include panel labels: [KF# | shot_type | duration] in the top-left corner of each panel
-- Describe each panel's content in sequence (KF1 top-left → KF9 bottom-right)
-- Enforce consistent character appearance, environment, and color grade across all panels
-- End with technical specs: the channel's lens profile, grain/texture, and color grade
+The contact sheet prompt MUST follow this EXACT structure:
+
+PREAMBLE (one paragraph):
+"Generate in 16:9 widescreen aspect ratio. Cinematic 2D animated illustration in muted \
+earthy color palette with ink outlines and dramatic lighting, featuring stylized characters \
+with expressive faces, strong jawlines, and angular features. Create a 3×3 grid layout \
+(3 rows, 3 columns) with clearly separated black borders between panels. Each panel shows \
+a keyframe from a cinematic sequence about [TOPIC SUMMARY], maintaining strict visual \
+continuity across all [PANEL_COUNT] panels: consistent [DOMINANT PALETTE] dominant color \
+palette with [ACCENT COLOR] accent highlights, film grain texture, and dramatic directional \
+lighting. [CHARACTER LOCKS — for each character appearing in 2+ panels, declare their exact \
+appearance once: 'The same [role] appears in KF[X] and KF[Y] with identical appearance — \
+[exact outfit], [age], [hair], [distinguishing features].']. [SETTING LOCKS — for each \
+location appearing in 2+ panels: 'The [location] appears in KF[X], KF[Y], KF[Z] with \
+identical [key visual description].']."
+
+PANEL DESCRIPTIONS (mandatory format per panel):
+"**Panel labels in top-left corner of each panel (white text on semi-transparent dark overlay):**"
+
+"**TOP ROW:**"
+"- **[KF1 | {{shot_type}} | {{duration}}s]** (top-left): [shot type] of [subject with exact \
+outfit/appearance from character lock], [environment with specific props], [subject position \
+in frame e.g. 'right-of-center'], [gaze direction], [lighting with specific color temperature \
+in Kelvin e.g. 'warm tungsten 3200K'], [focal length]mm [depth of field], [pose/action]."
+
+Repeat for KF2 (top-center), KF3 (top-right), then MIDDLE ROW (KF4-KF6), BOTTOM ROW (KF7-KF9).
+
+Per-panel RULES:
+- Every panel MUST include a color temperature in Kelvin (e.g., "warm 3200K", "cool blue-white 7000K")
+- Every panel with a character MUST restate their exact outfit from the character lock
+- Every panel MUST include focal length mm and depth of field
+- Every panel MUST state subject position in frame (center-left, right-third, etc.)
+- Every panel with a character MUST describe gaze direction
+- When a panel shows the same setting as a previous panel, state "SAME [setting] from KF[N]"
+- When a visual element bridges two panels, explicitly state "SAME [element] from KF[N]"
+
+TECHNICAL FOOTER (one paragraph):
+"**Technical specs across all panels:** [focal range], cinematic motion blur feel, subtle \
+organic film grain texture, [palette] dominant palette with [accent] accents, high contrast \
+with rich shadows and controlled warm highlights, metallic surfaces catch highlights while \
+fabric absorbs shadow, skin tones stay warm, stylized ink outlines, full-bleed 16:9 \
+composition with no black bars, strict continuity of [character names] and [setting names] \
+across all panels."
+
+Use the VISUAL BIBLE (if provided) to populate the character locks and setting locks. \
+Character outfit descriptions must come VERBATIM from the visual bible.
 </output_format>"""
 
 
@@ -802,6 +851,7 @@ def _build_directive_user_prompt(
     video_title: str,
     image_prompts: list[str],
     story_bible: dict | None = None,
+    prev_beat_exit: dict | None = None,
 ) -> str:
     """Build the user message for the directive generator."""
     formatted_prompts = "\n".join(
@@ -817,6 +867,20 @@ def _build_directive_user_prompt(
         f"\nScenes covered: {', '.join(str(s) for s in beat_scenes)}",
         f"\nBeat narration:\n{beat_text}",
     ]
+
+    # Cross-beat continuity: inject previous beat's exit state
+    if prev_beat_exit:
+        parts.append(
+            f"\n--- PREVIOUS BEAT EXIT (your KF1 must connect to this) ---\n"
+            f"The previous grid's final panel (KF{prev_beat_exit.get('kf_number', '?')}) showed:\n"
+            f"  Shot: {prev_beat_exit.get('shot_type', 'unknown')}\n"
+            f"  Content: {prev_beat_exit.get('composition', 'unknown')}\n"
+            f"  Lighting: {prev_beat_exit.get('lighting', 'unknown')}\n"
+            f"Your KF1 should connect visually — same location continues, or use a "
+            f"motivated transition (match cut on color/shape, establishing wide for "
+            f"new location).\n"
+            f"--- END PREVIOUS BEAT ---"
+        )
 
     if visual_bible_block:
         parts.append(
@@ -851,11 +915,14 @@ async def generate_storyboard_directive(
     anthropic_client=None,
     story_bible: dict | None = None,
     beat_duration_seconds: float = 120.0,
+    prev_beat_exit: dict | None = None,
 ) -> dict:
     """Generate a cinematic directive for one narrative beat via Claude.
 
     Args:
         beat_duration_seconds: Target duration for keyframes (from word count / 2.5 wps)
+        prev_beat_exit: Exit state from previous beat's last keyframe for cross-beat
+            continuity. Dict with kf_number, shot_type, composition, lighting.
 
     Returns dict with:
         scene_breakdown, theme_and_story, cinematic_approach,
@@ -869,6 +936,7 @@ async def generate_storyboard_directive(
     user_prompt = _build_directive_user_prompt(
         beat_number, beat_text, beat_scenes, video_title, image_prompts,
         story_bible=story_bible,
+        prev_beat_exit=prev_beat_exit,
     )
 
     response = await anthropic_client.generate(
@@ -1919,6 +1987,7 @@ async def run_storyboard_prompts(
     total_cost = 0.0
     prompts_generated = 0
     failed_beats: list[tuple[int, int]] = []  # (scene, beat)
+    prev_beat_exit: dict | None = None  # Cross-beat continuity state
 
     # Collect unique scenes for progress reporting
     all_scenes = sorted(set(
@@ -1963,6 +2032,7 @@ async def run_storyboard_prompts(
                     anthropic_client=anthropic_client,
                     story_bible=story_bible,
                     beat_duration_seconds=beat.get("estimated_duration_seconds", 120.0),
+                    prev_beat_exit=prev_beat_exit,
                 )
                 total_cost += 0.03
                 break  # Success
@@ -1978,6 +2048,17 @@ async def run_storyboard_prompts(
 
         if directive is None:
             continue  # Skip to next beat
+
+        # Track exit state for cross-beat continuity
+        keyframes = directive.get("keyframes", [])
+        if keyframes:
+            last_kf = keyframes[-1]
+            prev_beat_exit = {
+                "kf_number": last_kf.get("kf_number", len(keyframes)),
+                "shot_type": last_kf.get("shot_type", ""),
+                "composition": last_kf.get("composition", ""),
+                "lighting": last_kf.get("lighting_grade", ""),
+            }
 
         # Save prompt to THIS scene's Scripts record
         contact_sheet_prompt = directive["contact_sheet_prompt"]
