@@ -286,10 +286,21 @@ export function ScriptVoiceTab({ video }: ScriptVoiceTabProps) {
     videoId: video.id,
     enabled: scriptTaskRunning,
     interval: 3000,
-    onComplete: () => {
+    onComplete: async () => {
       setScriptTaskRunning(false);
       setRegeneratingScript(false);
       invalidateAll();
+      // Auto-split sentences after script generation
+      try {
+        setSplitting(true);
+        await runSplit(video.id);
+        setSplitDone(true);
+        invalidateAll();
+      } catch {
+        // Split failure is non-blocking — user can retry from sidebar
+      } finally {
+        setSplitting(false);
+      }
     },
     onFailed: (error) => {
       setScriptTaskRunning(false);
@@ -882,8 +893,99 @@ export function ScriptVoiceTab({ video }: ScriptVoiceTabProps) {
   const isVoiceBusy = generatingVoiceAll || generatingVoiceScene !== null || voiceTaskRunning;
   const isPromptBusy = generatingPromptsAll || generatingPromptsScene !== null || generatingPromptsSegment !== null || promptTaskRunning;
 
+  // ---- Script pipeline stepper ----
+  const scriptDone = scenesWithScript === totalScenes && totalScenes > 0;
+  const voiceDone = scenesWithVoice === totalScenes && totalScenes > 0;
+
   return (
     <div className="space-y-6 pb-24">
+      {/* Script Pipeline Steps */}
+      <div
+        className="rounded-xl p-4"
+        style={{ background: "rgba(255, 120, 73, 0.04)", border: "1px solid rgba(255, 120, 73, 0.12)" }}
+      >
+        <div className="flex items-center gap-2 mb-3">
+          <span className="text-[10px] uppercase tracking-wider font-semibold" style={{ color: "var(--orange)" }}>
+            Script Pipeline
+          </span>
+        </div>
+        <div className="flex items-center gap-0">
+          {[
+            { label: "Generate Script", done: scriptDone, count: `${scenesWithScript}/${totalScenes}` },
+            { label: "Generate Voice", done: voiceDone, count: `${scenesWithVoice}/${totalScenes}` },
+            { label: "Approve", done: approved, count: approved ? "Done" : "Pending" },
+          ].map((step, i, arr) => {
+            const isNext = !step.done && (i === 0 || arr[i - 1].done);
+            return (
+              <div key={step.label} className="flex items-center gap-0 flex-1">
+                <div className="flex flex-col items-center flex-1">
+                  <div
+                    className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold mb-1"
+                    style={{
+                      background: step.done ? "var(--green)" : isNext ? "var(--orange)" : "rgba(255,255,255,0.06)",
+                      color: step.done || isNext ? "var(--bg-void)" : "var(--text-tertiary)",
+                      border: isNext ? "2px solid var(--orange)" : "none",
+                    }}
+                  >
+                    {step.done ? "✓" : i + 1}
+                  </div>
+                  <span className="text-[9px] font-medium" style={{ color: step.done ? "var(--green)" : isNext ? "var(--orange)" : "var(--text-tertiary)" }}>
+                    {step.label}
+                  </span>
+                  <span className="text-[8px] font-mono" style={{ color: "var(--text-tertiary)" }}>
+                    {step.count}
+                  </span>
+                </div>
+                {i < arr.length - 1 && (
+                  <div className="w-8 h-px mx-1" style={{ background: step.done ? "var(--green)" : "rgba(255,255,255,0.1)" }} />
+                )}
+              </div>
+            );
+          })}
+        </div>
+        {/* Next action CTA */}
+        {(() => {
+          if (!scriptDone) return (
+            <button
+              onClick={handleRegenerateScript}
+              disabled={regeneratingScript || scriptTaskRunning}
+              className="mt-3 w-full inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-xs font-semibold transition-all disabled:opacity-50"
+              style={{ background: "var(--orange)", color: "var(--bg-void)" }}
+            >
+              {(regeneratingScript || scriptTaskRunning) ? <Loader2 size={14} className="animate-spin" /> : <Pencil size={14} />}
+              {scriptTaskRunning ? scriptTaskMessage || "Generating..." : "Step 1: Generate Script"}
+            </button>
+          );
+          if (!voiceDone) return (
+            <button
+              onClick={handleGenerateAllVoice}
+              disabled={isVoiceBusy}
+              className="mt-3 w-full inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-xs font-semibold transition-all disabled:opacity-50"
+              style={{ background: "var(--orange)", color: "var(--bg-void)" }}
+            >
+              {isVoiceBusy ? <Loader2 size={14} className="animate-spin" /> : <Mic size={14} />}
+              {voiceTaskRunning ? voiceTaskMessage || "Generating..." : "Step 2: Generate Voice"}
+            </button>
+          );
+          if (!approved) return (
+            <button
+              onClick={handleApprove}
+              disabled={approving || !allReady}
+              className="mt-3 w-full inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-xs font-semibold transition-all disabled:opacity-50"
+              style={{ background: "var(--green)", color: "var(--bg-void)" }}
+            >
+              {approving ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle size={14} />}
+              Step 3: Approve Script & Voice
+            </button>
+          );
+          return (
+            <p className="mt-3 text-[10px] text-center" style={{ color: "var(--green)" }}>
+              ✓ Script pipeline complete
+            </p>
+          );
+        })()}
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-6">
         {/* ============================================================= */}
         {/* Main content area                                              */}
@@ -1489,36 +1591,6 @@ export function ScriptVoiceTab({ video }: ScriptVoiceTabProps) {
                   : scenesWithVoice === totalScenes
                     ? "All Voiced"
                     : "Generate All Voice"}
-            </ActionButton>
-
-            {/* Split Sentences */}
-            <ActionButton
-              variant="outline"
-              icon={splitting ? Loader2 : Layers}
-              className="w-full"
-              onClick={handleSplitSentences}
-              disabled={splitting || totalScenes === 0}
-            >
-              {splitting
-                ? "Splitting..."
-                : splitDone
-                  ? "Split Complete"
-                  : "Split Sentences"}
-            </ActionButton>
-
-            {/* Generate All Image Prompts */}
-            <ActionButton
-              variant="outline"
-              icon={generatingPromptsAll || promptTaskRunning ? Loader2 : Wand2}
-              className="w-full"
-              onClick={handleGenerateAllPrompts}
-              disabled={isPromptBusy || totalScenes === 0}
-            >
-              {promptTaskRunning && generatingPromptsAll
-                ? promptTaskMessage || "Generating Prompts..."
-                : generatingPromptsAll
-                  ? "Starting..."
-                  : "Generate Image Prompts"}
             </ActionButton>
 
             {/* Regenerate Script */}
