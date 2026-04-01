@@ -143,12 +143,19 @@ Full codebase reorganization of `skills/video-pipeline/`. Each tool is now a sta
 - **Fixed status gate**: relaxed `storyboard-images` endpoint from `ready_for_storyboard_images` to `ready_for_image_prompts`.
 - **Image prompt guard**: storyboard prompt generation blocked if <50% segments have image prompts.
 
+### Completed (2026-04-01 Session 2)
+- **Per-scene storyboard generation**: Backend accepts `?scene=N` query param on both `storyboards` and `storyboard-images` endpoints. Per-scene bypasses status gate. Frontend has per-scene "Gen Prompts", "Gen Grids", "Clear", and "Regenerate" buttons on each scene card.
+- **Live progress indicators**: Bot reports "Generating Scene 2/6, Beat 1/3..." via `progress_callback`. Messages flow through task poller to UI in real-time. Purple progress banner shows under storyboard pipeline section.
+- **Storyboard status badges**: Each scene card shows its `storyboard_status` (prompts_ready, grids_generated, partial_1_of_2, etc.)
+- **Clear old grids**: Per-scene "Clear" button and global "Clear All Storyboards" button wired end-to-end.
+- **Grid placeholder click → per-scene**: Clicking empty grid generates grids for THAT scene only (not all scenes).
+- **Deploy script race condition fixed**: Root cause was Next.js loading chunk manifest into memory at startup. Old server process lingers after `pkill`, serving HTML referencing old chunk hashes that no longer exist. Fix: SIGTERM → 5s wait → SIGKILL → `fuser -k 3001/tcp` → verify port free → build → start.
+- **Tested live**: Per-scene grid generation works end-to-end (Scene 1 Beat 1/2 generated successfully via API, visible in UI).
+
 ### In Progress / Next Session
-1. **CRITICAL: Storyboard prompt generation is too slow** — the bot makes ONE massive Claude call for all scenes. Need to refactor to scene-by-scene generation: gather Scene 1 prompts → generate → write → move to Scene 2. This gives incremental feedback and faster results.
-2. **No progress indicator during generation** — user sees "Generating..." but no scene-by-scene progress. Need task status messages like "Generating Scene 2/6..."
-3. **Storyboard grid images still show old grids from pre-image-prompt era** — need to clear old grids and regenerate with proper prompts.
-4. **Per-scene storyboard generation** — user wants to click one grid and generate just that scene, not all scenes at once. Requires backend endpoint change.
-5. **VPS deployment timing** — server consistently starts before build finishes when deploying via SSH. Need a proper deploy script that builds first, THEN restarts.
+1. Backend needs automatic restart on deploy (currently manual restart required for Python changes)
+2. Scene 6 has no storyboard prompts — need to generate prompts before grids
+3. Some scenes show `grids_generated` status but have no actual grids (stale status from previous run without scene_filter)
 
 ---
 
