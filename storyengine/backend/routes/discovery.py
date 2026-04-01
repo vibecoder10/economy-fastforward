@@ -375,10 +375,20 @@ async def _run_discovery_generation(tenant_id: str, batch_id: str):
                 tenant_id,
             )
             total_count = total.get("count", 0) if total else 0
+
+            # Debug: check VPH distribution
+            vph_stats = await fetch_one(
+                "SELECT MAX(vph) as max_vph, AVG(vph) as avg_vph, COUNT(*) FILTER (WHERE vph > 0) as with_vph FROM competitor_videos WHERE tenant_id = $1",
+                tenant_id,
+            )
+            max_vph = float(vph_stats.get("max_vph") or 0) if vph_stats else 0
+            avg_vph = float(vph_stats.get("avg_vph") or 0) if vph_stats else 0
+            with_vph = int(vph_stats.get("with_vph") or 0) if vph_stats else 0
+
             if total_count == 0:
                 msg = "No competitor videos in database. Scrape competitor channels first."
             else:
-                msg = f"No eligible competitor videos (need VPH >= 50, under 30 days old). {total_count} total videos exist but none meet the threshold. Try scraping channels with more popular videos."
+                msg = f"No eligible competitor videos (need VPH >= 50, hours_old <= 720). {total_count} total, {with_vph} with VPH > 0, max VPH: {max_vph:.1f}, avg VPH: {avg_vph:.1f}. Try scraping channels with more popular videos."
             print(f"[Discovery] {msg}")
             _refresh_tasks[tenant_id] = {"running": False, "error": msg}
             return
@@ -517,8 +527,13 @@ async def _run_discovery_generation(tenant_id: str, batch_id: str):
         # Count learnings that influenced these ideas
         learnings_count = learnings_context.count("•") if learnings_context else 0
 
-        print(f"[Discovery] Generated {inserted} ideas for tenant {tenant_id} (influenced by {learnings_count} learnings)")
-        _refresh_tasks[tenant_id] = {"running": False, "ideas_generated": inserted, "batch_id": batch_id, "learnings_applied": learnings_count}
+        print(f"[Discovery] Generated {inserted} ideas from {len(competitors)} competitors for tenant {tenant_id} (influenced by {learnings_count} learnings)")
+        if inserted == 0 and len(competitors) > 0:
+            msg = f"Claude returned {len(ideas)} ideas from {len(competitors)} competitors but 0 were saved. Parsed ideas: {len(ideas)}. This may indicate a response parsing issue."
+            print(f"[Discovery] WARNING: {msg}")
+            _refresh_tasks[tenant_id] = {"running": False, "error": msg, "ideas_generated": 0, "batch_id": batch_id, "learnings_applied": learnings_count}
+        else:
+            _refresh_tasks[tenant_id] = {"running": False, "ideas_generated": inserted, "batch_id": batch_id, "learnings_applied": learnings_count}
 
     except Exception as e:
         print(f"[Discovery] Error: {e}")
