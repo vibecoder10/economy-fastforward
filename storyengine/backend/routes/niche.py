@@ -357,6 +357,67 @@ def _parse_vtt_transcript(raw: str) -> Optional[str]:
     return transcript if transcript else None
 
 
+async def _fetch_publish_dates(stubs: list[dict]) -> int:
+    """Fetch publish dates from YouTube HTML for stubs missing published_at.
+
+    YouTube flat extraction doesn't return upload_date, so videos default to
+    168h estimated age, making old high-view videos look artificially "hot."
+    This lightweight fetch extracts the real date from HTML meta tags.
+
+    Returns the number of dates successfully fetched.
+    """
+    import httpx
+
+    need_dates = [s for s in stubs if not s.get("published_at")]
+    if not need_dates:
+        return 0
+
+    # Regex patterns for date extraction from YouTube HTML
+    # YouTube pages include: <meta itemprop="datePublished" content="YYYY-MM-DD">
+    # and also: "publishDate":"YYYY-MM-DD" or "uploadDate":"YYYY-MM-DD" in JSON-LD
+    date_patterns = [
+        re.compile(r'itemprop="(?:datePublished|uploadDate)"\s+content="(\d{4}-\d{2}-\d{2})'),
+        re.compile(r'"(?:publishDate|uploadDate)"\s*:\s*"(\d{4}-\d{2}-\d{2})'),
+    ]
+
+    fetched = 0
+    batch_size = 10
+
+    async with httpx.AsyncClient(
+        timeout=httpx.Timeout(10.0),
+        headers={"User-Agent": "Mozilla/5.0 (compatible; bot)"},
+        follow_redirects=True,
+    ) as client:
+        for batch_start in range(0, len(need_dates), batch_size):
+            batch = need_dates[batch_start:batch_start + batch_size]
+
+            for stub in batch:
+                try:
+                    url = f"https://www.youtube.com/watch?v={stub['id']}"
+                    resp = await client.get(url)
+                    if resp.status_code != 200:
+                        continue
+
+                    html = resp.text
+                    for pattern in date_patterns:
+                        match = pattern.search(html)
+                        if match:
+                            stub["published_at"] = match.group(1)
+                            fetched += 1
+                            break
+
+                    # Small delay between individual requests within a batch
+                    await asyncio.sleep(0.3)
+                except Exception as e:
+                    print(f"[Scrape] Phase 1.5: failed to fetch date for {stub.get('id')}: {e}")
+
+            # Delay between batches to avoid rate limiting
+            if batch_start + batch_size < len(need_dates):
+                await asyncio.sleep(1.0)
+
+    return fetched
+
+
 async def _run_scrape(tenant_id: str, max_videos_per_channel: int = 20):
     """Background task: scrape YouTube channels via yt-dlp and save to Supabase."""
     try:
@@ -400,7 +461,18 @@ async def _run_scrape(tenant_id: str, max_videos_per_channel: int = 20):
             **_scrape_tasks.get(tenant_id, {}),
             "videos_found": len(all_video_stubs),
         }
-        print(f"[Scrape] Phase 1 done: {len(all_video_stubs)} video stubs. Extracting metadata...")
+        print(f"[Scrape] Phase 1 done: {len(all_video_stubs)} video stubs.")
+
+        # Phase 1.5: Fetch publish dates for stubs missing them (flat extraction doesn't return dates)
+        missing_dates = sum(1 for s in all_video_stubs if not s.get("published_at"))
+        if missing_dates > 0:
+            print(f"[Scrape] Phase 1.5: {missing_dates}/{len(all_video_stubs)} stubs missing publish dates, fetching...")
+            dates_fetched = await _fetch_publish_dates(all_video_stubs)
+            print(f"[Scrape] Phase 1.5: fetched {dates_fetched} publish dates from {len(all_video_stubs)} videos")
+        else:
+            print(f"[Scrape] Phase 1.5: all stubs have publish dates, skipping")
+
+        print(f"[Scrape] Extracting metadata...")
 
         # Phase 2: Enrich with full metadata (best-effort, falls back to Phase 1 data)
         now = datetime.now(timezone.utc)
