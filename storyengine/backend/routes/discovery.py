@@ -354,7 +354,7 @@ async def _run_discovery_generation(tenant_id: str, batch_id: str):
                FROM competitor_videos
                WHERE tenant_id = $1
                  AND vph >= 50
-                 AND hours_old <= 168
+                 AND hours_old <= 720
                  AND (modeled = false OR modeled IS NULL)
                ORDER BY vph DESC
                LIMIT 15""",
@@ -362,8 +362,18 @@ async def _run_discovery_generation(tenant_id: str, batch_id: str):
         )
 
         if not competitors:
-            print(f"[Discovery] No eligible competitor videos for tenant {tenant_id}")
-            _refresh_tasks[tenant_id] = {"running": False, "message": "No competitor videos found"}
+            # Check if there are ANY competitor videos to give a better error
+            total = await fetch_one(
+                "SELECT COUNT(*) as count FROM competitor_videos WHERE tenant_id = $1",
+                tenant_id,
+            )
+            total_count = total.get("count", 0) if total else 0
+            if total_count == 0:
+                msg = "No competitor videos in database. Scrape competitor channels first."
+            else:
+                msg = f"No fresh competitor videos (need VPH >= 50, scraped within 7 days). {total_count} total videos exist but are too old. Re-scrape to get fresh data."
+            print(f"[Discovery] {msg}")
+            _refresh_tasks[tenant_id] = {"running": False, "error": msg}
             return
 
         # Build competitor list for Claude (include transcript hooks)

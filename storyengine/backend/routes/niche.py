@@ -150,7 +150,8 @@ def _normalize_channel_url(url: str) -> str:
 def _list_channel_videos(channel_url: str, max_results: int = 20) -> list[dict]:
     """List recent videos from a YouTube channel using yt-dlp flat extraction.
 
-    Returns list of {id, title, url} without downloading full video info.
+    Returns list of dicts with basic metadata. Flat extraction is fast and
+    returns enough data to save even without Phase 2 enrichment.
     """
     import yt_dlp
 
@@ -179,6 +180,11 @@ def _list_channel_videos(channel_url: str, max_results: int = 20) -> list[dict]:
                 "id": vid,
                 "title": entry["title"],
                 "url": f"https://www.youtube.com/watch?v={vid}",
+                # Flat extraction often includes these fields
+                "view_count": entry.get("view_count") or 0,
+                "duration": entry.get("duration") or 0,
+                "description": (entry.get("description") or "")[:2000],
+                "thumbnail": entry.get("thumbnails", [{}])[-1].get("url") if entry.get("thumbnails") else None,
             })
     return videos
 
@@ -373,28 +379,46 @@ async def _run_scrape(tenant_id: str, max_videos_per_channel: int = 20):
         }
         print(f"[Scrape] Phase 1 done: {len(all_video_stubs)} video stubs. Extracting metadata...")
 
-        # Phase 2: Extract full metadata for each video (runs in thread pool)
+        # Phase 2: Enrich with full metadata (best-effort, falls back to Phase 1 data)
         now = datetime.now(timezone.utc)
         videos = []
+        enriched_count = 0
         for i, stub in enumerate(all_video_stubs):
             try:
                 info = await asyncio.to_thread(_extract_video_info, stub["id"])
-                if not info:
-                    continue
+            except Exception as e:
+                print(f"[Scrape] Error extracting {stub['id']}: {e}")
+                info = None
 
+            if info:
+                enriched_count += 1
                 # Fill in channel info from Phase 1 if yt-dlp didn't return it
                 if not info.get("channel"):
                     info["channel"] = stub.get("channel_name", "")
                 if not info.get("channel_url"):
                     info["channel_url"] = stub.get("channel_url", "")
+            else:
+                # Fallback: use Phase 1 stub data so we still save the video
+                info = {
+                    "video_id": stub["id"],
+                    "title": stub.get("title", ""),
+                    "url": stub.get("url", f"https://www.youtube.com/watch?v={stub['id']}"),
+                    "views": stub.get("view_count", 0),
+                    "likes": 0,
+                    "channel": stub.get("channel_name", ""),
+                    "channel_url": stub.get("channel_url", ""),
+                    "published_at": None,
+                    "thumbnail_url": stub.get("thumbnail"),
+                    "transcript": None,
+                    "duration_seconds": stub.get("duration", 0),
+                    "description": stub.get("description", ""),
+                }
 
-                # Calculate VPH
-                vph, hours_old = _calculate_vph(info.get("views", 0), info.get("published_at", ""), now)
-                info["vph"] = round(vph, 1)
-                info["hours_old"] = round(hours_old, 1)
-                videos.append(info)
-            except Exception as e:
-                print(f"[Scrape] Error extracting {stub['id']}: {e}")
+            # Calculate VPH
+            vph, hours_old = _calculate_vph(info.get("views", 0), info.get("published_at", ""), now)
+            info["vph"] = round(vph, 1)
+            info["hours_old"] = round(hours_old, 1)
+            videos.append(info)
 
             # Progress update every 10 videos
             if (i + 1) % 10 == 0:
@@ -404,7 +428,7 @@ async def _run_scrape(tenant_id: str, max_videos_per_channel: int = 20):
                     "videos_saved": len(videos),
                 }
 
-        print(f"[Scrape] Phase 2 done: {len(videos)} videos extracted with metadata")
+        print(f"[Scrape] Phase 2 done: {len(videos)} videos ({enriched_count} enriched, {len(videos) - enriched_count} from stubs)")
 
         # Phase 3: Upsert into Supabase
         existing = await fetch_all(
@@ -453,13 +477,33 @@ async def _run_scrape(tenant_id: str, max_videos_per_channel: int = 20):
             except Exception as e:
                 print(f"[Scrape] Error saving video {video.get('video_id')}: {e}")
 
-        # Update last_scraped on channels
+        # Update last_scraped on channels + fix missing names from yt-dlp data
         for ch in channels:
             try:
-                await execute(
-                    "UPDATE competitor_channels SET last_scraped = now() WHERE id = $1",
-                    str(ch["id"]),
-                )
+                # Try to fill in missing channel_name from scraped video data
+                ch_name = ch.get("channel_name")
+                if not ch_name or ch_name == "None":
+                    ch_url = ch.get("channel_url", "")
+                    for v in videos:
+                        if v.get("channel_url") == ch_url and v.get("channel"):
+                            ch_name = v["channel"]
+                            break
+                    if not ch_name or ch_name == "None":
+                        # Extract from URL as last resort: /@ChannelName → ChannelName
+                        match = re.search(r"/@([^/]+)", ch_url)
+                        if match:
+                            ch_name = match.group(1)
+
+                if ch_name and ch_name != "None" and ch_name != ch.get("channel_name"):
+                    await execute(
+                        "UPDATE competitor_channels SET channel_name = $1, last_scraped = now() WHERE id = $2",
+                        ch_name, str(ch["id"]),
+                    )
+                else:
+                    await execute(
+                        "UPDATE competitor_channels SET last_scraped = now() WHERE id = $1",
+                        str(ch["id"]),
+                    )
             except Exception:
                 pass
 
