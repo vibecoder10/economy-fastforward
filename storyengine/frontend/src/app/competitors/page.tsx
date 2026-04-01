@@ -4,7 +4,7 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { Filter, Plus, Loader2, RefreshCw } from "lucide-react";
+import { Filter, Plus, Loader2, RefreshCw, X, Trash2 } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { FilterSelect } from "@/components/ui/FilterSelect";
@@ -18,6 +18,7 @@ import {
   getNicheConfig,
   getNicheChannels,
   addNicheChannel,
+  removeNicheChannel,
   createVideo,
   scrapeCompetitorChannels,
   getScrapeStatus,
@@ -97,6 +98,14 @@ export default function CompetitorsPage() {
     },
   });
 
+  const deleteChannelMutation = useMutation({
+    mutationFn: removeNicheChannel,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["niche-channels"] });
+      queryClient.invalidateQueries({ queryKey: ["autopilot-summary"] });
+    },
+  });
+
   const scrapeMutation = useMutation({
     mutationFn: scrapeCompetitorChannels,
     onSuccess: () => {
@@ -118,13 +127,16 @@ export default function CompetitorsPage() {
 
   const nicheConfigured = nicheConfig?.niche_category != null;
 
-  // Unique channel names — merge from candidates + channels table
+  // Unique channel names — merge from candidates + channels table (case-insensitive dedup)
   const channelNames = useMemo(() => {
-    const names = new Set<string>();
+    const seen = new Map<string, string>(); // lowercase → display name
     // Add source names from candidate data (these are filterable)
     if (autopilotData?.candidates) {
       for (const c of autopilotData.candidates) {
-        if (c.source && c.source !== "Unknown") names.add(c.source);
+        if (c.source && c.source !== "Unknown") {
+          const key = c.source.toLowerCase();
+          if (!seen.has(key)) seen.set(key, c.source);
+        }
       }
     }
     // Add channel names from channels table (for display completeness)
@@ -133,10 +145,13 @@ export default function CompetitorsPage() {
         const displayName = (ch.channel_name && ch.channel_name !== "None")
           ? ch.channel_name
           : ch.channel_url?.match(/@([^/]+)/)?.[1];
-        if (displayName) names.add(displayName);
+        if (displayName) {
+          const key = displayName.toLowerCase();
+          if (!seen.has(key)) seen.set(key, displayName);
+        }
       }
     }
-    return Array.from(names).sort();
+    return Array.from(seen.values()).sort();
   }, [autopilotData, channels]);
 
   // Filter + sort candidates
@@ -341,24 +356,44 @@ export default function CompetitorsPage() {
         </span>
       </motion.div>
 
-      {/* Channels strip — uses source names from actual candidate data */}
-      {channelNames.length > 0 && (
+      {/* Channels strip with delete capability */}
+      {channels && channels.length > 0 && (
         <motion.div variants={item} className="flex items-center gap-2 overflow-x-auto pb-1">
-          {channelNames.map((name) => (
-            <div
-              key={name}
-              onClick={() =>
-                setChannelFilter(channelFilter === name ? "all" : name)
-              }
-              style={{ cursor: "pointer" }}
-            >
-              <StatusPill
-                label={name}
-                color={channelFilter === name ? "turquoise" : "gold"}
-                size="md"
-              />
-            </div>
-          ))}
+          {channels.map((ch) => {
+            const displayName = (ch.channel_name && ch.channel_name !== "None")
+              ? ch.channel_name
+              : ch.channel_url?.match(/@([^/]+)/)?.[1] || `Channel ${ch.id.slice(0, 6)}`;
+            const isActive = channelFilter.toLowerCase() === displayName.toLowerCase();
+            return (
+              <div key={ch.id} className="flex items-center gap-0.5 group">
+                <div
+                  onClick={() =>
+                    setChannelFilter(isActive ? "all" : displayName)
+                  }
+                  style={{ cursor: "pointer" }}
+                >
+                  <StatusPill
+                    label={displayName}
+                    color={isActive ? "turquoise" : "gold"}
+                    size="md"
+                  />
+                </div>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (confirm(`Remove "${displayName}" from competitors?`)) {
+                      deleteChannelMutation.mutate(ch.id);
+                      if (isActive) setChannelFilter("all");
+                    }
+                  }}
+                  className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded hover:bg-red-500/20"
+                  title={`Remove ${displayName}`}
+                >
+                  <X size={12} style={{ color: "var(--text-tertiary)" }} />
+                </button>
+              </div>
+            );
+          })}
         </motion.div>
       )}
 
