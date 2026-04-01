@@ -171,6 +171,52 @@ async def _auto_scrape_competitors():
         await asyncio.sleep(86400)  # Run once daily
 
 
+async def _run_pending_migrations():
+    """Auto-run SQL migration files on startup.
+
+    Tracks which migrations have run in a `_migrations` table.
+    Each .sql file in migrations/ runs exactly once, in order.
+    Non-blocking — errors are logged but don't prevent startup.
+    """
+    import pathlib
+
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        # Ensure migrations tracking table exists
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS _migrations (
+                filename TEXT PRIMARY KEY,
+                applied_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+
+        # Get already-applied migrations
+        applied = await conn.fetch("SELECT filename FROM _migrations")
+        applied_set = {r["filename"] for r in applied}
+
+        # Find and run pending migrations in order
+        migrations_dir = pathlib.Path(__file__).parent / "migrations"
+        if not migrations_dir.exists():
+            return
+
+        sql_files = sorted(migrations_dir.glob("*.sql"))
+        for sql_file in sql_files:
+            if sql_file.name in applied_set:
+                continue
+            try:
+                sql = sql_file.read_text()
+                await conn.execute(sql)
+                await conn.execute(
+                    "INSERT INTO _migrations (filename) VALUES ($1)",
+                    sql_file.name,
+                )
+                print(f"  ✅ Migration applied: {sql_file.name}")
+            except Exception as e:
+                print(f"  ⚠️  Migration {sql_file.name} failed: {e}")
+
+        print(f"✅ Migrations checked ({len(sql_files)} files, {len(sql_files) - len(applied_set)} new)")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup/shutdown lifecycle."""
@@ -180,6 +226,12 @@ async def lifespan(app: FastAPI):
         print("✅ Database pool connected")
     except Exception as e:
         print(f"⚠️  Database connection failed (will retry on first query): {e}")
+
+    # Auto-run pending migrations
+    try:
+        await _run_pending_migrations()
+    except Exception as e:
+        print(f"⚠️  Migration runner error (non-blocking): {e}")
 
     # Start background tasks (only run for tenants with autopilot enabled)
     extraction_task = asyncio.create_task(_auto_extract_learnings())
