@@ -767,19 +767,28 @@ class SupabaseAdapter:
 
     def get_all_competitor_video_ids(self) -> set:
         """Get set of all competitor video IDs for deduplication."""
-        rows = _fetch_all("SELECT video_id FROM competitor_videos")
+        if self.tenant_id:
+            rows = _fetch_all(
+                "SELECT video_id FROM competitor_videos WHERE tenant_id = %s",
+                (self.tenant_id,),
+            )
+        else:
+            rows = _fetch_all("SELECT video_id FROM competitor_videos")
         return {r["video_id"] for r in rows}
 
     def create_competitor_video(self, video_data: dict) -> dict:
         """Create a competitor video record."""
         vid = str(uuid.uuid4())
         _execute(
-            """INSERT INTO competitor_videos (id, video_id, title, url, channel, channel_url,
+            """INSERT INTO competitor_videos (id, tenant_id, video_id, title, url, channel, channel_url,
                views, vph, hours_old, published_date, scrape_date)
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-               ON CONFLICT (video_id) DO NOTHING""",
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+               ON CONFLICT (tenant_id, video_id) DO UPDATE SET
+                 views = EXCLUDED.views, vph = EXCLUDED.vph,
+                 hours_old = EXCLUDED.hours_old, scrape_date = EXCLUDED.scrape_date""",
             (
-                vid, video_data.get("Video ID"), video_data.get("Title"),
+                vid, self.tenant_id,
+                video_data.get("Video ID"), video_data.get("Title"),
                 video_data.get("URL"), video_data.get("Channel"),
                 video_data.get("Channel URL"), video_data.get("Views"),
                 video_data.get("VPH"), video_data.get("Hours Old"),

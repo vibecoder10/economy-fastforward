@@ -370,6 +370,22 @@ export const removeNicheChannel = (channelId: string) =>
     method: "DELETE",
   });
 
+export interface ScrapeStatus {
+  is_running: boolean;
+  videos_found: number;
+  videos_saved: number;
+  error: string | null;
+  last_run: string | null;
+}
+
+export const scrapeCompetitorChannels = () =>
+  fetchApi<{ status: string; message: string }>("/api/niche/scrape", {
+    method: "POST",
+  });
+
+export const getScrapeStatus = () =>
+  fetchApi<ScrapeStatus>("/api/niche/scrape/status");
+
 // Scene Editing
 export const updateSceneText = (videoId: string, scene: number, text: string) =>
   fetchApi<{ status: string }>(`/api/videos/${videoId}/scenes/${scene}/text`, {

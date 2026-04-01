@@ -150,6 +150,21 @@ async def run_research(
             executor = PipelineExecutor(tenant_id)
             result = await executor.run_research(video_id)
             _set_task_status(video_id, result.get("status", "unknown"), result.get("error"))
+
+            # Auto-cascade: keep advancing through pipeline steps
+            if result.get("status") != "failed":
+                terminal = {"rendered", "uploaded", "uploaded_draft", "done", "published"}
+                for _ in range(20):  # Safety limit
+                    video = await fetch_one("SELECT status FROM videos WHERE id = $1", video_id)
+                    status = (video or {}).get("status", "")
+                    if status in terminal:
+                        break
+                    _set_task_status(video_id, "running", f"Running: {status}")
+                    step_result = await executor.run_next_step(video_id)
+                    if step_result.get("status") == "failed":
+                        _set_task_status(video_id, "failed", step_result.get("error"))
+                        break
+                    _set_task_status(video_id, step_result.get("status", "unknown"))
         except Exception as e:
             _set_task_status(video_id, "failed", str(e))
         finally:
@@ -162,7 +177,7 @@ async def run_research(
     return PipelineResponse(
         video_id=video_id,
         status="running",
-        message="Research started",
+        message="Research started — pipeline will auto-advance through all steps",
     )
 
 

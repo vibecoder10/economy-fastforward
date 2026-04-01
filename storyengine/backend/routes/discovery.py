@@ -270,13 +270,26 @@ async def launch_idea(
         title_index, video_id, idea_id,
     )
 
-    # Trigger research in background
-    async def _run_research():
+    # Trigger full pipeline in background (research → script → voice → ...)
+    async def _run_full_pipeline():
         from pipeline_executor import PipelineExecutor
         executor = PipelineExecutor(tenant_id)
-        await executor.run_research(video_id)
+        result = await executor.run_research(video_id)
+        if result.get("status") == "failed":
+            return
 
-    background_tasks.add_task(_run_research)
+        # Auto-cascade through pipeline steps
+        terminal = {"rendered", "uploaded", "uploaded_draft", "done", "published"}
+        for _ in range(20):  # Safety limit
+            video = await fetch_one("SELECT status FROM videos WHERE id = $1", video_id)
+            status = (video or {}).get("status", "")
+            if status in terminal:
+                break
+            step_result = await executor.run_next_step(video_id)
+            if step_result.get("status") == "failed":
+                break
+
+    background_tasks.add_task(_run_full_pipeline)
 
     return {
         "status": "launched",
