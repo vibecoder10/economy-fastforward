@@ -582,8 +582,15 @@ def _parse_count(raw) -> int:
 
 
 def _calculate_vph(views: int, published_at: str, now: datetime) -> tuple[float, float]:
-    """Calculate views per hour since upload."""
+    """Calculate views per hour since upload.
+
+    When published_at is missing (stub data), estimate assuming video is ~7 days old.
+    This produces a reasonable VPH for high-view videos from flat extraction.
+    """
     if not published_at:
+        if views and views > 0:
+            estimated_hours = 168.0  # ~7 days
+            return views / estimated_hours, estimated_hours
         return 0.0, 0.0
     try:
         if "T" in published_at:
