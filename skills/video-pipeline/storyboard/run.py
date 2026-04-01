@@ -42,7 +42,7 @@ async def run(pipeline) -> dict:
     # Guard: image prompts must exist before storyboard prompts can be generated.
     # Without per-segment image prompts, storyboard beat prompts lack visual specificity
     # and produce overlapping/repetitive grids.
-    image_records = pipeline.airtable.get_images_by_title(pipeline.video_title)
+    image_records = pipeline.airtable.get_all_images_for_video(pipeline.video_title)
     if image_records:
         prompts_present = sum(
             1 for r in image_records
