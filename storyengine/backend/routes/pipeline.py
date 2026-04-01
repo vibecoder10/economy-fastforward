@@ -161,10 +161,14 @@ async def run_research(
                         break
                     _set_task_status(video_id, "running", f"Running: {status}")
                     step_result = await executor.run_next_step(video_id)
-                    if step_result.get("status") == "failed":
+                    step_status = step_result.get("status", "")
+                    if step_status == "failed":
                         _set_task_status(video_id, "failed", step_result.get("error"))
                         break
-                    _set_task_status(video_id, step_result.get("status", "unknown"))
+                    if step_status in ("needs_approval", "idle"):
+                        _set_task_status(video_id, "completed", step_result.get("message", "Waiting for approval"))
+                        break
+                    _set_task_status(video_id, step_status)
         except Exception as e:
             _set_task_status(video_id, "failed", str(e))
         finally:

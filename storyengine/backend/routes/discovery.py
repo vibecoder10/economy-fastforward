@@ -278,7 +278,7 @@ async def launch_idea(
         if result.get("status") == "failed":
             return
 
-        # Auto-cascade through pipeline steps
+        # Auto-cascade through pipeline steps until terminal, approval gate, or failure
         terminal = {"rendered", "uploaded", "uploaded_draft", "done", "published"}
         for _ in range(20):  # Safety limit
             video = await fetch_one("SELECT status FROM videos WHERE id = $1", video_id)
@@ -286,7 +286,8 @@ async def launch_idea(
             if status in terminal:
                 break
             step_result = await executor.run_next_step(video_id)
-            if step_result.get("status") == "failed":
+            step_status = step_result.get("status", "")
+            if step_status in ("failed", "needs_approval", "idle"):
                 break
 
     background_tasks.add_task(_run_full_pipeline)

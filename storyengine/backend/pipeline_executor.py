@@ -805,10 +805,7 @@ class PipelineExecutor:
     # Statuses that require explicit user approval before running the next stage.
     # "Run Next Step" will NOT auto-advance past these — user must approve in the UI.
     APPROVAL_GATE_STATUSES = {
-        "researching": "Research needs approval before proceeding. Go to the Research tab to review and approve.",
-        "scripting": "Script & Voice needs approval before proceeding. Go to the Script & Voice tab to review, generate voice, and approve.",
         "ready_for_voice": "Script & Voice needs approval before proceeding. Generate voice for all scenes, then approve.",
-        "voice": "Script & Voice needs approval before proceeding. Go to the Script & Voice tab to approve.",
         "ready_for_images": "Visuals need approval before proceeding. Go to the Storyboard & Visuals tab to review and approve.",
         "ready_for_thumbnail": "Thumbnail needs approval before proceeding. Go to the Thumbnail tab to review and approve.",
     }
@@ -847,6 +844,7 @@ class PipelineExecutor:
             "ready_for_video_scripts": self.run_video_scripts,
             "ready_for_video_generation": self.run_video_generation,
             "ready_to_render": self.run_render,
+            "rendered": self.run_upload,
         }
 
         handler = handlers.get(current_status)
