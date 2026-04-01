@@ -371,7 +371,7 @@ async def _run_discovery_generation(tenant_id: str, batch_id: str):
             if total_count == 0:
                 msg = "No competitor videos in database. Scrape competitor channels first."
             else:
-                msg = f"No fresh competitor videos (need VPH >= 50, scraped within 7 days). {total_count} total videos exist but are too old. Re-scrape to get fresh data."
+                msg = f"No eligible competitor videos (need VPH >= 50, under 30 days old). {total_count} total videos exist but none meet the threshold. Try scraping channels with more popular videos."
             print(f"[Discovery] {msg}")
             _refresh_tasks[tenant_id] = {"running": False, "error": msg}
             return
