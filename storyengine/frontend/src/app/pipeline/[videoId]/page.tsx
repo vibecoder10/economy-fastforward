@@ -5,7 +5,7 @@ import { useParams } from "next/navigation";
 import { motion } from "framer-motion";
 import {
   ArrowLeft, FileText, Image as ImageIcon, Film,
-  BarChart3, Search, Video, Upload, Loader2, RotateCcw,
+  BarChart3, Search, Video, Upload, Loader2, RotateCcw, Brain,
 } from "lucide-react";
 import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -87,6 +87,21 @@ const STEP_LABELS = [
   "Render & Upload",
 ];
 
+function parseInjectedLearnings(writerGuidance: string | null | undefined): { use: string[]; avoid: string[] } {
+  if (!writerGuidance) return { use: [], avoid: [] };
+  const match = writerGuidance.match(/--- PERFORMANCE LEARNINGS.*?---\n([\s\S]*?)--- END LEARNINGS ---/);
+  if (!match) return { use: [], avoid: [] };
+  const lines = match[1].split("\n").filter((l) => l.trim().startsWith("- "));
+  const use: string[] = [];
+  const avoid: string[] = [];
+  for (const line of lines) {
+    const cleaned = line.replace(/^- (USE|AVOID): /, "").trim();
+    if (line.includes("- AVOID:")) avoid.push(cleaned);
+    else use.push(cleaned);
+  }
+  return { use, avoid };
+}
+
 function getStepFromStatus(status: string): number {
   const idx = PIPELINE_ORDER.indexOf(status);
   if (idx < 0) return 1;
@@ -123,9 +138,17 @@ export default function VideoDetailPage() {
   const videoId = params.videoId as string;
   const queryClient = useQueryClient();
 
+  const TERMINAL_STATUSES = new Set(["rendered", "uploaded", "uploaded_draft", "done", "published"]);
+
   const { data: video, isLoading, error } = useQuery({
     queryKey: ["video", videoId],
     queryFn: () => getVideo(videoId),
+    // Poll every 5s while pipeline is actively processing
+    refetchInterval: (query) => {
+      const s = query.state.data?.status;
+      if (!s || TERMINAL_STATUSES.has(s)) return false;
+      return 5000;
+    },
   });
 
   const status = video?.status || "idea_logged";
@@ -229,7 +252,7 @@ export default function VideoDetailPage() {
     return (
       <div className="space-y-4">
         <Link href="/pipeline" className="inline-flex items-center gap-2 text-sm" style={{ color: "var(--text-secondary)" }}>
-          <ArrowLeft size={16} /> Back to Queue
+          <ArrowLeft size={16} /> Back to Videos
         </Link>
         <div className="glass-card p-8 text-center">
           <p style={{ color: "var(--red)" }}>Failed to load video: {(error as Error)?.message || "Not found"}</p>
@@ -272,7 +295,7 @@ export default function VideoDetailPage() {
           style={{ color: "var(--text-secondary)" }}
         >
           <ArrowLeft size={16} />
-          Back to Queue
+          Back to Videos
         </Link>
       </motion.div>
 
@@ -284,6 +307,12 @@ export default function VideoDetailPage() {
           </h1>
           <div className="flex items-center gap-3 flex-wrap">
             <StatusPill label={pill.label} color={pill.color} pulse size="md" />
+            {!TERMINAL_STATUSES.has(status) && status !== "idea_logged" && (
+              <span className="flex items-center gap-1.5 text-[11px] font-mono" style={{ color: "var(--turquoise)" }}>
+                <Loader2 size={10} className="animate-spin" />
+                Pipeline running
+              </span>
+            )}
             {video.framework_angle && (
               <span className="text-xs font-mono" style={{ color: "var(--text-tertiary)" }}>
                 {video.framework_angle}
@@ -386,6 +415,59 @@ export default function VideoDetailPage() {
       <motion.div variants={item}>
         <ProgressStepper steps={6} currentStep={Math.min(currentStep, 6)} completedSteps={completedSteps} labels={STEP_LABELS} />
       </motion.div>
+
+      {/* Learnings applied indicator */}
+      {(() => {
+        const injected = parseInjectedLearnings(video.writer_guidance);
+        const total = injected.use.length + injected.avoid.length;
+        if (total === 0) return null;
+        return (
+          <motion.div variants={item}>
+            <div
+              className="rounded-xl px-4 py-3"
+              style={{
+                background: "rgba(0, 245, 212, 0.04)",
+                border: "1px solid rgba(0, 245, 212, 0.1)",
+              }}
+            >
+              <div className="flex items-center gap-2 mb-2">
+                <Brain size={14} style={{ color: "var(--turquoise)" }} />
+                <span className="text-xs font-semibold" style={{ color: "var(--turquoise)" }}>
+                  {total} Learning{total !== 1 ? "s" : ""} Applied to Script
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {injected.use.map((p, i) => (
+                  <span
+                    key={`use-${i}`}
+                    className="inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded-full"
+                    style={{
+                      color: "var(--green)",
+                      background: "rgba(0, 200, 83, 0.08)",
+                      border: "1px solid rgba(0, 200, 83, 0.12)",
+                    }}
+                  >
+                    USE: {p.length > 50 ? p.slice(0, 50) + "…" : p}
+                  </span>
+                ))}
+                {injected.avoid.map((p, i) => (
+                  <span
+                    key={`avoid-${i}`}
+                    className="inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded-full"
+                    style={{
+                      color: "var(--red)",
+                      background: "rgba(255, 82, 82, 0.08)",
+                      border: "1px solid rgba(255, 82, 82, 0.12)",
+                    }}
+                  >
+                    AVOID: {p.length > 50 ? p.slice(0, 50) + "…" : p}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </motion.div>
+        );
+      })()}
 
       {/* Tab navigation */}
       <motion.div variants={item}>

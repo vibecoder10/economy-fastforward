@@ -525,6 +525,68 @@ class PipelineExecutor:
             await self._log_activity(bot_name, video_id, "failed", error_msg)
             return {"status": "failed", "error": error_msg}
 
+    async def _inject_learnings_into_writer_guidance(self, video_id: str):
+        """Inject learned patterns into writer_guidance before script generation.
+
+        This closes the script feedback loop: videos with high/low retention
+        have their structural patterns extracted → stored in learnings table →
+        injected here as writer guidance → script generator adapts.
+        """
+        try:
+            learnings = await fetch_all(
+                """SELECT category, pattern, avg_ctr, avg_retention, sample_size, confidence
+                   FROM learnings
+                   WHERE tenant_id = $1 AND active = true
+                     AND category IN ('script', 'hook', 'framework')
+                     AND confidence >= 40
+                   ORDER BY confidence DESC, avg_retention DESC NULLS LAST
+                   LIMIT 10""",
+                self.tenant_id,
+            )
+            if not learnings:
+                return
+
+            guidance_lines = ["\n\n--- PERFORMANCE LEARNINGS (from past videos) ---"]
+            for l in learnings:
+                cat = l.get("category", "")
+                pattern = l.get("pattern", "")
+                ret = float(l["avg_retention"]) if l.get("avg_retention") else None
+                ctr = float(l["avg_ctr"]) if l.get("avg_ctr") else None
+                conf = float(l.get("confidence", 0))
+                verdict = "PROVEN" if conf >= 60 else "AVOID" if conf <= 40 else "TESTING"
+
+                metrics = []
+                if ret:
+                    metrics.append(f"{ret:.0f}% retention")
+                if ctr:
+                    metrics.append(f"{ctr:.1f}% CTR")
+                metric_str = f" ({', '.join(metrics)})" if metrics else ""
+
+                if verdict == "AVOID":
+                    guidance_lines.append(f"- AVOID: {pattern}{metric_str}")
+                else:
+                    guidance_lines.append(f"- USE: {pattern}{metric_str} [{verdict}]")
+
+            guidance_lines.append("--- END LEARNINGS ---")
+            learnings_block = "\n".join(guidance_lines)
+
+            # Append to existing writer_guidance
+            video = await fetch_one(
+                "SELECT writer_guidance FROM videos WHERE id = $1",
+                video_id,
+            )
+            existing = (video or {}).get("writer_guidance") or ""
+            updated = existing + learnings_block
+
+            await execute(
+                "UPDATE videos SET writer_guidance = $1 WHERE id = $2",
+                updated, video_id,
+            )
+            print(f"[Script] Injected {len(learnings)} learnings into writer_guidance for {video_id[:8]}")
+
+        except Exception as e:
+            print(f"[Script] Error injecting learnings: {e}")
+
     async def run_script(self, video_id: str) -> dict:
         """Generate script for a video.
 
@@ -547,6 +609,9 @@ class PipelineExecutor:
                 return {"status": "failed", "error": f"Video not ready for scripting (status: {current_status})"}
 
             await self._log_activity(bot_name, video_id, "started", "Generating script")
+
+            # Inject performance learnings into writer_guidance BEFORE script generation
+            await self._inject_learnings_into_writer_guidance(video_id)
 
             # Load idea into pipeline state from Supabase
             self._load_idea_from_video(video_id)
@@ -805,10 +870,7 @@ class PipelineExecutor:
     # Statuses that require explicit user approval before running the next stage.
     # "Run Next Step" will NOT auto-advance past these — user must approve in the UI.
     APPROVAL_GATE_STATUSES = {
-        "researching": "Research needs approval before proceeding. Go to the Research tab to review and approve.",
-        "scripting": "Script & Voice needs approval before proceeding. Go to the Script & Voice tab to review, generate voice, and approve.",
         "ready_for_voice": "Script & Voice needs approval before proceeding. Generate voice for all scenes, then approve.",
-        "voice": "Script & Voice needs approval before proceeding. Go to the Script & Voice tab to approve.",
         "ready_for_images": "Visuals need approval before proceeding. Go to the Storyboard & Visuals tab to review and approve.",
         "ready_for_thumbnail": "Thumbnail needs approval before proceeding. Go to the Thumbnail tab to review and approve.",
     }
@@ -847,6 +909,7 @@ class PipelineExecutor:
             "ready_for_video_scripts": self.run_video_scripts,
             "ready_for_video_generation": self.run_video_generation,
             "ready_to_render": self.run_render,
+            "rendered": self.run_upload,
         }
 
         handler = handlers.get(current_status)

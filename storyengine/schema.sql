@@ -3,6 +3,7 @@
 --
 -- Drop all existing tables first if they exist (fresh start — no data in Supabase yet):
 
+DROP TABLE IF EXISTS discovery_ideas CASCADE;
 DROP TABLE IF EXISTS autopilot_config CASCADE;
 DROP TABLE IF EXISTS learnings CASCADE;
 DROP TABLE IF EXISTS competitor_videos CASCADE;
@@ -203,6 +204,9 @@ CREATE TABLE videos (
   -- Costs
   total_cost NUMERIC DEFAULT 0,
 
+  -- Learning loop tracking
+  learnings_extracted_at TIMESTAMPTZ,
+
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );
@@ -357,6 +361,13 @@ CREATE TABLE competitor_videos (
   our_video_id UUID REFERENCES videos(id),
   updated_at TIMESTAMPTZ DEFAULT now(),
 
+  -- yt-dlp enrichment columns (migration 016)
+  thumbnail_url TEXT,
+  transcript TEXT,
+  duration_seconds INTEGER,
+  description TEXT,
+  likes INTEGER,
+
   UNIQUE(tenant_id, video_id),
 
   created_at TIMESTAMPTZ DEFAULT now()
@@ -448,6 +459,7 @@ CREATE TABLE autopilot_config (
   enabled BOOLEAN DEFAULT TRUE,
   videos_per_month INT DEFAULT 15,
   production_interval_days INT DEFAULT 2,
+  videos_per_scrape INT DEFAULT 10,  -- How many videos to scrape per competitor channel
   weights JSONB DEFAULT '{"competitor_vph": 0.55, "timing_freshness": 0.45}'::jsonb,
   thresholds JSONB DEFAULT '{
       "min_confidence_score": 60,
@@ -461,6 +473,46 @@ CREATE TABLE autopilot_config (
   sub_niche TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- =============================================
+-- DISCOVERY IDEAS (AI-generated video ideas)
+-- =============================================
+
+CREATE TABLE discovery_ideas (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE NOT NULL,
+
+  -- Source
+  source_type TEXT NOT NULL,  -- 'competitor' or 'headline'
+  competitor_video_id UUID REFERENCES competitor_videos(id),
+  competitor_title TEXT,
+  competitor_channel TEXT,
+  competitor_url TEXT,
+  competitor_vph NUMERIC,
+  competitor_thumbnail_url TEXT,
+
+  -- AI-generated content
+  our_angle TEXT NOT NULL,
+  hook TEXT,
+  framework TEXT,
+  estimated_appeal NUMERIC,
+  appeal_breakdown JSONB,
+
+  -- Title options (3 per idea)
+  title_options JSONB NOT NULL DEFAULT '[]'::jsonb,
+
+  -- State
+  status TEXT DEFAULT 'fresh',
+  selected_title_index INTEGER,
+  launched_video_id UUID REFERENCES videos(id),
+
+  -- Batch tracking
+  batch_date DATE DEFAULT CURRENT_DATE,
+  batch_id TEXT,
+
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
 );
 
 -- =============================================
@@ -571,6 +623,8 @@ CREATE INDEX idx_learnings_tenant ON learnings(tenant_id);
 CREATE INDEX idx_learnings_category ON learnings(tenant_id, category);
 CREATE INDEX idx_title_insights_tenant ON title_insights(tenant_id);
 CREATE INDEX idx_title_tests_tenant ON title_tests(tenant_id);
+CREATE INDEX idx_discovery_ideas_tenant ON discovery_ideas(tenant_id);
+CREATE INDEX idx_discovery_ideas_status ON discovery_ideas(tenant_id, status, batch_date DESC);
 CREATE INDEX idx_bot_activity_tenant ON bot_activity(tenant_id, created_at DESC);
 CREATE INDEX idx_stage_transitions_video ON stage_transitions(video_id);
 CREATE INDEX idx_channel_profiles_tenant ON channel_profiles(tenant_id);
@@ -596,6 +650,7 @@ ALTER TABLE title_tests ENABLE ROW LEVEL SECURITY;
 ALTER TABLE stage_transitions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE bot_activity ENABLE ROW LEVEL SECURITY;
 ALTER TABLE autopilot_config ENABLE ROW LEVEL SECURITY;
+ALTER TABLE discovery_ideas ENABLE ROW LEVEL SECURITY;
 ALTER TABLE channel_profiles ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "Tenant isolation" ON videos FOR ALL TO authenticated
@@ -619,6 +674,8 @@ CREATE POLICY "Tenant isolation" ON stage_transitions FOR ALL TO authenticated
 CREATE POLICY "Tenant isolation" ON bot_activity FOR ALL TO authenticated
   USING (tenant_id IN (SELECT m.tenant_id FROM memberships m WHERE m.user_id = (SELECT auth.uid())));
 CREATE POLICY "Tenant isolation" ON autopilot_config FOR ALL TO authenticated
+  USING (tenant_id IN (SELECT m.tenant_id FROM memberships m WHERE m.user_id = (SELECT auth.uid())));
+CREATE POLICY "Tenant isolation" ON discovery_ideas FOR ALL TO authenticated
   USING (tenant_id IN (SELECT m.tenant_id FROM memberships m WHERE m.user_id = (SELECT auth.uid())));
 CREATE POLICY "Tenant isolation" ON channel_profiles FOR ALL TO authenticated
   USING (tenant_id IN (SELECT m.tenant_id FROM memberships m WHERE m.user_id = (SELECT auth.uid())));

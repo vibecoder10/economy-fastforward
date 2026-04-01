@@ -208,7 +208,7 @@ export default function DashboardPage() {
         <h1 className="text-4xl font-display" style={{ color: "var(--text-primary)" }}>
           Dashboard
         </h1>
-        <ActionButton icon={Plus} onClick={() => router.push("/create")}>
+        <ActionButton icon={Plus} onClick={() => router.push("/pipeline")}>
           Create Video
         </ActionButton>
       </motion.div>

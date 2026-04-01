@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { Filter, Plus, Loader2 } from "lucide-react";
+import { Filter, Plus, Loader2, RefreshCw } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { FilterSelect } from "@/components/ui/FilterSelect";
@@ -19,6 +19,8 @@ import {
   getNicheChannels,
   addNicheChannel,
   createVideo,
+  scrapeCompetitorChannels,
+  getScrapeStatus,
   type CompetitorCandidate,
 } from "@/lib/api";
 import { formatNumber } from "@/lib/utils";
@@ -84,6 +86,35 @@ export default function CompetitorsPage() {
       setAddError(err.message || "Failed to add channel");
     },
   });
+
+  // Scrape status polling
+  const { data: scrapeStatus } = useQuery({
+    queryKey: ["scrape-status"],
+    queryFn: getScrapeStatus,
+    refetchInterval: (query) => {
+      if (query.state.data?.is_running) return 3000;
+      return false;
+    },
+  });
+
+  const scrapeMutation = useMutation({
+    mutationFn: scrapeCompetitorChannels,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["scrape-status"] });
+    },
+  });
+
+  const scrapeRunning = scrapeStatus?.is_running ?? false;
+  const scrapeFinished = !scrapeRunning && scrapeStatus?.last_run != null;
+  const prevRunning = useRef(false);
+
+  // When scrape transitions from running to done, refresh candidates
+  useEffect(() => {
+    if (prevRunning.current && !scrapeRunning) {
+      queryClient.invalidateQueries({ queryKey: ["autopilot-summary"] });
+    }
+    prevRunning.current = scrapeRunning;
+  }, [scrapeRunning, queryClient]);
 
   const nicheConfigured = nicheConfig?.niche_category != null;
 
@@ -182,7 +213,51 @@ export default function CompetitorsPage() {
             </p>
           )}
         </div>
+        <ActionButton
+          icon={scrapeRunning ? undefined : RefreshCw}
+          onClick={() => scrapeMutation.mutate()}
+          disabled={scrapeRunning || scrapeMutation.isPending}
+        >
+          {scrapeRunning ? (
+            <>
+              <Loader2 size={14} className="animate-spin" />
+              <span className="ml-1">Scraping...</span>
+            </>
+          ) : (
+            "Scrape Now"
+          )}
+        </ActionButton>
       </motion.div>
+
+      {/* Scrape status banner */}
+      {scrapeFinished && !scrapeStatus?.error && scrapeStatus?.videos_found != null && (
+        <motion.div variants={item}>
+          <div
+            className="rounded-xl px-4 py-2.5 text-sm"
+            style={{
+              background: "rgba(0, 212, 170, 0.08)",
+              border: "1px solid rgba(0, 212, 170, 0.2)",
+              color: "var(--turquoise)",
+            }}
+          >
+            Last scrape found {scrapeStatus.videos_found} videos ({scrapeStatus.videos_saved} saved)
+          </div>
+        </motion.div>
+      )}
+      {scrapeStatus?.error && (
+        <motion.div variants={item}>
+          <div
+            className="rounded-xl px-4 py-2.5 text-sm"
+            style={{
+              background: "rgba(239, 68, 68, 0.08)",
+              border: "1px solid rgba(239, 68, 68, 0.2)",
+              color: "var(--red)",
+            }}
+          >
+            Scrape failed: {scrapeStatus.error}
+          </div>
+        </motion.div>
+      )}
 
       {/* Add channel bar */}
       <motion.div variants={item}>

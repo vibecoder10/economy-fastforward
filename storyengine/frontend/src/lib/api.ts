@@ -224,14 +224,14 @@ export const toggleAutopilot = (enabled: boolean) =>
     body: JSON.stringify({ enabled }),
   });
 
-export const updateAutopilotConfig = (videosPerMonth: number) =>
+export const updateAutopilotConfig = (config: { videos_per_month?: number; videos_per_scrape?: number }) =>
   fetchApi<{ status: string; config: AutopilotConfig }>("/api/autopilot/config", {
     method: "POST",
-    body: JSON.stringify({ videos_per_month: videosPerMonth }),
+    body: JSON.stringify(config),
   });
 
 export const launchCandidate = (candidateId: string) =>
-  fetchApi<{ status: string; candidate_id: string; message: string }>(
+  fetchApi<{ status: string; candidate_id: string; video_id: string; video_title: string; message: string }>(
     `/api/autopilot/launch/${candidateId}`,
     { method: "POST" }
   );
@@ -279,6 +279,73 @@ export const rejectSuggestion = (videoId: string) =>
     { method: "POST" }
   );
 
+// Discovery Ideas
+export const getDiscoveryIdeas = (status?: string, limit?: number) =>
+  fetchApi<DiscoveryIdea[]>(
+    `/api/discovery/ideas?status=${status || "fresh"}&limit=${limit || 20}`
+  );
+
+export const getDiscoveryStatus = () =>
+  fetchApi<DiscoveryStatus>("/api/discovery/status");
+
+export const refreshDiscoveryIdeas = () =>
+  fetchApi<{ status: string; batch_id: string; message: string }>(
+    "/api/discovery/refresh",
+    { method: "POST" }
+  );
+
+export const launchIdea = (ideaId: string, titleIndex: number, videoLengthMinutes: number = 15) =>
+  fetchApi<{ status: string; video_id: string; video_title: string; message: string }>(
+    `/api/discovery/ideas/${ideaId}/launch`,
+    {
+      method: "POST",
+      body: JSON.stringify({ title_index: titleIndex, video_length_minutes: videoLengthMinutes }),
+    }
+  );
+
+export const dismissIdea = (ideaId: string) =>
+  fetchApi<{ status: string; idea_id: string }>(
+    `/api/discovery/ideas/${ideaId}/dismiss`,
+    { method: "POST" }
+  );
+
+// Learning Extraction
+export interface LearningRecord {
+  id: string;
+  category: string;
+  pattern: string;
+  confidence: number;
+  sample_size: number;
+  avg_ctr: number | null;
+  avg_retention: number | null;
+  source_videos: string | null;
+  active: boolean;
+}
+
+export interface ExtractionResult {
+  videos_analyzed: number;
+  patterns_extracted: number;
+  patterns_new: number;
+  patterns_updated: number;
+}
+
+export const getLearnings = (category?: string, activeOnly: boolean = true) =>
+  fetchApi<LearningRecord[]>(
+    `/api/learnings?active_only=${activeOnly}${category ? `&category=${category}` : ""}`
+  );
+
+export const extractLearnings = () =>
+  fetchApi<ExtractionResult>("/api/learnings/extract", { method: "POST" });
+
+export const extractLearningsForVideo = (videoId: string) =>
+  fetchApi<ExtractionResult>(`/api/learnings/extract/${videoId}`, { method: "POST" });
+
+export const analyzeCompetitorTitles = () =>
+  fetchApi<{ status: string; patterns_found: number; insights_saved: number; videos_analyzed: number }>(
+    "/api/learnings/analyze-titles",
+    { method: "POST" }
+  );
+
 // Niche
 export const getNicheConfig = () =>
   fetchApi<NicheConfig>("/api/niche/config");
@@ -302,6 +369,39 @@ export const removeNicheChannel = (channelId: string) =>
   fetchApi<{ status: string }>(`/api/niche/channels/${channelId}`, {
     method: "DELETE",
   });
+
+export interface ScrapeStatus {
+  is_running: boolean;
+  videos_found: number;
+  videos_saved: number;
+  error: string | null;
+  last_run: string | null;
+}
+
+export const scrapeCompetitorChannels = () =>
+  fetchApi<{ status: string; message: string }>("/api/niche/scrape", {
+    method: "POST",
+  });
+
+export const getScrapeStatus = () =>
+  fetchApi<ScrapeStatus>("/api/niche/scrape/status");
+
+// YouTube Metrics Sync
+export interface YouTubeSyncStatus {
+  is_running: boolean;
+  videos_synced: number;
+  videos_total: number;
+  error: string | null;
+  last_run: string | null;
+}
+
+export const syncYouTubeMetrics = () =>
+  fetchApi<{ status: string; message: string }>("/api/youtube/sync", {
+    method: "POST",
+  });
+
+export const getYouTubeSyncStatus = () =>
+  fetchApi<YouTubeSyncStatus>("/api/youtube/sync/status");
 
 // Scene Editing
 export const updateSceneText = (videoId: string, scene: number, text: string) =>
@@ -619,6 +719,7 @@ export interface AutopilotState {
 export interface AutopilotConfig {
   videos_per_month: number;
   production_interval_days: number;
+  videos_per_scrape: number;
   weights: Record<string, number>;
   thresholds: Record<string, number>;
 }
@@ -801,4 +902,39 @@ export interface CreateVisualStyleRequest {
   name: string;
   style_profile: Record<string, unknown>;
   reference_image_url?: string;
+}
+
+// Discovery Ideas
+export interface DiscoveryIdea {
+  id: string;
+  source_type: string;
+  competitor_title: string | null;
+  competitor_channel: string | null;
+  competitor_url: string | null;
+  competitor_vph: number | null;
+  competitor_thumbnail_url: string | null;
+  our_angle: string;
+  hook: string | null;
+  framework: string | null;
+  estimated_appeal: number | null;
+  appeal_breakdown: Record<string, number> | null;
+  title_options: TitleOption[];
+  status: string;
+  batch_date: string | null;
+  created_at: string | null;
+}
+
+export interface TitleOption {
+  title: string;
+  formula_id: string;
+  thumbnail_text: string;
+  score: number;
+}
+
+export interface DiscoveryStatus {
+  is_refreshing: boolean;
+  last_batch_date: string | null;
+  idea_count: number;
+  fresh_count: number;
+  learnings_applied: number;
 }
