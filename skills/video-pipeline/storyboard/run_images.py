@@ -30,12 +30,30 @@ async def run(pipeline) -> dict:
             "video_title": pipeline.video_title,
         }
 
-    first_script = script_records[0].get("fields", script_records[0])
-    sb_status = first_script.get("Storyboard Status", "none") or "none"
+    # Check if ALL scenes have all their grids — only skip if truly complete
+    all_grids_present = True
+    any_prompts_exist = False
+    for rec in script_records:
+        fields = rec.get("fields", rec)
+        prompts_text = fields.get("Storyboard Prompts", "") or ""
+        if prompts_text.strip():
+            any_prompts_exist = True
+            # Count beats from prompts
+            import re
+            beat_matches = re.findall(r"--- BEAT (\d+) ---", prompts_text)
+            beat_count = len(beat_matches) if beat_matches else 1
+            # Check if each beat has a grid
+            for i in range(1, beat_count + 1):
+                grid_field = f"Storyboard {i}"
+                grid_val = fields.get(grid_field)
+                if not grid_val:
+                    all_grids_present = False
+                    break
+        if not all_grids_present:
+            break
 
-    # If grids already generated, skip to extraction status
-    if sb_status == "grids_generated":
-        print(f"  ✅ Storyboard images already generated — advancing to extraction")
+    if all_grids_present and any_prompts_exist:
+        print(f"  ✅ All storyboard grids present — advancing to extraction")
         pipeline._update_status(Statuses.READY_STORYBOARD_EXTRACTION)
         return {
             "bot": "Storyboard Images",
@@ -45,6 +63,7 @@ async def run(pipeline) -> dict:
         }
 
     # Check that prompts exist
+    first_script = script_records[0].get("fields", script_records[0])
     prompts = first_script.get("Storyboard Prompts", "")
     if not prompts:
         return {
