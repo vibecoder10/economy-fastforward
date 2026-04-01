@@ -593,7 +593,7 @@ class SupabaseAdapter:
     def get_pending_images(self) -> list:
         """Get all pending images."""
         rows = _fetch_all(
-            "SELECT * FROM assets WHERE status = 'Pending' ORDER BY scene, image_index"
+            "SELECT * FROM assets WHERE status = 'pending' ORDER BY scene, image_index"
         )
         return [_row_to_image(r) for r in rows]
 
@@ -613,7 +613,7 @@ class SupabaseAdapter:
         rows = _fetch_all(
             """SELECT a.* FROM assets a
                JOIN videos v ON a.video_id = v.id
-               WHERE v.video_title = %s AND a.status = 'Pending'
+               WHERE v.video_title = %s AND a.status = 'pending'
                ORDER BY a.scene, a.image_index""",
             (video_title,),
         )
@@ -624,7 +624,7 @@ class SupabaseAdapter:
         rows = _fetch_all(
             """SELECT a.* FROM assets a
                JOIN videos v ON a.video_id = v.id
-               WHERE v.video_title = %s AND a.status = 'Done'
+               WHERE v.video_title = %s AND a.status = 'done'
                AND (a.video_url IS NULL OR a.video_url = '')
                ORDER BY a.scene, a.image_index""",
             (video_title,),
@@ -663,7 +663,7 @@ class SupabaseAdapter:
                 video["id"] if video else None,
                 scene_number, concept_index, concept_index,
                 sentence_text, image_prompt, composition,
-                video_title, aspect_ratio, "Pending",
+                video_title, aspect_ratio, "pending",
             ),
         )
         return {"id": asset_id, "Scene": scene_number, "Image Index": concept_index}
@@ -672,12 +672,12 @@ class SupabaseAdapter:
         """Update image with generated URL."""
         if drive_url:
             _execute(
-                "UPDATE assets SET image_url = %s, drive_image_url = %s, status = 'Done' WHERE id = %s",
+                "UPDATE assets SET image_url = %s, drive_image_url = %s, status = 'done' WHERE id = %s",
                 (image_url, drive_url, record_id),
             )
         else:
             _execute(
-                "UPDATE assets SET image_url = %s, status = 'Done' WHERE id = %s",
+                "UPDATE assets SET image_url = %s, status = 'done' WHERE id = %s",
                 (image_url, record_id),
             )
         return {"id": record_id}
@@ -693,7 +693,7 @@ class SupabaseAdapter:
     def update_image_video_url(self, record_id: str, video_url: str) -> dict:
         """Update video clip URL."""
         _execute(
-            "UPDATE assets SET video_url = %s, video_status = 'Done' WHERE id = %s",
+            "UPDATE assets SET video_url = %s, video_status = 'done' WHERE id = %s",
             (video_url, record_id),
         )
         return {"id": record_id}

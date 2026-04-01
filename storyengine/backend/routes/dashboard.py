@@ -21,7 +21,7 @@ async def get_summary(tenant_id: str = Depends(get_tenant_id)):
     # Pending review - assets with pending status
     pending = await fetch_one(
         """SELECT COUNT(*) as count FROM assets
-           WHERE tenant_id = $1 AND status = 'Pending'""",
+           WHERE tenant_id = $1 AND status = 'pending'""",
         tenant_id,
     )
 

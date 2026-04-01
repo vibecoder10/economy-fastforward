@@ -88,7 +88,7 @@ async def get_pending(tenant_id: str = Depends(get_tenant_id)):
                   v.video_title
            FROM assets a
            JOIN videos v ON v.id = a.video_id
-           WHERE a.tenant_id = $1 AND a.status = 'Pending'
+           WHERE a.tenant_id = $1 AND a.status = 'pending'
            ORDER BY a.scene, a.image_index""",
         tenant_id,
     )

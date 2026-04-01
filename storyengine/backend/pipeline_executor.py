@@ -1361,7 +1361,7 @@ class PipelineExecutor:
                     asset.get("hero_shot") or False,
                     image_url,
                     drive_download_url,
-                    "Done",
+                    "done",
                     "variant_candidate",
                     next_variant_position + offset,
                 )
