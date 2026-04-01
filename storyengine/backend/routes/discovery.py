@@ -56,6 +56,7 @@ class DiscoveryStatus(BaseModel):
     idea_count: int = 0
     fresh_count: int = 0
     learnings_applied: int = 0  # How many learnings influenced latest idea generation
+    error: Optional[str] = None  # Error from last refresh attempt
 
 
 # --- Background task tracking ---
@@ -191,12 +192,18 @@ async def get_discovery_status(tenant_id: str = Depends(get_tenant_id)):
         except Exception:
             pass
 
+    # Get error from last refresh if any
+    error = None
+    if tenant_id in _refresh_tasks and not is_refreshing:
+        error = _refresh_tasks[tenant_id].get("error")
+
     return DiscoveryStatus(
         is_refreshing=is_refreshing,
         last_batch_date=last_batch,
         idea_count=idea_count,
         fresh_count=fresh_count,
         learnings_applied=learnings_applied,
+        error=error,
     )
 
 
