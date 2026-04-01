@@ -201,7 +201,7 @@ async def extract_learnings(
     Scans videos that have CTR data (impressions >= 1000) and haven't been
     analyzed yet. For each, detects patterns and saves to learnings table.
     """
-    # Find videos with CTR data that haven't been fully analyzed
+    # Find videos with CTR data that haven't been analyzed yet
     videos = await fetch_all(
         """SELECT id, video_title, ctr, avg_retention, hook_script,
                   framework_angle, impressions, source
@@ -209,6 +209,7 @@ async def extract_learnings(
            WHERE tenant_id = $1
              AND ctr IS NOT NULL
              AND COALESCE(impressions, 0) >= 1000
+             AND learnings_extracted_at IS NULL
            ORDER BY ctr DESC""",
         tenant_id,
     )
@@ -296,6 +297,15 @@ async def extract_learnings(
                 new_count += 1
             elif result == "updated":
                 updated_count += 1
+
+    # Mark all processed videos as extracted
+    if videos:
+        video_ids = [str(v["id"]) for v in videos]
+        await execute(
+            f"""UPDATE videos SET learnings_extracted_at = now()
+                WHERE id = ANY($1::uuid[])""",
+            video_ids,
+        )
 
     return ExtractionResult(
         videos_analyzed=len(videos),
@@ -388,6 +398,12 @@ async def extract_learnings_for_video(
             new_count += 1
         elif result == "updated":
             updated_count += 1
+
+    # Mark video as extracted
+    await execute(
+        "UPDATE videos SET learnings_extracted_at = now() WHERE id = $1",
+        video_id,
+    )
 
     return ExtractionResult(
         videos_analyzed=1,

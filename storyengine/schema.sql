@@ -204,6 +204,9 @@ CREATE TABLE videos (
   -- Costs
   total_cost NUMERIC DEFAULT 0,
 
+  -- Learning loop tracking
+  learnings_extracted_at TIMESTAMPTZ,
+
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );

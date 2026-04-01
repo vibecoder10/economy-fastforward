@@ -309,6 +309,43 @@ export const dismissIdea = (ideaId: string) =>
     { method: "POST" }
   );
 
+// Learning Extraction
+export interface LearningRecord {
+  id: string;
+  category: string;
+  pattern: string;
+  confidence: number;
+  sample_size: number;
+  avg_ctr: number | null;
+  avg_retention: number | null;
+  source_videos: string | null;
+  active: boolean;
+}
+
+export interface ExtractionResult {
+  videos_analyzed: number;
+  patterns_extracted: number;
+  patterns_new: number;
+  patterns_updated: number;
+}
+
+export const getLearnings = (category?: string, activeOnly: boolean = true) =>
+  fetchApi<LearningRecord[]>(
+    `/api/learnings?active_only=${activeOnly}${category ? `&category=${category}` : ""}`
+  );
+
+export const extractLearnings = () =>
+  fetchApi<ExtractionResult>("/api/learnings/extract", { method: "POST" });
+
+export const extractLearningsForVideo = (videoId: string) =>
+  fetchApi<ExtractionResult>(`/api/learnings/extract/${videoId}`, { method: "POST" });
+
+export const analyzeCompetitorTitles = () =>
+  fetchApi<{ status: string; patterns_found: number; insights_saved: number; videos_analyzed: number }>(
+    "/api/learnings/analyze-titles",
+    { method: "POST" }
+  );
+
 // Niche
 export const getNicheConfig = () =>
   fetchApi<NicheConfig>("/api/niche/config");
