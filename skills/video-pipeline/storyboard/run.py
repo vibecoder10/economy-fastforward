@@ -39,6 +39,30 @@ async def run(pipeline) -> dict:
             "skipped": True,
         }
 
+    # Guard: image prompts must exist before storyboard prompts can be generated.
+    # Without per-segment image prompts, storyboard beat prompts lack visual specificity
+    # and produce overlapping/repetitive grids.
+    image_records = pipeline.airtable.get_images_by_title(pipeline.video_title)
+    if image_records:
+        prompts_present = sum(
+            1 for r in image_records
+            if (r.get("fields", r).get("Image Prompt") or "").strip()
+        )
+        total_images = len(image_records)
+        if prompts_present < total_images * 0.5:
+            error_msg = (
+                f"Image prompts missing: only {prompts_present}/{total_images} segments "
+                f"have prompts. Generate image prompts first — storyboard grids built "
+                f"without them produce repetitive visuals."
+            )
+            print(f"  ❌ {error_msg}")
+            pipeline.slack.notify(f"⚠️ Storyboard blocked for *{pipeline.video_title}*: {error_msg}")
+            return {
+                "error": error_msg,
+                "bot": "Storyboard Prompts",
+                "video_title": pipeline.video_title,
+            }
+
     print(f"\n📝 STORYBOARD PROMPTS: Generating for '{pipeline.video_title}'")
     pipeline.slack.notify(f"📝 Generating storyboard prompts for: *{pipeline.video_title}*")
 

@@ -120,13 +120,22 @@ def generate_scene_storyboard_prompts(
 
         # Build panel data
         panels = []
+        empty_prompts = 0
         for i, img in enumerate(grid_images):
             fields = img.get("fields", img)
+            prompt = fields.get(ImageFields.IMAGE_PROMPT, "")
+            if not (prompt or "").strip():
+                empty_prompts += 1
             panels.append({
                 "panel_number": i + 1,
                 "sentence": fields.get(ImageFields.SENTENCE_TEXT, ""),
-                "image_prompt": fields.get(ImageFields.IMAGE_PROMPT, ""),
+                "image_prompt": prompt,
             })
+        if empty_prompts > 0:
+            logger.warning(
+                f"Scene {scene_number} Grid {grid_idx + 1}: {empty_prompts}/{len(panels)} "
+                f"panels have empty image prompts — storyboard quality will be degraded"
+            )
 
         # Generate the unified storyboard prompt
         prompt = _build_storyboard_grid_prompt(
