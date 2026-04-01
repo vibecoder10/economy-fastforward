@@ -470,7 +470,7 @@ async def _run_discovery_generation(tenant_id: str, batch_id: str):
         ideas = _parse_ideas_response(text)
 
         # Store ideas in database
-        today = date.today().isoformat()
+        today = date.today()
         inserted = 0
         for idea in ideas:
             # Find matching competitor for metadata
@@ -502,7 +502,7 @@ async def _run_discovery_generation(tenant_id: str, batch_id: str):
                         our_angle, hook, framework, estimated_appeal,
                         appeal_breakdown, title_options, status,
                         batch_date, batch_id
-                    ) VALUES ($1, $2, $3::uuid, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, $14::jsonb, 'fresh', $15::date, $16)""",
+                    ) VALUES ($1, $2, $3::uuid, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, $14::jsonb, 'fresh', $15, $16)""",
                     tenant_id,
                     "competitor",
                     comp_id,
@@ -511,18 +511,23 @@ async def _run_discovery_generation(tenant_id: str, batch_id: str):
                     comp_url,
                     comp_vph,
                     thumb_url,
-                    idea.get("our_angle", ""),
+                    idea.get("our_angle") or "No angle specified",
                     idea.get("hook"),
                     idea.get("framework"),
-                    idea.get("estimated_appeal"),
-                    json.dumps(idea.get("appeal_breakdown")) if idea.get("appeal_breakdown") else None,
-                    json.dumps(idea.get("title_options", [])),
+                    float(idea["estimated_appeal"]) if idea.get("estimated_appeal") is not None else None,
+                    json.dumps(idea["appeal_breakdown"]) if idea.get("appeal_breakdown") else None,
+                    json.dumps(idea.get("title_options") or []),
                     today,
                     batch_id,
                 )
                 inserted += 1
             except Exception as e:
                 print(f"[Discovery] Error inserting idea: {e}")
+                import traceback
+                traceback.print_exc()
+                # Log the problematic data for debugging
+                print(f"[Discovery]   comp_id={comp_id}, comp_vph={comp_vph}, appeal={idea.get('estimated_appeal')}")
+                print(f"[Discovery]   title_options type={type(idea.get('title_options'))}")
 
         # Count learnings that influenced these ideas
         learnings_count = learnings_context.count("•") if learnings_context else 0
