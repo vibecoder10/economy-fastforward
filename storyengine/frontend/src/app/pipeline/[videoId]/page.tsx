@@ -123,9 +123,17 @@ export default function VideoDetailPage() {
   const videoId = params.videoId as string;
   const queryClient = useQueryClient();
 
+  const TERMINAL_STATUSES = new Set(["rendered", "uploaded", "uploaded_draft", "done", "published"]);
+
   const { data: video, isLoading, error } = useQuery({
     queryKey: ["video", videoId],
     queryFn: () => getVideo(videoId),
+    // Poll every 5s while pipeline is actively processing
+    refetchInterval: (query) => {
+      const s = query.state.data?.status;
+      if (!s || TERMINAL_STATUSES.has(s)) return false;
+      return 5000;
+    },
   });
 
   const status = video?.status || "idea_logged";
@@ -229,7 +237,7 @@ export default function VideoDetailPage() {
     return (
       <div className="space-y-4">
         <Link href="/pipeline" className="inline-flex items-center gap-2 text-sm" style={{ color: "var(--text-secondary)" }}>
-          <ArrowLeft size={16} /> Back to Queue
+          <ArrowLeft size={16} /> Back to Videos
         </Link>
         <div className="glass-card p-8 text-center">
           <p style={{ color: "var(--red)" }}>Failed to load video: {(error as Error)?.message || "Not found"}</p>
@@ -272,7 +280,7 @@ export default function VideoDetailPage() {
           style={{ color: "var(--text-secondary)" }}
         >
           <ArrowLeft size={16} />
-          Back to Queue
+          Back to Videos
         </Link>
       </motion.div>
 
@@ -284,6 +292,12 @@ export default function VideoDetailPage() {
           </h1>
           <div className="flex items-center gap-3 flex-wrap">
             <StatusPill label={pill.label} color={pill.color} pulse size="md" />
+            {!TERMINAL_STATUSES.has(status) && status !== "idea_logged" && (
+              <span className="flex items-center gap-1.5 text-[11px] font-mono" style={{ color: "var(--turquoise)" }}>
+                <Loader2 size={10} className="animate-spin" />
+                Pipeline running
+              </span>
+            )}
             {video.framework_angle && (
               <span className="text-xs font-mono" style={{ color: "var(--text-tertiary)" }}>
                 {video.framework_angle}
