@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Search, Film, Loader2, Plus, Clock, Eye, BarChart3,
-  RefreshCw, Sparkles, X, ChevronRight, ExternalLink, TrendingUp,
+  RefreshCw, Sparkles, X, ChevronRight, ExternalLink, TrendingUp, Brain,
 } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -396,10 +396,27 @@ export default function VideosPage() {
             </motion.div>
           )}
 
-          {discoveryStatus?.last_batch_date && (
-            <p className="text-xs font-body text-center" style={{ color: "var(--text-tertiary)" }}>
-              Last generated: {discoveryStatus.last_batch_date}
-            </p>
+          {discoveryStatus && (discoveryStatus.last_batch_date || discoveryStatus.learnings_applied > 0) && (
+            <div className="flex items-center justify-center gap-4 flex-wrap">
+              {discoveryStatus.learnings_applied > 0 && (
+                <span
+                  className="inline-flex items-center gap-1.5 text-[11px] font-mono px-3 py-1 rounded-full"
+                  style={{
+                    color: "var(--turquoise)",
+                    background: "rgba(0, 245, 212, 0.06)",
+                    border: "1px solid rgba(0, 245, 212, 0.12)",
+                  }}
+                >
+                  <Brain size={12} />
+                  {discoveryStatus.learnings_applied} learnings influencing ideas
+                </span>
+              )}
+              {discoveryStatus.last_batch_date && (
+                <p className="text-xs font-body" style={{ color: "var(--text-tertiary)" }}>
+                  Last generated: {discoveryStatus.last_batch_date}
+                </p>
+              )}
+            </div>
           )}
         </>
       )}

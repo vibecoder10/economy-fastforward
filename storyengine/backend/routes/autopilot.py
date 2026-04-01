@@ -43,6 +43,7 @@ class AutopilotState(BaseModel):
 class AutopilotConfig(BaseModel):
     videos_per_month: int = 15
     production_interval_days: int = 2
+    videos_per_scrape: int = 10
     weights: dict = {
         "competitor_vph": 0.55,
         "timing_freshness": 0.45,
@@ -183,6 +184,7 @@ async def get_autopilot_summary(tenant_id: str = Depends(get_tenant_id)):
         config = AutopilotConfig(
             videos_per_month=config_row.get("videos_per_month", 15),
             production_interval_days=config_row.get("production_interval_days", 2),
+            videos_per_scrape=config_row.get("videos_per_scrape", 10),
             weights=_w,
             thresholds=_t,
         )
@@ -384,6 +386,7 @@ class ConfigUpdate(BaseModel):
     """Request body for config updates."""
     videos_per_month: Optional[int] = None
     production_interval_days: Optional[int] = None
+    videos_per_scrape: Optional[int] = None
 
 
 @router.post("/config")
@@ -421,6 +424,11 @@ async def update_config(
             params.append(production_interval_days)
             param_idx += 1
 
+        if body.videos_per_scrape is not None:
+            updates.append(f"videos_per_scrape = ${param_idx}")
+            params.append(body.videos_per_scrape)
+            param_idx += 1
+
         if updates:
             updates.append("updated_at = NOW()")
             query = f"UPDATE autopilot_config SET {', '.join(updates)} WHERE tenant_id = $1"
@@ -452,6 +460,7 @@ async def update_config(
         config = AutopilotConfig(
             videos_per_month=config_row.get("videos_per_month", 15),
             production_interval_days=config_row.get("production_interval_days", 2),
+            videos_per_scrape=config_row.get("videos_per_scrape", 10),
             weights=_w,
             thresholds=_t,
         )

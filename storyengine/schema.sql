@@ -459,6 +459,7 @@ CREATE TABLE autopilot_config (
   enabled BOOLEAN DEFAULT TRUE,
   videos_per_month INT DEFAULT 15,
   production_interval_days INT DEFAULT 2,
+  videos_per_scrape INT DEFAULT 10,  -- How many videos to scrape per competitor channel
   weights JSONB DEFAULT '{"competitor_vph": 0.55, "timing_freshness": 0.45}'::jsonb,
   thresholds JSONB DEFAULT '{
       "min_confidence_score": 60,

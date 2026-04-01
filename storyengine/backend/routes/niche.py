@@ -328,7 +328,7 @@ def _parse_vtt_transcript(raw: str) -> Optional[str]:
     return transcript if transcript else None
 
 
-async def _run_scrape(tenant_id: str):
+async def _run_scrape(tenant_id: str, max_videos_per_channel: int = 20):
     """Background task: scrape YouTube channels via yt-dlp and save to Supabase."""
     try:
         # Get active channels
@@ -353,7 +353,7 @@ async def _run_scrape(tenant_id: str):
             if not url:
                 continue
             try:
-                stubs = await asyncio.to_thread(_list_channel_videos, url, 20)
+                stubs = await asyncio.to_thread(_list_channel_videos, url, max_videos_per_channel)
                 for stub in stubs:
                     stub["channel_name"] = ch.get("channel_name", "")
                     stub["channel_url"] = url

@@ -55,6 +55,7 @@ class DiscoveryStatus(BaseModel):
     last_batch_date: Optional[str] = None
     idea_count: int = 0
     fresh_count: int = 0
+    learnings_applied: int = 0  # How many learnings influenced latest idea generation
 
 
 # --- Background task tracking ---
@@ -176,11 +177,26 @@ async def get_discovery_status(tenant_id: str = Depends(get_tenant_id)):
     except Exception as e:
         print(f"Error getting discovery status: {e}")
 
+    # Get learnings count from last refresh task or from DB
+    learnings_applied = 0
+    if tenant_id in _refresh_tasks:
+        learnings_applied = _refresh_tasks[tenant_id].get("learnings_applied", 0)
+    if not learnings_applied:
+        try:
+            lr = await fetch_one(
+                "SELECT COUNT(*) as count FROM learnings WHERE tenant_id = $1 AND active = true AND confidence >= 40",
+                tenant_id,
+            )
+            learnings_applied = lr.get("count", 0) if lr else 0
+        except Exception:
+            pass
+
     return DiscoveryStatus(
         is_refreshing=is_refreshing,
         last_batch_date=last_batch,
         idea_count=idea_count,
         fresh_count=fresh_count,
+        learnings_applied=learnings_applied,
     )
 
 
@@ -481,8 +497,11 @@ async def _run_discovery_generation(tenant_id: str, batch_id: str):
             except Exception as e:
                 print(f"[Discovery] Error inserting idea: {e}")
 
-        print(f"[Discovery] Generated {inserted} ideas for tenant {tenant_id}")
-        _refresh_tasks[tenant_id] = {"running": False, "ideas_generated": inserted, "batch_id": batch_id}
+        # Count learnings that influenced these ideas
+        learnings_count = learnings_context.count("•") if learnings_context else 0
+
+        print(f"[Discovery] Generated {inserted} ideas for tenant {tenant_id} (influenced by {learnings_count} learnings)")
+        _refresh_tasks[tenant_id] = {"running": False, "ideas_generated": inserted, "batch_id": batch_id, "learnings_applied": learnings_count}
 
     except Exception as e:
         print(f"[Discovery] Error: {e}")

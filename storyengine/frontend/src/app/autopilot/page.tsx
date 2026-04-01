@@ -59,6 +59,9 @@ export default function AutopilotPage() {
   const [editingTarget, setEditingTarget] = useState(false);
   const [targetValue, setTargetValue] = useState(15);
   const [savingTarget, setSavingTarget] = useState(false);
+  const [editingScrapeLimit, setEditingScrapeLimit] = useState(false);
+  const [scrapeLimitValue, setScrapeLimitValue] = useState(10);
+  const [savingScrapeLimit, setSavingScrapeLimit] = useState(false);
   const [launchingId, setLaunchingId] = useState<string | null>(null);
 
   const launchMutation = useMutation({
@@ -95,13 +98,26 @@ export default function AutopilotPage() {
   const handleSaveTarget = async () => {
     setSavingTarget(true);
     try {
-      await updateAutopilotConfig(targetValue);
+      await updateAutopilotConfig({ videos_per_month: targetValue });
       setEditingTarget(false);
       queryClient.invalidateQueries({ queryKey: ["autopilot-summary"] });
     } catch (err) {
       console.error("Error saving target:", err);
     } finally {
       setSavingTarget(false);
+    }
+  };
+
+  const handleSaveScrapeLimit = async () => {
+    setSavingScrapeLimit(true);
+    try {
+      await updateAutopilotConfig({ videos_per_scrape: scrapeLimitValue });
+      setEditingScrapeLimit(false);
+      queryClient.invalidateQueries({ queryKey: ["autopilot-summary"] });
+    } catch (err) {
+      console.error("Error saving scrape limit:", err);
+    } finally {
+      setSavingScrapeLimit(false);
     }
   };
 
@@ -186,17 +202,24 @@ export default function AutopilotPage() {
           >
             <div className="flex items-center gap-3">
               <Brain size={20} style={{ color: "var(--red)", opacity: 0.6 }} />
-              <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
-                Autopilot is disabled. Enable it to let AI manage video production
-                autonomously.
-              </p>
+              <div>
+                <p className="text-sm mb-1" style={{ color: "var(--text-secondary)" }}>
+                  Autopilot is disabled. When enabled, it will:
+                </p>
+                <ul className="text-xs space-y-0.5 ml-4 list-disc" style={{ color: "var(--text-tertiary)" }}>
+                  <li>Scrape competitor channels daily for top-performing videos</li>
+                  <li>Analyze title, hook, and script patterns from high-CTR content</li>
+                  <li>Sync your YouTube metrics and extract learnings automatically</li>
+                  <li>Apply proven patterns to every new video it generates</li>
+                </ul>
+              </div>
             </div>
           </GlassCard>
         </motion.div>
       )}
 
       {/* Stat Cards */}
-      <motion.div variants={item} className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <motion.div variants={item} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
           label="Videos Produced"
           value={state.videos_produced}
@@ -280,6 +303,94 @@ export default function AutopilotPage() {
                 style={{ color: "var(--text-primary)" }}
               >
                 {config.videos_per_month}
+              </p>
+              <p
+                className="text-[11px] mt-1 font-mono"
+                style={{ color: "var(--text-secondary)" }}
+              >
+                click to edit
+              </p>
+            </button>
+          )}
+        </div>
+
+        {/* Videos per Scrape */}
+        <div
+          className="glass-card p-5 relative overflow-hidden"
+          style={{ borderColor: "rgba(0, 212, 170, 0.2)" }}
+        >
+          <div
+            className="absolute top-0 left-0 right-0 h-0.5"
+            style={{ background: "var(--turquoise)" }}
+          />
+          {editingScrapeLimit ? (
+            <div>
+              <p
+                className="text-[11px] font-medium uppercase tracking-wider mb-2"
+                style={{ color: "var(--turquoise)" }}
+              >
+                Videos / Scrape
+              </p>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  value={scrapeLimitValue}
+                  onChange={(e) => setScrapeLimitValue(parseInt(e.target.value) || 5)}
+                  min={5}
+                  max={50}
+                  className="w-16 rounded-lg px-2 py-1 text-xl font-semibold font-body focus:outline-none"
+                  style={{
+                    background: "rgba(255,255,255,0.05)",
+                    border: "1px solid rgba(0, 212, 170, 0.3)",
+                    color: "var(--text-primary)",
+                  }}
+                  autoFocus
+                />
+                <button
+                  onClick={handleSaveScrapeLimit}
+                  disabled={savingScrapeLimit}
+                  className="rounded-lg p-1.5 transition-colors"
+                  style={{ color: "var(--green)", background: "rgba(0, 230, 138, 0.1)" }}
+                >
+                  <Check size={16} />
+                </button>
+                <button
+                  onClick={() => {
+                    setEditingScrapeLimit(false);
+                    setScrapeLimitValue(config.videos_per_scrape);
+                  }}
+                  className="rounded-lg p-1.5 transition-colors"
+                  style={{ color: "var(--red)", background: "rgba(255, 77, 106, 0.1)" }}
+                >
+                  <X size={16} />
+                </button>
+              </div>
+              <p
+                className="text-[10px] mt-2 font-mono"
+                style={{ color: "var(--text-tertiary)" }}
+              >
+                per competitor channel, daily
+              </p>
+            </div>
+          ) : (
+            <button
+              onClick={() => {
+                setScrapeLimitValue(config.videos_per_scrape);
+                setEditingScrapeLimit(true);
+              }}
+              className="group text-left w-full"
+            >
+              <p
+                className="text-[11px] font-medium uppercase tracking-wider mb-1"
+                style={{ color: "var(--turquoise)" }}
+              >
+                Videos / Scrape
+              </p>
+              <p
+                className="text-2xl font-semibold font-body"
+                style={{ color: "var(--text-primary)" }}
+              >
+                {config.videos_per_scrape}
               </p>
               <p
                 className="text-[11px] mt-1 font-mono"

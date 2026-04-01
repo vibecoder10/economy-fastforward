@@ -14,13 +14,14 @@ import {
   ResponsiveContainer,
   Legend,
 } from "recharts";
-import { ArrowUpDown, RefreshCw, Loader2 } from "lucide-react";
+import { ArrowUpDown, RefreshCw, Loader2, Brain, TrendingUp, TrendingDown, Zap } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { VerdictBadge } from "@/components/ui/VerdictBadge";
+import { StatusPill } from "@/components/ui/StatusPill";
 import { FilterSelect } from "@/components/ui/FilterSelect";
 import { ActionButton } from "@/components/ui/ActionButton";
 import { Spinner } from "@/components/ui/spinner";
-import { getVideos, syncYouTubeMetrics, getYouTubeSyncStatus, type VideoSummary } from "@/lib/api";
+import { getVideos, getLearnings, syncYouTubeMetrics, getYouTubeSyncStatus, type VideoSummary, type LearningRecord } from "@/lib/api";
 import { COMPLETED_STATUSES } from "@/lib/constants";
 import { timeAgo } from "@/lib/utils";
 
@@ -81,6 +82,28 @@ function CustomTooltip({ active, payload, label }: { active?: boolean; payload?:
   );
 }
 
+function categoryIcon(cat: string) {
+  switch (cat) {
+    case "title": return TrendingUp;
+    case "hook": return Zap;
+    case "script": return Brain;
+    case "thumbnail": return TrendingUp;
+    default: return Brain;
+  }
+}
+
+function categoryLabel(cat: string) {
+  switch (cat) {
+    case "title": return "Title Patterns";
+    case "hook": return "Hook Patterns";
+    case "script": return "Script Patterns";
+    case "thumbnail": return "Thumbnail Patterns";
+    case "retention": return "Retention Patterns";
+    case "framework": return "Framework Patterns";
+    default: return cat.charAt(0).toUpperCase() + cat.slice(1);
+  }
+}
+
 export default function AnalyticsPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -91,6 +114,12 @@ export default function AnalyticsPage() {
   const { data: allVideos, isLoading } = useQuery({
     queryKey: ["videos"],
     queryFn: () => getVideos(),
+  });
+
+  // Learning system data
+  const { data: learnings } = useQuery({
+    queryKey: ["learnings"],
+    queryFn: () => getLearnings(undefined, false),
   });
 
   // YouTube sync status
@@ -325,6 +354,175 @@ export default function AnalyticsPage() {
           )}
         </GlassCard>
       </motion.div>
+
+      {/* System Intelligence */}
+      {learnings && learnings.length > 0 && (
+        <motion.div variants={item}>
+          <GlassCard className="p-6">
+            <div className="flex items-center justify-between mb-5">
+              <div className="flex items-center gap-2">
+                <Brain size={18} style={{ color: "var(--turquoise)" }} />
+                <h2 className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+                  System Intelligence
+                </h2>
+              </div>
+              <span
+                className="text-[11px] font-mono px-2 py-1 rounded-full"
+                style={{
+                  color: "var(--turquoise)",
+                  background: "rgba(0, 245, 212, 0.08)",
+                  border: "1px solid rgba(0, 245, 212, 0.15)",
+                }}
+              >
+                {learnings.length} patterns learned
+              </span>
+            </div>
+
+            {/* Category breakdown */}
+            {(() => {
+              const byCategory: Record<string, typeof learnings> = {};
+              for (const l of learnings) {
+                (byCategory[l.category] ??= []).push(l);
+              }
+              const categories = Object.entries(byCategory).sort((a, b) => b[1].length - a[1].length);
+
+              const proven = learnings.filter((l) => l.confidence >= 60 && l.active);
+              const avoid = learnings.filter((l) => l.confidence <= 30 && l.active);
+
+              return (
+                <div className="space-y-5">
+                  {/* Category cards */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    {categories.map(([cat, items]) => {
+                      const Icon = categoryIcon(cat);
+                      const avgConf = Math.round(items.reduce((s, i) => s + i.confidence, 0) / items.length);
+                      const provenCount = items.filter((i) => i.confidence >= 60).length;
+                      return (
+                        <div
+                          key={cat}
+                          className="rounded-xl p-4"
+                          style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}
+                        >
+                          <div className="flex items-center gap-2 mb-2">
+                            <Icon size={14} style={{ color: "var(--turquoise)" }} />
+                            <span className="text-xs font-semibold" style={{ color: "var(--text-primary)" }}>
+                              {categoryLabel(cat)}
+                            </span>
+                          </div>
+                          <div className="text-2xl font-display mb-1" style={{ color: "var(--text-primary)" }}>
+                            {items.length}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>
+                              {provenCount} proven
+                            </span>
+                            <span className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>·</span>
+                            <span className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>
+                              avg {avgConf}% conf
+                            </span>
+                          </div>
+                          {/* Confidence bar */}
+                          <div
+                            className="mt-2 h-1 rounded-full overflow-hidden"
+                            style={{ background: "rgba(255,255,255,0.06)" }}
+                          >
+                            <div
+                              className="h-full rounded-full transition-all"
+                              style={{
+                                width: `${avgConf}%`,
+                                background: avgConf >= 60 ? "var(--green)" : avgConf >= 40 ? "var(--gold)" : "var(--red)",
+                              }}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Proven patterns + Avoid patterns side by side */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* Proven */}
+                    <div
+                      className="rounded-xl p-4"
+                      style={{ background: "rgba(0, 200, 83, 0.04)", border: "1px solid rgba(0, 200, 83, 0.1)" }}
+                    >
+                      <div className="flex items-center gap-2 mb-3">
+                        <TrendingUp size={14} style={{ color: "var(--green)" }} />
+                        <span className="text-xs font-semibold" style={{ color: "var(--green)" }}>
+                          Proven Patterns ({proven.length})
+                        </span>
+                      </div>
+                      {proven.length === 0 ? (
+                        <p className="text-xs" style={{ color: "var(--text-tertiary)" }}>
+                          No high-confidence patterns yet. More data needed.
+                        </p>
+                      ) : (
+                        <div className="space-y-2">
+                          {proven.slice(0, 6).map((l) => (
+                            <div key={l.id} className="flex items-start justify-between gap-2">
+                              <span className="text-xs leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+                                {l.pattern.length > 80 ? l.pattern.slice(0, 80) + "…" : l.pattern}
+                              </span>
+                              <div className="flex items-center gap-2 shrink-0">
+                                {l.avg_ctr !== null && (
+                                  <span className="text-[10px] font-mono" style={{ color: "var(--green)" }}>
+                                    {l.avg_ctr.toFixed(1)}% CTR
+                                  </span>
+                                )}
+                                <span className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>
+                                  n={l.sample_size}
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Avoid */}
+                    <div
+                      className="rounded-xl p-4"
+                      style={{ background: "rgba(255, 82, 82, 0.04)", border: "1px solid rgba(255, 82, 82, 0.1)" }}
+                    >
+                      <div className="flex items-center gap-2 mb-3">
+                        <TrendingDown size={14} style={{ color: "var(--red)" }} />
+                        <span className="text-xs font-semibold" style={{ color: "var(--red)" }}>
+                          Patterns to Avoid ({avoid.length})
+                        </span>
+                      </div>
+                      {avoid.length === 0 ? (
+                        <p className="text-xs" style={{ color: "var(--text-tertiary)" }}>
+                          No anti-patterns detected yet.
+                        </p>
+                      ) : (
+                        <div className="space-y-2">
+                          {avoid.slice(0, 6).map((l) => (
+                            <div key={l.id} className="flex items-start justify-between gap-2">
+                              <span className="text-xs leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+                                {l.pattern.length > 80 ? l.pattern.slice(0, 80) + "…" : l.pattern}
+                              </span>
+                              <div className="flex items-center gap-2 shrink-0">
+                                {l.avg_ctr !== null && (
+                                  <span className="text-[10px] font-mono" style={{ color: "var(--red)" }}>
+                                    {l.avg_ctr.toFixed(1)}% CTR
+                                  </span>
+                                )}
+                                <span className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>
+                                  n={l.sample_size}
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+          </GlassCard>
+        </motion.div>
+      )}
 
       {/* Data table */}
       <motion.div variants={item}>

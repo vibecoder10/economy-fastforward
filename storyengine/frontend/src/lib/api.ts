@@ -224,10 +224,10 @@ export const toggleAutopilot = (enabled: boolean) =>
     body: JSON.stringify({ enabled }),
   });
 
-export const updateAutopilotConfig = (videosPerMonth: number) =>
+export const updateAutopilotConfig = (config: { videos_per_month?: number; videos_per_scrape?: number }) =>
   fetchApi<{ status: string; config: AutopilotConfig }>("/api/autopilot/config", {
     method: "POST",
-    body: JSON.stringify({ videos_per_month: videosPerMonth }),
+    body: JSON.stringify(config),
   });
 
 export const launchCandidate = (candidateId: string) =>
@@ -719,6 +719,7 @@ export interface AutopilotState {
 export interface AutopilotConfig {
   videos_per_month: number;
   production_interval_days: number;
+  videos_per_scrape: number;
   weights: Record<string, number>;
   thresholds: Record<string, number>;
 }
@@ -935,4 +936,5 @@ export interface DiscoveryStatus {
   last_batch_date: string | null;
   idea_count: number;
   fresh_count: number;
+  learnings_applied: number;
 }
