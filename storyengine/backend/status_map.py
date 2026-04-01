@@ -56,10 +56,10 @@ PIPELINE_ORDER: list[str] = [
     "Ready For Video Scripts",
     "Ready For Video Generation",
     "Ready For Thumbnail",
-    "Done",
     "Ready To Render",
     "Rendered",
     "Uploaded (Draft)",
+    "Done",
 ]
 
 def to_supabase(pipeline_status: str) -> str:
