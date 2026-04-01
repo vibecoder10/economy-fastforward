@@ -128,6 +128,30 @@ Full codebase reorganization of `skills/video-pipeline/`. Each tool is now a sta
 
 ---
 
+## Session: Storyboard & Visuals Tab Redesign + Pipeline UX (2026-04-01)
+
+### Completed
+- **Fixed VPS deployment**: stale build chunks causing "This page couldn't load" — server was loading old manifests. Created `infra/storyengine_deploy.sh` auto-deploy cron (every 30 min).
+- **Unified Storyboard & Visuals tab**: grids first (340x200, click-to-expand), per-scene VoicePlayer, collapsed narration + image segments.
+- **Script tab → Script only**: removed audio transport bar/playback, kept voice generation buttons + status badges.
+- **Pipeline steppers**: Both Script and Storyboard tabs now have visual 1-2-3 step indicators with CTA buttons.
+- **Script auto-split**: sentences auto-split after script generation completes. "Split Sentences" button removed.
+- **"Generate Image Prompts" moved**: from Script tab to Storyboard tab (where it belongs as Step 1).
+- **Click to Generate on pending grids**: clickable placeholders instead of passive "Pending" label.
+- **Dynamic grid sizing**: storyboard bot now generates right-sized grids (1x2 for 2 panels, etc.) instead of always 3x3.
+- **Fixed storyboard skip bug**: `run_images.py` was checking only first scene's status — now checks ALL beats.
+- **Fixed status gate**: relaxed `storyboard-images` endpoint from `ready_for_storyboard_images` to `ready_for_image_prompts`.
+- **Image prompt guard**: storyboard prompt generation blocked if <50% segments have image prompts.
+
+### In Progress / Next Session
+1. **CRITICAL: Storyboard prompt generation is too slow** — the bot makes ONE massive Claude call for all scenes. Need to refactor to scene-by-scene generation: gather Scene 1 prompts → generate → write → move to Scene 2. This gives incremental feedback and faster results.
+2. **No progress indicator during generation** — user sees "Generating..." but no scene-by-scene progress. Need task status messages like "Generating Scene 2/6..."
+3. **Storyboard grid images still show old grids from pre-image-prompt era** — need to clear old grids and regenerate with proper prompts.
+4. **Per-scene storyboard generation** — user wants to click one grid and generate just that scene, not all scenes at once. Requires backend endpoint change.
+5. **VPS deployment timing** — server consistently starts before build finishes when deploying via SSH. Need a proper deploy script that builds first, THEN restarts.
+
+---
+
 ## Completed: Page-by-Page UI/UX Overhaul (2026-03-26)
 
 **Branch:** `claude/page-fixes-round1` (pushed, not merged)

@@ -17,6 +17,10 @@
 - **ALWAYS** test changes on a single Airtable record before running against the full queue.
 - The pipeline runs on cron (8 AM Pacific). Code pushed to `main` auto-deploys via `git pull --ff-only`. Don't push broken code.
 - Whisper transcription is imperfect. The audio alignment system has 3 fallback strategies for a reason. Don't remove fallbacks thinking they're dead code.
+- **Storyboard prompts REQUIRE image prompts first.** Without per-segment image prompts, beat prompts lack visual specificity and produce overlapping/repetitive grids. The guard in `storyboard/run.py` blocks generation if <50% have prompts.
+- **VPS deploy timing is critical.** `next start` loads the build manifest at startup. If the server starts BEFORE `npm run build` finishes, it loads stale chunks → 404/500 errors. Always: build first → kill server → start server. Never chain them in one SSH command.
+- **Storyboard skip check was broken.** `run_images.py` used to check only the FIRST scene's status field. If Scene 1 had grids, it skipped ALL scenes — even ones with missing beats. Fixed to check every beat across every scene.
+- **SupabaseAdapter method names differ from AirtableClient.** Always `grep` the adapter for the exact method name before using it. E.g., `get_all_images_for_video()` not `get_images_by_title()`.
 
 ### API Costs
 - Image generation: $0.025/image, 120 per video = $3.00
