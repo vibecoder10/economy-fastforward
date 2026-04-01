@@ -462,7 +462,11 @@ async def run_storyboard_images(
     background_tasks: BackgroundTasks,
     tenant_id: str = Depends(get_tenant_id),
 ):
-    """Generate storyboard images for a video."""
+    """Generate storyboard images for a video.
+
+    Relaxed status gate: allows manual triggering from UI as long as voice
+    has been generated (storyboard prompts need image prompts which need voice).
+    """
     video = await fetch_one(
         "SELECT id, status FROM videos WHERE id = $1 AND tenant_id = $2",
         video_id, tenant_id,
@@ -470,10 +474,10 @@ async def run_storyboard_images(
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
 
-    if not is_at_or_past_stage(video["status"], "ready_for_storyboard_images"):
+    if not is_at_or_past_stage(video["status"], "ready_for_image_prompts"):
         raise HTTPException(
             status_code=400,
-            detail=f"Video not ready for storyboard images (status: {video['status']})",
+            detail=f"Video not ready for storyboard images — voice must be generated first (status: {video['status']})",
         )
 
     if _get_task_status(video_id):
