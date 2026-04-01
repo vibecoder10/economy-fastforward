@@ -247,6 +247,8 @@ CREATE TABLE scripts (
   storyboard_1_url TEXT,
   storyboard_2_url TEXT,
   storyboard_3_url TEXT,
+  storyboard_4_url TEXT,
+  storyboard_5_url TEXT,
 
   voice_duration_seconds NUMERIC,
 
@@ -271,6 +273,7 @@ CREATE TABLE assets (
   image_index INTEGER,
   duration_seconds NUMERIC,
   image_prompt TEXT,
+  original_image_prompt TEXT,
   shot_type TEXT,
   image_url TEXT,
   status TEXT,

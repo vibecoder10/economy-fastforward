@@ -180,6 +180,7 @@ class ImageFields:
     SENTENCE_INDEX = "Sentence Index"  # Same as Image Index
     SENTENCE_TEXT = "Sentence Text"
     IMAGE_PROMPT = "Image Prompt"
+    ORIGINAL_IMAGE_PROMPT = "Original Image Prompt"
     SHOT_TYPE = "Shot Type"
     VIDEO_TITLE = "Video Title"
     ASPECT_RATIO = "Aspect Ratio"

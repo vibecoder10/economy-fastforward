@@ -311,6 +311,7 @@ async def get_video_script(video_id: str, tenant_id: str = Depends(get_tenant_id
         """SELECT id, video_id, scene, scene_text, voice_over_url, voice_status,
                   script_status, sources, storyboard_on_off, tone,
                   storyboard_1_url, storyboard_2_url, storyboard_3_url,
+                  storyboard_4_url, storyboard_5_url,
                   storyboard_prompts, storyboard_beat_count, storyboard_status,
                   created_at::text
            FROM scripts WHERE video_id = $1 AND tenant_id = $2
@@ -591,7 +592,7 @@ async def clear_all_storyboards(
     video_id: str,
     tenant_id: str = Depends(get_tenant_id),
 ):
-    """Clear all storyboard prompt/image fields for a video."""
+    """Clear all storyboard prompt/image fields and restore original image prompts."""
     result = await execute(
         """UPDATE scripts
            SET storyboard_prompts = NULL,
@@ -600,8 +601,21 @@ async def clear_all_storyboards(
                storyboard_1_url = NULL,
                storyboard_2_url = NULL,
                storyboard_3_url = NULL,
+               storyboard_4_url = NULL,
+               storyboard_5_url = NULL,
                updated_at = now()
            WHERE video_id = $1 AND tenant_id = $2""",
+        video_id,
+        tenant_id,
+    )
+    # Restore original image prompts (undo storyboard enrichment)
+    await execute(
+        """UPDATE assets
+           SET image_prompt = original_image_prompt,
+               updated_at = now()
+           WHERE video_id = $1 AND tenant_id = $2
+             AND original_image_prompt IS NOT NULL
+             AND original_image_prompt != ''""",
         video_id,
         tenant_id,
     )
@@ -614,7 +628,7 @@ async def clear_scene_storyboard(
     scene: int,
     tenant_id: str = Depends(get_tenant_id),
 ):
-    """Clear storyboard prompt/image fields for a single scene."""
+    """Clear storyboard prompt/image fields for a single scene and restore original prompts."""
     result = await execute(
         """UPDATE scripts
            SET storyboard_prompts = NULL,
@@ -623,6 +637,8 @@ async def clear_scene_storyboard(
                storyboard_1_url = NULL,
                storyboard_2_url = NULL,
                storyboard_3_url = NULL,
+               storyboard_4_url = NULL,
+               storyboard_5_url = NULL,
                updated_at = now()
            WHERE video_id = $1 AND scene = $2 AND tenant_id = $3""",
         video_id,
@@ -631,4 +647,16 @@ async def clear_scene_storyboard(
     )
     if not result or "UPDATE 0" in result:
         raise HTTPException(status_code=404, detail="Scene not found")
+    # Restore original image prompts for this scene
+    await execute(
+        """UPDATE assets
+           SET image_prompt = original_image_prompt,
+               updated_at = now()
+           WHERE video_id = $1 AND scene = $2 AND tenant_id = $3
+             AND original_image_prompt IS NOT NULL
+             AND original_image_prompt != ''""",
+        video_id,
+        scene,
+        tenant_id,
+    )
     return {"status": "cleared", "scope": "scene", "video_id": video_id, "scene": scene}

@@ -2017,6 +2017,19 @@ async def run_storyboard_prompts(
                     continue
 
                 try:
+                    # Save original prompt before overwriting (for reset capability)
+                    img_fields = img_record.get("fields", img_record)
+                    original = img_fields.get(ImageFields.IMAGE_PROMPT, "")
+                    existing_original = img_fields.get(ImageFields.ORIGINAL_IMAGE_PROMPT, "")
+                    if original and not existing_original:
+                        # Only save if no original backup exists yet (don't overwrite backup on re-run)
+                        try:
+                            airtable_client.images_table.update(record_id, {
+                                ImageFields.ORIGINAL_IMAGE_PROMPT: original,
+                            }, typecast=True)
+                        except Exception:
+                            pass  # Non-critical — backup is best-effort
+
                     airtable_client.update_image_prompt_fields(
                         record_id,
                         image_prompt=enriched_prompt,

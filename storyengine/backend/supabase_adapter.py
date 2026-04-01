@@ -191,6 +191,8 @@ SCRIPT_FIELD_MAP = {
     "Storyboard 1": "storyboard_1_url",
     "Storyboard 2": "storyboard_2_url",
     "Storyboard 3": "storyboard_3_url",
+    "Storyboard 4": "storyboard_4_url",
+    "Storyboard 5": "storyboard_5_url",
 }
 
 SCRIPT_COLUMN_MAP = {v: k for k, v in SCRIPT_FIELD_MAP.items()}
@@ -201,6 +203,7 @@ IMAGE_FIELD_MAP = {
     "Sentence Index": "sentence_index",
     "Sentence Text": "sentence_text",
     "Image Prompt": "image_prompt",
+    "Original Image Prompt": "original_image_prompt",
     "Shot Type": "shot_type",
     "Video Title": "video_title",
     "Aspect Ratio": "aspect_ratio",
@@ -266,7 +269,7 @@ def _row_to_script(row: dict) -> dict:
             if col == "voice_over_url" and val:
                 result[airtable_name] = [{"url": val}]
             # Storyboard attachment format
-            elif col in ("storyboard_1_url", "storyboard_2_url", "storyboard_3_url") and val:
+            elif col in ("storyboard_1_url", "storyboard_2_url", "storyboard_3_url", "storyboard_4_url", "storyboard_5_url") and val:
                 result[airtable_name] = [{"url": val}]
             else:
                 result[airtable_name] = val

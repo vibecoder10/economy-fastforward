@@ -131,6 +131,8 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
         scene.storyboard_1_url || null,
         scene.storyboard_2_url || null,
         scene.storyboard_3_url || null,
+        scene.storyboard_4_url || null,
+        scene.storyboard_5_url || null,
       ];
       const storyboardBeats = parseStoryboardPromptBlocks(scene.storyboard_prompts).map((beat) => ({
         ...beat,

@@ -616,6 +616,8 @@ export interface ScriptScene {
   storyboard_1_url: string | null;
   storyboard_2_url: string | null;
   storyboard_3_url: string | null;
+  storyboard_4_url: string | null;
+  storyboard_5_url: string | null;
   storyboard_prompts: string | null;
   storyboard_beat_count: number | null;
   storyboard_status: string | null;
