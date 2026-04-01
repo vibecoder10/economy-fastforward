@@ -36,11 +36,11 @@ async def run(pipeline, scene_filter=None, progress_callback=None) -> dict:
     # If prompts already generated, skip to images status
     if sb_status == "prompts_ready":
         print(f"  ✅ Storyboard prompts already generated — advancing to images")
-        pipeline._update_status(Statuses.READY_STORYBOARD_IMAGES)
+        pipeline._update_status(Statuses.READY_IMAGES)
         return {
             "bot": "Storyboard Prompts",
             "video_title": pipeline.video_title,
-            "new_status": Statuses.READY_STORYBOARD_IMAGES,
+            "new_status": Statuses.READY_IMAGES,
             "skipped": True,
         }
 
@@ -102,15 +102,17 @@ async def run(pipeline, scene_filter=None, progress_callback=None) -> dict:
 
     print(f"  ✅ Generated {prompts_generated} prompts for {beat_count} beats")
 
-    # Update status to Ready For Storyboard Images
-    pipeline._update_status(Statuses.READY_STORYBOARD_IMAGES)
-    print(f"  ✅ Status updated to: {Statuses.READY_STORYBOARD_IMAGES}")
+    # Storyboard-as-Director: image prompts already overwritten from keyframes.
+    # Advance to Ready For Images (skip storyboard grid generation — it's optional).
+    pipeline._update_status(Statuses.READY_IMAGES)
+    print(f"  ✅ Status updated to: {Statuses.READY_IMAGES}")
 
     pipeline.slack.notify(
-        f"✅ Storyboard prompts ready for *{pipeline.video_title}*\n"
+        f"✅ Storyboard director complete for *{pipeline.video_title}*\n"
         f"• {beat_count} beats, {prompts_generated} prompts generated\n"
+        f"• Image prompts enriched with cinematic direction\n"
         f"• Cost: ~${total_cost:.2f}\n"
-        f"• *Review prompts in Airtable, then run next step to generate images*"
+        f"• *Ready for image generation*"
     )
 
     return {
@@ -119,5 +121,5 @@ async def run(pipeline, scene_filter=None, progress_callback=None) -> dict:
         "beat_count": beat_count,
         "prompts_generated": prompts_generated,
         "total_cost": total_cost,
-        "new_status": Statuses.READY_STORYBOARD_IMAGES,
+        "new_status": Statuses.READY_IMAGES,
     }

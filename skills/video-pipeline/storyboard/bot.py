@@ -702,12 +702,20 @@ of truth for what characters look like and what environments look like.
 </non_negotiable_rules>
 
 <goal>
-Expand the scene narration into a 9-keyframe cinematic sequence with a clear emotional \
+Direct the assigned image prompts into a cinematic sequence with a clear emotional \
 progression following the 4-beat arc: {profile.emotional_arc.beat_1} → \
 {profile.emotional_arc.beat_2} → {profile.emotional_arc.beat_3} → \
 {profile.emotional_arc.beat_4}.
 
-CRITICAL: Total duration for all 9 keyframes MUST equal approximately {beat_duration_seconds:.0f} seconds \
+CRITICAL CONSTRAINT — 1:1 PANEL MAPPING:
+Each keyframe corresponds to a specific sentence segment and image prompt.
+KF1 = Image Prompt [1], KF2 = Image Prompt [2], etc.
+Do NOT reorder, merge, skip, or substitute assigned prompts.
+Each panel MUST show the same subject and scene as its assigned prompt.
+Your job: enhance each with cinematic direction — shot type, camera angle, \
+composition, lighting, transitions — while preserving the exact subject described.
+
+CRITICAL: Total duration for all keyframes MUST equal approximately {beat_duration_seconds:.0f} seconds \
 (calculated from the narration word count at 2.5 words/second). Distribute the duration across \
 keyframes based on the pacing of the narration — longer dialogue sections get longer keyframes, \
 quick action moments get shorter keyframes. The sum of all keyframe durations must match the \
@@ -752,6 +760,24 @@ Hard requirements for the 9 keyframes:
 
 Edit continuity rules:
 {chr(10).join('- ' + rule for rule in profile.shot_requirements.edit_rules)}
+
+## HERO BEAT EXPANSION
+After the keyframes, identify up to 3 "hero beats" — moments where a single image \
+cannot carry the dramatic weight and the scene needs 2-3 sub-shots to feel cinematic.
+
+For each hero beat, output sub-shots using this format:
+
+[HERO KF2 → 3 sub-shots]
+- [KF2a | ECU | 1.5s]: Composition and action description for sub-shot A...
+- [KF2b | CU | 2.0s]: Composition and action description for sub-shot B...
+- [KF2c | OTS | 1.0s]: Composition and action description for sub-shot C...
+
+Rules for hero expansion:
+- Only expand moments with HIGH emotional stakes, dramatic reveals, or major transitions
+- Sub-shot durations MUST sum to the original keyframe's duration
+- Each sub-shot MUST show the SAME subject/scene as the parent keyframe — add camera angles and details, don't change what's being shown
+- Maximum 3 hero beats per sequence
+- If no moment warrants expansion, output: "No hero expansions needed for this beat."
 
 ## CONTACT SHEET PROMPT
 Finally, output a SINGLE image generation prompt that will produce a 3×3 contact sheet \
@@ -804,8 +830,12 @@ def _build_directive_user_prompt(
         )
 
     parts.append(
-        f"\nReference image prompts (use as context for subjects and "
-        f"environments):\n{formatted_prompts}"
+        f"\n--- BINDING PANEL ASSIGNMENTS ---\n"
+        f"Each keyframe MUST visualize its assigned image prompt. "
+        f"Direct each one cinematically (shot type, camera angle, "
+        f"composition, lighting) WITHOUT changing the core subject or scene.\n"
+        f"{formatted_prompts}\n"
+        f"--- END ASSIGNMENTS ---"
     )
 
     return "\n".join(parts)
@@ -935,6 +965,142 @@ def parse_keyframe_metadata(directive_text: str) -> list[dict]:
         })
 
     return keyframes
+
+
+# =============================================================================
+# Storyboard-as-Director: Keyframe → Image Prompt Conversion
+# =============================================================================
+
+STORYBOARD_SHOT_MAP: dict[str, str] = {
+    "ELS": "wide",
+    "LS": "wide",
+    "MLS": "medium",
+    "MS": "medium",
+    "MCU": "closeup",
+    "CU": "closeup",
+    "ECU": "closeup",
+    "OTS": "medium",
+    "POV": "medium",
+    "AERIAL": "wide",
+    "LOW": "low_angle",
+}
+
+
+def map_storyboard_shot_type(shot_type: str) -> str:
+    """Convert storyboard shot abbreviation to animation system value."""
+    return STORYBOARD_SHOT_MAP.get(shot_type.strip().upper(), "medium")
+
+
+def build_image_prompt_from_keyframe(
+    keyframe: dict,
+    profile,
+    image_style_override: str = "",
+) -> str:
+    """Build a styled image prompt from a storyboard keyframe.
+
+    Takes the keyframe's composition + action as core visual description,
+    wraps with the profile's style prefix/suffix. Excludes camera/lens/sound
+    (those are for animation, not image generation).
+
+    Target: ~60-80 words (within image model sweet spot).
+    """
+    from image_prompts.engine.prompt_builder import get_style_wrapping
+
+    # Combine composition and action as the core description
+    parts = []
+    composition = (keyframe.get("composition") or "").strip()
+    action = (keyframe.get("action_beat") or "").strip()
+    lighting = (keyframe.get("lighting_grade") or "").strip()
+
+    if composition:
+        parts.append(composition)
+    if action:
+        parts.append(action)
+    if lighting:
+        parts.append(lighting)
+
+    if not parts:
+        # Fallback to full_description if structured fields are empty
+        core = (keyframe.get("full_description") or "").strip()
+        if not core:
+            return ""
+        # Take first 100 words as description
+        words = core.split()
+        core = " ".join(words[:100])
+        parts.append(core)
+
+    core_description = ". ".join(parts)
+
+    # Strip any existing prefix the description might start with
+    for prefix_text in [
+        "Cinematic 2D animated illustration of",
+        "cinematic 2d animated illustration of",
+    ]:
+        if core_description.lower().startswith(prefix_text.lower()):
+            core_description = core_description[len(prefix_text):].strip().lstrip(",").strip()
+
+    prefix, suffix = get_style_wrapping(profile, core_description, image_style_override)
+
+    if prefix:
+        return f"{prefix} {core_description}.{suffix}"
+    return f"{core_description}.{suffix}"
+
+
+def parse_hero_expansions(directive_text: str) -> dict[int, list[dict]]:
+    """Parse hero beat expansion blocks from the directive response.
+
+    Looks for patterns like:
+      [HERO KF2 → 3 sub-shots]
+      - [KF2a | ECU | 1.5s]: Description...
+      - [KF2b | CU | 2.0s]: Description...
+
+    Returns: {kf_number: [sub_shot_dicts]} where each sub_shot_dict has:
+      - sub_id: "a", "b", "c"
+      - shot_type: "ECU", "CU", etc.
+      - duration_seconds: float
+      - description: full text description
+    """
+    expansions: dict[int, list[dict]] = {}
+
+    # Find HERO sections
+    hero_pattern = r"\[HERO\s+KF(\d+)\s*→\s*(\d+)\s*sub-shots?\s*\]"
+    hero_matches = list(re.finditer(hero_pattern, directive_text, re.IGNORECASE))
+
+    if not hero_matches:
+        return expansions
+
+    for i, hero_match in enumerate(hero_matches):
+        kf_num = int(hero_match.group(1))
+
+        # Extract the block after this hero header until next hero or section end
+        start = hero_match.end()
+        if i + 1 < len(hero_matches):
+            end = hero_matches[i + 1].start()
+        else:
+            # Stop at next ## section or end of text
+            remaining = directive_text[start:]
+            section_end = re.search(r"\n##\s", remaining)
+            end = start + section_end.start() if section_end else len(directive_text)
+
+        block = directive_text[start:end]
+
+        # Parse sub-shot lines: [KF2a | ECU | 1.5s]: Description...
+        sub_pattern = r"\[KF\d+([a-z])\s*\|\s*([^|]+?)\s*\|\s*([\d.]+)\s*s?\s*\]\s*:?\s*(.*?)(?=\n\s*-\s*\[KF|\Z)"
+        sub_matches = re.finditer(sub_pattern, block, re.DOTALL)
+
+        sub_shots = []
+        for sub_match in sub_matches:
+            sub_shots.append({
+                "sub_id": sub_match.group(1).strip(),
+                "shot_type": sub_match.group(2).strip(),
+                "duration_seconds": float(sub_match.group(3)),
+                "description": sub_match.group(4).strip(),
+            })
+
+        if sub_shots:
+            expansions[kf_num] = sub_shots
+
+    return expansions
 
 
 def extract_contact_sheet_prompt(directive_text: str) -> str:
@@ -1658,7 +1824,8 @@ async def run_storyboard_prompts(
             except Exception:
                 pass
 
-    fields = idea_record.get("fields", idea_record)
+    fields_orig = idea_record.get("fields", idea_record)
+    fields = fields_orig
     video_title = fields.get("Video Title", "")
     profile = load_profile(fields)
     idea_id = idea_record.get("id", "")
@@ -1816,6 +1983,93 @@ async def run_storyboard_prompts(
             except Exception as e:
                 logger.warning(f"Failed to checkpoint prompt: {e}")
                 notify(f"⚠️ Scene {target_scene}, Beat {scene_beat_idx} failed: {e}")
+
+        # ── STORYBOARD-AS-DIRECTOR: Overwrite image prompts from keyframes ──
+        keyframes = directive.get("keyframes", [])
+        if keyframes and beat_images:
+            image_style_override = fields_orig.get("Image Style Override", "") or ""
+            overwritten = 0
+            for img_record, kf in zip(beat_images, keyframes):
+                composition = (kf.get("composition") or "").strip()
+                if not composition:
+                    continue  # Skip keyframes with no usable description
+
+                enriched_prompt = build_image_prompt_from_keyframe(kf, profile, image_style_override)
+                if not enriched_prompt:
+                    continue
+
+                record_id = img_record.get("id", "")
+                if not record_id:
+                    continue
+
+                try:
+                    airtable_client.update_image_prompt_fields(
+                        record_id,
+                        image_prompt=enriched_prompt,
+                        shot_type=map_storyboard_shot_type(kf.get("shot_type", "MS")),
+                    )
+                    overwritten += 1
+                except Exception as e:
+                    logger.warning(f"Failed to overwrite image prompt for {record_id}: {e}")
+
+            if overwritten:
+                logger.info(f"Scene {target_scene}, Beat {scene_beat_idx}: overwrote {overwritten} image prompts")
+                report_progress(f"🎬 Scene {target_scene}: {overwritten} image prompts enriched from storyboard")
+
+        # ── HERO BEAT EXPANSION: Create sub-shot image records ──
+        full_response = directive.get("full_response", "")
+        hero_expansions = parse_hero_expansions(full_response)
+        sub_shots_created = 0
+
+        for kf_num, sub_shots in hero_expansions.items():
+            if kf_num < 1 or kf_num > len(beat_images):
+                continue
+
+            parent_img = beat_images[kf_num - 1]
+            parent_fields = parent_img.get("fields", parent_img)
+            parent_id = parent_img.get("id", "")
+            parent_scene = parent_fields.get(ImageFields.SCENE, target_scene)
+            parent_index = parent_fields.get(ImageFields.IMAGE_INDEX, kf_num)
+            parent_sentence = parent_fields.get(ImageFields.SENTENCE_TEXT, "")
+
+            # First sub-shot overwrites the parent (already done via keyframe overwrite above)
+            # Additional sub-shots create NEW records
+            for sub_shot in sub_shots[1:]:  # Skip first (parent already updated)
+                sub_desc = sub_shot.get("description", "").strip()
+                if not sub_desc:
+                    continue
+
+                # Build prompt from sub-shot description
+                sub_kf = {
+                    "composition": sub_desc,
+                    "action_beat": "",
+                    "lighting_grade": "",
+                    "full_description": sub_desc,
+                }
+                sub_prompt = build_image_prompt_from_keyframe(sub_kf, profile, image_style_override)
+                if not sub_prompt:
+                    continue
+
+                sub_index = parent_index + (sub_shots.index(sub_shot) * 0.1)
+                sub_shot_type = map_storyboard_shot_type(sub_shot.get("shot_type", "MS"))
+                sub_duration = sub_shot.get("duration_seconds", 3.0)
+
+                try:
+                    airtable_client.create_concept_record(
+                        scene_number=parent_scene,
+                        concept_index=sub_index,
+                        sentence_text=parent_sentence,
+                        image_prompt=sub_prompt,
+                        composition=sub_shot_type,
+                        video_title=video_title,
+                    )
+                    sub_shots_created += 1
+                except Exception as e:
+                    logger.warning(f"Failed to create sub-shot for KF{kf_num}: {e}")
+
+        if sub_shots_created:
+            logger.info(f"Scene {target_scene}: created {sub_shots_created} hero sub-shot records")
+            report_progress(f"🎬 Scene {target_scene}: {sub_shots_created} hero sub-shots created")
 
     # Final status update on scene records (only filtered scene if scene_filter is set)
     scenes_to_update = scene_to_record_id.items()

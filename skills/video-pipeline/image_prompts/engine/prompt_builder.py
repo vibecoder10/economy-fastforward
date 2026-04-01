@@ -443,6 +443,41 @@ def _detect_scene_type(description: str) -> str:
     return "environment"
 
 
+def get_style_wrapping(profile, description: str, image_style_override: str = "") -> tuple[str, str]:
+    """Get the style prefix and suffix for a visual description.
+
+    Detects whether the description is a character scene or environment/data scene
+    and returns the appropriate (prefix, suffix) from the visual profile.
+
+    This is extracted from build_prompt() so the storyboard bot can reuse
+    the same style system without duplicating detection logic.
+
+    Returns:
+        (prefix, suffix) tuple of strings
+    """
+    if profile:
+        env_prefix = profile.style_system.style_prefix or _ENVIRONMENT_PREFIX
+        char_prefix = getattr(profile.style_system, "character_prefix", "") or env_prefix
+        suffix = profile.style_system.style_suffix or _UNIVERSAL_SUFFIX
+    else:
+        env_prefix = _ENVIRONMENT_PREFIX
+        char_prefix = _CHARACTER_PREFIX
+        suffix = _UNIVERSAL_SUFFIX
+
+    is_non_character = _is_non_character_scene(description)
+    has_characters = _has_character_indicators(description)
+
+    if is_non_character or not has_characters:
+        prefix = env_prefix
+    else:
+        prefix = char_prefix
+
+    if image_style_override and image_style_override.strip():
+        suffix = _apply_style_override(suffix, image_style_override)
+
+    return prefix, suffix
+
+
 def build_prompt(
     scene_description: str,
     content_type: str,

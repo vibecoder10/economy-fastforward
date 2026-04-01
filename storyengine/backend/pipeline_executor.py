@@ -1035,11 +1035,11 @@ class PipelineExecutor:
                 await self._log_activity(bot_name, video_id, "completed", f"Scene {scene} prompts generated")
                 return {"status": current_status, "video_id": video_id}
 
-            new_status = result.get("new_status", "ready_for_storyboard_images")
+            new_status = result.get("new_status", "ready_for_images")
 
             await self._update_video_status(video_id, to_supabase(new_status))
             await self._log_transition(video_id, current_status, to_supabase(new_status), "api")
-            await self._log_activity(bot_name, video_id, "completed", "Storyboard prompts generated")
+            await self._log_activity(bot_name, video_id, "completed", "Storyboard director complete — image prompts enriched")
 
             return {"status": to_supabase(new_status), "video_id": video_id}
 
