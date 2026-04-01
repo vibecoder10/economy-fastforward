@@ -875,7 +875,7 @@ async def generate_storyboard_directive(
         prompt=user_prompt,
         system_prompt=system_prompt,
         model=Models.CLAUDE_SONNET,
-        max_tokens=8000,  # Increased from 6000 - directive format requires ~7000 tokens
+        max_tokens=12000,  # Hero expansion + contact sheet requires ~10000 tokens
         temperature=0.9,
     )
 
