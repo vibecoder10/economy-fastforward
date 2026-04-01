@@ -149,6 +149,21 @@ def generate_scene_storyboard_prompts(
     return storyboard_prompts
 
 
+def _grid_layout(panel_count: int) -> tuple[int, int]:
+    """Return (rows, cols) for the optimal grid layout given panel count."""
+    if panel_count <= 1:
+        return (1, 1)
+    if panel_count <= 2:
+        return (1, 2)
+    if panel_count <= 3:
+        return (1, 3)
+    if panel_count <= 4:
+        return (2, 2)
+    if panel_count <= 6:
+        return (2, 3)
+    return (3, 3)
+
+
 def _build_storyboard_grid_prompt(
     panels: list[dict],
     scene_number: int,
@@ -157,19 +172,18 @@ def _build_storyboard_grid_prompt(
     video_title: str,
     profile: ChannelProfile,
 ) -> str:
-    """Build a unified 3x3 contact sheet prompt from panel data.
+    """Build a contact sheet prompt sized to the actual panel count.
 
-    This prompt ensures all 9 panels share:
-    - Same visual style
-    - Same lighting direction and quality
-    - Same color palette
-    - Consistent character appearances
-    - Consistent environment details
+    Instead of always generating a 3x3 grid with black-filled remainders,
+    this generates the right-sized grid: 1x2 for 2 panels, 2x3 for 5, etc.
     """
-    # Style prefix from channel profile
+    n = len(panels)
+    rows, cols = _grid_layout(n)
+    total_cells = rows * cols
+
     style_prefix = f"""**{profile.visual_style_directive}**
 
-3×3 contact sheet storyboard grid (3 rows × 3 columns) with clearly separated panels.
+{rows}×{cols} contact sheet storyboard grid ({rows} row{"s" if rows > 1 else ""} × {cols} column{"s" if cols > 1 else ""}) with clearly separated panels.
 Each panel is a cinematic frame from Scene {scene_number}, Grid {grid_number}/{total_grids}.
 Title: "{video_title}"
 
@@ -185,25 +199,23 @@ Title: "{video_title}"
     panel_descriptions = []
     for p in panels:
         panel_num = p["panel_number"]
-        # Extract core visual from the existing prompt (first 150 chars after style prefix)
         prompt = p["image_prompt"]
-        # Remove common style prefixes to get the core content
         core_prompt = prompt
         for prefix in ["Cinematic 2D animated illustration of ", "cinematic_illustration style, "]:
             if core_prompt.lower().startswith(prefix.lower()):
                 core_prompt = core_prompt[len(prefix):]
                 break
 
-        row = (panel_num - 1) // 3 + 1
-        col = (panel_num - 1) % 3 + 1
+        row = (panel_num - 1) // cols + 1
+        col = (panel_num - 1) % cols + 1
         panel_descriptions.append(
             f"**Panel {panel_num} (Row {row}, Col {col}):** {core_prompt[:200]}"
         )
 
-    # Add blank panel descriptions if needed
-    for i in range(len(panels) + 1, 10):
-        row = (i - 1) // 3 + 1
-        col = (i - 1) % 3 + 1
+    # Fill remaining cells if panel count doesn't perfectly fill the grid
+    for i in range(n + 1, total_cells + 1):
+        row = (i - 1) // cols + 1
+        col = (i - 1) % cols + 1
         panel_descriptions.append(
             f"**Panel {i} (Row {row}, Col {col}):** BLACK PANEL - solid black fill"
         )
@@ -215,7 +227,7 @@ Title: "{video_title}"
 {panels_section}
 
 **TECHNICAL SPECS:**
-- Output as single image containing all 9 panels in 3×3 grid
+- Output as single image containing all {total_cells} panels in {rows}×{cols} grid
 - Thin black dividers between panels
 - 16:9 aspect ratio per panel
 - Consistent cinematic illustration style across all panels
@@ -1442,16 +1454,18 @@ def extract_panels(
     img = Image.open(grid_image_path)
     width, height = img.size
 
-    panel_width = width // 3
-    panel_height = height // 3
+    # Determine grid dimensions from expected panel count
+    grid_rows, grid_cols = _grid_layout(expected_real_panels)
+    panel_width = width // grid_cols
+    panel_height = height // grid_rows
 
     margin_x = int(panel_width * 0.02)
     margin_y = int(panel_height * 0.04)
 
     real_panels: list[str] = []
 
-    for row in range(3):
-        for col in range(3):
+    for row in range(grid_rows):
+        for col in range(grid_cols):
             left = col * panel_width + margin_x
             upper = row * panel_height + margin_y
             right = (col + 1) * panel_width - margin_x
@@ -1515,17 +1529,21 @@ async def generate_contact_sheet(
         from shared.clients.image_client import ImageClient
         image_client = ImageClient()
 
-    # Prepend technical grid wrapper
+    # Dynamic grid sizing — only make as big a grid as needed
+    rows, cols = _grid_layout(real_panel_count)
+    total_cells = rows * cols
+
     full_prompt = (
-        "CRITICAL OUTPUT FORMAT: Generate a single image containing a 3×3 grid "
-        "(3 rows × 3 columns) of 9 cinematic panels. Each panel must be clearly "
-        "separated. Panel labels [KF# | shot_type | duration] must appear in the "
-        "top-left margin of each panel, small and non-intrusive.\n\n"
+        f"CRITICAL OUTPUT FORMAT: Generate a single image containing a {rows}×{cols} grid "
+        f"({rows} row{'s' if rows > 1 else ''} × {cols} column{'s' if cols > 1 else ''}) "
+        f"of {total_cells} cinematic panels. Each panel must be clearly "
+        f"separated. Panel labels [KF# | shot_type | duration] must appear in the "
+        f"top-left margin of each panel, small and non-intrusive.\n\n"
     )
 
-    if real_panel_count < 9:
+    if real_panel_count < total_cells:
         full_prompt += (
-            f"IMPORTANT: Panels {real_panel_count + 1} through 9 must be SOLID "
+            f"IMPORTANT: Panels {real_panel_count + 1} through {total_cells} must be SOLID "
             f"BLACK with no content. Only panels 1 through {real_panel_count} "
             f"contain scene imagery.\n\n"
         )
