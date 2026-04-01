@@ -184,8 +184,12 @@ export const createIdea = (topic: string, source?: string) =>
     body: JSON.stringify({ topic, source: source || "storyengine" }),
   });
 
-export const runPipelineStage = (videoId: string, stage: string) =>
-  fetchApi<PipelineResponse>(`/api/pipeline/${stage}/${videoId}`, { method: "POST" });
+export const runPipelineStage = (videoId: string, stage: string, params?: Record<string, string | number>) => {
+  const queryString = params
+    ? "?" + Object.entries(params).map(([k, v]) => `${k}=${v}`).join("&")
+    : "";
+  return fetchApi<PipelineResponse>(`/api/pipeline/${stage}/${videoId}${queryString}`, { method: "POST" });
+};
 
 export const runNextStep = (videoId: string) =>
   fetchApi<PipelineResponse>(`/api/pipeline/run-next/${videoId}`, { method: "POST" });

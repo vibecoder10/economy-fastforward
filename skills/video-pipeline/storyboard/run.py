@@ -11,8 +11,13 @@ NOTE: This step ONLY generates prompts. Image generation is step_storyboard_imag
 from orchestrator.pipeline_constants import Statuses
 
 
-async def run(pipeline) -> dict:
-    """Generate storyboard prompts via Claude (Phase 1A)."""
+async def run(pipeline, scene_filter=None, progress_callback=None) -> dict:
+    """Generate storyboard prompts via Claude (Phase 1A).
+
+    Args:
+        scene_filter: If set, only generate prompts for this scene number.
+        progress_callback: Called with (message: str) to report progress.
+    """
     from storyboard.bot import run_storyboard_prompts
 
     if not pipeline.current_idea:
@@ -78,6 +83,8 @@ async def run(pipeline) -> dict:
         airtable_client=pipeline.airtable,
         anthropic_client=pipeline.anthropic,
         slack_client=pipeline.slack,
+        scene_filter=scene_filter,
+        progress_callback=progress_callback,
     )
 
     if result.get("error"):

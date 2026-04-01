@@ -374,9 +374,14 @@ async def run_prompts(
 async def run_storyboards(
     video_id: str,
     background_tasks: BackgroundTasks,
+    scene: Optional[int] = None,
     tenant_id: str = Depends(get_tenant_id),
 ):
-    """Generate storyboard prompts for a video."""
+    """Generate storyboard prompts for a video.
+
+    Args:
+        scene: If set, only generate prompts for this scene (per-scene mode).
+    """
     video = await fetch_one(
         "SELECT id, status FROM videos WHERE id = $1 AND tenant_id = $2",
         video_id, tenant_id,
@@ -384,7 +389,8 @@ async def run_storyboards(
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
 
-    if not is_at_or_past_stage(video["status"], "ready_for_storyboards"):
+    # Per-scene generation bypasses status gate (like targeted image regen)
+    if scene is None and not is_at_or_past_stage(video["status"], "ready_for_storyboards"):
         raise HTTPException(
             status_code=400,
             detail=f"Video not ready for storyboards (status: {video['status']})",
@@ -393,12 +399,18 @@ async def run_storyboards(
     if _get_task_status(video_id):
         raise HTTPException(status_code=409, detail="Task already running")
 
-    _set_task_status(video_id, "running", "Storyboard generation in progress")
+    scene_label = f" Scene {scene}" if scene else ""
+    _set_task_status(video_id, "running", f"Generating storyboard prompts{scene_label}...")
+
+    def progress_callback(msg: str):
+        _set_task_status(video_id, "running", msg)
 
     async def _run():
         try:
             executor = PipelineExecutor(tenant_id)
-            result = await executor.run_storyboard_prompts(video_id)
+            result = await executor.run_storyboard_prompts(
+                video_id, scene=scene, progress_callback=progress_callback
+            )
             _set_task_status(
                 video_id,
                 result.get("status", "unknown"),
@@ -413,7 +425,7 @@ async def run_storyboards(
 
     background_tasks.add_task(_run)
 
-    return PipelineResponse(video_id=video_id, status="running", message="Storyboard generation started")
+    return PipelineResponse(video_id=video_id, status="running", message=f"Storyboard generation started{scene_label}")
 
 
 @router.post("/story-bible/{video_id}", response_model=PipelineResponse)
@@ -460,12 +472,16 @@ async def run_story_bible(
 async def run_storyboard_images(
     video_id: str,
     background_tasks: BackgroundTasks,
+    scene: Optional[int] = None,
     tenant_id: str = Depends(get_tenant_id),
 ):
     """Generate storyboard images for a video.
 
     Relaxed status gate: allows manual triggering from UI as long as voice
     has been generated (storyboard prompts need image prompts which need voice).
+
+    Args:
+        scene: If set, only generate images for this scene (per-scene mode).
     """
     video = await fetch_one(
         "SELECT id, status FROM videos WHERE id = $1 AND tenant_id = $2",
@@ -474,7 +490,8 @@ async def run_storyboard_images(
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
 
-    if not is_at_or_past_stage(video["status"], "ready_for_image_prompts"):
+    # Per-scene generation bypasses status gate
+    if scene is None and not is_at_or_past_stage(video["status"], "ready_for_image_prompts"):
         raise HTTPException(
             status_code=400,
             detail=f"Video not ready for storyboard images — voice must be generated first (status: {video['status']})",
@@ -483,12 +500,18 @@ async def run_storyboard_images(
     if _get_task_status(video_id):
         raise HTTPException(status_code=409, detail="Task already running")
 
-    _set_task_status(video_id, "running", "Storyboard image generation in progress")
+    scene_label = f" Scene {scene}" if scene else ""
+    _set_task_status(video_id, "running", f"Generating storyboard images{scene_label}...")
+
+    def progress_callback(msg: str):
+        _set_task_status(video_id, "running", msg)
 
     async def _run():
         try:
             executor = PipelineExecutor(tenant_id)
-            result = await executor.run_storyboard_images(video_id)
+            result = await executor.run_storyboard_images(
+                video_id, scene=scene, progress_callback=progress_callback
+            )
             _set_task_status(
                 video_id,
                 result.get("status", "unknown"),
@@ -503,7 +526,7 @@ async def run_storyboard_images(
 
     background_tasks.add_task(_run)
 
-    return PipelineResponse(video_id=video_id, status="running", message="Storyboard image generation started")
+    return PipelineResponse(video_id=video_id, status="running", message=f"Storyboard image generation started{scene_label}")
 
 
 @router.post("/storyboard-extract/{video_id}", response_model=PipelineResponse)

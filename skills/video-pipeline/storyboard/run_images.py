@@ -11,8 +11,13 @@ This step runs AFTER prompts are generated and reviewed.
 from orchestrator.pipeline_constants import Statuses
 
 
-async def run(pipeline) -> dict:
-    """Generate storyboard contact sheet images (Phase 1B)."""
+async def run(pipeline, scene_filter=None, progress_callback=None) -> dict:
+    """Generate storyboard contact sheet images (Phase 1B).
+
+    Args:
+        scene_filter: If set, only generate images for this scene number.
+        progress_callback: Called with (message: str) to report progress.
+    """
     from storyboard.bot import run_storyboard_images
 
     if not pipeline.current_idea:
@@ -87,6 +92,8 @@ async def run(pipeline) -> dict:
         airtable_client=pipeline.airtable,
         image_client=pipeline.image_client,
         slack_client=pipeline.slack,
+        scene_filter=scene_filter,
+        progress_callback=progress_callback,
     )
 
     if result.get("error"):

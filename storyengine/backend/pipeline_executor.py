@@ -284,13 +284,13 @@ class PipelineExecutor:
             from sound.run_effects import run
             return await run(self._pipeline)
 
-        async def run_storyboard_prompts():
+        async def run_storyboard_prompts(scene_filter=None, progress_callback=None):
             from storyboard.run import run
-            return await run(self._pipeline)
+            return await run(self._pipeline, scene_filter=scene_filter, progress_callback=progress_callback)
 
-        async def run_storyboard_images():
+        async def run_storyboard_images(scene_filter=None, progress_callback=None):
             from storyboard.run_images import run
-            return await run(self._pipeline)
+            return await run(self._pipeline, scene_filter=scene_filter, progress_callback=progress_callback)
 
         async def run_storyboard_extract():
             from storyboard.run_extract import run
@@ -1001,8 +1001,13 @@ class PipelineExecutor:
             await self._log_activity(bot_name, video_id, "failed", error_msg)
             return {"status": "failed", "error": error_msg}
 
-    async def run_storyboard_prompts(self, video_id: str) -> dict:
-        """Generate storyboard prompts for a video."""
+    async def run_storyboard_prompts(self, video_id: str, scene: int = None, progress_callback=None) -> dict:
+        """Generate storyboard prompts for a video.
+
+        Args:
+            scene: If set, only generate prompts for this scene number.
+            progress_callback: Called with (message: str) to report progress.
+        """
         await self._ensure_initialized()
         bot_name = "Storyboard Bot"
 
@@ -1012,14 +1017,23 @@ class PipelineExecutor:
                 return {"status": "failed", "error": "Video not found"}
 
             current_status = video.get("status")
-            await self._log_activity(bot_name, video_id, "started", "Generating storyboard prompts")
+            scene_label = f" (Scene {scene})" if scene else ""
+            await self._log_activity(bot_name, video_id, "started", f"Generating storyboard prompts{scene_label}")
 
             self._load_idea_from_video(video_id)
 
-            result = await self._pipeline.run_storyboard_prompts()
+            result = await self._pipeline.run_storyboard_prompts(
+                scene_filter=scene,
+                progress_callback=progress_callback,
+            )
 
             if result.get("error"):
                 raise Exception(result["error"])
+
+            # For per-scene runs, don't advance video status
+            if scene is not None:
+                await self._log_activity(bot_name, video_id, "completed", f"Scene {scene} prompts generated")
+                return {"status": current_status, "video_id": video_id}
 
             new_status = result.get("new_status", "ready_for_storyboard_images")
 
@@ -1082,8 +1096,13 @@ class PipelineExecutor:
             await self._log_activity(bot_name, video_id, "failed", error_msg)
             return {"status": "failed", "error": error_msg}
 
-    async def run_storyboard_images(self, video_id: str) -> dict:
-        """Generate storyboard images for a video."""
+    async def run_storyboard_images(self, video_id: str, scene: int = None, progress_callback=None) -> dict:
+        """Generate storyboard images for a video.
+
+        Args:
+            scene: If set, only generate images for this scene number.
+            progress_callback: Called with (message: str) to report progress.
+        """
         await self._ensure_initialized()
         bot_name = "Storyboard Images Bot"
 
@@ -1093,14 +1112,23 @@ class PipelineExecutor:
                 return {"status": "failed", "error": "Video not found"}
 
             current_status = video.get("status")
-            await self._log_activity(bot_name, video_id, "started", "Generating storyboard images")
+            scene_label = f" (Scene {scene})" if scene else ""
+            await self._log_activity(bot_name, video_id, "started", f"Generating storyboard images{scene_label}")
 
             self._load_idea_from_video(video_id)
 
-            result = await self._pipeline.run_storyboard_images()
+            result = await self._pipeline.run_storyboard_images(
+                scene_filter=scene,
+                progress_callback=progress_callback,
+            )
 
             if result.get("error"):
                 raise Exception(result["error"])
+
+            # For per-scene runs, don't advance video status
+            if scene is not None:
+                await self._log_activity(bot_name, video_id, "completed", f"Scene {scene} images generated")
+                return {"status": current_status, "video_id": video_id}
 
             new_status = result.get("new_status", "ready_for_storyboard_extraction")
 

@@ -1,9 +1,17 @@
 "use client";
 
 import { useState, useCallback, useEffect, useRef } from "react";
-import { Check, X } from "lucide-react";
+import { Check, X, Loader2, RefreshCw, Sparkles, Trash2 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { ScriptScene, Asset, approveAsset, rejectAsset } from "@/lib/api";
+import {
+  ScriptScene,
+  Asset,
+  approveAsset,
+  rejectAsset,
+  runPipelineStage,
+  clearSceneStoryboard,
+} from "@/lib/api";
+import { useTaskPoller } from "@/hooks/use-task-poller";
 import { VoicePlayer } from "./voice-player";
 import { PanelMagnifier } from "./panel-magnifier";
 import { PromptExpander } from "./prompt-expander";
@@ -12,6 +20,7 @@ interface StoryboardViewerProps {
   scene: ScriptScene;
   assets: Asset[];
   videoId: string;
+  videoStatus: string;
   onRefresh: () => void;
 }
 
@@ -19,9 +28,13 @@ function panelToGrid(panelNum: number): { gridIndex: number; panelInGrid: number
   return { gridIndex: Math.floor(panelNum / 9), panelInGrid: panelNum % 9 };
 }
 
-export function StoryboardViewer({ scene, assets, videoId, onRefresh }: StoryboardViewerProps) {
+export function StoryboardViewer({ scene, assets, videoId, videoStatus, onRefresh }: StoryboardViewerProps) {
   const [selectedPanel, setSelectedPanel] = useState<number | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
+  const [sceneTaskRunning, setSceneTaskRunning] = useState(false);
+  const [sceneTaskType, setSceneTaskType] = useState<"prompts" | "images" | null>(null);
+  const [sceneResult, setSceneResult] = useState<"success" | "error" | null>(null);
+  const [sceneError, setSceneError] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
 
@@ -32,8 +45,13 @@ export function StoryboardViewer({ scene, assets, videoId, onRefresh }: Storyboa
   ].filter((url): url is string => url != null);
 
   const totalPanels = gridUrls.length * 9;
-
   const approvedCount = assets.filter((a) => a.status === "approved").length;
+  const sceneNum = scene.scene ?? 0;
+  const actNum = Math.ceil(sceneNum / 4) || 1;
+
+  const hasPrompts = !!scene.storyboard_prompts;
+  const hasGrids = gridUrls.length > 0;
+  const storyboardStatus = scene.storyboard_status;
 
   // Build a map from image_index to asset for quick lookup
   const assetByIndex = new Map<number, Asset>();
@@ -43,15 +61,68 @@ export function StoryboardViewer({ scene, assets, videoId, onRefresh }: Storyboa
     }
   }
 
-  // Compute the act label from scene number
-  const sceneNum = scene.scene ?? 0;
-  const actNum = Math.ceil(sceneNum / 4) || 1;
+  // Task poller for per-scene operations
+  const { message: taskMessage } = useTaskPoller({
+    videoId,
+    enabled: sceneTaskRunning,
+    onComplete: () => {
+      setSceneTaskRunning(false);
+      setSceneTaskType(null);
+      setSceneResult("success");
+      queryClient.invalidateQueries({ queryKey: ["video-script", videoId] });
+      queryClient.invalidateQueries({ queryKey: ["video-assets", videoId] });
+      queryClient.invalidateQueries({ queryKey: ["video", videoId] });
+      onRefresh();
+      setTimeout(() => setSceneResult(null), 3000);
+    },
+    onFailed: (err) => {
+      setSceneTaskRunning(false);
+      setSceneTaskType(null);
+      setSceneResult("error");
+      setSceneError(err);
+    },
+  });
+
+  const handleGeneratePrompts = useCallback(async () => {
+    setSceneResult(null);
+    setSceneError(null);
+    try {
+      await runPipelineStage(videoId, "storyboards", { scene: sceneNum });
+      setSceneTaskRunning(true);
+      setSceneTaskType("prompts");
+    } catch (err: any) {
+      setSceneResult("error");
+      setSceneError(err.message || "Failed to start");
+    }
+  }, [videoId, sceneNum]);
+
+  const handleGenerateImages = useCallback(async () => {
+    setSceneResult(null);
+    setSceneError(null);
+    try {
+      await runPipelineStage(videoId, "storyboard-images", { scene: sceneNum });
+      setSceneTaskRunning(true);
+      setSceneTaskType("images");
+    } catch (err: any) {
+      setSceneResult("error");
+      setSceneError(err.message || "Failed to start");
+    }
+  }, [videoId, sceneNum]);
+
+  const handleClearScene = useCallback(async () => {
+    try {
+      await clearSceneStoryboard(videoId, sceneNum);
+      queryClient.invalidateQueries({ queryKey: ["video-script", videoId] });
+      queryClient.invalidateQueries({ queryKey: ["video-assets", videoId] });
+      onRefresh();
+    } catch (err: any) {
+      setSceneResult("error");
+      setSceneError(err.message || "Failed to clear");
+    }
+  }, [videoId, sceneNum, queryClient, onRefresh]);
 
   const getAssetForPanel = useCallback(
     (panelNum: number): Asset | undefined => {
-      // Panel numbers are continuous: grid 0 = panels 0-8, grid 1 = 9-17, etc.
-      // Image indices in Airtable are typically 1-based per scene
-      // Assets are filtered to this scene, so match by image_index
       return assetByIndex.get(panelNum + 1);
     },
     [assetByIndex]
@@ -153,16 +224,124 @@ export function StoryboardViewer({ scene, assets, videoId, onRefresh }: Storyboa
         <span className="text-xs" style={{ color: "var(--text-secondary)" }}>
           {assets.length} images &middot; {gridUrls.length} grids
         </span>
+        {storyboardStatus && (
+          <span className="text-[10px] px-1.5 py-0.5 rounded" style={{
+            background: storyboardStatus === "prompts_ready" || storyboardStatus === "grids_generated"
+              ? "rgba(26, 138, 122, 0.15)"
+              : "rgba(212, 168, 68, 0.15)",
+            color: storyboardStatus === "prompts_ready" || storyboardStatus === "grids_generated"
+              ? "#1A8A7A"
+              : "var(--amber)",
+          }}>
+            {storyboardStatus.replace(/_/g, " ")}
+          </span>
+        )}
         {approvedCount > 0 && (
           <span className="text-xs ml-auto" style={{ color: "#1A8A7A" }}>
             {approvedCount} approved
           </span>
         )}
+
+        {/* Per-scene action buttons */}
+        <div className="flex items-center gap-1.5 ml-auto">
+          {hasGrids && (
+            <button
+              onClick={handleClearScene}
+              disabled={sceneTaskRunning}
+              className="flex items-center gap-1 text-[10px] px-2 py-1 rounded transition-opacity disabled:opacity-40"
+              style={{ background: "rgba(196, 69, 69, 0.15)", color: "#C44545" }}
+              title="Clear grids for this scene"
+            >
+              <Trash2 size={10} /> Clear
+            </button>
+          )}
+          {!hasPrompts && !sceneTaskRunning && (
+            <button
+              onClick={handleGeneratePrompts}
+              className="flex items-center gap-1 text-[10px] px-2 py-1 rounded font-medium"
+              style={{ background: "var(--amber)", color: "var(--bg-primary)" }}
+            >
+              <Sparkles size={10} /> Generate Prompts
+            </button>
+          )}
+          {hasPrompts && !hasGrids && !sceneTaskRunning && (
+            <button
+              onClick={handleGenerateImages}
+              className="flex items-center gap-1 text-[10px] px-2 py-1 rounded font-medium"
+              style={{ background: "var(--amber)", color: "var(--bg-primary)" }}
+            >
+              <Sparkles size={10} /> Generate Grids
+            </button>
+          )}
+          {hasGrids && !sceneTaskRunning && (
+            <button
+              onClick={async () => {
+                await handleClearScene();
+                handleGeneratePrompts();
+              }}
+              className="flex items-center gap-1 text-[10px] px-2 py-1 rounded font-medium"
+              style={{ background: "rgba(212, 168, 68, 0.15)", color: "var(--amber)" }}
+              title="Clear and regenerate from scratch"
+            >
+              <RefreshCw size={10} /> Regenerate
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="p-4 space-y-4">
+        {/* Per-scene task progress */}
+        {sceneTaskRunning && (
+          <div className="flex items-center gap-2 py-2 px-3 rounded-lg" style={{
+            background: "rgba(212, 168, 68, 0.08)",
+            border: "1px solid rgba(212, 168, 68, 0.2)",
+          }}>
+            <Loader2 size={14} className="animate-spin" style={{ color: "var(--amber)" }} />
+            <span className="text-xs" style={{ color: "var(--text-secondary)" }}>
+              {taskMessage || (sceneTaskType === "prompts" ? "Generating prompts..." : "Generating grid images...")}
+            </span>
+          </div>
+        )}
+
+        {sceneResult === "success" && (
+          <div className="flex items-center gap-2 py-2 px-3 rounded-lg" style={{
+            background: "rgba(26, 138, 122, 0.08)",
+            border: "1px solid rgba(26, 138, 122, 0.2)",
+          }}>
+            <Check size={14} style={{ color: "#1A8A7A" }} />
+            <span className="text-xs" style={{ color: "#1A8A7A" }}>Done</span>
+          </div>
+        )}
+
+        {sceneResult === "error" && (
+          <div className="flex items-center gap-2 py-2 px-3 rounded-lg" style={{
+            background: "rgba(196, 69, 69, 0.08)",
+            border: "1px solid rgba(196, 69, 69, 0.2)",
+          }}>
+            <X size={14} style={{ color: "#C44545" }} />
+            <span className="text-xs" style={{ color: "#C44545" }}>
+              {sceneError || "Failed"}
+            </span>
+          </div>
+        )}
+
         {/* VO player */}
         {scene.voice_over_url && <VoicePlayer audioUrl={scene.voice_over_url} />}
+
+        {/* Empty state — no grids yet */}
+        {!hasGrids && !sceneTaskRunning && (
+          <div
+            className="flex flex-col items-center justify-center py-8 rounded-lg"
+            style={{ border: "1px dashed var(--border)", color: "var(--text-muted)" }}
+          >
+            <span className="text-sm mb-2">No grids generated yet</span>
+            <span className="text-xs">
+              {hasPrompts
+                ? "Prompts ready — click \"Generate Grids\" above"
+                : "Click \"Generate Prompts\" above to start"}
+            </span>
+          </div>
+        )}
 
         {/* Grids side by side */}
         {gridUrls.length > 0 && (

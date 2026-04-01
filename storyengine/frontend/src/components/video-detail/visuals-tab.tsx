@@ -2,10 +2,12 @@
 
 import { useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Trash2 } from "lucide-react";
 import {
   getVideoScript,
   getVideoAssets,
   updateStoryboardMode,
+  clearAllStoryboards,
   Asset,
 } from "@/lib/api";
 import { StoryboardViewer } from "./storyboard-viewer";
@@ -38,6 +40,16 @@ export function VisualsTab({ videoId, videoStatus }: VisualsTabProps) {
     await updateStoryboardMode(videoId, !storyboardMode);
     queryClient.invalidateQueries({ queryKey: ["video-script", videoId] });
   };
+
+  const handleClearAll = async () => {
+    await clearAllStoryboards(videoId);
+    queryClient.invalidateQueries({ queryKey: ["video-script", videoId] });
+    queryClient.invalidateQueries({ queryKey: ["video-assets", videoId] });
+  };
+
+  const anyGridsExist = scenes?.some(
+    (s) => s.storyboard_1_url || s.storyboard_2_url || s.storyboard_3_url
+  ) ?? false;
 
   const assetsByScene = useMemo(() => {
     if (!assets) return {};
@@ -97,7 +109,17 @@ export function VisualsTab({ videoId, videoStatus }: VisualsTabProps) {
         >
           Visuals
         </h2>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
+          {storyboardMode && anyGridsExist && (
+            <button
+              onClick={handleClearAll}
+              className="flex items-center gap-1 text-[10px] px-2 py-1 rounded transition-opacity"
+              style={{ background: "rgba(196, 69, 69, 0.15)", color: "#C44545" }}
+              title="Clear all storyboard grids"
+            >
+              <Trash2 size={10} /> Clear All
+            </button>
+          )}
           <span
             className="text-xs"
             style={{ color: "var(--text-muted)" }}
@@ -184,6 +206,7 @@ export function VisualsTab({ videoId, videoStatus }: VisualsTabProps) {
                   scene={s}
                   assets={sceneAssets}
                   videoId={videoId}
+                  videoStatus={videoStatus}
                   onRefresh={refetchAssets}
                 />
               );

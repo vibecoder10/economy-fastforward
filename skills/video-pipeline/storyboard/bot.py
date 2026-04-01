@@ -1620,11 +1620,17 @@ async def run_storyboard_prompts(
     airtable_client=None,
     anthropic_client=None,
     slack_client=None,
+    scene_filter: Optional[int] = None,
+    progress_callback=None,
 ) -> dict:
     """Phase 1A: Generate storyboard prompts via Claude.
 
     Generates Claude directives and saves to Storyboard Prompts field.
     Does NOT generate images — that's Phase 1B (run_storyboard_images).
+
+    Args:
+        scene_filter: If set, only generate prompts for this scene number.
+        progress_callback: Called with (message: str) to report progress.
 
     Returns dict with beat_count, prompts_generated, and cost.
     """
@@ -1640,6 +1646,15 @@ async def run_storyboard_prompts(
         if slack_client:
             try:
                 slack_client.send_message(msg)
+            except Exception:
+                pass
+
+    def report_progress(msg: str):
+        """Report progress to both Slack and callback (for UI polling)."""
+        notify(msg)
+        if progress_callback:
+            try:
+                progress_callback(msg)
             except Exception:
                 pass
 
@@ -1699,8 +1714,17 @@ async def run_storyboard_prompts(
 
     # Calculate beats based on image count (9 images per beat/grid)
     beats = segment_script_into_beats(script_records, image_records=image_records)
+
+    # Filter beats to target scene if scene_filter is set
+    if scene_filter is not None:
+        beats = [b for b in beats if b["scenes"] and b["scenes"][0] == scene_filter]
+        if not beats:
+            return {"error": f"No beats found for scene {scene_filter}"}
+        logger.info(f"Scene filter: {scene_filter} → {len(beats)} beats")
+
     logger.info(f"Calculated {len(beats)} beats for {len(image_records)} images")
-    notify(f"📝 Storyboard prompts: *{video_title}*\n• {len(image_records)} images → {len(beats)} beat(s)")
+    scene_label = f" (Scene {scene_filter})" if scene_filter else ""
+    report_progress(f"📝 Storyboard prompts: *{video_title}*{scene_label}\n• {len(image_records)} images → {len(beats)} beat(s)")
 
     # Track per-scene prompt blocks for clean overwrite behavior.
     # We intentionally rebuild beat blocks by beat number instead of blindly
@@ -1715,7 +1739,13 @@ async def run_storyboard_prompts(
     prompts_generated = 0
     failed_beats: list[tuple[int, int]] = []  # (scene, beat)
 
-    for beat in beats:
+    # Collect unique scenes for progress reporting
+    all_scenes = sorted(set(
+        b["scenes"][0] for b in beats if b["scenes"]
+    ))
+    total_scenes = len(all_scenes)
+
+    for beat_idx, beat in enumerate(beats):
         beat_num = beat["beat_number"]
         # Target scene is the first scene this beat covers
         target_scene = beat["scenes"][0] if beat["scenes"] else 1
@@ -1724,6 +1754,13 @@ async def run_storyboard_prompts(
         # Use per-scene beat info from segment_script_into_beats
         scene_beat_idx = beat.get("scene_beat_index", 1)
         total_scene_beats = beat.get("scene_beat_total", 1)
+
+        # Report scene-level progress for UI polling
+        scene_position = all_scenes.index(target_scene) + 1 if target_scene in all_scenes else beat_idx + 1
+        report_progress(
+            f"Generating Scene {target_scene} ({scene_position}/{total_scenes}), "
+            f"Beat {scene_beat_idx}/{total_scene_beats}..."
+        )
 
         beat_images = _get_images_for_beat(image_records, beat)
         image_prompts = [
@@ -1751,10 +1788,10 @@ async def run_storyboard_prompts(
             except ValueError as e:
                 logger.warning(f"Scene {target_scene}, Beat {scene_beat_idx} attempt {attempt + 1} failed: {e}")
                 if attempt == 0:
-                    notify(f"⚠️ Scene {target_scene}, Beat {scene_beat_idx} retry...")
+                    report_progress(f"⚠️ Scene {target_scene}, Beat {scene_beat_idx} retry...")
                     await asyncio.sleep(2)  # Brief pause before retry
                 else:
-                    notify(f"❌ Scene {target_scene}, Beat {scene_beat_idx} FAILED: {e}")
+                    report_progress(f"❌ Scene {target_scene}, Beat {scene_beat_idx} FAILED: {e}")
                     failed_beats.append((target_scene, scene_beat_idx))
                     continue
 
@@ -1774,14 +1811,18 @@ async def run_storyboard_prompts(
                     "Storyboard Status": f"prompts_{scene_beat_idx}_of_{total_scene_beats}",
                 })
                 logger.info(f"Scene {target_scene}, Beat {scene_beat_idx}/{total_scene_beats} prompt saved")
-                notify(f"✅ Scene {target_scene}, Beat {scene_beat_idx}/{total_scene_beats} saved")
+                report_progress(f"✅ Scene {target_scene}, Beat {scene_beat_idx}/{total_scene_beats} saved")
                 prompts_generated += 1
             except Exception as e:
                 logger.warning(f"Failed to checkpoint prompt: {e}")
                 notify(f"⚠️ Scene {target_scene}, Beat {scene_beat_idx} failed: {e}")
 
-    # Final status update on ALL scene records
-    for scene_num, record_id in scene_to_record_id.items():
+    # Final status update on scene records (only filtered scene if scene_filter is set)
+    scenes_to_update = scene_to_record_id.items()
+    if scene_filter is not None:
+        scenes_to_update = [(s, r) for s, r in scenes_to_update if s == scene_filter]
+
+    for scene_num, record_id in scenes_to_update:
         if record_id:
             try:
                 scene_beats = [b for b in beats if b["scenes"] and b["scenes"][0] == scene_num]
@@ -1793,9 +1834,9 @@ async def run_storyboard_prompts(
                 logger.warning(f"Failed to write final status for scene {scene_num}: {e}")
 
     if failed_beats:
-        notify(f"⚠️ Storyboard prompts partial: {prompts_generated}/{len(beats)} beats, {len(failed_beats)} failed")
+        report_progress(f"⚠️ Storyboard prompts partial: {prompts_generated}/{len(beats)} beats, {len(failed_beats)} failed")
     else:
-        notify(f"✅ Storyboard prompts complete: {prompts_generated} beats across {len(scene_to_record_id)} scenes")
+        report_progress(f"✅ Storyboard prompts complete: {prompts_generated} beats across {len(all_scenes)} scenes")
 
     result = {
         "video_title": video_title,
@@ -1815,11 +1856,17 @@ async def run_storyboard_images(
     airtable_client=None,
     image_client=None,
     slack_client=None,
+    scene_filter: Optional[int] = None,
+    progress_callback=None,
 ) -> dict:
     """Phase 1B: Generate storyboard images from prompts.
 
     Reads prompts from Storyboard Prompts field, generates contact sheets,
     saves to Storyboard 1, Storyboard 2, Storyboard 3 fields.
+
+    Args:
+        scene_filter: If set, only generate images for this scene number.
+        progress_callback: Called with (message: str) to report progress.
 
     Returns dict with grids_generated and cost.
     """
@@ -1835,6 +1882,15 @@ async def run_storyboard_images(
         if slack_client:
             try:
                 slack_client.send_message(msg)
+            except Exception:
+                pass
+
+    def report_progress(msg: str):
+        """Report progress to both Slack and callback (for UI polling)."""
+        notify(msg)
+        if progress_callback:
+            try:
+                progress_callback(msg)
             except Exception:
                 pass
 
@@ -1868,7 +1924,11 @@ async def run_storyboard_images(
     beat_pattern = r"--- BEAT (\d+) ---\n(.*?)(?=--- BEAT \d+|$)"
     scene_prompts: dict[int, list[tuple[int, str]]] = {}  # scene -> [(beat_num, prompt)]
 
-    for scene_num, fields in scene_to_fields.items():
+    scenes_to_process = scene_to_fields.items()
+    if scene_filter is not None:
+        scenes_to_process = [(s, f) for s, f in scenes_to_process if s == scene_filter]
+
+    for scene_num, fields in scenes_to_process:
         prompts_text = fields.get("Storyboard Prompts", "") or ""
         matches = re.findall(beat_pattern, prompts_text, re.DOTALL)
         if matches:
@@ -1907,11 +1967,18 @@ async def run_storyboard_images(
     total_prompts = sum(len(prompts) for prompts in scene_prompts.values())
 
     # Process each scene's prompts
-    for scene_num in sorted(scene_prompts.keys()):
+    sorted_scenes = sorted(scene_prompts.keys())
+    total_scene_count = len(sorted_scenes)
+
+    for scene_idx, scene_num in enumerate(sorted_scenes):
         prompts = scene_prompts[scene_num]
         target_record_id = scene_to_record_id.get(scene_num)
         if not target_record_id:
             continue
+
+        report_progress(
+            f"Generating grid images: Scene {scene_num} ({scene_idx + 1}/{total_scene_count})..."
+        )
 
         existing_beats = scene_existing_grids.get(scene_num, {})
         scene_grid_urls.setdefault(scene_num, {})
@@ -1959,7 +2026,7 @@ async def run_storyboard_images(
                         update_fields["Storyboard Status"] = f"images_{completed_count}_of_{len(prompts)}"
                         airtable_client.update_script_record(target_record_id, update_fields)
                         logger.info(f"Scene {scene_num}, Beat {beat_num}/{len(prompts)} grid saved to Storyboard {beat_num}")
-                        notify(f"✅ Scene {scene_num}, Beat {beat_num}/{len(prompts)} grid saved")
+                        report_progress(f"✅ Scene {scene_num}, Beat {beat_num}/{len(prompts)} grid saved")
                     except Exception as e:
                         logger.warning(f"Failed to checkpoint grid: {e}")
                         notify(f"⚠️ Scene {scene_num}, Beat {beat_num} save failed: {e}")
@@ -1991,7 +2058,7 @@ async def run_storyboard_images(
             except Exception as e:
                 logger.warning(f"Failed to write final status for scene {scene_num}: {e}")
 
-    notify(f"✅ Storyboard images complete: {total_grids} grids across {len(scene_prompts)} scenes")
+    report_progress(f"✅ Storyboard images complete: {total_grids} grids across {len(scene_prompts)} scenes")
 
     all_grid_urls = []
     for scene_num in sorted(scene_grid_urls.keys()):
