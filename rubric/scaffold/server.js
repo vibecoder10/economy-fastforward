@@ -1,6 +1,7 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
+import { execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -500,6 +501,50 @@ const server = http.createServer(async (req, res) => {
     try { log = JSON.parse(fs.readFileSync(logFile, 'utf8')); } catch {}
     const limit = parseInt(url.searchParams?.get('limit') || new URL('http://x' + pathname + '?' + (req.url.split('?')[1] || '')).searchParams.get('limit')) || 50;
     sendJSON(res, log.slice(0, limit));
+    return;
+  }
+
+  // GET /api/screenshots/:filename — serve QA screenshots
+  if (pathname.startsWith('/api/screenshots/') && req.method === 'GET') {
+    const filename = pathname.replace('/api/screenshots/', '');
+    if (filename.includes('..') || !filename.match(/\.(png|jpg|jpeg|gif|webp)$/i)) {
+      sendJSON(res, { error: 'Invalid file' }, 400);
+      return;
+    }
+    const screenshotDir = path.join(__dirname, '../../storyengine/agents/screenshots');
+    const filePath = path.join(screenshotDir, filename);
+    try {
+      const data = fs.readFileSync(filePath);
+      const ext = filename.split('.').pop().toLowerCase();
+      const mime = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp' }[ext] || 'image/png';
+      res.writeHead(200, { 'Content-Type': mime, 'Cache-Control': 'public, max-age=3600' });
+      res.end(data);
+    } catch { res.writeHead(404); res.end('Not found'); }
+    return;
+  }
+
+  // GET /api/screenshots — list all screenshots
+  if (pathname === '/api/screenshots' && req.method === 'GET') {
+    const screenshotDir = path.join(__dirname, '../../storyengine/agents/screenshots');
+    try {
+      const files = fs.readdirSync(screenshotDir)
+        .filter(f => f.match(/\.(png|jpg|jpeg|gif|webp)$/i))
+        .map(f => ({ name: f, url: '/api/screenshots/' + f, modified: fs.statSync(path.join(screenshotDir, f)).mtimeMs }))
+        .sort((a, b) => b.modified - a.modified);
+      sendJSON(res, files);
+    } catch { sendJSON(res, []); }
+    return;
+  }
+
+  // GET /api/pull-requests — fetch open PRs from GitHub
+  if (pathname === '/api/pull-requests' && req.method === 'GET') {
+    try {
+      const agentDir = path.join(__dirname, '../../storyengine/agents');
+      const out = execSync('gh pr list --state open --json number,title,url,additions,deletions,changedFiles,createdAt,headRefName --limit 5 2>/dev/null || echo "[]"', {
+        cwd: agentDir, timeout: 10000, encoding: 'utf8'
+      });
+      sendJSON(res, JSON.parse(out.trim() || '[]'));
+    } catch { sendJSON(res, []); }
     return;
   }
 

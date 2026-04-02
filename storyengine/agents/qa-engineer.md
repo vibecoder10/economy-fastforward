@@ -70,7 +70,7 @@ cd storyengine/frontend && npm run build
    b. **Verify data appears** — the page must show real data, not spinners or empty states
    c. **Click every button/action** that the task added — verify the expected result happens (e.g., a modal opens, an API call fires, data updates)
    d. **Check the result** — after clicking, verify the outcome is correct (status changes, new data appears, toast/notification shows)
-   e. **Take a screenshot** before AND after the action to `/tmp/qa-TASKID-before.png` and `/tmp/qa-TASKID-after.png`
+   e. **Take a screenshot** before AND after the action to `storyengine/agents/screenshots/TASKID-before.png` and `storyengine/agents/screenshots/TASKID-after.png`. These get served on the dashboard so the operator can see your proof. Commit them with your changes.
 
    If a button exists but clicking it does nothing, or shows an error, or the data doesn't update — the task FAILS verification. File it back.
 
@@ -89,7 +89,7 @@ cd storyengine/frontend && npm run build
      // Click the Thumbnail tab
      await page.click('text=Thumbnail');
      await page.waitForTimeout(1000);
-     await page.screenshot({ path: '/tmp/qa-TASKID-before.png' });
+     await page.screenshot({ path: 'storyengine/agents/screenshots/TASKID-before.png' });
      // Click the Generate button
      const genBtn = page.locator('button:has-text("Generate")');
      const btnExists = await genBtn.count() > 0;
@@ -97,7 +97,7 @@ cd storyengine/frontend && npm run build
      if (btnExists) {
        await genBtn.click();
        await page.waitForTimeout(2000);
-       await page.screenshot({ path: '/tmp/qa-TASKID-after.png' });
+       await page.screenshot({ path: 'storyengine/agents/screenshots/TASKID-after.png' });
      }
      console.log('Console errors:', errors.length ? errors : 'None');
      await browser.close();

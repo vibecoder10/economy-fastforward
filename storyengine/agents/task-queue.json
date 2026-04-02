@@ -533,11 +533,13 @@
           "id": "T9-003",
           "title": "Build agent suggestion accept/reject UI",
           "role": "frontend",
-          "status": "pending",
-          "description": "Backend has POST /api/videos/{id}/accept-suggestion and reject-suggestion endpoints. VideoDetail returns suggested_script, suggested_title, suggestion_scores, suggestion_status. Build a suggestion card that shows the proposed changes with Accept/Reject buttons.",
+          "status": "done",
+          "started_at": "2026-04-02T23:02:00Z",
+          "assigned_to": "frontend-dev",
+          "completed_at": "2026-04-02T23:08:00Z",
+          "description": "Added SuggestionCard component to PerformanceTab showing suggested title and script with checkbox selection, suggestion scores, source badge, and Accept/Reject buttons. Accept calls acceptSuggestion() with selected fields, Reject calls rejectSuggestion(). Card hidden when suggestion_status is accepted/rejected. Uses useMutation with query invalidation.",
           "files": [
-            "frontend/src/components/production/PerformanceTab.tsx",
-            "frontend/src/lib/api.ts"
+            "frontend/src/components/production/PerformanceTab.tsx"
           ]
         },
         {
@@ -596,9 +598,13 @@
           "title": "Add confidence breakdown tooltip on candidate cards",
           "role": "frontend",
           "status": "done",
+          "verified": true,
           "started_at": "2026-04-02T22:02:00Z",
           "assigned_to": "frontend-dev",
           "completed_at": "2026-04-02T22:06:00Z",
+          "verified_at": "2026-04-02T23:04:00Z",
+          "verified_by": "qa-engineer",
+          "verification_notes": "PASS. Commit be07808: 1 app file (playing-card.tsx), 83 lines added. ConfidenceBreakdown type (api.ts:779) matches backend Pydantic (autopilot.py:29) exactly: vph_score, vph_reasoning, freshness_score, freshness_reasoning, total_score. ChevronDown renders conditionally when breakdown exists. AnimatePresence expand/collapse works. Playwright: page loads candidates via /api/autopilot/summary, chevron click expands VPH Score + Freshness bars with reasoning text + Total, second click collapses. 0 console errors. tsc --noEmit: 0 errors. No bloat.",
           "description": "Added expandable confidence breakdown on PlayingCard. Click the confidence score to reveal VPH Score and Freshness bars with reasoning text. Uses AnimatePresence for smooth expand/collapse. Only 1 component file changed.",
           "files": [
             "frontend/src/app/competitors/page.tsx",
