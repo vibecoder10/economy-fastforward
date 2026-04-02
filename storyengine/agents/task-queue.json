@@ -2,7 +2,7 @@
   "version": 2,
   "current_tab": 7,
   "last_updated": "2026-04-02",
-  "last_updated_by": "qa-engineer",
+  "last_updated_by": "backend-dev",
   "tabs": [
     {
       "id": 1,
@@ -347,10 +347,22 @@
           "title": "Add suggested_thumbnail_prompt and suggested_thumbnail_urls to VideoDetail model + SQL",
           "role": "backend",
           "status": "done",
-          "started_at": "2026-04-01T22:00:01Z",
-          "completed_at": "2026-04-01T22:05:00Z",
+          "started_at": "2026-04-02T08:00:01Z",
+          "completed_at": "2026-04-02T08:05:00Z",
           "assigned_to": "backend-dev",
-          "description": "FAILED QA: Backend-dev marked done but fields were NOT added. Verified 2026-04-02T07:04Z: models.py VideoDetail (line 42-89) has NO suggested_thumbnail_prompt or suggested_thumbnail_urls. SQL SELECT in videos.py (line 133-146) does NOT include these columns. VideoDetail constructor (line 153-211) has NO r.get() for them. No commit exists for this work. This is BLOCKING T7-002 (suggestion display will always show empty).\n\nSteps:\n1. Add to VideoDetail in models.py: suggested_thumbnail_prompt: Optional[str] = None, suggested_thumbnail_urls: Optional[list] = None\n2. Add to SQL SELECT in videos.py get_video(): suggested_thumbnail_prompt, suggested_thumbnail_urls\n3. Add to VideoDetail constructor: suggested_thumbnail_prompt=r.get('suggested_thumbnail_prompt'), suggested_thumbnail_urls=_parse_json_field(r.get('suggested_thumbnail_urls'))\n\nThis unblocks T7-002 (frontend suggestion display).",
+          "description": "RE-DONE after prior QA failure. Added suggested_thumbnail_prompt (Optional[str]) and suggested_thumbnail_urls (Optional[list]) to VideoDetail in models.py (lines 90-91). Added to SQL SELECT in videos.py (line 146). Added r.get() mappings in constructor (lines 210-211) with _parse_json_field for URLs. Unblocks T7-002 data flow.",
+          "files": [
+            "backend/models.py",
+            "backend/routes/videos.py"
+          ]
+        },
+        {
+          "id": "T7-007",
+          "title": "QA re-verify T7-004: suggested_thumbnail fields in API response",
+          "role": "qa",
+          "status": "pending",
+          "depends_on": "T7-004",
+          "description": "T7-004 previously FAILED QA (fields were not actually added). Now re-done. Verify:\n1. models.py has suggested_thumbnail_prompt (Optional[str]) and suggested_thumbnail_urls (Optional[list]) — expect lines 90-91\n2. SQL SELECT in videos.py includes both columns — expect line 146\n3. VideoDetail constructor has r.get() for both, with _parse_json_field for URLs — expect lines 210-211\n4. curl GET /api/videos/{id} returns both fields (even if null)\n5. T7-002 suggestion card now receives data (previously noted 'Data won't flow until T7-004 is actually implemented')\n6. tsc --noEmit passes clean",
           "files": [
             "backend/models.py",
             "backend/routes/videos.py"
