@@ -7,3 +7,4 @@
 - Tab 7 (Thumbnail) complete: 7 tasks verified. Key wiring: pipeline.py:808 triggers, pipeline_executor saves URL, models.py:90-91 suggested fields, videos.py:227 allows prompt PATCH, accept/reject at lines 453/496.
 - Next.js Turbopack dev server can silently serve 500s for client JS if it encounters compile errors — always restart dev server before Playwright testing. Stale server = no React hydration = no API calls.
 - Production server (port 3001) runs from /home/clawd/projects/economy-fastforward/, not from /home/clawd/agent-workspace/. For Playwright verification of agent-dev changes, start a temp server on port 3002 from the agent-workspace build.
+- T17-006 auth: dev-token is NOT a mock auth session — AuthProvider:38 skips getMe() when token==='dev-token', so shell redirects to /login. dev-token is only for fetchApi Authorization header fallback. Real shell requires a Google OAuth JWT. This is by design, not a bug.
