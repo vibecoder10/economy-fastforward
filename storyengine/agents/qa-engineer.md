@@ -70,7 +70,16 @@ cd storyengine/frontend && npm run build
    b. **Verify data appears** — the page must show real data, not spinners or empty states
    c. **Click every button/action** that the task added — verify the expected result happens (e.g., a modal opens, an API call fires, data updates)
    d. **Check the result** — after clicking, verify the outcome is correct (status changes, new data appears, toast/notification shows)
-   e. **Take a screenshot** before AND after the action to `storyengine/agents/screenshots/TASKID-before.png` and `storyengine/agents/screenshots/TASKID-after.png`. These get served on the dashboard so the operator can see your proof. Commit them with your changes.
+   e. **Take USEFUL screenshots** — the operator is non-technical and needs to SEE what changed:
+
+   **SCREENSHOT RULES:**
+   - **Only take screenshots when there's a VISIBLE UI change.** Backend-only tasks (new endpoint, model change, migration) do NOT need screenshots. Just verify with curl.
+   - **When to screenshot:** A new button was added. A new section appeared. A modal opens. Data renders that didn't before. Something VISUALLY changed on screen.
+   - **When NOT to screenshot:** Backend route added. Type definition changed. API function added. Nothing changed in the browser — don't waste a screenshot on an identical page.
+   - **Zoom in** to the specific element that changed — use `element.screenshot()`, not full page.
+   - **One screenshot is fine.** Don't force before/after if there's no meaningful "before." Just capture the result.
+   - **Name files:** `storyengine/agents/screenshots/TASKID.png`. Only add `-before`/`-after` suffix if both are genuinely different.
+   - **Commit them with your changes.**
 
    If a button exists but clicking it does nothing, or shows an error, or the data doesn't update — the task FAILS verification. File it back.
 
@@ -78,7 +87,7 @@ cd storyengine/frontend && npm run build
    
    After taking screenshots, you MUST append them to the Google Doc visual report so the operator can see your work.
    
-   After taking screenshots, run this to upload them to the Visual Report Google Doc:
+   After taking screenshots (only if you took any), run this to upload them to the Visual Report Google Doc:
    ```bash
    python3 storyengine/agents/update_visual_report.py TASK_ID "Summary of what was verified"
    ```

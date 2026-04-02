@@ -119,6 +119,13 @@ if [ -n "$BLUEPRINT_FILE" ] && [ -f "$BLUEPRINT_FILE" ]; then
   BLUEPRINT=$(cat "$BLUEPRINT_FILE")
 fi
 
+# Product vision (shared by ALL agents)
+PRODUCT_VISION=""
+VISION_FILE="$AGENTS_DIR/blueprints/product-vision.md"
+if [ -f "$VISION_FILE" ]; then
+  PRODUCT_VISION=$(cat "$VISION_FILE")
+fi
+
 # Orchestrator mode
 ORCH_MODE="${ORCHESTRATOR_MODE:-micro}"
 
@@ -180,6 +187,9 @@ $RECENT_COMMITS
 fi
 
 PROMPT="You are running as the $AGENT agent for StoryEngine.
+
+## Product Vision (THE NORTH STAR — every task must push toward this)
+$PRODUCT_VISION
 
 ## Your Instructions
 $AGENT_PROMPT"

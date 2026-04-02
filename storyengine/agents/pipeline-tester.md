@@ -82,18 +82,33 @@ const { chromium } = require('playwright');
   // Test a page
   await page.goto('http://localhost:3001/pipeline');
   await page.waitForLoadState('networkidle');
-  await page.screenshot({ path: 'storyengine/agents/screenshots/pipeline-test-PAGE.png', fullPage: true });
+  // DON'T screenshot the whole page — zoom into the main content area
+  const main = page.locator('main');
+  await main.screenshot({ path: 'storyengine/agents/screenshots/pipeline-test-PAGE.png' });
 
   // Check for content
   const body = await page.textContent('body');
   const hasData = body.length > 500;
 
-  // Click a button
+  // Click a button and capture the RESULT, not the whole page
   const btn = page.locator('button:has-text("Generate")');
   if (await btn.count() > 0) {
+    // Screenshot the button area BEFORE clicking
+    await btn.first().scrollIntoViewIfNeeded();
+    const section = btn.first().locator('xpath=ancestor::div[contains(@style,"border")]').first();
+    if (await section.count() > 0) {
+      await section.screenshot({ path: 'storyengine/agents/screenshots/pipeline-test-PAGE-before-click.png' });
+    }
+    
     await btn.first().click();
     await page.waitForTimeout(3000);
-    await page.screenshot({ path: 'storyengine/agents/screenshots/pipeline-test-PAGE-after.png' });
+    
+    // Screenshot the same area AFTER clicking — should look different
+    if (await section.count() > 0) {
+      await section.screenshot({ path: 'storyengine/agents/screenshots/pipeline-test-PAGE-after-click.png' });
+    } else {
+      await main.screenshot({ path: 'storyengine/agents/screenshots/pipeline-test-PAGE-after-click.png' });
+    }
   }
 
   console.log('Errors:', errors.length ? errors : 'None');
