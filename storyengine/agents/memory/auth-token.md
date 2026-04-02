@@ -1,0 +1,17 @@
+# Agent Auth Token
+
+Use this JWT for browser testing (Playwright). Valid for 1 year, maps to Ryan's account.
+
+Token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIwMDAwMDAwMC0wMDAwLTAwMDAtMDAwMC0wMDAwMDAwMDAwMDEiLCJlbWFpbCI6InJ5YW4uYXlsZXJAZ21haWwuY29tIiwidGVuYW50X2lkIjoiZjY4MzlkZTItMzY4Yy00NDBkLTg1NTktMDI5MjAyNjE3OWZhIiwiaWF0IjoxNzc1MTcwOTgzLCJleHAiOjE4MDY3MDY5ODMsImlzcyI6InN0b3J5ZW5naW5lIn0.O1SsByU-CDtyeB9CTUBkzPVYtu-hslLXouZahZevLJc
+
+## For Playwright (inject before navigating)
+
+```js
+await page.evaluate(() => localStorage.setItem('token', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIwMDAwMDAwMC0wMDAwLTAwMDAtMDAwMC0wMDAwMDAwMDAwMDEiLCJlbWFpbCI6InJ5YW4uYXlsZXJAZ21haWwuY29tIiwidGVuYW50X2lkIjoiZjY4MzlkZTItMzY4Yy00NDBkLTg1NTktMDI5MjAyNjE3OWZhIiwiaWF0IjoxNzc1MTcwOTgzLCJleHAiOjE4MDY3MDY5ODMsImlzcyI6InN0b3J5ZW5naW5lIn0.O1SsByU-CDtyeB9CTUBkzPVYtu-hslLXouZahZevLJc'));
+```
+
+## For API calls (curl)
+
+```bash
+curl -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIwMDAwMDAwMC0wMDAwLTAwMDAtMDAwMC0wMDAwMDAwMDAwMDEiLCJlbWFpbCI6InJ5YW4uYXlsZXJAZ21haWwuY29tIiwidGVuYW50X2lkIjoiZjY4MzlkZTItMzY4Yy00NDBkLTg1NTktMDI5MjAyNjE3OWZhIiwiaWF0IjoxNzc1MTcwOTgzLCJleHAiOjE4MDY3MDY5ODMsImlzcyI6InN0b3J5ZW5naW5lIn0.O1SsByU-CDtyeB9CTUBkzPVYtu-hslLXouZahZevLJc" http://localhost:8001/api/videos
+```
