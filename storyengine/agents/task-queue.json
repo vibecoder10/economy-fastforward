@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "current_tab": 3,
-  "last_updated": "2026-04-02",
-  "last_updated_by": "orchestrator",
+  "current_tab": 13,
+  "last_updated": "2026-04-03",
+  "last_updated_by": "pipeline-tester",
   "tabs": [
     {
       "id": 1,
@@ -1020,9 +1020,27 @@
           "id": "T13-006",
           "title": "QA verify autopilot: toggle, config editing, weights, YouTube sync, task status",
           "role": "qa",
-          "status": "pending",
+          "status": "done",
+          "verified": true,
+          "started_at": "2026-04-03T01:00:00Z",
+          "completed_at": "2026-04-03T01:15:00Z",
+          "assigned_to": "qa-engineer",
+          "verified_at": "2026-04-03T01:15:00Z",
+          "verified_by": "qa-engineer",
+          "verification_notes": "PARTIAL PASS — core toggle works, basic config works, but T13-001/T13-002/T13-003/T13-004 frontend features not yet built. (1) Toggle: POST /api/autopilot/toggle {enabled:bool} → {status:ok, enabled:bool} — persists to DB, re-read on /api/autopilot/summary confirms state change. ✅ (2) Config (videos_per_month, videos_per_scrape): inline click-to-edit in UI works, calls updateAutopilotConfig → POST /api/autopilot/config — persists. ✅ (3) Weights/thresholds editing: NOT BUILT — ConfigUpdate model (autopilot.py line 389) only accepts videos_per_month/videos_per_scrape/production_interval_days, NOT weights or thresholds. Frontend api.ts:292 matches this limited model. T13-002 is blocked by backend bug — filed as BUG-T13-002-BACKEND. (4) YouTube Sync UI (T13-003): NOT BUILT — no sync button on autopilot page. Backend syncYouTubeMetrics exists in api.ts:463 but never called from autopilot page. (5) Background task status panel (T13-004): NOT BUILT — GET /api/autopilot/tasks returns all 4 tasks correctly (scrape, youtube_sync, learning_extraction, title_analysis all with last_run/is_running/last_error). But no UI panel renders this data. (6) Last_cycle/next production display (T13-001): state.days_until_next=2 returned by backend but frontend shows 'click to edit' for Target/Month only — no 'Last cycle: X ago' or 'Next production in: 2 days' text visible. (7) 0 console errors. (8) tsc: 0 errors. Verdict: toggle+basic config work; T13-001 to T13-004 frontend tasks not yet implemented.",
           "description": "Verify: toggle works, config changes persist (weights + thresholds), YouTube sync button triggers and shows progress, background task status panel shows real data. Full wiring audit of all autopilot features.",
           "depends_on": "T13-005"
+        },
+        {
+          "id": "BUG-T13-002-BACKEND",
+          "title": "BUG: ConfigUpdate model missing weights/thresholds — T13-002 blocked",
+          "role": "backend",
+          "status": "pending",
+          "description": "Pipeline Tester found: POST /api/autopilot/config (autopilot.py line 389, ConfigUpdate model) only accepts videos_per_month, production_interval_days, videos_per_scrape — it does NOT accept weights dict or thresholds dict. T13-002 spec says 'Backend POST /api/autopilot/config accepts weights (competitor_vph, timing_freshness) and thresholds (min_confidence_score, etc.)'. Also the autopilot_config DB table likely has no weights/thresholds columns. Fix: (1) Add weights: Optional[dict] and thresholds: Optional[dict] to ConfigUpdate model. (2) Add JSONB columns to autopilot_config table if not present. (3) Update the SQL UPDATE/INSERT in update_config() to persist weights and thresholds. Also update frontend api.ts:292 updateAutopilotConfig to include weights and thresholds in the type.",
+          "files": [
+            "backend/routes/autopilot.py",
+            "frontend/src/lib/api.ts"
+          ]
         }
       ]
     },

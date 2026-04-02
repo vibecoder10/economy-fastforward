@@ -11,4 +11,5 @@
 - Always proxy /api/** routes with route.fulfill() + Python urllib to bypass CORS (localhost:3002 not in backend CORS allowlist). Combine with storage_state for auth.
 - storyboard_status values replace underscore with space in UI: 'grids_generated' shows as 'grids generated', search page_text with spaces not underscores.
 - Supabase pooler gets circuit breaker after bad auth attempts — use direct DB URL (db.PROJECT.supabase.co:5432) not pooler (pooler.supabase.com) to avoid this.
-- email/password register endpoint broken (FK violation memberships->users) — BUG-AUTH-001 filed.
+- email/password register endpoint broken (FK violation memberships->users) — BUG-AUTH-001 filed (now FIXED in commit 4cc9dec).
+- Autopilot ConfigUpdate model (autopilot.py) only accepts videos_per_month/videos_per_scrape — does NOT accept weights/thresholds. T13-002 backend bug filed.
