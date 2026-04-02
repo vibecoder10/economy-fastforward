@@ -67,6 +67,11 @@
   .agent-info { display: flex; flex-direction: column; min-width: 0; }
   .agent-name { font-size: 12px; font-weight: 500; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .agent-task { font-size: 10px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .agent-pause-btn { width:20px;height:20px;border:none;background:transparent;color:var(--text-muted);cursor:pointer;border-radius:4px;display:flex;align-items:center;justify-content:center;flex-shrink:0;opacity:0;transition:opacity 0.2s;margin-left:auto; }
+  .agent-row:hover .agent-pause-btn { opacity:1; }
+  .agent-pause-btn:hover { background:rgba(255,255,255,0.08);color:var(--text); }
+  .agent-pause-btn.paused svg { stroke:#f5a623; }
+  .agent-dot.paused { background:#f5a623;animation:none; }
 
   .nav-tabs { display: flex; flex-direction: column; gap: 2px; flex: 1; }
   .nav-tab {
@@ -380,6 +385,10 @@
     </div>
   </div>
   <div class="agent-status-panel" id="agent-status-panel"></div>
+  <div id="task-progress" style="padding:8px 12px;border-bottom:1px solid var(--border);margin-bottom:8px;">
+    <div style="height:4px;background:#1a1a1a;border-radius:2px;overflow:hidden;"><div id="progress-fill" style="height:100%;background:#50e3c2;border-radius:2px;transition:width 0.5s;width:0%;"></div></div>
+    <div id="progress-text" style="font-size:10px;color:#555;margin-top:4px;">Loading...</div>
+  </div>
   <nav class="nav-tabs" id="nav-tabs"></nav>
 </div>
 
@@ -408,6 +417,22 @@
   <!-- ACTIVITY FEED -->
   <div id="tab-activity" class="tab-panel">
     <div style="max-width:800px;margin:0 auto;padding:20px;">
+
+      <!-- Agent Controls -->
+      <div style="margin-bottom:24px;padding:16px;background:#0a0a0a;border:1px solid #1a1a1a;border-radius:12px;">
+        <h3 style="font-size:14px;font-weight:600;margin-bottom:12px;color:#888;">Agent Controls</h3>
+        <div id="agent-controls-grid" style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;"></div>
+      </div>
+
+      <!-- Recent Handoffs -->
+      <div style="margin-bottom:24px;padding:16px;background:#0a0a0a;border:1px solid #1a1a1a;border-radius:12px;">
+        <h3 style="font-size:14px;font-weight:600;margin-bottom:12px;color:#888;">Recent Handoffs</h3>
+        <div id="handoff-feed" style="display:flex;flex-direction:column;gap:8px;max-height:250px;overflow-y:auto;">
+          <div style="color:#555;font-size:12px;text-align:center;padding:8px 0;">No handoffs yet</div>
+        </div>
+      </div>
+
+      <!-- Activity Feed -->
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
         <h2 style="font-size:20px;font-weight:700;letter-spacing:-0.3px;">Activity Feed</h2>
         <button id="activity-refresh-btn" style="background:none;border:1px solid #222;color:#888;padding:6px 14px;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;font-family:'Outfit',sans-serif;">Refresh</button>
@@ -654,7 +679,10 @@ window.__onTabShow = {};
           '<div class="agent-info">' +
             '<span class="agent-name">' + esc(a.name || a.id) + '</span>' +
             '<span class="agent-task">Idle</span>' +
-          '</div>';
+          '</div>' +
+          '<button class="agent-pause-btn" data-agent="' + a.id + '" title="Pause/Resume">' +
+            '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>' +
+          '</button>';
         panel.appendChild(row);
         const canvas = row.querySelector('canvas');
         const pixels = a.pixels || icon.p;
@@ -667,7 +695,14 @@ window.__onTabShow = {};
 
     loadActivityFeed();
     setInterval(loadActivityFeed, 30000);
-    document.getElementById('activity-refresh-btn')?.addEventListener('click', loadActivityFeed);
+    document.getElementById('activity-refresh-btn')?.addEventListener('click', () => { loadActivityFeed(); loadHandoffs(); loadTaskProgress(); });
+
+    loadTaskProgress();
+    setInterval(loadTaskProgress, 30000);
+    loadControls();
+    setInterval(loadControls, 10000);
+    loadHandoffs();
+    setInterval(loadHandoffs, 30000);
 
     let tabs = ['welcome', 'icons'];
     try {
@@ -701,6 +736,114 @@ window.__onTabShow = {};
   }
 
   const AGENT_COLORS = { orchestrator:'#D4A844', 'backend-dev':'#1A8A7A', 'frontend-dev':'#58abf5', 'qa-engineer':'#e35050' };
+  const AGENT_NAMES = { orchestrator:'Orchestrator', 'backend-dev':'Backend Dev', 'frontend-dev':'Frontend Dev', 'qa-engineer':'QA Engineer' };
+
+  // Task progress
+  async function loadTaskProgress() {
+    try {
+      const resp = await fetch('/api/task-queue');
+      if (!resp.ok) return;
+      const queue = await resp.json();
+      const allTasks = queue.tabs ? queue.tabs.flatMap(t => t.tasks) : [];
+      const done = allTasks.filter(t => t.status === 'done' || t.verified).length;
+      const total = allTasks.length;
+      const currentTab = queue.current_tab || 1;
+      const totalTabs = queue.tabs ? queue.tabs.length : 0;
+      const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+      const fill = document.getElementById('progress-fill');
+      const text = document.getElementById('progress-text');
+      if (fill) fill.style.width = pct + '%';
+      if (text) text.textContent = 'Tab ' + currentTab + '/' + totalTabs + ' \u2014 ' + done + '/' + total + ' tasks (' + pct + '%)';
+    } catch {}
+  }
+
+  // Controls
+  let currentControls = { paused_agents: [], skipped_tasks: [], priority_overrides: {} };
+  async function loadControls() {
+    try {
+      const resp = await fetch('/api/controls');
+      if (!resp.ok) return;
+      currentControls = await resp.json();
+      // Update sidebar pause buttons
+      document.querySelectorAll('.agent-pause-btn').forEach(btn => {
+        const agent = btn.dataset.agent;
+        const isPaused = currentControls.paused_agents.includes(agent);
+        btn.classList.toggle('paused', isPaused);
+        btn.querySelector('svg').innerHTML = isPaused
+          ? '<polygon points="5 3 19 12 5 21 5 3"/>'
+          : '<rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>';
+        const dot = btn.closest('.agent-row')?.querySelector('.agent-dot');
+        if (dot && isPaused) dot.classList.add('paused');
+        if (dot && !isPaused) dot.classList.remove('paused');
+      });
+      // Update controls grid in activity tab
+      renderControlsGrid();
+    } catch {}
+  }
+
+  function renderControlsGrid() {
+    const grid = document.getElementById('agent-controls-grid');
+    if (!grid) return;
+    const agents = ['orchestrator', 'backend-dev', 'frontend-dev', 'qa-engineer'];
+    grid.innerHTML = agents.map(id => {
+      const isPaused = currentControls.paused_agents.includes(id);
+      const color = AGENT_COLORS[id] || '#888';
+      const name = AGENT_NAMES[id] || id;
+      return '<button onclick="togglePause(\'' + id + '\')" style="display:flex;align-items:center;gap:10px;padding:12px 16px;background:' + (isPaused ? 'rgba(245,166,35,0.1)' : '#111') + ';border:1px solid ' + (isPaused ? '#f5a623' : '#222') + ';border-radius:8px;cursor:pointer;border-left:3px solid ' + color + ';min-height:48px;">' +
+        '<div style="width:10px;height:10px;border-radius:50%;background:' + (isPaused ? '#f5a623' : '#50e3c2') + ';flex-shrink:0;"></div>' +
+        '<div style="flex:1;text-align:left;">' +
+          '<div style="font-size:13px;font-weight:600;color:#ccc;font-family:Outfit,sans-serif;">' + name + '</div>' +
+          '<div style="font-size:10px;color:' + (isPaused ? '#f5a623' : '#555') + ';font-family:Outfit,sans-serif;">' + (isPaused ? 'PAUSED' : 'Running') + '</div>' +
+        '</div>' +
+      '</button>';
+    }).join('');
+  }
+
+  window.togglePause = async function(agent) {
+    await fetch('/api/controls/pause', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agent }) });
+    loadControls();
+  };
+
+  // Sidebar pause button click handler
+  document.addEventListener('click', async (e) => {
+    const btn = e.target.closest('.agent-pause-btn');
+    if (!btn) return;
+    e.stopPropagation();
+    await togglePause(btn.dataset.agent);
+  });
+
+  // Handoff feed
+  async function loadHandoffs() {
+    const feed = document.getElementById('handoff-feed');
+    if (!feed) return;
+    try {
+      const resp = await fetch('/api/handoffs');
+      if (!resp.ok) return;
+      const handoffs = await resp.json();
+      if (handoffs.length === 0) {
+        feed.innerHTML = '<div style="color:#555;font-size:12px;text-align:center;padding:8px 0;">No handoffs yet</div>';
+        return;
+      }
+      feed.innerHTML = handoffs.slice(0, 8).map(h => {
+        const fromColor = AGENT_COLORS[h.from] || '#888';
+        const toColor = AGENT_COLORS[h.to] || '#888';
+        const ago = Math.floor((Date.now() - h.timestamp) / 60000);
+        const timeStr = ago < 1 ? 'Just now' : ago < 60 ? ago + 'm ago' : ago < 1440 ? Math.floor(ago/60) + 'h ago' : Math.floor(ago/1440) + 'd ago';
+        return '<div style="padding:10px 12px;background:#111;border:1px solid #1a1a1a;border-radius:8px;font-size:12px;">' +
+          '<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">' +
+            '<span style="color:' + fromColor + ';font-weight:600;">' + esc(h.from) + '</span>' +
+            '<span style="color:#555;">\u2192</span>' +
+            '<span style="color:' + toColor + ';font-weight:600;">' + esc(h.to) + '</span>' +
+            '<span style="color:#333;margin-left:auto;font-size:10px;">' + timeStr + '</span>' +
+            (h.read ? '' : '<span style="width:6px;height:6px;border-radius:50%;background:#50e3c2;flex-shrink:0;" title="Unread"></span>') +
+          '</div>' +
+          '<div style="color:#aaa;line-height:1.4;">' + esc(h.message || '').substring(0, 200) + '</div>' +
+          (h.files_changed && h.files_changed.length ? '<div style="color:#555;margin-top:4px;font-size:10px;">Files: ' + h.files_changed.join(', ') + '</div>' : '') +
+        '</div>';
+      }).join('');
+    } catch {}
+  }
+
   async function loadActivityFeed() {
     const feed = document.getElementById('activity-feed');
     if (!feed) return;
