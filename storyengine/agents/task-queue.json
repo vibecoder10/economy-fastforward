@@ -640,7 +640,10 @@
           "id": "T10-003",
           "title": "Display last_scraped timestamps on channel cards",
           "role": "frontend",
-          "status": "pending",
+          "status": "done",
+          "started_at": "2026-04-02T15:02:00Z",
+          "assigned_to": "frontend-dev",
+          "completed_at": "2026-04-02T15:04:00Z",
           "description": "Backend returns last_scraped on each channel from GET /api/niche/channels. Display this as relative time ('3h ago') on each channel pill/card so users know data freshness.",
           "files": [
             "frontend/src/app/competitors/page.tsx"

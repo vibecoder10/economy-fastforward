@@ -24,7 +24,7 @@ import {
   getScrapeStatus,
   type CompetitorCandidate,
 } from "@/lib/api";
-import { formatNumber } from "@/lib/utils";
+import { formatNumber, timeAgo } from "@/lib/utils";
 
 const container = {
   hidden: { opacity: 0 },
@@ -371,12 +371,18 @@ export default function CompetitorsPage() {
                     setChannelFilter(isActive ? "all" : displayName)
                   }
                   style={{ cursor: "pointer" }}
+                  className="flex items-center gap-1.5"
                 >
                   <StatusPill
                     label={displayName}
                     color={isActive ? "turquoise" : "gold"}
                     size="md"
                   />
+                  {ch.last_scraped && (
+                    <span className="text-[9px] font-mono whitespace-nowrap" style={{ color: "var(--text-tertiary)" }}>
+                      {timeAgo(ch.last_scraped)}
+                    </span>
+                  )}
                 </div>
                 <button
                   onClick={(e) => {
