@@ -321,6 +321,12 @@ curl -s -X POST "$RUBRIC_URL/api/activity-log" \
   -H "Content-Type: application/json" \
   -d "{\"agent\": \"$AGENT\", \"task\": \"$TASK_LINE\", \"summary\": $SUMMARY_JSON, \"detail\": $DETAIL_JSON, \"detail_file\": \"$RUN_ID.md\", \"status\": \"completed\"}" 2>/dev/null || true
 
+# ─── Upload Screenshots to Google Doc (QA + Pipeline Tester only) ───────────
+if [ "$AGENT" = "qa-engineer" ] || [ "$AGENT" = "pipeline-tester" ]; then
+  echo "Uploading screenshots to Google Doc..."
+  python3 "$AGENTS_DIR/update_visual_report.py" "$TASK_LINE" "$SUMMARY_LINE" 2>&1 || true
+fi
+
 # ─── Slack Notification ─────────────────────────────────────────────────────
 notify_slack ":white_check_mark: *$AGENT_DISPLAY* completed $TASK_LINE: $SUMMARY_LINE"
 
