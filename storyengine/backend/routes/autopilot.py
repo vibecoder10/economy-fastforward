@@ -19,6 +19,10 @@ from database import fetch_all, fetch_one, execute
 
 router = APIRouter(prefix="/api/autopilot", tags=["autopilot"])
 
+# Background task status — updated by main.py background loops
+# Keys: scrape, youtube_sync, learning_extraction, title_analysis
+_bg_task_status: Dict[str, Dict[str, dict]] = {}
+
 
 # --- Models ---
 
@@ -578,4 +582,41 @@ async def launch_candidate(
         "video_id": video_id,
         "video_title": video_title,
         "message": "Video created and pipeline started",
+    }
+
+
+@router.get("/tasks")
+async def get_background_task_status(tenant_id: str = Depends(get_tenant_id)):
+    """Get status of all 4 background autopilot tasks.
+
+    Returns last_run, is_running, last_error for each task:
+    scrape, youtube_sync, learning_extraction, title_analysis.
+    Also includes user-triggered task status from niche and youtube_sync routes.
+    """
+    tenant_status = _bg_task_status.get(tenant_id, {})
+
+    # Merge with user-triggered task status from niche._scrape_tasks and youtube_sync._sync_tasks
+    from routes.niche import _scrape_tasks
+    from routes.youtube_sync import _sync_tasks
+
+    scrape_user = _scrape_tasks.get(tenant_id, {})
+    sync_user = _sync_tasks.get(tenant_id, {})
+
+    def _task_info(bg_key: str, user_task: dict = None) -> dict:
+        bg = tenant_status.get(bg_key, {})
+        is_running = bg.get("is_running", False)
+        # If a user-triggered task is also running, reflect that
+        if user_task and user_task.get("running"):
+            is_running = True
+        return {
+            "last_run": bg.get("last_run"),
+            "is_running": is_running,
+            "last_error": bg.get("last_error"),
+        }
+
+    return {
+        "scrape": _task_info("scrape", scrape_user),
+        "youtube_sync": _task_info("youtube_sync", sync_user),
+        "learning_extraction": _task_info("learning_extraction"),
+        "title_analysis": _task_info("title_analysis"),
     }

@@ -684,7 +684,10 @@
           "id": "T13-005",
           "title": "Add backend endpoint for background task status",
           "role": "backend",
-          "status": "pending",
+          "status": "done",
+          "started_at": "2026-04-02T04:00:02Z",
+          "completed_at": "2026-04-02T04:05:00Z",
+          "assigned_to": "backend-dev",
           "description": "Add GET /api/autopilot/tasks endpoint that returns status of all 4 background tasks: scrape (from _scrape_tasks), youtube_sync (from _sync_tasks), learning_extraction (from extraction results), title_analysis (from analysis results). Include last_run, is_running, last_error for each.",
           "files": [
             "backend/routes/autopilot.py",
