@@ -388,11 +388,13 @@
           "id": "T7-006",
           "title": "Wire thumbnail prompt save to backend PATCH endpoint",
           "role": "frontend",
-          "status": "pending",
-          "description": "The prompt textarea (ThumbnailTab.tsx lines 201-212) lets users edit thumbnail_prompt but NEVER saves it. The backend already supports PATCH /api/videos/{id} with thumbnail_prompt in the allowed_fields set (videos.py line 224). Add a 'Save Prompt' button or auto-save on blur that calls updateVideo(video.id, { thumbnail_prompt: prompt }). Import or create the updateVideo API call if needed (PATCH /api/videos/{id} exists).",
+          "status": "done",
+          "started_at": "2026-04-02T08:02:00Z",
+          "assigned_to": "frontend-dev",
+          "completed_at": "2026-04-02T08:06:00Z",
+          "description": "Added Save Prompt button to ThumbnailTab that calls updateVideo(id, { thumbnail_prompt }) via existing PATCH /api/videos/{id}. Button only appears when prompt text has been modified (dirty check via ref). Shows saved confirmation briefly. Uses existing updateVideo from api.ts — no new API calls needed.",
           "files": [
-            "frontend/src/components/production/ThumbnailTab.tsx",
-            "frontend/src/lib/api.ts"
+            "frontend/src/components/production/ThumbnailTab.tsx"
           ]
         }
       ]

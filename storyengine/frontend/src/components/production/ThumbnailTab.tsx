@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useCallback } from "react";
-import { Check, RefreshCw, Loader2, ChevronDown, ChevronUp, Sparkles, X, ImageIcon } from "lucide-react";
+import { useState, useCallback, useRef } from "react";
+import { Check, RefreshCw, Loader2, ChevronDown, ChevronUp, Sparkles, X, ImageIcon, Save } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { ActionButton } from "@/components/ui/ActionButton";
 import { useQueryClient } from "@tanstack/react-query";
-import { runPipelineStage, advanceVideo, updateVideoStyles, clearStaleTask, acceptSuggestion, rejectSuggestion } from "@/lib/api";
+import { runPipelineStage, advanceVideo, updateVideoStyles, updateVideo, clearStaleTask, acceptSuggestion, rejectSuggestion } from "@/lib/api";
 import { useTaskPoller } from "@/hooks/use-task-poller";
 import type { VideoDetail } from "@/lib/api";
 
@@ -35,6 +35,9 @@ export function ThumbnailTab({ video }: ThumbnailTabProps) {
   const [prompt, setPrompt] = useState(video.thumbnail_prompt || "");
   const [promptExpanded, setPromptExpanded] = useState(false);
   const [taskRunning, setTaskRunning] = useState(false);
+  const [isSavingPrompt, setIsSavingPrompt] = useState(false);
+  const [promptSaved, setPromptSaved] = useState(false);
+  const savedPromptRef = useRef(video.thumbnail_prompt || "");
 
   const { message: taskMessage } = useTaskPoller({
     videoId: video.id,
@@ -137,6 +140,22 @@ export function ThumbnailTab({ video }: ThumbnailTabProps) {
       setIsSavingColor(false);
     }
   }, [video.id]);
+
+  const promptDirty = prompt !== savedPromptRef.current;
+
+  const handleSavePrompt = useCallback(async () => {
+    setIsSavingPrompt(true);
+    try {
+      await updateVideo(video.id, { thumbnail_prompt: prompt });
+      savedPromptRef.current = prompt;
+      setPromptSaved(true);
+      setTimeout(() => setPromptSaved(false), 2000);
+    } catch (err) {
+      alert(`Failed to save prompt: ${(err as Error).message}`);
+    } finally {
+      setIsSavingPrompt(false);
+    }
+  }, [video.id, prompt]);
 
   const thumbnailUrl = video.thumbnail_url || vid.thumbnailUrl;
 
@@ -245,6 +264,26 @@ export function ThumbnailTab({ video }: ThumbnailTabProps) {
               ) : (
                 <p className="text-sm italic" style={{ color: "var(--text-tertiary)" }}>
                   No prompt generated yet. Run the thumbnail stage to generate one.
+                </p>
+              )}
+              {prompt && promptDirty && (
+                <button
+                  onClick={handleSavePrompt}
+                  disabled={isSavingPrompt}
+                  className="mt-2 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
+                  style={{
+                    background: "var(--gold-dim)",
+                    color: "var(--gold)",
+                    border: "1px solid var(--gold)",
+                  }}
+                >
+                  {isSavingPrompt ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
+                  {isSavingPrompt ? "Saving..." : "Save Prompt"}
+                </button>
+              )}
+              {promptSaved && !promptDirty && (
+                <p className="mt-2 text-xs flex items-center gap-1" style={{ color: "var(--green)" }}>
+                  <Check size={12} /> Prompt saved
                 </p>
               )}
             </div>
