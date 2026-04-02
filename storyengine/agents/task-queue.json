@@ -760,8 +760,11 @@
           "id": "T11-006",
           "title": "Add sidebar nav entry for Discovery",
           "role": "frontend",
-          "status": "pending",
-          "description": "Add 'Discovery' to the sidebar navigation (components/nav/Sidebar.tsx) and bottom tabs (components/nav/BottomTabs.tsx) between Competitors and Autopilot. Use a lightbulb or spark icon.",
+          "status": "done",
+          "started_at": "2026-04-02T18:02:00Z",
+          "assigned_to": "frontend-dev",
+          "completed_at": "2026-04-02T18:06:00Z",
+          "description": "Added Discovery to sidebar nav and bottom tabs between Competitors and Autopilot. Used Lightbulb icon. Part of the /discovery page hero feature build.",
           "files": [
             "frontend/src/components/nav/Sidebar.tsx",
             "frontend/src/components/nav/BottomTabs.tsx"
