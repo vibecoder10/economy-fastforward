@@ -407,6 +407,39 @@ export const syncYouTubeMetrics = () =>
 export const getYouTubeSyncStatus = () =>
   fetchApi<YouTubeSyncStatus>("/api/youtube/sync/status");
 
+// Analytics
+export interface AnalyticsOverview {
+  total_videos: number;
+  total_views: number;
+  avg_ctr: number | null;
+  avg_retention: number | null;
+  published_videos: number;
+}
+
+export interface CTRTimelinePoint {
+  video_title: string;
+  ctr: number | null;
+  views: number;
+  date: string;
+}
+
+export interface FrameworkPerformance {
+  framework: string;
+  video_count: number;
+  avg_ctr: number | null;
+  avg_retention: number | null;
+  total_views: number;
+}
+
+export const getAnalyticsOverview = () =>
+  fetchApi<AnalyticsOverview>("/api/analytics/overview");
+
+export const getCTRTimeline = (limit?: number) =>
+  fetchApi<CTRTimelinePoint[]>(`/api/analytics/ctr-timeline${limit ? `?limit=${limit}` : ""}`);
+
+export const getFrameworkPerformance = () =>
+  fetchApi<FrameworkPerformance[]>("/api/analytics/framework-performance");
+
 // Scene Editing
 export const updateSceneText = (videoId: string, scene: number, text: string) =>
   fetchApi<{ status: string }>(`/api/videos/${videoId}/scenes/${scene}/text`, {

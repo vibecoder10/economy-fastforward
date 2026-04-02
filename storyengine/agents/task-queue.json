@@ -871,7 +871,10 @@
           "id": "T15-002",
           "title": "Build analytics dashboard page",
           "role": "frontend",
-          "status": "pending",
+          "status": "done",
+          "started_at": "2026-04-02T14:02:00Z",
+          "assigned_to": "frontend-dev",
+          "completed_at": "2026-04-02T14:08:00Z",
           "description": "Replace the analytics page stub with a real dashboard. Show: overview stats cards, CTR timeline chart (Recharts), framework effectiveness breakdown, per-video performance table sortable by CTR/views/retention.",
           "files": [
             "frontend/src/app/analytics/page.tsx"
