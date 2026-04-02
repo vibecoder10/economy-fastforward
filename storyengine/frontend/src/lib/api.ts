@@ -1,4 +1,23 @@
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
+const RUBRIC_URL = process.env.NEXT_PUBLIC_RUBRIC_URL || "http://76.13.119.181:5050";
+
+// Auto-report failed API calls to RUBRIC dashboard (silent, non-blocking)
+function reportError(path: string, status: number, body: string, method: string) {
+  if (typeof window === "undefined") return;
+  const page = window.location.pathname;
+  try {
+    fetch(`${RUBRIC_URL}/api/activity-log`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        agent: "user-browser",
+        task: `${method} ${path}`,
+        summary: `API error ${status} on ${page}: ${method} ${path} → ${body.substring(0, 200)}`,
+        status: "error",
+      }),
+    }).catch(() => {});
+  } catch {}
+}
 
 async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
   // Get token from localStorage, fallback to "dev-token" for development
@@ -16,6 +35,7 @@ async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
 
   if (!res.ok) {
     const body = await res.text();
+    reportError(path, res.status, body, options?.method || "GET");
     throw new Error(`API error ${res.status}: ${body}`);
   }
 
