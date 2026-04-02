@@ -539,9 +539,13 @@
           "title": "Display agent quality scores",
           "role": "frontend",
           "status": "done",
+          "verified": true,
           "started_at": "2026-04-02T18:02:00Z",
           "completed_at": "2026-04-02T18:06:00Z",
           "assigned_to": "frontend-dev",
+          "verified_at": "2026-04-02T19:04:00Z",
+          "verified_by": "qa-engineer",
+          "verification_notes": "PASS. Agent Quality Scores section renders conditionally (line 142). hook_score/body_score as ScoreCard with /10 scale + progress bars (lines 148-153). Tier with premium=gold coloring (line 162). agent_cost with formatCost (line 174). Color thresholds: green>=70%, gold>=50%, red<50% (line 361). Backend models.py:86-89 has all 4 fields. api.ts:592-595 matches. Commit e2a67f4 clean: 2 files, 66 lines, no bloat. tsc passes.",
           "description": "Added Agent Quality Scores section to PerformanceTab showing hook_score and body_score as progress bars with /10 scale, tier as colored label, agent_cost formatted. ScoreCard helper with color thresholds (green>=70%, gold>=50%, red<50%). Only renders when at least one agent field is present.",
           "files": [
             "frontend/src/components/production/PerformanceTab.tsx"
@@ -559,8 +563,15 @@
           "id": "T9-007",
           "title": "QA verify T9-002: post-mortem analysis sections render correctly",
           "role": "qa",
-          "status": "pending",
+          "status": "done",
+          "verified": true,
           "depends_on": "T9-002",
+          "started_at": "2026-04-02T19:04:00Z",
+          "completed_at": "2026-04-02T19:06:00Z",
+          "assigned_to": "qa-engineer",
+          "verified_at": "2026-04-02T19:06:00Z",
+          "verified_by": "qa-engineer",
+          "verification_notes": "PASS. All 8 checklist items verified: (1) PostMortemSection component at line 242 with collapsible accordion. (2) parsePostMortem at line 227 with try/catch JSON parsing. (3) VERDICT_ICON maps strong=green, average=gold, weak=red (lines 236-240). (4) CTR/retention VerdictPills (lines 296-300). (5) Recommendations list (lines 304-317). (6) Metrics grid with formatting (lines 320-343). (7) Analyzed timestamp with timeAgo (lines 346-349). (8) Null returns null from parsePostMortem (line 246). Backend: models.py:83-84, SQL:144, r.get():203-204. api.ts:587-588 matches. Commit 9f1eb3d clean: 2 files, 182 lines. tsc passes.",
           "description": "Verify T9-002 implementation: (1) PerformanceTab.tsx has collapsible 48h and 7d post-mortem sections. (2) JSON parsed safely from post_mortem_48h and post_mortem_7d fields. (3) Verdicts show with color-coded pills (overall, CTR, retention). (4) Recommendations render as list. (5) Metrics grid displays key numbers. (6) Analyzed timestamp shown. (7) Graceful handling when post-mortem fields are null/empty. (8) tsc --noEmit passes clean.",
           "files": [
             "frontend/src/components/production/PerformanceTab.tsx"
