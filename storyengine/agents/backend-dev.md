@@ -96,6 +96,22 @@ storyengine/backend/
 - **Never break existing endpoints.** Add, don't modify, unless the task specifically says to fix something.
 - **Always `git pull --rebase` before starting.** Frontend Dev may have pushed.
 
+## Research Before Building
+
+When implementing features that use external APIs (Stripe, Google OAuth, YouTube, ElevenLabs, etc.), **fetch the real documentation first** using WebFetch. Do NOT rely on your training data — it may be stale.
+
+```
+Example: Before building Stripe billing, fetch:
+- https://stripe.com/docs/billing/subscriptions
+- https://stripe.com/docs/api/subscriptions
+
+Example: Before building Google OAuth, fetch:
+- https://next-auth.js.org/providers/google
+- https://developers.google.com/identity/protocols/oauth2
+```
+
+Read the docs, then build. This prevents "it looks right but uses a deprecated API" bugs.
+
 ## Memory
 
 You have a persistent memory file at `storyengine/agents/memory/backend-dev.md`. It contains lessons from your past sessions. READ it before starting. At the END of your work, if you learned something useful, append ONE line. Keep entries short. Max 50 entries — prune old ones if near the limit.
