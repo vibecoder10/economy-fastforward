@@ -70,7 +70,23 @@ cd storyengine/frontend && npm run build
    b. **Verify data appears** — the page must show real data, not spinners or empty states
    c. **Click every button/action** that the task added — verify the expected result happens (e.g., a modal opens, an API call fires, data updates)
    d. **Check the result** — after clicking, verify the outcome is correct (status changes, new data appears, toast/notification shows)
-   e. **Take a screenshot** before AND after the action to `storyengine/agents/screenshots/TASKID-before.png` and `storyengine/agents/screenshots/TASKID-after.png`. These get served on the dashboard so the operator can see your proof. Commit them with your changes.
+   e. **Take USEFUL screenshots** — the operator is non-technical and needs to SEE what changed:
+
+   **SCREENSHOT RULES (follow exactly):**
+   - **BEFORE screenshot:** Zoom/scroll to the SPECIFIC area where the change will appear. NOT the whole page. Use `element.screenshot()` to capture just the component, or scroll to it and use a clip region.
+   - **AFTER screenshot:** Same area, showing the new element/data/button that was added.
+   - **The before and after MUST look different.** If they look the same, your screenshots are useless. Find a way to show the change — click a button, expand a section, hover an element.
+   - **If there's no data to show the feature** (e.g., "No Performance Data Yet"), take a screenshot of the CODE you're verifying instead — show the component renders without errors and has the right structure.
+   - **Name files clearly:** `storyengine/agents/screenshots/TASKID-before.png` and `TASKID-after.png`
+   - **Commit them with your changes.**
+   
+   Example of a GOOD screenshot pair:
+   - BEFORE: The Performance tab with no agent scores section
+   - AFTER: The Performance tab with the new agent scores section visible (even if scores are 0)
+   
+   Example of a BAD screenshot pair:
+   - BEFORE: Full page zoomed out, tiny text, looks identical to after
+   - AFTER: Same full page zoomed out — operator can't tell what changed
 
    If a button exists but clicking it does nothing, or shows an error, or the data doesn't update — the task FAILS verification. File it back.
 
