@@ -543,6 +543,17 @@
           "status": "pending",
           "description": "Verify all performance data renders from API. Check snapshot metrics display, post-mortem JSON renders as readable sections, agent suggestions show with accept/reject buttons.",
           "depends_on": "T9-004"
+        },
+        {
+          "id": "T9-007",
+          "title": "QA verify T9-002: post-mortem analysis sections render correctly",
+          "role": "qa",
+          "status": "pending",
+          "depends_on": "T9-002",
+          "description": "Verify T9-002 implementation: (1) PerformanceTab.tsx has collapsible 48h and 7d post-mortem sections. (2) JSON parsed safely from post_mortem_48h and post_mortem_7d fields. (3) Verdicts show with color-coded pills (overall, CTR, retention). (4) Recommendations render as list. (5) Metrics grid displays key numbers. (6) Analyzed timestamp shown. (7) Graceful handling when post-mortem fields are null/empty. (8) tsc --noEmit passes clean.",
+          "files": [
+            "frontend/src/components/production/PerformanceTab.tsx"
+          ]
         }
       ]
     },
