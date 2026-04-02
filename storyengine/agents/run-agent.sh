@@ -69,6 +69,19 @@ curl -s -X POST "$RUBRIC_URL/api/agent-status" \
 AGENT_PROMPT=$(cat "$AGENT_FILE")
 TASK_QUEUE=$(cat "$AGENTS_DIR/task-queue.json")
 
+# Read agent-specific blueprint
+BLUEPRINT=""
+case "$AGENT" in
+  backend-dev)  BLUEPRINT_FILE="$AGENTS_DIR/blueprints/backend.md" ;;
+  frontend-dev) BLUEPRINT_FILE="$AGENTS_DIR/blueprints/frontend.md" ;;
+  qa-engineer)  BLUEPRINT_FILE="$AGENTS_DIR/blueprints/qa.md" ;;
+  orchestrator) BLUEPRINT_FILE="$AGENTS_DIR/blueprints/orchestrator.md" ;;
+  *)            BLUEPRINT_FILE="" ;;
+esac
+if [ -n "$BLUEPRINT_FILE" ] && [ -f "$BLUEPRINT_FILE" ]; then
+  BLUEPRINT=$(cat "$BLUEPRINT_FILE")
+fi
+
 # Read handoffs addressed to this agent
 HANDOFF_NOTES=""
 if [ -f "$PROJECT_ROOT/rubric/scaffold/data/handoffs.json" ]; then
@@ -110,6 +123,13 @@ PROMPT="You are running as the $AGENT agent for StoryEngine.
 
 ## Your Instructions
 $AGENT_PROMPT"
+
+if [ -n "$BLUEPRINT" ]; then
+  PROMPT="$PROMPT
+
+## Codebase Blueprint
+$BLUEPRINT"
+fi
 
 if [ -n "$OPERATOR_CONTROLS" ]; then
   PROMPT="$PROMPT
