@@ -2,7 +2,7 @@
   "version": 2,
   "current_tab": 2,
   "last_updated": "2026-04-02",
-  "last_updated_by": "qa-engineer",
+  "last_updated_by": "backend-dev",
   "tabs": [
     {
       "id": 1,
@@ -307,12 +307,14 @@
           "id": "T8-001",
           "title": "Build render trigger endpoint",
           "role": "backend",
-          "status": "pending",
-          "description": "Add POST /api/pipeline/render/{id} endpoint that triggers Remotion rendering via pipeline_executor. Return task_id for polling. Currently the render tab has no backend.",
+          "status": "done",
+          "description": "Already implemented. POST /api/pipeline/render/{video_id} exists in pipeline.py line 849, calling executor.run_render(). No changes needed.",
           "files": [
             "backend/routes/pipeline.py",
             "backend/pipeline_executor.py"
-          ]
+          ],
+          "completed_at": "2026-04-02T03:00:00Z",
+          "assigned_to": "backend-dev"
         },
         {
           "id": "T8-002",
@@ -579,12 +581,15 @@
           "id": "T12-005",
           "title": "Add learning enable/disable toggle",
           "role": "backend",
-          "status": "pending",
+          "status": "done",
           "description": "Add PATCH /api/learnings/{id}/toggle endpoint that sets active=true/false on a learning record. This lets users override discovered patterns \u2014 disable anti-patterns they disagree with, or force-disable patterns they want to test without. Register in main.py.",
           "files": [
             "backend/routes/learning_extraction.py",
             "backend/main.py"
-          ]
+          ],
+          "started_at": "2026-04-02T03:00:01Z",
+          "assigned_to": "backend-dev",
+          "completed_at": "2026-04-02T03:02:00Z"
         },
         {
           "id": "T12-006",
