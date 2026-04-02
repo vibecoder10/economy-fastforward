@@ -47,8 +47,8 @@ AGENT_PROMPT=$(cat "$AGENT_FILE")
 # Read the current task queue
 TASK_QUEUE=$(cat "$AGENTS_DIR/task-queue.json")
 
-# Invoke Claude Code with the agent's prompt + task queue context
-$CLAUDE_BIN --print -p "$(cat <<EOF
+# Invoke Claude Code — capture output for activity log
+OUTPUT=$($CLAUDE_BIN --print -p "$(cat <<EOF
 You are running as the $AGENT agent for StoryEngine.
 
 ## Your Instructions
@@ -63,12 +63,29 @@ $TASK_QUEUE
 - Always git add specific files, commit, and push when done
 - Only work on ONE task per session
 - Report status to RUBRIC at $RUBRIC_URL/api/agent-status
+- At the VERY END of your response, write a single line starting with SUMMARY: followed by a plain-English one-sentence description of what you did (for a non-technical person). Example: "SUMMARY: Fixed a bug where image approvals weren't being saved correctly"
 
 Begin work now. Pick your next task and execute it.
 EOF
-)"
+)" 2>&1 || true)
+
+echo "$OUTPUT"
+
+# Extract the task ID and summary from output
+TASK_LINE=$(echo "$OUTPUT" | grep -oP 'T\d+-\d+' | head -1 || echo "")
+SUMMARY_LINE=$(echo "$OUTPUT" | grep "^SUMMARY:" | tail -1 | sed 's/^SUMMARY: *//' || echo "")
+
+if [ -z "$SUMMARY_LINE" ]; then
+  # Fallback: use the last git commit message
+  SUMMARY_LINE=$(git log --oneline -1 2>/dev/null | cut -d' ' -f2- || echo "Session completed")
+fi
+
+# Post to activity feed
+curl -s -X POST "$RUBRIC_URL/api/activity-log" \
+  -H "Content-Type: application/json" \
+  -d "{\"agent\": \"$AGENT\", \"task\": \"$TASK_LINE\", \"summary\": $(echo "$SUMMARY_LINE" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().strip()))' 2>/dev/null || echo "\"$SUMMARY_LINE\""), \"status\": \"completed\"}" 2>/dev/null || true
 
 # Report idle status to RUBRIC
 curl -s -X POST "$RUBRIC_URL/api/agent-status" \
   -H "Content-Type: application/json" \
-  -d "{\"agent\": \"$AGENT\", \"status\": \"idle\", \"task\": \"Session complete\"}" 2>/dev/null || true
+  -d "{\"agent\": \"$AGENT\", \"status\": \"idle\", \"task\": \"$SUMMARY_LINE\"}" 2>/dev/null || true

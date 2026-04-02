@@ -405,6 +405,19 @@
     </div>
   </div>
 
+  <!-- ACTIVITY FEED -->
+  <div id="tab-activity" class="tab-panel">
+    <div style="max-width:800px;margin:0 auto;padding:20px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
+        <h2 style="font-size:20px;font-weight:700;letter-spacing:-0.3px;">Activity Feed</h2>
+        <button id="activity-refresh-btn" style="background:none;border:1px solid #222;color:#888;padding:6px 14px;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;font-family:'Outfit',sans-serif;">Refresh</button>
+      </div>
+      <div id="activity-feed" style="display:flex;flex-direction:column;gap:8px;">
+        <div style="color:#555;font-size:13px;padding:20px 0;text-align:center;">No activity yet. Agents will post updates here as they work.</div>
+      </div>
+    </div>
+  </div>
+
   <!-- AGENTS -->
   <div id="tab-agents" class="tab-panel">
     <div class="agents-container">
@@ -601,8 +614,9 @@ window.__onTabShow = {};
     crons: '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
     team: '<path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/>',
     icons: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
+    activity: '<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>',
   };
-  const TAB_LABELS = { welcome:'Welcome', agents:'Agents', flows:'Flows', 'skill-trees':'Skill Trees', crons:'Crons', team:'Team', icons:'Icons' };
+  const TAB_LABELS = { welcome:'Welcome', activity:'Activity', agents:'Agents', flows:'Flows', 'skill-trees':'Skill Trees', crons:'Crons', team:'Team', icons:'Icons' };
 
   let configData = { agents: [] };
 
@@ -651,6 +665,10 @@ window.__onTabShow = {};
     pollAgentStatus();
     setInterval(pollAgentStatus, 10000);
 
+    loadActivityFeed();
+    setInterval(loadActivityFeed, 30000);
+    document.getElementById('activity-refresh-btn')?.addEventListener('click', loadActivityFeed);
+
     let tabs = ['welcome', 'icons'];
     try {
       const resp = await fetch('/api/tabs');
@@ -679,6 +697,40 @@ window.__onTabShow = {};
           task.textContent = 'Idle';
         }
       }
+    } catch {}
+  }
+
+  const AGENT_COLORS = { orchestrator:'#D4A844', 'backend-dev':'#1A8A7A', 'frontend-dev':'#58abf5', 'qa-engineer':'#e35050' };
+  async function loadActivityFeed() {
+    const feed = document.getElementById('activity-feed');
+    if (!feed) return;
+    try {
+      const resp = await fetch('/api/activity-log?limit=50');
+      if (!resp.ok) return;
+      const entries = await resp.json();
+      if (entries.length === 0) {
+        feed.innerHTML = '<div style="color:#555;font-size:13px;padding:20px 0;text-align:center;">No activity yet. Agents will post updates here as they work.</div>';
+        return;
+      }
+      feed.innerHTML = entries.map(e => {
+        const color = AGENT_COLORS[e.agent] || '#888';
+        const time = new Date(e.timestamp);
+        const ago = Math.floor((Date.now() - e.timestamp) / 60000);
+        const timeStr = ago < 1 ? 'Just now' : ago < 60 ? ago + 'm ago' : ago < 1440 ? Math.floor(ago/60) + 'h ago' : Math.floor(ago/1440) + 'd ago';
+        const statusIcon = e.status === 'completed' ? '&#10003;' : e.status === 'error' ? '&#10007;' : '&#9679;';
+        const statusColor = e.status === 'completed' ? '#50e3c2' : e.status === 'error' ? '#e35050' : '#D4A844';
+        return '<div style="display:flex;gap:12px;padding:12px 16px;background:#0a0a0a;border:1px solid #1a1a1a;border-radius:10px;border-left:3px solid '+color+';">' +
+          '<div style="min-width:100px;">' +
+            '<div style="font-size:12px;font-weight:600;color:'+color+';">' + esc(e.agent.replace(/-/g,' ').replace(/\\b\\w/g,c=>c.toUpperCase())) + '</div>' +
+            '<div style="font-size:10px;color:#555;margin-top:2px;">' + timeStr + '</div>' +
+          '</div>' +
+          '<div style="flex:1;">' +
+            '<div style="font-size:13px;color:#ccc;font-weight:500;">' + esc(e.task || 'No task') + '</div>' +
+            (e.summary ? '<div style="font-size:12px;color:#888;margin-top:4px;line-height:1.4;">' + esc(e.summary) + '</div>' : '') +
+          '</div>' +
+          '<div style="font-size:14px;color:'+statusColor+';">' + statusIcon + '</div>' +
+        '</div>';
+      }).join('');
     } catch {}
   }
 

@@ -36,8 +36,8 @@ for (const [name, checkPath] of Object.entries(TEMPLATE_CHECKS)) {
 }
 
 // Enforce tab order — welcome and icons are always present (part of scaffold)
-const TAB_ORDER = ['welcome', 'agents', 'flows', 'skill-trees', 'crons', 'team', 'icons'];
-const INSTALLED_TABS = ['welcome', ...INSTALLED, 'icons']
+const TAB_ORDER = ['welcome', 'activity', 'agents', 'flows', 'skill-trees', 'crons', 'team', 'icons'];
+const INSTALLED_TABS = ['welcome', 'activity', ...INSTALLED, 'icons']
   .filter((v, i, a) => a.indexOf(v) === i)
   .sort((a, b) => {
     const ai = TAB_ORDER.indexOf(a);
@@ -470,6 +470,36 @@ const server = http.createServer(async (req, res) => {
       return { id: a.id, name: a.name || a.id, status, lastUpdate: updatedAt, ageMin, lastTask: s.task || '' };
     });
     sendJSON(res, { agents: statuses, timestamp: now });
+    return;
+  }
+
+  // POST /api/activity-log — append a run entry
+  if (pathname === '/api/activity-log' && req.method === 'POST') {
+    const body = JSON.parse(await readBody(req));
+    const logFile = path.join(DATA_DIR, 'activity-log.json');
+    let log = [];
+    try { log = JSON.parse(fs.readFileSync(logFile, 'utf8')); } catch {}
+    log.unshift({
+      agent: body.agent || 'unknown',
+      task: body.task || '',
+      summary: body.summary || '',
+      status: body.status || 'completed',
+      timestamp: Date.now(),
+    });
+    // Keep last 200 entries
+    if (log.length > 200) log = log.slice(0, 200);
+    fs.writeFileSync(logFile, JSON.stringify(log, null, 2));
+    sendJSON(res, { success: true });
+    return;
+  }
+
+  // GET /api/activity-log — read the activity feed
+  if (pathname === '/api/activity-log' && req.method === 'GET') {
+    const logFile = path.join(DATA_DIR, 'activity-log.json');
+    let log = [];
+    try { log = JSON.parse(fs.readFileSync(logFile, 'utf8')); } catch {}
+    const limit = parseInt(url.searchParams?.get('limit') || new URL('http://x' + pathname + '?' + (req.url.split('?')[1] || '')).searchParams.get('limit')) || 50;
+    sendJSON(res, log.slice(0, limit));
     return;
   }
 
