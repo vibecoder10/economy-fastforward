@@ -2,7 +2,7 @@
   "version": 2,
   "current_tab": 3,
   "last_updated": "2026-04-02",
-  "last_updated_by": "frontend-dev",
+  "last_updated_by": "qa-engineer",
   "tabs": [
     {
       "id": 1,
@@ -204,20 +204,33 @@
       "id": 4,
       "name": "Video Detail: Voice Tab",
       "path": "/pipeline/[videoId] (Voice)",
-      "status": "pending",
+      "status": "complete",
       "tasks": [
         {
           "id": "T4-001",
           "title": "Verify voice generation trigger and status tracking",
           "role": "qa",
-          "status": "pending",
+          "status": "done",
+          "verified": true,
+          "started_at": "2026-04-02T20:04:00Z",
+          "completed_at": "2026-04-02T20:15:00Z",
+          "assigned_to": "qa-engineer",
+          "verified_at": "2026-04-02T20:15:00Z",
+          "verified_by": "qa-engineer",
+          "verification_notes": "PASS. (1) POST /api/pipeline/voice/{video_id}?scene=N exists at pipeline.py line 232 — status gate requires ready_for_voice or scene param. (2) useTaskPoller wired in ScriptVoiceTab.tsx (lines 313-330) with voiceTaskRunning state, interval 3000ms, onComplete invalidates queries. Task status endpoint GET /api/pipeline/task/{video_id} returns {status, message, error}. (3) voice_over_url returned by GET /api/videos/{id}/script — 6 scenes verified with voice_over_url populated. (4) VoicePlayer renders in StoryboardVisualsTab (line 811) with 6 audio elements confirmed via Playwright. (5) Script tab shows 6 'Voice Done' badges, 6 'Voice Ready' labels, 6 'Regenerate Voice' buttons. (6) 0 console errors. (7) tsc --noEmit: 0 errors. TAB 4 COMPLETE.",
           "description": "Check that POST /api/pipeline/voice/{id} triggers voice generation, task poller tracks progress, and voice_over_url appears on script scenes when complete. Verify VoicePlayer component plays audio."
         },
         {
           "id": "T4-002",
           "title": "Display voice_status per scene in Voice tab",
           "role": "frontend",
-          "status": "pending",
+          "status": "done",
+          "verified": true,
+          "completed_at": "2026-04-02T20:15:00Z",
+          "assigned_to": "qa-engineer",
+          "verified_at": "2026-04-02T20:15:00Z",
+          "verified_by": "qa-engineer",
+          "verification_notes": "Already implemented. VoiceStatusBadge renders per scene in ScriptVoiceTab.tsx (line 1061) — shows 'Voice Done' (green) for done/finished, 'Voice Pending' (gold) for create/pending. Reads from scene.voiceStatus which maps to voice_status from API (line 160). Playwright confirmed 6 'Voice Done' badges visible in browser. ScriptTab.tsx also has this at line 611.",
           "description": "Each script scene has a voice_status field. Display it as a badge next to each scene in the voice tab (e.g., 'Generated', 'Pending', 'Failed'). Wire to the actual field from the API response.",
           "files": [
             "frontend/src/components/production/ScriptTab.tsx"
