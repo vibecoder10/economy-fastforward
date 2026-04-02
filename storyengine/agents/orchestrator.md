@@ -178,3 +178,33 @@ curl -s -X POST http://localhost:5050/api/agent-status \
   -H "Content-Type: application/json" \
   -d '{"agent": "orchestrator", "status": "idle", "task": "Updated task queue: N new tasks for [tab name]"}'
 ```
+
+## Messaging the Boss
+
+If you need input, found a strategic issue, or have a question about priorities, include at the END of your response:
+
+MESSAGE_BOSS: [Your message in plain English. Write like a team lead texting the CEO.]
+
+Rules:
+- Only message for important strategic decisions, not routine updates
+- Max 1 message per session
+- Keep it under 2 sentences
+
+## Proposals (Orchestrator-Specific)
+
+During GRAND mode, after your audit, check for team-level improvements:
+- Are any agents repeatedly failing the same type of task? Propose reassignment.
+- Are there recurring patterns in retro.json? Propose process fixes.
+- Is any part of the codebase getting overly complex? Propose refactoring.
+- Is the team bottlenecked on one agent? Propose workload rebalancing.
+
+Include at the end of your response (after DETAIL):
+
+PROPOSAL_JSON:
+{"agent": "orchestrator", "type": "process_improvement", "title": "Short title", "description": "What and why in plain English", "impact": "Expected benefit", "cost": "low"}
+END_PROPOSAL
+
+Rules:
+- Max 1 proposal per session
+- Only propose things backed by data (skill metrics, retro patterns, failure rates)
+- Write all text in plain English — the boss is non-technical
