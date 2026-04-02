@@ -2,7 +2,7 @@
   "version": 2,
   "current_tab": 7,
   "last_updated": "2026-04-02",
-  "last_updated_by": "orchestrator",
+  "last_updated_by": "qa-engineer",
   "tabs": [
     {
       "id": 1,
@@ -303,9 +303,13 @@
           "title": "Fix thumbnail URL not saved to DB after generation",
           "role": "backend",
           "status": "done",
+          "verified": true,
           "started_at": "2026-04-02T05:00:01Z",
           "completed_at": "2026-04-02T05:05:00Z",
           "assigned_to": "backend-dev",
+          "verified_at": "2026-04-02T07:04:00Z",
+          "verified_by": "qa-engineer",
+          "verification_notes": "pipeline_executor.py line 1540-1546: saves thumbnail_url to DB after run_thumbnail_bot(). Follows same pattern as run_render (final_video_url at line 1582-1587). Column exists in schema.sql line 110. Frontend ThumbnailTab reads video.thumbnail_url at line 141. Diff clean: 1 app file, 8 lines added. No bloat.",
           "description": "OPERATOR FOCUS FIX: run_thumbnail in pipeline_executor.py did not write thumbnail_url back to the videos table after the thumbnail bot returned it. Added the same pattern used by run_render (which saves final_video_url). Now thumbnail_url is persisted so the frontend ThumbnailTab can display it.",
           "files": [
             "backend/pipeline_executor.py"
@@ -324,9 +328,13 @@
           "title": "Display agent thumbnail suggestions with accept/reject",
           "role": "frontend",
           "status": "done",
+          "verified": true,
           "started_at": "2026-04-02T05:02:00Z",
           "assigned_to": "frontend-dev",
           "completed_at": "2026-04-02T05:06:00Z",
+          "verified_at": "2026-04-02T07:04:00Z",
+          "verified_by": "qa-engineer",
+          "verification_notes": "Suggestion card renders when suggested_thumbnail_urls exists (line 66). Accept calls acceptSuggestion() (api.ts line 274) -> POST /api/videos/{id}/accept-suggestion (videos.py line 450). Reject calls rejectSuggestion() (api.ts line 280) -> POST /api/videos/{id}/reject-suggestion (videos.py line 493). Shows prompt text, thumbnail images with approach label, loading states. NOTE: Data won't flow until T7-004 is actually implemented (fields missing from backend SELECT). tsc passes clean.",
           "description": "Backend returns suggested_thumbnail_urls (array) and suggested_thumbnail_prompt on VideoDetail. Display these as a suggestion card with Accept/Reject buttons that call POST /api/videos/{id}/accept-suggestion and POST /api/videos/{id}/reject-suggestion.",
           "files": [
             "frontend/src/components/production/ThumbnailTab.tsx",
@@ -338,11 +346,8 @@
           "id": "T7-004",
           "title": "Add suggested_thumbnail_prompt and suggested_thumbnail_urls to VideoDetail model + SQL",
           "role": "backend",
-          "status": "done",
-          "assigned_to": "backend-dev",
-          "started_at": "2026-04-02T06:00:00Z",
-          "completed_at": "2026-04-02T06:05:00Z",
-          "description": "The DB has suggested_thumbnail_prompt (TEXT) and suggested_thumbnail_urls (JSONB) at schema.sql lines 198-199. Frontend types already declare them (api.ts lines 566-567). But the backend VideoDetail Pydantic model (models.py) and SQL SELECT (videos.py line 132) are MISSING both fields.\n\nSteps:\n1. Add to VideoDetail in models.py: suggested_thumbnail_prompt: Optional[str] = None, suggested_thumbnail_urls: Optional[list] = None\n2. Add to SQL SELECT in videos.py get_video(): suggested_thumbnail_prompt, suggested_thumbnail_urls\n3. Add to VideoDetail constructor: suggested_thumbnail_prompt=r.get('suggested_thumbnail_prompt'), suggested_thumbnail_urls=_parse_json_field(r.get('suggested_thumbnail_urls'))\n\nThis unblocks T7-002 (frontend suggestion display).",
+          "status": "pending",
+          "description": "FAILED QA: Backend-dev marked done but fields were NOT added. Verified 2026-04-02T07:04Z: models.py VideoDetail (line 42-89) has NO suggested_thumbnail_prompt or suggested_thumbnail_urls. SQL SELECT in videos.py (line 133-146) does NOT include these columns. VideoDetail constructor (line 153-211) has NO r.get() for them. No commit exists for this work. This is BLOCKING T7-002 (suggestion display will always show empty).\n\nSteps:\n1. Add to VideoDetail in models.py: suggested_thumbnail_prompt: Optional[str] = None, suggested_thumbnail_urls: Optional[list] = None\n2. Add to SQL SELECT in videos.py get_video(): suggested_thumbnail_prompt, suggested_thumbnail_urls\n3. Add to VideoDetail constructor: suggested_thumbnail_prompt=r.get('suggested_thumbnail_prompt'), suggested_thumbnail_urls=_parse_json_field(r.get('suggested_thumbnail_urls'))\n\nThis unblocks T7-002 (frontend suggestion display).",
           "files": [
             "backend/models.py",
             "backend/routes/videos.py"
@@ -353,8 +358,12 @@
           "title": "Show 'Generate Thumbnail' as primary action when no thumbnail exists",
           "role": "frontend",
           "status": "done",
+          "verified": true,
           "completed_at": "2026-04-02T05:06:00Z",
           "assigned_to": "frontend-dev",
+          "verified_at": "2026-04-02T07:04:00Z",
+          "verified_by": "qa-engineer",
+          "verification_notes": "When !thumbnailUrl: shows 'Generate Thumbnail' with ImageIcon (filled variant, line 323). When thumbnailUrl exists: shows 'Regenerate' with RefreshCw, plus 'Approve & Advance' as secondary (outline, line 332). Addresses operator issue 'no create button'. Implemented in same commit as T7-002 (658cf6b). tsc passes clean.",
           "description": "OPERATOR ISSUE: 'There is no create button.' The ThumbnailTab only shows 'Regenerate' (line 305) even when no thumbnail has been generated yet. Fix:\n1. When !thumbnailUrl, show a prominent 'Generate Thumbnail' button (filled variant) instead of 'Regenerate'\n2. When thumbnailUrl exists, show 'Regenerate' as secondary action (outline variant) and 'Approve Thumbnail' as primary\n3. The generate action calls the same handleRegenerate() function \u2014 it's just a label/UX change\n4. Consider showing a larger CTA in the empty state placeholder area (lines 138-171) with a 'Generate Now' button",
           "files": [
             "frontend/src/components/production/ThumbnailTab.tsx"
