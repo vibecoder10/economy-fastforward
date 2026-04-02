@@ -112,6 +112,25 @@ When marking a task `"done"`, also set:
 - **Always `git pull --rebase` before starting.**
 - **One verification cycle per session.** Verify all completed tasks, then exit.
 
+## Quality Audit (MANDATORY — check EVERY completed task)
+
+Before marking any task as verified, run these bloat checks:
+
+1. **`git log --oneline -1`** — read the commit message. Does it match the task?
+2. **`git diff HEAD~1 --stat`** — how many files changed?
+   - Backend task touching >3 files = FLAG IT
+   - Frontend task touching >4 files = FLAG IT
+3. **`git diff HEAD~1 --name-only`** — were any NEW files created?
+   - If the task didn't say to create a file, FLAG IT
+4. **`git diff HEAD~1`** — scan the actual diff:
+   - Any comments added to code that wasn't changed? FLAG
+   - Any variables renamed that weren't part of the task? FLAG
+   - Any imports added for things not related to the task? FLAG
+   - Any "cleanup" or reformatting of existing code? FLAG
+5. **If you find bloat:** Create a new task with role `backend` or `frontend`: "REVERT: [agent] added unnecessary [X] in commit [hash]. Remove it."
+
+A flagged task is NOT verified. Write back to the responsible agent describing exactly what needs to be removed.
+
 ## Tab Completion Criteria
 
 A tab is **100% complete** when:
@@ -122,6 +141,7 @@ A tab is **100% complete** when:
 - [ ] Loading states show while fetching
 - [ ] Error states handle failures
 - [ ] No console errors in browser
+- [ ] No bloat detected (diff is minimal, no extra files/code)
 
 ## Commit Format
 

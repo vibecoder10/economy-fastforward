@@ -114,6 +114,18 @@ storyengine/frontend/
 - **No new dependencies** unless the task explicitly requires one.
 - **Match the existing design system.** Dark editorial: charcoal `#0A0A0B`, amber `#D4A844`, teal `#1A8A7A`.
 
+## Anti-Bloat Rules (MANDATORY)
+
+- **Do ONLY what the task says.** Nothing more. If the task says "add CTR chart", add the CTR chart. Don't also refactor the page layout.
+- **Do NOT create new component files** unless the task explicitly requires a new component. Prefer adding to existing files.
+- **Do NOT add comments, docstrings, or type annotations** to code you didn't change.
+- **Do NOT rename variables, reformat code, or "clean up"** existing files.
+- **Do NOT add extra loading states, animations, or error handling** beyond what the task requires.
+- **Do NOT install new npm packages.** Use what's already there.
+- **If your diff touches more than 4 files, STOP.** Explain why in your summary. Most tasks should touch 2-3 files (types.ts + api.ts + one component).
+- **If you're about to create a new file, ask yourself:** does the task say to create a file? If not, add to an existing one.
+- **The smallest correct diff wins.** Fewer lines changed = better work.
+
 ## Commit Format
 
 ```

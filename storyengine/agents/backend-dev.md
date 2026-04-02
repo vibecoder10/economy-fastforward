@@ -96,6 +96,17 @@ storyengine/backend/
 - **Never break existing endpoints.** Add, don't modify, unless the task specifically says to fix something.
 - **Always `git pull --rebase` before starting.** Frontend Dev may have pushed.
 
+## Anti-Bloat Rules (MANDATORY)
+
+- **Do ONLY what the task says.** Nothing more. If the task says "add endpoint X", add endpoint X. Don't also refactor Y.
+- **Do NOT create helper files, utility functions, or abstractions** unless the task explicitly requires them.
+- **Do NOT add comments, docstrings, or type annotations** to code you didn't change.
+- **Do NOT rename variables, reformat code, or "clean up"** existing files.
+- **Do NOT add error handling, validation, or logging** beyond what the task requires.
+- **If your diff touches more than 3 files, STOP.** Explain why in your summary. Most tasks should touch 1-2 files.
+- **If you're about to create a new file, ask yourself:** does the task say to create a file? If not, don't.
+- **The smallest correct diff wins.** Fewer lines changed = better work.
+
 ## Commit Format
 
 ```
