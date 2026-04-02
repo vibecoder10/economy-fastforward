@@ -6,3 +6,4 @@
 - Always verify "done" tasks have actual git commits — backend-dev marked T7-004 done without committing code. grep models.py and videos.py SELECT to confirm fields exist.
 - Tab 7 (Thumbnail) complete: 7 tasks verified. Key wiring: pipeline.py:808 triggers, pipeline_executor saves URL, models.py:90-91 suggested fields, videos.py:227 allows prompt PATCH, accept/reject at lines 453/496.
 - Next.js Turbopack dev server can silently serve 500s for client JS if it encounters compile errors — always restart dev server before Playwright testing. Stale server = no React hydration = no API calls.
+- Production server (port 3001) runs from /home/clawd/projects/economy-fastforward/, not from /home/clawd/agent-workspace/. For Playwright verification of agent-dev changes, start a temp server on port 3002 from the agent-workspace build.
