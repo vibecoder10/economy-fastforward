@@ -518,10 +518,11 @@ const server = http.createServer(async (req, res) => {
     const agentsDir = path.join(__dirname, '../../storyengine/agents');
     const logDir = '/tmp/storyengine-agents';
     const schedules = {
-      light:  { backend: '0 0,4,8,12,16,20 * * *', frontend: '2 0,4,8,12,16,20 * * *', qa: '4 0,4,8,12,16,20 * * *', micro: '6 0,4,8,12,16,20 * * *', label: '6x/day (every 4h)' },
-      normal: { backend: '0 */2 * * *',             frontend: '2 */2 * * *',             qa: '4 */2 * * *',             micro: '6 */2 * * *',             label: '12x/day (every 2h)' },
-      fast:   { backend: '0 * * * *',               frontend: '2 * * * *',               qa: '4 * * * *',               micro: '6 * * * *',               label: '24x/day (every 1h)' },
-      max:    { backend: '0,30 * * * *',             frontend: '2,32 * * * *',            qa: '4,34 * * * *',            micro: '6,36 * * * *',            label: '48x/day (every 30m)' },
+      // Micro-orchestrator fires ~20 min after agents start (enough time to finish)
+      light:  { backend: '0 0,4,8,12,16,20 * * *', frontend: '2 0,4,8,12,16,20 * * *', qa: '4 0,4,8,12,16,20 * * *', micro: '25 0,4,8,12,16,20 * * *', label: '6x/day (every 4h)' },
+      normal: { backend: '0 */2 * * *',             frontend: '2 */2 * * *',             qa: '4 */2 * * *',             micro: '25 */2 * * *',             label: '12x/day (every 2h)' },
+      fast:   { backend: '0 * * * *',               frontend: '2 * * * *',               qa: '4 * * * *',               micro: '45 * * * *',               label: '24x/day (every 1h)' },
+      max:    { backend: '0,30 * * * *',             frontend: '2,32 * * * *',            qa: '4,34 * * * *',            micro: '20,50 * * * *',            label: '48x/day (every 30m)' },
     };
     const sched = schedules[cadence] || schedules.fast;
 
