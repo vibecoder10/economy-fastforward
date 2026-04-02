@@ -265,13 +265,13 @@
           "id": "T6-002",
           "title": "Wire image variant generation UI",
           "role": "frontend",
-          "status": "in_progress",
+          "status": "done",
           "started_at": "2026-04-02T21:02:00Z",
           "assigned_to": "frontend-dev",
-          "description": "Backend has POST /api/pipeline/images/{id}?scene=N&index=M&variants=3 for generating image variants. Add a 'Generate Variants' button on each image card in the visuals tab that triggers this endpoint.",
+          "completed_at": "2026-04-02T21:06:00Z",
+          "description": "Added 'Variants' button on each generated image segment in StoryboardVisualsTab. Calls runImageVariants(videoId, scene, index, 3) for 3 alternatives. Only shows when image already generated. Purple styling distinguishes from orange Regen button.",
           "files": [
-            "frontend/src/components/production/StoryboardVisualsTab.tsx",
-            "frontend/src/lib/api.ts"
+            "frontend/src/components/production/StoryboardVisualsTab.tsx"
           ]
         },
         {
