@@ -11,7 +11,7 @@ load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from database import get_pool, close_pool, fetch_all, fetch_one, execute
-from routes import dashboard, videos, assets, activity, review, pipeline, settings, autopilot, skills, agents, niche, channel_profile, projects, visual_styles, discovery, learning_extraction, youtube_sync, analytics
+from routes import dashboard, videos, assets, activity, review, pipeline, settings, autopilot, skills, agents, niche, channel_profile, projects, visual_styles, discovery, learning_extraction, youtube_sync, analytics, profile
 from routes.autopilot import _bg_task_status
 
 
@@ -312,6 +312,7 @@ app.include_router(discovery.router)
 app.include_router(learning_extraction.router)
 app.include_router(youtube_sync.router)
 app.include_router(analytics.router)
+app.include_router(profile.router)
 
 
 @app.get("/api/health")

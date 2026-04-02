@@ -202,3 +202,18 @@ class PendingReview(BaseModel):
     storyboards: List[dict] = []
     thumbnails: List[dict] = []
     images: List[dict] = []
+
+
+# --- Profile ---
+
+class ProfileRead(BaseModel):
+    id: str
+    email: Optional[str] = None
+    display_name: Optional[str] = None
+    plan: str = "free"
+    created_at: Optional[str] = None
+
+
+class ProfileUpdate(BaseModel):
+    display_name: Optional[str] = None
+    email: Optional[str] = None

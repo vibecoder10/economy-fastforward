@@ -898,8 +898,11 @@
           "id": "T16-001",
           "title": "Build profile API endpoints",
           "role": "backend",
-          "status": "pending",
-          "description": "Create routes/profile.py with: GET /api/profile (current user info from accounts table), PUT /api/profile (update display name, email). Register in main.py. Use the existing accounts table schema.",
+          "status": "done",
+          "started_at": "2026-04-02T12:00:01Z",
+          "completed_at": "2026-04-02T12:05:00Z",
+          "assigned_to": "backend-dev",
+          "description": "Created routes/profile.py with GET /api/profile and PUT /api/profile. Uses verify_token to resolve account from auth user (dev-user maps to DEV_ACCOUNT_ID). Added ProfileRead/ProfileUpdate models to models.py. Registered router in main.py.",
           "files": [
             "backend/routes/profile.py",
             "backend/main.py",
