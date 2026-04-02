@@ -179,7 +179,6 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
   }, [scriptScenes, assets]);
 
   const [scenes, setScenes] = useState<SceneGroup[]>([]);
-  const [editingPrompt, setEditingPrompt] = useState<string | null>(null);
   const [regeneratingSegment, setRegeneratingSegment] = useState<string | null>(null);
   const [variantsSegment, setVariantsSegment] = useState<string | null>(null);
   const [generatingAll, setGeneratingAll] = useState(false);
@@ -913,7 +912,6 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
                     <div className="space-y-3 mt-3">
                       {scene.segments.map((seg) => {
                         const statusInfo = STATUS_ICON[seg.status];
-                        const isEditing = editingPrompt === seg.id;
                         const isRegenerating = regeneratingSegment === seg.id;
                         const isGeneratingVariants = variantsSegment === seg.id;
 
@@ -960,40 +958,15 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
                                   </span>
                                 </div>
 
-                                {/* Image prompt (editable) */}
-                                <div>
-                                  <div className="flex items-center gap-1.5">
-                                    <label
-                                      className="text-[9px] uppercase tracking-wider font-medium"
-                                      style={{ color: "var(--purple)" }}
-                                    >
-                                      Image Prompt
-                                    </label>
-                                    <Pencil size={8} style={{ color: "var(--purple)", opacity: 0.5 }} />
-                                  </div>
-                                  <textarea
-                                    value={seg.imagePrompt}
-                                    onChange={(e) => updatePrompt(seg.id, e.target.value)}
-                                    rows={isEditing ? 4 : 2}
-                                    className="w-full text-[12px] font-mono outline-none rounded-lg px-2 py-1 mt-0.5 resize-none transition-all"
-                                    style={{
-                                      color: "var(--text-secondary)",
-                                      background: "transparent",
-                                      border: "1px solid transparent",
-                                    }}
-                                    onFocus={(e) => {
-                                      setEditingPrompt(seg.id);
-                                      e.target.style.background = "var(--bg-elevated)";
-                                      e.target.style.borderColor = "var(--purple)";
-                                    }}
-                                    onBlur={(e) => {
-                                      setEditingPrompt(null);
-                                      e.target.style.background = "transparent";
-                                      e.target.style.borderColor = "transparent";
-                                      persistSegment(seg.id);
-                                    }}
+                                {/* Image prompt (expandable) */}
+                                {seg.imagePrompt && (
+                                  <PromptExpander
+                                    prompt={seg.imagePrompt}
+                                    label="Image Prompt"
+                                    previewLength={60}
+                                    onSave={(newPrompt) => updatePrompt(seg.id, newPrompt)}
                                   />
-                                </div>
+                                )}
                               </div>
 
                               {/* Thumbnail + status + regenerate */}

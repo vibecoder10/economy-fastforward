@@ -74,6 +74,18 @@ cd storyengine/frontend && npm run build
 
    If a button exists but clicking it does nothing, or shows an error, or the data doesn't update — the task FAILS verification. File it back.
 
+6. **UPDATE THE VISUAL REPORT (MANDATORY — NO EXCEPTIONS)**
+   
+   After taking screenshots, you MUST append them to the Google Doc visual report so the operator can see your work.
+   
+   After taking screenshots, run this to upload them to the Visual Report Google Doc:
+   ```bash
+   python3 storyengine/agents/update_visual_report.py TASK_ID "Summary of what was verified"
+   ```
+   This uploads the before/after screenshots to Google Drive and inserts them into the shared Google Doc with the task ID, summary, and timestamp. The operator checks this doc to visually verify your work.
+   
+   If the script fails (missing Google creds, API error), log the error but do NOT fail the verification — the screenshots are still saved locally in `storyengine/agents/screenshots/`.
+
    **Example: Verifying a "Generate Thumbnail" button**
    ```javascript
    const { chromium } = require('playwright');

@@ -418,7 +418,19 @@
   <div id="tab-activity" class="tab-panel">
     <div style="max-width:800px;margin:0 auto;padding:20px;">
 
-      <!-- Open Pull Requests -->
+      <!-- Quick Links -->
+      <div style="display:flex;gap:8px;margin-bottom:16px;">
+        <a href="https://docs.google.com/document/d/1IxCl--zuK4PeCgrW5RCGZJflIYxTY7XT7lEaAjTeaGE/edit?usp=sharing" target="_blank" rel="noopener" style="flex:1;display:flex;align-items:center;gap:10px;padding:14px 16px;background:linear-gradient(135deg,rgba(66,133,244,0.08),rgba(66,133,244,0.03));border:1px solid rgba(66,133,244,0.25);border-radius:10px;text-decoration:none;cursor:pointer;">
+          <span style="font-size:20px;">📸</span>
+          <div>
+            <div style="font-size:13px;font-weight:600;color:#8ab4f8;">Visual Report</div>
+            <div style="font-size:10px;color:#555;">Screenshots & changes</div>
+          </div>
+        </a>
+        <div id="pr-link-card" style="flex:1;display:none;"></div>
+      </div>
+
+      <!-- Open Pull Requests (full card) -->
       <div id="pr-section" style="margin-bottom:16px;display:none;">
       </div>
 
@@ -443,9 +455,38 @@
       </div>
 
       <!-- Agent Controls -->
-      <div style="margin-bottom:24px;padding:16px;background:#0a0a0a;border:1px solid #1a1a1a;border-radius:12px;">
+      <div style="margin-bottom:16px;padding:16px;background:#0a0a0a;border:1px solid #1a1a1a;border-radius:12px;">
         <h3 style="font-size:14px;font-weight:600;margin-bottom:12px;color:#888;">Agent Controls</h3>
         <div id="agent-controls-grid" style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;"></div>
+      </div>
+
+      <!-- Cadence Control -->
+      <div style="margin-bottom:24px;padding:16px;background:#0a0a0a;border:1px solid #1a1a1a;border-radius:12px;">
+        <h3 style="font-size:14px;font-weight:600;margin-bottom:4px;color:#888;">Build Cadence</h3>
+        <p style="font-size:11px;color:#555;margin-bottom:12px;">How many cycles per day per agent. Changes take effect next time crons are installed.</p>
+        <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+          <button onclick="setCadence('light')" class="cadence-btn" data-cadence="light" style="flex:1;min-width:80px;padding:12px 8px;border-radius:8px;cursor:pointer;text-align:center;font-family:Outfit,sans-serif;border:1px solid #222;background:#111;">
+            <div style="font-size:18px;font-weight:700;color:#888;">6x</div>
+            <div style="font-size:10px;color:#555;">Light</div>
+            <div style="font-size:9px;color:#444;">Every 4h</div>
+          </button>
+          <button onclick="setCadence('normal')" class="cadence-btn" data-cadence="normal" style="flex:1;min-width:80px;padding:12px 8px;border-radius:8px;cursor:pointer;text-align:center;font-family:Outfit,sans-serif;border:1px solid #222;background:#111;">
+            <div style="font-size:18px;font-weight:700;color:#888;">12x</div>
+            <div style="font-size:10px;color:#555;">Normal</div>
+            <div style="font-size:9px;color:#444;">Every 2h</div>
+          </button>
+          <button onclick="setCadence('fast')" class="cadence-btn" data-cadence="fast" style="flex:1;min-width:80px;padding:12px 8px;border-radius:8px;cursor:pointer;text-align:center;font-family:Outfit,sans-serif;border:1px solid #1A8A7A;background:rgba(26,138,122,0.1);">
+            <div style="font-size:18px;font-weight:700;color:#50e3c2;">24x</div>
+            <div style="font-size:10px;color:#50e3c2;">Fast</div>
+            <div style="font-size:9px;color:#1A8A7A;">Every 1h</div>
+          </button>
+          <button onclick="setCadence('max')" class="cadence-btn" data-cadence="max" style="flex:1;min-width:80px;padding:12px 8px;border-radius:8px;cursor:pointer;text-align:center;font-family:Outfit,sans-serif;border:1px solid #222;background:#111;">
+            <div style="font-size:18px;font-weight:700;color:#888;">48x</div>
+            <div style="font-size:10px;color:#555;">Max</div>
+            <div style="font-size:9px;color:#444;">Every 30m</div>
+          </button>
+        </div>
+        <div id="cadence-status" style="font-size:11px;color:#50e3c2;margin-top:8px;display:none;"></div>
       </div>
 
       <!-- Recent Handoffs -->
@@ -804,8 +845,9 @@ window.__onTabShow = {};
         if (dot && isPaused) dot.classList.add('paused');
         if (dot && !isPaused) dot.classList.remove('paused');
       });
-      // Update controls grid + focus in activity tab
+      // Update controls grid + focus + cadence in activity tab
       renderControlsGrid();
+      highlightCadence();
       const focusEl = document.getElementById('current-focus');
       if (focusEl) {
         if (currentControls.focus) {
@@ -840,6 +882,38 @@ window.__onTabShow = {};
     await fetch('/api/controls/pause', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agent }) });
     loadControls();
   };
+
+  window.setCadence = async function(cadence) {
+    const resp = await fetch('/api/controls/cadence', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cadence }) });
+    const data = await resp.json();
+    const status = document.getElementById('cadence-status');
+    if (data.success) {
+      status.style.display = 'block';
+      status.textContent = 'Cadence set to ' + data.label + '. Active now.';
+      // Highlight active button
+      document.querySelectorAll('.cadence-btn').forEach(btn => {
+        const isActive = btn.dataset.cadence === cadence;
+        btn.style.borderColor = isActive ? '#1A8A7A' : '#222';
+        btn.style.background = isActive ? 'rgba(26,138,122,0.1)' : '#111';
+        btn.querySelectorAll('div').forEach(d => { if (isActive) d.style.color = d.style.color === '#444' ? '#1A8A7A' : '#50e3c2'; });
+      });
+    } else {
+      status.style.display = 'block';
+      status.style.color = '#e35050';
+      status.textContent = 'Failed: ' + (data.error || 'unknown');
+    }
+    loadControls();
+  };
+
+  // Highlight current cadence on load
+  function highlightCadence() {
+    const c = currentControls.cadence || 'fast';
+    document.querySelectorAll('.cadence-btn').forEach(btn => {
+      const isActive = btn.dataset.cadence === c;
+      btn.style.borderColor = isActive ? '#1A8A7A' : '#222';
+      btn.style.background = isActive ? 'rgba(26,138,122,0.1)' : '#111';
+    });
+  }
 
   window.setFocus = async function() {
     const input = document.getElementById('focus-input');
@@ -916,8 +990,13 @@ window.__onTabShow = {};
       const resp = await fetch('/api/pull-requests');
       if (!resp.ok) return;
       const prs = await resp.json();
-      if (!prs.length) { section.style.display = 'none'; return; }
+      const miniCard = document.getElementById('pr-link-card');
+      if (!prs.length) { section.style.display = 'none'; if (miniCard) miniCard.style.display = 'none'; return; }
       section.style.display = 'block';
+      if (miniCard && prs[0]) {
+        miniCard.style.display = 'block';
+        miniCard.innerHTML = '<a href="' + esc(prs[0].url) + '" target="_blank" rel="noopener" style="display:flex;align-items:center;gap:10px;padding:14px 16px;background:linear-gradient(135deg,rgba(26,138,122,0.08),rgba(26,138,122,0.03));border:1px solid rgba(26,138,122,0.25);border-radius:10px;text-decoration:none;cursor:pointer;height:100%;"><span style="font-size:20px;">🔀</span><div><div style="font-size:13px;font-weight:600;color:#50e3c2;">PR #' + prs[0].number + '</div><div style="font-size:10px;color:#555;">Review & Merge</div></div></a>';
+      }
       section.innerHTML = prs.map(pr => {
         const ago = Math.floor((Date.now() - new Date(pr.createdAt).getTime()) / 60000);
         const timeStr = ago < 60 ? ago + 'm ago' : ago < 1440 ? Math.floor(ago/60) + 'h ago' : Math.floor(ago/1440) + 'd ago';

@@ -119,6 +119,9 @@ if [ -n "$BLUEPRINT_FILE" ] && [ -f "$BLUEPRINT_FILE" ]; then
   BLUEPRINT=$(cat "$BLUEPRINT_FILE")
 fi
 
+# Orchestrator mode
+ORCH_MODE="${ORCHESTRATOR_MODE:-micro}"
+
 # Memory
 MEMORY=""
 MEMORY_FILE="$AGENTS_DIR/memory/$AGENT.md"
@@ -163,10 +166,28 @@ except: pass
 fi
 
 # ─── Build Prompt ───────────────────────────────────────────────────────────
+# Inject orchestrator mode if applicable
+ORCH_SECTION=""
+if [ "$AGENT" = "orchestrator" ]; then
+  RECENT_COMMITS=$(git log --since="1 hour ago" --oneline --no-merges 2>/dev/null | head -10 || echo "none")
+  ORCH_SECTION="
+## Orchestrator Mode: $ORCH_MODE
+$(if [ "$ORCH_MODE" = "grand" ]; then echo 'Run a FULL audit. Review all tabs. Create new tasks. Write end-of-day summary to Google Doc.'; else echo 'MICRO review — quick check only. What did the agents just commit in the last hour? Is the focus directive being followed? Any stuck tasks? Keep it under 5 minutes.'; fi)
+
+## Recent Commits (last hour)
+$RECENT_COMMITS
+"
+fi
+
 PROMPT="You are running as the $AGENT agent for StoryEngine.
 
 ## Your Instructions
 $AGENT_PROMPT"
+
+if [ -n "$ORCH_SECTION" ]; then
+  PROMPT="$PROMPT
+$ORCH_SECTION"
+fi
 
 if [ -n "$BLUEPRINT" ]; then
   PROMPT="$PROMPT

@@ -504,6 +504,54 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // POST /api/controls/cadence — update agent cron frequency
+  if (pathname === '/api/controls/cadence' && req.method === 'POST') {
+    const body = JSON.parse(await readBody(req));
+    const cadence = body.cadence; // light, normal, fast, max
+    const controlsFile = path.join(DATA_DIR, 'controls.json');
+    let controls = { paused_agents: [], skipped_tasks: [], priority_overrides: {} };
+    try { controls = JSON.parse(fs.readFileSync(controlsFile, 'utf8')); } catch {}
+    controls.cadence = cadence;
+    fs.writeFileSync(controlsFile, JSON.stringify(controls, null, 2));
+
+    // Generate and install new crontab
+    const agentsDir = path.join(__dirname, '../../storyengine/agents');
+    const logDir = '/tmp/storyengine-agents';
+    const schedules = {
+      // Micro-orchestrator fires ~20 min after agents start (enough time to finish)
+      light:  { backend: '0 0,4,8,12,16,20 * * *', frontend: '2 0,4,8,12,16,20 * * *', qa: '4 0,4,8,12,16,20 * * *', micro: '25 0,4,8,12,16,20 * * *', label: '6x/day (every 4h)' },
+      normal: { backend: '0 */2 * * *',             frontend: '2 */2 * * *',             qa: '4 */2 * * *',             micro: '25 */2 * * *',             label: '12x/day (every 2h)' },
+      fast:   { backend: '0 * * * *',               frontend: '2 * * * *',               qa: '4 * * * *',               micro: '45 * * * *',               label: '24x/day (every 1h)' },
+      max:    { backend: '0,30 * * * *',             frontend: '2,32 * * * *',            qa: '4,34 * * * *',            micro: '20,50 * * * *',            label: '48x/day (every 30m)' },
+    };
+    const sched = schedules[cadence] || schedules.fast;
+
+    try {
+      const cronLines = [
+        `0 5 * * * cd ${agentsDir} && ORCHESTRATOR_MODE=grand bash run-agent.sh orchestrator >> ${logDir}/orchestrator.log 2>&1 # storyengine-agents`,
+        `${sched.backend} cd ${agentsDir} && bash run-agent.sh backend-dev >> ${logDir}/backend-dev.log 2>&1 # storyengine-agents`,
+        `${sched.frontend} cd ${agentsDir} && bash run-agent.sh frontend-dev >> ${logDir}/frontend-dev.log 2>&1 # storyengine-agents`,
+        `${sched.qa} cd ${agentsDir} && bash run-agent.sh qa-engineer >> ${logDir}/qa-engineer.log 2>&1 # storyengine-agents`,
+        `${sched.micro} cd ${agentsDir} && ORCHESTRATOR_MODE=micro bash run-agent.sh orchestrator >> ${logDir}/orchestrator-micro.log 2>&1 # storyengine-agents`,
+        `0 23 * * * cd ${agentsDir} && bash daily-report.sh >> ${logDir}/daily-report.log 2>&1 # storyengine-agents`,
+        `*/5 * * * * pgrep -f 'rubric.*server' > /dev/null || (cd ${path.join(__dirname)} && nohup node server.js > ${logDir}/rubric.log 2>&1 &) # storyengine-agents`,
+      ];
+
+      // Read existing crontab, strip agent lines, re-add with new schedule
+      const existing = execSync('crontab -l 2>/dev/null || echo ""', { encoding: 'utf8' });
+      const nonAgent = existing.split('\n').filter(l => !l.includes('storyengine-agents')).join('\n');
+      const newCrontab = nonAgent.trim() + '\n\n# === StoryEngine Agents ===\n' + cronLines.join('\n') + '\n';
+      const tmpFile = '/tmp/cron-cadence.txt';
+      fs.writeFileSync(tmpFile, newCrontab);
+      execSync(`crontab ${tmpFile}`);
+      fs.unlinkSync(tmpFile);
+      sendJSON(res, { success: true, cadence, label: sched.label });
+    } catch (e) {
+      sendJSON(res, { success: false, error: String(e) }, 500);
+    }
+    return;
+  }
+
   // GET /api/screenshots/:filename — serve QA screenshots
   if (pathname.startsWith('/api/screenshots/') && req.method === 'GET') {
     const filename = pathname.replace('/api/screenshots/', '');
