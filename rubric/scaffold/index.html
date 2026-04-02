@@ -418,7 +418,19 @@
   <div id="tab-activity" class="tab-panel">
     <div style="max-width:800px;margin:0 auto;padding:20px;">
 
-      <!-- Open Pull Requests -->
+      <!-- Quick Links -->
+      <div style="display:flex;gap:8px;margin-bottom:16px;">
+        <a href="https://docs.google.com/document/d/1IxCl--zuK4PeCgrW5RCGZJflIYxTY7XT7lEaAjTeaGE/edit?usp=sharing" target="_blank" rel="noopener" style="flex:1;display:flex;align-items:center;gap:10px;padding:14px 16px;background:linear-gradient(135deg,rgba(66,133,244,0.08),rgba(66,133,244,0.03));border:1px solid rgba(66,133,244,0.25);border-radius:10px;text-decoration:none;cursor:pointer;">
+          <span style="font-size:20px;">📸</span>
+          <div>
+            <div style="font-size:13px;font-weight:600;color:#8ab4f8;">Visual Report</div>
+            <div style="font-size:10px;color:#555;">Screenshots & changes</div>
+          </div>
+        </a>
+        <div id="pr-link-card" style="flex:1;display:none;"></div>
+      </div>
+
+      <!-- Open Pull Requests (full card) -->
       <div id="pr-section" style="margin-bottom:16px;display:none;">
       </div>
 
@@ -916,8 +928,13 @@ window.__onTabShow = {};
       const resp = await fetch('/api/pull-requests');
       if (!resp.ok) return;
       const prs = await resp.json();
-      if (!prs.length) { section.style.display = 'none'; return; }
+      const miniCard = document.getElementById('pr-link-card');
+      if (!prs.length) { section.style.display = 'none'; if (miniCard) miniCard.style.display = 'none'; return; }
       section.style.display = 'block';
+      if (miniCard && prs[0]) {
+        miniCard.style.display = 'block';
+        miniCard.innerHTML = '<a href="' + esc(prs[0].url) + '" target="_blank" rel="noopener" style="display:flex;align-items:center;gap:10px;padding:14px 16px;background:linear-gradient(135deg,rgba(26,138,122,0.08),rgba(26,138,122,0.03));border:1px solid rgba(26,138,122,0.25);border-radius:10px;text-decoration:none;cursor:pointer;height:100%;"><span style="font-size:20px;">🔀</span><div><div style="font-size:13px;font-weight:600;color:#50e3c2;">PR #' + prs[0].number + '</div><div style="font-size:10px;color:#555;">Review & Merge</div></div></a>';
+      }
       section.innerHTML = prs.map(pr => {
         const ago = Math.floor((Date.now() - new Date(pr.createdAt).getTime()) / 60000);
         const timeStr = ago < 60 ? ago + 'm ago' : ago < 1440 ? Math.floor(ago/60) + 'h ago' : Math.floor(ago/1440) + 'd ago';
