@@ -354,9 +354,13 @@
           "title": "Add suggested_thumbnail_prompt and suggested_thumbnail_urls to VideoDetail model + SQL",
           "role": "backend",
           "status": "done",
+          "verified": true,
           "started_at": "2026-04-02T08:00:01Z",
           "completed_at": "2026-04-02T08:05:00Z",
           "assigned_to": "backend-dev",
+          "verified_at": "2026-04-02T09:06:00Z",
+          "verified_by": "qa-engineer",
+          "verification_notes": "Verified via T7-007. models.py:90-91, videos.py SELECT:146, constructor:210-211 with _parse_json_field. schema.sql:198-199 confirms DB columns. api.ts:566-567 matches. tsc passes.",
           "description": "RE-DONE after prior QA failure. Added suggested_thumbnail_prompt (Optional[str]) and suggested_thumbnail_urls (Optional[list]) to VideoDetail in models.py (lines 90-91). Added to SQL SELECT in videos.py (line 146). Added r.get() mappings in constructor (lines 210-211) with _parse_json_field for URLs. Unblocks T7-002 data flow.",
           "files": [
             "backend/models.py",
@@ -507,9 +511,13 @@
           "title": "Display post-mortem analysis (48h and 7d)",
           "role": "frontend",
           "status": "done",
+          "verified": true,
           "started_at": "2026-04-02T16:02:00Z",
           "assigned_to": "frontend-dev",
           "completed_at": "2026-04-02T16:06:00Z",
+          "verified_at": "2026-04-02T17:04:00Z",
+          "verified_by": "qa-engineer",
+          "verification_notes": "PASS. PostMortemSection component parses post_mortem_48h/7d JSON safely (try/catch). Renders collapsible accordion with 3 verdict levels (strong=green, average=gold, weak=red). Shows CTR/retention verdict pills, recommendations list, metrics grid with formatting, analyzed_at timestamp. Backend wiring confirmed: models.py:83-84, videos.py SELECT:144, r.get():203-204. Frontend types api.ts:587-588 match. tsc --noEmit passes. Diff clean: 2 files, 182 lines, no bloat.",
           "description": "Added collapsible 48h and 7d post-mortem sections to PerformanceTab. Each shows overall/CTR/retention verdicts with color-coded pills, recommendations list, metrics grid, and analyzed timestamp. JSON parsed safely with fallback. Uses existing Accordion pattern (ChevronDown + AnimatePresence).",
           "files": [
             "frontend/src/components/production/PerformanceTab.tsx"
