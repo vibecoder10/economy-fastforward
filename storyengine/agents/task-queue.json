@@ -2,7 +2,7 @@
   "version": 2,
   "current_tab": 2,
   "last_updated": "2026-04-02",
-  "last_updated_by": "backend-dev",
+  "last_updated_by": "qa-engineer",
   "tabs": [
     {
       "id": 1,
@@ -47,7 +47,7 @@
       "id": 2,
       "name": "Video Detail: Info Tab",
       "path": "/pipeline/[videoId]",
-      "status": "in_progress",
+      "status": "complete",
       "tasks": [
         {
           "id": "T2-001",
@@ -99,10 +99,14 @@
           "title": "Display source metadata (source_views, source_channel, source_urls) in Info tab",
           "role": "frontend",
           "status": "done",
+          "verified": true,
           "depends_on": "T2-006",
           "started_at": "2026-04-02T03:04:00Z",
           "assigned_to": "frontend-dev",
           "completed_at": "2026-04-02T03:06:00Z",
+          "verified_at": "2026-04-02T03:10:00Z",
+          "verified_by": "qa-engineer",
+          "verification_notes": "Source section renders conditionally (line 54). source_channel via Field component, source_views with formatNumber(), source_urls as clickable links with ExternalLink icon. 3 fields added to VideoDetail in api.ts. Diff is clean — 2 app files changed. tsc --noEmit passes.",
           "description": "After T2-006 adds these fields to the backend response, add a 'Source' section to info-tab.tsx showing: source_channel as text, source_views as formatted number, source_urls as clickable links. Only render the section if at least one field has data. Place it after the Story DNA section.",
           "files": [
             "frontend/src/components/video-detail/info-tab.tsx"
@@ -122,7 +126,14 @@
           "id": "T2-005",
           "title": "QA verify Info tab displays all metadata correctly",
           "role": "qa",
-          "status": "pending",
+          "status": "done",
+          "verified": true,
+          "started_at": "2026-04-02T03:10:00Z",
+          "completed_at": "2026-04-02T03:12:00Z",
+          "assigned_to": "qa-engineer",
+          "verified_at": "2026-04-02T03:12:00Z",
+          "verified_by": "qa-engineer",
+          "verification_notes": "Full wiring audit: (1) All 18 fields in models.py lines 72-89, SQL SELECT, r.get() mappings. (2) All 18 fields in api.ts VideoDetail lines 514-562. (3) info-tab.tsx renders: Story DNA (framework, thesis, hook, past/present/future, writer_guidance), Source section (channel, views, urls), Research Payload (collapsible JSON), Original DNA (collapsible JSON), Quality Pipeline (hook_score, body_score, tier, cost, suggestion banner). (4) tsc --noEmit passes clean. (5) No bloat in any commit. Tab 2 COMPLETE.",
           "description": "Curl GET /api/videos/{id} for a video with research data. Verify the response includes all 18 new fields from T2-006. Then verify UI: research_payload renders in collapsible section, original_dna renders as formatted JSON (T2-002), writer_guidance shows in Story DNA, source metadata section appears when data exists (T2-003). Run tsc --noEmit to confirm no type errors.",
           "depends_on": "T2-003"
         }
@@ -311,13 +322,17 @@
           "title": "Build render trigger endpoint",
           "role": "backend",
           "status": "done",
+          "verified": true,
           "description": "Already implemented. POST /api/pipeline/render/{video_id} exists in pipeline.py line 849, calling executor.run_render(). No changes needed.",
           "files": [
             "backend/routes/pipeline.py",
             "backend/pipeline_executor.py"
           ],
           "completed_at": "2026-04-02T03:00:00Z",
-          "assigned_to": "backend-dev"
+          "assigned_to": "backend-dev",
+          "verified_at": "2026-04-02T03:12:00Z",
+          "verified_by": "qa-engineer",
+          "verification_notes": "POST /api/pipeline/render/{video_id} exists at pipeline.py line 849. Router registered in main.py line 279. Pre-existing code, no new commit needed."
         },
         {
           "id": "T8-002",
@@ -585,6 +600,7 @@
           "title": "Add learning enable/disable toggle",
           "role": "backend",
           "status": "done",
+          "verified": true,
           "description": "Add PATCH /api/learnings/{id}/toggle endpoint that sets active=true/false on a learning record. This lets users override discovered patterns \u2014 disable anti-patterns they disagree with, or force-disable patterns they want to test without. Register in main.py.",
           "files": [
             "backend/routes/learning_extraction.py",
@@ -592,7 +608,10 @@
           ],
           "started_at": "2026-04-02T03:00:01Z",
           "assigned_to": "backend-dev",
-          "completed_at": "2026-04-02T03:02:00Z"
+          "completed_at": "2026-04-02T03:02:00Z",
+          "verified_at": "2026-04-02T03:12:00Z",
+          "verified_by": "qa-engineer",
+          "verification_notes": "PATCH /{learning_id}/toggle at line 271. Reads current active state, flips it, returns new state. Router registered at main.py line 289. Diff clean — 1 app file changed. No bloat."
         },
         {
           "id": "T12-006",
