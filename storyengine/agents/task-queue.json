@@ -2,7 +2,7 @@
   "version": 2,
   "current_tab": 3,
   "last_updated": "2026-04-02",
-  "last_updated_by": "qa-engineer",
+  "last_updated_by": "orchestrator",
   "tabs": [
     {
       "id": 1,
@@ -217,7 +217,7 @@
           "assigned_to": "qa-engineer",
           "verified_at": "2026-04-02T20:15:00Z",
           "verified_by": "qa-engineer",
-          "verification_notes": "PASS. (1) POST /api/pipeline/voice/{video_id}?scene=N exists at pipeline.py line 232 — status gate requires ready_for_voice or scene param. (2) useTaskPoller wired in ScriptVoiceTab.tsx (lines 313-330) with voiceTaskRunning state, interval 3000ms, onComplete invalidates queries. Task status endpoint GET /api/pipeline/task/{video_id} returns {status, message, error}. (3) voice_over_url returned by GET /api/videos/{id}/script — 6 scenes verified with voice_over_url populated. (4) VoicePlayer renders in StoryboardVisualsTab (line 811) with 6 audio elements confirmed via Playwright. (5) Script tab shows 6 'Voice Done' badges, 6 'Voice Ready' labels, 6 'Regenerate Voice' buttons. (6) 0 console errors. (7) tsc --noEmit: 0 errors. TAB 4 COMPLETE.",
+          "verification_notes": "PASS. (1) POST /api/pipeline/voice/{video_id}?scene=N exists at pipeline.py line 232 \u2014 status gate requires ready_for_voice or scene param. (2) useTaskPoller wired in ScriptVoiceTab.tsx (lines 313-330) with voiceTaskRunning state, interval 3000ms, onComplete invalidates queries. Task status endpoint GET /api/pipeline/task/{video_id} returns {status, message, error}. (3) voice_over_url returned by GET /api/videos/{id}/script \u2014 6 scenes verified with voice_over_url populated. (4) VoicePlayer renders in StoryboardVisualsTab (line 811) with 6 audio elements confirmed via Playwright. (5) Script tab shows 6 'Voice Done' badges, 6 'Voice Ready' labels, 6 'Regenerate Voice' buttons. (6) 0 console errors. (7) tsc --noEmit: 0 errors. TAB 4 COMPLETE.",
           "description": "Check that POST /api/pipeline/voice/{id} triggers voice generation, task poller tracks progress, and voice_over_url appears on script scenes when complete. Verify VoicePlayer component plays audio."
         },
         {
@@ -230,7 +230,7 @@
           "assigned_to": "qa-engineer",
           "verified_at": "2026-04-02T20:15:00Z",
           "verified_by": "qa-engineer",
-          "verification_notes": "Already implemented. VoiceStatusBadge renders per scene in ScriptVoiceTab.tsx (line 1061) — shows 'Voice Done' (green) for done/finished, 'Voice Pending' (gold) for create/pending. Reads from scene.voiceStatus which maps to voice_status from API (line 160). Playwright confirmed 6 'Voice Done' badges visible in browser. ScriptTab.tsx also has this at line 611.",
+          "verification_notes": "Already implemented. VoiceStatusBadge renders per scene in ScriptVoiceTab.tsx (line 1061) \u2014 shows 'Voice Done' (green) for done/finished, 'Voice Pending' (gold) for create/pending. Reads from scene.voiceStatus which maps to voice_status from API (line 160). Playwright confirmed 6 'Voice Done' badges visible in browser. ScriptTab.tsx also has this at line 611.",
           "description": "Each script scene has a voice_status field. Display it as a badge next to each scene in the voice tab (e.g., 'Generated', 'Pending', 'Failed'). Wire to the actual field from the API response.",
           "files": [
             "frontend/src/components/production/ScriptTab.tsx"
@@ -1236,12 +1236,26 @@
           "role": "qa",
           "status": "done",
           "depends_on": "T17-002",
-          "description": "Verify T17-002 auth frontend wiring: (1) GET / redirects to /login when no JWT in localStorage. (2) /login renders Google Sign-In button (GIS script loaded, button div present). (3) AuthProvider wraps app — useAuth() returns { user, login, logout }. (4) After mock login (set localStorage token to dev-token), AuthenticatedShell shows sidebar + content without redirect. (5) Logout clears localStorage token and redirects to /login. (6) fetchApi in api.ts reads Authorization header from localStorage on every request. (7) tsc --noEmit passes clean. (8) No console errors on /login page.",
-          "verification_notes": "PASS with note. (1) ✅ GET / redirects to /login — AuthenticatedShell useEffect fires when !user && !isPublicPath. (2) ✅ /login renders with button container div and GIS script tag. (3) ✅ AuthProvider.tsx exports useAuth, login, logout, isLoading. (4) ⚠️ dev-token does NOT show shell — AuthProvider:38 skips getMe() when token==='dev-token', so user stays null and shell redirects back to login. Design choice: dev-token is for API calls (fetchApi fallback), not mock auth. Real JWT from Google OAuth creates the session. Not a regression. (5) ✅ logout() calls localStorage.removeItem('token') + setUser(null). (6) ✅ fetchApi reads localStorage token or falls back to 'dev-token' as Authorization header. (7) ✅ tsc --noEmit passes clean (zero errors). (8) ✅ No blocking console errors on /login (GIS warning expected without client ID). Verdict: PASS — critical auth wiring is correct. Checklist item 4 wording was misleading; dev-token shell bypass is not implemented by design.",
+          "description": "Verify T17-002 auth frontend wiring: (1) GET / redirects to /login when no JWT in localStorage. (2) /login renders Google Sign-In button (GIS script loaded, button div present). (3) AuthProvider wraps app \u2014 useAuth() returns { user, login, logout }. (4) After mock login (set localStorage token to dev-token), AuthenticatedShell shows sidebar + content without redirect. (5) Logout clears localStorage token and redirects to /login. (6) fetchApi in api.ts reads Authorization header from localStorage on every request. (7) tsc --noEmit passes clean. (8) No console errors on /login page.",
+          "verification_notes": "PASS with note. (1) \u2705 GET / redirects to /login \u2014 AuthenticatedShell useEffect fires when !user && !isPublicPath. (2) \u2705 /login renders with button container div and GIS script tag. (3) \u2705 AuthProvider.tsx exports useAuth, login, logout, isLoading. (4) \u26a0\ufe0f dev-token does NOT show shell \u2014 AuthProvider:38 skips getMe() when token==='dev-token', so user stays null and shell redirects back to login. Design choice: dev-token is for API calls (fetchApi fallback), not mock auth. Real JWT from Google OAuth creates the session. Not a regression. (5) \u2705 logout() calls localStorage.removeItem('token') + setUser(null). (6) \u2705 fetchApi reads localStorage token or falls back to 'dev-token' as Authorization header. (7) \u2705 tsc --noEmit passes clean (zero errors). (8) \u2705 No blocking console errors on /login (GIS warning expected without client ID). Verdict: PASS \u2014 critical auth wiring is correct. Checklist item 4 wording was misleading; dev-token shell bypass is not implemented by design.",
           "files": [
             "frontend/src/app/login/page.tsx",
             "frontend/src/components/auth/AuthProvider.tsx",
             "frontend/src/components/auth/AuthenticatedShell.tsx"
+          ]
+        },
+        {
+          "id": "T17-007",
+          "title": "QA verify email/password auth: register, login, logout, route protection",
+          "role": "qa",
+          "status": "pending",
+          "description": "Commit 3e70c07 added email/password auth as alternative to Google OAuth. Verify: (1) POST /api/auth/register creates account + tenant + membership, returns JWT. (2) POST /api/auth/login authenticates and returns JWT. (3) Frontend login page shows email/password form with register toggle. (4) After login, JWT stored in localStorage, sidebar shows user name + logout button. (5) Logout clears token, redirects to /login. (6) Wrong password returns 401. (7) Duplicate email returns 400. (8) password_hash column exists in accounts table (migration 022). (9) tsc --noEmit passes clean.",
+          "files": [
+            "backend/routes/google_auth.py",
+            "backend/migrations/022_password_auth.sql",
+            "frontend/src/app/login/page.tsx",
+            "frontend/src/components/auth/AuthProvider.tsx",
+            "frontend/src/components/nav/sidebar.tsx"
           ]
         }
       ]
