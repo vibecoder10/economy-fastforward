@@ -11,6 +11,7 @@ interface InfoTabProps {
 
 export function InfoTab({ video }: InfoTabProps) {
   const [researchOpen, setResearchOpen] = useState(false);
+  const [dnaOpen, setDnaOpen] = useState(false);
   const queryClient = useQueryClient();
 
   const advanceMutation = useMutation({
@@ -141,6 +142,43 @@ export function InfoTab({ video }: InfoTabProps) {
                 {typeof video.research_payload === "string"
                   ? video.research_payload
                   : JSON.stringify(video.research_payload, null, 2)}
+              </pre>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Original DNA (collapsible) */}
+      {video.original_dna && (
+        <div
+          className="rounded-xl overflow-hidden"
+          style={{ background: "var(--bg-card)", border: "1px solid var(--border)" }}
+        >
+          <button
+            onClick={() => setDnaOpen(!dnaOpen)}
+            className="flex items-center justify-between w-full p-4 text-left"
+          >
+            <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+              Original DNA
+            </span>
+            {dnaOpen ? (
+              <ChevronDown size={16} style={{ color: "var(--text-muted)" }} />
+            ) : (
+              <ChevronRight size={16} style={{ color: "var(--text-muted)" }} />
+            )}
+          </button>
+          {dnaOpen && (
+            <div className="px-4 pb-4">
+              <pre
+                className="text-xs overflow-x-auto whitespace-pre-wrap"
+                style={{ color: "var(--text-secondary)" }}
+              >
+                {typeof video.original_dna === "string"
+                  ? (() => {
+                      try { return JSON.stringify(JSON.parse(video.original_dna), null, 2); }
+                      catch { return video.original_dna; }
+                    })()
+                  : JSON.stringify(video.original_dna, null, 2)}
               </pre>
             </div>
           )}

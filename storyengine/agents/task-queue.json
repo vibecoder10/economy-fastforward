@@ -2,7 +2,7 @@
   "version": 2,
   "current_tab": 2,
   "last_updated": "2026-04-02",
-  "last_updated_by": "orchestrator",
+  "last_updated_by": "frontend-dev",
   "tabs": [
     {
       "id": 1,
@@ -67,16 +67,24 @@
           "started_at": "2026-04-02T02:00:01Z",
           "completed_at": "2026-04-02T02:05:00Z",
           "assigned_to": "backend-dev",
-          "description": "CRITICAL: The backend VideoDetail Pydantic model (models.py line 42) and SQL query (routes/videos.py line 132) are missing 15 fields that exist in schema.sql and are expected by the frontend (api.ts VideoDetail interface). Add to BOTH the Pydantic model AND the SQL SELECT:\n\n1. source_views (INTEGER) — schema.sql line 168\n2. source_channel (TEXT) — schema.sql line 169\n3. source_urls (TEXT) — schema.sql line 85\n4. views_24h (INTEGER) — schema.sql line 135\n5. views_48h (INTEGER) — schema.sql line 136\n6. views_7d (INTEGER) — schema.sql line 137\n7. views_30d (INTEGER) — schema.sql line 138\n8. ctr_12h (NUMERIC) — schema.sql line 185\n9. ctr_24h (NUMERIC) — schema.sql line 186\n10. ctr_48h (NUMERIC) — schema.sql line 139\n11. retention_48h (NUMERIC) — schema.sql line 140\n12. post_mortem_48h (TEXT) — schema.sql line 144\n13. post_mortem_7d (TEXT) — schema.sql line 145\n14. agent_paper_trail (JSONB) — schema.sql line 189\n15. agent_hook_score (NUMERIC) — schema.sql line 190\n16. agent_body_score (NUMERIC) — schema.sql line 191\n17. agent_tier (TEXT) — schema.sql line 192\n18. agent_cost (NUMERIC) — schema.sql line 193\n\nSteps:\n1. Add Optional fields to VideoDetail class in models.py\n2. Add columns to the SQL SELECT in routes/videos.py get_video()\n3. Add r.get() mappings in the VideoDetail() constructor call\n4. For JSON fields (agent_paper_trail), use _parse_json_field()\n5. For NUMERIC fields, use float() conversion with None check",
-          "files": ["backend/models.py", "backend/routes/videos.py"]
+          "description": "CRITICAL: The backend VideoDetail Pydantic model (models.py line 42) and SQL query (routes/videos.py line 132) are missing 15 fields that exist in schema.sql and are expected by the frontend (api.ts VideoDetail interface). Add to BOTH the Pydantic model AND the SQL SELECT:\n\n1. source_views (INTEGER) \u2014 schema.sql line 168\n2. source_channel (TEXT) \u2014 schema.sql line 169\n3. source_urls (TEXT) \u2014 schema.sql line 85\n4. views_24h (INTEGER) \u2014 schema.sql line 135\n5. views_48h (INTEGER) \u2014 schema.sql line 136\n6. views_7d (INTEGER) \u2014 schema.sql line 137\n7. views_30d (INTEGER) \u2014 schema.sql line 138\n8. ctr_12h (NUMERIC) \u2014 schema.sql line 185\n9. ctr_24h (NUMERIC) \u2014 schema.sql line 186\n10. ctr_48h (NUMERIC) \u2014 schema.sql line 139\n11. retention_48h (NUMERIC) \u2014 schema.sql line 140\n12. post_mortem_48h (TEXT) \u2014 schema.sql line 144\n13. post_mortem_7d (TEXT) \u2014 schema.sql line 145\n14. agent_paper_trail (JSONB) \u2014 schema.sql line 189\n15. agent_hook_score (NUMERIC) \u2014 schema.sql line 190\n16. agent_body_score (NUMERIC) \u2014 schema.sql line 191\n17. agent_tier (TEXT) \u2014 schema.sql line 192\n18. agent_cost (NUMERIC) \u2014 schema.sql line 193\n\nSteps:\n1. Add Optional fields to VideoDetail class in models.py\n2. Add columns to the SQL SELECT in routes/videos.py get_video()\n3. Add r.get() mappings in the VideoDetail() constructor call\n4. For JSON fields (agent_paper_trail), use _parse_json_field()\n5. For NUMERIC fields, use float() conversion with None check",
+          "files": [
+            "backend/models.py",
+            "backend/routes/videos.py"
+          ]
         },
         {
           "id": "T2-002",
           "title": "Display original_dna as formatted JSON in Info tab",
           "role": "frontend",
-          "status": "pending",
+          "status": "done",
           "description": "writer_guidance already renders in info-tab.tsx line 46. But original_dna is NOT displayed anywhere despite being returned by the backend. Add a collapsible 'Original DNA' section in info-tab.tsx showing the JSON formatted like the existing Research Payload section (lines 117-148). Pattern: check if video.original_dna exists, render as JSON.stringify(video.original_dna, null, 2) in a pre tag.",
-          "files": ["frontend/src/components/video-detail/info-tab.tsx"]
+          "files": [
+            "frontend/src/components/video-detail/info-tab.tsx"
+          ],
+          "started_at": "2026-04-02T02:02:00Z",
+          "assigned_to": "frontend-dev",
+          "completed_at": "2026-04-02T02:04:00Z"
         },
         {
           "id": "T2-003",
@@ -85,7 +93,9 @@
           "status": "pending",
           "depends_on": "T2-006",
           "description": "After T2-006 adds these fields to the backend response, add a 'Source' section to info-tab.tsx showing: source_channel as text, source_views as formatted number, source_urls as clickable links. Only render the section if at least one field has data. Place it after the Story DNA section.",
-          "files": ["frontend/src/components/video-detail/info-tab.tsx"]
+          "files": [
+            "frontend/src/components/video-detail/info-tab.tsx"
+          ]
         },
         {
           "id": "T2-004",
@@ -119,15 +129,19 @@
           "role": "frontend",
           "status": "pending",
           "description": "Frontend ScriptScene type uses narrationText but backend returns scene_text. Fix types.ts ScriptScene to use scene_text. Also add missing storyboard_1_url through storyboard_5_url fields.",
-          "files": ["frontend/src/lib/types.ts"]
+          "files": [
+            "frontend/src/lib/types.ts"
+          ]
         },
         {
           "id": "T3-002",
           "title": "Display script_validation results in Script tab",
           "role": "frontend",
           "status": "pending",
-          "description": "Backend returns script_validation (JSON) on VideoDetail — this contains 7 editorial check results (number_density, framework_density, etc.). Add a validation summary section showing pass/fail/warn for each check.",
-          "files": ["frontend/src/components/production/ScriptTab.tsx"]
+          "description": "Backend returns script_validation (JSON) on VideoDetail \u2014 this contains 7 editorial check results (number_density, framework_density, etc.). Add a validation summary section showing pass/fail/warn for each check.",
+          "files": [
+            "frontend/src/components/production/ScriptTab.tsx"
+          ]
         },
         {
           "id": "T3-003",
@@ -135,7 +149,10 @@
           "role": "frontend",
           "status": "pending",
           "description": "Backend has PUT /api/videos/{id}/scenes/{scene}/segments to update segments. Verify the SegmentList component can save edits and the frontend calls this endpoint correctly.",
-          "files": ["frontend/src/components/production/ScriptTab.tsx", "frontend/src/lib/api.ts"]
+          "files": [
+            "frontend/src/components/production/ScriptTab.tsx",
+            "frontend/src/lib/api.ts"
+          ]
         },
         {
           "id": "T3-004",
@@ -166,7 +183,9 @@
           "role": "frontend",
           "status": "pending",
           "description": "Each script scene has a voice_status field. Display it as a badge next to each scene in the voice tab (e.g., 'Generated', 'Pending', 'Failed'). Wire to the actual field from the API response.",
-          "files": ["frontend/src/components/production/ScriptTab.tsx"]
+          "files": [
+            "frontend/src/components/production/ScriptTab.tsx"
+          ]
         }
       ]
     },
@@ -204,7 +223,10 @@
           "role": "backend",
           "status": "done",
           "description": "Frontend review page filters by status='Pending' (capital P) but backend writes status as 'approved'/'rejected' (lowercase). Standardize to lowercase everywhere. Check routes/assets.py and routes/review.py.",
-          "files": ["backend/routes/assets.py", "backend/routes/review.py"]
+          "files": [
+            "backend/routes/assets.py",
+            "backend/routes/review.py"
+          ]
         },
         {
           "id": "T6-002",
@@ -212,7 +234,10 @@
           "role": "frontend",
           "status": "pending",
           "description": "Backend has POST /api/pipeline/images/{id}?scene=N&index=M&variants=3 for generating image variants. Add a 'Generate Variants' button on each image card in the visuals tab that triggers this endpoint.",
-          "files": ["frontend/src/components/production/StoryboardVisualsTab.tsx", "frontend/src/lib/api.ts"]
+          "files": [
+            "frontend/src/components/production/StoryboardVisualsTab.tsx",
+            "frontend/src/lib/api.ts"
+          ]
         },
         {
           "id": "T6-003",
@@ -220,7 +245,9 @@
           "role": "frontend",
           "status": "pending",
           "description": "Each asset has an image_prompt field. Show it as expandable text below each image in the visuals tab so users can see what prompt generated each image.",
-          "files": ["frontend/src/components/production/StoryboardVisualsTab.tsx"]
+          "files": [
+            "frontend/src/components/production/StoryboardVisualsTab.tsx"
+          ]
         },
         {
           "id": "T6-004",
@@ -251,7 +278,10 @@
           "role": "frontend",
           "status": "pending",
           "description": "Backend returns suggested_thumbnail_urls (array) and suggested_thumbnail_prompt on VideoDetail. Display these as a suggestion card with Accept/Reject buttons that call POST /api/videos/{id}/accept-suggestion and POST /api/videos/{id}/reject-suggestion.",
-          "files": ["frontend/src/components/production/ThumbnailTab.tsx", "frontend/src/lib/api.ts"]
+          "files": [
+            "frontend/src/components/production/ThumbnailTab.tsx",
+            "frontend/src/lib/api.ts"
+          ]
         }
       ]
     },
@@ -267,7 +297,10 @@
           "role": "backend",
           "status": "pending",
           "description": "Add POST /api/pipeline/render/{id} endpoint that triggers Remotion rendering via pipeline_executor. Return task_id for polling. Currently the render tab has no backend.",
-          "files": ["backend/routes/pipeline.py", "backend/pipeline_executor.py"]
+          "files": [
+            "backend/routes/pipeline.py",
+            "backend/pipeline_executor.py"
+          ]
         },
         {
           "id": "T8-002",
@@ -275,7 +308,9 @@
           "role": "frontend",
           "status": "pending",
           "description": "Wire the RenderTab to call the render endpoint, show progress via task poller, and display the output video URL when complete. Add download link for the rendered MP4.",
-          "files": ["frontend/src/components/production/RenderTab.tsx"],
+          "files": [
+            "frontend/src/components/production/RenderTab.tsx"
+          ],
           "depends_on": "T8-001"
         },
         {
@@ -300,7 +335,10 @@
           "role": "frontend",
           "status": "pending",
           "description": "Backend returns views_24h, views_48h, views_7d, views_30d, ctr_48h, retention_48h on VideoDetail. Display these as a metrics timeline in the Performance tab showing how the video performed over time.",
-          "files": ["frontend/src/components/production/PerformanceTab.tsx", "frontend/src/lib/types.ts"]
+          "files": [
+            "frontend/src/components/production/PerformanceTab.tsx",
+            "frontend/src/lib/types.ts"
+          ]
         },
         {
           "id": "T9-002",
@@ -308,7 +346,9 @@
           "role": "frontend",
           "status": "pending",
           "description": "Backend returns post_mortem_48h and post_mortem_7d as JSON on VideoDetail. Display these as collapsible analysis sections showing CTR verdict, recommendations, and extracted learnings.",
-          "files": ["frontend/src/components/production/PerformanceTab.tsx"]
+          "files": [
+            "frontend/src/components/production/PerformanceTab.tsx"
+          ]
         },
         {
           "id": "T9-003",
@@ -316,7 +356,10 @@
           "role": "frontend",
           "status": "pending",
           "description": "Backend has POST /api/videos/{id}/accept-suggestion and reject-suggestion endpoints. VideoDetail returns suggested_script, suggested_title, suggestion_scores, suggestion_status. Build a suggestion card that shows the proposed changes with Accept/Reject buttons.",
-          "files": ["frontend/src/components/production/PerformanceTab.tsx", "frontend/src/lib/api.ts"]
+          "files": [
+            "frontend/src/components/production/PerformanceTab.tsx",
+            "frontend/src/lib/api.ts"
+          ]
         },
         {
           "id": "T9-004",
@@ -324,7 +367,9 @@
           "role": "frontend",
           "status": "pending",
           "description": "Backend returns agent_hook_score, agent_body_score, agent_tier on VideoDetail. Display these as a quality scorecard in the Performance tab.",
-          "files": ["frontend/src/components/production/PerformanceTab.tsx"]
+          "files": [
+            "frontend/src/components/production/PerformanceTab.tsx"
+          ]
         },
         {
           "id": "T9-005",
@@ -348,7 +393,10 @@
           "role": "frontend",
           "status": "pending",
           "description": "Backend returns confidence_breakdown with vph_score, vph_reasoning, freshness_score, freshness_reasoning, total_score on each CompetitorCandidate. Show this as a tooltip or expandable section on each playing card so users understand WHY a candidate ranks high. Currently only the total confidence number is shown.",
-          "files": ["frontend/src/app/competitors/page.tsx", "frontend/src/components/autopilot/PlayingCard.tsx"]
+          "files": [
+            "frontend/src/app/competitors/page.tsx",
+            "frontend/src/components/autopilot/PlayingCard.tsx"
+          ]
         },
         {
           "id": "T10-002",
@@ -356,7 +404,10 @@
           "role": "frontend",
           "status": "pending",
           "description": "competitor_videos.transcript stores auto-generated captions scraped by yt-dlp. Add a modal or expandable panel to view the transcript when clicking a competitor card. Show the first 500 words (the 'hook') prominently.",
-          "files": ["frontend/src/app/competitors/page.tsx", "frontend/src/components/autopilot/CardExpanded.tsx"]
+          "files": [
+            "frontend/src/app/competitors/page.tsx",
+            "frontend/src/components/autopilot/CardExpanded.tsx"
+          ]
         },
         {
           "id": "T10-003",
@@ -364,7 +415,9 @@
           "role": "frontend",
           "status": "pending",
           "description": "Backend returns last_scraped on each channel from GET /api/niche/channels. Display this as relative time ('3h ago') on each channel pill/card so users know data freshness.",
-          "files": ["frontend/src/app/competitors/page.tsx"]
+          "files": [
+            "frontend/src/app/competitors/page.tsx"
+          ]
         },
         {
           "id": "T10-004",
@@ -372,7 +425,9 @@
           "role": "frontend",
           "status": "pending",
           "description": "GET /api/niche/scrape/status returns error string and per-channel details. Currently only a banner shows. Add a collapsible error log showing which channels failed and why.",
-          "files": ["frontend/src/app/competitors/page.tsx"]
+          "files": [
+            "frontend/src/app/competitors/page.tsx"
+          ]
         },
         {
           "id": "T10-005",
@@ -386,7 +441,7 @@
     },
     {
       "id": 11,
-      "name": "Discovery Ideas Page (NEW — Hero Feature)",
+      "name": "Discovery Ideas Page (NEW \u2014 Hero Feature)",
       "path": "/discovery",
       "status": "pending",
       "tasks": [
@@ -395,8 +450,10 @@
           "title": "Create /discovery page route and layout",
           "role": "frontend",
           "status": "pending",
-          "description": "Create frontend/src/app/discovery/page.tsx. This is the HERO FEATURE — where AI-generated ideas appear. Layout: status bar at top (refreshing indicator, idea counts, learnings applied), idea grid below. Backend endpoints all exist: GET /api/discovery/ideas, GET /api/discovery/status, POST /api/discovery/refresh. Frontend API calls all exist in api.ts (getDiscoveryIdeas, getDiscoveryStatus, refreshDiscoveryIdeas, launchIdea, dismissIdea).",
-          "files": ["frontend/src/app/discovery/page.tsx"]
+          "description": "Create frontend/src/app/discovery/page.tsx. This is the HERO FEATURE \u2014 where AI-generated ideas appear. Layout: status bar at top (refreshing indicator, idea counts, learnings applied), idea grid below. Backend endpoints all exist: GET /api/discovery/ideas, GET /api/discovery/status, POST /api/discovery/refresh. Frontend API calls all exist in api.ts (getDiscoveryIdeas, getDiscoveryStatus, refreshDiscoveryIdeas, launchIdea, dismissIdea).",
+          "files": [
+            "frontend/src/app/discovery/page.tsx"
+          ]
         },
         {
           "id": "T11-002",
@@ -404,7 +461,9 @@
           "role": "frontend",
           "status": "pending",
           "description": "Each idea card shows: competitor thumbnail (competitor_thumbnail_url), our_angle (unique take), hook text, framework name, estimated_appeal score (1-10), appeal_breakdown as mini bar chart (timeliness, audience_fit, content_gap, virality, depth_potential, visual_potential). 3 title options as selectable pills (title text + formula_id + predicted score). Status badge (fresh/launched/dismissed). Launch button (calls launchIdea) and Dismiss button (calls dismissIdea).",
-          "files": ["frontend/src/components/autopilot/DiscoveryIdeaCard.tsx"]
+          "files": [
+            "frontend/src/components/autopilot/DiscoveryIdeaCard.tsx"
+          ]
         },
         {
           "id": "T11-003",
@@ -412,7 +471,9 @@
           "role": "frontend",
           "status": "pending",
           "description": "Top bar shows: is_refreshing spinner, last_batch_date, total idea_count, fresh_count, learnings_applied count. 'Refresh Ideas' button calls POST /api/discovery/refresh. Poll getDiscoveryStatus while refreshing to update counts.",
-          "files": ["frontend/src/app/discovery/page.tsx"]
+          "files": [
+            "frontend/src/app/discovery/page.tsx"
+          ]
         },
         {
           "id": "T11-004",
@@ -420,7 +481,9 @@
           "role": "frontend",
           "status": "pending",
           "description": "Filter by status (fresh/launched/dismissed). Sort by estimated_appeal (highest first) or created_at (newest first). Wire to query params on GET /api/discovery/ideas.",
-          "files": ["frontend/src/app/discovery/page.tsx"]
+          "files": [
+            "frontend/src/app/discovery/page.tsx"
+          ]
         },
         {
           "id": "T11-005",
@@ -428,7 +491,10 @@
           "role": "frontend",
           "status": "pending",
           "description": "When user clicks Launch on an idea card: modal shows 3 title options as radio buttons (title, formula_id, thumbnail_text, score). User selects title + sets video_length_minutes. Confirm calls POST /api/discovery/ideas/{id}/launch with title_index and video_length_minutes. Show success state with link to new video.",
-          "files": ["frontend/src/app/discovery/page.tsx", "frontend/src/components/autopilot/DiscoveryIdeaCard.tsx"]
+          "files": [
+            "frontend/src/app/discovery/page.tsx",
+            "frontend/src/components/autopilot/DiscoveryIdeaCard.tsx"
+          ]
         },
         {
           "id": "T11-006",
@@ -436,7 +502,10 @@
           "role": "frontend",
           "status": "pending",
           "description": "Add 'Discovery' to the sidebar navigation (components/nav/Sidebar.tsx) and bottom tabs (components/nav/BottomTabs.tsx) between Competitors and Autopilot. Use a lightbulb or spark icon.",
-          "files": ["frontend/src/components/nav/Sidebar.tsx", "frontend/src/components/nav/BottomTabs.tsx"]
+          "files": [
+            "frontend/src/components/nav/Sidebar.tsx",
+            "frontend/src/components/nav/BottomTabs.tsx"
+          ]
         },
         {
           "id": "T11-007",
@@ -460,7 +529,9 @@
           "role": "frontend",
           "status": "pending",
           "description": "Create frontend/src/app/learnings/page.tsx. Layout: action bar (Extract Learnings, Analyze Titles, Analyze Transcripts buttons), category filter tabs (All, Title, Hook, Framework, Script), pattern cards grid. Backend endpoints all exist: GET /api/learnings, POST /api/learnings/extract, POST /api/learnings/analyze-titles, POST /api/learnings/analyze-transcripts. Frontend API calls exist in api.ts.",
-          "files": ["frontend/src/app/learnings/page.tsx"]
+          "files": [
+            "frontend/src/app/learnings/page.tsx"
+          ]
         },
         {
           "id": "T12-002",
@@ -468,7 +539,9 @@
           "role": "frontend",
           "status": "pending",
           "description": "Each card shows: pattern name, category pill (title=amber, hook=teal, framework=purple, script=blue), confidence % as progress bar, sample_size, avg_ctr (if present), avg_retention (if present), source_videos (last 10 video titles as chips), active toggle. Verdict badge: confidence >= 60 = PROVEN (green), confidence <= 40 = AVOID (red), else TESTING (amber).",
-          "files": ["frontend/src/components/autopilot/LearningPatternCard.tsx"]
+          "files": [
+            "frontend/src/components/autopilot/LearningPatternCard.tsx"
+          ]
         },
         {
           "id": "T12-003",
@@ -476,23 +549,30 @@
           "role": "frontend",
           "status": "pending",
           "description": "Below the learnings list, add a 'Competitor Title Patterns' section. Shows patterns from title_insights table via GET /api/autopilot/learnings (these are structural/hook patterns from competitor analysis). Display: pattern_name, avg_vph, count, confidence, example_titles (as expandable list).",
-          "files": ["frontend/src/app/learnings/page.tsx"]
+          "files": [
+            "frontend/src/app/learnings/page.tsx"
+          ]
         },
         {
           "id": "T12-004",
           "title": "Wire action buttons: Extract, Analyze Titles, Analyze Transcripts",
           "role": "frontend",
           "status": "pending",
-          "description": "Three action buttons in the top bar: 'Extract Learnings' (POST /api/learnings/extract — scans published videos for patterns), 'Analyze Titles' (POST /api/learnings/analyze-titles — detects structural patterns in competitor titles), 'Analyze Transcripts' (POST /api/learnings/analyze-transcripts — detects hook patterns from competitor openings). Show loading state while running, then refresh the pattern list.",
-          "files": ["frontend/src/app/learnings/page.tsx"]
+          "description": "Three action buttons in the top bar: 'Extract Learnings' (POST /api/learnings/extract \u2014 scans published videos for patterns), 'Analyze Titles' (POST /api/learnings/analyze-titles \u2014 detects structural patterns in competitor titles), 'Analyze Transcripts' (POST /api/learnings/analyze-transcripts \u2014 detects hook patterns from competitor openings). Show loading state while running, then refresh the pattern list.",
+          "files": [
+            "frontend/src/app/learnings/page.tsx"
+          ]
         },
         {
           "id": "T12-005",
           "title": "Add learning enable/disable toggle",
           "role": "backend",
           "status": "pending",
-          "description": "Add PATCH /api/learnings/{id}/toggle endpoint that sets active=true/false on a learning record. This lets users override discovered patterns — disable anti-patterns they disagree with, or force-disable patterns they want to test without. Register in main.py.",
-          "files": ["backend/routes/learning_extraction.py", "backend/main.py"]
+          "description": "Add PATCH /api/learnings/{id}/toggle endpoint that sets active=true/false on a learning record. This lets users override discovered patterns \u2014 disable anti-patterns they disagree with, or force-disable patterns they want to test without. Register in main.py.",
+          "files": [
+            "backend/routes/learning_extraction.py",
+            "backend/main.py"
+          ]
         },
         {
           "id": "T12-006",
@@ -500,7 +580,10 @@
           "role": "frontend",
           "status": "pending",
           "description": "Add 'Learnings' to the sidebar navigation between Discovery and Autopilot. Use a brain or graduation cap icon.",
-          "files": ["frontend/src/components/nav/Sidebar.tsx", "frontend/src/components/nav/BottomTabs.tsx"]
+          "files": [
+            "frontend/src/components/nav/Sidebar.tsx",
+            "frontend/src/components/nav/BottomTabs.tsx"
+          ]
         },
         {
           "id": "T12-007",
@@ -524,7 +607,9 @@
           "role": "frontend",
           "status": "pending",
           "description": "Backend returns last_cycle (timestamp) and days_until_next on AutopilotState. Display: 'Last cycle: 3h ago' and 'Next production in: 2 days'. Currently neither is shown on the autopilot page.",
-          "files": ["frontend/src/app/autopilot/page.tsx"]
+          "files": [
+            "frontend/src/app/autopilot/page.tsx"
+          ]
         },
         {
           "id": "T13-002",
@@ -532,7 +617,9 @@
           "role": "frontend",
           "status": "pending",
           "description": "Backend POST /api/autopilot/config accepts weights (competitor_vph, timing_freshness) and thresholds (min_confidence_score, min_competitor_vph, max_idea_age_days, ctr_success_threshold, ctr_failure_threshold). Currently weights are shown as a visualization but not editable. Add sliders or number inputs for all 7 values. Save via updateAutopilotConfig().",
-          "files": ["frontend/src/app/autopilot/page.tsx"]
+          "files": [
+            "frontend/src/app/autopilot/page.tsx"
+          ]
         },
         {
           "id": "T13-003",
@@ -540,7 +627,9 @@
           "role": "frontend",
           "status": "pending",
           "description": "Add a 'YouTube Metrics' section: sync status (last run, videos synced), 'Sync Now' button (POST /api/youtube/sync), progress bar while running (poll GET /api/youtube/sync/status). API calls exist in api.ts: syncYouTubeMetrics(), getYouTubeSyncStatus().",
-          "files": ["frontend/src/app/autopilot/page.tsx"]
+          "files": [
+            "frontend/src/app/autopilot/page.tsx"
+          ]
         },
         {
           "id": "T13-004",
@@ -548,7 +637,9 @@
           "role": "frontend",
           "status": "pending",
           "description": "Show the 4 background tasks and their last run times: Auto-Scrape (daily), YouTube Sync (6h), Learning Extraction (24h), Title Analysis (24h). Each shows: last_run timestamp, status (ok/error), next_run estimate. This helps users understand what the autopilot is doing autonomously.",
-          "files": ["frontend/src/app/autopilot/page.tsx"]
+          "files": [
+            "frontend/src/app/autopilot/page.tsx"
+          ]
         },
         {
           "id": "T13-005",
@@ -556,7 +647,10 @@
           "role": "backend",
           "status": "pending",
           "description": "Add GET /api/autopilot/tasks endpoint that returns status of all 4 background tasks: scrape (from _scrape_tasks), youtube_sync (from _sync_tasks), learning_extraction (from extraction results), title_analysis (from analysis results). Include last_run, is_running, last_error for each.",
-          "files": ["backend/routes/autopilot.py", "backend/main.py"]
+          "files": [
+            "backend/routes/autopilot.py",
+            "backend/main.py"
+          ]
         },
         {
           "id": "T13-006",
@@ -579,7 +673,7 @@
           "title": "QA verify settings: API keys, project profile, visual styles",
           "role": "qa",
           "status": "pending",
-          "description": "Verify: key management CRUD works, project settings save, visual style creation/activation works. These are all built — verify wiring."
+          "description": "Verify: key management CRUD works, project settings save, visual style creation/activation works. These are all built \u2014 verify wiring."
         }
       ]
     },
@@ -595,7 +689,11 @@
           "role": "backend",
           "status": "pending",
           "description": "Create routes/analytics.py with: GET /api/analytics/overview (total videos, avg CTR, avg retention, total views), GET /api/analytics/ctr-timeline (CTR per video over time), GET /api/analytics/framework-performance (which frameworks produce best CTR). Register in main.py.",
-          "files": ["backend/routes/analytics.py", "backend/main.py", "backend/models.py"]
+          "files": [
+            "backend/routes/analytics.py",
+            "backend/main.py",
+            "backend/models.py"
+          ]
         },
         {
           "id": "T15-002",
@@ -603,7 +701,9 @@
           "role": "frontend",
           "status": "pending",
           "description": "Replace the analytics page stub with a real dashboard. Show: overview stats cards, CTR timeline chart (Recharts), framework effectiveness breakdown, per-video performance table sortable by CTR/views/retention.",
-          "files": ["frontend/src/app/analytics/page.tsx"],
+          "files": [
+            "frontend/src/app/analytics/page.tsx"
+          ],
           "depends_on": "T15-001"
         },
         {
@@ -628,7 +728,11 @@
           "role": "backend",
           "status": "pending",
           "description": "Create routes/profile.py with: GET /api/profile (current user info from accounts table), PUT /api/profile (update display name, email). Register in main.py. Use the existing accounts table schema.",
-          "files": ["backend/routes/profile.py", "backend/main.py", "backend/models.py"]
+          "files": [
+            "backend/routes/profile.py",
+            "backend/main.py",
+            "backend/models.py"
+          ]
         },
         {
           "id": "T16-002",
@@ -636,7 +740,9 @@
           "role": "frontend",
           "status": "pending",
           "description": "Replace the profile page stub with: display name, email, account plan, created date. Edit form for name/email. Read from /api/profile.",
-          "files": ["frontend/src/app/profile/page.tsx"],
+          "files": [
+            "frontend/src/app/profile/page.tsx"
+          ],
           "depends_on": "T16-001"
         },
         {
