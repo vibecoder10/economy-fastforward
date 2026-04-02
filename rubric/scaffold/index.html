@@ -156,6 +156,20 @@
   .wf-modal code { background: rgba(255,255,255,0.06); padding: 2px 6px; border-radius: 4px; font-size: 12px; color: #aaa; }
   .wf-modal-close { position: absolute; top: 12px; right: 16px; background: none; border: none; color: #555; font-size: 20px; cursor: pointer; }
   .wf-modal-close:hover { color: #fff; }
+  .edit-instructions-btn { font-size: 10px; color: #555; background: none; border: 1px solid #222; border-radius: 6px; padding: 3px 8px; cursor: pointer; font-family: 'Outfit', sans-serif; transition: all 0.15s; margin-top: 8px; }
+  .edit-instructions-btn:hover { color: #ccc; border-color: #444; }
+  .instr-modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.75); z-index: 300; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(4px); }
+  .instr-modal { background: #0a0a0a; border: 1px solid #1a1a1a; border-radius: 12px; padding: 24px; max-width: 700px; width: 95%; max-height: 85vh; display: flex; flex-direction: column; font-family: 'Outfit', sans-serif; }
+  .instr-modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+  .instr-modal-title { font-size: 15px; font-weight: 600; color: #ccc; }
+  .instr-modal textarea { flex: 1; background: #111; color: #ccc; border: 1px solid #222; border-radius: 8px; padding: 14px; font-family: 'JetBrains Mono', 'SF Mono', Menlo, monospace; font-size: 12px; line-height: 1.6; resize: none; min-height: 400px; tab-size: 2; }
+  .instr-modal textarea:focus { outline: none; border-color: #444; }
+  .instr-modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+  .instr-modal-actions button { font-size: 12px; padding: 6px 16px; border-radius: 6px; cursor: pointer; font-family: 'Outfit', sans-serif; border: 1px solid #333; }
+  .instr-save-btn { background: #1A8A7A; color: #fff; border-color: #1A8A7A !important; }
+  .instr-save-btn:hover { background: #168072; }
+  .instr-cancel-btn { background: none; color: #888; }
+  .instr-cancel-btn:hover { color: #ccc; }
   .wf-main { flex: 1; position: relative; overflow: hidden; display: flex; flex-direction: column; }
   .wf-header { position: absolute; top: 16px; left: 20px; z-index: 30; display: flex; gap: 6px; align-items: center; }
   .wf-info-box { position: absolute; top: 16px; right: 16px; z-index: 30; width: 280px; background: rgba(10,10,10,0.9); border: 1px solid #1a1a1a; border-radius: 10px; padding: 16px; backdrop-filter: blur(8px); transition: all 0.25s ease; }
@@ -443,10 +457,13 @@
         <div id="screenshot-strip" style="display:flex;gap:10px;overflow-x:auto;padding-bottom:8px;-webkit-overflow-scrolling:touch;scroll-snap-type:x mandatory;"></div>
       </div>
 
-      <!-- Focus Directive -->
-      <div style="margin-bottom:16px;padding:16px;background:#0a0a0a;border:1px solid #1a1a1a;border-radius:12px;">
-        <h3 style="font-size:14px;font-weight:600;margin-bottom:8px;color:#888;">Focus Directive</h3>
-        <p style="font-size:11px;color:#555;margin-bottom:10px;">Tell the agents what to focus on. They'll see this before picking tasks.</p>
+      <!-- Focus Directive (persistent standing order) -->
+      <div style="margin-bottom:16px;padding:16px;background:#0a0a0a;border:1px solid #1a1a1a;border-left:3px solid #1A8A7A;border-radius:12px;">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+          <h3 style="font-size:14px;font-weight:600;color:#888;">Focus Directive</h3>
+          <span style="font-size:9px;padding:2px 6px;background:rgba(26,138,122,0.15);color:#50e3c2;border-radius:4px;font-weight:500;">PERSISTENT</span>
+        </div>
+        <p style="font-size:11px;color:#555;margin-bottom:10px;">Standing orders. Stays active until you change it. Agents see this as their top priority every cycle.</p>
         <div style="display:flex;gap:8px;">
           <input id="focus-input" type="text" placeholder='e.g. "Work on the storyboard feature and make sure everything is wired up"' style="flex:1;background:#111;border:1px solid #222;color:#ccc;padding:10px 12px;border-radius:8px;font-size:13px;font-family:Outfit,sans-serif;outline:none;" />
           <button onclick="setFocus()" style="background:#1A8A7A;border:none;color:white;padding:10px 16px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;font-family:Outfit,sans-serif;white-space:nowrap;">Set Focus</button>
@@ -454,10 +471,13 @@
         <div id="current-focus" style="font-size:11px;color:#50e3c2;margin-top:6px;display:none;"></div>
       </div>
 
-      <!-- Operator Feedback -->
-      <div style="margin-bottom:16px;padding:16px;background:#0a0a0a;border:1px solid #1a1a1a;border-radius:12px;">
-        <h3 style="font-size:14px;font-weight:600;margin-bottom:8px;color:#888;">Operator Feedback</h3>
-        <p style="font-size:11px;color:#555;margin-bottom:10px;">Send feedback to ALL agents. They'll see it in their next cycle.</p>
+      <!-- Messages to Team (ephemeral, read-tracked) -->
+      <div style="margin-bottom:16px;padding:16px;background:#0a0a0a;border:1px solid #1a1a1a;border-left:3px solid #D4A844;border-radius:12px;">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+          <h3 style="font-size:14px;font-weight:600;color:#888;">Messages to Team</h3>
+          <span style="font-size:9px;padding:2px 6px;background:rgba(212,168,68,0.15);color:#D4A844;border-radius:4px;font-weight:500;">ONE-TIME</span>
+        </div>
+        <p style="font-size:11px;color:#555;margin-bottom:10px;">Send a message to all agents. Each agent reads it once and marks it done. For corrections, bug reports, or quick notes.</p>
         <div style="display:flex;gap:8px;">
           <input id="feedback-input" type="text" placeholder='e.g. "auth needs token refresh" or "thumbnail page broken"' style="flex:1;background:#111;border:1px solid #222;color:#ccc;padding:10px 12px;border-radius:8px;font-size:13px;font-family:Outfit,sans-serif;outline:none;" onkeydown="if(event.key==='Enter')sendFeedback()" />
           <button onclick="sendFeedback()" style="background:#D4A844;border:none;color:white;padding:10px 16px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;font-family:Outfit,sans-serif;white-space:nowrap;">Send</button>
@@ -486,10 +506,10 @@
             <div style="font-size:10px;color:#555;">Normal</div>
             <div style="font-size:9px;color:#444;">Every 2h</div>
           </button>
-          <button onclick="setCadence('fast')" class="cadence-btn" data-cadence="fast" style="flex:1;min-width:80px;padding:12px 8px;border-radius:8px;cursor:pointer;text-align:center;font-family:Outfit,sans-serif;border:1px solid #1A8A7A;background:rgba(26,138,122,0.1);">
-            <div style="font-size:18px;font-weight:700;color:#50e3c2;">24x</div>
-            <div style="font-size:10px;color:#50e3c2;">Fast</div>
-            <div style="font-size:9px;color:#1A8A7A;">Every 1h</div>
+          <button onclick="setCadence('fast')" class="cadence-btn" data-cadence="fast" style="flex:1;min-width:80px;padding:12px 8px;border-radius:8px;cursor:pointer;text-align:center;font-family:Outfit,sans-serif;border:1px solid #222;background:#111;">
+            <div style="font-size:18px;font-weight:700;color:#888;">24x</div>
+            <div style="font-size:10px;color:#555;">Fast</div>
+            <div style="font-size:9px;color:#444;">Every 1h</div>
           </button>
           <button onclick="setCadence('max')" class="cadence-btn" data-cadence="max" style="flex:1;min-width:80px;padding:12px 8px;border-radius:8px;cursor:pointer;text-align:center;font-family:Outfit,sans-serif;border:1px solid #222;background:#111;">
             <div style="font-size:18px;font-weight:700;color:#888;">48x</div>
@@ -941,7 +961,13 @@ window.__onTabShow = {};
       const isActive = btn.dataset.cadence === c;
       btn.style.borderColor = isActive ? '#1A8A7A' : '#222';
       btn.style.background = isActive ? 'rgba(26,138,122,0.1)' : '#111';
+      const divs = btn.querySelectorAll('div');
+      if (divs[0]) divs[0].style.color = isActive ? '#50e3c2' : '#888';
+      if (divs[1]) divs[1].style.color = isActive ? '#50e3c2' : '#555';
+      if (divs[2]) divs[2].style.color = isActive ? '#1A8A7A' : '#444';
     });
+    const status = document.getElementById('cadence-status');
+    if (status) { status.style.display = 'block'; status.textContent = 'Cadence set to ' + c + '/day. Active now.'; }
   }
 
   window.setFocus = async function() {
@@ -1452,6 +1478,61 @@ window.__onTabShow = {};
   init();
 })();
 
+// ==================== AGENT INSTRUCTIONS EDITOR ====================
+async function openInstructionsEditor(agentId, agentName) {
+  const overlay = document.createElement('div');
+  overlay.className = 'instr-modal-overlay';
+  overlay.innerHTML = '<div class="instr-modal">' +
+    '<div class="instr-modal-header"><span class="instr-modal-title">' + agentName + ' — Instructions</span>' +
+    '<button onclick="this.closest(\'.instr-modal-overlay\').remove()" style="background:none;border:none;color:#555;cursor:pointer;font-size:20px;">&times;</button></div>' +
+    '<textarea id="instr-editor" placeholder="Loading..."></textarea>' +
+    '<div class="instr-modal-actions">' +
+    '<button class="instr-cancel-btn" onclick="this.closest(\'.instr-modal-overlay\').remove()">Cancel</button>' +
+    '<button class="instr-save-btn" onclick="saveInstructions(\'' + agentId + '\')">Save</button>' +
+    '</div></div>';
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+
+  try {
+    const res = await fetch('/api/agent-instructions/' + agentId);
+    const data = await res.json();
+    document.getElementById('instr-editor').value = data.content || '';
+  } catch (e) {
+    document.getElementById('instr-editor').value = '# Error loading instructions\n' + e.message;
+  }
+}
+
+async function saveInstructions(agentId) {
+  const textarea = document.getElementById('instr-editor');
+  const saveBtn = textarea.closest('.instr-modal').querySelector('.instr-save-btn');
+  saveBtn.textContent = 'Saving...';
+  saveBtn.disabled = true;
+  try {
+    const res = await fetch('/api/agent-instructions/' + agentId, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: textarea.value })
+    });
+    if (res.ok) {
+      saveBtn.textContent = 'Saved';
+      saveBtn.style.background = '#50e3c2';
+      saveBtn.style.borderColor = '#50e3c2';
+      saveBtn.style.color = '#000';
+      setTimeout(() => textarea.closest('.instr-modal-overlay').remove(), 800);
+    } else {
+      const err = await res.json();
+      saveBtn.textContent = 'Error';
+      alert('Save failed: ' + (err.error || 'Unknown error'));
+      saveBtn.textContent = 'Save';
+      saveBtn.disabled = false;
+    }
+  } catch (e) {
+    saveBtn.textContent = 'Save';
+    saveBtn.disabled = false;
+    alert('Save failed: ' + e.message);
+  }
+}
+
 // ==================== AGENTS ====================
 (function() {
   let AGENT_DEFS = [];
@@ -1529,7 +1610,9 @@ window.__onTabShow = {};
         '<span class="agent-card-role">' + (a.role || '') + '</span>' +
         '<div class="agent-card-status"><span class="agent-card-dot ' + status + '"></span><span>' + statusLabel + '</span></div>' +
         '<span class="agent-card-task">' + (task || '') + '</span>' +
-        skillsHtml + '</div>';
+        skillsHtml +
+        '<button class="edit-instructions-btn" onclick="event.stopPropagation();openInstructionsEditor(\'' + a.id + '\',\'' + a.name + '\')">Edit Instructions</button>' +
+        '</div>';
     }).join('');
   }
 
@@ -2429,14 +2512,14 @@ window.__onTabShow = {};
     const skillChips = (lead.skills || []).map(s => '<span class="skill-chip">' + s + '</span>').join('');
     const badgeColor = lead.color || 'var(--green)';
     const badgeBg = lead.color ? hexToRgba(lead.color, 0.1) : 'rgba(80,227,194,0.1)';
-    el.innerHTML = '<div class="team-lead-card"><div class="team-lead-header"><div class="team-agent-icon" style="border-color: ' + (lead.color || '#333') + ';">' + leadIcon + '</div><div class="agent-lead-info"><div class="agent-lead-name">' + esc(lead.name) + ' <span class="agent-badge" style="color:' + badgeColor + ';background:' + badgeBg + ';">' + esc(lead.badge || 'Lead') + '</span></div><div class="agent-lead-role">' + esc(lead.role) + '</div></div></div><p class="agent-lead-desc">' + esc(lead.description) + '</p><div class="agent-skills-row">' + skillChips + '</div><button class="role-card-btn" onclick="toggleSkills(\'' + lead.id + '\')">Skills</button><div class="skills-expand" id="skills-' + lead.id + '" style="display:none"><div class="skills-grid" id="skills-grid-' + lead.id + '"></div></div></div>';
+    el.innerHTML = '<div class="team-lead-card"><div class="team-lead-header"><div class="team-agent-icon" style="border-color: ' + (lead.color || '#333') + ';">' + leadIcon + '</div><div class="agent-lead-info"><div class="agent-lead-name">' + esc(lead.name) + ' <span class="agent-badge" style="color:' + badgeColor + ';background:' + badgeBg + ';">' + esc(lead.badge || 'Lead') + '</span></div><div class="agent-lead-role">' + esc(lead.role) + '</div></div></div><p class="agent-lead-desc">' + esc(lead.description) + '</p><div class="agent-skills-row">' + skillChips + '</div><div style="display:flex;gap:8px;align-items:center;"><button class="role-card-btn" onclick="toggleSkills(\'' + lead.id + '\')">Skills</button><button class="edit-instructions-btn" onclick="openInstructionsEditor(\'' + lead.id + '\',\'' + esc(lead.name) + '\')">Edit Instructions</button></div><div class="skills-expand" id="skills-' + lead.id + '" style="display:none"><div class="skills-grid" id="skills-grid-' + lead.id + '"></div></div></div>';
   }
 
   function renderAgents(agents) {
     const grid = document.getElementById('team-grid');
     grid.innerHTML = agents.map(agent => {
       const skillChips = (agent.skills || []).map(s => '<span class="skill-chip">' + s + '</span>').join('');
-      return '<div class="team-agent-card"><div class="agent-card-header"><div class="team-agent-icon" style="border-color: ' + (agent.color || '#333') + ';">' + defaultIcon + '</div><div><div class="agent-card-name-team">' + esc(agent.name) + '</div><div class="agent-card-role-team">' + esc(agent.role) + '</div></div></div><p class="agent-card-desc">' + esc(agent.description) + '</p><div class="agent-skills-row">' + skillChips + '</div><button class="role-card-btn" onclick="toggleSkills(\'' + agent.id + '\')">Skills</button><div class="skills-expand" id="skills-' + agent.id + '" style="display:none"><div class="skills-grid" id="skills-grid-' + agent.id + '"></div></div></div>';
+      return '<div class="team-agent-card"><div class="agent-card-header"><div class="team-agent-icon" style="border-color: ' + (agent.color || '#333') + ';">' + defaultIcon + '</div><div><div class="agent-card-name-team">' + esc(agent.name) + '</div><div class="agent-card-role-team">' + esc(agent.role) + '</div></div></div><p class="agent-card-desc">' + esc(agent.description) + '</p><div class="agent-skills-row">' + skillChips + '</div><div style="display:flex;gap:8px;align-items:center;"><button class="role-card-btn" onclick="toggleSkills(\'' + agent.id + '\')">Skills</button><button class="edit-instructions-btn" onclick="openInstructionsEditor(\'' + agent.id + '\',\'' + esc(agent.name) + '\')">Edit Instructions</button></div><div class="skills-expand" id="skills-' + agent.id + '" style="display:none"><div class="skills-grid" id="skills-grid-' + agent.id + '"></div></div></div>';
     }).join('');
   }
 

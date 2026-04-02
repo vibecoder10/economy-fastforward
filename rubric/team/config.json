@@ -2,7 +2,7 @@
   "brandName": "StoryEngine Agents",
   "mission": "Ship StoryEngine to feature-complete. Every pipeline stage gets a working UI. No polish until everything works end-to-end.",
   "serverLabel": "local-mac",
-  "skillsRoot": "../",
+  "skillsRoot": "../../",
   "lead": {
     "id": "orchestrator",
     "name": "Orchestrator",

@@ -34,6 +34,15 @@
 - `segmentData.ts` is generated and gitignored. Don't try to commit it.
 - **Captions use character-based chunking, not word-count.** At 72px Inter Bold, the 92% width container fits ~38 chars. Chunking by 6 words caused overflow when words were long (e.g., "manufacturing—Bangladesh"). The fix: CaptionsOverlay.tsx chunks by total character count, creating adaptive chunks (short words → more per chunk, long words → fewer). This guarantees no overflow regardless of sentence content.
 
+### Auth & Multi-Tenancy
+- **Backend loads .env from `storyengine/.env`** (not `storyengine/backend/.env`). The `main.py` line `load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))` goes up one level. Always set env vars in `storyengine/.env`.
+- **DEV_TENANT_ID must match a real tenant with data.** If you migrate data between tenants, update DEV_TENANT_ID or agents see 0 results.
+- **asyncpg needs UUID objects, not strings.** `get_tenant_id()` returns `uuid.UUID` — if it returns a string, `WHERE tenant_id = $1` silently returns 0 rows (no error, just empty).
+- **Supabase circuit breaker**: Too many failed auth attempts (wrong password in DATABASE_URL) triggers "Circuit breaker open" for 5-10 min. Stop restarting — each restart adds more failed attempts. Wait for cooldown, then restart ONCE.
+- **Connection pooler (port 6543) doesn't support parameterized queries.** Use direct connection (port 5432) for asyncpg. The pooler uses PgBouncer in transaction mode.
+- **Use `min_size=0` for asyncpg pools.** `min_size=2` creates connections on startup — if DB is down, the whole backend crashes. Lazy pool (`min_size=0`) connects on first query.
+- **URL-encode special chars in DATABASE_URL passwords.** `@` → `%40`, `!` → `%21`.
+
 ### Infrastructure
 - The Slack bot process dies occasionally. Healthcheck restarts it every 15 min.
 - All VPS logs go to `/tmp/pipeline-*.log`. Reference these when debugging production.

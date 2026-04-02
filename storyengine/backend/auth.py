@@ -1,6 +1,7 @@
 """JWT verification for Supabase Auth tokens."""
 
 import os
+import uuid as _uuid
 import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -74,14 +75,13 @@ def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)) 
         raise HTTPException(status_code=401, detail=f"Invalid token: {e}")
 
 
-async def get_tenant_id(user: AuthUser = Depends(verify_token)) -> str:
-    """Get tenant_id for the current user.
+async def get_tenant_id(user: AuthUser = Depends(verify_token)) -> _uuid.UUID:
+    """Get tenant_id for the current user as a UUID.
 
-    Queries memberships table to find user's tenant.
-    For now, returns DEV_TENANT_ID or queries DB.
+    Returns UUID so asyncpg can match against UUID columns directly.
     """
     if user.tenant_id:
-        return user.tenant_id
+        return _uuid.UUID(user.tenant_id)
 
     # Query memberships table
     from database import fetch_one
@@ -92,4 +92,4 @@ async def get_tenant_id(user: AuthUser = Depends(verify_token)) -> str:
     if not row:
         raise HTTPException(status_code=403, detail="No tenant membership found")
 
-    return str(row["tenant_id"])
+    return row["tenant_id"] if isinstance(row["tenant_id"], _uuid.UUID) else _uuid.UUID(str(row["tenant_id"]))

@@ -1,0 +1,60 @@
+{
+  "generated_at": "2026-04-02T20:28:29Z",
+  "agents": {
+    "orchestrator": {
+      "tasks_completed": 5,
+      "tasks_failed": 0,
+      "avg_completion_minutes": 2.7,
+      "qa_pass_rate": 1.0,
+      "current_streak": 5,
+      "reset_count_total": 0,
+      "level": 2,
+      "xp": 5,
+      "title": "Apprentice"
+    },
+    "backend-dev": {
+      "tasks_completed": 10,
+      "tasks_failed": 0,
+      "avg_completion_minutes": 4.4,
+      "qa_pass_rate": 0.9,
+      "current_streak": 10,
+      "reset_count_total": 0,
+      "level": 3,
+      "xp": 10,
+      "title": "Journeyman"
+    },
+    "frontend-dev": {
+      "tasks_completed": 21,
+      "tasks_failed": 0,
+      "avg_completion_minutes": 3.8,
+      "qa_pass_rate": 0.76,
+      "current_streak": 21,
+      "reset_count_total": 0,
+      "level": 4,
+      "xp": 21,
+      "title": "Expert"
+    },
+    "qa-engineer": {
+      "tasks_completed": 10,
+      "tasks_failed": 0,
+      "avg_completion_minutes": 3.7,
+      "qa_pass_rate": 1.0,
+      "current_streak": 10,
+      "reset_count_total": 0,
+      "level": 3,
+      "xp": 10,
+      "title": "Journeyman"
+    },
+    "pipeline-tester": {
+      "tasks_completed": 0,
+      "tasks_failed": 0,
+      "avg_completion_minutes": 0,
+      "qa_pass_rate": 0,
+      "current_streak": 0,
+      "reset_count_total": 0,
+      "level": 1,
+      "xp": 0,
+      "title": "Novice"
+    }
+  }
+}

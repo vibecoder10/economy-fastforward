@@ -1,95 +1,41 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { Spinner } from "@/components/ui/spinner";
 
-declare global {
-  interface Window {
-    google?: {
-      accounts: {
-        id: {
-          initialize: (config: {
-            client_id: string;
-            callback: (response: { credential: string }) => void;
-            auto_select?: boolean;
-          }) => void;
-          renderButton: (
-            element: HTMLElement,
-            config: { theme?: string; size?: string; width?: number; shape?: string; text?: string }
-          ) => void;
-        };
-      };
-    };
-  }
-}
-
-const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || "";
-
 export default function LoginPage() {
-  const { user, isLoading, login } = useAuth();
+  const { user, isLoading, loginWithEmail, register } = useAuth();
   const router = useRouter();
-  const buttonRef = useRef<HTMLDivElement>(null);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [displayName, setDisplayName] = useState("");
+  const [isRegister, setIsRegister] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [loggingIn, setLoggingIn] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
-  // Redirect if already logged in
   useEffect(() => {
     if (!isLoading && user) {
       router.replace("/");
     }
   }, [user, isLoading, router]);
 
-  // Load Google Identity Services script and render button
-  useEffect(() => {
-    if (!GOOGLE_CLIENT_ID || isLoading || user) return;
-
-    function initGoogle() {
-      if (!window.google || !buttonRef.current) return;
-      window.google.accounts.id.initialize({
-        client_id: GOOGLE_CLIENT_ID,
-        callback: handleCredentialResponse,
-      });
-      window.google.accounts.id.renderButton(buttonRef.current, {
-        theme: "filled_black",
-        size: "large",
-        width: 320,
-        shape: "pill",
-        text: "signin_with",
-      });
-    }
-
-    // If script already loaded
-    if (window.google) {
-      initGoogle();
-      return;
-    }
-
-    const script = document.createElement("script");
-    script.src = "https://accounts.google.com/gsi/client";
-    script.async = true;
-    script.defer = true;
-    script.onload = initGoogle;
-    document.head.appendChild(script);
-
-    return () => {
-      // Cleanup only if we added it
-      if (script.parentNode) script.parentNode.removeChild(script);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isLoading, user]);
-
-  async function handleCredentialResponse(response: { credential: string }) {
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
     setError(null);
-    setLoggingIn(true);
+    setSubmitting(true);
     try {
-      await login(response.credential);
+      if (isRegister) {
+        await register(email, password, displayName);
+      } else {
+        await loginWithEmail(email, password);
+      }
       router.replace("/");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Login failed. Please try again.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Something went wrong");
     } finally {
-      setLoggingIn(false);
+      setSubmitting(false);
     }
   }
 
@@ -101,12 +47,12 @@ export default function LoginPage() {
     );
   }
 
-  if (user) return null; // Redirecting
+  if (user) return null;
 
   return (
     <div className="flex items-center justify-center min-h-screen px-4">
       <div
-        className="w-full max-w-sm p-8 rounded-2xl text-center"
+        className="w-full max-w-sm p-8 rounded-2xl"
         style={{
           background: "rgba(15,22,38,0.65)",
           border: "1px solid rgba(0,212,170,0.12)",
@@ -114,48 +60,102 @@ export default function LoginPage() {
         }}
       >
         <h1
-          className="font-display text-3xl mb-2"
+          className="font-display text-3xl mb-2 text-center"
           style={{ color: "var(--text-primary)" }}
         >
           StoryEngine
         </h1>
         <p
-          className="text-sm mb-8"
+          className="text-sm mb-8 text-center"
           style={{ color: "var(--text-secondary)" }}
         >
-          AI-powered video production pipeline
+          {isRegister ? "Create your account" : "Sign in to your account"}
         </p>
 
-        {loggingIn ? (
-          <div className="flex flex-col items-center gap-3 py-4">
-            <Spinner size="md" />
-            <span className="text-sm" style={{ color: "var(--text-secondary)" }}>
-              Signing in...
-            </span>
-          </div>
-        ) : (
-          <div className="flex justify-center">
-            <div ref={buttonRef} />
-          </div>
-        )}
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          {isRegister && (
+            <input
+              type="text"
+              placeholder="Display name"
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+              className="w-full px-4 py-3 rounded-lg text-sm outline-none"
+              style={{
+                background: "rgba(255,255,255,0.06)",
+                border: "1px solid rgba(255,255,255,0.1)",
+                color: "var(--text-primary)",
+              }}
+            />
+          )}
+          <input
+            type="email"
+            placeholder="Email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+            className="w-full px-4 py-3 rounded-lg text-sm outline-none"
+            style={{
+              background: "rgba(255,255,255,0.06)",
+              border: "1px solid rgba(255,255,255,0.1)",
+              color: "var(--text-primary)",
+            }}
+          />
+          <input
+            type="password"
+            placeholder="Password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+            minLength={8}
+            className="w-full px-4 py-3 rounded-lg text-sm outline-none"
+            style={{
+              background: "rgba(255,255,255,0.06)",
+              border: "1px solid rgba(255,255,255,0.1)",
+              color: "var(--text-primary)",
+            }}
+          />
 
-        {!GOOGLE_CLIENT_ID && (
-          <p
-            className="text-xs mt-4"
-            style={{ color: "var(--warning)" }}
+          <button
+            type="submit"
+            disabled={submitting}
+            className="w-full py-3 rounded-lg text-sm font-semibold transition-opacity"
+            style={{
+              background: "var(--accent)",
+              color: "#000",
+              opacity: submitting ? 0.6 : 1,
+            }}
           >
-            Set NEXT_PUBLIC_GOOGLE_CLIENT_ID to enable Google Sign-In
-          </p>
-        )}
+            {submitting ? (
+              <Spinner size="sm" />
+            ) : isRegister ? (
+              "Create Account"
+            ) : (
+              "Sign In"
+            )}
+          </button>
+        </form>
 
         {error && (
           <p
-            className="text-xs mt-4"
+            className="text-xs mt-4 text-center"
             style={{ color: "var(--error)" }}
           >
             {error}
           </p>
         )}
+
+        <p
+          className="text-xs mt-6 text-center cursor-pointer"
+          style={{ color: "var(--text-secondary)" }}
+          onClick={() => {
+            setIsRegister(!isRegister);
+            setError(null);
+          }}
+        >
+          {isRegister
+            ? "Already have an account? Sign in"
+            : "Don't have an account? Create one"}
+        </p>
       </div>
     </div>
   );

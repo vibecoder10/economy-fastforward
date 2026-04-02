@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { useAuth } from "@/components/auth/AuthProvider";
 import {
   LayoutGrid,
   List,
@@ -16,6 +17,7 @@ import {
   PanelLeftClose,
   PanelLeft,
   Menu,
+  LogOut,
   X,
 } from "lucide-react";
 
@@ -33,8 +35,15 @@ const navItems = [
 
 export function Sidebar() {
   const pathname = usePathname();
+  const router = useRouter();
+  const { user, logout } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+
+  const handleLogout = () => {
+    logout();
+    router.replace("/login");
+  };
 
   const sidebarContent = (
     <>
@@ -86,6 +95,24 @@ export function Sidebar() {
           );
         })}
       </nav>
+
+      {/* User + Logout */}
+      <div className="px-2 pb-2">
+        <button
+          onClick={handleLogout}
+          className={`flex items-center gap-3 px-3 py-2.5 rounded-lg w-full transition-colors hover:bg-[var(--bg-surface)] ${
+            collapsed ? "justify-center" : ""
+          }`}
+          style={{ color: "var(--text-tertiary)" }}
+        >
+          <LogOut size={20} />
+          {!collapsed && (
+            <span className="text-sm font-body truncate">
+              {user?.display_name || user?.email || "Sign out"}
+            </span>
+          )}
+        </button>
+      </div>
 
       {/* Collapse toggle (desktop only) */}
       <div className="px-2 pb-4 hidden md:block">

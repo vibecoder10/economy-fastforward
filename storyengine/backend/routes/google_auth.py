@@ -1,14 +1,16 @@
-"""Google OAuth authentication routes.
+"""Authentication routes — email/password and Google OAuth.
 
-Flow:
-1. Frontend gets Google ID token via Google Sign-In
-2. POST /api/auth/google sends {credential: "id_token_string"}
-3. Backend verifies token with Google, creates/finds account + tenant
-4. Returns a session JWT for subsequent API calls
+Supports two login methods:
+1. Email/password: POST /api/auth/register + POST /api/auth/login
+2. Google OAuth: POST /api/auth/google (requires domain, optional)
+
+All methods create an account + tenant on first signup and return a session JWT.
 """
 
 import os
 import uuid
+import hashlib
+import hmac
 from datetime import datetime, timezone, timedelta
 
 import httpx
@@ -24,6 +26,17 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 SESSION_SECRET_ENV = "SESSION_SECRET"
 GOOGLE_CLIENT_ID_ENV = "GOOGLE_OAUTH_CLIENT_ID"
 SESSION_EXPIRY_DAYS = 30
+
+
+class RegisterRequest(BaseModel):
+    email: str
+    password: str
+    display_name: str = ""
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
 
 
 class GoogleAuthRequest(BaseModel):
@@ -78,11 +91,16 @@ def _create_session_jwt(account_id: str, email: str, tenant_id: str) -> str:
     return jwt.encode(payload, secret, algorithm="HS256")
 
 
-async def _create_tenant_for_account(account_id: str, name: str) -> str:
+async def _create_tenant_for_account(account_id: str, name: str, email: str = "") -> str:
     """Create a tenant and membership for a new account."""
     tenant_id = str(uuid.uuid4())
     slug = f"user-{account_id[:8]}"
 
+    # Ensure user exists in users table (memberships FK references users, not accounts)
+    await execute(
+        "INSERT INTO users (id, email, display_name) VALUES ($1, $2, $3) ON CONFLICT (id) DO NOTHING",
+        account_id, email, name,
+    )
     await execute(
         "INSERT INTO tenants (id, name, slug) VALUES ($1, $2, $3)",
         tenant_id, f"{name}'s Workspace", slug,
@@ -97,6 +115,107 @@ async def _create_tenant_for_account(account_id: str, name: str) -> str:
     )
 
     return tenant_id
+
+
+def _hash_password(password: str) -> str:
+    """Hash password with PBKDF2-SHA256 (no external deps needed)."""
+    salt = os.urandom(32)
+    key = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 100_000)
+    return salt.hex() + ":" + key.hex()
+
+
+def _verify_password(password: str, stored_hash: str) -> bool:
+    """Verify password against stored PBKDF2 hash."""
+    try:
+        salt_hex, key_hex = stored_hash.split(":")
+        salt = bytes.fromhex(salt_hex)
+        expected_key = bytes.fromhex(key_hex)
+        actual_key = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 100_000)
+        return hmac.compare_digest(actual_key, expected_key)
+    except (ValueError, AttributeError):
+        return False
+
+
+@router.post("/register", response_model=AuthResponse)
+async def register(body: RegisterRequest):
+    """Register a new account with email and password.
+
+    Creates account + tenant + membership on signup.
+    Returns session JWT on success.
+    """
+    email = body.email.strip().lower()
+    if not email or "@" not in email:
+        raise HTTPException(status_code=400, detail="Valid email required")
+    if len(body.password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+
+    # Check if email already exists
+    existing = await fetch_one("SELECT id FROM accounts WHERE email = $1", email)
+    if existing:
+        raise HTTPException(status_code=409, detail="An account with this email already exists")
+
+    # Create account
+    account_id = str(uuid.uuid4())
+    display_name = body.display_name.strip() or email.split("@")[0]
+    password_hash = _hash_password(body.password)
+
+    await execute(
+        """INSERT INTO accounts (id, email, display_name, password_hash, plan)
+           VALUES ($1, $2, $3, $4, 'free')""",
+        account_id, email, display_name, password_hash,
+    )
+
+    # Create tenant + membership
+    tenant_id = await _create_tenant_for_account(account_id, display_name, email)
+
+    token = _create_session_jwt(account_id, email, tenant_id)
+    return AuthResponse(
+        token=token,
+        user={
+            "id": account_id,
+            "email": email,
+            "display_name": display_name,
+            "avatar_url": None,
+            "plan": "free",
+        },
+    )
+
+
+@router.post("/login", response_model=AuthResponse)
+async def login(body: LoginRequest):
+    """Login with email and password. Returns session JWT."""
+    email = body.email.strip().lower()
+
+    account = await fetch_one(
+        "SELECT id, email, display_name, password_hash, avatar_url, plan FROM accounts WHERE email = $1",
+        email,
+    )
+    if not account or not account.get("password_hash"):
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+
+    if not _verify_password(body.password, account["password_hash"]):
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+
+    account_id = str(account["id"])
+    membership = await fetch_one(
+        "SELECT tenant_id FROM memberships WHERE user_id = $1 LIMIT 1",
+        account_id,
+    )
+    tenant_id = str(membership["tenant_id"]) if membership else None
+    if not tenant_id:
+        tenant_id = await _create_tenant_for_account(account_id, account.get("display_name", ""))
+
+    token = _create_session_jwt(account_id, email, tenant_id)
+    return AuthResponse(
+        token=token,
+        user={
+            "id": account_id,
+            "email": account.get("email"),
+            "display_name": account.get("display_name"),
+            "avatar_url": account.get("avatar_url"),
+            "plan": account.get("plan") or "free",
+        },
+    )
 
 
 @router.post("/google", response_model=AuthResponse)

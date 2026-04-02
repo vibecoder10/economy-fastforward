@@ -1,0 +1,51 @@
+{
+  "agents": [
+    {
+      "id": "orchestrator",
+      "name": "Orchestrator",
+      "color": "#D4A844",
+      "icon": "Crown",
+      "role": "Task Planner & Pipeline Auditor",
+      "workspace": "storyengine/agents"
+    },
+    {
+      "id": "backend-dev",
+      "name": "Backend Dev",
+      "color": "#1A8A7A",
+      "icon": "Fortress",
+      "role": "FastAPI + Supabase Engineer",
+      "workspace": "storyengine/agents"
+    },
+    {
+      "id": "frontend-dev",
+      "name": "Frontend Dev",
+      "color": "#58abf5",
+      "icon": "Spark",
+      "role": "Next.js + React Engineer",
+      "workspace": "storyengine/agents"
+    },
+    {
+      "id": "qa-engineer",
+      "name": "QA Engineer",
+      "color": "#e35050",
+      "icon": "Sentinel",
+      "role": "Verification & Wiring Auditor",
+      "workspace": "storyengine/agents"
+    },
+    {
+      "id": "pipeline-tester",
+      "name": "Pipeline Tester",
+      "color": "#c084fc",
+      "icon": "Phantom",
+      "role": "End-to-End User Tester",
+      "workspace": "storyengine/agents"
+    }
+  ],
+  "skillDirs": [
+    ".claude/skills"
+  ],
+  "docPaths": {
+    "claude": "CLAUDE.md",
+    "soul": "SOUL.md"
+  }
+}

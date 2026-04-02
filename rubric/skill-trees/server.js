@@ -266,6 +266,22 @@ function buildSkillTree() {
     });
   }
 
+  // Add config-defined agents that weren't found by workspace scanning
+  for (const cfgAgent of configAgents) {
+    if (!agents.find(a => a.id === cfgAgent.id)) {
+      agents.push({
+        id: cfgAgent.id,
+        name: cfgAgent.name || cfgAgent.id,
+        color: cfgAgent.color || nextColor(),
+        icon: cfgAgent.icon || 'Robo',
+        role: cfgAgent.role || '',
+        workspace: cfgAgent.workspace ? path.resolve(SKILL_TREE_ROOT, cfgAgent.workspace) : null,
+        skills: [],
+        customPixels: cfgAgent.pixels || null,
+      });
+    }
+  }
+
   // Handle root/shared skills — link to all agents
   const rootWs = workspaces.find(w => w.isRoot);
   if (rootWs) {

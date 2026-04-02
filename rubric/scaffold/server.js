@@ -62,7 +62,7 @@ function wfBroadcast(data) {
 // ============================================================
 const SKILL_TREE_ROOT = process.env.SKILL_TREE_ROOT
   ? path.resolve(process.env.SKILL_TREE_ROOT)
-  : path.resolve(__dirname, '../skill-trees/example-workspace');
+  : path.resolve(__dirname, '../../');
 
 const ST_ICON_LIBRARY = {
   "Robo":     { c: "#ffffff", p: [[0,0,1,0],[1,1,1,1],[1,1,1,1],[1,0,1,1],[1,1,1,1],[1,1,1,1],[1,0,0,1],[0,0,0,0]] },
@@ -203,6 +203,22 @@ function stBuildSkillTree() {
       }
     }
     agents.push({ id: agentId, name: displayName, color, icon, role, workspace: ws.path, skills: agentSkillIds, customPixels: cfgAgent?.pixels || null });
+  }
+
+  // Add config-defined agents that weren't found by workspace scanning
+  for (const cfgAgent of cfgAgents) {
+    if (!agents.find(a => a.id === cfgAgent.id)) {
+      agents.push({
+        id: cfgAgent.id,
+        name: cfgAgent.name || cfgAgent.id,
+        color: cfgAgent.color || nextColor(),
+        icon: cfgAgent.icon || 'Robo',
+        role: cfgAgent.role || '',
+        workspace: cfgAgent.workspace ? path.resolve(SKILL_TREE_ROOT, cfgAgent.workspace) : null,
+        skills: [],
+        customPixels: cfgAgent.pixels || null,
+      });
+    }
   }
 
   const rootWs = workspaces.find(w => w.isRoot);
@@ -893,6 +909,38 @@ const server = http.createServer(async (req, res) => {
     const skillsFile = path.join(DATA_DIR, 'agent-skills.json');
     try { sendJSON(res, JSON.parse(fs.readFileSync(skillsFile, 'utf8'))); }
     catch { sendJSON(res, { agents: {} }); }
+    return;
+  }
+
+  // GET /api/agent-instructions/:id — read agent .md file
+  if (pathname.startsWith('/api/agent-instructions/') && req.method === 'GET') {
+    const agentId = decodeURIComponent(pathname.replace('/api/agent-instructions/', ''));
+    if (agentId.includes('..') || agentId.includes('/')) { sendJSON(res, { error: 'Invalid agent ID' }, 400); return; }
+    const agentFile = path.join(__dirname, '../../storyengine/agents', agentId + '.md');
+    const resolved = path.resolve(agentFile);
+    if (!resolved.startsWith(path.resolve(__dirname, '../../storyengine/agents'))) { sendJSON(res, { error: 'Invalid path' }, 400); return; }
+    try { sendJSON(res, { id: agentId, content: fs.readFileSync(resolved, 'utf8') }); }
+    catch { sendJSON(res, { error: 'Agent file not found' }, 404); }
+    return;
+  }
+
+  // PUT /api/agent-instructions/:id — write agent .md file
+  if (pathname.startsWith('/api/agent-instructions/') && req.method === 'PUT') {
+    const agentId = decodeURIComponent(pathname.replace('/api/agent-instructions/', ''));
+    if (agentId.includes('..') || agentId.includes('/')) { sendJSON(res, { error: 'Invalid agent ID' }, 400); return; }
+    const agentFile = path.join(__dirname, '../../storyengine/agents', agentId + '.md');
+    const resolved = path.resolve(agentFile);
+    if (!resolved.startsWith(path.resolve(__dirname, '../../storyengine/agents'))) { sendJSON(res, { error: 'Invalid path' }, 400); return; }
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+      try {
+        const { content } = JSON.parse(body);
+        if (typeof content !== 'string') { sendJSON(res, { error: 'content must be a string' }, 400); return; }
+        fs.writeFileSync(resolved, content);
+        sendJSON(res, { ok: true });
+      } catch (e) { sendJSON(res, { error: e.message }, 500); }
+    });
     return;
   }
 
