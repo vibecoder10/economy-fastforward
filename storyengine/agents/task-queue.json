@@ -792,6 +792,17 @@
           "files": [
             "frontend/src/components/nav/sidebar.tsx"
           ]
+        },
+        {
+          "id": "BUG-T11-006-QA",
+          "title": "QA re-verify Discovery nav entry after BUG-T11-006 fix",
+          "role": "qa",
+          "status": "pending",
+          "depends_on": "BUG-T11-006",
+          "description": "After BUG-T11-006 is fixed, verify: (1) Playwright confirms 'Discovery' link appears in sidebar between Competitors and Autopilot. (2) Clicking nav link navigates to /discovery. (3) Bottom tabs also show Discovery if applicable. (4) tsc --noEmit passes clean. (5) No console errors.",
+          "files": [
+            "frontend/src/components/nav/sidebar.tsx"
+          ]
         }
       ]
     },
