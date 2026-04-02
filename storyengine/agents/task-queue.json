@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "current_tab": 2,
+  "current_tab": 7,
   "last_updated": "2026-04-02",
-  "last_updated_by": "backend-dev",
+  "last_updated_by": "orchestrator",
   "tabs": [
     {
       "id": 1,
@@ -106,7 +106,7 @@
           "completed_at": "2026-04-02T03:06:00Z",
           "verified_at": "2026-04-02T03:10:00Z",
           "verified_by": "qa-engineer",
-          "verification_notes": "Source section renders conditionally (line 54). source_channel via Field component, source_views with formatNumber(), source_urls as clickable links with ExternalLink icon. 3 fields added to VideoDetail in api.ts. Diff is clean — 2 app files changed. tsc --noEmit passes.",
+          "verification_notes": "Source section renders conditionally (line 54). source_channel via Field component, source_views with formatNumber(), source_urls as clickable links with ExternalLink icon. 3 fields added to VideoDetail in api.ts. Diff is clean \u2014 2 app files changed. tsc --noEmit passes.",
           "description": "After T2-006 adds these fields to the backend response, add a 'Source' section to info-tab.tsx showing: source_channel as text, source_views as formatted number, source_urls as clickable links. Only render the section if at least one field has data. Place it after the Story DNA section.",
           "files": [
             "frontend/src/components/video-detail/info-tab.tsx"
@@ -156,8 +156,8 @@
           "completed_at": "2026-04-02T04:04:00Z",
           "verified_at": "2026-04-02T04:08:00Z",
           "verified_by": "qa-engineer",
-          "verification_notes": "Stale ScriptScene removed from types.ts (10 lines). Correct ScriptScene exists in api.ts line 608 with scene_text + storyboard_1_url-5_url. No imports referenced the types.ts version. tsc --noEmit passes clean. Diff minimal — 1 app file changed, no bloat.",
-          "description": "Removed stale ScriptScene from types.ts — it used camelCase (narrationText, sceneNumber) which didn't match backend. The correct ScriptScene (with scene_text, storyboard_1_url through storyboard_5_url) already exists in api.ts line 608 and is what all components import. No code imported the types.ts version.",
+          "verification_notes": "Stale ScriptScene removed from types.ts (10 lines). Correct ScriptScene exists in api.ts line 608 with scene_text + storyboard_1_url-5_url. No imports referenced the types.ts version. tsc --noEmit passes clean. Diff minimal \u2014 1 app file changed, no bloat.",
+          "description": "Removed stale ScriptScene from types.ts \u2014 it used camelCase (narrationText, sceneNumber) which didn't match backend. The correct ScriptScene (with scene_text, storyboard_1_url through storyboard_5_url) already exists in api.ts line 608 and is what all components import. No code imported the types.ts version.",
           "files": [
             "frontend/src/lib/types.ts"
           ]
@@ -296,7 +296,7 @@
       "id": 7,
       "name": "Video Detail: Thumbnail Tab",
       "path": "/pipeline/[videoId] (Thumbnail)",
-      "status": "pending",
+      "status": "in_progress",
       "tasks": [
         {
           "id": "T7-003",
@@ -316,14 +316,50 @@
           "title": "QA verify thumbnail generation and approval flow",
           "role": "qa",
           "status": "pending",
-          "description": "Verify: POST /api/pipeline/thumbnail/{id} triggers generation, result appears in UI, approval advances to next stage. Check suggested_thumbnail_urls displays variant options if agent suggestions exist."
+          "description": "Full wiring audit of thumbnail tab. Verify:\n1. POST /api/pipeline/thumbnail/{id} triggers generation and thumbnail_url is saved to DB (T7-003)\n2. suggested_thumbnail_urls and suggested_thumbnail_prompt returned by GET /api/videos/{id} (T7-004)\n3. 'Generate Thumbnail' button appears when no thumbnail exists (T7-005)\n4. Suggestion variants display with accept/reject (T7-002)\n5. Prompt editing saves to backend (T7-006)\n6. Approval advances pipeline status\n7. tsc --noEmit passes clean",
+          "depends_on": "T7-006"
         },
         {
           "id": "T7-002",
           "title": "Display agent thumbnail suggestions with accept/reject",
           "role": "frontend",
-          "status": "pending",
+          "status": "in_progress",
+          "started_at": "2026-04-02T05:02:00Z",
+          "assigned_to": "frontend-dev",
           "description": "Backend returns suggested_thumbnail_urls (array) and suggested_thumbnail_prompt on VideoDetail. Display these as a suggestion card with Accept/Reject buttons that call POST /api/videos/{id}/accept-suggestion and POST /api/videos/{id}/reject-suggestion.",
+          "files": [
+            "frontend/src/components/production/ThumbnailTab.tsx",
+            "frontend/src/lib/api.ts"
+          ],
+          "depends_on": "T7-004"
+        },
+        {
+          "id": "T7-004",
+          "title": "Add suggested_thumbnail_prompt and suggested_thumbnail_urls to VideoDetail model + SQL",
+          "role": "backend",
+          "status": "pending",
+          "description": "The DB has suggested_thumbnail_prompt (TEXT) and suggested_thumbnail_urls (JSONB) at schema.sql lines 198-199. Frontend types already declare them (api.ts lines 566-567). But the backend VideoDetail Pydantic model (models.py) and SQL SELECT (videos.py line 132) are MISSING both fields.\n\nSteps:\n1. Add to VideoDetail in models.py: suggested_thumbnail_prompt: Optional[str] = None, suggested_thumbnail_urls: Optional[list] = None\n2. Add to SQL SELECT in videos.py get_video(): suggested_thumbnail_prompt, suggested_thumbnail_urls\n3. Add to VideoDetail constructor: suggested_thumbnail_prompt=r.get('suggested_thumbnail_prompt'), suggested_thumbnail_urls=_parse_json_field(r.get('suggested_thumbnail_urls'))\n\nThis unblocks T7-002 (frontend suggestion display).",
+          "files": [
+            "backend/models.py",
+            "backend/routes/videos.py"
+          ]
+        },
+        {
+          "id": "T7-005",
+          "title": "Show 'Generate Thumbnail' as primary action when no thumbnail exists",
+          "role": "frontend",
+          "status": "pending",
+          "description": "OPERATOR ISSUE: 'There is no create button.' The ThumbnailTab only shows 'Regenerate' (line 305) even when no thumbnail has been generated yet. Fix:\n1. When !thumbnailUrl, show a prominent 'Generate Thumbnail' button (filled variant) instead of 'Regenerate'\n2. When thumbnailUrl exists, show 'Regenerate' as secondary action (outline variant) and 'Approve Thumbnail' as primary\n3. The generate action calls the same handleRegenerate() function \u2014 it's just a label/UX change\n4. Consider showing a larger CTA in the empty state placeholder area (lines 138-171) with a 'Generate Now' button",
+          "files": [
+            "frontend/src/components/production/ThumbnailTab.tsx"
+          ]
+        },
+        {
+          "id": "T7-006",
+          "title": "Wire thumbnail prompt save to backend PATCH endpoint",
+          "role": "frontend",
+          "status": "pending",
+          "description": "The prompt textarea (ThumbnailTab.tsx lines 201-212) lets users edit thumbnail_prompt but NEVER saves it. The backend already supports PATCH /api/videos/{id} with thumbnail_prompt in the allowed_fields set (videos.py line 224). Add a 'Save Prompt' button or auto-save on blur that calls updateVideo(video.id, { thumbnail_prompt: prompt }). Import or create the updateVideo API call if needed (PATCH /api/videos/{id} exists).",
           "files": [
             "frontend/src/components/production/ThumbnailTab.tsx",
             "frontend/src/lib/api.ts"
@@ -631,7 +667,7 @@
           "completed_at": "2026-04-02T03:02:00Z",
           "verified_at": "2026-04-02T03:12:00Z",
           "verified_by": "qa-engineer",
-          "verification_notes": "PATCH /{learning_id}/toggle at line 271. Reads current active state, flips it, returns new state. Router registered at main.py line 289. Diff clean — 1 app file changed. No bloat."
+          "verification_notes": "PATCH /{learning_id}/toggle at line 271. Reads current active state, flips it, returns new state. Router registered at main.py line 289. Diff clean \u2014 1 app file changed. No bloat."
         },
         {
           "id": "T12-006",
@@ -711,7 +747,7 @@
           "assigned_to": "backend-dev",
           "verified_at": "2026-04-02T04:08:00Z",
           "verified_by": "qa-engineer",
-          "verification_notes": "GET /api/autopilot/tasks at autopilot.py line 586. Returns 4 tasks (scrape, youtube_sync, learning_extraction, title_analysis) with last_run, is_running, last_error. Merges bg status from main.py loops with user-triggered status from niche._scrape_tasks and youtube_sync._sync_tasks. Router already registered at main.py line 304. _update_bg_status helper in main.py updates status on start/success/error. Diff clean — 2 app files changed, no bloat.",
+          "verification_notes": "GET /api/autopilot/tasks at autopilot.py line 586. Returns 4 tasks (scrape, youtube_sync, learning_extraction, title_analysis) with last_run, is_running, last_error. Merges bg status from main.py loops with user-triggered status from niche._scrape_tasks and youtube_sync._sync_tasks. Router already registered at main.py line 304. _update_bg_status helper in main.py updates status on start/success/error. Diff clean \u2014 2 app files changed, no bloat.",
           "description": "Add GET /api/autopilot/tasks endpoint that returns status of all 4 background tasks: scrape (from _scrape_tasks), youtube_sync (from _sync_tasks), learning_extraction (from extraction results), title_analysis (from analysis results). Include last_run, is_running, last_error for each.",
           "files": [
             "backend/routes/autopilot.py",
