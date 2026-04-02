@@ -30,11 +30,18 @@ fi
 mkdir -p "$REPORTS_DIR"
 
 # ─── Slack Helper ────────────────────────────────────────────────────────────
+# Uses Slack Bot Token API (existing pipeline bot) or webhook
 notify_slack() {
-  if [ -n "$SLACK_WEBHOOK" ]; then
+  local MSG="$1"
+  if [ -n "$SLACK_BOT_TOKEN" ] && [ -n "$SLACK_CHANNEL_ID" ]; then
+    curl -s -X POST "https://slack.com/api/chat.postMessage" \
+      -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+      -H "Content-Type: application/json" \
+      -d "{\"channel\": \"$SLACK_CHANNEL_ID\", \"text\": \"$MSG\"}" 2>/dev/null || true
+  elif [ -n "$SLACK_WEBHOOK" ]; then
     curl -s -X POST "$SLACK_WEBHOOK" \
       -H "Content-Type: application/json" \
-      -d "{\"text\": \"$1\"}" 2>/dev/null || true
+      -d "{\"text\": \"$MSG\"}" 2>/dev/null || true
   fi
 }
 
