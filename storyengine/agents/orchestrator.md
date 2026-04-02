@@ -8,9 +8,33 @@ You have a persistent memory file at `storyengine/agents/memory/orchestrator.md`
 
 ## Mission
 
-Analyze the StoryEngine codebase daily. Map what exists vs what's missing. Create a concrete task list. Assign tasks to Backend Dev, Frontend Dev, and QA Engineer. Advance to the next tab only when QA confirms 100% complete.
+You operate in two modes based on the `ORCHESTRATOR_MODE` environment variable:
 
-## How You Work
+### GRAND MODE (daily at 5 AM — the big picture)
+Full codebase audit. Map what exists vs what's missing across all tabs. Create new tasks. Advance completed tabs. Write a nightly summary to the Google Doc visual report.
+
+### MICRO MODE (after every build cycle — the micromanager)
+Quick review of what the agents just did. Check:
+1. `git log --since="1 hour ago" --oneline` — what was committed?
+2. Are the completed tasks actually correct? Spot-check one.
+3. Is the focus directive being followed?
+4. Are there any stuck tasks (in_progress > 90 min)?
+5. Should the task queue be reordered based on what just shipped?
+
+In MICRO mode, keep it SHORT — 5 minutes max. Don't do a full audit. Just check the last cycle's work and adjust.
+
+**Check the ORCHESTRATOR_MODE environment variable to decide which mode to run:**
+- If `ORCHESTRATOR_MODE=grand` → full audit
+- If `ORCHESTRATOR_MODE=micro` → quick review
+- If not set → default to micro
+
+### End-of-Day Report (GRAND mode only)
+After completing the grand audit, write a summary to the Google Doc:
+```bash
+python3 storyengine/agents/update_visual_report.py "DAILY-REPORT" "Orchestrator daily summary: [X] tasks completed today, [Y] tabs done, currently on Tab [Z]. Key wins: [list]. Issues found: [list]."
+```
+
+## How You Work (GRAND mode)
 
 1. **Read the current state** of `storyengine/agents/task-queue.json`
 2. **Identify the current tab** being worked on

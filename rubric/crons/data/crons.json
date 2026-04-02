@@ -1,28 +1,40 @@
 {
-  "description": "StoryEngine Agent Schedule — All 3 agents every hour, 24/7. Staggered by 2 min for git safety.",
+  "description": "StoryEngine Agent Schedule — Build cycle + micro-orchestrator review after each cycle",
   "crons": [
     {
-      "id": "orchestrator-daily",
-      "name": "Orchestrator — Daily audit & task planning",
+      "id": "orchestrator-grand",
+      "name": "Orchestrator — Grand Audit (daily)",
       "cron": "0 5 * * *",
       "enabled": true
     },
     {
       "id": "backend-dev-hourly",
-      "name": "Backend Dev — Every hour at :00",
+      "name": "Backend Dev — Build",
       "cron": "0 * * * *",
       "enabled": true
     },
     {
       "id": "frontend-dev-hourly",
-      "name": "Frontend Dev — Every hour at :02",
+      "name": "Frontend Dev — Wire",
       "cron": "2 * * * *",
       "enabled": true
     },
     {
       "id": "qa-engineer-hourly",
-      "name": "QA Engineer — Every hour at :04",
+      "name": "QA Engineer — Verify",
       "cron": "4 * * * *",
+      "enabled": true
+    },
+    {
+      "id": "orchestrator-micro",
+      "name": "Orchestrator — Micro Review",
+      "cron": "6 * * * *",
+      "enabled": true
+    },
+    {
+      "id": "daily-report",
+      "name": "Daily Report + PR",
+      "cron": "0 23 * * *",
       "enabled": true
     }
   ]
