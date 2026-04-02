@@ -504,6 +504,38 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // GET /api/screenshots/:filename — serve QA screenshots
+  if (pathname.startsWith('/api/screenshots/') && req.method === 'GET') {
+    const filename = pathname.replace('/api/screenshots/', '');
+    if (filename.includes('..') || !filename.match(/\.(png|jpg|jpeg|gif|webp)$/i)) {
+      sendJSON(res, { error: 'Invalid file' }, 400);
+      return;
+    }
+    const screenshotDir = path.join(__dirname, '../../storyengine/agents/screenshots');
+    const filePath = path.join(screenshotDir, filename);
+    try {
+      const data = fs.readFileSync(filePath);
+      const ext = filename.split('.').pop().toLowerCase();
+      const mime = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp' }[ext] || 'image/png';
+      res.writeHead(200, { 'Content-Type': mime, 'Cache-Control': 'public, max-age=3600' });
+      res.end(data);
+    } catch { res.writeHead(404); res.end('Not found'); }
+    return;
+  }
+
+  // GET /api/screenshots — list all screenshots
+  if (pathname === '/api/screenshots' && req.method === 'GET') {
+    const screenshotDir = path.join(__dirname, '../../storyengine/agents/screenshots');
+    try {
+      const files = fs.readdirSync(screenshotDir)
+        .filter(f => f.match(/\.(png|jpg|jpeg|gif|webp)$/i))
+        .map(f => ({ name: f, url: '/api/screenshots/' + f, modified: fs.statSync(path.join(screenshotDir, f)).mtimeMs }))
+        .sort((a, b) => b.modified - a.modified);
+      sendJSON(res, files);
+    } catch { sendJSON(res, []); }
+    return;
+  }
+
   // GET /api/pull-requests — fetch open PRs from GitHub
   if (pathname === '/api/pull-requests' && req.method === 'GET') {
     try {

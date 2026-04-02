@@ -950,6 +950,8 @@ window.__onTabShow = {};
         const statusColor = e.status === 'completed' ? '#50e3c2' : e.status === 'error' ? '#e35050' : '#D4A844';
         const detailHtml = e.detail ? '<div style="font-size:12px;color:#999;margin-top:8px;line-height:1.6;padding:8px 12px;background:#111;border-radius:6px;white-space:pre-wrap;">' + esc(e.detail) + '</div>' : '';
         const reportBtn = e.detail_file ? '<button onclick="viewReport(\'' + esc(e.detail_file) + '\')" style="background:none;border:1px solid #222;color:#666;padding:4px 10px;border-radius:4px;font-size:10px;cursor:pointer;font-family:Outfit,sans-serif;margin-top:6px;">View Full Report</button>' : '';
+        const taskId = e.task || '';
+        const screenshotHtml = taskId ? '<div style="display:flex;gap:8px;margin-top:8px;"><img src="/api/screenshots/' + esc(taskId) + '-before.png" onerror="this.parentElement.style.display=\'none\'" style="width:120px;height:75px;object-fit:cover;border-radius:6px;border:1px solid #222;cursor:pointer;" onclick="window.open(this.src)" /><img src="/api/screenshots/' + esc(taskId) + '-after.png" onerror="this.style.display=\'none\'" style="width:120px;height:75px;object-fit:cover;border-radius:6px;border:1px solid #222;cursor:pointer;" onclick="window.open(this.src)" /></div>' : '';
         return '<div style="padding:12px 16px;background:#0a0a0a;border:1px solid #1a1a1a;border-radius:10px;border-left:3px solid '+color+';">' +
           '<div style="display:flex;gap:12px;">' +
             '<div style="min-width:100px;">' +
@@ -963,6 +965,7 @@ window.__onTabShow = {};
             '<div style="font-size:14px;color:'+statusColor+';">' + statusIcon + '</div>' +
           '</div>' +
           detailHtml +
+          screenshotHtml +
           reportBtn +
         '</div>';
       }).join('');

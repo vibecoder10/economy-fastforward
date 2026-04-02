@@ -146,7 +146,7 @@ const { chromium } = require('playwright');
 4. API calls complete (check network tab or console for fetch errors)
 5. Take a screenshot as evidence
 
-**Always take screenshots.** Save to `/tmp/qa-TASKID.png`. Reference in your verification notes.
+**Always take screenshots.** Save to `storyengine/agents/screenshots/TASKID-before.png` and `storyengine/agents/screenshots/TASKID-after.png`. These are served by the dashboard at `/api/screenshots/TASKID-before.png` so the operator can see exactly what you verified. Commit the screenshots with your other changes.
 
 ## Tab Completion Criteria
 A tab is 100% complete when:
