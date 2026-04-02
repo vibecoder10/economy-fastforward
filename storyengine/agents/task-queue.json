@@ -150,9 +150,13 @@
           "title": "Fix ScriptScene type mismatch (scene_text not narrationText)",
           "role": "frontend",
           "status": "done",
+          "verified": true,
           "started_at": "2026-04-02T04:02:00Z",
           "assigned_to": "frontend-dev",
           "completed_at": "2026-04-02T04:04:00Z",
+          "verified_at": "2026-04-02T04:08:00Z",
+          "verified_by": "qa-engineer",
+          "verification_notes": "Stale ScriptScene removed from types.ts (10 lines). Correct ScriptScene exists in api.ts line 608 with scene_text + storyboard_1_url-5_url. No imports referenced the types.ts version. tsc --noEmit passes clean. Diff minimal — 1 app file changed, no bloat.",
           "description": "Removed stale ScriptScene from types.ts — it used camelCase (narrationText, sceneNumber) which didn't match backend. The correct ScriptScene (with scene_text, storyboard_1_url through storyboard_5_url) already exists in api.ts line 608 and is what all components import. No code imported the types.ts version.",
           "files": [
             "frontend/src/lib/types.ts"
@@ -688,9 +692,13 @@
           "title": "Add backend endpoint for background task status",
           "role": "backend",
           "status": "done",
+          "verified": true,
           "started_at": "2026-04-02T04:00:02Z",
           "completed_at": "2026-04-02T04:05:00Z",
           "assigned_to": "backend-dev",
+          "verified_at": "2026-04-02T04:08:00Z",
+          "verified_by": "qa-engineer",
+          "verification_notes": "GET /api/autopilot/tasks at autopilot.py line 586. Returns 4 tasks (scrape, youtube_sync, learning_extraction, title_analysis) with last_run, is_running, last_error. Merges bg status from main.py loops with user-triggered status from niche._scrape_tasks and youtube_sync._sync_tasks. Router already registered at main.py line 304. _update_bg_status helper in main.py updates status on start/success/error. Diff clean — 2 app files changed, no bloat.",
           "description": "Add GET /api/autopilot/tasks endpoint that returns status of all 4 background tasks: scrape (from _scrape_tasks), youtube_sync (from _sync_tasks), learning_extraction (from extraction results), title_analysis (from analysis results). Include last_run, is_running, last_error for each.",
           "files": [
             "backend/routes/autopilot.py",
