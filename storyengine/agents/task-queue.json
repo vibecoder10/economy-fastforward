@@ -538,8 +538,11 @@
           "id": "T9-004",
           "title": "Display agent quality scores",
           "role": "frontend",
-          "status": "pending",
-          "description": "Backend returns agent_hook_score, agent_body_score, agent_tier on VideoDetail. Display these as a quality scorecard in the Performance tab.",
+          "status": "done",
+          "started_at": "2026-04-02T18:02:00Z",
+          "completed_at": "2026-04-02T18:06:00Z",
+          "assigned_to": "frontend-dev",
+          "description": "Added Agent Quality Scores section to PerformanceTab showing hook_score and body_score as progress bars with /10 scale, tier as colored label, agent_cost formatted. ScoreCard helper with color thresholds (green>=70%, gold>=50%, red<50%). Only renders when at least one agent field is present.",
           "files": [
             "frontend/src/components/production/PerformanceTab.tsx"
           ]

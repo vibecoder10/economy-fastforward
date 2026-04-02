@@ -4,7 +4,7 @@ import { useState } from "react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { VerdictBadge } from "@/components/ui/VerdictBadge";
 import { StatCard } from "@/components/ui/StatCard";
-import { Eye, MousePointer, Clock, TrendingUp, ChevronDown, AlertTriangle, CheckCircle, MinusCircle } from "lucide-react";
+import { Eye, MousePointer, Clock, TrendingUp, ChevronDown, AlertTriangle, CheckCircle, MinusCircle, Zap, Shield } from "lucide-react";
 import { formatNumber, formatCost, timeAgo } from "@/lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
 import type { VideoDetail } from "@/lib/api";
@@ -135,6 +135,48 @@ export function PerformanceTab({ video }: PerformanceTabProps) {
               </div>
             </div>
           )}
+        </GlassCard>
+      )}
+
+      {/* Agent Quality Scores */}
+      {(video.agent_hook_score != null || video.agent_body_score != null || video.agent_tier != null) && (
+        <GlassCard className="p-5">
+          <h3 className="text-xs font-semibold uppercase tracking-wider mb-4" style={{ color: "var(--text-secondary)" }}>
+            Agent Quality Scores
+          </h3>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {video.agent_hook_score != null && (
+              <ScoreCard label="Hook Score" value={video.agent_hook_score} max={10} icon={Zap} />
+            )}
+            {video.agent_body_score != null && (
+              <ScoreCard label="Body Score" value={video.agent_body_score} max={10} icon={Shield} />
+            )}
+            {video.agent_tier != null && (
+              <div
+                className="rounded-lg p-3 text-center"
+                style={{ background: "rgba(255,255,255,0.03)", border: "1px solid var(--border-subtle)" }}
+              >
+                <p className="text-[10px] uppercase tracking-wider mb-1" style={{ color: "var(--text-tertiary)" }}>Tier</p>
+                <p
+                  className="text-lg font-mono font-semibold uppercase"
+                  style={{ color: video.agent_tier === "premium" ? "var(--gold)" : "var(--turquoise)" }}
+                >
+                  {video.agent_tier}
+                </p>
+              </div>
+            )}
+            {video.agent_cost != null && (
+              <div
+                className="rounded-lg p-3 text-center"
+                style={{ background: "rgba(255,255,255,0.03)", border: "1px solid var(--border-subtle)" }}
+              >
+                <p className="text-[10px] uppercase tracking-wider mb-1" style={{ color: "var(--text-tertiary)" }}>Agent Cost</p>
+                <p className="text-lg font-mono font-medium" style={{ color: "var(--gold)" }}>
+                  {formatCost(video.agent_cost)}
+                </p>
+              </div>
+            )}
+          </div>
         </GlassCard>
       )}
 
@@ -311,6 +353,28 @@ function PostMortemSection({ label, raw }: { label: string; raw: string }) {
         )}
       </AnimatePresence>
     </GlassCard>
+  );
+}
+
+function ScoreCard({ label, value, max, icon: Icon }: { label: string; value: number; max: number; icon: typeof Zap }) {
+  const pct = Math.min((value / max) * 100, 100);
+  const color = pct >= 70 ? "var(--green)" : pct >= 50 ? "var(--gold)" : "var(--red)";
+  return (
+    <div
+      className="rounded-lg p-3 text-center"
+      style={{ background: "rgba(255,255,255,0.03)", border: "1px solid var(--border-subtle)" }}
+    >
+      <div className="flex items-center justify-center gap-1.5 mb-1">
+        <Icon size={12} style={{ color: "var(--text-tertiary)" }} />
+        <p className="text-[10px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>{label}</p>
+      </div>
+      <p className="text-lg font-mono font-medium" style={{ color }}>
+        {value.toFixed(1)}<span className="text-xs" style={{ color: "var(--text-tertiary)" }}>/{max}</span>
+      </p>
+      <div className="mt-2 h-1 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.06)" }}>
+        <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: color }} />
+      </div>
+    </div>
   );
 }
 
