@@ -1216,6 +1216,19 @@
           "status": "pending",
           "depends_on": "T17-004",
           "description": "Verify: Google sign-in creates account + tenant, session JWT works for all API calls, /api/auth/me returns correct user, Stripe checkout creates subscription, webhooks update plan, plan gating works."
+        },
+        {
+          "id": "T17-006",
+          "title": "QA verify T17-002: login page renders, auth context protects routes, token stored",
+          "role": "qa",
+          "status": "pending",
+          "depends_on": "T17-002",
+          "description": "Verify T17-002 auth frontend wiring: (1) GET / redirects to /login when no JWT in localStorage. (2) /login renders Google Sign-In button (GIS script loaded, button div present). (3) AuthProvider wraps app — useAuth() returns { user, login, logout }. (4) After mock login (set localStorage token to dev-token), AuthenticatedShell shows sidebar + content without redirect. (5) Logout clears localStorage token and redirects to /login. (6) fetchApi in api.ts reads Authorization header from localStorage on every request. (7) tsc --noEmit passes clean. (8) No console errors on /login page.",
+          "files": [
+            "frontend/src/app/login/page.tsx",
+            "frontend/src/components/auth/AuthProvider.tsx",
+            "frontend/src/components/auth/AuthenticatedShell.tsx"
+          ]
         }
       ]
     }
