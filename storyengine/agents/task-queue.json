@@ -338,7 +338,10 @@
           "id": "T7-004",
           "title": "Add suggested_thumbnail_prompt and suggested_thumbnail_urls to VideoDetail model + SQL",
           "role": "backend",
-          "status": "pending",
+          "status": "done",
+          "assigned_to": "backend-dev",
+          "started_at": "2026-04-02T06:00:00Z",
+          "completed_at": "2026-04-02T06:05:00Z",
           "description": "The DB has suggested_thumbnail_prompt (TEXT) and suggested_thumbnail_urls (JSONB) at schema.sql lines 198-199. Frontend types already declare them (api.ts lines 566-567). But the backend VideoDetail Pydantic model (models.py) and SQL SELECT (videos.py line 132) are MISSING both fields.\n\nSteps:\n1. Add to VideoDetail in models.py: suggested_thumbnail_prompt: Optional[str] = None, suggested_thumbnail_urls: Optional[list] = None\n2. Add to SQL SELECT in videos.py get_video(): suggested_thumbnail_prompt, suggested_thumbnail_urls\n3. Add to VideoDetail constructor: suggested_thumbnail_prompt=r.get('suggested_thumbnail_prompt'), suggested_thumbnail_urls=_parse_json_field(r.get('suggested_thumbnail_urls'))\n\nThis unblocks T7-002 (frontend suggestion display).",
           "files": [
             "backend/models.py",
@@ -349,7 +352,9 @@
           "id": "T7-005",
           "title": "Show 'Generate Thumbnail' as primary action when no thumbnail exists",
           "role": "frontend",
-          "status": "pending",
+          "status": "done",
+          "completed_at": "2026-04-02T05:06:00Z",
+          "assigned_to": "frontend-dev",
           "description": "OPERATOR ISSUE: 'There is no create button.' The ThumbnailTab only shows 'Regenerate' (line 305) even when no thumbnail has been generated yet. Fix:\n1. When !thumbnailUrl, show a prominent 'Generate Thumbnail' button (filled variant) instead of 'Regenerate'\n2. When thumbnailUrl exists, show 'Regenerate' as secondary action (outline variant) and 'Approve Thumbnail' as primary\n3. The generate action calls the same handleRegenerate() function \u2014 it's just a label/UX change\n4. Consider showing a larger CTA in the empty state placeholder area (lines 138-171) with a 'Generate Now' button",
           "files": [
             "frontend/src/components/production/ThumbnailTab.tsx"
