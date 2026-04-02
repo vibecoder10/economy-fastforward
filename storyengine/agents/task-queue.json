@@ -2,7 +2,7 @@
   "version": 2,
   "current_tab": 7,
   "last_updated": "2026-04-02",
-  "last_updated_by": "qa-engineer",
+  "last_updated_by": "orchestrator",
   "tabs": [
     {
       "id": 1,
@@ -476,6 +476,17 @@
           "assigned_to": "frontend-dev",
           "completed_at": "2026-04-02T10:06:00Z",
           "description": "Added Views Over Time section (24h/48h/7d/30d grid) and CTR Over Time section (12h/24h/48h with color-coded thresholds) plus retention_48h to PerformanceTab. Changed prop type from frontend Video to VideoDetail. Used formatNumber/formatCost from utils.ts. Also shows impressions count.",
+          "files": [
+            "frontend/src/components/production/PerformanceTab.tsx"
+          ]
+        },
+        {
+          "id": "T9-006",
+          "title": "QA verify T9-001: snapshot metrics timeline renders correctly",
+          "role": "qa",
+          "status": "pending",
+          "depends_on": "T9-001",
+          "description": "Verify T9-001 implementation: (1) PerformanceTab.tsx accepts VideoDetail prop (not Video). (2) Views Over Time section shows 24h/48h/7d/30d grid with formatNumber(). (3) CTR Over Time section shows 12h/24h/48h with color-coded thresholds (green >= 5%, amber 3-5%, red < 3%). (4) retention_48h displays. (5) Impressions count renders. (6) All fields read from VideoDetail (views_24h, views_48h, views_7d, views_30d, ctr_12h, ctr_24h, ctr_48h, retention_48h, impressions). (7) Graceful handling when fields are null. (8) tsc --noEmit passes clean.",
           "files": [
             "frontend/src/components/production/PerformanceTab.tsx"
           ]
