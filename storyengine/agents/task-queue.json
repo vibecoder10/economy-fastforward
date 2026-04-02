@@ -533,11 +533,13 @@
           "id": "T9-003",
           "title": "Build agent suggestion accept/reject UI",
           "role": "frontend",
-          "status": "pending",
-          "description": "Backend has POST /api/videos/{id}/accept-suggestion and reject-suggestion endpoints. VideoDetail returns suggested_script, suggested_title, suggestion_scores, suggestion_status. Build a suggestion card that shows the proposed changes with Accept/Reject buttons.",
+          "status": "done",
+          "started_at": "2026-04-02T23:02:00Z",
+          "assigned_to": "frontend-dev",
+          "completed_at": "2026-04-02T23:08:00Z",
+          "description": "Added SuggestionCard component to PerformanceTab showing suggested title and script with checkbox selection, suggestion scores, source badge, and Accept/Reject buttons. Accept calls acceptSuggestion() with selected fields, Reject calls rejectSuggestion(). Card hidden when suggestion_status is accepted/rejected. Uses useMutation with query invalidation.",
           "files": [
-            "frontend/src/components/production/PerformanceTab.tsx",
-            "frontend/src/lib/api.ts"
+            "frontend/src/components/production/PerformanceTab.tsx"
           ]
         },
         {
