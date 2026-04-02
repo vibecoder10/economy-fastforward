@@ -8,12 +8,14 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { AuthUser, getMe, googleLogin } from "@/lib/api";
+import { AuthUser, getMe, googleLogin, registerUser, loginUser } from "@/lib/api";
 
 interface AuthContextValue {
   user: AuthUser | null;
   isLoading: boolean;
   login: (credential: string) => Promise<void>;
+  loginWithEmail: (email: string, password: string) => Promise<void>;
+  register: (email: string, password: string, displayName?: string) => Promise<void>;
   logout: () => void;
 }
 
@@ -21,6 +23,8 @@ const AuthContext = createContext<AuthContextValue>({
   user: null,
   isLoading: true,
   login: async () => {},
+  loginWithEmail: async () => {},
+  register: async () => {},
   logout: () => {},
 });
 
@@ -54,13 +58,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(res.user);
   }, []);
 
+  const loginWithEmail = useCallback(async (email: string, password: string) => {
+    const res = await loginUser(email, password);
+    localStorage.setItem("token", res.token);
+    setUser(res.user);
+  }, []);
+
+  const register = useCallback(async (email: string, password: string, displayName?: string) => {
+    const res = await registerUser(email, password, displayName || "");
+    localStorage.setItem("token", res.token);
+    setUser(res.user);
+  }, []);
+
   const logout = useCallback(() => {
     localStorage.removeItem("token");
     setUser(null);
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, isLoading, login, logout }}>
+    <AuthContext.Provider value={{ user, isLoading, login, loginWithEmail, register, logout }}>
       {children}
     </AuthContext.Provider>
   );
