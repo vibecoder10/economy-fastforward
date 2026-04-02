@@ -647,18 +647,51 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
       )}
 
       {/* Live progress banner */}
-      {taskRunning && taskMessage && (
+      {taskRunning && (
         <div
-          className="rounded-xl px-4 py-3 flex items-center gap-3"
+          className="rounded-xl px-4 py-3 space-y-2"
           style={{
-            background: "rgba(168, 85, 247, 0.06)",
-            border: "1px solid rgba(168, 85, 247, 0.2)",
+            background: "rgba(212, 168, 68, 0.08)",
+            border: "1px solid rgba(212, 168, 68, 0.25)",
           }}
         >
-          <Loader2 size={14} className="animate-spin flex-shrink-0" style={{ color: "var(--purple)" }} />
-          <span className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>
-            {taskMessage}
-          </span>
+          <div className="flex items-center gap-3">
+            <Loader2 size={16} className="animate-spin flex-shrink-0" style={{ color: "var(--amber)" }} />
+            <span className="text-sm font-medium" style={{ color: "var(--amber)" }}>
+              {(() => {
+                if (!taskMessage) return generatingPrompts ? "Generating storyboard prompts..." : "Generating storyboard grids...";
+                const sceneMatch = taskMessage.match(/Scene\s+(\d+)\s+\((\d+)\/(\d+)\)/);
+                const beatMatch = taskMessage.match(/Beat\s+(\d+)\/(\d+)/);
+                if (sceneMatch) {
+                  return (
+                    <>
+                      Generating Scene {sceneMatch[1]} ({sceneMatch[2]}/{sceneMatch[3]})
+                      {beatMatch && (
+                        <span style={{ color: "var(--text-secondary)", fontWeight: 400 }}>
+                          {" "}— Beat {beatMatch[1]}/{beatMatch[2]}
+                        </span>
+                      )}
+                    </>
+                  );
+                }
+                return taskMessage.replace(/[*_]/g, "").replace(/\n/g, " · ");
+              })()}
+            </span>
+          </div>
+          {/* Progress bar */}
+          {taskMessage && (() => {
+            const sceneMatch = taskMessage.match(/Scene\s+\d+\s+\((\d+)\/(\d+)\)/);
+            if (!sceneMatch) return null;
+            const pct = Math.round((parseInt(sceneMatch[1]) / parseInt(sceneMatch[2])) * 100);
+            return (
+              <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "rgba(212, 168, 68, 0.15)" }}>
+                <div
+                  className="h-full rounded-full transition-all duration-500"
+                  style={{ background: "var(--amber)", width: `${Math.max(pct, 5)}%` }}
+                />
+              </div>
+            );
+          })()}
         </div>
       )}
 
