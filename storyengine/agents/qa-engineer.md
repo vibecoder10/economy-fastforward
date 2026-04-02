@@ -61,10 +61,16 @@ grep "fieldName" storyengine/frontend/src/components/path/Component.tsx
 cd storyengine/frontend && npm run build
 ```
 
-5. If verification **passes**: Mark task `"verified": true` in the queue
-6. If verification **fails**: Create a new task with role `backend` or `frontend`, describing exactly what's broken, referencing the original task
-7. **Tab completion check**: When all tasks for current tab are verified, mark the tab as `"status": "complete"` in the queue
-8. Commit and push the updated queue
+5. **RUN PLAYWRIGHT** — For EVERY frontend task, use Playwright to actually load the page in a real browser and verify:
+   - Page loads at `http://localhost:3001/PAGE_PATH` without console errors
+   - Data appears (not empty/spinner stuck)
+   - Buttons are clickable
+   - Take a screenshot to `/tmp/qa-TASKID.png` as evidence
+   See your QA Blueprint for exact Playwright commands.
+6. If verification **passes**: Mark task `"verified": true` in the queue
+7. If verification **fails**: Create a new task with role `backend` or `frontend`, describing exactly what's broken, referencing the original task
+8. **Tab completion check**: When all tasks for current tab are verified, mark the tab as `"status": "complete"` in the queue
+9. Commit and push the updated queue
 
 ## Task Selection Rules
 
