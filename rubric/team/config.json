@@ -40,6 +40,15 @@
       "skills": ["TypeScript Checking", "API Testing", "Playwright", "Wiring Audits"],
       "icon": "Sentinel",
       "color": "#e35050"
+    },
+    {
+      "id": "pipeline-tester",
+      "name": "Pipeline Tester",
+      "role": "End-to-End User Tester",
+      "description": "Opens StoryEngine in a real browser and clicks through every page like a user. Reports what works and what doesn't. Files bugs with screenshots and exact error messages.",
+      "skills": ["Playwright", "User Testing", "Bug Reporting", "Screenshot Evidence"],
+      "icon": "Phantom",
+      "color": "#c084fc"
     }
   ]
 }

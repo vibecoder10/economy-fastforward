@@ -24,6 +24,12 @@
       "name": "QA Engineer",
       "color": "#e35050",
       "icon": "Sentinel"
+    },
+    {
+      "id": "pipeline-tester",
+      "name": "Pipeline Tester",
+      "color": "#c084fc",
+      "icon": "Phantom"
     }
   ]
 }

@@ -478,7 +478,7 @@
       "id": 9,
       "name": "Video Detail: Performance Tab",
       "path": "/pipeline/[videoId] (Performance)",
-      "status": "pending",
+      "status": "complete",
       "tasks": [
         {
           "id": "T9-001",
@@ -537,9 +537,13 @@
           "title": "Build agent suggestion accept/reject UI",
           "role": "frontend",
           "status": "done",
+          "verified": true,
           "started_at": "2026-04-02T23:02:00Z",
           "assigned_to": "frontend-dev",
           "completed_at": "2026-04-02T23:08:00Z",
+          "verified_at": "2026-04-02T23:30:00Z",
+          "verified_by": "qa-engineer",
+          "verification_notes": "PASS. SuggestionCard in PerformanceTab.tsx (line 410+). Checkbox selection for title/script fields. Accept calls acceptSuggestion(id, fields) -> POST /api/videos/{id}/accept-suggestion (videos.py:460) with { accept: fields }. Reject calls rejectSuggestion(id) -> POST /api/videos/{id}/reject-suggestion (videos.py:503). Backend copies suggested_* to current fields on accept, clears all on reject, sets suggestion_status. 5 suggestion fields in models.py:92-96, SQL SELECT:147-148, r.get():214-218. hasSuggestion guard hides card when status=accepted/rejected. useMutation + query invalidation. Commit cfe1864 clean: 1 app file, 152 lines, no bloat. tsc: 0 errors. Playwright: page loads, no console errors, card correctly hidden when no data.",
           "description": "Added SuggestionCard component to PerformanceTab showing suggested title and script with checkbox selection, suggestion scores, source badge, and Accept/Reject buttons. Accept calls acceptSuggestion() with selected fields, Reject calls rejectSuggestion(). Card hidden when suggestion_status is accepted/rejected. Uses useMutation with query invalidation.",
           "files": [
             "frontend/src/components/production/PerformanceTab.tsx"
@@ -566,7 +570,14 @@
           "id": "T9-005",
           "title": "QA verify performance tab: metrics, post-mortems, agent suggestions",
           "role": "qa",
-          "status": "pending",
+          "status": "done",
+          "verified": true,
+          "started_at": "2026-04-02T23:30:00Z",
+          "completed_at": "2026-04-02T23:35:00Z",
+          "assigned_to": "qa-engineer",
+          "verified_at": "2026-04-02T23:35:00Z",
+          "verified_by": "qa-engineer",
+          "verification_notes": "TAB 9 COMPLETE. All 7 tasks verified. (1) T9-001: Views Over Time (24h/48h/7d/30d) + CTR Over Time (12h/24h/48h) with color thresholds + retention_48h + impressions. (2) T9-002: PostMortemSection with collapsible accordion, verdict pills (strong/average/weak), recommendations, metrics grid, timestamp. (3) T9-003: SuggestionCard with checkbox title/script selection, Accept sends {accept: fields} to /accept-suggestion, Reject clears all via /reject-suggestion. useMutation + invalidation. (4) T9-004: Agent Quality Scores (hook_score/body_score progress bars, tier label, agent_cost). (5) Backend: all suggestion fields in models.py:92-96, SQL:147-148, r.get():214-218. Accept/reject at videos.py:460/503. (6) tsc: 0 errors. npm run build: clean. (7) Playwright: page loads, Performance tab clickable, empty state renders correctly, 0 console errors. (8) No bloat in any commit.",
           "description": "Verify all performance data renders from API. Check snapshot metrics display, post-mortem JSON renders as readable sections, agent suggestions show with accept/reject buttons.",
           "depends_on": "T9-004"
         },
