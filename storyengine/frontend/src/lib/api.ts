@@ -42,6 +42,25 @@ async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
   return res.json();
 }
 
+// Auth
+export interface AuthUser {
+  id: string;
+  email: string | null;
+  display_name: string | null;
+  avatar_url: string | null;
+  plan: string;
+  tenant_id?: string | null;
+  created_at?: string | null;
+}
+
+export const googleLogin = (credential: string) =>
+  fetchApi<{ token: string; user: AuthUser }>("/api/auth/google", {
+    method: "POST",
+    body: JSON.stringify({ credential }),
+  });
+
+export const getMe = () => fetchApi<AuthUser>("/api/auth/me");
+
 // Dashboard
 export const getDashboardSummary = () => fetchApi<DashboardSummary>("/api/dashboard/summary");
 

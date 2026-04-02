@@ -2,7 +2,7 @@
   "version": 2,
   "current_tab": 3,
   "last_updated": "2026-04-02",
-  "last_updated_by": "qa-engineer",
+  "last_updated_by": "frontend-dev",
   "tabs": [
     {
       "id": 1,
@@ -1166,13 +1166,19 @@
           "id": "T17-002",
           "title": "Build Google Sign-In frontend: login page + auth context + token storage",
           "role": "frontend",
-          "status": "pending",
-          "description": "Create login page with 'Sign in with Google' button using @react-oauth/google. AuthContext provider wraps app, stores JWT in localStorage, provides user/logout. Protected route wrapper redirects to /login if no token. Wire Authorization header to all fetchApi calls. Endpoints: POST /api/auth/google {credential} -> {token, user}, GET /api/auth/me -> user info.",
+          "status": "done",
+          "started_at": "2026-04-02T20:02:00Z",
+          "assigned_to": "frontend-dev",
+          "completed_at": "2026-04-02T20:08:00Z",
+          "description": "Built login page with Google Sign-In via GIS script (no new dependency). AuthProvider context wraps app, stores JWT in localStorage, provides user/login/logout. AuthenticatedShell redirects to /login if no token, hides sidebar on login page. fetchApi already reads token from localStorage. Types: AuthUser, googleLogin(), getMe() added to api.ts.",
           "depends_on": "T17-001",
           "files": [
             "frontend/src/app/login/page.tsx",
             "frontend/src/components/auth/AuthProvider.tsx",
-            "frontend/src/lib/api.ts"
+            "frontend/src/components/auth/AuthenticatedShell.tsx",
+            "frontend/src/lib/api.ts",
+            "frontend/src/app/layout.tsx",
+            "frontend/src/app/providers.tsx"
           ]
         },
         {
