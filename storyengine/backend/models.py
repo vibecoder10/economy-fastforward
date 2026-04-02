@@ -87,6 +87,8 @@ class VideoDetail(VideoSummary):
     agent_body_score: Optional[float] = None
     agent_tier: Optional[str] = None
     agent_cost: Optional[float] = None
+    suggested_thumbnail_prompt: Optional[str] = None
+    suggested_thumbnail_urls: Optional[list] = None
 
 
 class VideoAdvance(BaseModel):
