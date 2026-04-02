@@ -144,6 +144,8 @@ async def get_video(video_id: str, tenant_id: str = Depends(get_tenant_id)):
                   post_mortem_48h, post_mortem_7d,
                   agent_paper_trail, agent_hook_score, agent_body_score, agent_tier, agent_cost,
                   suggested_thumbnail_prompt, suggested_thumbnail_urls,
+                  suggested_script, suggested_title, suggestion_source,
+                  suggestion_scores, suggestion_status,
                   created_at::text, updated_at::text
            FROM videos WHERE id = $1 AND tenant_id = $2""",
         video_id, tenant_id,
@@ -209,6 +211,11 @@ async def get_video(video_id: str, tenant_id: str = Depends(get_tenant_id)):
         agent_cost=float(r["agent_cost"]) if r.get("agent_cost") else None,
         suggested_thumbnail_prompt=r.get("suggested_thumbnail_prompt"),
         suggested_thumbnail_urls=_parse_json_field(r.get("suggested_thumbnail_urls")),
+        suggested_script=r.get("suggested_script"),
+        suggested_title=r.get("suggested_title"),
+        suggestion_source=r.get("suggestion_source"),
+        suggestion_scores=_parse_json_field(r.get("suggestion_scores")),
+        suggestion_status=r.get("suggestion_status"),
         created_at=r.get("created_at"),
         updated_at=r.get("updated_at"),
     )

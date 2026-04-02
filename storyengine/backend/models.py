@@ -89,6 +89,11 @@ class VideoDetail(VideoSummary):
     agent_cost: Optional[float] = None
     suggested_thumbnail_prompt: Optional[str] = None
     suggested_thumbnail_urls: Optional[list] = None
+    suggested_script: Optional[str] = None
+    suggested_title: Optional[str] = None
+    suggestion_source: Optional[str] = None
+    suggestion_scores: Optional[dict] = None
+    suggestion_status: Optional[str] = None
 
 
 class VideoAdvance(BaseModel):
