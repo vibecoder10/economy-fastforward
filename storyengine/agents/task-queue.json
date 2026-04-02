@@ -204,20 +204,33 @@
       "id": 4,
       "name": "Video Detail: Voice Tab",
       "path": "/pipeline/[videoId] (Voice)",
-      "status": "pending",
+      "status": "complete",
       "tasks": [
         {
           "id": "T4-001",
           "title": "Verify voice generation trigger and status tracking",
           "role": "qa",
-          "status": "pending",
+          "status": "done",
+          "verified": true,
+          "started_at": "2026-04-02T20:04:00Z",
+          "completed_at": "2026-04-02T20:15:00Z",
+          "assigned_to": "qa-engineer",
+          "verified_at": "2026-04-02T20:15:00Z",
+          "verified_by": "qa-engineer",
+          "verification_notes": "PASS. (1) POST /api/pipeline/voice/{video_id}?scene=N exists at pipeline.py line 232 — status gate requires ready_for_voice or scene param. (2) useTaskPoller wired in ScriptVoiceTab.tsx (lines 313-330) with voiceTaskRunning state, interval 3000ms, onComplete invalidates queries. Task status endpoint GET /api/pipeline/task/{video_id} returns {status, message, error}. (3) voice_over_url returned by GET /api/videos/{id}/script — 6 scenes verified with voice_over_url populated. (4) VoicePlayer renders in StoryboardVisualsTab (line 811) with 6 audio elements confirmed via Playwright. (5) Script tab shows 6 'Voice Done' badges, 6 'Voice Ready' labels, 6 'Regenerate Voice' buttons. (6) 0 console errors. (7) tsc --noEmit: 0 errors. TAB 4 COMPLETE.",
           "description": "Check that POST /api/pipeline/voice/{id} triggers voice generation, task poller tracks progress, and voice_over_url appears on script scenes when complete. Verify VoicePlayer component plays audio."
         },
         {
           "id": "T4-002",
           "title": "Display voice_status per scene in Voice tab",
           "role": "frontend",
-          "status": "pending",
+          "status": "done",
+          "verified": true,
+          "completed_at": "2026-04-02T20:15:00Z",
+          "assigned_to": "qa-engineer",
+          "verified_at": "2026-04-02T20:15:00Z",
+          "verified_by": "qa-engineer",
+          "verification_notes": "Already implemented. VoiceStatusBadge renders per scene in ScriptVoiceTab.tsx (line 1061) — shows 'Voice Done' (green) for done/finished, 'Voice Pending' (gold) for create/pending. Reads from scene.voiceStatus which maps to voice_status from API (line 160). Playwright confirmed 6 'Voice Done' badges visible in browser. ScriptTab.tsx also has this at line 611.",
           "description": "Each script scene has a voice_status field. Display it as a badge next to each scene in the voice tab (e.g., 'Generated', 'Pending', 'Failed'). Wire to the actual field from the API response.",
           "files": [
             "frontend/src/components/production/ScriptTab.tsx"
@@ -1166,13 +1179,19 @@
           "id": "T17-002",
           "title": "Build Google Sign-In frontend: login page + auth context + token storage",
           "role": "frontend",
-          "status": "pending",
-          "description": "Create login page with 'Sign in with Google' button using @react-oauth/google. AuthContext provider wraps app, stores JWT in localStorage, provides user/logout. Protected route wrapper redirects to /login if no token. Wire Authorization header to all fetchApi calls. Endpoints: POST /api/auth/google {credential} -> {token, user}, GET /api/auth/me -> user info.",
+          "status": "done",
+          "started_at": "2026-04-02T20:02:00Z",
+          "assigned_to": "frontend-dev",
+          "completed_at": "2026-04-02T20:08:00Z",
+          "description": "Built login page with Google Sign-In via GIS script (no new dependency). AuthProvider context wraps app, stores JWT in localStorage, provides user/login/logout. AuthenticatedShell redirects to /login if no token, hides sidebar on login page. fetchApi already reads token from localStorage. Types: AuthUser, googleLogin(), getMe() added to api.ts.",
           "depends_on": "T17-001",
           "files": [
             "frontend/src/app/login/page.tsx",
             "frontend/src/components/auth/AuthProvider.tsx",
-            "frontend/src/lib/api.ts"
+            "frontend/src/components/auth/AuthenticatedShell.tsx",
+            "frontend/src/lib/api.ts",
+            "frontend/src/app/layout.tsx",
+            "frontend/src/app/providers.tsx"
           ]
         },
         {
@@ -1210,6 +1229,19 @@
           "status": "pending",
           "depends_on": "T17-004",
           "description": "Verify: Google sign-in creates account + tenant, session JWT works for all API calls, /api/auth/me returns correct user, Stripe checkout creates subscription, webhooks update plan, plan gating works."
+        },
+        {
+          "id": "T17-006",
+          "title": "QA verify T17-002: login page renders, auth context protects routes, token stored",
+          "role": "qa",
+          "status": "pending",
+          "depends_on": "T17-002",
+          "description": "Verify T17-002 auth frontend wiring: (1) GET / redirects to /login when no JWT in localStorage. (2) /login renders Google Sign-In button (GIS script loaded, button div present). (3) AuthProvider wraps app — useAuth() returns { user, login, logout }. (4) After mock login (set localStorage token to dev-token), AuthenticatedShell shows sidebar + content without redirect. (5) Logout clears localStorage token and redirects to /login. (6) fetchApi in api.ts reads Authorization header from localStorage on every request. (7) tsc --noEmit passes clean. (8) No console errors on /login page.",
+          "files": [
+            "frontend/src/app/login/page.tsx",
+            "frontend/src/components/auth/AuthProvider.tsx",
+            "frontend/src/components/auth/AuthenticatedShell.tsx"
+          ]
         }
       ]
     }
