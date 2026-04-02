@@ -454,6 +454,17 @@
         <div id="current-focus" style="font-size:11px;color:#50e3c2;margin-top:6px;display:none;"></div>
       </div>
 
+      <!-- Operator Feedback -->
+      <div style="margin-bottom:16px;padding:16px;background:#0a0a0a;border:1px solid #1a1a1a;border-radius:12px;">
+        <h3 style="font-size:14px;font-weight:600;margin-bottom:8px;color:#888;">Operator Feedback</h3>
+        <p style="font-size:11px;color:#555;margin-bottom:10px;">Send feedback to ALL agents. They'll see it in their next cycle.</p>
+        <div style="display:flex;gap:8px;">
+          <input id="feedback-input" type="text" placeholder='e.g. "auth needs token refresh" or "thumbnail page broken"' style="flex:1;background:#111;border:1px solid #222;color:#ccc;padding:10px 12px;border-radius:8px;font-size:13px;font-family:Outfit,sans-serif;outline:none;" onkeydown="if(event.key==='Enter')sendFeedback()" />
+          <button onclick="sendFeedback()" style="background:#D4A844;border:none;color:white;padding:10px 16px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;font-family:Outfit,sans-serif;white-space:nowrap;">Send</button>
+        </div>
+        <div id="feedback-list" style="margin-top:10px;display:flex;flex-direction:column;gap:6px;"></div>
+      </div>
+
       <!-- Agent Controls -->
       <div style="margin-bottom:16px;padding:16px;background:#0a0a0a;border:1px solid #1a1a1a;border-radius:12px;">
         <h3 style="font-size:14px;font-weight:600;margin-bottom:12px;color:#888;">Agent Controls</h3>
@@ -495,6 +506,12 @@
         <div id="handoff-feed" style="display:flex;flex-direction:column;gap:8px;max-height:250px;overflow-y:auto;">
           <div style="color:#555;font-size:12px;text-align:center;padding:8px 0;">No handoffs yet</div>
         </div>
+      </div>
+
+      <!-- Daily Retrospective -->
+      <div id="retro-section" style="margin-bottom:24px;padding:16px;background:#0a0a0a;border:1px solid #1a1a1a;border-radius:12px;display:none;">
+        <h3 style="font-size:14px;font-weight:600;margin-bottom:12px;color:#888;">Daily Retrospective</h3>
+        <div id="retro-content"></div>
       </div>
 
       <!-- Activity Feed -->
@@ -772,6 +789,10 @@ window.__onTabShow = {};
     setInterval(loadControls, 10000);
     loadHandoffs();
     setInterval(loadHandoffs, 30000);
+    loadFeedback();
+    setInterval(loadFeedback, 30000);
+    loadRetro();
+    setInterval(loadRetro, 120000);
 
     let tabs = ['welcome', 'icons'];
     try {
@@ -922,6 +943,83 @@ window.__onTabShow = {};
     loadControls();
     if (focus) input.value = '';
   };
+
+  // Operator Feedback
+  window.sendFeedback = async function() {
+    const input = document.getElementById('feedback-input');
+    const message = input.value.trim();
+    if (!message) return;
+    await fetch('/api/feedback', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message }) });
+    input.value = '';
+    loadFeedback();
+  };
+  window.dismissFeedback = async function(id) {
+    await fetch('/api/feedback/' + id + '/dismiss', { method: 'POST' });
+    loadFeedback();
+  };
+  async function loadFeedback() {
+    const list = document.getElementById('feedback-list');
+    if (!list) return;
+    try {
+      const resp = await fetch('/api/feedback');
+      if (!resp.ok) return;
+      const items = await resp.json();
+      if (!items.length) { list.innerHTML = ''; return; }
+      list.innerHTML = items.map(fb => {
+        const ago = Math.floor((Date.now() - fb.timestamp) / 60000);
+        const timeStr = ago < 1 ? 'Just now' : ago < 60 ? ago + 'm ago' : Math.floor(ago / 60) + 'h ago';
+        const readCount = (fb.read_by || []).length;
+        return '<div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:#111;border:1px solid #1a1a1a;border-radius:8px;">' +
+          '<div style="flex:1;">' +
+            '<div style="font-size:12px;color:#ccc;">' + esc(fb.message) + '</div>' +
+            '<div style="font-size:10px;color:#555;margin-top:2px;">' + timeStr +
+              (readCount ? ' \u00b7 Read by ' + readCount + ' agent' + (readCount > 1 ? 's' : '') : ' \u00b7 Unread') + '</div>' +
+          '</div>' +
+          '<button onclick="dismissFeedback(\'' + fb.id + '\')" style="background:none;border:none;color:#555;cursor:pointer;font-size:16px;padding:4px 8px;" title="Dismiss">\u00d7</button>' +
+        '</div>';
+      }).join('');
+    } catch {}
+  }
+
+  // Daily Retrospective
+  async function loadRetro() {
+    const section = document.getElementById('retro-section');
+    const content = document.getElementById('retro-content');
+    if (!section || !content) return;
+    try {
+      const resp = await fetch('/api/retros');
+      if (!resp.ok) return;
+      const retro = await resp.json();
+      if (!retro.summary || retro.summary === 'No retro yet') { section.style.display = 'none'; return; }
+      section.style.display = 'block';
+      let html = '<div style="font-size:13px;color:#ccc;line-height:1.6;margin-bottom:12px;">' + esc(retro.summary) + '</div>';
+      if (retro.what_went_well && retro.what_went_well.length) {
+        html += '<div style="margin-bottom:8px;"><div style="font-size:11px;color:#50e3c2;font-weight:600;margin-bottom:4px;">What went well</div>';
+        html += retro.what_went_well.map(w => '<div style="font-size:12px;color:#aaa;padding-left:12px;">+ ' + esc(w) + '</div>').join('');
+        html += '</div>';
+      }
+      if (retro.what_failed && retro.what_failed.length) {
+        html += '<div style="margin-bottom:8px;"><div style="font-size:11px;color:#e35050;font-weight:600;margin-bottom:4px;">Issues</div>';
+        html += retro.what_failed.map(f => '<div style="font-size:12px;color:#aaa;padding-left:12px;">- ' + esc(f) + '</div>').join('');
+        html += '</div>';
+      }
+      if (retro.recurring_patterns && retro.recurring_patterns.length) {
+        html += '<div style="margin-bottom:8px;"><div style="font-size:11px;color:#D4A844;font-weight:600;margin-bottom:4px;">Patterns</div>';
+        html += retro.recurring_patterns.map(p => '<div style="font-size:12px;color:#aaa;padding-left:12px;">' + esc(p) + '</div>').join('');
+        html += '</div>';
+      }
+      if (retro.metrics) {
+        const m = retro.metrics;
+        html += '<div style="display:flex;gap:16px;margin-top:10px;padding-top:10px;border-top:1px solid #1a1a1a;font-size:11px;color:#555;">' +
+          '<span>' + (m.tasks_completed_today || 0) + ' completed</span>' +
+          '<span>' + (m.tasks_failed_today || 0) + ' failed</span>' +
+          (m.avg_completion_minutes ? '<span>' + m.avg_completion_minutes + 'm avg</span>' : '') +
+          '<span>' + (m.agents_active || 0) + ' agents</span></div>';
+      }
+      html += '<div style="font-size:10px;color:#333;margin-top:8px;">' + esc(retro.date || '') + '</div>';
+      content.innerHTML = html;
+    } catch {}
+  }
 
   window.viewReport = async function(file) {
     if (!file) return;
@@ -1345,6 +1443,14 @@ window.__onTabShow = {};
     return '<svg viewBox="0 0 8 8" width="64" height="64" style="image-rendering:pixelated;">' + bodyRects + legRects + '</svg>';
   }
 
+  let agentSkills = {};
+  async function loadAgentSkills() {
+    try {
+      const resp = await fetch('/api/agent-skills');
+      if (resp.ok) { const data = await resp.json(); agentSkills = data.agents || {}; }
+    } catch {}
+  }
+
   function renderAgentsGrid(agentStatuses) {
     grid.innerHTML = AGENT_DEFS.map((a, idx) => {
       const s = agentStatuses ? agentStatuses.find(x => x.id === a.id) : null;
@@ -1356,13 +1462,22 @@ window.__onTabShow = {};
       const glowColor = status === 'active' ? a.color : status === 'waiting' ? '#e35050' : 'transparent';
       const pixels = a.pixels || [];
       const iconHtml = status === 'active' ? makeHopSvg(pixels, a.color, idx) : makeStaticSvg(pixels, a.color);
+      const sk = agentSkills[a.id];
+      const skillsHtml = sk ? '<div style="display:flex;gap:10px;margin-top:8px;padding-top:8px;border-top:1px solid #1a1a1a;font-size:10px;color:#555;">' +
+        '<span style="color:' + a.color + ';">Lv.' + sk.level + ' ' + sk.title + '</span>' +
+        '<span>' + sk.tasks_completed + ' done</span>' +
+        '<span>' + Math.round(sk.qa_pass_rate * 100) + '% QA</span>' +
+        '<span>' + sk.avg_completion_minutes + 'm avg</span>' +
+        (sk.current_streak > 2 ? '<span style="color:#50e3c2;">' + sk.current_streak + ' streak</span>' : '') +
+      '</div>' : '';
       return '<div class="agent-card-big status-' + status + '" data-agent="' + a.id + '">' +
         '<div class="agent-card-glow" style="background:radial-gradient(circle at 50% 40%, ' + glowColor + '08 0%, transparent 70%);"></div>' +
         '<div class="agent-card-icon-wrap">' + iconHtml + '</div>' +
         '<span class="agent-card-name">' + a.name + '</span>' +
         '<span class="agent-card-role">' + (a.role || '') + '</span>' +
         '<div class="agent-card-status"><span class="agent-card-dot ' + status + '"></span><span>' + statusLabel + '</span></div>' +
-        '<span class="agent-card-task">' + (task || '') + '</span></div>';
+        '<span class="agent-card-task">' + (task || '') + '</span>' +
+        skillsHtml + '</div>';
     }).join('');
   }
 
@@ -1372,9 +1487,11 @@ window.__onTabShow = {};
       const config = await resp.json();
       AGENT_DEFS = config.agents || [];
     } catch {}
+    await loadAgentSkills();
     renderAgentsGrid(null);
     agentsPoll();
     setInterval(agentsPoll, 10000);
+    setInterval(loadAgentSkills, 60000);
   }
 
   async function agentsPoll() {

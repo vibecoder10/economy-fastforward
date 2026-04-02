@@ -188,6 +188,20 @@ except: pass
 " 2>/dev/null || echo "")
 fi
 
+# Operator Feedback
+OPERATOR_FEEDBACK=""
+if [ -f "$CONTROLS_FILE" ]; then
+  OPERATOR_FEEDBACK=$(python3 -c "
+import json
+try:
+    c = json.load(open('$CONTROLS_FILE'))
+    fb = [x for x in c.get('feedback', []) if '$AGENT' not in x.get('read_by', [])]
+    for f in fb[-5:]:
+        print('- ' + f.get('message', ''))
+except: pass
+" 2>/dev/null || echo "")
+fi
+
 # ─── Build Prompt ───────────────────────────────────────────────────────────
 # Inject orchestrator mode if applicable
 ORCH_SECTION=""
@@ -234,6 +248,13 @@ if [ -n "$OPERATOR_CONTROLS" ]; then
 
 ## Operator Controls
 $OPERATOR_CONTROLS"
+fi
+
+if [ -n "$OPERATOR_FEEDBACK" ]; then
+  PROMPT="$PROMPT
+
+## Operator Feedback (address these issues)
+$OPERATOR_FEEDBACK"
 fi
 
 if [ -n "$HANDOFF_NOTES" ]; then
@@ -320,6 +341,23 @@ SUMMARY_JSON=$(echo "$SUMMARY_LINE" | python3 -c 'import json,sys; print(json.du
 curl -s -X POST "$RUBRIC_URL/api/activity-log" \
   -H "Content-Type: application/json" \
   -d "{\"agent\": \"$AGENT\", \"task\": \"$TASK_LINE\", \"summary\": $SUMMARY_JSON, \"detail\": $DETAIL_JSON, \"detail_file\": \"$RUN_ID.md\", \"status\": \"completed\"}" 2>/dev/null || true
+
+# ─── Mark Feedback as Read ─────────────────────────────────────────────────
+if [ -f "$CONTROLS_FILE" ]; then
+  python3 -c "
+import json
+try:
+    c = json.load(open('$CONTROLS_FILE'))
+    changed = False
+    for fb in c.get('feedback', []):
+        if '$AGENT' not in fb.get('read_by', []):
+            fb.setdefault('read_by', []).append('$AGENT')
+            changed = True
+    if changed:
+        json.dump(c, open('$CONTROLS_FILE', 'w'), indent=2)
+except: pass
+" 2>/dev/null || true
+fi
 
 # ─── Upload Screenshots to Google Doc (QA + Pipeline Tester only) ───────────
 if [ "$AGENT" = "qa-engineer" ] || [ "$AGENT" = "pipeline-tester" ]; then
