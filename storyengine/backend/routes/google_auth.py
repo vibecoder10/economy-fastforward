@@ -91,11 +91,16 @@ def _create_session_jwt(account_id: str, email: str, tenant_id: str) -> str:
     return jwt.encode(payload, secret, algorithm="HS256")
 
 
-async def _create_tenant_for_account(account_id: str, name: str) -> str:
+async def _create_tenant_for_account(account_id: str, name: str, email: str = "") -> str:
     """Create a tenant and membership for a new account."""
     tenant_id = str(uuid.uuid4())
     slug = f"user-{account_id[:8]}"
 
+    # Ensure user exists in users table (memberships FK references users, not accounts)
+    await execute(
+        "INSERT INTO users (id, email, display_name) VALUES ($1, $2, $3) ON CONFLICT (id) DO NOTHING",
+        account_id, email, name,
+    )
     await execute(
         "INSERT INTO tenants (id, name, slug) VALUES ($1, $2, $3)",
         tenant_id, f"{name}'s Workspace", slug,
@@ -161,7 +166,7 @@ async def register(body: RegisterRequest):
     )
 
     # Create tenant + membership
-    tenant_id = await _create_tenant_for_account(account_id, display_name)
+    tenant_id = await _create_tenant_for_account(account_id, display_name, email)
 
     token = _create_session_jwt(account_id, email, tenant_id)
     return AuthResponse(
