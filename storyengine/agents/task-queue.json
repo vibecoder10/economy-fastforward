@@ -266,9 +266,13 @@
           "title": "Wire image variant generation UI",
           "role": "frontend",
           "status": "done",
+          "verified": true,
           "started_at": "2026-04-02T21:02:00Z",
           "assigned_to": "frontend-dev",
           "completed_at": "2026-04-02T21:06:00Z",
+          "verified_at": "2026-04-02T22:04:00Z",
+          "verified_by": "qa-engineer",
+          "verification_notes": "PASS. Variants button renders only when seg.status==='done'. Calls runImageVariants(videoId, scene, index, 3) -> api.ts:522 POST /api/pipeline/images/{id}?variants=3. Backend pipeline.py:584 accepts variants param, calls executor.run_image_variants (pipeline_executor.py:1255). Loading state with Loader2 spinner. Purple styling via var(--purple). Diff clean: 2 files, 36 lines, no bloat. tsc --noEmit: 0 errors.",
           "description": "Added 'Variants' button on each generated image segment in StoryboardVisualsTab. Calls runImageVariants(videoId, scene, index, 3) for 3 alternatives. Only shows when image already generated. Purple styling distinguishes from orange Regen button.",
           "files": [
             "frontend/src/components/production/StoryboardVisualsTab.tsx"
@@ -591,7 +595,9 @@
           "id": "T10-001",
           "title": "Add confidence breakdown tooltip on candidate cards",
           "role": "frontend",
-          "status": "pending",
+          "status": "in_progress",
+          "started_at": "2026-04-02T22:02:00Z",
+          "assigned_to": "frontend-dev",
           "description": "Backend returns confidence_breakdown with vph_score, vph_reasoning, freshness_score, freshness_reasoning, total_score on each CompetitorCandidate. Show this as a tooltip or expandable section on each playing card so users understand WHY a candidate ranks high. Currently only the total confidence number is shown.",
           "files": [
             "frontend/src/app/competitors/page.tsx",
