@@ -265,7 +265,9 @@
           "id": "T6-002",
           "title": "Wire image variant generation UI",
           "role": "frontend",
-          "status": "pending",
+          "status": "in_progress",
+          "started_at": "2026-04-02T21:02:00Z",
+          "assigned_to": "frontend-dev",
           "description": "Backend has POST /api/pipeline/images/{id}?scene=N&index=M&variants=3 for generating image variants. Add a 'Generate Variants' button on each image card in the visuals tab that triggers this endpoint.",
           "files": [
             "frontend/src/components/production/StoryboardVisualsTab.tsx",
@@ -953,7 +955,7 @@
       "id": 16,
       "name": "Profile & Account",
       "path": "/profile",
-      "status": "pending",
+      "status": "complete",
       "tasks": [
         {
           "id": "T16-001",
@@ -979,9 +981,13 @@
           "title": "Build profile page",
           "role": "frontend",
           "status": "done",
+          "verified": true,
           "started_at": "2026-04-02T20:02:00Z",
           "assigned_to": "frontend-dev",
           "completed_at": "2026-04-02T20:06:00Z",
+          "verified_at": "2026-04-02T21:04:00Z",
+          "verified_by": "qa-engineer",
+          "verification_notes": "PASS. api.ts: getProfile (GET /api/profile) and updateProfile (PUT /api/profile) match backend exactly. UserProfile type (id, email, display_name, plan, created_at) matches ProfileRead. UserProfileUpdate (display_name, email) matches ProfileUpdate. Profile page: useQuery for loading, edit form with mutation + invalidation, loading/error/display states all present. ActionButton for save/cancel/edit. No bloat: 2 app files, 148 lines. tsc --noEmit: 0 errors.",
           "description": "Added Account section to profile page with display name, email, plan badge, member since date. Edit form saves via PUT /api/profile. Added getProfile/updateProfile to api.ts with UserProfile/UserProfileUpdate types matching backend ProfileRead/ProfileUpdate models.",
           "files": [
             "frontend/src/app/profile/page.tsx"
@@ -992,7 +998,14 @@
           "id": "T16-003",
           "title": "QA verify profile page displays and edits correctly",
           "role": "qa",
-          "status": "pending",
+          "status": "done",
+          "verified": true,
+          "started_at": "2026-04-02T21:04:00Z",
+          "completed_at": "2026-04-02T21:06:00Z",
+          "assigned_to": "qa-engineer",
+          "verified_at": "2026-04-02T21:06:00Z",
+          "verified_by": "qa-engineer",
+          "verification_notes": "Full wiring audit: (1) Backend profile.py: GET/PUT /api/profile, registered main.py:315. ProfileRead has 5 fields matching frontend UserProfile exactly. (2) Frontend api.ts: getProfile/updateProfile with correct paths and types. (3) Profile page: Account section with loading spinner, display grid (name, email, plan badge, member since), edit form with save/cancel mutations, error fallback. (4) Commit 1dd9dac clean: 2 app files, 148 lines, no new files, no bloat. (5) tsc --noEmit: 0 errors. TAB 16 COMPLETE.",
           "description": "Verify GET /api/profile returns user data, profile page renders it, edit form saves changes via PUT.",
           "depends_on": "T16-002"
         }
