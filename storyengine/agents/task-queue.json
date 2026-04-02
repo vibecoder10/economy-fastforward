@@ -323,9 +323,10 @@
           "id": "T7-002",
           "title": "Display agent thumbnail suggestions with accept/reject",
           "role": "frontend",
-          "status": "in_progress",
+          "status": "done",
           "started_at": "2026-04-02T05:02:00Z",
           "assigned_to": "frontend-dev",
+          "completed_at": "2026-04-02T05:06:00Z",
           "description": "Backend returns suggested_thumbnail_urls (array) and suggested_thumbnail_prompt on VideoDetail. Display these as a suggestion card with Accept/Reject buttons that call POST /api/videos/{id}/accept-suggestion and POST /api/videos/{id}/reject-suggestion.",
           "files": [
             "frontend/src/components/production/ThumbnailTab.tsx",

@@ -1,11 +1,11 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { Check, RefreshCw, Loader2, ChevronDown, ChevronUp } from "lucide-react";
+import { Check, RefreshCw, Loader2, ChevronDown, ChevronUp, Sparkles, X, ImageIcon } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { ActionButton } from "@/components/ui/ActionButton";
 import { useQueryClient } from "@tanstack/react-query";
-import { runPipelineStage, advanceVideo, updateVideoStyles, clearStaleTask } from "@/lib/api";
+import { runPipelineStage, advanceVideo, updateVideoStyles, clearStaleTask, acceptSuggestion, rejectSuggestion } from "@/lib/api";
 import { useTaskPoller } from "@/hooks/use-task-poller";
 import type { VideoDetail } from "@/lib/api";
 
@@ -57,6 +57,38 @@ export function ThumbnailTab({ video }: ThumbnailTabProps) {
   const [thumbnailText, setThumbnailText] = useState(
     vid.video_title || video.title || "",
   );
+  const [isAccepting, setIsAccepting] = useState(false);
+  const [isRejecting, setIsRejecting] = useState(false);
+  const [suggestionDismissed, setSuggestionDismissed] = useState(false);
+
+  const hasSuggestions =
+    !suggestionDismissed &&
+    video.suggested_thumbnail_urls &&
+    video.suggested_thumbnail_urls.length > 0;
+
+  const handleAcceptSuggestion = useCallback(async () => {
+    setIsAccepting(true);
+    try {
+      await acceptSuggestion(video.id, ["thumbnail_prompt"]);
+      queryClient.invalidateQueries({ queryKey: ["video", video.id] });
+    } catch (err) {
+      alert(`Failed to accept suggestion: ${(err as Error).message}`);
+    } finally {
+      setIsAccepting(false);
+    }
+  }, [video.id, queryClient]);
+
+  const handleRejectSuggestion = useCallback(async () => {
+    setIsRejecting(true);
+    try {
+      await rejectSuggestion(video.id);
+      setSuggestionDismissed(true);
+    } catch (err) {
+      alert(`Failed to reject suggestion: ${(err as Error).message}`);
+    } finally {
+      setIsRejecting(false);
+    }
+  }, [video.id]);
 
   const handleRegenerate = useCallback(async () => {
     setIsRegenerating(true);
@@ -284,27 +316,91 @@ export function ThumbnailTab({ video }: ThumbnailTabProps) {
         <div className="space-y-2">
           <ActionButton
             variant="filled"
-            icon={isApproving ? Loader2 : isApproved ? Check : undefined}
-            className="w-full"
-            onClick={handleApprove}
-            disabled={isApproving || isApproved}
-          >
-            {isApproving
-              ? "Approving..."
-              : isApproved
-                ? "Approved"
-                : "Approve Thumbnail"}
-          </ActionButton>
-          <ActionButton
-            variant="outline"
-            icon={(isRegenerating || taskRunning) ? Loader2 : RefreshCw}
+            icon={(isRegenerating || taskRunning) ? Loader2 : thumbnailUrl ? RefreshCw : ImageIcon}
             className="w-full"
             onClick={handleRegenerate}
             disabled={isRegenerating || taskRunning}
           >
-            {taskRunning ? (taskMessage || "Regenerating...") : isRegenerating ? "Starting..." : "Regenerate"}
+            {taskRunning
+              ? (taskMessage || "Generating...")
+              : isRegenerating
+                ? "Starting..."
+                : thumbnailUrl
+                  ? "Regenerate"
+                  : "Generate Thumbnail"}
           </ActionButton>
+          {thumbnailUrl && (
+            <ActionButton
+              variant="outline"
+              icon={isApproving ? Loader2 : isApproved ? Check : undefined}
+              className="w-full"
+              onClick={handleApprove}
+              disabled={isApproving || isApproved}
+            >
+              {isApproving
+                ? "Approving..."
+                : isApproved
+                  ? "Approved"
+                  : "Approve & Advance"}
+            </ActionButton>
+          )}
         </div>
+
+        {/* Agent Suggestions */}
+        {hasSuggestions && (
+          <GlassCard className="p-4" style={{ borderLeftWidth: 3, borderLeftColor: "var(--purple)" }}>
+            <div className="flex items-center gap-2 mb-3">
+              <Sparkles size={14} style={{ color: "var(--purple)" }} />
+              <h3
+                className="text-xs font-semibold uppercase tracking-wider"
+                style={{ color: "var(--purple)" }}
+              >
+                Agent Suggestions
+              </h3>
+            </div>
+            {video.suggested_thumbnail_prompt && (
+              <p className="text-xs mb-3" style={{ color: "var(--text-secondary)" }}>
+                {video.suggested_thumbnail_prompt}
+              </p>
+            )}
+            <div className="space-y-2 mb-3">
+              {video.suggested_thumbnail_urls!.map((thumb, i) => (
+                <div key={i} className="rounded-lg overflow-hidden" style={{ border: "1px solid var(--border-subtle)" }}>
+                  <img
+                    src={thumb.url}
+                    alt={`Suggestion ${i + 1}`}
+                    className="w-full aspect-video object-cover"
+                  />
+                  {thumb.approach && (
+                    <p className="px-2 py-1 text-[10px] font-mono" style={{ color: "var(--text-tertiary)", background: "var(--bg-deep)" }}>
+                      {thumb.approach}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+            <div className="flex gap-2">
+              <ActionButton
+                variant="filled"
+                icon={isAccepting ? Loader2 : Check}
+                className="flex-1"
+                onClick={handleAcceptSuggestion}
+                disabled={isAccepting || isRejecting}
+              >
+                {isAccepting ? "Accepting..." : "Accept"}
+              </ActionButton>
+              <ActionButton
+                variant="warning"
+                icon={isRejecting ? Loader2 : X}
+                className="flex-1"
+                onClick={handleRejectSuggestion}
+                disabled={isAccepting || isRejecting}
+              >
+                {isRejecting ? "..." : "Reject"}
+              </ActionButton>
+            </div>
+          </GlassCard>
+        )}
       </div>
     </div>
   );
