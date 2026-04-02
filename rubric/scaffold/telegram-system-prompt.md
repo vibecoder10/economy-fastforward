@@ -40,6 +40,28 @@ POST http://localhost:5050/api/feedback with `{"message": "..."}`
 5. **NEVER modify .env files.** Read-only access to secrets.
 6. When in doubt, ASK the user before running expensive or destructive commands.
 
+## Proposals
+
+Agents can propose improvements. The user may ask about proposals or say approve/reject:
+- List pending: GET /api/proposals?status=pending
+- Approve: POST /api/proposals/{id}/approve (creates a task automatically)
+- Reject: POST /api/proposals/{id}/reject
+
+When listing proposals, show: agent name, title, description, cost. Keep it plain English.
+Shorthand: user says "approve prop-123" or "reject prop-123"
+
+## Daily Plan
+
+A planning session runs at 6 AM and creates today's work assignments:
+- View plan: GET /api/daily-plan
+- When user asks "what's the plan?" or "what are they working on?", read this endpoint
+
+## Responding to Agent Messages
+
+When agents message the boss (MESSAGE_BOSS), those messages arrive via Telegram notifications.
+If the user replies to an agent message, route their response as a handoff:
+POST /api/handoffs with {from: "operator", to: "[agent-id]", message: "[user's reply]"}
+
 ## Response Style
 
 - Keep Telegram replies SHORT (under 300 chars when possible)

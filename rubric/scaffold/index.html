@@ -514,6 +514,12 @@
         <div id="retro-content"></div>
       </div>
 
+      <!-- Agent Proposals -->
+      <div id="proposals-section" style="margin-bottom:24px;padding:16px;background:#0a0a0a;border:1px solid #1a1a1a;border-radius:12px;display:none;">
+        <h3 style="font-size:14px;font-weight:600;margin-bottom:12px;color:#888;">Agent Proposals</h3>
+        <div id="proposals-list" style="display:flex;flex-direction:column;gap:8px;"></div>
+      </div>
+
       <!-- Activity Feed -->
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
         <h2 style="font-size:20px;font-weight:700;letter-spacing:-0.3px;">Activity Feed</h2>
@@ -793,6 +799,8 @@ window.__onTabShow = {};
     setInterval(loadFeedback, 30000);
     loadRetro();
     setInterval(loadRetro, 120000);
+    loadProposals();
+    setInterval(loadProposals, 30000);
 
     let tabs = ['welcome', 'icons'];
     try {
@@ -976,6 +984,50 @@ window.__onTabShow = {};
               (readCount ? ' \u00b7 Read by ' + readCount + ' agent' + (readCount > 1 ? 's' : '') : ' \u00b7 Unread') + '</div>' +
           '</div>' +
           '<button onclick="dismissFeedback(\'' + fb.id + '\')" style="background:none;border:none;color:#555;cursor:pointer;font-size:16px;padding:4px 8px;" title="Dismiss">\u00d7</button>' +
+        '</div>';
+      }).join('');
+    } catch {}
+  }
+
+  // Agent Proposals
+  window.approveProposal = async function(id) {
+    await fetch('/api/proposals/' + id + '/approve', { method: 'POST' });
+    loadProposals();
+  };
+  window.rejectProposal = async function(id) {
+    await fetch('/api/proposals/' + id + '/reject', { method: 'POST' });
+    loadProposals();
+  };
+  async function loadProposals() {
+    const section = document.getElementById('proposals-section');
+    const list = document.getElementById('proposals-list');
+    if (!section || !list) return;
+    try {
+      const resp = await fetch('/api/proposals?status=pending');
+      if (!resp.ok) return;
+      const proposals = await resp.json();
+      if (!proposals.length) { section.style.display = 'none'; return; }
+      section.style.display = 'block';
+      const agentColors = { orchestrator:'#D4A844', 'backend-dev':'#1A8A7A', 'frontend-dev':'#58abf5', 'qa-engineer':'#e35050', 'pipeline-tester':'#888' };
+      const typeColors = { refactor:'#58abf5', optimization:'#50e3c2', bug_fix:'#e35050', new_feature:'#D4A844', process_improvement:'#888' };
+      list.innerHTML = proposals.map(p => {
+        const ago = Math.floor((Date.now() - p.created_at) / 60000);
+        const timeStr = ago < 1 ? 'Just now' : ago < 60 ? ago + 'm ago' : Math.floor(ago / 60) + 'h ago';
+        const agentColor = agentColors[p.agent] || '#888';
+        const typeColor = typeColors[p.type] || '#555';
+        return '<div style="padding:12px;background:#111;border:1px solid #1a1a1a;border-radius:8px;">' +
+          '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">' +
+            '<span style="font-size:11px;color:' + agentColor + ';font-weight:600;">' + esc(p.agent) + '</span>' +
+            '<span style="font-size:10px;color:' + typeColor + ';background:' + typeColor + '15;padding:2px 6px;border-radius:4px;">' + esc(p.type) + '</span>' +
+            '<span style="font-size:10px;color:#555;margin-left:auto;">' + timeStr + '</span>' +
+          '</div>' +
+          '<div style="font-size:13px;color:#ccc;font-weight:600;margin-bottom:4px;">' + esc(p.title) + '</div>' +
+          '<div style="font-size:12px;color:#888;margin-bottom:8px;">' + esc(p.description) + '</div>' +
+          '<div style="display:flex;gap:8px;align-items:center;">' +
+            '<button onclick="approveProposal(\'' + p.id + '\')" style="background:#1A8A7A;border:none;color:white;padding:6px 14px;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;font-family:Outfit,sans-serif;">Approve</button>' +
+            '<button onclick="rejectProposal(\'' + p.id + '\')" style="background:none;border:1px solid #333;color:#888;padding:6px 14px;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;font-family:Outfit,sans-serif;">Reject</button>' +
+            '<span style="font-size:10px;color:#555;margin-left:auto;">Cost: ' + esc(p.cost) + '</span>' +
+          '</div>' +
         '</div>';
       }).join('');
     } catch {}

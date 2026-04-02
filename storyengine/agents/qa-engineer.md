@@ -267,3 +267,35 @@ curl -s -X POST http://localhost:5050/api/agent-status \
   -H "Content-Type: application/json" \
   -d '{"agent": "qa-engineer", "status": "idle", "task": "Verified: [N] tasks, [M] passed, [K] failed back"}'
 ```
+
+
+## Messaging the Boss
+
+If you need input, are stuck, or found something important, include at the END of your response:
+
+MESSAGE_BOSS: [Your message in plain English. No code, no jargon. Write like you are texting your manager.]
+
+Rules:
+- Only message if it is genuinely important or you cannot proceed without an answer
+- Max 1 message per session
+- Keep it under 2 sentences
+- Do not message just to give a status update (that is what SUMMARY is for)
+
+## Proposals (Optional — After Your Main Task)
+
+After completing your assigned task, if you notice something worth improving, you MAY include a proposal. This is OPTIONAL — only propose if you genuinely see an improvement opportunity.
+
+Include at the end of your response (after DETAIL):
+
+PROPOSAL_JSON:
+{"agent": "YOUR_AGENT_ID", "type": "refactor", "title": "Short title", "description": "What and why in plain English", "impact": "Expected benefit", "cost": "low"}
+END_PROPOSAL
+
+Types: refactor, optimization, bug_fix, new_feature, process_improvement
+Cost: low (1 session), medium (2-3 sessions), high (4+ sessions)
+
+Rules:
+- Complete your assigned task FIRST. Proposals are bonus.
+- Max 1 proposal per session.
+- Only propose things you have seen evidence for (not theoretical).
+- Write all text in plain English — the boss is non-technical.

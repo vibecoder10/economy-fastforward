@@ -535,6 +535,8 @@ const server = http.createServer(async (req, res) => {
         `${sched.qa} cd ${agentsDir} && bash run-agent.sh qa-engineer >> ${logDir}/qa-engineer.log 2>&1 # storyengine-agents`,
         `${sched.micro} cd ${agentsDir} && ORCHESTRATOR_MODE=micro bash run-agent.sh orchestrator >> ${logDir}/orchestrator-micro.log 2>&1 # storyengine-agents`,
         `${sched.tester} cd ${agentsDir} && bash run-agent.sh pipeline-tester >> ${logDir}/pipeline-tester.log 2>&1 # storyengine-agents`,
+        `0 6 * * * cd ${agentsDir} && bash planning-session.sh >> ${logDir}/planning-session.log 2>&1 # storyengine-agents`,
+        `0 7 * * * cd ${agentsDir} && bash morning-briefing.sh >> ${logDir}/morning-briefing.log 2>&1 # storyengine-agents`,
         `0 23 * * * cd ${agentsDir} && bash daily-report.sh >> ${logDir}/daily-report.log 2>&1 # storyengine-agents`,
         `5 23 * * * cd ${agentsDir} && bash calculate-skills.sh >> ${logDir}/calculate-skills.log 2>&1 # storyengine-agents`,
         `10 23 * * * cd ${agentsDir} && bash retro.sh >> ${logDir}/retro.log 2>&1 # storyengine-agents`,
@@ -804,6 +806,85 @@ const server = http.createServer(async (req, res) => {
     let queue = [];
     try { queue = JSON.parse(fs.readFileSync(queueFile, 'utf8')); } catch {}
     sendJSON(res, queue);
+    return;
+  }
+
+  // ===== PROPOSALS ROUTES =====
+
+  // POST /api/proposals — create a proposal from an agent
+  if (pathname === '/api/proposals' && req.method === 'POST') {
+    const body = JSON.parse(await readBody(req));
+    const proposalsFile = path.join(DATA_DIR, 'proposals.json');
+    let proposals = [];
+    try { proposals = JSON.parse(fs.readFileSync(proposalsFile, 'utf8')); } catch {}
+    const proposal = {
+      id: 'prop-' + Date.now(),
+      agent: body.agent || 'unknown',
+      type: body.type || 'improvement',
+      title: body.title || '',
+      description: body.description || '',
+      impact: body.impact || '',
+      cost: body.cost || 'low',
+      status: 'pending',
+      created_at: Date.now(),
+      resolved_at: null,
+      resolved_by: null,
+    };
+    proposals.unshift(proposal);
+    if (proposals.length > 50) proposals = proposals.slice(0, 50);
+    fs.writeFileSync(proposalsFile, JSON.stringify(proposals, null, 2));
+    sendJSON(res, { success: true, id: proposal.id });
+    return;
+  }
+
+  // GET /api/proposals — list proposals
+  if (pathname === '/api/proposals' && req.method === 'GET') {
+    const proposalsFile = path.join(DATA_DIR, 'proposals.json');
+    let proposals = [];
+    try { proposals = JSON.parse(fs.readFileSync(proposalsFile, 'utf8')); } catch {}
+    const statusFilter = url.searchParams?.get('status') || new URL('http://x' + req.url).searchParams.get('status');
+    if (statusFilter) proposals = proposals.filter(p => p.status === statusFilter);
+    sendJSON(res, proposals);
+    return;
+  }
+
+  // POST /api/proposals/:id/approve — approve a proposal
+  if (pathname.startsWith('/api/proposals/') && pathname.endsWith('/approve') && req.method === 'POST') {
+    const id = pathname.replace('/api/proposals/', '').replace('/approve', '');
+    const proposalsFile = path.join(DATA_DIR, 'proposals.json');
+    let proposals = [];
+    try { proposals = JSON.parse(fs.readFileSync(proposalsFile, 'utf8')); } catch {}
+    const entry = proposals.find(p => p.id === id);
+    if (!entry) { sendJSON(res, { error: 'Not found' }, 404); return; }
+    entry.status = 'approved';
+    entry.resolved_at = Date.now();
+    entry.resolved_by = 'operator';
+    fs.writeFileSync(proposalsFile, JSON.stringify(proposals, null, 2));
+    sendJSON(res, { success: true, title: entry.title });
+    return;
+  }
+
+  // POST /api/proposals/:id/reject — reject a proposal
+  if (pathname.startsWith('/api/proposals/') && pathname.endsWith('/reject') && req.method === 'POST') {
+    const id = pathname.replace('/api/proposals/', '').replace('/reject', '');
+    const proposalsFile = path.join(DATA_DIR, 'proposals.json');
+    let proposals = [];
+    try { proposals = JSON.parse(fs.readFileSync(proposalsFile, 'utf8')); } catch {}
+    const entry = proposals.find(p => p.id === id);
+    if (!entry) { sendJSON(res, { error: 'Not found' }, 404); return; }
+    entry.status = 'rejected';
+    entry.resolved_at = Date.now();
+    entry.resolved_by = 'operator';
+    fs.writeFileSync(proposalsFile, JSON.stringify(proposals, null, 2));
+    sendJSON(res, { success: true });
+    return;
+  }
+
+  // GET /api/daily-plan — read today's plan
+  if (pathname === '/api/daily-plan' && req.method === 'GET') {
+    const planFile = path.join(DATA_DIR, 'daily-plan.json');
+    try { sendJSON(res, JSON.parse(fs.readFileSync(planFile, 'utf8'))); }
+    catch { sendJSON(res, { summary: 'No plan yet' }); }
     return;
   }
 

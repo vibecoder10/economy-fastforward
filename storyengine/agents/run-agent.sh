@@ -29,6 +29,9 @@ fi
 
 mkdir -p "$REPORTS_DIR"
 
+# ─── Telegram Helper ────────────────────────────────────────────────────────
+source "$AGENTS_DIR/notify-telegram.sh" 2>/dev/null || true
+
 # ─── Slack Helper ────────────────────────────────────────────────────────────
 # Uses Slack Bot Token API (existing pipeline bot) or webhook
 notify_slack() {
@@ -322,6 +325,7 @@ if [ $CLAUDE_EXIT -ne 0 ]; then
     -H "Content-Type: application/json" \
     -d "{\"agent\": \"$AGENT\", \"status\": \"idle\", \"task\": \"$ERROR_MSG\"}" 2>/dev/null || true
   notify_slack ":x: *$AGENT_DISPLAY* crashed: $ERROR_MSG"
+  notify_telegram "❌ *${AGENT_DISPLAY}* crashed: ${ERROR_MSG}"
   exit 1
 fi
 
@@ -367,6 +371,33 @@ fi
 
 # ─── Slack Notification ─────────────────────────────────────────────────────
 notify_slack ":white_check_mark: *$AGENT_DISPLAY* completed $TASK_LINE: $SUMMARY_LINE"
+
+# ─── Telegram: Task Completed ──────────────────────────────────────────────
+notify_telegram "✅ *${AGENT_DISPLAY}* finished: ${SUMMARY_LINE}"
+
+# ─── Telegram: Boss Message (if agent included one) ───────────────────────
+BOSS_MSG=$(echo "$OUTPUT" | grep "^MESSAGE_BOSS:" | head -1 | sed 's/^MESSAGE_BOSS: *//' || echo "")
+if [ -n "$BOSS_MSG" ]; then
+  BOSS_MSG_ESC=$(echo "$BOSS_MSG" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().strip()))' 2>/dev/null || echo "\"$BOSS_MSG\"")
+  notify_telegram "📩 *${AGENT_DISPLAY}* says:
+${BOSS_MSG}
+
+_Reply to respond — they'll see it next cycle_"
+fi
+
+# ─── Telegram: Proposal (if agent included one) ───────────────────────────
+PROPOSAL_JSON=$(echo "$OUTPUT" | sed -n '/^PROPOSAL_JSON:/,/^END_PROPOSAL$/p' | grep -v '^PROPOSAL_JSON:\|^END_PROPOSAL$' | tr -d '\n' || echo "")
+if [ -n "$PROPOSAL_JSON" ]; then
+  PROP_RESP=$(curl -s -X POST "$RUBRIC_URL/api/proposals" \
+    -H "Content-Type: application/json" \
+    -d "$PROPOSAL_JSON" 2>/dev/null || echo "")
+  PROP_TITLE=$(echo "$PROPOSAL_JSON" | python3 -c "import json,sys; print(json.loads(sys.stdin.read()).get('title','New idea'))" 2>/dev/null || echo "New idea")
+  PROP_ID=$(echo "$PROP_RESP" | python3 -c "import json,sys; print(json.loads(sys.stdin.read()).get('id',''))" 2>/dev/null || echo "")
+  notify_telegram "💡 *${AGENT_DISPLAY}* proposes:
+${PROP_TITLE}
+
+_Reply /approve ${PROP_ID} or /reject ${PROP_ID}_"
+fi
 
 # ─── Report Idle ────────────────────────────────────────────────────────────
 curl -s -X POST "$RUBRIC_URL/api/agent-status" \
