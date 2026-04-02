@@ -733,7 +733,8 @@ server.on('error', (e) => {
   throw e;
 });
 
-server.listen(PORT, '127.0.0.1', () => {
+const HOST = process.env.HOST || '0.0.0.0';
+server.listen(PORT, HOST, () => {
   console.log(`\n  Rubric Console`);
   console.log(`  http://localhost:${PORT}`);
   console.log(`  Templates active: ${INSTALLED_TABS.join(', ')}\n`);
