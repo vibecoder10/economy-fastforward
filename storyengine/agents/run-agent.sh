@@ -119,6 +119,22 @@ if [ -n "$BLUEPRINT_FILE" ] && [ -f "$BLUEPRINT_FILE" ]; then
   BLUEPRINT=$(cat "$BLUEPRINT_FILE")
 fi
 
+# Model selection — Opus for code writers, Sonnet for reviewers/testers
+MODEL_FLAG=""
+case "$AGENT" in
+  backend-dev)      MODEL_FLAG="--model opus" ;;
+  frontend-dev)     MODEL_FLAG="--model opus" ;;
+  qa-engineer)      MODEL_FLAG="--model sonnet" ;;
+  pipeline-tester)  MODEL_FLAG="--model sonnet" ;;
+  orchestrator)
+    if [ "$ORCHESTRATOR_MODE" = "grand" ]; then
+      MODEL_FLAG="--model opus"
+    else
+      MODEL_FLAG="--model sonnet"
+    fi
+    ;;
+esac
+
 # Product vision (shared by ALL agents)
 PRODUCT_VISION=""
 VISION_FILE="$AGENTS_DIR/blueprints/product-vision.md"
@@ -257,7 +273,7 @@ Begin work now. Pick your next task and execute it."
 
 # ─── Invoke Claude ──────────────────────────────────────────────────────────
 set +e
-OUTPUT=$($CLAUDE_BIN -p "$PROMPT" --dangerously-skip-permissions 2>&1)
+OUTPUT=$($CLAUDE_BIN -p "$PROMPT" $MODEL_FLAG --dangerously-skip-permissions 2>&1)
 CLAUDE_EXIT=$?
 set -e
 
@@ -336,6 +352,6 @@ If NO follow-ups needed: just say "No follow-ups needed" and exit.
 
 CRITICAL: Do NOT invent new features. Only create tasks directly caused by the completed work. Max 2 tasks.
 TASKEOF
-)" --dangerously-skip-permissions 2>&1 || true)
+)" --model sonnet --dangerously-skip-permissions 2>&1 || true)
   echo "Task gen result: $(echo "$TASK_GEN" | tail -3)"
 fi
