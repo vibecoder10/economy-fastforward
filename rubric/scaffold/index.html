@@ -422,6 +422,15 @@
       <div id="pr-section" style="margin-bottom:16px;display:none;">
       </div>
 
+      <!-- Screenshot Gallery -->
+      <div id="screenshot-gallery" style="margin-bottom:16px;padding:16px;background:#0a0a0a;border:1px solid #1a1a1a;border-radius:12px;display:none;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+          <h3 style="font-size:14px;font-weight:600;color:#888;">QA Screenshots</h3>
+          <span id="screenshot-count" style="font-size:11px;color:#555;"></span>
+        </div>
+        <div id="screenshot-strip" style="display:flex;gap:10px;overflow-x:auto;padding-bottom:8px;-webkit-overflow-scrolling:touch;scroll-snap-type:x mandatory;"></div>
+      </div>
+
       <!-- Focus Directive -->
       <div style="margin-bottom:16px;padding:16px;background:#0a0a0a;border:1px solid #1a1a1a;border-radius:12px;">
         <h3 style="font-size:14px;font-weight:600;margin-bottom:8px;color:#888;">Focus Directive</h3>
@@ -714,6 +723,8 @@ window.__onTabShow = {};
 
     loadPullRequests();
     setInterval(loadPullRequests, 60000);
+    loadScreenshots();
+    setInterval(loadScreenshots, 30000);
     loadTaskProgress();
     setInterval(loadTaskProgress, 30000);
     loadControls();
@@ -929,6 +940,37 @@ window.__onTabShow = {};
         '</div>';
       }).join('');
     } catch { section.style.display = 'none'; }
+  }
+
+  // Screenshot gallery
+  async function loadScreenshots() {
+    const gallery = document.getElementById('screenshot-gallery');
+    const strip = document.getElementById('screenshot-strip');
+    const count = document.getElementById('screenshot-count');
+    if (!gallery || !strip) return;
+    try {
+      const resp = await fetch('/api/screenshots');
+      if (!resp.ok) return;
+      const files = await resp.json();
+      if (!files.length) { gallery.style.display = 'none'; return; }
+      gallery.style.display = 'block';
+      count.textContent = files.length + ' screenshots';
+      strip.innerHTML = files.map(f => {
+        const taskMatch = f.name.match(/^(T[\d]+-[\d]+)/);
+        const task = taskMatch ? taskMatch[1] : '';
+        const type = f.name.includes('-before') ? 'BEFORE' : f.name.includes('-after') ? 'AFTER' : '';
+        const ago = Math.floor((Date.now() - f.modified) / 60000);
+        const timeStr = ago < 60 ? ago + 'm ago' : ago < 1440 ? Math.floor(ago/60) + 'h ago' : Math.floor(ago/1440) + 'd ago';
+        return '<div style="flex-shrink:0;scroll-snap-align:start;cursor:pointer;position:relative;" onclick="window.open(\'' + esc(f.url) + '\')">' +
+          '<img src="' + esc(f.url) + '" style="width:200px;height:125px;object-fit:cover;border-radius:8px;border:1px solid #222;" />' +
+          '<div style="position:absolute;bottom:4px;left:4px;right:4px;display:flex;justify-content:space-between;align-items:center;">' +
+            (task ? '<span style="background:rgba(0,0,0,0.7);color:#ccc;font-size:9px;padding:2px 6px;border-radius:4px;font-weight:600;">' + task + '</span>' : '') +
+            (type ? '<span style="background:' + (type === 'AFTER' ? 'rgba(80,227,194,0.8)' : 'rgba(212,168,68,0.8)') + ';color:#000;font-size:8px;padding:2px 5px;border-radius:3px;font-weight:700;">' + type + '</span>' : '') +
+          '</div>' +
+          '<div style="font-size:9px;color:#555;text-align:center;margin-top:3px;">' + timeStr + '</div>' +
+        '</div>';
+      }).join('');
+    } catch { gallery.style.display = 'none'; }
   }
 
   async function loadActivityFeed() {
