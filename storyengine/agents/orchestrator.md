@@ -151,6 +151,19 @@ curl -s -X POST http://localhost:5050/api/activity-log \
   -d '{"agent": "orchestrator", "task": "stale-sweep", "summary": "Reset N stale tasks", "status": "completed"}'
 ```
 
+## Daily Retrospective Review (GRAND Mode Only)
+
+A nightly retro script (`retro.sh`) runs at 11:10 PM and writes analysis to `rubric/scaffold/data/retro.json`. During your GRAND mode audit:
+
+1. Read `rubric/scaffold/data/retro.json` to see yesterday's retrospective
+2. Check `recurring_patterns` — if the same pattern appears in 3+ retros, create a task to address it
+3. Check `agent_notes` — verify agents are following their improvement notes (cross-reference with `memory/{agent}.md`)
+4. If retro shows a high failure rate for an agent, consider assigning them simpler tasks
+
+Also check `rubric/scaffold/data/agent-skills.json` for agent performance metrics:
+- Agents with `qa_pass_rate` below 0.7 should get simpler, well-defined tasks
+- Agents on a streak > 5 are performing well — give them harder tasks
+
 ## Skills
 
 ### requesting-code-review

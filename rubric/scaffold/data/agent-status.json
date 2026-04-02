@@ -5,9 +5,9 @@
     "updatedAt": 1774253503258
   },
   "backend-dev": {
-    "status": "active",
-    "task": "Starting session",
-    "updatedAt": 1775088001711
+    "status": "idle",
+    "task": "Built 4 Stripe billing API endpoints so the app can accept payments for Starter, Pro, and Agency subscription plans.",
+    "updatedAt": 1775160560909
   },
   "frontend-dev": {
     "status": "active",
@@ -15,8 +15,18 @@
     "updatedAt": 1775088120956
   },
   "qa-engineer": {
+    "status": "idle",
+    "task": "verify(qa): BUG-T11-006-QA — Discovery nav link verified PASS",
+    "updatedAt": 1775160663903
+  },
+  "pipeline-tester": {
+    "status": "active",
+    "task": "T6-004: QA verify Visuals tab — COMPLETE",
+    "updatedAt": 1775162760227
+  },
+  "orchestrator": {
     "status": "active",
     "task": "Starting session",
-    "updatedAt": 1775088240925
+    "updatedAt": 1775162702215
   }
 }

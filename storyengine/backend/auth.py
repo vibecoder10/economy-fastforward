@@ -18,9 +18,12 @@ class AuthUser(BaseModel):
 
 
 def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)) -> AuthUser:
-    """Verify Supabase JWT and extract user info.
+    """Verify JWT and extract user info.
 
-    For now, also supports a simple API key mode for development.
+    Supports three token types (tried in order):
+    1. Dev token ("dev-token") for local development
+    2. StoryEngine session JWT (iss=storyengine, signed with SESSION_SECRET)
+    3. Supabase JWT (signed with SUPABASE_JWT_SECRET)
     """
     token = credentials.credentials
 
@@ -28,9 +31,29 @@ def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)) 
     if token == "dev-token" and os.getenv("ENV", "development") == "development":
         return AuthUser(id="dev-user", email="dev@local", tenant_id=os.getenv("DEV_TENANT_ID"))
 
+    # Try StoryEngine session JWT first (from Google OAuth login)
+    session_secret = os.getenv("SESSION_SECRET")
+    if session_secret:
+        try:
+            payload = jwt.decode(token, session_secret, algorithms=["HS256"])
+            if payload.get("iss") == "storyengine":
+                user_id = payload.get("sub")
+                if not user_id:
+                    raise HTTPException(status_code=401, detail="Invalid token: no sub claim")
+                return AuthUser(
+                    id=user_id,
+                    email=payload.get("email"),
+                    tenant_id=payload.get("tenant_id"),
+                )
+        except jwt.ExpiredSignatureError:
+            raise HTTPException(status_code=401, detail="Token expired")
+        except jwt.InvalidTokenError:
+            pass  # Not a session JWT, try Supabase next
+
+    # Fall back to Supabase JWT
     jwt_secret = os.getenv("SUPABASE_JWT_SECRET")
     if not jwt_secret:
-        raise HTTPException(status_code=500, detail="JWT secret not configured")
+        raise HTTPException(status_code=401, detail="Invalid token")
 
     try:
         payload = jwt.decode(

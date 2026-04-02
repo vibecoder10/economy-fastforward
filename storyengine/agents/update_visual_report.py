@@ -1,14 +1,30 @@
 #!/usr/bin/env python3
-"""Upload QA screenshots to Google Drive and append to the Visual Report Google Doc."""
-import json, os, sys
+"""Upload ALL new screenshots to Google Drive and append to the Visual Report Google Doc.
 
-TASK_ID = sys.argv[1] if len(sys.argv) > 1 else "unknown"
-SUMMARY = sys.argv[2] if len(sys.argv) > 2 else "QA verification"
+Usage:
+  python3 update_visual_report.py                          # Upload all new screenshots
+  python3 update_visual_report.py T9-003 "Task summary"    # Upload specific task screenshots
+"""
+import glob, json, os, sys
+from datetime import datetime
+
 DOC_ID = "1IxCl--zuK4PeCgrW5RCGZJflIYxTY7XT7lEaAjTeaGE"
-SCREENSHOTS_DIR = os.path.join(os.path.dirname(__file__), "screenshots")
+SCREENSHOTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "screenshots")
 DRIVE_FOLDER_ID = "1zqsSvdyLWTRIt-Ri8VQELbYHhJihn6YD"
+UPLOADED_FILE = os.path.join(SCREENSHOTS_DIR, ".uploaded.json")
 
-# Load credentials from production .env
+TASK_ID = sys.argv[1] if len(sys.argv) > 1 else None
+SUMMARY = sys.argv[2] if len(sys.argv) > 2 else ""
+
+# Track what's already been uploaded
+uploaded = set()
+if os.path.exists(UPLOADED_FILE):
+    try:
+        uploaded = set(json.load(open(UPLOADED_FILE)))
+    except:
+        pass
+
+# Load credentials
 env = {}
 env_path = "/home/clawd/projects/economy-fastforward/.env"
 if os.path.exists(env_path):
@@ -23,7 +39,7 @@ try:
     from googleapiclient.discovery import build
     from googleapiclient.http import MediaFileUpload
 except ImportError:
-    print("Google API libraries not available — skipping visual report update")
+    print("Google API libraries not available — skipping")
     sys.exit(0)
 
 try:
@@ -34,74 +50,95 @@ try:
         client_secret=env.get("GOOGLE_CLIENT_SECRET"),
         token_uri="https://oauth2.googleapis.com/token",
     )
-
     drive = build("drive", "v3", credentials=creds)
     docs = build("docs", "v1", credentials=creds)
 
-    # Upload screenshots to Drive
-    image_urls = []
-    for suffix in ["before", "after"]:
-        filepath = os.path.join(SCREENSHOTS_DIR, f"{TASK_ID}-{suffix}.png")
-        if os.path.exists(filepath):
-            media = MediaFileUpload(filepath, mimetype="image/png")
-            file = drive.files().create(
-                body={"name": f"{TASK_ID}-{suffix}.png", "parents": [DRIVE_FOLDER_ID]},
-                media_body=media,
-                fields="id",
-            ).execute()
-            drive.permissions().create(
-                fileId=file["id"],
-                body={"type": "anyone", "role": "reader"},
-            ).execute()
-            image_urls.append((suffix, f"https://drive.google.com/uc?id={file['id']}"))
-            print(f"  Uploaded {suffix}: {filepath}")
+    # Find screenshots to upload
+    if TASK_ID:
+        # Specific task — look for TASKID*.png
+        patterns = [
+            os.path.join(SCREENSHOTS_DIR, f"{TASK_ID}*.png"),
+            os.path.join(SCREENSHOTS_DIR, f"{TASK_ID}*.jpg"),
+        ]
+    else:
+        # All new screenshots
+        patterns = [
+            os.path.join(SCREENSHOTS_DIR, "*.png"),
+            os.path.join(SCREENSHOTS_DIR, "*.jpg"),
+        ]
 
-    if not image_urls:
-        print(f"No screenshots found for {TASK_ID}")
+    files_to_upload = []
+    for pattern in patterns:
+        for filepath in sorted(glob.glob(pattern)):
+            filename = os.path.basename(filepath)
+            if filename.startswith("."):
+                continue
+            if filename in uploaded:
+                continue
+            files_to_upload.append(filepath)
+
+    if not files_to_upload:
+        print("No new screenshots to upload")
         sys.exit(0)
 
-    # Append to Google Doc (prepend at top so newest is first)
-    from datetime import datetime
+    # Upload each to Drive
+    image_entries = []
+    for filepath in files_to_upload:
+        filename = os.path.basename(filepath)
+        print(f"  Uploading: {filename}")
+        media = MediaFileUpload(filepath, mimetype="image/png")
+        f = drive.files().create(
+            body={"name": filename, "parents": [DRIVE_FOLDER_ID]},
+            media_body=media,
+            fields="id",
+        ).execute()
+        drive.permissions().create(
+            fileId=f["id"], body={"type": "anyone", "role": "reader"}
+        ).execute()
+        url = f"https://drive.google.com/uc?id={f['id']}"
+        image_entries.append((filename, url))
+        uploaded.add(filename)
+
+    # Write to Google Doc (newest at top)
     timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+    sep = "=" * 60
 
     requests = []
-    # Insert in reverse order (last item inserted first = appears first)
     requests.append({
-        "insertText": {
-            "location": {"index": 1},
-            "text": f"\n{'='*60}\n\n",
-        }
+        "insertText": {"location": {"index": 1}, "text": f"\n{sep}\n\n"}
     })
 
-    for suffix, url in reversed(image_urls):
+    for filename, url in reversed(image_entries):
+        # Add label for each screenshot
+        label = filename.replace(".png", "").replace(".jpg", "").replace("-", " ").replace("_", " ").title()
         requests.append({
             "insertInlineImage": {
                 "location": {"index": 1},
                 "uri": url,
-                "objectSize": {
-                    "width": {"magnitude": 468, "unit": "PT"},
-                },
+                "objectSize": {"width": {"magnitude": 468, "unit": "PT"}},
             }
         })
         requests.append({
-            "insertText": {
-                "location": {"index": 1},
-                "text": f"\n{suffix.upper()}:\n",
-            }
+            "insertText": {"location": {"index": 1}, "text": f"\n{label}:\n"}
         })
 
+    header = SUMMARY if SUMMARY else f"{len(image_entries)} screenshots"
+    title = TASK_ID if TASK_ID else "Agent Update"
     requests.append({
         "insertText": {
             "location": {"index": 1},
-            "text": f"\n🔍 {TASK_ID} — {SUMMARY}\n📅 {timestamp}\n",
+            "text": f"\n{'🔍' if TASK_ID else '📸'} {title} — {header}\n{'📅'} {timestamp}\n",
         }
     })
 
     docs.documents().batchUpdate(
         documentId=DOC_ID, body={"requests": requests}
     ).execute()
-    print(f"Visual report updated: {len(image_urls)} screenshots for {TASK_ID}")
+    print(f"Google Doc updated: {len(image_entries)} screenshots")
+
+    # Save uploaded list
+    json.dump(list(uploaded), open(UPLOADED_FILE, "w"))
 
 except Exception as e:
     print(f"Visual report update failed (non-blocking): {e}")
-    sys.exit(0)  # Never fail the QA run because of this
+    sys.exit(0)

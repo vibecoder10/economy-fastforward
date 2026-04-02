@@ -5,3 +5,4 @@
 - T7-003: Pipeline executor bot methods must save result URLs to DB. run_thumbnail was missing thumbnail_url write — compare with run_render pattern.
 - T7-004: When adding fields to VideoDetail, ALL THREE places must be updated: Pydantic model (models.py), SQL SELECT, and r.get() constructor mapping. Missing any one = field silently returns null.
 - T15-001: New route files need 2 touches in main.py: import line AND app.include_router(). Existing routers (adding endpoints) need 0 touches.
+- BUG-PT-001: Dev-mode routes that look up by hardcoded UUID will 404 if the seed migration didn't run. Auto-create on first access with ON CONFLICT DO NOTHING.

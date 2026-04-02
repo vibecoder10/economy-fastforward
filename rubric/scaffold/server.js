@@ -536,6 +536,8 @@ const server = http.createServer(async (req, res) => {
         `${sched.micro} cd ${agentsDir} && ORCHESTRATOR_MODE=micro bash run-agent.sh orchestrator >> ${logDir}/orchestrator-micro.log 2>&1 # storyengine-agents`,
         `${sched.tester} cd ${agentsDir} && bash run-agent.sh pipeline-tester >> ${logDir}/pipeline-tester.log 2>&1 # storyengine-agents`,
         `0 23 * * * cd ${agentsDir} && bash daily-report.sh >> ${logDir}/daily-report.log 2>&1 # storyengine-agents`,
+        `5 23 * * * cd ${agentsDir} && bash calculate-skills.sh >> ${logDir}/calculate-skills.log 2>&1 # storyengine-agents`,
+        `10 23 * * * cd ${agentsDir} && bash retro.sh >> ${logDir}/retro.log 2>&1 # storyengine-agents`,
         `*/5 * * * * pgrep -f 'rubric.*server' > /dev/null || (cd ${path.join(__dirname)} && nohup node server.js > ${logDir}/rubric.log 2>&1 &) # storyengine-agents`,
       ];
 
@@ -734,6 +736,66 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // ===== FEEDBACK ROUTES =====
+
+  // POST /api/feedback — add operator feedback for all agents
+  if (pathname === '/api/feedback' && req.method === 'POST') {
+    const body = JSON.parse(await readBody(req));
+    const controlsFile = path.join(DATA_DIR, 'controls.json');
+    let controls = { paused_agents: [], skipped_tasks: [], priority_overrides: {} };
+    try { controls = JSON.parse(fs.readFileSync(controlsFile, 'utf8')); } catch {}
+    if (!controls.feedback) controls.feedback = [];
+    controls.feedback.unshift({
+      id: 'fb-' + Date.now(),
+      message: body.message || '',
+      timestamp: Date.now(),
+      read_by: [],
+    });
+    if (controls.feedback.length > 50) controls.feedback = controls.feedback.slice(0, 50);
+    fs.writeFileSync(controlsFile, JSON.stringify(controls, null, 2));
+    sendJSON(res, { success: true, id: controls.feedback[0].id });
+    return;
+  }
+
+  // GET /api/feedback — list all feedback
+  if (pathname === '/api/feedback' && req.method === 'GET') {
+    const controlsFile = path.join(DATA_DIR, 'controls.json');
+    let controls = {};
+    try { controls = JSON.parse(fs.readFileSync(controlsFile, 'utf8')); } catch {}
+    sendJSON(res, controls.feedback || []);
+    return;
+  }
+
+  // POST /api/feedback/:id/dismiss — remove feedback
+  if (pathname.startsWith('/api/feedback/') && pathname.endsWith('/dismiss') && req.method === 'POST') {
+    const id = pathname.replace('/api/feedback/', '').replace('/dismiss', '');
+    const controlsFile = path.join(DATA_DIR, 'controls.json');
+    let controls = { paused_agents: [], skipped_tasks: [], priority_overrides: {} };
+    try { controls = JSON.parse(fs.readFileSync(controlsFile, 'utf8')); } catch {}
+    if (controls.feedback) {
+      controls.feedback = controls.feedback.filter(fb => fb.id !== id);
+      fs.writeFileSync(controlsFile, JSON.stringify(controls, null, 2));
+    }
+    sendJSON(res, { success: true });
+    return;
+  }
+
+  // POST /api/feedback/:id/read — mark feedback as read by an agent
+  if (pathname.startsWith('/api/feedback/') && pathname.endsWith('/read') && req.method === 'POST') {
+    const id = pathname.replace('/api/feedback/', '').replace('/read', '');
+    const body = JSON.parse(await readBody(req));
+    const controlsFile = path.join(DATA_DIR, 'controls.json');
+    let controls = { paused_agents: [], skipped_tasks: [], priority_overrides: {} };
+    try { controls = JSON.parse(fs.readFileSync(controlsFile, 'utf8')); } catch {}
+    const entry = (controls.feedback || []).find(fb => fb.id === id);
+    if (entry && body.agent && !entry.read_by.includes(body.agent)) {
+      entry.read_by.push(body.agent);
+      fs.writeFileSync(controlsFile, JSON.stringify(controls, null, 2));
+    }
+    sendJSON(res, { success: true });
+    return;
+  }
+
   // ===== TASK QUEUE ROUTE =====
 
   // GET /api/task-queue — expose task queue (read-only)
@@ -742,6 +804,22 @@ const server = http.createServer(async (req, res) => {
     let queue = [];
     try { queue = JSON.parse(fs.readFileSync(queueFile, 'utf8')); } catch {}
     sendJSON(res, queue);
+    return;
+  }
+
+  // GET /api/agent-skills — read agent skill metrics
+  if (pathname === '/api/agent-skills' && req.method === 'GET') {
+    const skillsFile = path.join(DATA_DIR, 'agent-skills.json');
+    try { sendJSON(res, JSON.parse(fs.readFileSync(skillsFile, 'utf8'))); }
+    catch { sendJSON(res, { agents: {} }); }
+    return;
+  }
+
+  // GET /api/retros — read latest retrospective
+  if (pathname === '/api/retros' && req.method === 'GET') {
+    const retroFile = path.join(DATA_DIR, 'retro.json');
+    try { sendJSON(res, JSON.parse(fs.readFileSync(retroFile, 'utf8'))); }
+    catch { sendJSON(res, { summary: 'No retro yet', history: [] }); }
     return;
   }
 

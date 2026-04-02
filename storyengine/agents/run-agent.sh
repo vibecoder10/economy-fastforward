@@ -119,6 +119,22 @@ if [ -n "$BLUEPRINT_FILE" ] && [ -f "$BLUEPRINT_FILE" ]; then
   BLUEPRINT=$(cat "$BLUEPRINT_FILE")
 fi
 
+# Model selection — Opus for code writers, Sonnet for reviewers/testers
+MODEL_FLAG=""
+case "$AGENT" in
+  backend-dev)      MODEL_FLAG="--model opus" ;;
+  frontend-dev)     MODEL_FLAG="--model opus" ;;
+  qa-engineer)      MODEL_FLAG="--model sonnet" ;;
+  pipeline-tester)  MODEL_FLAG="--model sonnet" ;;
+  orchestrator)
+    if [ "$ORCHESTRATOR_MODE" = "grand" ]; then
+      MODEL_FLAG="--model opus"
+    else
+      MODEL_FLAG="--model sonnet"
+    fi
+    ;;
+esac
+
 # Product vision (shared by ALL agents)
 PRODUCT_VISION=""
 VISION_FILE="$AGENTS_DIR/blueprints/product-vision.md"
@@ -172,6 +188,20 @@ except: pass
 " 2>/dev/null || echo "")
 fi
 
+# Operator Feedback
+OPERATOR_FEEDBACK=""
+if [ -f "$CONTROLS_FILE" ]; then
+  OPERATOR_FEEDBACK=$(python3 -c "
+import json
+try:
+    c = json.load(open('$CONTROLS_FILE'))
+    fb = [x for x in c.get('feedback', []) if '$AGENT' not in x.get('read_by', [])]
+    for f in fb[-5:]:
+        print('- ' + f.get('message', ''))
+except: pass
+" 2>/dev/null || echo "")
+fi
+
 # ─── Build Prompt ───────────────────────────────────────────────────────────
 # Inject orchestrator mode if applicable
 ORCH_SECTION=""
@@ -220,6 +250,13 @@ if [ -n "$OPERATOR_CONTROLS" ]; then
 $OPERATOR_CONTROLS"
 fi
 
+if [ -n "$OPERATOR_FEEDBACK" ]; then
+  PROMPT="$PROMPT
+
+## Operator Feedback (address these issues)
+$OPERATOR_FEEDBACK"
+fi
+
 if [ -n "$HANDOFF_NOTES" ]; then
   PROMPT="$PROMPT
 
@@ -257,7 +294,7 @@ Begin work now. Pick your next task and execute it."
 
 # ─── Invoke Claude ──────────────────────────────────────────────────────────
 set +e
-OUTPUT=$($CLAUDE_BIN -p "$PROMPT" --dangerously-skip-permissions 2>&1)
+OUTPUT=$($CLAUDE_BIN -p "$PROMPT" $MODEL_FLAG --dangerously-skip-permissions 2>&1)
 CLAUDE_EXIT=$?
 set -e
 
@@ -305,6 +342,29 @@ curl -s -X POST "$RUBRIC_URL/api/activity-log" \
   -H "Content-Type: application/json" \
   -d "{\"agent\": \"$AGENT\", \"task\": \"$TASK_LINE\", \"summary\": $SUMMARY_JSON, \"detail\": $DETAIL_JSON, \"detail_file\": \"$RUN_ID.md\", \"status\": \"completed\"}" 2>/dev/null || true
 
+# ─── Mark Feedback as Read ─────────────────────────────────────────────────
+if [ -f "$CONTROLS_FILE" ]; then
+  python3 -c "
+import json
+try:
+    c = json.load(open('$CONTROLS_FILE'))
+    changed = False
+    for fb in c.get('feedback', []):
+        if '$AGENT' not in fb.get('read_by', []):
+            fb.setdefault('read_by', []).append('$AGENT')
+            changed = True
+    if changed:
+        json.dump(c, open('$CONTROLS_FILE', 'w'), indent=2)
+except: pass
+" 2>/dev/null || true
+fi
+
+# ─── Upload Screenshots to Google Doc (QA + Pipeline Tester only) ───────────
+if [ "$AGENT" = "qa-engineer" ] || [ "$AGENT" = "pipeline-tester" ]; then
+  echo "Uploading screenshots to Google Doc..."
+  python3 "$AGENTS_DIR/update_visual_report.py" "$TASK_LINE" "$SUMMARY_LINE" 2>&1 || true
+fi
+
 # ─── Slack Notification ─────────────────────────────────────────────────────
 notify_slack ":white_check_mark: *$AGENT_DISPLAY* completed $TASK_LINE: $SUMMARY_LINE"
 
@@ -336,6 +396,6 @@ If NO follow-ups needed: just say "No follow-ups needed" and exit.
 
 CRITICAL: Do NOT invent new features. Only create tasks directly caused by the completed work. Max 2 tasks.
 TASKEOF
-)" --dangerously-skip-permissions 2>&1 || true)
+)" --model sonnet --dangerously-skip-permissions 2>&1 || true)
   echo "Task gen result: $(echo "$TASK_GEN" | tail -3)"
 fi

@@ -114,6 +114,22 @@ storyengine/frontend/
 - **No new dependencies** unless the task explicitly requires one.
 - **Match the existing design system.** Dark editorial: charcoal `#0A0A0B`, amber `#D4A844`, teal `#1A8A7A`.
 
+## Research Before Building
+
+When implementing features that use external libraries or APIs, **fetch the real documentation first** using WebFetch. Do NOT rely on your training data — it may be stale.
+
+```
+Example: Before building Google sign-in, fetch:
+- https://next-auth.js.org/getting-started/example
+- https://next-auth.js.org/providers/google
+
+Example: Before adding Stripe checkout, fetch:
+- https://stripe.com/docs/checkout/quickstart
+- https://stripe.com/docs/stripe-js/react
+```
+
+Read the docs, then build. This prevents using deprecated patterns.
+
 ## Memory
 
 You have a persistent memory file at `storyengine/agents/memory/frontend-dev.md`. It contains lessons from your past sessions. READ it before starting. At the END of your work, if you learned something useful, append ONE line. Keep entries short. Max 50 entries — prune old ones if near the limit.

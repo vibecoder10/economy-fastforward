@@ -1,1 +1,27 @@
-[]
+[
+  {
+    "id": "h-1775162760242",
+    "task_id": "",
+    "message": "",
+    "files_changed": [],
+    "endpoint_details": null,
+    "read": false,
+    "timestamp": 1775162760242
+  },
+  {
+    "id": "h-1775160540347",
+    "from": "backend-dev",
+    "to": "frontend-dev",
+    "task_id": "T17-004",
+    "message": "Stripe billing backend is ready. 4 endpoints: POST /api/billing/create-checkout (body: {plan: starter|pro|agency, success_url?, cancel_url?} -> {checkout_url, session_id}), POST /api/billing/webhook (Stripe signature verified, no auth), GET /api/billing/subscription (-> {plan, stripe_plan, stripe_status, has_subscription}), POST /api/billing/portal (body: {return_url?} -> {portal_url}). Env vars needed: STRIPE_SECRET_KEY, STRIPE_PRICE_STARTER, STRIPE_PRICE_PRO, STRIPE_PRICE_AGENCY, STRIPE_WEBHOOK_SECRET. Frontend flow: call create-checkout with plan name, redirect to checkout_url. For manage subscription, call portal and redirect to portal_url.",
+    "files_changed": [
+      "backend/routes/billing.py",
+      "backend/main.py",
+      "backend/migrations/022_stripe_columns.sql",
+      "schema.sql"
+    ],
+    "endpoint_details": null,
+    "read": false,
+    "timestamp": 1775160540347
+  }
+]
