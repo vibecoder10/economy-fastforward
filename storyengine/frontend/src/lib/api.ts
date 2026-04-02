@@ -124,6 +124,16 @@ export const updateChannelProfile = (data: ChannelProfileUpdate) =>
 export const getIntegrationStatuses = () =>
   fetchApi<IntegrationStatusItem[]>("/api/channel-profile/integrations");
 
+// User Profile
+export const getProfile = () =>
+  fetchApi<UserProfile>("/api/profile");
+
+export const updateProfile = (data: UserProfileUpdate) =>
+  fetchApi<UserProfile>("/api/profile", {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+
 // Projects (new — replaces channel_profiles)
 export const getCurrentProject = () =>
   fetchApi<Project>("/api/projects/current");
@@ -880,6 +890,20 @@ export interface ChannelProfileUpdate {
 export interface IntegrationStatusItem {
   name: string;
   connected: boolean;
+}
+
+// User Profile
+export interface UserProfile {
+  id: string;
+  email: string | null;
+  display_name: string | null;
+  plan: string;
+  created_at: string | null;
+}
+
+export interface UserProfileUpdate {
+  display_name?: string;
+  email?: string;
 }
 
 // Project (replaces ChannelProfile)

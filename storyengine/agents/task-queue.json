@@ -971,8 +971,11 @@
           "id": "T16-002",
           "title": "Build profile page",
           "role": "frontend",
-          "status": "pending",
-          "description": "Replace the profile page stub with: display name, email, account plan, created date. Edit form for name/email. Read from /api/profile.",
+          "status": "done",
+          "started_at": "2026-04-02T20:02:00Z",
+          "assigned_to": "frontend-dev",
+          "completed_at": "2026-04-02T20:06:00Z",
+          "description": "Added Account section to profile page with display name, email, plan badge, member since date. Edit form saves via PUT /api/profile. Added getProfile/updateProfile to api.ts with UserProfile/UserProfileUpdate types matching backend ProfileRead/ProfileUpdate models.",
           "files": [
             "frontend/src/app/profile/page.tsx"
           ],

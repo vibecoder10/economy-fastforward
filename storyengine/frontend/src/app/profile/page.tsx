@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { StatusPill } from "@/components/ui/StatusPill";
+import { ActionButton } from "@/components/ui/ActionButton";
 import {
   getVisualStyles,
   createVisualStyle,
@@ -31,6 +32,8 @@ import {
   deleteStyleCharacter,
   generateCharacterImage,
   analyzeStyleImage,
+  getProfile,
+  updateProfile,
   type VisualStyle,
   type StyleCharacter,
 } from "@/lib/api";
@@ -46,6 +49,22 @@ const item = {
 
 export default function ProfilePage() {
   const queryClient = useQueryClient();
+
+  // --- User Profile ---
+  const { data: profile, isLoading: profileLoading } = useQuery({
+    queryKey: ["profile"],
+    queryFn: getProfile,
+  });
+  const [editingProfile, setEditingProfile] = useState(false);
+  const [profileName, setProfileName] = useState("");
+  const [profileEmail, setProfileEmail] = useState("");
+  const profileMutation = useMutation({
+    mutationFn: updateProfile,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["profile"] });
+      setEditingProfile(false);
+    },
+  });
 
   // Fetch all visual styles (includes characters per style)
   const { data: styles, isLoading } = useQuery({
@@ -328,14 +347,111 @@ export default function ProfilePage() {
 
   return (
     <motion.div className="space-y-8" variants={container} initial="hidden" animate="show">
-      {/* Header */}
+      {/* Page Header */}
       <motion.div variants={item}>
         <h1 className="text-4xl font-display" style={{ color: "var(--text-primary)" }}>
-          Visual Profile
+          Profile
         </h1>
         <p className="text-sm mt-2" style={{ color: "var(--text-secondary)" }}>
-          Create visual styles from reference images, then assign characters to each style.
+          Your account and visual style settings.
         </p>
+      </motion.div>
+
+      {/* Account Section */}
+      <motion.div variants={item}>
+        <div className="flex items-center gap-3 mb-4" style={{ borderLeft: "3px solid var(--turquoise)", paddingLeft: 16 }}>
+          <User size={18} style={{ color: "var(--turquoise)" }} />
+          <h2 className="text-lg font-semibold font-body" style={{ color: "var(--text-primary)" }}>
+            Account
+          </h2>
+        </div>
+
+        <GlassCard className="p-6">
+          {profileLoading ? (
+            <div className="flex items-center gap-2">
+              <Loader2 size={16} className="animate-spin" style={{ color: "var(--turquoise)" }} />
+              <span className="text-sm" style={{ color: "var(--text-secondary)" }}>Loading profile...</span>
+            </div>
+          ) : profile ? (
+            editingProfile ? (
+              <div className="space-y-4 max-w-md">
+                <div>
+                  <label className="text-[11px] uppercase tracking-wider block mb-1" style={{ color: "var(--text-secondary)" }}>
+                    Display Name
+                  </label>
+                  <input
+                    type="text"
+                    value={profileName}
+                    onChange={(e) => setProfileName(e.target.value)}
+                    className="w-full rounded-lg px-3 py-2 text-sm"
+                    style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", color: "var(--text-primary)" }}
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] uppercase tracking-wider block mb-1" style={{ color: "var(--text-secondary)" }}>
+                    Email
+                  </label>
+                  <input
+                    type="email"
+                    value={profileEmail}
+                    onChange={(e) => setProfileEmail(e.target.value)}
+                    className="w-full rounded-lg px-3 py-2 text-sm"
+                    style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", color: "var(--text-primary)" }}
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <ActionButton
+                    variant="filled"
+                    icon={profileMutation.isPending ? Loader2 : Check}
+                    disabled={profileMutation.isPending}
+                    onClick={() => profileMutation.mutate({ display_name: profileName, email: profileEmail })}
+                  >
+                    Save
+                  </ActionButton>
+                  <ActionButton variant="outline" icon={X} onClick={() => setEditingProfile(false)}>
+                    Cancel
+                  </ActionButton>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-x-8 gap-y-3 max-w-md">
+                  <div>
+                    <span className="text-[11px] uppercase tracking-wider block" style={{ color: "var(--text-secondary)" }}>Name</span>
+                    <span className="text-sm" style={{ color: "var(--text-primary)" }}>{profile.display_name || "—"}</span>
+                  </div>
+                  <div>
+                    <span className="text-[11px] uppercase tracking-wider block" style={{ color: "var(--text-secondary)" }}>Email</span>
+                    <span className="text-sm" style={{ color: "var(--text-primary)" }}>{profile.email || "—"}</span>
+                  </div>
+                  <div>
+                    <span className="text-[11px] uppercase tracking-wider block" style={{ color: "var(--text-secondary)" }}>Plan</span>
+                    <StatusPill label={profile.plan} color={profile.plan === "free" ? "gold" : "turquoise"} />
+                  </div>
+                  <div>
+                    <span className="text-[11px] uppercase tracking-wider block" style={{ color: "var(--text-secondary)" }}>Member Since</span>
+                    <span className="text-sm" style={{ color: "var(--text-primary)" }}>
+                      {profile.created_at ? new Date(profile.created_at).toLocaleDateString() : "—"}
+                    </span>
+                  </div>
+                </div>
+                <ActionButton
+                  variant="outline"
+                  icon={Pencil}
+                  onClick={() => {
+                    setProfileName(profile.display_name || "");
+                    setProfileEmail(profile.email || "");
+                    setEditingProfile(true);
+                  }}
+                >
+                  Edit Profile
+                </ActionButton>
+              </div>
+            )
+          ) : (
+            <p className="text-sm" style={{ color: "var(--text-tertiary)" }}>Unable to load profile.</p>
+          )}
+        </GlassCard>
       </motion.div>
 
       {/* === SECTION 1: AI Visual Profile Generator === */}
