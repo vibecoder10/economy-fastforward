@@ -652,9 +652,13 @@
           "title": "Display last_scraped timestamps on channel cards",
           "role": "frontend",
           "status": "done",
+          "verified": true,
           "started_at": "2026-04-02T15:02:00Z",
           "assigned_to": "frontend-dev",
           "completed_at": "2026-04-02T15:04:00Z",
+          "verified_at": "2026-04-02T19:04:00Z",
+          "verified_by": "qa-engineer",
+          "verification_notes": "PASS. Commit ff03ac4 clean: 2 files (page.tsx + queue), 11 lines, no bloat. timeAgo() imported from utils.ts. ch.last_scraped rendered conditionally as 9px font-mono span next to StatusPill. Backend GET /api/niche/channels returns last_scraped (date string) for all 10 channels. Playwright: all channel pills show '19h ago' timestamps, 0 console errors. tsc --noEmit: 0 errors. npm run build: clean.",
           "description": "Backend returns last_scraped on each channel from GET /api/niche/channels. Display this as relative time ('3h ago') on each channel pill/card so users know data freshness.",
           "files": [
             "frontend/src/app/competitors/page.tsx"
