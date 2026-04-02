@@ -418,6 +418,10 @@
   <div id="tab-activity" class="tab-panel">
     <div style="max-width:800px;margin:0 auto;padding:20px;">
 
+      <!-- Open Pull Requests -->
+      <div id="pr-section" style="margin-bottom:16px;display:none;">
+      </div>
+
       <!-- Focus Directive -->
       <div style="margin-bottom:16px;padding:16px;background:#0a0a0a;border:1px solid #1a1a1a;border-radius:12px;">
         <h3 style="font-size:14px;font-weight:600;margin-bottom:8px;color:#888;">Focus Directive</h3>
@@ -708,6 +712,8 @@ window.__onTabShow = {};
     setInterval(loadActivityFeed, 30000);
     document.getElementById('activity-refresh-btn')?.addEventListener('click', () => { loadActivityFeed(); loadHandoffs(); loadTaskProgress(); });
 
+    loadPullRequests();
+    setInterval(loadPullRequests, 60000);
     loadTaskProgress();
     setInterval(loadTaskProgress, 30000);
     loadControls();
@@ -889,6 +895,40 @@ window.__onTabShow = {};
         '</div>';
       }).join('');
     } catch {}
+  }
+
+  // Pull Requests
+  async function loadPullRequests() {
+    const section = document.getElementById('pr-section');
+    if (!section) return;
+    try {
+      const resp = await fetch('/api/pull-requests');
+      if (!resp.ok) return;
+      const prs = await resp.json();
+      if (!prs.length) { section.style.display = 'none'; return; }
+      section.style.display = 'block';
+      section.innerHTML = prs.map(pr => {
+        const ago = Math.floor((Date.now() - new Date(pr.createdAt).getTime()) / 60000);
+        const timeStr = ago < 60 ? ago + 'm ago' : ago < 1440 ? Math.floor(ago/60) + 'h ago' : Math.floor(ago/1440) + 'd ago';
+        return '<div style="padding:16px;background:linear-gradient(135deg,rgba(26,138,122,0.08),rgba(212,168,68,0.05));border:1px solid rgba(26,138,122,0.3);border-radius:12px;margin-bottom:8px;">' +
+          '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">' +
+            '<div style="display:flex;align-items:center;gap:8px;">' +
+              '<span style="font-size:18px;">📋</span>' +
+              '<span style="font-size:15px;font-weight:700;color:#ccc;">#' + pr.number + '</span>' +
+              '<span style="font-size:14px;color:#aaa;font-weight:500;">' + esc(pr.title) + '</span>' +
+            '</div>' +
+            '<a href="' + esc(pr.url) + '" target="_blank" rel="noopener" style="background:#1A8A7A;color:white;padding:8px 20px;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;font-family:Outfit,sans-serif;white-space:nowrap;">Review & Merge</a>' +
+          '</div>' +
+          '<div style="display:flex;gap:16px;font-size:12px;color:#666;">' +
+            '<span style="color:#50e3c2;">+' + (pr.additions||0) + '</span>' +
+            '<span style="color:#e35050;">-' + (pr.deletions||0) + '</span>' +
+            '<span>' + (pr.changedFiles||0) + ' files</span>' +
+            '<span>' + esc(pr.headRefName||'') + '</span>' +
+            '<span>' + timeStr + '</span>' +
+          '</div>' +
+        '</div>';
+      }).join('');
+    } catch { section.style.display = 'none'; }
   }
 
   async function loadActivityFeed() {

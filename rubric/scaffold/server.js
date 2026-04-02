@@ -503,6 +503,19 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // GET /api/pull-requests — fetch open PRs from GitHub
+  if (pathname === '/api/pull-requests' && req.method === 'GET') {
+    const { execSync } = require('child_process');
+    try {
+      const agentDir = path.join(__dirname, '../../storyengine/agents');
+      const out = execSync('gh pr list --state open --json number,title,url,additions,deletions,changedFiles,createdAt,headRefName --limit 5 2>/dev/null || echo "[]"', {
+        cwd: agentDir, timeout: 10000, encoding: 'utf8'
+      });
+      sendJSON(res, JSON.parse(out.trim() || '[]'));
+    } catch { sendJSON(res, []); }
+    return;
+  }
+
   // GET /api/activity-log/detail — read a full agent report file
   if (pathname === '/api/activity-log/detail' && req.method === 'GET') {
     const params = new URL('http://x' + req.url).searchParams;
