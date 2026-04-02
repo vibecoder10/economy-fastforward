@@ -1537,6 +1537,14 @@ class PipelineExecutor:
 
             new_status = result.get("new_status", "done")
 
+            # Save thumbnail URL back to videos table
+            thumbnail_url = result.get("thumbnail_url")
+            if thumbnail_url:
+                await execute(
+                    "UPDATE videos SET thumbnail_url = $1, updated_at = now() WHERE id = $2",
+                    thumbnail_url, video_id,
+                )
+
             await self._update_video_status(video_id, to_supabase(new_status))
             await self._log_transition(video_id, current_status, to_supabase(new_status), "api")
             await self._log_activity(bot_name, video_id, "completed", "Thumbnail generated")

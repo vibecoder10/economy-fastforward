@@ -2,7 +2,7 @@
   "version": 2,
   "current_tab": 2,
   "last_updated": "2026-04-02",
-  "last_updated_by": "qa-engineer",
+  "last_updated_by": "backend-dev",
   "tabs": [
     {
       "id": 1,
@@ -298,6 +298,19 @@
       "path": "/pipeline/[videoId] (Thumbnail)",
       "status": "pending",
       "tasks": [
+        {
+          "id": "T7-003",
+          "title": "Fix thumbnail URL not saved to DB after generation",
+          "role": "backend",
+          "status": "done",
+          "started_at": "2026-04-02T05:00:01Z",
+          "completed_at": "2026-04-02T05:05:00Z",
+          "assigned_to": "backend-dev",
+          "description": "OPERATOR FOCUS FIX: run_thumbnail in pipeline_executor.py did not write thumbnail_url back to the videos table after the thumbnail bot returned it. Added the same pattern used by run_render (which saves final_video_url). Now thumbnail_url is persisted so the frontend ThumbnailTab can display it.",
+          "files": [
+            "backend/pipeline_executor.py"
+          ]
+        },
         {
           "id": "T7-001",
           "title": "QA verify thumbnail generation and approval flow",
