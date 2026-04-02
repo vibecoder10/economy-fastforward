@@ -506,8 +506,11 @@
           "id": "T9-002",
           "title": "Display post-mortem analysis (48h and 7d)",
           "role": "frontend",
-          "status": "pending",
-          "description": "Backend returns post_mortem_48h and post_mortem_7d as JSON on VideoDetail. Display these as collapsible analysis sections showing CTR verdict, recommendations, and extracted learnings.",
+          "status": "done",
+          "started_at": "2026-04-02T16:02:00Z",
+          "assigned_to": "frontend-dev",
+          "completed_at": "2026-04-02T16:06:00Z",
+          "description": "Added collapsible 48h and 7d post-mortem sections to PerformanceTab. Each shows overall/CTR/retention verdicts with color-coded pills, recommendations list, metrics grid, and analyzed timestamp. JSON parsed safely with fallback. Uses existing Accordion pattern (ChevronDown + AnimatePresence).",
           "files": [
             "frontend/src/components/production/PerformanceTab.tsx"
           ]

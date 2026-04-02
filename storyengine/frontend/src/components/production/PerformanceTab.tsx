@@ -1,10 +1,12 @@
 "use client";
 
+import { useState } from "react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { VerdictBadge } from "@/components/ui/VerdictBadge";
 import { StatCard } from "@/components/ui/StatCard";
-import { Eye, MousePointer, Clock, TrendingUp } from "lucide-react";
-import { formatNumber, formatCost } from "@/lib/utils";
+import { Eye, MousePointer, Clock, TrendingUp, ChevronDown, AlertTriangle, CheckCircle, MinusCircle } from "lucide-react";
+import { formatNumber, formatCost, timeAgo } from "@/lib/utils";
+import { motion, AnimatePresence } from "framer-motion";
 import type { VideoDetail } from "@/lib/api";
 
 interface PerformanceTabProps {
@@ -136,6 +138,18 @@ export function PerformanceTab({ video }: PerformanceTabProps) {
         </GlassCard>
       )}
 
+      {/* Post-Mortem Analysis */}
+      {(video.post_mortem_48h || video.post_mortem_7d) && (
+        <div className="space-y-4">
+          {video.post_mortem_48h && (
+            <PostMortemSection label="48-Hour Analysis" raw={video.post_mortem_48h} />
+          )}
+          {video.post_mortem_7d && (
+            <PostMortemSection label="7-Day Analysis" raw={video.post_mortem_7d} />
+          )}
+        </div>
+      )}
+
       {/* Details */}
       <GlassCard className="p-5">
         <h3 className="text-xs font-semibold uppercase tracking-wider mb-4" style={{ color: "var(--text-secondary)" }}>
@@ -155,6 +169,167 @@ export function PerformanceTab({ video }: PerformanceTabProps) {
           ))}
         </div>
       </GlassCard>
+    </div>
+  );
+}
+
+interface PostMortemData {
+  ctr_verdict?: string;
+  retention_verdict?: string;
+  overall_verdict?: string;
+  recommendations?: string[];
+  analyzed_at?: string;
+  metrics?: Record<string, number | null>;
+}
+
+function parsePostMortem(raw: string): PostMortemData | null {
+  try {
+    const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+    return parsed as PostMortemData;
+  } catch {
+    return null;
+  }
+}
+
+const VERDICT_ICON: Record<string, { icon: typeof CheckCircle; color: string }> = {
+  strong: { icon: CheckCircle, color: "var(--green)" },
+  average: { icon: MinusCircle, color: "var(--gold)" },
+  weak: { icon: AlertTriangle, color: "var(--red)" },
+};
+
+function PostMortemSection({ label, raw }: { label: string; raw: string }) {
+  const [open, setOpen] = useState(false);
+  const data = parsePostMortem(raw);
+
+  if (!data) return null;
+
+  const overall = data.overall_verdict || "average";
+  const vi = VERDICT_ICON[overall] || VERDICT_ICON.average;
+  const Icon = vi.icon;
+
+  return (
+    <GlassCard className="p-5">
+      <button
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center justify-between"
+      >
+        <div className="flex items-center gap-3">
+          <Icon size={18} style={{ color: vi.color }} />
+          <h3 className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>
+            {label}
+          </h3>
+          <span
+            className="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full font-mono"
+            style={{
+              color: vi.color,
+              background: `color-mix(in srgb, ${vi.color} 15%, transparent)`,
+            }}
+          >
+            {overall}
+          </span>
+        </div>
+        <ChevronDown
+          size={16}
+          style={{
+            color: "var(--text-tertiary)",
+            transform: open ? "rotate(180deg)" : "rotate(0deg)",
+            transition: "transform 0.2s",
+          }}
+        />
+      </button>
+
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="overflow-hidden"
+          >
+            <div className="pt-4 space-y-4">
+              {/* Verdict pills */}
+              <div className="flex gap-4">
+                {data.ctr_verdict && (
+                  <VerdictPill label="CTR" verdict={data.ctr_verdict} />
+                )}
+                {data.retention_verdict && (
+                  <VerdictPill label="Retention" verdict={data.retention_verdict} />
+                )}
+              </div>
+
+              {/* Recommendations */}
+              {data.recommendations && data.recommendations.length > 0 && (
+                <div>
+                  <p className="text-[10px] uppercase tracking-wider mb-2" style={{ color: "var(--text-tertiary)" }}>
+                    Recommendations
+                  </p>
+                  <ul className="space-y-1.5">
+                    {data.recommendations.map((rec, i) => (
+                      <li key={i} className="flex items-start gap-2 text-sm" style={{ color: "var(--text-secondary)" }}>
+                        <span style={{ color: "var(--gold)" }}>•</span>
+                        {rec}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* Metrics */}
+              {data.metrics && Object.keys(data.metrics).length > 0 && (
+                <div>
+                  <p className="text-[10px] uppercase tracking-wider mb-2" style={{ color: "var(--text-tertiary)" }}>
+                    Metrics at Analysis
+                  </p>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {Object.entries(data.metrics).map(([key, val]) => (
+                      <div
+                        key={key}
+                        className="rounded-lg p-2 text-center"
+                        style={{ background: "rgba(255,255,255,0.03)" }}
+                      >
+                        <p className="text-[10px] uppercase tracking-wider font-mono" style={{ color: "var(--text-tertiary)" }}>
+                          {key.replace(/_/g, " ")}
+                        </p>
+                        <p className="text-sm font-mono" style={{ color: "var(--text-primary)" }}>
+                          {val != null ? (typeof val === "number" && val < 100 ? val.toFixed(1) : formatNumber(val as number)) : "—"}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Analyzed timestamp */}
+              {data.analyzed_at && (
+                <p className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>
+                  Analyzed {timeAgo(data.analyzed_at)}
+                </p>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </GlassCard>
+  );
+}
+
+function VerdictPill({ label, verdict }: { label: string; verdict: string }) {
+  const vi = VERDICT_ICON[verdict] || VERDICT_ICON.average;
+  return (
+    <div className="flex items-center gap-1.5">
+      <span className="text-[10px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
+        {label}:
+      </span>
+      <span
+        className="text-[11px] font-mono px-2 py-0.5 rounded-full"
+        style={{
+          color: vi.color,
+          background: `color-mix(in srgb, ${vi.color} 15%, transparent)`,
+        }}
+      >
+        {verdict}
+      </span>
     </div>
   );
 }
