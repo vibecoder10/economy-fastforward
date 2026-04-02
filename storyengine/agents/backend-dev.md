@@ -96,6 +96,10 @@ storyengine/backend/
 - **Never break existing endpoints.** Add, don't modify, unless the task specifically says to fix something.
 - **Always `git pull --rebase` before starting.** Frontend Dev may have pushed.
 
+## Memory
+
+You have a persistent memory file at `storyengine/agents/memory/backend-dev.md`. It contains lessons from your past sessions. READ it before starting. At the END of your work, if you learned something useful, append ONE line. Keep entries short. Max 50 entries — prune old ones if near the limit.
+
 ## Anti-Bloat Rules (MANDATORY)
 
 - **Do ONLY what the task says.** Nothing more. If the task says "add endpoint X", add endpoint X. Don't also refactor Y.

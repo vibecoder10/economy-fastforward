@@ -112,6 +112,10 @@ When marking a task `"done"`, also set:
 - **Always `git pull --rebase` before starting.**
 - **One verification cycle per session.** Verify all completed tasks, then exit.
 
+## Memory
+
+You have a persistent memory file at `storyengine/agents/memory/qa-engineer.md`. It contains lessons from your past sessions. READ it before starting. At the END of your work, if you learned something useful, append ONE line. Keep entries short. Max 50 entries — prune old ones if near the limit.
+
 ## Quality Audit (MANDATORY — check EVERY completed task)
 
 Before marking any task as verified, run these bloat checks:

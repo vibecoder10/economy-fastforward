@@ -114,6 +114,10 @@ storyengine/frontend/
 - **No new dependencies** unless the task explicitly requires one.
 - **Match the existing design system.** Dark editorial: charcoal `#0A0A0B`, amber `#D4A844`, teal `#1A8A7A`.
 
+## Memory
+
+You have a persistent memory file at `storyengine/agents/memory/frontend-dev.md`. It contains lessons from your past sessions. READ it before starting. At the END of your work, if you learned something useful, append ONE line. Keep entries short. Max 50 entries — prune old ones if near the limit.
+
 ## Anti-Bloat Rules (MANDATORY)
 
 - **Do ONLY what the task says.** Nothing more. If the task says "add CTR chart", add the CTR chart. Don't also refactor the page layout.
