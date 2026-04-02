@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "current_tab": 7,
+  "current_tab": 3,
   "last_updated": "2026-04-02",
   "last_updated_by": "orchestrator",
   "tabs": [
@@ -143,7 +143,7 @@
       "id": 3,
       "name": "Video Detail: Script Tab",
       "path": "/pipeline/[videoId] (Script)",
-      "status": "pending",
+      "status": "in_progress",
       "tasks": [
         {
           "id": "T3-001",
@@ -389,7 +389,7 @@
           "verified_at": "2026-04-02T09:06:00Z",
           "verified_by": "qa-engineer",
           "verification_notes": "PASS. models.py lines 90-91: suggested_thumbnail_prompt (Optional[str]) and suggested_thumbnail_urls (Optional[list]). SQL SELECT videos.py line 146 includes both columns. Constructor lines 210-211: r.get() with _parse_json_field for URLs. schema.sql lines 198-199 confirms DB columns. Commit 2acc6d0 diff clean: 3 files, 9 lines, no bloat. Frontend api.ts lines 566-567 match. tsc --noEmit passes. T7-002 suggestion card data flow now unblocked.",
-          "description": "T7-004 previously FAILED QA (fields were not actually added). Now re-done. Verify:\n1. models.py has suggested_thumbnail_prompt (Optional[str]) and suggested_thumbnail_urls (Optional[list]) — expect lines 90-91\n2. SQL SELECT in videos.py includes both columns — expect line 146\n3. VideoDetail constructor has r.get() for both, with _parse_json_field for URLs — expect lines 210-211\n4. curl GET /api/videos/{id} returns both fields (even if null)\n5. T7-002 suggestion card now receives data (previously noted 'Data won't flow until T7-004 is actually implemented')\n6. tsc --noEmit passes clean",
+          "description": "T7-004 previously FAILED QA (fields were not actually added). Now re-done. Verify:\n1. models.py has suggested_thumbnail_prompt (Optional[str]) and suggested_thumbnail_urls (Optional[list]) \u2014 expect lines 90-91\n2. SQL SELECT in videos.py includes both columns \u2014 expect line 146\n3. VideoDetail constructor has r.get() for both, with _parse_json_field for URLs \u2014 expect lines 210-211\n4. curl GET /api/videos/{id} returns both fields (even if null)\n5. T7-002 suggestion card now receives data (previously noted 'Data won't flow until T7-004 is actually implemented')\n6. tsc --noEmit passes clean",
           "files": [
             "backend/models.py",
             "backend/routes/videos.py"
@@ -423,7 +423,7 @@
           "verified_at": "2026-04-02T09:06:00Z",
           "verified_by": "qa-engineer",
           "verification_notes": "Save button appears only when prompt is dirty (useRef tracks saved state). Calls updateVideo(id, { thumbnail_prompt }) -> PATCH /api/videos/{id}. Backend allows thumbnail_prompt in allowed_fields (videos.py line 227). Shows loading spinner + success confirmation. Commit a0db4fa diff clean: 1 app file, 45 lines added. No bloat. tsc --noEmit passes.",
-          "description": "Added Save Prompt button to ThumbnailTab that calls updateVideo(id, { thumbnail_prompt }) via existing PATCH /api/videos/{id}. Button only appears when prompt text has been modified (dirty check via ref). Shows saved confirmation briefly. Uses existing updateVideo from api.ts — no new API calls needed.",
+          "description": "Added Save Prompt button to ThumbnailTab that calls updateVideo(id, { thumbnail_prompt }) via existing PATCH /api/videos/{id}. Button only appears when prompt text has been modified (dirty check via ref). Shows saved confirmation briefly. Uses existing updateVideo from api.ts \u2014 no new API calls needed.",
           "files": [
             "frontend/src/components/production/ThumbnailTab.tsx"
           ]
@@ -972,7 +972,7 @@
           "assigned_to": "qa-engineer",
           "verified_at": "2026-04-02T20:08:00Z",
           "verified_by": "qa-engineer",
-          "verification_notes": "PASS. Full analytics dashboard wiring audit. (1) 3 backend endpoints in analytics.py (overview, ctr-timeline, framework-performance), router registered main.py:314. (2) 3 frontend types in api.ts (AnalyticsOverview, CTRTimelinePoint, FrameworkPerformance) — all field names match backend dict keys exactly. (3) 3 API functions hit correct /api/analytics/* paths. (4) Page renders: 4 StatCards from overview, dual-axis LineChart (views+CTR) from ctr-timeline, horizontal BarChart+table from framework-performance, sortable video table from getVideos, System Intelligence from getLearnings. (5) YouTube Sync button wired with progress polling and query invalidation. (6) Loading states: full page spinner + chart spinner. (7) Empty states for chart, table, learnings, proven/avoid patterns. (8) tsc --noEmit: 0 errors. (9) npm run build: clean. (10) No bloat in commits f60c6e1 (backend) or 6e8b53a (frontend). TAB 15 COMPLETE.",
+          "verification_notes": "PASS. Full analytics dashboard wiring audit. (1) 3 backend endpoints in analytics.py (overview, ctr-timeline, framework-performance), router registered main.py:314. (2) 3 frontend types in api.ts (AnalyticsOverview, CTRTimelinePoint, FrameworkPerformance) \u2014 all field names match backend dict keys exactly. (3) 3 API functions hit correct /api/analytics/* paths. (4) Page renders: 4 StatCards from overview, dual-axis LineChart (views+CTR) from ctr-timeline, horizontal BarChart+table from framework-performance, sortable video table from getVideos, System Intelligence from getLearnings. (5) YouTube Sync button wired with progress polling and query invalidation. (6) Loading states: full page spinner + chart spinner. (7) Empty states for chart, table, learnings, proven/avoid patterns. (8) tsc --noEmit: 0 errors. (9) npm run build: clean. (10) No bloat in commits f60c6e1 (backend) or 6e8b53a (frontend). TAB 15 COMPLETE.",
           "description": "Verify analytics endpoints return correct aggregations. Verify charts render with real data. Verify numbers match what's in the database.",
           "depends_on": "T15-002"
         }
@@ -982,7 +982,7 @@
       "id": 16,
       "name": "Profile & Account",
       "path": "/profile",
-      "status": "complete",
+      "status": "pending",
       "tasks": [
         {
           "id": "T16-001",
@@ -1035,6 +1035,17 @@
           "verification_notes": "Full wiring audit: (1) Backend profile.py: GET/PUT /api/profile, registered main.py:315. ProfileRead has 5 fields matching frontend UserProfile exactly. (2) Frontend api.ts: getProfile/updateProfile with correct paths and types. (3) Profile page: Account section with loading spinner, display grid (name, email, plan badge, member since), edit form with save/cancel mutations, error fallback. (4) Commit 1dd9dac clean: 2 app files, 148 lines, no new files, no bloat. (5) tsc --noEmit: 0 errors. TAB 16 COMPLETE.",
           "description": "Verify GET /api/profile returns user data, profile page renders it, edit form saves changes via PUT.",
           "depends_on": "T16-002"
+        },
+        {
+          "id": "BUG-PT-001",
+          "title": "BUG: Profile API returns 404 \u2014 'Loading profile...' never resolves",
+          "role": "backend",
+          "status": "pending",
+          "description": "Pipeline Tester found: Navigate to /profile \u2192 Account section shows 'Loading profile...' indefinitely \u2192 GET /api/profile returns HTTP 404 'Not Found'. The route exists in routes/profile.py and is registered in main.py line 315, but the running server's OpenAPI schema does NOT include /api/profile \u2014 only /api/channel-profile appears. Root cause: either (1) the server hasn't been restarted since the route was added, or (2) the DEV_ACCOUNT_ID '00000000-0000-0000-0000-000000000001' doesn't exist in the accounts table. Fix: restart backend server and/or seed dev account. Screenshot: screenshots/pt-profile-detail.png.",
+          "files": [
+            "backend/routes/profile.py",
+            "backend/main.py"
+          ]
         }
       ]
     }
