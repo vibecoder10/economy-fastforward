@@ -471,13 +471,13 @@
           "id": "T9-001",
           "title": "Display snapshot metrics (24h, 48h, 7d, 30d views + CTR)",
           "role": "frontend",
-          "status": "in_progress",
+          "status": "done",
           "started_at": "2026-04-02T10:02:00Z",
           "assigned_to": "frontend-dev",
-          "description": "Backend returns views_24h, views_48h, views_7d, views_30d, ctr_48h, retention_48h on VideoDetail. Display these as a metrics timeline in the Performance tab showing how the video performed over time.",
+          "completed_at": "2026-04-02T10:06:00Z",
+          "description": "Added Views Over Time section (24h/48h/7d/30d grid) and CTR Over Time section (12h/24h/48h with color-coded thresholds) plus retention_48h to PerformanceTab. Changed prop type from frontend Video to VideoDetail. Used formatNumber/formatCost from utils.ts. Also shows impressions count.",
           "files": [
-            "frontend/src/components/production/PerformanceTab.tsx",
-            "frontend/src/lib/types.ts"
+            "frontend/src/components/production/PerformanceTab.tsx"
           ]
         },
         {
