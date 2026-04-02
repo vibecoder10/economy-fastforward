@@ -1,6 +1,7 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
+import { execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -505,7 +506,6 @@ const server = http.createServer(async (req, res) => {
 
   // GET /api/pull-requests — fetch open PRs from GitHub
   if (pathname === '/api/pull-requests' && req.method === 'GET') {
-    const { execSync } = require('child_process');
     try {
       const agentDir = path.join(__dirname, '../../storyengine/agents');
       const out = execSync('gh pr list --state open --json number,title,url,additions,deletions,changedFiles,createdAt,headRefName --limit 5 2>/dev/null || echo "[]"', {
