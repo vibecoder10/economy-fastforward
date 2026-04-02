@@ -1,5 +1,57 @@
 # Task Tracking
 
+## Handoff — 2026-04-02
+
+### What Was Built This Session
+
+**Agent Team V4 (shipped + merged to main):**
+- Feedback box on RUBRIC dashboard (POST/GET/dismiss + injected into agent prompts)
+- Skill leveling (calculate-skills.sh, XP/levels on agent cards)
+- Daily retrospective (retro.sh, dashboard retro card, updates agent memory)
+- Telegram Channels integration (bot paired, running in tmux on VPS as Haiku)
+
+**Agent Team V5 (on agent-dev, needs PR to main):**
+- Planning session script (planning-session.sh, 6 AM daily)
+- Morning briefing script (morning-briefing.sh, 7 AM Telegram digest)
+- Real-time Telegram notifications (completions, crashes in run-agent.sh)
+- Boss messaging (MESSAGE_BOSS in agent output → Telegram)
+- Proposals system (API + dashboard card + agent instructions)
+- notify-telegram.sh shared helper
+
+**Email/Password Auth (on agent-dev, needs PR to main):**
+- Register + login endpoints (PBKDF2 hashing, no external deps)
+- Frontend login page with register/sign-in toggle
+- Logout button in sidebar
+- Ryan's account: ryan.ayler@gmail.com / testtest1
+- Data migrated to Ryan's tenant (33 videos, 569 assets, etc.)
+- Agent auth token saved at `storyengine/agents/memory/auth-token.md`
+
+### What Needs to Be Done Next
+
+**Immediate (design work — humans design, agents execute):**
+1. Wire agent skills on Team page — read from actual project skills (superpowers, web-design-system, backend skills, etc.) not hardcoded placeholders
+2. Make agent .md files editable from RUBRIC dashboard — each agent card should have an "Edit Instructions" button that opens their .md file in a text editor
+3. Wire the Skill Trees tab to show real skills from the project
+4. Clean up Focus Directive vs Operator Feedback — either merge them or make the distinction clearer in the UI
+
+**VPS State:**
+- RUBRIC: http://76.13.119.181:5050 (serving from main, but index.html cherry-picked from agent-dev)
+- StoryEngine: http://76.13.119.181:3001 (frontend on agent-dev)
+- Backend: port 8001 (agent-dev, DATABASE_URL uses port 5432 direct connection)
+- Telegram: tmux session `telegram-channel` (Haiku, system prompt at `rubric/scaffold/telegram-system-prompt.md`)
+- Cadence: 48x/day (max), crons installed
+- VPS main branch was reset to origin/main — agents work on agent-dev only
+
+**Config locations (THE source of truth):**
+- `storyengine/.env` — DATABASE_URL, DEV_TENANT_ID, SESSION_SECRET, GOOGLE_CLIENT_ID (this is what backend loads, NOT backend/.env)
+- `storyengine/frontend/.env.local` — NEXT_PUBLIC_GOOGLE_CLIENT_ID
+- `~/.claude/channels/telegram/.env` — TELEGRAM_BOT_TOKEN
+- Ryan's tenant ID: `f6839de2-368c-440d-8559-0292026179fa`
+
+**Key principle from Ryan:** "The bots are not going to design themselves. We design the agents, and they work according to our design." Agent improvements (skills, instructions, proposals) are human design work, not agent self-modification.
+
+---
+
 ## Completed: Pipeline Reorganization (2026-03-24)
 
 Full codebase reorganization of `skills/video-pipeline/`. Each tool is now a standalone folder with its own manifest.json. Agent quality pipeline added (hook/body/CTA with iterative scoring).
