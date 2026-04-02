@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Rubric Icons</title>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #050505; color: #e0e0e0; font-family: 'Outfit', sans-serif; padding: 40px; }
+
+  .brand { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+  .brand-icon { width: 22px; height: 22px; }
+  .brand-name { font-size: 13px; font-weight: 700; color: #ff6b1a; letter-spacing: 0.05em; }
+  .brand-sub { font-size: 11px; color: #444; margin-bottom: 28px; }
+  .brand-sub a { color: #444; text-decoration: none; }
+  .brand-sub a:hover { color: #666; }
+
+  .hero { display: flex; justify-content: center; margin-bottom: 24px; }
+  .hero .card { width: 160px; padding: 24px 16px 14px; }
+  .row { display: grid; grid-template-columns: repeat(10, 1fr); gap: 12px; margin-bottom: 12px; }
+  .card { border: 1px solid #222; border-radius: 10px; text-align: center; padding: 16px 8px 10px; background: #0a0a0a; cursor: pointer; transition: border-color 0.15s, background 0.15s; position: relative; }
+  .card:hover { border-color: #ff6b1a; background: #0f0f0f; }
+  .card.copied { border-color: #30d158; }
+  .card canvas { display: block; margin: 0 auto 8px; }
+  .card .name { font-size: 12px; font-weight: 700; }
+  .card .idx { font-size: 9px; color: #333; margin-top: 2px; }
+
+  .toast { position: fixed; bottom: 32px; left: 50%; transform: translateX(-50%); background: #1a1a1a; border: 1px solid #333; color: #e0e0e0; font-size: 12px; font-family: 'Outfit', sans-serif; padding: 10px 18px; border-radius: 8px; opacity: 0; transition: opacity 0.2s; pointer-events: none; z-index: 999; }
+  .toast.show { opacity: 1; }
+  .toast span { color: #ff6b1a; font-weight: 700; }
+</style>
+</head>
+<body>
+
+<div class="brand">
+  <svg class="brand-icon" viewBox="0 0 22 22" fill="none">
+    <polygon points="11,1 20,6 20,16 11,21 2,16 2,6" fill="none" stroke="#ff6b1a" stroke-width="1.5"/>
+    <polygon points="11,5 17,8.5 17,15.5 11,19 5,15.5 5,8.5" fill="#ff6b1a" opacity="0.15"/>
+  </svg>
+  <span class="brand-name">RUBRIC Icons</span>
+</div>
+<div class="brand-sub">The command center for AI agents &nbsp;·&nbsp; Created by <a href="https://robolabs.so" target="_blank">RoboLabs</a> &nbsp;·&nbsp; <a href="https://robonuggets.com" target="_blank">RoboNuggets</a></div>
+
+<div class="hero" id="hero"></div>
+<div id="grid"></div>
+
+<div class="toast" id="toast">Copied <span id="toast-name"></span> to clipboard</div>
+
+<script>
+const robo = { n: "Robo", c: "#ffffff", p: [[0,0,1,0],[1,1,1,1],[1,1,1,1],[1,0,1,1],[1,1,1,1],[1,1,1,1],[1,0,0,1],[0,0,0,0]] };
+
+const D = [
+  // Row 1
+  { n: "Crown",    c: "#e8c547", p: [[1,0,1,0],[1,0,1,1],[1,1,1,1],[0,1,0,1],[0,1,1,1],[0,1,1,1],[0,1,0,1],[0,0,0,0]] },
+  { n: "Sentinel", c: "#ff2d55", p: [[0,1,1,0],[1,1,1,1],[1,1,1,1],[1,1,0,1],[0,1,1,1],[0,1,1,0],[0,1,1,0],[1,0,0,1]] },
+  { n: "Fortress", c: "#ff9500", p: [[1,0,0,1],[1,1,1,1],[1,1,1,1],[1,1,0,1],[1,1,1,1],[1,1,1,1],[1,0,1,0],[0,0,0,0]] },
+  { n: "Phantom",  c: "#af52de", p: [[0,0,1,1],[0,1,1,1],[1,1,0,1],[1,1,1,1],[0,1,1,1],[0,1,1,1],[0,1,0,0],[1,0,0,0]] },
+  { n: "Spark",    c: "#30d158", p: [[0,0,0,1],[0,0,1,1],[0,1,1,1],[1,1,0,1],[1,1,1,1],[1,1,1,0],[0,1,0,0],[0,0,0,0]] },
+  { n: "Apex",     c: "#ff3b30", p: [[0,0,1,0],[0,1,1,0],[0,1,1,1],[1,1,0,1],[1,1,1,1],[1,1,1,1],[0,1,1,0],[0,0,0,0]] },
+  { n: "Drift",    c: "#5ac8fa", p: [[0,0,0,0],[0,1,0,1],[1,1,1,1],[1,1,0,1],[1,1,1,1],[0,1,1,0],[0,0,1,1],[0,0,0,0]] },
+  { n: "Halo",     c: "#ffd60a", p: [[0,1,1,1],[1,0,0,0],[1,1,1,1],[1,1,0,1],[1,1,1,1],[1,1,1,1],[0,1,0,1],[0,0,0,0]] },
+  { n: "Claw",     c: "#ff6723", p: [[1,0,0,0],[1,0,0,0],[1,1,1,1],[0,1,0,1],[0,1,1,1],[1,1,1,1],[1,0,0,0],[0,0,0,0]] },
+  { n: "Prism",    c: "#64d2ff", p: [[0,0,1,0],[0,1,0,1],[0,1,1,1],[1,1,0,1],[1,1,1,1],[0,1,1,0],[0,0,1,0],[0,0,0,0]] },
+  // Row 2
+  { n: "Fang",     c: "#bf5af2", p: [[0,0,0,0],[0,1,1,1],[1,1,1,1],[1,1,0,1],[1,1,1,1],[0,1,1,0],[0,1,0,1],[0,0,0,0]] },
+  { n: "Orb",      c: "#34c759", p: [[0,0,1,1],[0,1,1,1],[1,1,1,1],[1,1,0,1],[1,1,1,1],[0,1,1,1],[0,0,1,1],[0,0,0,0]] },
+  { n: "Pike",     c: "#ff6482", p: [[0,0,1,0],[0,0,1,0],[0,1,1,1],[0,1,0,1],[1,1,1,1],[0,1,1,1],[0,1,1,0],[0,0,0,0]] },
+  { n: "Ember",    c: "#ff453a", p: [[0,1,0,0],[1,1,1,0],[1,1,1,1],[1,1,0,1],[0,1,1,1],[0,0,1,1],[0,0,1,0],[0,0,0,0]] },
+  { n: "Rune",     c: "#5e5ce6", p: [[1,0,1,0],[0,1,1,1],[0,1,1,1],[1,1,0,1],[0,1,1,1],[0,1,1,1],[1,0,1,0],[0,0,0,0]] },
+  { n: "Sage",     c: "#00c7be", p: [[0,0,1,0],[0,1,1,1],[0,1,1,1],[1,1,0,1],[1,1,1,1],[0,1,1,0],[0,1,0,0],[0,0,0,0]] },
+  { n: "Nova",     c: "#ffcc02", p: [[0,0,1,0],[0,1,0,1],[1,1,1,1],[1,1,0,1],[1,1,1,1],[1,0,1,0],[0,0,1,0],[0,0,0,0]] },
+  { n: "Blade",    c: "#8e8e93", p: [[0,0,0,1],[0,0,1,1],[0,1,1,1],[0,1,0,1],[1,1,1,1],[1,1,1,0],[1,0,0,0],[0,0,0,0]] },
+  { n: "Mist",     c: "#aeaeb2", p: [[0,1,1,0],[1,1,1,1],[0,1,1,1],[0,1,0,1],[0,1,1,1],[1,1,1,1],[0,1,1,0],[0,0,0,0]] },
+  { n: "Thorn",    c: "#0a84ff", p: [[1,0,0,0],[1,1,0,0],[1,1,1,1],[0,1,0,1],[1,1,1,1],[0,1,1,0],[0,0,1,0],[0,0,0,0]] },
+  // Row 3
+  { n: "Flare",    c: "#ff375f", p: [[0,1,0,0],[0,1,1,0],[1,1,1,1],[1,1,0,1],[1,1,1,1],[0,1,1,0],[0,1,0,0],[0,0,0,0]] },
+  { n: "Pulse",    c: "#da77f2", p: [[0,0,0,0],[0,0,1,1],[0,1,1,1],[1,1,0,1],[0,1,1,1],[0,0,1,0],[0,0,0,0],[0,0,0,0]] },
+  { n: "Titan",    c: "#c41e3a", p: [[1,1,0,0],[1,1,1,1],[1,1,1,1],[1,1,0,1],[1,1,1,1],[1,1,1,1],[1,0,0,1],[0,0,0,0]] },
+  { n: "Wisp",     c: "#b4d455", p: [[0,0,1,0],[0,0,1,1],[0,1,0,1],[0,1,1,1],[0,1,1,0],[0,0,1,1],[0,0,1,0],[0,0,0,0]] },
+  { n: "Shard",    c: "#7b68ee", p: [[0,0,0,1],[0,0,1,1],[0,1,1,1],[1,1,0,1],[0,1,1,1],[0,1,1,0],[0,0,0,1],[0,0,0,0]] },
+  { n: "Warden",   c: "#2ecc71", p: [[0,1,0,1],[1,1,1,1],[1,1,1,1],[1,1,0,1],[1,1,1,1],[1,1,1,1],[0,1,0,1],[0,0,0,0]] },
+  { n: "Echo",     c: "#007aff", p: [[0,0,0,1],[0,1,1,1],[1,1,1,0],[1,1,0,1],[1,1,1,0],[0,1,1,1],[0,0,0,1],[0,0,0,0]] },
+  { n: "Fuse",     c: "#ff2d92", p: [[0,0,0,0],[1,0,1,0],[1,1,1,1],[0,1,0,1],[1,1,1,1],[1,0,1,0],[0,0,0,0],[0,0,0,0]] },
+  { n: "Crux",     c: "#eb2f06", p: [[0,1,0,0],[0,1,1,1],[1,1,1,1],[1,1,0,1],[1,1,1,0],[0,1,1,1],[0,1,0,0],[0,0,0,0]] },
+  { n: "Spire",    c: "#0fb9b1", p: [[0,0,1,0],[0,0,1,0],[0,0,1,1],[0,1,0,1],[0,1,1,1],[1,1,1,1],[1,0,1,0],[0,0,0,0]] },
+  // Row 4
+  { n: "Helm",     c: "#636e72", p: [[0,1,1,1],[1,1,1,1],[1,1,1,1],[1,1,0,1],[0,1,1,1],[0,0,1,0],[0,0,0,0],[0,0,0,0]] },
+  { n: "Torque",   c: "#f9ca24", p: [[1,0,0,0],[1,1,1,0],[0,1,1,1],[0,1,0,1],[0,1,1,1],[1,1,1,0],[1,0,0,0],[0,0,0,0]] },
+  { n: "Oxide",    c: "#e67e22", p: [[0,0,0,0],[0,0,1,0],[0,1,1,1],[1,1,0,1],[1,1,1,1],[1,1,1,0],[0,1,1,0],[1,0,0,1]] },
+  { n: "Aegis",    c: "#27ae60", p: [[0,0,1,0],[0,1,1,1],[1,1,1,1],[1,1,0,1],[1,1,1,1],[0,1,1,1],[0,0,1,0],[0,0,1,0]] },
+  { n: "Flux",     c: "#9b59b6", p: [[1,0,0,1],[0,1,1,1],[0,1,1,1],[1,1,0,1],[0,1,1,0],[0,1,1,1],[1,0,0,1],[0,0,0,0]] },
+  { n: "Pylon",    c: "#1dd1a1", p: [[0,0,1,0],[0,0,1,1],[0,1,1,1],[0,1,0,1],[0,1,1,1],[0,1,1,1],[1,1,1,1],[0,0,0,0]] },
+  { n: "Monolith", c: "#576574", p: [[0,0,1,1],[0,1,1,1],[0,1,1,1],[0,1,0,1],[0,1,1,1],[0,1,1,1],[0,0,1,0],[0,0,0,0]] },
+  { n: "Volt",     c: "#feca57", p: [[0,0,0,0],[1,1,0,1],[1,1,1,1],[0,1,0,1],[1,1,1,0],[1,1,1,1],[0,0,0,0],[0,0,0,0]] },
+  { n: "Nimbus",   c: "#54a0ff", p: [[0,1,1,1],[1,1,1,1],[1,1,0,1],[0,1,1,1],[0,0,1,1],[0,0,0,0],[0,0,0,0],[0,0,0,0]] },
+  { n: "Rook",     c: "#ee5253", p: [[1,0,1,0],[1,1,1,1],[0,1,1,1],[0,1,0,1],[0,1,1,1],[1,1,1,1],[0,1,0,1],[0,0,0,0]] },
+  // Row 5
+  { n: "Specter",  c: "#c8d6e5", p: [[0,0,1,0],[0,1,1,1],[1,1,0,1],[1,1,1,1],[1,1,1,0],[0,1,0,1],[0,0,0,0],[0,0,0,0]] },
+  { n: "Obelisk",  c: "#78e08f", p: [[0,0,1,0],[0,0,1,1],[0,1,0,1],[0,1,1,1],[0,1,1,1],[0,1,0,1],[0,0,1,0],[0,0,0,0]] },
+  { n: "Arc",      c: "#e77f67", p: [[0,1,1,0],[1,0,0,0],[1,1,1,1],[1,1,0,1],[1,1,1,1],[1,0,0,0],[0,1,1,0],[0,0,0,0]] },
+  { n: "Beacon",   c: "#3dc1d3", p: [[0,0,1,0],[0,0,1,1],[0,1,1,1],[1,1,0,1],[1,1,1,1],[1,1,1,1],[1,0,0,1],[0,0,0,0]] },
+  { n: "Comet",    c: "#f8a5c2", p: [[0,0,0,1],[0,1,1,1],[0,1,1,1],[0,1,0,1],[1,1,1,1],[1,1,0,0],[0,1,0,0],[0,0,0,0]] },
+  { n: "Nexus",    c: "#6a89cc", p: [[0,0,0,0],[0,1,1,0],[1,1,1,1],[1,1,0,1],[0,1,1,1],[0,1,1,0],[0,0,0,0],[0,0,0,0]] },
+  { n: "Cipher",   c: "#38ada9", p: [[1,0,0,0],[0,1,0,0],[0,1,1,1],[1,1,0,1],[0,1,1,0],[0,1,0,0],[1,0,0,0],[0,0,0,0]] },
+  { n: "Strider",  c: "#fa983a", p: [[0,0,1,0],[0,1,1,1],[1,1,1,1],[0,1,0,1],[0,1,1,0],[0,1,0,1],[1,0,0,1],[0,0,0,0]] },
+  { n: "Glyph",    c: "#b71540", p: [[0,1,0,1],[0,1,1,1],[1,1,1,1],[1,1,0,1],[0,1,1,1],[0,1,1,0],[0,1,0,1],[0,0,0,0]] },
+  { n: "Vertex",   c: "#0abde3", p: [[0,0,1,0],[0,1,1,0],[1,1,1,1],[0,1,0,1],[1,1,1,1],[0,1,1,0],[0,0,1,0],[0,0,0,0]] },
+];
+
+function makeHopSvg(pixels, color, idx, size) {
+  const cols = 8;
+  const lastRow = pixels.length - 1;
+  let bodyRects = '', legRects = '';
+  for (let y = 0; y < pixels.length; y++) {
+    for (let x = 0; x < pixels[y].length; x++) {
+      if (pixels[y][x]) {
+        const r1 = `<rect x="${x}" y="${y}" width="1" height="1" fill="${color}"/>`;
+        const r2 = `<rect x="${cols - 1 - x}" y="${y}" width="1" height="1" fill="${color}"/>`;
+        if (y >= lastRow) { legRects += r1 + r2; } else { bodyRects += r1 + r2; }
+      }
+    }
+  }
+  const id = 'ic' + idx;
+  return `<svg viewBox="0 0 8 9" width="${size}" height="${size * 9/8}" style="image-rendering:pixelated;display:block;margin:0 auto 8px;">
+    <style>
+      .${id}b{animation:${id}h 1.2s ease-in-out infinite;animation-delay:${(idx*0.07)%1.2}s}
+      @keyframes ${id}h{0%,100%{transform:translateY(0)}15%{transform:translateY(-0.6px)}30%{transform:translateY(0)}}
+      .${id}l{animation:${id}lh 1.2s ease-in-out infinite;animation-delay:${(idx*0.07)%1.2}s}
+      @keyframes ${id}lh{0%,100%{transform:translateY(0)}15%{transform:translateY(0.15px)}30%{transform:translateY(0)}}
+      .${id}s{animation:${id}sh 1.2s ease-in-out infinite;transform-origin:4px 8.5px;animation-delay:${(idx*0.07)%1.2}s}
+      @keyframes ${id}sh{0%,100%{opacity:0.12;transform:scaleX(1)}15%{opacity:0.06;transform:scaleX(0.7)}30%{opacity:0.12;transform:scaleX(1)}}
+    </style>
+    <ellipse class="${id}s" cx="4" cy="8.5" rx="2.5" ry="0.25" fill="${color}"/>
+    <g class="${id}b">${bodyRects}</g>
+    <g class="${id}l">${legRects}</g>
+  </svg>`;
+}
+
+let toastTimer;
+function showToast(name) {
+  const toast = document.getElementById('toast');
+  document.getElementById('toast-name').textContent = name;
+  toast.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toast.classList.remove('show'), 2000);
+}
+
+function copyName(name, card) {
+  navigator.clipboard.writeText(name).then(() => {
+    showToast(name);
+    card.classList.add('copied');
+    setTimeout(() => card.classList.remove('copied'), 1000);
+  });
+}
+
+// Robo hero
+const heroDiv = document.getElementById('hero');
+const hCard = document.createElement('div');
+hCard.className = 'card';
+hCard.innerHTML = makeHopSvg(robo.p, robo.c, 999, 100) + `<div class="name" style="color:${robo.c}">${robo.n}</div><div class="idx">The Original</div>`;
+hCard.addEventListener('click', () => copyName(robo.n, hCard));
+heroDiv.appendChild(hCard);
+
+// Grid
+const grid = document.getElementById('grid');
+for (let r = 0; r < D.length; r += 10) {
+  const row = document.createElement('div');
+  row.className = 'row';
+  for (let i = r; i < r + 10 && i < D.length; i++) {
+    const d = D[i];
+    const div = document.createElement('div');
+    div.className = 'card';
+    div.innerHTML = makeHopSvg(d.p, d.c, i, 80) + `<div class="name" style="color:${d.c}">${d.n}</div><div class="idx">#${i+1}</div>`;
+    div.addEventListener('click', () => copyName(d.n, div));
+    row.appendChild(div);
+  }
+  grid.appendChild(row);
+}
+</script>
+</body>
+</html>

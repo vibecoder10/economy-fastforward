@@ -1,0 +1,26 @@
+{
+  "agents": [
+    {
+      "id": "my-agent",
+      "name": "My Agent",
+      "color": "#58abf5",
+      "icon": "Crown",
+      "workspace": "../agents/my-agent"
+    },
+    {
+      "id": "helper",
+      "name": "Helper Bot",
+      "color": "#50e3c2",
+      "icon": "Spark",
+      "workspace": "../agents/helper"
+    }
+  ],
+  "skillDirs": [
+    "../.claude/skills",
+    "../agents/my-agent/.claude/skills"
+  ],
+  "docPaths": {
+    "claude": "CLAUDE.md",
+    "soul": "SOUL.md"
+  }
+}

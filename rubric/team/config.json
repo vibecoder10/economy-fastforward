@@ -1,0 +1,45 @@
+{
+  "brandName": "StoryEngine Agents",
+  "mission": "Ship StoryEngine to feature-complete. Every pipeline stage gets a working UI. No polish until everything works end-to-end.",
+  "serverLabel": "local-mac",
+  "skillsRoot": "../",
+  "lead": {
+    "id": "orchestrator",
+    "name": "Orchestrator",
+    "badge": "Lead",
+    "role": "Task Planner & Pipeline Auditor",
+    "description": "Analyzes the full pipeline daily. Maps what exists vs what's missing. Creates the task list. Assigns work. Advances to the next tab only when QA confirms 100% complete.",
+    "skills": ["Pipeline Analysis", "Task Planning", "Codebase Audit", "Progress Tracking"],
+    "icon": "Crown",
+    "color": "#D4A844"
+  },
+  "agents": [
+    {
+      "id": "backend-dev",
+      "name": "Backend Dev",
+      "role": "FastAPI + Supabase Engineer",
+      "description": "Builds API routes, Pydantic models, database migrations, and backend wiring. Ensures every pipeline action has a working endpoint.",
+      "skills": ["FastAPI Routes", "Pydantic Models", "PostgreSQL", "asyncpg", "Supabase"],
+      "icon": "Fortress",
+      "color": "#1A8A7A"
+    },
+    {
+      "id": "frontend-dev",
+      "name": "Frontend Dev",
+      "role": "Next.js + React Engineer",
+      "description": "Builds UI components, pages, TypeScript types, and API client calls. Wires every backend endpoint to a visible, interactive UI element.",
+      "skills": ["Next.js 16", "React 19", "TypeScript", "TailwindCSS 4", "Framer Motion"],
+      "icon": "Spark",
+      "color": "#58abf5"
+    },
+    {
+      "id": "qa-engineer",
+      "name": "QA Engineer",
+      "role": "Verification & Wiring Auditor",
+      "description": "Runs tsc --noEmit, curls endpoints, runs Playwright checks. Verifies every button works, every API call succeeds, every type matches. Fails tasks back to Backend/Frontend if broken.",
+      "skills": ["TypeScript Checking", "API Testing", "Playwright", "Wiring Audits"],
+      "icon": "Sentinel",
+      "color": "#e35050"
+    }
+  ]
+}

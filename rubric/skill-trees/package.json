@@ -1,0 +1,14 @@
+{
+  "name": "skill-tree",
+  "version": "1.0.0",
+  "description": "Force-directed skill tree visualizer for AI agent workspaces",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {},
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

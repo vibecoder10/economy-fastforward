@@ -1,0 +1,9 @@
+{
+  "name": "rubric-crons",
+  "version": "1.0.0",
+  "description": "RUBRIC Crons — weekly calendar view for AI agent scheduled tasks",
+  "type": "module",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "license": "MIT"
+}

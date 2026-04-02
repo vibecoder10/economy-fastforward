@@ -1,0 +1,29 @@
+{
+  "description": "StoryEngine Agent Schedule — All 3 agents every hour, 24/7. Staggered by 2 min for git safety.",
+  "crons": [
+    {
+      "id": "orchestrator-daily",
+      "name": "Orchestrator — Daily audit & task planning",
+      "cron": "0 5 * * *",
+      "enabled": true
+    },
+    {
+      "id": "backend-dev-hourly",
+      "name": "Backend Dev — Every hour at :00",
+      "cron": "0 * * * *",
+      "enabled": true
+    },
+    {
+      "id": "frontend-dev-hourly",
+      "name": "Frontend Dev — Every hour at :02",
+      "cron": "2 * * * *",
+      "enabled": true
+    },
+    {
+      "id": "qa-engineer-hourly",
+      "name": "QA Engineer — Every hour at :04",
+      "cron": "4 * * * *",
+      "enabled": true
+    }
+  ]
+}

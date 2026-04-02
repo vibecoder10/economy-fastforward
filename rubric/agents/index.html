@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RUBRIC Agents</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48' fill='none' stroke='%23ff6b1a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M24 6l18 10v16L24 42 6 32V16Z'/%3E%3Cpath d='M24 6v16l18 10' opacity='0.5'/%3E%3Cpath d='M24 22L6 32' opacity='0.5'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #000;
+    --surface: #0a0a0a;
+    --border: #1a1a1a;
+    --border-hover: #333;
+    --text: #fff;
+    --text-secondary: #888;
+    --text-muted: #555;
+    --green: #50e3c2;
+    --accent: #50e3c2;
+    --red: #e00;
+    --amber: #f5a623;
+    --radius-card: 16px;
+    --ease: cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { min-height: 100vh; background: var(--bg); color: var(--text); font-family: 'Outfit', sans-serif; }
+
+  /* Brand */
+  .brand {
+    display: flex; align-items: center; gap: 10px; padding: 32px 32px 0;
+  }
+  .brand-icon { width: 22px; height: 22px; flex-shrink: 0; }
+  .brand-text { display: flex; flex-direction: column; }
+  .brand-name { font-size: 15px; font-weight: 600; letter-spacing: 0.5px; }
+  .brand-name span { font-weight: 400; color: #555; }
+  .brand-tagline { font-size: 10px; color: #555; margin-top: 2px; }
+  .brand-sub { font-size: 9px; color: #444; }
+  .brand-sub a { color: #555; text-decoration: none; }
+  .brand-sub a:hover { color: #777; }
+
+  /* Agents container */
+  .agents-container { padding: 32px; }
+  .agents-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }
+  .agents-title { font-size: 20px; font-weight: 700; color: var(--text); letter-spacing: -0.3px; }
+  .agents-demo-btn {
+    background: none; border: 1px solid #222; color: #444; padding: 6px 14px; border-radius: 6px;
+    font-size: 11px; font-weight: 600; cursor: pointer; transition: all 0.2s;
+    display: flex; align-items: center; gap: 6px; font-family: 'Outfit', sans-serif;
+  }
+  .agents-demo-btn:hover { border-color: #444; color: #888; }
+  .agents-demo-btn.active { border-color: var(--accent); color: var(--accent); }
+  .agents-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+
+  /* Agent card */
+  .agent-card-big {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 16px;
+    padding: 32px; display: flex; flex-direction: column; align-items: center;
+    justify-content: center; gap: 16px; transition: border-color 0.3s;
+    position: relative; overflow: hidden;
+  }
+  .agent-card-big:hover { border-color: #333; }
+  .agent-card-big .agent-card-glow {
+    position: absolute; inset: 0; opacity: 0; transition: opacity 0.5s; pointer-events: none;
+  }
+  .agent-card-big.status-active .agent-card-glow { opacity: 1; }
+  .agent-card-big.status-waiting .agent-card-glow { opacity: 1; }
+  .agent-card-big .agent-card-icon { width: 64px; height: 64px; image-rendering: pixelated; }
+  .agent-card-big .agent-card-icon-wrap {
+    width: 64px; height: 72px; display: flex; align-items: center; justify-content: center;
+  }
+  .agent-card-big .agent-card-name { font-size: 18px; font-weight: 700; color: var(--text); }
+  .agent-card-big .agent-card-role { font-size: 12px; color: var(--text-muted); margin-top: -8px; }
+  .agent-card-big .agent-card-status { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+  .agent-card-big .agent-card-dot {
+    width: 10px; height: 10px; border-radius: 50%; transition: all 0.3s;
+  }
+  .agent-card-big .agent-card-dot.idle { background: #333; }
+  .agent-card-big .agent-card-dot.active { background: var(--accent); box-shadow: 0 0 8px rgba(80,227,194,0.5); animation: pulse-dot 2s ease-in-out infinite; }
+  .agent-card-big .agent-card-dot.waiting { background: #e35050; box-shadow: 0 0 8px rgba(227,80,80,0.5); animation: pulse-dot 1s ease-in-out infinite; }
+  .agent-card-big .agent-card-dot.recent { background: #f5a623; box-shadow: 0 0 6px rgba(245,166,35,0.3); }
+  .agent-card-big .agent-card-task { font-size: 12px; color: var(--text-muted); min-height: 16px; }
+  @keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+
+  /* Responsive */
+  @media (max-width: 900px) {
+    .agents-grid { grid-template-columns: repeat(2, 1fr); }
+  }
+  @media (max-width: 600px) {
+    .agents-grid { grid-template-columns: 1fr; }
+    .agents-container { padding: 16px; }
+    .brand { padding: 16px 16px 0; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Brand -->
+<div class="brand">
+  <svg class="brand-icon" viewBox="0 0 22 22" fill="none">
+    <polygon points="11,1 20,6 20,16 11,21 2,16 2,6" fill="none" stroke="#ff6b1a" stroke-width="1.5"/>
+    <polygon points="11,5 17,8.5 17,15.5 11,19 5,15.5 5,8.5" fill="#ff6b1a" opacity="0.15"/>
+  </svg>
+  <div class="brand-text">
+    <div class="brand-name" id="brand-name">RUBRIC <span>Agents</span></div>
+    <div class="brand-tagline">The command center for AI agents</div>
+    <div class="brand-sub">Created by <a href="https://robolabs.so" target="_blank">RoboLabs</a> &middot; Learn more at <a href="https://robonuggets.com" target="_blank">RoboNuggets</a></div>
+  </div>
+</div>
+
+<!-- Agent Grid -->
+<div class="agents-container">
+  <div class="agents-header">
+    <span class="agents-title">Agents</span>
+    <button class="agents-demo-btn" id="agents-demo-btn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+      Demo
+    </button>
+  </div>
+  <div class="agents-grid" id="agents-grid"></div>
+</div>
+
+<script>
+(function() {
+  let AGENT_DEFS = [];
+  const DEMO_TASKS = [
+    'wrangling files', 'conjuring code', 'forging commands', 'brewing patterns',
+    'juggling subagents', 'herding messages', 'summoning crons', 'polishing skills',
+    'assembling search', 'crafting designs', 'spinning paths', 'sculpting tasks'
+  ];
+
+  const grid = document.getElementById('agents-grid');
+  const demoBtn = document.getElementById('agents-demo-btn');
+  let demoInterval = null;
+  let demoState = {};
+
+  // Build SVG pixel rects for an agent
+  function buildSvgRects(pixels, color) {
+    const cols = 8;
+    let bodyRects = '', legRects = '';
+    const lastRow = pixels.length - 1;
+    for (let y = 0; y < pixels.length; y++) {
+      for (let x = 0; x < pixels[y].length; x++) {
+        if (pixels[y][x]) {
+          const r1 = `<rect x="${x}" y="${y}" width="1" height="1" fill="${color}"/>`;
+          const r2 = `<rect x="${cols - 1 - x}" y="${y}" width="1" height="1" fill="${color}"/>`;
+          if (y >= lastRow) { legRects += r1 + r2; } else { bodyRects += r1 + r2; }
+        }
+      }
+    }
+    return { bodyRects, legRects };
+  }
+
+  // Generate hopping SVG icon (active agents)
+  function makeHopSvg(pixels, color, idx) {
+    const id = 'ah' + idx;
+    const { bodyRects, legRects } = buildSvgRects(pixels, color);
+    return `<svg viewBox="0 0 8 9" width="64" height="72" style="image-rendering:pixelated;">
+      <style>
+        .${id}b { animation: ${id}hop 1.2s ease-in-out infinite; animation-delay: ${idx * 0.2}s; }
+        @keyframes ${id}hop { 0%,100%{transform:translateY(0)} 15%{transform:translateY(-0.6px)} 30%{transform:translateY(0)} }
+        .${id}l { animation: ${id}lh 1.2s ease-in-out infinite; animation-delay: ${idx * 0.2}s; }
+        @keyframes ${id}lh { 0%,100%{transform:translateY(0)} 15%{transform:translateY(0.15px)} 30%{transform:translateY(0)} }
+        .${id}s { animation: ${id}sh 1.2s ease-in-out infinite; transform-origin: 4px 8.5px; animation-delay: ${idx * 0.2}s; }
+        @keyframes ${id}sh { 0%,100%{opacity:0.12;transform:scaleX(1)} 15%{opacity:0.06;transform:scaleX(0.7)} 30%{opacity:0.12;transform:scaleX(1)} }
+      </style>
+      <ellipse class="${id}s" cx="4" cy="8.5" rx="2.5" ry="0.25" fill="${color}"/>
+      <g class="${id}b">${bodyRects}</g>
+      <g class="${id}l">${legRects}</g>
+    </svg>`;
+  }
+
+  // Generate static SVG icon (idle/waiting/recent agents)
+  function makeStaticSvg(pixels, color) {
+    const { bodyRects, legRects } = buildSvgRects(pixels, color);
+    return `<svg viewBox="0 0 8 8" width="64" height="64" style="image-rendering:pixelated;">
+      ${bodyRects}${legRects}
+    </svg>`;
+  }
+
+  function renderAgentsGrid(agentStatuses) {
+    grid.innerHTML = AGENT_DEFS.map((a, idx) => {
+      const s = agentStatuses ? agentStatuses.find(x => x.id === a.id) : null;
+      const status = s ? s.status : 'idle';
+      const task = s ? s.lastTask : 'Idle';
+      const ageMin = s ? s.ageMin : null;
+      let statusLabel = status === 'active' ? 'Active' : status === 'waiting' ? 'Deep Work' : status === 'idle' ? 'Idle' : 'Recent';
+      if (status === 'recent' && ageMin !== null) statusLabel = ageMin === 0 ? 'Just now' : ageMin < 60 ? ageMin + 'm ago' : Math.floor(ageMin / 60) + 'h ago';
+      const glowColor = status === 'active' ? a.color : status === 'waiting' ? '#e35050' : 'transparent';
+      const pixels = a.pixels || [];
+      const iconHtml = status === 'active' ? makeHopSvg(pixels, a.color, idx) : makeStaticSvg(pixels, a.color);
+      return `<div class="agent-card-big status-${status}" data-agent="${a.id}">
+        <div class="agent-card-glow" style="background:radial-gradient(circle at 50% 40%, ${glowColor}08 0%, transparent 70%);"></div>
+        <div class="agent-card-icon-wrap">${iconHtml}</div>
+        <span class="agent-card-name">${a.name}</span>
+        <span class="agent-card-role">${a.role || ''}</span>
+        <div class="agent-card-status">
+          <span class="agent-card-dot ${status}"></span>
+          <span>${statusLabel}</span>
+        </div>
+        <span class="agent-card-task">${task || ''}</span>
+      </div>`;
+    }).join('');
+  }
+
+  // --- Load config and start ---
+  async function init() {
+    try {
+      const resp = await fetch('/api/config');
+      const config = await resp.json();
+      AGENT_DEFS = config.agents || [];
+
+      // Update brand name
+      if (config.brandName) {
+        const el = document.getElementById('brand-name');
+        const parts = config.brandName.split(' ');
+        const main = parts[0] || 'RUBRIC';
+        const product = parts.slice(1).join(' ') || '';
+        el.innerHTML = main + (product ? ' <span>' + product + '</span>' : '');
+        document.title = config.brandName;
+      }
+    } catch {}
+
+    renderAgentsGrid(null);
+    pollAgentStatus();
+    setInterval(pollAgentStatus, 10000);
+  }
+
+  // --- Poll status ---
+  async function pollAgentStatus() {
+    if (demoInterval) return;
+    try {
+      const res = await fetch('/api/agent-status', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      if (!res.ok) return;
+      const data = await res.json();
+      renderAgentsGrid(data.agents);
+    } catch {}
+  }
+
+  // --- Demo mode ---
+  demoBtn.addEventListener('click', () => {
+    if (demoInterval) {
+      clearInterval(demoInterval);
+      demoInterval = null;
+      demoBtn.classList.remove('active');
+      demoState = {};
+      pollAgentStatus();
+      return;
+    }
+    demoBtn.classList.add('active');
+
+    AGENT_DEFS.forEach((a, i) => {
+      demoState[a.id] = {
+        status: i < 2 ? 'recent' : 'idle',
+        task: i < 2 ? DEMO_TASKS[i] : 'Idle',
+        taskAge: i < 2 ? 1 : 0,
+        agoMin: i < 2 ? 2 : 0
+      };
+    });
+
+    function demoTick() {
+      const ids = AGENT_DEFS.map(a => a.id);
+      const numChanges = Math.random() < 0.6 ? 1 : 2;
+      for (let c = 0; c < numChanges; c++) {
+        const id = ids[Math.floor(Math.random() * ids.length)];
+        const s = demoState[id];
+        if (s.status === 'idle') {
+          s.status = 'recent';
+          s.task = s.task === 'Idle' ? DEMO_TASKS[Math.floor(Math.random() * DEMO_TASKS.length)] : s.task;
+          s.agoMin = Math.floor(Math.random() * 4) + 1;
+        } else if (s.status === 'recent') {
+          s.status = 'active';
+          s.task = DEMO_TASKS[Math.floor(Math.random() * DEMO_TASKS.length)];
+          s.taskAge = 0;
+        } else if (s.status === 'active') {
+          s.taskAge++;
+          if (s.taskAge > 2) {
+            if (Math.random() < 0.2) {
+              s.status = 'waiting';
+            } else {
+              s.status = 'idle';
+              s.agoMin = 0;
+            }
+          }
+          if (s.taskAge === 2 && Math.random() < 0.4) {
+            s.task = DEMO_TASKS[Math.floor(Math.random() * DEMO_TASKS.length)];
+          }
+        } else if (s.status === 'waiting') {
+          s.status = 'active';
+          s.taskAge = 0;
+        }
+      }
+
+      const fakeStatuses = AGENT_DEFS.map(a => {
+        const s = demoState[a.id];
+        let lastTask = s.task;
+        if (s.status === 'recent') lastTask = s.task;
+        else if (s.status === 'idle') lastTask = 'Idle';
+        else if (s.status === 'waiting') lastTask = 'waiting...';
+        return { id: a.id, status: s.status, lastTask, ageMin: s.status === 'recent' ? s.agoMin : null };
+      });
+      renderAgentsGrid(fakeStatuses);
+    }
+    demoTick();
+    demoInterval = setInterval(demoTick, 3000);
+  });
+
+  init();
+})();
+</script>
+</body>
+</html>

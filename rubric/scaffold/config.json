@@ -1,0 +1,29 @@
+{
+  "brandName": "StoryEngine Agents",
+  "agents": [
+    {
+      "id": "orchestrator",
+      "name": "Orchestrator",
+      "color": "#D4A844",
+      "icon": "Crown"
+    },
+    {
+      "id": "backend-dev",
+      "name": "Backend Dev",
+      "color": "#1A8A7A",
+      "icon": "Fortress"
+    },
+    {
+      "id": "frontend-dev",
+      "name": "Frontend Dev",
+      "color": "#58abf5",
+      "icon": "Spark"
+    },
+    {
+      "id": "qa-engineer",
+      "name": "QA Engineer",
+      "color": "#e35050",
+      "icon": "Sentinel"
+    }
+  ]
+}

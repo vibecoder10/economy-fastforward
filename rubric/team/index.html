@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RUBRIC Team</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48' fill='none' stroke='%23ff6b1a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M24 6l18 10v16L24 42 6 32V16Z'/%3E%3Cpath d='M24 6v16l18 10' opacity='0.5'/%3E%3Cpath d='M24 22L6 32' opacity='0.5'/%3E%3C/svg%3E">
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg: #000;
+      --surface: #0a0a0a;
+      --border: #1a1a1a;
+      --border-hover: #333;
+      --text: #fff;
+      --text-secondary: #888;
+      --text-muted: #555;
+      --green: #50e3c2;
+      --accent: #50e3c2;
+      --red: #e00;
+      --amber: #f5a623;
+      --radius-card: 16px;
+      --radius-pill: 20px;
+      --ease: cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
+      min-height: 100vh;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Brand block */
+    .brand { padding: 24px 32px 0; }
+    .brand-row { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+    .brand-icon { width: 22px; height: 22px; }
+    .brand-name { font-size: 13px; font-weight: 700; color: #ff6b1a; letter-spacing: 0.05em; }
+    .brand-sub { font-size: 11px; color: #444; padding-left: 32px; }
+    .brand-sub a { color: #444; text-decoration: none; }
+    .brand-sub a:hover { color: #666; }
+
+    /* Team styles */
+    .team-container { padding: 32px; max-width: 900px; margin: 0 auto; }
+    .team-quote { text-align: center; font-size: 14px; color: var(--text-secondary); font-style: italic; padding: 16px 24px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; margin-bottom: 28px; }
+    .team-title { text-align: center; font-size: 24px; font-weight: 700; letter-spacing: -0.5px; margin-bottom: 6px; }
+    .team-subtitle { text-align: center; font-size: 13px; color: var(--text-muted); margin-bottom: 32px; }
+
+    .team-lead-card { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 24px; margin-bottom: 0; }
+    .team-lead-header { display: flex; align-items: center; gap: 14px; margin-bottom: 10px; }
+
+    .agent-icon { width: 44px; height: 44px; border-radius: 12px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; background: #1a1a1a; border: 1px solid #333; }
+    .agent-lead-info { flex: 1; }
+    .agent-lead-name { font-size: 18px; font-weight: 600; display: flex; align-items: center; gap: 10px; }
+    .agent-badge { font-size: 11px; font-weight: 500; color: var(--green); background: rgba(80,227,194,0.1); padding: 2px 10px; border-radius: 12px; }
+    .agent-lead-role { font-size: 13px; color: var(--text-muted); margin-top: 2px; }
+    .agent-lead-desc { font-size: 13px; color: var(--text-secondary); line-height: 1.5; margin-bottom: 12px; }
+
+    .agent-skills-row { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+    .skill-chip { font-size: 11px; padding: 4px 12px; background: rgba(255,255,255,0.05); border: 1px solid var(--border); border-radius: 20px; color: var(--text-muted); }
+    .role-card-btn { font-size: 11px; color: var(--text-muted); background: none; border: none; cursor: pointer; font-family: 'Outfit', sans-serif; padding: 4px 0; opacity: 0.7; transition: opacity 0.15s; }
+    .role-card-btn:hover { opacity: 1; color: var(--text); }
+
+    .skills-expand { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); display: none; }
+    .skills-grid { display: flex; flex-wrap: wrap; gap: 6px; }
+    .skill-tag { font-size: 10px; padding: 3px 10px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 14px; color: var(--text-muted); }
+
+    .team-connector { display: flex; flex-direction: column; align-items: center; padding: 16px 0; }
+    .connector-line { width: 1px; height: 24px; background: var(--border); }
+    .connector-label { font-size: 11px; color: var(--text-muted); margin-top: 8px; letter-spacing: 0.5px; text-transform: uppercase; }
+
+    .team-agents-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+    .team-agent-card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 20px; transition: border-color 0.2s var(--ease); }
+    .team-agent-card:hover { border-color: var(--border-hover); }
+    .agent-card-header { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+    .agent-card-name { font-size: 15px; font-weight: 600; }
+    .agent-card-role { font-size: 11px; color: var(--text-muted); }
+    .agent-card-desc { font-size: 12px; color: var(--text-secondary); line-height: 1.5; margin-bottom: 10px; }
+
+    /* Mobile */
+    @media (max-width: 640px) {
+      .team-container { padding: 16px; }
+      .team-agents-grid { grid-template-columns: 1fr; }
+      .team-lead-card { padding: 16px; }
+      .team-quote { font-size: 12px; padding: 12px; }
+      .team-title { font-size: 20px; }
+      .brand { padding: 16px 16px 0; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="brand">
+  <div class="brand-row">
+    <svg class="brand-icon" viewBox="0 0 22 22" fill="none">
+      <polygon points="11,1 20,6 20,16 11,21 2,16 2,6" fill="none" stroke="#ff6b1a" stroke-width="1.5"/>
+      <polygon points="11,5 17,8.5 17,15.5 11,19 5,15.5 5,8.5" fill="#ff6b1a" opacity="0.15"/>
+    </svg>
+    <span class="brand-name">RUBRIC Team</span>
+  </div>
+  <div class="brand-sub">The command center for AI agents &nbsp;&middot;&nbsp; Created by <a href="https://robolabs.so" target="_blank">RoboLabs</a> &nbsp;&middot;&nbsp; Learn more at <a href="https://robonuggets.com" target="_blank">RoboNuggets</a></div>
+</div>
+
+<div class="team-container">
+  <div class="team-quote" id="team-quote"></div>
+  <h2 class="team-title">Meet the Team</h2>
+  <p class="team-subtitle" id="team-subtitle"></p>
+
+  <div id="team-lead"></div>
+
+  <div class="team-connector">
+    <div class="connector-line"></div>
+    <div class="connector-label" id="connector-label"></div>
+  </div>
+
+  <div class="team-agents-grid" id="team-grid"></div>
+</div>
+
+<script>
+  // Default person SVG icon
+  const defaultIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="22" height="22"><circle cx="12" cy="8" r="4"/><path d="M6 21v-2a6 6 0 0 1 12 0v2"/></svg>`;
+  const leadIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="28" height="28"><circle cx="12" cy="8" r="4"/><path d="M6 21v-2a6 6 0 0 1 12 0v2"/><path d="M12 14l3-2"/><path d="M12 14l-3-2"/></svg>`;
+
+  let teamConfig = null;
+  let teamSkills = {};
+
+  function toggleSkills(agentId) {
+    const el = document.getElementById('skills-' + agentId);
+    const grid = document.getElementById('skills-grid-' + agentId);
+    if (!el) return;
+    if (el.style.display === 'none' || !el.style.display || el.style.display === '') {
+      el.style.display = 'block';
+      const skills = teamSkills[agentId] || [];
+      grid.innerHTML = skills.map(s =>
+        `<span class="skill-tag">${s.replace(/-/g, ' ')}</span>`
+      ).join('');
+    } else {
+      el.style.display = 'none';
+    }
+  }
+
+  function renderLead(lead) {
+    const el = document.getElementById('team-lead');
+    const skillChips = (lead.skills || []).map(s => `<span class="skill-chip">${s}</span>`).join('');
+    const badgeColor = lead.color || 'var(--green)';
+    const badgeBg = lead.color ? hexToRgba(lead.color, 0.1) : 'rgba(80,227,194,0.1)';
+
+    el.innerHTML = `
+      <div class="team-lead-card">
+        <div class="team-lead-header">
+          <div class="agent-icon" style="border-color: ${lead.color || '#333'};">
+            ${leadIcon}
+          </div>
+          <div class="agent-lead-info">
+            <div class="agent-lead-name">${esc(lead.name)} <span class="agent-badge" style="color:${badgeColor};background:${badgeBg};">${esc(lead.badge || 'Lead')}</span></div>
+            <div class="agent-lead-role">${esc(lead.role)}</div>
+          </div>
+        </div>
+        <p class="agent-lead-desc">${esc(lead.description)}</p>
+        <div class="agent-skills-row">${skillChips}</div>
+        <button class="role-card-btn" onclick="toggleSkills('${lead.id}')">Skills</button>
+        <div class="skills-expand" id="skills-${lead.id}" style="display:none">
+          <div class="skills-grid" id="skills-grid-${lead.id}"></div>
+        </div>
+      </div>`;
+  }
+
+  function renderAgents(agents) {
+    const grid = document.getElementById('team-grid');
+    grid.innerHTML = agents.map(agent => {
+      const skillChips = (agent.skills || []).map(s => `<span class="skill-chip">${s}</span>`).join('');
+      return `
+        <div class="team-agent-card">
+          <div class="agent-card-header">
+            <div class="agent-icon" style="border-color: ${agent.color || '#333'};">
+              ${defaultIcon}
+            </div>
+            <div>
+              <div class="agent-card-name">${esc(agent.name)}</div>
+              <div class="agent-card-role">${esc(agent.role)}</div>
+            </div>
+          </div>
+          <p class="agent-card-desc">${esc(agent.description)}</p>
+          <div class="agent-skills-row">${skillChips}</div>
+          <button class="role-card-btn" onclick="toggleSkills('${agent.id}')">Skills</button>
+          <div class="skills-expand" id="skills-${agent.id}" style="display:none">
+            <div class="skills-grid" id="skills-grid-${agent.id}"></div>
+          </div>
+        </div>`;
+    }).join('');
+  }
+
+  function esc(str) {
+    const d = document.createElement('div');
+    d.textContent = str || '';
+    return d.innerHTML;
+  }
+
+  function hexToRgba(hex, alpha) {
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    return `rgba(${r},${g},${b},${alpha})`;
+  }
+
+  async function init() {
+    try {
+      const [configRes, skillsRes] = await Promise.all([
+        fetch('/api/team'),
+        fetch('/api/team/skills')
+      ]);
+      teamConfig = await configRes.json();
+      teamSkills = await skillsRes.json();
+    } catch (e) {
+      console.error('Failed to load team data:', e);
+      return;
+    }
+
+    // Mission quote
+    document.getElementById('team-quote').textContent = `"${teamConfig.mission}"`;
+
+    // Subtitle
+    const totalAgents = 1 + (teamConfig.agents || []).length;
+    document.getElementById('team-subtitle').textContent = `${totalAgents} AI agents, each with a real role and real purpose.`;
+
+    // Connector label
+    const label = teamConfig.serverLabel || 'server-1';
+    document.getElementById('connector-label').textContent = `Operations (${label})`;
+
+    // Render
+    renderLead(teamConfig.lead);
+    renderAgents(teamConfig.agents || []);
+
+    // Update skill counts on buttons
+    for (const [id, skills] of Object.entries(teamSkills)) {
+      const btn = document.querySelector(`#skills-${id}`)?.previousElementSibling;
+      if (btn && btn.classList.contains('role-card-btn') && skills.length > 0) {
+        btn.textContent = `${skills.length} skills`;
+      }
+    }
+  }
+
+  init();
+</script>
+
+</body>
+</html>

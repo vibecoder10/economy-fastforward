@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Icon Gallery - Skill Tree</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%230a0a0a' stroke='%23333' stroke-width='1'/%3E%3Ccircle cx='12' cy='16' r='2' fill='%23fff'/%3E%3Ccircle cx='20' cy='16' r='2' fill='%23fff'/%3E%3C/svg%3E">
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #050505; color: #e0e0e0; font-family: 'Outfit', sans-serif; padding: 40px; }
+  h1 { font-size: 22px; margin-bottom: 4px; color: #888; }
+  .sub { font-size: 12px; color: #555; margin-bottom: 8px; }
+  .instructions { font-size: 12px; color: #444; margin-bottom: 32px; line-height: 1.6; max-width: 600px; }
+  .instructions code { font-family: monospace; background: #111; padding: 1px 5px; border-radius: 3px; font-size: 11px; color: #999; }
+  .hero { display: flex; justify-content: center; margin-bottom: 24px; }
+  .hero .card { width: 160px; padding: 24px 16px 14px; }
+  .row { display: grid; grid-template-columns: repeat(10, 1fr); gap: 12px; margin-bottom: 12px; }
+  .card { border: 1px solid #222; border-radius: 10px; text-align: center; padding: 16px 8px 10px; background: #0a0a0a; cursor: pointer; transition: border-color 0.15s; }
+  .card:hover { border-color: #444; }
+  .card.copied { border-color: #30d158; }
+  .card canvas { display: block; margin: 0 auto 8px; }
+  .card .name { font-size: 12px; font-weight: 700; }
+  .card .idx { font-size: 9px; color: #333; margin-top: 2px; }
+  .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: #1a1a1a; border: 1px solid #333; border-radius: 8px; padding: 8px 16px; font-size: 13px; color: #30d158; display: none; z-index: 100; }
+  .nav-link { position: fixed; top: 16px; right: 24px; font-size: 12px; color: #444; text-decoration: none; }
+  .nav-link:hover { color: #666; }
+  .attribution { margin-top: 32px; font-size: 11px; color: #333; }
+  .attribution a { color: #444; text-decoration: none; }
+  .attribution a:hover { color: #666; }
+</style>
+</head>
+<body>
+<a class="nav-link" href="/">&larr; Back to Skill Tree</a>
+<h1>Agent Icon Gallery</h1>
+<div class="sub">50 mirrored pixel art icons. Symmetrical 8x8 grid. Click to copy the name.</div>
+<div class="instructions">
+  To assign an icon to an agent, copy the name and add it to your <code>config.json</code>:<br>
+  <code>"icon": "Crown"</code>
+</div>
+
+<div class="hero" id="hero"></div>
+<div id="grid"></div>
+<div class="toast" id="toast">Copied!</div>
+
+<div class="attribution">Created by <a href="https://robolabs.so" target="_blank">RoboLabs</a>. Learn more at <a href="https://robonuggets.com" target="_blank">RoboNuggets</a></div>
+
+<script>
+const robo = { n: "Robo", c: "#ffffff", p: [[0,0,1,0],[1,1,1,1],[1,1,1,1],[1,0,1,1],[1,1,1,1],[1,1,1,1],[1,0,0,1],[0,0,0,0]] };
+const D = [
+  { n: "Crown",    c: "#e8c547", p: [[1,0,1,0],[1,0,1,1],[1,1,1,1],[0,1,0,1],[0,1,1,1],[0,1,1,1],[0,1,0,1],[0,0,0,0]] },
+  { n: "Sentinel", c: "#ff2d55", p: [[0,1,1,0],[1,1,1,1],[1,1,1,1],[1,1,0,1],[0,1,1,1],[0,1,1,0],[0,1,1,0],[1,0,0,1]] },
+  { n: "Fortress", c: "#ff9500", p: [[1,0,0,1],[1,1,1,1],[1,1,1,1],[1,1,0,1],[1,1,1,1],[1,1,1,1],[1,0,1,0],[0,0,0,0]] },
+  { n: "Phantom",  c: "#af52de", p: [[0,0,1,1],[0,1,1,1],[1,1,0,1],[1,1,1,1],[0,1,1,1],[0,1,1,1],[0,1,0,0],[1,0,0,0]] },
+  { n: "Spark",    c: "#30d158", p: [[0,0,0,1],[0,0,1,1],[0,1,1,1],[1,1,0,1],[1,1,1,1],[1,1,1,0],[0,1,0,0],[0,0,0,0]] },
+  { n: "Apex",     c: "#ff3b30", p: [[0,0,1,0],[0,1,1,0],[0,1,1,1],[1,1,0,1],[1,1,1,1],[1,1,1,1],[0,1,1,0],[0,0,0,0]] },
+  { n: "Drift",    c: "#5ac8fa", p: [[0,0,0,0],[0,1,0,1],[1,1,1,1],[1,1,0,1],[1,1,1,1],[0,1,1,0],[0,0,1,1],[0,0,0,0]] },
+  { n: "Halo",     c: "#ffd60a", p: [[0,1,1,1],[1,0,0,0],[1,1,1,1],[1,1,0,1],[1,1,1,1],[1,1,1,1],[0,1,0,1],[0,0,0,0]] },
+  { n: "Claw",     c: "#ff6723", p: [[1,0,0,0],[1,0,0,0],[1,1,1,1],[0,1,0,1],[0,1,1,1],[1,1,1,1],[1,0,0,0],[0,0,0,0]] },
+  { n: "Prism",    c: "#64d2ff", p: [[0,0,1,0],[0,1,0,1],[0,1,1,1],[1,1,0,1],[1,1,1,1],[0,1,1,0],[0,0,1,0],[0,0,0,0]] },
+  { n: "Fang",     c: "#bf5af2", p: [[0,0,0,0],[0,1,1,1],[1,1,1,1],[1,1,0,1],[1,1,1,1],[0,1,1,0],[0,1,0,1],[0,0,0,0]] },
+  { n: "Orb",      c: "#34c759", p: [[0,0,1,1],[0,1,1,1],[1,1,1,1],[1,1,0,1],[1,1,1,1],[0,1,1,1],[0,0,1,1],[0,0,0,0]] },
+  { n: "Pike",     c: "#ff6482", p: [[0,0,1,0],[0,0,1,0],[0,1,1,1],[0,1,0,1],[1,1,1,1],[0,1,1,1],[0,1,1,0],[0,0,0,0]] },
+  { n: "Ember",    c: "#ff453a", p: [[0,1,0,0],[1,1,1,0],[1,1,1,1],[1,1,0,1],[0,1,1,1],[0,0,1,1],[0,0,1,0],[0,0,0,0]] },
+  { n: "Rune",     c: "#5e5ce6", p: [[1,0,1,0],[0,1,1,1],[0,1,1,1],[1,1,0,1],[0,1,1,1],[0,1,1,1],[1,0,1,0],[0,0,0,0]] },
+  { n: "Sage",     c: "#00c7be", p: [[0,0,1,0],[0,1,1,1],[0,1,1,1],[1,1,0,1],[1,1,1,1],[0,1,1,0],[0,1,0,0],[0,0,0,0]] },
+  { n: "Nova",     c: "#ffcc02", p: [[0,0,1,0],[0,1,0,1],[1,1,1,1],[1,1,0,1],[1,1,1,1],[1,0,1,0],[0,0,1,0],[0,0,0,0]] },
+  { n: "Blade",    c: "#8e8e93", p: [[0,0,0,1],[0,0,1,1],[0,1,1,1],[0,1,0,1],[1,1,1,1],[1,1,1,0],[1,0,0,0],[0,0,0,0]] },
+  { n: "Mist",     c: "#aeaeb2", p: [[0,1,1,0],[1,1,1,1],[0,1,1,1],[0,1,0,1],[0,1,1,1],[1,1,1,1],[0,1,1,0],[0,0,0,0]] },
+  { n: "Thorn",    c: "#0a84ff", p: [[1,0,0,0],[1,1,0,0],[1,1,1,1],[0,1,0,1],[1,1,1,1],[0,1,1,0],[0,0,1,0],[0,0,0,0]] },
+  { n: "Flare",    c: "#ff375f", p: [[0,1,0,0],[0,1,1,0],[1,1,1,1],[1,1,0,1],[1,1,1,1],[0,1,1,0],[0,1,0,0],[0,0,0,0]] },
+  { n: "Pulse",    c: "#da77f2", p: [[0,0,0,0],[0,0,1,1],[0,1,1,1],[1,1,0,1],[0,1,1,1],[0,0,1,0],[0,0,0,0],[0,0,0,0]] },
+  { n: "Titan",    c: "#c41e3a", p: [[1,1,0,0],[1,1,1,1],[1,1,1,1],[1,1,0,1],[1,1,1,1],[1,1,1,1],[1,0,0,1],[0,0,0,0]] },
+  { n: "Wisp",     c: "#b4d455", p: [[0,0,1,0],[0,0,1,1],[0,1,0,1],[0,1,1,1],[0,1,1,0],[0,0,1,1],[0,0,1,0],[0,0,0,0]] },
+  { n: "Shard",    c: "#7b68ee", p: [[0,0,0,1],[0,0,1,1],[0,1,1,1],[1,1,0,1],[0,1,1,1],[0,1,1,0],[0,0,0,1],[0,0,0,0]] },
+  { n: "Warden",   c: "#2ecc71", p: [[0,1,0,1],[1,1,1,1],[1,1,1,1],[1,1,0,1],[1,1,1,1],[1,1,1,1],[0,1,0,1],[0,0,0,0]] },
+  { n: "Echo",     c: "#007aff", p: [[0,0,0,1],[0,1,1,1],[1,1,1,0],[1,1,0,1],[1,1,1,0],[0,1,1,1],[0,0,0,1],[0,0,0,0]] },
+  { n: "Fuse",     c: "#ff2d92", p: [[0,0,0,0],[1,0,1,0],[1,1,1,1],[0,1,0,1],[1,1,1,1],[1,0,1,0],[0,0,0,0],[0,0,0,0]] },
+  { n: "Crux",     c: "#eb2f06", p: [[0,1,0,0],[0,1,1,1],[1,1,1,1],[1,1,0,1],[1,1,1,0],[0,1,1,1],[0,1,0,0],[0,0,0,0]] },
+  { n: "Spire",    c: "#0fb9b1", p: [[0,0,1,0],[0,0,1,0],[0,0,1,1],[0,1,0,1],[0,1,1,1],[1,1,1,1],[1,0,1,0],[0,0,0,0]] },
+  { n: "Helm",     c: "#636e72", p: [[0,1,1,1],[1,1,1,1],[1,1,1,1],[1,1,0,1],[0,1,1,1],[0,0,1,0],[0,0,0,0],[0,0,0,0]] },
+  { n: "Torque",   c: "#f9ca24", p: [[1,0,0,0],[1,1,1,0],[0,1,1,1],[0,1,0,1],[0,1,1,1],[1,1,1,0],[1,0,0,0],[0,0,0,0]] },
+  { n: "Oxide",    c: "#e67e22", p: [[0,0,0,0],[0,0,1,0],[0,1,1,1],[1,1,0,1],[1,1,1,1],[1,1,1,0],[0,1,1,0],[1,0,0,1]] },
+  { n: "Aegis",    c: "#27ae60", p: [[0,0,1,0],[0,1,1,1],[1,1,1,1],[1,1,0,1],[1,1,1,1],[0,1,1,1],[0,0,1,0],[0,0,1,0]] },
+  { n: "Flux",     c: "#9b59b6", p: [[1,0,0,1],[0,1,1,1],[0,1,1,1],[1,1,0,1],[0,1,1,0],[0,1,1,1],[1,0,0,1],[0,0,0,0]] },
+  { n: "Pylon",    c: "#1dd1a1", p: [[0,0,1,0],[0,0,1,1],[0,1,1,1],[0,1,0,1],[0,1,1,1],[0,1,1,1],[1,1,1,1],[0,0,0,0]] },
+  { n: "Monolith", c: "#576574", p: [[0,0,1,1],[0,1,1,1],[0,1,1,1],[0,1,0,1],[0,1,1,1],[0,1,1,1],[0,0,1,0],[0,0,0,0]] },
+  { n: "Volt",     c: "#feca57", p: [[0,0,0,0],[1,1,0,1],[1,1,1,1],[0,1,0,1],[1,1,1,0],[1,1,1,1],[0,0,0,0],[0,0,0,0]] },
+  { n: "Nimbus",   c: "#54a0ff", p: [[0,1,1,1],[1,1,1,1],[1,1,0,1],[0,1,1,1],[0,0,1,1],[0,0,0,0],[0,0,0,0],[0,0,0,0]] },
+  { n: "Rook",     c: "#ee5253", p: [[1,0,1,0],[1,1,1,1],[0,1,1,1],[0,1,0,1],[0,1,1,1],[1,1,1,1],[0,1,0,1],[0,0,0,0]] },
+  { n: "Specter",  c: "#c8d6e5", p: [[0,0,1,0],[0,1,1,1],[1,1,0,1],[1,1,1,1],[1,1,1,0],[0,1,0,1],[0,0,0,0],[0,0,0,0]] },
+  { n: "Obelisk",  c: "#78e08f", p: [[0,0,1,0],[0,0,1,1],[0,1,0,1],[0,1,1,1],[0,1,1,1],[0,1,0,1],[0,0,1,0],[0,0,0,0]] },
+  { n: "Arc",      c: "#e77f67", p: [[0,1,1,0],[1,0,0,0],[1,1,1,1],[1,1,0,1],[1,1,1,1],[1,0,0,0],[0,1,1,0],[0,0,0,0]] },
+  { n: "Beacon",   c: "#3dc1d3", p: [[0,0,1,0],[0,0,1,1],[0,1,1,1],[1,1,0,1],[1,1,1,1],[1,1,1,1],[1,0,0,1],[0,0,0,0]] },
+  { n: "Comet",    c: "#f8a5c2", p: [[0,0,0,1],[0,1,1,1],[0,1,1,1],[0,1,0,1],[1,1,1,1],[1,1,0,0],[0,1,0,0],[0,0,0,0]] },
+  { n: "Nexus",    c: "#6a89cc", p: [[0,0,0,0],[0,1,1,0],[1,1,1,1],[1,1,0,1],[0,1,1,1],[0,1,1,0],[0,0,0,0],[0,0,0,0]] },
+  { n: "Cipher",   c: "#38ada9", p: [[1,0,0,0],[0,1,0,0],[0,1,1,1],[1,1,0,1],[0,1,1,0],[0,1,0,0],[1,0,0,0],[0,0,0,0]] },
+  { n: "Strider",  c: "#fa983a", p: [[0,0,1,0],[0,1,1,1],[1,1,1,1],[0,1,0,1],[0,1,1,0],[0,1,0,1],[1,0,0,1],[0,0,0,0]] },
+  { n: "Glyph",    c: "#b71540", p: [[0,1,0,1],[0,1,1,1],[1,1,1,1],[1,1,0,1],[0,1,1,1],[0,1,1,0],[0,1,0,1],[0,0,0,0]] },
+  { n: "Vertex",   c: "#0abde3", p: [[0,0,1,0],[0,1,1,0],[1,1,1,1],[0,1,0,1],[1,1,1,1],[0,1,1,0],[0,0,1,0],[0,0,0,0]] },
+];
+
+function drawIcon(canvas, pixels, color) {
+  const ctx = canvas.getContext('2d');
+  const g = 8, px = 14;
+  canvas.width = g * px;
+  canvas.height = g * px;
+  ctx.fillStyle = '#0a0a0a';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  for (let y = 0; y < pixels.length; y++) {
+    for (let x = 0; x < pixels[y].length; x++) {
+      if (pixels[y][x]) {
+        ctx.fillStyle = color;
+        ctx.fillRect(x * px, y * px, px, px);
+        ctx.fillRect((g - 1 - x) * px, y * px, px, px);
+      }
+    }
+  }
+}
+
+function showToast(name) {
+  const toast = document.getElementById('toast');
+  toast.textContent = 'Copied: "' + name + '"';
+  toast.style.display = 'block';
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => { toast.style.display = 'none'; }, 1500);
+}
+
+function makeCard(d, idx) {
+  const div = document.createElement('div');
+  div.className = 'card';
+  const c = document.createElement('canvas');
+  c.style.width = idx === -1 ? '100px' : '80px';
+  c.style.height = idx === -1 ? '100px' : '80px';
+  c.style.imageRendering = 'pixelated';
+  drawIcon(c, d.p, d.c);
+  div.appendChild(c);
+  div.innerHTML += '<div class="name" style="color:' + d.c + '">' + d.n + '</div>' +
+    (idx >= 0 ? '<div class="idx">#' + (idx + 1) + '</div>' : '<div class="idx">The Original</div>');
+  div.insertBefore(c, div.firstChild);
+  div.addEventListener('click', () => {
+    navigator.clipboard.writeText(d.n).then(() => {
+      div.classList.add('copied');
+      showToast(d.n);
+      setTimeout(() => div.classList.remove('copied'), 1500);
+    });
+  });
+  return div;
+}
+
+// Hero
+const heroDiv = document.getElementById('hero');
+const hCard = makeCard(robo, -1);
+hCard.style.width = '160px';
+hCard.style.padding = '24px 16px 14px';
+heroDiv.appendChild(hCard);
+
+// Grid
+const grid = document.getElementById('grid');
+for (let r = 0; r < D.length; r += 10) {
+  const row = document.createElement('div');
+  row.className = 'row';
+  for (let i = r; i < r + 10 && i < D.length; i++) {
+    row.appendChild(makeCard(D[i], i));
+  }
+  grid.appendChild(row);
+}
+</script>
+</body>
+</html>

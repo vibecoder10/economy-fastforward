@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RUBRIC Crons</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48' fill='none' stroke='%23ff6b1a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M24 6l18 10v16L24 42 6 32V16Z'/%3E%3Cpath d='M24 6v16l18 10' opacity='0.5'/%3E%3Cpath d='M24 22L6 32' opacity='0.5'/%3E%3C/svg%3E">
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #000;
+    --surface: #0a0a0a;
+    --border: #1a1a1a;
+    --border-hover: #333;
+    --text: #fff;
+    --text-secondary: #888;
+    --text-muted: #555;
+    --green: #50e3c2;
+    --accent: #50e3c2;
+    --red: #e00;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Outfit', system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+  }
+
+  /* Header */
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 20px 32px;
+    border-bottom: 1px solid var(--border);
+  }
+  .header-brand {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+  .header-icon {
+    width: 36px;
+    height: 36px;
+  }
+  .header-title {
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+  }
+  .header-title span {
+    color: var(--text-muted);
+    font-weight: 400;
+    font-size: 14px;
+    margin-left: 8px;
+  }
+  .header-meta {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+
+  /* Crons Container */
+  .crons-container { padding: 32px; max-width: 1400px; margin: 0 auto; }
+  .crons-container h2 { font-size: 20px; font-weight: 600; margin-bottom: 20px; letter-spacing: -0.3px; }
+  .cron-now-label { font-size: 12px; color: var(--green); margin-bottom: 12px; }
+
+  .cron-calendar-wrapper { overflow-x: auto; margin-bottom: 28px; }
+  .cron-calendar { min-width: 800px; }
+  .cron-cal-header { display: flex; border-bottom: 1px solid var(--border); }
+  .cron-cal-gutter { width: 56px; flex-shrink: 0; }
+  .cron-cal-days { display: grid; grid-template-columns: repeat(7, 1fr); flex: 1; }
+  .cron-cal-day-header { text-align: center; padding: 10px 0; font-size: 12px; font-weight: 500; color: var(--text-muted); }
+  .cron-cal-day-header.today { color: var(--green); }
+  .cron-cal-day-header .day-date { font-size: 18px; font-weight: 600; color: var(--text-secondary); margin-top: 2px; }
+  .cron-cal-day-header.today .day-date { color: var(--green); }
+
+  .cron-cal-body { display: flex; position: relative; }
+  .cron-cal-hours { width: 56px; flex-shrink: 0; }
+  .cron-cal-hour-label { height: 48px; font-size: 10px; color: var(--text-muted); text-align: right; padding-right: 10px; line-height: 48px; }
+  .cron-cal-grid { flex: 1; display: grid; grid-template-columns: repeat(7, 1fr); position: relative; }
+  .cron-cal-column { position: relative; border-left: 1px solid var(--border); }
+  .cron-cal-column:first-child { border-left: none; }
+  .cron-cal-hour-line { position: absolute; left: 0; right: 0; height: 1px; background: var(--border); pointer-events: none; }
+  .cron-cal-now-line { position: absolute; left: 0; right: 0; height: 2px; background: var(--green); z-index: 10; pointer-events: none; }
+  .cron-cal-now-dot { position: absolute; left: -4px; width: 8px; height: 8px; border-radius: 50%; background: var(--green); top: -3px; }
+
+  .cron-cal-event {
+    position: absolute;
+    left: 2px; right: 2px;
+    border-radius: 6px;
+    padding: 3px 6px;
+    font-size: 10px;
+    overflow: hidden;
+    cursor: default;
+    min-height: 20px;
+    z-index: 5;
+    border-left: 3px solid;
+  }
+  .cron-cal-event .ev-name { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
+  .cron-cal-event .ev-time { font-size: 9px; color: var(--text-secondary); }
+  .cron-cal-event.cat-health { background: rgba(80,227,194,0.1); border-left-color: #50e3c2; }
+  .cron-cal-event.cat-morning { background: rgba(245,166,35,0.1); border-left-color: #f5a623; }
+  .cron-cal-event.cat-research { background: rgba(138,180,248,0.1); border-left-color: #8ab4f8; }
+  .cron-cal-event.cat-content { background: rgba(192,132,252,0.1); border-left-color: #c084fc; }
+  .cron-cal-event.cat-review { background: rgba(248,113,113,0.1); border-left-color: #f87171; }
+  .cron-cal-event.cat-reminder { background: rgba(107,114,128,0.1); border-left-color: #6b7280; }
+  .cron-cal-event.cat-default { background: rgba(107,114,128,0.1); border-left-color: #6b7280; }
+
+  .next-up { margin-top: 8px; }
+  .next-up h3, .cron-monthly h3 { font-size: 13px; color: var(--text-muted); margin-bottom: 10px; font-weight: 500; }
+  .next-item { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; margin-bottom: 6px; }
+  .next-item .next-name { font-size: 13px; color: var(--text); }
+  .next-item .next-when { font-size: 11px; color: var(--text-muted); }
+  .cron-monthly { margin-top: 20px; }
+
+  /* Footer */
+  .footer {
+    text-align: center;
+    padding: 24px;
+    font-size: 11px;
+    color: var(--text-muted);
+    border-top: 1px solid var(--border);
+  }
+  .footer a {
+    color: var(--accent);
+    text-decoration: none;
+  }
+  .footer a:hover {
+    text-decoration: underline;
+  }
+
+  /* Loading state */
+  .loading {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--text-muted);
+    font-size: 14px;
+  }
+
+  /* Responsive */
+  @media (max-width: 768px) {
+    .crons-container { padding: 16px; }
+    .header { padding: 16px; flex-direction: column; gap: 8px; }
+    .summary-row { grid-template-columns: 1fr !important; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-brand">
+    <svg class="header-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" stroke="#ff6b1a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M24 6l18 10v16L24 42 6 32V16Z"/>
+      <path d="M24 6v16l18 10" opacity="0.5"/>
+      <path d="M24 22L6 32" opacity="0.5"/>
+    </svg>
+    <div>
+      <div class="header-title">RUBRIC Crons <span>The command center for AI agents</span></div>
+    </div>
+  </div>
+  <div class="header-meta">
+    <div class="cron-now-label" id="cron-now-label"></div>
+    <div id="cron-stats" style="font-size:11px;color:var(--text-muted);"></div>
+  </div>
+</div>
+
+<div class="crons-container">
+  <!-- Summary row -->
+  <div class="summary-row" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px;">
+    <div class="next-up" style="margin:0;">
+      <h3>Next Up</h3>
+      <div id="cron-next-up"><div class="loading">Loading...</div></div>
+    </div>
+    <div class="next-up" style="margin:0;">
+      <h3>All Active Jobs</h3>
+      <div id="cron-all-list"></div>
+    </div>
+  </div>
+
+  <!-- Week Calendar -->
+  <div class="cron-calendar-wrapper">
+    <div class="cron-calendar">
+      <div class="cron-cal-header">
+        <div class="cron-cal-gutter"></div>
+        <div class="cron-cal-days" id="cron-cal-days"></div>
+      </div>
+      <div class="cron-cal-body">
+        <div class="cron-cal-hours" id="cron-cal-hours"></div>
+        <div class="cron-cal-grid" id="cron-cal-grid"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Monthly / One-shot -->
+  <div class="cron-monthly">
+    <h3>Monthly / One-shot</h3>
+    <div id="cron-monthly-list"></div>
+  </div>
+</div>
+
+<div class="footer">
+  Created by RoboLabs &middot; Learn more at <a href="https://robonuggets.com" target="_blank">RoboNuggets</a>
+</div>
+
+<script>
+  let cronsData = [];
+  const HOUR_HEIGHT = 48;
+
+  function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  }
+
+  function categorize(name, desc) {
+    const n = (name + ' ' + (desc || '')).toLowerCase();
+    if (n.includes('health') || n.includes('eye') || n.includes('med') || n.includes('lunch') || n.includes('break')) return 'health';
+    if (n.includes('morning') || n.includes('standup') || n.includes('rocks') || n.includes('reflection')) return 'morning';
+    if (n.includes('research') || n.includes('trend') || n.includes('scout') || n.includes('scan')) return 'research';
+    if (n.includes('video') || n.includes('content') || n.includes('youtube') || n.includes('news') || n.includes('learning')) return 'content';
+    if (n.includes('review') || n.includes('audit') || n.includes('recap') || n.includes('archive')) return 'review';
+    return 'reminder';
+  }
+
+  /**
+   * Parse a cron expression into firing times.
+   * Supports: *, */N, N, N-M, N,M,O for all five fields.
+   * Fields: minute hour day-of-month month day-of-week
+   */
+  function expandField(field, min, max) {
+    const values = [];
+    const parts = field.split(',');
+    for (const part of parts) {
+      if (part === '*') {
+        for (let i = min; i <= max; i++) values.push(i);
+      } else if (part.startsWith('*/')) {
+        const step = parseInt(part.slice(2), 10);
+        for (let i = min; i <= max; i += step) values.push(i);
+      } else if (part.includes('-')) {
+        const [a, b] = part.split('-').map(Number);
+        for (let i = a; i <= b; i++) values.push(i);
+      } else {
+        values.push(parseInt(part, 10));
+      }
+    }
+    return [...new Set(values)].sort((a, b) => a - b);
+  }
+
+  function parseCronExpr(expr) {
+    const parts = expr.trim().split(/\s+/);
+    if (parts.length < 5) return { monthly: false, times: [] };
+
+    const minutes = expandField(parts[0], 0, 59);
+    const hours = expandField(parts[1], 0, 23);
+    const dom = parts[2];
+    const month = parts[3];
+    const dowField = parts[4];
+
+    // Day of week: 0=Sun, 1=Mon ... 6=Sat in cron; we convert to Mon=0 for display
+    let days;
+    if (dowField === '*') {
+      days = [0, 1, 2, 3, 4, 5, 6]; // all days (already Mon=0 format below)
+    } else {
+      const cronDays = expandField(dowField, 0, 6);
+      days = cronDays; // will convert below
+    }
+
+    // Convert from cron DOW (0=Sun) to display DOW (0=Mon, 6=Sun)
+    const convertDay = (d) => d === 0 ? 6 : d - 1;
+
+    const result = [];
+
+    // Only collapse truly high-frequency crons (sub-hourly, e.g. every 15 min)
+    const isHighFreq = hours.length * minutes.length > 24;
+
+    for (const h of hours) {
+      for (const m of minutes) {
+        if (dowField === '*') {
+          for (let d = 0; d < 7; d++) {
+            result.push({ day: d, hour: h, min: m });
+          }
+        } else {
+          for (const d of days) {
+            result.push({ day: convertDay(d), hour: h, min: m });
+          }
+        }
+      }
+    }
+
+    if (dom !== '*') return { monthly: true, dom, month, expr, times: result, isHighFreq };
+    return { monthly: false, times: result, isHighFreq };
+  }
+
+  function formatTime(h, m) {
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+    return `${h12}:${String(m).padStart(2, '0')} ${ampm}`;
+  }
+
+  function formatHourLabel(h) {
+    if (h === 0) return '12 AM';
+    if (h === 12) return '12 PM';
+    return h > 12 ? `${h - 12} PM` : `${h} AM`;
+  }
+
+  function getNow() {
+    return new Date();
+  }
+
+  function renderCrons() {
+    const dayNamesShort = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
+    const now = getNow();
+    const todayDow = (now.getDay() + 6) % 7; // 0=Mon, 6=Sun
+    const currentHour = now.getHours();
+    const currentMin = now.getMinutes();
+
+    // Stats
+    const totalJobs = cronsData.length;
+    const activeJobs = cronsData.filter(c => c.enabled).length;
+    document.getElementById('cron-stats').innerHTML = `${activeJobs} active &middot; ${totalJobs} total`;
+
+    // Now label
+    document.getElementById('cron-now-label').textContent = formatTime(currentHour, currentMin);
+
+    // Day headers with dates
+    const daysHeader = document.getElementById('cron-cal-days');
+    let dhHtml = '';
+    for (let d = 0; d < 7; d++) {
+      const isToday = d === todayDow;
+      const diff = d - todayDow;
+      const dayDate = new Date(now);
+      dayDate.setDate(dayDate.getDate() + diff);
+      const dateNum = dayDate.getDate();
+      dhHtml += `<div class="cron-cal-day-header ${isToday ? 'today' : ''}">
+        ${dayNamesShort[d]}
+        <div class="day-date">${dateNum}</div>
+      </div>`;
+    }
+    daysHeader.innerHTML = dhHtml;
+
+    // Hour labels (0-23)
+    const hoursEl = document.getElementById('cron-cal-hours');
+    let hoursHtml = '';
+    for (let h = 0; h < 24; h++) {
+      hoursHtml += `<div class="cron-cal-hour-label">${formatHourLabel(h)}</div>`;
+    }
+    hoursEl.innerHTML = hoursHtml;
+
+    // Build events per day
+    const dayEvents = {};
+    for (let i = 0; i < 7; i++) dayEvents[i] = [];
+    const monthlyList = [];
+
+    const enabledCrons = cronsData.filter(c => c.enabled);
+
+    for (const cron of enabledCrons) {
+      const expr = cron.schedule?.expr || cron.schedule;
+      if (!expr) continue;
+
+      const parsed = parseCronExpr(expr);
+      const cat = categorize(cron.name, cron.description);
+      const prettyName = cron.name.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+
+      if (parsed.monthly) {
+        monthlyList.push({ name: prettyName, dom: parsed.dom, month: parsed.month, times: parsed.times, desc: cron.description });
+        continue;
+      }
+
+      // For high-frequency crons (e.g. every minute), show a single representative event
+      if (parsed.isHighFreq) {
+        for (let d = 0; d < 7; d++) {
+          const firstTime = parsed.times.find(t => t.day === d);
+          if (firstTime) {
+            dayEvents[d].push({
+              name: prettyName + ' (recurring)',
+              hour: firstTime.hour,
+              min: firstTime.min,
+              cat,
+              desc: cron.description || '',
+            });
+          }
+        }
+        continue;
+      }
+
+      for (const t of parsed.times) {
+        dayEvents[t.day].push({
+          name: prettyName,
+          hour: t.hour,
+          min: t.min,
+          cat,
+          desc: cron.description || '',
+        });
+      }
+    }
+
+    // Build calendar grid
+    const gridEl = document.getElementById('cron-cal-grid');
+    let gridHtml = '';
+
+    for (let d = 0; d < 7; d++) {
+      const isToday = d === todayDow;
+      gridHtml += `<div class="cron-cal-column" style="height:${24 * HOUR_HEIGHT}px; position:relative">`;
+
+      // Hour lines
+      for (let h = 0; h < 24; h++) {
+        gridHtml += `<div class="cron-cal-hour-line" style="top:${h * HOUR_HEIGHT}px"></div>`;
+      }
+
+      // Now line (only on today's column)
+      if (isToday) {
+        const nowPos = (currentHour + currentMin / 60) * HOUR_HEIGHT;
+        gridHtml += `<div class="cron-cal-now-line" style="top:${nowPos}px"><div class="cron-cal-now-dot"></div></div>`;
+      }
+
+      // Events - handle overlaps
+      const events = dayEvents[d].sort((a, b) => (a.hour * 60 + a.min) - (b.hour * 60 + b.min));
+      const EVENT_PX_HEIGHT = 28;
+      const placed = [];
+
+      for (const ev of events) {
+        const top = (ev.hour + ev.min / 60) * HOUR_HEIGHT;
+        const bottom = top + EVENT_PX_HEIGHT;
+        let col = 0;
+        let maxCol = 0;
+        const overlapping = placed.filter(p => p.top < bottom && p.bottom > top);
+        const usedCols = new Set(overlapping.map(p => p.col));
+        while (usedCols.has(col)) col++;
+        overlapping.forEach(p => { if (p.col > maxCol) maxCol = p.col; });
+        ev._top = top;
+        ev._col = col;
+        ev._totalCols = Math.max(col + 1, maxCol + 1);
+        placed.push({ top, bottom, col, ev });
+      }
+
+      // Second pass: update totalCols for all overlapping groups
+      for (const p of placed) {
+        const overlapping = placed.filter(q => q.top < p.top + EVENT_PX_HEIGHT && q.top + EVENT_PX_HEIGHT > p.top);
+        const maxC = Math.max(...overlapping.map(q => q.col)) + 1;
+        overlapping.forEach(q => { q.ev._totalCols = Math.max(q.ev._totalCols, maxC); });
+      }
+
+      for (const ev of events) {
+        const widthPct = 100 / ev._totalCols;
+        const leftPct = widthPct * ev._col;
+        const style = ev._totalCols > 1
+          ? `top:${ev._top}px; left:${leftPct}%; width:${widthPct}%; right:auto;`
+          : `top:${ev._top}px`;
+        gridHtml += `<div class="cron-cal-event cat-${ev.cat}" style="${style}" title="${escapeHtml(ev.desc || ev.name)}">
+            <div class="ev-name">${escapeHtml(ev.name)}</div>
+            <div class="ev-time">${formatTime(ev.hour, ev.min)}</div>
+          </div>`;
+      }
+
+      gridHtml += '</div>';
+    }
+    gridEl.innerHTML = gridHtml;
+
+    // Next Up
+    const nextUp = document.getElementById('cron-next-up');
+    const upcoming = [];
+    for (const cron of enabledCrons) {
+      const expr = cron.schedule?.expr || cron.schedule;
+      if (!expr) continue;
+
+      const parsed = parseCronExpr(expr);
+      if (parsed.monthly) continue;
+      if (parsed.isHighFreq) continue;
+
+      const prettyName = cron.name.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+      for (const t of parsed.times) {
+        const nextDate = new Date(now);
+        nextDate.setHours(t.hour, t.min, 0, 0);
+        let dayDiff = t.day - todayDow;
+        if (dayDiff < 0) dayDiff += 7;
+        if (dayDiff === 0 && (t.hour * 60 + t.min) <= (currentHour * 60 + currentMin)) dayDiff = 7;
+        nextDate.setDate(nextDate.getDate() + dayDiff);
+
+        const diffMs = nextDate - now;
+        const diffMins = Math.floor(diffMs / 60000);
+        let when;
+        if (diffMins < 60) when = `In ${diffMins} min`;
+        else if (diffMins < 1440) when = `In ${Math.floor(diffMins / 60)}h ${diffMins % 60}m`;
+        else when = `In ${Math.floor(diffMins / 1440)}d ${Math.floor((diffMins % 1440) / 60)}h`;
+
+        upcoming.push({ name: prettyName, when, diffMs });
+        break; // only get the next occurrence for each cron
+      }
+    }
+    upcoming.sort((a, b) => a.diffMs - b.diffMs);
+    nextUp.innerHTML = upcoming.slice(0, 5).map(u => `
+      <div class="next-item">
+        <span class="next-name">${escapeHtml(u.name)}</span>
+        <span class="next-when">${u.when}</span>
+      </div>
+    `).join('') || '<div class="next-item"><span class="next-name" style="color:var(--text-muted);">No upcoming jobs</span></div>';
+
+    // Monthly / One-shot
+    const monthlyEl = document.getElementById('cron-monthly-list');
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    monthlyEl.innerHTML = monthlyList.map(m => {
+      const monthStr = m.month !== '*' ? months[parseInt(m.month) - 1] : 'Monthly';
+      const dayStr = m.dom;
+      const timeStr = m.times.length > 0 ? formatTime(m.times[0].hour, m.times[0].min) : '';
+      return `<div class="next-item">
+        <span class="next-name">${escapeHtml(m.name)}</span>
+        <span class="next-when">${monthStr} ${dayStr} at ${timeStr}</span>
+      </div>`;
+    }).join('') || '<div class="next-item"><span class="next-name" style="color:var(--text-muted);">None</span></div>';
+
+    // All active jobs list
+    const allListEl = document.getElementById('cron-all-list');
+    const catColors = { health: '#50e3c2', morning: '#f5a623', research: '#8ab4f8', content: '#c084fc', review: '#f87171', reminder: '#6b7280' };
+    const sortedJobs = [...enabledCrons].sort((a, b) => {
+      const ea = a.schedule?.expr || a.schedule;
+      const eb = b.schedule?.expr || b.schedule;
+      if (!ea || !eb) return 0;
+      const pa = parseCronExpr(ea);
+      const pb = parseCronExpr(eb);
+      const aTime = pa.times[0] ? pa.times[0].hour * 60 + pa.times[0].min : 9999;
+      const bTime = pb.times[0] ? pb.times[0].hour * 60 + pb.times[0].min : 9999;
+      return aTime - bTime;
+    });
+    allListEl.innerHTML = sortedJobs.map(c => {
+      const name = c.name.replace(/-/g, ' ').replace(/\b\w/g, x => x.toUpperCase());
+      const expr = c.schedule?.expr || c.schedule;
+      const parsed = parseCronExpr(expr);
+      const timeStr = parsed.times[0] ? formatTime(parsed.times[0].hour, parsed.times[0].min) : '?';
+      const days = parsed.monthly ? 'monthly' : [...new Set(parsed.times.map(t => dayNamesShort[t.day]))].join(', ');
+      const cat = categorize(c.name, c.description);
+      const dotColor = catColors[cat] || 'var(--text-muted)';
+      const agentLabel = c.agent ? `<span style="font-size:9px;padding:1px 5px;border-radius:3px;background:rgba(80,227,194,0.1);color:var(--green);">${escapeHtml(c.agent)}</span>` : '';
+      return `<div style="display:flex;align-items:center;gap:10px;padding:8px 14px;background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-bottom:4px;font-size:12px;">
+        <span style="width:6px;height:6px;border-radius:50%;background:${dotColor};flex-shrink:0;"></span>
+        <span style="flex:1;color:var(--text);">${escapeHtml(name)}</span>
+        <span style="color:var(--text-muted);width:60px;">${timeStr}</span>
+        <span style="color:var(--text-muted);width:100px;font-size:10px;">${days}</span>
+        ${agentLabel}
+      </div>`;
+    }).join('') || '<div style="color:var(--text-muted);font-size:12px;padding:12px;">No active jobs found</div>';
+  }
+
+  async function loadCrons() {
+    try {
+      const res = await fetch('/api/crons');
+      if (res.ok) {
+        cronsData = await res.json();
+      }
+    } catch (e) {
+      console.error('Failed to load crons:', e);
+      document.getElementById('cron-next-up').innerHTML = '<div class="next-item"><span class="next-name" style="color:var(--red);">Failed to load cron data</span></div>';
+      return;
+    }
+    renderCrons();
+  }
+
+  // Initial load
+  loadCrons();
+
+  // Auto-refresh every 30 seconds
+  setInterval(loadCrons, 30000);
+
+  // Update the now line every minute
+  setInterval(() => {
+    if (cronsData.length > 0) renderCrons();
+  }, 60000);
+</script>
+</body>
+</html>

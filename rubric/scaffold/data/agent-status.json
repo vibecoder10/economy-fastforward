@@ -1,0 +1,22 @@
+{
+  "agent-1": {
+    "status": "active",
+    "task": "testing",
+    "updatedAt": 1774253503258
+  },
+  "backend-dev": {
+    "status": "active",
+    "task": "Starting session",
+    "updatedAt": 1775088001711
+  },
+  "frontend-dev": {
+    "status": "active",
+    "task": "Starting session",
+    "updatedAt": 1775088120956
+  },
+  "qa-engineer": {
+    "status": "active",
+    "task": "Starting session",
+    "updatedAt": 1775088240925
+  }
+}

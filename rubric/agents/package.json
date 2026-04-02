@@ -1,0 +1,9 @@
+{
+  "name": "rubric-agents",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "RUBRIC Agents — live status monitoring for your AI agent team",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "license": "MIT"
+}

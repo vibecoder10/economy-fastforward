@@ -1,0 +1,26 @@
+{
+  "brandName": "RUBRIC Agents",
+  "agents": [
+    {
+      "id": "alpha",
+      "name": "Alpha (placeholder)",
+      "role": "Lead Agent",
+      "color": "#f5a623",
+      "icon": "Crown"
+    },
+    {
+      "id": "beta",
+      "name": "Beta (placeholder)",
+      "role": "Agent 2",
+      "color": "#58abf5",
+      "icon": "Spark"
+    },
+    {
+      "id": "gamma",
+      "name": "Gamma (placeholder)",
+      "role": "Agent 3",
+      "color": "#50e3c2",
+      "icon": "Drift"
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "name": "rubric-team",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "RUBRIC Team — visualize your AI agent team structure, roles, and skills",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "license": "MIT"
+}

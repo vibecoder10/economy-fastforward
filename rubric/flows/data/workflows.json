@@ -1,0 +1,173 @@
+[
+  {
+    "id": "storyengine-build",
+    "name": "StoryEngine Build Relay",
+    "description": "Three agents work in relay: Orchestrator plans tasks, Backend builds endpoints, Frontend wires UI, QA verifies. Tab-by-tab until feature-complete.",
+    "agent": "orchestrator",
+    "icon": "<svg viewBox='0 0 22 22' width='22' height='22' fill='none' stroke='currentColor' stroke-width='1.5'><rect x='3' y='3' width='16' height='16' rx='2'/><path d='M7 8h8M7 11h8M7 14h5'/></svg>",
+    "agentName": "Orchestrator",
+    "agentDescription": "Analyzes the pipeline, audits what exists vs what's missing, creates daily task lists, assigns work to Backend Dev, Frontend Dev, and QA Engineer.",
+    "skills": [
+      {
+        "id": "audit-pipeline",
+        "name": "Audit Pipeline",
+        "description": "Read the full pipeline flow. For the current tab, map every status, field, action, and data flow. Identify what exists vs what's missing.",
+        "icon": "extract"
+      },
+      {
+        "id": "backend-build",
+        "name": "Backend Build",
+        "description": "Build FastAPI routes, Pydantic models, database migrations. Ensure every pipeline action has a working endpoint that returns the right data shape.",
+        "icon": "api"
+      },
+      {
+        "id": "frontend-wire",
+        "name": "Frontend Wire",
+        "description": "Build React components, TypeScript types, API client calls. Wire every backend endpoint to a visible UI element with loading/error/empty states.",
+        "icon": "build"
+      },
+      {
+        "id": "qa-verify",
+        "name": "QA Verify",
+        "description": "Run tsc --noEmit, curl every endpoint, check types match responses. Run Playwright to verify UI loads data. Pass or fail back to the responsible agent.",
+        "icon": "data"
+      },
+      {
+        "id": "advance-tab",
+        "name": "Advance Tab",
+        "description": "When QA confirms 100% complete for current tab, mark it done and advance to the next tab in the pipeline sequence.",
+        "icon": "default"
+      }
+    ]
+  },
+  {
+    "id": "video-pipeline",
+    "name": "Video Production Pipeline",
+    "description": "The core pipeline that StoryEngine manages: idea → research → script → voice → images → video → thumbnail → render → upload",
+    "agent": "backend-dev",
+    "icon": "<svg viewBox='0 0 22 22' width='22' height='22' fill='none' stroke='currentColor' stroke-width='1.5'><polygon points='9,3 19,11 9,19'/></svg>",
+    "agentName": "Pipeline",
+    "agentDescription": "The video production pipeline that StoryEngine orchestrates. Each stage has a status, data, and actions that need UI representation.",
+    "skills": [
+      {
+        "id": "idea-logged",
+        "name": "Idea Logged",
+        "description": "Video idea created from competitor analysis or manual input. Fields: title, hook, thesis, source, DNA.",
+        "icon": "extract"
+      },
+      {
+        "id": "research",
+        "name": "Research",
+        "description": "Deep-dive research generates 14-field payload: thesis, fact sheet, historical parallels, character dossier, visual seeds.",
+        "icon": "data"
+      },
+      {
+        "id": "scripting",
+        "name": "Script Generation",
+        "description": "6-act script with scene blocks, validated by 7 editorial checks. Segments split into per-scene narration.",
+        "icon": "build"
+      },
+      {
+        "id": "voice",
+        "name": "Voice Synthesis",
+        "description": "ElevenLabs generates per-scene audio. Whisper transcription provides word-level timestamps for karaoke.",
+        "icon": "api"
+      },
+      {
+        "id": "image-prompts",
+        "name": "Image Prompts",
+        "description": "3-style system generates 120 cinematic prompts across 20 scenes. Storyboard grids for review.",
+        "icon": "visual"
+      },
+      {
+        "id": "images",
+        "name": "Image Generation",
+        "description": "Seed Dream 4.5 generates scene images. Approval queue for review. Variant generation for alternatives.",
+        "icon": "visual"
+      },
+      {
+        "id": "video-motion",
+        "name": "Video Motion",
+        "description": "Veo 3.1 generates video clips from images. Ken Burns motion for static scenes.",
+        "icon": "api"
+      },
+      {
+        "id": "thumbnail",
+        "name": "Thumbnail",
+        "description": "Gemini-directed thumbnail with template selection. Text overlay, subject extraction.",
+        "icon": "visual"
+      },
+      {
+        "id": "render",
+        "name": "Render",
+        "description": "Remotion renders final MP4: audio sync, karaoke captions, Ken Burns, crossfades, music bed.",
+        "icon": "build"
+      },
+      {
+        "id": "upload",
+        "name": "Upload",
+        "description": "YouTube upload as unlisted draft. SEO metadata, description, tags, show notes.",
+        "icon": "default"
+      }
+    ]
+  },
+  {
+    "id": "autopilot-loop",
+    "name": "Autopilot Learning Loop",
+    "description": "The autonomous intelligence cycle: scrape competitors → score candidates → generate ideas → launch videos → monitor CTR → extract learnings → improve next cycle. This is the brain of StoryEngine.",
+    "agent": "orchestrator",
+    "icon": "<svg viewBox='0 0 22 22' width='22' height='22' fill='none' stroke='currentColor' stroke-width='1.5'><circle cx='11' cy='11' r='8'/><path d='M11 7v4l3 3'/><path d='M7 11a4 4 0 0 1 8 0' opacity='0.5'/></svg>",
+    "agentName": "Autopilot Brain",
+    "agentDescription": "The autonomous decision engine. Every video is an experiment. Every CTR measurement is data. The system compounds learnings over time, making each cycle smarter than the last.",
+    "skills": [
+      {
+        "id": "scrape-competitors",
+        "name": "Scrape Competitors",
+        "description": "yt-dlp scrapes all active competitor channels daily. Extracts: titles, views, VPH, thumbnails, transcripts (auto-captions). Saves to competitor_videos table. Background task: _auto_scrape_competitors() runs every 24h.",
+        "icon": "extract"
+      },
+      {
+        "id": "score-candidates",
+        "name": "Score Candidates",
+        "description": "Confidence scoring: VPH component (55% weight, log-scale: 100 VPH=37%, 1000=64%, 10K=85%) + Freshness component (45% weight, linear decay over 168h). Top candidates ranked for selection. Configurable weights and thresholds.",
+        "icon": "data"
+      },
+      {
+        "id": "generate-ideas",
+        "name": "Generate Ideas",
+        "description": "Claude Sonnet 4 generates 5 unique angles from top 15 competitors. Each idea gets 3 title options scored by predicted CTR. Master Formula rules enforced. Previous learnings injected: proven patterns boosted, anti-patterns avoided.",
+        "icon": "build"
+      },
+      {
+        "id": "launch-video",
+        "name": "Launch Video",
+        "description": "User selects an idea + title option. System creates video record, marks candidate as modeled, and triggers the full 10-stage production pipeline automatically.",
+        "icon": "api"
+      },
+      {
+        "id": "sync-metrics",
+        "name": "Sync YouTube Metrics",
+        "description": "YouTube Data API v3 + Analytics API v2 pull: views, CTR, impressions, retention, watch time, subscriber gain. Snapshot milestones at 24h, 48h, 7d, 30d. Background task: _auto_sync_youtube() runs every 6h.",
+        "icon": "data"
+      },
+      {
+        "id": "extract-learnings",
+        "name": "Extract Learnings",
+        "description": "4 pattern detectors scan published videos (CTR + 1000+ impressions): title patterns (10 types), hook patterns (4 types), script patterns (7 types), framework patterns. Verdict: CTR >= 5% = KEEP, CTR <= 3% = DISCARD. Weighted averages update confidence over time.",
+        "icon": "extract"
+      },
+      {
+        "id": "analyze-competitors",
+        "name": "Analyze Competitor Patterns",
+        "description": "Structural analysis of competitor titles and transcripts. Detects winning patterns (question format, numbers, caps emphasis, urgency hooks, story hooks). Saved to title_insights table. Injected into next idea generation cycle.",
+        "icon": "data"
+      },
+      {
+        "id": "compound-loop",
+        "name": "Compound & Repeat",
+        "description": "Learnings from this cycle feed into the next: proven patterns get higher confidence, anti-patterns get avoided, new hypotheses get tested. Every video makes the system smarter. The loop never stops.",
+        "icon": "default"
+      }
+    ]
+  }
+]
