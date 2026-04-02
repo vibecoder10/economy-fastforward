@@ -7,23 +7,39 @@ import { motion } from "framer-motion";
 import {
   LineChart,
   Line,
+  BarChart,
+  Bar,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
   Legend,
+  Cell,
 } from "recharts";
-import { ArrowUpDown, RefreshCw, Loader2, Brain, TrendingUp, TrendingDown, Zap } from "lucide-react";
+import { ArrowUpDown, RefreshCw, Loader2, Brain, TrendingUp, TrendingDown, Zap, Eye, BarChart3, Target, Film } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
+import { StatCard } from "@/components/ui/StatCard";
 import { VerdictBadge } from "@/components/ui/VerdictBadge";
-import { StatusPill } from "@/components/ui/StatusPill";
 import { FilterSelect } from "@/components/ui/FilterSelect";
 import { ActionButton } from "@/components/ui/ActionButton";
 import { Spinner } from "@/components/ui/spinner";
-import { getVideos, getLearnings, syncYouTubeMetrics, getYouTubeSyncStatus, type VideoSummary, type LearningRecord } from "@/lib/api";
+import {
+  getVideos,
+  getLearnings,
+  syncYouTubeMetrics,
+  getYouTubeSyncStatus,
+  getAnalyticsOverview,
+  getCTRTimeline,
+  getFrameworkPerformance,
+  type VideoSummary,
+  type LearningRecord,
+  type AnalyticsOverview,
+  type CTRTimelinePoint,
+  type FrameworkPerformance,
+} from "@/lib/api";
 import { COMPLETED_STATUSES } from "@/lib/constants";
-import { timeAgo } from "@/lib/utils";
+import { formatNumber, timeAgo } from "@/lib/utils";
 
 const container = {
   hidden: { opacity: 0 },
@@ -37,16 +53,10 @@ const item = {
 type SortKey = "views" | "ctr" | "created_at";
 type SortDir = "asc" | "desc";
 
-function formatViews(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(0)}K`;
-  return n.toString();
-}
-
 function formatDate(dateStr: string | null): string {
   if (!dateStr) return "--";
   const d = new Date(dateStr);
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
 function getVerdict(ctr: number | null | undefined): "hit" | "steady" | "underperformed" | null {
@@ -75,43 +85,47 @@ function CustomTooltip({ active, payload, label }: { active?: boolean; payload?:
       </p>
       {payload.map((p) => (
         <p key={p.dataKey} style={{ color: p.color }}>
-          {p.name}: {p.dataKey === "views" ? formatViews(p.value) : `${p.value.toFixed(1)}%`}
+          {p.name}: {p.dataKey === "views" ? formatNumber(p.value) : `${p.value.toFixed(1)}%`}
         </p>
       ))}
     </div>
   );
 }
 
-function categoryIcon(cat: string) {
-  switch (cat) {
-    case "title": return TrendingUp;
-    case "hook": return Zap;
-    case "script": return Brain;
-    case "thumbnail": return TrendingUp;
-    default: return Brain;
-  }
-}
-
-function categoryLabel(cat: string) {
-  switch (cat) {
-    case "title": return "Title Patterns";
-    case "hook": return "Hook Patterns";
-    case "script": return "Script Patterns";
-    case "thumbnail": return "Thumbnail Patterns";
-    case "retention": return "Retention Patterns";
-    case "framework": return "Framework Patterns";
-    default: return cat.charAt(0).toUpperCase() + cat.slice(1);
-  }
-}
+const FRAMEWORK_COLORS = [
+  "var(--turquoise)",
+  "var(--gold)",
+  "var(--purple)",
+  "var(--orange)",
+  "var(--green)",
+  "var(--red)",
+  "var(--yellow)",
+];
 
 export default function AnalyticsPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const [dateRange, setDateRange] = useState("12m");
   const [sortKey, setSortKey] = useState<SortKey>("created_at");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
 
-  const { data: allVideos, isLoading } = useQuery({
+  // Analytics endpoints
+  const { data: overview, isLoading: overviewLoading } = useQuery({
+    queryKey: ["analytics-overview"],
+    queryFn: getAnalyticsOverview,
+  });
+
+  const { data: ctrTimeline, isLoading: timelineLoading } = useQuery({
+    queryKey: ["analytics-ctr-timeline"],
+    queryFn: () => getCTRTimeline(50),
+  });
+
+  const { data: frameworks } = useQuery({
+    queryKey: ["analytics-framework-performance"],
+    queryFn: getFrameworkPerformance,
+  });
+
+  // Video list for table
+  const { data: allVideos, isLoading: videosLoading } = useQuery({
     queryKey: ["videos"],
     queryFn: () => getVideos(),
   });
@@ -145,11 +159,14 @@ export default function AnalyticsPage() {
   useEffect(() => {
     if (prevRunning.current && !syncRunning) {
       queryClient.invalidateQueries({ queryKey: ["videos"] });
+      queryClient.invalidateQueries({ queryKey: ["analytics-overview"] });
+      queryClient.invalidateQueries({ queryKey: ["analytics-ctr-timeline"] });
+      queryClient.invalidateQueries({ queryKey: ["analytics-framework-performance"] });
     }
     prevRunning.current = syncRunning;
   }, [syncRunning, queryClient]);
 
-  // Filter to published/uploaded videos with some performance data
+  // Filter to published/uploaded videos for table
   const publishedVideos = useMemo(() => {
     if (!allVideos) return [];
     return allVideos.filter(
@@ -157,44 +174,32 @@ export default function AnalyticsPage() {
     );
   }, [allVideos]);
 
-  // Filter by date range
-  const filteredVideos = useMemo(() => {
-    const now = new Date();
-    let cutoff: Date;
-    switch (dateRange) {
-      case "30d":
-        cutoff = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-        break;
-      case "3m":
-        cutoff = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
-        break;
-      case "12m":
-      default:
-        cutoff = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
-        break;
-    }
-    return publishedVideos.filter((v) => {
-      if (!v.created_at) return true;
-      return new Date(v.created_at) >= cutoff;
-    });
-  }, [publishedVideos, dateRange]);
-
-  // Chart data: one point per video, sorted by date
+  // Chart data from CTR timeline endpoint
   const chartData = useMemo(() => {
-    return [...filteredVideos]
-      .filter((v) => v.created_at)
-      .sort((a, b) => new Date(a.created_at!).getTime() - new Date(b.created_at!).getTime())
-      .map((v) => ({
-        date: formatDate(v.created_at),
-        views: v.views || 0,
-        ctr: v.ctr ?? 0,
-        title: v.video_title || "Untitled",
-      }));
-  }, [filteredVideos]);
+    if (!ctrTimeline) return [];
+    return ctrTimeline.map((p) => ({
+      date: formatDate(p.date),
+      views: p.views || 0,
+      ctr: p.ctr ?? 0,
+      title: p.video_title || "Untitled",
+    }));
+  }, [ctrTimeline]);
+
+  // Framework chart data
+  const frameworkChartData = useMemo(() => {
+    if (!frameworks) return [];
+    return frameworks.map((f) => ({
+      name: f.framework.length > 20 ? f.framework.slice(0, 20) + "…" : f.framework,
+      fullName: f.framework,
+      avg_ctr: f.avg_ctr ?? 0,
+      video_count: f.video_count,
+      total_views: f.total_views,
+    }));
+  }, [frameworks]);
 
   // Sorted table data
   const sortedVideos = useMemo(() => {
-    return [...filteredVideos].sort((a, b) => {
+    return [...publishedVideos].sort((a, b) => {
       let aVal: number;
       let bVal: number;
       switch (sortKey) {
@@ -214,7 +219,7 @@ export default function AnalyticsPage() {
       }
       return sortDir === "desc" ? bVal - aVal : aVal - bVal;
     });
-  }, [filteredVideos, sortKey, sortDir]);
+  }, [publishedVideos, sortKey, sortDir]);
 
   const handleSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -224,6 +229,8 @@ export default function AnalyticsPage() {
       setSortDir("desc");
     }
   };
+
+  const isLoading = overviewLoading && videosLoading;
 
   if (isLoading) {
     return (
@@ -248,7 +255,7 @@ export default function AnalyticsPage() {
 
   return (
     <motion.div className="space-y-8" variants={container} initial="hidden" animate="show">
-      {/* Header + Filter */}
+      {/* Header */}
       <motion.div variants={item} className="flex items-center justify-between gap-4 flex-wrap">
         <h1 className="text-4xl font-display" style={{ color: "var(--text-primary)" }}>
           Analytics
@@ -275,25 +282,51 @@ export default function AnalyticsPage() {
               Last sync: {timeAgo(syncStatus.last_run)}
             </span>
           )}
-          <FilterSelect
-            options={[
-              { value: "30d", label: "Last 30 days" },
-              { value: "3m", label: "Last 3 months" },
-              { value: "12m", label: "Last 12 months" },
-            ]}
-            value={dateRange}
-            onChange={setDateRange}
-          />
         </div>
       </motion.div>
 
-      {/* Chart */}
+      {/* Overview Stats */}
+      {overview && (
+        <motion.div variants={item} className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <StatCard
+            label="Total Videos"
+            value={overview.total_videos.toString()}
+            detail={`${overview.published_videos} published`}
+            color="var(--turquoise)"
+            icon={Film}
+          />
+          <StatCard
+            label="Total Views"
+            value={formatNumber(overview.total_views)}
+            color="var(--purple)"
+            icon={Eye}
+          />
+          <StatCard
+            label="Avg CTR"
+            value={overview.avg_ctr !== null ? `${overview.avg_ctr.toFixed(1)}%` : "--"}
+            color={ctrColor(overview.avg_ctr)}
+            icon={Target}
+          />
+          <StatCard
+            label="Avg Retention"
+            value={overview.avg_retention !== null ? `${overview.avg_retention.toFixed(1)}%` : "--"}
+            color="var(--gold)"
+            icon={BarChart3}
+          />
+        </motion.div>
+      )}
+
+      {/* CTR Timeline Chart */}
       <motion.div variants={item}>
         <GlassCard className="p-6">
           <h2 className="text-sm font-semibold mb-4" style={{ color: "var(--text-primary)" }}>
             Views &amp; CTR Over Time
           </h2>
-          {chartData.length === 0 ? (
+          {timelineLoading ? (
+            <div className="h-72 flex items-center justify-center">
+              <Spinner />
+            </div>
+          ) : chartData.length === 0 ? (
             <div
               className="h-72 flex items-center justify-center rounded-xl"
               style={{ background: "rgba(255,255,255,0.02)" }}
@@ -316,7 +349,7 @@ export default function AnalyticsPage() {
                     yAxisId="views"
                     tick={{ fill: "var(--text-tertiary)", fontSize: 11 }}
                     axisLine={false}
-                    tickFormatter={formatViews}
+                    tickFormatter={(v: number) => formatNumber(v)}
                   />
                   <YAxis
                     yAxisId="ctr"
@@ -355,6 +388,95 @@ export default function AnalyticsPage() {
         </GlassCard>
       </motion.div>
 
+      {/* Framework Performance */}
+      {frameworks && frameworks.length > 0 && (
+        <motion.div variants={item}>
+          <GlassCard className="p-6">
+            <h2 className="text-sm font-semibold mb-4" style={{ color: "var(--text-primary)" }}>
+              Framework Effectiveness
+            </h2>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Bar chart */}
+              <div className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={frameworkChartData} layout="vertical">
+                    <CartesianGrid stroke="rgba(255,255,255,0.05)" strokeDasharray="3 3" />
+                    <XAxis
+                      type="number"
+                      tick={{ fill: "var(--text-tertiary)", fontSize: 11 }}
+                      axisLine={false}
+                      tickFormatter={(v: number) => `${v}%`}
+                    />
+                    <YAxis
+                      dataKey="name"
+                      type="category"
+                      tick={{ fill: "var(--text-secondary)", fontSize: 11 }}
+                      axisLine={false}
+                      width={120}
+                    />
+                    <Tooltip
+                      content={({ active, payload }) => {
+                        if (!active || !payload?.[0]) return null;
+                        const d = payload[0].payload;
+                        return (
+                          <div
+                            className="glass-card px-4 py-3 text-xs"
+                            style={{ background: "var(--bg-deep)", border: "1px solid var(--border)" }}
+                          >
+                            <p className="font-semibold mb-1" style={{ color: "var(--text-primary)" }}>
+                              {d.fullName}
+                            </p>
+                            <p style={{ color: "var(--turquoise)" }}>Avg CTR: {d.avg_ctr.toFixed(1)}%</p>
+                            <p style={{ color: "var(--text-secondary)" }}>{d.video_count} videos · {formatNumber(d.total_views)} views</p>
+                          </div>
+                        );
+                      }}
+                    />
+                    <Bar dataKey="avg_ctr" radius={[0, 4, 4, 0]}>
+                      {frameworkChartData.map((_, i) => (
+                        <Cell key={i} fill={FRAMEWORK_COLORS[i % FRAMEWORK_COLORS.length]} fillOpacity={0.8} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+
+              {/* Framework table */}
+              <div className="space-y-2">
+                {frameworks.map((f, i) => (
+                  <div
+                    key={f.framework}
+                    className="flex items-center justify-between p-3 rounded-lg"
+                    style={{ background: "rgba(255,255,255,0.03)" }}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div
+                        className="w-2 h-2 rounded-full"
+                        style={{ background: FRAMEWORK_COLORS[i % FRAMEWORK_COLORS.length] }}
+                      />
+                      <span className="text-sm" style={{ color: "var(--text-primary)" }}>
+                        {f.framework}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <span className="text-xs font-mono" style={{ color: "var(--text-tertiary)" }}>
+                        {f.video_count} videos
+                      </span>
+                      <span className="text-xs font-mono" style={{ color: "var(--text-tertiary)" }}>
+                        {formatNumber(f.total_views)} views
+                      </span>
+                      <span className="text-sm font-mono font-semibold" style={{ color: ctrColor(f.avg_ctr) }}>
+                        {f.avg_ctr !== null ? `${f.avg_ctr.toFixed(1)}%` : "--"}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </GlassCard>
+        </motion.div>
+      )}
+
       {/* System Intelligence */}
       {learnings && learnings.length > 0 && (
         <motion.div variants={item}>
@@ -378,144 +500,86 @@ export default function AnalyticsPage() {
               </span>
             </div>
 
-            {/* Category breakdown */}
             {(() => {
-              const byCategory: Record<string, typeof learnings> = {};
-              for (const l of learnings) {
-                (byCategory[l.category] ??= []).push(l);
-              }
-              const categories = Object.entries(byCategory).sort((a, b) => b[1].length - a[1].length);
-
               const proven = learnings.filter((l) => l.confidence >= 60 && l.active);
               const avoid = learnings.filter((l) => l.confidence <= 30 && l.active);
 
               return (
-                <div className="space-y-5">
-                  {/* Category cards */}
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    {categories.map(([cat, items]) => {
-                      const Icon = categoryIcon(cat);
-                      const avgConf = Math.round(items.reduce((s, i) => s + i.confidence, 0) / items.length);
-                      const provenCount = items.filter((i) => i.confidence >= 60).length;
-                      return (
-                        <div
-                          key={cat}
-                          className="rounded-xl p-4"
-                          style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}
-                        >
-                          <div className="flex items-center gap-2 mb-2">
-                            <Icon size={14} style={{ color: "var(--turquoise)" }} />
-                            <span className="text-xs font-semibold" style={{ color: "var(--text-primary)" }}>
-                              {categoryLabel(cat)}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Proven */}
+                  <div
+                    className="rounded-xl p-4"
+                    style={{ background: "rgba(0, 200, 83, 0.04)", border: "1px solid rgba(0, 200, 83, 0.1)" }}
+                  >
+                    <div className="flex items-center gap-2 mb-3">
+                      <TrendingUp size={14} style={{ color: "var(--green)" }} />
+                      <span className="text-xs font-semibold" style={{ color: "var(--green)" }}>
+                        Proven Patterns ({proven.length})
+                      </span>
+                    </div>
+                    {proven.length === 0 ? (
+                      <p className="text-xs" style={{ color: "var(--text-tertiary)" }}>
+                        No high-confidence patterns yet. More data needed.
+                      </p>
+                    ) : (
+                      <div className="space-y-2">
+                        {proven.slice(0, 6).map((l) => (
+                          <div key={l.id} className="flex items-start justify-between gap-2">
+                            <span className="text-xs leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+                              {l.pattern.length > 80 ? l.pattern.slice(0, 80) + "…" : l.pattern}
                             </span>
+                            <div className="flex items-center gap-2 shrink-0">
+                              {l.avg_ctr !== null && (
+                                <span className="text-[10px] font-mono" style={{ color: "var(--green)" }}>
+                                  {l.avg_ctr.toFixed(1)}% CTR
+                                </span>
+                              )}
+                              <span className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>
+                                n={l.sample_size}
+                              </span>
+                            </div>
                           </div>
-                          <div className="text-2xl font-display mb-1" style={{ color: "var(--text-primary)" }}>
-                            {items.length}
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>
-                              {provenCount} proven
-                            </span>
-                            <span className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>·</span>
-                            <span className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>
-                              avg {avgConf}% conf
-                            </span>
-                          </div>
-                          {/* Confidence bar */}
-                          <div
-                            className="mt-2 h-1 rounded-full overflow-hidden"
-                            style={{ background: "rgba(255,255,255,0.06)" }}
-                          >
-                            <div
-                              className="h-full rounded-full transition-all"
-                              style={{
-                                width: `${avgConf}%`,
-                                background: avgConf >= 60 ? "var(--green)" : avgConf >= 40 ? "var(--gold)" : "var(--red)",
-                              }}
-                            />
-                          </div>
-                        </div>
-                      );
-                    })}
+                        ))}
+                      </div>
+                    )}
                   </div>
 
-                  {/* Proven patterns + Avoid patterns side by side */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {/* Proven */}
-                    <div
-                      className="rounded-xl p-4"
-                      style={{ background: "rgba(0, 200, 83, 0.04)", border: "1px solid rgba(0, 200, 83, 0.1)" }}
-                    >
-                      <div className="flex items-center gap-2 mb-3">
-                        <TrendingUp size={14} style={{ color: "var(--green)" }} />
-                        <span className="text-xs font-semibold" style={{ color: "var(--green)" }}>
-                          Proven Patterns ({proven.length})
-                        </span>
-                      </div>
-                      {proven.length === 0 ? (
-                        <p className="text-xs" style={{ color: "var(--text-tertiary)" }}>
-                          No high-confidence patterns yet. More data needed.
-                        </p>
-                      ) : (
-                        <div className="space-y-2">
-                          {proven.slice(0, 6).map((l) => (
-                            <div key={l.id} className="flex items-start justify-between gap-2">
-                              <span className="text-xs leading-relaxed" style={{ color: "var(--text-secondary)" }}>
-                                {l.pattern.length > 80 ? l.pattern.slice(0, 80) + "…" : l.pattern}
-                              </span>
-                              <div className="flex items-center gap-2 shrink-0">
-                                {l.avg_ctr !== null && (
-                                  <span className="text-[10px] font-mono" style={{ color: "var(--green)" }}>
-                                    {l.avg_ctr.toFixed(1)}% CTR
-                                  </span>
-                                )}
-                                <span className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>
-                                  n={l.sample_size}
-                                </span>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
+                  {/* Avoid */}
+                  <div
+                    className="rounded-xl p-4"
+                    style={{ background: "rgba(255, 82, 82, 0.04)", border: "1px solid rgba(255, 82, 82, 0.1)" }}
+                  >
+                    <div className="flex items-center gap-2 mb-3">
+                      <TrendingDown size={14} style={{ color: "var(--red)" }} />
+                      <span className="text-xs font-semibold" style={{ color: "var(--red)" }}>
+                        Patterns to Avoid ({avoid.length})
+                      </span>
                     </div>
-
-                    {/* Avoid */}
-                    <div
-                      className="rounded-xl p-4"
-                      style={{ background: "rgba(255, 82, 82, 0.04)", border: "1px solid rgba(255, 82, 82, 0.1)" }}
-                    >
-                      <div className="flex items-center gap-2 mb-3">
-                        <TrendingDown size={14} style={{ color: "var(--red)" }} />
-                        <span className="text-xs font-semibold" style={{ color: "var(--red)" }}>
-                          Patterns to Avoid ({avoid.length})
-                        </span>
-                      </div>
-                      {avoid.length === 0 ? (
-                        <p className="text-xs" style={{ color: "var(--text-tertiary)" }}>
-                          No anti-patterns detected yet.
-                        </p>
-                      ) : (
-                        <div className="space-y-2">
-                          {avoid.slice(0, 6).map((l) => (
-                            <div key={l.id} className="flex items-start justify-between gap-2">
-                              <span className="text-xs leading-relaxed" style={{ color: "var(--text-secondary)" }}>
-                                {l.pattern.length > 80 ? l.pattern.slice(0, 80) + "…" : l.pattern}
-                              </span>
-                              <div className="flex items-center gap-2 shrink-0">
-                                {l.avg_ctr !== null && (
-                                  <span className="text-[10px] font-mono" style={{ color: "var(--red)" }}>
-                                    {l.avg_ctr.toFixed(1)}% CTR
-                                  </span>
-                                )}
-                                <span className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>
-                                  n={l.sample_size}
+                    {avoid.length === 0 ? (
+                      <p className="text-xs" style={{ color: "var(--text-tertiary)" }}>
+                        No anti-patterns detected yet.
+                      </p>
+                    ) : (
+                      <div className="space-y-2">
+                        {avoid.slice(0, 6).map((l) => (
+                          <div key={l.id} className="flex items-start justify-between gap-2">
+                            <span className="text-xs leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+                              {l.pattern.length > 80 ? l.pattern.slice(0, 80) + "…" : l.pattern}
+                            </span>
+                            <div className="flex items-center gap-2 shrink-0">
+                              {l.avg_ctr !== null && (
+                                <span className="text-[10px] font-mono" style={{ color: "var(--red)" }}>
+                                  {l.avg_ctr.toFixed(1)}% CTR
                                 </span>
-                              </div>
+                              )}
+                              <span className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>
+                                n={l.sample_size}
+                              </span>
                             </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
               );
@@ -591,7 +655,7 @@ export default function AnalyticsPage() {
                       </td>
                       <td className="py-3 px-3">
                         <span className="text-sm font-mono" style={{ color: "var(--text-primary)" }}>
-                          {formatViews(v.views || 0)}
+                          {formatNumber(v.views || 0)}
                         </span>
                       </td>
                       <td className="py-3 px-3">

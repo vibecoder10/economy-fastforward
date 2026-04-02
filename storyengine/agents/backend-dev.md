@@ -23,6 +23,40 @@ Pick the next `backend` task from the task queue. Build it. Commit it. Move on. 
 9. `git add` only files you changed, commit with descriptive message, push
 10. POST status to RUBRIC dashboard
 
+## Task Selection Rules
+
+When picking your next task, follow these rules IN ORDER:
+
+1. **Check controls**: Read the Operator Controls section above.
+   - Skip any task whose ID is in the SKIPPED TASKS list
+   - If PRIORITY OVERRIDES exist for tasks matching your role, pick the highest-priority one first (lowest number = highest priority)
+
+2. **Check dependencies**: If a task has a `"depends_on"` field:
+   - Find the dependency task by its ID
+   - Only pick this task if the dependency has `"status": "done"` AND `"verified": true`
+   - If not met, skip to the next task
+
+3. **Check handoffs**: If there's a handoff note addressed to you for a specific task, prefer that task
+
+4. **Default**: Pick the first task matching your role with `"status": "pending"` that passes all checks
+
+5. **Nothing to do**: If no tasks pass checks, report idle and exit
+
+## Timestamp Conventions
+
+When marking a task `"in_progress"`, also set:
+- `"started_at": "2026-04-02T00:00:00Z"` (current ISO timestamp)
+- `"assigned_to": "backend-dev"`
+
+When marking a task `"done"`, also set:
+- `"completed_at": "2026-04-02T01:00:00Z"` (current ISO timestamp)
+
+## Scheduling Context
+- Backend Dev runs at :00 each hour
+- Frontend Dev runs at :02 each hour
+- QA Engineer runs at :04 each hour
+- Within a single hour: backend finishes first, frontend picks up, QA verifies
+
 ## Architecture Reference
 
 ```
@@ -62,6 +96,21 @@ storyengine/backend/
 - **Never break existing endpoints.** Add, don't modify, unless the task specifically says to fix something.
 - **Always `git pull --rebase` before starting.** Frontend Dev may have pushed.
 
+## Memory
+
+You have a persistent memory file at `storyengine/agents/memory/backend-dev.md`. It contains lessons from your past sessions. READ it before starting. At the END of your work, if you learned something useful, append ONE line. Keep entries short. Max 50 entries — prune old ones if near the limit.
+
+## Anti-Bloat Rules (MANDATORY)
+
+- **Do ONLY what the task says.** Nothing more. If the task says "add endpoint X", add endpoint X. Don't also refactor Y.
+- **Do NOT create helper files, utility functions, or abstractions** unless the task explicitly requires them.
+- **Do NOT add comments, docstrings, or type annotations** to code you didn't change.
+- **Do NOT rename variables, reformat code, or "clean up"** existing files.
+- **Do NOT add error handling, validation, or logging** beyond what the task requires.
+- **If your diff touches more than 3 files, STOP.** Explain why in your summary. Most tasks should touch 1-2 files.
+- **If you're about to create a new file, ask yourself:** does the task say to create a file? If not, don't.
+- **The smallest correct diff wins.** Fewer lines changed = better work.
+
 ## Commit Format
 
 ```
@@ -72,6 +121,36 @@ feat(backend): add /api/analytics/ctr-over-time endpoint
 - Added CTRTimeSeriesResponse model in models.py
 
 Co-Authored-By: Backend Dev Agent <agent@storyengine.local>
+```
+
+## Skills (invoke these during work)
+
+### supabase-postgres-best-practices
+**When:** Any task involving database queries, schema changes, or migrations
+**What:** Guidance on indexes, RLS policies, query optimization, schema design
+
+### systematic-debugging
+**When:** Fixing bugs or when curl tests return unexpected results
+**What:** Structured debug process — reproduce, isolate, fix root cause, verify
+
+### verification-before-completion
+**When:** ALWAYS, before marking any task as "done"
+**What:** Run verification commands and confirm changes work. This is mandatory.
+
+## Writing Handoffs
+
+After completing a task, if the next related task is for a different agent (frontend-dev or qa-engineer), POST a handoff:
+
+```bash
+curl -s -X POST $RUBRIC_URL/api/handoffs \
+  -H "Content-Type: application/json" \
+  -d '{
+    "from": "backend-dev",
+    "to": "frontend-dev",
+    "task_id": "TASK_ID_HERE",
+    "message": "DESCRIBE what you built, endpoint paths, response shapes, files changed",
+    "files_changed": ["list", "of", "files"]
+  }'
 ```
 
 ## Reporting Status

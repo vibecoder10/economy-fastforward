@@ -503,6 +503,153 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // GET /api/activity-log/detail — read a full agent report file
+  if (pathname === '/api/activity-log/detail' && req.method === 'GET') {
+    const params = new URL('http://x' + req.url).searchParams;
+    const file = params.get('file');
+    if (!file || file.includes('..') || !file.endsWith('.md')) {
+      sendJSON(res, { error: 'Invalid file' }, 400);
+      return;
+    }
+    const reportsDir = path.join(__dirname, '../../storyengine/agents/reports');
+    const filePath = path.join(reportsDir, file);
+    try {
+      const content = fs.readFileSync(filePath, 'utf8');
+      sendJSON(res, { file, content });
+    } catch {
+      sendJSON(res, { error: 'Report not found' }, 404);
+    }
+    return;
+  }
+
+  // POST /api/controls/focus — set a high-level directive for all agents
+  if (pathname === '/api/controls/focus' && req.method === 'POST') {
+    const body = JSON.parse(await readBody(req));
+    const controlsFile = path.join(DATA_DIR, 'controls.json');
+    let controls = { paused_agents: [], skipped_tasks: [], priority_overrides: {} };
+    try { controls = JSON.parse(fs.readFileSync(controlsFile, 'utf8')); } catch {}
+    controls.focus = body.focus || '';
+    fs.writeFileSync(controlsFile, JSON.stringify(controls, null, 2));
+    sendJSON(res, { success: true, focus: controls.focus });
+    return;
+  }
+
+  // ===== HANDOFF ROUTES =====
+
+  // POST /api/handoffs — create a handoff note
+  if (pathname === '/api/handoffs' && req.method === 'POST') {
+    const body = JSON.parse(await readBody(req));
+    const handoffsFile = path.join(DATA_DIR, 'handoffs.json');
+    let handoffs = [];
+    try { handoffs = JSON.parse(fs.readFileSync(handoffsFile, 'utf8')); } catch {}
+    handoffs.unshift({
+      id: 'h-' + Date.now(),
+      from: body.from,
+      to: body.to,
+      task_id: body.task_id || '',
+      message: body.message || '',
+      files_changed: body.files_changed || [],
+      endpoint_details: body.endpoint_details || null,
+      read: false,
+      timestamp: Date.now(),
+    });
+    if (handoffs.length > 100) handoffs = handoffs.slice(0, 100);
+    fs.writeFileSync(handoffsFile, JSON.stringify(handoffs, null, 2));
+    sendJSON(res, { success: true });
+    return;
+  }
+
+  // POST /api/handoffs/:id/read — mark handoff as read
+  if (pathname.startsWith('/api/handoffs/') && pathname.endsWith('/read') && req.method === 'POST') {
+    const id = pathname.replace('/api/handoffs/', '').replace('/read', '');
+    const handoffsFile = path.join(DATA_DIR, 'handoffs.json');
+    let handoffs = [];
+    try { handoffs = JSON.parse(fs.readFileSync(handoffsFile, 'utf8')); } catch {}
+    const entry = handoffs.find(h => h.id === id);
+    if (!entry) { sendJSON(res, { error: 'Not found' }, 404); return; }
+    entry.read = true;
+    fs.writeFileSync(handoffsFile, JSON.stringify(handoffs, null, 2));
+    sendJSON(res, { success: true });
+    return;
+  }
+
+  // GET /api/handoffs — list handoffs with optional filters
+  if (pathname === '/api/handoffs' && req.method === 'GET') {
+    const handoffsFile = path.join(DATA_DIR, 'handoffs.json');
+    let handoffs = [];
+    try { handoffs = JSON.parse(fs.readFileSync(handoffsFile, 'utf8')); } catch {}
+    const toFilter = url.searchParams.get('to');
+    const unreadOnly = url.searchParams.get('unread') === 'true';
+    if (toFilter) handoffs = handoffs.filter(h => h.to === toFilter);
+    if (unreadOnly) handoffs = handoffs.filter(h => !h.read);
+    sendJSON(res, handoffs);
+    return;
+  }
+
+  // ===== CONTROLS ROUTES =====
+
+  // GET /api/controls — read controls
+  if (pathname === '/api/controls' && req.method === 'GET') {
+    const controlsFile = path.join(DATA_DIR, 'controls.json');
+    let controls = { paused_agents: [], skipped_tasks: [], priority_overrides: {} };
+    try { controls = JSON.parse(fs.readFileSync(controlsFile, 'utf8')); } catch {}
+    sendJSON(res, controls);
+    return;
+  }
+
+  // POST /api/controls/pause — toggle agent pause
+  if (pathname === '/api/controls/pause' && req.method === 'POST') {
+    const body = JSON.parse(await readBody(req));
+    const controlsFile = path.join(DATA_DIR, 'controls.json');
+    let controls = { paused_agents: [], skipped_tasks: [], priority_overrides: {} };
+    try { controls = JSON.parse(fs.readFileSync(controlsFile, 'utf8')); } catch {}
+    if (!controls.paused_agents) controls.paused_agents = [];
+    const idx = controls.paused_agents.indexOf(body.agent);
+    if (idx >= 0) controls.paused_agents.splice(idx, 1);
+    else controls.paused_agents.push(body.agent);
+    fs.writeFileSync(controlsFile, JSON.stringify(controls, null, 2));
+    sendJSON(res, { success: true, paused_agents: controls.paused_agents });
+    return;
+  }
+
+  // POST /api/controls/skip — skip a task
+  if (pathname === '/api/controls/skip' && req.method === 'POST') {
+    const body = JSON.parse(await readBody(req));
+    const controlsFile = path.join(DATA_DIR, 'controls.json');
+    let controls = { paused_agents: [], skipped_tasks: [], priority_overrides: {} };
+    try { controls = JSON.parse(fs.readFileSync(controlsFile, 'utf8')); } catch {}
+    if (!controls.skipped_tasks) controls.skipped_tasks = [];
+    if (!controls.skipped_tasks.includes(body.task_id)) controls.skipped_tasks.push(body.task_id);
+    fs.writeFileSync(controlsFile, JSON.stringify(controls, null, 2));
+    sendJSON(res, { success: true, skipped_tasks: controls.skipped_tasks });
+    return;
+  }
+
+  // POST /api/controls/prioritize — set priority override
+  if (pathname === '/api/controls/prioritize' && req.method === 'POST') {
+    const body = JSON.parse(await readBody(req));
+    const controlsFile = path.join(DATA_DIR, 'controls.json');
+    let controls = { paused_agents: [], skipped_tasks: [], priority_overrides: {} };
+    try { controls = JSON.parse(fs.readFileSync(controlsFile, 'utf8')); } catch {}
+    if (!controls.priority_overrides) controls.priority_overrides = {};
+    if (body.priority == null) delete controls.priority_overrides[body.task_id];
+    else controls.priority_overrides[body.task_id] = body.priority;
+    fs.writeFileSync(controlsFile, JSON.stringify(controls, null, 2));
+    sendJSON(res, { success: true, priority_overrides: controls.priority_overrides });
+    return;
+  }
+
+  // ===== TASK QUEUE ROUTE =====
+
+  // GET /api/task-queue — expose task queue (read-only)
+  if (pathname === '/api/task-queue' && req.method === 'GET') {
+    const queueFile = path.join(__dirname, '../../storyengine/agents/task-queue.json');
+    let queue = [];
+    try { queue = JSON.parse(fs.readFileSync(queueFile, 'utf8')); } catch {}
+    sendJSON(res, queue);
+    return;
+  }
+
   // GET /api/prefs
   if (pathname === '/api/prefs' && req.method === 'GET') {
     sendJSON(res, readPrefs());

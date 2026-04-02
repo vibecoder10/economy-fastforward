@@ -5,7 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import {
   Play, Pause, Check, Loader2, Pencil, Image as ImageIcon, RefreshCw, Trash2, AlertTriangle,
-  Lock, ArrowLeft, ToggleLeft, ToggleRight,
+  Lock, ArrowLeft, ToggleLeft, ToggleRight, Layers,
 } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { SegmentBadge } from "@/components/ui/SegmentBadge";
@@ -18,7 +18,7 @@ import { PromptExpander } from "@/components/video-detail/prompt-expander";
 import { VoicePlayer } from "@/components/video-detail/voice-player";
 import {
   getVideoScript, getVideoAssets, updateStoryboardMode, clearSceneStoryboard, clearAllStoryboards,
-  runPipelineStage, updateSceneSegments, runImageForSegment, clearStaleTask, updateVideoStyles,
+  runPipelineStage, updateSceneSegments, runImageForSegment, runImageVariants, clearStaleTask, updateVideoStyles,
 } from "@/lib/api";
 import { useTaskPoller } from "@/hooks/use-task-poller";
 import type { VideoDetail, ScriptScene as ApiScriptScene, Asset } from "@/lib/api";
@@ -181,6 +181,7 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
   const [scenes, setScenes] = useState<SceneGroup[]>([]);
   const [editingPrompt, setEditingPrompt] = useState<string | null>(null);
   const [regeneratingSegment, setRegeneratingSegment] = useState<string | null>(null);
+  const [variantsSegment, setVariantsSegment] = useState<string | null>(null);
   const [generatingAll, setGeneratingAll] = useState(false);
   const [generatingPrompts, setGeneratingPrompts] = useState(false);
   const [model, setModel] = useState(video.image_model_override || "nano-banana-2");
@@ -291,6 +292,16 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
       queryClient.invalidateQueries({ queryKey: ["video-assets", video.id] });
     } finally {
       setRegeneratingSegment(null);
+    }
+  }, [video.id, queryClient]);
+
+  const handleGenerateVariants = useCallback(async (seg: VisualSegment) => {
+    setVariantsSegment(seg.id);
+    try {
+      await runImageVariants(video.id, seg.sceneNumber, seg.imageIndex, 3);
+      queryClient.invalidateQueries({ queryKey: ["video-assets", video.id] });
+    } finally {
+      setVariantsSegment(null);
     }
   }, [video.id, queryClient]);
 
@@ -904,6 +915,7 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
                         const statusInfo = STATUS_ICON[seg.status];
                         const isEditing = editingPrompt === seg.id;
                         const isRegenerating = regeneratingSegment === seg.id;
+                        const isGeneratingVariants = variantsSegment === seg.id;
 
                         return (
                           <div
@@ -1056,6 +1068,24 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
                                   )}{" "}
                                   {seg.status === "done" ? "Regen" : "Gen"}
                                 </button>
+                                {seg.status === "done" && (
+                                  <button
+                                    onClick={() => handleGenerateVariants(seg)}
+                                    disabled={isGeneratingVariants}
+                                    className="text-[9px] px-2 py-0.5 rounded transition-all disabled:opacity-50"
+                                    style={{
+                                      color: "var(--purple)",
+                                      border: "1px solid var(--purple)",
+                                    }}
+                                  >
+                                    {isGeneratingVariants ? (
+                                      <Loader2 size={8} className="animate-spin inline" />
+                                    ) : (
+                                      <Layers size={8} className="inline" />
+                                    )}{" "}
+                                    Variants
+                                  </button>
+                                )}
                               </div>
                             </div>
                           </div>

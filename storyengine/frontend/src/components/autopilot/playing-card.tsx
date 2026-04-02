@@ -1,6 +1,8 @@
 "use client";
 
-import { motion } from "framer-motion";
+import { useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { ChevronDown } from "lucide-react";
 import { formatNumber } from "@/lib/utils";
 import type { CompetitorCandidate } from "@/lib/api";
 
@@ -10,6 +12,8 @@ interface PlayingCardProps {
 }
 
 export function PlayingCard({ candidate, onModel }: PlayingCardProps) {
+  const [showBreakdown, setShowBreakdown] = useState(false);
+  const breakdown = candidate.confidence_breakdown;
   // Build YouTube thumbnail URL from video URL
   const videoId = candidate.url?.match(/(?:v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/)?.[1];
   const thumbnailUrl = videoId
@@ -76,7 +80,14 @@ export function PlayingCard({ candidate, onModel }: PlayingCardProps) {
           <span className="text-xs" style={{ color: "var(--text-muted)" }}>
             {candidate.source}
           </span>
-          <div className="flex items-center gap-2">
+          <button
+            className="flex items-center gap-2"
+            onClick={(e) => {
+              e.stopPropagation();
+              if (breakdown) setShowBreakdown((v) => !v);
+            }}
+            style={{ cursor: breakdown ? "pointer" : "default" }}
+          >
             <div
               className="h-1.5 w-16 rounded-full overflow-hidden"
               style={{ background: "var(--bg-card-hover)" }}
@@ -92,8 +103,74 @@ export function PlayingCard({ candidate, onModel }: PlayingCardProps) {
             <span className="text-xs font-bold" style={{ color: "var(--amber)" }}>
               {candidate.confidence.toFixed(0)}
             </span>
-          </div>
+            {breakdown && (
+              <ChevronDown
+                size={12}
+                style={{
+                  color: "var(--text-muted)",
+                  transform: showBreakdown ? "rotate(180deg)" : "rotate(0deg)",
+                  transition: "transform 0.2s",
+                }}
+              />
+            )}
+          </button>
         </div>
+
+        {/* Confidence breakdown */}
+        <AnimatePresence>
+          {showBreakdown && breakdown && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="overflow-hidden"
+            >
+              <div
+                className="rounded-lg p-3 space-y-2"
+                style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}
+              >
+                {[
+                  { label: "VPH Score", score: breakdown.vph_score, reasoning: breakdown.vph_reasoning },
+                  { label: "Freshness", score: breakdown.freshness_score, reasoning: breakdown.freshness_reasoning },
+                ].map((item) => (
+                  <div key={item.label}>
+                    <div className="flex items-center justify-between mb-0.5">
+                      <span className="text-[10px] font-medium" style={{ color: "var(--text-secondary)" }}>
+                        {item.label}
+                      </span>
+                      <span className="text-[10px] font-mono font-bold" style={{ color: "var(--amber)" }}>
+                        {item.score.toFixed(1)}
+                      </span>
+                    </div>
+                    <div
+                      className="h-1 rounded-full overflow-hidden mb-1"
+                      style={{ background: "rgba(255,255,255,0.06)" }}
+                    >
+                      <div
+                        className="h-full rounded-full"
+                        style={{ width: `${Math.min(100, item.score)}%`, background: "var(--amber)" }}
+                      />
+                    </div>
+                    {item.reasoning && (
+                      <p className="text-[9px] leading-tight" style={{ color: "var(--text-muted)" }}>
+                        {item.reasoning}
+                      </p>
+                    )}
+                  </div>
+                ))}
+                <div className="flex items-center justify-between pt-1" style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+                  <span className="text-[10px] font-semibold" style={{ color: "var(--text-secondary)" }}>
+                    Total
+                  </span>
+                  <span className="text-[10px] font-mono font-bold" style={{ color: "var(--amber)" }}>
+                    {breakdown.total_score.toFixed(1)}
+                  </span>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Model button */}
         <button

@@ -3,6 +3,7 @@
 import os
 import asyncio
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from dotenv import load_dotenv
 
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
@@ -10,7 +11,17 @@ load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from database import get_pool, close_pool, fetch_all, fetch_one, execute
-from routes import dashboard, videos, assets, activity, review, pipeline, settings, autopilot, skills, agents, niche, channel_profile, projects, visual_styles, discovery, learning_extraction, youtube_sync
+from routes import dashboard, videos, assets, activity, review, pipeline, settings, autopilot, skills, agents, niche, channel_profile, projects, visual_styles, discovery, learning_extraction, youtube_sync, analytics, profile
+from routes.autopilot import _bg_task_status
+
+
+def _update_bg_status(tenant_id: str, task_name: str, **kwargs):
+    """Update background task status for a tenant."""
+    if tenant_id not in _bg_task_status:
+        _bg_task_status[tenant_id] = {}
+    status = _bg_task_status[tenant_id].get(task_name, {})
+    status.update(kwargs)
+    _bg_task_status[tenant_id][task_name] = status
 
 
 async def _get_all_tenant_ids() -> list[str]:
@@ -73,12 +84,15 @@ async def _auto_extract_learnings():
                     )
 
                     if videos:
+                        _update_bg_status(tenant_id, "learning_extraction", is_running=True, last_error=None)
                         from routes.learning_extraction import extract_learnings as _extract
                         result = await _extract(tenant_id=tenant_id)
+                        _update_bg_status(tenant_id, "learning_extraction", is_running=False, last_run=datetime.now(timezone.utc).isoformat())
                         print(f"[AutoExtract] Tenant {tenant_id[:8]}: {result.patterns_extracted} patterns from {result.videos_analyzed} videos ({result.patterns_new} new, {result.patterns_updated} updated)")
                     else:
                         print(f"[AutoExtract] Tenant {tenant_id[:8]}: no new videos")
                 except Exception as e:
+                    _update_bg_status(tenant_id, "learning_extraction", is_running=False, last_error=str(e))
                     print(f"[AutoExtract] Tenant {tenant_id[:8]} error: {e}")
 
         except Exception as e:
@@ -102,10 +116,13 @@ async def _auto_sync_youtube():
                 try:
                     if not await _is_autopilot_enabled(tenant_id):
                         continue
+                    _update_bg_status(tenant_id, "youtube_sync", is_running=True, last_error=None)
                     from routes.youtube_sync import _run_sync
                     await _run_sync(tenant_id)
+                    _update_bg_status(tenant_id, "youtube_sync", is_running=False, last_run=datetime.now(timezone.utc).isoformat())
                     print(f"[AutoYTSync] Tenant {tenant_id[:8]}: sync complete")
                 except Exception as e:
+                    _update_bg_status(tenant_id, "youtube_sync", is_running=False, last_error=str(e))
                     print(f"[AutoYTSync] Tenant {tenant_id[:8]} error: {e}")
         except Exception as e:
             print(f"[AutoYTSync] Error: {e}")
@@ -128,13 +145,16 @@ async def _auto_analyze_competitor_titles():
                 try:
                     if not await _is_autopilot_enabled(tenant_id):
                         continue
+                    _update_bg_status(tenant_id, "title_analysis", is_running=True, last_error=None)
                     from routes.learning_extraction import analyze_competitor_titles, analyze_competitor_transcripts
                     result = await analyze_competitor_titles(tenant_id=tenant_id)
                     title_insights = result.get("insights_saved", 0) if isinstance(result, dict) else 0
                     result2 = await analyze_competitor_transcripts(tenant_id=tenant_id)
                     hook_insights = result2.get("insights_saved", 0) if isinstance(result2, dict) else 0
+                    _update_bg_status(tenant_id, "title_analysis", is_running=False, last_run=datetime.now(timezone.utc).isoformat())
                     print(f"[AutoTitleAnalysis] Tenant {tenant_id[:8]}: {title_insights} title + {hook_insights} hook insights saved")
                 except Exception as e:
+                    _update_bg_status(tenant_id, "title_analysis", is_running=False, last_error=str(e))
                     print(f"[AutoTitleAnalysis] Tenant {tenant_id[:8]} error: {e}")
         except Exception as e:
             print(f"[AutoTitleAnalysis] Error: {e}")
@@ -160,10 +180,13 @@ async def _auto_scrape_competitors():
                     if not config.get("enabled"):
                         continue
                     videos_per_scrape = config.get("videos_per_scrape", 10)
+                    _update_bg_status(tenant_id, "scrape", is_running=True, last_error=None)
                     from routes.niche import _run_scrape
                     await _run_scrape(tenant_id, max_videos_per_channel=videos_per_scrape)
+                    _update_bg_status(tenant_id, "scrape", is_running=False, last_run=datetime.now(timezone.utc).isoformat())
                     print(f"[AutoScrape] Tenant {tenant_id[:8]}: daily scrape complete ({videos_per_scrape} per channel)")
                 except Exception as e:
+                    _update_bg_status(tenant_id, "scrape", is_running=False, last_error=str(e))
                     print(f"[AutoScrape] Tenant {tenant_id[:8]} error: {e}")
         except Exception as e:
             print(f"[AutoScrape] Error: {e}")
@@ -288,6 +311,8 @@ app.include_router(visual_styles.router)
 app.include_router(discovery.router)
 app.include_router(learning_extraction.router)
 app.include_router(youtube_sync.router)
+app.include_router(analytics.router)
+app.include_router(profile.router)
 
 
 @app.get("/api/health")

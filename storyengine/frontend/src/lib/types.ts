@@ -1,13 +1,13 @@
 export type PipelineStatus =
   | "idea_logged"
-  | "researching"
-  | "scripting"
-  | "voice"
-  | "visuals"
-  | "storyboard_review"
-  | "rendering"
-  | "uploaded"
-  | "published"
+  | "ready_for_scripting"
+  | "ready_for_voice"
+  | "ready_for_storyboards"
+  | "ready_for_images"
+  | "ready_for_thumbnail"
+  | "ready_to_render"
+  | "rendered"
+  | "uploaded_draft"
   | "done";
 
 export type Verdict = "hit" | "steady" | "underperformed";
@@ -30,16 +30,6 @@ export interface Video {
   thumbnailUrl?: string;
   progress?: number;
   updatedAt?: string;
-}
-
-export interface ScriptScene {
-  sceneNumber: number;
-  actNumber: number;
-  narrationText: string;
-  visualStyle: string;
-  composition: string;
-  sources?: string[];
-  imageGenerated?: boolean;
 }
 
 export interface StoryboardScene {

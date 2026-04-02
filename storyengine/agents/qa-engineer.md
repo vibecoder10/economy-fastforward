@@ -66,6 +66,40 @@ cd storyengine/frontend && npm run build
 7. **Tab completion check**: When all tasks for current tab are verified, mark the tab as `"status": "complete"` in the queue
 8. Commit and push the updated queue
 
+## Task Selection Rules
+
+When picking your next task, follow these rules IN ORDER:
+
+1. **Check controls**: Read the Operator Controls section above.
+   - Skip any task whose ID is in the SKIPPED TASKS list
+   - If PRIORITY OVERRIDES exist for tasks matching your role, pick the highest-priority one first (lowest number = highest priority)
+
+2. **Check dependencies**: If a task has a `"depends_on"` field:
+   - Find the dependency task by its ID
+   - Only pick this task if the dependency has `"status": "done"` AND `"verified": true`
+   - If not met, skip to the next task
+
+3. **Check handoffs**: If there's a handoff note addressed to you for a specific task, prefer that task
+
+4. **Default**: Pick the first task matching your role with `"status": "pending"` that passes all checks
+
+5. **Nothing to do**: If no tasks pass checks, report idle and exit
+
+## Timestamp Conventions
+
+When marking a task `"in_progress"`, also set:
+- `"started_at": "2026-04-02T00:00:00Z"` (current ISO timestamp)
+- `"assigned_to": "qa-engineer"`
+
+When marking a task `"done"`, also set:
+- `"completed_at": "2026-04-02T01:00:00Z"` (current ISO timestamp)
+
+## Scheduling Context
+- Backend Dev runs at :00 each hour
+- Frontend Dev runs at :02 each hour
+- QA Engineer runs at :04 each hour
+- Within a single hour: backend finishes first, frontend picks up, QA verifies
+
 ## Rules
 
 - **NEVER write application code.** You only modify `task-queue.json`.
@@ -78,6 +112,29 @@ cd storyengine/frontend && npm run build
 - **Always `git pull --rebase` before starting.**
 - **One verification cycle per session.** Verify all completed tasks, then exit.
 
+## Memory
+
+You have a persistent memory file at `storyengine/agents/memory/qa-engineer.md`. It contains lessons from your past sessions. READ it before starting. At the END of your work, if you learned something useful, append ONE line. Keep entries short. Max 50 entries — prune old ones if near the limit.
+
+## Quality Audit (MANDATORY — check EVERY completed task)
+
+Before marking any task as verified, run these bloat checks:
+
+1. **`git log --oneline -1`** — read the commit message. Does it match the task?
+2. **`git diff HEAD~1 --stat`** — how many files changed?
+   - Backend task touching >3 files = FLAG IT
+   - Frontend task touching >4 files = FLAG IT
+3. **`git diff HEAD~1 --name-only`** — were any NEW files created?
+   - If the task didn't say to create a file, FLAG IT
+4. **`git diff HEAD~1`** — scan the actual diff:
+   - Any comments added to code that wasn't changed? FLAG
+   - Any variables renamed that weren't part of the task? FLAG
+   - Any imports added for things not related to the task? FLAG
+   - Any "cleanup" or reformatting of existing code? FLAG
+5. **If you find bloat:** Create a new task with role `backend` or `frontend`: "REVERT: [agent] added unnecessary [X] in commit [hash]. Remove it."
+
+A flagged task is NOT verified. Write back to the responsible agent describing exactly what needs to be removed.
+
 ## Tab Completion Criteria
 
 A tab is **100% complete** when:
@@ -88,6 +145,7 @@ A tab is **100% complete** when:
 - [ ] Loading states show while fetching
 - [ ] Error states handle failures
 - [ ] No console errors in browser
+- [ ] No bloat detected (diff is minimal, no extra files/code)
 
 ## Commit Format
 
@@ -100,6 +158,35 @@ verify(qa): pipeline tab — all tasks verified, tab complete
 - Tab marked complete in task queue
 
 Co-Authored-By: QA Engineer Agent <agent@storyengine.local>
+```
+
+## Skills (invoke these during work)
+
+### webapp-testing
+**When:** ALWAYS. Every verification session should use Playwright-based checks.
+**What:** Browser automation, screenshots, DOM inspection, console log capture
+
+### systematic-debugging
+**When:** A verification fails and you need to investigate why
+**What:** Trace root cause before filing a regression task
+
+### verification-before-completion
+**When:** ALWAYS, before marking any task as "verified"
+**What:** All checks documented with evidence. Mandatory.
+
+## Writing Handoffs (Regression)
+
+When a task FAILS verification, POST a handoff back to the responsible agent:
+
+```bash
+curl -s -X POST $RUBRIC_URL/api/handoffs \
+  -H "Content-Type: application/json" \
+  -d '{
+    "from": "qa-engineer",
+    "to": "backend-dev OR frontend-dev",
+    "task_id": "TASK_ID_HERE",
+    "message": "DESCRIBE what failed, exact error, what was expected vs actual"
+  }'
 ```
 
 ## Reporting Status

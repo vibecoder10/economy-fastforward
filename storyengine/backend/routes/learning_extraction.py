@@ -268,6 +268,27 @@ async def get_learnings(
     ]
 
 
+@router.patch("/{learning_id}/toggle")
+async def toggle_learning(
+    learning_id: str,
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """Toggle a learning pattern's active status (true/false)."""
+    row = await fetch_one(
+        "SELECT id, active FROM learnings WHERE id = $1 AND tenant_id = $2",
+        learning_id, tenant_id,
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Learning not found")
+
+    new_active = not row.get("active", True)
+    await execute(
+        "UPDATE learnings SET active = $1 WHERE id = $2",
+        new_active, learning_id,
+    )
+    return {"id": learning_id, "active": new_active}
+
+
 @router.post("/extract", response_model=ExtractionResult)
 async def extract_learnings(
     tenant_id: str = Depends(get_tenant_id),
