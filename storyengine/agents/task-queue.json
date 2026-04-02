@@ -149,8 +149,11 @@
           "id": "T3-001",
           "title": "Fix ScriptScene type mismatch (scene_text not narrationText)",
           "role": "frontend",
-          "status": "pending",
-          "description": "Frontend ScriptScene type uses narrationText but backend returns scene_text. Fix types.ts ScriptScene to use scene_text. Also add missing storyboard_1_url through storyboard_5_url fields.",
+          "status": "done",
+          "started_at": "2026-04-02T04:02:00Z",
+          "assigned_to": "frontend-dev",
+          "completed_at": "2026-04-02T04:04:00Z",
+          "description": "Removed stale ScriptScene from types.ts — it used camelCase (narrationText, sceneNumber) which didn't match backend. The correct ScriptScene (with scene_text, storyboard_1_url through storyboard_5_url) already exists in api.ts line 608 and is what all components import. No code imported the types.ts version.",
           "files": [
             "frontend/src/lib/types.ts"
           ]

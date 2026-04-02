@@ -32,16 +32,6 @@ export interface Video {
   updatedAt?: string;
 }
 
-export interface ScriptScene {
-  sceneNumber: number;
-  actNumber: number;
-  narrationText: string;
-  visualStyle: string;
-  composition: string;
-  sources?: string[];
-  imageGenerated?: boolean;
-}
-
 export interface StoryboardScene {
   sceneNumber: number;
   narrationText: string;
