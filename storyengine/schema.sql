@@ -546,6 +546,10 @@ CREATE TABLE accounts (
   google_id TEXT UNIQUE,
   avatar_url TEXT,
   plan TEXT DEFAULT 'free',
+  stripe_customer_id TEXT UNIQUE,
+  stripe_subscription_id TEXT,
+  stripe_plan TEXT,
+  stripe_status TEXT,
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );

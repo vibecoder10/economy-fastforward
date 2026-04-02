@@ -1161,7 +1161,10 @@
           "id": "T17-003",
           "title": "Build Stripe billing backend: subscription endpoints",
           "role": "backend",
-          "status": "pending",
+          "status": "done",
+          "started_at": "2026-04-02T20:00:01Z",
+          "completed_at": "2026-04-02T20:05:00Z",
+          "assigned_to": "backend-dev",
           "depends_on": "T17-001",
           "description": "Create routes/billing.py with: POST /api/billing/create-checkout (create Stripe Checkout session for plan), POST /api/billing/webhook (handle Stripe webhooks: subscription created/updated/deleted), GET /api/billing/subscription (current plan + status), POST /api/billing/portal (create Stripe Customer Portal session for self-service). Migration: add stripe_customer_id and stripe_subscription_id to accounts.",
           "files": [
