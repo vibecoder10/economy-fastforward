@@ -14,7 +14,10 @@
           "id": "T1-001",
           "title": "Fix PipelineStatus enum to match backend stages",
           "role": "frontend",
-          "status": "pending",
+          "status": "done",
+          "started_at": "2026-04-02T01:49:19Z",
+          "completed_at": "2026-04-02T01:52:00Z",
+          "assigned_to": "frontend-dev",
           "description": "Frontend types.ts defines PipelineStatus as 'idea_logged | researching | scripting | voice | visuals | storyboard_review | rendering | uploaded | published | done'. Backend PIPELINE_STAGES uses 'idea_logged | ready_for_scripting | ready_for_voice | ready_for_storyboards | ready_for_images | ready_for_thumbnail | ready_to_render | rendered | uploaded_draft | done'. Update types.ts to match backend exactly.",
           "files": ["frontend/src/lib/types.ts"]
         },
