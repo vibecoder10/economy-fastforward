@@ -282,8 +282,11 @@
           "id": "T6-003",
           "title": "Display image prompt text alongside each image",
           "role": "frontend",
-          "status": "pending",
-          "description": "Each asset has an image_prompt field. Show it as expandable text below each image in the visuals tab so users can see what prompt generated each image.",
+          "status": "done",
+          "started_at": "2026-04-02T23:32:00Z",
+          "assigned_to": "frontend-dev",
+          "completed_at": "2026-04-02T23:36:00Z",
+          "description": "Replaced always-visible image prompt textarea with collapsible PromptExpander component. Prompts now show a 60-char preview collapsed by default, expand on click to reveal full text with edit support. Removed unused editingPrompt state.",
           "files": [
             "frontend/src/components/production/StoryboardVisualsTab.tsx"
           ]
