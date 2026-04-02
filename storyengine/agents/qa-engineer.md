@@ -61,12 +61,50 @@ grep "fieldName" storyengine/frontend/src/components/path/Component.tsx
 cd storyengine/frontend && npm run build
 ```
 
-5. **RUN PLAYWRIGHT** — For EVERY frontend task, use Playwright to actually load the page in a real browser and verify:
-   - Page loads at `http://localhost:3001/PAGE_PATH` without console errors
-   - Data appears (not empty/spinner stuck)
-   - Buttons are clickable
-   - Take a screenshot to `/tmp/qa-TASKID.png` as evidence
-   See your QA Blueprint for exact Playwright commands.
+5. **PLAYWRIGHT BROWSER TEST (MANDATORY — NO EXCEPTIONS)**
+   
+   Grep and curl are NOT enough. You MUST open the actual page in a real browser and interact with it. A task is NOT verified unless Playwright proves it works.
+
+   For EVERY frontend task:
+   a. **Load the page** at `http://localhost:3001/PAGE_PATH` — check no console errors
+   b. **Verify data appears** — the page must show real data, not spinners or empty states
+   c. **Click every button/action** that the task added — verify the expected result happens (e.g., a modal opens, an API call fires, data updates)
+   d. **Check the result** — after clicking, verify the outcome is correct (status changes, new data appears, toast/notification shows)
+   e. **Take a screenshot** before AND after the action to `/tmp/qa-TASKID-before.png` and `/tmp/qa-TASKID-after.png`
+
+   If a button exists but clicking it does nothing, or shows an error, or the data doesn't update — the task FAILS verification. File it back.
+
+   **Example: Verifying a "Generate Thumbnail" button**
+   ```javascript
+   const { chromium } = require('playwright');
+   (async () => {
+     const browser = await chromium.launch();
+     const page = await browser.newPage();
+     // Capture console errors
+     const errors = [];
+     page.on('console', msg => { if (msg.type() === 'error') errors.push(msg.text()); });
+     // Navigate to the video detail page
+     await page.goto('http://localhost:3001/pipeline/VIDEO_ID');
+     await page.waitForLoadState('networkidle');
+     // Click the Thumbnail tab
+     await page.click('text=Thumbnail');
+     await page.waitForTimeout(1000);
+     await page.screenshot({ path: '/tmp/qa-TASKID-before.png' });
+     // Click the Generate button
+     const genBtn = page.locator('button:has-text("Generate")');
+     const btnExists = await genBtn.count() > 0;
+     console.log('Generate button exists:', btnExists);
+     if (btnExists) {
+       await genBtn.click();
+       await page.waitForTimeout(2000);
+       await page.screenshot({ path: '/tmp/qa-TASKID-after.png' });
+     }
+     console.log('Console errors:', errors.length ? errors : 'None');
+     await browser.close();
+   })();
+   ```
+
+   See your QA Blueprint for more Playwright patterns.
 6. If verification **passes**: Mark task `"verified": true` in the queue
 7. If verification **fails**: Create a new task with role `backend` or `frontend`, describing exactly what's broken, referencing the original task
 8. **Tab completion check**: When all tasks for current tab are verified, mark the tab as `"status": "complete"` in the queue
