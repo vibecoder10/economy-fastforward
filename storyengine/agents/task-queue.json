@@ -98,8 +98,11 @@
           "id": "T2-003",
           "title": "Display source metadata (source_views, source_channel, source_urls) in Info tab",
           "role": "frontend",
-          "status": "pending",
+          "status": "done",
           "depends_on": "T2-006",
+          "started_at": "2026-04-02T03:04:00Z",
+          "assigned_to": "frontend-dev",
+          "completed_at": "2026-04-02T03:06:00Z",
           "description": "After T2-006 adds these fields to the backend response, add a 'Source' section to info-tab.tsx showing: source_channel as text, source_views as formatted number, source_urls as clickable links. Only render the section if at least one field has data. Place it after the Story DNA section.",
           "files": [
             "frontend/src/components/video-detail/info-tab.tsx"

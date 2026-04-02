@@ -3,7 +3,8 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { advanceVideo, rejectVideo } from "@/lib/api";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight, ExternalLink } from "lucide-react";
+import { formatNumber } from "@/lib/utils";
 
 interface InfoTabProps {
   video: any;
@@ -48,6 +49,45 @@ export function InfoTab({ video }: InfoTabProps) {
           <Field label="Writer Guidance" value={video.writer_guidance} />
         )}
       </Section>
+
+      {/* Source Metadata */}
+      {(video.source_channel || video.source_views != null || video.source_urls) && (
+        <Section title="Source">
+          <Field label="Channel" value={video.source_channel} />
+          {video.source_views != null && (
+            <div className="mb-3">
+              <dt className="text-xs font-medium mb-0.5" style={{ color: "var(--text-muted)" }}>
+                Views
+              </dt>
+              <dd className="text-sm" style={{ color: "var(--text-primary)" }}>
+                {formatNumber(video.source_views)}
+              </dd>
+            </div>
+          )}
+          {video.source_urls && (
+            <div className="mb-3 last:mb-0">
+              <dt className="text-xs font-medium mb-0.5" style={{ color: "var(--text-muted)" }}>
+                Source URLs
+              </dt>
+              <dd className="space-y-1">
+                {video.source_urls.split(/[\n,]+/).filter(Boolean).map((url: string, i: number) => (
+                  <a
+                    key={i}
+                    href={url.trim()}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1 text-sm hover:underline"
+                    style={{ color: "var(--turquoise)" }}
+                  >
+                    <ExternalLink size={12} />
+                    {url.trim().length > 60 ? url.trim().slice(0, 60) + "…" : url.trim()}
+                  </a>
+                ))}
+              </dd>
+            </div>
+          )}
+        </Section>
+      )}
 
       {/* Story Bible */}
       {storyBible && (

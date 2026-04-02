@@ -511,6 +511,9 @@ export interface VideoDetail extends VideoSummary {
   airtable_record_id: string | null;
   headline: string | null;
   source: string | null;
+  source_views: number | null;
+  source_channel: string | null;
+  source_urls: string | null;
   framework_angle: string | null;
   thematic_framework: string | null;
   hook_script: string | null;
