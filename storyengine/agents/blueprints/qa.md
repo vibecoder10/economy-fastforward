@@ -79,6 +79,75 @@ For a frontend task:
 | agents.py | `/api/agents` |
 | skills.py | `/api/skills` |
 
+## Playwright Browser Testing (USE THIS)
+
+The VPS has Playwright + Chromium installed. Use it to ACTUALLY CLICK THROUGH the live site. This is the most reliable way to verify frontend work.
+
+**StoryEngine URLs:**
+- Frontend: `http://localhost:3001`
+- Backend API: `http://localhost:8001`
+
+**How to run Playwright tests:**
+```bash
+# Navigate to a page and check it loads (no errors)
+npx playwright test --browser chromium -c - << 'TESTEOF'
+const { test, expect } = require('@playwright/test');
+test('page loads', async ({ page }) => {
+  await page.goto('http://localhost:3001/pipeline');
+  await page.waitForLoadState('networkidle');
+  // Check no error messages visible
+  const errorText = await page.locator('text=error').count();
+  console.log('Errors found:', errorText);
+  // Take screenshot for evidence
+  await page.screenshot({ path: '/tmp/qa-screenshot.png' });
+});
+TESTEOF
+```
+
+**Common Playwright checks to run:**
+```bash
+# Check a specific page loads data (not empty)
+node -e "
+const { chromium } = require('playwright');
+(async () => {
+  const browser = await chromium.launch();
+  const page = await browser.newPage();
+
+  // Navigate
+  await page.goto('http://localhost:3001/PAGE_PATH');
+  await page.waitForLoadState('networkidle');
+
+  // Check for content (not empty/loading forever)
+  const body = await page.textContent('body');
+  const hasContent = body.length > 200;
+  console.log('Page loaded:', hasContent ? 'YES' : 'NO (possibly empty)');
+
+  // Check for console errors
+  page.on('console', msg => {
+    if (msg.type() === 'error') console.log('CONSOLE ERROR:', msg.text());
+  });
+
+  // Check specific elements exist
+  const buttons = await page.locator('button').count();
+  console.log('Buttons found:', buttons);
+
+  // Screenshot as evidence
+  await page.screenshot({ path: '/tmp/qa-PAGE_PATH.png', fullPage: true });
+
+  await browser.close();
+})();
+"
+```
+
+**What to verify with Playwright for each tab:**
+1. Page loads without console errors
+2. Data appears (not just spinners/empty states)
+3. Buttons are clickable (not disabled when they shouldn't be)
+4. API calls complete (check network tab or console for fetch errors)
+5. Take a screenshot as evidence
+
+**Always take screenshots.** Save to `/tmp/qa-TASKID.png`. Reference in your verification notes.
+
 ## Tab Completion Criteria
 A tab is 100% complete when:
 - All tasks for the tab have status `done` AND `verified: true`
