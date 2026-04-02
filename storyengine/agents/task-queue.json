@@ -595,10 +595,11 @@
           "id": "T10-001",
           "title": "Add confidence breakdown tooltip on candidate cards",
           "role": "frontend",
-          "status": "in_progress",
+          "status": "done",
           "started_at": "2026-04-02T22:02:00Z",
           "assigned_to": "frontend-dev",
-          "description": "Backend returns confidence_breakdown with vph_score, vph_reasoning, freshness_score, freshness_reasoning, total_score on each CompetitorCandidate. Show this as a tooltip or expandable section on each playing card so users understand WHY a candidate ranks high. Currently only the total confidence number is shown.",
+          "completed_at": "2026-04-02T22:06:00Z",
+          "description": "Added expandable confidence breakdown on PlayingCard. Click the confidence score to reveal VPH Score and Freshness bars with reasoning text. Uses AnimatePresence for smooth expand/collapse. Only 1 component file changed.",
           "files": [
             "frontend/src/app/competitors/page.tsx",
             "frontend/src/components/autopilot/PlayingCard.tsx"
