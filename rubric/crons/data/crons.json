@@ -1,5 +1,5 @@
 {
-  "description": "StoryEngine Agent Schedule — Build cycle + micro-orchestrator review after each cycle",
+  "description": "StoryEngine Agent Schedule — Build → QA → Tester finds bugs → Orchestrator plans fixes",
   "crons": [
     {
       "id": "orchestrator-grand",
@@ -26,9 +26,15 @@
       "enabled": true
     },
     {
+      "id": "pipeline-tester-hourly",
+      "name": "Pipeline Tester — Click Through App",
+      "cron": "35 * * * *",
+      "enabled": true
+    },
+    {
       "id": "orchestrator-micro",
       "name": "Orchestrator — Micro Review",
-      "cron": "6 * * * *",
+      "cron": "45 * * * *",
       "enabled": true
     },
     {
