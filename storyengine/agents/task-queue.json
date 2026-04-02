@@ -1091,6 +1091,73 @@
           ]
         }
       ]
+    },
+    {
+      "id": 17,
+      "name": "Auth & Billing (OPERATOR PRIORITY)",
+      "path": "/auth",
+      "status": "in_progress",
+      "tasks": [
+        {
+          "id": "T17-001",
+          "title": "Build Google OAuth backend: POST /api/auth/google + GET /api/auth/me",
+          "role": "backend",
+          "status": "done",
+          "started_at": "2026-04-02T19:00:01Z",
+          "completed_at": "2026-04-02T19:05:00Z",
+          "assigned_to": "backend-dev",
+          "description": "Created routes/google_auth.py with POST /api/auth/google (verify Google ID token, create/find account + tenant + membership, return session JWT) and GET /api/auth/me (return current user from JWT). Updated auth.py to support session JWTs (iss=storyengine) alongside dev-token and Supabase JWT. Migration 021 adds google_id and avatar_url to accounts table. Router registered in main.py.",
+          "files": [
+            "backend/routes/google_auth.py",
+            "backend/auth.py",
+            "backend/main.py",
+            "backend/migrations/021_google_oauth_columns.sql",
+            "schema.sql"
+          ]
+        },
+        {
+          "id": "T17-002",
+          "title": "Build Google Sign-In frontend: login page + auth context + token storage",
+          "role": "frontend",
+          "status": "pending",
+          "description": "Create login page with 'Sign in with Google' button using @react-oauth/google. AuthContext provider wraps app, stores JWT in localStorage, provides user/logout. Protected route wrapper redirects to /login if no token. Wire Authorization header to all fetchApi calls. Endpoints: POST /api/auth/google {credential} -> {token, user}, GET /api/auth/me -> user info.",
+          "depends_on": "T17-001",
+          "files": [
+            "frontend/src/app/login/page.tsx",
+            "frontend/src/components/auth/AuthProvider.tsx",
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        {
+          "id": "T17-003",
+          "title": "Build Stripe billing backend: subscription endpoints",
+          "role": "backend",
+          "status": "pending",
+          "depends_on": "T17-001",
+          "description": "Create routes/billing.py with: POST /api/billing/create-checkout (create Stripe Checkout session for plan), POST /api/billing/webhook (handle Stripe webhooks: subscription created/updated/deleted), GET /api/billing/subscription (current plan + status), POST /api/billing/portal (create Stripe Customer Portal session for self-service). Migration: add stripe_customer_id and stripe_subscription_id to accounts.",
+          "files": [
+            "backend/routes/billing.py",
+            "backend/main.py",
+            "backend/migrations/022_stripe_columns.sql"
+          ]
+        },
+        {
+          "id": "T17-004",
+          "title": "Build Stripe billing frontend: plan selection + manage subscription",
+          "role": "frontend",
+          "status": "pending",
+          "depends_on": "T17-003",
+          "description": "Add plan selection UI to onboarding flow and settings page. Three tiers: Starter ($25/mo), Pro ($40/mo), Agency ($75/mo). Checkout button calls POST /api/billing/create-checkout, redirects to Stripe. Settings shows current plan + 'Manage Subscription' button (opens Stripe Portal)."
+        },
+        {
+          "id": "T17-005",
+          "title": "QA verify Google OAuth + Stripe billing end-to-end",
+          "role": "qa",
+          "status": "pending",
+          "depends_on": "T17-004",
+          "description": "Verify: Google sign-in creates account + tenant, session JWT works for all API calls, /api/auth/me returns correct user, Stripe checkout creates subscription, webhooks update plan, plan gating works."
+        }
+      ]
     }
   ]
 }

@@ -543,6 +543,8 @@ CREATE TABLE accounts (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   email TEXT,
   display_name TEXT,
+  google_id TEXT UNIQUE,
+  avatar_url TEXT,
   plan TEXT DEFAULT 'free',
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
