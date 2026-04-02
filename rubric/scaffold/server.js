@@ -503,6 +503,37 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // GET /api/activity-log/detail — read a full agent report file
+  if (pathname === '/api/activity-log/detail' && req.method === 'GET') {
+    const params = new URL('http://x' + req.url).searchParams;
+    const file = params.get('file');
+    if (!file || file.includes('..') || !file.endsWith('.md')) {
+      sendJSON(res, { error: 'Invalid file' }, 400);
+      return;
+    }
+    const reportsDir = path.join(__dirname, '../../storyengine/agents/reports');
+    const filePath = path.join(reportsDir, file);
+    try {
+      const content = fs.readFileSync(filePath, 'utf8');
+      sendJSON(res, { file, content });
+    } catch {
+      sendJSON(res, { error: 'Report not found' }, 404);
+    }
+    return;
+  }
+
+  // POST /api/controls/focus — set a high-level directive for all agents
+  if (pathname === '/api/controls/focus' && req.method === 'POST') {
+    const body = JSON.parse(await readBody(req));
+    const controlsFile = path.join(DATA_DIR, 'controls.json');
+    let controls = { paused_agents: [], skipped_tasks: [], priority_overrides: {} };
+    try { controls = JSON.parse(fs.readFileSync(controlsFile, 'utf8')); } catch {}
+    controls.focus = body.focus || '';
+    fs.writeFileSync(controlsFile, JSON.stringify(controls, null, 2));
+    sendJSON(res, { success: true, focus: controls.focus });
+    return;
+  }
+
   // ===== HANDOFF ROUTES =====
 
   // POST /api/handoffs — create a handoff note

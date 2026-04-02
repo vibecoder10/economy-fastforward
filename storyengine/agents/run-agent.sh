@@ -9,10 +9,12 @@ set -e
 AGENT=$1
 PROJECT_ROOT="${AGENT_PROJECT_ROOT:-/Users/ryanayler/economy-fastforward}"
 AGENTS_DIR="$PROJECT_ROOT/storyengine/agents"
+REPORTS_DIR="$AGENTS_DIR/reports"
 RUBRIC_URL="${RUBRIC_URL:-http://localhost:5050}"
 CLAUDE_BIN="${CLAUDE_BIN:-claude}"
 BRANCH="agent-dev"
 TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+RUN_ID="$AGENT-$(date +%Y%m%d-%H%M%S)"
 
 if [ -z "$AGENT" ]; then
   echo "Usage: ./run-agent.sh <orchestrator|backend-dev|frontend-dev|qa-engineer>"
@@ -25,28 +27,26 @@ if [ ! -f "$AGENT_FILE" ]; then
   exit 1
 fi
 
+mkdir -p "$REPORTS_DIR"
+
 cd "$PROJECT_ROOT"
 
 # ─── Pause Check ──────────────────────────────────────────────────────────────
-# If controls.json exists and this agent is paused, exit immediately.
-CONTROLS_FILE="$AGENTS_DIR/controls.json"
+CONTROLS_FILE="$PROJECT_ROOT/rubric/scaffold/data/controls.json"
 if [ -f "$CONTROLS_FILE" ]; then
   IS_PAUSED=$(python3 -c "
-import json, sys
+import json
 try:
     data = json.load(open('$CONTROLS_FILE'))
-    agents = data.get('agents', {})
-    agent_ctrl = agents.get('$AGENT', {})
-    print('true' if agent_ctrl.get('paused', False) else 'false')
-except Exception:
-    print('false')
+    print('true' if '$AGENT' in data.get('paused_agents', []) else 'false')
+except: print('false')
 " 2>/dev/null || echo "false")
 
   if [ "$IS_PAUSED" = "true" ]; then
-    echo "[$TIMESTAMP] Agent '$AGENT' is paused via controls.json. Exiting."
+    echo "[$TIMESTAMP] Agent '$AGENT' is paused. Skipping."
     curl -s -X POST "$RUBRIC_URL/api/agent-status" \
       -H "Content-Type: application/json" \
-      -d "{\"agent\": \"$AGENT\", \"status\": \"paused\", \"task\": \"Skipped — agent is paused\"}" 2>/dev/null || true
+      -d "{\"agent\": \"$AGENT\", \"status\": \"idle\", \"task\": \"Paused by operator\"}" 2>/dev/null || true
     exit 0
   fi
 fi
@@ -65,65 +65,47 @@ curl -s -X POST "$RUBRIC_URL/api/agent-status" \
   -H "Content-Type: application/json" \
   -d "{\"agent\": \"$AGENT\", \"status\": \"active\", \"task\": \"Starting session\"}" 2>/dev/null || true
 
-# ─── Read Agent Definition ────────────────────────────────────────────────────
+# ─── Read Inputs ──────────────────────────────────────────────────────────────
 AGENT_PROMPT=$(cat "$AGENT_FILE")
-
-# ─── Read Task Queue ──────────────────────────────────────────────────────────
 TASK_QUEUE=$(cat "$AGENTS_DIR/task-queue.json")
 
-# ─── Read Handoff Notes ──────────────────────────────────────────────────────
-# Pull last 3 unread notes addressed to this agent from handoffs.json
-HANDOFFS_FILE="$AGENTS_DIR/handoffs.json"
+# Read handoffs addressed to this agent
 HANDOFF_NOTES=""
-if [ -f "$HANDOFFS_FILE" ]; then
+if [ -f "$PROJECT_ROOT/rubric/scaffold/data/handoffs.json" ]; then
   HANDOFF_NOTES=$(python3 -c "
-import json, sys
+import json
 try:
-    data = json.load(open('$HANDOFFS_FILE'))
-    notes = data.get('notes', [])
-    unread = [n for n in notes if '$AGENT' in n.get('to', []) and not n.get('read_by', {}).get('$AGENT', False)]
-    recent = unread[-3:]
-    if not recent:
-        sys.exit(0)
-    for n in recent:
-        print(f\"- [{n.get('from','?')} @ {n.get('timestamp','?')}]: {n.get('message','')}\")
-except Exception:
-    pass
+    h = json.load(open('$PROJECT_ROOT/rubric/scaffold/data/handoffs.json'))
+    mine = [x for x in h if x.get('to') == '$AGENT' and not x.get('read')]
+    for m in mine[-3:]:
+        print('### From ' + m.get('from','?') + ' (task ' + m.get('task_id','') + ')')
+        print(m.get('message',''))
+        if m.get('files_changed'): print('Files: ' + ', '.join(m['files_changed']))
+        print()
+except: pass
 " 2>/dev/null || echo "")
 fi
 
-# ─── Read Operator Controls ──────────────────────────────────────────────────
-# Extract skipped_tasks and priority_overrides from controls.json
+# Read operator controls
 OPERATOR_CONTROLS=""
 if [ -f "$CONTROLS_FILE" ]; then
   OPERATOR_CONTROLS=$(python3 -c "
-import json, sys
+import json
 try:
-    data = json.load(open('$CONTROLS_FILE'))
-    lines = []
-    skipped = data.get('skipped_tasks', [])
-    if skipped:
-        lines.append('Skipped tasks (DO NOT work on these):')
-        for t in skipped:
-            lines.append(f'  - {t}')
-    priorities = data.get('priority_overrides', [])
-    if priorities:
-        lines.append('Priority overrides (work on these FIRST):')
-        for p in priorities:
-            lines.append(f'  - {p}')
-    agent_ctrl = data.get('agents', {}).get('$AGENT', {})
-    focus = agent_ctrl.get('focus', '')
-    if focus:
-        lines.append(f'Focus directive for you: {focus}')
-    print('\n'.join(lines))
-except Exception:
-    pass
+    c = json.load(open('$CONTROLS_FILE'))
+    parts = []
+    f = c.get('focus', '')
+    if f: parts.append('FOCUS DIRECTIVE (this is your top priority from the operator): ' + f)
+    s = c.get('skipped_tasks', [])
+    if s: parts.append('SKIPPED TASKS (do NOT pick these): ' + ', '.join(s))
+    p = c.get('priority_overrides', {})
+    if p: parts.append('PRIORITY OVERRIDES (pick these first, lower number = higher): ' + json.dumps(p))
+    print('\n'.join(parts))
+except: pass
 " 2>/dev/null || echo "")
 fi
 
 # ─── Build Prompt ─────────────────────────────────────────────────────────────
-# Assemble the full prompt with all injected context sections.
-
 PROMPT="You are running as the $AGENT agent for StoryEngine.
 
 ## Your Instructions
@@ -139,8 +121,7 @@ fi
 if [ -n "$HANDOFF_NOTES" ]; then
   PROMPT="$PROMPT
 
-## Handoff Notes
-Other agents left these notes for you (most recent last):
+## Handoff Notes (from other agents)
 $HANDOFF_NOTES"
 fi
 
@@ -155,52 +136,74 @@ $TASK_QUEUE
 - Always git add specific files, commit with a descriptive message, and push when done.
 - Only work on ONE task per session. Do it well.
 - All timestamps must be UTC ISO-8601 (e.g. $TIMESTAMP).
-- If you need to pass context to another agent, write a note to storyengine/agents/handoffs.json with {\"from\": \"$AGENT\", \"to\": [\"target-agent\"], \"message\": \"...\", \"timestamp\": \"$TIMESTAMP\", \"read_by\": {}}.
+- When marking a task in_progress, set started_at and assigned_to. When done, set completed_at.
+- After completing, POST a handoff to $RUBRIC_URL/api/handoffs if the next related task is for a different agent.
 - Report status to RUBRIC at $RUBRIC_URL/api/agent-status
-- At the VERY END of your response, write a single line starting with SUMMARY: followed by a plain-English one-sentence description of what you did (for a non-technical person). Example: \"SUMMARY: Fixed a bug where image approvals weren't being saved correctly\"
+
+## Output Format (MANDATORY)
+At the VERY END of your response, write these TWO sections:
+
+SUMMARY: [One sentence, plain English, for a non-technical person. Example: 'Fixed a bug where image approvals were not saving correctly']
+
+DETAIL:
+- [Bullet point 1: what you did, in simple terms]
+- [Bullet point 2: why you did it]
+- [Bullet point 3: what changed for the user]
+- [Any other relevant bullet points]
+- [What the next agent should work on]
 
 Begin work now. Pick your next task and execute it."
 
 # ─── Invoke Claude Code ───────────────────────────────────────────────────────
-# Capture exit code without letting set -e kill the script.
+# Use -p (not --print) so Claude can actually edit files and run commands.
+# --dangerously-skip-permissions allows headless operation without confirmation prompts.
 set +e
-OUTPUT=$($CLAUDE_BIN --print -p "$PROMPT" 2>&1)
+OUTPUT=$($CLAUDE_BIN -p "$PROMPT" --dangerously-skip-permissions 2>&1)
 CLAUDE_EXIT=$?
 set -e
 
-echo "$OUTPUT"
+# ─── Save Full Report ────────────────────────────────────────────────────────
+REPORT_FILE="$REPORTS_DIR/$RUN_ID.md"
+cat > "$REPORT_FILE" << REPORTEOF
+# Agent Run: $AGENT
+**Date:** $TIMESTAMP
+**Run ID:** $RUN_ID
 
-# ─── Handle Claude Failure ────────────────────────────────────────────────────
+---
+
+$OUTPUT
+REPORTEOF
+
+echo "Report saved: $REPORT_FILE"
+
+# ─── Handle Failure ──────────────────────────────────────────────────────────
 if [ $CLAUDE_EXIT -ne 0 ]; then
-  ERROR_MSG="Claude exited with code $CLAUDE_EXIT"
-  echo "ERROR: $ERROR_MSG"
-
-  # Post error to activity feed
+  ERROR_MSG="Agent crashed (exit code $CLAUDE_EXIT)"
   curl -s -X POST "$RUBRIC_URL/api/activity-log" \
     -H "Content-Type: application/json" \
-    -d "{\"agent\": \"$AGENT\", \"task\": \"\", \"summary\": $(echo "$ERROR_MSG" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().strip()))' 2>/dev/null || echo "\"$ERROR_MSG\""), \"status\": \"error\"}" 2>/dev/null || true
+    -d "{\"agent\": \"$AGENT\", \"task\": \"\", \"summary\": $(echo "$ERROR_MSG" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().strip()))' 2>/dev/null || echo "\"$ERROR_MSG\""), \"status\": \"error\", \"detail_file\": \"$RUN_ID.md\"}" 2>/dev/null || true
 
-  # Report error status
   curl -s -X POST "$RUBRIC_URL/api/agent-status" \
     -H "Content-Type: application/json" \
-    -d "{\"agent\": \"$AGENT\", \"status\": \"error\", \"task\": \"$ERROR_MSG\"}" 2>/dev/null || true
-
+    -d "{\"agent\": \"$AGENT\", \"status\": \"idle\", \"task\": \"$ERROR_MSG\"}" 2>/dev/null || true
   exit 1
 fi
 
 # ─── Extract Results ──────────────────────────────────────────────────────────
 TASK_LINE=$(echo "$OUTPUT" | grep -oE 'T[0-9]+-[0-9]+' | head -1 || echo "")
 SUMMARY_LINE=$(echo "$OUTPUT" | grep "^SUMMARY:" | tail -1 | sed 's/^SUMMARY: *//' || echo "")
+DETAIL_LINES=$(echo "$OUTPUT" | sed -n '/^DETAIL:/,/^$/p' | grep "^-" || echo "")
 
 if [ -z "$SUMMARY_LINE" ]; then
-  # Fallback: use the last git commit message
   SUMMARY_LINE=$(git log --oneline -1 2>/dev/null | cut -d' ' -f2- || echo "Session completed")
 fi
 
-# ─── Post Success to Activity Feed ────────────────────────────────────────────
+# ─── Post to Activity Feed ───────────────────────────────────────────────────
+DETAIL_JSON=$(echo "$DETAIL_LINES" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().strip()))' 2>/dev/null || echo "\"\"")
+
 curl -s -X POST "$RUBRIC_URL/api/activity-log" \
   -H "Content-Type: application/json" \
-  -d "{\"agent\": \"$AGENT\", \"task\": \"$TASK_LINE\", \"summary\": $(echo "$SUMMARY_LINE" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().strip()))' 2>/dev/null || echo "\"$SUMMARY_LINE\""), \"status\": \"completed\"}" 2>/dev/null || true
+  -d "{\"agent\": \"$AGENT\", \"task\": \"$TASK_LINE\", \"summary\": $(echo "$SUMMARY_LINE" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().strip()))' 2>/dev/null || echo "\"$SUMMARY_LINE\""), \"detail\": $DETAIL_JSON, \"detail_file\": \"$RUN_ID.md\", \"status\": \"completed\"}" 2>/dev/null || true
 
 # ─── Report Idle ──────────────────────────────────────────────────────────────
 curl -s -X POST "$RUBRIC_URL/api/agent-status" \
