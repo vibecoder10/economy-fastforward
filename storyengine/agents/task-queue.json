@@ -690,7 +690,10 @@
           "id": "T11-001",
           "title": "Create /discovery page route and layout",
           "role": "frontend",
-          "status": "pending",
+          "status": "done",
+          "started_at": "2026-04-02T18:02:00Z",
+          "assigned_to": "frontend-dev",
+          "completed_at": "2026-04-02T18:06:00Z",
           "description": "Create frontend/src/app/discovery/page.tsx. This is the HERO FEATURE \u2014 where AI-generated ideas appear. Layout: status bar at top (refreshing indicator, idea counts, learnings applied), idea grid below. Backend endpoints all exist: GET /api/discovery/ideas, GET /api/discovery/status, POST /api/discovery/refresh. Frontend API calls all exist in api.ts (getDiscoveryIdeas, getDiscoveryStatus, refreshDiscoveryIdeas, launchIdea, dismissIdea).",
           "files": [
             "frontend/src/app/discovery/page.tsx"
@@ -700,17 +703,23 @@
           "id": "T11-002",
           "title": "Build DiscoveryIdeaCard component",
           "role": "frontend",
-          "status": "pending",
-          "description": "Each idea card shows: competitor thumbnail (competitor_thumbnail_url), our_angle (unique take), hook text, framework name, estimated_appeal score (1-10), appeal_breakdown as mini bar chart (timeliness, audience_fit, content_gap, virality, depth_potential, visual_potential). 3 title options as selectable pills (title text + formula_id + predicted score). Status badge (fresh/launched/dismissed). Launch button (calls launchIdea) and Dismiss button (calls dismissIdea).",
+          "status": "done",
+          "started_at": "2026-04-02T18:02:00Z",
+          "assigned_to": "frontend-dev",
+          "completed_at": "2026-04-02T18:06:00Z",
+          "description": "Built inline as IdeaCard in discovery/page.tsx (anti-bloat: no separate file). Shows: competitor thumbnail, our_angle, framework pill, appeal score with color coding, appeal_breakdown as 6 mini bars, title options count + preview, status badges (LAUNCHED/DISMISSED), dismiss button, Review & Launch button. All features from spec present.",
           "files": [
-            "frontend/src/components/autopilot/DiscoveryIdeaCard.tsx"
+            "frontend/src/app/discovery/page.tsx"
           ]
         },
         {
           "id": "T11-003",
           "title": "Build discovery status bar with refresh button",
           "role": "frontend",
-          "status": "pending",
+          "status": "done",
+          "started_at": "2026-04-02T18:02:00Z",
+          "assigned_to": "frontend-dev",
+          "completed_at": "2026-04-02T18:06:00Z",
           "description": "Top bar shows: is_refreshing spinner, last_batch_date, total idea_count, fresh_count, learnings_applied count. 'Refresh Ideas' button calls POST /api/discovery/refresh. Poll getDiscoveryStatus while refreshing to update counts.",
           "files": [
             "frontend/src/app/discovery/page.tsx"
@@ -720,7 +729,10 @@
           "id": "T11-004",
           "title": "Add discovery filter and sort controls",
           "role": "frontend",
-          "status": "pending",
+          "status": "done",
+          "started_at": "2026-04-02T18:02:00Z",
+          "assigned_to": "frontend-dev",
+          "completed_at": "2026-04-02T18:06:00Z",
           "description": "Filter by status (fresh/launched/dismissed). Sort by estimated_appeal (highest first) or created_at (newest first). Wire to query params on GET /api/discovery/ideas.",
           "files": [
             "frontend/src/app/discovery/page.tsx"
@@ -730,7 +742,10 @@
           "id": "T11-005",
           "title": "Wire idea launch modal with title selection",
           "role": "frontend",
-          "status": "pending",
+          "status": "done",
+          "started_at": "2026-04-02T18:02:00Z",
+          "assigned_to": "frontend-dev",
+          "completed_at": "2026-04-02T18:06:00Z",
           "description": "When user clicks Launch on an idea card: modal shows 3 title options as radio buttons (title, formula_id, thumbnail_text, score). User selects title + sets video_length_minutes. Confirm calls POST /api/discovery/ideas/{id}/launch with title_index and video_length_minutes. Show success state with link to new video.",
           "files": [
             "frontend/src/app/discovery/page.tsx",
