@@ -486,10 +486,10 @@
             <div style="font-size:10px;color:#555;">Normal</div>
             <div style="font-size:9px;color:#444;">Every 2h</div>
           </button>
-          <button onclick="setCadence('fast')" class="cadence-btn" data-cadence="fast" style="flex:1;min-width:80px;padding:12px 8px;border-radius:8px;cursor:pointer;text-align:center;font-family:Outfit,sans-serif;border:1px solid #1A8A7A;background:rgba(26,138,122,0.1);">
-            <div style="font-size:18px;font-weight:700;color:#50e3c2;">24x</div>
-            <div style="font-size:10px;color:#50e3c2;">Fast</div>
-            <div style="font-size:9px;color:#1A8A7A;">Every 1h</div>
+          <button onclick="setCadence('fast')" class="cadence-btn" data-cadence="fast" style="flex:1;min-width:80px;padding:12px 8px;border-radius:8px;cursor:pointer;text-align:center;font-family:Outfit,sans-serif;border:1px solid #222;background:#111;">
+            <div style="font-size:18px;font-weight:700;color:#888;">24x</div>
+            <div style="font-size:10px;color:#555;">Fast</div>
+            <div style="font-size:9px;color:#444;">Every 1h</div>
           </button>
           <button onclick="setCadence('max')" class="cadence-btn" data-cadence="max" style="flex:1;min-width:80px;padding:12px 8px;border-radius:8px;cursor:pointer;text-align:center;font-family:Outfit,sans-serif;border:1px solid #222;background:#111;">
             <div style="font-size:18px;font-weight:700;color:#888;">48x</div>
@@ -941,7 +941,13 @@ window.__onTabShow = {};
       const isActive = btn.dataset.cadence === c;
       btn.style.borderColor = isActive ? '#1A8A7A' : '#222';
       btn.style.background = isActive ? 'rgba(26,138,122,0.1)' : '#111';
+      const divs = btn.querySelectorAll('div');
+      if (divs[0]) divs[0].style.color = isActive ? '#50e3c2' : '#888';
+      if (divs[1]) divs[1].style.color = isActive ? '#50e3c2' : '#555';
+      if (divs[2]) divs[2].style.color = isActive ? '#1A8A7A' : '#444';
     });
+    const status = document.getElementById('cadence-status');
+    if (status) { status.style.display = 'block'; status.textContent = 'Cadence set to ' + c + '/day. Active now.'; }
   }
 
   window.setFocus = async function() {
