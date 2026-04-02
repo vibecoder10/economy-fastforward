@@ -69,6 +69,24 @@ class VideoDetail(VideoSummary):
     likes: int = 0
     comments: int = 0
     performance_verdict: Optional[str] = None
+    source_views: Optional[int] = None
+    source_channel: Optional[str] = None
+    source_urls: Optional[str] = None
+    views_24h: Optional[int] = None
+    views_48h: Optional[int] = None
+    views_7d: Optional[int] = None
+    views_30d: Optional[int] = None
+    ctr_12h: Optional[float] = None
+    ctr_24h: Optional[float] = None
+    ctr_48h: Optional[float] = None
+    retention_48h: Optional[float] = None
+    post_mortem_48h: Optional[str] = None
+    post_mortem_7d: Optional[str] = None
+    agent_paper_trail: Optional[dict] = None
+    agent_hook_score: Optional[float] = None
+    agent_body_score: Optional[float] = None
+    agent_tier: Optional[str] = None
+    agent_cost: Optional[float] = None
 
 
 class VideoAdvance(BaseModel):
