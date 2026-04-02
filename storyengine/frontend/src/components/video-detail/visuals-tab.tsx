@@ -1,13 +1,14 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useRef, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Trash2 } from "lucide-react";
+import { Trash2, Loader2 } from "lucide-react";
 import {
   getVideoScript,
   getVideoAssets,
   updateStoryboardMode,
   clearAllStoryboards,
+  getPipelineTaskStatus,
   Asset,
 } from "@/lib/api";
 import { StoryboardViewer } from "./storyboard-viewer";
@@ -32,6 +33,53 @@ export function VisualsTab({ videoId, videoStatus }: VisualsTabProps) {
     queryKey: ["video-assets", videoId],
     queryFn: () => getVideoAssets(videoId),
   });
+
+  // Poll task status for global progress banner
+  const { data: taskStatus } = useQuery({
+    queryKey: ["task-status", videoId],
+    queryFn: () => getPipelineTaskStatus(videoId),
+    refetchInterval: 3000,
+  });
+
+  const isGlobalTaskRunning = taskStatus?.status === "running";
+  const taskMessage = taskStatus?.message ?? null;
+
+  // Refetch scene data when a global task completes
+  const wasRunning = useRef(false);
+  useEffect(() => {
+    if (isGlobalTaskRunning) {
+      wasRunning.current = true;
+    } else if (wasRunning.current) {
+      wasRunning.current = false;
+      queryClient.invalidateQueries({ queryKey: ["video-script", videoId] });
+      queryClient.invalidateQueries({ queryKey: ["video-assets", videoId] });
+      queryClient.invalidateQueries({ queryKey: ["video", videoId] });
+    }
+  }, [isGlobalTaskRunning, queryClient, videoId]);
+
+  // Parse progress message to extract scene/beat info
+  const progressInfo = useMemo(() => {
+    if (!taskMessage) return null;
+    // Match patterns like "Generating Scene 2 (2/6), Beat 1/2..."
+    const sceneMatch = taskMessage.match(/Scene\s+(\d+)\s+\((\d+)\/(\d+)\)/);
+    const beatMatch = taskMessage.match(/Beat\s+(\d+)\/(\d+)/);
+    // Match "N images → M beat(s)"
+    const summaryMatch = taskMessage.match(/(\d+)\s+images\s+→\s+(\d+)\s+beat/);
+    if (sceneMatch) {
+      return {
+        currentScene: parseInt(sceneMatch[1]),
+        scenePosition: parseInt(sceneMatch[2]),
+        totalScenes: parseInt(sceneMatch[3]),
+        currentBeat: beatMatch ? parseInt(beatMatch[1]) : null,
+        totalBeats: beatMatch ? parseInt(beatMatch[2]) : null,
+        pct: Math.round((parseInt(sceneMatch[2]) / parseInt(sceneMatch[3])) * 100),
+      };
+    }
+    if (summaryMatch) {
+      return { totalImages: parseInt(summaryMatch[1]), totalBeats: parseInt(summaryMatch[2]), pct: 0 };
+    }
+    return null;
+  }, [taskMessage]);
 
   const storyboardMode =
     scenes?.some((s) => s.storyboard_on_off === "On") ?? false;
@@ -183,8 +231,53 @@ export function VisualsTab({ videoId, videoStatus }: VisualsTabProps) {
         </div>
       )}
 
+      {/* Global progress banner */}
+      {isGlobalTaskRunning && (
+        <div
+          className="rounded-lg px-4 py-3 space-y-2"
+          style={{
+            background: "rgba(212, 168, 68, 0.08)",
+            border: "1px solid rgba(212, 168, 68, 0.25)",
+          }}
+        >
+          <div className="flex items-center gap-2">
+            <Loader2 size={16} className="animate-spin" style={{ color: "var(--amber)" }} />
+            <span className="text-sm font-medium" style={{ color: "var(--amber)" }}>
+              {progressInfo?.currentScene
+                ? `Generating Scene ${progressInfo.currentScene} (${progressInfo.scenePosition}/${progressInfo.totalScenes})`
+                : "Generating storyboard prompts..."}
+              {progressInfo?.currentBeat != null && progressInfo?.totalBeats != null && (
+                <span style={{ color: "var(--text-secondary)" }}>
+                  {" "}— Beat {progressInfo.currentBeat}/{progressInfo.totalBeats}
+                </span>
+              )}
+            </span>
+          </div>
+          {/* Progress bar */}
+          {progressInfo?.pct != null && progressInfo.totalScenes && (
+            <div
+              className="h-1.5 rounded-full overflow-hidden"
+              style={{ background: "rgba(212, 168, 68, 0.15)" }}
+            >
+              <div
+                className="h-full rounded-full transition-all duration-500"
+                style={{
+                  background: "var(--amber)",
+                  width: `${Math.max(progressInfo.pct, 5)}%`,
+                }}
+              />
+            </div>
+          )}
+          {taskMessage && !progressInfo?.currentScene && (
+            <p className="text-xs" style={{ color: "var(--text-secondary)" }}>
+              {taskMessage.replace(/[*_]/g, "")}
+            </p>
+          )}
+        </div>
+      )}
+
       {/* Stage advancer */}
-      {advancer && (
+      {advancer && !isGlobalTaskRunning && (
         <StageAdvancer
           videoId={videoId}
           stage={advancer.stage}
