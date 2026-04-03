@@ -11,7 +11,7 @@ from models import (
     SceneTextUpdate, SceneToneUpdate, SegmentUpdate, StoryboardModeUpdate,
     CreateVideoRequest,
 )
-from database import fetch_all, fetch_one, execute
+from database import fetch_all, fetch_one, execute, safe_column
 from status_map import get_next_status_supabase
 from typing import Optional, Any
 
@@ -302,7 +302,7 @@ async def update_video(video_id: str, body: dict, tenant_id: str = Depends(get_t
     idx = 1
     for key, val in body.items():
         if key in allowed_fields:
-            updates.append(f"{key} = ${idx}")
+            updates.append(f"{safe_column(key)} = ${idx}")
             params.append(val)
             idx += 1
     if not updates:

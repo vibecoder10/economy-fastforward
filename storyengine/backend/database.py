@@ -1,8 +1,22 @@
 """Database connection to Supabase PostgreSQL via asyncpg."""
 
 import os
+import re
 import asyncpg
 from typing import Optional
+
+_SAFE_COLUMN_RE = re.compile(r"^[a-z][a-z0-9_]*$")
+
+
+def safe_column(name: str) -> str:
+    """Validate a column name before use in dynamic SQL.
+
+    Prevents SQL injection via column names in f-string queries.
+    Only allows lowercase alphanumeric + underscore, must start with a letter.
+    """
+    if not _SAFE_COLUMN_RE.match(name):
+        raise ValueError(f"Invalid column name: {name!r}")
+    return name
 
 _pool: Optional[asyncpg.Pool] = None
 

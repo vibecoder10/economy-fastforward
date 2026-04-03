@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from auth import get_tenant_id
-from database import fetch_one, fetch_all, execute
+from database import fetch_one, fetch_all, execute, safe_column
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 
@@ -155,7 +155,7 @@ async def update_current_project(
     for col, val in field_map.items():
         if val is not None:
             param_idx += 1
-            sets.append(f"{col} = ${param_idx}")
+            sets.append(f"{safe_column(col)} = ${param_idx}")
             params.append(val)
 
     # JSONB fields need explicit cast
@@ -168,7 +168,7 @@ async def update_current_project(
     for col, val in jsonb_fields.items():
         if val is not None:
             param_idx += 1
-            sets.append(f"{col} = ${param_idx}::jsonb")
+            sets.append(f"{safe_column(col)} = ${param_idx}::jsonb")
             params.append(json.dumps(val))
 
     if sets:

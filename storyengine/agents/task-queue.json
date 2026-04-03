@@ -2544,13 +2544,18 @@
           "id": "SEC-5",
           "title": "MEDIUM: Dynamic SQL via f-strings in multiple routes",
           "role": "backend",
-          "status": "pending",
+          "status": "done",
           "priority": "medium",
-          "description": "videos.py:313,527,579 \u2014 f-string SQL for SET clauses. Currently safe (whitelisted field names, parameterized values) but fragile. Same pattern in projects.py:176, channel_profile.py:154, profile.py:81, autopilot.py:492-507. Low risk but violates defense-in-depth.",
+          "description": "Added safe_column() validator to database.py — validates column names match ^[a-z][a-z0-9_]*$ before use in f-string SQL. Applied to all dict-iteration patterns where column names are interpolated: videos.py (user-input keys filtered through allowed_fields), youtube_sync.py (internal dict keys), projects.py (field_map + jsonb_fields dicts). Hardcoded column names in channel_profile.py, profile.py, autopilot.py left as-is (already safe, no dict iteration).",
           "files": [
-            "backend/routes/videos.py"
+            "backend/database.py",
+            "backend/routes/videos.py",
+            "backend/routes/youtube_sync.py",
+            "backend/routes/projects.py"
           ],
-          "assigned_to": "backend-dev"
+          "assigned_to": "backend-dev",
+          "started_at": "2026-04-04T01:00:01Z",
+          "completed_at": "2026-04-04T01:10:00Z"
         },
         {
           "id": "SEC-6",
