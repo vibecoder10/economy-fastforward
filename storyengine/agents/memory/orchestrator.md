@@ -8,3 +8,4 @@
 - Frontend-dev sometimes already updates task-queue.json (verified + current_tab) in their commit — grep the committed file before making duplicate edits in MICRO sweep.
 - All 17 original tabs complete as of 2026-04-03. Phase 2 starts at Tab 18 (Review nav, Create enhancement, Mobile UX). Product vision gaps: no calendar page, no onboarding wizard, no multi-channel yet.
 - Task queue context provided at session start can be stale — always re-read the actual file before editing, as agents may have updated it between prompt generation and execution.
+- QA agent sometimes verifies via code review and commits verification_notes to T20-001 but forgets to update T20-002 status — always check if the verified sibling task was also updated.
