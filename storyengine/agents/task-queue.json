@@ -255,7 +255,7 @@
           "id": "BUG-T3-VALIDATION-FORMAT",
           "title": "BUG: script_validation stored as plain text but frontend component expects JSON with 'checks' array",
           "role": "backend",
-          "status": "in_progress",
+          "status": "done",
           "depends_on": "BUG-T3-WRONG-COMPONENT",
           "description": "Pipeline Tester found (2026-04-03): The script_validation field in the videos table is stored as plain text (e.g. 'Editorial validation: PASSED\\n[PASS] number_density: 49/19 specific numbers found\\n...'). The ScriptTab.tsx (T3-002 implementation) tries to JSON.parse() this text and expects a JSON object with shape: { passed: bool, checks: [{name, passed, detail, advisory?}], advisory_warnings: [] }. The JSON.parse() fails on the plain text, and the catch block returns null \u2014 so the Script Validation section NEVER renders even when the component is wired correctly. Fix: Either (1) update the backend script validation step to store results as JSON with the expected schema, OR (2) update the frontend to parse the plain-text format ('Editorial validation: PASSED\\n[PASS] field: detail...'). Option 1 is cleaner. Check skills/video-pipeline/script/brief_translator/ for where script_validation is generated and stored.",
           "files": [
@@ -265,7 +265,8 @@
           "error_note": "Reset: was in_progress with no started_at/assigned_to \u2014 anomaly, reset by orchestrator MICRO sweep",
           "reset_count": 1,
           "started_at": "2026-04-03T21:00:01Z",
-          "assigned_to": "backend-dev"
+          "assigned_to": "backend-dev",
+          "completed_at": "2026-04-03T21:05:00Z"
         }
       ]
     },
