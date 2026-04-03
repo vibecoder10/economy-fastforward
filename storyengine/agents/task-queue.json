@@ -1119,8 +1119,11 @@
           "id": "T13-003",
           "title": "Add YouTube Sync controls to autopilot page",
           "role": "frontend",
-          "status": "pending",
-          "description": "Add a 'YouTube Metrics' section: sync status (last run, videos synced), 'Sync Now' button (POST /api/youtube/sync), progress bar while running (poll GET /api/youtube/sync/status). API calls exist in api.ts: syncYouTubeMetrics(), getYouTubeSyncStatus().",
+          "status": "done",
+          "started_at": "2026-04-03T17:02:00Z",
+          "completed_at": "2026-04-03T17:06:00Z",
+          "assigned_to": "frontend-dev",
+          "description": "Added YouTube Metrics section to autopilot page with Sync Now button (POST /api/youtube/sync), progress bar with videos_synced/videos_total while running (polls GET /api/youtube/sync/status every 3s), last sync time via timeAgo(), synced count, and error display. No new API calls needed — used existing syncYouTubeMetrics() and getYouTubeSyncStatus() from api.ts.",
           "files": [
             "frontend/src/app/autopilot/page.tsx"
           ]

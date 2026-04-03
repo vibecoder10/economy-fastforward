@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
@@ -17,6 +17,7 @@ import {
   Loader2,
   Sliders,
   Shield,
+  RefreshCw,
 } from "lucide-react";
 import Link from "next/link";
 import { GlassCard } from "@/components/ui/GlassCard";
@@ -28,6 +29,8 @@ import {
   toggleAutopilot,
   updateAutopilotConfig,
   launchCandidate,
+  syncYouTubeMetrics,
+  getYouTubeSyncStatus,
   type AutopilotSummary,
 } from "@/lib/api";
 import { timeAgo } from "@/lib/utils";
@@ -89,6 +92,7 @@ export default function AutopilotPage() {
   const [editingThresholds, setEditingThresholds] = useState(false);
   const [draftThresholds, setDraftThresholds] = useState<Record<string, number>>({});
   const [savingThresholds, setSavingThresholds] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   const launchMutation = useMutation({
     mutationFn: launchCandidate,
@@ -105,6 +109,32 @@ export default function AutopilotPage() {
     queryKey: ["autopilot-summary"],
     queryFn: getAutopilotSummary,
   });
+
+  const { data: syncStatus } = useQuery({
+    queryKey: ["youtube-sync-status"],
+    queryFn: getYouTubeSyncStatus,
+    refetchInterval: isSyncing ? 3000 : false,
+  });
+
+  const handleSync = async () => {
+    setIsSyncing(true);
+    try {
+      await syncYouTubeMetrics();
+    } catch (err) {
+      console.error("Error triggering sync:", err);
+      setIsSyncing(false);
+      return;
+    }
+    // Poll will handle detecting completion
+  };
+
+  // Stop polling when sync completes
+  useEffect(() => {
+    if (isSyncing && syncStatus && !syncStatus.is_running) {
+      setIsSyncing(false);
+      queryClient.invalidateQueries({ queryKey: ["autopilot-summary"] });
+    }
+  }, [isSyncing, syncStatus, queryClient]);
 
   const isEnabled = data?.state.enabled ?? true;
 
@@ -775,6 +805,92 @@ export default function AutopilotPage() {
                 </div>
               );
             })}
+          </div>
+        </GlassCard>
+      </motion.div>
+
+      {/* YouTube Metrics Sync */}
+      <motion.div variants={item}>
+        <GlassCard>
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <BarChart3 size={16} style={{ color: "var(--orange)" }} />
+              <h2 className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+                YouTube Metrics
+              </h2>
+            </div>
+            <button
+              onClick={handleSync}
+              disabled={isSyncing || syncStatus?.is_running}
+              className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all disabled:opacity-50"
+              style={{
+                background: "rgba(255, 120, 73, 0.15)",
+                color: "var(--orange)",
+                border: "1px solid rgba(255, 120, 73, 0.25)",
+              }}
+            >
+              {isSyncing || syncStatus?.is_running ? (
+                <Loader2 size={12} className="animate-spin" />
+              ) : (
+                <RefreshCw size={12} />
+              )}
+              {isSyncing || syncStatus?.is_running ? "Syncing..." : "Sync Now"}
+            </button>
+          </div>
+
+          {/* Progress bar while syncing */}
+          {(isSyncing || syncStatus?.is_running) && syncStatus && (
+            <div className="mb-4">
+              <div className="flex items-center justify-between text-[11px] mb-1.5">
+                <span style={{ color: "var(--text-secondary)" }}>
+                  Syncing metrics from YouTube...
+                </span>
+                <span className="font-mono" style={{ color: "var(--orange)" }}>
+                  {syncStatus.videos_synced}/{syncStatus.videos_total || "?"}
+                </span>
+              </div>
+              <div className="h-1.5 overflow-hidden rounded-full" style={{ background: "rgba(255,255,255,0.06)" }}>
+                <motion.div
+                  className="h-full rounded-full"
+                  style={{ background: "var(--orange)" }}
+                  animate={{
+                    width: syncStatus.videos_total
+                      ? `${(syncStatus.videos_synced / syncStatus.videos_total) * 100}%`
+                      : "30%",
+                  }}
+                  transition={{ duration: 0.5 }}
+                />
+              </div>
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+            <div>
+              <p className="text-[11px] uppercase tracking-wider mb-1" style={{ color: "var(--text-tertiary)" }}>
+                Last Sync
+              </p>
+              <p className="text-sm font-mono" style={{ color: "var(--text-primary)" }}>
+                {syncStatus?.last_run ? timeAgo(syncStatus.last_run) : "Never"}
+              </p>
+            </div>
+            <div>
+              <p className="text-[11px] uppercase tracking-wider mb-1" style={{ color: "var(--text-tertiary)" }}>
+                Videos Synced
+              </p>
+              <p className="text-sm font-mono" style={{ color: "var(--text-primary)" }}>
+                {syncStatus?.videos_synced ?? "--"}
+              </p>
+            </div>
+            {syncStatus?.error && (
+              <div className="col-span-2 sm:col-span-1">
+                <p className="text-[11px] uppercase tracking-wider mb-1" style={{ color: "var(--red)" }}>
+                  Last Error
+                </p>
+                <p className="text-xs truncate" style={{ color: "var(--red)", opacity: 0.8 }}>
+                  {syncStatus.error}
+                </p>
+              </div>
+            )}
           </div>
         </GlassCard>
       </motion.div>
