@@ -189,11 +189,13 @@
           "id": "T3-003",
           "title": "Build segment-level editing UI wired to PUT endpoint",
           "role": "frontend",
-          "status": "pending",
-          "description": "Backend PUT /api/videos/{id}/scenes/{scene}/segments EXISTS and works (verified 2026-04-03: returns {status:updated, updated_count:1}). Frontend gap: ScriptTab.tsx has no segment-level editing UI \u2014 it only edits scene text (PATCH /scenes/{scene}/text). Need to add per-sentence editing: each scene shows individual sentence rows (from GET /scenes/{scene}/segments), editable inline, saved via PUT /scenes/{scene}/segments with updated sentence_text array.",
+          "status": "done",
+          "started_at": "2026-04-03T10:02:00Z",
+          "assigned_to": "frontend-dev",
+          "completed_at": "2026-04-03T10:10:00Z",
+          "description": "Added SegmentEditor component to ScriptTab that fetches real segments via GET /api/videos/{id}/scenes/{scene}/segments, shows each segment with image_index/word_count/duration as editable rows, and saves modifications via PUT /api/videos/{id}/scenes/{scene}/segments. Dirty tracking highlights modified segments. Save button with loading/success/error states. Renders in expanded scene view below existing sentence cards.",
           "files": [
-            "frontend/src/components/production/ScriptTab.tsx",
-            "frontend/src/lib/api.ts"
+            "frontend/src/components/production/ScriptTab.tsx"
           ]
         },
         {

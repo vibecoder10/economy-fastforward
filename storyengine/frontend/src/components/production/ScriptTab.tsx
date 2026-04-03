@@ -5,10 +5,10 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   ChevronDown, ChevronRight, Merge, Trash2, Plus, Volume2,
   Library, Wand2, Play, Pause, Layers, Mic, Pencil, Loader2,
-  CheckCircle, Clock, AlertCircle,
+  CheckCircle, Clock, AlertCircle, Save,
 } from "lucide-react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { getVideoScript, getVideoAssets, advanceVideo, rejectVideo, runPipelineStage, updateSceneText, updateVideo, clearStaleTask } from "@/lib/api";
+import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
+import { getVideoScript, getVideoAssets, advanceVideo, rejectVideo, runPipelineStage, updateSceneText, updateVideo, clearStaleTask, getSceneSegments, updateSceneSegments } from "@/lib/api";
 import type { ScriptScene as ApiScriptScene, Asset } from "@/lib/api";
 import { useTaskPoller } from "@/hooks/use-task-poller";
 import { GlassCard } from "@/components/ui/GlassCard";
@@ -161,6 +161,130 @@ function ScriptStatusBadge({ status }: { status: string | null | undefined }) {
     );
   }
   return null;
+}
+
+function SegmentEditor({ videoId, sceneNumber }: { videoId: string; sceneNumber: number }) {
+  const queryClient = useQueryClient();
+  const { data, isLoading } = useQuery({
+    queryKey: ["segments", videoId, sceneNumber],
+    queryFn: () => getSceneSegments(videoId, sceneNumber),
+  });
+  const [edits, setEdits] = useState<Record<number, string>>({});
+  const [saved, setSaved] = useState(false);
+
+  const segments = data?.segments || [];
+  const hasEdits = Object.keys(edits).length > 0;
+
+  const saveMutation = useMutation({
+    mutationFn: () => {
+      const updated = segments.map((seg) => ({
+        image_index: seg.image_index,
+        sentence_text: edits[seg.image_index] ?? seg.sentence_text,
+      }));
+      return updateSceneSegments(videoId, sceneNumber, updated);
+    },
+    onSuccess: () => {
+      setEdits({});
+      setSaved(true);
+      setTimeout(() => setSaved(false), 1500);
+      queryClient.invalidateQueries({ queryKey: ["segments", videoId, sceneNumber] });
+      queryClient.invalidateQueries({ queryKey: ["video-assets", videoId] });
+    },
+  });
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center gap-2 py-3 justify-center">
+        <Loader2 size={14} className="animate-spin" style={{ color: "var(--turquoise)" }} />
+        <span className="text-[11px]" style={{ color: "var(--text-tertiary)" }}>Loading segments...</span>
+      </div>
+    );
+  }
+
+  if (segments.length === 0) {
+    return (
+      <p className="text-[11px] py-2 text-center" style={{ color: "var(--text-tertiary)" }}>
+        No segments yet. Run the Split step first.
+      </p>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      {segments.map((seg) => {
+        const text = edits[seg.image_index] ?? seg.sentence_text;
+        const isDirty = seg.image_index in edits;
+        return (
+          <div
+            key={seg.image_index}
+            className="rounded-lg p-2.5"
+            style={{
+              background: isDirty ? "rgba(0,212,170,0.04)" : "rgba(255,255,255,0.02)",
+              border: `1px solid ${isDirty ? "rgba(0,212,170,0.2)" : "rgba(255,255,255,0.05)"}`,
+            }}
+          >
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-[9px] font-mono font-medium px-1.5 py-0.5 rounded"
+                style={{ background: "var(--turquoise-dim)", color: "var(--turquoise)" }}>
+                Seg {seg.image_index}
+              </span>
+              <span className="text-[9px] font-mono" style={{ color: "var(--text-tertiary)" }}>
+                {seg.word_count}w · {seg.duration_seconds.toFixed(1)}s
+              </span>
+              {seg.shot_type && (
+                <span className="text-[9px] font-mono" style={{ color: "var(--text-tertiary)" }}>
+                  {seg.shot_type}
+                </span>
+              )}
+              {isDirty && (
+                <span className="text-[9px] font-medium" style={{ color: "var(--turquoise)" }}>modified</span>
+              )}
+            </div>
+            <textarea
+              value={text}
+              onChange={(e) => {
+                const val = e.target.value;
+                setEdits((prev) => {
+                  if (val === seg.sentence_text) {
+                    const next = { ...prev };
+                    delete next[seg.image_index];
+                    return next;
+                  }
+                  return { ...prev, [seg.image_index]: val };
+                });
+              }}
+              rows={Math.max(1, Math.ceil(text.length / 90))}
+              className="w-full text-sm leading-relaxed resize-none outline-none rounded-lg px-2 py-1 transition-all"
+              style={{ color: "var(--text-primary)", background: "transparent", border: "1px solid transparent" }}
+              onFocus={(e) => { e.target.style.background = "var(--bg-elevated)"; e.target.style.borderColor = "var(--turquoise)"; }}
+              onBlur={(e) => { e.target.style.background = "transparent"; e.target.style.borderColor = "transparent"; }}
+            />
+          </div>
+        );
+      })}
+      <div className="flex items-center gap-2 pt-1">
+        <button
+          onClick={() => saveMutation.mutate()}
+          disabled={!hasEdits || saveMutation.isPending}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-all disabled:opacity-30"
+          style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}
+        >
+          {saveMutation.isPending ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
+          Save Segments
+        </button>
+        {saved && (
+          <span className="text-[11px] font-medium" style={{ color: "var(--green)" }}>
+            <CheckCircle size={12} className="inline mr-1" />Saved
+          </span>
+        )}
+        {saveMutation.isError && (
+          <span className="text-[11px]" style={{ color: "var(--red)" }}>
+            Save failed: {(saveMutation.error as Error).message}
+          </span>
+        )}
+      </div>
+    </div>
+  );
 }
 
 export function ScriptTab({ video }: ScriptTabProps) {
@@ -815,6 +939,21 @@ export function ScriptTab({ video }: ScriptTabProps) {
                             </motion.div>
                           )}
                         </AnimatePresence>
+
+                        {/* Segment-level editing (backend-connected) */}
+                        {isExpanded && (
+                          <div className="mt-3 pt-3" style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+                            <div className="flex items-center gap-2 mb-2">
+                              <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--turquoise)" }}>
+                                Segments
+                              </span>
+                              <span className="text-[9px] font-mono" style={{ color: "var(--text-tertiary)" }}>
+                                Edit &amp; save to backend
+                              </span>
+                            </div>
+                            <SegmentEditor videoId={video.id} sceneNumber={scene.sceneNumber} />
+                          </div>
+                        )}
 
                         {/* Sources + metadata (always visible) */}
                         <div className="flex items-center gap-2 mt-2 flex-wrap">
