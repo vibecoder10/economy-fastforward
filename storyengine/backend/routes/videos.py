@@ -1,6 +1,7 @@
 """Video CRUD + stage transitions."""
 
 import json
+import re
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -12,6 +13,66 @@ from models import (
 )
 from database import fetch_all, fetch_one, execute
 from typing import Optional, Any
+
+
+def _parse_script_validation(val: Any) -> Optional[str]:
+    """Parse script_validation, converting plain-text format to JSON if needed.
+
+    The pipeline stores script_validation as plain text like:
+        Editorial validation: PASSED
+        [PASS] number_density: 49/19 specific numbers found
+        [FAIL] framework_density: 22% framework density
+
+    The frontend expects JSON: {"passed": bool, "checks": [{name, passed, detail}]}
+    This function converts the plain text to JSON string so the frontend can parse it.
+    If the value is already valid JSON, it passes through unchanged.
+    """
+    if val is None:
+        return None
+    if not isinstance(val, str):
+        return None
+    val = val.strip()
+    if not val:
+        return None
+
+    # If it's already valid JSON with the expected structure, return as-is
+    try:
+        parsed = json.loads(val)
+        if isinstance(parsed, dict) and "checks" in parsed:
+            return val
+    except (json.JSONDecodeError, ValueError):
+        pass
+
+    # Parse the plain text format
+    lines = val.split("\n")
+    if not lines:
+        return None
+
+    # First line: "Editorial validation: PASSED" or "Editorial validation: FAILED"
+    overall_passed = "PASSED" in lines[0].upper() if lines[0] else True
+
+    checks = []
+    for line in lines[1:]:
+        line = line.strip()
+        # Match "[PASS] name: detail" or "[FAIL] name: detail"
+        m = re.match(r"\[(PASS|FAIL)\]\s+(\w+):\s*(.*)", line)
+        if m:
+            checks.append({
+                "name": m.group(2),
+                "passed": m.group(1) == "PASS",
+                "detail": m.group(3),
+                "advisory": False,
+            })
+
+    if not checks:
+        return None
+
+    result = {
+        "passed": overall_passed,
+        "checks": checks,
+        "advisory_warnings": [],
+    }
+    return json.dumps(result)
 
 
 def _parse_json_field(val: Any) -> Optional[dict]:
@@ -172,7 +233,7 @@ async def get_video(video_id: str, tenant_id: str = Depends(get_tenant_id)):
         research_payload=_parse_json_field(r.get("research_payload")),
         original_dna=_parse_json_field(r.get("original_dna")),
         script=r.get("script"),
-        script_validation=r.get("script_validation"),
+        script_validation=_parse_script_validation(r.get("script_validation")),
         story_bible=r.get("story_bible"),
         thumbnail_url=r.get("thumbnail_url"),
         thumbnail_prompt=r.get("thumbnail_prompt"),
