@@ -289,7 +289,7 @@ export const toggleAutopilot = (enabled: boolean) =>
     body: JSON.stringify({ enabled }),
   });
 
-export const updateAutopilotConfig = (config: { videos_per_month?: number; videos_per_scrape?: number }) =>
+export const updateAutopilotConfig = (config: { videos_per_month?: number; videos_per_scrape?: number; weights?: Record<string, number>; thresholds?: Record<string, number> }) =>
   fetchApi<{ status: string; config: AutopilotConfig }>("/api/autopilot/config", {
     method: "POST",
     body: JSON.stringify(config),

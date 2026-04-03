@@ -811,9 +811,12 @@
           "id": "T11-006",
           "title": "Add sidebar nav entry for Discovery",
           "role": "frontend",
-          "status": "pending",
+          "status": "done",
+          "verified": true,
+          "completed_at": "2026-04-03T00:35:00Z",
+          "assigned_to": "frontend-dev",
           "reopened": true,
-          "reopened_reason": "QA found: T11-006 commit f78feed only modified task-queue.json. sidebar.tsx was never updated. Discovery nav link is missing. See BUG-T11-006.",
+          "reopened_reason": "QA found: T11-006 commit f78feed only modified task-queue.json. sidebar.tsx was never updated. Discovery nav link is missing. See BUG-T11-006. RESOLVED: BUG-T11-006 fixed it — Discovery nav entry confirmed at sidebar.tsx line 29.",
           "description": "Add Discovery to sidebar nav (sidebar.tsx navItems array) and bottom tabs between Competitors and Autopilot. Use Lightbulb icon from lucide-react. The /discovery page exists and works \u2014 just needs to be reachable from the nav.",
           "files": [
             "frontend/src/components/nav/sidebar.tsx"
@@ -1079,7 +1082,10 @@
           "id": "T13-008",
           "title": "Build weights and threshold editing UI (T13-002)",
           "role": "frontend",
-          "status": "pending",
+          "status": "done",
+          "started_at": "2026-04-03T00:32:00Z",
+          "completed_at": "2026-04-03T00:40:00Z",
+          "assigned_to": "frontend-dev",
           "depends_on": "BUG-T13-002-BACKEND",
           "description": "Backend now accepts weights dict and thresholds dict in POST /api/autopilot/config (BUG-T13-002-BACKEND fixed). Build the editing UI: sliders or number inputs for the 6 weight fields (competitor_vph, topic_channel_fit, timing_freshness, channel_momentum, retention_patterns, title_formula) and 5 threshold fields (min_confidence_score, min_competitor_vph, max_idea_age_days, ctr_success_threshold, ctr_failure_threshold). Save via updateAutopilotConfig() in api.ts \u2014 updateAutopilotConfig type was also updated to include weights/thresholds. Place in the existing autopilot page config section. Show current values from GET /api/autopilot/summary (config.weights / config.thresholds).",
           "files": [
