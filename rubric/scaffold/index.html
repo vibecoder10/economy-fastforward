@@ -1887,28 +1887,31 @@ window.__onTabShow = {};
       const groups = {};
       pending.forEach(t => { if (!groups[t._tab]) groups[t._tab] = []; groups[t._tab].push(t); });
 
-      list.innerHTML = Object.entries(groups).map(([tab, tasks]) =>
-        '<div style="padding:4px 8px;">' +
-          '<div style="font-size:11px;font-weight:600;color:#555;padding:6px 4px;text-transform:uppercase;letter-spacing:0.5px;">' + esc(tab) + '</div>' +
-          tasks.map(t => {
-            const roleColor = ROLE_COLORS[t.role] || '#888';
-            const source = t.id?.startsWith('BUG-USER') ? 'Auto-detected bug' : t.id?.startsWith('SEC') ? 'Security audit' : 'Agent task';
-            const statusDot = t.status === 'in_progress' ? '#50e3c2' : t.status === 'blocked' ? '#e35050' : '#555';
-            return '<div style="display:flex;align-items:flex-start;gap:8px;padding:8px;margin:2px 0;background:#111;border-radius:8px;border-left:3px solid ' + roleColor + ';">' +
-              '<div style="width:8px;height:8px;border-radius:50%;background:' + statusDot + ';flex-shrink:0;margin-top:5px;"></div>' +
-              '<div style="flex:1;min-width:0;">' +
-                '<div style="font-size:12px;color:#ccc;line-height:1.4;">' + esc(t.title || t.id) + '</div>' +
-                '<div style="display:flex;gap:6px;margin-top:3px;flex-wrap:wrap;">' +
-                  '<span style="font-size:9px;padding:1px 6px;border-radius:4px;background:' + roleColor + '15;color:' + roleColor + ';">' + esc(t.role || '?') + '</span>' +
-                  '<span style="font-size:9px;color:#444;">' + source + '</span>' +
-                '</div>' +
+      var html = '';
+      Object.entries(groups).forEach(function(entry) {
+        var tab = entry[0], tasks = entry[1];
+        html += '<div style="padding:4px 8px;">';
+        html += '<div style="font-size:11px;font-weight:600;color:#555;padding:6px 4px;text-transform:uppercase;letter-spacing:0.5px;">' + esc(tab) + '</div>';
+        tasks.forEach(function(t) {
+          var roleColor = ROLE_COLORS[t.role] || '#888';
+          var source = (t.id || '').indexOf('BUG-USER') === 0 ? 'Auto-detected bug' : (t.id || '').indexOf('SEC') === 0 ? 'Security audit' : 'Agent task';
+          var statusDot = t.status === 'in_progress' ? '#50e3c2' : t.status === 'blocked' ? '#e35050' : '#555';
+          html += '<div style="display:flex;align-items:flex-start;gap:8px;padding:8px;margin:2px 0;background:#111;border-radius:8px;border-left:3px solid ' + roleColor + ';">' +
+            '<div style="width:8px;height:8px;border-radius:50%;background:' + statusDot + ';flex-shrink:0;margin-top:5px;"></div>' +
+            '<div style="flex:1;min-width:0;">' +
+              '<div style="font-size:12px;color:#ccc;line-height:1.4;">' + esc(t.title || t.id || 'Untitled') + '</div>' +
+              '<div style="display:flex;gap:6px;margin-top:3px;flex-wrap:wrap;">' +
+                '<span style="font-size:9px;padding:1px 6px;border-radius:4px;background:rgba(128,128,128,0.1);color:' + roleColor + ';">' + esc(t.role || '?') + '</span>' +
+                '<span style="font-size:9px;color:#444;">' + source + '</span>' +
               '</div>' +
-              '<button onclick="event.stopPropagation();dismissTask(' + t._tabIdx + ',' + t._taskIdx + ')" style="background:none;border:none;color:#333;cursor:pointer;font-size:14px;padding:2px 6px;flex-shrink:0;" title="Dismiss">&times;</button>' +
-            '</div>';
-          }).join('') +
-        '</div>'
-      ).join('');
-    } catch {}
+            '</div>' +
+            '<button onclick="event.stopPropagation();dismissTask(' + t._tabIdx + ',' + t._taskIdx + ')" style="background:none;border:none;color:#333;cursor:pointer;font-size:14px;padding:2px 6px;flex-shrink:0;" title="Dismiss">&times;</button>' +
+          '</div>';
+        });
+        html += '</div>';
+      });
+      list.innerHTML = html;
+    } catch (e) { list.innerHTML = '<div style="color:#e35050;font-size:11px;padding:12px;">Error: ' + e.message + '</div>'; }
   }
 
   // Load task queue summary on page load
