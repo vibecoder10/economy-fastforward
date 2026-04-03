@@ -1051,9 +1051,12 @@ const server = http.createServer(async (req, res) => {
     if (!prd && !prdRaw) { sendJSON(res, { active: false }); return; }
     if (!prd && prdRaw) { sendJSON(res, { active: true, decomposing: true, title: 'Decomposing...' }); return; }
     const total = prd.tasks?.length || 0;
-    const done = (prd.tasks || []).filter(t => t.status === 'done' || t.status === 'verified').length;
-    const blocked = (prd.tasks || []).filter(t => t.status === 'blocked').length;
-    const inProgress = (prd.tasks || []).filter(t => t.status === 'in_progress').length;
+    // Parse completion from progress.md (agents update this, not prd.json)
+    const doneFromProgress = (progress.match(/- \[x\]/gi) || []).length;
+    const blockedFromProgress = (progress.match(/BLOCKED/gi) || []).length;
+    const done = doneFromProgress || (prd.tasks || []).filter(t => t.status === 'done' || t.status === 'verified').length;
+    const blocked = blockedFromProgress || (prd.tasks || []).filter(t => t.status === 'blocked').length;
+    const inProgress = Math.max(0, total - done - blocked);
     sendJSON(res, { active: true, decomposing: false, title: prd.title || 'Untitled', total, done, blocked, inProgress, progress });
     return;
   }
