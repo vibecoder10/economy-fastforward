@@ -18,6 +18,8 @@ import {
   Sliders,
   Shield,
   RefreshCw,
+  Clock,
+  AlertCircle,
 } from "lucide-react";
 import Link from "next/link";
 import { GlassCard } from "@/components/ui/GlassCard";
@@ -31,7 +33,9 @@ import {
   launchCandidate,
   syncYouTubeMetrics,
   getYouTubeSyncStatus,
+  getAutopilotTasks,
   type AutopilotSummary,
+  type AutopilotTasks,
 } from "@/lib/api";
 import { timeAgo } from "@/lib/utils";
 
@@ -114,6 +118,11 @@ export default function AutopilotPage() {
     queryKey: ["youtube-sync-status"],
     queryFn: getYouTubeSyncStatus,
     refetchInterval: isSyncing ? 3000 : false,
+  });
+
+  const { data: bgTasks } = useQuery({
+    queryKey: ["autopilot-tasks"],
+    queryFn: getAutopilotTasks,
   });
 
   const handleSync = async () => {
@@ -894,6 +903,82 @@ export default function AutopilotPage() {
           </div>
         </GlassCard>
       </motion.div>
+
+      {/* Background Tasks */}
+      {bgTasks && (
+        <motion.div variants={item}>
+          <GlassCard>
+            <div className="flex items-center gap-2 mb-4">
+              <Clock size={16} style={{ color: "var(--purple)" }} />
+              <h2 className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+                Background Tasks
+              </h2>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {(
+                [
+                  { key: "scrape" as const, label: "Auto-Scrape", interval: "Daily" },
+                  { key: "youtube_sync" as const, label: "YouTube Sync", interval: "Every 6h" },
+                  { key: "learning_extraction" as const, label: "Learning Extraction", interval: "Every 24h" },
+                  { key: "title_analysis" as const, label: "Title Analysis", interval: "Every 24h" },
+                ] as const
+              ).map(({ key, label, interval }) => {
+                const task = bgTasks[key];
+                const hasError = !!task.last_error;
+                return (
+                  <div
+                    key={key}
+                    className="rounded-xl px-4 py-3"
+                    style={{
+                      background: "rgba(255,255,255,0.03)",
+                      border: `1px solid ${hasError ? "rgba(255,77,106,0.2)" : "rgba(255,255,255,0.05)"}`,
+                    }}
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
+                        {label}
+                      </span>
+                      {task.is_running ? (
+                        <StatusPill label="Running" color="orange" pulse size="sm" />
+                      ) : hasError ? (
+                        <StatusPill label="Error" color="red" size="sm" />
+                      ) : (
+                        <StatusPill label="OK" color="green" size="sm" />
+                      )}
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-[11px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
+                          Last Run
+                        </p>
+                        <p className="text-xs font-mono" style={{ color: "var(--text-secondary)" }}>
+                          {task.last_run ? timeAgo(task.last_run) : "Never"}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-[11px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
+                          Interval
+                        </p>
+                        <p className="text-xs font-mono" style={{ color: "var(--text-secondary)" }}>
+                          {interval}
+                        </p>
+                      </div>
+                    </div>
+                    {hasError && (
+                      <div className="flex items-start gap-1.5 mt-2 pt-2" style={{ borderTop: "1px solid rgba(255,77,106,0.15)" }}>
+                        <AlertCircle size={12} className="shrink-0 mt-0.5" style={{ color: "var(--red)" }} />
+                        <p className="text-[11px] leading-tight" style={{ color: "var(--red)", opacity: 0.8 }}>
+                          {task.last_error}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </GlassCard>
+        </motion.div>
+      )}
 
       {/* Learned Patterns */}
       {learnings.length > 0 && (

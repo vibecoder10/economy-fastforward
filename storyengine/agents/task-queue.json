@@ -1136,10 +1136,14 @@
           "id": "T13-004",
           "title": "Add background task status panel",
           "role": "frontend",
-          "status": "pending",
-          "description": "Show the 4 background tasks and their last run times: Auto-Scrape (daily), YouTube Sync (6h), Learning Extraction (24h), Title Analysis (24h). Each shows: last_run timestamp, status (ok/error), next_run estimate. This helps users understand what the autopilot is doing autonomously.",
+          "status": "done",
+          "started_at": "2026-04-03T09:02:00Z",
+          "completed_at": "2026-04-03T09:06:00Z",
+          "assigned_to": "frontend-dev",
+          "description": "Added Background Tasks panel to autopilot page showing 4 tasks (Auto-Scrape, YouTube Sync, Learning Extraction, Title Analysis) with last_run via timeAgo(), status badges (OK/Running/Error), interval labels, and error details. Added getAutopilotTasks() and BackgroundTaskStatus/AutopilotTasks types to api.ts.",
           "files": [
-            "frontend/src/app/autopilot/page.tsx"
+            "frontend/src/app/autopilot/page.tsx",
+            "frontend/src/lib/api.ts"
           ]
         },
         {
