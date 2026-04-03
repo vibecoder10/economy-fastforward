@@ -6,11 +6,11 @@ import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Search, Film, Loader2, Plus, Clock, Eye, BarChart3,
-  RefreshCw, Sparkles, X, ChevronRight, ExternalLink, TrendingUp, Brain,
+  RefreshCw, Sparkles, X, ChevronRight, ExternalLink, TrendingUp, Brain, Trash2,
 } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  getVideos, createVideo,
+  getVideos, createVideo, deleteVideo,
   getDiscoveryIdeas, getDiscoveryStatus, refreshDiscoveryIdeas,
   launchIdea, dismissIdea,
   type VideoSummary, type DiscoveryIdea, type TitleOption,
@@ -142,6 +142,9 @@ export default function VideosPage() {
   const [newVisualStyle, setNewVisualStyle] = useState("");
   const [newAccentColor, setNewAccentColor] = useState("");
 
+  // Delete confirmation
+  const [deleteTarget, setDeleteTarget] = useState<VideoSummary | null>(null);
+
   // Edit-before-launch modal
   const [editIdea, setEditIdea] = useState<DiscoveryIdea | null>(null);
   const [editTitleIndex, setEditTitleIndex] = useState(0);
@@ -213,6 +216,14 @@ export default function VideosPage() {
     mutationFn: dismissIdea,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["discoveryIdeas"] });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: deleteVideo,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["videos"] });
+      setDeleteTarget(null);
     },
   });
 
@@ -475,7 +486,7 @@ export default function VideosPage() {
                 const isPublished = COMPLETED_STATUSES.has(status);
 
                 return (
-                  <motion.div key={video.id} variants={item}>
+                  <motion.div key={video.id} variants={item} className="group relative">
                     <Link href={`/pipeline/${video.id}`}>
                       <GlassCard hover className="p-0 overflow-hidden cursor-pointer">
                         {/* Thumbnail */}
@@ -562,6 +573,18 @@ export default function VideosPage() {
                         </div>
                       </GlassCard>
                     </Link>
+                    <button
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setDeleteTarget(video);
+                      }}
+                      className="absolute top-2 right-2 p-1.5 rounded-md opacity-0 group-hover:opacity-100 transition-all z-10"
+                      style={{ background: "rgba(0,0,0,0.7)", color: "var(--red, #ef4444)" }}
+                      title="Delete video"
+                    >
+                      <Trash2 size={14} />
+                    </button>
                   </motion.div>
                 );
               })}
@@ -569,6 +592,53 @@ export default function VideosPage() {
           )}
         </>
       )}
+
+      {/* === DELETE CONFIRMATION MODAL === */}
+      <Modal
+        open={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        title="Delete Video"
+        size="sm"
+      >
+        {deleteTarget && (
+          <div className="space-y-4">
+            <p className="text-sm font-body" style={{ color: "var(--text-secondary)" }}>
+              Are you sure you want to delete{" "}
+              <strong style={{ color: "var(--text-primary)" }}>
+                {deleteTarget.video_title || "Untitled"}
+              </strong>
+              ? This action can be undone by an admin.
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setDeleteTarget(null)}
+                className="flex-1 py-2.5 rounded-lg text-sm font-medium transition-all"
+                style={{
+                  background: "var(--bg-elevated)",
+                  color: "var(--text-secondary)",
+                  border: "1px solid var(--border)",
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => deleteMutation.mutate(deleteTarget.id)}
+                disabled={deleteMutation.isPending}
+                className="flex-1 py-2.5 rounded-lg text-sm font-semibold transition-all hover:brightness-110 disabled:opacity-50"
+                style={{ background: "var(--red, #ef4444)", color: "white" }}
+              >
+                {deleteMutation.isPending ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <Loader2 size={14} className="animate-spin" /> Deleting...
+                  </span>
+                ) : (
+                  "Delete"
+                )}
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
 
       {/* === NEW VIDEO MODAL === */}
       <Modal open={showCreateModal} onClose={() => setShowCreateModal(false)} title="New Video" size="md">
