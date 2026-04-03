@@ -1,6 +1,6 @@
 """User preferences endpoints — tab order, UI settings, etc."""
 
-from typing import Optional
+from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
@@ -11,7 +11,7 @@ router = APIRouter(prefix="/api/user/preferences", tags=["preferences"])
 
 
 class PreferenceUpdate(BaseModel):
-    value: dict
+    value: Any
 
 
 @router.get("")
