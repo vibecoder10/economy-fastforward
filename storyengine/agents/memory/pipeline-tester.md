@@ -16,3 +16,4 @@
 - Autopilot page T13-001: 'Last cycle' text only shows when state.last_cycle is non-null; 'Next production: in N days' shows when days_until_next > 0. Both are correct null-handling behavior.
 - Auth in Playwright: use context.add_init_script() to set localStorage token BEFORE page loads; storage_state JSON approach also works but add_init_script is more reliable for React apps that read localStorage on mount.
 - update_visual_report.py: when TASK_ID arg is passed, it filters by TASK_ID prefix so use the screenshot filename prefix (e.g. 'reg5') not a task ID like 'T10-005'. Run without args to upload ALL new files.
+- T17-005: Stripe endpoints return 'Stripe not configured' without STRIPE_SECRET_KEY — correct behavior, not a bug. Google OAuth returns 'Invalid Google token' without real client creds. Both are expected in dev.
