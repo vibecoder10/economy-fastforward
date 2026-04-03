@@ -3,9 +3,7 @@
 
 - Gen/Regen/Variants buttons in StoryboardVisualsTab are tiny (text-[9px]) inside overflow containers — Playwright standard click times out; use JS .click() or force=True.
 - Approval/Reject buttons only appear in StoryboardVisualsTab when seg.status === 'done'; with all-pending assets, 0 buttons show (expected behavior, not a bug).
-- Backend auth: all /api/* endpoints require 'Authorization: Bearer dev-token' header; without it returns 403.
 - Tab name for images/storyboard is "Storyboard & Visuals" (not "Visuals" or "Images").
-- page.on('console', ...) use msg.type and msg.text as properties (not methods) in newer Playwright.
 - API calls from the frontend go to the public IP (76.13.119.181:8001) not localhost — filter on '/api/' in URL to catch both.
 - Auth requires a real JWT for frontend; use sub='dev-user' (maps to dev account 00000000-...) with iss=storyengine, tenant_id from /api/auth/me with dev-token. Use browser.new_context(storage_state={"origins":[{"origin":"http://localhost:3002","localStorage":[{"name":"token","value":JWT}]}]}) — evaluate() after navigate fails because AuthProvider clears token on getMe() failure.
 - Always proxy /api/** routes with route.fulfill() + Python urllib to bypass CORS (localhost:3002 not in backend CORS allowlist). Combine with storage_state for auth.
@@ -47,3 +45,4 @@
 - getPendingReview() returns {scripts:[], storyboards:[], thumbnails:[], images:[]} NOT a flat array. Proxying /api/review/pending as [] crashes dashboard + review pages with "Cannot read properties of undefined (reading 'length')". Always match real API response shape in mock data.
 - Plan gating (T25): PRO_PATHS=[/autopilot,/analytics,/learnings,/competitors,/discovery]. isPlanAtLeast checks tiers {free:0,starter:1,pro:2,agency:3}. Lock icons only show when sidebar is NOT collapsed (!collapsed && isLocked). Use aside.query_selector_all('a') + check inner_html for 'lock' to detect.
 - After SEC-1 fix: dev-token no longer works. Must forge JWT with SESSION_SECRET from backend/.env (sub=dev-user-uuid, iss=storyengine, tenant_id=f6839de2-368c-440d-8559-0292026179fa). Use PyJWT: jwt.encode(payload, secret, algorithm='HS256').
+- REG7 (2026-04-04): 16/16 pages, 3/3 security, mobile PASS, tsc 0 errors. Render page 410s are browser-level network errors from expired Airtable URLs — cannot be suppressed, onError fallback is working. Audio-token 404s = SEC-7 not merged to main yet. Playwright goto uses wait_until not wait_for.
