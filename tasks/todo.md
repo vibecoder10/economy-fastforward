@@ -1,6 +1,95 @@
 # Task Tracking
 
-## Handoff — 2026-04-03
+## Handoff — 2026-04-03 (Session 2)
+
+### What Was Built This Session
+
+**PRD Auto-Generation + Deploy Pipeline:**
+1. ✅ "Generate PRD" button — type rough notes → Claude Opus generates structured PRD
+2. ✅ "Deploy to Team" — decomposes → sets focus → spawns agents immediately (no cron wait)
+3. ✅ POST /api/spawn-agent — run any agent instantly via HTTP
+4. ✅ POST /api/generate-prd — async with polling, seconds counter, 10min timeout
+5. ✅ Wrapper script (`agents/generate-prd.sh`) avoids exec/spawn Node.js issues
+
+**Unified Agent System (one system, not two):**
+6. ✅ `run-agent.sh` now handles BOTH PRD tasks and task-queue work (checks agents/prd.json at startup)
+7. ✅ `dispatch.sh` simplified to thin wrapper
+8. ✅ `run-team.sh` still works but deploy-prd and spawn-agent both call run-agent.sh now
+9. ✅ PRD tasks count toward agent XP/leveling (calculate-skills.sh updated)
+10. ✅ Fixed PROJECT_ROOT hardcoded Mac path → auto-detects from script location
+
+**Agent Upgrades:**
+11. ✅ Pipeline Tester upgraded to Opus with aggressive browser-first testing
+12. ✅ QA Engineer upgraded to Opus
+13. ✅ Security Auditor — NEW agent (Opus, every 6h) for auth, injection, data exposure, CORS
+14. ✅ All agents: skills fixed — only real skills referenced, Skill tool invocation instructions
+15. ✅ All agents: skills visible on Team tab UI (parsed from .md files)
+
+**Autonomous Operations:**
+16. ✅ PRD watcher cron (every 60s) — auto-spawns agents when PRD tasks become unblocked
+17. ✅ Error watcher — user-browser 404/405 errors auto-spawn backend/frontend agents within 60s
+18. ✅ Error-driven task creation — user-browser errors auto-create BUG-USER tasks in queue
+19. ✅ Auto-restart servers after agent commits (backend uvicorn, frontend next build+start)
+20. ✅ Mandatory health check — every agent checks frontend+backend before exiting, auto-restarts if down
+21. ✅ Regression prevention — Playwright tests run after every agent commit
+
+**Team Collaboration:**
+22. ✅ All agents can POST handoffs + spawn teammates when stuck
+23. ✅ Cross-agent learning — QA/Tester write bug patterns into responsible agent's memory
+24. ✅ Live activity posting — agents POST to activity feed during work (start, complete, error)
+25. ✅ User-browser errors shown at TOP of every agent's prompt as #1 priority
+
+**Live Decomposition UI:**
+26. ✅ Pulsing progress bar during PRD decomposition
+27. ✅ Phase labels ("Reading PRD... (45s)" → "Creating tasks... (120s)")
+28. ✅ Mission status reads from progress.md (not stale prd.json)
+
+**PRD Execution Results (first real test):**
+- 14 tasks decomposed from user's rough notes
+- 13/14 completed (6 backend, 6 frontend, 1 QA)
+- T14 (security) remaining — now has dedicated Security Auditor agent
+- 1 bug found by Pipeline Tester (Profile API 404)
+- 20 Playwright tests created by QA
+
+### Current Agent Team (6 agents)
+
+| Agent | Model | Schedule | Role |
+|-------|-------|----------|------|
+| Orchestrator | Opus/Sonnet | Daily 5 AM | Plans work, audits progress |
+| Backend Dev | Opus | Hourly :00 | FastAPI, DB, business logic |
+| Frontend Dev | Opus | Hourly :02 | React, TypeScript, UI |
+| QA Engineer | Opus | Hourly :04 | Verification, Playwright |
+| Pipeline Tester | Opus | Every 3h | Click-through testing, bug filing |
+| Security Auditor | Opus | Every 6h | Auth, injection, CORS, secrets |
+
+### What Needs Attention Next
+
+1. **User-browser errors still live** — 404 on `/api/user/preferences`, 405 on DELETE `/api/videos/{id}`. The watcher should auto-spawn backend-dev at the next minute mark to fix these.
+
+2. **Activity feed needs verification** — live posting instructions added to all agents but not yet tested in a real agent run. Next agent session should produce real-time activity entries.
+
+3. **Security audit T14** — the Security Auditor agent exists but hasn't run yet. Will run on next 6h cron or can be manually spawned.
+
+4. **Delete button broken** — Ryan confirmed: shows "deleting" state but video stays. Backend likely returns 405 (Method Not Allowed). The error-driven task creation should auto-create a BUG-USER task.
+
+5. **Tier 2 product ideas not yet built:**
+   - Cost dashboard (track Claude API cost per agent)
+   - Agent reputation scores (beyond levels)
+   - Visual diff reviews (before/after screenshots in Activity)
+   - Telegram command expansion
+   - SLA tracking (mean time to resolution)
+
+### VPS State
+- RUBRIC: http://76.13.119.181:5050 (Command Center is landing page)
+- StoryEngine: http://76.13.119.181:3001
+- Backend: port 8001
+- Telegram: tmux session `telegram-channel` (Haiku)
+- All crons installed including PRD watcher + security auditor + pipeline tester
+- Branch: agent-dev
+
+---
+
+## Previous Handoff — 2026-04-03 (Session 1)
 
 ### The Vision (Ryan's words — do not lose this)
 
