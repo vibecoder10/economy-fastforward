@@ -8,6 +8,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { runPipelineStage, advanceVideo, updateVideoStyles, updateVideo, clearStaleTask, acceptSuggestion, rejectSuggestion } from "@/lib/api";
 import { useTaskPoller } from "@/hooks/use-task-poller";
 import type { VideoDetail } from "@/lib/api";
+import { getStageIndex } from "@/lib/constants";
 
 const ACCENT_COLORS = [
   { name: "Cold Teal", value: "#4A9E9E" },
@@ -38,6 +39,11 @@ export function ThumbnailTab({ video }: ThumbnailTabProps) {
   const [isSavingPrompt, setIsSavingPrompt] = useState(false);
   const [promptSaved, setPromptSaved] = useState(false);
   const savedPromptRef = useRef(video.thumbnail_prompt || "");
+
+  // Thumbnail generation requires the video to be at or past ready_for_thumbnail
+  const thumbnailStageIdx = getStageIndex("ready_for_thumbnail");
+  const currentStageIdx = getStageIndex(video.status || "");
+  const isReadyForThumbnail = currentStageIdx >= thumbnailStageIdx;
 
   const { message: taskMessage } = useTaskPoller({
     videoId: video.id,
@@ -358,15 +364,17 @@ export function ThumbnailTab({ video }: ThumbnailTabProps) {
             icon={(isRegenerating || taskRunning) ? Loader2 : thumbnailUrl ? RefreshCw : ImageIcon}
             className="w-full"
             onClick={handleRegenerate}
-            disabled={isRegenerating || taskRunning}
+            disabled={isRegenerating || taskRunning || !isReadyForThumbnail}
           >
-            {taskRunning
-              ? (taskMessage || "Generating...")
-              : isRegenerating
-                ? "Starting..."
-                : thumbnailUrl
-                  ? "Regenerate"
-                  : "Generate Thumbnail"}
+            {!isReadyForThumbnail
+              ? "Complete earlier stages first"
+              : taskRunning
+                ? (taskMessage || "Generating...")
+                : isRegenerating
+                  ? "Starting..."
+                  : thumbnailUrl
+                    ? "Regenerate"
+                    : "Generate Thumbnail"}
           </ActionButton>
           {thumbnailUrl && (
             <ActionButton
