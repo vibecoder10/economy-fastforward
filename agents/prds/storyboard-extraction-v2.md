@@ -181,15 +181,17 @@ B. Check if grids are cached in Google Drive (the pipeline may have uploaded the
 
 | # | Task | Role | Depends | Priority |
 |---|------|------|---------|----------|
+| T0 | DONE — Old generated images cleared (115 assets set to NULL) | — | — | DONE |
+| T0b | DONE — Regen/Variants buttons hidden in storyboard mode | — | — | DONE |
 | T1 | Create Supabase Storage bucket + upload helper | backend | — | P0 |
 | T2 | Build grid cropping + panel extraction logic (PIL) | backend | — | P0 |
 | T3 | Rewrite storyboard-extract endpoint for Supabase | backend | T1, T2 | P0 |
-| T4 | Clear old asset images before extraction | backend | T3 | P0 |
-| T5 | Re-generate or recover grids for test video | backend | — | P0 |
-| T6 | Run extraction on test video end-to-end | qa | T3, T5 | P0 |
-| T7 | Verify filmstrip shows extracted panels only | qa | T6 | P0 |
-| T8 | Add permanent storage to image generation pipeline | backend | T1 | P1 |
-| T9 | Add permanent storage to storyboard grid generation | backend | T1 | P1 |
+| T4 | Extraction clears old asset images before writing new ones | backend | T3 | P0 |
+| T5 | Re-generate storyboard grids for test video (old URLs expired) | backend | — | P0 |
+| T6 | Immediately persist new grid URLs to Supabase Storage after generation | backend | T1, T5 | P0 |
+| T7 | Run extraction on test video end-to-end | qa | T3, T6 | P0 |
+| T8 | Verify filmstrip shows extracted panels only | qa | T7 | P0 |
+| T9 | Add permanent storage to ALL image generation steps | backend | T1 | P1 |
 
 **P0 = must do now (extraction pipeline)**
 **P1 = must do before launch (prevents URL expiry across all images)**
