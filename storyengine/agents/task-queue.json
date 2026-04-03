@@ -2,7 +2,7 @@
   "version": 2,
   "current_tab": 13,
   "last_updated": "2026-04-03",
-  "last_updated_by": "pipeline-tester",
+  "last_updated_by": "backend-dev",
   "tabs": [
     {
       "id": 1,
@@ -1043,6 +1043,29 @@
           "files": [
             "backend/routes/autopilot.py",
             "frontend/src/lib/api.ts"
+          ]
+        },
+        {
+          "id": "T13-008",
+          "title": "Build weights and threshold editing UI (T13-002)",
+          "role": "frontend",
+          "status": "pending",
+          "depends_on": "BUG-T13-002-BACKEND",
+          "description": "Backend now accepts weights dict and thresholds dict in POST /api/autopilot/config (BUG-T13-002-BACKEND fixed). Build the editing UI: sliders or number inputs for the 6 weight fields (competitor_vph, topic_channel_fit, timing_freshness, channel_momentum, retention_patterns, title_formula) and 5 threshold fields (min_confidence_score, min_competitor_vph, max_idea_age_days, ctr_success_threshold, ctr_failure_threshold). Save via updateAutopilotConfig() in api.ts — updateAutopilotConfig type was also updated to include weights/thresholds. Place in the existing autopilot page config section. Show current values from GET /api/autopilot/summary (config.weights / config.thresholds).",
+          "files": [
+            "frontend/src/app/autopilot/page.tsx",
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        {
+          "id": "T13-009",
+          "title": "QA verify weights/thresholds editing saves and persists",
+          "role": "qa",
+          "status": "pending",
+          "depends_on": "T13-008",
+          "description": "Verify T13-008 implementation: (1) Autopilot page shows input controls for all 6 weights and 5 thresholds. (2) Editing a weight value and saving calls POST /api/autopilot/config with {weights: {...}, thresholds: {...}}. (3) GET /api/autopilot/summary after save returns updated values. (4) Values persist across page reload. (5) tsc --noEmit passes clean. (6) No console errors.",
+          "files": [
+            "frontend/src/app/autopilot/page.tsx"
           ]
         }
       ]
