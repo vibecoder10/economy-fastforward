@@ -540,6 +540,8 @@ const server = http.createServer(async (req, res) => {
       normal: { backend: '0 */2 * * *',             frontend: '2 */2 * * *',             qa: '4 */2 * * *',             tester: '25 */2 * * *',             micro: '30 */2 * * *',             label: '12x/day (every 2h)' },
       fast:   { backend: '0 * * * *',               frontend: '2 * * * *',               qa: '4 * * * *',               tester: '35 * * * *',               micro: '45 * * * *',               label: '24x/day (every 1h)' },
       max:    { backend: '0,30 * * * *',             frontend: '2,32 * * * *',            qa: '4,34 * * * *',            tester: '18,48 * * * *',            micro: '24,54 * * * *',            label: '48x/day (every 30m)' },
+      turbo:  { backend: '0,15,30,45 * * * *',       frontend: '2,17,32,47 * * * *',      qa: '4,19,34,49 * * * *',      tester: '10,25,40,55 * * * *',      micro: '12,27,42,57 * * * *',      label: '96x/day (every 15m)' },
+      ultra:  { backend: '*/8 * * * *',              frontend: '1-59/8 * * * *',           qa: '2-59/8 * * * *',           tester: '4-59/8 * * * *',           micro: '6-59/8 * * * *',           label: '180x/day (every 8m)' },
     };
     const sched = schedules[cadence] || schedules.fast;
 

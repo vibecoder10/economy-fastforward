@@ -295,6 +295,21 @@ export const updateAutopilotConfig = (config: { videos_per_month?: number; video
     body: JSON.stringify(config),
   });
 
+export interface BackgroundTaskStatus {
+  last_run: string | null;
+  is_running: boolean;
+  last_error: string | null;
+}
+
+export interface AutopilotTasks {
+  scrape: BackgroundTaskStatus;
+  youtube_sync: BackgroundTaskStatus;
+  learning_extraction: BackgroundTaskStatus;
+  title_analysis: BackgroundTaskStatus;
+}
+
+export const getAutopilotTasks = () => fetchApi<AutopilotTasks>("/api/autopilot/tasks");
+
 export const launchCandidate = (candidateId: string) =>
   fetchApi<{ status: string; candidate_id: string; video_id: string; video_title: string; message: string }>(
     `/api/autopilot/launch/${candidateId}`,
