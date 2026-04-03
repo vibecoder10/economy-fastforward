@@ -7,3 +7,4 @@
 - PerformanceTab was using frontend Video type (types.ts) but videoForTabs passes VideoDetail (api.ts) as any — use VideoDetail directly for snapshot fields.
 - Analytics has 3 dedicated endpoints (/api/analytics/overview, /ctr-timeline, /framework-performance) — don't use getVideos() for analytics data.
 - Profile page (/profile) is a Visual Style Manager, not a stub — add new sections to it rather than replacing. Account section added at top in T16-002.
+- ScriptTab.tsx is a DEAD COMPONENT — pipeline page imports ScriptVoiceTab.tsx. Always check which component is actually rendered before adding features.
