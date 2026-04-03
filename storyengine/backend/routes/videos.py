@@ -449,8 +449,27 @@ async def get_scene_audio(video_id: str, scene: int, token: Optional[str] = None
     Uses query token since HTML Audio elements can't set Authorization headers.
     """
     import os
-    # Simple auth: in dev mode accept dev-token; in prod would validate JWT
-    tenant_id = os.getenv("DEV_TENANT_ID", "test-tenant")
+    import jwt as pyjwt
+
+    # Validate token — required for tenant isolation
+    if not token:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    # Dev token: only in development mode
+    if token == "dev-token" and os.getenv("ENV", "development") == "development":
+        tenant_id = os.getenv("DEV_TENANT_ID", "test-tenant")
+    else:
+        # Validate session JWT
+        session_secret = os.getenv("SESSION_SECRET")
+        if not session_secret:
+            raise HTTPException(status_code=401, detail="Invalid token")
+        try:
+            payload = pyjwt.decode(token, session_secret, algorithms=["HS256"])
+            tenant_id = payload.get("tenant_id")
+            if not tenant_id:
+                raise HTTPException(status_code=401, detail="Invalid token: no tenant")
+        except pyjwt.InvalidTokenError:
+            raise HTTPException(status_code=401, detail="Invalid token")
 
     row = await fetch_one(
         "SELECT voice_over_url FROM scripts WHERE video_id = $1 AND tenant_id = $2 AND scene = $3 LIMIT 1",

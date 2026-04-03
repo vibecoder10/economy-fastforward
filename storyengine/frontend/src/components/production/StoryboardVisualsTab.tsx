@@ -813,7 +813,7 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
                             const apiBase = typeof window !== "undefined"
                               ? (localStorage.getItem("storyengine_api_url") || `${window.location.protocol}//${window.location.hostname}:8001`)
                               : "";
-                            const token = typeof window !== "undefined" ? (localStorage.getItem("storyengine_token") || "") : "";
+                            const token = typeof window !== "undefined" ? (localStorage.getItem("token") || "dev-token") : "";
                             return `${apiBase}/api/videos/${video.id}/audio/${scene.sceneNumber}?token=${token}`;
                           })()}
                         />
