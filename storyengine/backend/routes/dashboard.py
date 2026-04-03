@@ -1,4 +1,4 @@
-"""Dashboard summary and calendar endpoints."""
+"""Dashboard summary, calendar, and onboarding endpoints."""
 
 from collections import defaultdict
 from datetime import date as date_type
@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Query
 from auth import get_tenant_id
 from models import DashboardSummary, VideoSummary, PIPELINE_STAGES
 from database import fetch_all, fetch_one
+from vault import get_secret_status
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
@@ -169,3 +170,37 @@ async def get_calendar(
             "accent_color": r.get("accent_color"),
         })
     return grouped
+
+
+@router.get("/onboarding/status")
+async def get_onboarding_status(tenant_id: str = Depends(get_tenant_id)):
+    """Derive onboarding completion from existing data — no new DB columns."""
+    # Step 1: channel configured?
+    cp = await fetch_one(
+        "SELECT channel_name FROM channel_profiles WHERE tenant_id = $1",
+        tenant_id,
+    )
+    channel_configured = bool(cp and cp.get("channel_name"))
+
+    # Step 2: at least anthropic API key configured?
+    key_status = await get_secret_status("anthropic_api_key", tenant_id)
+    api_keys_configured = key_status.get("configured", False)
+
+    # Step 3: any videos exist (proxy for baseline import / first use)?
+    vid = await fetch_one(
+        "SELECT COUNT(*) as count FROM videos WHERE tenant_id = $1",
+        tenant_id,
+    )
+    youtube_synced = (vid["count"] if vid else 0) > 0
+
+    steps = {
+        "channel_configured": channel_configured,
+        "api_keys_configured": api_keys_configured,
+        "youtube_synced": youtube_synced,
+    }
+    done = sum(1 for v in steps.values() if v)
+    return {
+        "completed": done == len(steps),
+        "steps": steps,
+        "percent_complete": round(done / len(steps) * 100),
+    }

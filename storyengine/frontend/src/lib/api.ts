@@ -76,6 +76,20 @@ export const getMe = () => fetchApi<AuthUser>("/api/auth/me");
 // Dashboard
 export const getDashboardSummary = () => fetchApi<DashboardSummary>("/api/dashboard/summary");
 
+// Onboarding
+export type OnboardingStatus = {
+  completed: boolean;
+  steps: {
+    channel_configured: boolean;
+    api_keys_configured: boolean;
+    youtube_synced: boolean;
+  };
+  percent_complete: number;
+};
+
+export const getOnboardingStatus = () =>
+  fetchApi<OnboardingStatus>("/api/dashboard/onboarding/status");
+
 // Calendar
 export type CalendarVideo = {
   id: string;

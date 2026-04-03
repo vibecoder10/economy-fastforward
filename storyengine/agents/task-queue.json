@@ -2182,11 +2182,13 @@
           "id": "T24-001",
           "title": "Add GET /api/onboarding/status endpoint",
           "role": "backend",
-          "status": "pending",
-          "description": "Add GET /api/onboarding/status in routes/dashboard.py (or new routes/onboarding.py). Derives completion state from existing data \u2014 no new DB columns needed. Check: (1) channel_configured: GET channel_profiles WHERE tenant_id \u2014 has non-empty channel_name. (2) api_keys_configured: SELECT count(*) FROM api_keys WHERE tenant_id AND configured=true AND key_name='anthropic_api_key' > 0. (3) youtube_synced: check if any videos exist (SELECT count(*) FROM videos WHERE tenant_id > 0) as a proxy for baseline import. Return: { completed: bool, steps: { channel_configured: bool, api_keys_configured: bool, youtube_synced: bool }, percent_complete: int }. completed = all 3 steps true. Register router in main.py. Also add getOnboardingStatus() to api.ts (returns OnboardingStatus type).",
+          "status": "done",
+          "started_at": "2026-04-03T21:00:01Z",
+          "completed_at": "2026-04-03T21:05:00Z",
+          "assigned_to": "backend-dev",
+          "description": "Added GET /api/dashboard/onboarding/status to routes/dashboard.py. Derives completion from existing data: (1) channel_configured from channel_profiles, (2) api_keys_configured from vault get_secret_status for anthropic_api_key, (3) youtube_synced from videos count. Returns { completed, steps, percent_complete }. No new router needed — uses existing dashboard router. Also added OnboardingStatus type and getOnboardingStatus() to frontend api.ts.",
           "files": [
             "backend/routes/dashboard.py",
-            "backend/main.py",
             "frontend/src/lib/api.ts"
           ]
         },
