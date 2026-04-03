@@ -455,8 +455,9 @@ async def get_scene_audio(video_id: str, scene: int, token: Optional[str] = None
     if not token:
         raise HTTPException(status_code=401, detail="Authentication required")
 
-    # Dev token: only in development mode
-    if token == "dev-token" and os.getenv("ENV", "development") == "development":
+    # Dev token: only when DEV_MODE=true and DEV_TOKEN env var is set
+    dev_token = os.getenv("DEV_TOKEN")
+    if dev_token and token == dev_token and os.getenv("DEV_MODE") == "true":
         tenant_id = os.getenv("DEV_TENANT_ID", "test-tenant")
     else:
         # Validate session JWT

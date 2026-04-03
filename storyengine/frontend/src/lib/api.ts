@@ -36,6 +36,11 @@ async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
   if (!res.ok) {
     const body = await res.text();
     reportError(path, res.status, body, options?.method || "GET");
+    // On 401 (invalid/expired token), clear auth and redirect to login
+    if (res.status === 401 && typeof window !== "undefined" && !path.includes("/api/auth/")) {
+      localStorage.removeItem("token");
+      window.location.href = "/login";
+    }
     throw new Error(`API error ${res.status}: ${body}`);
   }
 

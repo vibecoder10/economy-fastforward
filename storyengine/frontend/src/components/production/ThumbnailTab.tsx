@@ -117,12 +117,15 @@ export function ThumbnailTab({ video }: ThumbnailTabProps) {
         } catch (retryErr) {
           alert(`Thumbnail generation failed: ${(retryErr as Error).message}`);
         }
+      } else if (message.includes("400") && message.includes("not ready")) {
+        // Video stage changed since page loaded — refetch to show correct state
+        queryClient.invalidateQueries({ queryKey: ["video", video.id] });
       } else {
         alert(`Thumbnail generation failed: ${message}`);
       }
       setIsRegenerating(false);
     }
-  }, [video.id]);
+  }, [video.id, queryClient]);
 
   const handleApprove = useCallback(async () => {
     setIsApproving(true);
