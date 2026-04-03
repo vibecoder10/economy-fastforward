@@ -77,7 +77,10 @@
           "assigned_to": "backend-dev",
           "started_at": "2026-04-03T22:45:00Z",
           "completed_at": "2026-04-03T22:47:00Z",
-          "verified": false
+          "verified": true,
+          "verified_at": "2026-04-03T23:25:00Z",
+          "verified_by": "qa-engineer",
+          "verification_notes": "PASS. preferences.py changed value: dict to value: Any. Server restarted. PUT /api/user/preferences/pipeline_tab_order with array body now returns {status:ok}. GET /api/user/preferences returns stored value. All 3 user-reported errors (422/404/405) confirmed resolved."
         }
       ]
     },
