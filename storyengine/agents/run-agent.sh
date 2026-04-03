@@ -487,6 +487,32 @@ ${PROP_TITLE}
 _Reply /approve ${PROP_ID} or /reject ${PROP_ID}_"
 fi
 
+# ─── Restart Servers After Code Changes ────────────────────────────────────
+# Agents commit code but running servers serve old code. Restart so testers see changes.
+if [ -n "$TASK_LINE" ] || [ -n "$SUMMARY_LINE" ]; then
+  CHANGED_FILES=$(git diff --name-only HEAD~1 2>/dev/null || echo "")
+  if echo "$CHANGED_FILES" | grep -q "storyengine/backend/"; then
+    echo "Backend files changed — restarting uvicorn..."
+    pkill -f "uvicorn main:app.*8001" 2>/dev/null || true
+    sleep 1
+    cd "$PROJECT_ROOT/storyengine/backend" && nohup ./venv/bin/python3 -m uvicorn main:app --host 0.0.0.0 --port 8001 > /tmp/storyengine-backend.log 2>&1 &
+    echo "Backend restarted on port 8001"
+    cd "$PROJECT_ROOT"
+  fi
+  if echo "$CHANGED_FILES" | grep -q "storyengine/frontend/"; then
+    echo "Frontend files changed — rebuilding and restarting..."
+    cd "$PROJECT_ROOT/storyengine/frontend"
+    npm run build > /tmp/storyengine-frontend-build.log 2>&1 || echo "Frontend build failed"
+    # Kill old next server and start fresh
+    pkill -f "next.*3001" 2>/dev/null || true
+    sleep 2
+    fuser -k 3001/tcp 2>/dev/null || true
+    nohup npx next start -p 3001 > /tmp/storyengine-frontend.log 2>&1 &
+    echo "Frontend rebuilt and restarted on port 3001"
+    cd "$PROJECT_ROOT"
+  fi
+fi
+
 # ─── PRD: Auto-Spawn Unblocked Agents ──────────────────────────────────────
 # After completing PRD work, check if other roles became unblocked and spawn them
 if [ -f "$PROJECT_ROOT/agents/prd.json" ]; then
