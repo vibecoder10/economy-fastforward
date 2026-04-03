@@ -1110,12 +1110,13 @@ RULES:
 - Testing is NOT optional — QA and Pipeline Tester tasks are required in every PRD.
 - Output ONLY the PRD markdown. No commentary before or after.`;
     fs.writeFileSync(promptFile, prompt);
-    exec(`${CLAUDE_BIN} -p --model opus --output-format text < "${promptFile}" 2>/dev/null`,
-      { encoding: 'utf8', timeout: 180000, maxBuffer: 2 * 1024 * 1024 },
-      (err, stdout) => {
+    exec(`${CLAUDE_BIN} -p --model opus --output-format text < "${promptFile}"`,
+      { encoding: 'utf8', timeout: 180000, maxBuffer: 2 * 1024 * 1024, env: { ...process.env, HOME: process.env.HOME || '/home/clawd', PATH: `${process.env.PATH}:/home/clawd/.npm-global/bin` } },
+      (err, stdout, stderr) => {
         try { fs.unlinkSync(promptFile); } catch {}
         if (err) {
-          fs.writeFileSync(resultFile, JSON.stringify({ status: 'error', error: err.message }));
+          console.error('generate-prd stderr:', stderr);
+          fs.writeFileSync(resultFile, JSON.stringify({ status: 'error', error: (stderr || err.message).substring(0, 500) }));
         } else {
           fs.writeFileSync(resultFile, JSON.stringify({ status: 'done', prd: stdout.trim() }));
         }
