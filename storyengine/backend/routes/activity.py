@@ -21,14 +21,19 @@ async def list_activity(
 ):
     """Bot activity log, newest first."""
     if status:
+        # Accept 'running' as alias for 'started' (frontend sends 'running', pipeline writes 'started')
+        if status == "running":
+            status_filter = ('started', 'running')
+        else:
+            status_filter = (status,)
         rows = await fetch_all(
             """SELECT ba.id, ba.bot_name, ba.video_id, v.video_title,
                       ba.status, ba.message, ba.cost, ba.created_at::text
                FROM bot_activity ba
                LEFT JOIN videos v ON v.id = ba.video_id
-               WHERE ba.tenant_id = $1 AND ba.status = $2
+               WHERE ba.tenant_id = $1 AND ba.status = ANY($2)
                ORDER BY ba.created_at DESC LIMIT $3 OFFSET $4""",
-            tenant_id, status, limit, offset,
+            tenant_id, list(status_filter), limit, offset,
         )
     else:
         rows = await fetch_all(
@@ -60,7 +65,17 @@ async def list_activity(
 async def get_stats(tenant_id: str = Depends(get_tenant_id)):
     """Running bots count, errors today, cost today."""
     running = await fetch_one(
-        "SELECT COUNT(*) as count FROM bot_activity WHERE tenant_id = $1 AND status IN ('started', 'running')",
+        """SELECT COUNT(*) as count FROM bot_activity
+           WHERE tenant_id = $1 AND status IN ('started', 'running')
+           AND created_at >= NOW() - INTERVAL '30 minutes'
+           AND NOT EXISTS (
+               SELECT 1 FROM bot_activity ba2
+               WHERE ba2.tenant_id = bot_activity.tenant_id
+               AND ba2.video_id = bot_activity.video_id
+               AND ba2.bot_name = bot_activity.bot_name
+               AND ba2.status IN ('completed', 'failed')
+               AND ba2.created_at > bot_activity.created_at
+           )""",
         tenant_id,
     )
     errors = await fetch_one(

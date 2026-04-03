@@ -2239,7 +2239,10 @@
           "id": "BUG-T24-BOTS-RUNNING",
           "title": "BUG: Activity page shows inflated 'bots running' count (68) — SQL counts all historical 'started' entries",
           "role": "backend",
-          "status": "pending",
+          "status": "done",
+          "started_at": "2026-04-03T22:00:01Z",
+          "completed_at": "2026-04-03T22:05:00Z",
+          "assigned_to": "backend-dev",
           "description": "Pipeline Tester found (2026-04-03): GET /api/activity/stats returns bots_running=68, displayed prominently as 'BOTS RUNNING: 68' on /activity page. Root cause: routes/activity.py line 63 counts ALL bot_activity rows with status IN ('started', 'running') — but each bot run creates separate 'started' and 'failed'/'completed' rows (the started row is never updated). So 68 represents all historical bot runs that ever started, not currently active bots. In practice the system had 0-2 actually running bots at test time. Fix: count only 'started' entries from the last 30 minutes (e.g. AND created_at >= NOW() - INTERVAL '30 minutes'), OR subquery to exclude started entries that have a follow-up 'completed'/'failed' entry for the same video_id + bot_name. Also: the 'Running' filter tab in the UI passes status=running but the pipeline uses status='started' for in-progress bots — 'Running' tab always shows 0 results. Fix: change filter key from 'running' to 'started' in FILTER_OPTIONS in frontend/src/app/activity/page.tsx.",
           "files": [
             "backend/routes/activity.py",
