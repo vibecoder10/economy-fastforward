@@ -101,7 +101,37 @@ class PipelineExecutor:
 
         class LightPipeline:
             """Minimal pipeline that only has the clients we need."""
-            pass
+
+            scene_filter = None
+            image_filter = None
+
+            @property
+            def _is_targeted_run(self):
+                """True if scene/image filters are set (partial run, don't advance status)."""
+                return self.scene_filter is not None or self.image_filter is not None
+
+            def _log_filters(self):
+                """Print active targeting filters."""
+                if self.scene_filter is not None and self.image_filter is not None:
+                    print(f"  🎯 TARGETED RUN: Scene {self.scene_filter}, Image {self.image_filter}")
+                elif self.scene_filter is not None:
+                    print(f"  🎯 TARGETED RUN: Scene {self.scene_filter} (all images)")
+
+            def _filter_by_scene(self, records, scene_key="Scene"):
+                """Filter records by scene_filter and image_filter if set."""
+                if self.scene_filter is not None:
+                    records = [r for r in records if r.get(scene_key) == self.scene_filter]
+                if self.image_filter is not None:
+                    from orchestrator.pipeline_constants import ImageFields
+                    records = [r for r in records if r.get(ImageFields.IMAGE_INDEX) == self.image_filter]
+                return records
+
+            def _update_status(self, new_status):
+                """Update idea status in the adapter and in-memory cache."""
+                from orchestrator.pipeline_constants import IdeaFields
+                if self.current_idea:
+                    self.airtable.update_idea_status(self.current_idea_id, new_status)
+                    self.current_idea[IdeaFields.STATUS] = new_status
 
         self._pipeline = LightPipeline()
         self._pipeline.airtable = SupabaseAdapter(tenant_id=self.tenant_id)
@@ -1222,6 +1252,16 @@ class PipelineExecutor:
                 self._pipeline.scene_filter = scene
             if index is not None:
                 self._pipeline.image_filter = index
+
+            # For targeted runs, reset matching assets to 'pending' so the image bot picks them up.
+            # Assets may be in 'approved' status (from storyboard approval) with no image_url.
+            if scene is not None:
+                reset_sql = "UPDATE assets SET status = 'pending' WHERE video_id = $1 AND scene = $2 AND image_url IS NULL"
+                reset_params = [video_id, scene]
+                if index is not None:
+                    reset_sql += " AND image_index = $3"
+                    reset_params.append(index)
+                await execute(reset_sql, *reset_params)
 
             result = await self._pipeline.run_image_bot()
 

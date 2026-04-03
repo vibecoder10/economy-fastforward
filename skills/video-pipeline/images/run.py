@@ -226,6 +226,10 @@ async def _generate_images(pipeline) -> dict:
     pipeline.slack.notify(status_msg)
 
     # === RETRY PHASE ===
+    # Skip retries on targeted runs — only the targeted image should be generated
+    if pipeline._is_targeted_run:
+        return {"image_count": image_count, "failed_count": failed_count}
+
     max_retries = 3
     for retry_round in range(max_retries):
         all_images = pipeline.airtable.get_all_images_for_video(pipeline.video_title)

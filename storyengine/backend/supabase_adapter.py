@@ -292,6 +292,9 @@ def _row_to_image(row: dict) -> dict:
                 result[airtable_name] = [{"url": val}]
             elif col == "sound_effect_url" and val:
                 result[airtable_name] = [{"url": val}]
+            elif col == "status" and val:
+                # Capitalize to match Airtable conventions (pending->Pending, done->Done)
+                result[airtable_name] = val.capitalize()
             else:
                 result[airtable_name] = val
     return result
