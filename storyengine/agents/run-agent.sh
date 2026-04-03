@@ -138,15 +138,20 @@ except: print(0)
   [ "$_PRD_PENDING" -gt 0 ] && HAS_PRD_WORK="true"
 fi
 
-# Check for UNREAD handoffs addressed to this agent
+# Check for recent handoffs addressed to this agent (unread OR recent operator directives)
 HAS_HANDOFFS="false"
 HANDOFFS_FILE="$PROJECT_ROOT/rubric/scaffold/data/handoffs.json"
 if [ -f "$HANDOFFS_FILE" ]; then
   _HANDOFF_COUNT=$(python3 -c "
-import json
+import json, time
 try:
     h = json.load(open('$HANDOFFS_FILE'))
-    recent = [x for x in h[-10:] if x.get('to') == '$AGENT' and not x.get('read', False) and '$AGENT' not in x.get('read_by', [])]
+    now = time.time() * 1000
+    # Count: unread handoffs OR recent operator directives (last 2h)
+    recent = [x for x in h[-10:] if x.get('to') == '$AGENT' and (
+        (not x.get('read', False)) or
+        (x.get('from') == 'operator' and (now - x.get('timestamp', 0)) < 7200000)
+    )]
     print(len(recent))
 except: print(0)
 " 2>/dev/null || echo "0")
@@ -312,14 +317,30 @@ if [ -f "$MEMORY_FILE" ]; then
   MEMORY=$(cat "$MEMORY_FILE")
 fi
 
-# Handoffs
-HANDOFF_NOTES=""
+# Handoffs — split into OPERATOR (highest priority) and AGENT (collaboration)
+OPERATOR_HANDOFFS=""
+AGENT_HANDOFFS=""
 if [ -f "$PROJECT_ROOT/rubric/scaffold/data/handoffs.json" ]; then
-  HANDOFF_NOTES=$(python3 -c "
-import json
+  OPERATOR_HANDOFFS=$(python3 -c "
+import json, time
 try:
     h = json.load(open('$PROJECT_ROOT/rubric/scaffold/data/handoffs.json'))
-    mine = [x for x in h if x.get('to') == '$AGENT' and not x.get('read')]
+    now = time.time() * 1000
+    # Show recent operator handoffs (last 2 hours) even if marked read by watcher
+    mine = [x for x in h if x.get('to') == '$AGENT' and x.get('from') == 'operator' and (now - x.get('timestamp', 0)) < 7200000]
+    for m in mine[-3:]:
+        print('### OPERATOR DIRECTIVE')
+        print(m.get('message',''))
+        print()
+except: pass
+" 2>/dev/null || echo "")
+
+  AGENT_HANDOFFS=$(python3 -c "
+import json, time
+try:
+    h = json.load(open('$PROJECT_ROOT/rubric/scaffold/data/handoffs.json'))
+    now = time.time() * 1000
+    mine = [x for x in h if x.get('to') == '$AGENT' and x.get('from','') != 'operator' and (now - x.get('timestamp', 0)) < 7200000]
     for m in mine[-3:]:
         print('### From ' + m.get('from','?') + ' (task ' + m.get('task_id','') + ')')
         print(m.get('message',''))
@@ -438,11 +459,23 @@ fi
 
 PROMPT="You are running as the $AGENT agent for StoryEngine."
 
-# User errors go FIRST — highest priority
+# Operator handoffs go FIRST — direct orders from the human
+if [ -n "$OPERATOR_HANDOFFS" ]; then
+  PROMPT="$PROMPT
+
+## 🔴 OPERATOR HANDOFF — DO THIS FIRST (before ANYTHING else)
+The operator sent these directives via Telegram. This is the HIGHEST priority. Drop everything else and work on this.
+
+$OPERATOR_HANDOFFS
+
+Only after completing the operator's request, continue with other work below."
+fi
+
+# User errors go second — highest auto-detected priority
 if [ -n "$USER_ERRORS" ]; then
   PROMPT="$PROMPT
 
-## 🚨 LIVE USER ERRORS — FIX THESE FIRST (before any task queue or PRD work)
+## 🚨 LIVE USER ERRORS — FIX THESE NEXT (before any task queue or PRD work)
 The operator just clicked through the website and hit these errors. These are REAL bugs the user is experiencing RIGHT NOW. Fix them before doing anything else.
 
 $USER_ERRORS
@@ -477,11 +510,11 @@ if [ -n "$MEMORY" ]; then
 $MEMORY"
 fi
 
-if [ -n "$HANDOFF_NOTES" ]; then
+if [ -n "$AGENT_HANDOFFS" ]; then
   PROMPT="$PROMPT
 
 ## Handoff Notes (from other agents)
-$HANDOFF_NOTES"
+$AGENT_HANDOFFS"
 fi
 
 if [ -n "$PRD_SECTION" ]; then
