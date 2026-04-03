@@ -558,7 +558,7 @@
             "frontend/src/components/production/RenderTab.tsx"
           ],
           "depends_on": "T8-001",
-          "error_note": "PARTIAL: render trigger + task poller + scene timeline ARE built (RenderTab.tsx 315 lines). MISSING: output display for final_video_url. See BUG-T8-FINAL-URL (backend) + BUG-T8-OUTPUT-DISPLAY (frontend)."
+          "error_note": "COMPLETE: render trigger + task poller + scene timeline + output display all built. BUG-T8-FINAL-URL (backend) and BUG-T8-OUTPUT-DISPLAY (frontend) both resolved."
         },
         {
           "id": "T8-003",
@@ -594,9 +594,12 @@
           "id": "BUG-T8-OUTPUT-DISPLAY",
           "title": "BUG: RenderTab missing output section — no way to view/download rendered MP4",
           "role": "frontend",
-          "status": "pending",
+          "status": "done",
           "depends_on": "BUG-T8-FINAL-URL",
-          "description": "Pipeline Tester found: RenderTab (RenderTab.tsx) shows a video preview area that only displays youtube_url (post-upload) or a render loading spinner. After rendering completes, there is NO display of the rendered video file (final_video_url). The user has no way to see or download the rendered MP4 before uploading to YouTube. Fix (after BUG-T8-FINAL-URL adds final_video_url to VideoDetail): (1) Add a conditional section in RenderTab: when video.final_video_url exists AND render is not active, show the rendered video with a <video> element or <a download> link. (2) Show status: 'Render complete' badge with timestamp. (3) Add 'Download MP4' link pointing to final_video_url.",
+          "started_at": "2026-04-03T21:02:00Z",
+          "assigned_to": "frontend-dev",
+          "completed_at": "2026-04-03T21:06:00Z",
+          "description": "Added rendered video output display to RenderTab. When final_video_url exists: (1) HTML5 video player replaces empty state in preview area, (2) 'Render Complete' badge with green checkmark, (3) 'Download MP4' link. Priority: final_video_url > youtube_url > spinner > empty state.",
           "files": [
             "frontend/src/components/production/RenderTab.tsx"
           ]

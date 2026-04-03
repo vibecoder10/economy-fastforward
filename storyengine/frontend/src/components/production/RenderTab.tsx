@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { Image as ImageIcon, Video, Mic, Volume2, Loader2, Play } from "lucide-react";
+import { Image as ImageIcon, Video, Mic, Volume2, Loader2, Play, Download, CheckCircle2 } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { ProgressRing } from "@/components/ui/ProgressRing";
@@ -124,7 +124,14 @@ export function RenderTab({ video }: RenderTabProps) {
             className="aspect-video relative flex items-center justify-center"
             style={{ background: "var(--bg-elevated)" }}
           >
-            {video.youtube_url && !renderActive ? (
+            {video.final_video_url && !renderActive ? (
+              <video
+                src={video.final_video_url}
+                controls
+                className="absolute inset-0 w-full h-full object-contain"
+                style={{ background: "black" }}
+              />
+            ) : video.youtube_url && !renderActive ? (
               <div className="absolute inset-0 flex items-center justify-center">
                 <button
                   className="w-16 h-16 rounded-full flex items-center justify-center transition-transform hover:scale-110"
@@ -152,6 +159,35 @@ export function RenderTab({ video }: RenderTabProps) {
             )}
           </div>
         </GlassCard>
+
+        {/* Render output */}
+        {video.final_video_url && !renderActive && (
+          <GlassCard className="p-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 size={16} style={{ color: "var(--green)" }} />
+                <span className="text-xs font-semibold" style={{ color: "var(--green)" }}>
+                  Render Complete
+                </span>
+              </div>
+              <a
+                href={video.final_video_url}
+                download
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg transition-opacity hover:opacity-80"
+                style={{
+                  color: "var(--turquoise)",
+                  background: "rgba(0, 212, 170, 0.1)",
+                  border: "1px solid rgba(0, 212, 170, 0.25)",
+                }}
+              >
+                <Download size={13} />
+                Download MP4
+              </a>
+            </div>
+          </GlassCard>
+        )}
 
         {/* Scene timeline */}
         <GlassCard className="p-4">
