@@ -1,7 +1,7 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
-import { exec, execSync } from 'node:child_process';
+import { exec, execSync, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -1110,21 +1110,32 @@ RULES:
 - Testing is NOT optional — QA and Pipeline Tester tasks are required in every PRD.
 - Output ONLY the PRD markdown. No commentary before or after.`;
     fs.writeFileSync(promptFile, prompt);
-    exec(`${CLAUDE_BIN} -p --model opus --output-format text < "${promptFile}"`,
-      { encoding: 'utf8', timeout: 180000, maxBuffer: 2 * 1024 * 1024, env: { ...process.env, HOME: process.env.HOME || '/home/clawd', PATH: `${process.env.PATH}:/home/clawd/.npm-global/bin` } },
-      (err, stdout, stderr) => {
-        try { fs.unlinkSync(promptFile); } catch {}
-        if (err) {
-          const detail = `exit=${err.code} signal=${err.signal} stderr=[${(stderr||'').substring(0,200)}] stdout=[${(stdout||'').substring(0,200)}]`;
-          console.error('generate-prd failed:', detail);
-          fs.writeFileSync(resultFile, JSON.stringify({ status: 'error', error: detail }));
-        } else if (stdout && stdout.includes('Usage Policy')) {
-          console.error('generate-prd policy block:', stdout.substring(0, 200));
-          fs.writeFileSync(resultFile, JSON.stringify({ status: 'error', error: 'Claude flagged content policy. Try rephrasing your notes.' }));
-        } else {
-          fs.writeFileSync(resultFile, JSON.stringify({ status: 'done', prd: stdout.trim() }));
-        }
-      });
+    // Use spawn (not exec) — exec kills long-running Claude CLI with SIGTERM
+    const child = spawn(CLAUDE_BIN, ['-p', '--model', 'opus', '--output-format', 'text'], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env: { ...process.env, HOME: process.env.HOME || '/home/clawd', PATH: `${process.env.PATH}:/home/clawd/.npm-global/bin` }
+    });
+    // Pipe the prompt file content to stdin
+    const promptContent = fs.readFileSync(promptFile, 'utf8');
+    child.stdin.write(promptContent);
+    child.stdin.end();
+    try { fs.unlinkSync(promptFile); } catch {}
+    let stdout = '', stderr = '';
+    child.stdout.on('data', (d) => { stdout += d.toString(); });
+    child.stderr.on('data', (d) => { stderr += d.toString(); });
+    child.on('close', (code) => {
+      if (code !== 0) {
+        console.error('generate-prd failed: exit=' + code, stderr.substring(0, 300));
+        fs.writeFileSync(resultFile, JSON.stringify({ status: 'error', error: `Claude exited ${code}: ${(stderr || stdout).substring(0, 300)}` }));
+      } else if (stdout.includes('Usage Policy')) {
+        fs.writeFileSync(resultFile, JSON.stringify({ status: 'error', error: 'Claude flagged content policy. Try rephrasing.' }));
+      } else {
+        fs.writeFileSync(resultFile, JSON.stringify({ status: 'done', prd: stdout.trim() }));
+      }
+    });
+    child.on('error', (e) => {
+      fs.writeFileSync(resultFile, JSON.stringify({ status: 'error', error: e.message }));
+    });
     sendJSON(res, { taskId });
     return;
   }
