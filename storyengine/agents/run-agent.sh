@@ -138,7 +138,7 @@ except: print(0)
   [ "$_PRD_PENDING" -gt 0 ] && HAS_PRD_WORK="true"
 fi
 
-# Check for handoffs addressed to this agent
+# Check for UNREAD handoffs addressed to this agent
 HAS_HANDOFFS="false"
 HANDOFFS_FILE="$PROJECT_ROOT/rubric/scaffold/data/handoffs.json"
 if [ -f "$HANDOFFS_FILE" ]; then
@@ -146,7 +146,7 @@ if [ -f "$HANDOFFS_FILE" ]; then
 import json
 try:
     h = json.load(open('$HANDOFFS_FILE'))
-    recent = [x for x in h[-10:] if x.get('to') == '$AGENT']
+    recent = [x for x in h[-10:] if x.get('to') == '$AGENT' and not x.get('read', False) and '$AGENT' not in x.get('read_by', [])]
     print(len(recent))
 except: print(0)
 " 2>/dev/null || echo "0")

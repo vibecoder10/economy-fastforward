@@ -39,6 +39,8 @@ except: print('true')
   fi
 fi
 
+RUBRIC_URL="${RUBRIC_URL:-http://localhost:5050}"
+
 spawn_agent() {
   local AGENT="$1"
   local REASON="$2"
@@ -46,6 +48,10 @@ spawn_agent() {
     return  # already running
   fi
   echo "[watcher] Spawning $AGENT — $REASON"
+  # Post to activity feed so user sees it immediately
+  curl -s -X POST "$RUBRIC_URL/api/activity-log" \
+    -H "Content-Type: application/json" \
+    -d "{\"agent\":\"$AGENT\",\"status\":\"starting\",\"task\":\"$REASON\"}" 2>/dev/null || true
   cd "$AGENTS_DIR" && CLAUDE_BIN="$CLAUDE_BIN" nohup bash run-agent.sh "$AGENT" > "/tmp/prd-$AGENT.log" 2>&1 &
 }
 
@@ -131,31 +137,37 @@ fi
 
 # ─── Job 3: Unaddressed handoffs → spawn receiving agent ───────────────────
 HANDOFFS_FILE="$PROJECT_ROOT/rubric/scaffold/data/handoffs.json"
-HANDOFF_TRACK="/tmp/prd-watcher-handoffs-seen.txt"
 if [ -f "$HANDOFFS_FILE" ]; then
-  touch "$HANDOFF_TRACK"
   HANDOFF_AGENTS=$(python3 -c "
 import json
 try:
     handoffs = json.load(open('$HANDOFFS_FILE'))
-    seen = set(open('$HANDOFF_TRACK').read().strip().split('\n')) if open('$HANDOFF_TRACK').read().strip() else set()
     for h in handoffs[-10:]:
         to_agent = h.get('to', '')
-        msg = h.get('message', '')
-        key = to_agent + '|' + msg[:50]
-        if key in seen or not to_agent: continue
-        # Only spawn for recent handoffs (from operator or other agents)
-        print(to_agent + '|' + key)
+        hid = h.get('id', '')
+        read_by = h.get('read_by', [])
+        is_read = h.get('read', False)
+        if not to_agent or is_read: continue
+        if 'watcher' in read_by: continue
+        from_agent = h.get('from', 'unknown')
+        print(to_agent + '|' + hid + '|' + from_agent)
 except: pass
 " 2>/dev/null || true)
 
   if [ -n "$HANDOFF_AGENTS" ]; then
     while IFS= read -r line; do
       AGENT=$(echo "$line" | cut -d'|' -f1)
-      KEY=$(echo "$line" | cut -d'|' -f2-)
-      echo "$KEY" >> "$HANDOFF_TRACK"
-      spawn_agent "$AGENT" "unaddressed handoff from operator"
+      HID=$(echo "$line" | cut -d'|' -f2)
+      FROM=$(echo "$line" | cut -d'|' -f3)
+      # Mark handoff as read by watcher so we don't re-spawn
+      curl -s -X POST "$RUBRIC_URL/api/handoffs/$HID/read" \
+        -H "Content-Type: application/json" \
+        -d '{"agent":"watcher"}' 2>/dev/null || true
+      # Log to activity feed so user sees it immediately
+      curl -s -X POST "$RUBRIC_URL/api/activity-log" \
+        -H "Content-Type: application/json" \
+        -d "{\"agent\":\"$AGENT\",\"status\":\"starting\",\"task\":\"Spawning for handoff from $FROM\"}" 2>/dev/null || true
+      spawn_agent "$AGENT" "unaddressed handoff from $FROM"
     done <<< "$HANDOFF_AGENTS"
   fi
-  tail -100 "$HANDOFF_TRACK" > "$HANDOFF_TRACK.tmp" 2>/dev/null && mv "$HANDOFF_TRACK.tmp" "$HANDOFF_TRACK" || true
 fi

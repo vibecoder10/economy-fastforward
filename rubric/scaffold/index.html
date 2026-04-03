@@ -947,7 +947,7 @@ window.__onTabShow = {};
     setInterval(pollAgentStatus, 10000);
 
     loadActivityFeed();
-    setInterval(loadActivityFeed, 30000);
+    setInterval(loadActivityFeed, 8000);
     document.getElementById('activity-refresh-btn')?.addEventListener('click', () => { loadActivityFeed(); loadHandoffs(); loadTaskProgress(); });
 
     loadPullRequests();
@@ -959,7 +959,7 @@ window.__onTabShow = {};
     loadControls();
     setInterval(loadControls, 10000);
     loadHandoffs();
-    setInterval(loadHandoffs, 30000);
+    setInterval(loadHandoffs, 8000);
     loadFeedback();
     setInterval(loadFeedback, 30000);
     loadRetro();
