@@ -1,6 +1,7 @@
 """Dashboard summary and calendar endpoints."""
 
 from collections import defaultdict
+from datetime import date as date_type
 from fastapi import APIRouter, Depends, Query
 from auth import get_tenant_id
 from models import DashboardSummary, VideoSummary, PIPELINE_STAGES
@@ -156,7 +157,7 @@ async def get_calendar(
            WHERE tenant_id = $1
              AND DATE(COALESCE(upload_date, created_at)) BETWEEN $2::date AND $3::date
            ORDER BY COALESCE(upload_date, created_at)""",
-        tenant_id, start, end,
+        tenant_id, date_type.fromisoformat(start), date_type.fromisoformat(end),
     )
     grouped: dict[str, list[dict]] = defaultdict(list)
     for r in rows:
