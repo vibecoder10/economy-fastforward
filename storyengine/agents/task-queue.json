@@ -895,7 +895,11 @@
           "description": "GET /api/niche/scrape/status returns error string and per-channel details. Currently only a banner shows. Add a collapsible error log showing which channels failed and why.",
           "files": [
             "frontend/src/app/competitors/page.tsx"
-          ]
+          ],
+          "verified": true,
+          "verified_at": "2026-04-03T05:15:00Z",
+          "verified_by": "qa-engineer",
+          "verification_notes": "PASS (verified via T10-005). ScrapeErrorLog component at competitors/page.tsx:42-80. Collapsible banner shows when scrapeStatus?.error is truthy. AlertTriangle icon + error text + ChevronDown expand + per-line AnimatePresence detail. Correctly hidden when no error in current DB state."
         },
         {
           "id": "T10-005",
@@ -1292,7 +1296,11 @@
             "frontend/src/app/autopilot/page.tsx"
           ],
           "completed_at": "2026-04-03T06:00:00Z",
-          "error_note": "Superseded by T13-008 (same feature, with correct depends_on BUG-T13-002-BACKEND which is now fixed)"
+          "error_note": "Superseded by T13-008 (same feature, with correct depends_on BUG-T13-002-BACKEND which is now fixed)",
+          "verified": true,
+          "verified_at": "2026-04-03T06:00:00Z",
+          "verified_by": "orchestrator",
+          "verification_notes": "PASS \u2014 superseded by T13-008 which implemented the same feature and was verified. No independent verification needed."
         },
         {
           "id": "T13-003",
@@ -1822,7 +1830,11 @@
           "description": "The /review page is fully built (approve/reject scripts, storyboards, thumbnails, images) but NOT in the sidebar nav or mobile bottom tabs. Add { href: '/review', icon: CheckSquare, label: 'Review' } to navItems in sidebar.tsx between Videos and Autopilot. Import CheckSquare from lucide-react.",
           "files": [
             "frontend/src/components/nav/sidebar.tsx"
-          ]
+          ],
+          "verified": true,
+          "verified_at": "2026-04-03T05:30:00Z",
+          "verified_by": "pipeline-tester",
+          "verification_notes": "PASS (verified via T18-003). sidebar.tsx line 32: { href: /review, icon: CheckSquare, label: Review } present. bottom-tabs.tsx Review tab in primaryTabs. CheckSquare imported line 20."
         },
         {
           "id": "T18-002",
@@ -1837,7 +1849,11 @@
           "files": [
             "frontend/src/components/nav/sidebar.tsx",
             "frontend/src/lib/api.ts"
-          ]
+          ],
+          "verified": true,
+          "verified_at": "2026-04-03T05:30:00Z",
+          "verified_by": "pipeline-tester",
+          "verification_notes": "PASS (verified via T18-003). sidebar.tsx: getPendingReview query at line 53 with refetchInterval:30000, pendingCount from pending items, showBadge when count > 0, capped at 9+ (line 119)."
         },
         {
           "id": "T18-003",
