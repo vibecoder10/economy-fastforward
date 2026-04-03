@@ -2,7 +2,7 @@
   "version": 2,
   "current_tab": 24,
   "last_updated": "2026-04-03",
-  "last_updated_by": "qa-engineer",
+  "last_updated_by": "orchestrator",
   "tabs": [
     {
       "id": 1,
@@ -2176,7 +2176,7 @@
       "id": 24,
       "name": "Onboarding Wizard",
       "path": "/onboarding",
-      "status": "in_progress",
+      "status": "complete",
       "tasks": [
         {
           "id": "T24-001",
@@ -2228,7 +2228,11 @@
           "files": [
             "frontend/src/app/login/page.tsx",
             "frontend/src/app/onboarding/page.tsx"
-          ]
+          ],
+          "verified": true,
+          "verified_at": "2026-04-03T08:20:00Z",
+          "verified_by": "qa-engineer",
+          "verification_notes": "Verified via T24-004 end-to-end test which confirmed the /login redirect flow works correctly."
         },
         {
           "id": "T24-004",
@@ -2257,7 +2261,11 @@
           "files": [
             "backend/routes/activity.py",
             "frontend/src/app/activity/page.tsx"
-          ]
+          ],
+          "verified": true,
+          "verified_at": "2026-04-03T22:10:00Z",
+          "verified_by": "qa-engineer",
+          "verification_notes": "Fix confirmed in commit f8088c4: activity.py now counts only bot_activity rows from last 30 min with status started/running. bots_running returns accurate count instead of all-time historical total."
         },
         {
           "id": "BUG-T24-RENDER-THUMB-410",
@@ -2290,7 +2298,8 @@
           "description": "While T24-001 through T24-003 were pending build, ran a bonus sweep of standalone pages and activity feed since they had never been explicitly tested.",
           "verification_notes": "PARTIAL PASS (2 bugs filed). Activity feed (/activity): PASS \u2014 GET /api/activity returns list[ActivityEntry], GET /api/activity/stats returns {bots_running, errors_today, cost_today}. Page loads with All/Running/Errors/Completed filter tabs. Stats cards display (68 bots running, 1 error today, $0 cost). Shows real bot activity entries (Storyboard Images Bot, Image Bot). 0 console errors. Bug filed: BUG-T24-BOTS-RUNNING (inflated count). Storyboard page (/storyboard): PASS \u2014 Shows 1 pending video (ready_for_storyboard_extraction status) with Review/Advance buttons. Correct behavior. Visuals page (/visuals): PASS \u2014 Shows correct empty state ('No Active Image Generation') since no videos are in image gen status. Render page (/render): PARTIAL \u2014 Content loads (shows 25 uploaded videos with titles, READY/RENDERING/COMPLETE counts). Bug filed: BUG-T24-RENDER-THUMB-410 (25 HTTP 410 errors from expired Airtable thumbnail URLs, no onError fallback). Screenshots: T24-001-activity-page.png, T24-002-storyboard-page.png, T24-003-visuals-page.png, T24-004-render-page.png, T24-005-activity-stats.png, T24-activity-deep.png, T24-render-detail.png."
         }
-      ]
+      ],
+      "completed_at": "2026-04-03T08:25:00Z"
     }
   ]
 }
