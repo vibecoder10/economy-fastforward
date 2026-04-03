@@ -487,6 +487,38 @@ ${PROP_TITLE}
 _Reply /approve ${PROP_ID} or /reject ${PROP_ID}_"
 fi
 
+# ─── PRD: Auto-Spawn Unblocked Agents ──────────────────────────────────────
+# After completing PRD work, check if other roles became unblocked and spawn them
+if [ -f "$PROJECT_ROOT/agents/prd.json" ]; then
+  python3 -c "
+import json, subprocess, os
+try:
+    prd = json.load(open('$PROJECT_ROOT/agents/prd.json'))
+    tasks = prd.get('tasks', [])
+    done_ids = {t['id'] for t in tasks if t.get('status') in ('done', 'verified')}
+    role_to_agent = {'backend': 'backend-dev', 'frontend': 'frontend-dev', 'qa': 'qa-engineer', 'pipeline-tester': 'pipeline-tester'}
+    spawned = set()
+    for t in tasks:
+        if t.get('status') != 'pending': continue
+        deps = set(t.get('depends_on', []))
+        if deps and not deps.issubset(done_ids): continue
+        role = t.get('role', '')
+        agent = role_to_agent.get(role, '')
+        if agent and agent != '$AGENT' and agent not in spawned:
+            spawned.add(agent)
+            print(f'Spawning {agent} (unblocked)')
+            subprocess.Popen(
+                ['bash', 'run-agent.sh', agent],
+                cwd='$AGENTS_DIR',
+                env={**os.environ, 'CLAUDE_BIN': '$CLAUDE_BIN'},
+                stdout=open(f'/tmp/prd-{agent}.log', 'w'),
+                stderr=subprocess.STDOUT
+            )
+except Exception as e:
+    print(f'Auto-spawn check failed: {e}')
+" 2>/dev/null || true
+fi
+
 # ─── Report Idle ────────────────────────────────────────────────────────────
 curl -s -X POST "$RUBRIC_URL/api/agent-status" \
   -H "Content-Type: application/json" \

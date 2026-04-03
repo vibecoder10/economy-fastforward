@@ -1010,7 +1010,7 @@ const server = http.createServer(async (req, res) => {
         controls.focus = `PRD deployed: ${title}. Execute all PRD tasks from agents/prd.json.`;
         fs.writeFileSync(controlsFile, JSON.stringify(controls, null, 2));
         // Spawn unified agents (run-agent.sh) — they auto-detect PRD and work on it
-        const roleToAgent = { backend: 'backend-dev', frontend: 'frontend-dev', qa: 'qa-engineer', security: 'orchestrator' };
+        const roleToAgent = { backend: 'backend-dev', frontend: 'frontend-dev', qa: 'qa-engineer', 'pipeline-tester': 'pipeline-tester' };
         const roles = [...new Set((prd.tasks || []).map(t => t.role).filter(Boolean))];
         for (const role of roles) {
           const agent = roleToAgent[role] || role;
@@ -1091,13 +1091,16 @@ ${body.content}
 [Numbered list of machine-verifiable criteria. Each MUST be testable with: curl, tsc --noEmit, Playwright, test -f, or psql]
 
 ## Execution Order
-[Which tasks must happen first (bottom-up: database → backend → frontend → QA → security)]
+[Which tasks must happen first (bottom-up: database → backend → frontend → QA)]
 
 ## Agent Assignments
-- **Backend**: [what backend builds]
-- **Frontend**: [what frontend builds]
-- **QA**: [what QA verifies — must include Playwright browser testing of every page and button]
-- **Security**: [what security audits]
+IMPORTANT: You may ONLY assign tasks to these 4 roles. No other roles exist:
+- **backend** (role: "backend"): Python/FastAPI, database migrations, API endpoints
+- **frontend** (role: "frontend"): React/Next.js, TypeScript, UI components, pages
+- **qa** (role: "qa"): Playwright browser testing, acceptance criteria verification, bug filing
+- **pipeline-tester** (role: "pipeline-tester"): Opens every page, clicks every button, finds bugs
+
+Do NOT create tasks for "security", "lead", "devops", or any other role. Security checks should be part of the QA agent's verification tasks.
 
 ## Testing Strategy
 The Pipeline Tester and QA agents MUST:
@@ -1105,13 +1108,15 @@ The Pipeline Tester and QA agents MUST:
 - Click every button and verify the result
 - Check for console errors on every page
 - File specific bug reports with reproduction steps for any failures
+- Include security checks: auth validation, input sanitization, no data leaks
 
 RULES:
 - Be SPECIFIC and CONCRETE. Vague requirements create vague implementations.
 - Every acceptance criterion must be a shell command that exits 0 on success.
 - Think about error states, empty states, loading states, and edge cases.
-- Include security considerations (input validation, auth checks, CSRF).
+- Security checks go in QA tasks, NOT a separate security role.
 - Testing is NOT optional — QA and Pipeline Tester tasks are required in every PRD.
+- The "role" field in tasks MUST be one of: "backend", "frontend", "qa", "pipeline-tester".
 - Output ONLY the PRD markdown. No commentary before or after.`;
     fs.writeFileSync(promptFile, prompt);
     // Run wrapper script in background — handles Claude CLI + writes result JSON
