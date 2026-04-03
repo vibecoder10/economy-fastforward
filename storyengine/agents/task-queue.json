@@ -2633,6 +2633,32 @@
           "verified_by": "orchestrator",
           "description": "User reported 404 on /api/profile and /api/analytics endpoints. Investigated: routes exist and return 200 with valid JWT. Root cause: stale Rubric log errors from before routes were deployed, or expired token causing 401 which now redirects to /login via fetchApi fix.",
           "verification_notes": "Routes verified working. fetchApi now redirects to /login on 401 to prevent repeated auth errors flooding Rubric log. SEC-2 fix applied simultaneously."
+        },
+        {
+          "id": "BUG-PT-MOBILE-OVERFLOW",
+          "title": "BUG (low): Mobile viewport horizontal overflow on /dashboard and /pipeline",
+          "role": "frontend",
+          "status": "pending",
+          "priority": "low",
+          "description": "Pipeline Tester found (2026-04-04): Mobile viewport (375x812) has horizontal overflow. Dashboard body scroll width is 428px (53px overflow), Pipeline is 477px (102px overflow). Content is wider than viewport causing horizontal scroll. Bottom tabs render correctly. Not blocking \u2014 cosmetic only. Fix: check for min-width constraints or fixed-width elements that exceed 375px. Look at stat card grid and pipeline filter bar.",
+          "files": [
+            "frontend/src/app/dashboard/page.tsx",
+            "frontend/src/app/pipeline/page.tsx"
+          ]
+        },
+        {
+          "id": "REG6-SWEEP",
+          "title": "REGRESSION SWEEP: Full pass \u2014 30/30 API, 14/14 pages, 3/3 security, tsc clean",
+          "role": "qa",
+          "status": "done",
+          "verified": true,
+          "verified_at": "2026-04-04T01:00:00Z",
+          "verified_by": "pipeline-tester",
+          "started_at": "2026-04-04T00:35:00Z",
+          "completed_at": "2026-04-04T01:00:00Z",
+          "assigned_to": "pipeline-tester",
+          "description": "Full regression sweep after security hardening (SEC-1 through SEC-8). Results: 30/30 API endpoints return correct status codes. 14/14 frontend pages load without errors. 3/3 security tests pass (dev-token rejected on profile, audio, and unauthenticated). TypeScript 0 errors. 5 user-reported errors all confirmed resolved. Mobile: minor horizontal overflow (low priority, filed separately).",
+          "verification_notes": "API: all 23 endpoints return 200 with valid JWT. Video detail: all fields present including final_video_url, script_validation, suggested_thumbnail_*. Security: dev-token returns 401, no auth returns 403. SEC-3 reveal is POST-only (GET returns 405). SEC-4 zero hardcoded IPs. SEC-8 isStripeUrl() validates redirect URLs. Frontend: all pages render content, 0 console errors, sidebar nav complete. tsc --noEmit: 0 errors."
         }
       ]
     }
