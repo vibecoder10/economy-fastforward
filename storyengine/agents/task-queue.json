@@ -2551,13 +2551,15 @@
           "id": "SEC-8",
           "title": "MEDIUM: Unvalidated redirects to Stripe URLs",
           "role": "frontend",
-          "status": "pending",
+          "status": "done",
           "priority": "medium",
-          "description": "settings.tsx:406,457 \u2014 window.location.href set directly to backend-provided portal_url and checkout_url. If backend is compromised, could redirect to phishing. Fix: validate URL starts with 'https://checkout.stripe.com' or 'https://billing.stripe.com' before redirect.",
+          "description": "Added isStripeUrl() validator that checks URLs start with https://checkout.stripe.com or https://billing.stripe.com before redirecting. Both portal_url and checkout_url redirects now validated. Invalid URLs show alert and abort redirect.",
           "files": [
             "frontend/src/app/settings/page.tsx"
           ],
-          "assigned_to": "frontend-dev"
+          "assigned_to": "frontend-dev",
+          "started_at": "2026-04-03T19:02:00Z",
+          "completed_at": "2026-04-03T19:06:00Z"
         },
         {
           "id": "SEC-1-QA",

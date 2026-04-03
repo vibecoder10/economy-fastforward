@@ -18,6 +18,15 @@ import {
   type ProjectUpdate,
 } from "@/lib/api";
 
+const TRUSTED_STRIPE_DOMAINS = [
+  "https://checkout.stripe.com",
+  "https://billing.stripe.com",
+];
+
+function isStripeUrl(url: string): boolean {
+  return TRUSTED_STRIPE_DOMAINS.some((domain) => url.startsWith(domain));
+}
+
 const container = {
   hidden: { opacity: 0 },
   show: { opacity: 1, transition: { staggerChildren: 0.1 } },
@@ -403,6 +412,11 @@ export default function SettingsPage() {
                     setPortalLoading(true);
                     try {
                       const res = await createBillingPortal();
+                      if (!isStripeUrl(res.portal_url)) {
+                        alert("Invalid billing portal URL. Please contact support.");
+                        setPortalLoading(false);
+                        return;
+                      }
                       window.location.href = res.portal_url;
                     } catch { setPortalLoading(false); }
                   }}
@@ -454,6 +468,11 @@ export default function SettingsPage() {
                       setCheckoutLoading(plan.key);
                       try {
                         const res = await createCheckout(plan.key);
+                        if (!isStripeUrl(res.checkout_url)) {
+                          alert("Invalid checkout URL. Please contact support.");
+                          setCheckoutLoading(null);
+                          return;
+                        }
                         window.location.href = res.checkout_url;
                       } catch { setCheckoutLoading(null); }
                     }}
