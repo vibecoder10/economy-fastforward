@@ -2,7 +2,7 @@
   "version": 2,
   "current_tab": 13,
   "last_updated": "2026-04-03",
-  "last_updated_by": "backend-dev",
+  "last_updated_by": "frontend-dev",
   "tabs": [
     {
       "id": 1,
@@ -967,6 +967,17 @@
           "completed_at": "2026-04-03T17:06:00Z",
           "assigned_to": "frontend-dev",
           "description": "Added production cycle status line below header showing 'Last cycle: Xh ago' via timeAgo() and 'Next production: in N days' with turquoise highlight. Also shows next_production_date formatted as 'Mon DD'. Only renders when data exists.",
+          "files": [
+            "frontend/src/app/autopilot/page.tsx"
+          ]
+        },
+        {
+          "id": "T13-010",
+          "title": "QA verify last_cycle and next production countdown display",
+          "role": "qa",
+          "status": "pending",
+          "depends_on": "T13-001",
+          "description": "Verify T13-001 implementation: (1) Autopilot page shows 'Last cycle: Xh ago' text using timeAgo() when last_cycle is present in API response. (2) 'Next production: in N days' line renders with turquoise highlight when days_until_next is present. (3) next_production_date displays as formatted date (e.g. 'Mon DD'). (4) Section does NOT render when data is absent (null/undefined guard). (5) Values come from GET /api/autopilot/summary — curl to verify last_cycle and days_until_next fields are returned. (6) tsc --noEmit passes clean. (7) No console errors.",
           "files": [
             "frontend/src/app/autopilot/page.tsx"
           ]
