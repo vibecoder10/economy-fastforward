@@ -399,10 +399,6 @@
     </div>
   </div>
   <div class="agent-status-panel" id="agent-status-panel"></div>
-  <div id="task-progress" style="padding:8px 12px;border-bottom:1px solid var(--border);margin-bottom:8px;">
-    <div style="height:4px;background:#1a1a1a;border-radius:2px;overflow:hidden;"><div id="progress-fill" style="height:100%;background:#50e3c2;border-radius:2px;transition:width 0.5s;width:0%;"></div></div>
-    <div id="progress-text" style="font-size:10px;color:#555;margin-top:4px;">Loading...</div>
-  </div>
   <nav class="nav-tabs" id="nav-tabs"></nav>
 </div>
 
@@ -1034,16 +1030,7 @@ window.__onTabShow = {};
       const resp = await fetch('/api/task-queue');
       if (!resp.ok) return;
       const queue = await resp.json();
-      const allTasks = queue.tabs ? queue.tabs.flatMap(t => t.tasks) : [];
-      const done = allTasks.filter(t => t.status === 'done' || t.verified).length;
-      const total = allTasks.length;
-      const currentTab = queue.current_tab || 1;
-      const totalTabs = queue.tabs ? queue.tabs.length : 0;
-      const pct = total > 0 ? Math.round((done / total) * 100) : 0;
-      const fill = document.getElementById('progress-fill');
-      const text = document.getElementById('progress-text');
-      if (fill) fill.style.width = pct + '%';
-      if (text) text.textContent = 'Tab ' + currentTab + '/' + totalTabs + ' \u2014 ' + done + '/' + total + ' tasks (' + pct + '%)';
+      // Sidebar progress removed — Work Board on Command Center shows all tasks now
     } catch {}
   }
 
