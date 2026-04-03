@@ -8,3 +8,4 @@
 - BUG-PT-001: Dev-mode routes that look up by hardcoded UUID will 404 if the seed migration didn't run. Auto-create on first access with ON CONFLICT DO NOTHING.
 - Security audit: EVERY new endpoint must use Depends(get_tenant_id). Never hardcode DEV_TENANT_ID for tenant isolation. Audio proxy endpoints need JWT validation via query token.
 - Security audit: API key reveal endpoints should use POST not GET (prevents URL logging), add rate limiting, and log all access to audit trail.
+- Pipeline Tester caught SEC-2 REGRESSION: videos.py:459 audio endpoint still uses old os.getenv('ENV', 'development') == 'development' check for dev-token. SEC-1 fixed auth.py but audio has its own inline auth. Must update to match: dev_token = os.getenv('DEV_TOKEN'); if dev_token and token == dev_token and os.getenv('DEV_MODE') == 'true'.

@@ -2,7 +2,7 @@
   "version": 2,
   "current_tab": 26,
   "last_updated": "2026-04-03",
-  "last_updated_by": "backend-dev",
+  "last_updated_by": "pipeline-tester",
   "tabs": [
     {
       "id": 1,
@@ -2449,21 +2449,28 @@
           ],
           "assigned_to": "backend-dev",
           "started_at": "2026-04-03T18:06:00Z",
-          "completed_at": "2026-04-03T18:10:00Z"
+          "completed_at": "2026-04-03T18:10:00Z",
+          "verified": true,
+          "verified_at": "2026-04-03T19:10:00Z",
+          "verified_by": "pipeline-tester",
+          "verification_notes": "PASS. auth.py:32-33 requires DEV_TOKEN env var + DEV_MODE=true. Live test: \"dev-token\" returns 401 Invalid token. Random tokens return 401. No auth returns 403."
         },
         {
           "id": "SEC-2",
           "title": "FIXED: Audio endpoint now validates JWT token for tenant isolation",
           "role": "backend",
-          "status": "done",
-          "priority": "high",
-          "description": "videos.py:443 get_scene_audio previously hardcoded DEV_TENANT_ID with no auth. Now validates query token as JWT, extracts tenant_id for proper tenant isolation. Frontend updated to pass correct token from localStorage.",
+          "status": "pending",
+          "priority": "critical",
+          "description": "REGRESSION: videos.py:459 audio endpoint still uses old dev-token backdoor pattern. SEC-1 fixed auth.py verify_token() to require DEV_TOKEN env var + DEV_MODE=true, but the audio endpoint at line 459 has its OWN inline auth that still does: if token == \"dev-token\" and os.getenv(\"ENV\", \"development\") == \"development\". Since ENV defaults to \"development\", any server accepts dev-token for audio streaming. Fix: update videos.py:459 to match the auth.py pattern: dev_token = os.getenv(\"DEV_TOKEN\"); if dev_token and token == dev_token and os.getenv(\"DEV_MODE\") == \"true\".",
           "files": [
             "backend/routes/videos.py",
             "frontend/src/components/production/StoryboardVisualsTab.tsx"
           ],
           "assigned_to": "security-auditor",
-          "completed_at": "2026-04-03T21:00:00Z"
+          "completed_at": "2026-04-03T21:00:00Z",
+          "verified": false,
+          "reopened": true,
+          "reopened_reason": "Pipeline Tester found REGRESSION: videos.py:459 still uses old ENV check (os.getenv(\"ENV\", \"development\") == \"development\") which defaults to accepting dev-token. SEC-1 fixed auth.py but the audio endpoint has its own inline auth logic that was NOT updated. Live test confirmed: ?token=dev-token streams audio without valid JWT."
         },
         {
           "id": "SEC-3",
@@ -2538,6 +2545,19 @@
             "frontend/src/app/settings/page.tsx"
           ],
           "assigned_to": "frontend-dev"
+        },
+        {
+          "id": "SEC-1-QA",
+          "title": "QA PASS: SEC-1 dev-token backdoor properly closed",
+          "role": "qa",
+          "status": "done",
+          "verified": true,
+          "verified_at": "2026-04-03T19:10:00Z",
+          "verified_by": "pipeline-tester",
+          "completed_at": "2026-04-03T19:10:00Z",
+          "assigned_to": "pipeline-tester",
+          "description": "Verified SEC-1 fix in auth.py. Three live tests: (1) dev-token \u2192 401 Invalid token. (2) Random token \u2192 401 Invalid token. (3) No token \u2192 403 Not authenticated. Code confirmed: line 32-33 requires os.getenv('DEV_TOKEN') + os.getenv('DEV_MODE') == 'true' \u2014 no hardcoded defaults.",
+          "verification_notes": "PASS. SEC-1 properly closed in auth.py. BUT found REGRESSION: audio endpoint (videos.py:459) still has old pattern. Filed as SEC-2 reopened."
         }
       ]
     }
