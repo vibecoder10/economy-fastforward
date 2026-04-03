@@ -42,3 +42,4 @@
 - /render page 410 errors: thumbnail_url in DB are Airtable attachment URLs that expire in 2h. <img> tag has no onError fallback — causes 25 console errors. Film icon fallback only shows when thumbnail_url is null, not when URL fails.
 - CSS `uppercase` in progress bars: inner_text() returns "API KEYS"/"READY!" not "API Keys"/"Ready!". Always test with the uppercase version when CSS transforms are used.
 - wait_for_load_state('networkidle') doesn't wait for React client-side redirects. Use wait_for_url(lambda url: 'target' in url) to wait for specific URL conditions after button clicks that trigger router.replace().
+- Graceful image fallback pattern: add `const [thumbError, setThumbError] = useState(false)` + `onError={() => setThumbError(true)}` on <img> — condition renders fallback icon when `url && !thumbError`. Fixes expired URL 410 errors silently.
