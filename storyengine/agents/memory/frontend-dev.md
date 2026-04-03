@@ -8,3 +8,7 @@
 - Analytics has 3 dedicated endpoints (/api/analytics/overview, /ctr-timeline, /framework-performance) — don't use getVideos() for analytics data.
 - Profile page (/profile) is a Visual Style Manager, not a stub — add new sections to it rather than replacing. Account section added at top in T16-002.
 - ScriptTab.tsx is a DEAD COMPONENT — pipeline page imports ScriptVoiceTab.tsx. Always check which component is actually rendered before adding features.
+- Pipeline stage buttons must have frontend status gates matching backend's is_at_or_past_stage() check. Use getStageIndex() from constants.ts to compare. Backend returns 400 without frontend gates.
+- Profile (/api/profile) and analytics (/api/analytics/*) 404s are backend runtime issues (routes registered correctly) — likely need backend restart, not frontend fixes.
+- Plan gating lives in AuthenticatedShell.tsx — PRO_PATHS array and isPlanAtLeast() are exported for sidebar/bottom-tabs reuse. user.plan comes from AuthProvider (AuthUser.plan field).
+- Always destructure `error` from useQuery and add error states — React Query silently swallows API failures, leaving users with empty/broken cards if not handled.
