@@ -81,6 +81,30 @@
           "verified_at": "2026-04-03T23:25:00Z",
           "verified_by": "qa-engineer",
           "verification_notes": "PASS. preferences.py changed value: dict to value: Any. Server restarted. PUT /api/user/preferences/pipeline_tab_order with array body now returns {status:ok}. GET /api/user/preferences returns stored value. All 3 user-reported errors (422/404/405) confirmed resolved."
+        },
+        {
+          "id": "BUG-USER-239203",
+          "title": "BUG-USER: API error 404 on /profile: GET /api/profile \u2192 {\"detail\":\"Not Found\"}",
+          "role": "backend",
+          "status": "pending",
+          "priority": "critical",
+          "description": "User hit this error while clicking through the website. Fix immediately.\nEndpoint: GET /api/profile\nError: API error 404 on /profile: GET /api/profile \u2192 {\"detail\":\"Not Found\"}"
+        },
+        {
+          "id": "BUG-USER-239203",
+          "title": "BUG-USER: API error 404 on /analytics: GET /api/analytics/framework-performance \u2192 {\"detail\":\"Not Found\"}",
+          "role": "backend",
+          "status": "pending",
+          "priority": "critical",
+          "description": "User hit this error while clicking through the website. Fix immediately.\nEndpoint: GET /api/analytics/framework-performance\nError: API error 404 on /analytics: GET /api/analytics/framework-performance \u2192 {\"detail\":\"Not Found\"}"
+        },
+        {
+          "id": "BUG-USER-239203",
+          "title": "BUG-USER: API error 404 on /analytics: GET /api/analytics/ctr-timeline?limit=50 \u2192 {\"detail\":\"Not Found\"}",
+          "role": "backend",
+          "status": "pending",
+          "priority": "critical",
+          "description": "User hit this error while clicking through the website. Fix immediately.\nEndpoint: GET /api/analytics/ctr-timeline?limit=50\nError: API error 404 on /analytics: GET /api/analytics/ctr-timeline?limit=50 \u2192 {\"detail\":\"Not Found\"}"
         }
       ]
     },
