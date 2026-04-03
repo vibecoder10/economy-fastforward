@@ -72,13 +72,13 @@ import json
 try:
     logs = json.load(open('$ACTIVITY_LOG'))
     seen = set(open('$ERROR_TRACK').read().strip().split('\n')) if open('$ERROR_TRACK').read().strip() else set()
-    errors = [e for e in logs[-30:] if e.get('agent') == 'user-browser' and e.get('status') == 'error']
+    # Activity log is newest-first (unshift). Check first 30 entries for recent errors.
+    errors = [e for e in logs[:30] if e.get('agent') == 'user-browser' and e.get('status') == 'error']
     for e in errors:
         key = e.get('task', '') + '|' + str(e.get('timestamp', ''))
         if key in seen or not key.strip(): continue
         summary = e.get('summary', '')
         task = e.get('task', '')
-        # Determine which agent should fix it
         if '/api/' in task:
             print('backend-dev|' + key)
         else:

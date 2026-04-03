@@ -290,7 +290,8 @@ if [ -f "$ACTIVITY_LOG" ]; then
 import json
 try:
     logs = json.load(open('$ACTIVITY_LOG'))
-    errors = [e for e in logs[-50:] if e.get('agent') == 'user-browser' and e.get('status') == 'error']
+    # Activity log is newest-first (unshift). Read from start for recent errors.
+    errors = [e for e in logs[:50] if e.get('agent') == 'user-browser' and e.get('status') == 'error']
     seen = set()
     for e in errors[-20:]:
         key = e.get('task', '')
@@ -308,7 +309,8 @@ try:
     logs = json.load(open('$ACTIVITY_LOG'))
     tq_path = '$AGENTS_DIR/task-queue.json'
     tq = json.load(open(tq_path))
-    errors = [e for e in logs[-50:] if e.get('agent') == 'user-browser' and e.get('status') == 'error']
+    # Activity log is newest-first (unshift). Read from start for recent errors.
+    errors = [e for e in logs[:50] if e.get('agent') == 'user-browser' and e.get('status') == 'error']
     # Deduplicate
     seen_tasks = {t.get('title','') for tab in tq.get('tabs',[]) for t in tab.get('tasks',[])}
     seen_keys = set()
