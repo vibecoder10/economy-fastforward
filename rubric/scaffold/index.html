@@ -1609,13 +1609,13 @@ window.__onTabShow = {};
           const r = await fetch('/api/generate-prd/' + taskId);
           const data = await r.json();
           if (data.status === 'done') {
-            clearInterval(poll);
+            clearInterval(poll); clearInterval(ticker);
             textarea.value = data.prd;
             btn.textContent = 'Generate PRD';
             btn.disabled = false;
             btn.style.opacity = '1';
           } else if (data.status === 'error') {
-            clearInterval(poll);
+            clearInterval(poll); clearInterval(ticker);
             alert('PRD generation failed: ' + data.error);
             btn.textContent = 'Generate PRD';
             btn.disabled = false;
@@ -1623,8 +1623,10 @@ window.__onTabShow = {};
           }
         } catch {}
       }, 2000);
-      // Safety timeout after 3 minutes
-      setTimeout(() => { clearInterval(poll); btn.textContent = 'Generate PRD'; btn.disabled = false; btn.style.opacity = '1'; }, 180000);
+      // Safety timeout after 10 minutes (Opus can take a while on long prompts)
+      let elapsed = 0;
+      const ticker = setInterval(() => { elapsed += 1; btn.textContent = 'Generating... (' + elapsed + 's)'; }, 1000);
+      setTimeout(() => { clearInterval(poll); clearInterval(ticker); btn.textContent = 'Generate PRD'; btn.disabled = false; btn.style.opacity = '1'; alert('Generation timed out after 10 minutes.'); }, 600000);
     } catch (e) {
       alert('Generate failed: ' + e.message);
       btn.textContent = 'Generate PRD';
