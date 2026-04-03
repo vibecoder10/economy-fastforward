@@ -973,6 +973,55 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // ===== COMMAND CENTER ROUTES =====
+
+  // POST /api/deploy-prd — write PRD and start decomposition
+  if (pathname === '/api/deploy-prd' && req.method === 'POST') {
+    const body = JSON.parse(await readBody(req));
+    const agentsDir = path.join(__dirname, '../../agents');
+    const prdPath = path.join(agentsDir, 'prd.md');
+    if (!body.content || typeof body.content !== 'string') { sendJSON(res, { error: 'content required' }, 400); return; }
+    fs.writeFileSync(prdPath, body.content);
+    // Run decompose in background
+    const { exec } = await import('node:child_process');
+    exec(`cd ${path.resolve(__dirname, '../../')} && bash agents/decompose.sh agents/prd.md > /tmp/decompose.log 2>&1`, (err) => {
+      if (err) console.error('Decompose failed:', err.message);
+      else console.log('PRD decomposition complete');
+    });
+    sendJSON(res, { success: true, message: 'Decomposing PRD...' });
+    return;
+  }
+
+  // GET /api/mission-status — current mission state from prd.json + progress.md
+  if (pathname === '/api/mission-status' && req.method === 'GET') {
+    const agentsDir = path.join(__dirname, '../../agents');
+    const prdPath = path.join(agentsDir, 'prd.json');
+    const progressPath = path.join(agentsDir, 'progress.md');
+    const prdMdPath = path.join(agentsDir, 'prd.md');
+    let prd = null, progress = '', prdRaw = '';
+    try { prd = JSON.parse(fs.readFileSync(prdPath, 'utf8')); } catch {}
+    try { progress = fs.readFileSync(progressPath, 'utf8'); } catch {}
+    try { prdRaw = fs.readFileSync(prdMdPath, 'utf8'); } catch {}
+    if (!prd && !prdRaw) { sendJSON(res, { active: false }); return; }
+    if (!prd && prdRaw) { sendJSON(res, { active: true, decomposing: true, title: 'Decomposing...' }); return; }
+    const total = prd.tasks?.length || 0;
+    const done = (prd.tasks || []).filter(t => t.status === 'done' || t.status === 'verified').length;
+    const blocked = (prd.tasks || []).filter(t => t.status === 'blocked').length;
+    const inProgress = (prd.tasks || []).filter(t => t.status === 'in_progress').length;
+    sendJSON(res, { active: true, decomposing: false, title: prd.title || 'Untitled', total, done, blocked, inProgress, progress });
+    return;
+  }
+
+  // DELETE /api/mission — clear current mission
+  if (pathname === '/api/mission' && req.method === 'DELETE') {
+    const agentsDir = path.join(__dirname, '../../agents');
+    for (const f of ['prd.json', 'prd.md', 'progress.md']) {
+      try { fs.unlinkSync(path.join(agentsDir, f)); } catch {}
+    }
+    sendJSON(res, { success: true });
+    return;
+  }
+
   // GET /api/retros — read latest retrospective
   if (pathname === '/api/retros' && req.method === 'GET') {
     const retroFile = path.join(DATA_DIR, 'retro.json');

@@ -421,10 +421,88 @@
 
   <!-- WELCOME -->
   <div id="tab-welcome" class="tab-panel active">
-    <div class="placeholder">
-      <h2>Welcome to Rubric Console</h2>
-      <p>This is your agent dashboard scaffold. It comes with a collapsible sidebar, tab navigation with drag-to-reorder, global search, and live agent status monitoring.</p>
-      <p>Use the tabs on the left to explore your installed Rubric templates. Double-click a tab to set it as your home page.</p>
+    <div style="max-width:800px;margin:0 auto;padding:20px;">
+
+      <!-- Section 1: Mission Brief -->
+      <div style="margin-bottom:20px;">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+          <h2 style="font-size:18px;font-weight:700;color:#ccc;margin:0;">Command Center</h2>
+          <span style="font-size:10px;color:#555;">Deploy PRDs, review proposals, monitor the team</span>
+        </div>
+
+        <!-- PRD Input (hidden when mission active) -->
+        <div id="cc-prd-input" style="margin-bottom:16px;">
+          <div style="padding:20px;background:#0a0a0a;border:1px solid #1a1a1a;border-radius:12px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+              <h3 style="font-size:14px;font-weight:600;color:#888;margin:0;">Mission Brief</h3>
+              <span style="font-size:10px;color:#555;">Paste a PRD or write high-level instructions</span>
+            </div>
+            <textarea id="cc-prd-textarea" placeholder="# PRD: Feature Name&#10;&#10;Build a user authentication system with email/password registration, login, logout.&#10;Protected routes redirect to /login. Session persists across refreshes.&#10;&#10;## Pages&#10;- /login — email + password form&#10;- /register — registration form&#10;- /dashboard — protected, shows user info&#10;&#10;## Endpoints&#10;- POST /api/auth/register&#10;- POST /api/auth/login&#10;- GET /api/auth/me" style="width:100%;min-height:200px;background:#111;color:#ccc;border:1px solid #222;border-radius:8px;padding:14px;font-family:'JetBrains Mono','SF Mono',Menlo,monospace;font-size:12px;line-height:1.6;resize:vertical;tab-size:2;box-sizing:border-box;" onfocus="this.style.borderColor='#444'" onblur="this.style.borderColor='#222'"></textarea>
+            <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px;">
+              <button onclick="deployPRD()" style="background:#1A8A7A;border:none;color:white;padding:10px 24px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;font-family:Outfit,sans-serif;">Deploy to Team</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Active Mission (hidden when no mission) -->
+        <div id="cc-mission-active" style="display:none;margin-bottom:16px;">
+          <div style="padding:20px;background:#0a0a0a;border:1px solid #1a1a1a;border-left:3px solid #1A8A7A;border-radius:12px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+              <div>
+                <div style="display:flex;align-items:center;gap:8px;">
+                  <h3 id="cc-mission-title" style="font-size:16px;font-weight:700;color:#ccc;margin:0;">Loading...</h3>
+                  <span style="font-size:9px;padding:2px 6px;background:rgba(26,138,122,0.15);color:#50e3c2;border-radius:4px;font-weight:500;">ACTIVE</span>
+                </div>
+                <div id="cc-mission-stats" style="font-size:12px;color:#888;margin-top:4px;"></div>
+              </div>
+              <div style="display:flex;gap:8px;">
+                <button onclick="toggleProgress()" style="background:none;border:1px solid #333;color:#888;padding:6px 12px;border-radius:6px;font-size:11px;cursor:pointer;font-family:Outfit,sans-serif;">Progress</button>
+                <button onclick="clearMission()" style="background:none;border:1px solid #333;color:#e35050;padding:6px 12px;border-radius:6px;font-size:11px;cursor:pointer;font-family:Outfit,sans-serif;">Clear</button>
+              </div>
+            </div>
+            <!-- Progress bar -->
+            <div style="background:#1a1a1a;border-radius:4px;height:6px;overflow:hidden;">
+              <div id="cc-progress-bar" style="height:100%;background:#1A8A7A;border-radius:4px;transition:width 0.3s;width:0%;"></div>
+            </div>
+            <!-- Collapsible progress.md -->
+            <div id="cc-progress-detail" style="display:none;margin-top:12px;padding:12px;background:#111;border-radius:8px;max-height:300px;overflow-y:auto;">
+              <pre id="cc-progress-text" style="font-size:11px;color:#888;line-height:1.6;white-space:pre-wrap;margin:0;font-family:'JetBrains Mono','SF Mono',Menlo,monospace;"></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Section 2: Agent Proposals -->
+      <div style="margin-bottom:20px;padding:16px;background:#0a0a0a;border:1px solid #1a1a1a;border-radius:12px;">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+          <h3 style="font-size:14px;font-weight:600;color:#888;margin:0;">Agent Proposals</h3>
+          <span id="cc-proposals-badge" style="font-size:10px;padding:2px 8px;background:rgba(212,168,68,0.15);color:#D4A844;border-radius:10px;display:none;">0</span>
+        </div>
+        <div id="cc-proposals-list" style="display:flex;flex-direction:column;gap:8px;">
+          <div style="font-size:12px;color:#555;padding:8px;">No proposals yet. Agents will surface ideas as they work.</div>
+        </div>
+      </div>
+
+      <!-- Section 3: Mission Status -->
+      <div style="margin-bottom:20px;">
+        <!-- Focus Directive Banner -->
+        <div id="cc-focus-banner" style="display:none;margin-bottom:12px;padding:12px 16px;background:rgba(26,138,122,0.08);border:1px solid rgba(26,138,122,0.25);border-radius:8px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;">
+            <div style="display:flex;align-items:center;gap:8px;">
+              <span style="font-size:10px;padding:2px 6px;background:rgba(26,138,122,0.15);color:#50e3c2;border-radius:4px;font-weight:500;">FOCUS</span>
+              <span id="cc-focus-text" style="font-size:12px;color:#50e3c2;"></span>
+            </div>
+            <button onclick="clearFocus()" style="background:none;border:none;color:#555;cursor:pointer;font-size:14px;">&times;</button>
+          </div>
+        </div>
+
+        <!-- Agent Status Row -->
+        <div style="padding:16px;background:#0a0a0a;border:1px solid #1a1a1a;border-radius:12px;">
+          <h3 style="font-size:14px;font-weight:600;color:#888;margin:0 0 10px 0;">Team Status</h3>
+          <div id="cc-agent-status" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;"></div>
+        </div>
+      </div>
+
     </div>
   </div>
 
@@ -775,7 +853,7 @@ window.__onTabShow = {};
     icons: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
     activity: '<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>',
   };
-  const TAB_LABELS = { welcome:'Welcome', activity:'Activity', agents:'Agents', flows:'Flows', 'skill-trees':'Skill Trees', crons:'Crons', team:'Team', icons:'Icons' };
+  const TAB_LABELS = { welcome:'Command Center', activity:'Activity', agents:'Agents', flows:'Flows', 'skill-trees':'Skill Trees', crons:'Crons', team:'Team', icons:'Icons' };
 
   let configData = { agents: [] };
 
@@ -1502,6 +1580,183 @@ window.__onTabShow = {};
   });
 
   init();
+})();
+
+// ==================== COMMAND CENTER ====================
+(function() {
+  const agentColors = { orchestrator:'#D4A844', 'backend-dev':'#1A8A7A', 'frontend-dev':'#58abf5', 'qa-engineer':'#e35050', 'pipeline-tester':'#c084fc' };
+  const typeColors = { refactor:'#58abf5', optimization:'#50e3c2', bug_fix:'#e35050', new_feature:'#D4A844', improvement:'#888', process_improvement:'#888' };
+
+  function ccEsc(str) { const d = document.createElement('div'); d.textContent = str || ''; return d.innerHTML; }
+
+  // Deploy PRD
+  window.deployPRD = async function() {
+    const textarea = document.getElementById('cc-prd-textarea');
+    const content = textarea.value.trim();
+    if (!content) { alert('Write or paste a PRD first.'); return; }
+    try {
+      const res = await fetch('/api/deploy-prd', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content }) });
+      if (res.ok) { textarea.value = ''; pollMission(); }
+    } catch (e) { alert('Deploy failed: ' + e.message); }
+  };
+
+  // Clear mission
+  window.clearMission = async function() {
+    if (!confirm('Clear the current mission? This deletes prd.json and progress.md.')) return;
+    await fetch('/api/mission', { method: 'DELETE' });
+    document.getElementById('cc-prd-input').style.display = 'block';
+    document.getElementById('cc-mission-active').style.display = 'none';
+  };
+
+  // Toggle progress detail
+  window.toggleProgress = function() {
+    const el = document.getElementById('cc-progress-detail');
+    el.style.display = el.style.display === 'none' ? 'block' : 'none';
+  };
+
+  // Clear focus
+  window.clearFocus = async function() {
+    await fetch('/api/controls/focus', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ focus: '' }) });
+    document.getElementById('cc-focus-banner').style.display = 'none';
+  };
+
+  // Poll mission status
+  async function pollMission() {
+    try {
+      const res = await fetch('/api/mission-status');
+      const data = await res.json();
+      if (!data.active) {
+        document.getElementById('cc-prd-input').style.display = 'block';
+        document.getElementById('cc-mission-active').style.display = 'none';
+        return;
+      }
+      document.getElementById('cc-prd-input').style.display = 'none';
+      document.getElementById('cc-mission-active').style.display = 'block';
+      document.getElementById('cc-mission-title').textContent = data.title || 'Untitled';
+      if (data.decomposing) {
+        document.getElementById('cc-mission-stats').textContent = 'Decomposing PRD into tasks...';
+        document.getElementById('cc-progress-bar').style.width = '0%';
+      } else {
+        const pct = data.total > 0 ? Math.round((data.done / data.total) * 100) : 0;
+        document.getElementById('cc-mission-stats').textContent = data.done + '/' + data.total + ' tasks done' + (data.blocked > 0 ? ' \u00B7 ' + data.blocked + ' blocked' : '') + (data.inProgress > 0 ? ' \u00B7 ' + data.inProgress + ' in progress' : '');
+        document.getElementById('cc-progress-bar').style.width = pct + '%';
+        if (data.progress) document.getElementById('cc-progress-text').textContent = data.progress;
+      }
+    } catch {}
+  }
+
+  // Poll proposals for command center
+  async function pollProposals() {
+    const list = document.getElementById('cc-proposals-list');
+    const badge = document.getElementById('cc-proposals-badge');
+    try {
+      const res = await fetch('/api/proposals?status=pending');
+      if (!res.ok) return;
+      const proposals = await res.json();
+      if (!proposals.length) {
+        badge.style.display = 'none';
+        list.innerHTML = '<div style="font-size:12px;color:#555;padding:8px;">No proposals yet. Agents will surface ideas as they work.</div>';
+        return;
+      }
+      badge.style.display = 'inline';
+      badge.textContent = proposals.length;
+      list.innerHTML = proposals.map(function(p) {
+        const ago = Math.floor((Date.now() - p.created_at) / 60000);
+        const timeStr = ago < 1 ? 'Just now' : ago < 60 ? ago + 'm ago' : Math.floor(ago / 60) + 'h ago';
+        const agentColor = agentColors[p.agent] || '#888';
+        const typeColor = typeColors[p.type] || '#555';
+        return '<div style="padding:12px;background:#111;border:1px solid #1a1a1a;border-radius:8px;">' +
+          '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">' +
+            '<span style="font-size:11px;color:' + agentColor + ';font-weight:600;">' + ccEsc(p.agent) + '</span>' +
+            '<span style="font-size:10px;color:' + typeColor + ';background:' + typeColor + '15;padding:2px 6px;border-radius:4px;">' + ccEsc(p.type) + '</span>' +
+            '<span style="font-size:10px;color:#555;margin-left:auto;">' + timeStr + '</span>' +
+          '</div>' +
+          '<div style="font-size:13px;color:#ccc;font-weight:600;margin-bottom:4px;">' + ccEsc(p.title) + '</div>' +
+          '<div style="font-size:12px;color:#888;margin-bottom:8px;">' + ccEsc(p.description) + '</div>' +
+          '<div style="display:flex;gap:8px;align-items:center;">' +
+            '<button onclick="approveProposal(\'' + p.id + '\')" style="background:#1A8A7A;border:none;color:white;padding:6px 14px;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;font-family:Outfit,sans-serif;">Approve</button>' +
+            '<button onclick="rejectProposal(\'' + p.id + '\')" style="background:none;border:1px solid #333;color:#888;padding:6px 14px;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;font-family:Outfit,sans-serif;">Reject</button>' +
+            (p.cost ? '<span style="font-size:10px;color:#555;margin-left:auto;">Cost: ' + ccEsc(p.cost) + '</span>' : '') +
+          '</div>' +
+        '</div>';
+      }).join('');
+    } catch {}
+  }
+
+  // Poll agent status for command center
+  async function pollAgentStatus() {
+    const container = document.getElementById('cc-agent-status');
+    try {
+      const res = await fetch('/api/agent-status', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      if (!res.ok) return;
+      const data = await res.json();
+      const agents = data.agents || [];
+      container.innerHTML = agents.map(function(a) {
+        const color = agentColors[a.id] || '#888';
+        const dotColor = a.status === 'active' ? '#50e3c2' : a.status === 'waiting' ? '#e35050' : '#333';
+        const statusLabel = a.status === 'active' ? 'Running' : a.status === 'waiting' ? 'Deep Work' : 'Idle';
+        const task = a.lastTask || '';
+        return '<div style="padding:10px 12px;background:#111;border:1px solid #1a1a1a;border-radius:8px;">' +
+          '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">' +
+            '<span style="width:8px;height:8px;border-radius:50%;background:' + dotColor + ';flex-shrink:0;' + (a.status === 'active' ? 'box-shadow:0 0 6px rgba(80,227,194,0.5);' : '') + '"></span>' +
+            '<span style="font-size:12px;font-weight:600;color:' + color + ';">' + ccEsc(a.name || a.id) + '</span>' +
+            '<span style="font-size:10px;color:#555;margin-left:auto;">' + statusLabel + '</span>' +
+          '</div>' +
+          '<div style="font-size:10px;color:#555;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + ccEsc(task.slice(0, 60)) + '</div>' +
+        '</div>';
+      }).join('');
+    } catch {}
+  }
+
+  // Poll focus directive
+  async function pollFocus() {
+    try {
+      const res = await fetch('/api/controls');
+      if (!res.ok) return;
+      const data = await res.json();
+      const banner = document.getElementById('cc-focus-banner');
+      if (data.focus) {
+        banner.style.display = 'block';
+        document.getElementById('cc-focus-text').textContent = data.focus;
+      } else {
+        banner.style.display = 'none';
+      }
+    } catch {}
+  }
+
+  // Initialize on tab show
+  let ccInitialized = false;
+  window.__onTabShow = window.__onTabShow || {};
+  const origWelcome = window.__onTabShow['welcome'];
+  window.__onTabShow['welcome'] = function() {
+    if (origWelcome) origWelcome();
+    if (!ccInitialized) {
+      ccInitialized = true;
+      pollMission();
+      pollProposals();
+      pollAgentStatus();
+      pollFocus();
+      setInterval(pollMission, 15000);
+      setInterval(pollProposals, 30000);
+      setInterval(pollAgentStatus, 10000);
+      setInterval(pollFocus, 30000);
+    }
+  };
+
+  // Auto-init since welcome is the default active tab
+  setTimeout(function() {
+    if (!ccInitialized) {
+      ccInitialized = true;
+      pollMission();
+      pollProposals();
+      pollAgentStatus();
+      pollFocus();
+      setInterval(pollMission, 15000);
+      setInterval(pollProposals, 30000);
+      setInterval(pollAgentStatus, 10000);
+      setInterval(pollFocus, 30000);
+    }
+  }, 1000);
 })();
 
 // ==================== AGENT INSTRUCTIONS EDITOR ====================
