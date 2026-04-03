@@ -13,3 +13,4 @@
 - Supabase pooler gets circuit breaker after bad auth attempts — use direct DB URL (db.PROJECT.supabase.co:5432) not pooler (pooler.supabase.com) to avoid this.
 - email/password register endpoint broken (FK violation memberships->users) — BUG-AUTH-001 filed (now FIXED in commit 4cc9dec).
 - Autopilot ConfigUpdate model (autopilot.py) only accepts videos_per_month/videos_per_scrape — does NOT accept weights/thresholds. T13-002 backend bug filed.
+- Autopilot page T13-001: 'Last cycle' text only shows when state.last_cycle is non-null; 'Next production: in N days' shows when days_until_next > 0. Both are correct null-handling behavior.
