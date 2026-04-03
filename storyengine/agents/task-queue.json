@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "current_tab": 23,
+  "current_tab": 24,
   "last_updated": "2026-04-03",
-  "last_updated_by": "qa-engineer",
+  "last_updated_by": "orchestrator",
   "tabs": [
     {
       "id": 1,
@@ -2169,6 +2169,58 @@
           "verified_at": "2026-04-03T06:30:00Z",
           "verified_by": "qa-engineer",
           "verification_notes": "CLOSED \u2014 duplicate of BUG-T23-BACKEND-DATE. Fixed by commit 4938349 (date_type.fromisoformat conversion). Calendar endpoint confirmed working via curl."
+        }
+      ]
+    },
+    {
+      "id": 24,
+      "name": "Onboarding Wizard",
+      "path": "/onboarding",
+      "status": "in_progress",
+      "tasks": [
+        {
+          "id": "T24-001",
+          "title": "Add GET /api/onboarding/status endpoint",
+          "role": "backend",
+          "status": "pending",
+          "description": "Add GET /api/onboarding/status in routes/dashboard.py (or new routes/onboarding.py). Derives completion state from existing data \u2014 no new DB columns needed. Check: (1) channel_configured: GET channel_profiles WHERE tenant_id \u2014 has non-empty channel_name. (2) api_keys_configured: SELECT count(*) FROM api_keys WHERE tenant_id AND configured=true AND key_name='anthropic_api_key' > 0. (3) youtube_synced: check if any videos exist (SELECT count(*) FROM videos WHERE tenant_id > 0) as a proxy for baseline import. Return: { completed: bool, steps: { channel_configured: bool, api_keys_configured: bool, youtube_synced: bool }, percent_complete: int }. completed = all 3 steps true. Register router in main.py. Also add getOnboardingStatus() to api.ts (returns OnboardingStatus type).",
+          "files": [
+            "backend/routes/dashboard.py",
+            "backend/main.py",
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        {
+          "id": "T24-002",
+          "title": "Create /onboarding wizard page (3-step flow)",
+          "role": "frontend",
+          "status": "pending",
+          "depends_on": "T24-001",
+          "description": "Create frontend/src/app/onboarding/page.tsx as a multi-step wizard. Steps: (1) Channel Identity \u2014 form fields: channel_name (required), niche (required), target_audience (optional). Save button calls PUT /api/channel-profile. (2) API Keys \u2014 show Anthropic API key input (required, call POST /api/settings/keys/anthropic_api_key then POST .../test). ElevenLabs + Kie.ai as optional 'Add' buttons. Test button shows green checkmark on success, red X on failure. (3) Done! \u2014 large checkmark, 'Your studio is ready' message, 'Start Creating' button navigates to /dashboard. Progress bar at top: 3 circles with connecting line (active=amber, done=teal). 'Skip for now' link below each step navigates to next step without saving. No sidebar (full-screen wizard). No auth redirect (add /onboarding to public paths in AuthenticatedShell). Use existing fetchApi from api.ts.",
+          "files": [
+            "frontend/src/app/onboarding/page.tsx",
+            "frontend/src/components/auth/AuthenticatedShell.tsx"
+          ]
+        },
+        {
+          "id": "T24-003",
+          "title": "Auto-redirect new users to /onboarding after login",
+          "role": "frontend",
+          "status": "pending",
+          "depends_on": "T24-002",
+          "description": "In AuthProvider.tsx, after a successful login (loginWithEmail or google login), check GET /api/onboarding/status. If completed=false, call router.replace('/onboarding') instead of router.replace('/dashboard'). If completed=true, redirect to /dashboard (existing behavior). Also: when user visits /onboarding directly and onboarding is already complete, redirect to /dashboard immediately. Add a 'Skip setup, go to Dashboard \u2192' text link at the bottom of every onboarding step (not just the last) so users can bail out at any point. This text link should be small and secondary \u2014 not a primary CTA.",
+          "files": [
+            "frontend/src/components/auth/AuthProvider.tsx",
+            "frontend/src/app/onboarding/page.tsx"
+          ]
+        },
+        {
+          "id": "T24-004",
+          "title": "QA verify onboarding: redirect, steps save, completion lands on dashboard",
+          "role": "qa",
+          "status": "pending",
+          "depends_on": "T24-003",
+          "description": "Verify the full onboarding flow: (1) GET /api/onboarding/status returns { completed: false, steps: { channel_configured: false, api_keys_configured: false, youtube_synced: false } } for a fresh tenant. (2) After login with a new account, browser redirects to /onboarding (not /dashboard). (3) /onboarding page renders with 3-step progress indicator, no sidebar, no auth redirect loop. (4) Step 1 \u2014 fill channel_name + niche, click Save, PUT /api/channel-profile called, step 2 becomes active. (5) Step 2 \u2014 enter Anthropic API key, click Test, POST /api/settings/keys/anthropic_api_key + POST .../test called, shows success/fail. (6) Click Continue on step 2, step 3 shows. (7) Step 3 \u2014 'Start Creating' button navigates to /dashboard. (8) GET /api/onboarding/status after completing steps shows completed=true for channel_configured and api_keys_configured. (9) tsc --noEmit passes. (10) No console errors throughout wizard."
         }
       ]
     }

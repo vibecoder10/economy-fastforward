@@ -9,4 +9,4 @@
 - All 17 original tabs complete as of 2026-04-03. Phase 2 starts at Tab 18 (Review nav, Create enhancement, Mobile UX). Product vision gaps: no calendar page, no onboarding wizard, no multi-channel yet.
 - Task queue context provided at session start can be stale — always re-read the actual file before editing, as agents may have updated it between prompt generation and execution.
 - QA agent sometimes verifies via code review and commits verification_notes to T20-001 but forgets to update T20-002 status — always check if the verified sibling task was also updated.
-- Phase 1 (Tabs 1-17) + Phase 2 (Tabs 18-22) all complete as of 2026-04-03. Phase 3 starts at Tab 23 (Production Calendar). Next gaps: Onboarding Wizard, Multi-channel.
+- Phase 1 (Tabs 1-17) + Phase 2 (Tabs 18-22) + Phase 3 (Tabs 23) all complete as of 2026-04-03. Tab 24 = Onboarding Wizard (redirect new users, 3-step channel+key+done flow). After 24: multi-channel.
