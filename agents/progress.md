@@ -2,22 +2,22 @@
 
 ## Summary
 - Total: 14 tasks
-- Done: 4 | Verified: 0 | Blocked: 5 | Remaining: 5
+- Done: 6 (backend complete) | Verified: 0 | Blocked: 0 | Remaining: 8 (frontend/qa/security)
 
 ## Tasks
 - [x] T1: Database migration: soft delete, video clip prompts, user preferences (backend) ✅
 - [x] T2: Fix stage progression — _next_stage uses full 18-stage pipeline order (backend) ✅
-- [ ] T3: Add storyboard approve/reject and bulk-approve endpoints (backend) — depends on T1 ✅
-- [ ] T4: Add DELETE /api/videos/{id} soft-delete endpoint (backend) — depends on T1 ✅
-- [ ] T5: Add video clip prompt generation + user preferences endpoints (backend) — depends on T1 ✅
+- [x] T3: Add storyboard approve/reject and bulk-approve endpoints (backend) ✅
+- [x] T4: Add DELETE /api/videos/{id} soft-delete endpoint (backend) ✅
+- [x] T5: Add video clip prompt generation + user preferences endpoints (backend) ✅
 - [x] T6: Fix thumbnail generation with pipeline logic + autopilot patterns (backend) ✅
-- [ ] T7: Wire storyboard approve/reject buttons to API (frontend) — **BLOCKED** on T3 (backend not implemented)
+- [ ] T7: Wire storyboard approve/reject buttons to API (frontend) — deps met
 - [x] T8: Fix stage progress circles, approve button, default Production tab (frontend) ✅
-- [ ] T9: Add video delete button + confirmation modal (frontend) — **BLOCKED** on T4 (backend not implemented)
-- [ ] T10: Render image thumbnails, fix storyboard mode, add video clip prompt UI (frontend) — **BLOCKED** on T5 (backend not implemented)
-- [ ] T11: Add tab drag-to-reorder with persistence (frontend) — **BLOCKED** on T5 (backend not implemented)
-- [ ] T12: Full production build passes (frontend) — **BLOCKED** on T7-T11
-- [ ] T13: Playwright end-to-end tests (qa) — **BLOCKED** waiting on T12 (which needs T7-T11, which need T1-T6)
+- [ ] T9: Add video delete button + confirmation modal (frontend) — deps met
+- [ ] T10: Render image thumbnails, fix storyboard mode, add video clip prompt UI (frontend) — deps met
+- [ ] T11: Add tab drag-to-reorder with persistence (frontend) — deps met
+- [ ] T12: Full production build passes (frontend) — depends on T7-T11
+- [ ] T13: Playwright end-to-end tests (qa) — depends on T12
 - [ ] T14: Security audit: auth, data leaks, input sanitization (security) — **BLOCKED** on T3, T4, T5 (none implemented yet)
 
 ## Blocked Tasks
