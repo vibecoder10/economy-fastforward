@@ -210,7 +210,7 @@ async def get_video(video_id: str, tenant_id: str = Depends(get_tenant_id)):
                   suggested_script, suggested_title, suggestion_source,
                   suggestion_scores, suggestion_status,
                   created_at::text, updated_at::text
-           FROM videos WHERE id = $1 AND tenant_id = $2""",
+           FROM videos WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL""",
         video_id, tenant_id,
     )
     if not r:
