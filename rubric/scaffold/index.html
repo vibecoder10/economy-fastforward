@@ -1685,9 +1685,22 @@ window.__onTabShow = {};
       document.getElementById('cc-mission-active').style.display = 'block';
       document.getElementById('cc-mission-title').textContent = data.title || 'Untitled';
       if (data.decomposing) {
-        document.getElementById('cc-mission-stats').textContent = 'Decomposing PRD into tasks...';
-        document.getElementById('cc-progress-bar').style.width = '0%';
+        if (!window._decomposeStart) window._decomposeStart = Date.now();
+        const secs = Math.floor((Date.now() - window._decomposeStart) / 1000);
+        const phases = ['Reading PRD', 'Identifying features', 'Creating tasks', 'Writing acceptance criteria', 'Ordering dependencies'];
+        const phase = phases[Math.min(Math.floor(secs / 40), phases.length - 1)];
+        document.getElementById('cc-mission-stats').textContent = phase + '... (' + secs + 's)';
+        // Show pulsing bar so it doesn't look dead
+        document.getElementById('cc-progress-bar').style.width = '100%';
+        document.getElementById('cc-progress-bar').style.opacity = '0.3';
+        document.getElementById('cc-progress-bar').style.animation = 'pulse 2s ease-in-out infinite';
+        // Poll faster during decomposition
+        if (!window._fastPoll) { window._fastPoll = setInterval(pollMission, 3000); }
       } else {
+        window._decomposeStart = null;
+        if (window._fastPoll) { clearInterval(window._fastPoll); window._fastPoll = null; }
+        document.getElementById('cc-progress-bar').style.opacity = '1';
+        document.getElementById('cc-progress-bar').style.animation = 'none';
         const pct = data.total > 0 ? Math.round((data.done / data.total) * 100) : 0;
         document.getElementById('cc-mission-stats').textContent = data.done + '/' + data.total + ' tasks done' + (data.blocked > 0 ? ' \u00B7 ' + data.blocked + ' blocked' : '') + (data.inProgress > 0 ? ' \u00B7 ' + data.inProgress + ' in progress' : '');
         document.getElementById('cc-progress-bar').style.width = pct + '%';
