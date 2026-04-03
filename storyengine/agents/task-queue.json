@@ -2555,7 +2555,11 @@
           ],
           "assigned_to": "backend-dev",
           "started_at": "2026-04-04T01:00:01Z",
-          "completed_at": "2026-04-04T01:10:00Z"
+          "completed_at": "2026-04-04T01:10:00Z",
+          "verified": true,
+          "verified_at": "2026-04-04T01:30:00Z",
+          "verified_by": "qa-engineer",
+          "verification_notes": "PASS. (1) safe_column() in database.py validates ^[a-z][a-z0-9_]*$ regex — unit tests confirm: valid names pass, injection attempts (caps, hyphens, spaces, semicolons, empty) all raise ValueError. (2) Applied to 3 dict-iteration patterns: videos.py:305 (user-input keys via allowed_fields), youtube_sync.py:157 (internal dict keys), projects.py:158+171 (field_map + jsonb_fields). (3) Remaining f-string SQL in autopilot.py:492, channel_profile.py:154, profile.py:81, videos.py:585/637 all use hardcoded column names — verified by tracing each function. No user input reaches column name interpolation. (4) Diff clean: 4 app files (database.py 14 lines, 3 route files 2 lines each), 30 insertions/11 deletions. No bloat. (5) tsc --noEmit: 0 errors."
         },
         {
           "id": "SEC-6",
@@ -2659,7 +2663,11 @@
           "files": [
             "frontend/src/app/dashboard/page.tsx",
             "frontend/src/app/pipeline/page.tsx"
-          ]
+          ],
+          "verified": true,
+          "verified_at": "2026-04-04T01:30:00Z",
+          "verified_by": "qa-engineer",
+          "verification_notes": "PASS. Commit e3ae4c8: (1) AuthenticatedShell.tsx: overflow-x-hidden on <main>, mobile padding reduced px-6->px-4. (2) Dashboard: min-w-0 on pipeline bar items, overflow-x-auto on distribution container, smaller gap on mobile (gap-3). (3) Pipeline: responsive header text-3xl/sm:text-4xl, overflow-x-auto on tabs, min-w-0 on search. (4) Diff clean: 3 app files, 14 insertions/11 deletions — all CSS class changes, no structural changes. No bloat. (5) tsc --noEmit: 0 errors."
         },
         {
           "id": "REG6-SWEEP",
