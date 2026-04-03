@@ -848,8 +848,11 @@
           "id": "BUG-T10-002-BACKEND",
           "title": "BACKEND BLOCKER: Add transcript field to competitor video API",
           "role": "backend",
-          "status": "pending",
-          "description": "T10-002 (transcript viewer) is blocked. competitor_videos table has transcript TEXT column (migration 016), populated by yt-dlp scraper. But no API endpoint exposes it. Options: (1) Add GET /api/autopilot/candidates/{id} endpoint returning full competitor video including transcript. (2) Add transcript to CompetitorCandidate model + SQL SELECT in autopilot.py (warning: transcripts can be large, consider lazy loading). Recommended: option 1 with a dedicated endpoint to avoid bloating the candidates list response.",
+          "status": "done",
+          "started_at": "2026-04-03T21:00:01Z",
+          "completed_at": "2026-04-03T21:05:00Z",
+          "assigned_to": "backend-dev",
+          "description": "Added GET /api/autopilot/candidates/{candidate_id} endpoint returning full competitor video detail including transcript, thumbnail_url, description, duration_seconds, likes, plus all existing CompetitorCandidate fields with confidence breakdown. Transcripts kept out of list endpoints to avoid bloat. Unblocks T10-002 (frontend transcript viewer).",
           "files": [
             "backend/routes/autopilot.py"
           ]

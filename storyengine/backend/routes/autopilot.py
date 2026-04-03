@@ -343,6 +343,46 @@ async def get_candidates(
     return candidates
 
 
+@router.get("/candidates/{candidate_id}")
+async def get_candidate_detail(
+    candidate_id: str,
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """Get a single competitor video with full details including transcript."""
+    row = await fetch_one(
+        """SELECT id, video_id, title, url, channel, channel_url,
+                  views, vph, hours_old, published_date, modeled,
+                  transcript, thumbnail_url, description, duration_seconds, likes
+           FROM competitor_videos
+           WHERE id = $1 AND tenant_id = $2""",
+        candidate_id, tenant_id,
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+
+    vph = float(row.get("vph") or 0)
+    hours_old = float(row.get("hours_old") or 0)
+    breakdown = calculate_confidence_with_breakdown(vph, hours_old)
+
+    return {
+        "id": str(row["id"]),
+        "title": row.get("title", "Unknown"),
+        "source": row.get("channel", "Unknown"),
+        "url": row.get("url"),
+        "vph": vph,
+        "hours_old": hours_old,
+        "confidence": breakdown.total_score,
+        "confidence_breakdown": breakdown,
+        "published_date": row.get("published_date").isoformat() if row.get("published_date") else None,
+        "modeled": row.get("modeled", False),
+        "transcript": row.get("transcript"),
+        "thumbnail_url": row.get("thumbnail_url"),
+        "description": row.get("description"),
+        "duration_seconds": float(row["duration_seconds"]) if row.get("duration_seconds") else None,
+        "likes": row.get("likes"),
+    }
+
+
 @router.get("/learnings", response_model=List[Learning])
 async def get_learnings(
     category: Optional[str] = None,
