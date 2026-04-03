@@ -121,6 +121,12 @@ async def set_api_key(
     if not success:
         raise HTTPException(status_code=500, detail="Failed to save key")
 
+    await execute(
+        """INSERT INTO bot_activity (tenant_id, bot_name, status, message)
+           VALUES ($1, $2, $3, $4)""",
+        tenant_id, "api_key_audit", "completed", f"Key set: {key_name}",
+    )
+
     return {"status": "ok", "message": f"Key {key_name} saved"}
 
 
@@ -142,6 +148,12 @@ async def delete_api_key(
     if not success:
         raise HTTPException(status_code=500, detail="Failed to delete key")
 
+    await execute(
+        """INSERT INTO bot_activity (tenant_id, bot_name, status, message)
+           VALUES ($1, $2, $3, $4)""",
+        tenant_id, "api_key_audit", "completed", f"Key deleted: {key_name}",
+    )
+
     return {"status": "ok", "message": f"Key {key_name} deleted from Vault"}
 
 
@@ -162,6 +174,14 @@ async def test_api_key_endpoint(
         raise HTTPException(status_code=404, detail=f"Unknown key: {key_name}")
 
     result = await test_api_key(key_name, tenant_id)
+
+    test_status = "completed" if result.get("success") else "failed"
+    await execute(
+        """INSERT INTO bot_activity (tenant_id, bot_name, status, message)
+           VALUES ($1, $2, $3, $4)""",
+        tenant_id, "api_key_audit", test_status,
+        f"Key tested: {key_name} — {result.get('message', 'Unknown')}",
+    )
 
     return TestKeyResponse(
         success=result.get("success"),
