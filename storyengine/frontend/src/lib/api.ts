@@ -1,5 +1,5 @@
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
-const RUBRIC_URL = process.env.NEXT_PUBLIC_RUBRIC_URL || "http://76.13.119.181:5050";
+const RUBRIC_URL = process.env.NEXT_PUBLIC_RUBRIC_URL || "http://localhost:5050";
 
 // Auto-report failed API calls to RUBRIC dashboard (silent, non-blocking)
 function reportError(path: string, status: number, body: string, method: string) {

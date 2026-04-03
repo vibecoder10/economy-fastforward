@@ -2525,14 +2525,16 @@
           "id": "SEC-4",
           "title": "HIGH: Hardcoded IP 76.13.119.181 in CORS allowlist",
           "role": "backend",
-          "status": "pending",
+          "status": "done",
           "priority": "high",
-          "description": "main.py:287-288 \u2014 Hardcoded IP exposes infrastructure details in source code. Fix: move to ALLOWED_ORIGINS env var (comma-separated). Default to localhost only. Same IP also in frontend api.ts:2 as RUBRIC_URL fallback.",
+          "description": "Removed hardcoded IP 76.13.119.181 from CORS allowlist in main.py. CORS now uses ALLOWED_ORIGINS env var (comma-separated) for extra origins beyond localhost. Frontend api.ts RUBRIC_URL fallback changed from hardcoded IP to localhost. Deploy note: set ALLOWED_ORIGINS=http://76.13.119.181:3000,http://76.13.119.181:3001,http://76.13.119.181:5050 in .env on VPS.",
           "files": [
             "backend/main.py",
             "frontend/src/lib/api.ts"
           ],
-          "assigned_to": "backend-dev"
+          "assigned_to": "backend-dev",
+          "started_at": "2026-04-03T23:00:01Z",
+          "completed_at": "2026-04-03T23:05:00Z"
         },
         {
           "id": "SEC-5",
