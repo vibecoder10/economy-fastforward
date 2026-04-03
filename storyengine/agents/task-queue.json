@@ -871,7 +871,10 @@
           "id": "T10-004",
           "title": "Show scrape error details beyond banner",
           "role": "frontend",
-          "status": "pending",
+          "status": "done",
+          "started_at": "2026-04-03T04:47:00Z",
+          "completed_at": "2026-04-03T04:52:00Z",
+          "assigned_to": "frontend-dev",
           "description": "GET /api/niche/scrape/status returns error string and per-channel details. Currently only a banner shows. Add a collapsible error log showing which channels failed and why.",
           "files": [
             "frontend/src/app/competitors/page.tsx"

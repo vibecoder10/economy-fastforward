@@ -4,7 +4,7 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { Filter, Plus, Loader2, RefreshCw, X, Trash2 } from "lucide-react";
+import { Filter, Plus, Loader2, RefreshCw, X, Trash2, ChevronDown, AlertTriangle } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { FilterSelect } from "@/components/ui/FilterSelect";
@@ -36,6 +36,77 @@ const item = {
 };
 
 type SortOption = "confidence" | "vph" | "freshness";
+
+function ScrapeErrorLog({ error, lastRun }: { error: string; lastRun: string | null }) {
+  const [expanded, setExpanded] = useState(false);
+
+  // Try to parse multi-line or structured error messages
+  const errorLines = error.split(/\n|(?<=\.)(?=\s+[A-Z])/).filter(Boolean).map(l => l.trim());
+  const hasDetails = errorLines.length > 1;
+
+  return (
+    <div
+      className="rounded-xl overflow-hidden"
+      style={{
+        background: "rgba(255, 77, 106, 0.06)",
+        border: "1px solid rgba(255, 77, 106, 0.2)",
+      }}
+    >
+      <button
+        onClick={() => hasDetails && setExpanded(v => !v)}
+        className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-left"
+        style={{ cursor: hasDetails ? "pointer" : "default" }}
+      >
+        <AlertTriangle size={14} style={{ color: "var(--red)", flexShrink: 0 }} />
+        <span style={{ color: "var(--red)" }} className="flex-1 font-medium">
+          Scrape failed: {errorLines[0]}
+        </span>
+        {lastRun && (
+          <span className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>
+            {timeAgo(lastRun)}
+          </span>
+        )}
+        {hasDetails && (
+          <ChevronDown
+            size={14}
+            style={{
+              color: "var(--text-tertiary)",
+              transform: expanded ? "rotate(180deg)" : "rotate(0deg)",
+              transition: "transform 0.2s",
+              flexShrink: 0,
+            }}
+          />
+        )}
+      </button>
+      <AnimatePresence>
+        {expanded && hasDetails && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="overflow-hidden"
+          >
+            <div
+              className="px-4 pb-3 space-y-1.5"
+              style={{ borderTop: "1px solid rgba(255, 77, 106, 0.1)" }}
+            >
+              {errorLines.slice(1).map((line, i) => (
+                <p
+                  key={i}
+                  className="text-xs font-mono leading-relaxed"
+                  style={{ color: "var(--text-secondary)" }}
+                >
+                  {line}
+                </p>
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
 
 export default function CompetitorsPage() {
   const router = useRouter();
@@ -263,29 +334,27 @@ export default function CompetitorsPage() {
       {scrapeFinished && !scrapeStatus?.error && scrapeStatus?.videos_found != null && (
         <motion.div variants={item}>
           <div
-            className="rounded-xl px-4 py-2.5 text-sm"
+            className="rounded-xl px-4 py-2.5 text-sm flex items-center justify-between"
             style={{
               background: "rgba(0, 212, 170, 0.08)",
               border: "1px solid rgba(0, 212, 170, 0.2)",
               color: "var(--turquoise)",
             }}
           >
-            Last scrape found {scrapeStatus.videos_found} videos ({scrapeStatus.videos_saved} saved)
+            <span>
+              Last scrape found {scrapeStatus.videos_found} videos ({scrapeStatus.videos_saved} saved)
+            </span>
+            {scrapeStatus.last_run && (
+              <span className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>
+                {timeAgo(scrapeStatus.last_run)}
+              </span>
+            )}
           </div>
         </motion.div>
       )}
       {scrapeStatus?.error && (
         <motion.div variants={item}>
-          <div
-            className="rounded-xl px-4 py-2.5 text-sm"
-            style={{
-              background: "rgba(239, 68, 68, 0.08)",
-              border: "1px solid rgba(239, 68, 68, 0.2)",
-              color: "var(--red)",
-            }}
-          >
-            Scrape failed: {scrapeStatus.error}
-          </div>
+          <ScrapeErrorLog error={scrapeStatus.error} lastRun={scrapeStatus.last_run} />
         </motion.div>
       )}
 
