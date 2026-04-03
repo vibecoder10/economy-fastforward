@@ -2,7 +2,7 @@
   "version": 2,
   "current_tab": 13,
   "last_updated": "2026-04-03",
-  "last_updated_by": "pipeline-tester-T13-012-pre",
+  "last_updated_by": "orchestrator-micro-T13-sweep",
   "tabs": [
     {
       "id": 1,
@@ -1400,7 +1400,7 @@
       "id": 16,
       "name": "Profile & Account",
       "path": "/profile",
-      "status": "pending",
+      "status": "complete",
       "tasks": [
         {
           "id": "T16-001",
