@@ -12,6 +12,7 @@ export default function ReviewPage() {
   const [activeTab, setActiveTab] = useState<ReviewTab>("scripts");
   const [selectedItem, setSelectedItem] = useState<ReviewItem | null>(null);
   const [imageReviewIndex, setImageReviewIndex] = useState(0);
+  const [pendingId, setPendingId] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
   const { data, isLoading } = useQuery({
@@ -35,13 +36,13 @@ export default function ReviewPage() {
   });
 
   const approveStoryboardMutation = useMutation({
-    mutationFn: (scriptId: string) => approveStoryboard(scriptId),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["pending-review"] }),
+    mutationFn: (scriptId: string) => { setPendingId(scriptId); return approveStoryboard(scriptId); },
+    onSettled: () => { setPendingId(null); queryClient.invalidateQueries({ queryKey: ["pending-review"] }); },
   });
 
   const rejectStoryboardMutation = useMutation({
-    mutationFn: (scriptId: string) => rejectStoryboard(scriptId),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["pending-review"] }),
+    mutationFn: (scriptId: string) => { setPendingId(scriptId); return rejectStoryboard(scriptId); },
+    onSettled: () => { setPendingId(null); queryClient.invalidateQueries({ queryKey: ["pending-review"] }); },
   });
 
   const tabs: { key: ReviewTab; label: string; icon: typeof FileText; count: number }[] = [
@@ -205,17 +206,17 @@ export default function ReviewPage() {
               <div className="mt-3 flex gap-2">
                 <button
                   onClick={() => item.script_id && approveStoryboardMutation.mutate(item.script_id)}
-                  disabled={approveStoryboardMutation.isPending}
+                  disabled={pendingId === item.script_id}
                   className="flex-1 rounded-lg bg-[var(--success)]/20 py-2 text-sm font-medium text-[var(--success)] disabled:opacity-50"
                 >
-                  {approveStoryboardMutation.isPending ? "Approving..." : "Approve"}
+                  {pendingId === item.script_id && approveStoryboardMutation.isPending ? "Approving..." : "Approve"}
                 </button>
                 <button
                   onClick={() => item.script_id && rejectStoryboardMutation.mutate(item.script_id)}
-                  disabled={rejectStoryboardMutation.isPending}
+                  disabled={pendingId === item.script_id}
                   className="flex-1 rounded-lg bg-[var(--error)]/20 py-2 text-sm font-medium text-[var(--error)] disabled:opacity-50"
                 >
-                  {rejectStoryboardMutation.isPending ? "Rejecting..." : "Reject"}
+                  {pendingId === item.script_id && rejectStoryboardMutation.isPending ? "Rejecting..." : "Reject"}
                 </button>
               </div>
             </div>

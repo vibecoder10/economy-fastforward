@@ -53,6 +53,7 @@ async def get_pending(tenant_id: str = Depends(get_tenant_id)):
            WHERE s.tenant_id = $1
            AND s.storyboard_on_off = 'On'
            AND s.storyboard_status IS NOT NULL
+           AND s.storyboard_status NOT IN ('approved', 'rejected')
            AND s.storyboard_1_url IS NOT NULL
            ORDER BY s.created_at DESC""",
         tenant_id,
