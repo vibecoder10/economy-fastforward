@@ -28,6 +28,7 @@ import {
   launchCandidate,
   type AutopilotSummary,
 } from "@/lib/api";
+import { timeAgo } from "@/lib/utils";
 
 const DEFAULT_WEIGHTS = {
   competitor_vph: 0.55,
@@ -190,6 +191,37 @@ export default function AutopilotPage() {
           {isEnabled ? "ON" : "OFF"}
         </button>
       </motion.div>
+
+      {/* Production Cycle Status */}
+      {(state.last_cycle || state.days_until_next > 0) && (
+        <motion.div
+          variants={item}
+          className="flex items-center gap-6 px-1"
+        >
+          {state.last_cycle && (
+            <p className="text-xs" style={{ color: "var(--text-secondary)" }}>
+              <span className="font-mono" style={{ color: "var(--text-tertiary)" }}>Last cycle:</span>{" "}
+              <span style={{ color: "var(--text-primary)" }}>{timeAgo(state.last_cycle)}</span>
+            </p>
+          )}
+          {state.days_until_next > 0 && (
+            <p className="text-xs" style={{ color: "var(--text-secondary)" }}>
+              <span className="font-mono" style={{ color: "var(--text-tertiary)" }}>Next production:</span>{" "}
+              <span style={{ color: "var(--turquoise)" }}>
+                {state.days_until_next === 1 ? "tomorrow" : `in ${state.days_until_next} days`}
+              </span>
+            </p>
+          )}
+          {state.next_production_date && (
+            <p className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>
+              {new Date(state.next_production_date).toLocaleDateString("en-US", {
+                month: "short",
+                day: "numeric",
+              })}
+            </p>
+          )}
+        </motion.div>
+      )}
 
       {/* Disabled banner */}
       {!isEnabled && (

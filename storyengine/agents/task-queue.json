@@ -962,8 +962,11 @@
           "id": "T13-001",
           "title": "Display last_cycle timestamp and next production countdown",
           "role": "frontend",
-          "status": "pending",
-          "description": "Backend returns last_cycle (timestamp) and days_until_next on AutopilotState. Display: 'Last cycle: 3h ago' and 'Next production in: 2 days'. Currently neither is shown on the autopilot page.",
+          "status": "done",
+          "started_at": "2026-04-03T17:02:00Z",
+          "completed_at": "2026-04-03T17:06:00Z",
+          "assigned_to": "frontend-dev",
+          "description": "Added production cycle status line below header showing 'Last cycle: Xh ago' via timeAgo() and 'Next production: in N days' with turquoise highlight. Also shows next_production_date formatted as 'Mon DD'. Only renders when data exists.",
           "files": [
             "frontend/src/app/autopilot/page.tsx"
           ]
