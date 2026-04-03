@@ -1,0 +1,11 @@
+{
+  "bugs": [
+    {
+      "id": "BUG-PT-001",
+      "title": "BUG: Pipeline page video cards are not clickable links",
+      "description": "Pipeline page shows video cards but they are not wrapped in <a> or Next.js <Link> components. Users cannot click a video card to navigate to its detail page. Must type the URL manually.",
+      "severity": "high"
+    }
+  ],
+  "tests": 6
+}

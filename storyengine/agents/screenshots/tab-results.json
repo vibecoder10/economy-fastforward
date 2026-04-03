@@ -1,0 +1,58 @@
+[
+  {
+    "tab": "Info",
+    "found": true,
+    "clicked": true,
+    "errors": 0,
+    "pass": true,
+    "errorMsgs": []
+  },
+  {
+    "tab": "Script",
+    "found": true,
+    "clicked": true,
+    "errors": 0,
+    "pass": true,
+    "errorMsgs": []
+  },
+  {
+    "tab": "Storyboard",
+    "found": true,
+    "clicked": true,
+    "errors": 0,
+    "pass": true,
+    "errorMsgs": []
+  },
+  {
+    "tab": "Visuals",
+    "found": true,
+    "clicked": true,
+    "errors": 0,
+    "pass": true,
+    "errorMsgs": []
+  },
+  {
+    "tab": "Thumbnail",
+    "found": true,
+    "clicked": true,
+    "errors": 0,
+    "pass": true,
+    "errorMsgs": []
+  },
+  {
+    "tab": "Render",
+    "found": true,
+    "clicked": true,
+    "errors": 0,
+    "pass": true,
+    "errorMsgs": []
+  },
+  {
+    "tab": "Performance",
+    "found": true,
+    "clicked": true,
+    "errors": 0,
+    "pass": true,
+    "errorMsgs": []
+  }
+]

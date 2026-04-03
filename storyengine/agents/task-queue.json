@@ -2186,6 +2186,10 @@
           "started_at": "2026-04-03T21:00:01Z",
           "completed_at": "2026-04-03T21:05:00Z",
           "assigned_to": "backend-dev",
+          "verified": true,
+          "verified_at": "2026-04-03T07:45:00Z",
+          "verified_by": "qa-engineer",
+          "verification_notes": "PASS. GET /api/dashboard/onboarding/status at dashboard.py:175. (1) Fresh tenant JWT returns {completed:false, steps:{channel_configured:false, api_keys_configured:false, youtube_synced:false}, percent_complete:0}. (2) Dev tenant (has channel + API key) returns {completed:false, percent_complete:67, channel_configured:true, api_keys_configured:true, youtube_synced:false}. (3) Uses existing dashboard router (prefix /api/dashboard, registered main.py:297). (4) OnboardingStatus type in api.ts:80-88 matches response exactly. (5) getOnboardingStatus() at api.ts:90-91 calls correct path. (6) tsc --noEmit: 0 errors. (7) Diff clean: 3 files, 55 lines — dashboard.py route + api.ts type/function + task-queue.json.",
           "description": "Added GET /api/dashboard/onboarding/status to routes/dashboard.py. Derives completion from existing data: (1) channel_configured from channel_profiles, (2) api_keys_configured from vault get_secret_status for anthropic_api_key, (3) youtube_synced from videos count. Returns { completed, steps, percent_complete }. No new router needed — uses existing dashboard router. Also added OnboardingStatus type and getOnboardingStatus() to frontend api.ts.",
           "files": [
             "backend/routes/dashboard.py",
@@ -2201,6 +2205,10 @@
           "started_at": "2026-04-03T07:02:00Z",
           "completed_at": "2026-04-03T07:08:00Z",
           "assigned_to": "frontend-dev",
+          "verified": true,
+          "verified_at": "2026-04-03T07:45:00Z",
+          "verified_by": "qa-engineer",
+          "verification_notes": "PASS. Playwright verified on port 3003 (agent-workspace build). (1) GET /onboarding loads without auth redirect (PUBLIC_PATHS includes /onboarding in AuthenticatedShell:10). (2) 3-step progress bar: Channel/API Keys/Ready! labels with teal-done/amber-active indicators. (3) No sidebar rendered (nav count=0, full-screen wizard). (4) Step 1: 3 inputs (channel_name, niche, target_audience), Continue button disabled when required fields empty. (5) Skip for now advances to step 2. (6) Step 2: 'Connect Your AI' heading, Anthropic key input, Save & Test flow. (7) Skip step 2 shows step 3 with 'Start Creating' button. (8) Global 'Skip setup, go to Dashboard' link on all steps (navigates to /dashboard). (9) 0 console errors. (10) Build: /onboarding compiled as static route. (11) tsc --noEmit: 0 errors. (12) Diff clean: 3 files (onboarding/page.tsx new, AuthenticatedShell 1 line, task-queue). Screenshots: T24-002-onboarding-step2.png, T24-002-onboarding-step3.png.",
           "description": "Created /onboarding page with 3-step wizard: (1) Channel Identity — channel_name, niche (required), target_audience (optional), saves via PUT /api/channel-profile. (2) API Keys — Anthropic key input with Save & Test button (POST /api/settings/keys/anthropic_api_key then POST .../test), shows green/red result. (3) Done — checkmark, 'Your Studio is Ready', 'Start Creating' navigates to /dashboard. Progress bar: 3 circles (done=teal, active=amber) with connecting lines. Skip for now on each step. Skip setup link at bottom of all steps. Added /onboarding to PUBLIC_PATHS in AuthenticatedShell (no sidebar, full-screen wizard).",
           "files": [
             "frontend/src/app/onboarding/page.tsx",

@@ -1,0 +1,137 @@
+{
+  "results": [
+    {
+      "label": "Backend GET /api/learnings",
+      "status": "PASS",
+      "note": "20 patterns returned"
+    },
+    {
+      "label": "LearningRecord fields",
+      "status": "PASS",
+      "note": "All required fields present, category=title"
+    },
+    {
+      "label": "LearningRecord has avg_ctr/avg_retention",
+      "status": "PASS",
+      "note": ""
+    },
+    {
+      "label": "Filter by category=title",
+      "status": "PASS",
+      "note": "11 title patterns"
+    },
+    {
+      "label": "Backend GET /api/autopilot/learnings",
+      "status": "PASS",
+      "note": "20 insights returned"
+    },
+    {
+      "label": "PATCH /api/learnings/{id}/toggle",
+      "status": "PASS",
+      "note": "Flipped True \u2192 False"
+    },
+    {
+      "label": "Page stays on /learnings (not redirected to login)",
+      "status": "PASS",
+      "note": "URL: http://localhost:3001/learnings"
+    },
+    {
+      "label": "Sidebar has /learnings nav entry",
+      "status": "FAIL",
+      "note": "All nav hrefs: ['/', '/pipeline', '/autopilot', '/competitors', '/discovery', '/profile', '/analytics', '/settings', '/settings/keys', '/', '/pipeline', '/profile', '/analytics', '/settings']"
+    },
+    {
+      "label": "Brain-icon Learnings link present",
+      "status": "FAIL",
+      "note": "count=0"
+    },
+    {
+      "label": "Page loads with Learnings header",
+      "status": "FAIL",
+      "note": "First 200 chars: SStoryEngineDashboardVideosAutopilotCompetitorsDiscoveryVisual ProfileAnalyticsSettingsAPI KeysRyanCollapsebody{color:#000;background:#fff;margin:0}.next-error-h1{border-right:1px solid rgba(0,0,0,.3)"
+    },
+    {
+      "label": "Pattern count label visible",
+      "status": "FAIL",
+      "note": ""
+    },
+    {
+      "label": "Filter tab 'All' present",
+      "status": "FAIL",
+      "note": ""
+    },
+    {
+      "label": "Filter tab 'Title' present",
+      "status": "FAIL",
+      "note": ""
+    },
+    {
+      "label": "Filter tab 'Hook' present",
+      "status": "FAIL",
+      "note": ""
+    },
+    {
+      "label": "Filter tab 'Framework' present",
+      "status": "FAIL",
+      "note": ""
+    },
+    {
+      "label": "Filter tab 'Script' present",
+      "status": "FAIL",
+      "note": ""
+    },
+    {
+      "label": "Action button 'Extract Learnings' present",
+      "status": "FAIL",
+      "note": ""
+    },
+    {
+      "label": "Action button 'Analyze Titles' present",
+      "status": "FAIL",
+      "note": ""
+    },
+    {
+      "label": "Action button 'Analyze Transcripts' present",
+      "status": "FAIL",
+      "note": ""
+    },
+    {
+      "label": "Confidence bars rendered",
+      "status": "PASS",
+      "note": "1 width-styled divs found"
+    },
+    {
+      "label": "Verdict badges (PROVEN/AVOID)",
+      "status": "FAIL",
+      "note": "PROVEN=False, AVOID=False"
+    },
+    {
+      "label": "Toggle buttons for patterns (title contains 'pattern')",
+      "status": "FAIL",
+      "note": "0 toggle buttons"
+    },
+    {
+      "label": "Source video expand buttons",
+      "status": "FAIL",
+      "note": "0 source video buttons"
+    },
+    {
+      "label": "T12-003: Competitor Title Patterns section header",
+      "status": "FAIL",
+      "note": "Section present: False"
+    },
+    {
+      "label": "T12-003: Title insights data would render",
+      "status": "FAIL",
+      "note": "Section not present \u2014 cannot verify data rendering"
+    },
+    {
+      "label": "No console errors",
+      "status": "FAIL",
+      "note": "1 errors: ['Failed to load resource: the server responded with a status of 404 (Not Found)']"
+    }
+  ],
+  "console_errors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  ]
+}
