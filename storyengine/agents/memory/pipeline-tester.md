@@ -14,3 +14,5 @@
 - email/password register endpoint broken (FK violation memberships->users) — BUG-AUTH-001 filed (now FIXED in commit 4cc9dec).
 - Autopilot ConfigUpdate model (autopilot.py) only accepts videos_per_month/videos_per_scrape — does NOT accept weights/thresholds. T13-002 backend bug filed.
 - Autopilot page T13-001: 'Last cycle' text only shows when state.last_cycle is non-null; 'Next production: in N days' shows when days_until_next > 0. Both are correct null-handling behavior.
+- Auth in Playwright: use context.add_init_script() to set localStorage token BEFORE page loads; storage_state JSON approach also works but add_init_script is more reliable for React apps that read localStorage on mount.
+- update_visual_report.py: when TASK_ID arg is passed, it filters by TASK_ID prefix so use the screenshot filename prefix (e.g. 'reg5') not a task ID like 'T10-005'. Run without args to upload ALL new files.
