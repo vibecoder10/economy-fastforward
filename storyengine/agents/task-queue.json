@@ -1411,9 +1411,12 @@
           "id": "T17-004",
           "title": "Build Stripe billing frontend: plan selection + manage subscription",
           "role": "frontend",
-          "status": "pending",
+          "status": "done",
+          "started_at": "2026-04-03T01:02:00Z",
+          "completed_at": "2026-04-03T01:10:00Z",
+          "assigned_to": "frontend-dev",
           "depends_on": "T17-003",
-          "description": "Add plan selection UI to onboarding flow and settings page. Three tiers: Starter ($25/mo), Pro ($40/mo), Agency ($75/mo). Checkout button calls POST /api/billing/create-checkout, redirects to Stripe. Settings shows current plan + 'Manage Subscription' button (opens Stripe Portal)."
+          "description": "Added Billing & Plan section to settings page with 3 plan cards (Starter $25, Pro $40, Agency $75). Current plan highlighted with gold border. Subscribe buttons call createCheckout() and redirect to Stripe. Manage Subscription button calls createBillingPortal() for existing subscribers. Added getSubscription, createCheckout, createBillingPortal to api.ts with Subscription type."
         },
         {
           "id": "T17-005",

@@ -468,6 +468,29 @@ export const syncYouTubeMetrics = () =>
 export const getYouTubeSyncStatus = () =>
   fetchApi<YouTubeSyncStatus>("/api/youtube/sync/status");
 
+// Billing
+export interface Subscription {
+  plan: string;
+  stripe_plan: string | null;
+  stripe_status: string | null;
+  has_subscription: boolean;
+}
+
+export const getSubscription = () =>
+  fetchApi<Subscription>("/api/billing/subscription");
+
+export const createCheckout = (plan: string, successUrl?: string, cancelUrl?: string) =>
+  fetchApi<{ checkout_url: string; session_id: string }>("/api/billing/create-checkout", {
+    method: "POST",
+    body: JSON.stringify({ plan, success_url: successUrl, cancel_url: cancelUrl }),
+  });
+
+export const createBillingPortal = (returnUrl?: string) =>
+  fetchApi<{ portal_url: string }>("/api/billing/portal", {
+    method: "POST",
+    body: JSON.stringify({ return_url: returnUrl }),
+  });
+
 // Analytics
 export interface AnalyticsOverview {
   total_videos: number;
