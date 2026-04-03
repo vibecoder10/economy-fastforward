@@ -893,6 +893,25 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // POST /api/task-queue/dismiss — dismiss a single task (mark as done)
+  if (pathname === '/api/task-queue/dismiss' && req.method === 'POST') {
+    const body = JSON.parse(await readBody(req));
+    const queueFile = path.join(__dirname, '../../storyengine/agents/task-queue.json');
+    try {
+      const queue = JSON.parse(fs.readFileSync(queueFile, 'utf8'));
+      const tab = queue.tabs?.[body.tab_index];
+      if (tab?.tasks?.[body.task_index]) {
+        tab.tasks[body.task_index].status = 'done';
+        tab.tasks[body.task_index].dismissed_by = 'operator';
+        queue.last_updated = new Date().toISOString().slice(0, 10);
+        queue.last_updated_by = 'operator';
+        fs.writeFileSync(queueFile, JSON.stringify(queue, null, 2));
+      }
+    } catch {}
+    sendJSON(res, { success: true });
+    return;
+  }
+
   // ===== PROPOSALS ROUTES =====
 
   // POST /api/proposals — create a proposal from an agent

@@ -463,6 +463,28 @@
         </div>
       </div>
 
+      <!-- Task Queue Panel (expandable) -->
+      <div id="tq-panel" style="margin-bottom:20px;">
+        <div onclick="toggleTaskQueue()" style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;background:#0a0a0a;border:1px solid #1a1a1a;border-radius:12px;cursor:pointer;user-select:none;" onmouseenter="this.style.background='#0e0e0e'" onmouseleave="this.style.background='#0a0a0a'">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <span id="tq-chevron" style="color:#555;font-size:12px;transition:transform 0.2s;">&#9654;</span>
+            <h3 style="font-size:14px;font-weight:600;color:#ccc;margin:0;">Task Queue</h3>
+            <span id="tq-pending-badge" style="font-size:10px;padding:2px 8px;background:rgba(212,168,68,0.12);color:#D4A844;border-radius:10px;font-weight:600;">0 pending</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span id="tq-summary" style="font-size:11px;color:#555;">Loading...</span>
+          </div>
+        </div>
+        <div id="tq-body" style="display:none;margin-top:-1px;border:1px solid #1a1a1a;border-top:none;border-radius:0 0 12px 12px;background:#0a0a0a;max-height:400px;overflow-y:auto;">
+          <div id="tq-list" style="padding:8px;">
+            <div style="color:#555;font-size:12px;padding:12px;text-align:center;">Loading tasks...</div>
+          </div>
+          <div style="display:flex;justify-content:flex-end;gap:8px;padding:8px 12px;border-top:1px solid #111;">
+            <button onclick="clearTaskQueue()" style="background:none;border:1px solid #333;color:#e35050;padding:5px 12px;border-radius:6px;font-size:11px;cursor:pointer;font-family:Outfit,sans-serif;">Clear All</button>
+          </div>
+        </div>
+      </div>
+
       <!-- Section 1: Mission Brief -->
       <div style="margin-bottom:20px;">
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
@@ -1819,6 +1841,78 @@ window.__onTabShow = {};
       }
     } catch {}
   }
+
+  // ===== TASK QUEUE PANEL =====
+
+  let tqExpanded = false;
+  const ROLE_COLORS = { backend: '#1A8A7A', frontend: '#58abf5', qa: '#e35050', 'pipeline-tester': '#c084fc', security: '#f59e0b', lead: '#D4A844' };
+  const SOURCE_LABELS = { 'BUG-USER': 'Auto-detected', 'SEC': 'Security Audit', 'T': 'Agent-created' };
+
+  window.toggleTaskQueue = function() {
+    tqExpanded = !tqExpanded;
+    document.getElementById('tq-body').style.display = tqExpanded ? 'block' : 'none';
+    document.getElementById('tq-chevron').style.transform = tqExpanded ? 'rotate(90deg)' : '';
+    if (tqExpanded) loadTaskQueueDetail();
+  };
+
+  window.dismissTask = async function(tabIdx, taskIdx) {
+    await fetch('/api/task-queue/dismiss', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tab_index: tabIdx, task_index: taskIdx }) });
+    loadTaskQueueDetail();
+    pollTeamMode();
+  };
+
+  async function loadTaskQueueDetail() {
+    const list = document.getElementById('tq-list');
+    const badge = document.getElementById('tq-pending-badge');
+    const summary = document.getElementById('tq-summary');
+    try {
+      const resp = await fetch('/api/task-queue');
+      if (!resp.ok) return;
+      const q = await resp.json();
+      const allTasks = (q.tabs || []).flatMap((tab, ti) => tab.tasks?.map((t, idx) => ({ ...t, _tab: tab.name, _tabIdx: ti, _taskIdx: idx })) || []);
+      const pending = allTasks.filter(t => t.status !== 'done' && t.status !== 'blocked');
+      const done = allTasks.filter(t => t.status === 'done').length;
+
+      badge.textContent = pending.length + ' pending';
+      badge.style.background = pending.length > 0 ? 'rgba(212,168,68,0.12)' : 'rgba(80,227,194,0.12)';
+      badge.style.color = pending.length > 0 ? '#D4A844' : '#50e3c2';
+      summary.textContent = done + ' done / ' + allTasks.length + ' total';
+
+      if (pending.length === 0) {
+        list.innerHTML = '<div style="color:#555;font-size:12px;padding:12px;text-align:center;">No pending tasks. Agents are idle or waiting for a PRD.</div>';
+        return;
+      }
+
+      // Group by tab
+      const groups = {};
+      pending.forEach(t => { if (!groups[t._tab]) groups[t._tab] = []; groups[t._tab].push(t); });
+
+      list.innerHTML = Object.entries(groups).map(([tab, tasks]) =>
+        '<div style="padding:4px 8px;">' +
+          '<div style="font-size:11px;font-weight:600;color:#555;padding:6px 4px;text-transform:uppercase;letter-spacing:0.5px;">' + esc(tab) + '</div>' +
+          tasks.map(t => {
+            const roleColor = ROLE_COLORS[t.role] || '#888';
+            const source = t.id?.startsWith('BUG-USER') ? 'Auto-detected bug' : t.id?.startsWith('SEC') ? 'Security audit' : 'Agent task';
+            const statusDot = t.status === 'in_progress' ? '#50e3c2' : t.status === 'blocked' ? '#e35050' : '#555';
+            return '<div style="display:flex;align-items:flex-start;gap:8px;padding:8px;margin:2px 0;background:#111;border-radius:8px;border-left:3px solid ' + roleColor + ';">' +
+              '<div style="width:8px;height:8px;border-radius:50%;background:' + statusDot + ';flex-shrink:0;margin-top:5px;"></div>' +
+              '<div style="flex:1;min-width:0;">' +
+                '<div style="font-size:12px;color:#ccc;line-height:1.4;">' + esc(t.title || t.id) + '</div>' +
+                '<div style="display:flex;gap:6px;margin-top:3px;flex-wrap:wrap;">' +
+                  '<span style="font-size:9px;padding:1px 6px;border-radius:4px;background:' + roleColor + '15;color:' + roleColor + ';">' + esc(t.role || '?') + '</span>' +
+                  '<span style="font-size:9px;color:#444;">' + source + '</span>' +
+                '</div>' +
+              '</div>' +
+              '<button onclick="event.stopPropagation();dismissTask(' + t._tabIdx + ',' + t._taskIdx + ')" style="background:none;border:none;color:#333;cursor:pointer;font-size:14px;padding:2px 6px;flex-shrink:0;" title="Dismiss">&times;</button>' +
+            '</div>';
+          }).join('') +
+        '</div>'
+      ).join('');
+    } catch {}
+  }
+
+  // Load task queue summary on page load
+  loadTaskQueueDetail();
 
   // Poll team mode on load and periodically
   pollTeamMode();
