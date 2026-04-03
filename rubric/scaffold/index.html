@@ -435,11 +435,12 @@
           <div style="padding:20px;background:#0a0a0a;border:1px solid #1a1a1a;border-radius:12px;">
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
               <h3 style="font-size:14px;font-weight:600;color:#888;margin:0;">Mission Brief</h3>
-              <span style="font-size:10px;color:#555;">Paste a PRD or write high-level instructions</span>
+              <span style="font-size:10px;color:#555;">Type rough notes → Generate PRD → Deploy to Team</span>
             </div>
-            <textarea id="cc-prd-textarea" placeholder="# PRD: Feature Name&#10;&#10;Build a user authentication system with email/password registration, login, logout.&#10;Protected routes redirect to /login. Session persists across refreshes.&#10;&#10;## Pages&#10;- /login — email + password form&#10;- /register — registration form&#10;- /dashboard — protected, shows user info&#10;&#10;## Endpoints&#10;- POST /api/auth/register&#10;- POST /api/auth/login&#10;- GET /api/auth/me" style="width:100%;min-height:200px;background:#111;color:#ccc;border:1px solid #222;border-radius:8px;padding:14px;font-family:'JetBrains Mono','SF Mono',Menlo,monospace;font-size:12px;line-height:1.6;resize:vertical;tab-size:2;box-sizing:border-box;" onfocus="this.style.borderColor='#444'" onblur="this.style.borderColor='#222'"></textarea>
+            <textarea id="cc-prd-textarea" placeholder="Type what you want built in plain English — rough notes are fine.&#10;&#10;Example: I need a settings page where users can update their profile, change their password, and manage API keys. Should have tabs for each section. Backend needs validation. Test everything.&#10;&#10;Click 'Generate PRD' to turn this into a structured PRD, then review and click 'Deploy to Team' to start agents immediately." style="width:100%;min-height:200px;background:#111;color:#ccc;border:1px solid #222;border-radius:8px;padding:14px;font-family:'JetBrains Mono','SF Mono',Menlo,monospace;font-size:12px;line-height:1.6;resize:vertical;tab-size:2;box-sizing:border-box;" onfocus="this.style.borderColor='#444'" onblur="this.style.borderColor='#222'"></textarea>
             <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px;">
-              <button onclick="deployPRD()" style="background:#1A8A7A;border:none;color:white;padding:10px 24px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;font-family:Outfit,sans-serif;">Deploy to Team</button>
+              <button id="cc-generate-btn" onclick="generatePRD()" style="background:#333;border:1px solid #555;color:#ccc;padding:10px 24px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;font-family:Outfit,sans-serif;">Generate PRD</button>
+              <button id="cc-deploy-btn" onclick="deployPRD()" style="background:#1A8A7A;border:none;color:white;padding:10px 24px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;font-family:Outfit,sans-serif;">Deploy to Team</button>
             </div>
           </div>
         </div>
@@ -1589,15 +1590,63 @@ window.__onTabShow = {};
 
   function ccEsc(str) { const d = document.createElement('div'); d.textContent = str || ''; return d.innerHTML; }
 
-  // Deploy PRD
+  // Generate PRD from rough notes using Claude Opus
+  window.generatePRD = async function() {
+    const textarea = document.getElementById('cc-prd-textarea');
+    const btn = document.getElementById('cc-generate-btn');
+    const content = textarea.value.trim();
+    if (!content) { alert('Type your requirements first — rough notes are fine.'); return; }
+    btn.textContent = 'Generating...';
+    btn.disabled = true;
+    btn.style.opacity = '0.6';
+    try {
+      const res = await fetch('/api/generate-prd', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content }) });
+      const { taskId } = await res.json();
+      if (!taskId) { throw new Error('No taskId returned'); }
+      // Poll for result
+      const poll = setInterval(async () => {
+        try {
+          const r = await fetch('/api/generate-prd/' + taskId);
+          const data = await r.json();
+          if (data.status === 'done') {
+            clearInterval(poll);
+            textarea.value = data.prd;
+            btn.textContent = 'Generate PRD';
+            btn.disabled = false;
+            btn.style.opacity = '1';
+          } else if (data.status === 'error') {
+            clearInterval(poll);
+            alert('PRD generation failed: ' + data.error);
+            btn.textContent = 'Generate PRD';
+            btn.disabled = false;
+            btn.style.opacity = '1';
+          }
+        } catch {}
+      }, 2000);
+      // Safety timeout after 3 minutes
+      setTimeout(() => { clearInterval(poll); btn.textContent = 'Generate PRD'; btn.disabled = false; btn.style.opacity = '1'; }, 180000);
+    } catch (e) {
+      alert('Generate failed: ' + e.message);
+      btn.textContent = 'Generate PRD';
+      btn.disabled = false;
+      btn.style.opacity = '1';
+    }
+  };
+
+  // Deploy PRD — decompose + set focus + spawn agents immediately
   window.deployPRD = async function() {
     const textarea = document.getElementById('cc-prd-textarea');
+    const btn = document.getElementById('cc-deploy-btn');
     const content = textarea.value.trim();
     if (!content) { alert('Write or paste a PRD first.'); return; }
+    btn.textContent = 'Deploying...';
+    btn.disabled = true;
     try {
       const res = await fetch('/api/deploy-prd', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content }) });
       if (res.ok) { textarea.value = ''; pollMission(); }
     } catch (e) { alert('Deploy failed: ' + e.message); }
+    btn.textContent = 'Deploy to Team';
+    btn.disabled = false;
   };
 
   // Clear mission

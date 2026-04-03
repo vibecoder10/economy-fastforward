@@ -1,7 +1,7 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
-import { execSync } from 'node:child_process';
+import { exec, execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -975,20 +975,36 @@ const server = http.createServer(async (req, res) => {
 
   // ===== COMMAND CENTER ROUTES =====
 
-  // POST /api/deploy-prd — write PRD and start decomposition
+  // POST /api/deploy-prd — write PRD, decompose, set focus, spawn agents
   if (pathname === '/api/deploy-prd' && req.method === 'POST') {
     const body = JSON.parse(await readBody(req));
     const agentsDir = path.join(__dirname, '../../agents');
     const prdPath = path.join(agentsDir, 'prd.md');
     if (!body.content || typeof body.content !== 'string') { sendJSON(res, { error: 'content required' }, 400); return; }
     fs.writeFileSync(prdPath, body.content);
-    // Run decompose in background
-    const { exec } = await import('node:child_process');
-    exec(`cd ${path.resolve(__dirname, '../../')} && bash agents/decompose.sh agents/prd.md > /tmp/decompose.log 2>&1`, (err) => {
-      if (err) console.error('Decompose failed:', err.message);
-      else console.log('PRD decomposition complete');
+    const projectRoot = path.resolve(__dirname, '../../');
+    // Chain: decompose → set focus → spawn agents for each role
+    exec(`cd "${projectRoot}" && bash agents/decompose.sh agents/prd.md > /tmp/decompose.log 2>&1`, (err) => {
+      if (err) { console.error('Decompose failed:', err.message); return; }
+      console.log('PRD decomposition complete — setting focus and spawning agents');
+      try {
+        const prd = JSON.parse(fs.readFileSync(path.join(agentsDir, 'prd.json'), 'utf8'));
+        const title = prd.title || 'PRD Mission';
+        // Set focus directive so all agents prioritize PRD work
+        const controlsFile = path.join(projectRoot, 'storyengine/agents/controls.json');
+        let controls = {};
+        try { controls = JSON.parse(fs.readFileSync(controlsFile, 'utf8')); } catch {}
+        controls.focus = `PRD deployed: ${title}. Execute all PRD tasks from agents/prd.json.`;
+        fs.writeFileSync(controlsFile, JSON.stringify(controls, null, 2));
+        // Spawn agents for each unique role in the PRD
+        const roles = [...new Set((prd.tasks || []).map(t => t.role).filter(Boolean))];
+        for (const role of roles) {
+          exec(`cd "${projectRoot}" && bash agents/run-team.sh "${role}" > /tmp/team-${role}.log 2>&1`,
+            (e) => { if (e) console.error(`Spawn ${role} failed:`, e.message); else console.log(`Agent ${role} started`); });
+        }
+      } catch (e) { console.error('Post-decompose spawn failed:', e.message); }
     });
-    sendJSON(res, { success: true, message: 'Decomposing PRD...' });
+    sendJSON(res, { success: true, message: 'Decomposing PRD and preparing agents...' });
     return;
   }
 
@@ -1019,6 +1035,114 @@ const server = http.createServer(async (req, res) => {
       try { fs.unlinkSync(path.join(agentsDir, f)); } catch {}
     }
     sendJSON(res, { success: true });
+    return;
+  }
+
+  // POST /api/generate-prd — Claude Opus generates structured PRD from rough notes
+  if (pathname === '/api/generate-prd' && req.method === 'POST') {
+    const body = JSON.parse(await readBody(req));
+    if (!body.content || typeof body.content !== 'string') { sendJSON(res, { error: 'content required' }, 400); return; }
+    const taskId = 'prd-' + Date.now();
+    const resultFile = path.join(DATA_DIR, taskId + '.json');
+    fs.writeFileSync(resultFile, JSON.stringify({ status: 'generating' }));
+    const promptFile = `/tmp/${taskId}-prompt.txt`;
+    const prompt = `You are a senior technical product manager writing a PRD for an autonomous dev team.
+
+The user typed rough notes about what they want built. Transform these into a structured, actionable PRD.
+
+## User's Notes
+${body.content}
+
+## Output Format — write ONLY this markdown, no preamble:
+
+# PRD: [Clear Title]
+
+## Summary
+[2-3 sentences: what we're building, why, and the expected outcome]
+
+## Requirements
+[Numbered list of specific, concrete requirements. Be PRECISE — "email/password auth with bcrypt, JWT tokens, httpOnly cookies" not just "auth system"]
+
+## Pages / UI
+[List each page/screen with what it shows and what actions are available]
+
+## API Endpoints
+[List each endpoint: METHOD /path — description, request body, response shape]
+
+## Database Changes
+[Any new tables, columns, or migrations needed]
+
+## Acceptance Criteria
+[Numbered list of machine-verifiable criteria. Each MUST be testable with: curl, tsc --noEmit, Playwright, test -f, or psql]
+
+## Execution Order
+[Which tasks must happen first (bottom-up: database → backend → frontend → QA → security)]
+
+## Agent Assignments
+- **Backend**: [what backend builds]
+- **Frontend**: [what frontend builds]
+- **QA**: [what QA verifies — must include Playwright browser testing of every page and button]
+- **Security**: [what security audits]
+
+## Testing Strategy
+The Pipeline Tester and QA agents MUST:
+- Open every affected page in a real browser (Playwright)
+- Click every button and verify the result
+- Check for console errors on every page
+- File specific bug reports with reproduction steps for any failures
+
+RULES:
+- Be SPECIFIC and CONCRETE. Vague requirements create vague implementations.
+- Every acceptance criterion must be a shell command that exits 0 on success.
+- Think about error states, empty states, loading states, and edge cases.
+- Include security considerations (input validation, auth checks, CSRF).
+- Testing is NOT optional — QA and Pipeline Tester tasks are required in every PRD.
+- Output ONLY the PRD markdown. No commentary before or after.`;
+    fs.writeFileSync(promptFile, prompt);
+    const claudeBin = process.env.CLAUDE_BIN || 'claude';
+    exec(`${claudeBin} -p --model opus --output-format text < "${promptFile}" 2>/dev/null`,
+      { encoding: 'utf8', timeout: 180000, maxBuffer: 2 * 1024 * 1024 },
+      (err, stdout) => {
+        try { fs.unlinkSync(promptFile); } catch {}
+        if (err) {
+          fs.writeFileSync(resultFile, JSON.stringify({ status: 'error', error: err.message }));
+        } else {
+          fs.writeFileSync(resultFile, JSON.stringify({ status: 'done', prd: stdout.trim() }));
+        }
+      });
+    sendJSON(res, { taskId });
+    return;
+  }
+
+  // GET /api/generate-prd/:taskId — poll for PRD generation result
+  if (pathname.startsWith('/api/generate-prd/') && req.method === 'GET') {
+    const taskId = pathname.split('/').pop();
+    if (!taskId || !/^prd-\d+$/.test(taskId)) { sendJSON(res, { error: 'invalid taskId' }, 400); return; }
+    const resultFile = path.join(DATA_DIR, taskId + '.json');
+    try {
+      const data = JSON.parse(fs.readFileSync(resultFile, 'utf8'));
+      if (data.status === 'done' || data.status === 'error') {
+        try { fs.unlinkSync(resultFile); } catch {} // cleanup after read
+      }
+      sendJSON(res, data);
+    } catch { sendJSON(res, { status: 'not_found' }, 404); }
+    return;
+  }
+
+  // POST /api/spawn-agent — run an agent immediately (no cron wait)
+  if (pathname === '/api/spawn-agent' && req.method === 'POST') {
+    const body = JSON.parse(await readBody(req));
+    const { role, system } = body; // system: 'team' | 'storyengine'
+    if (!role) { sendJSON(res, { error: 'role required' }, 400); return; }
+    const projectRoot = path.resolve(__dirname, '../../');
+    if (system === 'team') {
+      exec(`cd "${projectRoot}" && bash agents/run-team.sh "${role}" > /tmp/team-${role}.log 2>&1`,
+        (err) => { if (err) console.error(`Team ${role} failed:`, err.message); });
+    } else {
+      exec(`cd "${projectRoot}/storyengine/agents" && bash run-agent.sh "${role}" > /tmp/storyengine-agents/${role}-spawn.log 2>&1`,
+        (err) => { if (err) console.error(`Agent ${role} failed:`, err.message); });
+    }
+    sendJSON(res, { success: true, message: `Spawned ${role} (${system || 'storyengine'})` });
     return;
   }
 
