@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "current_tab": 13,
+  "current_tab": 3,
   "last_updated": "2026-04-03",
-  "last_updated_by": "pipeline-tester",
+  "last_updated_by": "orchestrator",
   "tabs": [
     {
       "id": 1,
@@ -295,7 +295,7 @@
       "id": 6,
       "name": "Video Detail: Visuals Tab (Images)",
       "path": "/pipeline/[videoId] (Visuals)",
-      "status": "pending",
+      "status": "complete",
       "tasks": [
         {
           "id": "T6-001",
