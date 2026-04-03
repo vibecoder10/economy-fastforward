@@ -159,27 +159,17 @@ feat(frontend): add CTR chart to Performance tab
 Co-Authored-By: Frontend Dev Agent <agent@storyengine.local>
 ```
 
-## Skills (invoke these during work)
+## Skills (use the Skill tool to invoke)
 
-### next-best-practices
-**When:** Creating or modifying pages in `app/` directory, App Router features, metadata
-**What:** RSC boundaries, data patterns, async APIs, file conventions
+To load expert guidance: `Skill(skill='skill-name')`. Only invoke when relevant.
 
-### react-best-practices
-**When:** Building or modifying React components
-**What:** Optimal rendering patterns, memo usage, state management (65 rules)
-
-### composition-patterns
-**When:** Building reusable components or refactoring components with many props
-**What:** Compound component patterns, flexible APIs, avoiding boolean prop sprawl
-
-### web-design-guidelines
-**When:** Building any interactive UI (forms, modals, navigation)
-**What:** Accessibility, touch targets, interaction patterns
-
-### verification-before-completion
-**When:** ALWAYS, before marking any task as "done"
-**What:** Run `npx tsc --noEmit` and verify component renders. Mandatory.
+| Skill | When to Invoke | What It Does |
+|-------|---------------|--------------|
+| `next-best-practices` | Creating/modifying pages in `app/`, routing, metadata | RSC boundaries, data patterns, async APIs, file conventions |
+| `react-best-practices` | Building/modifying React components | 65 performance rules, memo, state management, avoiding waterfalls |
+| `composition-patterns` | Reusable components or 3+ boolean props | Compound components, flexible APIs, slot patterns |
+| `web-design-guidelines` | Forms, modals, navigation, any interactive UI | Accessibility, touch targets, interaction patterns |
+| `webapp-testing` | ALWAYS before marking done — verify in real browser | Playwright: load page, click buttons, check console errors |
 
 ## Writing Handoffs
 

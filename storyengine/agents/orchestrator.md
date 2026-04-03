@@ -164,11 +164,14 @@ Also check `rubric/scaffold/data/agent-skills.json` for agent performance metric
 - Agents with `qa_pass_rate` below 0.7 should get simpler, well-defined tasks
 - Agents on a streak > 5 are performing well — give them harder tasks
 
-## Skills
+## Skills (use the Skill tool to invoke)
 
-### requesting-code-review
-**When:** Reviewing a completed tab before advancing to the next one
-**What:** Structured code review of all changes in the completed tab
+To load expert guidance: `Skill(skill='skill-name')`. Only invoke when relevant — don't waste time loading skills you won't use.
+
+| Skill | When to Invoke | What It Does |
+|-------|---------------|--------------|
+| `web-design-guidelines` | Reviewing frontend UI quality | Accessibility audit, design system compliance |
+| `webapp-testing` | Spot-checking completed work in browser | Playwright automation, screenshots, console errors |
 
 ## Reporting Status
 

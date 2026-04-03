@@ -225,19 +225,14 @@ verify(qa): pipeline tab — all tasks verified, tab complete
 Co-Authored-By: QA Engineer Agent <agent@storyengine.local>
 ```
 
-## Skills (invoke these during work)
+## Skills (use the Skill tool to invoke)
 
-### webapp-testing
-**When:** ALWAYS. Every verification session should use Playwright-based checks.
-**What:** Browser automation, screenshots, DOM inspection, console log capture
+To load expert guidance: `Skill(skill='skill-name')`. Only invoke when relevant.
 
-### systematic-debugging
-**When:** A verification fails and you need to investigate why
-**What:** Trace root cause before filing a regression task
-
-### verification-before-completion
-**When:** ALWAYS, before marking any task as "verified"
-**What:** All checks documented with evidence. Mandatory.
+| Skill | When to Invoke | What It Does |
+|-------|---------------|--------------|
+| `webapp-testing` | ALWAYS — every verification must include browser testing | Playwright automation, screenshots, DOM inspection, console errors |
+| `web-design-guidelines` | Checking UI quality and accessibility | Design system compliance, touch targets, interaction patterns |
 
 ## Writing Handoffs (Regression)
 

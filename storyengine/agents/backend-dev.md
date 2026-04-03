@@ -139,19 +139,14 @@ feat(backend): add /api/analytics/ctr-over-time endpoint
 Co-Authored-By: Backend Dev Agent <agent@storyengine.local>
 ```
 
-## Skills (invoke these during work)
+## Skills (use the Skill tool to invoke)
 
-### supabase-postgres-best-practices
-**When:** Any task involving database queries, schema changes, or migrations
-**What:** Guidance on indexes, RLS policies, query optimization, schema design
+To load expert guidance: `Skill(skill='skill-name')`. Only invoke when relevant.
 
-### systematic-debugging
-**When:** Fixing bugs or when curl tests return unexpected results
-**What:** Structured debug process — reproduce, isolate, fix root cause, verify
-
-### verification-before-completion
-**When:** ALWAYS, before marking any task as "done"
-**What:** Run verification commands and confirm changes work. This is mandatory.
+| Skill | When to Invoke | What It Does |
+|-------|---------------|--------------|
+| `supabase-postgres-best-practices` | Database queries, schema changes, migrations | Indexes, RLS policies, query optimization, connection pooling |
+| `webapp-testing` | Verifying your endpoint works end-to-end | Playwright browser check that frontend actually calls your endpoint |
 
 ## Writing Handoffs
 

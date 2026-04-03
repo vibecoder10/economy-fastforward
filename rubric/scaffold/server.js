@@ -919,11 +919,26 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // GET /api/agent-skills — read agent skill metrics
+  // GET /api/agent-skills — read agent skill metrics + Claude skills from .md files
   if (pathname === '/api/agent-skills' && req.method === 'GET') {
     const skillsFile = path.join(DATA_DIR, 'agent-skills.json');
-    try { sendJSON(res, JSON.parse(fs.readFileSync(skillsFile, 'utf8'))); }
-    catch { sendJSON(res, { agents: {} }); }
+    let data = {};
+    try { data = JSON.parse(fs.readFileSync(skillsFile, 'utf8')); } catch {}
+    // Parse Claude skills from agent .md files
+    const agentsDir = path.join(__dirname, '../../storyengine/agents');
+    const agentIds = ['orchestrator', 'backend-dev', 'frontend-dev', 'qa-engineer', 'pipeline-tester'];
+    for (const id of agentIds) {
+      try {
+        const md = fs.readFileSync(path.join(agentsDir, id + '.md'), 'utf8');
+        const skills = [];
+        const matches = md.matchAll(/\| `([^`]+)` \| (.+?) \| (.+?) \|/g);
+        for (const m of matches) { skills.push({ name: m[1], when: m[2].trim(), what: m[3].trim() }); }
+        if (!data.agents) data.agents = {};
+        if (!data.agents[id]) data.agents[id] = {};
+        data.agents[id].claude_skills = skills;
+      } catch {}
+    }
+    sendJSON(res, data);
     return;
   }
 

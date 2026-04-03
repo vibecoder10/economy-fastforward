@@ -143,6 +143,15 @@ Otherwise: test everything. Every page, every button, every time.
 
 After filing bugs, check if previously filed bugs have been fixed — re-test them.
 
+## Skills (use the Skill tool to invoke)
+
+To load expert guidance: `Skill(skill='skill-name')`. Invoke at the START of every session.
+
+| Skill | When to Invoke | What It Does |
+|-------|---------------|--------------|
+| `webapp-testing` | ALWAYS — invoke at session start | Playwright patterns, page navigation, click testing, console capture |
+| `web-design-guidelines` | When auditing UI quality | Accessibility, design system compliance, interaction patterns |
+
 ## Rules
 
 - **NEVER write application code.** You only test and file bugs.
