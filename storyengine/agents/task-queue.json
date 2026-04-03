@@ -2,7 +2,7 @@
   "version": 2,
   "current_tab": 13,
   "last_updated": "2026-04-03",
-  "last_updated_by": "orchestrator-post-T13-003",
+  "last_updated_by": "pipeline-tester-T13-012-pre",
   "tabs": [
     {
       "id": 1,
@@ -1126,8 +1126,8 @@
           "assigned_to": "frontend-dev",
           "verified_at": "2026-04-03T08:30:00Z",
           "verified_by": "qa-engineer",
-          "verification_notes": "PASS. YouTube Metrics section in page.tsx (line 812+): 'Sync Now' button calls syncYouTubeMetrics() -> POST /api/youtube/sync (returns {status:started}). Progress bar polls getYouTubeSyncStatus() every 3s (refetchInterval:isSyncing?3000:false). GET /api/youtube/sync/status returns {is_running,videos_synced,videos_total,error,last_run} — all 5 fields used in UI. Last sync via timeAgo(). Error section renders when syncStatus?.error. TypeScript type YouTubeSyncStatus at api.ts:466-472 matches endpoint exactly. tsc --noEmit: 0 errors. npm run build: clean. No bloat: commit c817327 is 1 app file change.",
-          "description": "Added YouTube Metrics section to autopilot page with Sync Now button (POST /api/youtube/sync), progress bar with videos_synced/videos_total while running (polls GET /api/youtube/sync/status every 3s), last sync time via timeAgo(), synced count, and error display. No new API calls needed — used existing syncYouTubeMetrics() and getYouTubeSyncStatus() from api.ts.",
+          "verification_notes": "PASS. YouTube Metrics section in page.tsx (line 812+): 'Sync Now' button calls syncYouTubeMetrics() -> POST /api/youtube/sync (returns {status:started}). Progress bar polls getYouTubeSyncStatus() every 3s (refetchInterval:isSyncing?3000:false). GET /api/youtube/sync/status returns {is_running,videos_synced,videos_total,error,last_run} \u2014 all 5 fields used in UI. Last sync via timeAgo(). Error section renders when syncStatus?.error. TypeScript type YouTubeSyncStatus at api.ts:466-472 matches endpoint exactly. tsc --noEmit: 0 errors. npm run build: clean. No bloat: commit c817327 is 1 app file change.",
+          "description": "Added YouTube Metrics section to autopilot page with Sync Now button (POST /api/youtube/sync), progress bar with videos_synced/videos_total while running (polls GET /api/youtube/sync/status every 3s), last sync time via timeAgo(), synced count, and error display. No new API calls needed \u2014 used existing syncYouTubeMetrics() and getYouTubeSyncStatus() from api.ts.",
           "files": [
             "frontend/src/app/autopilot/page.tsx"
           ]
@@ -1292,8 +1292,8 @@
           "assigned_to": "qa-engineer",
           "verified_at": "2026-04-03T08:30:00Z",
           "verified_by": "qa-engineer",
-          "verification_notes": "PASS. All 7 checklist items verified. (1) YouTube Metrics section present at page.tsx line 812 with heading, last sync time (timeAgo), synced count. (2) Sync Now button calls syncYouTubeMetrics() -> POST /api/youtube/sync -> returns {status:started,message:...}. (3) Progress bar: refetchInterval:isSyncing?3000:false polls GET /api/youtube/sync/status while running, videos_synced/videos_total displayed. (4) Error display: syncStatus?.error conditional at line 884 shows red error section. (5) GET /api/youtube/sync/status returns {is_running:false,videos_synced:0,videos_total:0,error:null,last_run:null} — all 5 fields match YouTubeSyncStatus interface at api.ts:466-472 exactly. (6) tsc --noEmit: 0 errors. (7) Console errors: auth redirect to /login expected (by design per qa-engineer memory). Code path fully verified.",
-          "description": "Verify T13-003 YouTube Sync section on autopilot page: (1) YouTube Metrics section renders with last sync time via timeAgo() and synced count. (2) Sync Now button calls POST /api/youtube/sync — curl to confirm endpoint exists and returns a running status. (3) Progress bar appears while syncing: polls GET /api/youtube/sync/status every 3s showing videos_synced/videos_total. (4) Error display shown when sync fails. (5) All values come from real API — curl GET /api/youtube/sync/status to confirm response shape matches what UI expects. (6) tsc --noEmit passes clean. (7) No console errors.",
+          "verification_notes": "PASS. All 7 checklist items verified. (1) YouTube Metrics section present at page.tsx line 812 with heading, last sync time (timeAgo), synced count. (2) Sync Now button calls syncYouTubeMetrics() -> POST /api/youtube/sync -> returns {status:started,message:...}. (3) Progress bar: refetchInterval:isSyncing?3000:false polls GET /api/youtube/sync/status while running, videos_synced/videos_total displayed. (4) Error display: syncStatus?.error conditional at line 884 shows red error section. (5) GET /api/youtube/sync/status returns {is_running:false,videos_synced:0,videos_total:0,error:null,last_run:null} \u2014 all 5 fields match YouTubeSyncStatus interface at api.ts:466-472 exactly. (6) tsc --noEmit: 0 errors. (7) Console errors: auth redirect to /login expected (by design per qa-engineer memory). Code path fully verified.",
+          "description": "Verify T13-003 YouTube Sync section on autopilot page: (1) YouTube Metrics section renders with last sync time via timeAgo() and synced count. (2) Sync Now button calls POST /api/youtube/sync \u2014 curl to confirm endpoint exists and returns a running status. (3) Progress bar appears while syncing: polls GET /api/youtube/sync/status every 3s showing videos_synced/videos_total. (4) Error display shown when sync fails. (5) All values come from real API \u2014 curl GET /api/youtube/sync/status to confirm response shape matches what UI expects. (6) tsc --noEmit passes clean. (7) No console errors.",
           "files": [
             "frontend/src/app/autopilot/page.tsx"
           ]
@@ -1302,12 +1302,15 @@
           "id": "T13-012",
           "title": "QA verify background task status panel (T13-004)",
           "role": "qa",
-          "status": "pending",
+          "status": "blocked",
           "depends_on": "T13-004",
           "description": "Verify T13-004 background task panel on autopilot page: (1) Panel shows 4 tasks (scrape, youtube_sync, learning_extraction, title_analysis) from GET /api/autopilot/tasks with last_run timestamps, status indicators, and next_run estimates. (2) curl GET /api/autopilot/tasks to verify all 4 tasks are returned with last_run/is_running/last_error fields. (3) tsc --noEmit passes clean. (4) No console errors.",
           "files": [
             "frontend/src/app/autopilot/page.tsx"
-          ]
+          ],
+          "error_note": "Blocked pending T13-004 frontend build. Pre-validation complete: GET /api/autopilot/tasks returns {scrape,youtube_sync,learning_extraction,title_analysis} all with {last_run,is_running,last_error} \u2014 backend correct. Autopilot page existing sections all verified passing (T13-001/003/008) with 0 console errors. Handoff posted to frontend-dev 2026-04-03T08:45:00Z.",
+          "started_at": "2026-04-03T08:40:00Z",
+          "assigned_to": "qa-engineer"
         }
       ]
     },

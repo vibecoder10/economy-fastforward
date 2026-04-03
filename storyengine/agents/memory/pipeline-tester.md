@@ -20,3 +20,4 @@
 - Ports 3001/3002 serve pre-built Next.js; if the build is stale (code committed after last build), test on a dev server (npm run dev -- --port 3003) to get the current code.
 - Auth intercept pattern: context.add_init_script sets localStorage token + route handler intercepts /api/auth/me to return FAKE_USER dict — this reliably bypasses AuthProvider redirect without needing a valid JWT.
 - AuthProvider skips getMe() when token==='dev-token' (stays null, redirects to login) — use window.fetch patch to fake /api/auth/me response in JS-only Playwright tests, or use a real JWT from POST /api/auth/register.
+- T13-012 pre-validation: API proxy with real JWT on port 3003 is the reliable way to test React pages — localStorage.setItem in addInitScript + route.fulfill for all /api/** calls bypasses CORS and auth redirect.
