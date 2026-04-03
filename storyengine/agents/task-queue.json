@@ -2,7 +2,7 @@
   "version": 2,
   "current_tab": 13,
   "last_updated": "2026-04-03",
-  "last_updated_by": "frontend-dev",
+  "last_updated_by": "qa-engineer",
   "tabs": [
     {
       "id": 1,
@@ -963,9 +963,13 @@
           "title": "Display last_cycle timestamp and next production countdown",
           "role": "frontend",
           "status": "done",
+          "verified": true,
           "started_at": "2026-04-03T17:02:00Z",
           "completed_at": "2026-04-03T17:06:00Z",
           "assigned_to": "frontend-dev",
+          "verified_at": "2026-04-03T00:30:00Z",
+          "verified_by": "qa-engineer",
+          "verification_notes": "PASS. Code: timeAgo imported from utils.ts, Production Cycle Status section added at autopilot/page.tsx. Condition (state.last_cycle || state.days_until_next > 0) — backend returns days_until_next:2 so section renders. Last cycle shows via timeAgo(state.last_cycle), Next production shows 'in 2 days' in turquoise, next_production_date formatted as 'Apr 05'. AutopilotState type in api.ts:815-819 has all 3 fields (last_cycle, days_until_next, next_production_date). tsc --noEmit: 0 errors. Diff clean: 2 files (page.tsx + queue), 32 lines. No bloat.",
           "description": "Added production cycle status line below header showing 'Last cycle: Xh ago' via timeAgo() and 'Next production: in N days' with turquoise highlight. Also shows next_production_date formatted as 'Mon DD'. Only renders when data exists.",
           "files": [
             "frontend/src/app/autopilot/page.tsx"
@@ -975,8 +979,15 @@
           "id": "T13-010",
           "title": "QA verify last_cycle and next production countdown display",
           "role": "qa",
-          "status": "pending",
+          "status": "done",
+          "verified": true,
           "depends_on": "T13-001",
+          "started_at": "2026-04-03T00:20:00Z",
+          "completed_at": "2026-04-03T00:30:00Z",
+          "assigned_to": "qa-engineer",
+          "verified_at": "2026-04-03T00:30:00Z",
+          "verified_by": "qa-engineer",
+          "verification_notes": "PASS — see T13-001 verification_notes for full details."
           "description": "Verify T13-001 implementation: (1) Autopilot page shows 'Last cycle: Xh ago' text using timeAgo() when last_cycle is present in API response. (2) 'Next production: in N days' line renders with turquoise highlight when days_until_next is present. (3) next_production_date displays as formatted date (e.g. 'Mon DD'). (4) Section does NOT render when data is absent (null/undefined guard). (5) Values come from GET /api/autopilot/summary — curl to verify last_cycle and days_until_next fields are returned. (6) tsc --noEmit passes clean. (7) No console errors.",
           "files": [
             "frontend/src/app/autopilot/page.tsx"
@@ -1050,9 +1061,13 @@
           "title": "BUG: ConfigUpdate model missing weights/thresholds — T13-002 blocked",
           "role": "backend",
           "status": "done",
+          "verified": true,
           "started_at": "2026-04-03T02:00:01Z",
           "completed_at": "2026-04-03T02:05:00Z",
           "assigned_to": "backend-dev",
+          "verified_at": "2026-04-03T00:35:00Z",
+          "verified_by": "qa-engineer",
+          "verification_notes": "PASS. autopilot.py:394-395: weights/thresholds Optional[dict] in ConfigUpdate. UPDATE path lines 438-448 adds JSONB params for both. INSERT path lines 456-468 handles both columns. schema.sql lines 466-467 confirm JSONB columns exist. Test: POST {weights:{competitor_vph:0.77}} → summary shows 0.77 ✅. POST {thresholds:{min_confidence_score:65}} → returns 65 ✅. Persists across requests. Reset to defaults confirmed. Commit 72c5e48 diff: 2 files, 30 lines, no bloat. T13-008 unblocked.",
           "description": "Pipeline Tester found: POST /api/autopilot/config (autopilot.py line 389, ConfigUpdate model) only accepts videos_per_month, production_interval_days, videos_per_scrape — it does NOT accept weights dict or thresholds dict. T13-002 spec says 'Backend POST /api/autopilot/config accepts weights (competitor_vph, timing_freshness) and thresholds (min_confidence_score, etc.)'. Also the autopilot_config DB table likely has no weights/thresholds columns. Fix: (1) Add weights: Optional[dict] and thresholds: Optional[dict] to ConfigUpdate model. (2) Add JSONB columns to autopilot_config table if not present. (3) Update the SQL UPDATE/INSERT in update_config() to persist weights and thresholds. Also update frontend api.ts:292 updateAutopilotConfig to include weights and thresholds in the type.",
           "files": [
             "backend/routes/autopilot.py",
@@ -1080,6 +1095,16 @@
           "description": "Verify T13-008 implementation: (1) Autopilot page shows input controls for all 6 weights and 5 thresholds. (2) Editing a weight value and saving calls POST /api/autopilot/config with {weights: {...}, thresholds: {...}}. (3) GET /api/autopilot/summary after save returns updated values. (4) Values persist across page reload. (5) tsc --noEmit passes clean. (6) No console errors.",
           "files": [
             "frontend/src/app/autopilot/page.tsx"
+          ]
+        },
+        {
+          "id": "BUG-T13-STRIPE",
+          "title": "BUG: stripe module not in requirements.txt — backend crashes on fresh deploy",
+          "role": "backend",
+          "status": "pending",
+          "description": "QA found: billing.py imports stripe at top level but stripe is not listed in storyengine/backend/requirements.txt. Backend crashes with ModuleNotFoundError on startup if stripe is not installed. Manually installed with pip to unblock QA session. Fix: add 'stripe' to requirements.txt. Run: pip install stripe && pip freeze | grep stripe >> requirements.txt (or add manually: stripe==15.0.1 or just stripe>=10.0.0). This is a deployment blocker — any fresh install or CI/CD run will fail.",
+          "files": [
+            "backend/requirements.txt"
           ]
         }
       ]
