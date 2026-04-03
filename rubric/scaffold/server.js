@@ -727,6 +727,50 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // POST /api/controls/team-toggle — master ON/OFF for entire team
+  if (pathname === '/api/controls/team-toggle' && req.method === 'POST') {
+    const body = JSON.parse(await readBody(req));
+    const controlsFile = path.join(DATA_DIR, 'controls.json');
+    let controls = { team_enabled: true, paused_agents: [], skipped_tasks: [], priority_overrides: {} };
+    try { controls = JSON.parse(fs.readFileSync(controlsFile, 'utf8')); } catch {}
+    controls.team_enabled = body.enabled !== undefined ? !!body.enabled : !controls.team_enabled;
+    fs.writeFileSync(controlsFile, JSON.stringify(controls, null, 2));
+    sendJSON(res, { success: true, team_enabled: controls.team_enabled });
+    return;
+  }
+
+  // GET /api/team-mode — computed team mode (OFF, Ad-hoc, PRD, Background)
+  if (pathname === '/api/team-mode' && req.method === 'GET') {
+    const controlsFile = path.join(DATA_DIR, 'controls.json');
+    let controls = { team_enabled: true };
+    try { controls = JSON.parse(fs.readFileSync(controlsFile, 'utf8')); } catch {}
+    if (controls.team_enabled === false) {
+      sendJSON(res, { mode: 'off', label: 'OFF', description: 'All agents stopped' });
+      return;
+    }
+    // Check PRD
+    const prdPath = path.join(__dirname, '../../agents/prd.json');
+    let hasPRD = false;
+    try { hasPRD = fs.existsSync(prdPath) && JSON.parse(fs.readFileSync(prdPath, 'utf8')).tasks?.length > 0; } catch {}
+    if (hasPRD) {
+      sendJSON(res, { mode: 'prd', label: 'PRD Mode', description: 'Executing PRD tasks' });
+      return;
+    }
+    // Check task queue
+    const queueFile = path.join(__dirname, '../../storyengine/agents/task-queue.json');
+    let pendingTasks = 0;
+    try {
+      const q = JSON.parse(fs.readFileSync(queueFile, 'utf8'));
+      pendingTasks = (q.tabs || []).flatMap(t => t.tasks || []).filter(t => t.status !== 'done' && t.status !== 'blocked').length;
+    } catch {}
+    if (pendingTasks > 0) {
+      sendJSON(res, { mode: 'background', label: 'Background', description: pendingTasks + ' tasks in queue' });
+      return;
+    }
+    sendJSON(res, { mode: 'adhoc', label: 'Ad-hoc', description: 'Responding to messages & errors' });
+    return;
+  }
+
   // POST /api/controls/pause — toggle agent pause
   if (pathname === '/api/controls/pause' && req.method === 'POST') {
     const body = JSON.parse(await readBody(req));
@@ -837,6 +881,15 @@ const server = http.createServer(async (req, res) => {
     let queue = [];
     try { queue = JSON.parse(fs.readFileSync(queueFile, 'utf8')); } catch {}
     sendJSON(res, queue);
+    return;
+  }
+
+  // DELETE /api/task-queue — clear all tasks
+  if (pathname === '/api/task-queue' && req.method === 'DELETE') {
+    const queueFile = path.join(__dirname, '../../storyengine/agents/task-queue.json');
+    const emptyQueue = { version: 2, current_tab: 0, last_updated: new Date().toISOString().slice(0, 10), last_updated_by: 'operator', tabs: [] };
+    fs.writeFileSync(queueFile, JSON.stringify(emptyQueue, null, 2));
+    sendJSON(res, { success: true });
     return;
   }
 
@@ -1061,12 +1114,28 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // DELETE /api/mission — clear current mission
+  // DELETE /api/mission — clear current mission + focus directive + user-browser errors
   if (pathname === '/api/mission' && req.method === 'DELETE') {
     const agentsDir = path.join(__dirname, '../../agents');
     for (const f of ['prd.json', 'prd.md', 'progress.md']) {
       try { fs.unlinkSync(path.join(agentsDir, f)); } catch {}
     }
+    // Also clear focus directive (PRD sets focus on deploy, so clear on mission clear)
+    const controlsFile = path.join(DATA_DIR, 'controls.json');
+    try {
+      const controls = JSON.parse(fs.readFileSync(controlsFile, 'utf8'));
+      delete controls.focus;
+      fs.writeFileSync(controlsFile, JSON.stringify(controls, null, 2));
+    } catch {}
+    // Clear user-browser errors from activity log
+    const activityFile = path.join(DATA_DIR, 'activity-log.json');
+    try {
+      const logs = JSON.parse(fs.readFileSync(activityFile, 'utf8'));
+      const filtered = logs.filter(e => !(e.agent === 'user-browser' && e.status === 'error'));
+      fs.writeFileSync(activityFile, JSON.stringify(filtered, null, 2));
+    } catch {}
+    // Clear error tracker
+    try { fs.unlinkSync('/tmp/prd-watcher-errors-seen.txt'); } catch {}
     sendJSON(res, { success: true });
     return;
   }

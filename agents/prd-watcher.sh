@@ -24,6 +24,21 @@ fi
 echo $$ > "$LOCK_FILE"
 trap "rm -f $LOCK_FILE" EXIT
 
+# ─── Master Kill Switch ──────────────────────────────────────────────────
+CONTROLS_FILE="$PROJECT_ROOT/rubric/scaffold/data/controls.json"
+if [ -f "$CONTROLS_FILE" ]; then
+  TEAM_ENABLED=$(python3 -c "
+import json
+try:
+    data = json.load(open('$CONTROLS_FILE'))
+    print('true' if data.get('team_enabled', True) else 'false')
+except: print('true')
+" 2>/dev/null || echo "true")
+  if [ "$TEAM_ENABLED" = "false" ]; then
+    exit 0
+  fi
+fi
+
 spawn_agent() {
   local AGENT="$1"
   local REASON="$2"

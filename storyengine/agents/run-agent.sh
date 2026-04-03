@@ -54,8 +54,26 @@ AGENT_DISPLAY=$(echo "$AGENT" | sed 's/-/ /g' | sed 's/\b./\U&/g' 2>/dev/null ||
 
 cd "$PROJECT_ROOT"
 
-# ─── Pause Check ────────────────────────────────────────────────────────────
+# ─── Master Kill Switch ────────────────────────────────────────────────────
 CONTROLS_FILE="$PROJECT_ROOT/rubric/scaffold/data/controls.json"
+if [ -f "$CONTROLS_FILE" ]; then
+  TEAM_ENABLED=$(python3 -c "
+import json
+try:
+    data = json.load(open('$CONTROLS_FILE'))
+    print('true' if data.get('team_enabled', True) else 'false')
+except: print('true')
+" 2>/dev/null || echo "true")
+
+  if [ "$TEAM_ENABLED" = "false" ]; then
+    curl -s -X POST "$RUBRIC_URL/api/agent-status" \
+      -H "Content-Type: application/json" \
+      -d "{\"agent\": \"$AGENT\", \"status\": \"idle\", \"task\": \"Team OFF — standing by\"}" 2>/dev/null || true
+    exit 0
+  fi
+fi
+
+# ─── Pause Check ────────────────────────────────────────────────────────────
 if [ -f "$CONTROLS_FILE" ]; then
   IS_PAUSED=$(python3 -c "
 import json
