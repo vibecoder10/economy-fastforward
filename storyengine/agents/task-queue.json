@@ -2083,7 +2083,10 @@
           "id": "T23-002",
           "title": "Create /calendar page with monthly grid view",
           "role": "frontend",
-          "status": "pending",
+          "status": "done",
+          "started_at": "2026-04-03T22:02:00Z",
+          "completed_at": "2026-04-03T22:08:00Z",
+          "assigned_to": "frontend-dev",
           "depends_on": "T23-001",
           "description": "Create frontend/src/app/calendar/page.tsx. Monthly calendar grid: 7-column grid (Sun-Sat), show current month, prev/next navigation. Each day cell renders video chips from GET /api/calendar?start=MONTH_START&end=MONTH_END. Video chip shows: status color dot + truncated title, click navigates to /pipeline/[id]. Status colors match STATUS_COLOR from pipeline page constants (idea_logged=gray, ready_for_scripting=amber, done=green, etc.). Empty day cells are plain. Loading skeleton while fetching. Add getCalendarVideos(start, end) to api.ts. Add Calendar to sidebar nav (CalendarDays icon, /calendar href) between Analytics and Settings. Also add to bottom-tabs.tsx More menu.",
           "files": [

@@ -76,6 +76,18 @@ export const getMe = () => fetchApi<AuthUser>("/api/auth/me");
 // Dashboard
 export const getDashboardSummary = () => fetchApi<DashboardSummary>("/api/dashboard/summary");
 
+// Calendar
+export type CalendarVideo = {
+  id: string;
+  video_title: string | null;
+  status: string | null;
+  thumbnail_url: string | null;
+  accent_color: string | null;
+};
+
+export const getCalendarVideos = (start: string, end: string) =>
+  fetchApi<Record<string, CalendarVideo[]>>(`/api/dashboard/calendar?start=${start}&end=${end}`);
+
 // Videos
 export const getVideos = (status?: string) =>
   fetchApi<VideoSummary[]>(`/api/videos${status ? `?status=${status}` : ""}`);

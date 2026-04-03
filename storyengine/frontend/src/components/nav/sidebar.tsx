@@ -18,6 +18,7 @@ import {
   Lightbulb,
   Brain,
   CheckSquare,
+  CalendarDays,
   PanelLeftClose,
   PanelLeft,
   Menu,
@@ -35,6 +36,7 @@ const navItems = [
   { href: "/learnings", icon: Brain, label: "Learnings" },
   { href: "/profile", icon: Palette, label: "Visual Profile" },
   { href: "/analytics", icon: BarChart3, label: "Analytics" },
+  { href: "/calendar", icon: CalendarDays, label: "Calendar" },
   { href: "/settings", icon: Settings, label: "Settings" },
   { href: "/settings/keys", icon: Key, label: "API Keys" },
 ];
