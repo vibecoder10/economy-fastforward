@@ -65,6 +65,7 @@ class VideoDetail(VideoSummary):
     video_model: Optional[str] = None
     video_length_minutes: Optional[float] = None
     youtube_url: Optional[str] = None
+    final_video_url: Optional[str] = None
     avg_retention: Optional[float] = None
     impressions: int = 0
     likes: int = 0

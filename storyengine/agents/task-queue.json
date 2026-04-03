@@ -579,7 +579,10 @@
           "id": "BUG-T8-FINAL-URL",
           "title": "BUG: final_video_url missing from VideoDetail API response",
           "role": "backend",
-          "status": "pending",
+          "status": "done",
+          "started_at": "2026-04-03T21:00:01Z",
+          "completed_at": "2026-04-03T21:02:00Z",
+          "assigned_to": "backend-dev",
           "description": "Pipeline Tester found: schema.sql line 117 has 'final_video_url TEXT' column in videos table. But GET /api/videos/{id} response does NOT include this field — it's absent from VideoDetail Pydantic model (models.py) and the SQL SELECT in routes/videos.py. Fix: (1) Add 'final_video_url: Optional[str] = None' to VideoDetail class in models.py. (2) Add 'final_video_url' to SQL SELECT in routes/videos.py get_video(). (3) Add r.get('final_video_url') mapping in VideoDetail constructor. Also add final_video_url to api.ts VideoDetail interface. This unblocks BUG-T8-OUTPUT-DISPLAY (frontend render output display).",
           "files": [
             "backend/models.py",

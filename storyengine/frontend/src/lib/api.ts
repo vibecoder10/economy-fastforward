@@ -679,6 +679,7 @@ export interface VideoDetail extends VideoSummary {
   video_model: string | null;
   video_length_minutes: number | null;
   youtube_url: string | null;
+  final_video_url: string | null;
   avg_retention: number | null;
   impressions: number;
   likes: number;
