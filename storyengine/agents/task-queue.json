@@ -2,7 +2,7 @@
   "version": 2,
   "current_tab": 13,
   "last_updated": "2026-04-03",
-  "last_updated_by": "orchestrator",
+  "last_updated_by": "frontend-dev",
   "tabs": [
     {
       "id": 1,
@@ -1097,9 +1097,23 @@
           "id": "T13-009",
           "title": "QA verify weights/thresholds editing saves and persists",
           "role": "qa",
-          "status": "pending",
+          "status": "done",
           "depends_on": "T13-008",
+          "started_at": "2026-04-03T00:32:00Z",
+          "completed_at": "2026-04-03T00:40:00Z",
+          "assigned_to": "frontend-dev",
           "description": "Verify T13-008 implementation: (1) Autopilot page shows input controls for all 6 weights and 5 thresholds. (2) Editing a weight value and saving calls POST /api/autopilot/config with {weights: {...}, thresholds: {...}}. (3) GET /api/autopilot/summary after save returns updated values. (4) Values persist across page reload. (5) tsc --noEmit passes clean. (6) No console errors.",
+          "files": [
+            "frontend/src/app/autopilot/page.tsx"
+          ]
+        },
+        {
+          "id": "T13-011",
+          "title": "QA verify weights/thresholds sliders: save, persist, no console errors",
+          "role": "qa",
+          "status": "pending",
+          "depends_on": "T13-009",
+          "description": "Verify T13-009 frontend implementation: (1) Autopilot page shows sliders/inputs for all 6 weight fields (competitor_vph, topic_channel_fit, timing_freshness, channel_momentum, retention_patterns, title_formula) and 5 threshold fields (min_confidence_score, min_competitor_vph, max_idea_age_days, ctr_success_threshold, ctr_failure_threshold). (2) Current values load from GET /api/autopilot/summary (config.weights / config.thresholds). (3) Changing a value and saving calls POST /api/autopilot/config with {weights: {...}, thresholds: {...}}. (4) GET /api/autopilot/summary after save returns updated values. (5) Values persist across page reload. (6) tsc --noEmit passes clean. (7) No console errors.",
           "files": [
             "frontend/src/app/autopilot/page.tsx"
           ]
