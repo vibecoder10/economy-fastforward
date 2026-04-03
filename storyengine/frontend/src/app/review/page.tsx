@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getPendingReview, approveAsset, rejectAsset, advanceVideo, type ReviewItem } from "@/lib/api";
+import { getPendingReview, approveAsset, rejectAsset, advanceVideo, approveStoryboard, rejectStoryboard, type ReviewItem } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { FileText, Image, Palette, LayoutGrid, ChevronRight, Check, X } from "lucide-react";
 
@@ -31,6 +31,16 @@ export default function ReviewPage() {
 
   const advanceMutation = useMutation({
     mutationFn: (id: string) => advanceVideo(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["pending-review"] }),
+  });
+
+  const approveStoryboardMutation = useMutation({
+    mutationFn: (scriptId: string) => approveStoryboard(scriptId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["pending-review"] }),
+  });
+
+  const rejectStoryboardMutation = useMutation({
+    mutationFn: (scriptId: string) => rejectStoryboard(scriptId),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["pending-review"] }),
   });
 
@@ -194,15 +204,18 @@ export default function ReviewPage() {
               </div>
               <div className="mt-3 flex gap-2">
                 <button
-                  onClick={() => item.video_id && advanceMutation.mutate(item.video_id)}
-                  className="flex-1 rounded-lg bg-[var(--success)]/20 py-2 text-sm font-medium text-[var(--success)]"
+                  onClick={() => item.script_id && approveStoryboardMutation.mutate(item.script_id)}
+                  disabled={approveStoryboardMutation.isPending}
+                  className="flex-1 rounded-lg bg-[var(--success)]/20 py-2 text-sm font-medium text-[var(--success)] disabled:opacity-50"
                 >
-                  Approve
+                  {approveStoryboardMutation.isPending ? "Approving..." : "Approve"}
                 </button>
                 <button
-                  className="flex-1 rounded-lg bg-[var(--error)]/20 py-2 text-sm font-medium text-[var(--error)]"
+                  onClick={() => item.script_id && rejectStoryboardMutation.mutate(item.script_id)}
+                  disabled={rejectStoryboardMutation.isPending}
+                  className="flex-1 rounded-lg bg-[var(--error)]/20 py-2 text-sm font-medium text-[var(--error)] disabled:opacity-50"
                 >
-                  Reject
+                  {rejectStoryboardMutation.isPending ? "Rejecting..." : "Reject"}
                 </button>
               </div>
             </div>

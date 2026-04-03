@@ -162,6 +162,39 @@ export const batchApproveAssets = (assetIds: string[], status: "approved" | "rej
 // Review
 export const getPendingReview = () => fetchApi<PendingReview>("/api/review/pending");
 
+export const approveStoryboard = (scriptId: string) =>
+  fetchApi<{ status: string; script_id: string }>(`/api/review/storyboard/${scriptId}/approve`, {
+    method: "POST",
+  });
+
+export const rejectStoryboard = (scriptId: string, reason?: string) =>
+  fetchApi<{ status: string; script_id: string }>(`/api/review/storyboard/${scriptId}/reject`, {
+    method: "POST",
+    body: JSON.stringify({ reason }),
+  });
+
+export const bulkApproveStoryboards = (scriptIds: string[]) =>
+  fetchApi<{ status: string; approved_count: number; script_ids: string[] }>(
+    "/api/review/storyboard/approve-all",
+    { method: "POST", body: JSON.stringify({ script_ids: scriptIds }) }
+  );
+
+export const deleteVideo = (id: string) =>
+  fetchApi<{ status: string; video_id: string }>(`/api/videos/${id}`, { method: "DELETE" });
+
+export const generateVideoPrompts = (videoId: string) =>
+  fetchApi<PipelineResponse>(`/api/pipeline/generate-video-prompts/${videoId}`, { method: "POST" });
+
+// User Preferences
+export const getUserPreferences = () =>
+  fetchApi<Record<string, unknown>>("/api/user/preferences");
+
+export const setUserPreference = (key: string, value: unknown) =>
+  fetchApi<{ status: string; key: string }>(`/api/user/preferences/${key}`, {
+    method: "PUT",
+    body: JSON.stringify({ value }),
+  });
+
 // Activity
 export const getActivity = (status?: string) =>
   fetchApi<ActivityEntry[]>(`/api/activity${status ? `?status=${status}` : ""}`);
