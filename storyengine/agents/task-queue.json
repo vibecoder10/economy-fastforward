@@ -2196,9 +2196,12 @@
           "id": "T24-002",
           "title": "Create /onboarding wizard page (3-step flow)",
           "role": "frontend",
-          "status": "pending",
+          "status": "done",
           "depends_on": "T24-001",
-          "description": "Create frontend/src/app/onboarding/page.tsx as a multi-step wizard. Steps: (1) Channel Identity \u2014 form fields: channel_name (required), niche (required), target_audience (optional). Save button calls PUT /api/channel-profile. (2) API Keys \u2014 show Anthropic API key input (required, call POST /api/settings/keys/anthropic_api_key then POST .../test). ElevenLabs + Kie.ai as optional 'Add' buttons. Test button shows green checkmark on success, red X on failure. (3) Done! \u2014 large checkmark, 'Your studio is ready' message, 'Start Creating' button navigates to /dashboard. Progress bar at top: 3 circles with connecting line (active=amber, done=teal). 'Skip for now' link below each step navigates to next step without saving. No sidebar (full-screen wizard). No auth redirect (add /onboarding to public paths in AuthenticatedShell). Use existing fetchApi from api.ts.",
+          "started_at": "2026-04-03T07:02:00Z",
+          "completed_at": "2026-04-03T07:08:00Z",
+          "assigned_to": "frontend-dev",
+          "description": "Created /onboarding page with 3-step wizard: (1) Channel Identity — channel_name, niche (required), target_audience (optional), saves via PUT /api/channel-profile. (2) API Keys — Anthropic key input with Save & Test button (POST /api/settings/keys/anthropic_api_key then POST .../test), shows green/red result. (3) Done — checkmark, 'Your Studio is Ready', 'Start Creating' navigates to /dashboard. Progress bar: 3 circles (done=teal, active=amber) with connecting lines. Skip for now on each step. Skip setup link at bottom of all steps. Added /onboarding to PUBLIC_PATHS in AuthenticatedShell (no sidebar, full-screen wizard).",
           "files": [
             "frontend/src/app/onboarding/page.tsx",
             "frontend/src/components/auth/AuthenticatedShell.tsx"
