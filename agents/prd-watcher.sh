@@ -11,7 +11,7 @@ PRD_FILE="$PROJECT_ROOT/agents/prd.json"
 PROGRESS_FILE="$PROJECT_ROOT/agents/progress.md"
 AGENTS_DIR="$PROJECT_ROOT/storyengine/agents"
 ACTIVITY_LOG="$PROJECT_ROOT/rubric/scaffold/data/activity-log.json"
-CLAUDE_BIN="${CLAUDE_BIN:-/home/clawd/.npm-global/bin/claude}"
+CLAUDE_BIN="${CLAUDE_BIN:-$(command -v claude 2>/dev/null || echo "$HOME/.npm-global/bin/claude")}"
 LOCK_FILE="/tmp/prd-watcher.lock"
 ERROR_TRACK="/tmp/prd-watcher-errors-seen.txt"
 

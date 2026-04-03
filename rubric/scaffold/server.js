@@ -21,7 +21,7 @@ if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 // Resolve Claude CLI path (npm global bin may not be in non-interactive PATH)
 const CLAUDE_BIN = process.env.CLAUDE_BIN || (() => {
   const candidates = [
-    path.join(process.env.HOME || '/home/clawd', '.npm-global/bin/claude'),
+    path.join(process.env.HOME || require('os').homedir(), '.npm-global/bin/claude'),
     '/usr/local/bin/claude',
     'claude'
   ];
@@ -1141,7 +1141,7 @@ RULES:
     const scriptPath = path.resolve(__dirname, '../../agents/generate-prd.sh');
     exec(`CLAUDE_BIN="${CLAUDE_BIN}" bash "${scriptPath}" "${promptFile}" "${resultFile}"`, {
       timeout: 600000, maxBuffer: 5 * 1024 * 1024,
-      env: { ...process.env, HOME: process.env.HOME || '/home/clawd', PATH: `${process.env.PATH}:/home/clawd/.npm-global/bin` }
+      env: { ...process.env, HOME: process.env.HOME || require('os').homedir(), PATH: `${process.env.PATH}:${path.join(process.env.HOME || require('os').homedir(), '.npm-global/bin')}` }
     }, (err) => {
       try { fs.unlinkSync(promptFile); } catch {}
       if (err && !fs.existsSync(resultFile)) {

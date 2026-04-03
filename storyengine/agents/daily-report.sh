@@ -3,7 +3,8 @@
 # Runs at 11 PM, generates a plain-English summary + opens a PR for the day's work.
 # Output: storyengine/agents/reports/YYYY-MM-DD.md + GitHub PR
 
-PROJECT_ROOT="${AGENT_PROJECT_ROOT:-/Users/ryanayler/economy-fastforward}"
+SCRIPT_DIR_DR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_ROOT="${AGENT_PROJECT_ROOT:-${SCRIPT_DIR_DR}/../..}"
 AGENTS_DIR="$PROJECT_ROOT/storyengine/agents"
 REPORTS_DIR="$AGENTS_DIR/reports"
 RUBRIC_URL="http://localhost:5050"
