@@ -11,9 +11,8 @@
 - Always proxy /api/** routes with route.fulfill() + Python urllib to bypass CORS (localhost:3002 not in backend CORS allowlist). Combine with storage_state for auth.
 - storyboard_status values replace underscore with space in UI: 'grids_generated' shows as 'grids generated', search page_text with spaces not underscores.
 - Supabase pooler gets circuit breaker after bad auth attempts — use direct DB URL (db.PROJECT.supabase.co:5432) not pooler (pooler.supabase.com) to avoid this.
-- email/password register endpoint broken (FK violation memberships->users) — BUG-AUTH-001 filed (now FIXED in commit 4cc9dec).
-- Autopilot ConfigUpdate model (autopilot.py) only accepts videos_per_month/videos_per_scrape — does NOT accept weights/thresholds. T13-002 backend bug filed.
-- Autopilot page T13-001: 'Last cycle' text only shows when state.last_cycle is non-null; 'Next production: in N days' shows when days_until_next > 0. Both are correct null-handling behavior.
+- REG6 sweep pattern: context.add_init_script for localStorage token + context.route("**/api/**") for auth/me intercept + route.fetch() proxy. Dashboard stat labels are UPPERCASE ("TOTAL VIDEOS" not "Videos This Month") due to CSS transforms — always check with .lower() matching.
+- Mobile viewport (375x812) has horizontal overflow on /dashboard (428px) and /pipeline (477px) — filed as BUG-PT-MOBILE-OVERFLOW. Bottom tabs render correctly.
 - Auth in Playwright (port 3001/3002 pre-built): add_init_script sets localStorage reliably before page loads. storage_state also works. For port 3003 Turbopack dev server: NEITHER works — must navigate to /login first, then page.evaluate('localStorage.setItem(...)'), then navigate to target URL.
 - update_visual_report.py: when TASK_ID arg is passed, it filters by TASK_ID prefix so use the screenshot filename prefix (e.g. 'reg5') not a task ID like 'T10-005'. Run without args to upload ALL new files.
 - T17-005: Stripe endpoints return 'Stripe not configured' without STRIPE_SECRET_KEY — correct behavior, not a bug. Google OAuth returns 'Invalid Google token' without real client creds. Both are expected in dev.
