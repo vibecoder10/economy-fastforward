@@ -1,54 +1,135 @@
 # Task Tracking
 
-## Handoff — 2026-04-02
+## Handoff — 2026-04-03
 
-### What Was Built This Session
+### The Vision (Ryan's words — do not lose this)
 
-**Agent Team V4 (shipped + merged to main):**
-- Feedback box on RUBRIC dashboard (POST/GET/dismiss + injected into agent prompts)
-- Skill leveling (calculate-skills.sh, XP/levels on agent cards)
-- Daily retrospective (retro.sh, dashboard retro card, updates agent memory)
-- Telegram Channels integration (bot paired, running in tmux on VPS as Haiku)
+"I need a fully autonomous dev team that helps me build whatever I want. I want to be able to speak into Telegram or text into Telegram, detail out what I'm seeing, what's not working, and then that goes to the teams. They know exactly where to target, where to build, and they execute to fix everything in real time. They don't need to wait for the cron job. If I make a directive, they just get after it."
 
-**Agent Team V5 (on agent-dev, needs PR to main):**
-- Planning session script (planning-session.sh, 6 AM daily)
-- Morning briefing script (morning-briefing.sh, 7 AM Telegram digest)
-- Real-time Telegram notifications (completions, crashes in run-agent.sh)
-- Boss messaging (MESSAGE_BOSS in agent output → Telegram)
-- Proposals system (API + dashboard card + agent instructions)
-- notify-telegram.sh shared helper
+"The tester is the most important agent next to the orchestrator. If Claude is just building blindly, no wonder why I don't have a complete system. The tester must be the most expert. His eyes flow the problems down to the dev team to fix."
 
-**Email/Password Auth (on agent-dev, needs PR to main):**
-- Register + login endpoints (PBKDF2 hashing, no external deps)
-- Frontend login page with register/sign-in toggle
-- Logout button in sidebar
-- Ryan's account: ryan.ayler@gmail.com / testtest1
-- Data migrated to Ryan's tenant (33 videos, 569 assets, etc.)
-- Agent auth token saved at `storyengine/agents/memory/auth-token.md`
+"I want one line of communication — I send from Telegram, the bot messages the team with instructions that take top priority, all other work gets queued until the problem gets fixed."
 
-### What Needs to Be Done Next
+### What Was Built This Session (2026-04-02 → 2026-04-03)
 
-**Immediate (design work — humans design, agents execute):**
-1. Wire agent skills on Team page — read from actual project skills (superpowers, web-design-system, backend skills, etc.) not hardcoded placeholders
-2. Make agent .md files editable from RUBRIC dashboard — each agent card should have an "Edit Instructions" button that opens their .md file in a text editor
-3. Wire the Skill Trees tab to show real skills from the project
-4. Clean up Focus Directive vs Operator Feedback — either merge them or make the distinction clearer in the UI
+**Completed:**
+1. ✅ Real skills wired to Team page + Skill Trees (7 skills from `.claude/skills/`)
+2. ✅ Edit Instructions button on agent cards (reads/writes agent .md files via modal editor)
+3. ✅ Focus Directive vs Messages clarified (PERSISTENT vs ONE-TIME badges, visual distinction)
+4. ✅ V5 → main PR created (#337, 113 commits, ~10K lines)
+5. ✅ Fixed agent crashes (exit code 126) — prompt piped via stdin to avoid ARG_MAX
+6. ✅ Added turbo (96x/day) and ultra (180x/day) cadence levels
+7. ✅ Fixed cron Next Up showing wrong countdown for high-freq schedules
+8. ✅ Operator messages now override task queue (focus directive moved AFTER task queue in prompt)
+9. ✅ Telegram system prompt updated to ALWAYS set focus directive on operator messages
+10. ✅ VPS main branch synced to origin/main
+11. ✅ **Portable autonomous dev team template** (`agents/` directory):
+    - 5 roles: lead, backend, frontend, qa, security (`agents/roles/*.md`)
+    - `decompose.sh`: PRD → prd.json with machine-verifiable acceptance criteria
+    - `run-team.sh`: iterative agent loop (implement → test → commit → next)
+    - `verify.sh`: quality gates (tsc, tests, lint) as Claude Code Stop hook
+    - `TEAM.md`: project-level config (stack, commands, rules)
+    - PRD template + acceptance criteria writing guide
+12. ✅ **Command Center** (replaced Welcome tab):
+    - Mission Brief: textarea to paste PRD + "Deploy to Team" button
+    - Agent Proposals: approve/reject feature requests inline
+    - Team Status: agent dots + focus directive banner
+    - APIs: POST /api/deploy-prd, GET /api/mission-status, DELETE /api/mission
+13. ✅ Agent role .md files editable from RUBRIC Team tab (portable section with "Edit Instructions")
 
-**VPS State:**
-- RUBRIC: http://76.13.119.181:5050 (serving from main, but index.html cherry-picked from agent-dev)
+### What Needs to Be Done Next (PRIORITY ORDER)
+
+#### Priority 1: Wire "Deploy to Team" End-to-End
+The Command Center UI exists but clicking "Deploy to Team" does NOT spawn agents. It only writes files and waits for cron.
+
+**What needs to happen:**
+1. After `decompose.sh` finishes → set focus directive automatically ("PRD deployed: [title]")
+2. After focus directive set → immediately spawn agents via `run-team.sh` in background (not wait for cron)
+3. Stream agent status back to Command Center (poll `/api/mission-status`)
+4. When all tasks done → orchestrator clears focus directive, Command Center shows "Mission Complete"
+
+**Files:**
+- `rubric/scaffold/server.js` — `POST /api/deploy-prd` endpoint needs to chain: decompose → set focus → spawn agents
+- `agents/run-team.sh` — needs to work on VPS (currently `CLAUDE_BIN` may not be in PATH)
+- Need a new `POST /api/spawn-agent` endpoint that runs `run-team.sh <role>` in background
+
+#### Priority 2: Telegram Instant Execution (no cron wait)
+Ryan's single line of communication: text Telegram → agents execute immediately.
+
+**Current flow (broken):**
+1. Ryan texts Telegram → bot sets focus directive + sends feedback
+2. Agents only see it on next cron cycle (every 15 min)
+3. Agents may ignore it if orchestrator already assigned other tasks
+
+**Desired flow:**
+1. Ryan texts Telegram → bot sets focus directive
+2. Bot ALSO spawns agents immediately via `POST /api/spawn-agent` (or SSH to run `run-team.sh`)
+3. Agents start working within seconds, not 15 minutes
+4. Progress streams back to Telegram ("Backend Dev started... fixed endpoint... committed")
+
+**Implementation:**
+- Update `rubric/scaffold/telegram-system-prompt.md` — after setting focus, bot should call `/api/spawn-agent` for each relevant role
+- Add `POST /api/spawn-agent` to `rubric/scaffold/server.js` — runs `run-team.sh <role>` or `run-agent.sh <agent>` in background via `exec()`
+- The Telegram bot (running as Haiku in tmux `telegram-channel`) needs its system prompt updated
+- Consider: should Telegram bot use `run-team.sh` (new PRD system) or `run-agent.sh` (existing StoryEngine system)? Answer: depends on context. If it's a PRD → `run-team.sh`. If it's a bug fix on StoryEngine → `run-agent.sh` with focus override.
+
+#### Priority 3: Pipeline Tester / QA Agent Upgrade
+The Pipeline Tester is Level 1 Novice with 0 tasks done. Ryan says: "That guy must be the most expert person. His eyes flow the problems down to the dev team to fix."
+
+**Current problems:**
+- `pipeline-tester.md` runs quick Playwright scripts but doesn't do real click-throughs
+- QA Engineer (`qa-engineer.md`) does tsc checks but not browser testing
+- Neither agent actually opens the app and navigates like a user
+- Both are passive (wait for task queue) instead of proactive (find bugs autonomously)
+
+**What needs to change:**
+- Pipeline Tester should be the **primary bug-finder**: opens every page, clicks every button, files bugs
+- QA Engineer should be the **verifier**: after devs fix a bug, QA confirms the fix works
+- Both need aggressive Playwright instructions: start servers, navigate to every route, test forms, check console errors
+- Pipeline Tester's cron should run AFTER frontend-dev and backend-dev (currently at :10/:25/:40/:55 — good timing)
+- The tester needs to POST bugs as handoffs to the responsible agent with specific reproduction steps
+- Tester should be upgraded from Sonnet to Opus model (it's doing the hardest job)
+
+**Files to update:**
+- `storyengine/agents/pipeline-tester.md` — rewrite to be aggressive browser-first tester
+- `storyengine/agents/qa-engineer.md` — rewrite as verification-focused, not just tsc
+- `storyengine/agents/run-agent.sh` — pipeline-tester should use Opus (line 131: currently Sonnet)
+
+#### Priority 4: Bridge Old System ↔ New System
+Two agent systems exist now:
+1. `storyengine/agents/run-agent.sh` + `task-queue.json` (StoryEngine-specific, 95 tasks, cron-driven)
+2. `agents/run-team.sh` + `prd.json` (portable, PRD-driven, iterative loop)
+
+They need to coexist. When:
+- **No PRD deployed + no focus directive** → agents use `run-agent.sh` (current behavior, StoryEngine tasks)
+- **PRD deployed via Command Center** → agents use `run-team.sh` (new system)
+- **Focus directive from Telegram** → agents use `run-agent.sh` but in focus mode (override task queue)
+
+**Implementation:** The cron entries currently call `run-agent.sh`. Add a wrapper script `agents/dispatch.sh` that checks:
+1. Is there a `prd.json`? → run `run-team.sh <role>`
+2. Is there a focus directive? → run `run-agent.sh <agent>` (which already has focus override)
+3. Neither? → run `run-agent.sh <agent>` (normal task queue)
+
+### VPS State (2026-04-03)
+- RUBRIC: http://76.13.119.181:5050 (agent-dev, Command Center is landing page)
 - StoryEngine: http://76.13.119.181:3001 (frontend on agent-dev)
-- Backend: port 8001 (agent-dev, DATABASE_URL uses port 5432 direct connection)
-- Telegram: tmux session `telegram-channel` (Haiku, system prompt at `rubric/scaffold/telegram-system-prompt.md`)
-- Cadence: 48x/day (max), crons installed
-- VPS main branch was reset to origin/main — agents work on agent-dev only
+- Backend: port 8001 (agent-dev)
+- Telegram: tmux session `telegram-channel` (Haiku)
+- Cadence: **turbo 96x/day** (every 15 min), crons installed
+- Branch: agent-dev (VPS tracks origin/agent-dev)
 
 **Config locations (THE source of truth):**
-- `storyengine/.env` — DATABASE_URL, DEV_TENANT_ID, SESSION_SECRET, GOOGLE_CLIENT_ID (this is what backend loads, NOT backend/.env)
+- `storyengine/.env` — DATABASE_URL, DEV_TENANT_ID, SESSION_SECRET
 - `storyengine/frontend/.env.local` — NEXT_PUBLIC_GOOGLE_CLIENT_ID
 - `~/.claude/channels/telegram/.env` — TELEGRAM_BOT_TOKEN
-- Ryan's tenant ID: `f6839de2-368c-440d-8559-0292026179fa`
+- Ryan's tenant: `f6839de2-368c-440d-8559-0292026179fa`
+- Auth: ryan.ayler@gmail.com / testtest1
 
-**Key principle from Ryan:** "The bots are not going to design themselves. We design the agents, and they work according to our design." Agent improvements (skills, instructions, proposals) are human design work, not agent self-modification.
+**Key principles from Ryan:**
+- "The bots are not going to design themselves. We design the agents, and they work according to our design."
+- "One line of communication — Telegram to the team, top priority, no waiting."
+- "The tester is the eyes. Without it, agents build blind."
+- "I want to pick up this dev team and plop it wherever. Give it a PRD, it ships."
 
 ---
 
