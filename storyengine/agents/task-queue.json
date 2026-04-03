@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "current_tab": 10,
+  "current_tab": 18,
   "last_updated": "2026-04-03",
-  "last_updated_by": "pipeline-tester",
+  "last_updated_by": "orchestrator",
   "tabs": [
     {
       "id": 1,
@@ -1278,11 +1278,12 @@
           "id": "T13-002",
           "title": "Add weight and threshold editing UI",
           "role": "frontend",
-          "status": "blocked",
-          "description": "Backend POST /api/autopilot/config accepts weights (competitor_vph, timing_freshness) and thresholds (min_confidence_score, min_competitor_vph, max_idea_age_days, ctr_success_threshold, ctr_failure_threshold). Currently weights are shown as a visualization but not editable. Add sliders or number inputs for all 7 values. Save via updateAutopilotConfig().",
+          "status": "done",
+          "description": "Superseded by T13-008 which implemented the same feature. Marked done by orchestrator GRAND audit 2026-04-03.",
           "files": [
             "frontend/src/app/autopilot/page.tsx"
           ],
+          "completed_at": "2026-04-03T06:00:00Z",
           "error_note": "Superseded by T13-008 (same feature, with correct depends_on BUG-T13-002-BACKEND which is now fixed)"
         },
         {
@@ -1793,6 +1794,123 @@
             "frontend/src/components/auth/AuthProvider.tsx",
             "frontend/src/components/nav/sidebar.tsx"
           ]
+        }
+      ]
+    },
+    {
+      "id": 18,
+      "name": "Review Queue & Navigation Polish",
+      "path": "/review",
+      "status": "in_progress",
+      "tasks": [
+        {
+          "id": "T18-001",
+          "title": "Add Review Queue to sidebar nav and bottom tabs",
+          "role": "frontend",
+          "status": "pending",
+          "description": "The /review page is fully built (approve/reject scripts, storyboards, thumbnails, images) but NOT in the sidebar nav or mobile bottom tabs. Add { href: '/review', icon: CheckSquare, label: 'Review' } to navItems in sidebar.tsx between Videos and Autopilot. Import CheckSquare from lucide-react.",
+          "files": [
+            "frontend/src/components/nav/sidebar.tsx"
+          ]
+        },
+        {
+          "id": "T18-002",
+          "title": "Add pending review count badge to sidebar Review link",
+          "role": "frontend",
+          "status": "pending",
+          "depends_on": "T18-001",
+          "description": "Backend has GET /api/review/pending returning pending items. Fetch this count and show as a badge next to the Review nav item so users see items needing attention. Use React Query to poll every 30s. Only show badge when count > 0.",
+          "files": [
+            "frontend/src/components/nav/sidebar.tsx",
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        {
+          "id": "T18-003",
+          "title": "QA verify review page accessible from nav and shows real data",
+          "role": "qa",
+          "status": "pending",
+          "depends_on": "T18-002",
+          "description": "Verify: (1) Review appears in sidebar nav between Videos and Autopilot. (2) Clicking navigates to /review. (3) Page loads with 4 tabs (Scripts/Storyboards/Thumbnails/Images). (4) Approve/reject buttons call correct API endpoints. (5) Pending count badge shows when items exist. (6) tsc --noEmit passes. (7) No console errors."
+        }
+      ]
+    },
+    {
+      "id": 19,
+      "name": "Create Video Enhancement",
+      "path": "/pipeline (create modal)",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "T19-001",
+          "title": "Backend: accept writer_guidance, visual_style, accent_color in POST /api/videos",
+          "role": "backend",
+          "status": "pending",
+          "description": "Check POST /api/videos in routes/videos.py. The CreateVideo model may only accept title, source_url, framework_angle, video_length_minutes. Add support for: writer_guidance (TEXT), visual_style (TEXT), accent_color (TEXT). These columns exist in schema.sql. Update CreateVideo Pydantic model in models.py and the INSERT SQL.",
+          "files": [
+            "backend/routes/videos.py",
+            "backend/models.py"
+          ]
+        },
+        {
+          "id": "T19-002",
+          "title": "Enhance Create Video modal with rich form fields",
+          "role": "frontend",
+          "status": "pending",
+          "depends_on": "T19-001",
+          "description": "Current 'Manual Entry' modal in pipeline/page.tsx has only title, source_url, framework, video_length. Enhance: (1) Rename to 'New Video'. (2) Add angle/thesis textarea (maps to writer_guidance). (3) Add visual style selector showing 4 styles as cards (cinematic_illustration, holographic_hud, cinematic_dossier, clay_mannequin). (4) Add accent color picker (cold teal, muted crimson, warm amber, muted green). Wire to POST /api/videos.",
+          "files": [
+            "frontend/src/app/pipeline/page.tsx"
+          ]
+        },
+        {
+          "id": "T19-003",
+          "title": "QA verify enhanced create video flow end-to-end",
+          "role": "qa",
+          "status": "pending",
+          "depends_on": "T19-002",
+          "description": "Verify: (1) Create modal shows all new fields. (2) POST /api/videos accepts writer_guidance, visual_style, accent_color. (3) New video appears in pipeline list with correct metadata. (4) Video detail info tab shows submitted fields. (5) tsc --noEmit passes."
+        }
+      ]
+    },
+    {
+      "id": 20,
+      "name": "Mobile UX & Bottom Tabs",
+      "path": "responsive",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "T20-001",
+          "title": "Expand mobile bottom tabs with More menu",
+          "role": "frontend",
+          "status": "pending",
+          "description": "Current bottom-tabs.tsx has 5 tabs (Home, Videos, Profile, Stats, Settings). Restructure to: Home, Videos, Review (with badge), Discovery, More (opens slide-up menu with Autopilot, Competitors, Learnings, Analytics, Settings, Profile). Use Sheet/Drawer pattern for More menu. Import EllipsisVertical from lucide-react.",
+          "files": [
+            "frontend/src/components/nav/bottom-tabs.tsx"
+          ]
+        },
+        {
+          "id": "T20-002",
+          "title": "QA verify mobile bottom tabs and More menu",
+          "role": "qa",
+          "status": "pending",
+          "depends_on": "T20-001",
+          "description": "Playwright with mobile viewport (375x812). Verify: (1) Bottom tabs show 5 items. (2) More opens slide-up with remaining pages. (3) All links navigate. (4) Active state highlights current page. (5) No layout overflow."
+        }
+      ]
+    },
+    {
+      "id": 21,
+      "name": "Competitor Transcript QA",
+      "path": "/competitors",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "T21-001",
+          "title": "QA verify competitor transcript viewer (T10-002)",
+          "role": "qa",
+          "status": "pending",
+          "description": "T10-002 was marked done by frontend-dev but never QA verified. Verify: (1) Clicking competitor card opens expanded view with transcript. (2) Fetches GET /api/autopilot/candidates/{id}. (3) First 500 words shown as hook. (4) Show more toggle for full text. (5) Loading state while fetching. (6) Handles null/empty transcript gracefully. (7) tsc --noEmit passes. (8) No console errors."
         }
       ]
     }
