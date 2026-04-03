@@ -281,6 +281,27 @@ except: pass
 " 2>/dev/null || echo "")
 fi
 
+# ─── User-Browser Errors (HIGHEST PRIORITY — fix what the user sees broken) ─
+ACTIVITY_LOG="$PROJECT_ROOT/rubric/scaffold/data/activity-log.json"
+USER_ERRORS=""
+if [ -f "$ACTIVITY_LOG" ]; then
+  USER_ERRORS=$(python3 -c "
+import json
+try:
+    logs = json.load(open('$ACTIVITY_LOG'))
+    # Get recent user-browser errors (last 20)
+    errors = [e for e in logs[-50:] if e.get('agent') == 'user-browser' and e.get('status') == 'error']
+    # Deduplicate by task (API path)
+    seen = set()
+    for e in errors[-20:]:
+        key = e.get('task', '')
+        if key not in seen:
+            seen.add(key)
+            print('- ' + e.get('summary', '')[:200])
+except: pass
+" 2>/dev/null || echo "")
+fi
+
 # ─── Build Prompt ───────────────────────────────────────────────────────────
 # Inject orchestrator mode if applicable
 ORCH_SECTION=""
@@ -295,7 +316,21 @@ $RECENT_COMMITS
 "
 fi
 
-PROMPT="You are running as the $AGENT agent for StoryEngine.
+PROMPT="You are running as the $AGENT agent for StoryEngine."
+
+# User errors go FIRST — highest priority
+if [ -n "$USER_ERRORS" ]; then
+  PROMPT="$PROMPT
+
+## 🚨 LIVE USER ERRORS — FIX THESE FIRST (before any task queue or PRD work)
+The operator just clicked through the website and hit these errors. These are REAL bugs the user is experiencing RIGHT NOW. Fix them before doing anything else.
+
+$USER_ERRORS
+
+After fixing user errors, continue with your normal task queue / PRD work below."
+fi
+
+PROMPT="$PROMPT
 
 ## Product Vision (THE NORTH STAR — every task must push toward this)
 $PRODUCT_VISION
