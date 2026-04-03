@@ -51,7 +51,7 @@ export default function ProfilePage() {
   const queryClient = useQueryClient();
 
   // --- User Profile ---
-  const { data: profile, isLoading: profileLoading } = useQuery({
+  const { data: profile, isLoading: profileLoading, error: profileError } = useQuery({
     queryKey: ["profile"],
     queryFn: getProfile,
   });
@@ -371,6 +371,10 @@ export default function ProfilePage() {
             <div className="flex items-center gap-2">
               <Loader2 size={16} className="animate-spin" style={{ color: "var(--turquoise)" }} />
               <span className="text-sm" style={{ color: "var(--text-secondary)" }}>Loading profile...</span>
+            </div>
+          ) : profileError ? (
+            <div className="text-sm" style={{ color: "var(--red)" }}>
+              Unable to load profile. The server may need to be restarted.
             </div>
           ) : profile ? (
             editingProfile ? (

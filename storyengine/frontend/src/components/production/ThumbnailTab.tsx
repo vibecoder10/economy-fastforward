@@ -100,6 +100,7 @@ export function ThumbnailTab({ video }: ThumbnailTabProps) {
   }, [video.id]);
 
   const handleRegenerate = useCallback(async () => {
+    if (!isReadyForThumbnail) return;
     setIsRegenerating(true);
     setIsApproved(false);
     try {
