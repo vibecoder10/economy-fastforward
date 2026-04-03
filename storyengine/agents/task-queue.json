@@ -270,7 +270,7 @@
           "verified": true,
           "verified_at": "2026-04-03T22:00:00Z",
           "verified_by": "qa-engineer",
-          "verification_notes": "PASS. (1) _parse_script_validation() added to routes/videos.py — unit test confirms it converts 'Editorial validation: PASSED\\n[PASS] name: detail' to JSON {passed:true, checks:[{name,passed,detail,advisory}], advisory_warnings:[]}. (2) Already-valid JSON passes through unchanged. (3) None returns None. (4) Applied at VideoDetail constructor line 236: script_validation=_parse_script_validation(r.get('script_validation')). (5) ScriptVoiceTab.tsx lines 1682-1700: JSON.parse() on the returned string, checks[].map() renders badge per item. Frontend correctly handles the JSON shape. (6) tsc --noEmit: 0 errors. (7) Diff clean: 2 files (videos.py + task-queue.json), 67 lines — only the helper function and one call site. No bloat. NOTE: Production backend (port 8001) still has old code (not deployed); fix will apply on next git pull to main. End-to-end Playwright not possible due to tenant isolation and auth requirement, but code path fully verified via unit test + code review."
+          "verification_notes": "PASS. (1) _parse_script_validation() added to routes/videos.py \u2014 unit test confirms it converts 'Editorial validation: PASSED\\n[PASS] name: detail' to JSON {passed:true, checks:[{name,passed,detail,advisory}], advisory_warnings:[]}. (2) Already-valid JSON passes through unchanged. (3) None returns None. (4) Applied at VideoDetail constructor line 236: script_validation=_parse_script_validation(r.get('script_validation')). (5) ScriptVoiceTab.tsx lines 1682-1700: JSON.parse() on the returned string, checks[].map() renders badge per item. Frontend correctly handles the JSON shape. (6) tsc --noEmit: 0 errors. (7) Diff clean: 2 files (videos.py + task-queue.json), 67 lines \u2014 only the helper function and one call site. No bloat. NOTE: Production backend (port 8001) still has old code (not deployed); fix will apply on next git pull to main. End-to-end Playwright not possible due to tenant isolation and auth requirement, but code path fully verified via unit test + code review."
         }
       ]
     },
@@ -835,14 +835,16 @@
           "id": "T10-002",
           "title": "Add competitor video transcript viewer",
           "role": "frontend",
-          "status": "blocked",
-          "description": "competitor_videos.transcript stores auto-generated captions scraped by yt-dlp. Add a modal or expandable panel to view the transcript when clicking a competitor card. Show the first 500 words (the 'hook') prominently.",
+          "status": "done",
+          "description": "Added transcript viewer to competitor modal. When clicking a card, fetches full detail via GET /api/autopilot/candidates/{id}. Expandable Transcript section shows first 500 words highlighted as the hook (bright text) with remaining words dimmed. Shows video duration. Added CandidateDetail type and getCandidateDetail() to api.ts.",
           "files": [
             "frontend/src/app/competitors/page.tsx",
             "frontend/src/components/autopilot/CardExpanded.tsx"
           ],
           "depends_on": "BUG-T10-002-BACKEND",
-          "blocked_reason": "No backend endpoint returns competitor video transcript. CompetitorCandidate model and SQL SELECT in autopilot.py don't include transcript column. Need GET /api/autopilot/candidates/{id}/transcript or add transcript to CompetitorCandidate."
+          "started_at": "2026-04-03T22:32:00Z",
+          "completed_at": "2026-04-03T22:36:00Z",
+          "assigned_to": "frontend-dev"
         },
         {
           "id": "BUG-T10-002-BACKEND",

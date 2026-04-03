@@ -278,6 +278,9 @@ export const getAutopilotCandidates = (limit?: number, minVph?: number) =>
     `/api/autopilot/candidates?limit=${limit || 20}&min_vph=${minVph || 50}`
   );
 
+export const getCandidateDetail = (id: string) =>
+  fetchApi<CandidateDetail>(`/api/autopilot/candidates/${id}`);
+
 export const getAutopilotLearnings = (category?: string, limit?: number) =>
   fetchApi<Learning[]>(
     `/api/autopilot/learnings?limit=${limit || 20}${category ? `&category=${category}` : ""}`
@@ -897,6 +900,14 @@ export interface CompetitorCandidate {
   confidence_breakdown?: ConfidenceBreakdown;
   published_date: string | null;
   modeled: boolean;
+}
+
+export interface CandidateDetail extends CompetitorCandidate {
+  transcript: string | null;
+  thumbnail_url: string | null;
+  description: string | null;
+  duration_seconds: number | null;
+  likes: number | null;
 }
 
 export interface Learning {

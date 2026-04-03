@@ -4,7 +4,7 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { Filter, Plus, Loader2, RefreshCw, X, Trash2, ChevronDown, AlertTriangle } from "lucide-react";
+import { Filter, Plus, Loader2, RefreshCw, X, Trash2, ChevronDown, AlertTriangle, FileText } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { FilterSelect } from "@/components/ui/FilterSelect";
@@ -22,7 +22,9 @@ import {
   createVideo,
   scrapeCompetitorChannels,
   getScrapeStatus,
+  getCandidateDetail,
   type CompetitorCandidate,
+  type CandidateDetail,
 } from "@/lib/api";
 import { formatNumber, timeAgo } from "@/lib/utils";
 
@@ -169,6 +171,14 @@ export default function CompetitorsPage() {
     },
   });
 
+  // Fetch candidate detail (transcript) when model modal is open
+  const { data: candidateDetail, isLoading: detailLoading } = useQuery({
+    queryKey: ["candidate-detail", modelCandidate?.id],
+    queryFn: () => getCandidateDetail(modelCandidate!.id),
+    enabled: !!modelCandidate,
+  });
+  const [transcriptExpanded, setTranscriptExpanded] = useState(false);
+
   const deleteChannelMutation = useMutation({
     mutationFn: removeNicheChannel,
     onSuccess: () => {
@@ -267,6 +277,7 @@ export default function CompetitorsPage() {
     setModelFramework("");
     setModelLength(10);
     setModelCreating(false);
+    setTranscriptExpanded(false);
   };
 
   // Create video from candidate
@@ -534,6 +545,76 @@ export default function CompetitorsPage() {
                 </p>
               </div>
             </div>
+
+            {/* Transcript viewer */}
+            {detailLoading ? (
+              <div className="flex items-center gap-2 py-2">
+                <Loader2 size={14} className="animate-spin" style={{ color: "var(--text-muted)" }} />
+                <span className="text-xs" style={{ color: "var(--text-muted)" }}>Loading transcript...</span>
+              </div>
+            ) : candidateDetail?.transcript ? (
+              <div>
+                <button
+                  onClick={() => setTranscriptExpanded((v) => !v)}
+                  className="flex items-center gap-2 w-full text-left"
+                >
+                  <FileText size={14} style={{ color: "var(--teal)" }} />
+                  <span className="text-[11px] font-medium uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>
+                    Transcript
+                  </span>
+                  {candidateDetail.duration_seconds && (
+                    <span className="text-[10px] font-mono" style={{ color: "var(--text-muted)" }}>
+                      {Math.floor(candidateDetail.duration_seconds / 60)}m {Math.floor(candidateDetail.duration_seconds % 60)}s
+                    </span>
+                  )}
+                  <ChevronDown
+                    size={12}
+                    className="ml-auto"
+                    style={{
+                      color: "var(--text-muted)",
+                      transform: transcriptExpanded ? "rotate(180deg)" : "rotate(0deg)",
+                      transition: "transform 0.2s",
+                    }}
+                  />
+                </button>
+                <AnimatePresence>
+                  {transcriptExpanded && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: "auto", opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.2 }}
+                      className="overflow-hidden"
+                    >
+                      <div
+                        className="mt-2 rounded-lg p-3 max-h-64 overflow-y-auto text-xs leading-relaxed font-body"
+                        style={{
+                          background: "rgba(255,255,255,0.03)",
+                          border: "1px solid rgba(255,255,255,0.06)",
+                        }}
+                      >
+                        {(() => {
+                          const words = candidateDetail.transcript!.split(/\s+/);
+                          const hookWords = words.slice(0, 500).join(" ");
+                          const restWords = words.slice(500).join(" ");
+                          return (
+                            <>
+                              <span style={{ color: "var(--text-primary)" }}>{hookWords}</span>
+                              {restWords && (
+                                <span style={{ color: "var(--text-muted)" }}> {restWords}</span>
+                              )}
+                            </>
+                          );
+                        })()}
+                      </div>
+                      <p className="mt-1 text-[9px]" style={{ color: "var(--text-muted)" }}>
+                        First 500 words highlighted as the hook
+                      </p>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            ) : null}
 
             {/* Form fields */}
             <div>
