@@ -2,7 +2,7 @@
   "version": 2,
   "current_tab": 13,
   "last_updated": "2026-04-03",
-  "last_updated_by": "qa-engineer",
+  "last_updated_by": "orchestrator",
   "tabs": [
     {
       "id": 1,
@@ -969,7 +969,7 @@
           "assigned_to": "frontend-dev",
           "verified_at": "2026-04-03T00:30:00Z",
           "verified_by": "qa-engineer",
-          "verification_notes": "PASS. Code: timeAgo imported from utils.ts, Production Cycle Status section added at autopilot/page.tsx. Condition (state.last_cycle || state.days_until_next > 0) — backend returns days_until_next:2 so section renders. Last cycle shows via timeAgo(state.last_cycle), Next production shows 'in 2 days' in turquoise, next_production_date formatted as 'Apr 05'. AutopilotState type in api.ts:815-819 has all 3 fields (last_cycle, days_until_next, next_production_date). tsc --noEmit: 0 errors. Diff clean: 2 files (page.tsx + queue), 32 lines. No bloat.",
+          "verification_notes": "PASS. Code: timeAgo imported from utils.ts, Production Cycle Status section added at autopilot/page.tsx. Condition (state.last_cycle || state.days_until_next > 0) \u2014 backend returns days_until_next:2 so section renders. Last cycle shows via timeAgo(state.last_cycle), Next production shows 'in 2 days' in turquoise, next_production_date formatted as 'Apr 05'. AutopilotState type in api.ts:815-819 has all 3 fields (last_cycle, days_until_next, next_production_date). tsc --noEmit: 0 errors. Diff clean: 2 files (page.tsx + queue), 32 lines. No bloat.",
           "description": "Added production cycle status line below header showing 'Last cycle: Xh ago' via timeAgo() and 'Next production: in N days' with turquoise highlight. Also shows next_production_date formatted as 'Mon DD'. Only renders when data exists.",
           "files": [
             "frontend/src/app/autopilot/page.tsx"
@@ -987,8 +987,8 @@
           "assigned_to": "qa-engineer",
           "verified_at": "2026-04-03T00:30:00Z",
           "verified_by": "qa-engineer",
-          "verification_notes": "PASS — see T13-001 verification_notes for full details.",
-          "description": "Verify T13-001 implementation: (1) Autopilot page shows 'Last cycle: Xh ago' text using timeAgo() when last_cycle is present in API response. (2) 'Next production: in N days' line renders with turquoise highlight when days_until_next is present. (3) next_production_date displays as formatted date (e.g. 'Mon DD'). (4) Section does NOT render when data is absent (null/undefined guard). (5) Values come from GET /api/autopilot/summary — curl to verify last_cycle and days_until_next fields are returned. (6) tsc --noEmit passes clean. (7) No console errors.",
+          "verification_notes": "PASS \u2014 see T13-001 verification_notes for full details.",
+          "description": "Verify T13-001 implementation: (1) Autopilot page shows 'Last cycle: Xh ago' text using timeAgo() when last_cycle is present in API response. (2) 'Next production: in N days' line renders with turquoise highlight when days_until_next is present. (3) next_production_date displays as formatted date (e.g. 'Mon DD'). (4) Section does NOT render when data is absent (null/undefined guard). (5) Values come from GET /api/autopilot/summary \u2014 curl to verify last_cycle and days_until_next fields are returned. (6) tsc --noEmit passes clean. (7) No console errors.",
           "files": [
             "frontend/src/app/autopilot/page.tsx"
           ]
@@ -997,11 +997,12 @@
           "id": "T13-002",
           "title": "Add weight and threshold editing UI",
           "role": "frontend",
-          "status": "pending",
+          "status": "blocked",
           "description": "Backend POST /api/autopilot/config accepts weights (competitor_vph, timing_freshness) and thresholds (min_confidence_score, min_competitor_vph, max_idea_age_days, ctr_success_threshold, ctr_failure_threshold). Currently weights are shown as a visualization but not editable. Add sliders or number inputs for all 7 values. Save via updateAutopilotConfig().",
           "files": [
             "frontend/src/app/autopilot/page.tsx"
-          ]
+          ],
+          "error_note": "Superseded by T13-008 (same feature, with correct depends_on BUG-T13-002-BACKEND which is now fixed)"
         },
         {
           "id": "T13-003",
@@ -1052,13 +1053,13 @@
           "assigned_to": "qa-engineer",
           "verified_at": "2026-04-03T01:15:00Z",
           "verified_by": "qa-engineer",
-          "verification_notes": "PARTIAL PASS — core toggle works, basic config works, but T13-001/T13-002/T13-003/T13-004 frontend features not yet built. (1) Toggle: POST /api/autopilot/toggle {enabled:bool} → {status:ok, enabled:bool} — persists to DB, re-read on /api/autopilot/summary confirms state change. ✅ (2) Config (videos_per_month, videos_per_scrape): inline click-to-edit in UI works, calls updateAutopilotConfig → POST /api/autopilot/config — persists. ✅ (3) Weights/thresholds editing: NOT BUILT — ConfigUpdate model (autopilot.py line 389) only accepts videos_per_month/videos_per_scrape/production_interval_days, NOT weights or thresholds. Frontend api.ts:292 matches this limited model. T13-002 is blocked by backend bug — filed as BUG-T13-002-BACKEND. (4) YouTube Sync UI (T13-003): NOT BUILT — no sync button on autopilot page. Backend syncYouTubeMetrics exists in api.ts:463 but never called from autopilot page. (5) Background task status panel (T13-004): NOT BUILT — GET /api/autopilot/tasks returns all 4 tasks correctly (scrape, youtube_sync, learning_extraction, title_analysis all with last_run/is_running/last_error). But no UI panel renders this data. (6) Last_cycle/next production display (T13-001): state.days_until_next=2 returned by backend but frontend shows 'click to edit' for Target/Month only — no 'Last cycle: X ago' or 'Next production in: 2 days' text visible. (7) 0 console errors. (8) tsc: 0 errors. Verdict: toggle+basic config work; T13-001 to T13-004 frontend tasks not yet implemented.",
+          "verification_notes": "PARTIAL PASS \u2014 core toggle works, basic config works, but T13-001/T13-002/T13-003/T13-004 frontend features not yet built. (1) Toggle: POST /api/autopilot/toggle {enabled:bool} \u2192 {status:ok, enabled:bool} \u2014 persists to DB, re-read on /api/autopilot/summary confirms state change. \u2705 (2) Config (videos_per_month, videos_per_scrape): inline click-to-edit in UI works, calls updateAutopilotConfig \u2192 POST /api/autopilot/config \u2014 persists. \u2705 (3) Weights/thresholds editing: NOT BUILT \u2014 ConfigUpdate model (autopilot.py line 389) only accepts videos_per_month/videos_per_scrape/production_interval_days, NOT weights or thresholds. Frontend api.ts:292 matches this limited model. T13-002 is blocked by backend bug \u2014 filed as BUG-T13-002-BACKEND. (4) YouTube Sync UI (T13-003): NOT BUILT \u2014 no sync button on autopilot page. Backend syncYouTubeMetrics exists in api.ts:463 but never called from autopilot page. (5) Background task status panel (T13-004): NOT BUILT \u2014 GET /api/autopilot/tasks returns all 4 tasks correctly (scrape, youtube_sync, learning_extraction, title_analysis all with last_run/is_running/last_error). But no UI panel renders this data. (6) Last_cycle/next production display (T13-001): state.days_until_next=2 returned by backend but frontend shows 'click to edit' for Target/Month only \u2014 no 'Last cycle: X ago' or 'Next production in: 2 days' text visible. (7) 0 console errors. (8) tsc: 0 errors. Verdict: toggle+basic config work; T13-001 to T13-004 frontend tasks not yet implemented.",
           "description": "Verify: toggle works, config changes persist (weights + thresholds), YouTube sync button triggers and shows progress, background task status panel shows real data. Full wiring audit of all autopilot features.",
           "depends_on": "T13-005"
         },
         {
           "id": "BUG-T13-002-BACKEND",
-          "title": "BUG: ConfigUpdate model missing weights/thresholds — T13-002 blocked",
+          "title": "BUG: ConfigUpdate model missing weights/thresholds \u2014 T13-002 blocked",
           "role": "backend",
           "status": "done",
           "verified": true,
@@ -1067,8 +1068,8 @@
           "assigned_to": "backend-dev",
           "verified_at": "2026-04-03T00:35:00Z",
           "verified_by": "qa-engineer",
-          "verification_notes": "PASS. autopilot.py:394-395: weights/thresholds Optional[dict] in ConfigUpdate. UPDATE path lines 438-448 adds JSONB params for both. INSERT path lines 456-468 handles both columns. schema.sql lines 466-467 confirm JSONB columns exist. Test: POST {weights:{competitor_vph:0.77}} → summary shows 0.77 ✅. POST {thresholds:{min_confidence_score:65}} → returns 65 ✅. Persists across requests. Reset to defaults confirmed. Commit 72c5e48 diff: 2 files, 30 lines, no bloat. T13-008 unblocked.",
-          "description": "Pipeline Tester found: POST /api/autopilot/config (autopilot.py line 389, ConfigUpdate model) only accepts videos_per_month, production_interval_days, videos_per_scrape — it does NOT accept weights dict or thresholds dict. T13-002 spec says 'Backend POST /api/autopilot/config accepts weights (competitor_vph, timing_freshness) and thresholds (min_confidence_score, etc.)'. Also the autopilot_config DB table likely has no weights/thresholds columns. Fix: (1) Add weights: Optional[dict] and thresholds: Optional[dict] to ConfigUpdate model. (2) Add JSONB columns to autopilot_config table if not present. (3) Update the SQL UPDATE/INSERT in update_config() to persist weights and thresholds. Also update frontend api.ts:292 updateAutopilotConfig to include weights and thresholds in the type.",
+          "verification_notes": "PASS. autopilot.py:394-395: weights/thresholds Optional[dict] in ConfigUpdate. UPDATE path lines 438-448 adds JSONB params for both. INSERT path lines 456-468 handles both columns. schema.sql lines 466-467 confirm JSONB columns exist. Test: POST {weights:{competitor_vph:0.77}} \u2192 summary shows 0.77 \u2705. POST {thresholds:{min_confidence_score:65}} \u2192 returns 65 \u2705. Persists across requests. Reset to defaults confirmed. Commit 72c5e48 diff: 2 files, 30 lines, no bloat. T13-008 unblocked.",
+          "description": "Pipeline Tester found: POST /api/autopilot/config (autopilot.py line 389, ConfigUpdate model) only accepts videos_per_month, production_interval_days, videos_per_scrape \u2014 it does NOT accept weights dict or thresholds dict. T13-002 spec says 'Backend POST /api/autopilot/config accepts weights (competitor_vph, timing_freshness) and thresholds (min_confidence_score, etc.)'. Also the autopilot_config DB table likely has no weights/thresholds columns. Fix: (1) Add weights: Optional[dict] and thresholds: Optional[dict] to ConfigUpdate model. (2) Add JSONB columns to autopilot_config table if not present. (3) Update the SQL UPDATE/INSERT in update_config() to persist weights and thresholds. Also update frontend api.ts:292 updateAutopilotConfig to include weights and thresholds in the type.",
           "files": [
             "backend/routes/autopilot.py",
             "frontend/src/lib/api.ts"
@@ -1080,7 +1081,7 @@
           "role": "frontend",
           "status": "pending",
           "depends_on": "BUG-T13-002-BACKEND",
-          "description": "Backend now accepts weights dict and thresholds dict in POST /api/autopilot/config (BUG-T13-002-BACKEND fixed). Build the editing UI: sliders or number inputs for the 6 weight fields (competitor_vph, topic_channel_fit, timing_freshness, channel_momentum, retention_patterns, title_formula) and 5 threshold fields (min_confidence_score, min_competitor_vph, max_idea_age_days, ctr_success_threshold, ctr_failure_threshold). Save via updateAutopilotConfig() in api.ts — updateAutopilotConfig type was also updated to include weights/thresholds. Place in the existing autopilot page config section. Show current values from GET /api/autopilot/summary (config.weights / config.thresholds).",
+          "description": "Backend now accepts weights dict and thresholds dict in POST /api/autopilot/config (BUG-T13-002-BACKEND fixed). Build the editing UI: sliders or number inputs for the 6 weight fields (competitor_vph, topic_channel_fit, timing_freshness, channel_momentum, retention_patterns, title_formula) and 5 threshold fields (min_confidence_score, min_competitor_vph, max_idea_age_days, ctr_success_threshold, ctr_failure_threshold). Save via updateAutopilotConfig() in api.ts \u2014 updateAutopilotConfig type was also updated to include weights/thresholds. Place in the existing autopilot page config section. Show current values from GET /api/autopilot/summary (config.weights / config.thresholds).",
           "files": [
             "frontend/src/app/autopilot/page.tsx",
             "frontend/src/lib/api.ts"
@@ -1099,21 +1100,21 @@
         },
         {
           "id": "BUG-T13-STRIPE",
-          "title": "BUG: stripe module not in requirements.txt — backend crashes on fresh deploy",
+          "title": "BUG: stripe module not in requirements.txt \u2014 backend crashes on fresh deploy",
           "role": "backend",
           "status": "done",
           "verified": true,
           "started_at": "2026-04-03T01:00:00Z",
           "completed_at": "2026-04-03T01:02:00Z",
           "assigned_to": "pipeline-tester",
-          "description": "QA found: billing.py imports stripe at top level but stripe is not listed in storyengine/backend/requirements.txt. Backend crashes with ModuleNotFoundError on startup if stripe is not installed. Manually installed with pip to unblock QA session. Fix: add 'stripe' to requirements.txt. Run: pip install stripe && pip freeze | grep stripe >> requirements.txt (or add manually: stripe==15.0.1 or just stripe>=10.0.0). This is a deployment blocker — any fresh install or CI/CD run will fail.",
+          "description": "QA found: billing.py imports stripe at top level but stripe is not listed in storyengine/backend/requirements.txt. Backend crashes with ModuleNotFoundError on startup if stripe is not installed. Manually installed with pip to unblock QA session. Fix: add 'stripe' to requirements.txt. Run: pip install stripe && pip freeze | grep stripe >> requirements.txt (or add manually: stripe==15.0.1 or just stripe>=10.0.0). This is a deployment blocker \u2014 any fresh install or CI/CD run will fail.",
           "files": [
             "backend/requirements.txt"
           ]
         },
         {
           "id": "BUG-T13-STRIPE-QA",
-          "title": "QA verify stripe in requirements.txt — backend starts clean",
+          "title": "QA verify stripe in requirements.txt \u2014 backend starts clean",
           "role": "qa",
           "status": "done",
           "verified": true,
@@ -1123,8 +1124,8 @@
           "assigned_to": "pipeline-tester",
           "verified_at": "2026-04-03T01:05:00Z",
           "verified_by": "pipeline-tester",
-          "verification_notes": "PASS. (1) grep 'stripe' requirements.txt → 'stripe>=10.0.0' present. (2) stripe importable (version 15.0.1 installed). (3) Backend health check returns {status:ok} — no ModuleNotFoundError. All 3 checks pass. Deployment blocker resolved.",
-          "description": "After BUG-T13-STRIPE is fixed, verify: (1) grep 'stripe' storyengine/backend/requirements.txt shows a pinned stripe entry. (2) cd storyengine/backend && pip install -r requirements.txt completes without error in a clean venv. (3) Backend starts without ModuleNotFoundError: python -m uvicorn main:app --port 8001 reaches 'Application startup complete'. This is a deployment blocker fix — confirm it's actually resolved before marking done.",
+          "verification_notes": "PASS. (1) grep 'stripe' requirements.txt \u2192 'stripe>=10.0.0' present. (2) stripe importable (version 15.0.1 installed). (3) Backend health check returns {status:ok} \u2014 no ModuleNotFoundError. All 3 checks pass. Deployment blocker resolved.",
+          "description": "After BUG-T13-STRIPE is fixed, verify: (1) grep 'stripe' storyengine/backend/requirements.txt shows a pinned stripe entry. (2) cd storyengine/backend && pip install -r requirements.txt completes without error in a clean venv. (3) Backend starts without ModuleNotFoundError: python -m uvicorn main:app --port 8001 reaches 'Application startup complete'. This is a deployment blocker fix \u2014 confirm it's actually resolved before marking done.",
           "files": [
             "backend/requirements.txt"
           ]
