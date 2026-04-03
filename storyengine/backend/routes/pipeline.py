@@ -811,9 +811,16 @@ async def run_thumbnail(
     background_tasks: BackgroundTasks,
     tenant_id: str = Depends(get_tenant_id),
 ):
-    """Generate thumbnail for a video."""
+    """Generate thumbnail for a video.
+
+    Reads thumbnail_prompt, thumbnail_text, and thumbnail_style_override
+    from the video record so the pipeline bot uses the configured settings
+    and any autopilot-generated patterns.
+    """
     video = await fetch_one(
-        "SELECT id, status FROM videos WHERE id = $1 AND tenant_id = $2",
+        """SELECT id, status, thumbnail_prompt, thumbnail_text,
+                  thumbnail_style_override, video_title
+           FROM videos WHERE id = $1 AND tenant_id = $2""",
         video_id, tenant_id,
     )
     if not video:

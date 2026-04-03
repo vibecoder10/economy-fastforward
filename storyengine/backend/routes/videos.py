@@ -12,6 +12,7 @@ from models import (
     CreateVideoRequest,
 )
 from database import fetch_all, fetch_one, execute
+from status_map import get_next_status_supabase
 from typing import Optional, Any
 
 
@@ -102,13 +103,14 @@ router = APIRouter(prefix="/api/videos", tags=["videos"])
 
 
 def _next_stage(current: str) -> Optional[str]:
-    """Get the next pipeline stage."""
-    keys = [s["key"] for s in PIPELINE_STAGES]
-    try:
-        idx = keys.index(current)
-        return keys[idx + 1] if idx + 1 < len(keys) else None
-    except ValueError:
-        return None
+    """Get the next pipeline stage.
+
+    Uses the full 18-stage pipeline order from status_map, not the
+    abbreviated 10-stage PIPELINE_STAGES used for UI display dots.
+    This ensures intermediate statuses (researching, scripting, etc.)
+    can still advance correctly.
+    """
+    return get_next_status_supabase(current)
 
 
 @router.get("", response_model=list[VideoSummary])
