@@ -1,6 +1,126 @@
 # Task Tracking
 
-## Handoff — 2026-04-03 (Session 2)
+## Handoff — 2026-04-03 (Session 3)
+
+### Next Session: Start Here
+
+Read this handoff. The autonomous dev team is LIVE and operational. 6 agents, all on Opus, all on cron. The system works end-to-end: PRD → decompose → agents execute → test → learn.
+
+### Immediate Priorities (build these first)
+
+#### 1. Command Center Controls (UI)
+Ryan needs full control over the team from the dashboard:
+
+- **Master ON/OFF toggle** — one button to pause/resume ALL agents. When OFF, no agent runs (watcher stops, crons skip). When ON, everything resumes. Implementation: add `team_enabled: true/false` to controls.json. Watcher and run-agent.sh check this flag before proceeding.
+
+- **Clear Task Queue button** — resets `storyengine/agents/task-queue.json` to empty. Shows confirmation modal "Are you sure? This clears all 128 tasks." Endpoint: `DELETE /api/task-queue`.
+
+- **Clear PRD button** — already exists but should ALSO clear the focus directive in controls.json and reset the error tracker files. Currently only deletes prd.json/prd.md/progress.md.
+
+- **Task counter reset** — The "128/128 tasks" in the sidebar should reflect the cleared state. Currently reads from task-queue.json.
+
+#### 2. PRD → Task Queue Flow
+When a PRD completes, its tasks should optionally flow into the permanent task queue for ongoing maintenance. Currently they're separate systems. Decision needed: should completed PRD work create follow-up maintenance tasks in the queue?
+
+#### 3. Security Issues Follow-Up
+6 security issues documented in the last PRD (SEC-1 through SEC-6). These need to become a new PRD or be added to the task queue:
+- SEC-1 (CRITICAL): dev-token bypasses all auth in development mode
+- SEC-2 (HIGH): get_scene_audio skips tenant check
+- SEC-3 (HIGH): API keys revealed without rate limiting
+- SEC-4 (HIGH): Hardcoded IP in CORS allowlist
+- SEC-5 (MEDIUM): Dynamic SQL via f-strings
+- SEC-6 (MEDIUM): No audit logging for key management
+
+#### 4. Activity Feed Improvements
+- Entries older than 24h should be grayed out or collapsed
+- Add a "Clear feed" button
+- The feed should auto-scroll to show newest entries (currently requires manual Refresh)
+- Add WebSocket for real-time updates instead of polling
+
+#### 5. Playwright Auth Fix
+13 of 20 QA tests skip because they don't authenticate. The tests need the auth intercept pattern that QA already knows (intercept /api/auth/me). This should be a shared test fixture.
+
+### What Was Built This Session (massive)
+
+**PRD System (full pipeline):**
+- Generate PRD button (Claude Opus from rough notes)
+- Deploy to Team (decompose → focus → spawn immediately)
+- Live decomposition UI (phase labels, pulsing bar, seconds counter)
+- PRD watcher cron (every 60s, 3 jobs: PRD tasks, user errors, handoffs)
+- Mission status reads from progress.md (not stale prd.json)
+
+**Unified Agent System:**
+- ONE runner (run-agent.sh) handles PRD + task queue + handoffs + errors
+- Auto-detect PROJECT_ROOT (no more hardcoded paths)
+- Completion check requires: queue empty + no PRD + no handoffs + no focus + no user errors
+- Auto-restart servers after code commits
+- Mandatory health check (frontend + backend) before exit
+- Regression tests (Playwright) after commits
+- Auto-spawn unblocked agents after PRD work
+
+**6 Agents (all Opus):**
+- Orchestrator, Backend Dev, Frontend Dev, QA Engineer, Pipeline Tester, Security Auditor
+- All have: live activity posting, team collaboration (handoffs + spawn), cross-agent learning, real skills
+
+**Autonomous Operations:**
+- User clicks broken thing → error in activity log → watcher spawns agent within 60s
+- Agent finds bug outside its role → handoffs to teammate + spawns them
+- QA/Tester finds pattern → writes to responsible agent's memory
+- Telegram message → handoff → agent spawns immediately
+
+**First PRD Execution:**
+- 14 tasks decomposed from rough voice notes
+- All 14 completed (6 backend, 6 frontend, 1 QA, 1 security)
+- Pipeline Tester caught 1 real bug
+- 20 Playwright tests created
+- 6 security issues documented
+
+### Architecture (for next session's reference)
+
+```
+Command Center (RUBRIC :5050)
+  → Generate PRD (Claude Opus)
+  → Deploy to Team (decompose → spawn)
+  → Mission progress (poll progress.md)
+  → Team Status (agent-status.json)
+  → Activity Feed (activity-log.json)
+
+Watcher (cron every 60s — agents/prd-watcher.sh)
+  → Job 1: PRD unblocked tasks → spawn agents
+  → Job 2: User-browser errors → spawn backend/frontend
+  → Job 3: Unaddressed handoffs → spawn receiving agent
+
+Agent Runner (storyengine/agents/run-agent.sh)
+  → Check: handoffs? focus? user errors? PRD tasks? task queue?
+  → Work on highest priority source
+  → Post to activity feed during work
+  → Cross-agent learning on bug patterns
+  → Restart servers if code changed
+  → Run regression tests
+  → Health check before exit
+  → Auto-spawn newly-unblocked agents
+
+Cron Schedule:
+  Every hour :00  — Backend Dev
+  Every hour :02  — Frontend Dev
+  Every hour :04  — QA Engineer
+  Every 3 hours   — Pipeline Tester
+  Every 6 hours   — Security Auditor
+  Daily 5 AM      — Orchestrator (grand audit)
+  Every minute    — PRD Watcher
+```
+
+### VPS State
+- RUBRIC: http://76.13.119.181:5050
+- StoryEngine: http://76.13.119.181:3001
+- Backend: port 8001
+- Telegram: tmux session `telegram-channel` (Haiku)
+- All crons installed
+- Branch: agent-dev
+
+---
+
+## Previous Handoff — 2026-04-03 (Session 2)
 
 ### What Was Built This Session
 
