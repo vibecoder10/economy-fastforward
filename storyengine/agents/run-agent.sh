@@ -296,10 +296,14 @@ DETAIL:
 Begin work now. Pick your next task and execute it."
 
 # ─── Invoke Claude ──────────────────────────────────────────────────────────
+# Write prompt to temp file then pipe via stdin to avoid "Argument list too long" (ARG_MAX)
+PROMPT_FILE=$(mktemp /tmp/agent-prompt-XXXXXX.txt)
+printf '%s' "$PROMPT" > "$PROMPT_FILE"
 set +e
-OUTPUT=$($CLAUDE_BIN -p "$PROMPT" $MODEL_FLAG --dangerously-skip-permissions 2>&1)
+OUTPUT=$($CLAUDE_BIN -p $MODEL_FLAG --dangerously-skip-permissions < "$PROMPT_FILE" 2>&1)
 CLAUDE_EXIT=$?
 set -e
+rm -f "$PROMPT_FILE"
 
 # ─── Save Report ────────────────────────────────────────────────────────────
 REPORT_FILE="$REPORTS_DIR/$RUN_ID.md"

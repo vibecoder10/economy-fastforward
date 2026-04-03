@@ -391,6 +391,8 @@ class ConfigUpdate(BaseModel):
     videos_per_month: Optional[int] = None
     production_interval_days: Optional[int] = None
     videos_per_scrape: Optional[int] = None
+    weights: Optional[dict] = None
+    thresholds: Optional[dict] = None
 
 
 @router.post("/config")
@@ -433,18 +435,37 @@ async def update_config(
             params.append(body.videos_per_scrape)
             param_idx += 1
 
+        if body.weights is not None:
+            import json as _j
+            updates.append(f"weights = ${param_idx}::jsonb")
+            params.append(_j.dumps(body.weights))
+            param_idx += 1
+
+        if body.thresholds is not None:
+            import json as _j
+            updates.append(f"thresholds = ${param_idx}::jsonb")
+            params.append(_j.dumps(body.thresholds))
+            param_idx += 1
+
         if updates:
             updates.append("updated_at = NOW()")
             query = f"UPDATE autopilot_config SET {', '.join(updates)} WHERE tenant_id = $1"
             await execute(query, *params)
     else:
         # Create new config
+        import json as _j
+        cols = ["tenant_id", "videos_per_month", "production_interval_days"]
+        vals = [tenant_id, videos_per_month or 15, production_interval_days or 2]
+        if body.weights is not None:
+            cols.append("weights")
+            vals.append(_j.dumps(body.weights))
+        if body.thresholds is not None:
+            cols.append("thresholds")
+            vals.append(_j.dumps(body.thresholds))
+        placeholders = ", ".join(f"${i+1}::jsonb" if c in ("weights", "thresholds") else f"${i+1}" for i, c in enumerate(cols))
         await execute(
-            """INSERT INTO autopilot_config (tenant_id, videos_per_month, production_interval_days)
-               VALUES ($1, $2, $3)""",
-            tenant_id,
-            videos_per_month or 15,
-            production_interval_days or 2,
+            f"INSERT INTO autopilot_config ({', '.join(cols)}) VALUES ({placeholders})",
+            *vals,
         )
 
     # Return updated config

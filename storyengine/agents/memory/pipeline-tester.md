@@ -11,4 +11,11 @@
 - Always proxy /api/** routes with route.fulfill() + Python urllib to bypass CORS (localhost:3002 not in backend CORS allowlist). Combine with storage_state for auth.
 - storyboard_status values replace underscore with space in UI: 'grids_generated' shows as 'grids generated', search page_text with spaces not underscores.
 - Supabase pooler gets circuit breaker after bad auth attempts — use direct DB URL (db.PROJECT.supabase.co:5432) not pooler (pooler.supabase.com) to avoid this.
-- email/password register endpoint broken (FK violation memberships->users) — BUG-AUTH-001 filed.
+- email/password register endpoint broken (FK violation memberships->users) — BUG-AUTH-001 filed (now FIXED in commit 4cc9dec).
+- Autopilot ConfigUpdate model (autopilot.py) only accepts videos_per_month/videos_per_scrape — does NOT accept weights/thresholds. T13-002 backend bug filed.
+- Autopilot page T13-001: 'Last cycle' text only shows when state.last_cycle is non-null; 'Next production: in N days' shows when days_until_next > 0. Both are correct null-handling behavior.
+- Auth in Playwright: use context.add_init_script() to set localStorage token BEFORE page loads; storage_state JSON approach also works but add_init_script is more reliable for React apps that read localStorage on mount.
+- update_visual_report.py: when TASK_ID arg is passed, it filters by TASK_ID prefix so use the screenshot filename prefix (e.g. 'reg5') not a task ID like 'T10-005'. Run without args to upload ALL new files.
+- T17-005: Stripe endpoints return 'Stripe not configured' without STRIPE_SECRET_KEY — correct behavior, not a bug. Google OAuth returns 'Invalid Google token' without real client creds. Both are expected in dev.
+- Ports 3001/3002 serve pre-built Next.js; if the build is stale (code committed after last build), test on a dev server (npm run dev -- --port 3003) to get the current code.
+- Auth intercept pattern: context.add_init_script sets localStorage token + route handler intercepts /api/auth/me to return FAKE_USER dict — this reliably bypasses AuthProvider redirect without needing a valid JWT.

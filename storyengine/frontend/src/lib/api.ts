@@ -289,7 +289,7 @@ export const toggleAutopilot = (enabled: boolean) =>
     body: JSON.stringify({ enabled }),
   });
 
-export const updateAutopilotConfig = (config: { videos_per_month?: number; videos_per_scrape?: number }) =>
+export const updateAutopilotConfig = (config: { videos_per_month?: number; videos_per_scrape?: number; weights?: Record<string, number>; thresholds?: Record<string, number> }) =>
   fetchApi<{ status: string; config: AutopilotConfig }>("/api/autopilot/config", {
     method: "POST",
     body: JSON.stringify(config),
@@ -411,6 +411,17 @@ export const analyzeCompetitorTitles = () =>
     { method: "POST" }
   );
 
+export const analyzeTranscripts = () =>
+  fetchApi<{ status: string; patterns_found: number; insights_saved: number; videos_analyzed: number }>(
+    "/api/learnings/analyze-transcripts",
+    { method: "POST" }
+  );
+
+export const toggleLearning = (learningId: string) =>
+  fetchApi<{ id: string; active: boolean }>(`/api/learnings/${learningId}/toggle`, {
+    method: "PATCH",
+  });
+
 // Niche
 export const getNicheConfig = () =>
   fetchApi<NicheConfig>("/api/niche/config");
@@ -467,6 +478,29 @@ export const syncYouTubeMetrics = () =>
 
 export const getYouTubeSyncStatus = () =>
   fetchApi<YouTubeSyncStatus>("/api/youtube/sync/status");
+
+// Billing
+export interface Subscription {
+  plan: string;
+  stripe_plan: string | null;
+  stripe_status: string | null;
+  has_subscription: boolean;
+}
+
+export const getSubscription = () =>
+  fetchApi<Subscription>("/api/billing/subscription");
+
+export const createCheckout = (plan: string, successUrl?: string, cancelUrl?: string) =>
+  fetchApi<{ checkout_url: string; session_id: string }>("/api/billing/create-checkout", {
+    method: "POST",
+    body: JSON.stringify({ plan, success_url: successUrl, cancel_url: cancelUrl }),
+  });
+
+export const createBillingPortal = (returnUrl?: string) =>
+  fetchApi<{ portal_url: string }>("/api/billing/portal", {
+    method: "POST",
+    body: JSON.stringify({ return_url: returnUrl }),
+  });
 
 // Analytics
 export interface AnalyticsOverview {

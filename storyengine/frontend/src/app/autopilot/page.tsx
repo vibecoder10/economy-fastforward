@@ -15,6 +15,8 @@ import {
   X,
   Rocket,
   Loader2,
+  Sliders,
+  Shield,
 } from "lucide-react";
 import Link from "next/link";
 import { GlassCard } from "@/components/ui/GlassCard";
@@ -28,10 +30,28 @@ import {
   launchCandidate,
   type AutopilotSummary,
 } from "@/lib/api";
+import { timeAgo } from "@/lib/utils";
 
 const DEFAULT_WEIGHTS = {
   competitor_vph: 0.55,
   timing_freshness: 0.45,
+};
+
+const WEIGHT_LABELS: Record<string, string> = {
+  competitor_vph: "Competitor VPH",
+  topic_channel_fit: "Topic Channel Fit",
+  timing_freshness: "Timing Freshness",
+  channel_momentum: "Channel Momentum",
+  retention_patterns: "Retention Patterns",
+  title_formula: "Title Formula",
+};
+
+const THRESHOLD_LABELS: Record<string, { label: string; suffix: string; min: number; max: number; step: number }> = {
+  min_confidence_score: { label: "Min Confidence Score", suffix: "", min: 0, max: 100, step: 5 },
+  min_competitor_vph: { label: "Min Competitor VPH", suffix: "", min: 0, max: 500, step: 10 },
+  max_idea_age_days: { label: "Max Idea Age", suffix: " days", min: 1, max: 30, step: 1 },
+  ctr_success_threshold: { label: "CTR Success", suffix: "%", min: 0, max: 15, step: 0.5 },
+  ctr_failure_threshold: { label: "CTR Failure", suffix: "%", min: 0, max: 15, step: 0.5 },
 };
 
 const container = {
@@ -63,6 +83,12 @@ export default function AutopilotPage() {
   const [scrapeLimitValue, setScrapeLimitValue] = useState(10);
   const [savingScrapeLimit, setSavingScrapeLimit] = useState(false);
   const [launchingId, setLaunchingId] = useState<string | null>(null);
+  const [editingWeights, setEditingWeights] = useState(false);
+  const [draftWeights, setDraftWeights] = useState<Record<string, number>>({});
+  const [savingWeights, setSavingWeights] = useState(false);
+  const [editingThresholds, setEditingThresholds] = useState(false);
+  const [draftThresholds, setDraftThresholds] = useState<Record<string, number>>({});
+  const [savingThresholds, setSavingThresholds] = useState(false);
 
   const launchMutation = useMutation({
     mutationFn: launchCandidate,
@@ -118,6 +144,32 @@ export default function AutopilotPage() {
       console.error("Error saving scrape limit:", err);
     } finally {
       setSavingScrapeLimit(false);
+    }
+  };
+
+  const handleSaveWeights = async () => {
+    setSavingWeights(true);
+    try {
+      await updateAutopilotConfig({ weights: draftWeights });
+      setEditingWeights(false);
+      queryClient.invalidateQueries({ queryKey: ["autopilot-summary"] });
+    } catch (err) {
+      console.error("Error saving weights:", err);
+    } finally {
+      setSavingWeights(false);
+    }
+  };
+
+  const handleSaveThresholds = async () => {
+    setSavingThresholds(true);
+    try {
+      await updateAutopilotConfig({ thresholds: draftThresholds });
+      setEditingThresholds(false);
+      queryClient.invalidateQueries({ queryKey: ["autopilot-summary"] });
+    } catch (err) {
+      console.error("Error saving thresholds:", err);
+    } finally {
+      setSavingThresholds(false);
     }
   };
 
@@ -190,6 +242,37 @@ export default function AutopilotPage() {
           {isEnabled ? "ON" : "OFF"}
         </button>
       </motion.div>
+
+      {/* Production Cycle Status */}
+      {(state.last_cycle || state.days_until_next > 0) && (
+        <motion.div
+          variants={item}
+          className="flex items-center gap-6 px-1"
+        >
+          {state.last_cycle && (
+            <p className="text-xs" style={{ color: "var(--text-secondary)" }}>
+              <span className="font-mono" style={{ color: "var(--text-tertiary)" }}>Last cycle:</span>{" "}
+              <span style={{ color: "var(--text-primary)" }}>{timeAgo(state.last_cycle)}</span>
+            </p>
+          )}
+          {state.days_until_next > 0 && (
+            <p className="text-xs" style={{ color: "var(--text-secondary)" }}>
+              <span className="font-mono" style={{ color: "var(--text-tertiary)" }}>Next production:</span>{" "}
+              <span style={{ color: "var(--turquoise)" }}>
+                {state.days_until_next === 1 ? "tomorrow" : `in ${state.days_until_next} days`}
+              </span>
+            </p>
+          )}
+          {state.next_production_date && (
+            <p className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>
+              {new Date(state.next_production_date).toLocaleDateString("en-US", {
+                month: "short",
+                day: "numeric",
+              })}
+            </p>
+          )}
+        </motion.div>
+      )}
 
       {/* Disabled banner */}
       {!isEnabled && (
@@ -532,15 +615,44 @@ export default function AutopilotPage() {
       {/* Confidence Weights */}
       <motion.div variants={item}>
         <GlassCard>
-          <div className="flex items-center gap-2 mb-1">
-            <BarChart3 size={16} style={{ color: "var(--turquoise)" }} />
-            <h2 className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
-              Confidence Weights
-            </h2>
+          <div className="flex items-center justify-between mb-1">
+            <div className="flex items-center gap-2">
+              <Sliders size={16} style={{ color: "var(--turquoise)" }} />
+              <h2 className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+                Confidence Weights
+              </h2>
+            </div>
+            {editingWeights ? (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleSaveWeights}
+                  disabled={savingWeights}
+                  className="flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors"
+                  style={{ background: "rgba(0,230,138,0.15)", color: "var(--green)", border: "1px solid rgba(0,230,138,0.25)" }}
+                >
+                  {savingWeights ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
+                  Save
+                </button>
+                <button
+                  onClick={() => setEditingWeights(false)}
+                  className="flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors"
+                  style={{ background: "rgba(255,77,106,0.1)", color: "var(--red)" }}
+                >
+                  <X size={12} /> Cancel
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => { setDraftWeights({ ...weights }); setEditingWeights(true); }}
+                className="text-[11px] font-mono transition-colors"
+                style={{ color: "var(--text-tertiary)" }}
+              >
+                edit
+              </button>
+            )}
           </div>
           <p className="text-[11px] mb-5" style={{ color: "var(--text-secondary)" }}>
-            How candidates are scored. VPH measures viral potential, Freshness measures
-            topic timeliness.
+            How candidates are scored. Higher weight = more influence on the confidence score.
           </p>
 
           <div className="space-y-4">
@@ -548,31 +660,121 @@ export default function AutopilotPage() {
               <div key={key}>
                 <div className="flex items-center justify-between text-xs mb-1.5">
                   <span style={{ color: "var(--text-secondary)" }}>
-                    {key
-                      .replace(/_/g, " ")
-                      .replace(/\b\w/g, (c) => c.toUpperCase())}
+                    {WEIGHT_LABELS[key] || key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
                   </span>
-                  <span
-                    className="font-mono font-medium"
-                    style={{ color: "var(--turquoise)" }}
-                  >
-                    {(Number(value) * 100).toFixed(0)}%
+                  <span className="font-mono font-medium" style={{ color: "var(--turquoise)" }}>
+                    {(Number(editingWeights ? (draftWeights[key] ?? value) : value) * 100).toFixed(0)}%
                   </span>
                 </div>
-                <div
-                  className="h-2 overflow-hidden rounded-full"
-                  style={{ background: "rgba(255,255,255,0.06)" }}
-                >
-                  <motion.div
-                    className="h-full rounded-full"
-                    style={{ background: "var(--turquoise)" }}
-                    initial={{ width: 0 }}
-                    animate={{ width: `${Number(value) * 100}%` }}
-                    transition={{ duration: 1, ease: "easeOut" as const }}
+                {editingWeights ? (
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    step={5}
+                    value={Math.round((draftWeights[key] ?? Number(value)) * 100)}
+                    onChange={(e) => setDraftWeights((prev) => ({ ...prev, [key]: parseInt(e.target.value) / 100 }))}
+                    className="w-full h-2 rounded-full appearance-none cursor-pointer"
+                    style={{ background: `linear-gradient(to right, var(--turquoise) ${Math.round((draftWeights[key] ?? Number(value)) * 100)}%, rgba(255,255,255,0.06) ${Math.round((draftWeights[key] ?? Number(value)) * 100)}%)`, accentColor: "var(--turquoise)" }}
                   />
-                </div>
+                ) : (
+                  <div className="h-2 overflow-hidden rounded-full" style={{ background: "rgba(255,255,255,0.06)" }}>
+                    <motion.div
+                      className="h-full rounded-full"
+                      style={{ background: "var(--turquoise)" }}
+                      initial={{ width: 0 }}
+                      animate={{ width: `${Number(value) * 100}%` }}
+                      transition={{ duration: 1, ease: "easeOut" as const }}
+                    />
+                  </div>
+                )}
               </div>
             ))}
+          </div>
+        </GlassCard>
+      </motion.div>
+
+      {/* Thresholds */}
+      <motion.div variants={item}>
+        <GlassCard>
+          <div className="flex items-center justify-between mb-1">
+            <div className="flex items-center gap-2">
+              <Shield size={16} style={{ color: "var(--gold)" }} />
+              <h2 className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+                Thresholds
+              </h2>
+            </div>
+            {editingThresholds ? (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleSaveThresholds}
+                  disabled={savingThresholds}
+                  className="flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors"
+                  style={{ background: "rgba(0,230,138,0.15)", color: "var(--green)", border: "1px solid rgba(0,230,138,0.25)" }}
+                >
+                  {savingThresholds ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
+                  Save
+                </button>
+                <button
+                  onClick={() => setEditingThresholds(false)}
+                  className="flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors"
+                  style={{ background: "rgba(255,77,106,0.1)", color: "var(--red)" }}
+                >
+                  <X size={12} /> Cancel
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => { setDraftThresholds({ ...config.thresholds }); setEditingThresholds(true); }}
+                className="text-[11px] font-mono transition-colors"
+                style={{ color: "var(--text-tertiary)" }}
+              >
+                edit
+              </button>
+            )}
+          </div>
+          <p className="text-[11px] mb-5" style={{ color: "var(--text-secondary)" }}>
+            Minimum quality gates. Ideas below these thresholds are skipped.
+          </p>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {Object.entries(config.thresholds).map(([key, value]) => {
+              const meta = THRESHOLD_LABELS[key] || { label: key.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase()), suffix: "", min: 0, max: 100, step: 1 };
+              const displayValue = editingThresholds ? (draftThresholds[key] ?? value) : value;
+              return (
+                <div
+                  key={key}
+                  className="rounded-xl px-4 py-3"
+                  style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.05)" }}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs" style={{ color: "var(--text-secondary)" }}>{meta.label}</span>
+                    <span className="text-sm font-mono font-medium" style={{ color: "var(--gold)" }}>
+                      {Number(displayValue)}{meta.suffix}
+                    </span>
+                  </div>
+                  {editingThresholds ? (
+                    <input
+                      type="range"
+                      min={meta.min}
+                      max={meta.max}
+                      step={meta.step}
+                      value={draftThresholds[key] ?? Number(value)}
+                      onChange={(e) => setDraftThresholds((prev) => ({ ...prev, [key]: parseFloat(e.target.value) }))}
+                      className="w-full h-2 rounded-full appearance-none cursor-pointer"
+                      style={{ accentColor: "var(--gold)" }}
+                    />
+                  ) : (
+                    <div className="h-1.5 overflow-hidden rounded-full" style={{ background: "rgba(255,255,255,0.06)" }}>
+                      <div
+                        className="h-full rounded-full transition-all"
+                        style={{ background: "var(--gold)", width: `${(Number(value) / meta.max) * 100}%` }}
+                      />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </GlassCard>
       </motion.div>
