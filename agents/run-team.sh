@@ -15,6 +15,11 @@ PRD_FILE=$2
 AGENTS_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(dirname "$AGENTS_DIR")"
 CLAUDE_BIN="${CLAUDE_BIN:-claude}"
+RUBRIC_URL="${RUBRIC_URL:-http://localhost:5050}"
+
+# Map team roles to RUBRIC agent names for activity feed
+declare -A AGENT_MAP=( [backend]=backend-dev [frontend]=frontend-dev [qa]=qa-engineer [security]=orchestrator [lead]=orchestrator )
+AGENT_ID="${AGENT_MAP[$ROLE]:-$ROLE}"
 
 if [ -z "$ROLE" ]; then
   echo "Usage: ./agents/run-team.sh <role> [prd-file]"
@@ -122,17 +127,46 @@ Begin work now."
 PROMPT_FILE=$(mktemp /tmp/agent-$ROLE-XXXXXX.txt)
 printf '%s' "$PROMPT" > "$PROMPT_FILE"
 
+PRD_TITLE=$(python3 -c "import json; print(json.load(open('$AGENTS_DIR/prd.json')).get('title','Unknown'))" 2>/dev/null || echo "Unknown")
 echo "Starting $ROLE agent..."
-echo "  PRD: $(python3 -c "import json; print(json.load(open('$AGENTS_DIR/prd.json')).get('title','Unknown'))" 2>/dev/null || echo "Unknown")"
+echo "  PRD: $PRD_TITLE"
 echo "  Progress: $AGENTS_DIR/progress.md"
 echo ""
 
-$CLAUDE_BIN -p \
-  --dangerously-skip-permissions \
-  < "$PROMPT_FILE"
+# Report active status to RUBRIC
+curl -s -X POST "$RUBRIC_URL/api/agent-status" \
+  -H "Content-Type: application/json" \
+  -d "{\"agent\": \"$AGENT_ID\", \"status\": \"active\", \"task\": \"PRD: $PRD_TITLE\"}" >/dev/null 2>&1 || true
 
+curl -s -X POST "$RUBRIC_URL/api/activity-log" \
+  -H "Content-Type: application/json" \
+  -d "{\"agent\": \"$AGENT_ID\", \"task\": \"PRD\", \"summary\": \"Starting PRD work: $PRD_TITLE\", \"detail\": \"Role: $ROLE. Reading tasks and dependencies.\", \"status\": \"started\"}" >/dev/null 2>&1 || true
+
+set +e
+OUTPUT=$($CLAUDE_BIN -p \
+  --dangerously-skip-permissions \
+  < "$PROMPT_FILE" 2>&1)
 AGENT_EXIT=$?
+set -e
 rm -f "$PROMPT_FILE"
+
+# Count completed tasks
+DONE_COUNT=$(cat "$AGENTS_DIR/progress.md" 2>/dev/null | grep -c '\[x\]' || echo 0)
+BLOCKED_COUNT=$(cat "$AGENTS_DIR/progress.md" 2>/dev/null | grep -c 'BLOCKED' || echo 0)
+
+# Extract summary from output (last meaningful lines)
+SUMMARY=$(echo "$OUTPUT" | tail -20 | head -5 | tr '\n' ' ' | cut -c1-200)
+if [ -z "$SUMMARY" ]; then SUMMARY="$ROLE agent completed (exit $AGENT_EXIT)"; fi
+
+# Report completion to RUBRIC activity feed
+curl -s -X POST "$RUBRIC_URL/api/activity-log" \
+  -H "Content-Type: application/json" \
+  -d "{\"agent\": \"$AGENT_ID\", \"task\": \"PRD\", \"summary\": \"$(echo "$SUMMARY" | sed 's/"/\\"/g' | head -c 200)\", \"detail\": \"Tasks done: $DONE_COUNT. Blocked: $BLOCKED_COUNT.\", \"status\": \"completed\"}" >/dev/null 2>&1 || true
+
+# Report idle status
+curl -s -X POST "$RUBRIC_URL/api/agent-status" \
+  -H "Content-Type: application/json" \
+  -d "{\"agent\": \"$AGENT_ID\", \"status\": \"idle\", \"task\": \"PRD work done ($DONE_COUNT tasks completed)\"}" >/dev/null 2>&1 || true
 
 if [ $AGENT_EXIT -ne 0 ]; then
   echo "Agent $ROLE exited with code $AGENT_EXIT"
@@ -140,4 +174,4 @@ fi
 
 echo ""
 echo "$ROLE agent session complete."
-echo "Progress: $(cat "$AGENTS_DIR/progress.md" 2>/dev/null | grep -c '\[x\]' || echo 0) tasks done"
+echo "Progress: $DONE_COUNT tasks done, $BLOCKED_COUNT blocked"
