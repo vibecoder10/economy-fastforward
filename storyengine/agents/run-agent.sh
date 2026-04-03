@@ -185,11 +185,21 @@ except: print(0)
   [ "$_ERROR_COUNT" -gt 0 ] && HAS_USER_ERRORS="true"
 fi
 
+# ─── Ops Mode (standing orders when task queue is complete) ─────────────────
+OPS_MODE="false"
 if [ "$ALL_DONE" = "COMPLETE" ] && [ "$HAS_PRD_WORK" = "false" ] && [ "$HAS_HANDOFFS" = "false" ] && [ "$HAS_FOCUS" = "false" ] && [ "$HAS_USER_ERRORS" = "false" ]; then
+  OPS_MODE="true"
+  STANDING_ORDERS_FILE="$AGENTS_DIR/standing-orders/$AGENT.md"
+  if [ ! -f "$STANDING_ORDERS_FILE" ]; then
+    # No standing orders for this agent — exit idle as before
+    curl -s -X POST "$RUBRIC_URL/api/agent-status" \
+      -H "Content-Type: application/json" \
+      -d "{\"agent\": \"$AGENT\", \"status\": \"idle\", \"task\": \"All tasks complete — no standing orders\"}" 2>/dev/null || true
+    exit 0
+  fi
   curl -s -X POST "$RUBRIC_URL/api/agent-status" \
     -H "Content-Type: application/json" \
-    -d "{\"agent\": \"$AGENT\", \"status\": \"idle\", \"task\": \"All tasks complete — standby mode\"}" 2>/dev/null || true
-  exit 0
+    -d "{\"agent\": \"$AGENT\", \"status\": \"active\", \"task\": \"Ops mode — standing orders\"}" 2>/dev/null || true
 fi
 
 # ─── Report Active ──────────────────────────────────────────────────────────
@@ -540,10 +550,38 @@ if [ -n "$PRD_SECTION" ]; then
 $PRD_SECTION"
 fi
 
-PROMPT="$PROMPT
+# ─── Inject Task Queue OR Standing Orders ──────────────────────────────────
+if [ "$OPS_MODE" = "true" ]; then
+  STANDING_ORDERS=$(cat "$AGENTS_DIR/standing-orders/$AGENT.md" 2>/dev/null || echo "No standing orders found.")
+  PROMPT="$PROMPT
+
+## OPS MODE — STANDING ORDERS (task queue is complete)
+All build tasks are done. You are now in **Operations Mode**. There is no task to pick from the queue. Instead, follow your standing orders below.
+
+$STANDING_ORDERS
+
+## Launch Checklist (the team goal)
+Every agent contributes to getting this score to 8/8. Evaluate what you can and report:
+1. All pages render without console errors
+2. Auth flow works end-to-end (login, signup, session persistence, logout)
+3. Billing/subscription flow works end-to-end
+4. Pipeline runs a video end-to-end through StoryEngine UI
+5. Mobile responsive on 375x667 viewport
+6. Performance: pages load under 3 seconds
+7. No critical security vulnerabilities
+8. All API endpoints return correct data shapes
+
+At the VERY END of your output, include this line:
+LAUNCH_SCORE: X/8 (list which criteria pass and which fail)
+
+## Current Task Queue (for reference — check for pending bugs filed by other agents)
+$TASK_QUEUE"
+else
+  PROMPT="$PROMPT
 
 ## Current Task Queue
 $TASK_QUEUE"
+fi
 
 PROMPT="$PROMPT
 
@@ -631,6 +669,17 @@ SUMMARY_JSON=$(echo "$SUMMARY_LINE" | python3 -c 'import json,sys; print(json.du
 curl -s -X POST "$RUBRIC_URL/api/activity-log" \
   -H "Content-Type: application/json" \
   -d "{\"agent\": \"$AGENT\", \"task\": \"$TASK_LINE\", \"summary\": $SUMMARY_JSON, \"detail\": $DETAIL_JSON, \"detail_file\": \"$RUN_ID.md\", \"status\": \"completed\"}" 2>/dev/null || true
+
+# ─── Extract Launch Score (Ops Mode) ──────────────────────────────────────
+if [ "$OPS_MODE" = "true" ]; then
+  LAUNCH_SCORE=$(echo "$OUTPUT" | grep "^LAUNCH_SCORE:" | head -1 | sed 's/^LAUNCH_SCORE: *//' || echo "")
+  if [ -n "$LAUNCH_SCORE" ]; then
+    LAUNCH_SCORE_JSON=$(echo "$LAUNCH_SCORE" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().strip()))' 2>/dev/null || echo "\"$LAUNCH_SCORE\"")
+    curl -s -X POST "$RUBRIC_URL/api/activity-log" \
+      -H "Content-Type: application/json" \
+      -d "{\"agent\": \"$AGENT\", \"task\": \"launch-readiness\", \"summary\": $LAUNCH_SCORE_JSON, \"status\": \"completed\"}" 2>/dev/null || true
+  fi
+fi
 
 # ─── Mark Feedback as Read ─────────────────────────────────────────────────
 if [ -f "$CONTROLS_FILE" ]; then

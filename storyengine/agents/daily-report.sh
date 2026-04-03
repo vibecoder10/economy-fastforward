@@ -118,6 +118,35 @@ EOF
   echo "Existing PR: #$EXISTING_PR"
 fi
 
+# ─── Push to Telegram ──────────────────────────────────────────────────────
+source "$AGENTS_DIR/notify-telegram.sh" 2>/dev/null || true
+
+# Get latest launch score from activity log
+RUBRIC_DATA="$PROJECT_ROOT/rubric/scaffold/data"
+LAUNCH_SCORE=$(python3 -c "
+import json
+try:
+    logs = json.load(open('$RUBRIC_DATA/activity-log.json'))
+    scores = [e for e in logs[:100] if e.get('task') == 'launch-readiness']
+    if scores:
+        print(scores[0].get('summary', 'No score yet'))
+    else:
+        print('No launch score yet')
+except: print('No launch score yet')
+" 2>/dev/null || echo "No launch score yet")
+
+# Send Telegram summary (first 500 chars of report + launch score)
+if [ -f "$REPORT_FILE" ]; then
+  TELEGRAM_SUMMARY=$(head -20 "$REPORT_FILE" | sed 's/#//g' | head -c 500)
+  notify_telegram "*Daily Report — $TODAY*
+
+$TELEGRAM_SUMMARY
+
+*Launch Readiness:* $LAUNCH_SCORE
+
+_Full report in PR on GitHub_"
+fi
+
 # Report idle status
 curl -s -X POST "$RUBRIC_URL/api/agent-status" \
   -H "Content-Type: application/json" \

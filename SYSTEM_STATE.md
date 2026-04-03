@@ -331,7 +331,63 @@ Performance analysis system that extracts patterns from video metrics and compet
 
 ---
 
-## 10. Known Issues / Tech Debt
+## 10. StoryEngine Agent System (April 2026)
+
+### Architecture
+
+6 autonomous agents on cron, managed via RUBRIC dashboard + Telegram.
+
+| Agent | Model | Schedule | Role |
+|-------|-------|----------|------|
+| Pipeline Tester | Opus | Hourly :10 | Test every page, file bugs |
+| Backend Dev | Opus | Every 2h :00 | Fix backend bugs |
+| Frontend Dev | Opus | Every 2h :02 | Fix frontend bugs |
+| QA Engineer | Opus | Every 2h :04 | Verify fixes |
+| Orchestrator | Opus | 8AM + 8PM | Health report to Telegram |
+| Security Auditor | Opus | Every 6h | Security audit |
+
+### Key Files
+
+| Path | Purpose |
+|------|---------|
+| `storyengine/agents/run-agent.sh` | Unified agent runner (controls, prompts, ops mode) |
+| `storyengine/agents/{role}.md` | System prompt per agent |
+| `storyengine/agents/standing-orders/{role}.md` | Ops mode standing orders (when task queue is complete) |
+| `storyengine/agents/task-queue.json` | Task queue (26 tabs, 161 tasks) |
+| `storyengine/agents/memory/{role}.md` | Persistent agent memory (max 50 entries) |
+| `storyengine/agents/blueprints/` | Product vision + role-specific blueprints |
+| `storyengine/agents/setup-crons.sh` | Cron schedule installer |
+| `storyengine/agents/daily-report.sh` | Daily report + PR + Telegram push |
+| `storyengine/agents/notify-telegram.sh` | Shared Telegram notification helper |
+| `rubric/scaffold/server.js` | RUBRIC HTTP API (status, controls, activity, spawn) |
+| `rubric/scaffold/data/controls.json` | Operator control surface (on/off, focus, feedback) |
+| `rubric/scaffold/data/handoffs.json` | Agent-to-agent message queue |
+| `rubric/scaffold/data/activity-log.json` | Real-time event stream |
+| `rubric/scaffold/telegram-healthcheck.sh` | Auto-restart Telegram tmux if dead |
+
+### Ops Mode (Build → Operations Transition)
+
+When the task queue is complete (all tasks done + verified), agents enter **Ops Mode** instead of exiting idle:
+- Pipeline Tester: tests every page, files bugs that auto-activate dev agents
+- Dev agents: fix bugs filed by tester, return to standing orders when queue is clear
+- QA: verifies fixes
+- Orchestrator: pushes health report + launch score (X/8) to Telegram
+- Feedback loop: tester files bug → devs fix → QA verifies → all return to standing orders
+
+### Launch Checklist (8 criteria)
+
+1. All pages render without console errors
+2. Auth flow works end-to-end
+3. Billing/subscription flow works
+4. Pipeline runs a video E2E through UI
+5. Mobile responsive (375x667)
+6. Performance (<3s page load)
+7. No critical security vulnerabilities
+8. All API endpoints return correct data
+
+---
+
+## 11. Known Issues / Tech Debt
 
 ### Critical
 
