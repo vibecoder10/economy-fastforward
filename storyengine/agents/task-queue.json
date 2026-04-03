@@ -901,26 +901,33 @@
       "id": 12,
       "name": "Learnings Dashboard (NEW)",
       "path": "/learnings",
-      "status": "pending",
+      "status": "in_progress",
       "tasks": [
         {
           "id": "T12-001",
           "title": "Create /learnings page route and layout",
           "role": "frontend",
-          "status": "pending",
-          "description": "Create frontend/src/app/learnings/page.tsx. Layout: action bar (Extract Learnings, Analyze Titles, Analyze Transcripts buttons), category filter tabs (All, Title, Hook, Framework, Script), pattern cards grid. Backend endpoints all exist: GET /api/learnings, POST /api/learnings/extract, POST /api/learnings/analyze-titles, POST /api/learnings/analyze-transcripts. Frontend API calls exist in api.ts.",
+          "status": "done",
+          "started_at": "2026-04-03T05:02:00Z",
+          "assigned_to": "frontend-dev",
+          "completed_at": "2026-04-03T05:10:00Z",
+          "description": "Created frontend/src/app/learnings/page.tsx with action bar (Extract Learnings, Analyze Titles, Analyze Transcripts), category filter tabs (All/Title/Hook/Framework/Script), show-disabled toggle, pattern cards grid with confidence bars, verdict badges, source video chips, and active toggle. Added analyzeTranscripts() and toggleLearning() to api.ts.",
           "files": [
-            "frontend/src/app/learnings/page.tsx"
+            "frontend/src/app/learnings/page.tsx",
+            "frontend/src/lib/api.ts"
           ]
         },
         {
           "id": "T12-002",
           "title": "Build LearningPatternCard component",
           "role": "frontend",
-          "status": "pending",
-          "description": "Each card shows: pattern name, category pill (title=amber, hook=teal, framework=purple, script=blue), confidence % as progress bar, sample_size, avg_ctr (if present), avg_retention (if present), source_videos (last 10 video titles as chips), active toggle. Verdict badge: confidence >= 60 = PROVEN (green), confidence <= 40 = AVOID (red), else TESTING (amber).",
+          "status": "done",
+          "started_at": "2026-04-03T05:02:00Z",
+          "assigned_to": "frontend-dev",
+          "completed_at": "2026-04-03T05:10:00Z",
+          "description": "Built inline as PatternCard in learnings/page.tsx (anti-bloat: no separate file). Shows: pattern name, category pill (title=amber, hook=teal, framework=purple, script=blue), confidence % as progress bar, sample_size, avg_ctr with color thresholds, avg_retention, source_videos as expandable chips (max 10), active toggle via toggleLearning(). Verdict badge: PROVEN (green, >=60), AVOID (red, <=40), TESTING (amber).",
           "files": [
-            "frontend/src/components/autopilot/LearningPatternCard.tsx"
+            "frontend/src/app/learnings/page.tsx"
           ]
         },
         {
@@ -937,8 +944,11 @@
           "id": "T12-004",
           "title": "Wire action buttons: Extract, Analyze Titles, Analyze Transcripts",
           "role": "frontend",
-          "status": "pending",
-          "description": "Three action buttons in the top bar: 'Extract Learnings' (POST /api/learnings/extract — scans published videos for patterns), 'Analyze Titles' (POST /api/learnings/analyze-titles — detects structural patterns in competitor titles), 'Analyze Transcripts' (POST /api/learnings/analyze-transcripts — detects hook patterns from competitor openings). Show loading state while running, then refresh the pattern list.",
+          "status": "done",
+          "started_at": "2026-04-03T05:02:00Z",
+          "assigned_to": "frontend-dev",
+          "completed_at": "2026-04-03T05:10:00Z",
+          "description": "All 3 action buttons wired in learnings/page.tsx action bar. Extract calls POST /api/learnings/extract, Analyze Titles calls POST /api/learnings/analyze-titles, Analyze Transcripts calls POST /api/learnings/analyze-transcripts. Each has loading spinner, disabled during any action, result summary shown on success. Query invalidation refreshes pattern list.",
           "files": [
             "frontend/src/app/learnings/page.tsx"
           ]
@@ -965,11 +975,13 @@
           "id": "T12-006",
           "title": "Add sidebar nav entry for Learnings",
           "role": "frontend",
-          "status": "pending",
-          "description": "Add 'Learnings' to the sidebar navigation between Discovery and Autopilot. Use a brain or graduation cap icon.",
+          "status": "done",
+          "started_at": "2026-04-03T05:02:00Z",
+          "assigned_to": "frontend-dev",
+          "completed_at": "2026-04-03T05:10:00Z",
+          "description": "Added Learnings to sidebar nav between Discovery and Visual Profile with Brain icon from lucide-react. Href: /learnings.",
           "files": [
-            "frontend/src/components/nav/Sidebar.tsx",
-            "frontend/src/components/nav/BottomTabs.tsx"
+            "frontend/src/components/nav/sidebar.tsx"
           ]
         },
         {

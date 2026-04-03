@@ -411,6 +411,17 @@ export const analyzeCompetitorTitles = () =>
     { method: "POST" }
   );
 
+export const analyzeTranscripts = () =>
+  fetchApi<{ status: string; patterns_found: number; insights_saved: number; videos_analyzed: number }>(
+    "/api/learnings/analyze-transcripts",
+    { method: "POST" }
+  );
+
+export const toggleLearning = (learningId: string) =>
+  fetchApi<{ id: string; active: boolean }>(`/api/learnings/${learningId}/toggle`, {
+    method: "PATCH",
+  });
+
 // Niche
 export const getNicheConfig = () =>
   fetchApi<NicheConfig>("/api/niche/config");
