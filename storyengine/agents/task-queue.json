@@ -2578,7 +2578,11 @@
           ],
           "assigned_to": "backend-dev",
           "started_at": "2026-04-03T23:00:01Z",
-          "completed_at": "2026-04-03T23:10:00Z"
+          "completed_at": "2026-04-03T23:10:00Z",
+          "verified": true,
+          "verified_at": "2026-04-04T00:15:00Z",
+          "verified_by": "qa-engineer",
+          "verification_notes": "PASS. (1) POST /api/videos/{id}/audio-token at videos.py:443 — generates 5-min JWT with purpose=audio, video_id, tenant_id, exp claims. Requires Depends(get_tenant_id) auth. (2) GET /api/videos/{id}/audio/{scene} at line 473 now validates audio tokens: checks purpose==audio (line 500), video_id scope match (line 501, returns 403 on mismatch), extracts tenant_id (line 503). (3) ExpiredSignatureError caught at line 508 (returns 401). (4) Frontend SecureAudioPlayer component at StoryboardVisualsTab.tsx:28 — useEffect calls getAudioToken(videoId) via POST, builds scoped URL with short-lived token, cleanup flag prevents state updates after unmount. (5) Old insecure pattern REMOVED — grep confirms zero instances of localStorage token in audio URL construction. (6) api.ts:154 getAudioToken uses POST (not GET — prevents URL logging). (7) Session JWT still accepted as fallback for backwards compat (line 504). (8) tsc --noEmit: 0 errors. (9) Diff clean: 4 files, 74 lines — appropriate for security fix. No bloat."
         },
         {
           "id": "SEC-8",
