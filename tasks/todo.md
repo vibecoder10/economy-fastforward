@@ -64,13 +64,15 @@
 
 ### What Needs Attention Next
 
-1. **User-browser errors still live** — 404 on `/api/user/preferences`, 405 on DELETE `/api/videos/{id}`. The watcher should auto-spawn backend-dev at the next minute mark to fix these.
+1. ~~**User-browser errors still live**~~ — FIXED. Both 404 on `/api/user/preferences` and 405 on DELETE were stale server issues (already resolved by server restart).
 
-2. **Activity feed needs verification** — live posting instructions added to all agents but not yet tested in a real agent run. Next agent session should produce real-time activity entries.
+2. ~~**Image generation broken**~~ — FIXED (commit 013963a). Three bugs: (a) LightPipeline missing `_filter_by_scene`, `_is_targeted_run`, `_log_filters`, `_update_status` methods. (b) Status case mismatch: DB stores lowercase but pipeline bots expect capitalized. (c) Targeted runs (single image) triggered retry loop that generated ALL images. All three fixed.
 
-3. **Security audit T14** — the Security Auditor agent exists but hasn't run yet. Will run on next 6h cron or can be manually spawned.
+3. **Activity feed needs verification** — live posting instructions added to all agents but not yet tested in a real agent run. Next agent session should produce real-time activity entries.
 
-4. **Delete button broken** — Ryan confirmed: shows "deleting" state but video stays. Backend likely returns 405 (Method Not Allowed). The error-driven task creation should auto-create a BUG-USER task.
+4. **Security audit T14** — the Security Auditor agent exists but hasn't run yet. Will run on next 6h cron or can be manually spawned.
+
+5. ~~**Delete button broken**~~ — FIXED. Was stale server issue, now works correctly.
 
 5. **Tier 2 product ideas not yet built:**
    - Cost dashboard (track Claude API cost per agent)
