@@ -166,7 +166,10 @@
           "id": "BUG-T3-002-BACKEND",
           "title": "BUG: script_validation missing from VideoDetail API response \u2014 T3-002 blocked",
           "role": "backend",
-          "status": "pending",
+          "status": "done",
+          "started_at": "2026-04-03T04:00:01Z",
+          "completed_at": "2026-04-03T04:02:00Z",
+          "assigned_to": "backend-dev",
           "description": "Pipeline Tester found (2026-04-03): schema.sql line 106 has script_validation TEXT in videos table. But GET /api/videos/{id} does NOT include this field \u2014 absent from VideoDetail Pydantic model (models.py) and SQL SELECT in routes/videos.py. Fix: (1) Add script_validation: Optional[str] = None to VideoDetail class in models.py. (2) Add script_validation to SQL SELECT in routes/videos.py get_video(). (3) Add r.get(script_validation) mapping in VideoDetail constructor. (4) Add script_validation to api.ts VideoDetail interface. This unblocks T3-002 (frontend display).",
           "files": [
             "backend/models.py",

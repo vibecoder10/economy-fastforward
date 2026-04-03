@@ -55,6 +55,7 @@ class VideoDetail(VideoSummary):
     research_payload: Optional[dict] = None
     original_dna: Optional[dict] = None
     script: Optional[str] = None
+    script_validation: Optional[str] = None
     story_bible: Optional[str] = None
     thumbnail_prompt: Optional[str] = None
     thumbnail_style_override: Optional[str] = None
