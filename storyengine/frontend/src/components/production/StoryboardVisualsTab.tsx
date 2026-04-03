@@ -437,6 +437,17 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
     }
   }, [runStageWith409Retry, storyboardMode]);
 
+  const [extracting, setExtracting] = useState(false);
+  const handleExtractPanels = useCallback(async () => {
+    setExtracting(true);
+    try {
+      await runStageWith409Retry("storyboard-extract");
+    } catch (err: unknown) {
+      alert(`Extraction failed: ${(err as Error).message}`);
+      setExtracting(false);
+    }
+  }, [runStageWith409Retry]);
+
   const handleGenerateScenePrompts = useCallback(async (sceneNumber: number) => {
     setGeneratingScene(sceneNumber);
     try {
@@ -679,12 +690,12 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
             );
             return (
               <button
-                onClick={() => runPipelineStage(video.id, "storyboard-extract").then(() => queryClient.invalidateQueries({ queryKey: ["video", video.id] }))}
-                disabled={taskRunning}
+                onClick={handleExtractPanels}
+                disabled={extracting || taskRunning}
                 className="mt-3 w-full inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-xs font-semibold transition-all disabled:opacity-50"
                 style={{ background: "var(--green)", color: "var(--bg-void)" }}
               >
-                {taskRunning ? <Loader2 size={14} className="animate-spin" /> : <Scissors size={14} />}
+                {(extracting || taskRunning) ? <Loader2 size={14} className="animate-spin" /> : <Scissors size={14} />}
                 Step 4: Extract &amp; Upscale Panels
               </button>
             );
@@ -722,13 +733,13 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
                 {allExtracted.length} images
               </span>
             </div>
-            <div className="flex gap-1.5 overflow-x-auto pb-2" style={{ scrollbarWidth: "thin" }}>
+            <div className="flex gap-2.5 overflow-x-auto pb-2" style={{ scrollbarWidth: "thin" }}>
               {allExtracted.map((seg) => (
                 <div key={seg.id} className="flex-shrink-0 group cursor-pointer" onClick={() => { const el = document.getElementById(`scene-${seg.sceneNumber}`); if (el) el.scrollIntoView({ behavior: "smooth", block: "start" }); }}>
-                  <div className="w-[100px] h-[56px] rounded overflow-hidden" style={{ border: "1px solid rgba(255,255,255,0.06)" }}>
+                  <div className="w-[220px] h-[124px] rounded-lg overflow-hidden" style={{ border: "1px solid rgba(255,255,255,0.08)" }}>
                     <img src={seg.imageUrl} alt={seg.segmentId} className="w-full h-full object-cover group-hover:scale-105 transition-transform" loading="lazy" />
                   </div>
-                  <span className="text-[8px] font-mono block text-center mt-0.5" style={{ color: "var(--text-tertiary)" }}>{seg.segmentId}</span>
+                  <span className="text-[9px] font-mono block text-center mt-1" style={{ color: "var(--text-tertiary)" }}>{seg.segmentId}</span>
                 </div>
               ))}
             </div>
