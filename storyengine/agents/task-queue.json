@@ -2463,7 +2463,8 @@
       "id": 26,
       "name": "Security Hardening",
       "path": "cross-cutting",
-      "status": "in_progress",
+      "status": "complete",
+      "completed_at": "2026-04-04T04:10:00Z",
       "tasks": [
         {
           "id": "SEC-1",
@@ -2573,7 +2574,11 @@
           ],
           "assigned_to": "backend-dev",
           "started_at": "2026-04-04T03:00:01Z",
-          "completed_at": "2026-04-04T03:05:00Z"
+          "completed_at": "2026-04-04T03:05:00Z",
+          "verified": true,
+          "verified_at": "2026-04-04T04:10:00Z",
+          "verified_by": "qa-engineer",
+          "verification_notes": "PASS. Commit 9578262: (1) settings.py audit logging added to 3 mutation endpoints: set (line 127), delete (line 154), test (line 182). Reveal already had it from SEC-3 (line 222). (2) All 4 use bot_name=api_key_audit, tenant_id scoped. (3) Test logging includes success/fail status via result.get('success'). (4) Read-only endpoints (list, get-status) correctly excluded — no audit noise. (5) Diff clean: 2 files (settings.py +20 lines, task-queue.json), no bloat — no new files, no unrelated changes. (6) tsc --noEmit: 0 errors."
         },
         {
           "id": "SEC-7",
