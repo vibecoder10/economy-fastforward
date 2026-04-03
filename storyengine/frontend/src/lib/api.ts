@@ -76,6 +76,32 @@ export const getMe = () => fetchApi<AuthUser>("/api/auth/me");
 // Dashboard
 export const getDashboardSummary = () => fetchApi<DashboardSummary>("/api/dashboard/summary");
 
+// Onboarding
+export type OnboardingStatus = {
+  completed: boolean;
+  steps: {
+    channel_configured: boolean;
+    api_keys_configured: boolean;
+    youtube_synced: boolean;
+  };
+  percent_complete: number;
+};
+
+export const getOnboardingStatus = () =>
+  fetchApi<OnboardingStatus>("/api/dashboard/onboarding/status");
+
+// Calendar
+export type CalendarVideo = {
+  id: string;
+  video_title: string | null;
+  status: string | null;
+  thumbnail_url: string | null;
+  accent_color: string | null;
+};
+
+export const getCalendarVideos = (start: string, end: string) =>
+  fetchApi<Record<string, CalendarVideo[]>>(`/api/dashboard/calendar?start=${start}&end=${end}`);
+
 // Videos
 export const getVideos = (status?: string) =>
   fetchApi<VideoSummary[]>(`/api/videos${status ? `?status=${status}` : ""}`);
@@ -87,6 +113,9 @@ export const createVideo = (data: {
   source_url?: string;
   framework_angle?: string;
   video_length_minutes?: number;
+  writer_guidance?: string;
+  visual_style?: string;
+  accent_color?: string;
 }) =>
   fetchApi<VideoSummary>("/api/videos", {
     method: "POST",
@@ -277,6 +306,9 @@ export const getAutopilotCandidates = (limit?: number, minVph?: number) =>
   fetchApi<CompetitorCandidate[]>(
     `/api/autopilot/candidates?limit=${limit || 20}&min_vph=${minVph || 50}`
   );
+
+export const getCandidateDetail = (id: string) =>
+  fetchApi<CandidateDetail>(`/api/autopilot/candidates/${id}`);
 
 export const getAutopilotLearnings = (category?: string, limit?: number) =>
   fetchApi<Learning[]>(
@@ -635,6 +667,10 @@ export interface DashboardSummary {
   errors: number;
   latest_video: VideoSummary | null;
   total_videos: number;
+  avg_ctr: number | null;
+  total_views: number;
+  videos_this_week: number;
+  recent_videos: VideoSummary[];
 }
 
 export interface VideoSummary {
@@ -669,6 +705,7 @@ export interface VideoDetail extends VideoSummary {
   research_payload: Record<string, unknown> | null;
   original_dna: Record<string, unknown> | null;
   script: string | null;
+  script_validation: string | null;
   story_bible: string | null;
   thumbnail_prompt: string | null;
   thumbnail_style_override: string | null;
@@ -678,6 +715,7 @@ export interface VideoDetail extends VideoSummary {
   video_model: string | null;
   video_length_minutes: number | null;
   youtube_url: string | null;
+  final_video_url: string | null;
   avg_retention: number | null;
   impressions: number;
   likes: number;
@@ -895,6 +933,14 @@ export interface CompetitorCandidate {
   confidence_breakdown?: ConfidenceBreakdown;
   published_date: string | null;
   modeled: boolean;
+}
+
+export interface CandidateDetail extends CompetitorCandidate {
+  transcript: string | null;
+  thumbnail_url: string | null;
+  description: string | null;
+  duration_seconds: number | null;
+  likes: number | null;
 }
 
 export interface Learning {

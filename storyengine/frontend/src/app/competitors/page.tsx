@@ -4,7 +4,7 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { Filter, Plus, Loader2, RefreshCw, X, Trash2 } from "lucide-react";
+import { Filter, Plus, Loader2, RefreshCw, X, Trash2, ChevronDown, AlertTriangle, FileText } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { FilterSelect } from "@/components/ui/FilterSelect";
@@ -22,7 +22,9 @@ import {
   createVideo,
   scrapeCompetitorChannels,
   getScrapeStatus,
+  getCandidateDetail,
   type CompetitorCandidate,
+  type CandidateDetail,
 } from "@/lib/api";
 import { formatNumber, timeAgo } from "@/lib/utils";
 
@@ -36,6 +38,77 @@ const item = {
 };
 
 type SortOption = "confidence" | "vph" | "freshness";
+
+function ScrapeErrorLog({ error, lastRun }: { error: string; lastRun: string | null }) {
+  const [expanded, setExpanded] = useState(false);
+
+  // Try to parse multi-line or structured error messages
+  const errorLines = error.split(/\n|(?<=\.)(?=\s+[A-Z])/).filter(Boolean).map(l => l.trim());
+  const hasDetails = errorLines.length > 1;
+
+  return (
+    <div
+      className="rounded-xl overflow-hidden"
+      style={{
+        background: "rgba(255, 77, 106, 0.06)",
+        border: "1px solid rgba(255, 77, 106, 0.2)",
+      }}
+    >
+      <button
+        onClick={() => hasDetails && setExpanded(v => !v)}
+        className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-left"
+        style={{ cursor: hasDetails ? "pointer" : "default" }}
+      >
+        <AlertTriangle size={14} style={{ color: "var(--red)", flexShrink: 0 }} />
+        <span style={{ color: "var(--red)" }} className="flex-1 font-medium">
+          Scrape failed: {errorLines[0]}
+        </span>
+        {lastRun && (
+          <span className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>
+            {timeAgo(lastRun)}
+          </span>
+        )}
+        {hasDetails && (
+          <ChevronDown
+            size={14}
+            style={{
+              color: "var(--text-tertiary)",
+              transform: expanded ? "rotate(180deg)" : "rotate(0deg)",
+              transition: "transform 0.2s",
+              flexShrink: 0,
+            }}
+          />
+        )}
+      </button>
+      <AnimatePresence>
+        {expanded && hasDetails && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="overflow-hidden"
+          >
+            <div
+              className="px-4 pb-3 space-y-1.5"
+              style={{ borderTop: "1px solid rgba(255, 77, 106, 0.1)" }}
+            >
+              {errorLines.slice(1).map((line, i) => (
+                <p
+                  key={i}
+                  className="text-xs font-mono leading-relaxed"
+                  style={{ color: "var(--text-secondary)" }}
+                >
+                  {line}
+                </p>
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
 
 export default function CompetitorsPage() {
   const router = useRouter();
@@ -97,6 +170,14 @@ export default function CompetitorsPage() {
       return false;
     },
   });
+
+  // Fetch candidate detail (transcript) when model modal is open
+  const { data: candidateDetail, isLoading: detailLoading } = useQuery({
+    queryKey: ["candidate-detail", modelCandidate?.id],
+    queryFn: () => getCandidateDetail(modelCandidate!.id),
+    enabled: !!modelCandidate,
+  });
+  const [transcriptExpanded, setTranscriptExpanded] = useState(false);
 
   const deleteChannelMutation = useMutation({
     mutationFn: removeNicheChannel,
@@ -196,6 +277,7 @@ export default function CompetitorsPage() {
     setModelFramework("");
     setModelLength(10);
     setModelCreating(false);
+    setTranscriptExpanded(false);
   };
 
   // Create video from candidate
@@ -263,29 +345,27 @@ export default function CompetitorsPage() {
       {scrapeFinished && !scrapeStatus?.error && scrapeStatus?.videos_found != null && (
         <motion.div variants={item}>
           <div
-            className="rounded-xl px-4 py-2.5 text-sm"
+            className="rounded-xl px-4 py-2.5 text-sm flex items-center justify-between"
             style={{
               background: "rgba(0, 212, 170, 0.08)",
               border: "1px solid rgba(0, 212, 170, 0.2)",
               color: "var(--turquoise)",
             }}
           >
-            Last scrape found {scrapeStatus.videos_found} videos ({scrapeStatus.videos_saved} saved)
+            <span>
+              Last scrape found {scrapeStatus.videos_found} videos ({scrapeStatus.videos_saved} saved)
+            </span>
+            {scrapeStatus.last_run && (
+              <span className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>
+                {timeAgo(scrapeStatus.last_run)}
+              </span>
+            )}
           </div>
         </motion.div>
       )}
       {scrapeStatus?.error && (
         <motion.div variants={item}>
-          <div
-            className="rounded-xl px-4 py-2.5 text-sm"
-            style={{
-              background: "rgba(239, 68, 68, 0.08)",
-              border: "1px solid rgba(239, 68, 68, 0.2)",
-              color: "var(--red)",
-            }}
-          >
-            Scrape failed: {scrapeStatus.error}
-          </div>
+          <ScrapeErrorLog error={scrapeStatus.error} lastRun={scrapeStatus.last_run} />
         </motion.div>
       )}
 
@@ -465,6 +545,76 @@ export default function CompetitorsPage() {
                 </p>
               </div>
             </div>
+
+            {/* Transcript viewer */}
+            {detailLoading ? (
+              <div className="flex items-center gap-2 py-2">
+                <Loader2 size={14} className="animate-spin" style={{ color: "var(--text-muted)" }} />
+                <span className="text-xs" style={{ color: "var(--text-muted)" }}>Loading transcript...</span>
+              </div>
+            ) : candidateDetail?.transcript ? (
+              <div>
+                <button
+                  onClick={() => setTranscriptExpanded((v) => !v)}
+                  className="flex items-center gap-2 w-full text-left"
+                >
+                  <FileText size={14} style={{ color: "var(--teal)" }} />
+                  <span className="text-[11px] font-medium uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>
+                    Transcript
+                  </span>
+                  {candidateDetail.duration_seconds && (
+                    <span className="text-[10px] font-mono" style={{ color: "var(--text-muted)" }}>
+                      {Math.floor(candidateDetail.duration_seconds / 60)}m {Math.floor(candidateDetail.duration_seconds % 60)}s
+                    </span>
+                  )}
+                  <ChevronDown
+                    size={12}
+                    className="ml-auto"
+                    style={{
+                      color: "var(--text-muted)",
+                      transform: transcriptExpanded ? "rotate(180deg)" : "rotate(0deg)",
+                      transition: "transform 0.2s",
+                    }}
+                  />
+                </button>
+                <AnimatePresence>
+                  {transcriptExpanded && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: "auto", opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.2 }}
+                      className="overflow-hidden"
+                    >
+                      <div
+                        className="mt-2 rounded-lg p-3 max-h-64 overflow-y-auto text-xs leading-relaxed font-body"
+                        style={{
+                          background: "rgba(255,255,255,0.03)",
+                          border: "1px solid rgba(255,255,255,0.06)",
+                        }}
+                      >
+                        {(() => {
+                          const words = candidateDetail.transcript!.split(/\s+/);
+                          const hookWords = words.slice(0, 500).join(" ");
+                          const restWords = words.slice(500).join(" ");
+                          return (
+                            <>
+                              <span style={{ color: "var(--text-primary)" }}>{hookWords}</span>
+                              {restWords && (
+                                <span style={{ color: "var(--text-muted)" }}> {restWords}</span>
+                              )}
+                            </>
+                          );
+                        })()}
+                      </div>
+                      <p className="mt-1 text-[9px]" style={{ color: "var(--text-muted)" }}>
+                        First 500 words highlighted as the hook
+                      </p>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            ) : null}
 
             {/* Form fields */}
             <div>

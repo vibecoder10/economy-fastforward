@@ -55,6 +55,7 @@ class VideoDetail(VideoSummary):
     research_payload: Optional[dict] = None
     original_dna: Optional[dict] = None
     script: Optional[str] = None
+    script_validation: Optional[str] = None
     story_bible: Optional[str] = None
     thumbnail_prompt: Optional[str] = None
     thumbnail_style_override: Optional[str] = None
@@ -64,6 +65,7 @@ class VideoDetail(VideoSummary):
     video_model: Optional[str] = None
     video_length_minutes: Optional[float] = None
     youtube_url: Optional[str] = None
+    final_video_url: Optional[str] = None
     avg_retention: Optional[float] = None
     impressions: int = 0
     likes: int = 0
@@ -152,6 +154,9 @@ class CreateVideoRequest(BaseModel):
     source_url: Optional[str] = None
     framework_angle: Optional[str] = None
     video_length_minutes: Optional[int] = 10
+    writer_guidance: Optional[str] = None
+    visual_style: Optional[str] = None
+    accent_color: Optional[str] = None
 
 
 # --- Scripts ---
@@ -198,6 +203,10 @@ class DashboardSummary(BaseModel):
     errors: int = 0
     latest_video: Optional[VideoSummary] = None
     total_videos: int = 0
+    avg_ctr: Optional[float] = None
+    total_views: int = 0
+    videos_this_week: int = 0
+    recent_videos: List[VideoSummary] = []
 
 
 # --- Review ---

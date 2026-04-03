@@ -2438,21 +2438,27 @@ async function saveInstructions(agentId) {
     }
     gridEl.innerHTML = gridHtml;
 
-    // Next Up
+    // Next Up — find the soonest upcoming run for each cron
     const nextUp = document.getElementById('cron-next-up');
     const upcoming = [];
     for (const cron of enabledCrons) {
       const expr = cron.schedule?.expr || cron.schedule; if (!expr) continue;
-      const parsed = parseCronExpr(expr); if (parsed.monthly || parsed.isHighFreq) continue;
+      const parsed = parseCronExpr(expr); if (parsed.monthly) continue;
       const prettyName = cron.name.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+      // Find the absolute soonest occurrence across all time slots
+      let bestDiffMs = Infinity;
       for (const t of parsed.times) {
-        const nextDate = new Date(now); nextDate.setHours(t.hour, t.min, 0, 0);
+        const candidate = new Date(now); candidate.setHours(t.hour, t.min, 0, 0);
         let dayDiff = t.day - todayDow; if (dayDiff < 0) dayDiff += 7;
-        if (dayDiff === 0 && (t.hour * 60 + t.min) <= (currentHour * 60 + currentMin)) dayDiff = 7;
-        nextDate.setDate(nextDate.getDate() + dayDiff);
-        const diffMs = nextDate - now; const diffMins = Math.floor(diffMs / 60000);
+        if (dayDiff === 0 && candidate <= now) dayDiff = 7;
+        candidate.setDate(now.getDate() + dayDiff);
+        const diff = candidate - now;
+        if (diff > 0 && diff < bestDiffMs) bestDiffMs = diff;
+      }
+      if (bestDiffMs < Infinity) {
+        const diffMins = Math.floor(bestDiffMs / 60000);
         let when; if (diffMins < 60) when = 'In ' + diffMins + ' min'; else if (diffMins < 1440) when = 'In ' + Math.floor(diffMins / 60) + 'h ' + (diffMins % 60) + 'm'; else when = 'In ' + Math.floor(diffMins / 1440) + 'd ' + Math.floor((diffMins % 1440) / 60) + 'h';
-        upcoming.push({ name: prettyName, when, diffMs }); break;
+        upcoming.push({ name: prettyName, when, diffMs: bestDiffMs });
       }
     }
     upcoming.sort((a, b) => a.diffMs - b.diffMs);

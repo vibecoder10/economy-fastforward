@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { Spinner } from "@/components/ui/spinner";
+import { getOnboardingStatus } from "@/lib/api";
 
 export default function LoginPage() {
   const { user, isLoading, loginWithEmail, register } = useAuth();
@@ -15,11 +16,20 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
+  async function redirectAfterAuth() {
+    try {
+      const status = await getOnboardingStatus();
+      router.replace(status.completed ? "/dashboard" : "/onboarding");
+    } catch {
+      router.replace("/dashboard");
+    }
+  }
+
   useEffect(() => {
     if (!isLoading && user) {
-      router.replace("/");
+      redirectAfterAuth();
     }
-  }, [user, isLoading, router]);
+  }, [user, isLoading]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -31,7 +41,7 @@ export default function LoginPage() {
       } else {
         await loginWithEmail(email, password);
       }
-      router.replace("/");
+      // redirect handled by useEffect when user state updates
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
     } finally {

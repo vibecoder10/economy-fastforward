@@ -56,6 +56,7 @@ function RenderCard({ video }: RenderCardProps) {
   const queryClient = useQueryClient();
   const [isRendering, setIsRendering] = useState(false);
   const [taskRunning, setTaskRunning] = useState(false);
+  const [thumbError, setThumbError] = useState(false);
 
   const { message: taskMessage } = useTaskPoller({
     videoId: video.id,
@@ -126,11 +127,12 @@ function RenderCard({ video }: RenderCardProps) {
           className="w-24 h-14 rounded-lg shrink-0 flex items-center justify-center overflow-hidden"
           style={{ background: "var(--bg-elevated)" }}
         >
-          {video.thumbnail_url ? (
+          {video.thumbnail_url && !thumbError ? (
             <img
               src={video.thumbnail_url}
               alt={video.video_title || ""}
               className="w-full h-full object-cover"
+              onError={() => setThumbError(true)}
             />
           ) : (
             <Film size={20} style={{ color: "var(--text-tertiary)", opacity: 0.4 }} />

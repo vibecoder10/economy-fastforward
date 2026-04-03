@@ -1,0 +1,74 @@
+[
+  {
+    "page": "dashboard",
+    "path": "/",
+    "status": 200,
+    "hasContent": true,
+    "consoleErrors": 0,
+    "errors": [],
+    "pass": true
+  },
+  {
+    "page": "pipeline",
+    "path": "/pipeline",
+    "status": 200,
+    "hasContent": true,
+    "consoleErrors": 0,
+    "errors": [],
+    "pass": true
+  },
+  {
+    "page": "autopilot",
+    "path": "/autopilot",
+    "status": 200,
+    "hasContent": true,
+    "consoleErrors": 0,
+    "errors": [],
+    "pass": true
+  },
+  {
+    "page": "competitors",
+    "path": "/competitors",
+    "status": 200,
+    "hasContent": true,
+    "consoleErrors": 0,
+    "errors": [],
+    "pass": true
+  },
+  {
+    "page": "analytics",
+    "path": "/analytics",
+    "status": 200,
+    "hasContent": true,
+    "consoleErrors": 0,
+    "errors": [],
+    "pass": true
+  },
+  {
+    "page": "profile",
+    "path": "/profile",
+    "status": 200,
+    "hasContent": true,
+    "consoleErrors": 0,
+    "errors": [],
+    "pass": true
+  },
+  {
+    "page": "settings",
+    "path": "/settings",
+    "status": 200,
+    "hasContent": true,
+    "consoleErrors": 0,
+    "errors": [],
+    "pass": true
+  },
+  {
+    "page": "settings-keys",
+    "path": "/settings/keys",
+    "status": 200,
+    "hasContent": true,
+    "consoleErrors": 0,
+    "errors": [],
+    "pass": true
+  }
+]

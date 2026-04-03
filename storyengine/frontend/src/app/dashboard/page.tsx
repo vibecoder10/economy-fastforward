@@ -6,12 +6,11 @@ import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import {
   Film,
-  Loader2,
-  DollarSign,
+  Eye,
   TrendingUp,
   Plus,
   ChevronRight,
-  AlertCircle,
+  CalendarDays,
 } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { StatCard } from "@/components/ui/StatCard";
@@ -20,14 +19,11 @@ import { ActionButton } from "@/components/ui/ActionButton";
 import { Spinner } from "@/components/ui/spinner";
 import {
   getDashboardSummary,
-  getVideos,
   getPendingReview,
-  type VideoSummary,
-  type PendingReview,
   type DashboardSummary,
 } from "@/lib/api";
 import { PIPELINE_STAGES, COMPLETED_STATUSES, getStageLabel } from "@/lib/constants";
-import { formatCost, timeAgo } from "@/lib/utils";
+import { formatNumber, timeAgo } from "@/lib/utils";
 
 const container = {
   hidden: { opacity: 0 },
@@ -69,49 +65,10 @@ export default function DashboardPage() {
     queryFn: getDashboardSummary,
   });
 
-  const { data: videos, isLoading: videosLoading } = useQuery({
-    queryKey: ["videos"],
-    queryFn: () => getVideos(),
-  });
-
   const { data: pendingReview } = useQuery({
     queryKey: ["pending-review"],
     queryFn: getPendingReview,
   });
-
-  const isLoading = summaryLoading || videosLoading;
-
-  // Derived stats
-  const stats = useMemo(() => {
-    if (!videos || !summary) return null;
-
-    const now = new Date();
-    const thisMonth = videos.filter((v) => {
-      if (!v.created_at) return false;
-      const d = new Date(v.created_at);
-      return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
-    });
-
-    const inProduction = videos.filter(
-      (v) => v.status && !COMPLETED_STATUSES.has(v.status)
-    );
-
-    const publishedWithCtr = videos.filter((v) => v.ctr !== null && v.ctr !== undefined);
-    const avgCtr =
-      publishedWithCtr.length > 0
-        ? publishedWithCtr.reduce((sum, v) => sum + (v.ctr || 0), 0) / publishedWithCtr.length
-        : 0;
-
-    const totalCost = videos.reduce((sum, v) => sum + (v.total_cost || 0), 0);
-    const avgCost = videos.length > 0 ? totalCost / videos.length : 0;
-
-    return {
-      videosThisMonth: thisMonth.length,
-      inProduction: inProduction.length,
-      avgCost,
-      avgCtr,
-    };
-  }, [videos, summary]);
 
   // Pipeline distribution
   const stageDistribution = useMemo(() => {
@@ -122,22 +79,10 @@ export default function DashboardPage() {
     }));
   }, [summary]);
 
-  // Recently active videos (sorted by updated_at)
-  const recentVideos = useMemo(() => {
-    if (!videos) return [];
-    return [...videos]
-      .sort((a, b) => {
-        const aDate = a.updated_at ? new Date(a.updated_at).getTime() : 0;
-        const bDate = b.updated_at ? new Date(b.updated_at).getTime() : 0;
-        return bDate - aDate;
-      })
-      .slice(0, 5);
-  }, [videos]);
-
   // Actionable items from pending review
   const actionItems = useMemo(() => {
     if (!pendingReview) return [];
-    const items: { type: string; title: string; videoId: string; count?: number; color: string }[] = [];
+    const items: { type: string; title: string; videoId: string; color: string }[] = [];
 
     if (pendingReview.scripts.length > 0) {
       pendingReview.scripts.forEach((s) => {
@@ -160,7 +105,6 @@ export default function DashboardPage() {
       });
     }
     if (pendingReview.images.length > 0) {
-      // Group images by video
       const byVideo = new Map<string, { title: string; count: number }>();
       pendingReview.images.forEach((img) => {
         const existing = byVideo.get(img.video_id);
@@ -193,13 +137,15 @@ export default function DashboardPage() {
     return items.slice(0, 6);
   }, [pendingReview]);
 
-  if (isLoading) {
+  if (summaryLoading) {
     return (
       <div className="flex items-center justify-center h-64">
         <Spinner size="lg" />
       </div>
     );
   }
+
+  const recentVideos = summary?.recent_videos ?? [];
 
   return (
     <motion.div className="space-y-8" variants={container} initial="hidden" animate="show">
@@ -209,35 +155,35 @@ export default function DashboardPage() {
           Dashboard
         </h1>
         <ActionButton icon={Plus} onClick={() => router.push("/pipeline")}>
-          Create Video
+          New Video
         </ActionButton>
       </motion.div>
 
       {/* Stat Cards */}
       <motion.div variants={item} className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
-          label="Videos This Month"
-          value={stats?.videosThisMonth ?? 0}
+          label="Total Videos"
+          value={summary?.total_videos ?? 0}
           color="var(--turquoise)"
           icon={Film}
         />
         <StatCard
-          label="In Production"
-          value={stats?.inProduction ?? 0}
-          color="var(--orange)"
-          icon={Loader2}
-        />
-        <StatCard
-          label="Avg Cost / Video"
-          value={formatCost(stats?.avgCost ?? 0)}
-          color="var(--gold)"
-          icon={DollarSign}
-        />
-        <StatCard
           label="Avg CTR"
-          value={stats?.avgCtr ? `${stats.avgCtr.toFixed(1)}%` : "--"}
+          value={summary?.avg_ctr != null ? `${summary.avg_ctr.toFixed(1)}%` : "--"}
           color="var(--green)"
           icon={TrendingUp}
+        />
+        <StatCard
+          label="Total Views"
+          value={formatNumber(summary?.total_views ?? 0)}
+          color="var(--purple)"
+          icon={Eye}
+        />
+        <StatCard
+          label="Videos This Week"
+          value={summary?.videos_this_week ?? 0}
+          color="var(--gold)"
+          icon={CalendarDays}
         />
       </motion.div>
 

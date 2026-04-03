@@ -18,6 +18,16 @@ Example: "backend: fix the auth bug" → POST http://localhost:5050/api/handoffs
 If no agent is named, send as feedback to ALL agents:
 POST http://localhost:5050/api/feedback with `{"message": "..."}`
 
+## CRITICAL: Operator Messages Override Everything
+
+When the user sends ANY directive (not just status checks), you MUST do ALL of these:
+1. POST /api/controls/focus with the user's message — this sets the standing focus directive that ALL agents see as top priority
+2. POST /api/feedback with the message — this ensures agents see it in their next cycle
+3. If directed at specific agents, ALSO POST /api/handoffs for each named agent
+
+The focus directive is the ONLY thing that reliably overrides the orchestrator's task assignments.
+Do NOT skip step 1. A feedback-only message gets ignored because agents follow the task queue first.
+
 ## RUBRIC API Endpoints
 
 | Action | Method | Endpoint |

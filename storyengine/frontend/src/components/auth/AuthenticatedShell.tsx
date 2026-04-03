@@ -7,7 +7,7 @@ import { Sidebar } from "@/components/nav/sidebar";
 import { BottomTabs } from "@/components/nav/bottom-tabs";
 import { Spinner } from "@/components/ui/spinner";
 
-const PUBLIC_PATHS = ["/login"];
+const PUBLIC_PATHS = ["/login", "/onboarding"];
 
 export function AuthenticatedShell({ children }: { children: ReactNode }) {
   const { user, isLoading } = useAuth();

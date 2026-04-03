@@ -1,9 +1,12 @@
-"""Dashboard summary endpoint."""
+"""Dashboard summary, calendar, and onboarding endpoints."""
 
-from fastapi import APIRouter, Depends
+from collections import defaultdict
+from datetime import date as date_type
+from fastapi import APIRouter, Depends, Query
 from auth import get_tenant_id
 from models import DashboardSummary, VideoSummary, PIPELINE_STAGES
 from database import fetch_all, fetch_one
+from vault import get_secret_status
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
@@ -87,6 +90,44 @@ async def get_summary(tenant_id: str = Depends(get_tenant_id)):
         tenant_id,
     )
 
+    # Avg CTR and total views
+    agg = await fetch_one(
+        """SELECT AVG(ctr) as avg_ctr, COALESCE(SUM(views), 0) as total_views
+           FROM videos WHERE tenant_id = $1 AND ctr IS NOT NULL""",
+        tenant_id,
+    )
+
+    # Videos this week
+    week = await fetch_one(
+        """SELECT COUNT(*) as count FROM videos
+           WHERE tenant_id = $1 AND created_at >= CURRENT_DATE - INTERVAL '7 days'""",
+        tenant_id,
+    )
+
+    # Recent videos (last 5)
+    recent_rows = await fetch_all(
+        """SELECT id, video_title, status, thumbnail_url, accent_color, total_cost, views, ctr,
+                  created_at::text, updated_at::text
+           FROM videos WHERE tenant_id = $1
+           ORDER BY updated_at DESC LIMIT 5""",
+        tenant_id,
+    )
+    recent_videos = [
+        VideoSummary(
+            id=str(r["id"]),
+            video_title=r.get("video_title"),
+            status=r.get("status"),
+            thumbnail_url=r.get("thumbnail_url"),
+            accent_color=r.get("accent_color", "#00D4AA"),
+            total_cost=float(r.get("total_cost") or 0),
+            views=r.get("views") or 0,
+            ctr=float(r["ctr"]) if r.get("ctr") else None,
+            created_at=r.get("created_at"),
+            updated_at=r.get("updated_at"),
+        )
+        for r in recent_rows
+    ]
+
     return DashboardSummary(
         active_bots=bots_running["count"] if bots_running else 0,
         pending_review=pending["count"] if pending else 0,
@@ -96,4 +137,70 @@ async def get_summary(tenant_id: str = Depends(get_tenant_id)):
         errors=errors["count"] if errors else 0,
         latest_video=latest_video,
         total_videos=total["count"] if total else 0,
+        avg_ctr=round(float(agg["avg_ctr"]), 2) if agg and agg.get("avg_ctr") else None,
+        total_views=int(agg["total_views"]) if agg else 0,
+        videos_this_week=week["count"] if week else 0,
+        recent_videos=recent_videos,
     )
+
+
+@router.get("/calendar")
+async def get_calendar(
+    start: str = Query(..., description="Start date YYYY-MM-DD"),
+    end: str = Query(..., description="End date YYYY-MM-DD"),
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """Videos grouped by date for calendar view."""
+    rows = await fetch_all(
+        """SELECT id, video_title, status, thumbnail_url, accent_color,
+                  DATE(COALESCE(upload_date, created_at))::text as calendar_date
+           FROM videos
+           WHERE tenant_id = $1
+             AND DATE(COALESCE(upload_date, created_at)) BETWEEN $2::date AND $3::date
+           ORDER BY COALESCE(upload_date, created_at)""",
+        tenant_id, date_type.fromisoformat(start), date_type.fromisoformat(end),
+    )
+    grouped: dict[str, list[dict]] = defaultdict(list)
+    for r in rows:
+        grouped[r["calendar_date"]].append({
+            "id": str(r["id"]),
+            "video_title": r.get("video_title"),
+            "status": r.get("status"),
+            "thumbnail_url": r.get("thumbnail_url"),
+            "accent_color": r.get("accent_color"),
+        })
+    return grouped
+
+
+@router.get("/onboarding/status")
+async def get_onboarding_status(tenant_id: str = Depends(get_tenant_id)):
+    """Derive onboarding completion from existing data — no new DB columns."""
+    # Step 1: channel configured?
+    cp = await fetch_one(
+        "SELECT channel_name FROM channel_profiles WHERE tenant_id = $1",
+        tenant_id,
+    )
+    channel_configured = bool(cp and cp.get("channel_name"))
+
+    # Step 2: at least anthropic API key configured?
+    key_status = await get_secret_status("anthropic_api_key", tenant_id)
+    api_keys_configured = key_status.get("configured", False)
+
+    # Step 3: any videos exist (proxy for baseline import / first use)?
+    vid = await fetch_one(
+        "SELECT COUNT(*) as count FROM videos WHERE tenant_id = $1",
+        tenant_id,
+    )
+    youtube_synced = (vid["count"] if vid else 0) > 0
+
+    steps = {
+        "channel_configured": channel_configured,
+        "api_keys_configured": api_keys_configured,
+        "youtube_synced": youtube_synced,
+    }
+    done = sum(1 for v in steps.values() if v)
+    return {
+        "completed": done == len(steps),
+        "steps": steps,
+        "percent_complete": round(done / len(steps) * 100),
+    }

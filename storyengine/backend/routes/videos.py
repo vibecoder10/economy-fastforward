@@ -1,6 +1,7 @@
 """Video CRUD + stage transitions."""
 
 import json
+import re
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -12,6 +13,66 @@ from models import (
 )
 from database import fetch_all, fetch_one, execute
 from typing import Optional, Any
+
+
+def _parse_script_validation(val: Any) -> Optional[str]:
+    """Parse script_validation, converting plain-text format to JSON if needed.
+
+    The pipeline stores script_validation as plain text like:
+        Editorial validation: PASSED
+        [PASS] number_density: 49/19 specific numbers found
+        [FAIL] framework_density: 22% framework density
+
+    The frontend expects JSON: {"passed": bool, "checks": [{name, passed, detail}]}
+    This function converts the plain text to JSON string so the frontend can parse it.
+    If the value is already valid JSON, it passes through unchanged.
+    """
+    if val is None:
+        return None
+    if not isinstance(val, str):
+        return None
+    val = val.strip()
+    if not val:
+        return None
+
+    # If it's already valid JSON with the expected structure, return as-is
+    try:
+        parsed = json.loads(val)
+        if isinstance(parsed, dict) and "checks" in parsed:
+            return val
+    except (json.JSONDecodeError, ValueError):
+        pass
+
+    # Parse the plain text format
+    lines = val.split("\n")
+    if not lines:
+        return None
+
+    # First line: "Editorial validation: PASSED" or "Editorial validation: FAILED"
+    overall_passed = "PASSED" in lines[0].upper() if lines[0] else True
+
+    checks = []
+    for line in lines[1:]:
+        line = line.strip()
+        # Match "[PASS] name: detail" or "[FAIL] name: detail"
+        m = re.match(r"\[(PASS|FAIL)\]\s+(\w+):\s*(.*)", line)
+        if m:
+            checks.append({
+                "name": m.group(2),
+                "passed": m.group(1) == "PASS",
+                "detail": m.group(3),
+                "advisory": False,
+            })
+
+    if not checks:
+        return None
+
+    result = {
+        "passed": overall_passed,
+        "checks": checks,
+        "advisory_warnings": [],
+    }
+    return json.dumps(result)
 
 
 def _parse_json_field(val: Any) -> Optional[dict]:
@@ -104,12 +165,12 @@ async def create_video(
     project_id = str(project["id"])
 
     row = await fetch_one(
-        """INSERT INTO videos (tenant_id, project_id, video_title, status, source, framework_angle, video_length_minutes, accent_color)
-           VALUES ($1, $2, $3, 'idea_logged', $4, $5, $6, '#00D4AA')
+        """INSERT INTO videos (tenant_id, project_id, video_title, status, source, framework_angle, video_length_minutes, writer_guidance, visual_style, accent_color)
+           VALUES ($1, $2, $3, 'idea_logged', $4, $5, $6, $7, $8, COALESCE($9, '#00D4AA'))
            RETURNING id, video_title, status, thumbnail_url, accent_color, total_cost, views, ctr,
                      created_at::text, updated_at::text""",
         tenant_id, project_id, body.title.strip(), body.source_url, body.framework_angle,
-        body.video_length_minutes,
+        body.video_length_minutes, body.writer_guidance, body.visual_style, body.accent_color,
     )
 
     return VideoSummary(
@@ -133,10 +194,10 @@ async def get_video(video_id: str, tenant_id: str = Depends(get_tenant_id)):
         """SELECT id, video_title, status, airtable_record_id, headline, source,
                   framework_angle, thematic_framework, hook_script, past_context,
                   present_parallel, future_prediction, writer_guidance, thesis, executive_hook,
-                  research_payload, original_dna, script, story_bible,
+                  research_payload, original_dna, script, script_validation, story_bible,
                   thumbnail_url, thumbnail_prompt, thumbnail_style_override,
                   accent_color, visual_style, image_style_override, image_model_override, video_model,
-                  video_length_minutes, youtube_url, total_cost, views, ctr, avg_retention,
+                  video_length_minutes, youtube_url, final_video_url, total_cost, views, ctr, avg_retention,
                   impressions, likes, comments, performance_verdict,
                   source_views, source_channel, source_urls,
                   views_24h, views_48h, views_7d, views_30d,
@@ -172,6 +233,7 @@ async def get_video(video_id: str, tenant_id: str = Depends(get_tenant_id)):
         research_payload=_parse_json_field(r.get("research_payload")),
         original_dna=_parse_json_field(r.get("original_dna")),
         script=r.get("script"),
+        script_validation=_parse_script_validation(r.get("script_validation")),
         story_bible=r.get("story_bible"),
         thumbnail_url=r.get("thumbnail_url"),
         thumbnail_prompt=r.get("thumbnail_prompt"),
@@ -183,6 +245,7 @@ async def get_video(video_id: str, tenant_id: str = Depends(get_tenant_id)):
         video_model=r.get("video_model"),
         video_length_minutes=float(r["video_length_minutes"]) if r.get("video_length_minutes") else None,
         youtube_url=r.get("youtube_url"),
+        final_video_url=r.get("final_video_url"),
         total_cost=float(r.get("total_cost") or 0),
         views=r.get("views") or 0,
         ctr=float(r["ctr"]) if r.get("ctr") else None,

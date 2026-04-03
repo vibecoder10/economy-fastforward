@@ -246,20 +246,6 @@ if [ -n "$MEMORY" ]; then
 $MEMORY"
 fi
 
-if [ -n "$OPERATOR_CONTROLS" ]; then
-  PROMPT="$PROMPT
-
-## Operator Controls
-$OPERATOR_CONTROLS"
-fi
-
-if [ -n "$OPERATOR_FEEDBACK" ]; then
-  PROMPT="$PROMPT
-
-## Operator Feedback (address these issues)
-$OPERATOR_FEEDBACK"
-fi
-
 if [ -n "$HANDOFF_NOTES" ]; then
   PROMPT="$PROMPT
 
@@ -270,7 +256,26 @@ fi
 PROMPT="$PROMPT
 
 ## Current Task Queue
-$TASK_QUEUE
+$TASK_QUEUE"
+
+# Operator directives go LAST so they override task queue decisions
+if [ -n "$OPERATOR_CONTROLS" ]; then
+  PROMPT="$PROMPT
+
+## ⚠️ OPERATOR OVERRIDE (this overrides the task queue above)
+$OPERATOR_CONTROLS
+If the focus directive conflicts with the task queue, FOLLOW THE FOCUS DIRECTIVE. Drop whatever task you were going to pick and work on what the operator says instead."
+fi
+
+if [ -n "$OPERATOR_FEEDBACK" ]; then
+  PROMPT="$PROMPT
+
+## 🔴 OPERATOR MESSAGES (read these BEFORE picking a task)
+These are direct messages from the human operator. Address them FIRST, before any task queue work:
+$OPERATOR_FEEDBACK"
+fi
+
+PROMPT="$PROMPT
 
 ## Important Rules
 - You are on the '$BRANCH' branch.

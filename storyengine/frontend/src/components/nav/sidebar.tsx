@@ -4,6 +4,8 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth/AuthProvider";
+import { useQuery } from "@tanstack/react-query";
+import { getPendingReview } from "@/lib/api";
 import {
   LayoutGrid,
   List,
@@ -15,6 +17,8 @@ import {
   Users,
   Lightbulb,
   Brain,
+  CheckSquare,
+  CalendarDays,
   PanelLeftClose,
   PanelLeft,
   Menu,
@@ -25,12 +29,14 @@ import {
 const navItems = [
   { href: "/", icon: LayoutGrid, label: "Dashboard" },
   { href: "/pipeline", icon: List, label: "Videos" },
+  { href: "/review", icon: CheckSquare, label: "Review" },
   { href: "/autopilot", icon: Bot, label: "Autopilot" },
   { href: "/competitors", icon: Users, label: "Competitors" },
   { href: "/discovery", icon: Lightbulb, label: "Discovery" },
   { href: "/learnings", icon: Brain, label: "Learnings" },
   { href: "/profile", icon: Palette, label: "Visual Profile" },
   { href: "/analytics", icon: BarChart3, label: "Analytics" },
+  { href: "/calendar", icon: CalendarDays, label: "Calendar" },
   { href: "/settings", icon: Settings, label: "Settings" },
   { href: "/settings/keys", icon: Key, label: "API Keys" },
 ];
@@ -41,6 +47,18 @@ export function Sidebar() {
   const { user, logout } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+
+  const { data: pendingReview } = useQuery({
+    queryKey: ["pending-review-count"],
+    queryFn: getPendingReview,
+    refetchInterval: 30000,
+  });
+  const pendingCount = pendingReview
+    ? (pendingReview.scripts?.length ?? 0) +
+      (pendingReview.storyboards?.length ?? 0) +
+      (pendingReview.thumbnails?.length ?? 0) +
+      (pendingReview.images?.length ?? 0)
+    : 0;
 
   const handleLogout = () => {
     logout();
@@ -75,6 +93,8 @@ export function Sidebar() {
               ? pathname === "/"
               : pathname.startsWith(href.split("?")[0]);
 
+          const showBadge = href === "/review" && pendingCount > 0;
+
           return (
             <Link
               key={href}
@@ -89,7 +109,17 @@ export function Sidebar() {
               }}
               title={collapsed ? label : undefined}
             >
-              <Icon size={20} />
+              <div className="relative shrink-0">
+                <Icon size={20} />
+                {showBadge && (
+                  <span
+                    className="absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-bold"
+                    style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}
+                  >
+                    {pendingCount > 9 ? "9+" : pendingCount}
+                  </span>
+                )}
+              </div>
               {!collapsed && (
                 <span className="text-sm font-medium font-body">{label}</span>
               )}

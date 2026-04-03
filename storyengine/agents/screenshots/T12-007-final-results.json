@@ -1,0 +1,180 @@
+{
+  "results": [
+    {
+      "label": "Backend GET /api/learnings returns patterns",
+      "status": "PASS",
+      "note": "20 patterns returned"
+    },
+    {
+      "label": "LearningRecord has all required fields",
+      "status": "PASS",
+      "note": "All present, sample: category=title, confidence=60.0"
+    },
+    {
+      "label": "LearningRecord has avg_ctr field",
+      "status": "PASS",
+      "note": ""
+    },
+    {
+      "label": "Filter ?category=title works",
+      "status": "PASS",
+      "note": "11 title patterns, 0 leakage"
+    },
+    {
+      "label": "Backend GET /api/autopilot/learnings",
+      "status": "PASS",
+      "note": "20 insights returned"
+    },
+    {
+      "label": "PATCH /api/learnings/{id}/toggle flips active",
+      "status": "PASS",
+      "note": "True \u2192 False"
+    },
+    {
+      "label": "POST /api/learnings/extract endpoint exists",
+      "status": "PASS",
+      "note": "status=200"
+    },
+    {
+      "label": "POST /api/learnings/analyze-titles endpoint exists",
+      "status": "PASS",
+      "note": "status=200"
+    },
+    {
+      "label": "POST /api/learnings/analyze-transcripts endpoint exists",
+      "status": "PASS",
+      "note": "status=200"
+    },
+    {
+      "label": "Sidebar has /learnings nav entry",
+      "status": "PASS",
+      "note": "hrefs: ['/', '/pipeline', '/autopilot', '/competitors', '/discovery', '/learnings', '/profile', '/analytics']"
+    },
+    {
+      "label": "Brain-icon /learnings link present",
+      "status": "PASS",
+      "note": "count=1"
+    },
+    {
+      "label": "Page loads with 'Learnings' header",
+      "status": "PASS",
+      "note": ""
+    },
+    {
+      "label": "Pattern count label '20 patterns' visible",
+      "status": "PASS",
+      "note": "body has 'patterns': True"
+    },
+    {
+      "label": "Filter tab 'All'",
+      "status": "PASS",
+      "note": ""
+    },
+    {
+      "label": "Filter tab 'Title'",
+      "status": "PASS",
+      "note": ""
+    },
+    {
+      "label": "Filter tab 'Hook'",
+      "status": "PASS",
+      "note": ""
+    },
+    {
+      "label": "Filter tab 'Framework'",
+      "status": "PASS",
+      "note": ""
+    },
+    {
+      "label": "Filter tab 'Script'",
+      "status": "PASS",
+      "note": ""
+    },
+    {
+      "label": "Action button 'Extract Learnings'",
+      "status": "PASS",
+      "note": ""
+    },
+    {
+      "label": "Action button 'Analyze Titles'",
+      "status": "PASS",
+      "note": ""
+    },
+    {
+      "label": "Action button 'Analyze Transcripts'",
+      "status": "PASS",
+      "note": ""
+    },
+    {
+      "label": "Show disabled toggle present",
+      "status": "PASS",
+      "note": ""
+    },
+    {
+      "label": "PROVEN verdict badges present",
+      "status": "PASS",
+      "note": ""
+    },
+    {
+      "label": "AVOID verdict badges present",
+      "status": "PASS",
+      "note": ""
+    },
+    {
+      "label": "Category pill 'title' visible",
+      "status": "PASS",
+      "note": ""
+    },
+    {
+      "label": "Category pill 'framework' visible",
+      "status": "PASS",
+      "note": ""
+    },
+    {
+      "label": "Category pill 'hook' visible",
+      "status": "PASS",
+      "note": ""
+    },
+    {
+      "label": "Category pill 'script' visible",
+      "status": "PASS",
+      "note": ""
+    },
+    {
+      "label": "Toggle buttons for patterns",
+      "status": "PASS",
+      "note": "20 toggle[title*='pattern'] buttons (20 total titled buttons)"
+    },
+    {
+      "label": "Source video expand buttons",
+      "status": "PASS",
+      "note": "20 found"
+    },
+    {
+      "label": "Title filter shows title patterns",
+      "status": "PASS",
+      "note": ""
+    },
+    {
+      "label": "Toggle click executes (no crash)",
+      "status": "PASS",
+      "note": ""
+    },
+    {
+      "label": "T12-003: Competitor Title Patterns section header",
+      "status": "FAIL",
+      "note": "MISSING from page \u2014 T12-003 may not be implemented"
+    },
+    {
+      "label": "No console errors",
+      "status": "PASS",
+      "note": "0 errors"
+    },
+    {
+      "label": "tsc --noEmit passes clean",
+      "status": "PASS",
+      "note": "0 errors"
+    }
+  ],
+  "console_errors": []
+}

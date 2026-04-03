@@ -138,6 +138,9 @@ export default function VideosPage() {
   const [newSourceUrl, setNewSourceUrl] = useState("");
   const [newFramework, setNewFramework] = useState("");
   const [newLength, setNewLength] = useState(10);
+  const [newGuidance, setNewGuidance] = useState("");
+  const [newVisualStyle, setNewVisualStyle] = useState("");
+  const [newAccentColor, setNewAccentColor] = useState("");
 
   // Edit-before-launch modal
   const [editIdea, setEditIdea] = useState<DiscoveryIdea | null>(null);
@@ -173,6 +176,9 @@ export default function VideosPage() {
       setNewSourceUrl("");
       setNewFramework("");
       setNewLength(10);
+      setNewGuidance("");
+      setNewVisualStyle("");
+      setNewAccentColor("");
       router.push(`/pipeline/${newVideo.id}`);
     },
   });
@@ -217,6 +223,9 @@ export default function VideosPage() {
       source_url: newSourceUrl.trim() || undefined,
       framework_angle: newFramework || undefined,
       video_length_minutes: newLength,
+      writer_guidance: newGuidance.trim() || undefined,
+      visual_style: newVisualStyle || undefined,
+      accent_color: newAccentColor || undefined,
     });
   };
 
@@ -305,7 +314,7 @@ export default function VideosPage() {
             className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all hover:brightness-110 shrink-0"
             style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}
           >
-            <Plus size={16} /> Manual Entry
+            <Plus size={16} /> New Video
           </button>
         </div>
       </motion.div>
@@ -358,7 +367,7 @@ export default function VideosPage() {
                 No ideas yet
               </p>
               <p className="text-xs mb-4 font-body" style={{ color: "var(--text-tertiary)" }}>
-                Click &quot;Refresh Ideas&quot; to generate ideas from your competitor data, or use &quot;Manual Entry&quot; to create a video from scratch.
+                Click &quot;Refresh Ideas&quot; to generate ideas from your competitor data, or use &quot;New Video&quot; to create a video from scratch.
               </p>
               <button
                 onClick={() => refreshMutation.mutate()}
@@ -561,8 +570,8 @@ export default function VideosPage() {
         </>
       )}
 
-      {/* === MANUAL ENTRY MODAL === */}
-      <Modal open={showCreateModal} onClose={() => setShowCreateModal(false)} title="Manual Entry" size="md">
+      {/* === NEW VIDEO MODAL === */}
+      <Modal open={showCreateModal} onClose={() => setShowCreateModal(false)} title="New Video" size="md">
         <div className="space-y-4">
           <div>
             <label className="block text-xs font-medium mb-1.5" style={{ color: "var(--text-secondary)" }}>
@@ -591,6 +600,20 @@ export default function VideosPage() {
               onChange={(e) => setNewSourceUrl(e.target.value)}
               placeholder="https://..."
               className="w-full px-3 py-2.5 rounded-lg text-sm font-body outline-none"
+              style={{ background: "var(--bg-elevated)", color: "var(--text-primary)", border: "1px solid var(--border)" }}
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium mb-1.5" style={{ color: "var(--text-secondary)" }}>
+              Angle / Thesis <span style={{ color: "var(--text-tertiary)" }}>(optional)</span>
+            </label>
+            <textarea
+              value={newGuidance}
+              onChange={(e) => setNewGuidance(e.target.value)}
+              placeholder="What angle should the script take? e.g. Focus on the economic consequences, use a contrarian tone..."
+              rows={3}
+              className="w-full px-3 py-2.5 rounded-lg text-sm font-body outline-none resize-none"
               style={{ background: "var(--bg-elevated)", color: "var(--text-primary)", border: "1px solid var(--border)" }}
             />
           </div>
@@ -629,6 +652,66 @@ export default function VideosPage() {
                   <option key={n} value={n}>{n} minutes</option>
                 ))}
               </select>
+            </div>
+          </div>
+
+          {/* Visual Style */}
+          <div>
+            <label className="block text-xs font-medium mb-2" style={{ color: "var(--text-secondary)" }}>
+              Visual Style
+            </label>
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { id: "cinematic_illustration", label: "Cinematic Illustration", desc: "Editorial, warm tones" },
+                { id: "holographic_hud", label: "Holographic HUD", desc: "Data overlays, neon" },
+                { id: "cinematic_dossier", label: "Cinematic Dossier", desc: "Photorealistic, dramatic" },
+                { id: "clay_mannequin", label: "Clay Mannequin", desc: "3D clay, faceless figures" },
+              ].map((style) => (
+                <button
+                  key={style.id}
+                  type="button"
+                  onClick={() => setNewVisualStyle(newVisualStyle === style.id ? "" : style.id)}
+                  className="text-left px-3 py-2.5 rounded-lg transition-all text-xs"
+                  style={{
+                    background: newVisualStyle === style.id ? "rgba(0,212,170,0.1)" : "var(--bg-elevated)",
+                    border: `1px solid ${newVisualStyle === style.id ? "var(--turquoise)" : "var(--border)"}`,
+                    color: "var(--text-primary)",
+                  }}
+                >
+                  <div className="font-medium">{style.label}</div>
+                  <div style={{ color: "var(--text-tertiary)", fontSize: "10px" }}>{style.desc}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Accent Color */}
+          <div>
+            <label className="block text-xs font-medium mb-2" style={{ color: "var(--text-secondary)" }}>
+              Accent Color
+            </label>
+            <div className="flex gap-2">
+              {[
+                { id: "cold teal", hex: "#1A8A7A", label: "Teal" },
+                { id: "muted crimson", hex: "#8B2252", label: "Crimson" },
+                { id: "warm amber", hex: "#D4A844", label: "Amber" },
+                { id: "muted green", hex: "#4A7A5A", label: "Green" },
+              ].map((c) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => setNewAccentColor(newAccentColor === c.id ? "" : c.id)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all text-xs"
+                  style={{
+                    background: newAccentColor === c.id ? "rgba(255,255,255,0.08)" : "var(--bg-elevated)",
+                    border: `1px solid ${newAccentColor === c.id ? c.hex : "var(--border)"}`,
+                    color: "var(--text-primary)",
+                  }}
+                >
+                  <span className="inline-block w-3 h-3 rounded-full" style={{ background: c.hex }} />
+                  {c.label}
+                </button>
+              ))}
             </div>
           </div>
 
