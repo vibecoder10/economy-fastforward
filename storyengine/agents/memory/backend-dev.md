@@ -9,3 +9,4 @@
 - Security audit: EVERY new endpoint must use Depends(get_tenant_id). Never hardcode DEV_TENANT_ID for tenant isolation. Audio proxy endpoints need JWT validation via query token.
 - Security audit: API key reveal endpoints should use POST not GET (prevents URL logging), add rate limiting, and log all access to audit trail.
 - Pipeline Tester caught SEC-2 REGRESSION: videos.py:459 audio endpoint still uses old os.getenv('ENV', 'development') == 'development' check for dev-token. SEC-1 fixed auth.py but audio has its own inline auth. Must update to match: dev_token = os.getenv('DEV_TOKEN'); if dev_token and token == dev_token and os.getenv('DEV_MODE') == 'true'.
+- SEC-7: HTML audio elements can't set Authorization headers, so tokens go in URL query params. Fix: short-lived scoped JWT (5min, purpose=audio, video_id claim) via POST /audio-token. Frontend fetches token before building src URL.
