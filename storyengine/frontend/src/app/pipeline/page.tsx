@@ -211,11 +211,14 @@ export default function VideosPage() {
     queryKey: ["user-preferences"],
     queryFn: getUserPreferences,
     staleTime: 60000,
+    retry: false,
   });
 
   useEffect(() => {
-    if (prefs && Array.isArray(prefs.pipeline_tab_order)) {
-      const saved = prefs.pipeline_tab_order as TabId[];
+    const savedPref = prefs?.pipeline_tab_order as { order?: TabId[] } | TabId[] | undefined;
+    const savedOrder = savedPref && typeof savedPref === "object" && !Array.isArray(savedPref) ? savedPref.order : Array.isArray(savedPref) ? savedPref : undefined;
+    if (savedOrder && Array.isArray(savedOrder)) {
+      const saved = savedOrder;
       if (saved.length === DEFAULT_TAB_ORDER.length && saved.every((t) => DEFAULT_TAB_ORDER.includes(t))) {
         setTabOrder(saved);
       }
@@ -230,7 +233,7 @@ export default function VideosPage() {
         const newIndex = prev.indexOf(over.id as TabId);
         const newOrder = arrayMove(prev, oldIndex, newIndex);
         // Persist to backend (fire-and-forget)
-        setUserPreference("pipeline_tab_order", newOrder).catch(() => {});
+        setUserPreference("pipeline_tab_order", { order: newOrder }).catch(() => {});
         return newOrder;
       });
     }
