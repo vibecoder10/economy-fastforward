@@ -463,24 +463,29 @@
         </div>
       </div>
 
-      <!-- Task Queue Panel (expandable) -->
+      <!-- Work Board (always visible — pending queue + completed history) -->
       <div id="tq-panel" style="margin-bottom:20px;">
-        <div onclick="toggleTaskQueue()" style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;background:#0a0a0a;border:1px solid #1a1a1a;border-radius:12px;cursor:pointer;user-select:none;" onmouseenter="this.style.background='#0e0e0e'" onmouseleave="this.style.background='#0a0a0a'">
-          <div style="display:flex;align-items:center;gap:10px;">
-            <span id="tq-chevron" style="color:#555;font-size:12px;transition:transform 0.2s;">&#9654;</span>
-            <h3 style="font-size:14px;font-weight:600;color:#ccc;margin:0;">Task Queue</h3>
-            <span id="tq-pending-badge" style="font-size:10px;padding:2px 8px;background:rgba(212,168,68,0.12);color:#D4A844;border-radius:10px;font-weight:600;">0 pending</span>
+        <!-- Header with tab switcher -->
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;background:#0a0a0a;border:1px solid #1a1a1a;border-radius:12px 12px 0 0;">
+          <div style="display:flex;align-items:center;gap:6px;">
+            <button id="wb-tab-queue" onclick="switchWorkBoard('queue')" style="font-size:12px;padding:4px 12px;border-radius:6px;border:1px solid #D4A844;background:rgba(212,168,68,0.15);color:#D4A844;cursor:pointer;font-family:Outfit,sans-serif;font-weight:600;">Queue <span id="tq-pending-badge">0</span></button>
+            <button id="wb-tab-done" onclick="switchWorkBoard('done')" style="font-size:12px;padding:4px 12px;border-radius:6px;border:1px solid #222;background:transparent;color:#555;cursor:pointer;font-family:Outfit,sans-serif;font-weight:500;">Completed <span id="tq-done-badge">0</span></button>
           </div>
           <div style="display:flex;align-items:center;gap:8px;">
             <span id="tq-summary" style="font-size:11px;color:#555;">Loading...</span>
+            <button onclick="clearTaskQueue()" style="background:none;border:1px solid #222;color:#e35050;padding:3px 10px;border-radius:6px;font-size:10px;cursor:pointer;font-family:Outfit,sans-serif;">Clear All</button>
           </div>
         </div>
-        <div id="tq-body" style="display:none;margin-top:-1px;border:1px solid #1a1a1a;border-top:none;border-radius:0 0 12px 12px;background:#0a0a0a;max-height:400px;overflow-y:auto;">
+        <!-- Queue view (pending tasks — the bulletin board) -->
+        <div id="wb-queue" style="border:1px solid #1a1a1a;border-top:none;border-radius:0 0 12px 12px;background:#0a0a0a;max-height:500px;overflow-y:auto;">
           <div id="tq-list" style="padding:8px;">
             <div style="color:#555;font-size:12px;padding:12px;text-align:center;">Loading tasks...</div>
           </div>
-          <div style="display:flex;justify-content:flex-end;gap:8px;padding:8px 12px;border-top:1px solid #111;">
-            <button onclick="clearTaskQueue()" style="background:none;border:1px solid #333;color:#e35050;padding:5px 12px;border-radius:6px;font-size:11px;cursor:pointer;font-family:Outfit,sans-serif;">Clear All</button>
+        </div>
+        <!-- Completed view (all done tasks by tab — initially hidden) -->
+        <div id="wb-done" style="display:none;border:1px solid #1a1a1a;border-top:none;border-radius:0 0 12px 12px;background:#0a0a0a;max-height:500px;overflow-y:auto;">
+          <div id="tq-done-list" style="padding:8px;">
+            <div style="color:#555;font-size:12px;padding:12px;text-align:center;">Loading...</div>
           </div>
         </div>
       </div>
@@ -1842,18 +1847,27 @@ window.__onTabShow = {};
     } catch {}
   }
 
-  // ===== TASK QUEUE PANEL =====
+  // ===== WORK BOARD (Queue + Completed) =====
   function tqEsc(s) { var d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
 
-  let tqExpanded = false;
+  let currentWbTab = 'queue';
   const ROLE_COLORS = { backend: '#1A8A7A', frontend: '#58abf5', qa: '#e35050', 'pipeline-tester': '#c084fc', security: '#f59e0b', lead: '#D4A844' };
-  const SOURCE_LABELS = { 'BUG-USER': 'Auto-detected', 'SEC': 'Security Audit', 'T': 'Agent-created' };
 
-  window.toggleTaskQueue = function() {
-    tqExpanded = !tqExpanded;
-    document.getElementById('tq-body').style.display = tqExpanded ? 'block' : 'none';
-    document.getElementById('tq-chevron').style.transform = tqExpanded ? 'rotate(90deg)' : '';
-    if (tqExpanded) loadTaskQueueDetail();
+  window.switchWorkBoard = function(tab) {
+    currentWbTab = tab;
+    document.getElementById('wb-queue').style.display = tab === 'queue' ? 'block' : 'none';
+    document.getElementById('wb-done').style.display = tab === 'done' ? 'block' : 'none';
+    // Style active tab
+    var qBtn = document.getElementById('wb-tab-queue');
+    var dBtn = document.getElementById('wb-tab-done');
+    if (tab === 'queue') {
+      qBtn.style.background = 'rgba(212,168,68,0.15)'; qBtn.style.borderColor = '#D4A844'; qBtn.style.color = '#D4A844';
+      dBtn.style.background = 'transparent'; dBtn.style.borderColor = '#222'; dBtn.style.color = '#555';
+    } else {
+      dBtn.style.background = 'rgba(80,227,194,0.12)'; dBtn.style.borderColor = '#50e3c2'; dBtn.style.color = '#50e3c2';
+      qBtn.style.background = 'transparent'; qBtn.style.borderColor = '#222'; qBtn.style.color = '#555';
+    }
+    if (tab === 'done') loadCompletedTasks();
   };
 
   window.dismissTask = async function(tabIdx, taskIdx) {
@@ -1862,9 +1876,33 @@ window.__onTabShow = {};
     pollTeamMode();
   };
 
+  function renderTaskCard(t, showDismiss) {
+    var roleColor = ROLE_COLORS[t.role] || '#888';
+    var source = (t.id || '').indexOf('BUG-USER') === 0 ? 'Bug (auto-detected)' : (t.id || '').indexOf('BUG-PT') === 0 ? 'Bug (tester)' : (t.id || '').indexOf('SEC') === 0 ? 'Security' : 'Task';
+    var statusDot = t.status === 'in_progress' ? '#50e3c2' : t.status === 'blocked' ? '#e35050' : t.status === 'done' ? '#50e3c2' : '#555';
+    var assignedTo = t.assigned_to ? '<span style="font-size:9px;color:#444;">&#8594; ' + tqEsc(t.assigned_to) + '</span>' : '';
+    var dismissBtn = showDismiss ? '<button onclick="event.stopPropagation();dismissTask(' + t._tabIdx + ',' + t._taskIdx + ')" style="background:none;border:none;color:#333;cursor:pointer;font-size:14px;padding:2px 6px;flex-shrink:0;" title="Dismiss">&times;</button>' : '';
+    var completedAt = t.completed_at ? '<span style="font-size:9px;color:#333;">' + new Date(t.completed_at).toLocaleDateString() + '</span>' : '';
+
+    return '<div style="display:flex;align-items:flex-start;gap:8px;padding:8px;margin:2px 0;background:#111;border-radius:8px;border-left:3px solid ' + roleColor + ';">' +
+      '<div style="width:8px;height:8px;border-radius:50%;background:' + statusDot + ';flex-shrink:0;margin-top:5px;"></div>' +
+      '<div style="flex:1;min-width:0;">' +
+        '<div style="font-size:12px;color:' + (t.status === 'done' ? '#666' : '#ccc') + ';line-height:1.4;">' + tqEsc(t.title || t.id || 'Untitled') + '</div>' +
+        '<div style="display:flex;gap:6px;margin-top:3px;flex-wrap:wrap;align-items:center;">' +
+          '<span style="font-size:9px;padding:1px 6px;border-radius:4px;background:rgba(128,128,128,0.1);color:' + roleColor + ';">' + tqEsc(t.role || '?') + '</span>' +
+          '<span style="font-size:9px;color:#444;">' + source + '</span>' +
+          assignedTo +
+          completedAt +
+        '</div>' +
+      '</div>' +
+      dismissBtn +
+    '</div>';
+  }
+
   async function loadTaskQueueDetail() {
     const list = document.getElementById('tq-list');
-    const badge = document.getElementById('tq-pending-badge');
+    const pendingBadge = document.getElementById('tq-pending-badge');
+    const doneBadge = document.getElementById('tq-done-badge');
     const summary = document.getElementById('tq-summary');
     try {
       const resp = await fetch('/api/task-queue');
@@ -1872,15 +1910,18 @@ window.__onTabShow = {};
       const q = await resp.json();
       const allTasks = (q.tabs || []).flatMap((tab, ti) => tab.tasks?.map((t, idx) => ({ ...t, _tab: tab.name, _tabIdx: ti, _taskIdx: idx })) || []);
       const pending = allTasks.filter(t => t.status !== 'done' && t.status !== 'blocked');
-      const done = allTasks.filter(t => t.status === 'done').length;
+      const doneCount = allTasks.filter(t => t.status === 'done').length;
 
-      badge.textContent = pending.length + ' pending';
-      badge.style.background = pending.length > 0 ? 'rgba(212,168,68,0.12)' : 'rgba(80,227,194,0.12)';
-      badge.style.color = pending.length > 0 ? '#D4A844' : '#50e3c2';
-      summary.textContent = done + ' done / ' + allTasks.length + ' total';
+      pendingBadge.textContent = pending.length;
+      doneBadge.textContent = doneCount;
+      summary.textContent = doneCount + '/' + allTasks.length + ' done';
 
       if (pending.length === 0) {
-        list.innerHTML = '<div style="color:#555;font-size:12px;padding:12px;text-align:center;">No pending tasks. Agents are idle or waiting for a PRD.</div>';
+        list.innerHTML = '<div style="padding:16px;text-align:center;">' +
+          '<div style="font-size:24px;margin-bottom:8px;">&#10003;</div>' +
+          '<div style="color:#50e3c2;font-size:13px;font-weight:600;">Queue Clear</div>' +
+          '<div style="color:#444;font-size:11px;margin-top:4px;">Agents are in ops mode — testing product health and filing bugs as they find them.</div>' +
+        '</div>';
         return;
       }
 
@@ -1893,29 +1934,53 @@ window.__onTabShow = {};
         var tab = entry[0], tasks = entry[1];
         html += '<div style="padding:4px 8px;">';
         html += '<div style="font-size:11px;font-weight:600;color:#555;padding:6px 4px;text-transform:uppercase;letter-spacing:0.5px;">' + tqEsc(tab) + '</div>';
-        tasks.forEach(function(t) {
-          var roleColor = ROLE_COLORS[t.role] || '#888';
-          var source = (t.id || '').indexOf('BUG-USER') === 0 ? 'Auto-detected bug' : (t.id || '').indexOf('SEC') === 0 ? 'Security audit' : 'Agent task';
-          var statusDot = t.status === 'in_progress' ? '#50e3c2' : t.status === 'blocked' ? '#e35050' : '#555';
-          html += '<div style="display:flex;align-items:flex-start;gap:8px;padding:8px;margin:2px 0;background:#111;border-radius:8px;border-left:3px solid ' + roleColor + ';">' +
-            '<div style="width:8px;height:8px;border-radius:50%;background:' + statusDot + ';flex-shrink:0;margin-top:5px;"></div>' +
-            '<div style="flex:1;min-width:0;">' +
-              '<div style="font-size:12px;color:#ccc;line-height:1.4;">' + tqEsc(t.title || t.id || 'Untitled') + '</div>' +
-              '<div style="display:flex;gap:6px;margin-top:3px;flex-wrap:wrap;">' +
-                '<span style="font-size:9px;padding:1px 6px;border-radius:4px;background:rgba(128,128,128,0.1);color:' + roleColor + ';">' + tqEsc(t.role || '?') + '</span>' +
-                '<span style="font-size:9px;color:#444;">' + source + '</span>' +
-              '</div>' +
-            '</div>' +
-            '<button onclick="event.stopPropagation();dismissTask(' + t._tabIdx + ',' + t._taskIdx + ')" style="background:none;border:none;color:#333;cursor:pointer;font-size:14px;padding:2px 6px;flex-shrink:0;" title="Dismiss">&times;</button>' +
-          '</div>';
-        });
+        tasks.forEach(function(t) { html += renderTaskCard(t, true); });
         html += '</div>';
       });
       list.innerHTML = html;
     } catch (e) { list.innerHTML = '<div style="color:#e35050;font-size:11px;padding:12px;">Error: ' + e.message + '</div>'; }
   }
 
-  // Load task queue summary on page load
+  async function loadCompletedTasks() {
+    const doneList = document.getElementById('tq-done-list');
+    try {
+      const resp = await fetch('/api/task-queue');
+      if (!resp.ok) return;
+      const q = await resp.json();
+
+      var html = '';
+      (q.tabs || []).forEach(function(tab, ti) {
+        var doneTasks = (tab.tasks || []).filter(function(t) { return t.status === 'done'; });
+        if (doneTasks.length === 0) return;
+
+        var totalInTab = (tab.tasks || []).length;
+        var verifiedCount = doneTasks.filter(function(t) { return t.verified; }).length;
+        var tabStatus = tab.status === 'complete' ? '#50e3c2' : '#D4A844';
+
+        html += '<div style="padding:4px 8px;">';
+        html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 4px;">' +
+          '<div style="display:flex;align-items:center;gap:8px;">' +
+            '<span style="font-size:11px;font-weight:600;color:#555;text-transform:uppercase;letter-spacing:0.5px;">' + tqEsc(tab.name || 'Tab ' + tab.id) + '</span>' +
+            '<span style="font-size:9px;padding:1px 6px;border-radius:4px;background:rgba(80,227,194,0.08);color:' + tabStatus + ';">' + doneTasks.length + '/' + totalInTab + ' done</span>' +
+          '</div>' +
+          (tab.path ? '<span style="font-size:9px;color:#333;">' + tqEsc(tab.path) + '</span>' : '') +
+        '</div>';
+
+        doneTasks.forEach(function(t, idx) {
+          html += renderTaskCard({ ...t, _tab: tab.name, _tabIdx: ti, _taskIdx: idx }, false);
+        });
+        html += '</div>';
+      });
+
+      if (!html) {
+        html = '<div style="color:#555;font-size:12px;padding:12px;text-align:center;">No completed tasks yet.</div>';
+      }
+
+      doneList.innerHTML = html;
+    } catch (e) { doneList.innerHTML = '<div style="color:#e35050;font-size:11px;padding:12px;">Error: ' + e.message + '</div>'; }
+  }
+
+  // Load work board on page load
   loadTaskQueueDetail();
 
   // Poll team mode on load and periodically
