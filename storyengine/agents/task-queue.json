@@ -2,7 +2,7 @@
   "version": 2,
   "current_tab": 13,
   "last_updated": "2026-04-03",
-  "last_updated_by": "orchestrator",
+  "last_updated_by": "orchestrator-post-T13-003",
   "tabs": [
     {
       "id": 1,
@@ -1277,12 +1277,23 @@
           ]
         },
         {
+          "id": "T13-013",
+          "title": "QA verify YouTube Sync controls (T13-003)",
+          "role": "qa",
+          "status": "pending",
+          "depends_on": "T13-003",
+          "description": "Verify T13-003 YouTube Sync section on autopilot page: (1) YouTube Metrics section renders with last sync time via timeAgo() and synced count. (2) Sync Now button calls POST /api/youtube/sync — curl to confirm endpoint exists and returns a running status. (3) Progress bar appears while syncing: polls GET /api/youtube/sync/status every 3s showing videos_synced/videos_total. (4) Error display shown when sync fails. (5) All values come from real API — curl GET /api/youtube/sync/status to confirm response shape matches what UI expects. (6) tsc --noEmit passes clean. (7) No console errors.",
+          "files": [
+            "frontend/src/app/autopilot/page.tsx"
+          ]
+        },
+        {
           "id": "T13-012",
-          "title": "QA verify YouTube sync controls and background task panel",
+          "title": "QA verify background task status panel (T13-004)",
           "role": "qa",
           "status": "pending",
           "depends_on": "T13-004",
-          "description": "Verify T13-003 and T13-004: (1) YouTube Sync section shows last sync time, synced count, Sync Now button triggers POST /api/youtube/sync, progress bar polls GET /api/youtube/sync/status while running. (2) Background task panel shows 4 tasks (scrape, youtube_sync, learning_extraction, title_analysis) from GET /api/autopilot/tasks with last_run timestamps, status indicators, and next_run estimates. (3) All values come from real API endpoints (curl both endpoints to verify data). (4) tsc --noEmit passes clean. (5) No console errors.",
+          "description": "Verify T13-004 background task panel on autopilot page: (1) Panel shows 4 tasks (scrape, youtube_sync, learning_extraction, title_analysis) from GET /api/autopilot/tasks with last_run timestamps, status indicators, and next_run estimates. (2) curl GET /api/autopilot/tasks to verify all 4 tasks are returned with last_run/is_running/last_error fields. (3) tsc --noEmit passes clean. (4) No console errors.",
           "files": [
             "frontend/src/app/autopilot/page.tsx"
           ]
