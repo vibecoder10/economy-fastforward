@@ -2,7 +2,7 @@
   "version": 2,
   "current_tab": 12,
   "last_updated": "2026-04-03",
-  "last_updated_by": "qa-engineer",
+  "last_updated_by": "frontend-dev",
   "tabs": [
     {
       "id": 1,
@@ -934,8 +934,11 @@
           "id": "T12-003",
           "title": "Build title insights section",
           "role": "frontend",
-          "status": "pending",
-          "description": "Below the learnings list, add a 'Competitor Title Patterns' section. Shows patterns from title_insights table via GET /api/autopilot/learnings (these are structural/hook patterns from competitor analysis). Display: pattern_name, avg_vph, count, confidence, example_titles (as expandable list).",
+          "status": "done",
+          "started_at": "2026-04-03T05:10:00Z",
+          "assigned_to": "frontend-dev",
+          "completed_at": "2026-04-03T05:20:00Z",
+          "description": "Added 'Competitor Title Patterns' section below the learnings grid in learnings/page.tsx. Fetches from GET /api/autopilot/learnings, displays pattern_name, avg_vph, count, confidence bar, and expandable example_titles list. Inline component (no separate file). Data-driven rendering with loading/empty states.",
           "files": [
             "frontend/src/app/learnings/page.tsx"
           ]
@@ -986,11 +989,11 @@
         },
         {
           "id": "T12-007",
-          "title": "QA verify learnings page: patterns render, actions work, toggle works",
+          "title": "QA verify learnings page: patterns render, title insights, actions, toggle",
           "role": "qa",
           "status": "pending",
-          "description": "Verify: GET /api/learnings returns patterns, cards render with all fields, category filter works, Extract/Analyze buttons trigger and show results, enable/disable toggle persists. tsc --noEmit passes.",
-          "depends_on": "T12-006"
+          "description": "Verify the full /learnings page: (1) GET /api/learnings returns patterns, PatternCard renders all fields (category pill, confidence bar, sample_size, avg_ctr, avg_retention, source_videos chips, active toggle). (2) Category filter tabs (All/Title/Hook/Framework/Script) filter correctly. (3) Extract Learnings button calls POST /api/learnings/extract, Analyze Titles calls POST /api/learnings/analyze-titles, Analyze Transcripts calls POST /api/learnings/analyze-transcripts — each shows loading spinner and result summary. (4) Enable/disable toggle calls PATCH /api/learnings/{id}/toggle and persists (pattern becomes dimmed when disabled). (5) Competitor Title Patterns section (T12-003): renders below learnings grid, shows pattern_name, avg_vph, count, confidence, and expandable example_titles list. Data from GET /api/autopilot/learnings. (6) Learnings nav entry appears in sidebar (Brain icon, /learnings path). (7) tsc --noEmit passes. (8) No console errors.",
+          "depends_on": ["T12-006", "T12-003"]
         }
       ]
     },
