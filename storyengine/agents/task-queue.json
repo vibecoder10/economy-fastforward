@@ -2,7 +2,7 @@
   "version": 2,
   "current_tab": 18,
   "last_updated": "2026-04-03",
-  "last_updated_by": "orchestrator",
+  "last_updated_by": "orchestrator-micro",
   "tabs": [
     {
       "id": 1,
@@ -1807,7 +1807,10 @@
           "id": "T18-001",
           "title": "Add Review Queue to sidebar nav and bottom tabs",
           "role": "frontend",
-          "status": "pending",
+          "status": "done",
+          "started_at": "2026-04-03T23:00:00Z",
+          "completed_at": "2026-04-03T23:05:00Z",
+          "assigned_to": "frontend-dev",
           "description": "The /review page is fully built (approve/reject scripts, storyboards, thumbnails, images) but NOT in the sidebar nav or mobile bottom tabs. Add { href: '/review', icon: CheckSquare, label: 'Review' } to navItems in sidebar.tsx between Videos and Autopilot. Import CheckSquare from lucide-react.",
           "files": [
             "frontend/src/components/nav/sidebar.tsx"
@@ -1817,9 +1820,12 @@
           "id": "T18-002",
           "title": "Add pending review count badge to sidebar Review link",
           "role": "frontend",
-          "status": "pending",
+          "status": "done",
+          "started_at": "2026-04-03T23:00:00Z",
+          "completed_at": "2026-04-03T23:05:00Z",
+          "assigned_to": "frontend-dev",
           "depends_on": "T18-001",
-          "description": "Backend has GET /api/review/pending returning pending items. Fetch this count and show as a badge next to the Review nav item so users see items needing attention. Use React Query to poll every 30s. Only show badge when count > 0.",
+          "description": "Backend has GET /api/review/pending returning pending items. Fetch this count and show as a badge next to the Review nav item so users see items needing attention. Use React Query to poll every 30s. Only show badge when count > 0. Badge shows turquoise dot with count, capped at 9+.",
           "files": [
             "frontend/src/components/nav/sidebar.tsx",
             "frontend/src/lib/api.ts"
