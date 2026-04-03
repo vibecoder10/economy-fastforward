@@ -2012,7 +2012,10 @@
           "id": "T22-003",
           "title": "Build dashboard page: stats cards, pipeline distribution, recent videos",
           "role": "frontend",
-          "status": "pending",
+          "status": "done",
+          "started_at": "2026-04-03T06:02:00Z",
+          "assigned_to": "frontend-dev",
+          "completed_at": "2026-04-03T06:06:00Z",
           "depends_on": "T22-002",
           "description": "Build frontend/src/app/dashboard/page.tsx as a real home page. Must include: (1) 4 stat cards (Total Videos, Avg CTR, Total Views, Videos This Week) from GET /api/dashboard/summary. (2) Pipeline status distribution: horizontal bar or pill row showing how many videos are at each stage (idea_logged, ready_for_scripting, ... done). (3) Recent videos list: last 5 videos with title, status badge, and link to /pipeline/[id]. (4) Quick action button: 'New Video' link to /pipeline. All data from real API \u2014 no hardcoded values. Loading and empty states required.",
           "files": [
