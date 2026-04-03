@@ -289,9 +289,7 @@ if [ -f "$ACTIVITY_LOG" ]; then
 import json
 try:
     logs = json.load(open('$ACTIVITY_LOG'))
-    # Get recent user-browser errors (last 20)
     errors = [e for e in logs[-50:] if e.get('agent') == 'user-browser' and e.get('status') == 'error']
-    # Deduplicate by task (API path)
     seen = set()
     for e in errors[-20:]:
         key = e.get('task', '')
@@ -300,6 +298,45 @@ try:
             print('- ' + e.get('summary', '')[:200])
 except: pass
 " 2>/dev/null || echo "")
+
+  # Auto-create bug tasks from user-browser errors (only for backend/frontend agents)
+  if [ -n "$USER_ERRORS" ] && { [ "$AGENT" = "backend-dev" ] || [ "$AGENT" = "frontend-dev" ]; }; then
+    python3 -c "
+import json, time
+try:
+    logs = json.load(open('$ACTIVITY_LOG'))
+    tq_path = '$AGENTS_DIR/task-queue.json'
+    tq = json.load(open(tq_path))
+    errors = [e for e in logs[-50:] if e.get('agent') == 'user-browser' and e.get('status') == 'error']
+    # Deduplicate
+    seen_tasks = {t.get('title','') for tab in tq.get('tabs',[]) for t in tab.get('tasks',[])}
+    seen_keys = set()
+    new_tasks = []
+    for e in errors[-10:]:
+        key = e.get('task','')
+        summary = e.get('summary','')
+        if key in seen_keys: continue
+        seen_keys.add(key)
+        title = 'BUG-USER: ' + summary[:100]
+        if any(title[:60] in existing for existing in seen_tasks): continue
+        role = 'backend' if '/api/' in key else 'frontend'
+        if ('$AGENT' == 'backend-dev' and role != 'backend') or ('$AGENT' == 'frontend-dev' and role != 'frontend'): continue
+        new_tasks.append({
+            'id': 'BUG-USER-' + str(int(time.time()))[-6:],
+            'title': title,
+            'role': '$AGENT'.replace('-dev',''),
+            'status': 'pending',
+            'priority': 'critical',
+            'description': 'User hit this error while clicking through the website. Fix immediately.\nEndpoint: ' + key + '\nError: ' + summary
+        })
+    if new_tasks and tq.get('tabs'):
+        tq['tabs'][0].setdefault('tasks', []).extend(new_tasks[:3])  # max 3 auto-created
+        json.dump(tq, open(tq_path, 'w'), indent=2)
+        print(f'Auto-created {len(new_tasks[:3])} bug tasks from user-browser errors')
+except Exception as ex:
+    print(f'Auto-task creation failed: {ex}')
+" 2>/dev/null || true
+  fi
 fi
 
 # ─── Build Prompt ───────────────────────────────────────────────────────────
@@ -547,6 +584,25 @@ if [ -n "$TASK_LINE" ] || [ -n "$SUMMARY_LINE" ]; then
     nohup npx next start -p 3001 > /tmp/storyengine-frontend.log 2>&1 &
     echo "Frontend rebuilt and restarted on port 3001"
     cd "$PROJECT_ROOT"
+  fi
+fi
+
+# ─── Regression Check (run Playwright tests if they exist) ─────────────────
+PLAYWRIGHT_DIR="$PROJECT_ROOT/storyengine/frontend/tests"
+if [ -d "$PLAYWRIGHT_DIR" ] && ls "$PLAYWRIGHT_DIR"/*.spec.ts 1>/dev/null 2>&1; then
+  echo "Running regression tests..."
+  cd "$PROJECT_ROOT/storyengine/frontend"
+  REGRESSION_RESULT=$(npx playwright test --reporter=line 2>&1 | tail -5)
+  REGRESSION_EXIT=$?
+  cd "$PROJECT_ROOT"
+  if [ $REGRESSION_EXIT -ne 0 ]; then
+    echo "⚠️  REGRESSION DETECTED:"
+    echo "$REGRESSION_RESULT"
+    curl -s -X POST "$RUBRIC_URL/api/activity-log" \
+      -H "Content-Type: application/json" \
+      -d "{\"agent\": \"$AGENT\", \"task\": \"regression\", \"summary\": \"REGRESSION: Playwright tests failed after $AGENT commit\", \"status\": \"error\"}" 2>/dev/null || true
+  else
+    echo "✅ Regression tests passed"
   fi
 fi
 

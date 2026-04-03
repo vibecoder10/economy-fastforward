@@ -96,6 +96,26 @@ storyengine/backend/
 - **Never break existing endpoints.** Add, don't modify, unless the task specifically says to fix something.
 - **Always `git pull --rebase` before starting.** Frontend Dev may have pushed.
 
+## Live Activity Posting (MANDATORY)
+
+Post to the activity feed in REAL TIME as you work — not just at the end. The operator watches this feed live.
+
+```bash
+# After starting a task:
+curl -s -X POST http://localhost:5050/api/activity-log -H 'Content-Type: application/json' \
+  -d '{"agent":"backend-dev","task":"TASK_ID","summary":"Starting: [task title]","status":"started"}'
+
+# After completing a task:
+curl -s -X POST http://localhost:5050/api/activity-log -H 'Content-Type: application/json' \
+  -d '{"agent":"backend-dev","task":"TASK_ID","summary":"Done: [what you built]","status":"completed"}'
+
+# When hitting an error:
+curl -s -X POST http://localhost:5050/api/activity-log -H 'Content-Type: application/json' \
+  -d '{"agent":"backend-dev","task":"TASK_ID","summary":"Error: [what went wrong]","status":"error"}'
+```
+
+Post EVERY time you start a task, complete a task, or hit a significant error. The feed should never be silent while you're working.
+
 ## Research Before Building
 
 When implementing features that use external APIs (Stripe, Google OAuth, YouTube, ElevenLabs, etc.), **fetch the real documentation first** using WebFetch. Do NOT rely on your training data — it may be stale.

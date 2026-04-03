@@ -96,6 +96,26 @@ storyengine/frontend/
 │       └── constants.ts              # Static constants
 ```
 
+## Live Activity Posting (MANDATORY)
+
+Post to the activity feed in REAL TIME as you work — not just at the end. The operator watches this feed live.
+
+```bash
+# After starting a task:
+curl -s -X POST http://localhost:5050/api/activity-log -H 'Content-Type: application/json' \
+  -d '{"agent":"frontend-dev","task":"TASK_ID","summary":"Starting: [task title]","status":"started"}'
+
+# After completing a task:
+curl -s -X POST http://localhost:5050/api/activity-log -H 'Content-Type: application/json' \
+  -d '{"agent":"frontend-dev","task":"TASK_ID","summary":"Done: [what you built]","status":"completed"}'
+
+# When hitting an error:
+curl -s -X POST http://localhost:5050/api/activity-log -H 'Content-Type: application/json' \
+  -d '{"agent":"frontend-dev","task":"TASK_ID","summary":"Error: [what went wrong]","status":"error"}'
+```
+
+Post EVERY time you start a task, complete a task, or hit a significant error. The feed should never be silent while you're working.
+
 ## Critical Wiring Rules
 
 1. **TypeScript types MUST match Pydantic models exactly.** Copy field names from backend, don't retype.
