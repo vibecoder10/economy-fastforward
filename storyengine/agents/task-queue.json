@@ -2568,14 +2568,17 @@
           "id": "SEC-7",
           "title": "HIGH: Auth token exposed in URL query string for audio playback",
           "role": "backend",
-          "status": "pending",
+          "status": "done",
           "priority": "high",
-          "description": "StoryboardVisualsTab.tsx:817 puts auth token in ?token= URL param for HTML audio elements. Token visible in browser history, referrer headers, server logs. Fix: add POST /api/videos/{id}/audio-token endpoint that generates a short-lived signed token (JWT exp=5min, video_id claim) stored in-memory. Audio endpoint accepts either full JWT or this short-lived token. Frontend fetches short-lived token before building audio src URL. Token expires after 5 min \u2014 no persistent exposure.",
+          "description": "Added POST /api/videos/{id}/audio-token endpoint that generates a 5-minute JWT scoped to video_id+tenant_id with purpose=audio claim. Audio GET endpoint now validates both short-lived audio tokens (checks purpose+video_id) and session JWTs. Frontend SecureAudioPlayer component fetches short-lived token before building audio src URL. Full session JWT no longer exposed in URL query strings.",
           "files": [
             "frontend/src/components/production/StoryboardVisualsTab.tsx",
-            "backend/routes/videos.py"
+            "backend/routes/videos.py",
+            "frontend/src/lib/api.ts"
           ],
-          "assigned_to": "backend-dev"
+          "assigned_to": "backend-dev",
+          "started_at": "2026-04-03T23:00:01Z",
+          "completed_at": "2026-04-03T23:10:00Z"
         },
         {
           "id": "SEC-8",

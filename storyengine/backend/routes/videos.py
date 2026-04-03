@@ -440,13 +440,43 @@ async def get_video_script(video_id: str, tenant_id: str = Depends(get_tenant_id
     return rows
 
 
+@router.post("/{video_id}/audio-token")
+async def create_audio_token(video_id: str, tenant_id=Depends(get_tenant_id)):
+    """Generate a short-lived token for audio playback.
+
+    Returns a 5-minute JWT scoped to this video_id + tenant_id.
+    Use this token in ?token= query param for audio endpoints instead
+    of exposing the full session JWT in URLs.
+    """
+    import os
+    import jwt as pyjwt
+    from datetime import datetime, timedelta, timezone
+
+    session_secret = os.getenv("SESSION_SECRET")
+    if not session_secret:
+        raise HTTPException(status_code=500, detail="SESSION_SECRET not configured")
+
+    audio_token = pyjwt.encode(
+        {
+            "purpose": "audio",
+            "video_id": video_id,
+            "tenant_id": str(tenant_id),
+            "exp": datetime.now(timezone.utc) + timedelta(minutes=5),
+            "iss": "storyengine",
+        },
+        session_secret,
+        algorithm="HS256",
+    )
+    return {"token": audio_token}
+
+
 @router.get("/{video_id}/audio/{scene}")
 async def get_scene_audio(video_id: str, scene: int, token: Optional[str] = None):
     """Proxy audio from Google Drive for browser playback.
 
     Google Drive download URLs use 303 redirects that some browsers
     block in Audio elements. This endpoint streams the audio directly.
-    Uses query token since HTML Audio elements can't set Authorization headers.
+    Accepts a short-lived audio token (from POST /audio-token) in ?token= param.
     """
     import os
     import jwt as pyjwt
@@ -460,15 +490,23 @@ async def get_scene_audio(video_id: str, scene: int, token: Optional[str] = None
     if dev_token and token == dev_token and os.getenv("DEV_MODE") == "true":
         tenant_id = os.getenv("DEV_TENANT_ID", "test-tenant")
     else:
-        # Validate session JWT
+        # Validate JWT (short-lived audio token or session JWT)
         session_secret = os.getenv("SESSION_SECRET")
         if not session_secret:
             raise HTTPException(status_code=401, detail="Invalid token")
         try:
             payload = pyjwt.decode(token, session_secret, algorithms=["HS256"])
-            tenant_id = payload.get("tenant_id")
+            # Short-lived audio token: verify purpose and video_id scope
+            if payload.get("purpose") == "audio":
+                if payload.get("video_id") != video_id:
+                    raise HTTPException(status_code=403, detail="Token not valid for this video")
+                tenant_id = payload.get("tenant_id")
+            else:
+                tenant_id = payload.get("tenant_id")
             if not tenant_id:
                 raise HTTPException(status_code=401, detail="Invalid token: no tenant")
+        except pyjwt.ExpiredSignatureError:
+            raise HTTPException(status_code=401, detail="Token expired")
         except pyjwt.InvalidTokenError:
             raise HTTPException(status_code=401, detail="Invalid token")
 

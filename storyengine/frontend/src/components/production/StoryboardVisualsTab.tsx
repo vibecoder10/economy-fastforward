@@ -19,9 +19,30 @@ import { VoicePlayer } from "@/components/video-detail/voice-player";
 import {
   getVideoScript, getVideoAssets, updateStoryboardMode, clearSceneStoryboard, clearAllStoryboards,
   runPipelineStage, updateSceneSegments, runImageForSegment, runImageVariants, clearStaleTask, updateVideoStyles,
+  getAudioToken,
 } from "@/lib/api";
 import { useTaskPoller } from "@/hooks/use-task-poller";
 import type { VideoDetail, ScriptScene as ApiScriptScene, Asset } from "@/lib/api";
+
+/** Fetches a short-lived audio token, then renders VoicePlayer with scoped URL */
+function SecureAudioPlayer({ videoId, scene }: { videoId: string; scene: number }) {
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    const apiBase = typeof window !== "undefined"
+      ? (localStorage.getItem("storyengine_api_url") || `${window.location.protocol}//${window.location.hostname}:8001`)
+      : "";
+    getAudioToken(videoId).then(({ token }) => {
+      if (!cancelled) setAudioUrl(`${apiBase}/api/videos/${videoId}/audio/${scene}?token=${token}`);
+    }).catch(() => {
+      // Fallback: no audio if token fetch fails
+      if (!cancelled) setAudioUrl(null);
+    });
+    return () => { cancelled = true; };
+  }, [videoId, scene]);
+  if (!audioUrl) return <p className="text-[10px] mb-3" style={{ color: "var(--text-tertiary)" }}>Loading audio...</p>;
+  return <div className="mb-3"><VoicePlayer audioUrl={audioUrl} /></div>;
+}
 
 interface StoryboardVisualsTabProps {
   video: VideoDetail & { id: string };
@@ -805,19 +826,9 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
                       </div>
                     )}
 
-                    {/* Voice player */}
+                    {/* Voice player — uses short-lived audio token instead of session JWT */}
                     {scene.voiceOverUrl && (
-                      <div className="mb-3">
-                        <VoicePlayer
-                          audioUrl={(() => {
-                            const apiBase = typeof window !== "undefined"
-                              ? (localStorage.getItem("storyengine_api_url") || `${window.location.protocol}//${window.location.hostname}:8001`)
-                              : "";
-                            const token = typeof window !== "undefined" ? (localStorage.getItem("token") || "dev-token") : "";
-                            return `${apiBase}/api/videos/${video.id}/audio/${scene.sceneNumber}?token=${token}`;
-                          })()}
-                        />
-                      </div>
+                      <SecureAudioPlayer videoId={video.id} scene={scene.sceneNumber} />
                     )}
                     {!scene.voiceOverUrl && (
                       <p className="text-[10px] mb-3" style={{ color: "var(--text-tertiary)" }}>No voice generated yet</p>

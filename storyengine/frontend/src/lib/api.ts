@@ -151,6 +151,9 @@ export const getImageVariants = (videoId: string, scene: number, index: number) 
 
 export const getVideoScript = (id: string) => fetchApi<ScriptScene[]>(`/api/videos/${id}/script`);
 
+export const getAudioToken = (videoId: string) =>
+  fetchApi<{ token: string }>(`/api/videos/${videoId}/audio-token`, { method: "POST" });
+
 // Assets
 export const approveAsset = (id: string) =>
   fetchApi<{ status: string }>(`/api/assets/${id}/approve`, { method: "PATCH" });
