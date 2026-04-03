@@ -1306,14 +1306,14 @@
           "id": "T13-012",
           "title": "QA verify background task status panel (T13-004)",
           "role": "qa",
-          "status": "blocked",
+          "status": "pending",
           "depends_on": "T13-004",
           "description": "Verify T13-004 background task panel on autopilot page: (1) Panel shows 4 tasks (scrape, youtube_sync, learning_extraction, title_analysis) from GET /api/autopilot/tasks with last_run timestamps, status indicators, and next_run estimates. (2) curl GET /api/autopilot/tasks to verify all 4 tasks are returned with last_run/is_running/last_error fields. (3) tsc --noEmit passes clean. (4) No console errors.",
           "files": [
             "frontend/src/app/autopilot/page.tsx"
           ],
-          "error_note": "Blocked pending T13-004 frontend build. Pre-validation complete: GET /api/autopilot/tasks returns {scrape,youtube_sync,learning_extraction,title_analysis} all with {last_run,is_running,last_error} \u2014 backend correct. Autopilot page existing sections all verified passing (T13-001/003/008) with 0 console errors. Handoff posted to frontend-dev 2026-04-03T08:45:00Z.",
-          "started_at": "2026-04-03T08:40:00Z",
+          "unblocked_at": "2026-04-03T09:10:00Z",
+          "unblocked_by": "orchestrator",
           "assigned_to": "qa-engineer"
         }
       ]
