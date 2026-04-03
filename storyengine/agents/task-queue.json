@@ -2,7 +2,7 @@
   "version": 2,
   "current_tab": 26,
   "last_updated": "2026-04-03",
-  "last_updated_by": "security-auditor",
+  "last_updated_by": "backend-dev",
   "tabs": [
     {
       "id": 1,
@@ -2427,7 +2427,7 @@
           "verified_at": "2026-04-03T18:10:00Z",
           "verified_by": "qa-engineer",
           "description": "Verify: (1) Free user visiting /autopilot, /analytics, /learnings, /competitors, /discovery sees upgrade prompt with lock icon and upgrade button linking to /settings. (2) Pro user sees normal content. (3) Lock icons appear on sidebar nav items for free users. (4) Clicking upgrade navigates to settings page. (5) tsc --noEmit passes. (6) No console errors.",
-          "verification_notes": "PASS (code review + logic verification). Commit c474e15: (1) PRO_PATHS = [/autopilot, /analytics, /learnings, /competitors, /discovery] — correct 5 routes. (2) isPlanAtLeast(plan, 'pro') correctly gates: free=0 < pro=2, starter=1 < pro=2 (both blocked), pro=2 >= pro=2, agency=3 >= pro=2 (both allowed). (3) UpgradePrompt: Lock icon (gold), 'Pro Feature' heading, description listing all 5 features, 'Upgrade to Pro' Link to /settings (where billing section lives), '$40/month' price. (4) Sidebar lock icons: isLocked computed per nav item via PRO_PATHS + isPlanAtLeast, shows Lock icon (gold, 12px), opacity 0.6, text-tertiary color. (5) Non-Pro routes (/, /dashboard, /pipeline, /review, /settings, /profile, /calendar) NOT affected — verified via logic test. (6) tsc --noEmit: 0 errors (app code). (7) Diff clean: 2 app files (AuthenticatedShell.tsx +53 lines, sidebar.tsx +11 lines), no bloat. (8) isPlanAtLeast and PRO_PATHS exported for reuse. NOTE: Playwright browser test redirects to /login due to CORS (port 3003 not in backend allowlist) — known dev environment limitation. Logic verified via unit test + code inspection. TAB 25 COMPLETE."
+          "verification_notes": "PASS (code review + logic verification). Commit c474e15: (1) PRO_PATHS = [/autopilot, /analytics, /learnings, /competitors, /discovery] \u2014 correct 5 routes. (2) isPlanAtLeast(plan, 'pro') correctly gates: free=0 < pro=2, starter=1 < pro=2 (both blocked), pro=2 >= pro=2, agency=3 >= pro=2 (both allowed). (3) UpgradePrompt: Lock icon (gold), 'Pro Feature' heading, description listing all 5 features, 'Upgrade to Pro' Link to /settings (where billing section lives), '$40/month' price. (4) Sidebar lock icons: isLocked computed per nav item via PRO_PATHS + isPlanAtLeast, shows Lock icon (gold, 12px), opacity 0.6, text-tertiary color. (5) Non-Pro routes (/, /dashboard, /pipeline, /review, /settings, /profile, /calendar) NOT affected \u2014 verified via logic test. (6) tsc --noEmit: 0 errors (app code). (7) Diff clean: 2 app files (AuthenticatedShell.tsx +53 lines, sidebar.tsx +11 lines), no bloat. (8) isPlanAtLeast and PRO_PATHS exported for reuse. NOTE: Playwright browser test redirects to /login due to CORS (port 3003 not in backend allowlist) \u2014 known dev environment limitation. Logic verified via unit test + code inspection. TAB 25 COMPLETE."
         }
       ]
     },
@@ -2441,13 +2441,15 @@
           "id": "SEC-1",
           "title": "CRITICAL: Dev-token backdoor active in production if ENV not set",
           "role": "backend",
-          "status": "pending",
+          "status": "done",
           "priority": "critical",
           "description": "auth.py:32 \u2014 dev-token bypasses ALL JWT auth when os.getenv('ENV', 'development') == 'development'. The default is 'development', so ANY server without ENV explicitly set to 'production' accepts 'dev-token' for full access. Fix: change default to require explicit opt-in: os.getenv('DEV_MODE') == 'true' instead of checking ENV with a permissive default. Or require a specific DEV_TOKEN env var instead of hardcoding 'dev-token'.",
           "files": [
             "backend/auth.py"
           ],
-          "assigned_to": "backend-dev"
+          "assigned_to": "backend-dev",
+          "started_at": "2026-04-03T18:06:00Z",
+          "completed_at": "2026-04-03T18:10:00Z"
         },
         {
           "id": "SEC-2",
