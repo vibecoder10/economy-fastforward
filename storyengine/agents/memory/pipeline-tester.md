@@ -17,3 +17,5 @@
 - Auth in Playwright: use context.add_init_script() to set localStorage token BEFORE page loads; storage_state JSON approach also works but add_init_script is more reliable for React apps that read localStorage on mount.
 - update_visual_report.py: when TASK_ID arg is passed, it filters by TASK_ID prefix so use the screenshot filename prefix (e.g. 'reg5') not a task ID like 'T10-005'. Run without args to upload ALL new files.
 - T17-005: Stripe endpoints return 'Stripe not configured' without STRIPE_SECRET_KEY — correct behavior, not a bug. Google OAuth returns 'Invalid Google token' without real client creds. Both are expected in dev.
+- Ports 3001/3002 serve pre-built Next.js; if the build is stale (code committed after last build), test on a dev server (npm run dev -- --port 3003) to get the current code.
+- Auth intercept pattern: context.add_init_script sets localStorage token + route handler intercepts /api/auth/me to return FAKE_USER dict — this reliably bypasses AuthProvider redirect without needing a valid JWT.

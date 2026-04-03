@@ -2,7 +2,7 @@
   "version": 2,
   "current_tab": 12,
   "last_updated": "2026-04-03",
-  "last_updated_by": "frontend-dev",
+  "last_updated_by": "pipeline-tester",
   "tabs": [
     {
       "id": 1,
@@ -991,9 +991,27 @@
           "id": "T12-007",
           "title": "QA verify learnings page: patterns render, title insights, actions, toggle",
           "role": "qa",
-          "status": "pending",
+          "status": "done",
+          "verified": true,
+          "started_at": "2026-04-03T05:30:00Z",
+          "completed_at": "2026-04-03T05:50:00Z",
+          "assigned_to": "pipeline-tester",
+          "verified_at": "2026-04-03T05:50:00Z",
+          "verified_by": "pipeline-tester",
           "description": "Verify the full /learnings page: (1) GET /api/learnings returns patterns, PatternCard renders all fields (category pill, confidence bar, sample_size, avg_ctr, avg_retention, source_videos chips, active toggle). (2) Category filter tabs (All/Title/Hook/Framework/Script) filter correctly. (3) Extract Learnings button calls POST /api/learnings/extract, Analyze Titles calls POST /api/learnings/analyze-titles, Analyze Transcripts calls POST /api/learnings/analyze-transcripts — each shows loading spinner and result summary. (4) Enable/disable toggle calls PATCH /api/learnings/{id}/toggle and persists (pattern becomes dimmed when disabled). (5) Competitor Title Patterns section (T12-003): renders below learnings grid, shows pattern_name, avg_vph, count, confidence, and expandable example_titles list. Data from GET /api/autopilot/learnings. (6) Learnings nav entry appears in sidebar (Brain icon, /learnings path). (7) tsc --noEmit passes. (8) No console errors.",
-          "depends_on": ["T12-006", "T12-003"]
+          "depends_on": ["T12-006", "T12-003"],
+          "verification_notes": "PARTIAL PASS (34/35 checks pass). Backend: GET /api/learnings returns 20 patterns with all required fields (id/category/pattern/confidence/sample_size/active/avg_ctr/avg_retention/source_videos). Category filter ?category=title returns 11 title patterns with 0 leakage. PATCH /api/learnings/{id}/toggle flips active state correctly. All 3 action endpoints (extract/analyze-titles/analyze-transcripts) return 200. Frontend (tested on dev server port 3003 — production build stale, learnings page added after last build at 00:36 but committed at 01:38): sidebar has /learnings nav entry with Brain icon ✅, page loads with Learnings header ✅, '20 patterns' count label ✅, all 5 filter tabs (All/Title/Hook/Framework/Script) ✅, all 3 action buttons ✅, Show disabled toggle ✅, PROVEN/AVOID verdict badges ✅, all 4 category pills (title/framework/hook/script) ✅, 20 toggle buttons per pattern ✅, 20 source video expand buttons ✅, Title filter tab narrows results ✅, toggle click executes without crash ✅, 0 console errors ✅, tsc --noEmit: 0 errors ✅. FAIL: T12-003 Competitor Title Patterns section NOT implemented — 'Competitor Title Patterns' heading is absent from learnings/page.tsx (347 lines) despite task being marked done. /api/autopilot/learnings returns 20 insights but nothing in the UI consumes them. Filed BUG-T12-003. Screenshots: T12-007-full.png, T12-007-pattern-cards.png, T12-007-filter-title.png."
+        },
+        {
+          "id": "BUG-T12-003",
+          "title": "BUG: Competitor Title Patterns section not built — T12-003 marked done prematurely",
+          "role": "frontend",
+          "status": "pending",
+          "description": "Pipeline Tester found: The /learnings page (learnings/page.tsx, 347 lines) does NOT have a 'Competitor Title Patterns' section despite T12-003 being marked done. The task description says 'Added Competitor Title Patterns section below the learnings grid, Fetches from GET /api/autopilot/learnings, displays pattern_name, avg_vph, count, confidence bar, and expandable example_titles list.' But inspecting the code: export default LearningsPage() return statement closes at line 198 with no title insights section. Backend GET /api/autopilot/learnings returns 20 insights but nothing in the UI consumes this endpoint. Fix: add a 'Competitor Title Patterns' section below the learnings grid in learnings/page.tsx. It should call getLearningTitleInsights() (or getAutopilotLearnings()) from api.ts, render each insight with pattern name, avg_ctr, sample_size, confidence bar, and expandable example_titles. Check what fields /api/autopilot/learnings actually returns (pattern, category, effect, confidence, sample_size, avg_ctr) and render accordingly.",
+          "files": [
+            "frontend/src/app/learnings/page.tsx",
+            "frontend/src/lib/api.ts"
+          ]
         }
       ]
     },
