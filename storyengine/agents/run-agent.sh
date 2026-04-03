@@ -545,6 +545,43 @@ except Exception as e:
 " 2>/dev/null || true
 fi
 
+# ─── Health Check (MANDATORY — no agent leaves the site broken) ────────────
+echo "Running health check..."
+FRONTEND_OK=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:3001/ 2>/dev/null || echo "000")
+BACKEND_OK=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8001/api/videos 2>/dev/null || echo "000")
+
+if [ "$FRONTEND_OK" != "200" ]; then
+  echo "⚠️  FRONTEND DOWN (HTTP $FRONTEND_OK) — restarting..."
+  pkill -f 'next.*3001' 2>/dev/null || true
+  sleep 2
+  fuser -k 3001/tcp 2>/dev/null || true
+  sleep 1
+  cd "$PROJECT_ROOT/storyengine/frontend"
+  npm run build > /tmp/storyengine-frontend-build.log 2>&1 || echo "Build failed"
+  nohup npx next start -p 3001 > /tmp/storyengine-frontend.log 2>&1 &
+  echo "Frontend restarted"
+  cd "$PROJECT_ROOT"
+  # Notify
+  curl -s -X POST "$RUBRIC_URL/api/activity-log" \
+    -H "Content-Type: application/json" \
+    -d "{\"agent\": \"$AGENT\", \"task\": \"health-check\", \"summary\": \"Frontend was DOWN — auto-restarted\", \"status\": \"completed\"}" 2>/dev/null || true
+fi
+
+if [ "$BACKEND_OK" = "000" ]; then
+  echo "⚠️  BACKEND DOWN — restarting..."
+  pkill -f 'uvicorn.*8001' 2>/dev/null || true
+  sleep 1
+  cd "$PROJECT_ROOT/storyengine/backend"
+  nohup ./venv/bin/python3 -m uvicorn main:app --host 0.0.0.0 --port 8001 > /tmp/storyengine-backend.log 2>&1 &
+  echo "Backend restarted"
+  cd "$PROJECT_ROOT"
+  curl -s -X POST "$RUBRIC_URL/api/activity-log" \
+    -H "Content-Type: application/json" \
+    -d "{\"agent\": \"$AGENT\", \"task\": \"health-check\", \"summary\": \"Backend was DOWN — auto-restarted\", \"status\": \"completed\"}" 2>/dev/null || true
+fi
+
+echo "Health check: frontend=$FRONTEND_OK backend=$BACKEND_OK"
+
 # ─── Report Idle ────────────────────────────────────────────────────────────
 curl -s -X POST "$RUBRIC_URL/api/agent-status" \
   -H "Content-Type: application/json" \
