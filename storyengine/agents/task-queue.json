@@ -2,7 +2,7 @@
   "version": 2,
   "current_tab": 3,
   "last_updated": "2026-04-03",
-  "last_updated_by": "qa-engineer",
+  "last_updated_by": "frontend-dev",
   "tabs": [
     {
       "id": 1,
@@ -181,7 +181,10 @@
           "id": "T3-002",
           "title": "Display script_validation results in Script tab",
           "role": "frontend",
-          "status": "pending",
+          "status": "done",
+          "started_at": "2026-04-03T18:02:00Z",
+          "completed_at": "2026-04-03T18:06:00Z",
+          "assigned_to": "frontend-dev",
           "description": "Backend does NOT yet return script_validation (BUG-T3-002-BACKEND must be fixed first). After that: parse the JSON field (contains editorial check results: number_density, framework_density, hook_strength, etc.) and add a collapsible Script Validation section to ScriptTab.tsx showing pass/warn/fail for each check with color badges (green=pass, amber=warn, red=fail).",
           "files": [
             "frontend/src/components/production/ScriptTab.tsx"

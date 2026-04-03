@@ -669,6 +669,7 @@ export interface VideoDetail extends VideoSummary {
   research_payload: Record<string, unknown> | null;
   original_dna: Record<string, unknown> | null;
   script: string | null;
+  script_validation: string | null;
   story_bible: string | null;
   thumbnail_prompt: string | null;
   thumbnail_style_override: string | null;

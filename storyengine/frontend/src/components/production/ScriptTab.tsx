@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   ChevronDown, ChevronRight, Merge, Trash2, Plus, Volume2,
   Library, Wand2, Play, Pause, Layers, Mic, Pencil, Loader2,
-  CheckCircle, Clock, AlertCircle, Save,
+  CheckCircle, Clock, AlertCircle, Save, ShieldCheck,
 } from "lucide-react";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { getVideoScript, getVideoAssets, advanceVideo, rejectVideo, runPipelineStage, updateSceneText, updateVideo, clearStaleTask, getSceneSegments, updateSceneSegments } from "@/lib/api";
@@ -995,6 +995,49 @@ export function ScriptTab({ video }: ScriptTabProps) {
             ))}
           </div>
         </GlassCard>
+
+        {/* Script Validation */}
+        {(() => {
+          if (!video.script_validation) return null;
+          let validation: { passed?: boolean; checks?: { name: string; passed: boolean; detail: string; advisory?: boolean }[]; advisory_warnings?: string[] } | null = null;
+          try {
+            validation = typeof video.script_validation === "string" ? JSON.parse(video.script_validation) : video.script_validation;
+          } catch { return null; }
+          if (!validation?.checks) return null;
+          const passCount = validation.checks.filter((c) => c.passed).length;
+          const total = validation.checks.length;
+          return (
+            <GlassCard className="p-5">
+              <div className="flex items-center gap-2 mb-3">
+                <ShieldCheck size={14} style={{ color: validation.passed ? "var(--green)" : "var(--red)" }} />
+                <h3 className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>Script Validation</h3>
+                <span className="ml-auto text-[10px] font-mono" style={{ color: validation.passed ? "var(--green)" : "var(--red)" }}>
+                  {passCount}/{total}
+                </span>
+              </div>
+              <div className="space-y-1.5">
+                {validation.checks.map((check) => {
+                  const color = check.passed ? "var(--green)" : check.advisory ? "var(--gold)" : "var(--red)";
+                  const label = check.passed ? "PASS" : check.advisory ? "WARN" : "FAIL";
+                  return (
+                    <div key={check.name} className="flex items-start gap-2">
+                      <span className="text-[9px] font-mono font-semibold px-1.5 py-0.5 rounded shrink-0 mt-0.5"
+                        style={{ background: `${color}20`, color }}>{label}</span>
+                      <div className="min-w-0">
+                        <span className="text-[11px] font-medium block" style={{ color: "var(--text-primary)" }}>
+                          {check.name.replace(/_/g, " ")}
+                        </span>
+                        <span className="text-[10px] block truncate" style={{ color: "var(--text-tertiary)" }} title={check.detail}>
+                          {check.detail}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </GlassCard>
+          );
+        })()}
 
         <div className="space-y-2">
           {scriptApproved ? (
