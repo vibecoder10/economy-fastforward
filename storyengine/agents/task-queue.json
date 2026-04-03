@@ -1106,6 +1106,17 @@
           "files": [
             "backend/requirements.txt"
           ]
+        },
+        {
+          "id": "BUG-T13-STRIPE-QA",
+          "title": "QA verify stripe in requirements.txt — backend starts clean",
+          "role": "qa",
+          "status": "pending",
+          "depends_on": "BUG-T13-STRIPE",
+          "description": "After BUG-T13-STRIPE is fixed, verify: (1) grep 'stripe' storyengine/backend/requirements.txt shows a pinned stripe entry. (2) cd storyengine/backend && pip install -r requirements.txt completes without error in a clean venv. (3) Backend starts without ModuleNotFoundError: python -m uvicorn main:app --port 8001 reaches 'Application startup complete'. This is a deployment blocker fix — confirm it's actually resolved before marking done.",
+          "files": [
+            "backend/requirements.txt"
+          ]
         }
       ]
     },
