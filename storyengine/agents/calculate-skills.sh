@@ -1,9 +1,12 @@
 #!/bin/bash
-# calculate-skills.sh — Compute per-agent skill metrics from the task queue
-# Reads task-queue.json, outputs agent-skills.json
+# calculate-skills.sh — Compute per-agent skill metrics from task queue + PRD history
+# Reads task-queue.json + agents/prd.json + memory files, outputs agent-skills.json
 
-PROJECT_ROOT="${AGENT_PROJECT_ROOT:-/Users/ryanayler/economy-fastforward}"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 TASK_QUEUE="$PROJECT_ROOT/storyengine/agents/task-queue.json"
+PRD_FILE="$PROJECT_ROOT/agents/prd.json"
+MEMORY_DIR="$PROJECT_ROOT/storyengine/agents/memory"
 OUTPUT="$PROJECT_ROOT/rubric/scaffold/data/agent-skills.json"
 
 if [ ! -f "$TASK_QUEUE" ]; then
@@ -16,9 +19,20 @@ mkdir -p "$(dirname "$OUTPUT")"
 python3 -c "
 import json
 import sys
+import os
 from datetime import datetime, timezone
 
 AGENTS = ['orchestrator', 'backend-dev', 'frontend-dev', 'qa-engineer', 'pipeline-tester']
+
+# Map PRD roles to agent names
+PRD_ROLE_MAP = {
+    'backend': 'backend-dev',
+    'frontend': 'frontend-dev',
+    'qa': 'qa-engineer',
+    'pipeline-tester': 'pipeline-tester',
+    'lead': 'orchestrator',
+    'security': 'orchestrator',
+}
 
 LEVEL_THRESHOLDS = [
     (100, 8, 'Mythic'),
@@ -45,6 +59,14 @@ def parse_ts(ts_str):
     except (ValueError, TypeError):
         return None
 
+def count_memory_entries(agent):
+    path = os.path.join('$MEMORY_DIR', agent + '.md')
+    try:
+        with open(path) as f:
+            return sum(1 for line in f if line.strip().startswith('- '))
+    except FileNotFoundError:
+        return 0
+
 # Load task queue
 try:
     with open('$TASK_QUEUE', 'r') as f:
@@ -59,21 +81,44 @@ for tab in data.get('tabs', []):
     for task in tab.get('tasks', []):
         all_tasks.append(task)
 
+# Load PRD tasks (current + historical)
+prd_tasks = []
+try:
+    with open('$PRD_FILE', 'r') as f:
+        prd = json.load(f)
+        for t in prd.get('tasks', []):
+            agent = PRD_ROLE_MAP.get(t.get('role', ''), '')
+            if agent:
+                prd_tasks.append({**t, '_agent': agent})
+except (json.JSONDecodeError, FileNotFoundError):
+    pass
+
+# Also check progress.md for completed PRD tasks
+prd_done_count = {}
+try:
+    with open('$PROJECT_ROOT/agents/progress.md', 'r') as f:
+        for line in f:
+            if '[x]' in line.lower():
+                # Extract role from line like '- [x] T1: ... (backend) ✅'
+                for role, agent in PRD_ROLE_MAP.items():
+                    if f'({role})' in line.lower():
+                        prd_done_count[agent] = prd_done_count.get(agent, 0) + 1
+                        break
+except FileNotFoundError:
+    pass
+
 # Compute metrics per agent
 agents_output = {}
 for agent in AGENTS:
-    # Filter tasks assigned to this agent
+    # --- Task Queue metrics ---
     agent_tasks = [t for t in all_tasks if t.get('assigned_to') == agent]
-
-    # Tasks completed (status=done AND assigned_to matches)
     done_tasks = [t for t in agent_tasks if t.get('status') == 'done']
-    tasks_completed = len(done_tasks)
+    tq_completed = len(done_tasks)
 
-    # Tasks failed (status=blocked AND assigned_to matches)
     blocked_tasks = [t for t in agent_tasks if t.get('status') == 'blocked']
     tasks_failed = len(blocked_tasks)
 
-    # Average completion minutes (from started_at to completed_at for done tasks)
+    # Average completion minutes
     durations = []
     for t in done_tasks:
         started = parse_ts(t.get('started_at'))
@@ -83,12 +128,11 @@ for agent in AGENTS:
             durations.append(delta_minutes)
     avg_completion_minutes = round(sum(durations) / len(durations), 1) if durations else 0
 
-    # QA pass rate (verified=true / done tasks)
+    # QA pass rate
     verified_count = sum(1 for t in done_tasks if t.get('verified') is True)
-    qa_pass_rate = round(verified_count / tasks_completed, 2) if tasks_completed > 0 else 0
+    qa_pass_rate = round(verified_count / tq_completed, 2) if tq_completed > 0 else 0
 
-    # Current streak (consecutive done tasks from most recent backward)
-    # Sort by completed_at descending, then walk backward counting done
+    # Current streak
     sorted_tasks = sorted(
         agent_tasks,
         key=lambda t: t.get('completed_at') or t.get('started_at') or '',
@@ -101,21 +145,33 @@ for agent in AGENTS:
         else:
             break
 
-    # Reset count total
     reset_count_total = sum(t.get('reset_count', 0) for t in agent_tasks)
 
-    # Level and title
-    level, title = get_level(tasks_completed)
+    # --- PRD metrics (add to task queue count) ---
+    prd_completed = prd_done_count.get(agent, 0)
+
+    # --- Memory metrics ---
+    memory_entries = count_memory_entries(agent)
+
+    # --- Combined totals ---
+    total_completed = tq_completed + prd_completed
+    level, title = get_level(total_completed)
+
+    # Add PRD tasks to streak
+    total_streak = current_streak + prd_completed
 
     agents_output[agent] = {
-        'tasks_completed': tasks_completed,
+        'tasks_completed': total_completed,
+        'tasks_from_queue': tq_completed,
+        'tasks_from_prd': prd_completed,
         'tasks_failed': tasks_failed,
         'avg_completion_minutes': avg_completion_minutes,
         'qa_pass_rate': qa_pass_rate,
-        'current_streak': current_streak,
+        'current_streak': total_streak,
         'reset_count_total': reset_count_total,
+        'memory_entries': memory_entries,
         'level': level,
-        'xp': tasks_completed,
+        'xp': total_completed,
         'title': title,
     }
 
