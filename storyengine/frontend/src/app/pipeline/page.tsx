@@ -351,14 +351,14 @@ export default function VideosPage() {
   return (
     <motion.div className="space-y-6" variants={container} initial="hidden" animate="show">
       {/* Header */}
-      <motion.div variants={item} className="flex items-center justify-between gap-4 flex-wrap">
-        <h1 className="text-4xl font-display" style={{ color: "var(--text-primary)" }}>
+      <motion.div variants={item} className="flex items-center justify-between gap-3 flex-wrap">
+        <h1 className="text-3xl sm:text-4xl font-display" style={{ color: "var(--text-primary)" }}>
           Videos
         </h1>
-        <div className="flex items-center gap-3 flex-1 justify-end">
+        <div className="flex items-center gap-2 sm:gap-3 flex-1 justify-end min-w-0">
           {/* Search (active/published tabs) */}
           {tab !== "ideas" && (
-            <div className="relative max-w-xs flex-1">
+            <div className="relative sm:max-w-xs flex-1 min-w-0">
               <Search
                 size={16}
                 className="absolute left-3 top-1/2 -translate-y-1/2"
@@ -428,7 +428,7 @@ export default function VideosPage() {
       </motion.div>
 
       {/* Tabs — drag-to-reorder */}
-      <motion.div variants={item} className="flex gap-1" style={{ borderBottom: "1px solid var(--border-subtle)" }}>
+      <motion.div variants={item} className="flex gap-1 overflow-x-auto" style={{ borderBottom: "1px solid var(--border-subtle)" }}>
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
           <SortableContext items={tabOrder} strategy={horizontalListSortingStrategy}>
             {tabOrder.map((tabId) => {

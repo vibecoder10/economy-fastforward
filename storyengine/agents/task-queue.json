@@ -2641,8 +2641,11 @@
           "id": "BUG-PT-MOBILE-OVERFLOW",
           "title": "BUG (low): Mobile viewport horizontal overflow on /dashboard and /pipeline",
           "role": "frontend",
-          "status": "pending",
+          "status": "done",
           "priority": "low",
+          "started_at": "2026-04-04T01:02:00Z",
+          "completed_at": "2026-04-04T01:10:00Z",
+          "assigned_to": "frontend-dev",
           "description": "Pipeline Tester found (2026-04-04): Mobile viewport (375x812) has horizontal overflow. Dashboard body scroll width is 428px (53px overflow), Pipeline is 477px (102px overflow). Content is wider than viewport causing horizontal scroll. Bottom tabs render correctly. Not blocking \u2014 cosmetic only. Fix: check for min-width constraints or fixed-width elements that exceed 375px. Look at stat card grid and pipeline filter bar.",
           "files": [
             "frontend/src/app/dashboard/page.tsx",
