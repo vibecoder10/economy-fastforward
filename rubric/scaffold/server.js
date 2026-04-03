@@ -1009,11 +1009,13 @@ const server = http.createServer(async (req, res) => {
         try { controls = JSON.parse(fs.readFileSync(controlsFile, 'utf8')); } catch {}
         controls.focus = `PRD deployed: ${title}. Execute all PRD tasks from agents/prd.json.`;
         fs.writeFileSync(controlsFile, JSON.stringify(controls, null, 2));
-        // Spawn agents for each unique role in the PRD
+        // Spawn unified agents (run-agent.sh) — they auto-detect PRD and work on it
+        const roleToAgent = { backend: 'backend-dev', frontend: 'frontend-dev', qa: 'qa-engineer', security: 'orchestrator' };
         const roles = [...new Set((prd.tasks || []).map(t => t.role).filter(Boolean))];
         for (const role of roles) {
-          exec(`cd "${projectRoot}" && CLAUDE_BIN="${CLAUDE_BIN}" bash agents/run-team.sh "${role}" > /tmp/team-${role}.log 2>&1`,
-            (e) => { if (e) console.error(`Spawn ${role} failed:`, e.message); else console.log(`Agent ${role} started`); });
+          const agent = roleToAgent[role] || role;
+          exec(`cd "${projectRoot}/storyengine/agents" && CLAUDE_BIN="${CLAUDE_BIN}" bash run-agent.sh "${agent}" > /tmp/prd-${agent}.log 2>&1`,
+            (e) => { if (e) console.error(`Spawn ${agent} failed:`, e.message); else console.log(`Agent ${agent} started`); });
         }
       } catch (e) { console.error('Post-decompose spawn failed:', e.message); }
     });
@@ -1149,13 +1151,9 @@ RULES:
     const { role, system } = body; // system: 'team' | 'storyengine'
     if (!role) { sendJSON(res, { error: 'role required' }, 400); return; }
     const projectRoot = path.resolve(__dirname, '../../');
-    if (system === 'team') {
-      exec(`cd "${projectRoot}" && CLAUDE_BIN="${CLAUDE_BIN}" bash agents/run-team.sh "${role}" > /tmp/team-${role}.log 2>&1`,
-        (err) => { if (err) console.error(`Team ${role} failed:`, err.message); });
-    } else {
-      exec(`cd "${projectRoot}/storyengine/agents" && CLAUDE_BIN="${CLAUDE_BIN}" bash run-agent.sh "${role}" > /tmp/storyengine-agents/${role}-spawn.log 2>&1`,
-        (err) => { if (err) console.error(`Agent ${role} failed:`, err.message); });
-    }
+    // Unified: always use run-agent.sh — it auto-detects PRD tasks
+    exec(`cd "${projectRoot}/storyengine/agents" && CLAUDE_BIN="${CLAUDE_BIN}" bash run-agent.sh "${role}" > /tmp/prd-${role}.log 2>&1`,
+      (err) => { if (err) console.error(`Agent ${role} failed:`, err.message); });
     sendJSON(res, { success: true, message: `Spawned ${role} (${system || 'storyengine'})` });
     return;
   }

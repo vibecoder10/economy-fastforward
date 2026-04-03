@@ -92,7 +92,25 @@ try:
 except: print('WORKING')
 " 2>/dev/null || echo "WORKING")
 
-if [ "$ALL_DONE" = "COMPLETE" ]; then
+# Check for active PRD before declaring complete — PRD work overrides task queue
+HAS_PRD_WORK="false"
+if [ -f "$PROJECT_ROOT/agents/prd.json" ]; then
+  _PRD_ROLE=""
+  case "$AGENT" in
+    backend-dev) _PRD_ROLE="backend" ;; frontend-dev) _PRD_ROLE="frontend" ;;
+    qa-engineer) _PRD_ROLE="qa" ;; pipeline-tester) _PRD_ROLE="qa" ;; orchestrator) _PRD_ROLE="lead" ;;
+  esac
+  _PRD_PENDING=$(python3 -c "
+import json
+try:
+    prd = json.load(open('$PROJECT_ROOT/agents/prd.json'))
+    print(len([t for t in prd.get('tasks', []) if t.get('role') == '$_PRD_ROLE' and t.get('status') in ('pending', 'in_progress')]))
+except: print(0)
+" 2>/dev/null || echo "0")
+  [ "$_PRD_PENDING" -gt 0 ] && HAS_PRD_WORK="true"
+fi
+
+if [ "$ALL_DONE" = "COMPLETE" ] && [ "$HAS_PRD_WORK" = "false" ]; then
   notify_slack ":trophy: *ALL TASKS COMPLETE.* StoryEngine build phase is done. $AGENT_DISPLAY entering standby."
   curl -s -X POST "$RUBRIC_URL/api/agent-status" \
     -H "Content-Type: application/json" \
@@ -108,6 +126,62 @@ curl -s -X POST "$RUBRIC_URL/api/agent-status" \
 # ─── Read Inputs ────────────────────────────────────────────────────────────
 AGENT_PROMPT=$(cat "$AGENT_FILE")
 TASK_QUEUE=$(cat "$AGENTS_DIR/task-queue.json")
+
+# ─── PRD Check (unified system — PRD tasks take priority over task queue) ──
+PRD_SECTION=""
+PRD_JSON_FILE="$PROJECT_ROOT/agents/prd.json"
+if [ -f "$PRD_JSON_FILE" ]; then
+  # Map agent name to PRD role
+  PRD_ROLE=""
+  case "$AGENT" in
+    backend-dev)      PRD_ROLE="backend" ;;
+    frontend-dev)     PRD_ROLE="frontend" ;;
+    qa-engineer)      PRD_ROLE="qa" ;;
+    pipeline-tester)  PRD_ROLE="qa" ;;
+    orchestrator)     PRD_ROLE="lead" ;;
+  esac
+
+  PENDING_PRD=$(python3 -c "
+import json
+try:
+    prd = json.load(open('$PRD_JSON_FILE'))
+    tasks = [t for t in prd.get('tasks', []) if t.get('role') == '$PRD_ROLE' and t.get('status') in ('pending', 'in_progress')]
+    print(len(tasks))
+except: print(0)
+" 2>/dev/null || echo "0")
+
+  if [ "$PENDING_PRD" -gt 0 ]; then
+    PRD_CONTENT=$(cat "$PRD_JSON_FILE")
+    PRD_PROGRESS=$(cat "$PROJECT_ROOT/agents/progress.md" 2>/dev/null || echo "No progress yet.")
+    PRD_SECTION="
+## 🎯 ACTIVE PRD — THIS TAKES PRIORITY OVER TASK QUEUE
+
+A PRD has been deployed via Command Center. You have **$PENDING_PRD pending tasks** assigned to your role ($PRD_ROLE).
+**Work on PRD tasks FIRST before any task queue work.**
+
+### PRD Tasks
+\`\`\`json
+$PRD_CONTENT
+\`\`\`
+
+### Current Progress
+$PRD_PROGRESS
+
+### How to work on PRD tasks
+1. Find the next pending task for role '$PRD_ROLE' where all depends_on tasks are done/verified
+2. Implement it fully
+3. Run its acceptance criteria commands to verify
+4. If pass: git commit, then update \`$PROJECT_ROOT/agents/progress.md\` (mark task [x], update summary counts)
+5. If fail after 3 attempts: mark as blocked in progress.md with reason
+6. Move to next task — do NOT stop after one task
+7. When all your role's tasks are done or blocked, fall through to the regular task queue below
+"
+    # Update status to show PRD work
+    curl -s -X POST "$RUBRIC_URL/api/agent-status" \
+      -H "Content-Type: application/json" \
+      -d "{\"agent\": \"$AGENT\", \"status\": \"active\", \"task\": \"PRD: $PENDING_PRD tasks pending ($PRD_ROLE)\"}" 2>/dev/null || true
+  fi
+fi
 
 # Blueprint
 BLUEPRINT=""
@@ -251,6 +325,11 @@ if [ -n "$HANDOFF_NOTES" ]; then
 
 ## Handoff Notes (from other agents)
 $HANDOFF_NOTES"
+fi
+
+if [ -n "$PRD_SECTION" ]; then
+  PROMPT="$PROMPT
+$PRD_SECTION"
 fi
 
 PROMPT="$PROMPT
