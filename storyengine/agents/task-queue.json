@@ -2,7 +2,7 @@
   "version": 2,
   "current_tab": 24,
   "last_updated": "2026-04-03",
-  "last_updated_by": "orchestrator",
+  "last_updated_by": "pipeline-tester",
   "tabs": [
     {
       "id": 1,
@@ -2221,6 +2221,41 @@
           "status": "pending",
           "depends_on": "T24-003",
           "description": "Verify the full onboarding flow: (1) GET /api/onboarding/status returns { completed: false, steps: { channel_configured: false, api_keys_configured: false, youtube_synced: false } } for a fresh tenant. (2) After login with a new account, browser redirects to /onboarding (not /dashboard). (3) /onboarding page renders with 3-step progress indicator, no sidebar, no auth redirect loop. (4) Step 1 \u2014 fill channel_name + niche, click Save, PUT /api/channel-profile called, step 2 becomes active. (5) Step 2 \u2014 enter Anthropic API key, click Test, POST /api/settings/keys/anthropic_api_key + POST .../test called, shows success/fail. (6) Click Continue on step 2, step 3 shows. (7) Step 3 \u2014 'Start Creating' button navigates to /dashboard. (8) GET /api/onboarding/status after completing steps shows completed=true for channel_configured and api_keys_configured. (9) tsc --noEmit passes. (10) No console errors throughout wizard."
+        },
+        {
+          "id": "BUG-T24-BOTS-RUNNING",
+          "title": "BUG: Activity page shows inflated 'bots running' count (68) — SQL counts all historical 'started' entries",
+          "role": "backend",
+          "status": "pending",
+          "description": "Pipeline Tester found (2026-04-03): GET /api/activity/stats returns bots_running=68, displayed prominently as 'BOTS RUNNING: 68' on /activity page. Root cause: routes/activity.py line 63 counts ALL bot_activity rows with status IN ('started', 'running') — but each bot run creates separate 'started' and 'failed'/'completed' rows (the started row is never updated). So 68 represents all historical bot runs that ever started, not currently active bots. In practice the system had 0-2 actually running bots at test time. Fix: count only 'started' entries from the last 30 minutes (e.g. AND created_at >= NOW() - INTERVAL '30 minutes'), OR subquery to exclude started entries that have a follow-up 'completed'/'failed' entry for the same video_id + bot_name. Also: the 'Running' filter tab in the UI passes status=running but the pipeline uses status='started' for in-progress bots — 'Running' tab always shows 0 results. Fix: change filter key from 'running' to 'started' in FILTER_OPTIONS in frontend/src/app/activity/page.tsx.",
+          "files": [
+            "backend/routes/activity.py",
+            "frontend/src/app/activity/page.tsx"
+          ]
+        },
+        {
+          "id": "BUG-T24-RENDER-THUMB-410",
+          "title": "BUG: /render page generates 25 HTTP 410 console errors from expired Airtable thumbnail URLs",
+          "role": "frontend",
+          "status": "pending",
+          "description": "Pipeline Tester found (2026-04-03): The /render page shows 25 uploaded videos. Each video card renders a thumbnail via <img src={video.thumbnail_url}>. The thumbnail_url values in DB are Airtable attachment URLs (v5.airtableusercontent.com) which expire after 2 hours per Airtable's policy. Result: 25 HTTP 410 Gone errors in browser console. The img has no onError handler — so users see a blank area (the fallback Film icon is in the else branch of the ternary but is NOT shown when the URL fails, only when thumbnail_url is null/undefined). Fix: in frontend/src/app/render/page.tsx line 130, add onError handler to fall back gracefully: onError={(e) => { e.currentTarget.style.display='none'; const parent = e.currentTarget.parentElement; if (parent) parent.innerHTML = '<svg>...</svg>'; }} OR simpler: add onerror to hide the img and show the fallback Film icon. This is a UI polish fix — users shouldn't see console spam. Note: long-term fix is to save thumbnails to Google Drive (permanent URLs) instead of Airtable.",
+          "files": [
+            "frontend/src/app/render/page.tsx"
+          ]
+        },
+        {
+          "id": "T24-005",
+          "title": "QA BONUS SWEEP: Activity feed + standalone pipeline pages verified",
+          "role": "qa",
+          "status": "done",
+          "started_at": "2026-04-03T06:35:00Z",
+          "completed_at": "2026-04-03T07:00:00Z",
+          "assigned_to": "pipeline-tester",
+          "verified": true,
+          "verified_at": "2026-04-03T07:00:00Z",
+          "verified_by": "pipeline-tester",
+          "description": "While T24-001 through T24-003 were pending build, ran a bonus sweep of standalone pages and activity feed since they had never been explicitly tested.",
+          "verification_notes": "PARTIAL PASS (2 bugs filed). Activity feed (/activity): PASS — GET /api/activity returns list[ActivityEntry], GET /api/activity/stats returns {bots_running, errors_today, cost_today}. Page loads with All/Running/Errors/Completed filter tabs. Stats cards display (68 bots running, 1 error today, $0 cost). Shows real bot activity entries (Storyboard Images Bot, Image Bot). 0 console errors. Bug filed: BUG-T24-BOTS-RUNNING (inflated count). Storyboard page (/storyboard): PASS — Shows 1 pending video (ready_for_storyboard_extraction status) with Review/Advance buttons. Correct behavior. Visuals page (/visuals): PASS — Shows correct empty state ('No Active Image Generation') since no videos are in image gen status. Render page (/render): PARTIAL — Content loads (shows 25 uploaded videos with titles, READY/RENDERING/COMPLETE counts). Bug filed: BUG-T24-RENDER-THUMB-410 (25 HTTP 410 errors from expired Airtable thumbnail URLs, no onError fallback). Screenshots: T24-001-activity-page.png, T24-002-storyboard-page.png, T24-003-visuals-page.png, T24-004-render-page.png, T24-005-activity-stats.png, T24-activity-deep.png, T24-render-detail.png."
         }
       ]
     }
