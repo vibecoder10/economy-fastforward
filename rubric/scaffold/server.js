@@ -1115,8 +1115,12 @@ RULES:
       (err, stdout, stderr) => {
         try { fs.unlinkSync(promptFile); } catch {}
         if (err) {
-          console.error('generate-prd stderr:', stderr);
-          fs.writeFileSync(resultFile, JSON.stringify({ status: 'error', error: (stderr || err.message).substring(0, 500) }));
+          const detail = `exit=${err.code} signal=${err.signal} stderr=[${(stderr||'').substring(0,200)}] stdout=[${(stdout||'').substring(0,200)}]`;
+          console.error('generate-prd failed:', detail);
+          fs.writeFileSync(resultFile, JSON.stringify({ status: 'error', error: detail }));
+        } else if (stdout && stdout.includes('Usage Policy')) {
+          console.error('generate-prd policy block:', stdout.substring(0, 200));
+          fs.writeFileSync(resultFile, JSON.stringify({ status: 'error', error: 'Claude flagged content policy. Try rephrasing your notes.' }));
         } else {
           fs.writeFileSync(resultFile, JSON.stringify({ status: 'done', prd: stdout.trim() }));
         }
