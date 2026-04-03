@@ -29,6 +29,8 @@ const CLAUDE_BIN = process.env.CLAUDE_BIN || (() => {
   return 'claude';
 })();
 
+console.log('CLAUDE_BIN resolved to:', CLAUDE_BIN);
+
 // --- Template detection ---
 const TEMPLATE_CHECKS = {
   agents:        path.join(__dirname, '../agents/index.html'),
@@ -1110,31 +1112,17 @@ RULES:
 - Testing is NOT optional — QA and Pipeline Tester tasks are required in every PRD.
 - Output ONLY the PRD markdown. No commentary before or after.`;
     fs.writeFileSync(promptFile, prompt);
-    // Use spawn (not exec) — exec kills long-running Claude CLI with SIGTERM
-    const child = spawn(CLAUDE_BIN, ['-p', '--model', 'opus', '--output-format', 'text'], {
-      stdio: ['pipe', 'pipe', 'pipe'],
+    // Run wrapper script in background — handles Claude CLI + writes result JSON
+    const scriptPath = path.resolve(__dirname, '../../agents/generate-prd.sh');
+    exec(`CLAUDE_BIN="${CLAUDE_BIN}" bash "${scriptPath}" "${promptFile}" "${resultFile}"`, {
+      timeout: 600000, maxBuffer: 5 * 1024 * 1024,
       env: { ...process.env, HOME: process.env.HOME || '/home/clawd', PATH: `${process.env.PATH}:/home/clawd/.npm-global/bin` }
-    });
-    // Pipe the prompt file content to stdin
-    const promptContent = fs.readFileSync(promptFile, 'utf8');
-    child.stdin.write(promptContent);
-    child.stdin.end();
-    try { fs.unlinkSync(promptFile); } catch {}
-    let stdout = '', stderr = '';
-    child.stdout.on('data', (d) => { stdout += d.toString(); });
-    child.stderr.on('data', (d) => { stderr += d.toString(); });
-    child.on('close', (code) => {
-      if (code !== 0) {
-        console.error('generate-prd failed: exit=' + code, stderr.substring(0, 300));
-        fs.writeFileSync(resultFile, JSON.stringify({ status: 'error', error: `Claude exited ${code}: ${(stderr || stdout).substring(0, 300)}` }));
-      } else if (stdout.includes('Usage Policy')) {
-        fs.writeFileSync(resultFile, JSON.stringify({ status: 'error', error: 'Claude flagged content policy. Try rephrasing.' }));
-      } else {
-        fs.writeFileSync(resultFile, JSON.stringify({ status: 'done', prd: stdout.trim() }));
+    }, (err) => {
+      try { fs.unlinkSync(promptFile); } catch {}
+      if (err && !fs.existsSync(resultFile)) {
+        console.error('generate-prd script failed:', err.message);
+        fs.writeFileSync(resultFile, JSON.stringify({ status: 'error', error: err.message.substring(0, 300) }));
       }
-    });
-    child.on('error', (e) => {
-      fs.writeFileSync(resultFile, JSON.stringify({ status: 'error', error: e.message }));
     });
     sendJSON(res, { taskId });
     return;
