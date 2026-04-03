@@ -143,7 +143,7 @@
       "id": 3,
       "name": "Video Detail: Script Tab",
       "path": "/pipeline/[videoId] (Script)",
-      "status": "in_progress",
+      "status": "complete",
       "tasks": [
         {
           "id": "T3-001",
@@ -266,7 +266,11 @@
           "reset_count": 1,
           "started_at": "2026-04-03T21:00:01Z",
           "assigned_to": "backend-dev",
-          "completed_at": "2026-04-03T21:05:00Z"
+          "completed_at": "2026-04-03T21:05:00Z",
+          "verified": true,
+          "verified_at": "2026-04-03T22:00:00Z",
+          "verified_by": "qa-engineer",
+          "verification_notes": "PASS. (1) _parse_script_validation() added to routes/videos.py — unit test confirms it converts 'Editorial validation: PASSED\\n[PASS] name: detail' to JSON {passed:true, checks:[{name,passed,detail,advisory}], advisory_warnings:[]}. (2) Already-valid JSON passes through unchanged. (3) None returns None. (4) Applied at VideoDetail constructor line 236: script_validation=_parse_script_validation(r.get('script_validation')). (5) ScriptVoiceTab.tsx lines 1682-1700: JSON.parse() on the returned string, checks[].map() renders badge per item. Frontend correctly handles the JSON shape. (6) tsc --noEmit: 0 errors. (7) Diff clean: 2 files (videos.py + task-queue.json), 67 lines — only the helper function and one call site. No bloat. NOTE: Production backend (port 8001) still has old code (not deployed); fix will apply on next git pull to main. End-to-end Playwright not possible due to tenant isolation and auth requirement, but code path fully verified via unit test + code review."
         }
       ]
     },

@@ -21,3 +21,4 @@
 - T3-002: script_validation DB data is text format ("Editorial validation: PASSED\n[PASS]..."), NOT JSON. ScriptTab correctly hides the validation section when data isn't JSON (try/catch returns null). Section appears only when pipeline writes JSON-formatted data.
 - Tab 8 (Render) complete: final_video_url in models.py:68, videos.py SELECT:139, api.ts:682. RenderTab output: video player at line 128, Render Complete badge at 170, Download MP4 at 186 — all gated behind final_video_url && !renderActive.
 - System-reminder task queue is stale (state at conversation start) — always read the actual task-queue.json file AND run git log to find the real current state before choosing a task.
+- BUG-T3-VALIDATION-FORMAT: backend fix adds _parse_script_validation() in videos.py to convert plain-text format to JSON — unit test is the reliable verification path when production backend isn't deployed and tenant isolation blocks the test backend.
