@@ -27,6 +27,7 @@ import type { VideoDetail, ScriptScene as ApiScriptScene, Asset } from "@/lib/ap
 /** Fetches a short-lived audio token, then renders VoicePlayer with scoped URL */
 function SecureAudioPlayer({ videoId, scene }: { videoId: string; scene: number }) {
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
   useEffect(() => {
     let cancelled = false;
     const apiBase = typeof window !== "undefined"
@@ -35,11 +36,11 @@ function SecureAudioPlayer({ videoId, scene }: { videoId: string; scene: number 
     getAudioToken(videoId).then(({ token }) => {
       if (!cancelled) setAudioUrl(`${apiBase}/api/videos/${videoId}/audio/${scene}?token=${token}`);
     }).catch(() => {
-      // Fallback: no audio if token fetch fails
-      if (!cancelled) setAudioUrl(null);
+      if (!cancelled) setFailed(true);
     });
     return () => { cancelled = true; };
   }, [videoId, scene]);
+  if (failed) return null;
   if (!audioUrl) return <p className="text-[10px] mb-3" style={{ color: "var(--text-tertiary)" }}>Loading audio...</p>;
   return <div className="mb-3"><VoicePlayer audioUrl={audioUrl} /></div>;
 }
