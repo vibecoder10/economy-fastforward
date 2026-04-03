@@ -471,7 +471,25 @@ $OPERATOR_HANDOFFS
 Only after completing the operator's request, continue with other work below."
 fi
 
-# User errors go second — highest auto-detected priority
+# Operator focus directive — SECOND priority (before task queue)
+if [ -n "$OPERATOR_CONTROLS" ]; then
+  PROMPT="$PROMPT
+
+## ⚠️ OPERATOR FOCUS DIRECTIVE — OBEY THIS (overrides task queue)
+$OPERATOR_CONTROLS
+You MUST work on what the operator says. If the focus directive conflicts with ANY task in the queue below, IGNORE the task queue and FOLLOW THIS DIRECTIVE. The operator is your boss."
+fi
+
+# Operator messages — THIRD priority (before task queue)
+if [ -n "$OPERATOR_FEEDBACK" ]; then
+  PROMPT="$PROMPT
+
+## 🔴 OPERATOR MESSAGES — ADDRESS BEFORE ANY TASK QUEUE WORK
+These are direct messages from the human operator. The operator outranks the task queue. Read these and act on them BEFORE picking any task from the queue:
+$OPERATOR_FEEDBACK"
+fi
+
+# User errors go next — highest auto-detected priority
 if [ -n "$USER_ERRORS" ]; then
   PROMPT="$PROMPT
 
@@ -527,23 +545,6 @@ PROMPT="$PROMPT
 ## Current Task Queue
 $TASK_QUEUE"
 
-# Operator directives go LAST so they override task queue decisions
-if [ -n "$OPERATOR_CONTROLS" ]; then
-  PROMPT="$PROMPT
-
-## ⚠️ OPERATOR OVERRIDE (this overrides the task queue above)
-$OPERATOR_CONTROLS
-If the focus directive conflicts with the task queue, FOLLOW THE FOCUS DIRECTIVE. Drop whatever task you were going to pick and work on what the operator says instead."
-fi
-
-if [ -n "$OPERATOR_FEEDBACK" ]; then
-  PROMPT="$PROMPT
-
-## 🔴 OPERATOR MESSAGES (read these BEFORE picking a task)
-These are direct messages from the human operator. Address them FIRST, before any task queue work:
-$OPERATOR_FEEDBACK"
-fi
-
 PROMPT="$PROMPT
 
 ## Important Rules
@@ -567,7 +568,14 @@ DETAIL:
 - [What changed for the user]
 - [What the next agent should work on]
 
-Begin work now. Pick your next task and execute it."
+## Chain of Command (MANDATORY)
+1. OPERATOR HANDOFFS (Telegram) — absolute highest priority
+2. OPERATOR FOCUS DIRECTIVE — overrides task queue
+3. OPERATOR MESSAGES — address before task queue
+4. USER ERRORS — fix live bugs
+5. Task Queue — only if nothing above applies
+
+Begin work now. Follow the chain of command above — operator orders FIRST, then task queue."
 
 # ─── Invoke Claude ──────────────────────────────────────────────────────────
 # Write prompt to temp file then pipe via stdin to avoid "Argument list too long" (ARG_MAX)
