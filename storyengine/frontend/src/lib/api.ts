@@ -87,6 +87,9 @@ export const createVideo = (data: {
   source_url?: string;
   framework_angle?: string;
   video_length_minutes?: number;
+  writer_guidance?: string;
+  visual_style?: string;
+  accent_color?: string;
 }) =>
   fetchApi<VideoSummary>("/api/videos", {
     method: "POST",

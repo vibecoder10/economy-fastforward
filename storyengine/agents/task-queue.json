@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "current_tab": 18,
+  "current_tab": 19,
   "last_updated": "2026-04-03",
-  "last_updated_by": "pipeline-tester",
+  "last_updated_by": "qa-engineer",
   "tabs": [
     {
       "id": 1,
@@ -1880,7 +1880,10 @@
           "id": "T19-002",
           "title": "Enhance Create Video modal with rich form fields",
           "role": "frontend",
-          "status": "pending",
+          "status": "done",
+          "started_at": "2026-04-03T23:32:00Z",
+          "completed_at": "2026-04-03T23:38:00Z",
+          "assigned_to": "frontend-dev",
           "depends_on": "T19-001",
           "description": "Current 'Manual Entry' modal in pipeline/page.tsx has only title, source_url, framework, video_length. Enhance: (1) Rename to 'New Video'. (2) Add angle/thesis textarea (maps to writer_guidance). (3) Add visual style selector showing 4 styles as cards (cinematic_illustration, holographic_hud, cinematic_dossier, clay_mannequin). (4) Add accent color picker (cold teal, muted crimson, warm amber, muted green). Wire to POST /api/videos.",
           "files": [
