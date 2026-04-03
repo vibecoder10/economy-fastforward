@@ -831,11 +831,23 @@
           "id": "T10-002",
           "title": "Add competitor video transcript viewer",
           "role": "frontend",
-          "status": "pending",
+          "status": "blocked",
           "description": "competitor_videos.transcript stores auto-generated captions scraped by yt-dlp. Add a modal or expandable panel to view the transcript when clicking a competitor card. Show the first 500 words (the 'hook') prominently.",
           "files": [
             "frontend/src/app/competitors/page.tsx",
             "frontend/src/components/autopilot/CardExpanded.tsx"
+          ],
+          "depends_on": "BUG-T10-002-BACKEND",
+          "blocked_reason": "No backend endpoint returns competitor video transcript. CompetitorCandidate model and SQL SELECT in autopilot.py don't include transcript column. Need GET /api/autopilot/candidates/{id}/transcript or add transcript to CompetitorCandidate."
+        },
+        {
+          "id": "BUG-T10-002-BACKEND",
+          "title": "BACKEND BLOCKER: Add transcript field to competitor video API",
+          "role": "backend",
+          "status": "pending",
+          "description": "T10-002 (transcript viewer) is blocked. competitor_videos table has transcript TEXT column (migration 016), populated by yt-dlp scraper. But no API endpoint exposes it. Options: (1) Add GET /api/autopilot/candidates/{id} endpoint returning full competitor video including transcript. (2) Add transcript to CompetitorCandidate model + SQL SELECT in autopilot.py (warning: transcripts can be large, consider lazy loading). Recommended: option 1 with a dedicated endpoint to avoid bloating the candidates list response.",
+          "files": [
+            "backend/routes/autopilot.py"
           ]
         },
         {
