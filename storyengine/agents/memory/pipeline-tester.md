@@ -40,3 +40,5 @@
 - asyncpg GOTCHA: when SQL uses `$N::date` cast, asyncpg expects Python datetime.date objects — passing str causes DataError ('str' object has no attribute 'toordinal'). Fix: convert with datetime.date.fromisoformat(str_param) before passing to fetch_all().
 - T24 sweep: /activity bots_running=68 is inflated — SQL counts ALL historical 'started' rows, not just active ones. 'Running' filter tab passes status=running but pipeline uses status=started — always shows 0. Two bugs filed BUG-T24-BOTS-RUNNING + BUG-T24-RENDER-THUMB-410.
 - /render page 410 errors: thumbnail_url in DB are Airtable attachment URLs that expire in 2h. <img> tag has no onError fallback — causes 25 console errors. Film icon fallback only shows when thumbnail_url is null, not when URL fails.
+- CSS `uppercase` in progress bars: inner_text() returns "API KEYS"/"READY!" not "API Keys"/"Ready!". Always test with the uppercase version when CSS transforms are used.
+- wait_for_load_state('networkidle') doesn't wait for React client-side redirects. Use wait_for_url(lambda url: 'target' in url) to wait for specific URL conditions after button clicks that trigger router.replace().
