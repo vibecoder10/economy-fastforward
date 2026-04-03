@@ -2534,7 +2534,11 @@
           ],
           "assigned_to": "backend-dev",
           "started_at": "2026-04-03T23:00:01Z",
-          "completed_at": "2026-04-03T23:05:00Z"
+          "completed_at": "2026-04-03T23:05:00Z",
+          "verified": true,
+          "verified_at": "2026-04-04T00:10:00Z",
+          "verified_by": "qa-engineer",
+          "verification_notes": "PASS. (1) main.py:282-283 ALLOWED_ORIGINS env var parsed into _extra_origins list, appended to CORS allow_origins. No hardcoded IP in source. (2) Frontend api.ts RUBRIC_URL defaults to localhost:5050 (was 76.13.119.181:5050). (3) grep confirms zero matches for '76.13.119.181' in backend/ and frontend/src/. (4) Diff clean: 3 files (main.py 4 lines changed, api.ts 1 line, task-queue), no bloat. (5) tsc --noEmit: 0 errors. Deploy note: VPS must set ALLOWED_ORIGINS env var to restore external access."
         },
         {
           "id": "SEC-5",
@@ -2585,7 +2589,11 @@
           ],
           "assigned_to": "frontend-dev",
           "started_at": "2026-04-03T19:02:00Z",
-          "completed_at": "2026-04-03T19:06:00Z"
+          "completed_at": "2026-04-03T19:06:00Z",
+          "verified": true,
+          "verified_at": "2026-04-04T00:10:00Z",
+          "verified_by": "qa-engineer",
+          "verification_notes": "PASS. (1) isStripeUrl() at settings/page.tsx:26 checks URL starts with TRUSTED_STRIPE_DOMAINS (checkout.stripe.com, billing.stripe.com). (2) Applied to portal_url redirect at line 415 and checkout_url redirect at line 471. (3) Invalid URLs show alert() and abort redirect (return before window.location.href). (4) Diff clean: 2 files (settings/page.tsx 19 lines, task-queue), no bloat. (5) tsc --noEmit: 0 errors."
         },
         {
           "id": "SEC-1-QA",
