@@ -438,15 +438,22 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
   }, [runStageWith409Retry, storyboardMode]);
 
   const [extracting, setExtracting] = useState(false);
+  const [extractError, setExtractError] = useState<string | null>(null);
   const handleExtractPanels = useCallback(async () => {
     setExtracting(true);
+    setExtractError(null);
     try {
-      await runStageWith409Retry("storyboard-extract");
+      // Clear any stale task first
+      try { await clearStaleTask(video.id); } catch { /* ok if no stale task */ }
+      await runPipelineStage(video.id, "storyboard-extract");
+      setTaskRunning(true);
     } catch (err: unknown) {
-      alert(`Extraction failed: ${(err as Error).message}`);
+      const msg = (err as Error).message || "Unknown error";
+      console.error("Extract panels failed:", msg);
+      setExtractError(msg);
       setExtracting(false);
     }
-  }, [runStageWith409Retry]);
+  }, [video.id]);
 
   const handleGenerateScenePrompts = useCallback(async (sceneNumber: number) => {
     setGeneratingScene(sceneNumber);
@@ -689,15 +696,22 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
               </p>
             );
             return (
-              <button
-                onClick={handleExtractPanels}
-                disabled={extracting || taskRunning}
-                className="mt-3 w-full inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-xs font-semibold transition-all disabled:opacity-50"
-                style={{ background: "var(--green)", color: "var(--bg-void)" }}
-              >
-                {(extracting || taskRunning) ? <Loader2 size={14} className="animate-spin" /> : <Scissors size={14} />}
-                Step 4: Extract &amp; Upscale Panels
-              </button>
+              <div className="mt-3 space-y-2">
+                <button
+                  onClick={handleExtractPanels}
+                  disabled={extracting || taskRunning}
+                  className="w-full inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-xs font-semibold transition-all disabled:opacity-50"
+                  style={{ background: "var(--green)", color: "var(--bg-void)" }}
+                >
+                  {(extracting || taskRunning) ? <Loader2 size={14} className="animate-spin" /> : <Scissors size={14} />}
+                  Step 4: Extract &amp; Upscale Panels
+                </button>
+                {extractError && (
+                  <p className="text-[10px] text-center" style={{ color: "var(--orange)" }}>
+                    {extractError}
+                  </p>
+                )}
+              </div>
             );
           })()}
         </div>
