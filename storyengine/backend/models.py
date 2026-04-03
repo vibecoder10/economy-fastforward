@@ -203,6 +203,10 @@ class DashboardSummary(BaseModel):
     errors: int = 0
     latest_video: Optional[VideoSummary] = None
     total_videos: int = 0
+    avg_ctr: Optional[float] = None
+    total_views: int = 0
+    videos_this_week: int = 0
+    recent_videos: List[VideoSummary] = []
 
 
 # --- Review ---

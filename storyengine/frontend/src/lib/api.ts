@@ -641,6 +641,10 @@ export interface DashboardSummary {
   errors: number;
   latest_video: VideoSummary | null;
   total_videos: number;
+  avg_ctr: number | null;
+  total_views: number;
+  videos_this_week: number;
+  recent_videos: VideoSummary[];
 }
 
 export interface VideoSummary {

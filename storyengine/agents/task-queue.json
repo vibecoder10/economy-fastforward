@@ -1997,7 +1997,10 @@
           "id": "T22-002",
           "title": "Backend: verify GET /api/dashboard/summary returns complete stats",
           "role": "backend",
-          "status": "pending",
+          "status": "done",
+          "started_at": "2026-04-03T06:00:01Z",
+          "completed_at": "2026-04-03T06:05:00Z",
+          "assigned_to": "backend-dev",
           "depends_on": "T22-001",
           "description": "Check routes/dashboard.py GET /api/dashboard/summary. It should return: total_videos, videos_by_status (count per pipeline stage), recent_videos (last 5 with title/status/updated_at), avg_ctr, total_views, videos_this_week. If any fields are missing from the response, add them. Check that the SQL query is efficient and uses tenant isolation.",
           "files": [
