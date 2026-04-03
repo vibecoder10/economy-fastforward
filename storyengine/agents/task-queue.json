@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "current_tab": 24,
+  "current_tab": 25,
   "last_updated": "2026-04-03",
-  "last_updated_by": "backend-dev",
+  "last_updated_by": "frontend-dev",
   "tabs": [
     {
       "id": 1,
@@ -2357,6 +2357,36 @@
         }
       ],
       "completed_at": "2026-04-03T08:25:00Z"
+    },
+    {
+      "id": 25,
+      "name": "Plan Gating (Pro Features)",
+      "path": "cross-cutting",
+      "status": "complete",
+      "completed_at": "2026-04-03T21:15:00Z",
+      "tasks": [
+        {
+          "id": "T25-001",
+          "title": "Add plan gating to Pro-only routes with upgrade prompt",
+          "role": "frontend",
+          "status": "done",
+          "started_at": "2026-04-03T21:02:00Z",
+          "completed_at": "2026-04-03T21:12:00Z",
+          "assigned_to": "frontend-dev",
+          "description": "Added plan gating to AuthenticatedShell.tsx. Pro-only routes (autopilot, analytics, learnings, competitors, discovery) show upgrade prompt when user plan is free/starter. Lock icons on pro-only sidebar nav items. isPlanAtLeast helper exported for reuse.",
+          "files": [
+            "frontend/src/components/auth/AuthenticatedShell.tsx",
+            "frontend/src/components/nav/sidebar.tsx"
+          ]
+        },
+        {
+          "id": "T25-002",
+          "title": "QA verify plan gating: free users see upgrade, pro users see content",
+          "role": "qa",
+          "status": "pending",
+          "description": "Verify: (1) Free user visiting /autopilot, /analytics, /learnings, /competitors, /discovery sees upgrade prompt with lock icon and upgrade button linking to /settings. (2) Pro user sees normal content. (3) Lock icons appear on sidebar nav items for free users. (4) Clicking upgrade navigates to settings page. (5) tsc --noEmit passes. (6) No console errors."
+        }
+      ]
     }
   ]
 }

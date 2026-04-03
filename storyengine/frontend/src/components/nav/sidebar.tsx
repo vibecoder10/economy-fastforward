@@ -23,8 +23,10 @@ import {
   PanelLeft,
   Menu,
   LogOut,
+  Lock,
   X,
 } from "lucide-react";
+import { isPlanAtLeast, PRO_PATHS } from "@/components/auth/AuthenticatedShell";
 
 const navItems = [
   { href: "/", icon: LayoutGrid, label: "Dashboard" },
@@ -94,6 +96,7 @@ export function Sidebar() {
               : pathname.startsWith(href.split("?")[0]);
 
           const showBadge = href === "/review" && pendingCount > 0;
+          const isLocked = PRO_PATHS.some((p) => href.startsWith(p)) && !isPlanAtLeast(user?.plan, "pro");
 
           return (
             <Link
@@ -105,7 +108,8 @@ export function Sidebar() {
               }`}
               style={{
                 background: isActive ? "var(--turquoise-dim)" : "transparent",
-                color: isActive ? "var(--turquoise)" : "var(--text-secondary)",
+                color: isActive ? "var(--turquoise)" : isLocked ? "var(--text-tertiary)" : "var(--text-secondary)",
+                opacity: isLocked ? 0.6 : 1,
               }}
               title={collapsed ? label : undefined}
             >
@@ -121,7 +125,10 @@ export function Sidebar() {
                 )}
               </div>
               {!collapsed && (
-                <span className="text-sm font-medium font-body">{label}</span>
+                <span className="text-sm font-medium font-body flex-1">{label}</span>
+              )}
+              {!collapsed && isLocked && (
+                <Lock size={12} style={{ color: "var(--gold)" }} />
               )}
             </Link>
           );
