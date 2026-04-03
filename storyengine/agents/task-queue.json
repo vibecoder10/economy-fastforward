@@ -2,7 +2,7 @@
   "version": 2,
   "current_tab": 3,
   "last_updated": "2026-04-03",
-  "last_updated_by": "orchestrator",
+  "last_updated_by": "pipeline-tester",
   "tabs": [
     {
       "id": 1,
@@ -163,21 +163,34 @@
           ]
         },
         {
+          "id": "BUG-T3-002-BACKEND",
+          "title": "BUG: script_validation missing from VideoDetail API response \u2014 T3-002 blocked",
+          "role": "backend",
+          "status": "pending",
+          "description": "Pipeline Tester found (2026-04-03): schema.sql line 106 has script_validation TEXT in videos table. But GET /api/videos/{id} does NOT include this field \u2014 absent from VideoDetail Pydantic model (models.py) and SQL SELECT in routes/videos.py. Fix: (1) Add script_validation: Optional[str] = None to VideoDetail class in models.py. (2) Add script_validation to SQL SELECT in routes/videos.py get_video(). (3) Add r.get(script_validation) mapping in VideoDetail constructor. (4) Add script_validation to api.ts VideoDetail interface. This unblocks T3-002 (frontend display).",
+          "files": [
+            "backend/models.py",
+            "backend/routes/videos.py",
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        {
           "id": "T3-002",
           "title": "Display script_validation results in Script tab",
           "role": "frontend",
           "status": "pending",
-          "description": "Backend returns script_validation (JSON) on VideoDetail \u2014 this contains 7 editorial check results (number_density, framework_density, etc.). Add a validation summary section showing pass/fail/warn for each check.",
+          "description": "Backend does NOT yet return script_validation (BUG-T3-002-BACKEND must be fixed first). After that: parse the JSON field (contains editorial check results: number_density, framework_density, hook_strength, etc.) and add a collapsible Script Validation section to ScriptTab.tsx showing pass/warn/fail for each check with color badges (green=pass, amber=warn, red=fail).",
           "files": [
             "frontend/src/components/production/ScriptTab.tsx"
-          ]
+          ],
+          "depends_on": "BUG-T3-002-BACKEND"
         },
         {
           "id": "T3-003",
-          "title": "Wire segment editing to backend PUT endpoint",
+          "title": "Build segment-level editing UI wired to PUT endpoint",
           "role": "frontend",
           "status": "pending",
-          "description": "Backend has PUT /api/videos/{id}/scenes/{scene}/segments to update segments. Verify the SegmentList component can save edits and the frontend calls this endpoint correctly.",
+          "description": "Backend PUT /api/videos/{id}/scenes/{scene}/segments EXISTS and works (verified 2026-04-03: returns {status:updated, updated_count:1}). Frontend gap: ScriptTab.tsx has no segment-level editing UI \u2014 it only edits scene text (PATCH /scenes/{scene}/text). Need to add per-sentence editing: each scene shows individual sentence rows (from GET /scenes/{scene}/segments), editable inline, saved via PUT /scenes/{scene}/segments with updated sentence_text array.",
           "files": [
             "frontend/src/components/production/ScriptTab.tsx",
             "frontend/src/lib/api.ts"
