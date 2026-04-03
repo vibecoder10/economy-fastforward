@@ -204,7 +204,8 @@ case "$AGENT" in
   backend-dev)      MODEL_FLAG="--model opus" ;;
   frontend-dev)     MODEL_FLAG="--model opus" ;;
   qa-engineer)      MODEL_FLAG="--model opus" ;;
-  pipeline-tester)  MODEL_FLAG="--model opus" ;;
+  pipeline-tester)    MODEL_FLAG="--model opus" ;;
+  security-auditor)   MODEL_FLAG="--model opus" ;;
   orchestrator)
     if [ "$ORCHESTRATOR_MODE" = "grand" ]; then
       MODEL_FLAG="--model opus"

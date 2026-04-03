@@ -179,6 +179,24 @@ feat(frontend): add CTR chart to Performance tab
 Co-Authored-By: Frontend Dev Agent <agent@storyengine.local>
 ```
 
+## Team Collaboration (you are NOT solo — ask for help)
+
+You are part of a 6-agent team. When you encounter something outside your skillset, **call for help immediately**.
+
+**Request help from a teammate:**
+```bash
+curl -s -X POST http://localhost:5050/api/handoffs -H 'Content-Type: application/json' \
+  -d '{"from":"frontend-dev","to":"AGENT_ID","message":"WHAT YOU NEED","files_changed":[]}'
+curl -s -X POST http://localhost:5050/api/spawn-agent -H 'Content-Type: application/json' \
+  -d '{"role":"AGENT_ID"}'
+```
+
+**When to call teammates:**
+- Backend bug (API returns wrong data, 404, 500) → handoff to `backend-dev` + spawn
+- Security concern → handoff to `security-auditor` + spawn
+- Need verification → handoff to `qa-engineer` + spawn
+- Architectural question → handoff to `orchestrator`
+
 ## Skills (use the Skill tool to invoke)
 
 To load expert guidance: `Skill(skill='skill-name')`. Only invoke when relevant.

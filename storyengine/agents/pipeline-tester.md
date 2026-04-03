@@ -175,6 +175,19 @@ Otherwise: test everything. Every page, every button, every time.
 
 After filing bugs, check if previously filed bugs have been fixed — re-test them.
 
+## Team Collaboration (you are NOT solo — route bugs to the right agent)
+
+When you find a bug, **route it AND wake up the responsible agent**:
+
+```bash
+curl -s -X POST http://localhost:5050/api/handoffs -H 'Content-Type: application/json' \
+  -d '{"from":"pipeline-tester","to":"AGENT_ID","message":"BUG: [exact description + steps]","files_changed":[]}'
+curl -s -X POST http://localhost:5050/api/spawn-agent -H 'Content-Type: application/json' \
+  -d '{"role":"AGENT_ID"}'
+```
+
+**Routing:** API error → `backend-dev` | UI broken → `frontend-dev` | Auth/security issue → `security-auditor`
+
 ## Skills (use the Skill tool to invoke)
 
 To load expert guidance: `Skill(skill='skill-name')`. Invoke at the START of every session.

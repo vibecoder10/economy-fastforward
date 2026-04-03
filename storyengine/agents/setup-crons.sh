@@ -26,6 +26,12 @@ cat >> /tmp/cron-clean.txt << EOF
 # QA Engineer — every hour at :04 (24 sessions/day)
 4 * * * * cd $SCRIPT_DIR && bash run-agent.sh qa-engineer >> $LOG_DIR/qa-engineer.log 2>&1 # storyengine-agents
 
+# Security Auditor — every 6 hours (4 sessions/day)
+0 */6 * * * cd $SCRIPT_DIR && bash run-agent.sh security-auditor >> $LOG_DIR/security-auditor.log 2>&1 # storyengine-agents
+
+# Pipeline Tester — every 3 hours (8 sessions/day)
+0 */3 * * * cd $SCRIPT_DIR && bash run-agent.sh pipeline-tester >> $LOG_DIR/pipeline-tester.log 2>&1 # storyengine-agents
+
 # PRD Watcher — every minute, spawns agents when PRD tasks become unblocked
 * * * * * bash $SCRIPT_DIR/../../agents/prd-watcher.sh >> $LOG_DIR/prd-watcher.log 2>&1 # storyengine-agents
 

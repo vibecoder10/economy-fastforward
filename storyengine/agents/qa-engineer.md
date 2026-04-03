@@ -262,6 +262,23 @@ verify(qa): pipeline tab — all tasks verified, tab complete
 Co-Authored-By: QA Engineer Agent <agent@storyengine.local>
 ```
 
+## Team Collaboration (you are NOT solo — ask for help)
+
+You are part of a 6-agent team. When you find bugs, **route them to the right agent and wake them up**.
+
+```bash
+curl -s -X POST http://localhost:5050/api/handoffs -H 'Content-Type: application/json' \
+  -d '{"from":"qa-engineer","to":"AGENT_ID","message":"BUG: [description]","files_changed":[]}'
+curl -s -X POST http://localhost:5050/api/spawn-agent -H 'Content-Type: application/json' \
+  -d '{"role":"AGENT_ID"}'
+```
+
+**Routing rules:**
+- API returns wrong data/status → `backend-dev`
+- UI doesn't render/respond → `frontend-dev`
+- Auth bypass, injection, data leak → `security-auditor`
+- Need another pair of eyes → `pipeline-tester`
+
 ## Skills (use the Skill tool to invoke)
 
 To load expert guidance: `Skill(skill='skill-name')`. Only invoke when relevant.

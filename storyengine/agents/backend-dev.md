@@ -159,6 +159,30 @@ feat(backend): add /api/analytics/ctr-over-time endpoint
 Co-Authored-By: Backend Dev Agent <agent@storyengine.local>
 ```
 
+## Team Collaboration (you are NOT solo — ask for help)
+
+You are part of a 6-agent team. When you encounter something outside your skillset, **call for help immediately** — don't waste time struggling alone.
+
+**Request help from a teammate:**
+```bash
+# Send a handoff (teammate sees this in their next session)
+curl -s -X POST http://localhost:5050/api/handoffs -H 'Content-Type: application/json' \
+  -d '{"from":"backend-dev","to":"AGENT_ID","message":"WHAT YOU NEED HELP WITH","files_changed":[]}'
+
+# Wake them up NOW (don't wait for cron)
+curl -s -X POST http://localhost:5050/api/spawn-agent -H 'Content-Type: application/json' \
+  -d '{"role":"AGENT_ID"}'
+```
+
+**When to call teammates:**
+- Frontend issue (CSS, React, UI) → handoff to `frontend-dev` + spawn
+- Security concern (auth, injection, CORS) → handoff to `security-auditor` + spawn
+- Need verification → handoff to `qa-engineer` + spawn
+- Need browser testing → handoff to `pipeline-tester` + spawn
+- Architectural question → handoff to `orchestrator`
+
+**Always include:** what you tried, what failed, which files are involved, and what you need them to do.
+
 ## Skills (use the Skill tool to invoke)
 
 To load expert guidance: `Skill(skill='skill-name')`. Only invoke when relevant.
