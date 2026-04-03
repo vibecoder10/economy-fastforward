@@ -2068,7 +2068,10 @@
           "id": "T23-001",
           "title": "Add GET /api/calendar endpoint returning videos grouped by date",
           "role": "backend",
-          "status": "pending",
+          "status": "done",
+          "started_at": "2026-04-03T21:00:01Z",
+          "completed_at": "2026-04-03T21:05:00Z",
+          "assigned_to": "backend-dev",
           "description": "Create GET /api/calendar?start=YYYY-MM-DD&end=YYYY-MM-DD in routes/dashboard.py (or a new routes/calendar.py). Returns videos in the date range with fields: id, video_title, status, thumbnail_url, accent_color, created_at, upload_date. Group by date (YYYY-MM-DD key). Register in main.py if new file. SQL: SELECT id, video_title, status, thumbnail_url, accent_color, DATE(COALESCE(upload_date, created_at)) as calendar_date FROM videos WHERE tenant_id=$1 AND DATE(COALESCE(upload_date, created_at)) BETWEEN $2 AND $3. Return as { '2026-04-01': [{id, title, status, ...}], ... }. Use tenant isolation via get_tenant_id.",
           "files": [
             "backend/routes/dashboard.py",

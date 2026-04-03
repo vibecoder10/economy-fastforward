@@ -1,6 +1,7 @@
-"""Dashboard summary endpoint."""
+"""Dashboard summary and calendar endpoints."""
 
-from fastapi import APIRouter, Depends
+from collections import defaultdict
+from fastapi import APIRouter, Depends, Query
 from auth import get_tenant_id
 from models import DashboardSummary, VideoSummary, PIPELINE_STAGES
 from database import fetch_all, fetch_one
@@ -139,3 +140,31 @@ async def get_summary(tenant_id: str = Depends(get_tenant_id)):
         videos_this_week=week["count"] if week else 0,
         recent_videos=recent_videos,
     )
+
+
+@router.get("/calendar")
+async def get_calendar(
+    start: str = Query(..., description="Start date YYYY-MM-DD"),
+    end: str = Query(..., description="End date YYYY-MM-DD"),
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """Videos grouped by date for calendar view."""
+    rows = await fetch_all(
+        """SELECT id, video_title, status, thumbnail_url, accent_color,
+                  DATE(COALESCE(upload_date, created_at))::text as calendar_date
+           FROM videos
+           WHERE tenant_id = $1
+             AND DATE(COALESCE(upload_date, created_at)) BETWEEN $2::date AND $3::date
+           ORDER BY COALESCE(upload_date, created_at)""",
+        tenant_id, start, end,
+    )
+    grouped: dict[str, list[dict]] = defaultdict(list)
+    for r in rows:
+        grouped[r["calendar_date"]].append({
+            "id": str(r["id"]),
+            "video_title": r.get("video_title"),
+            "status": r.get("status"),
+            "thumbnail_url": r.get("thumbnail_url"),
+            "accent_color": r.get("accent_color"),
+        })
+    return grouped
