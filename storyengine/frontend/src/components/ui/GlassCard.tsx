@@ -9,9 +9,10 @@ interface GlassCardProps {
   hover?: boolean;
   onClick?: () => void;
   style?: React.CSSProperties;
+  id?: string;
 }
 
-export function GlassCard({ children, className, hover, onClick, style }: GlassCardProps) {
+export function GlassCard({ children, className, hover, onClick, style, id }: GlassCardProps) {
   const Component = hover ? motion.div : "div";
   const hoverProps = hover
     ? {
@@ -22,6 +23,7 @@ export function GlassCard({ children, className, hover, onClick, style }: GlassC
 
   return (
     <Component
+      id={id}
       className={cn("glass-card p-6", className)}
       onClick={onClick}
       style={{ cursor: onClick ? "pointer" : undefined, ...style }}

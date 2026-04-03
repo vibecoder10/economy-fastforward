@@ -5,7 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import {
   Play, Pause, Check, Loader2, Pencil, Image as ImageIcon, RefreshCw, Trash2, AlertTriangle,
-  Lock, ArrowLeft, ToggleLeft, ToggleRight, Layers,
+  Lock, ArrowLeft, ToggleLeft, ToggleRight, Layers, Scissors,
 } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { SegmentBadge } from "@/components/ui/SegmentBadge";
@@ -601,6 +601,7 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
               { label: "Image Prompts", done: promptReadySegments >= totalSegments && totalSegments > 0, count: `${promptReadySegments}/${totalSegments}` },
               { label: "Storyboard Prompts", done: storyboardPromptScenes >= scenes.length && scenes.length > 0, count: `${storyboardPromptScenes}/${scenes.length}` },
               { label: "Storyboard Grids", done: storyboardReadyScenes >= scenes.length && scenes.length > 0, count: `${storyboardReadyScenes}/${scenes.length}` },
+              { label: "Extract Panels", done: video.status === "ready_for_video_scripts" || video.status === "ready_for_video_generation" || video.status === "ready_for_thumbnail" || video.status === "ready_to_render" || video.status === "rendered" || video.status === "uploaded_draft" || video.status === "done", count: "" },
             ].map((step, i, arr) => {
               const isNext = !step.done && (i === 0 || arr[i - 1].done);
               return (
@@ -669,10 +670,23 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
                 Step 3: Generate Storyboard Grids
               </button>
             );
-            return (
+            // Check if extraction is already done (video has advanced past storyboard extraction)
+            const extractionDone = video.status === "ready_for_video_scripts" || video.status === "ready_for_video_generation" || video.status === "ready_for_thumbnail" || video.status === "ready_to_render" || video.status === "rendered" || video.status === "uploaded_draft" || video.status === "done";
+            if (extractionDone) return (
               <p className="mt-3 text-[10px] text-center" style={{ color: "var(--green)" }}>
-                ✓ All storyboard steps complete
+                ✓ All storyboard steps complete — panels extracted
               </p>
+            );
+            return (
+              <button
+                onClick={() => runPipelineStage(video.id, "storyboard-extract").then(() => queryClient.invalidateQueries({ queryKey: ["video", video.id] }))}
+                disabled={taskRunning}
+                className="mt-3 w-full inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-xs font-semibold transition-all disabled:opacity-50"
+                style={{ background: "var(--green)", color: "var(--bg-void)" }}
+              >
+                {taskRunning ? <Loader2 size={14} className="animate-spin" /> : <Scissors size={14} />}
+                Step 4: Extract &amp; Upscale Panels
+              </button>
             );
           })()}
         </div>
@@ -694,6 +708,34 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
         </div>
       )}
 
+      {/* Filmstrip — horizontal scroll of all extracted images */}
+      {storyboardMode && (() => {
+        const allExtracted = scenes.flatMap(s => s.segments.filter(seg => seg.imageUrl)).sort((a, b) => a.sceneNumber === b.sceneNumber ? a.imageIndex - b.imageIndex : a.sceneNumber - b.sceneNumber);
+        if (allExtracted.length === 0) return null;
+        return (
+          <div className="rounded-xl p-3" style={{ background: "rgba(80, 227, 194, 0.04)", border: "1px solid rgba(80, 227, 194, 0.12)" }}>
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-[10px] uppercase tracking-wider font-semibold" style={{ color: "var(--green)" }}>
+                Extracted Panels
+              </span>
+              <span className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>
+                {allExtracted.length} images
+              </span>
+            </div>
+            <div className="flex gap-1.5 overflow-x-auto pb-2" style={{ scrollbarWidth: "thin" }}>
+              {allExtracted.map((seg) => (
+                <div key={seg.id} className="flex-shrink-0 group cursor-pointer" onClick={() => { const el = document.getElementById(`scene-${seg.sceneNumber}`); if (el) el.scrollIntoView({ behavior: "smooth", block: "start" }); }}>
+                  <div className="w-[100px] h-[56px] rounded overflow-hidden" style={{ border: "1px solid rgba(255,255,255,0.06)" }}>
+                    <img src={seg.imageUrl} alt={seg.segmentId} className="w-full h-full object-cover group-hover:scale-105 transition-transform" loading="lazy" />
+                  </div>
+                  <span className="text-[8px] font-mono block text-center mt-0.5" style={{ color: "var(--text-tertiary)" }}>{seg.segmentId}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
+
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_260px] gap-6">
         {/* Main content */}
         <div className="space-y-6">
@@ -712,7 +754,7 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
 
               <div className="space-y-4">
                 {actScenes.map((scene) => (
-                  <GlassCard key={scene.sceneNumber} className="p-5">
+                  <GlassCard key={scene.sceneNumber} id={`scene-${scene.sceneNumber}`} className="p-5">
                     {/* Scene badge + duration (compact header) */}
                     <div className="flex items-center gap-2 mb-3">
                       <SegmentBadge label={`Scene ${scene.sceneNumber}`} color="var(--purple)" />
@@ -1004,39 +1046,43 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
                                   {statusInfo.icon}
                                   {statusInfo.label}
                                 </span>
-                                <button
-                                  onClick={() => handleRegenerate(seg)}
-                                  disabled={isRegenerating}
-                                  className="text-[9px] px-2 py-0.5 rounded transition-all disabled:opacity-50"
-                                  style={{
-                                    color: "var(--orange)",
-                                    border: "1px solid var(--orange)",
-                                  }}
-                                >
-                                  {isRegenerating ? (
-                                    <Loader2 size={8} className="animate-spin inline" />
-                                  ) : (
-                                    <RefreshCw size={8} className="inline" />
-                                  )}{" "}
-                                  {seg.status === "done" ? "Regen" : "Gen"}
-                                </button>
-                                {seg.status === "done" && (
-                                  <button
-                                    onClick={() => handleGenerateVariants(seg)}
-                                    disabled={isGeneratingVariants}
-                                    className="text-[9px] px-2 py-0.5 rounded transition-all disabled:opacity-50"
-                                    style={{
-                                      color: "var(--purple)",
-                                      border: "1px solid var(--purple)",
-                                    }}
-                                  >
-                                    {isGeneratingVariants ? (
-                                      <Loader2 size={8} className="animate-spin inline" />
-                                    ) : (
-                                      <Layers size={8} className="inline" />
-                                    )}{" "}
-                                    Variants
-                                  </button>
+                                {!storyboardMode && (
+                                  <>
+                                    <button
+                                      onClick={() => handleRegenerate(seg)}
+                                      disabled={isRegenerating}
+                                      className="text-[9px] px-2 py-0.5 rounded transition-all disabled:opacity-50"
+                                      style={{
+                                        color: "var(--orange)",
+                                        border: "1px solid var(--orange)",
+                                      }}
+                                    >
+                                      {isRegenerating ? (
+                                        <Loader2 size={8} className="animate-spin inline" />
+                                      ) : (
+                                        <RefreshCw size={8} className="inline" />
+                                      )}{" "}
+                                      {seg.status === "done" ? "Regen" : "Gen"}
+                                    </button>
+                                    {seg.status === "done" && (
+                                      <button
+                                        onClick={() => handleGenerateVariants(seg)}
+                                        disabled={isGeneratingVariants}
+                                        className="text-[9px] px-2 py-0.5 rounded transition-all disabled:opacity-50"
+                                        style={{
+                                          color: "var(--purple)",
+                                          border: "1px solid var(--purple)",
+                                        }}
+                                      >
+                                        {isGeneratingVariants ? (
+                                          <Loader2 size={8} className="animate-spin inline" />
+                                        ) : (
+                                          <Layers size={8} className="inline" />
+                                        )}{" "}
+                                        Variants
+                                      </button>
+                                    )}
+                                  </>
                                 )}
                               </div>
                             </div>

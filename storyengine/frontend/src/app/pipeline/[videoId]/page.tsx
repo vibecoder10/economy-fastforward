@@ -307,10 +307,10 @@ export default function VideoDetailPage() {
           </h1>
           <div className="flex items-center gap-3 flex-wrap">
             <StatusPill label={pill.label} color={pill.color} pulse size="md" />
-            {!TERMINAL_STATUSES.has(status) && status !== "idea_logged" && (
+            {(taskRunning || runningNext) && (
               <span className="flex items-center gap-1.5 text-[11px] font-mono" style={{ color: "var(--turquoise)" }}>
                 <Loader2 size={10} className="animate-spin" />
-                Pipeline running
+                {taskMessage || "Pipeline running"}
               </span>
             )}
             {video.framework_angle && (
