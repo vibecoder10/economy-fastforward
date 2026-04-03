@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import {
   updateChannelProfile,
   setApiKey,
   testApiKey,
+  getOnboardingStatus,
   type TestKeyResponse,
 } from "@/lib/api";
 import { Spinner } from "@/components/ui/spinner";
@@ -27,6 +28,15 @@ const STEPS = [
 export default function OnboardingPage() {
   const router = useRouter();
   const [step, setStep] = useState(0);
+
+  // Redirect to dashboard if onboarding already complete
+  useEffect(() => {
+    getOnboardingStatus()
+      .then((status) => {
+        if (status.completed) router.replace("/dashboard");
+      })
+      .catch(() => {});
+  }, [router]);
 
   // Step 1: Channel Identity
   const [channelName, setChannelName] = useState("");

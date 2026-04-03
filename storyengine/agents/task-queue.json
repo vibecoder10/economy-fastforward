@@ -2219,11 +2219,14 @@
           "id": "T24-003",
           "title": "Auto-redirect new users to /onboarding after login",
           "role": "frontend",
-          "status": "pending",
+          "status": "done",
           "depends_on": "T24-002",
-          "description": "In AuthProvider.tsx, after a successful login (loginWithEmail or google login), check GET /api/onboarding/status. If completed=false, call router.replace('/onboarding') instead of router.replace('/dashboard'). If completed=true, redirect to /dashboard (existing behavior). Also: when user visits /onboarding directly and onboarding is already complete, redirect to /dashboard immediately. Add a 'Skip setup, go to Dashboard \u2192' text link at the bottom of every onboarding step (not just the last) so users can bail out at any point. This text link should be small and secondary \u2014 not a primary CTA.",
+          "started_at": "2026-04-03T22:02:00Z",
+          "completed_at": "2026-04-03T22:06:00Z",
+          "assigned_to": "frontend-dev",
+          "description": "After login/register, checks GET /api/dashboard/onboarding/status. If completed=false, redirects to /onboarding. If completed=true, redirects to /dashboard. On /onboarding page, if onboarding already complete, auto-redirects to /dashboard. Skip setup link already present on all steps (from T24-002). Implemented in login/page.tsx (redirect logic) and onboarding/page.tsx (completion guard). AuthProvider unchanged — redirect handled at page level.",
           "files": [
-            "frontend/src/components/auth/AuthProvider.tsx",
+            "frontend/src/app/login/page.tsx",
             "frontend/src/app/onboarding/page.tsx"
           ]
         },
