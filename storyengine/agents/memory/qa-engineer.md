@@ -29,3 +29,4 @@
 - T20-002: Mobile bottom tabs verified via code inspection (CORS blocks live auth on port 3002). Component structure is sufficient: count primaryTabs/moreTabs, verify md:hidden, h-16 height, isActive() logic, AnimatePresence spring animation.
 - T22-004: Dashboard verified via Playwright with real JWT (register qa@test.com). Stat cards show 0s for empty-DB tenant — correct, not a bug. Pipeline distribution shows all 10 stages. Button label is "Create Video" not "New Video" — spec was off, actual label is correct.
 - T23-001: asyncpg requires datetime.date Python objects for date params — string '2026-04-01' with ::date cast causes DataError. Fix: from datetime import date; date.fromisoformat(start_str).
+- Tab 23 (Calendar) complete: backend uses date_type.fromisoformat() for asyncpg params (commit 4938349). Duplicate bug tasks (BUG-T23-001-BACKEND + BUG-T23-001-ASYNCPG) can be closed when same fix resolves all of them.
