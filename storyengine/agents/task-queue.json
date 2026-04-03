@@ -1006,7 +1006,10 @@
           "id": "BUG-T12-003",
           "title": "BUG: Competitor Title Patterns section not built — T12-003 marked done prematurely",
           "role": "frontend",
-          "status": "pending",
+          "status": "done",
+          "started_at": "2026-04-03T06:02:00Z",
+          "assigned_to": "frontend-dev",
+          "completed_at": "2026-04-03T06:06:00Z",
           "description": "Pipeline Tester found: The /learnings page (learnings/page.tsx, 347 lines) does NOT have a 'Competitor Title Patterns' section despite T12-003 being marked done. The task description says 'Added Competitor Title Patterns section below the learnings grid, Fetches from GET /api/autopilot/learnings, displays pattern_name, avg_vph, count, confidence bar, and expandable example_titles list.' But inspecting the code: export default LearningsPage() return statement closes at line 198 with no title insights section. Backend GET /api/autopilot/learnings returns 20 insights but nothing in the UI consumes this endpoint. Fix: add a 'Competitor Title Patterns' section below the learnings grid in learnings/page.tsx. It should call getLearningTitleInsights() (or getAutopilotLearnings()) from api.ts, render each insight with pattern name, avg_ctr, sample_size, confidence bar, and expandable example_titles. Check what fields /api/autopilot/learnings actually returns (pattern, category, effect, confidence, sample_size, avg_ctr) and render accordingly.",
           "files": [
             "frontend/src/app/learnings/page.tsx",

@@ -9,8 +9,8 @@ import {
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   getLearnings, extractLearnings, analyzeCompetitorTitles,
-  analyzeTranscripts, toggleLearning,
-  type LearningRecord, type ExtractionResult,
+  analyzeTranscripts, toggleLearning, getAutopilotLearnings,
+  type LearningRecord, type ExtractionResult, type Learning,
 } from "@/lib/api";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { StatusPill } from "@/components/ui/StatusPill";
@@ -68,6 +68,11 @@ export default function LearningsPage() {
   const toggleMutation = useMutation({
     mutationFn: (id: string) => toggleLearning(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["learnings"] }),
+  });
+
+  const { data: titleInsights, isLoading: insightsLoading } = useQuery({
+    queryKey: ["autopilot-learnings"],
+    queryFn: () => getAutopilotLearnings(undefined, 50),
   });
 
   const anyRunning = extractMutation.isPending || titlesMutation.isPending || transcriptsMutation.isPending;
@@ -195,6 +200,33 @@ export default function LearningsPage() {
           ))}
         </motion.div>
       )}
+
+      {/* Competitor Title Patterns */}
+      <div className="space-y-3 pt-4">
+        <h2 className="text-lg font-display font-bold" style={{ color: "var(--text-primary)" }}>
+          Competitor Title Patterns
+        </h2>
+        <p className="text-xs" style={{ color: "var(--text-tertiary)" }}>
+          Patterns discovered from competitor video titles and their performance.
+        </p>
+
+        {insightsLoading ? (
+          <div className="flex justify-center py-8"><Spinner size="md" /></div>
+        ) : !titleInsights?.length ? (
+          <GlassCard className="p-8 text-center">
+            <TrendingUp size={24} style={{ color: "var(--text-tertiary)", margin: "0 auto 8px" }} />
+            <p className="text-xs" style={{ color: "var(--text-secondary)" }}>
+              No title insights yet. Run &quot;Analyze Titles&quot; to discover patterns.
+            </p>
+          </GlassCard>
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {titleInsights.map((insight) => (
+              <TitleInsightCard key={insight.id} insight={insight} />
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -343,5 +375,55 @@ function PatternCard({
         )}
       </GlassCard>
     </motion.div>
+  );
+}
+
+function TitleInsightCard({ insight }: { insight: Learning }) {
+  const confColor = insight.confidence >= 60 ? "var(--green)" : insight.confidence >= 40 ? "var(--gold)" : "var(--red)";
+
+  return (
+    <GlassCard className="p-4 space-y-2">
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
+          {insight.pattern}
+        </p>
+        {insight.avg_ctr != null && (
+          <span
+            className="text-[10px] font-mono px-2 py-0.5 rounded shrink-0"
+            style={{
+              background: `color-mix(in srgb, ${insight.avg_ctr >= 5 ? "var(--green)" : insight.avg_ctr >= 3.5 ? "var(--gold)" : "var(--red)"} 15%, transparent)`,
+              color: insight.avg_ctr >= 5 ? "var(--green)" : insight.avg_ctr >= 3.5 ? "var(--gold)" : "var(--red)",
+            }}
+          >
+            {insight.avg_ctr.toFixed(1)}% CTR
+          </span>
+        )}
+      </div>
+
+      {/* Confidence bar */}
+      <div>
+        <div className="flex justify-between text-[10px] mb-1" style={{ color: "var(--text-tertiary)" }}>
+          <span>n={insight.sample_size}</span>
+          <span style={{ color: confColor }}>{insight.confidence}%</span>
+        </div>
+        <div className="h-1 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.06)" }}>
+          <div
+            className="h-full rounded-full transition-all"
+            style={{ width: `${Math.min(100, insight.confidence)}%`, background: confColor }}
+          />
+        </div>
+      </div>
+
+      {/* Effect / category */}
+      <div className="flex gap-3 text-[10px]" style={{ color: "var(--text-secondary)" }}>
+        {insight.effect && <span>{insight.effect}</span>}
+        <span
+          className="uppercase tracking-wider font-mono px-1.5 py-0.5 rounded"
+          style={{ background: `color-mix(in srgb, ${CATEGORY_COLORS[insight.category] || "var(--text-secondary)"} 15%, transparent)`, color: CATEGORY_COLORS[insight.category] || "var(--text-secondary)" }}
+        >
+          {insight.category}
+        </span>
+      </div>
+    </GlassCard>
   );
 }
