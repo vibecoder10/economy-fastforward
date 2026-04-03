@@ -113,3 +113,34 @@ except: pass
   # Clean up error tracker (keep last 200 entries)
   tail -200 "$ERROR_TRACK" > "$ERROR_TRACK.tmp" 2>/dev/null && mv "$ERROR_TRACK.tmp" "$ERROR_TRACK" || true
 fi
+
+# ─── Job 3: Unaddressed handoffs → spawn receiving agent ───────────────────
+HANDOFFS_FILE="$PROJECT_ROOT/rubric/scaffold/data/handoffs.json"
+HANDOFF_TRACK="/tmp/prd-watcher-handoffs-seen.txt"
+if [ -f "$HANDOFFS_FILE" ]; then
+  touch "$HANDOFF_TRACK"
+  HANDOFF_AGENTS=$(python3 -c "
+import json
+try:
+    handoffs = json.load(open('$HANDOFFS_FILE'))
+    seen = set(open('$HANDOFF_TRACK').read().strip().split('\n')) if open('$HANDOFF_TRACK').read().strip() else set()
+    for h in handoffs[-10:]:
+        to_agent = h.get('to', '')
+        msg = h.get('message', '')
+        key = to_agent + '|' + msg[:50]
+        if key in seen or not to_agent: continue
+        # Only spawn for recent handoffs (from operator or other agents)
+        print(to_agent + '|' + key)
+except: pass
+" 2>/dev/null || true)
+
+  if [ -n "$HANDOFF_AGENTS" ]; then
+    while IFS= read -r line; do
+      AGENT=$(echo "$line" | cut -d'|' -f1)
+      KEY=$(echo "$line" | cut -d'|' -f2-)
+      echo "$KEY" >> "$HANDOFF_TRACK"
+      spawn_agent "$AGENT" "unaddressed handoff from operator"
+    done <<< "$HANDOFF_AGENTS"
+  fi
+  tail -100 "$HANDOFF_TRACK" > "$HANDOFF_TRACK.tmp" 2>/dev/null && mv "$HANDOFF_TRACK.tmp" "$HANDOFF_TRACK" || true
+fi
