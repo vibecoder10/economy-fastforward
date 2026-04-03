@@ -40,6 +40,32 @@
           "completed_at": "2026-04-02T01:52:00Z",
           "assigned_to": "orchestrator",
           "description": "Verified by orchestrator audit: Discovery Ideas tab present with grid layout, IdeaCard component with thumbnails/titles/launch/dismiss, refresh button functional. All 5 API calls (getDiscoveryIdeas, getDiscoveryStatus, refreshDiscoveryIdeas, launchIdea, dismissIdea) exist in api.ts."
+        },
+        {
+          "id": "BUG-USER-235105",
+          "title": "BUG-USER: API error 404 on /pipeline: GET /api/user/preferences → {\"detail\":\"Not Found\"}",
+          "role": "backend",
+          "status": "done",
+          "priority": "critical",
+          "description": "User hit this error while clicking through the website. Fix immediately.\nEndpoint: GET /api/user/preferences\nError: API error 404 on /pipeline: GET /api/user/preferences → {\"detail\":\"Not Found\"}",
+          "assigned_to": "backend-dev",
+          "started_at": "2026-04-03T16:52:00Z",
+          "completed_at": "2026-04-03T16:55:00Z",
+          "verified": true,
+          "verification_notes": "Server was running stale code. Routes exist and are registered (preferences.py + videos.py DELETE). Server restarted — both endpoints now respond correctly."
+        },
+        {
+          "id": "BUG-USER-235105",
+          "title": "BUG-USER: API error 405 on /pipeline: DELETE /api/videos/77f74d25-0425-402f-88fd-5f2ce066fde1 → {\"detail\":\"Met",
+          "role": "backend",
+          "status": "done",
+          "priority": "critical",
+          "description": "User hit this error while clicking through the website. Fix immediately.\nEndpoint: DELETE /api/videos/77f74d25-0425-402f-88fd-5f2ce066fde1\nError: API error 405 on /pipeline: DELETE /api/videos/77f74d25-0425-402f-88fd-5f2ce066fde1 → {\"detail\":\"Method Not Allowed\"}",
+          "assigned_to": "backend-dev",
+          "started_at": "2026-04-03T16:52:00Z",
+          "completed_at": "2026-04-03T16:55:00Z",
+          "verified": true,
+          "verification_notes": "Server was running stale code. Routes exist and are registered (preferences.py + videos.py DELETE). Server restarted — both endpoints now respond correctly."
         }
       ]
     },
@@ -71,7 +97,7 @@
           "verified_at": "2026-04-02T02:08:00Z",
           "verified_by": "qa-engineer",
           "verification_notes": "All 18 fields present in models.py (lines 72-89), SQL SELECT (lines 141-145), and r.get() mappings (lines 191-208). JSON field uses _parse_json_field(), NUMERIC fields use float() with None check. Frontend types in api.ts match (lines 542-559). tsc --noEmit passes clean.",
-          "description": "CRITICAL: The backend VideoDetail Pydantic model (models.py line 42) and SQL query (routes/videos.py line 132) are missing 15 fields that exist in schema.sql and are expected by the frontend (api.ts VideoDetail interface). Add to BOTH the Pydantic model AND the SQL SELECT:\n\n1. source_views (INTEGER) \u2014 schema.sql line 168\n2. source_channel (TEXT) \u2014 schema.sql line 169\n3. source_urls (TEXT) \u2014 schema.sql line 85\n4. views_24h (INTEGER) \u2014 schema.sql line 135\n5. views_48h (INTEGER) \u2014 schema.sql line 136\n6. views_7d (INTEGER) \u2014 schema.sql line 137\n7. views_30d (INTEGER) \u2014 schema.sql line 138\n8. ctr_12h (NUMERIC) \u2014 schema.sql line 185\n9. ctr_24h (NUMERIC) \u2014 schema.sql line 186\n10. ctr_48h (NUMERIC) \u2014 schema.sql line 139\n11. retention_48h (NUMERIC) \u2014 schema.sql line 140\n12. post_mortem_48h (TEXT) \u2014 schema.sql line 144\n13. post_mortem_7d (TEXT) \u2014 schema.sql line 145\n14. agent_paper_trail (JSONB) \u2014 schema.sql line 189\n15. agent_hook_score (NUMERIC) \u2014 schema.sql line 190\n16. agent_body_score (NUMERIC) \u2014 schema.sql line 191\n17. agent_tier (TEXT) \u2014 schema.sql line 192\n18. agent_cost (NUMERIC) \u2014 schema.sql line 193\n\nSteps:\n1. Add Optional fields to VideoDetail class in models.py\n2. Add columns to the SQL SELECT in routes/videos.py get_video()\n3. Add r.get() mappings in the VideoDetail() constructor call\n4. For JSON fields (agent_paper_trail), use _parse_json_field()\n5. For NUMERIC fields, use float() conversion with None check",
+          "description": "CRITICAL: The backend VideoDetail Pydantic model (models.py line 42) and SQL query (routes/videos.py line 132) are missing 15 fields that exist in schema.sql and are expected by the frontend (api.ts VideoDetail interface). Add to BOTH the Pydantic model AND the SQL SELECT:\n\n1. source_views (INTEGER) — schema.sql line 168\n2. source_channel (TEXT) — schema.sql line 169\n3. source_urls (TEXT) — schema.sql line 85\n4. views_24h (INTEGER) — schema.sql line 135\n5. views_48h (INTEGER) — schema.sql line 136\n6. views_7d (INTEGER) — schema.sql line 137\n7. views_30d (INTEGER) — schema.sql line 138\n8. ctr_12h (NUMERIC) — schema.sql line 185\n9. ctr_24h (NUMERIC) — schema.sql line 186\n10. ctr_48h (NUMERIC) — schema.sql line 139\n11. retention_48h (NUMERIC) — schema.sql line 140\n12. post_mortem_48h (TEXT) — schema.sql line 144\n13. post_mortem_7d (TEXT) — schema.sql line 145\n14. agent_paper_trail (JSONB) — schema.sql line 189\n15. agent_hook_score (NUMERIC) — schema.sql line 190\n16. agent_body_score (NUMERIC) — schema.sql line 191\n17. agent_tier (TEXT) — schema.sql line 192\n18. agent_cost (NUMERIC) — schema.sql line 193\n\nSteps:\n1. Add Optional fields to VideoDetail class in models.py\n2. Add columns to the SQL SELECT in routes/videos.py get_video()\n3. Add r.get() mappings in the VideoDetail() constructor call\n4. For JSON fields (agent_paper_trail), use _parse_json_field()\n5. For NUMERIC fields, use float() conversion with None check",
           "files": [
             "backend/models.py",
             "backend/routes/videos.py"
@@ -106,7 +132,7 @@
           "completed_at": "2026-04-02T03:06:00Z",
           "verified_at": "2026-04-02T03:10:00Z",
           "verified_by": "qa-engineer",
-          "verification_notes": "Source section renders conditionally (line 54). source_channel via Field component, source_views with formatNumber(), source_urls as clickable links with ExternalLink icon. 3 fields added to VideoDetail in api.ts. Diff is clean \u2014 2 app files changed. tsc --noEmit passes.",
+          "verification_notes": "Source section renders conditionally (line 54). source_channel via Field component, source_views with formatNumber(), source_urls as clickable links with ExternalLink icon. 3 fields added to VideoDetail in api.ts. Diff is clean — 2 app files changed. tsc --noEmit passes.",
           "description": "After T2-006 adds these fields to the backend response, add a 'Source' section to info-tab.tsx showing: source_channel as text, source_views as formatted number, source_urls as clickable links. Only render the section if at least one field has data. Place it after the Story DNA section.",
           "files": [
             "frontend/src/components/video-detail/info-tab.tsx"
@@ -156,21 +182,21 @@
           "completed_at": "2026-04-02T04:04:00Z",
           "verified_at": "2026-04-02T04:08:00Z",
           "verified_by": "qa-engineer",
-          "verification_notes": "Stale ScriptScene removed from types.ts (10 lines). Correct ScriptScene exists in api.ts line 608 with scene_text + storyboard_1_url-5_url. No imports referenced the types.ts version. tsc --noEmit passes clean. Diff minimal \u2014 1 app file changed, no bloat.",
-          "description": "Removed stale ScriptScene from types.ts \u2014 it used camelCase (narrationText, sceneNumber) which didn't match backend. The correct ScriptScene (with scene_text, storyboard_1_url through storyboard_5_url) already exists in api.ts line 608 and is what all components import. No code imported the types.ts version.",
+          "verification_notes": "Stale ScriptScene removed from types.ts (10 lines). Correct ScriptScene exists in api.ts line 608 with scene_text + storyboard_1_url-5_url. No imports referenced the types.ts version. tsc --noEmit passes clean. Diff minimal — 1 app file changed, no bloat.",
+          "description": "Removed stale ScriptScene from types.ts — it used camelCase (narrationText, sceneNumber) which didn't match backend. The correct ScriptScene (with scene_text, storyboard_1_url through storyboard_5_url) already exists in api.ts line 608 and is what all components import. No code imported the types.ts version.",
           "files": [
             "frontend/src/lib/types.ts"
           ]
         },
         {
           "id": "BUG-T3-002-BACKEND",
-          "title": "BUG: script_validation missing from VideoDetail API response \u2014 T3-002 blocked",
+          "title": "BUG: script_validation missing from VideoDetail API response — T3-002 blocked",
           "role": "backend",
           "status": "done",
           "started_at": "2026-04-03T04:00:01Z",
           "completed_at": "2026-04-03T04:02:00Z",
           "assigned_to": "backend-dev",
-          "description": "Pipeline Tester found (2026-04-03): schema.sql line 106 has script_validation TEXT in videos table. But GET /api/videos/{id} does NOT include this field \u2014 absent from VideoDetail Pydantic model (models.py) and SQL SELECT in routes/videos.py. Fix: (1) Add script_validation: Optional[str] = None to VideoDetail class in models.py. (2) Add script_validation to SQL SELECT in routes/videos.py get_video(). (3) Add r.get(script_validation) mapping in VideoDetail constructor. (4) Add script_validation to api.ts VideoDetail interface. This unblocks T3-002 (frontend display).",
+          "description": "Pipeline Tester found (2026-04-03): schema.sql line 106 has script_validation TEXT in videos table. But GET /api/videos/{id} does NOT include this field — absent from VideoDetail Pydantic model (models.py) and SQL SELECT in routes/videos.py. Fix: (1) Add script_validation: Optional[str] = None to VideoDetail class in models.py. (2) Add script_validation to SQL SELECT in routes/videos.py get_video(). (3) Add r.get(script_validation) mapping in VideoDetail constructor. (4) Add script_validation to api.ts VideoDetail interface. This unblocks T3-002 (frontend display).",
           "files": [
             "backend/models.py",
             "backend/routes/videos.py",
@@ -192,7 +218,7 @@
           "assigned_to": "frontend-dev",
           "verified_at": "2026-04-03T19:06:00Z",
           "verified_by": "qa-engineer",
-          "verification_notes": "PASS. Commit 1ae5a3f: ScriptTab.tsx adds Script Validation GlassCard (lines 999-1042). Parses script_validation JSON with try/catch \u2014 returns null when not JSON (text-format data), renders PASS/WARN/FAIL badges when JSON. ShieldCheck icon with pass/fail color. passCount/total display. Clean diff: 3 files, 50 lines. tsc --noEmit: 0 errors. Playwright: page loads, section correctly hidden (DB has text-format data not JSON \u2014 correct behavior).",
+          "verification_notes": "PASS. Commit 1ae5a3f: ScriptTab.tsx adds Script Validation GlassCard (lines 999-1042). Parses script_validation JSON with try/catch — returns null when not JSON (text-format data), renders PASS/WARN/FAIL badges when JSON. ShieldCheck icon with pass/fail color. passCount/total display. Clean diff: 3 files, 50 lines. tsc --noEmit: 0 errors. Playwright: page loads, section correctly hidden (DB has text-format data not JSON — correct behavior).",
           "description": "Backend does NOT yet return script_validation (BUG-T3-002-BACKEND must be fixed first). After that: parse the JSON field (contains editorial check results: number_density, framework_density, hook_strength, etc.) and add a collapsible Script Validation section to ScriptTab.tsx showing pass/warn/fail for each check with color badges (green=pass, amber=warn, red=fail).",
           "files": [
             "frontend/src/components/production/ScriptTab.tsx"
@@ -210,13 +236,13 @@
           "completed_at": "2026-04-03T10:10:00Z",
           "verified_at": "2026-04-03T18:04:00Z",
           "verified_by": "qa-engineer",
-          "verification_notes": "PASS. SegmentEditor component added to ScriptTab.tsx (line 166-290): (1) fetches segments via getSceneSegments(videoId, sceneNumber) -> GET /api/videos/{id}/scenes/{scene}/segments (returns {scene, segments[]} confirmed by curl). (2) per-segment editable textarea rows with dirty state tracking (turquoise border on modified rows). (3) Save Segments button calls updateSceneSegments() -> PUT /api/videos/{id}/scenes/{scene}/segments with {image_index, sentence_text} array. (4) Loading/empty/save states all handled. (5) Renders in expanded scene view as 'Segments / Edit & save to backend' section. (6) useMutation with onSuccess invalidates segments + video-assets queries. (7) tsc --noEmit: 0 errors. (8) No bloat: 1 app file changed, ~130 lines, no new files. NOTE: implementation was present in working tree but uncommitted \u2014 committed as part of QA verification.",
+          "verification_notes": "PASS. SegmentEditor component added to ScriptTab.tsx (line 166-290): (1) fetches segments via getSceneSegments(videoId, sceneNumber) -> GET /api/videos/{id}/scenes/{scene}/segments (returns {scene, segments[]} confirmed by curl). (2) per-segment editable textarea rows with dirty state tracking (turquoise border on modified rows). (3) Save Segments button calls updateSceneSegments() -> PUT /api/videos/{id}/scenes/{scene}/segments with {image_index, sentence_text} array. (4) Loading/empty/save states all handled. (5) Renders in expanded scene view as 'Segments / Edit & save to backend' section. (6) useMutation with onSuccess invalidates segments + video-assets queries. (7) tsc --noEmit: 0 errors. (8) No bloat: 1 app file changed, ~130 lines, no new files. NOTE: implementation was present in working tree but uncommitted — committed as part of QA verification.",
           "description": "Added SegmentEditor component to ScriptTab that fetches real segments via GET /api/videos/{id}/scenes/{scene}/segments, shows each segment with image_index/word_count/duration as editable rows, and saves modifications via PUT /api/videos/{id}/scenes/{scene}/segments. Dirty tracking highlights modified segments. Save button with loading/success/error states. Renders in expanded scene view below existing sentence cards.",
           "files": [
             "frontend/src/components/production/ScriptTab.tsx"
           ],
           "browser_tested": false,
-          "browser_test_notes": "FAIL (pipeline-tester 2026-04-03). Playwright confirmed SegmentEditor never renders in browser. ScriptTab.tsx is a DEAD COMPONENT \u2014 pipeline page renders ScriptVoiceTab.tsx, not ScriptTab.tsx. ScriptTab.tsx has 0 imports in any page/layout file. DOM check: ih_Segments=false, ih_SaveSegments=false after clicking expand. See BUG-T3-WRONG-COMPONENT."
+          "browser_test_notes": "FAIL (pipeline-tester 2026-04-03). Playwright confirmed SegmentEditor never renders in browser. ScriptTab.tsx is a DEAD COMPONENT — pipeline page renders ScriptVoiceTab.tsx, not ScriptTab.tsx. ScriptTab.tsx has 0 imports in any page/layout file. DOM check: ih_Segments=false, ih_SaveSegments=false after clicking expand. See BUG-T3-WRONG-COMPONENT."
         },
         {
           "id": "T3-004",
@@ -235,13 +261,13 @@
         },
         {
           "id": "BUG-T3-WRONG-COMPONENT",
-          "title": "BUG: T3-002 and T3-003 implemented in dead component ScriptTab.tsx \u2014 features never render",
+          "title": "BUG: T3-002 and T3-003 implemented in dead component ScriptTab.tsx — features never render",
           "role": "frontend",
           "status": "done",
           "started_at": "2026-04-03T22:02:00Z",
           "completed_at": "2026-04-03T22:06:00Z",
           "assigned_to": "frontend-dev",
-          "description": "Pipeline Tester found (2026-04-03): T3-002 (script_validation display) and T3-003 (SegmentEditor) were both implemented in components/production/ScriptTab.tsx. BUT the pipeline video detail page (/pipeline/[videoId]) does NOT use ScriptTab \u2014 it imports and renders ScriptVoiceTab from components/production/ScriptVoiceTab.tsx. ScriptTab.tsx is a dead component, never imported by any page. Therefore the Script Validation section and SegmentEditor are NEVER rendered to users. Fix: Port both features to ScriptVoiceTab.tsx. (1) Add SegmentEditor component from ScriptTab.tsx into ScriptVoiceTab.tsx (lines 166-289). (2) Add script_validation rendering from ScriptTab.tsx (lines 999-1050) into ScriptVoiceTab.tsx. Both should appear in the expanded scene view in ScriptVoiceTab. Evidence: Playwright confirmed tab renders ScriptVoiceTab (1741 lines, no 'Segments' or 'script_validation' keywords), 0 Segments DOM elements found. Screenshots: T3-qa-02-script-tab.png, T3-qa-03-expanded-scene.png.",
+          "description": "Pipeline Tester found (2026-04-03): T3-002 (script_validation display) and T3-003 (SegmentEditor) were both implemented in components/production/ScriptTab.tsx. BUT the pipeline video detail page (/pipeline/[videoId]) does NOT use ScriptTab — it imports and renders ScriptVoiceTab from components/production/ScriptVoiceTab.tsx. ScriptTab.tsx is a dead component, never imported by any page. Therefore the Script Validation section and SegmentEditor are NEVER rendered to users. Fix: Port both features to ScriptVoiceTab.tsx. (1) Add SegmentEditor component from ScriptTab.tsx into ScriptVoiceTab.tsx (lines 166-289). (2) Add script_validation rendering from ScriptTab.tsx (lines 999-1050) into ScriptVoiceTab.tsx. Both should appear in the expanded scene view in ScriptVoiceTab. Evidence: Playwright confirmed tab renders ScriptVoiceTab (1741 lines, no 'Segments' or 'script_validation' keywords), 0 Segments DOM elements found. Screenshots: T3-qa-02-script-tab.png, T3-qa-03-expanded-scene.png.",
           "files": [
             "frontend/src/components/production/ScriptVoiceTab.tsx",
             "frontend/src/components/production/ScriptTab.tsx"
@@ -257,12 +283,12 @@
           "role": "backend",
           "status": "done",
           "depends_on": "BUG-T3-WRONG-COMPONENT",
-          "description": "Pipeline Tester found (2026-04-03): The script_validation field in the videos table is stored as plain text (e.g. 'Editorial validation: PASSED\\n[PASS] number_density: 49/19 specific numbers found\\n...'). The ScriptTab.tsx (T3-002 implementation) tries to JSON.parse() this text and expects a JSON object with shape: { passed: bool, checks: [{name, passed, detail, advisory?}], advisory_warnings: [] }. The JSON.parse() fails on the plain text, and the catch block returns null \u2014 so the Script Validation section NEVER renders even when the component is wired correctly. Fix: Either (1) update the backend script validation step to store results as JSON with the expected schema, OR (2) update the frontend to parse the plain-text format ('Editorial validation: PASSED\\n[PASS] field: detail...'). Option 1 is cleaner. Check skills/video-pipeline/script/brief_translator/ for where script_validation is generated and stored.",
+          "description": "Pipeline Tester found (2026-04-03): The script_validation field in the videos table is stored as plain text (e.g. 'Editorial validation: PASSED\\n[PASS] number_density: 49/19 specific numbers found\\n...'). The ScriptTab.tsx (T3-002 implementation) tries to JSON.parse() this text and expects a JSON object with shape: { passed: bool, checks: [{name, passed, detail, advisory?}], advisory_warnings: [] }. The JSON.parse() fails on the plain text, and the catch block returns null — so the Script Validation section NEVER renders even when the component is wired correctly. Fix: Either (1) update the backend script validation step to store results as JSON with the expected schema, OR (2) update the frontend to parse the plain-text format ('Editorial validation: PASSED\\n[PASS] field: detail...'). Option 1 is cleaner. Check skills/video-pipeline/script/brief_translator/ for where script_validation is generated and stored.",
           "files": [
             "backend/routes/videos.py",
             "frontend/src/components/production/ScriptVoiceTab.tsx"
           ],
-          "error_note": "Reset: was in_progress with no started_at/assigned_to \u2014 anomaly, reset by orchestrator MICRO sweep",
+          "error_note": "Reset: was in_progress with no started_at/assigned_to — anomaly, reset by orchestrator MICRO sweep",
           "reset_count": 1,
           "started_at": "2026-04-03T21:00:01Z",
           "assigned_to": "backend-dev",
@@ -270,7 +296,7 @@
           "verified": true,
           "verified_at": "2026-04-03T22:00:00Z",
           "verified_by": "qa-engineer",
-          "verification_notes": "PASS. (1) _parse_script_validation() added to routes/videos.py \u2014 unit test confirms it converts 'Editorial validation: PASSED\\n[PASS] name: detail' to JSON {passed:true, checks:[{name,passed,detail,advisory}], advisory_warnings:[]}. (2) Already-valid JSON passes through unchanged. (3) None returns None. (4) Applied at VideoDetail constructor line 236: script_validation=_parse_script_validation(r.get('script_validation')). (5) ScriptVoiceTab.tsx lines 1682-1700: JSON.parse() on the returned string, checks[].map() renders badge per item. Frontend correctly handles the JSON shape. (6) tsc --noEmit: 0 errors. (7) Diff clean: 2 files (videos.py + task-queue.json), 67 lines \u2014 only the helper function and one call site. No bloat. NOTE: Production backend (port 8001) still has old code (not deployed); fix will apply on next git pull to main. End-to-end Playwright not possible due to tenant isolation and auth requirement, but code path fully verified via unit test + code review."
+          "verification_notes": "PASS. (1) _parse_script_validation() added to routes/videos.py — unit test confirms it converts 'Editorial validation: PASSED\\n[PASS] name: detail' to JSON {passed:true, checks:[{name,passed,detail,advisory}], advisory_warnings:[]}. (2) Already-valid JSON passes through unchanged. (3) None returns None. (4) Applied at VideoDetail constructor line 236: script_validation=_parse_script_validation(r.get('script_validation')). (5) ScriptVoiceTab.tsx lines 1682-1700: JSON.parse() on the returned string, checks[].map() renders badge per item. Frontend correctly handles the JSON shape. (6) tsc --noEmit: 0 errors. (7) Diff clean: 2 files (videos.py + task-queue.json), 67 lines — only the helper function and one call site. No bloat. NOTE: Production backend (port 8001) still has old code (not deployed); fix will apply on next git pull to main. End-to-end Playwright not possible due to tenant isolation and auth requirement, but code path fully verified via unit test + code review."
         }
       ]
     },
@@ -291,7 +317,7 @@
           "assigned_to": "qa-engineer",
           "verified_at": "2026-04-02T20:15:00Z",
           "verified_by": "qa-engineer",
-          "verification_notes": "PASS. (1) POST /api/pipeline/voice/{video_id}?scene=N exists at pipeline.py line 232 \u2014 status gate requires ready_for_voice or scene param. (2) useTaskPoller wired in ScriptVoiceTab.tsx (lines 313-330) with voiceTaskRunning state, interval 3000ms, onComplete invalidates queries. Task status endpoint GET /api/pipeline/task/{video_id} returns {status, message, error}. (3) voice_over_url returned by GET /api/videos/{id}/script \u2014 6 scenes verified with voice_over_url populated. (4) VoicePlayer renders in StoryboardVisualsTab (line 811) with 6 audio elements confirmed via Playwright. (5) Script tab shows 6 'Voice Done' badges, 6 'Voice Ready' labels, 6 'Regenerate Voice' buttons. (6) 0 console errors. (7) tsc --noEmit: 0 errors. TAB 4 COMPLETE.",
+          "verification_notes": "PASS. (1) POST /api/pipeline/voice/{video_id}?scene=N exists at pipeline.py line 232 — status gate requires ready_for_voice or scene param. (2) useTaskPoller wired in ScriptVoiceTab.tsx (lines 313-330) with voiceTaskRunning state, interval 3000ms, onComplete invalidates queries. Task status endpoint GET /api/pipeline/task/{video_id} returns {status, message, error}. (3) voice_over_url returned by GET /api/videos/{id}/script — 6 scenes verified with voice_over_url populated. (4) VoicePlayer renders in StoryboardVisualsTab (line 811) with 6 audio elements confirmed via Playwright. (5) Script tab shows 6 'Voice Done' badges, 6 'Voice Ready' labels, 6 'Regenerate Voice' buttons. (6) 0 console errors. (7) tsc --noEmit: 0 errors. TAB 4 COMPLETE.",
           "description": "Check that POST /api/pipeline/voice/{id} triggers voice generation, task poller tracks progress, and voice_over_url appears on script scenes when complete. Verify VoicePlayer component plays audio."
         },
         {
@@ -304,7 +330,7 @@
           "assigned_to": "qa-engineer",
           "verified_at": "2026-04-02T20:15:00Z",
           "verified_by": "qa-engineer",
-          "verification_notes": "Already implemented. VoiceStatusBadge renders per scene in ScriptVoiceTab.tsx (line 1061) \u2014 shows 'Voice Done' (green) for done/finished, 'Voice Pending' (gold) for create/pending. Reads from scene.voiceStatus which maps to voice_status from API (line 160). Playwright confirmed 6 'Voice Done' badges visible in browser. ScriptTab.tsx also has this at line 611.",
+          "verification_notes": "Already implemented. VoiceStatusBadge renders per scene in ScriptVoiceTab.tsx (line 1061) — shows 'Voice Done' (green) for done/finished, 'Voice Pending' (gold) for create/pending. Reads from scene.voiceStatus which maps to voice_status from API (line 160). Playwright confirmed 6 'Voice Done' badges visible in browser. ScriptTab.tsx also has this at line 611.",
           "description": "Each script scene has a voice_status field. Display it as a badge next to each scene in the voice tab (e.g., 'Generated', 'Pending', 'Failed'). Wire to the actual field from the API response.",
           "files": [
             "frontend/src/components/production/ScriptTab.tsx"
@@ -329,7 +355,7 @@
           "assigned_to": "qa-engineer",
           "verified_at": "2026-04-02T23:15:00Z",
           "verified_by": "qa-engineer",
-          "verification_notes": "PASS. (1) POST /api/pipeline/storyboards/{id}?scene=N exists and triggers \u2014 returned {status:running, message:'Storyboard generation started Scene 1'} for scene=1. (2) POST /api/pipeline/storyboard-images/{id}?scene=N exists \u2014 returned 'Task already running' when storyboards was running (correct). (3) DELETE /api/videos/{id}/storyboards exists via OpenAPI. (4) DELETE /api/videos/{id}/storyboards/{scene} exists. (5) PATCH /api/videos/{id}/storyboard-mode exists. (6) useTaskPoller wired in StoryboardVisualsTab.tsx (line 193) with 3000ms interval, onComplete invalidates video+script+assets queries. (7) Progress message from taskMessage shown at line 660 when taskRunning. (8) Playwright: Storyboard & Visuals tab loads, 13 storyboard grid images visible from tempfile.aiquickdraw.com URLs, 'Clear' button present, 0 console errors. (9) tsc --noEmit: 0 errors.",
+          "verification_notes": "PASS. (1) POST /api/pipeline/storyboards/{id}?scene=N exists and triggers — returned {status:running, message:'Storyboard generation started Scene 1'} for scene=1. (2) POST /api/pipeline/storyboard-images/{id}?scene=N exists — returned 'Task already running' when storyboards was running (correct). (3) DELETE /api/videos/{id}/storyboards exists via OpenAPI. (4) DELETE /api/videos/{id}/storyboards/{scene} exists. (5) PATCH /api/videos/{id}/storyboard-mode exists. (6) useTaskPoller wired in StoryboardVisualsTab.tsx (line 193) with 3000ms interval, onComplete invalidates video+script+assets queries. (7) Progress message from taskMessage shown at line 660 when taskRunning. (8) Playwright: Storyboard & Visuals tab loads, 13 storyboard grid images visible from tempfile.aiquickdraw.com URLs, 'Clear' button present, 0 console errors. (9) tsc --noEmit: 0 errors.",
           "description": "Verify the full storyboard flow: generate prompts (POST /api/pipeline/storyboards/{id}?scene=N), generate grids (POST /api/pipeline/storyboard-images/{id}?scene=N), clear (DELETE /api/videos/{id}/storyboards/{scene}). Check progress callbacks appear in UI."
         },
         {
@@ -343,12 +369,12 @@
           "assigned_to": "qa-engineer",
           "verified_at": "2026-04-02T23:15:00Z",
           "verified_by": "qa-engineer",
-          "verification_notes": "PASS. storyboard_status badges render correctly in StoryboardVisualsTab. Code: line 702 conditionally shows span badge when storyboardMode && scene.storyboardStatus. Status text uses replace(/_/g, ' ') so 'grids_generated' shows as 'grids generated', 'partial_2_of_3' shows as 'partial 2 of 3'. Playwright confirmed: 6 status badges visible \u2014 4x 'grids generated' (green), 2x 'partial 2 of 3' (purple). Video f9749bd2 has scenes 1-3+6 with grids_generated and scenes 4-5 with partial_2_of_3. All values match API data exactly. 0 console errors. tsc --noEmit: 0 errors. TAB 5 COMPLETE.",
+          "verification_notes": "PASS. storyboard_status badges render correctly in StoryboardVisualsTab. Code: line 702 conditionally shows span badge when storyboardMode && scene.storyboardStatus. Status text uses replace(/_/g, ' ') so 'grids_generated' shows as 'grids generated', 'partial_2_of_3' shows as 'partial 2 of 3'. Playwright confirmed: 6 status badges visible — 4x 'grids generated' (green), 2x 'partial 2 of 3' (purple). Video f9749bd2 has scenes 1-3+6 with grids_generated and scenes 4-5 with partial_2_of_3. All values match API data exactly. 0 console errors. tsc --noEmit: 0 errors. TAB 5 COMPLETE.",
           "description": "Each script scene has storyboard_status (prompts_ready, grids_generated, partial_1_of_2, etc.). Verify these render correctly as badges on each scene card in the StoryboardVisualsTab."
         },
         {
           "id": "BUG-AUTH-001",
-          "title": "BUG: Email/password register fails \u2014 FK violation memberships->users",
+          "title": "BUG: Email/password register fails — FK violation memberships->users",
           "role": "backend",
           "status": "done",
           "verified": true,
@@ -357,8 +383,8 @@
           "assigned_to": "backend-dev",
           "verified_at": "2026-04-03T00:10:00Z",
           "verified_by": "qa-engineer",
-          "verification_notes": "PASS. Commit 4cc9dec: _create_tenant_for_account() now inserts into users table (ON CONFLICT DO NOTHING) before creating membership, fixing FK violation. Test confirmed: POST /api/auth/register returns 200 with JWT and user object. database.py uses lazy pool init (min_size=0). 2 files, 8 lines \u2014 clean diff.",
-          "description": "Pipeline Tester found: POST /api/auth/register fails with 'ForeignKeyViolationError: insert or update on table memberships violates FK constraint memberships_user_id_fkey \u2014 Key (user_id)=(...) is not present in table users'. Root cause: _create_tenant_for_account() creates membership with user_id from accounts table (new UUID), but memberships.user_id FK references public.users (which is empty). New email/password auth creates users in accounts table but memberships expects IDs from users table. Fix: either (1) also insert into users table during register, OR (2) update FK to reference accounts.id instead of users.id.",
+          "verification_notes": "PASS. Commit 4cc9dec: _create_tenant_for_account() now inserts into users table (ON CONFLICT DO NOTHING) before creating membership, fixing FK violation. Test confirmed: POST /api/auth/register returns 200 with JWT and user object. database.py uses lazy pool init (min_size=0). 2 files, 8 lines — clean diff.",
+          "description": "Pipeline Tester found: POST /api/auth/register fails with 'ForeignKeyViolationError: insert or update on table memberships violates FK constraint memberships_user_id_fkey — Key (user_id)=(...) is not present in table users'. Root cause: _create_tenant_for_account() creates membership with user_id from accounts table (new UUID), but memberships.user_id FK references public.users (which is empty). New email/password auth creates users in accounts table but memberships expects IDs from users table. Fix: either (1) also insert into users table during register, OR (2) update FK to reference accounts.id instead of users.id.",
           "files": [
             "backend/routes/google_auth.py"
           ]
@@ -433,7 +459,7 @@
           "assigned_to": "qa-engineer",
           "verified_at": "2026-04-02T20:50:00Z",
           "verified_by": "qa-engineer",
-          "verification_notes": "PASS. (1) Storyboard & Visuals tab loads \u2014 no console errors (0), no error states in UI. (2) GET /api/videos/{id}/assets returns 200 with 115 assets, all display as pending segments. (3) Gen buttons: 115 present (one per segment), button class text-[9px] px-2, onClick \u2192 handleRegenerate \u2192 runImageForSegment. (4) Gen API endpoint verified: POST /api/pipeline/images/{id}?scene=N&index=N \u2192 {\"status\":\"running\",\"message\":\"Generating image for scene 1 segment 1\"} \u2713. (5) Approval API: PATCH /api/assets/{id}/approve \u2192 {\"status\":\"approved\"}, confirmed persists to DB (assets list shows status=approved after call) \u2713. (6) Reject API: PATCH /api/assets/{id}/reject \u2192 {\"status\":\"rejected\"} \u2713. (7) PromptExpander: 115 buttons with preview text, expand shows full prompt in <p> (PromptExpander component has correct toggle, edit textarea, save/cancel flow) \u2713. (8) Approve/Reject/Variants buttons correctly hidden for pending segments (code: seg.status === \"done\" gates Variants; no approve UI when no image_url) \u2713. (9) Variants API code path: runImageVariants \u2192 POST /api/pipeline/images/{id}?variants=3 \u2014 code verified, endpoint returns 200 when not already running \u2713. (10) T6-001 (case normalization) verified: assets.py uses lowercase throughout. Full Tab 6 COMPLETE."
+          "verification_notes": "PASS. (1) Storyboard & Visuals tab loads — no console errors (0), no error states in UI. (2) GET /api/videos/{id}/assets returns 200 with 115 assets, all display as pending segments. (3) Gen buttons: 115 present (one per segment), button class text-[9px] px-2, onClick → handleRegenerate → runImageForSegment. (4) Gen API endpoint verified: POST /api/pipeline/images/{id}?scene=N&index=N → {\"status\":\"running\",\"message\":\"Generating image for scene 1 segment 1\"} ✓. (5) Approval API: PATCH /api/assets/{id}/approve → {\"status\":\"approved\"}, confirmed persists to DB (assets list shows status=approved after call) ✓. (6) Reject API: PATCH /api/assets/{id}/reject → {\"status\":\"rejected\"} ✓. (7) PromptExpander: 115 buttons with preview text, expand shows full prompt in <p> (PromptExpander component has correct toggle, edit textarea, save/cancel flow) ✓. (8) Approve/Reject/Variants buttons correctly hidden for pending segments (code: seg.status === \"done\" gates Variants; no approve UI when no image_url) ✓. (9) Variants API code path: runImageVariants → POST /api/pipeline/images/{id}?variants=3 — code verified, endpoint returns 200 when not already running ✓. (10) T6-001 (case normalization) verified: assets.py uses lowercase throughout. Full Tab 6 COMPLETE."
         }
       ]
     },
@@ -525,7 +551,7 @@
           "verified_at": "2026-04-02T09:06:00Z",
           "verified_by": "qa-engineer",
           "verification_notes": "PASS. models.py lines 90-91: suggested_thumbnail_prompt (Optional[str]) and suggested_thumbnail_urls (Optional[list]). SQL SELECT videos.py line 146 includes both columns. Constructor lines 210-211: r.get() with _parse_json_field for URLs. schema.sql lines 198-199 confirms DB columns. Commit 2acc6d0 diff clean: 3 files, 9 lines, no bloat. Frontend api.ts lines 566-567 match. tsc --noEmit passes. T7-002 suggestion card data flow now unblocked.",
-          "description": "T7-004 previously FAILED QA (fields were not actually added). Now re-done. Verify:\n1. models.py has suggested_thumbnail_prompt (Optional[str]) and suggested_thumbnail_urls (Optional[list]) \u2014 expect lines 90-91\n2. SQL SELECT in videos.py includes both columns \u2014 expect line 146\n3. VideoDetail constructor has r.get() for both, with _parse_json_field for URLs \u2014 expect lines 210-211\n4. curl GET /api/videos/{id} returns both fields (even if null)\n5. T7-002 suggestion card now receives data (previously noted 'Data won't flow until T7-004 is actually implemented')\n6. tsc --noEmit passes clean",
+          "description": "T7-004 previously FAILED QA (fields were not actually added). Now re-done. Verify:\n1. models.py has suggested_thumbnail_prompt (Optional[str]) and suggested_thumbnail_urls (Optional[list]) — expect lines 90-91\n2. SQL SELECT in videos.py includes both columns — expect line 146\n3. VideoDetail constructor has r.get() for both, with _parse_json_field for URLs — expect lines 210-211\n4. curl GET /api/videos/{id} returns both fields (even if null)\n5. T7-002 suggestion card now receives data (previously noted 'Data won't flow until T7-004 is actually implemented')\n6. tsc --noEmit passes clean",
           "files": [
             "backend/models.py",
             "backend/routes/videos.py"
@@ -542,7 +568,7 @@
           "verified_at": "2026-04-02T07:04:00Z",
           "verified_by": "qa-engineer",
           "verification_notes": "When !thumbnailUrl: shows 'Generate Thumbnail' with ImageIcon (filled variant, line 323). When thumbnailUrl exists: shows 'Regenerate' with RefreshCw, plus 'Approve & Advance' as secondary (outline, line 332). Addresses operator issue 'no create button'. Implemented in same commit as T7-002 (658cf6b). tsc passes clean.",
-          "description": "OPERATOR ISSUE: 'There is no create button.' The ThumbnailTab only shows 'Regenerate' (line 305) even when no thumbnail has been generated yet. Fix:\n1. When !thumbnailUrl, show a prominent 'Generate Thumbnail' button (filled variant) instead of 'Regenerate'\n2. When thumbnailUrl exists, show 'Regenerate' as secondary action (outline variant) and 'Approve Thumbnail' as primary\n3. The generate action calls the same handleRegenerate() function \u2014 it's just a label/UX change\n4. Consider showing a larger CTA in the empty state placeholder area (lines 138-171) with a 'Generate Now' button",
+          "description": "OPERATOR ISSUE: 'There is no create button.' The ThumbnailTab only shows 'Regenerate' (line 305) even when no thumbnail has been generated yet. Fix:\n1. When !thumbnailUrl, show a prominent 'Generate Thumbnail' button (filled variant) instead of 'Regenerate'\n2. When thumbnailUrl exists, show 'Regenerate' as secondary action (outline variant) and 'Approve Thumbnail' as primary\n3. The generate action calls the same handleRegenerate() function — it's just a label/UX change\n4. Consider showing a larger CTA in the empty state placeholder area (lines 138-171) with a 'Generate Now' button",
           "files": [
             "frontend/src/components/production/ThumbnailTab.tsx"
           ]
@@ -559,7 +585,7 @@
           "verified_at": "2026-04-02T09:06:00Z",
           "verified_by": "qa-engineer",
           "verification_notes": "Save button appears only when prompt is dirty (useRef tracks saved state). Calls updateVideo(id, { thumbnail_prompt }) -> PATCH /api/videos/{id}. Backend allows thumbnail_prompt in allowed_fields (videos.py line 227). Shows loading spinner + success confirmation. Commit a0db4fa diff clean: 1 app file, 45 lines added. No bloat. tsc --noEmit passes.",
-          "description": "Added Save Prompt button to ThumbnailTab that calls updateVideo(id, { thumbnail_prompt }) via existing PATCH /api/videos/{id}. Button only appears when prompt text has been modified (dirty check via ref). Shows saved confirmation briefly. Uses existing updateVideo from api.ts \u2014 no new API calls needed.",
+          "description": "Added Save Prompt button to ThumbnailTab that calls updateVideo(id, { thumbnail_prompt }) via existing PATCH /api/videos/{id}. Button only appears when prompt text has been modified (dirty check via ref). Shows saved confirmation briefly. Uses existing updateVideo from api.ts — no new API calls needed.",
           "files": [
             "frontend/src/components/production/ThumbnailTab.tsx"
           ]
@@ -619,7 +645,7 @@
           "assigned_to": "qa-engineer",
           "verified_at": "2026-04-03T09:30:00Z",
           "verified_by": "pipeline-tester",
-          "verification_notes": "PARTIAL PASS \u2014 render trigger and UI flow verified, output display missing (2 bugs filed). (1) POST /api/pipeline/render/{id} EXISTS \u2713 \u2014 enforces status gate correctly ('Video not ready to render (status: X)'). (2) GET /api/pipeline/task/{id} EXISTS \u2713 \u2014 returns {status, message, error} with correct structure. (3) RenderTab UI renders without errors \u2713 \u2014 Scene timeline with 6 scenes + durations, Resolution/FPS/Duration info, Music Track selector (disabled), Export Format picker (disabled). (4) 'Render Now' button \u2713 \u2014 visible and clickable. (5) Confirmation dialog \u2713 \u2014 shows 'Confirm Render' + 'Cancel' after clicking 'Render Now'. (6) Task poller wired \u2713 \u2014 useTaskPoller with onComplete/onFailed in RenderTab.tsx. BUGS: (A) BUG-T8-FINAL-URL filed \u2014 'final_video_url' in schema.sql line 117 but NOT returned by VideoDetail API (missing from models.py + SQL SELECT in videos.py). (B) BUG-T8-OUTPUT-DISPLAY filed \u2014 RenderTab has no output section; video preview only shows youtube_url (post-upload) or loading spinner \u2014 no way to see/download rendered MP4. 0 console errors on page load. Screenshots: T8-003-render-tab.png, T8-003-confirm.png, T8-003-after-confirm.png."
+          "verification_notes": "PARTIAL PASS — render trigger and UI flow verified, output display missing (2 bugs filed). (1) POST /api/pipeline/render/{id} EXISTS ✓ — enforces status gate correctly ('Video not ready to render (status: X)'). (2) GET /api/pipeline/task/{id} EXISTS ✓ — returns {status, message, error} with correct structure. (3) RenderTab UI renders without errors ✓ — Scene timeline with 6 scenes + durations, Resolution/FPS/Duration info, Music Track selector (disabled), Export Format picker (disabled). (4) 'Render Now' button ✓ — visible and clickable. (5) Confirmation dialog ✓ — shows 'Confirm Render' + 'Cancel' after clicking 'Render Now'. (6) Task poller wired ✓ — useTaskPoller with onComplete/onFailed in RenderTab.tsx. BUGS: (A) BUG-T8-FINAL-URL filed — 'final_video_url' in schema.sql line 117 but NOT returned by VideoDetail API (missing from models.py + SQL SELECT in videos.py). (B) BUG-T8-OUTPUT-DISPLAY filed — RenderTab has no output section; video preview only shows youtube_url (post-upload) or loading spinner — no way to see/download rendered MP4. 0 console errors on page load. Screenshots: T8-003-render-tab.png, T8-003-confirm.png, T8-003-after-confirm.png."
         },
         {
           "id": "BUG-T8-FINAL-URL",
@@ -629,7 +655,7 @@
           "started_at": "2026-04-03T21:00:01Z",
           "completed_at": "2026-04-03T21:02:00Z",
           "assigned_to": "backend-dev",
-          "description": "Pipeline Tester found: schema.sql line 117 has 'final_video_url TEXT' column in videos table. But GET /api/videos/{id} response does NOT include this field \u2014 it's absent from VideoDetail Pydantic model (models.py) and the SQL SELECT in routes/videos.py. Fix: (1) Add 'final_video_url: Optional[str] = None' to VideoDetail class in models.py. (2) Add 'final_video_url' to SQL SELECT in routes/videos.py get_video(). (3) Add r.get('final_video_url') mapping in VideoDetail constructor. Also add final_video_url to api.ts VideoDetail interface. This unblocks BUG-T8-OUTPUT-DISPLAY (frontend render output display).",
+          "description": "Pipeline Tester found: schema.sql line 117 has 'final_video_url TEXT' column in videos table. But GET /api/videos/{id} response does NOT include this field — it's absent from VideoDetail Pydantic model (models.py) and the SQL SELECT in routes/videos.py. Fix: (1) Add 'final_video_url: Optional[str] = None' to VideoDetail class in models.py. (2) Add 'final_video_url' to SQL SELECT in routes/videos.py get_video(). (3) Add r.get('final_video_url') mapping in VideoDetail constructor. Also add final_video_url to api.ts VideoDetail interface. This unblocks BUG-T8-OUTPUT-DISPLAY (frontend render output display).",
           "files": [
             "backend/models.py",
             "backend/routes/videos.py",
@@ -642,7 +668,7 @@
         },
         {
           "id": "BUG-T8-OUTPUT-DISPLAY",
-          "title": "BUG: RenderTab missing output section \u2014 no way to view/download rendered MP4",
+          "title": "BUG: RenderTab missing output section — no way to view/download rendered MP4",
           "role": "frontend",
           "status": "done",
           "depends_on": "BUG-T8-FINAL-URL",
@@ -656,7 +682,7 @@
           "verified": true,
           "verified_at": "2026-04-03T22:04:00Z",
           "verified_by": "qa-engineer",
-          "verification_notes": "PASS. Commit da2f08b: RenderTab.tsx line 127 checks final_video_url, line 128 renders <video> player, line 164 shows Render Complete badge, line 174 href for Download MP4. All gated behind final_video_url && !renderActive. Pre-render state tested via Playwright: Render Now button present, 0 console errors, correct empty state. No rendered video in DB to test output path live \u2014 code path verified via grep. tsc: 0 errors."
+          "verification_notes": "PASS. Commit da2f08b: RenderTab.tsx line 127 checks final_video_url, line 128 renders <video> player, line 164 shows Render Complete badge, line 174 href for Download MP4. All gated behind final_video_url && !renderActive. Pre-render state tested via Playwright: Render Now button present, 0 console errors, correct empty state. No rendered video in DB to test output path live — code path verified via grep. tsc: 0 errors."
         },
         {
           "id": "T8-004",
@@ -664,7 +690,7 @@
           "role": "qa",
           "status": "done",
           "depends_on": "BUG-T8-OUTPUT-DISPLAY",
-          "description": "T8-003 was a PARTIAL PASS \u2014 it filed 2 bugs (BUG-T8-FINAL-URL and BUG-T8-OUTPUT-DISPLAY). Both are now fixed. Re-verify the full render tab: (1) GET /api/videos/{id} now includes final_video_url (models.py:68, videos.py SQL line 139, api.ts:682). (2) When final_video_url is set: RenderTab shows HTML5 video player, 'Render Complete' badge, 'Download MP4' link. (3) When final_video_url is null: empty state shows correctly (no crash). (4) Render trigger button: POST /api/pipeline/render/{id} + confirmation dialog + task poller still functional. (5) tsc --noEmit passes clean. (6) No console errors. If all pass, mark Tab 8 status as 'complete'.",
+          "description": "T8-003 was a PARTIAL PASS — it filed 2 bugs (BUG-T8-FINAL-URL and BUG-T8-OUTPUT-DISPLAY). Both are now fixed. Re-verify the full render tab: (1) GET /api/videos/{id} now includes final_video_url (models.py:68, videos.py SQL line 139, api.ts:682). (2) When final_video_url is set: RenderTab shows HTML5 video player, 'Render Complete' badge, 'Download MP4' link. (3) When final_video_url is null: empty state shows correctly (no crash). (4) Render trigger button: POST /api/pipeline/render/{id} + confirmation dialog + task poller still functional. (5) tsc --noEmit passes clean. (6) No console errors. If all pass, mark Tab 8 status as 'complete'.",
           "files": [
             "frontend/src/components/production/RenderTab.tsx",
             "backend/models.py",
@@ -676,7 +702,7 @@
           "assigned_to": "pipeline-tester",
           "verified_at": "2026-04-03T19:30:00Z",
           "verified_by": "pipeline-tester",
-          "verification_notes": "PASS (pipeline-tester 2026-04-03). Full re-verify of BUG-T8-FINAL-URL + BUG-T8-OUTPUT-DISPLAY fixes. (1) GET /api/videos/{id} now returns final_video_url key (value=None for this video, confirmed via curl). (2) models.py line 68: final_video_url: Optional[str] = None. (3) videos.py SQL SELECT line 139 confirmed by grep. (4) api.ts VideoDetail line 682 confirmed by grep. (5) RenderTab.tsx line 127: final_video_url && !renderActive gates video player. Line 164: 'Render Complete' badge. Line 174: 'Download MP4' link. (6) Playwright (null state): 'Render Now' button visible, confirmation dialog shows 'Confirm Render' + 'Cancel', no video player (correct \u2014 no render yet), no 'Render Complete' or 'Download MP4' (correct). (7) tsc --noEmit: 0 errors. (8) 0 console errors. NOTE: final_video_url output path tested via code-grep only (no rendered video in DB). Screenshots: t8004_render_tab.png, t8004_confirm_dialog.png. TAB 8 COMPLETE."
+          "verification_notes": "PASS (pipeline-tester 2026-04-03). Full re-verify of BUG-T8-FINAL-URL + BUG-T8-OUTPUT-DISPLAY fixes. (1) GET /api/videos/{id} now returns final_video_url key (value=None for this video, confirmed via curl). (2) models.py line 68: final_video_url: Optional[str] = None. (3) videos.py SQL SELECT line 139 confirmed by grep. (4) api.ts VideoDetail line 682 confirmed by grep. (5) RenderTab.tsx line 127: final_video_url && !renderActive gates video player. Line 164: 'Render Complete' badge. Line 174: 'Download MP4' link. (6) Playwright (null state): 'Render Now' button visible, confirmation dialog shows 'Confirm Render' + 'Cancel', no video player (correct — no render yet), no 'Render Complete' or 'Download MP4' (correct). (7) tsc --noEmit: 0 errors. (8) 0 console errors. NOTE: final_video_url output path tested via code-grep only (no rendered video in DB). Screenshots: t8004_render_tab.png, t8004_confirm_dialog.png. TAB 8 COMPLETE."
         }
       ]
     },
@@ -914,15 +940,15 @@
           "verified_by": "pipeline-tester",
           "description": "Verify: competitor cards render with VPH/confidence, confidence breakdown tooltip shows reasoning, transcript viewer opens with hook text, scrape status shows detailed errors, channel last_scraped displays.",
           "depends_on": "T10-004",
-          "error_note": "Stale: was in_progress but blocked \u2014 T10-002 (transcript viewer) and T10-004 (scrape error details) not built. Reset by orchestrator MICRO sweep 2026-04-03T05:30:00Z.",
+          "error_note": "Stale: was in_progress but blocked — T10-002 (transcript viewer) and T10-004 (scrape error details) not built. Reset by orchestrator MICRO sweep 2026-04-03T05:30:00Z.",
           "reset_count": 1,
-          "verification_notes": "PARTIAL PASS (all built features verified, T10-002 still blocked on backend). Playwright test 13/13 checks PASS on port 3003 dev server (has T10-004 changes). (1) T10-001 PASS: confidence breakdown button '52' clicks correctly \u2014 VPH Score + Freshness bars + reasoning + Total all display via AnimatePresence expand. (2) T10-003 PASS: channel pills show 'Xh ago' timestamps from last_scraped field. (3) T10-004 PASS: ScrapeErrorLog component in competitors/page.tsx (line 40-108) renders collapsible error banner when scrapeStatus?.error is truthy; correctly hidden when no error (current DB state). Code path: AlertTriangle icon + error text + ChevronDown expand + per-line detail in AnimatePresence. (4) Scrape Now button present. (5) VPH data in page. (6) GET /api/niche/channels: 200 with last_scraped. GET /api/autopilot/summary: 200 with confidence_breakdown. GET /api/niche/scrape/status: 200 with correct shape. (7) 0 console errors. (8) tsc --noEmit: 0 errors. T10-002 (transcript viewer) remains blocked on BUG-T10-002-BACKEND (no API endpoint for transcript). Screenshots: T10-005-01-competitors-page.png, T10-005-02-conf-breakdown.png, T10-005-03-final.png."
+          "verification_notes": "PARTIAL PASS (all built features verified, T10-002 still blocked on backend). Playwright test 13/13 checks PASS on port 3003 dev server (has T10-004 changes). (1) T10-001 PASS: confidence breakdown button '52' clicks correctly — VPH Score + Freshness bars + reasoning + Total all display via AnimatePresence expand. (2) T10-003 PASS: channel pills show 'Xh ago' timestamps from last_scraped field. (3) T10-004 PASS: ScrapeErrorLog component in competitors/page.tsx (line 40-108) renders collapsible error banner when scrapeStatus?.error is truthy; correctly hidden when no error (current DB state). Code path: AlertTriangle icon + error text + ChevronDown expand + per-line detail in AnimatePresence. (4) Scrape Now button present. (5) VPH data in page. (6) GET /api/niche/channels: 200 with last_scraped. GET /api/autopilot/summary: 200 with confidence_breakdown. GET /api/niche/scrape/status: 200 with correct shape. (7) 0 console errors. (8) tsc --noEmit: 0 errors. T10-002 (transcript viewer) remains blocked on BUG-T10-002-BACKEND (no API endpoint for transcript). Screenshots: T10-005-01-competitors-page.png, T10-005-02-conf-breakdown.png, T10-005-03-final.png."
         }
       ]
     },
     {
       "id": 11,
-      "name": "Discovery Ideas Page (NEW \u2014 Hero Feature)",
+      "name": "Discovery Ideas Page (NEW — Hero Feature)",
       "path": "/discovery",
       "status": "complete",
       "tasks": [
@@ -938,7 +964,7 @@
           "started_at": "2026-04-02T18:02:00Z",
           "assigned_to": "frontend-dev",
           "completed_at": "2026-04-02T18:06:00Z",
-          "description": "Create frontend/src/app/discovery/page.tsx. This is the HERO FEATURE \u2014 where AI-generated ideas appear. Layout: status bar at top (refreshing indicator, idea counts, learnings applied), idea grid below. Backend endpoints all exist: GET /api/discovery/ideas, GET /api/discovery/status, POST /api/discovery/refresh. Frontend API calls all exist in api.ts (getDiscoveryIdeas, getDiscoveryStatus, refreshDiscoveryIdeas, launchIdea, dismissIdea).",
+          "description": "Create frontend/src/app/discovery/page.tsx. This is the HERO FEATURE — where AI-generated ideas appear. Layout: status bar at top (refreshing indicator, idea counts, learnings applied), idea grid below. Backend endpoints all exist: GET /api/discovery/ideas, GET /api/discovery/status, POST /api/discovery/refresh. Frontend API calls all exist in api.ts (getDiscoveryIdeas, getDiscoveryStatus, refreshDiscoveryIdeas, launchIdea, dismissIdea).",
           "files": [
             "frontend/src/app/discovery/page.tsx"
           ]
@@ -1021,8 +1047,8 @@
           "completed_at": "2026-04-03T00:35:00Z",
           "assigned_to": "frontend-dev",
           "reopened": true,
-          "reopened_reason": "QA found: T11-006 commit f78feed only modified task-queue.json. sidebar.tsx was never updated. Discovery nav link is missing. See BUG-T11-006. RESOLVED: BUG-T11-006 fixed it \u2014 Discovery nav entry confirmed at sidebar.tsx line 29.",
-          "description": "Add Discovery to sidebar nav (sidebar.tsx navItems array) and bottom tabs between Competitors and Autopilot. Use Lightbulb icon from lucide-react. The /discovery page exists and works \u2014 just needs to be reachable from the nav.",
+          "reopened_reason": "QA found: T11-006 commit f78feed only modified task-queue.json. sidebar.tsx was never updated. Discovery nav link is missing. See BUG-T11-006. RESOLVED: BUG-T11-006 fixed it — Discovery nav entry confirmed at sidebar.tsx line 29.",
+          "description": "Add Discovery to sidebar nav (sidebar.tsx navItems array) and bottom tabs between Competitors and Autopilot. Use Lightbulb icon from lucide-react. The /discovery page exists and works — just needs to be reachable from the nav.",
           "files": [
             "frontend/src/components/nav/sidebar.tsx"
           ]
@@ -1039,12 +1065,12 @@
           "verified_at": "2026-04-02T19:45:00Z",
           "verified_by": "qa-engineer",
           "depends_on": "T11-006",
-          "verification_notes": "PARTIAL PASS \u2014 core features work, nav entry is missing (blocking BUG-T11-006). (1) GET /api/discovery/ideas returns 10 ideas with all fields (our_angle, framework, appeal_breakdown, title_options, competitor_vph). (2) Status bar shows idea count (10), fresh count (10), learnings_applied (22), last batch date, Refresh button. (3) Filter tabs All/Fresh/Launched/Dismissed functional. (4) IdeaCard renders framework pill, appeal score, 6 appeal breakdown bars, competitor thumbnail URL, Dismiss + Review & Launch buttons. (5) Dismiss works \u2014 POST /api/discovery/ideas/{id}/dismiss -> list refreshes. (6) Launch modal opens: 3 title options with scores (9/10, 8/10, 7/10), video length picker (5/10/15/20 min). (7) Full launch flow: POST /api/discovery/ideas/{id}/launch with {title_index:0, video_length_minutes:5} -> 200, new video created (GET /api/videos/{new_id}), ideas list refreshed. (8) No console errors. (9) tsc --noEmit: 0 errors. BUG: sidebar.tsx has NO Discovery entry \u2014 T11-006 commit f78feed only modified task-queue.json, never touched sidebar.tsx. See BUG-T11-006.",
+          "verification_notes": "PARTIAL PASS — core features work, nav entry is missing (blocking BUG-T11-006). (1) GET /api/discovery/ideas returns 10 ideas with all fields (our_angle, framework, appeal_breakdown, title_options, competitor_vph). (2) Status bar shows idea count (10), fresh count (10), learnings_applied (22), last batch date, Refresh button. (3) Filter tabs All/Fresh/Launched/Dismissed functional. (4) IdeaCard renders framework pill, appeal score, 6 appeal breakdown bars, competitor thumbnail URL, Dismiss + Review & Launch buttons. (5) Dismiss works — POST /api/discovery/ideas/{id}/dismiss -> list refreshes. (6) Launch modal opens: 3 title options with scores (9/10, 8/10, 7/10), video length picker (5/10/15/20 min). (7) Full launch flow: POST /api/discovery/ideas/{id}/launch with {title_index:0, video_length_minutes:5} -> 200, new video created (GET /api/videos/{new_id}), ideas list refreshed. (8) No console errors. (9) tsc --noEmit: 0 errors. BUG: sidebar.tsx has NO Discovery entry — T11-006 commit f78feed only modified task-queue.json, never touched sidebar.tsx. See BUG-T11-006.",
           "description": "Verify: GET /api/discovery/ideas returns ideas, cards render with all fields, refresh button triggers generation, title selection modal works, launch creates a video and marks idea as launched, dismiss works. tsc --noEmit passes."
         },
         {
           "id": "BUG-T11-006",
-          "title": "BUG: Discovery missing from sidebar nav \u2014 T11-006 not implemented",
+          "title": "BUG: Discovery missing from sidebar nav — T11-006 not implemented",
           "role": "frontend",
           "status": "done",
           "verified": true,
@@ -1054,7 +1080,7 @@
           "started_at": "2026-04-02T19:02:00Z",
           "assigned_to": "frontend-dev",
           "completed_at": "2026-04-02T19:04:00Z",
-          "description": "Pipeline Tester found: /discovery page has no nav entry in sidebar or bottom tabs. Playwright confirmed sidebar shows: Dashboard, Videos, Autopilot, Competitors, Visual Profile, Analytics, Settings, API Keys \u2014 no Discovery. T11-006 commit f78feed only modified task-queue.json (chore: mark T11-006 as done) \u2014 it never touched sidebar.tsx or any bottom tabs file. Fix: add { href: '/discovery', icon: Lightbulb, label: 'Discovery' } to navItems array in frontend/src/components/nav/sidebar.tsx (around line 25, between Competitors and Autopilot). Import Lightbulb from 'lucide-react'. Also add to bottom tabs if that file exists.",
+          "description": "Pipeline Tester found: /discovery page has no nav entry in sidebar or bottom tabs. Playwright confirmed sidebar shows: Dashboard, Videos, Autopilot, Competitors, Visual Profile, Analytics, Settings, API Keys — no Discovery. T11-006 commit f78feed only modified task-queue.json (chore: mark T11-006 as done) — it never touched sidebar.tsx or any bottom tabs file. Fix: add { href: '/discovery', icon: Lightbulb, label: 'Discovery' } to navItems array in frontend/src/components/nav/sidebar.tsx (around line 25, between Competitors and Autopilot). Import Lightbulb from 'lucide-react'. Also add to bottom tabs if that file exists.",
           "files": [
             "frontend/src/components/nav/sidebar.tsx"
           ]
@@ -1071,7 +1097,7 @@
           "assigned_to": "qa-engineer",
           "verified_at": "2026-04-02T20:20:00Z",
           "verified_by": "qa-engineer",
-          "verification_notes": "PASS. (1) sidebar.tsx line 27: { href: '/discovery', icon: Lightbulb, label: 'Discovery' } \u2014 Lightbulb imported at line 15. (2) Playwright on port 3002 (agent-workspace build): Discovery link count=1, positioned between /competitors and /profile in nav (correct). (3) Clicking Discovery navigates to http://localhost:3002/discovery \u2014 URL confirmed. (4) Discovery page loads (text content includes discovery-related content). (5) tsc --noEmit: 0 errors. (6) Commit d2c9ce4 diff: 2 files, 6 lines, no bloat. NOTE: Production server (port 3001) serves from main branch \u2014 fix will deploy on next git pull --ff-only to main. Verification done against agent-workspace build (correct branch).",
+          "verification_notes": "PASS. (1) sidebar.tsx line 27: { href: '/discovery', icon: Lightbulb, label: 'Discovery' } — Lightbulb imported at line 15. (2) Playwright on port 3002 (agent-workspace build): Discovery link count=1, positioned between /competitors and /profile in nav (correct). (3) Clicking Discovery navigates to http://localhost:3002/discovery — URL confirmed. (4) Discovery page loads (text content includes discovery-related content). (5) tsc --noEmit: 0 errors. (6) Commit d2c9ce4 diff: 2 files, 6 lines, no bloat. NOTE: Production server (port 3001) serves from main branch — fix will deploy on next git pull --ff-only to main. Verification done against agent-workspace build (correct branch).",
           "description": "After BUG-T11-006 is fixed, verify: (1) Playwright confirms 'Discovery' link appears in sidebar between Competitors and Autopilot. (2) Clicking nav link navigates to /discovery. (3) Bottom tabs also show Discovery if applicable. (4) tsc --noEmit passes clean. (5) No console errors.",
           "files": [
             "frontend/src/components/nav/sidebar.tsx"
@@ -1160,7 +1186,7 @@
           "role": "backend",
           "status": "done",
           "verified": true,
-          "description": "Add PATCH /api/learnings/{id}/toggle endpoint that sets active=true/false on a learning record. This lets users override discovered patterns \u2014 disable anti-patterns they disagree with, or force-disable patterns they want to test without. Register in main.py.",
+          "description": "Add PATCH /api/learnings/{id}/toggle endpoint that sets active=true/false on a learning record. This lets users override discovered patterns — disable anti-patterns they disagree with, or force-disable patterns they want to test without. Register in main.py.",
           "files": [
             "backend/routes/learning_extraction.py",
             "backend/main.py"
@@ -1170,7 +1196,7 @@
           "completed_at": "2026-04-02T03:02:00Z",
           "verified_at": "2026-04-02T03:12:00Z",
           "verified_by": "qa-engineer",
-          "verification_notes": "PATCH /{learning_id}/toggle at line 271. Reads current active state, flips it, returns new state. Router registered at main.py line 289. Diff clean \u2014 1 app file changed. No bloat."
+          "verification_notes": "PATCH /{learning_id}/toggle at line 271. Reads current active state, flips it, returns new state. Router registered at main.py line 289. Diff clean — 1 app file changed. No bloat."
         },
         {
           "id": "T12-006",
@@ -1200,16 +1226,16 @@
           "assigned_to": "pipeline-tester",
           "verified_at": "2026-04-03T05:50:00Z",
           "verified_by": "pipeline-tester",
-          "description": "Verify the full /learnings page: (1) GET /api/learnings returns patterns, PatternCard renders all fields (category pill, confidence bar, sample_size, avg_ctr, avg_retention, source_videos chips, active toggle). (2) Category filter tabs (All/Title/Hook/Framework/Script) filter correctly. (3) Extract Learnings button calls POST /api/learnings/extract, Analyze Titles calls POST /api/learnings/analyze-titles, Analyze Transcripts calls POST /api/learnings/analyze-transcripts \u2014 each shows loading spinner and result summary. (4) Enable/disable toggle calls PATCH /api/learnings/{id}/toggle and persists (pattern becomes dimmed when disabled). (5) Competitor Title Patterns section (T12-003): renders below learnings grid, shows pattern_name, avg_vph, count, confidence, and expandable example_titles list. Data from GET /api/autopilot/learnings. (6) Learnings nav entry appears in sidebar (Brain icon, /learnings path). (7) tsc --noEmit passes. (8) No console errors.",
+          "description": "Verify the full /learnings page: (1) GET /api/learnings returns patterns, PatternCard renders all fields (category pill, confidence bar, sample_size, avg_ctr, avg_retention, source_videos chips, active toggle). (2) Category filter tabs (All/Title/Hook/Framework/Script) filter correctly. (3) Extract Learnings button calls POST /api/learnings/extract, Analyze Titles calls POST /api/learnings/analyze-titles, Analyze Transcripts calls POST /api/learnings/analyze-transcripts — each shows loading spinner and result summary. (4) Enable/disable toggle calls PATCH /api/learnings/{id}/toggle and persists (pattern becomes dimmed when disabled). (5) Competitor Title Patterns section (T12-003): renders below learnings grid, shows pattern_name, avg_vph, count, confidence, and expandable example_titles list. Data from GET /api/autopilot/learnings. (6) Learnings nav entry appears in sidebar (Brain icon, /learnings path). (7) tsc --noEmit passes. (8) No console errors.",
           "depends_on": [
             "T12-006",
             "T12-003"
           ],
-          "verification_notes": "PARTIAL PASS (34/35 checks pass). Backend: GET /api/learnings returns 20 patterns with all required fields (id/category/pattern/confidence/sample_size/active/avg_ctr/avg_retention/source_videos). Category filter ?category=title returns 11 title patterns with 0 leakage. PATCH /api/learnings/{id}/toggle flips active state correctly. All 3 action endpoints (extract/analyze-titles/analyze-transcripts) return 200. Frontend (tested on dev server port 3003 \u2014 production build stale, learnings page added after last build at 00:36 but committed at 01:38): sidebar has /learnings nav entry with Brain icon \u2705, page loads with Learnings header \u2705, '20 patterns' count label \u2705, all 5 filter tabs (All/Title/Hook/Framework/Script) \u2705, all 3 action buttons \u2705, Show disabled toggle \u2705, PROVEN/AVOID verdict badges \u2705, all 4 category pills (title/framework/hook/script) \u2705, 20 toggle buttons per pattern \u2705, 20 source video expand buttons \u2705, Title filter tab narrows results \u2705, toggle click executes without crash \u2705, 0 console errors \u2705, tsc --noEmit: 0 errors \u2705. FAIL: T12-003 Competitor Title Patterns section NOT implemented \u2014 'Competitor Title Patterns' heading is absent from learnings/page.tsx (347 lines) despite task being marked done. /api/autopilot/learnings returns 20 insights but nothing in the UI consumes them. Filed BUG-T12-003. Screenshots: T12-007-full.png, T12-007-pattern-cards.png, T12-007-filter-title.png."
+          "verification_notes": "PARTIAL PASS (34/35 checks pass). Backend: GET /api/learnings returns 20 patterns with all required fields (id/category/pattern/confidence/sample_size/active/avg_ctr/avg_retention/source_videos). Category filter ?category=title returns 11 title patterns with 0 leakage. PATCH /api/learnings/{id}/toggle flips active state correctly. All 3 action endpoints (extract/analyze-titles/analyze-transcripts) return 200. Frontend (tested on dev server port 3003 — production build stale, learnings page added after last build at 00:36 but committed at 01:38): sidebar has /learnings nav entry with Brain icon ✅, page loads with Learnings header ✅, '20 patterns' count label ✅, all 5 filter tabs (All/Title/Hook/Framework/Script) ✅, all 3 action buttons ✅, Show disabled toggle ✅, PROVEN/AVOID verdict badges ✅, all 4 category pills (title/framework/hook/script) ✅, 20 toggle buttons per pattern ✅, 20 source video expand buttons ✅, Title filter tab narrows results ✅, toggle click executes without crash ✅, 0 console errors ✅, tsc --noEmit: 0 errors ✅. FAIL: T12-003 Competitor Title Patterns section NOT implemented — 'Competitor Title Patterns' heading is absent from learnings/page.tsx (347 lines) despite task being marked done. /api/autopilot/learnings returns 20 insights but nothing in the UI consumes them. Filed BUG-T12-003. Screenshots: T12-007-full.png, T12-007-pattern-cards.png, T12-007-filter-title.png."
         },
         {
           "id": "BUG-T12-003",
-          "title": "BUG: Competitor Title Patterns section not built \u2014 T12-003 marked done prematurely",
+          "title": "BUG: Competitor Title Patterns section not built — T12-003 marked done prematurely",
           "role": "frontend",
           "status": "done",
           "verified": true,
@@ -1237,8 +1263,8 @@
           "assigned_to": "qa-engineer",
           "verified_at": "2026-04-03T07:20:00Z",
           "verified_by": "qa-engineer",
-          "description": "After BUG-T12-003 is fixed, verify: (1) 'Competitor Title Patterns' heading appears in /learnings page below the learnings grid. (2) GET /api/autopilot/learnings is called \u2014 curl to confirm it returns 20 insights with fields (pattern, category, effect, confidence, sample_size, avg_ctr). (3) Each insight card renders: pattern name, avg_ctr (if present), sample_size, confidence bar. (4) Example titles are expandable (click to reveal list). (5) Loading state shows while fetching, empty state if no insights. (6) tsc --noEmit passes clean. (7) No console errors.",
-          "verification_notes": "PASS. (1) 'Competitor Title Patterns' heading present at learnings/page.tsx:207. Section is implemented below the learnings grid. (2) GET /api/autopilot/learnings (with dev-token) returns 20 insights with all required fields: id, pattern, category, effect, confidence, sample_size, avg_ctr. (3) TitleInsightCard renders: pattern name (line 388), avg_ctr badge with color thresholds (lines 390-399), confidence bar with confColor (lines 404-413), sample_size (line 406), effect text (line 419), category pill. (4) No example_titles field in /api/autopilot/learnings response \u2014 section was correctly scoped to available data. (5) Loading state: insightsLoading spinner at line 213. Empty state: 'No title insights yet. Run Analyze Titles' at line 219. (6) tsc --noEmit: 0 errors. (7) Commit f030679: 2 files changed, 88 lines added \u2014 clean, no bloat. Quality audit: no unnecessary files, no unrelated changes. Tab 12 ALL TASKS NOW VERIFIED.",
+          "description": "After BUG-T12-003 is fixed, verify: (1) 'Competitor Title Patterns' heading appears in /learnings page below the learnings grid. (2) GET /api/autopilot/learnings is called — curl to confirm it returns 20 insights with fields (pattern, category, effect, confidence, sample_size, avg_ctr). (3) Each insight card renders: pattern name, avg_ctr (if present), sample_size, confidence bar. (4) Example titles are expandable (click to reveal list). (5) Loading state shows while fetching, empty state if no insights. (6) tsc --noEmit passes clean. (7) No console errors.",
+          "verification_notes": "PASS. (1) 'Competitor Title Patterns' heading present at learnings/page.tsx:207. Section is implemented below the learnings grid. (2) GET /api/autopilot/learnings (with dev-token) returns 20 insights with all required fields: id, pattern, category, effect, confidence, sample_size, avg_ctr. (3) TitleInsightCard renders: pattern name (line 388), avg_ctr badge with color thresholds (lines 390-399), confidence bar with confColor (lines 404-413), sample_size (line 406), effect text (line 419), category pill. (4) No example_titles field in /api/autopilot/learnings response — section was correctly scoped to available data. (5) Loading state: insightsLoading spinner at line 213. Empty state: 'No title insights yet. Run Analyze Titles' at line 219. (6) tsc --noEmit: 0 errors. (7) Commit f030679: 2 files changed, 88 lines added — clean, no bloat. Quality audit: no unnecessary files, no unrelated changes. Tab 12 ALL TASKS NOW VERIFIED.",
           "files": [
             "frontend/src/app/learnings/page.tsx"
           ]
@@ -1262,7 +1288,7 @@
           "assigned_to": "frontend-dev",
           "verified_at": "2026-04-03T00:30:00Z",
           "verified_by": "qa-engineer",
-          "verification_notes": "PASS. Code: timeAgo imported from utils.ts, Production Cycle Status section added at autopilot/page.tsx. Condition (state.last_cycle || state.days_until_next > 0) \u2014 backend returns days_until_next:2 so section renders. Last cycle shows via timeAgo(state.last_cycle), Next production shows 'in 2 days' in turquoise, next_production_date formatted as 'Apr 05'. AutopilotState type in api.ts:815-819 has all 3 fields (last_cycle, days_until_next, next_production_date). tsc --noEmit: 0 errors. Diff clean: 2 files (page.tsx + queue), 32 lines. No bloat.",
+          "verification_notes": "PASS. Code: timeAgo imported from utils.ts, Production Cycle Status section added at autopilot/page.tsx. Condition (state.last_cycle || state.days_until_next > 0) — backend returns days_until_next:2 so section renders. Last cycle shows via timeAgo(state.last_cycle), Next production shows 'in 2 days' in turquoise, next_production_date formatted as 'Apr 05'. AutopilotState type in api.ts:815-819 has all 3 fields (last_cycle, days_until_next, next_production_date). tsc --noEmit: 0 errors. Diff clean: 2 files (page.tsx + queue), 32 lines. No bloat.",
           "description": "Added production cycle status line below header showing 'Last cycle: Xh ago' via timeAgo() and 'Next production: in N days' with turquoise highlight. Also shows next_production_date formatted as 'Mon DD'. Only renders when data exists.",
           "files": [
             "frontend/src/app/autopilot/page.tsx"
@@ -1280,8 +1306,8 @@
           "assigned_to": "qa-engineer",
           "verified_at": "2026-04-03T00:30:00Z",
           "verified_by": "qa-engineer",
-          "verification_notes": "PASS \u2014 see T13-001 verification_notes for full details.",
-          "description": "Verify T13-001 implementation: (1) Autopilot page shows 'Last cycle: Xh ago' text using timeAgo() when last_cycle is present in API response. (2) 'Next production: in N days' line renders with turquoise highlight when days_until_next is present. (3) next_production_date displays as formatted date (e.g. 'Mon DD'). (4) Section does NOT render when data is absent (null/undefined guard). (5) Values come from GET /api/autopilot/summary \u2014 curl to verify last_cycle and days_until_next fields are returned. (6) tsc --noEmit passes clean. (7) No console errors.",
+          "verification_notes": "PASS — see T13-001 verification_notes for full details.",
+          "description": "Verify T13-001 implementation: (1) Autopilot page shows 'Last cycle: Xh ago' text using timeAgo() when last_cycle is present in API response. (2) 'Next production: in N days' line renders with turquoise highlight when days_until_next is present. (3) next_production_date displays as formatted date (e.g. 'Mon DD'). (4) Section does NOT render when data is absent (null/undefined guard). (5) Values come from GET /api/autopilot/summary — curl to verify last_cycle and days_until_next fields are returned. (6) tsc --noEmit passes clean. (7) No console errors.",
           "files": [
             "frontend/src/app/autopilot/page.tsx"
           ]
@@ -1300,7 +1326,7 @@
           "verified": true,
           "verified_at": "2026-04-03T06:00:00Z",
           "verified_by": "orchestrator",
-          "verification_notes": "PASS \u2014 superseded by T13-008 which implemented the same feature and was verified. No independent verification needed."
+          "verification_notes": "PASS — superseded by T13-008 which implemented the same feature and was verified. No independent verification needed."
         },
         {
           "id": "T13-003",
@@ -1313,8 +1339,8 @@
           "assigned_to": "frontend-dev",
           "verified_at": "2026-04-03T08:30:00Z",
           "verified_by": "qa-engineer",
-          "verification_notes": "PASS. YouTube Metrics section in page.tsx (line 812+): 'Sync Now' button calls syncYouTubeMetrics() -> POST /api/youtube/sync (returns {status:started}). Progress bar polls getYouTubeSyncStatus() every 3s (refetchInterval:isSyncing?3000:false). GET /api/youtube/sync/status returns {is_running,videos_synced,videos_total,error,last_run} \u2014 all 5 fields used in UI. Last sync via timeAgo(). Error section renders when syncStatus?.error. TypeScript type YouTubeSyncStatus at api.ts:466-472 matches endpoint exactly. tsc --noEmit: 0 errors. npm run build: clean. No bloat: commit c817327 is 1 app file change.",
-          "description": "Added YouTube Metrics section to autopilot page with Sync Now button (POST /api/youtube/sync), progress bar with videos_synced/videos_total while running (polls GET /api/youtube/sync/status every 3s), last sync time via timeAgo(), synced count, and error display. No new API calls needed \u2014 used existing syncYouTubeMetrics() and getYouTubeSyncStatus() from api.ts.",
+          "verification_notes": "PASS. YouTube Metrics section in page.tsx (line 812+): 'Sync Now' button calls syncYouTubeMetrics() -> POST /api/youtube/sync (returns {status:started}). Progress bar polls getYouTubeSyncStatus() every 3s (refetchInterval:isSyncing?3000:false). GET /api/youtube/sync/status returns {is_running,videos_synced,videos_total,error,last_run} — all 5 fields used in UI. Last sync via timeAgo(). Error section renders when syncStatus?.error. TypeScript type YouTubeSyncStatus at api.ts:466-472 matches endpoint exactly. tsc --noEmit: 0 errors. npm run build: clean. No bloat: commit c817327 is 1 app file change.",
+          "description": "Added YouTube Metrics section to autopilot page with Sync Now button (POST /api/youtube/sync), progress bar with videos_synced/videos_total while running (polls GET /api/youtube/sync/status every 3s), last sync time via timeAgo(), synced count, and error display. No new API calls needed — used existing syncYouTubeMetrics() and getYouTubeSyncStatus() from api.ts.",
           "files": [
             "frontend/src/app/autopilot/page.tsx"
           ]
@@ -1348,7 +1374,7 @@
           "assigned_to": "backend-dev",
           "verified_at": "2026-04-02T04:08:00Z",
           "verified_by": "qa-engineer",
-          "verification_notes": "GET /api/autopilot/tasks at autopilot.py line 586. Returns 4 tasks (scrape, youtube_sync, learning_extraction, title_analysis) with last_run, is_running, last_error. Merges bg status from main.py loops with user-triggered status from niche._scrape_tasks and youtube_sync._sync_tasks. Router already registered at main.py line 304. _update_bg_status helper in main.py updates status on start/success/error. Diff clean \u2014 2 app files changed, no bloat.",
+          "verification_notes": "GET /api/autopilot/tasks at autopilot.py line 586. Returns 4 tasks (scrape, youtube_sync, learning_extraction, title_analysis) with last_run, is_running, last_error. Merges bg status from main.py loops with user-triggered status from niche._scrape_tasks and youtube_sync._sync_tasks. Router already registered at main.py line 304. _update_bg_status helper in main.py updates status on start/success/error. Diff clean — 2 app files changed, no bloat.",
           "description": "Add GET /api/autopilot/tasks endpoint that returns status of all 4 background tasks: scrape (from _scrape_tasks), youtube_sync (from _sync_tasks), learning_extraction (from extraction results), title_analysis (from analysis results). Include last_run, is_running, last_error for each.",
           "files": [
             "backend/routes/autopilot.py",
@@ -1366,13 +1392,13 @@
           "assigned_to": "qa-engineer",
           "verified_at": "2026-04-03T01:15:00Z",
           "verified_by": "qa-engineer",
-          "verification_notes": "PARTIAL PASS \u2014 core toggle works, basic config works, but T13-001/T13-002/T13-003/T13-004 frontend features not yet built. (1) Toggle: POST /api/autopilot/toggle {enabled:bool} \u2192 {status:ok, enabled:bool} \u2014 persists to DB, re-read on /api/autopilot/summary confirms state change. \u2705 (2) Config (videos_per_month, videos_per_scrape): inline click-to-edit in UI works, calls updateAutopilotConfig \u2192 POST /api/autopilot/config \u2014 persists. \u2705 (3) Weights/thresholds editing: NOT BUILT \u2014 ConfigUpdate model (autopilot.py line 389) only accepts videos_per_month/videos_per_scrape/production_interval_days, NOT weights or thresholds. Frontend api.ts:292 matches this limited model. T13-002 is blocked by backend bug \u2014 filed as BUG-T13-002-BACKEND. (4) YouTube Sync UI (T13-003): NOT BUILT \u2014 no sync button on autopilot page. Backend syncYouTubeMetrics exists in api.ts:463 but never called from autopilot page. (5) Background task status panel (T13-004): NOT BUILT \u2014 GET /api/autopilot/tasks returns all 4 tasks correctly (scrape, youtube_sync, learning_extraction, title_analysis all with last_run/is_running/last_error). But no UI panel renders this data. (6) Last_cycle/next production display (T13-001): state.days_until_next=2 returned by backend but frontend shows 'click to edit' for Target/Month only \u2014 no 'Last cycle: X ago' or 'Next production in: 2 days' text visible. (7) 0 console errors. (8) tsc: 0 errors. Verdict: toggle+basic config work; T13-001 to T13-004 frontend tasks not yet implemented.",
+          "verification_notes": "PARTIAL PASS — core toggle works, basic config works, but T13-001/T13-002/T13-003/T13-004 frontend features not yet built. (1) Toggle: POST /api/autopilot/toggle {enabled:bool} → {status:ok, enabled:bool} — persists to DB, re-read on /api/autopilot/summary confirms state change. ✅ (2) Config (videos_per_month, videos_per_scrape): inline click-to-edit in UI works, calls updateAutopilotConfig → POST /api/autopilot/config — persists. ✅ (3) Weights/thresholds editing: NOT BUILT — ConfigUpdate model (autopilot.py line 389) only accepts videos_per_month/videos_per_scrape/production_interval_days, NOT weights or thresholds. Frontend api.ts:292 matches this limited model. T13-002 is blocked by backend bug — filed as BUG-T13-002-BACKEND. (4) YouTube Sync UI (T13-003): NOT BUILT — no sync button on autopilot page. Backend syncYouTubeMetrics exists in api.ts:463 but never called from autopilot page. (5) Background task status panel (T13-004): NOT BUILT — GET /api/autopilot/tasks returns all 4 tasks correctly (scrape, youtube_sync, learning_extraction, title_analysis all with last_run/is_running/last_error). But no UI panel renders this data. (6) Last_cycle/next production display (T13-001): state.days_until_next=2 returned by backend but frontend shows 'click to edit' for Target/Month only — no 'Last cycle: X ago' or 'Next production in: 2 days' text visible. (7) 0 console errors. (8) tsc: 0 errors. Verdict: toggle+basic config work; T13-001 to T13-004 frontend tasks not yet implemented.",
           "description": "Verify: toggle works, config changes persist (weights + thresholds), YouTube sync button triggers and shows progress, background task status panel shows real data. Full wiring audit of all autopilot features.",
           "depends_on": "T13-005"
         },
         {
           "id": "BUG-T13-002-BACKEND",
-          "title": "BUG: ConfigUpdate model missing weights/thresholds \u2014 T13-002 blocked",
+          "title": "BUG: ConfigUpdate model missing weights/thresholds — T13-002 blocked",
           "role": "backend",
           "status": "done",
           "verified": true,
@@ -1381,8 +1407,8 @@
           "assigned_to": "backend-dev",
           "verified_at": "2026-04-03T00:35:00Z",
           "verified_by": "qa-engineer",
-          "verification_notes": "PASS. autopilot.py:394-395: weights/thresholds Optional[dict] in ConfigUpdate. UPDATE path lines 438-448 adds JSONB params for both. INSERT path lines 456-468 handles both columns. schema.sql lines 466-467 confirm JSONB columns exist. Test: POST {weights:{competitor_vph:0.77}} \u2192 summary shows 0.77 \u2705. POST {thresholds:{min_confidence_score:65}} \u2192 returns 65 \u2705. Persists across requests. Reset to defaults confirmed. Commit 72c5e48 diff: 2 files, 30 lines, no bloat. T13-008 unblocked.",
-          "description": "Pipeline Tester found: POST /api/autopilot/config (autopilot.py line 389, ConfigUpdate model) only accepts videos_per_month, production_interval_days, videos_per_scrape \u2014 it does NOT accept weights dict or thresholds dict. T13-002 spec says 'Backend POST /api/autopilot/config accepts weights (competitor_vph, timing_freshness) and thresholds (min_confidence_score, etc.)'. Also the autopilot_config DB table likely has no weights/thresholds columns. Fix: (1) Add weights: Optional[dict] and thresholds: Optional[dict] to ConfigUpdate model. (2) Add JSONB columns to autopilot_config table if not present. (3) Update the SQL UPDATE/INSERT in update_config() to persist weights and thresholds. Also update frontend api.ts:292 updateAutopilotConfig to include weights and thresholds in the type.",
+          "verification_notes": "PASS. autopilot.py:394-395: weights/thresholds Optional[dict] in ConfigUpdate. UPDATE path lines 438-448 adds JSONB params for both. INSERT path lines 456-468 handles both columns. schema.sql lines 466-467 confirm JSONB columns exist. Test: POST {weights:{competitor_vph:0.77}} → summary shows 0.77 ✅. POST {thresholds:{min_confidence_score:65}} → returns 65 ✅. Persists across requests. Reset to defaults confirmed. Commit 72c5e48 diff: 2 files, 30 lines, no bloat. T13-008 unblocked.",
+          "description": "Pipeline Tester found: POST /api/autopilot/config (autopilot.py line 389, ConfigUpdate model) only accepts videos_per_month, production_interval_days, videos_per_scrape — it does NOT accept weights dict or thresholds dict. T13-002 spec says 'Backend POST /api/autopilot/config accepts weights (competitor_vph, timing_freshness) and thresholds (min_confidence_score, etc.)'. Also the autopilot_config DB table likely has no weights/thresholds columns. Fix: (1) Add weights: Optional[dict] and thresholds: Optional[dict] to ConfigUpdate model. (2) Add JSONB columns to autopilot_config table if not present. (3) Update the SQL UPDATE/INSERT in update_config() to persist weights and thresholds. Also update frontend api.ts:292 updateAutopilotConfig to include weights and thresholds in the type.",
           "files": [
             "backend/routes/autopilot.py",
             "frontend/src/lib/api.ts"
@@ -1397,7 +1423,7 @@
           "completed_at": "2026-04-03T00:40:00Z",
           "assigned_to": "frontend-dev",
           "depends_on": "BUG-T13-002-BACKEND",
-          "description": "Backend now accepts weights dict and thresholds dict in POST /api/autopilot/config (BUG-T13-002-BACKEND fixed). Build the editing UI: sliders or number inputs for the 6 weight fields (competitor_vph, topic_channel_fit, timing_freshness, channel_momentum, retention_patterns, title_formula) and 5 threshold fields (min_confidence_score, min_competitor_vph, max_idea_age_days, ctr_success_threshold, ctr_failure_threshold). Save via updateAutopilotConfig() in api.ts \u2014 updateAutopilotConfig type was also updated to include weights/thresholds. Place in the existing autopilot page config section. Show current values from GET /api/autopilot/summary (config.weights / config.thresholds).",
+          "description": "Backend now accepts weights dict and thresholds dict in POST /api/autopilot/config (BUG-T13-002-BACKEND fixed). Build the editing UI: sliders or number inputs for the 6 weight fields (competitor_vph, topic_channel_fit, timing_freshness, channel_momentum, retention_patterns, title_formula) and 5 threshold fields (min_confidence_score, min_competitor_vph, max_idea_age_days, ctr_success_threshold, ctr_failure_threshold). Save via updateAutopilotConfig() in api.ts — updateAutopilotConfig type was also updated to include weights/thresholds. Place in the existing autopilot page config section. Show current values from GET /api/autopilot/summary (config.weights / config.thresholds).",
           "files": [
             "frontend/src/app/autopilot/page.tsx",
             "frontend/src/lib/api.ts"
@@ -1405,7 +1431,7 @@
           "verified": true,
           "verified_at": "2026-04-03T04:10:00Z",
           "verified_by": "qa-engineer",
-          "verification_notes": "PASS. Commit 99e5f99: page.tsx adds WEIGHT_LABELS/THRESHOLD_LABELS maps, editingWeights/editingThresholds state, handleSaveWeights/handleSaveThresholds call updateAutopilotConfig({weights})/({thresholds}). UI shows sliders for config.weights (2 fields: competitor_vph, timing_freshness from backend) and config.thresholds (5 fields). Save/Cancel buttons with loading spinner. api.ts line 292 updateAutopilotConfig type updated to include weights/thresholds Optional[dict]. tsc --noEmit: 0 errors. npm run build: clean. NOTE: UI shows 2 weight sliders (only what backend returns) \u2014 spec mentioned 6 but backend autopilot_config only stores 2. Correct behavior for data-driven rendering."
+          "verification_notes": "PASS. Commit 99e5f99: page.tsx adds WEIGHT_LABELS/THRESHOLD_LABELS maps, editingWeights/editingThresholds state, handleSaveWeights/handleSaveThresholds call updateAutopilotConfig({weights})/({thresholds}). UI shows sliders for config.weights (2 fields: competitor_vph, timing_freshness from backend) and config.thresholds (5 fields). Save/Cancel buttons with loading spinner. api.ts line 292 updateAutopilotConfig type updated to include weights/thresholds Optional[dict]. tsc --noEmit: 0 errors. npm run build: clean. NOTE: UI shows 2 weight sliders (only what backend returns) — spec mentioned 6 but backend autopilot_config only stores 2. Correct behavior for data-driven rendering."
         },
         {
           "id": "T13-009",
@@ -1441,25 +1467,25 @@
           "verified": true,
           "verified_at": "2026-04-03T04:15:00Z",
           "verified_by": "qa-engineer",
-          "verification_notes": "PASS. Full verification: (1) Confidence Weights section shows sliders for all keys in config.weights (competitor_vph, timing_freshness \u2014 2 fields backend currently stores). Spec says 6 but backend default only stores 2 \u2014 UI correctly renders backend data. WEIGHT_LABELS map has all 6 labels ready for when backend adds more. (2) Thresholds section shows 5 sliders (min_confidence_score, min_competitor_vph, max_idea_age_days, ctr_failure_threshold, ctr_success_threshold) with gold accents, correct min/max/step from THRESHOLD_LABELS. (3) POST /api/autopilot/config {weights:{competitor_vph:0.40}} \u2192 returns {weights:{competitor_vph:0.4,timing_freshness:0.6}} \u2713. (4) GET /api/autopilot/summary after save returns updated values \u2713. (5) Persists across requests \u2713. (6) updateAutopilotConfig in api.ts:292 accepts weights/thresholds Optional[dict] \u2713. (7) tsc --noEmit: 0 errors. (8) npm run build: clean. (9) No bloat: commit 99e5f99 = 2 files (page.tsx + api.ts), ~280 line diff = appropriate for this UI."
+          "verification_notes": "PASS. Full verification: (1) Confidence Weights section shows sliders for all keys in config.weights (competitor_vph, timing_freshness — 2 fields backend currently stores). Spec says 6 but backend default only stores 2 — UI correctly renders backend data. WEIGHT_LABELS map has all 6 labels ready for when backend adds more. (2) Thresholds section shows 5 sliders (min_confidence_score, min_competitor_vph, max_idea_age_days, ctr_failure_threshold, ctr_success_threshold) with gold accents, correct min/max/step from THRESHOLD_LABELS. (3) POST /api/autopilot/config {weights:{competitor_vph:0.40}} → returns {weights:{competitor_vph:0.4,timing_freshness:0.6}} ✓. (4) GET /api/autopilot/summary after save returns updated values ✓. (5) Persists across requests ✓. (6) updateAutopilotConfig in api.ts:292 accepts weights/thresholds Optional[dict] ✓. (7) tsc --noEmit: 0 errors. (8) npm run build: clean. (9) No bloat: commit 99e5f99 = 2 files (page.tsx + api.ts), ~280 line diff = appropriate for this UI."
         },
         {
           "id": "BUG-T13-STRIPE",
-          "title": "BUG: stripe module not in requirements.txt \u2014 backend crashes on fresh deploy",
+          "title": "BUG: stripe module not in requirements.txt — backend crashes on fresh deploy",
           "role": "backend",
           "status": "done",
           "verified": true,
           "started_at": "2026-04-03T01:00:00Z",
           "completed_at": "2026-04-03T01:02:00Z",
           "assigned_to": "pipeline-tester",
-          "description": "QA found: billing.py imports stripe at top level but stripe is not listed in storyengine/backend/requirements.txt. Backend crashes with ModuleNotFoundError on startup if stripe is not installed. Manually installed with pip to unblock QA session. Fix: add 'stripe' to requirements.txt. Run: pip install stripe && pip freeze | grep stripe >> requirements.txt (or add manually: stripe==15.0.1 or just stripe>=10.0.0). This is a deployment blocker \u2014 any fresh install or CI/CD run will fail.",
+          "description": "QA found: billing.py imports stripe at top level but stripe is not listed in storyengine/backend/requirements.txt. Backend crashes with ModuleNotFoundError on startup if stripe is not installed. Manually installed with pip to unblock QA session. Fix: add 'stripe' to requirements.txt. Run: pip install stripe && pip freeze | grep stripe >> requirements.txt (or add manually: stripe==15.0.1 or just stripe>=10.0.0). This is a deployment blocker — any fresh install or CI/CD run will fail.",
           "files": [
             "backend/requirements.txt"
           ]
         },
         {
           "id": "BUG-T13-STRIPE-QA",
-          "title": "QA verify stripe in requirements.txt \u2014 backend starts clean",
+          "title": "QA verify stripe in requirements.txt — backend starts clean",
           "role": "qa",
           "status": "done",
           "verified": true,
@@ -1469,8 +1495,8 @@
           "assigned_to": "pipeline-tester",
           "verified_at": "2026-04-03T01:05:00Z",
           "verified_by": "pipeline-tester",
-          "verification_notes": "PASS. (1) grep 'stripe' requirements.txt \u2192 'stripe>=10.0.0' present. (2) stripe importable (version 15.0.1 installed). (3) Backend health check returns {status:ok} \u2014 no ModuleNotFoundError. All 3 checks pass. Deployment blocker resolved.",
-          "description": "After BUG-T13-STRIPE is fixed, verify: (1) grep 'stripe' storyengine/backend/requirements.txt shows a pinned stripe entry. (2) cd storyengine/backend && pip install -r requirements.txt completes without error in a clean venv. (3) Backend starts without ModuleNotFoundError: python -m uvicorn main:app --port 8001 reaches 'Application startup complete'. This is a deployment blocker fix \u2014 confirm it's actually resolved before marking done.",
+          "verification_notes": "PASS. (1) grep 'stripe' requirements.txt → 'stripe>=10.0.0' present. (2) stripe importable (version 15.0.1 installed). (3) Backend health check returns {status:ok} — no ModuleNotFoundError. All 3 checks pass. Deployment blocker resolved.",
+          "description": "After BUG-T13-STRIPE is fixed, verify: (1) grep 'stripe' storyengine/backend/requirements.txt shows a pinned stripe entry. (2) cd storyengine/backend && pip install -r requirements.txt completes without error in a clean venv. (3) Backend starts without ModuleNotFoundError: python -m uvicorn main:app --port 8001 reaches 'Application startup complete'. This is a deployment blocker fix — confirm it's actually resolved before marking done.",
           "files": [
             "backend/requirements.txt"
           ]
@@ -1487,8 +1513,8 @@
           "assigned_to": "qa-engineer",
           "verified_at": "2026-04-03T08:30:00Z",
           "verified_by": "qa-engineer",
-          "verification_notes": "PASS. All 7 checklist items verified. (1) YouTube Metrics section present at page.tsx line 812 with heading, last sync time (timeAgo), synced count. (2) Sync Now button calls syncYouTubeMetrics() -> POST /api/youtube/sync -> returns {status:started,message:...}. (3) Progress bar: refetchInterval:isSyncing?3000:false polls GET /api/youtube/sync/status while running, videos_synced/videos_total displayed. (4) Error display: syncStatus?.error conditional at line 884 shows red error section. (5) GET /api/youtube/sync/status returns {is_running:false,videos_synced:0,videos_total:0,error:null,last_run:null} \u2014 all 5 fields match YouTubeSyncStatus interface at api.ts:466-472 exactly. (6) tsc --noEmit: 0 errors. (7) Console errors: auth redirect to /login expected (by design per qa-engineer memory). Code path fully verified.",
-          "description": "Verify T13-003 YouTube Sync section on autopilot page: (1) YouTube Metrics section renders with last sync time via timeAgo() and synced count. (2) Sync Now button calls POST /api/youtube/sync \u2014 curl to confirm endpoint exists and returns a running status. (3) Progress bar appears while syncing: polls GET /api/youtube/sync/status every 3s showing videos_synced/videos_total. (4) Error display shown when sync fails. (5) All values come from real API \u2014 curl GET /api/youtube/sync/status to confirm response shape matches what UI expects. (6) tsc --noEmit passes clean. (7) No console errors.",
+          "verification_notes": "PASS. All 7 checklist items verified. (1) YouTube Metrics section present at page.tsx line 812 with heading, last sync time (timeAgo), synced count. (2) Sync Now button calls syncYouTubeMetrics() -> POST /api/youtube/sync -> returns {status:started,message:...}. (3) Progress bar: refetchInterval:isSyncing?3000:false polls GET /api/youtube/sync/status while running, videos_synced/videos_total displayed. (4) Error display: syncStatus?.error conditional at line 884 shows red error section. (5) GET /api/youtube/sync/status returns {is_running:false,videos_synced:0,videos_total:0,error:null,last_run:null} — all 5 fields match YouTubeSyncStatus interface at api.ts:466-472 exactly. (6) tsc --noEmit: 0 errors. (7) Console errors: auth redirect to /login expected (by design per qa-engineer memory). Code path fully verified.",
+          "description": "Verify T13-003 YouTube Sync section on autopilot page: (1) YouTube Metrics section renders with last sync time via timeAgo() and synced count. (2) Sync Now button calls POST /api/youtube/sync — curl to confirm endpoint exists and returns a running status. (3) Progress bar appears while syncing: polls GET /api/youtube/sync/status every 3s showing videos_synced/videos_total. (4) Error display shown when sync fails. (5) All values come from real API — curl GET /api/youtube/sync/status to confirm response shape matches what UI expects. (6) tsc --noEmit passes clean. (7) No console errors.",
           "files": [
             "frontend/src/app/autopilot/page.tsx"
           ]
@@ -1531,8 +1557,8 @@
           "assigned_to": "qa-engineer",
           "verified_at": "2026-04-03T02:30:00Z",
           "verified_by": "qa-engineer",
-          "verification_notes": "PASS. (1) /settings page loads without redirect \u2014 channel profile form shows CHANNEL NAME, NICHE, TARGET AUDIENCE, Frameworks (10 toggles), Accent Color, Integrations (YouTube/Google Drive). Save button works with confirmation. (2) /settings/keys loads \u2014 all 6 key groups visible (Anthropic, ElevenLabs, Kie.ai, OpenAI, Gemini, Google), 8 edit buttons, 4 test buttons, edit modal opens with password input. Status indicators ('\u2022\u2022\u2022...' masked values) present. (3) Visual Identity section on /settings is a link to /profile \u2014 by design. /profile shows AI Visual Profile Generator + account section. (4) Backend: GET /api/settings/keys \u2192 14 keys (name/configured/source/masked_value schema). GET .../reveal \u2192 returns actual value. POST .../test \u2192 success=True. POST .../keys/KEY set \u2192 200. GET/PUT /api/projects/current \u2192 name/visual_style/accent/frameworks. PUT saves OK. GET /api/visual-styles \u2192 0 (no custom styles for dev tenant \u2014 expected). Note: /api/visual-styles/ID/activate uses PUT (not POST) \u2014 frontend correctly uses PUT. (5) tsc --noEmit: 0 errors. (6) 0 console errors. TAB 14 COMPLETE.",
-          "description": "Verify: key management CRUD works, project settings save, visual style creation/activation works. These are all built \u2014 verify wiring."
+          "verification_notes": "PASS. (1) /settings page loads without redirect — channel profile form shows CHANNEL NAME, NICHE, TARGET AUDIENCE, Frameworks (10 toggles), Accent Color, Integrations (YouTube/Google Drive). Save button works with confirmation. (2) /settings/keys loads — all 6 key groups visible (Anthropic, ElevenLabs, Kie.ai, OpenAI, Gemini, Google), 8 edit buttons, 4 test buttons, edit modal opens with password input. Status indicators ('•••...' masked values) present. (3) Visual Identity section on /settings is a link to /profile — by design. /profile shows AI Visual Profile Generator + account section. (4) Backend: GET /api/settings/keys → 14 keys (name/configured/source/masked_value schema). GET .../reveal → returns actual value. POST .../test → success=True. POST .../keys/KEY set → 200. GET/PUT /api/projects/current → name/visual_style/accent/frameworks. PUT saves OK. GET /api/visual-styles → 0 (no custom styles for dev tenant — expected). Note: /api/visual-styles/ID/activate uses PUT (not POST) — frontend correctly uses PUT. (5) tsc --noEmit: 0 errors. (6) 0 console errors. TAB 14 COMPLETE.",
+          "description": "Verify: key management CRUD works, project settings save, visual style creation/activation works. These are all built — verify wiring."
         }
       ]
     },
@@ -1590,7 +1616,7 @@
           "assigned_to": "qa-engineer",
           "verified_at": "2026-04-02T20:08:00Z",
           "verified_by": "qa-engineer",
-          "verification_notes": "PASS. Full analytics dashboard wiring audit. (1) 3 backend endpoints in analytics.py (overview, ctr-timeline, framework-performance), router registered main.py:314. (2) 3 frontend types in api.ts (AnalyticsOverview, CTRTimelinePoint, FrameworkPerformance) \u2014 all field names match backend dict keys exactly. (3) 3 API functions hit correct /api/analytics/* paths. (4) Page renders: 4 StatCards from overview, dual-axis LineChart (views+CTR) from ctr-timeline, horizontal BarChart+table from framework-performance, sortable video table from getVideos, System Intelligence from getLearnings. (5) YouTube Sync button wired with progress polling and query invalidation. (6) Loading states: full page spinner + chart spinner. (7) Empty states for chart, table, learnings, proven/avoid patterns. (8) tsc --noEmit: 0 errors. (9) npm run build: clean. (10) No bloat in commits f60c6e1 (backend) or 6e8b53a (frontend). TAB 15 COMPLETE.",
+          "verification_notes": "PASS. Full analytics dashboard wiring audit. (1) 3 backend endpoints in analytics.py (overview, ctr-timeline, framework-performance), router registered main.py:314. (2) 3 frontend types in api.ts (AnalyticsOverview, CTRTimelinePoint, FrameworkPerformance) — all field names match backend dict keys exactly. (3) 3 API functions hit correct /api/analytics/* paths. (4) Page renders: 4 StatCards from overview, dual-axis LineChart (views+CTR) from ctr-timeline, horizontal BarChart+table from framework-performance, sortable video table from getVideos, System Intelligence from getLearnings. (5) YouTube Sync button wired with progress polling and query invalidation. (6) Loading states: full page spinner + chart spinner. (7) Empty states for chart, table, learnings, proven/avoid patterns. (8) tsc --noEmit: 0 errors. (9) npm run build: clean. (10) No bloat in commits f60c6e1 (backend) or 6e8b53a (frontend). TAB 15 COMPLETE.",
           "description": "Verify analytics endpoints return correct aggregations. Verify charts render with real data. Verify numbers match what's in the database.",
           "depends_on": "T15-002"
         }
@@ -1656,7 +1682,7 @@
         },
         {
           "id": "BUG-PT-001",
-          "title": "BUG: Profile API returns 404 \u2014 'Loading profile...' never resolves",
+          "title": "BUG: Profile API returns 404 — 'Loading profile...' never resolves",
           "role": "backend",
           "status": "done",
           "verified": true,
@@ -1666,7 +1692,7 @@
           "verified_at": "2026-04-02T16:04:00Z",
           "verified_by": "qa-engineer",
           "verification_notes": "PASS. profile.py:30-37 auto-creates dev account via INSERT ON CONFLICT DO NOTHING. curl GET /api/profile returns {id, email, display_name, plan, created_at} correctly. Router registered main.py. Commit a968a95 clean: 2 files, 14 lines, no bloat.",
-          "description": "Pipeline Tester found: Navigate to /profile \u2192 Account section shows 'Loading profile...' indefinitely \u2192 GET /api/profile returns HTTP 404 'Not Found'. The route exists in routes/profile.py and is registered in main.py line 315, but the running server's OpenAPI schema does NOT include /api/profile \u2014 only /api/channel-profile appears. Root cause: either (1) the server hasn't been restarted since the route was added, or (2) the DEV_ACCOUNT_ID '00000000-0000-0000-0000-000000000001' doesn't exist in the accounts table. Fix: restart backend server and/or seed dev account. Screenshot: screenshots/pt-profile-detail.png.",
+          "description": "Pipeline Tester found: Navigate to /profile → Account section shows 'Loading profile...' indefinitely → GET /api/profile returns HTTP 404 'Not Found'. The route exists in routes/profile.py and is registered in main.py line 315, but the running server's OpenAPI schema does NOT include /api/profile — only /api/channel-profile appears. Root cause: either (1) the server hasn't been restarted since the route was added, or (2) the DEV_ACCOUNT_ID '00000000-0000-0000-0000-000000000001' doesn't exist in the accounts table. Fix: restart backend server and/or seed dev account. Screenshot: screenshots/pt-profile-detail.png.",
           "files": [
             "backend/routes/profile.py",
             "backend/main.py"
@@ -1771,7 +1797,7 @@
           "assigned_to": "qa-engineer",
           "verified_at": "2026-04-03T01:30:00Z",
           "verified_by": "qa-engineer",
-          "verification_notes": "PASS (with Stripe not configured). (1) POST /api/auth/register returns JWT + user {id, email, display_name, plan='free'} \u2014 new account+tenant created per call. (2) POST /api/auth/login authenticates and returns JWT. (3) GET /api/auth/me with JWT returns correct user+tenant_id. (4) JWT works for all protected endpoints: /api/billing/subscription returns {plan:'free', has_subscription:false}, /api/videos returns 0 (tenant isolated \u2014 dev user has 5, new user has 0). (5) Google OAuth endpoint accepts 'credential' field, returns 'Invalid Google token' for bad token (cannot test real Google token without client_id). (6) Stripe checkout: returns 'Stripe not configured' (expected without STRIPE_SECRET_KEY). Webhook similarly returns 'Stripe not configured'. (7) Playwright: unauthenticated / redirects to /login. With JWT token in localStorage: /settings loads, Billing & Plan section visible, Starter/Pro/Agency plan cards show, Subscribe buttons present. 0 console errors. (8) Duplicate email returns 400 'An account with this email already exists'. Wrong password returns 401 'Invalid email or password'. (9) tsc --noEmit: 0 errors. NOTE: Full Stripe+Google OAuth test requires live credentials (STRIPE_SECRET_KEY, GOOGLE_CLIENT_ID) \u2014 all code paths are correctly wired and fail gracefully without them."
+          "verification_notes": "PASS (with Stripe not configured). (1) POST /api/auth/register returns JWT + user {id, email, display_name, plan='free'} — new account+tenant created per call. (2) POST /api/auth/login authenticates and returns JWT. (3) GET /api/auth/me with JWT returns correct user+tenant_id. (4) JWT works for all protected endpoints: /api/billing/subscription returns {plan:'free', has_subscription:false}, /api/videos returns 0 (tenant isolated — dev user has 5, new user has 0). (5) Google OAuth endpoint accepts 'credential' field, returns 'Invalid Google token' for bad token (cannot test real Google token without client_id). (6) Stripe checkout: returns 'Stripe not configured' (expected without STRIPE_SECRET_KEY). Webhook similarly returns 'Stripe not configured'. (7) Playwright: unauthenticated / redirects to /login. With JWT token in localStorage: /settings loads, Billing & Plan section visible, Starter/Pro/Agency plan cards show, Subscribe buttons present. 0 console errors. (8) Duplicate email returns 400 'An account with this email already exists'. Wrong password returns 401 'Invalid email or password'. (9) tsc --noEmit: 0 errors. NOTE: Full Stripe+Google OAuth test requires live credentials (STRIPE_SECRET_KEY, GOOGLE_CLIENT_ID) — all code paths are correctly wired and fail gracefully without them."
         },
         {
           "id": "T17-006",
@@ -1779,8 +1805,8 @@
           "role": "qa",
           "status": "done",
           "depends_on": "T17-002",
-          "description": "Verify T17-002 auth frontend wiring: (1) GET / redirects to /login when no JWT in localStorage. (2) /login renders Google Sign-In button (GIS script loaded, button div present). (3) AuthProvider wraps app \u2014 useAuth() returns { user, login, logout }. (4) After mock login (set localStorage token to dev-token), AuthenticatedShell shows sidebar + content without redirect. (5) Logout clears localStorage token and redirects to /login. (6) fetchApi in api.ts reads Authorization header from localStorage on every request. (7) tsc --noEmit passes clean. (8) No console errors on /login page.",
-          "verification_notes": "PASS with note. (1) \u2705 GET / redirects to /login \u2014 AuthenticatedShell useEffect fires when !user && !isPublicPath. (2) \u2705 /login renders with button container div and GIS script tag. (3) \u2705 AuthProvider.tsx exports useAuth, login, logout, isLoading. (4) \u26a0\ufe0f dev-token does NOT show shell \u2014 AuthProvider:38 skips getMe() when token==='dev-token', so user stays null and shell redirects back to login. Design choice: dev-token is for API calls (fetchApi fallback), not mock auth. Real JWT from Google OAuth creates the session. Not a regression. (5) \u2705 logout() calls localStorage.removeItem('token') + setUser(null). (6) \u2705 fetchApi reads localStorage token or falls back to 'dev-token' as Authorization header. (7) \u2705 tsc --noEmit passes clean (zero errors). (8) \u2705 No blocking console errors on /login (GIS warning expected without client ID). Verdict: PASS \u2014 critical auth wiring is correct. Checklist item 4 wording was misleading; dev-token shell bypass is not implemented by design.",
+          "description": "Verify T17-002 auth frontend wiring: (1) GET / redirects to /login when no JWT in localStorage. (2) /login renders Google Sign-In button (GIS script loaded, button div present). (3) AuthProvider wraps app — useAuth() returns { user, login, logout }. (4) After mock login (set localStorage token to dev-token), AuthenticatedShell shows sidebar + content without redirect. (5) Logout clears localStorage token and redirects to /login. (6) fetchApi in api.ts reads Authorization header from localStorage on every request. (7) tsc --noEmit passes clean. (8) No console errors on /login page.",
+          "verification_notes": "PASS with note. (1) ✅ GET / redirects to /login — AuthenticatedShell useEffect fires when !user && !isPublicPath. (2) ✅ /login renders with button container div and GIS script tag. (3) ✅ AuthProvider.tsx exports useAuth, login, logout, isLoading. (4) ⚠️ dev-token does NOT show shell — AuthProvider:38 skips getMe() when token==='dev-token', so user stays null and shell redirects back to login. Design choice: dev-token is for API calls (fetchApi fallback), not mock auth. Real JWT from Google OAuth creates the session. Not a regression. (5) ✅ logout() calls localStorage.removeItem('token') + setUser(null). (6) ✅ fetchApi reads localStorage token or falls back to 'dev-token' as Authorization header. (7) ✅ tsc --noEmit passes clean (zero errors). (8) ✅ No blocking console errors on /login (GIS warning expected without client ID). Verdict: PASS — critical auth wiring is correct. Checklist item 4 wording was misleading; dev-token shell bypass is not implemented by design.",
           "files": [
             "frontend/src/app/login/page.tsx",
             "frontend/src/components/auth/AuthProvider.tsx",
@@ -1801,7 +1827,7 @@
           "assigned_to": "qa-engineer",
           "verified_at": "2026-04-03T00:16:00Z",
           "verified_by": "qa-engineer",
-          "verification_notes": "PASS. (1) POST /api/auth/register returns JWT + user object (id, email, display_name, plan) \u2014 tested with unique email. (2) POST /api/auth/login with correct credentials returns JWT. (3) Frontend /login shows email input, password input, submit button, 'Sign in' text, and 'Create' register toggle \u2014 Playwright confirmed on fresh port 3002 server. (4) AuthProvider.tsx:61-65 loginWithEmail calls loginUser, stores token in localStorage, setUser(res.user) \u2014 sidebar.tsx:111 shows user?.display_name||user?.email. Sidebar CORS-limited from port 3002 but code path correct. (5) logout() calls localStorage.removeItem + setUser(null); handleLogout() adds router.replace('/login'). (6) Wrong password returns 401 'Invalid email or password'. (7) Duplicate email with valid password returns 400 'An account with this email already exists'. (8) migration 022_password_auth.sql adds password_hash TEXT + email unique index. (9) tsc --noEmit: 0 errors. BUG-AUTH-001 also verified fixed (commit 4cc9dec). Quality audit: 3e70c07 = 6 files, feature-appropriate. 4cc9dec = 2 files, 8 lines, clean.",
+          "verification_notes": "PASS. (1) POST /api/auth/register returns JWT + user object (id, email, display_name, plan) — tested with unique email. (2) POST /api/auth/login with correct credentials returns JWT. (3) Frontend /login shows email input, password input, submit button, 'Sign in' text, and 'Create' register toggle — Playwright confirmed on fresh port 3002 server. (4) AuthProvider.tsx:61-65 loginWithEmail calls loginUser, stores token in localStorage, setUser(res.user) — sidebar.tsx:111 shows user?.display_name||user?.email. Sidebar CORS-limited from port 3002 but code path correct. (5) logout() calls localStorage.removeItem + setUser(null); handleLogout() adds router.replace('/login'). (6) Wrong password returns 401 'Invalid email or password'. (7) Duplicate email with valid password returns 400 'An account with this email already exists'. (8) migration 022_password_auth.sql adds password_hash TEXT + email unique index. (9) tsc --noEmit: 0 errors. BUG-AUTH-001 also verified fixed (commit 4cc9dec). Quality audit: 3e70c07 = 6 files, feature-appropriate. 4cc9dec = 2 files, 8 lines, clean.",
           "description": "Commit 3e70c07 added email/password auth as alternative to Google OAuth. Verify: (1) POST /api/auth/register creates account + tenant + membership, returns JWT. (2) POST /api/auth/login authenticates and returns JWT. (3) Frontend login page shows email/password form with register toggle. (4) After login, JWT stored in localStorage, sidebar shows user name + logout button. (5) Logout clears token, redirects to /login. (6) Wrong password returns 401. (7) Duplicate email returns 400. (8) password_hash column exists in accounts table (migration 022). (9) tsc --noEmit passes clean.",
           "files": [
             "backend/routes/google_auth.py",
@@ -1868,7 +1894,7 @@
           "verified": true,
           "verified_at": "2026-04-03T05:30:00Z",
           "verified_by": "pipeline-tester",
-          "verification_notes": "PASS (5/6). (1) Review appears in sidebar nav (CheckSquare icon) between Videos and Autopilot \u2014 count=2 links (sidebar+bottom tabs). (2) Pending badge shows \"1\" turquoise badge on icon (polls GET /api/review/pending every 30s). (3) Clicking Review link navigates to /review correctly. (4) Review page loads with 4 tabs: Scripts, Storyboards, Thumbnails, Images. (5) tsc --noEmit: 0 errors. (6) Console errors: CORS errors only (localhost:3003 -> localhost:8001) \u2014 expected dev server behavior, not feature bugs. Bottom tabs show Review replacing Profile tab. Screenshot: T18-003-review-page.png, T18-001-sidebar.png."
+          "verification_notes": "PASS (5/6). (1) Review appears in sidebar nav (CheckSquare icon) between Videos and Autopilot — count=2 links (sidebar+bottom tabs). (2) Pending badge shows \"1\" turquoise badge on icon (polls GET /api/review/pending every 30s). (3) Clicking Review link navigates to /review correctly. (4) Review page loads with 4 tabs: Scripts, Storyboards, Thumbnails, Images. (5) tsc --noEmit: 0 errors. (6) Console errors: CORS errors only (localhost:3003 -> localhost:8001) — expected dev server behavior, not feature bugs. Bottom tabs show Review replacing Profile tab. Screenshot: T18-003-review-page.png, T18-001-sidebar.png."
         }
       ]
     },
@@ -1988,7 +2014,7 @@
           "assigned_to": "qa-engineer",
           "verified_at": "2026-04-03T23:35:00Z",
           "verified_by": "qa-engineer",
-          "verification_notes": "PASS. (1) GET /api/autopilot/candidates/{id} at autopilot.py:346 returns 15 fields including transcript, thumbnail_url, description, duration_seconds, likes \u2014 curl confirmed real data. (2) api.ts CandidateDetail interface matches backend exactly. getCandidateDetail() hits correct path. (3) competitors/page.tsx: collapsible Transcript section inside Model modal, first 500 words bright text (hook emphasis), remaining dimmed, duration displayed as Xm Ys, transcriptExpanded state resets on modal close. (4) Playwright: page loads competitors, Model button opens modal, clicking Transcript toggle expands content, 0 console errors. (5) tsc --noEmit: 0 errors. (6) Diff clean: 2 app files, 88 lines. Screenshots: T10-002-competitors.png, T10-002-modal.png.",
+          "verification_notes": "PASS. (1) GET /api/autopilot/candidates/{id} at autopilot.py:346 returns 15 fields including transcript, thumbnail_url, description, duration_seconds, likes — curl confirmed real data. (2) api.ts CandidateDetail interface matches backend exactly. getCandidateDetail() hits correct path. (3) competitors/page.tsx: collapsible Transcript section inside Model modal, first 500 words bright text (hook emphasis), remaining dimmed, duration displayed as Xm Ys, transcriptExpanded state resets on modal close. (4) Playwright: page loads competitors, Model button opens modal, clicking Transcript toggle expands content, 0 console errors. (5) tsc --noEmit: 0 errors. (6) Diff clean: 2 app files, 88 lines. Screenshots: T10-002-competitors.png, T10-002-modal.png.",
           "description": "T10-002 was marked done by frontend-dev but never QA verified. Verify: (1) Clicking competitor card opens expanded view with transcript. (2) Fetches GET /api/autopilot/candidates/{id}. (3) First 500 words shown as hook. (4) Show more toggle for full text. (5) Loading state while fetching. (6) Handles null/empty transcript gracefully. (7) tsc --noEmit passes. (8) No console errors."
         }
       ]
@@ -2001,7 +2027,7 @@
       "tasks": [
         {
           "id": "T22-001",
-          "title": "Audit /dashboard page \u2014 verify it shows real data or stub",
+          "title": "Audit /dashboard page — verify it shows real data or stub",
           "role": "qa",
           "status": "done",
           "description": "Check what frontend/src/app/dashboard/page.tsx currently renders. Does it show real stats from GET /api/dashboard/summary? Does it have a pipeline status distribution chart, latest video card, and activity feed? If it's a stub/redirect, document exactly what's missing. Report findings so orchestrator can create specific build tasks.",
@@ -2044,7 +2070,7 @@
           "assigned_to": "frontend-dev",
           "completed_at": "2026-04-03T05:50:00Z",
           "depends_on": "T22-002",
-          "description": "Build frontend/src/app/dashboard/page.tsx as a real home page. Must include: (1) 4 stat cards (Total Videos, Avg CTR, Total Views, Videos This Week) from GET /api/dashboard/summary. (2) Pipeline status distribution: horizontal bar or pill row showing how many videos are at each stage (idea_logged, ready_for_scripting, ... done). (3) Recent videos list: last 5 videos with title, status badge, and link to /pipeline/[id]. (4) Quick action button: 'New Video' link to /pipeline. All data from real API \u2014 no hardcoded values. Loading and empty states required.",
+          "description": "Build frontend/src/app/dashboard/page.tsx as a real home page. Must include: (1) 4 stat cards (Total Videos, Avg CTR, Total Views, Videos This Week) from GET /api/dashboard/summary. (2) Pipeline status distribution: horizontal bar or pill row showing how many videos are at each stage (idea_logged, ready_for_scripting, ... done). (3) Recent videos list: last 5 videos with title, status badge, and link to /pipeline/[id]. (4) Quick action button: 'New Video' link to /pipeline. All data from real API — no hardcoded values. Loading and empty states required.",
           "files": [
             "frontend/src/app/dashboard/page.tsx",
             "frontend/src/lib/api.ts"
@@ -2095,7 +2121,7 @@
             "backend/main.py",
             "backend/models.py"
           ],
-          "verification_notes": "PASS. routes/dashboard.py line 4: from datetime import date as date_type. Line 160: date_type.fromisoformat(start)/date_type.fromisoformat(end) passed to asyncpg \u2014 fix in commit 4938349. Curl test: GET /api/dashboard/calendar?start=2026-04-01&end=2026-04-30 with dev-token returns {keys: 3 dates, videos grouped by date}. New tenant JWT returns empty dict {} (correct). No 500 error. Router registered in main.py at dashboard include.",
+          "verification_notes": "PASS. routes/dashboard.py line 4: from datetime import date as date_type. Line 160: date_type.fromisoformat(start)/date_type.fromisoformat(end) passed to asyncpg — fix in commit 4938349. Curl test: GET /api/dashboard/calendar?start=2026-04-01&end=2026-04-30 with dev-token returns {keys: 3 dates, videos grouped by date}. New tenant JWT returns empty dict {} (correct). No 500 error. Router registered in main.py at dashboard include.",
           "verified": true,
           "verified_at": "2026-04-03T06:30:00Z",
           "verified_by": "qa-engineer"
@@ -2134,11 +2160,11 @@
           "verified_at": "2026-04-03T06:15:00Z",
           "verified_by": "qa-engineer",
           "description": "Verify: (1) GET /api/calendar?start=2026-04-01&end=2026-04-30 returns correct shape: dict of date-string keys with video arrays. (2) /calendar page loads without errors. (3) Current month renders as 5-6 row grid with day numbers. (4) Prev/next month buttons change displayed month and refetch data. (5) Video chips appear on their calendar_date with status color and title. (6) Clicking a chip navigates to /pipeline/[id]. (7) Calendar link appears in sidebar nav (CalendarDays icon). (8) tsc --noEmit passes clean. (9) No console errors. If all pass, mark Tab 23 complete.",
-          "verification_notes": "FULL PASS (re-verified after BUG-T23-BACKEND-DATE fix). (1) GET /api/dashboard/calendar returns correct shape: dict of date-string keys with video arrays \u2014 3 date keys with real data. asyncpg 500 error RESOLVED by commit 4938349. (2) Frontend calendar/page.tsx: 7-column grid (Sun-Sat), current month renders, prev/next/today navigation, video chips with status dots link to /pipeline/[id]. (3) CalendarVideo type matches backend exactly. getCalendarVideos() calls correct endpoint. (4) Calendar in sidebar nav (CalendarDays icon, line 39) and bottom tabs moreTabs (line 39). (5) tsc --noEmit: 0 errors. (6) No console errors on /calendar page (redirects to /login on port 3001 production, by design \u2014 auth required). Screenshots: T23-003-calendar-final.png."
+          "verification_notes": "FULL PASS (re-verified after BUG-T23-BACKEND-DATE fix). (1) GET /api/dashboard/calendar returns correct shape: dict of date-string keys with video arrays — 3 date keys with real data. asyncpg 500 error RESOLVED by commit 4938349. (2) Frontend calendar/page.tsx: 7-column grid (Sun-Sat), current month renders, prev/next/today navigation, video chips with status dots link to /pipeline/[id]. (3) CalendarVideo type matches backend exactly. getCalendarVideos() calls correct endpoint. (4) Calendar in sidebar nav (CalendarDays icon, line 39) and bottom tabs moreTabs (line 39). (5) tsc --noEmit: 0 errors. (6) No console errors on /calendar page (redirects to /login on port 3001 production, by design — auth required). Screenshots: T23-003-calendar-final.png."
         },
         {
           "id": "BUG-T23-BACKEND-DATE",
-          "title": "BUG: Calendar endpoint returns 500 \u2014 asyncpg needs datetime.date not string",
+          "title": "BUG: Calendar endpoint returns 500 — asyncpg needs datetime.date not string",
           "role": "backend",
           "status": "done",
           "description": "Pipeline Tester found: GET /api/dashboard/calendar?start=2026-04-01&end=2026-04-30 returns HTTP 500. Uvicorn logs show: 'asyncpg.exceptions.DataError: invalid input for query argument $2: 2026-04-01 (str object has no attribute toordinal)'. Root cause: routes/dashboard.py get_calendar() receives start/end as str (FastAPI Query params) and passes them directly to fetch_all(). asyncpg requires datetime.date objects for date-type query parameters, not strings. Fix: import datetime at top of dashboard.py and convert start/end to datetime.date objects before the query: start_date = datetime.date.fromisoformat(start), end_date = datetime.date.fromisoformat(end), then pass start_date and end_date to fetch_all(). This is a 2-line fix.",
@@ -2151,11 +2177,11 @@
           "verified": true,
           "verified_at": "2026-04-03T06:30:00Z",
           "verified_by": "qa-engineer",
-          "verification_notes": "PASS. Commit 4938349: dashboard.py imports date_type at line 4, converts start/end strings to datetime.date objects at line 160 before asyncpg query. Curl confirmed: GET /api/dashboard/calendar?start=2026-04-01&end=2026-04-30 returns HTTP 200 with grouped data (was 500 before). 2 files, 3 lines changed \u2014 minimal, no bloat."
+          "verification_notes": "PASS. Commit 4938349: dashboard.py imports date_type at line 4, converts start/end strings to datetime.date objects at line 160 before asyncpg query. Curl confirmed: GET /api/dashboard/calendar?start=2026-04-01&end=2026-04-30 returns HTTP 200 with grouped data (was 500 before). 2 files, 3 lines changed — minimal, no bloat."
         },
         {
           "id": "BUG-T23-001-BACKEND",
-          "title": "BUG: GET /api/dashboard/calendar returns 500 \u2014 asyncpg rejects string date params",
+          "title": "BUG: GET /api/dashboard/calendar returns 500 — asyncpg rejects string date params",
           "role": "backend",
           "status": "done",
           "description": "Pipeline Tester found (2026-04-03): GET /api/dashboard/calendar?start=2026-04-01&end=2026-04-30 returns HTTP 500 'Internal Server Error'. Root cause: asyncpg cannot accept Python str objects for query parameters when the SQL uses $2::date cast. asyncpg infers the expected Python type from the cast and expects datetime.date objects, not strings. Error: asyncpg.exceptions.DataError: invalid input for query argument $2: '2026-04-01' ('str' object has no attribute 'toordinal'). Fix in storyengine/backend/routes/dashboard.py get_calendar() function: parse start/end strings to datetime.date before passing to fetch_all. Add: `from datetime import date as date_type` and convert params: `start_date = date_type.fromisoformat(start)`, `end_date = date_type.fromisoformat(end)` then pass start_date and end_date instead of start/end to the query. Effect: calendar page shows permanent loading spinner (React Query retries) and 3 console errors.",
@@ -2168,23 +2194,23 @@
           "verified": true,
           "verified_at": "2026-04-03T06:30:00Z",
           "verified_by": "qa-engineer",
-          "verification_notes": "PASS \u2014 duplicate of BUG-T23-BACKEND-DATE. Same fix applied by commit 4938349. Calendar endpoint confirmed working."
+          "verification_notes": "PASS — duplicate of BUG-T23-BACKEND-DATE. Same fix applied by commit 4938349. Calendar endpoint confirmed working."
         },
         {
           "id": "BUG-T23-001-ASYNCPG",
-          "title": "BUG: GET /api/dashboard/calendar returns 500 \u2014 asyncpg requires datetime.date not string",
+          "title": "BUG: GET /api/dashboard/calendar returns 500 — asyncpg requires datetime.date not string",
           "role": "backend",
           "status": "done",
           "completed_at": "2026-04-03T06:30:00Z",
           "assigned_to": "qa-engineer",
-          "description": "QA found (2026-04-03): GET /api/dashboard/calendar?start=2026-04-01&end=2026-04-30 returns HTTP 500. Root cause: asyncpg.exceptions.DataError: invalid input for query argument $2: '2026-04-01' ('str' object has no attribute 'toordinal'). The SQL uses $2::date and $3::date but asyncpg passes the str params through its own type system \u2014 it requires Python datetime.date objects, not strings. Fix: in routes/dashboard.py get_calendar(), parse the start/end strings to datetime.date objects before passing to asyncpg: from datetime import date; start_date = date.fromisoformat(start); end_date = date.fromisoformat(end). Then pass start_date/end_date instead of start/end to fetch_all(). Remove the ::date casts from the SQL since asyncpg will handle type mapping automatically.",
+          "description": "QA found (2026-04-03): GET /api/dashboard/calendar?start=2026-04-01&end=2026-04-30 returns HTTP 500. Root cause: asyncpg.exceptions.DataError: invalid input for query argument $2: '2026-04-01' ('str' object has no attribute 'toordinal'). The SQL uses $2::date and $3::date but asyncpg passes the str params through its own type system — it requires Python datetime.date objects, not strings. Fix: in routes/dashboard.py get_calendar(), parse the start/end strings to datetime.date objects before passing to asyncpg: from datetime import date; start_date = date.fromisoformat(start); end_date = date.fromisoformat(end). Then pass start_date/end_date instead of start/end to fetch_all(). Remove the ::date casts from the SQL since asyncpg will handle type mapping automatically.",
           "files": [
             "backend/routes/dashboard.py"
           ],
           "verified": true,
           "verified_at": "2026-04-03T06:30:00Z",
           "verified_by": "qa-engineer",
-          "verification_notes": "CLOSED \u2014 duplicate of BUG-T23-BACKEND-DATE. Fixed by commit 4938349 (date_type.fromisoformat conversion). Calendar endpoint confirmed working via curl."
+          "verification_notes": "CLOSED — duplicate of BUG-T23-BACKEND-DATE. Fixed by commit 4938349 (date_type.fromisoformat conversion). Calendar endpoint confirmed working via curl."
         }
       ]
     },
@@ -2205,8 +2231,8 @@
           "verified": true,
           "verified_at": "2026-04-03T07:45:00Z",
           "verified_by": "qa-engineer",
-          "verification_notes": "PASS. GET /api/dashboard/onboarding/status at dashboard.py:175. (1) Fresh tenant JWT returns {completed:false, steps:{channel_configured:false, api_keys_configured:false, youtube_synced:false}, percent_complete:0}. (2) Dev tenant (has channel + API key) returns {completed:false, percent_complete:67, channel_configured:true, api_keys_configured:true, youtube_synced:false}. (3) Uses existing dashboard router (prefix /api/dashboard, registered main.py:297). (4) OnboardingStatus type in api.ts:80-88 matches response exactly. (5) getOnboardingStatus() at api.ts:90-91 calls correct path. (6) tsc --noEmit: 0 errors. (7) Diff clean: 3 files, 55 lines \u2014 dashboard.py route + api.ts type/function + task-queue.json.",
-          "description": "Added GET /api/dashboard/onboarding/status to routes/dashboard.py. Derives completion from existing data: (1) channel_configured from channel_profiles, (2) api_keys_configured from vault get_secret_status for anthropic_api_key, (3) youtube_synced from videos count. Returns { completed, steps, percent_complete }. No new router needed \u2014 uses existing dashboard router. Also added OnboardingStatus type and getOnboardingStatus() to frontend api.ts.",
+          "verification_notes": "PASS. GET /api/dashboard/onboarding/status at dashboard.py:175. (1) Fresh tenant JWT returns {completed:false, steps:{channel_configured:false, api_keys_configured:false, youtube_synced:false}, percent_complete:0}. (2) Dev tenant (has channel + API key) returns {completed:false, percent_complete:67, channel_configured:true, api_keys_configured:true, youtube_synced:false}. (3) Uses existing dashboard router (prefix /api/dashboard, registered main.py:297). (4) OnboardingStatus type in api.ts:80-88 matches response exactly. (5) getOnboardingStatus() at api.ts:90-91 calls correct path. (6) tsc --noEmit: 0 errors. (7) Diff clean: 3 files, 55 lines — dashboard.py route + api.ts type/function + task-queue.json.",
+          "description": "Added GET /api/dashboard/onboarding/status to routes/dashboard.py. Derives completion from existing data: (1) channel_configured from channel_profiles, (2) api_keys_configured from vault get_secret_status for anthropic_api_key, (3) youtube_synced from videos count. Returns { completed, steps, percent_complete }. No new router needed — uses existing dashboard router. Also added OnboardingStatus type and getOnboardingStatus() to frontend api.ts.",
           "files": [
             "backend/routes/dashboard.py",
             "frontend/src/lib/api.ts"
@@ -2225,7 +2251,7 @@
           "verified_at": "2026-04-03T07:45:00Z",
           "verified_by": "qa-engineer",
           "verification_notes": "PASS. Playwright verified on port 3003 (agent-workspace build). (1) GET /onboarding loads without auth redirect (PUBLIC_PATHS includes /onboarding in AuthenticatedShell:10). (2) 3-step progress bar: Channel/API Keys/Ready! labels with teal-done/amber-active indicators. (3) No sidebar rendered (nav count=0, full-screen wizard). (4) Step 1: 3 inputs (channel_name, niche, target_audience), Continue button disabled when required fields empty. (5) Skip for now advances to step 2. (6) Step 2: 'Connect Your AI' heading, Anthropic key input, Save & Test flow. (7) Skip step 2 shows step 3 with 'Start Creating' button. (8) Global 'Skip setup, go to Dashboard' link on all steps (navigates to /dashboard). (9) 0 console errors. (10) Build: /onboarding compiled as static route. (11) tsc --noEmit: 0 errors. (12) Diff clean: 3 files (onboarding/page.tsx new, AuthenticatedShell 1 line, task-queue). Screenshots: T24-002-onboarding-step2.png, T24-002-onboarding-step3.png.",
-          "description": "Created /onboarding page with 3-step wizard: (1) Channel Identity \u2014 channel_name, niche (required), target_audience (optional), saves via PUT /api/channel-profile. (2) API Keys \u2014 Anthropic key input with Save & Test button (POST /api/settings/keys/anthropic_api_key then POST .../test), shows green/red result. (3) Done \u2014 checkmark, 'Your Studio is Ready', 'Start Creating' navigates to /dashboard. Progress bar: 3 circles (done=teal, active=amber) with connecting lines. Skip for now on each step. Skip setup link at bottom of all steps. Added /onboarding to PUBLIC_PATHS in AuthenticatedShell (no sidebar, full-screen wizard).",
+          "description": "Created /onboarding page with 3-step wizard: (1) Channel Identity — channel_name, niche (required), target_audience (optional), saves via PUT /api/channel-profile. (2) API Keys — Anthropic key input with Save & Test button (POST /api/settings/keys/anthropic_api_key then POST .../test), shows green/red result. (3) Done — checkmark, 'Your Studio is Ready', 'Start Creating' navigates to /dashboard. Progress bar: 3 circles (done=teal, active=amber) with connecting lines. Skip for now on each step. Skip setup link at bottom of all steps. Added /onboarding to PUBLIC_PATHS in AuthenticatedShell (no sidebar, full-screen wizard).",
           "files": [
             "frontend/src/app/onboarding/page.tsx",
             "frontend/src/components/auth/AuthenticatedShell.tsx"
@@ -2240,7 +2266,7 @@
           "started_at": "2026-04-03T22:02:00Z",
           "completed_at": "2026-04-03T22:06:00Z",
           "assigned_to": "frontend-dev",
-          "description": "After login/register, checks GET /api/dashboard/onboarding/status. If completed=false, redirects to /onboarding. If completed=true, redirects to /dashboard. On /onboarding page, if onboarding already complete, auto-redirects to /dashboard. Skip setup link already present on all steps (from T24-002). Implemented in login/page.tsx (redirect logic) and onboarding/page.tsx (completion guard). AuthProvider unchanged \u2014 redirect handled at page level.",
+          "description": "After login/register, checks GET /api/dashboard/onboarding/status. If completed=false, redirects to /onboarding. If completed=true, redirects to /dashboard. On /onboarding page, if onboarding already complete, auto-redirects to /dashboard. Skip setup link already present on all steps (from T24-002). Implemented in login/page.tsx (redirect logic) and onboarding/page.tsx (completion guard). AuthProvider unchanged — redirect handled at page level.",
           "files": [
             "frontend/src/app/login/page.tsx",
             "frontend/src/app/onboarding/page.tsx"
@@ -2262,18 +2288,18 @@
           "verified": true,
           "verified_at": "2026-04-03T08:20:00Z",
           "verified_by": "qa-engineer",
-          "description": "Verify the full onboarding flow: (1) GET /api/onboarding/status returns { completed: false, steps: { channel_configured: false, api_keys_configured: false, youtube_synced: false } } for a fresh tenant. (2) After login with a new account, browser redirects to /onboarding (not /dashboard). (3) /onboarding page renders with 3-step progress indicator, no sidebar, no auth redirect loop. (4) Step 1 \u2014 fill channel_name + niche, click Save, PUT /api/channel-profile called, step 2 becomes active. (5) Step 2 \u2014 enter Anthropic API key, click Test, POST /api/settings/keys/anthropic_api_key + POST .../test called, shows success/fail. (6) Click Continue on step 2, step 3 shows. (7) Step 3 \u2014 'Start Creating' button navigates to /dashboard. (8) GET /api/onboarding/status after completing steps shows completed=true for channel_configured and api_keys_configured. (9) tsc --noEmit passes. (10) No console errors throughout wizard.",
-          "verification_notes": "PASS. (1) Fresh tenant JWT returns {completed:false, steps:{channel_configured:false, api_keys_configured:false, youtube_synced:false}, percent_complete:0}. (2) T24-003 commit e44a4db confirmed: login/page.tsx has getOnboardingStatus() import + redirectAfterAuth() fn that routes to /onboarding if completed=false. (3) /onboarding loads on port 3003 without auth redirect (stays on /onboarding). (4) No sidebar (nav=0, aside=0) \u2014 full-screen wizard. (5) Progress bar: 3 steps (Channel/API Keys/Ready) all visible. (6) Step 1: 3 inputs, Continue disabled when empty, Skip for now advances to step 2. (7) Step 2: API key content shown, Skip advances to step 3. (8) Step 3: Start Creating CTA present, router.replace(\"/dashboard\") on click. (9) Global Skip setup link present (p tag, not a/button). (10) PUT /api/channel-profile saves channel data, onboarding status shows channel_configured:true. (11) POST /api/settings/keys/anthropic_api_key saves key, status shows api_keys_configured:true. (12) onboarding/page.tsx has completion guard: if completed, router.replace(\"/dashboard\"). (13) tsc --noEmit: 0 errors. CORS errors on port 3003 are expected (not in allowlist) and are silently caught by catch(() => {}) \u2014 wizard renders correctly. Production port 3001 is in CORS allowlist. Screenshots: T24-004-step1/2/3.png."
+          "description": "Verify the full onboarding flow: (1) GET /api/onboarding/status returns { completed: false, steps: { channel_configured: false, api_keys_configured: false, youtube_synced: false } } for a fresh tenant. (2) After login with a new account, browser redirects to /onboarding (not /dashboard). (3) /onboarding page renders with 3-step progress indicator, no sidebar, no auth redirect loop. (4) Step 1 — fill channel_name + niche, click Save, PUT /api/channel-profile called, step 2 becomes active. (5) Step 2 — enter Anthropic API key, click Test, POST /api/settings/keys/anthropic_api_key + POST .../test called, shows success/fail. (6) Click Continue on step 2, step 3 shows. (7) Step 3 — 'Start Creating' button navigates to /dashboard. (8) GET /api/onboarding/status after completing steps shows completed=true for channel_configured and api_keys_configured. (9) tsc --noEmit passes. (10) No console errors throughout wizard.",
+          "verification_notes": "PASS. (1) Fresh tenant JWT returns {completed:false, steps:{channel_configured:false, api_keys_configured:false, youtube_synced:false}, percent_complete:0}. (2) T24-003 commit e44a4db confirmed: login/page.tsx has getOnboardingStatus() import + redirectAfterAuth() fn that routes to /onboarding if completed=false. (3) /onboarding loads on port 3003 without auth redirect (stays on /onboarding). (4) No sidebar (nav=0, aside=0) — full-screen wizard. (5) Progress bar: 3 steps (Channel/API Keys/Ready) all visible. (6) Step 1: 3 inputs, Continue disabled when empty, Skip for now advances to step 2. (7) Step 2: API key content shown, Skip advances to step 3. (8) Step 3: Start Creating CTA present, router.replace(\"/dashboard\") on click. (9) Global Skip setup link present (p tag, not a/button). (10) PUT /api/channel-profile saves channel data, onboarding status shows channel_configured:true. (11) POST /api/settings/keys/anthropic_api_key saves key, status shows api_keys_configured:true. (12) onboarding/page.tsx has completion guard: if completed, router.replace(\"/dashboard\"). (13) tsc --noEmit: 0 errors. CORS errors on port 3003 are expected (not in allowlist) and are silently caught by catch(() => {}) — wizard renders correctly. Production port 3001 is in CORS allowlist. Screenshots: T24-004-step1/2/3.png."
         },
         {
           "id": "BUG-T24-BOTS-RUNNING",
-          "title": "BUG: Activity page shows inflated 'bots running' count (68) \u2014 SQL counts all historical 'started' entries",
+          "title": "BUG: Activity page shows inflated 'bots running' count (68) — SQL counts all historical 'started' entries",
           "role": "backend",
           "status": "done",
           "started_at": "2026-04-03T22:00:01Z",
           "completed_at": "2026-04-03T22:05:00Z",
           "assigned_to": "backend-dev",
-          "description": "Pipeline Tester found (2026-04-03): GET /api/activity/stats returns bots_running=68, displayed prominently as 'BOTS RUNNING: 68' on /activity page. Root cause: routes/activity.py line 63 counts ALL bot_activity rows with status IN ('started', 'running') \u2014 but each bot run creates separate 'started' and 'failed'/'completed' rows (the started row is never updated). So 68 represents all historical bot runs that ever started, not currently active bots. In practice the system had 0-2 actually running bots at test time. Fix: count only 'started' entries from the last 30 minutes (e.g. AND created_at >= NOW() - INTERVAL '30 minutes'), OR subquery to exclude started entries that have a follow-up 'completed'/'failed' entry for the same video_id + bot_name. Also: the 'Running' filter tab in the UI passes status=running but the pipeline uses status='started' for in-progress bots \u2014 'Running' tab always shows 0 results. Fix: change filter key from 'running' to 'started' in FILTER_OPTIONS in frontend/src/app/activity/page.tsx.",
+          "description": "Pipeline Tester found (2026-04-03): GET /api/activity/stats returns bots_running=68, displayed prominently as 'BOTS RUNNING: 68' on /activity page. Root cause: routes/activity.py line 63 counts ALL bot_activity rows with status IN ('started', 'running') — but each bot run creates separate 'started' and 'failed'/'completed' rows (the started row is never updated). So 68 represents all historical bot runs that ever started, not currently active bots. In practice the system had 0-2 actually running bots at test time. Fix: count only 'started' entries from the last 30 minutes (e.g. AND created_at >= NOW() - INTERVAL '30 minutes'), OR subquery to exclude started entries that have a follow-up 'completed'/'failed' entry for the same video_id + bot_name. Also: the 'Running' filter tab in the UI passes status=running but the pipeline uses status='started' for in-progress bots — 'Running' tab always shows 0 results. Fix: change filter key from 'running' to 'started' in FILTER_OPTIONS in frontend/src/app/activity/page.tsx.",
           "files": [
             "backend/routes/activity.py",
             "frontend/src/app/activity/page.tsx"
@@ -2295,7 +2321,7 @@
           "verified_at": "2026-04-03T08:22:00Z",
           "verified_by": "pipeline-tester",
           "verification_notes": "PASS. Added thumbError state (useState<boolean>) + onError={() => setThumbError(true)} to <img> in RenderCard. When Airtable URL returns 410, onError fires, thumbError=true, Film icon fallback renders instead of broken image. No more 410 console spam. tsc --noEmit: 0 errors. 1 file changed, 4 lines. Clean diff.",
-          "description": "Pipeline Tester found (2026-04-03): The /render page shows 25 uploaded videos. Each video card renders a thumbnail via <img src={video.thumbnail_url}>. The thumbnail_url values in DB are Airtable attachment URLs (v5.airtableusercontent.com) which expire after 2 hours per Airtable's policy. Result: 25 HTTP 410 Gone errors in browser console. The img has no onError handler \u2014 so users see a blank area (the fallback Film icon is in the else branch of the ternary but is NOT shown when the URL fails, only when thumbnail_url is null/undefined). Fix: in frontend/src/app/render/page.tsx line 130, add onError handler to fall back gracefully: onError={(e) => { e.currentTarget.style.display='none'; const parent = e.currentTarget.parentElement; if (parent) parent.innerHTML = '<svg>...</svg>'; }} OR simpler: add onerror to hide the img and show the fallback Film icon. This is a UI polish fix \u2014 users shouldn't see console spam. Note: long-term fix is to save thumbnails to Google Drive (permanent URLs) instead of Airtable.",
+          "description": "Pipeline Tester found (2026-04-03): The /render page shows 25 uploaded videos. Each video card renders a thumbnail via <img src={video.thumbnail_url}>. The thumbnail_url values in DB are Airtable attachment URLs (v5.airtableusercontent.com) which expire after 2 hours per Airtable's policy. Result: 25 HTTP 410 Gone errors in browser console. The img has no onError handler — so users see a blank area (the fallback Film icon is in the else branch of the ternary but is NOT shown when the URL fails, only when thumbnail_url is null/undefined). Fix: in frontend/src/app/render/page.tsx line 130, add onError handler to fall back gracefully: onError={(e) => { e.currentTarget.style.display='none'; const parent = e.currentTarget.parentElement; if (parent) parent.innerHTML = '<svg>...</svg>'; }} OR simpler: add onerror to hide the img and show the fallback Film icon. This is a UI polish fix — users shouldn't see console spam. Note: long-term fix is to save thumbnails to Google Drive (permanent URLs) instead of Airtable.",
           "files": [
             "frontend/src/app/render/page.tsx"
           ]
@@ -2312,7 +2338,7 @@
           "verified_at": "2026-04-03T07:00:00Z",
           "verified_by": "pipeline-tester",
           "description": "While T24-001 through T24-003 were pending build, ran a bonus sweep of standalone pages and activity feed since they had never been explicitly tested.",
-          "verification_notes": "PARTIAL PASS (2 bugs filed). Activity feed (/activity): PASS \u2014 GET /api/activity returns list[ActivityEntry], GET /api/activity/stats returns {bots_running, errors_today, cost_today}. Page loads with All/Running/Errors/Completed filter tabs. Stats cards display (68 bots running, 1 error today, $0 cost). Shows real bot activity entries (Storyboard Images Bot, Image Bot). 0 console errors. Bug filed: BUG-T24-BOTS-RUNNING (inflated count). Storyboard page (/storyboard): PASS \u2014 Shows 1 pending video (ready_for_storyboard_extraction status) with Review/Advance buttons. Correct behavior. Visuals page (/visuals): PASS \u2014 Shows correct empty state ('No Active Image Generation') since no videos are in image gen status. Render page (/render): PARTIAL \u2014 Content loads (shows 25 uploaded videos with titles, READY/RENDERING/COMPLETE counts). Bug filed: BUG-T24-RENDER-THUMB-410 (25 HTTP 410 errors from expired Airtable thumbnail URLs, no onError fallback). Screenshots: T24-001-activity-page.png, T24-002-storyboard-page.png, T24-003-visuals-page.png, T24-004-render-page.png, T24-005-activity-stats.png, T24-activity-deep.png, T24-render-detail.png."
+          "verification_notes": "PARTIAL PASS (2 bugs filed). Activity feed (/activity): PASS — GET /api/activity returns list[ActivityEntry], GET /api/activity/stats returns {bots_running, errors_today, cost_today}. Page loads with All/Running/Errors/Completed filter tabs. Stats cards display (68 bots running, 1 error today, $0 cost). Shows real bot activity entries (Storyboard Images Bot, Image Bot). 0 console errors. Bug filed: BUG-T24-BOTS-RUNNING (inflated count). Storyboard page (/storyboard): PASS — Shows 1 pending video (ready_for_storyboard_extraction status) with Review/Advance buttons. Correct behavior. Visuals page (/visuals): PASS — Shows correct empty state ('No Active Image Generation') since no videos are in image gen status. Render page (/render): PARTIAL — Content loads (shows 25 uploaded videos with titles, READY/RENDERING/COMPLETE counts). Bug filed: BUG-T24-RENDER-THUMB-410 (25 HTTP 410 errors from expired Airtable thumbnail URLs, no onError fallback). Screenshots: T24-001-activity-page.png, T24-002-storyboard-page.png, T24-003-visuals-page.png, T24-004-render-page.png, T24-005-activity-stats.png, T24-activity-deep.png, T24-render-detail.png."
         }
       ],
       "completed_at": "2026-04-03T08:25:00Z"
