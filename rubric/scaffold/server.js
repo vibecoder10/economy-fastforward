@@ -18,6 +18,17 @@ if (major < 18) {
 // Ensure data dir exists
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
+// Resolve Claude CLI path (npm global bin may not be in non-interactive PATH)
+const CLAUDE_BIN = process.env.CLAUDE_BIN || (() => {
+  const candidates = [
+    path.join(process.env.HOME || '/home/clawd', '.npm-global/bin/claude'),
+    '/usr/local/bin/claude',
+    'claude'
+  ];
+  for (const c of candidates) { try { if (fs.existsSync(c)) return c; } catch {} }
+  return 'claude';
+})();
+
 // --- Template detection ---
 const TEMPLATE_CHECKS = {
   agents:        path.join(__dirname, '../agents/index.html'),
@@ -984,7 +995,7 @@ const server = http.createServer(async (req, res) => {
     fs.writeFileSync(prdPath, body.content);
     const projectRoot = path.resolve(__dirname, '../../');
     // Chain: decompose → set focus → spawn agents for each role
-    exec(`cd "${projectRoot}" && bash agents/decompose.sh agents/prd.md > /tmp/decompose.log 2>&1`, (err) => {
+    exec(`cd "${projectRoot}" && CLAUDE_BIN="${CLAUDE_BIN}" bash agents/decompose.sh agents/prd.md > /tmp/decompose.log 2>&1`, (err) => {
       if (err) { console.error('Decompose failed:', err.message); return; }
       console.log('PRD decomposition complete — setting focus and spawning agents');
       try {
@@ -999,7 +1010,7 @@ const server = http.createServer(async (req, res) => {
         // Spawn agents for each unique role in the PRD
         const roles = [...new Set((prd.tasks || []).map(t => t.role).filter(Boolean))];
         for (const role of roles) {
-          exec(`cd "${projectRoot}" && bash agents/run-team.sh "${role}" > /tmp/team-${role}.log 2>&1`,
+          exec(`cd "${projectRoot}" && CLAUDE_BIN="${CLAUDE_BIN}" bash agents/run-team.sh "${role}" > /tmp/team-${role}.log 2>&1`,
             (e) => { if (e) console.error(`Spawn ${role} failed:`, e.message); else console.log(`Agent ${role} started`); });
         }
       } catch (e) { console.error('Post-decompose spawn failed:', e.message); }
@@ -1099,8 +1110,7 @@ RULES:
 - Testing is NOT optional — QA and Pipeline Tester tasks are required in every PRD.
 - Output ONLY the PRD markdown. No commentary before or after.`;
     fs.writeFileSync(promptFile, prompt);
-    const claudeBin = process.env.CLAUDE_BIN || 'claude';
-    exec(`${claudeBin} -p --model opus --output-format text < "${promptFile}" 2>/dev/null`,
+    exec(`${CLAUDE_BIN} -p --model opus --output-format text < "${promptFile}" 2>/dev/null`,
       { encoding: 'utf8', timeout: 180000, maxBuffer: 2 * 1024 * 1024 },
       (err, stdout) => {
         try { fs.unlinkSync(promptFile); } catch {}
@@ -1136,10 +1146,10 @@ RULES:
     if (!role) { sendJSON(res, { error: 'role required' }, 400); return; }
     const projectRoot = path.resolve(__dirname, '../../');
     if (system === 'team') {
-      exec(`cd "${projectRoot}" && bash agents/run-team.sh "${role}" > /tmp/team-${role}.log 2>&1`,
+      exec(`cd "${projectRoot}" && CLAUDE_BIN="${CLAUDE_BIN}" bash agents/run-team.sh "${role}" > /tmp/team-${role}.log 2>&1`,
         (err) => { if (err) console.error(`Team ${role} failed:`, err.message); });
     } else {
-      exec(`cd "${projectRoot}/storyengine/agents" && bash run-agent.sh "${role}" > /tmp/storyengine-agents/${role}-spawn.log 2>&1`,
+      exec(`cd "${projectRoot}/storyengine/agents" && CLAUDE_BIN="${CLAUDE_BIN}" bash run-agent.sh "${role}" > /tmp/storyengine-agents/${role}-spawn.log 2>&1`,
         (err) => { if (err) console.error(`Agent ${role} failed:`, err.message); });
     }
     sendJSON(res, { success: true, message: `Spawned ${role} (${system || 'storyengine'})` });
