@@ -2,7 +2,7 @@
   "version": 2,
   "current_tab": 3,
   "last_updated": "2026-04-03",
-  "last_updated_by": "pipeline-tester",
+  "last_updated_by": "qa-engineer",
   "tabs": [
     {
       "id": 1,
@@ -190,9 +190,13 @@
           "title": "Build segment-level editing UI wired to PUT endpoint",
           "role": "frontend",
           "status": "done",
+          "verified": true,
           "started_at": "2026-04-03T10:02:00Z",
           "assigned_to": "frontend-dev",
           "completed_at": "2026-04-03T10:10:00Z",
+          "verified_at": "2026-04-03T18:04:00Z",
+          "verified_by": "qa-engineer",
+          "verification_notes": "PASS. SegmentEditor component added to ScriptTab.tsx (line 166-290): (1) fetches segments via getSceneSegments(videoId, sceneNumber) -> GET /api/videos/{id}/scenes/{scene}/segments (returns {scene, segments[]} confirmed by curl). (2) per-segment editable textarea rows with dirty state tracking (turquoise border on modified rows). (3) Save Segments button calls updateSceneSegments() -> PUT /api/videos/{id}/scenes/{scene}/segments with {image_index, sentence_text} array. (4) Loading/empty/save states all handled. (5) Renders in expanded scene view as 'Segments / Edit & save to backend' section. (6) useMutation with onSuccess invalidates segments + video-assets queries. (7) tsc --noEmit: 0 errors. (8) No bloat: 1 app file changed, ~130 lines, no new files. NOTE: implementation was present in working tree but uncommitted — committed as part of QA verification.",
           "description": "Added SegmentEditor component to ScriptTab that fetches real segments via GET /api/videos/{id}/scenes/{scene}/segments, shows each segment with image_index/word_count/duration as editable rows, and saves modifications via PUT /api/videos/{id}/scenes/{scene}/segments. Dirty tracking highlights modified segments. Save button with loading/success/error states. Renders in expanded scene view below existing sentence cards.",
           "files": [
             "frontend/src/components/production/ScriptTab.tsx"
