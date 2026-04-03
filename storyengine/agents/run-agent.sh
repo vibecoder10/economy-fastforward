@@ -6,7 +6,9 @@
 set -e
 
 AGENT=$1
-PROJECT_ROOT="${AGENT_PROJECT_ROOT:-/Users/ryanayler/economy-fastforward}"
+# Auto-detect PROJECT_ROOT from script location (works on both Mac and VPS)
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_ROOT="${AGENT_PROJECT_ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
 AGENTS_DIR="$PROJECT_ROOT/storyengine/agents"
 REPORTS_DIR="$AGENTS_DIR/reports"
 RUBRIC_URL="${RUBRIC_URL:-http://localhost:5050}"
