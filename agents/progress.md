@@ -2,7 +2,7 @@
 
 ## Summary
 - Total: 14 tasks
-- Done: 12 (backend 6 + frontend 5 + qa 1) | Verified: 0 | Blocked: 0 | Remaining: 1 (security)
+- Done: 14 (backend 6 + frontend 6 + qa 1 + security 1) | Verified: 2 (T13, T14) | Blocked: 0 | Remaining: 0
 
 ## Tasks
 - [x] T1: Database migration: soft delete, video clip prompts, user preferences (backend) ✅
@@ -17,8 +17,8 @@
 - [x] T10: Render image thumbnails, fix storyboard mode, add video clip prompt UI (frontend) ✅
 - [x] T11: Add tab drag-to-reorder with persistence (frontend) ✅
 - [x] T12: Full production build passes (frontend) ✅
-- [x] T13: Playwright end-to-end tests (qa) ✅ — 20 tests, 8 pass / 12 skip (endpoints not deployed)
-- [ ] T14: Security audit: auth, data leaks, input sanitization (security) — deps met (T3, T4, T5 done)
+- [x] T13: Playwright end-to-end tests (qa) ✅ — 20 tests (7 pass, 13 skip undeployed endpoints, 0 fail). All 5 AC pass.
+- [x] T14: Security audit: auth, data leaks, input sanitization (security) ✅ — Fixed get_video soft-delete leak. All 3 AC pass. Full audit: 6 pre-existing SEC issues re-confirmed, 1 new finding fixed.
 
 ## Frontend Commits (this session)
 - `87c7f20` feat(frontend): T7 — wire storyboard approve/reject buttons to API
@@ -45,10 +45,20 @@ T7, T8, T9, T10, T11 ── T12 (build passes) ✅ ── T13 (QA)
 T3, T4, T5 ── T14 (security)
 ```
 
-## Security Issues (Pre-Audit Findings — T14 now unblocked)
-- SEC-1 (CRITICAL): `auth.py:31-33` — dev-token "dev-token" bypasses all JWT auth when ENV=development (the default). Must ensure this is gated to dev-only deployments.
-- SEC-2 (HIGH): `routes/videos.py:424-455` — `get_scene_audio` endpoint skips `Depends(get_tenant_id)`, hardcodes tenant_id from env. Any user can access any video's audio.
+## Security Audit Results (T14 — 2026-04-03)
+
+### T14 Findings (new PRD features)
+- **DELETE auth** ✅ PASS — `delete_video` uses `Depends(get_tenant_id)`, WHERE includes `tenant_id = $2`, checks `deleted_at IS NULL`
+- **Soft-delete data leak** 🔧 FIXED — `get_video()` was missing `deleted_at IS NULL` filter. Commit `a017378` adds it.
+- **Stage skip prevention** ✅ PASS — `advance_video` uses `_next_stage()` which returns sequential next only. No skip possible.
+- **Input sanitization (review.py)** ✅ PASS — `RejectRequest.reason` is never used in SQL (only passed as parameterized `$4`). No f-string injection.
+- **Input sanitization (preferences.py)** ✅ PASS — All queries parameterized. `key` from URL path, `value` via `json.dumps` + `$3::jsonb`.
+- **Storyboard approve/reject** ✅ PASS — All 3 endpoints use `Depends(get_tenant_id)`, verify script belongs to tenant before update.
+
+### Pre-Existing SEC Issues (re-confirmed, not fixed in this PRD)
+- SEC-1 (CRITICAL): `auth.py:32` — dev-token bypasses all auth when `ENV=development` (the default). Production MUST set `ENV=production`.
+- SEC-2 (HIGH): `routes/videos.py:443-474` — `get_scene_audio` skips `Depends(get_tenant_id)`, hardcodes tenant from env. Any user can access any video's audio.
 - SEC-3 (HIGH): `routes/settings.py:164-182` — `/keys/{key_name}/reveal` returns full unmasked API keys with no rate limiting or re-auth.
 - SEC-4 (HIGH): `main.py:287-288` — Hardcoded IP (76.13.119.181) in CORS allowlist. Should use env var.
-- SEC-5 (MEDIUM): `routes/videos.py:311,508,560` — Dynamic SQL via f-strings (mitigated by hardcoded field names, but poor practice).
+- SEC-5 (MEDIUM): Dynamic SQL via f-strings in videos.py:305,313,527 — mitigated by hardcoded allowlist field names. Values are parameterized. Safe but poor practice.
 - SEC-6 (MEDIUM): `routes/settings.py:90-182` — No audit logging for key management operations (set, delete, reveal).
