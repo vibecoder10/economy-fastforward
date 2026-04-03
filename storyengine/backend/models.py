@@ -154,6 +154,9 @@ class CreateVideoRequest(BaseModel):
     source_url: Optional[str] = None
     framework_angle: Optional[str] = None
     video_length_minutes: Optional[int] = 10
+    writer_guidance: Optional[str] = None
+    visual_style: Optional[str] = None
+    accent_color: Optional[str] = None
 
 
 # --- Scripts ---
