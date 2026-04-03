@@ -692,6 +692,22 @@
         <div class="connector-label" id="connector-label"></div>
       </div>
       <div class="team-agents-grid" id="team-grid"></div>
+
+      <!-- Autonomous Team Roles -->
+      <div class="team-connector">
+        <div class="connector-line"></div>
+        <div class="connector-label">Autonomous Roles (portable)</div>
+      </div>
+      <div id="team-roles-section" style="margin-top:0;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+          <div>
+            <div style="font-size:15px;font-weight:600;color:#ccc;">Agent Roles</div>
+            <div style="font-size:11px;color:#555;">Portable role definitions — edit these to customize agent behavior on any project</div>
+          </div>
+          <button onclick="openInstructionsEditor('TEAM','Team Config','roles')" class="edit-instructions-btn" style="font-size:11px;">Edit TEAM.md</button>
+        </div>
+        <div id="team-roles-grid" class="team-agents-grid"></div>
+      </div>
     </div>
   </div>
 
@@ -1489,11 +1505,15 @@ window.__onTabShow = {};
 })();
 
 // ==================== AGENT INSTRUCTIONS EDITOR ====================
-async function openInstructionsEditor(agentId, agentName) {
+// source: undefined = storyengine/agents/, 'roles' = agents/roles/
+let _instrSource = null;
+async function openInstructionsEditor(agentId, agentName, source) {
+  _instrSource = source || null;
+  const sourceParam = source ? '?source=' + source : '';
   const overlay = document.createElement('div');
   overlay.className = 'instr-modal-overlay';
   overlay.innerHTML = '<div class="instr-modal">' +
-    '<div class="instr-modal-header"><span class="instr-modal-title">' + agentName + ' — Instructions</span>' +
+    '<div class="instr-modal-header"><span class="instr-modal-title">' + agentName + ' — Instructions' + (source === 'roles' ? ' <span style="font-size:10px;color:#50e3c2;background:rgba(80,227,194,0.1);padding:2px 6px;border-radius:4px;">portable</span>' : '') + '</span>' +
     '<button onclick="this.closest(\'.instr-modal-overlay\').remove()" style="background:none;border:none;color:#555;cursor:pointer;font-size:20px;">&times;</button></div>' +
     '<textarea id="instr-editor" placeholder="Loading..."></textarea>' +
     '<div class="instr-modal-actions">' +
@@ -1504,7 +1524,7 @@ async function openInstructionsEditor(agentId, agentName) {
   overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
 
   try {
-    const res = await fetch('/api/agent-instructions/' + agentId);
+    const res = await fetch('/api/agent-instructions/' + agentId + sourceParam);
     const data = await res.json();
     document.getElementById('instr-editor').value = data.content || '';
   } catch (e) {
@@ -1515,10 +1535,11 @@ async function openInstructionsEditor(agentId, agentName) {
 async function saveInstructions(agentId) {
   const textarea = document.getElementById('instr-editor');
   const saveBtn = textarea.closest('.instr-modal').querySelector('.instr-save-btn');
+  const sourceParam = _instrSource ? '?source=' + _instrSource : '';
   saveBtn.textContent = 'Saving...';
   saveBtn.disabled = true;
   try {
-    const res = await fetch('/api/agent-instructions/' + agentId, {
+    const res = await fetch('/api/agent-instructions/' + agentId + sourceParam, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ content: textarea.value })
@@ -2555,6 +2576,24 @@ async function saveInstructions(agentId) {
       const btn = document.querySelector('#skills-' + id + '')?.previousElementSibling;
       if (btn && btn.classList.contains('role-card-btn') && skills.length > 0) btn.textContent = skills.length + ' skills';
     }
+
+    // Load portable team roles
+    try {
+      const rolesRes = await fetch('/api/team-roles');
+      const rolesData = await rolesRes.json();
+      const rolesGrid = document.getElementById('team-roles-grid');
+      const roleColors = { lead: '#D4A844', backend: '#1A8A7A', frontend: '#58abf5', qa: '#e35050', security: '#c084fc' };
+      const roleIcons = { lead: '&#9813;', backend: '&#9874;', frontend: '&#9889;', qa: '&#9878;', security: '&#9855;' };
+      if (rolesData.roles && rolesData.roles.length > 0) {
+        rolesGrid.innerHTML = rolesData.roles.map(role => {
+          const color = roleColors[role.id] || '#888';
+          const icon = roleIcons[role.id] || '&#9679;';
+          return '<div class="team-agent-card"><div class="agent-card-header"><div class="team-agent-icon" style="border-color:' + color + ';font-size:20px;color:' + color + ';">' + icon + '</div><div><div class="agent-card-name-team">' + esc(role.name) + '</div><div class="agent-card-role-team">' + role.file + '</div></div></div><button class="edit-instructions-btn" onclick="openInstructionsEditor(\'' + role.id + '\',\'' + esc(role.name) + '\',\'roles\')">Edit Instructions</button></div>';
+        }).join('');
+      } else {
+        rolesGrid.innerHTML = '<div style="color:#555;font-size:12px;padding:12px;">No portable roles found. Create .md files in agents/roles/</div>';
+      }
+    } catch (e) { console.log('No team roles found:', e); }
   }
 
   let teamInitialized = false;

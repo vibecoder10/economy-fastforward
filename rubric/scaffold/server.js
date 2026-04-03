@@ -915,13 +915,19 @@ const server = http.createServer(async (req, res) => {
   }
 
   // GET /api/agent-instructions/:id — read agent .md file
+  // Supports ?source=roles to read from agents/roles/ instead of storyengine/agents/
   if (pathname.startsWith('/api/agent-instructions/') && req.method === 'GET') {
     const agentId = decodeURIComponent(pathname.replace('/api/agent-instructions/', ''));
     if (agentId.includes('..') || agentId.includes('/')) { sendJSON(res, { error: 'Invalid agent ID' }, 400); return; }
-    const agentFile = path.join(__dirname, '../../storyengine/agents', agentId + '.md');
+    const url = new URL(req.url, `http://localhost:${PORT}`);
+    const source = url.searchParams.get('source');
+    const baseDir = source === 'roles'
+      ? path.join(__dirname, '../../agents/roles')
+      : path.join(__dirname, '../../storyengine/agents');
+    const agentFile = path.join(baseDir, agentId + '.md');
     const resolved = path.resolve(agentFile);
-    if (!resolved.startsWith(path.resolve(__dirname, '../../storyengine/agents'))) { sendJSON(res, { error: 'Invalid path' }, 400); return; }
-    try { sendJSON(res, { id: agentId, content: fs.readFileSync(resolved, 'utf8') }); }
+    if (!resolved.startsWith(path.resolve(baseDir))) { sendJSON(res, { error: 'Invalid path' }, 400); return; }
+    try { sendJSON(res, { id: agentId, source: source || 'storyengine', content: fs.readFileSync(resolved, 'utf8') }); }
     catch { sendJSON(res, { error: 'Agent file not found' }, 404); }
     return;
   }
@@ -930,9 +936,14 @@ const server = http.createServer(async (req, res) => {
   if (pathname.startsWith('/api/agent-instructions/') && req.method === 'PUT') {
     const agentId = decodeURIComponent(pathname.replace('/api/agent-instructions/', ''));
     if (agentId.includes('..') || agentId.includes('/')) { sendJSON(res, { error: 'Invalid agent ID' }, 400); return; }
-    const agentFile = path.join(__dirname, '../../storyengine/agents', agentId + '.md');
+    const url = new URL(req.url, `http://localhost:${PORT}`);
+    const source = url.searchParams.get('source');
+    const baseDir = source === 'roles'
+      ? path.join(__dirname, '../../agents/roles')
+      : path.join(__dirname, '../../storyengine/agents');
+    const agentFile = path.join(baseDir, agentId + '.md');
     const resolved = path.resolve(agentFile);
-    if (!resolved.startsWith(path.resolve(__dirname, '../../storyengine/agents'))) { sendJSON(res, { error: 'Invalid path' }, 400); return; }
+    if (!resolved.startsWith(path.resolve(baseDir))) { sendJSON(res, { error: 'Invalid path' }, 400); return; }
     let body = '';
     req.on('data', chunk => { body += chunk; });
     req.on('end', () => {
@@ -943,6 +954,22 @@ const server = http.createServer(async (req, res) => {
         sendJSON(res, { ok: true });
       } catch (e) { sendJSON(res, { error: e.message }, 500); }
     });
+    return;
+  }
+
+  // GET /api/team-roles — list all role .md files from agents/roles/
+  if (pathname === '/api/team-roles' && req.method === 'GET') {
+    const rolesDir = path.join(__dirname, '../../agents/roles');
+    try {
+      const files = fs.readdirSync(rolesDir).filter(f => f.endsWith('.md'));
+      const roles = files.map(f => {
+        const id = f.replace('.md', '');
+        const content = fs.readFileSync(path.join(rolesDir, f), 'utf8');
+        const titleMatch = content.match(/^#\s+(.+)/m);
+        return { id, name: titleMatch ? titleMatch[1] : id, file: f };
+      });
+      sendJSON(res, { roles, teamConfig: path.join(__dirname, '../../agents/TEAM.md') });
+    } catch { sendJSON(res, { roles: [] }); }
     return;
   }
 
