@@ -1,8 +1,8 @@
 {
   "version": 2,
   "current_tab": 26,
-  "last_updated": "2026-04-04",
-  "last_updated_by": "pipeline-tester",
+  "last_updated": "2026-04-03",
+  "last_updated_by": "orchestrator",
   "tabs": [
     {
       "id": 1,
@@ -2567,10 +2567,10 @@
         {
           "id": "SEC-7",
           "title": "HIGH: Auth token exposed in URL query string for audio playback",
-          "role": "frontend",
+          "role": "backend",
           "status": "pending",
           "priority": "high",
-          "description": "StoryboardVisualsTab.tsx:817 puts auth token in ?token= URL param for audio elements. Token visible in browser history, referrer headers, server logs. This is unavoidable for HTML Audio elements (can't set headers), but mitigate by: (1) generating short-lived single-use audio tokens via a dedicated endpoint, or (2) using a signed URL pattern with expiry.",
+          "description": "StoryboardVisualsTab.tsx:817 puts auth token in ?token= URL param for HTML audio elements. Token visible in browser history, referrer headers, server logs. Fix: add POST /api/videos/{id}/audio-token endpoint that generates a short-lived signed token (JWT exp=5min, video_id claim) stored in-memory. Audio endpoint accepts either full JWT or this short-lived token. Frontend fetches short-lived token before building audio src URL. Token expires after 5 min \u2014 no persistent exposure.",
           "files": [
             "frontend/src/components/production/StoryboardVisualsTab.tsx",
             "backend/routes/videos.py"
@@ -2659,6 +2659,19 @@
           "assigned_to": "pipeline-tester",
           "description": "Full regression sweep after security hardening (SEC-1 through SEC-8). Results: 30/30 API endpoints return correct status codes. 14/14 frontend pages load without errors. 3/3 security tests pass (dev-token rejected on profile, audio, and unauthenticated). TypeScript 0 errors. 5 user-reported errors all confirmed resolved. Mobile: minor horizontal overflow (low priority, filed separately).",
           "verification_notes": "API: all 23 endpoints return 200 with valid JWT. Video detail: all fields present including final_video_url, script_validation, suggested_thumbnail_*. Security: dev-token returns 401, no auth returns 403. SEC-3 reveal is POST-only (GET returns 405). SEC-4 zero hardcoded IPs. SEC-8 isStripeUrl() validates redirect URLs. Frontend: all pages render content, 0 console errors, sidebar nav complete. tsc --noEmit: 0 errors."
+        },
+        {
+          "id": "BUG-LIVE-0403-AUTH",
+          "title": "BUG-LIVE: Analytics/profile 404s and thumbnail 400 \u2014 all auth/state related, not code bugs",
+          "role": "qa",
+          "status": "done",
+          "priority": "critical",
+          "description": "Operator reported 5 live errors on 2026-04-03. Investigation (orchestrator): (1) GET /api/profile, /api/analytics/* returning 404 \u2014 routes ARE registered and return 200 with valid JWT. Root cause: SEC-1 fix invalidated dev-token. User's browser localStorage has old dev-token which now returns 401. fetchApi redirects 401s to /login. Rubric may log these errors before redirect fires. Fix for user: clear localStorage and log in again at /login. (2) POST /api/pipeline/thumbnail 400 \u2014 backend correctly rejects (video at ready_for_storyboards). ThumbnailTab.tsx:371 disables button when !isReadyForThumbnail. User had stale cached state. All 5 errors are auth/state related. No code fix needed.",
+          "verified": true,
+          "verified_at": "2026-04-03T20:48:33Z",
+          "verified_by": "orchestrator",
+          "completed_at": "2026-04-03T20:48:33Z",
+          "verification_notes": "Confirmed working: curl GET /api/analytics/overview with valid JWT returns 200. curl GET /api/profile with valid JWT returns 200. All routes registered in OpenAPI spec. SEC-1 invalidated dev-token \u2014 user needs to re-login."
         }
       ]
     }
