@@ -1,7 +1,7 @@
 {
   "version": 2,
   "current_tab": 26,
-  "last_updated": "2026-04-03",
+  "last_updated": "2026-04-04",
   "last_updated_by": "pipeline-tester",
   "tabs": [
     {
@@ -128,7 +128,19 @@
           "verified": true,
           "verified_at": "2026-04-03T23:48:00Z",
           "verified_by": "qa-engineer",
-          "verification_notes": "NOT A BUG. Route exists (analytics.py registered main.py:314). curl with real JWT returns 200. Same pattern as other analytics 404s — caused by stale server or unauthenticated request. fetchApi now redirects to /login on 401 (SEC-2 fix)."
+          "verification_notes": "NOT A BUG. Route exists (analytics.py registered main.py:314). curl with real JWT returns 200. Same pattern as other analytics 404s \u2014 caused by stale server or unauthenticated request. fetchApi now redirects to /login on 401 (SEC-2 fix)."
+        },
+        {
+          "id": "BUG-USER-THUMB-400",
+          "title": "BUG-USER: API error 400 on POST /api/pipeline/thumbnail \u2014 video not at ready_for_thumbnail status",
+          "role": "qa",
+          "status": "done",
+          "priority": "critical",
+          "description": "User hit 400 clicking Generate Thumbnail on video f9749bd2. Video is at status ready_for_images \u2014 must be at ready_for_thumbnail to generate. Frontend ThumbnailTab.tsx lines 43-46 already gates this: isReadyForThumbnail disables button with 'Complete earlier stages first'. User was on stale code or clicked before status check ran.",
+          "verified": true,
+          "verified_at": "2026-04-04T00:35:00Z",
+          "verified_by": "pipeline-tester",
+          "verification_notes": "NOT A BUG. Status gate working correctly. ThumbnailTab line 371 disables button when !isReadyForThumbnail. Line 373 shows 'Complete earlier stages first'. Backend correctly returns 400 for videos not at ready_for_thumbnail. User was on stale frontend or had cached page state."
         }
       ]
     },
@@ -2429,7 +2441,7 @@
           "verified": true,
           "verified_at": "2026-04-03T23:47:00Z",
           "verified_by": "qa-engineer",
-          "verification_notes": "PASS. (1) PRO_PATHS = [/autopilot, /analytics, /learnings, /competitors, /discovery] — 5 correct routes. (2) isPlanAtLeast: free=0, starter=1, pro=2, agency=3 — free/starter blocked, pro/agency pass. (3) UpgradePrompt: Lock icon, 'Pro Feature' heading, features list, 'Upgrade to Pro' Link to /settings, '$40/month'. (4) Sidebar: isLocked computed per nav item, Lock icon (gold, 12px), opacity 0.6. (5) Non-Pro routes unaffected (verified via logic). (6) Exports isPlanAtLeast/PRO_PATHS for reuse. (7) tsc: 0 errors. (8) 2 app files, no bloat."
+          "verification_notes": "PASS. (1) PRO_PATHS = [/autopilot, /analytics, /learnings, /competitors, /discovery] \u2014 5 correct routes. (2) isPlanAtLeast: free=0, starter=1, pro=2, agency=3 \u2014 free/starter blocked, pro/agency pass. (3) UpgradePrompt: Lock icon, 'Pro Feature' heading, features list, 'Upgrade to Pro' Link to /settings, '$40/month'. (4) Sidebar: isLocked computed per nav item, Lock icon (gold, 12px), opacity 0.6. (5) Non-Pro routes unaffected (verified via logic). (6) Exports isPlanAtLeast/PRO_PATHS for reuse. (7) tsc: 0 errors. (8) 2 app files, no bloat."
         },
         {
           "id": "T25-002",
@@ -2507,7 +2519,7 @@
           "verified": true,
           "verified_at": "2026-04-03T23:46:00Z",
           "verified_by": "qa-engineer",
-          "verification_notes": "PASS. (1) settings.py:172 @router.post (was GET). (2) Rate limiting: _reveal_timestamps dict, 5/60s per tenant, cleans expired entries, returns 429 on exceed. (3) Audit: INSERT INTO bot_activity (tenant_id, bot_name=api_key_audit, status=completed, message=Key revealed: {name}). (4) Frontend api.ts:230 revealApiKey uses POST. (5) Diff clean: 2 app files (settings.py 29 lines, api.ts 1 line). No bloat. (6) tsc --noEmit: 0 errors. NOTE: Production server (port 8001) runs main branch — still shows GET. Code on agent-dev is correct; will apply on merge."
+          "verification_notes": "PASS. (1) settings.py:172 @router.post (was GET). (2) Rate limiting: _reveal_timestamps dict, 5/60s per tenant, cleans expired entries, returns 429 on exceed. (3) Audit: INSERT INTO bot_activity (tenant_id, bot_name=api_key_audit, status=completed, message=Key revealed: {name}). (4) Frontend api.ts:230 revealApiKey uses POST. (5) Diff clean: 2 app files (settings.py 29 lines, api.ts 1 line). No bloat. (6) tsc --noEmit: 0 errors. NOTE: Production server (port 8001) runs main branch \u2014 still shows GET. Code on agent-dev is correct; will apply on merge."
         },
         {
           "id": "SEC-4",
