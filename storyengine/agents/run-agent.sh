@@ -100,13 +100,21 @@ if [ -f "$PROJECT_ROOT/agents/prd.json" ]; then
   _PRD_ROLE=""
   case "$AGENT" in
     backend-dev) _PRD_ROLE="backend" ;; frontend-dev) _PRD_ROLE="frontend" ;;
-    qa-engineer) _PRD_ROLE="qa" ;; pipeline-tester) _PRD_ROLE="qa" ;; orchestrator) _PRD_ROLE="lead" ;;
+    qa-engineer) _PRD_ROLE="qa" ;; pipeline-tester) _PRD_ROLE="pipeline-tester" ;;
+    security-auditor) _PRD_ROLE="security" ;; orchestrator) _PRD_ROLE="lead" ;;
   esac
   _PRD_PENDING=$(python3 -c "
-import json
+import json, re
 try:
     prd = json.load(open('$PROJECT_ROOT/agents/prd.json'))
-    print(len([t for t in prd.get('tasks', []) if t.get('role') == '$_PRD_ROLE' and t.get('status') in ('pending', 'in_progress')]))
+    done_in_progress = set()
+    try:
+        with open('$PROJECT_ROOT/agents/progress.md') as f:
+            for line in f:
+                m = re.search(r'T(\d+):.*✅', line)
+                if m: done_in_progress.add(int(m.group(1)))
+    except: pass
+    print(len([t for t in prd.get('tasks', []) if t.get('role') == '$_PRD_ROLE' and t.get('id') not in done_in_progress and t.get('status') in ('pending', 'in_progress')]))
 except: print(0)
 " 2>/dev/null || echo "0")
   [ "$_PRD_PENDING" -gt 0 ] && HAS_PRD_WORK="true"
@@ -136,18 +144,31 @@ if [ -f "$PRD_JSON_FILE" ]; then
   # Map agent name to PRD role
   PRD_ROLE=""
   case "$AGENT" in
-    backend-dev)      PRD_ROLE="backend" ;;
-    frontend-dev)     PRD_ROLE="frontend" ;;
-    qa-engineer)      PRD_ROLE="qa" ;;
-    pipeline-tester)  PRD_ROLE="qa" ;;
-    orchestrator)     PRD_ROLE="lead" ;;
+    backend-dev)       PRD_ROLE="backend" ;;
+    frontend-dev)      PRD_ROLE="frontend" ;;
+    qa-engineer)       PRD_ROLE="qa" ;;
+    pipeline-tester)   PRD_ROLE="pipeline-tester" ;;
+    security-auditor)  PRD_ROLE="security" ;;
+    orchestrator)      PRD_ROLE="lead" ;;
   esac
 
+  # Check both prd.json status AND progress.md (agents update progress.md, not prd.json)
   PENDING_PRD=$(python3 -c "
-import json
+import json, re
 try:
     prd = json.load(open('$PRD_JSON_FILE'))
-    tasks = [t for t in prd.get('tasks', []) if t.get('role') == '$PRD_ROLE' and t.get('status') in ('pending', 'in_progress')]
+    # Read progress.md to find actually-done tasks (agents mark [x] there)
+    done_in_progress = set()
+    try:
+        with open('$PROJECT_ROOT/agents/progress.md') as f:
+            for line in f:
+                m = re.search(r'T(\d+):.*✅', line)
+                if m: done_in_progress.add(int(m.group(1)))
+    except: pass
+    tasks = [t for t in prd.get('tasks', [])
+             if t.get('role') == '$PRD_ROLE'
+             and t.get('id') not in done_in_progress
+             and t.get('status') in ('pending', 'in_progress')]
     print(len(tasks))
 except: print(0)
 " 2>/dev/null || echo "0")
