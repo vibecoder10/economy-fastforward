@@ -125,7 +125,7 @@ async def list_videos(
         rows = await fetch_all(
             """SELECT id, video_title, status, thumbnail_url, accent_color, total_cost, views, ctr,
                       created_at::text, updated_at::text
-               FROM videos WHERE tenant_id = $1 AND status = $2
+               FROM videos WHERE tenant_id = $1 AND status = $2 AND deleted_at IS NULL
                ORDER BY updated_at DESC LIMIT $3 OFFSET $4""",
             tenant_id, status, limit, offset,
         )
@@ -133,7 +133,7 @@ async def list_videos(
         rows = await fetch_all(
             """SELECT id, video_title, status, thumbnail_url, accent_color, total_cost, views, ctr,
                       created_at::text, updated_at::text
-               FROM videos WHERE tenant_id = $1
+               FROM videos WHERE tenant_id = $1 AND deleted_at IS NULL
                ORDER BY updated_at DESC LIMIT $2 OFFSET $3""",
             tenant_id, limit, offset,
         )
@@ -362,6 +362,23 @@ async def reject_video(video_id: str, reason: Optional[str] = None, tenant_id: s
     )
 
     return {"status": "rejected", "previous": video["status"]}
+
+
+@router.delete("/{video_id}")
+async def delete_video(video_id: str, tenant_id: str = Depends(get_tenant_id)):
+    """Soft-delete a video by setting deleted_at timestamp."""
+    video = await fetch_one(
+        "SELECT id FROM videos WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL",
+        video_id, tenant_id,
+    )
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+
+    await execute(
+        "UPDATE videos SET deleted_at = now(), updated_at = now() WHERE id = $1 AND tenant_id = $2",
+        video_id, tenant_id,
+    )
+    return {"status": "deleted", "video_id": video_id}
 
 
 @router.get("/{video_id}/assets")
