@@ -129,7 +129,7 @@ export default function VideosPage() {
   const queryClient = useQueryClient();
   const router = useRouter();
   const [search, setSearch] = useState("");
-  const [tab, setTab] = useState<TabId>("ideas");
+  const [tab, setTab] = useState<TabId>("active");
   const [statusFilter, setStatusFilter] = useState("");
 
   // Create modal state

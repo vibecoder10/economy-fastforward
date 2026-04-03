@@ -2,8 +2,8 @@
 
 import { useState, useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Loader2, CheckCircle, AlertCircle } from "lucide-react";
-import { runPipelineStage } from "@/lib/api";
+import { Loader2, CheckCircle, AlertCircle, ChevronRight } from "lucide-react";
+import { runPipelineStage, advanceVideo } from "@/lib/api";
 import { useTaskPoller } from "@/hooks/use-task-poller";
 
 interface StageAdvancerProps {
@@ -14,10 +14,11 @@ interface StageAdvancerProps {
   disabled?: boolean;
   disabledReason?: string;
   cost?: string;
+  showAdvance?: boolean;
 }
 
 export function StageAdvancer({
-  videoId, stage, label, nextLabel, disabled, disabledReason, cost,
+  videoId, stage, label, nextLabel, disabled, disabledReason, cost, showAdvance,
 }: StageAdvancerProps) {
   const queryClient = useQueryClient();
   const [taskRunning, setTaskRunning] = useState(false);
@@ -97,16 +98,44 @@ export function StageAdvancer({
     );
   }
 
+  const handleAdvance = useCallback(async () => {
+    setResult(null);
+    setErrorMsg(null);
+    try {
+      await advanceVideo(videoId);
+      setResult("success");
+      queryClient.invalidateQueries({ queryKey: ["video", videoId] });
+      queryClient.invalidateQueries({ queryKey: ["videos"] });
+      setTimeout(() => setResult(null), 3000);
+    } catch (err: any) {
+      setResult("error");
+      setErrorMsg(err.message || "Failed to advance");
+    }
+  }, [videoId, queryClient]);
+
   return (
-    <button
-      onClick={handleClick}
-      disabled={disabled}
-      className="flex items-center gap-2 text-sm px-4 py-2 rounded-lg font-medium transition-opacity disabled:opacity-40"
-      style={{ background: "var(--amber)", color: "var(--bg-primary)" }}
-      title={disabled ? disabledReason : undefined}
-    >
-      {label}
-      {cost && <span className="opacity-60">· {cost}</span>}
-    </button>
+    <div className="flex items-center gap-2">
+      <button
+        onClick={handleClick}
+        disabled={disabled}
+        className="flex items-center gap-2 text-sm px-4 py-2 rounded-lg font-medium transition-opacity disabled:opacity-40"
+        style={{ background: "var(--amber)", color: "var(--bg-primary)" }}
+        title={disabled ? disabledReason : undefined}
+      >
+        {label}
+        {cost && <span className="opacity-60">· {cost}</span>}
+      </button>
+      {showAdvance && (
+        <button
+          onClick={handleAdvance}
+          disabled={disabled}
+          className="flex items-center gap-1 text-xs px-3 py-2 rounded-lg font-medium transition-opacity disabled:opacity-40"
+          style={{ background: "var(--bg-elevated)", color: "var(--text-secondary)", border: "1px solid var(--border)" }}
+          title="Skip to next stage"
+        >
+          Advance <ChevronRight size={12} />
+        </button>
+      )}
+    </div>
   );
 }
