@@ -2,7 +2,7 @@
 
 ## Summary
 - Total: 14 tasks
-- Done: 11 (backend 6 + frontend 5) | Verified: 0 | Blocked: 0 | Remaining: 3 (frontend-build, qa, security)
+- Done: 12 (backend 6 + frontend 5 + qa 1) | Verified: 0 | Blocked: 0 | Remaining: 1 (security)
 
 ## Tasks
 - [x] T1: Database migration: soft delete, video clip prompts, user preferences (backend) ✅
@@ -17,7 +17,7 @@
 - [x] T10: Render image thumbnails, fix storyboard mode, add video clip prompt UI (frontend) ✅
 - [x] T11: Add tab drag-to-reorder with persistence (frontend) ✅
 - [x] T12: Full production build passes (frontend) ✅
-- [ ] T13: Playwright end-to-end tests (qa) — depends on T12 (now unblocked)
+- [x] T13: Playwright end-to-end tests (qa) ✅ — 20 tests, 8 pass / 12 skip (endpoints not deployed)
 - [ ] T14: Security audit: auth, data leaks, input sanitization (security) — deps met (T3, T4, T5 done)
 
 ## Frontend Commits (this session)
