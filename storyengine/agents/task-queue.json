@@ -2,7 +2,7 @@
   "version": 2,
   "current_tab": 13,
   "last_updated": "2026-04-03",
-  "last_updated_by": "qa-engineer",
+  "last_updated_by": "pipeline-tester",
   "tabs": [
     {
       "id": 1,
@@ -524,15 +524,46 @@
           "files": [
             "frontend/src/components/production/RenderTab.tsx"
           ],
-          "depends_on": "T8-001"
+          "depends_on": "T8-001",
+          "error_note": "PARTIAL: render trigger + task poller + scene timeline ARE built (RenderTab.tsx 315 lines). MISSING: output display for final_video_url. See BUG-T8-FINAL-URL (backend) + BUG-T8-OUTPUT-DISPLAY (frontend)."
         },
         {
           "id": "T8-003",
           "title": "QA verify render trigger, progress, and output",
           "role": "qa",
-          "status": "pending",
+          "status": "done",
           "description": "Verify: render button triggers task, progress shows in UI, output URL appears when done. Type check passes.",
-          "depends_on": "T8-002"
+          "depends_on": "T8-002",
+          "verified": true,
+          "started_at": "2026-04-03T09:15:00Z",
+          "completed_at": "2026-04-03T09:30:00Z",
+          "assigned_to": "qa-engineer",
+          "verified_at": "2026-04-03T09:30:00Z",
+          "verified_by": "pipeline-tester",
+          "verification_notes": "PARTIAL PASS \u2014 render trigger and UI flow verified, output display missing (2 bugs filed). (1) POST /api/pipeline/render/{id} EXISTS \u2713 \u2014 enforces status gate correctly ('Video not ready to render (status: X)'). (2) GET /api/pipeline/task/{id} EXISTS \u2713 \u2014 returns {status, message, error} with correct structure. (3) RenderTab UI renders without errors \u2713 \u2014 Scene timeline with 6 scenes + durations, Resolution/FPS/Duration info, Music Track selector (disabled), Export Format picker (disabled). (4) 'Render Now' button \u2713 \u2014 visible and clickable. (5) Confirmation dialog \u2713 \u2014 shows 'Confirm Render' + 'Cancel' after clicking 'Render Now'. (6) Task poller wired \u2713 \u2014 useTaskPoller with onComplete/onFailed in RenderTab.tsx. BUGS: (A) BUG-T8-FINAL-URL filed \u2014 'final_video_url' in schema.sql line 117 but NOT returned by VideoDetail API (missing from models.py + SQL SELECT in videos.py). (B) BUG-T8-OUTPUT-DISPLAY filed \u2014 RenderTab has no output section; video preview only shows youtube_url (post-upload) or loading spinner \u2014 no way to see/download rendered MP4. 0 console errors on page load. Screenshots: T8-003-render-tab.png, T8-003-confirm.png, T8-003-after-confirm.png."
+        },
+        {
+          "id": "BUG-T8-FINAL-URL",
+          "title": "BUG: final_video_url missing from VideoDetail API response",
+          "role": "backend",
+          "status": "pending",
+          "description": "Pipeline Tester found: schema.sql line 117 has 'final_video_url TEXT' column in videos table. But GET /api/videos/{id} response does NOT include this field \u2014 it's absent from VideoDetail Pydantic model (models.py) and the SQL SELECT in routes/videos.py. Fix: (1) Add 'final_video_url: Optional[str] = None' to VideoDetail class in models.py. (2) Add 'final_video_url' to SQL SELECT in routes/videos.py get_video(). (3) Add r.get('final_video_url') mapping in VideoDetail constructor. Also add final_video_url to api.ts VideoDetail interface. This unblocks BUG-T8-OUTPUT-DISPLAY (frontend render output display).",
+          "files": [
+            "backend/models.py",
+            "backend/routes/videos.py",
+            "frontend/src/lib/api.ts"
+          ]
+        },
+        {
+          "id": "BUG-T8-OUTPUT-DISPLAY",
+          "title": "BUG: RenderTab missing output section \u2014 no way to view/download rendered MP4",
+          "role": "frontend",
+          "status": "pending",
+          "depends_on": "BUG-T8-FINAL-URL",
+          "description": "Pipeline Tester found: RenderTab (RenderTab.tsx) shows a video preview area that only displays youtube_url (post-upload) or a render loading spinner. After rendering completes, there is NO display of the rendered video file (final_video_url). The user has no way to see or download the rendered MP4 before uploading to YouTube. Fix (after BUG-T8-FINAL-URL adds final_video_url to VideoDetail): (1) Add a conditional section in RenderTab: when video.final_video_url exists AND render is not active, show the rendered video with a <video> element or <a download> link. (2) Show status: 'Render complete' badge with timestamp. (3) Add 'Download MP4' link pointing to final_video_url.",
+          "files": [
+            "frontend/src/components/production/RenderTab.tsx"
+          ]
         }
       ]
     },

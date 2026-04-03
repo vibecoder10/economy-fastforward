@@ -21,3 +21,4 @@
 - Auth intercept pattern: context.add_init_script sets localStorage token + route handler intercepts /api/auth/me to return FAKE_USER dict — this reliably bypasses AuthProvider redirect without needing a valid JWT.
 - AuthProvider skips getMe() when token==='dev-token' (stays null, redirects to login) — use window.fetch patch to fake /api/auth/me response in JS-only Playwright tests, or use a real JWT from POST /api/auth/register.
 - T13-012 pre-validation: API proxy with real JWT on port 3003 is the reliable way to test React pages — localStorage.setItem in addInitScript + route.fulfill for all /api/** calls bypasses CORS and auth redirect.
+- T8-003: RenderTab has render trigger + task poller + scene timeline but NO final_video_url display. Backend also missing final_video_url from VideoDetail model/SQL (in schema.sql line 117 but never returned). BUG-T8-FINAL-URL (backend) + BUG-T8-OUTPUT-DISPLAY (frontend) filed.
