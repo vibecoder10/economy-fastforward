@@ -1,18 +1,27 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Search, Film, Loader2, Plus, Clock, Eye, BarChart3,
-  RefreshCw, Sparkles, X, ChevronRight, ExternalLink, TrendingUp, Brain, Trash2,
+  RefreshCw, Sparkles, X, ChevronRight, ExternalLink, TrendingUp, Brain, Trash2, GripVertical,
 } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
+  DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  arrayMove, SortableContext, sortableKeyboardCoordinates,
+  horizontalListSortingStrategy, useSortable,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import {
   getVideos, createVideo, deleteVideo,
   getDiscoveryIdeas, getDiscoveryStatus, refreshDiscoveryIdeas,
-  launchIdea, dismissIdea,
+  launchIdea, dismissIdea, getUserPreferences, setUserPreference,
   type VideoSummary, type DiscoveryIdea, type TitleOption,
 } from "@/lib/api";
 import { GlassCard } from "@/components/ui/GlassCard";
@@ -125,6 +134,54 @@ function timeAgo(dateStr: string | null | undefined): string {
 
 type TabId = "ideas" | "active" | "published";
 
+const DEFAULT_TAB_ORDER: TabId[] = ["ideas", "active", "published"];
+
+function SortableTab({
+  id, label, count, icon: Icon, isActive, onClick,
+}: {
+  id: string;
+  label: string;
+  count: number;
+  icon?: React.ComponentType<{ size?: number }>;
+  isActive: boolean;
+  onClick: () => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    color: isActive ? "var(--turquoise)" : "var(--text-tertiary)",
+    background: isActive ? "var(--turquoise-bg)" : "transparent",
+    borderBottom: isActive ? "2px solid var(--turquoise)" : "2px solid transparent",
+  };
+
+  return (
+    <button
+      ref={setNodeRef}
+      style={style}
+      {...attributes}
+      onClick={onClick}
+      className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium font-body transition-all rounded-t-lg"
+    >
+      <span {...listeners} className="cursor-grab active:cursor-grabbing touch-none">
+        <GripVertical size={12} style={{ opacity: 0.4 }} />
+      </span>
+      {Icon && <Icon size={14} />}
+      {label}
+      <span
+        className="text-[10px] font-mono px-1.5 py-0.5 rounded-full"
+        style={{
+          background: isActive ? "var(--turquoise-dim)" : "rgba(255,255,255,0.05)",
+          color: isActive ? "var(--turquoise)" : "var(--text-tertiary)",
+        }}
+      >
+        {count}
+      </span>
+    </button>
+  );
+}
+
 export default function VideosPage() {
   const queryClient = useQueryClient();
   const router = useRouter();
@@ -141,6 +198,43 @@ export default function VideosPage() {
   const [newGuidance, setNewGuidance] = useState("");
   const [newVisualStyle, setNewVisualStyle] = useState("");
   const [newAccentColor, setNewAccentColor] = useState("");
+
+  // Tab order (drag-to-reorder with persistence)
+  const [tabOrder, setTabOrder] = useState<TabId[]>(DEFAULT_TAB_ORDER);
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  // Load saved tab order from preferences
+  const { data: prefs } = useQuery({
+    queryKey: ["user-preferences"],
+    queryFn: getUserPreferences,
+    staleTime: 60000,
+  });
+
+  useEffect(() => {
+    if (prefs && Array.isArray(prefs.pipeline_tab_order)) {
+      const saved = prefs.pipeline_tab_order as TabId[];
+      if (saved.length === DEFAULT_TAB_ORDER.length && saved.every((t) => DEFAULT_TAB_ORDER.includes(t))) {
+        setTabOrder(saved);
+      }
+    }
+  }, [prefs]);
+
+  const handleDragEnd = useCallback((event: DragEndEvent) => {
+    const { active, over } = event;
+    if (over && active.id !== over.id) {
+      setTabOrder((prev) => {
+        const oldIndex = prev.indexOf(active.id as TabId);
+        const newIndex = prev.indexOf(over.id as TabId);
+        const newOrder = arrayMove(prev, oldIndex, newIndex);
+        // Persist to backend (fire-and-forget)
+        setUserPreference("pipeline_tab_order", newOrder).catch(() => {});
+        return newOrder;
+      });
+    }
+  }, []);
 
   // Delete confirmation
   const [deleteTarget, setDeleteTarget] = useState<VideoSummary | null>(null);
@@ -330,36 +424,31 @@ export default function VideosPage() {
         </div>
       </motion.div>
 
-      {/* Tabs */}
+      {/* Tabs — drag-to-reorder */}
       <motion.div variants={item} className="flex gap-1" style={{ borderBottom: "1px solid var(--border-subtle)" }}>
-        {([
-          { id: "ideas" as const, label: "Daily Ideas", count: ideas?.length || 0, icon: Sparkles },
-          { id: "active" as const, label: "In Production", count: activeVideos.length },
-          { id: "published" as const, label: "Published", count: publishedVideos.length },
-        ]).map((t) => (
-          <button
-            key={t.id}
-            onClick={() => setTab(t.id)}
-            className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium font-body transition-all rounded-t-lg"
-            style={{
-              color: tab === t.id ? "var(--turquoise)" : "var(--text-tertiary)",
-              background: tab === t.id ? "var(--turquoise-bg)" : "transparent",
-              borderBottom: tab === t.id ? "2px solid var(--turquoise)" : "2px solid transparent",
-            }}
-          >
-            {t.icon && <t.icon size={14} />}
-            {t.label}
-            <span
-              className="text-[10px] font-mono px-1.5 py-0.5 rounded-full"
-              style={{
-                background: tab === t.id ? "var(--turquoise-dim)" : "rgba(255,255,255,0.05)",
-                color: tab === t.id ? "var(--turquoise)" : "var(--text-tertiary)",
-              }}
-            >
-              {t.count}
-            </span>
-          </button>
-        ))}
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+          <SortableContext items={tabOrder} strategy={horizontalListSortingStrategy}>
+            {tabOrder.map((tabId) => {
+              const tabConfig: Record<TabId, { label: string; count: number; icon?: React.ComponentType<{ size?: number }> }> = {
+                ideas: { label: "Daily Ideas", count: ideas?.length || 0, icon: Sparkles },
+                active: { label: "In Production", count: activeVideos.length },
+                published: { label: "Published", count: publishedVideos.length },
+              };
+              const t = tabConfig[tabId];
+              return (
+                <SortableTab
+                  key={tabId}
+                  id={tabId}
+                  label={t.label}
+                  count={t.count}
+                  icon={t.icon}
+                  isActive={tab === tabId}
+                  onClick={() => setTab(tabId)}
+                />
+              );
+            })}
+          </SortableContext>
+        </DndContext>
       </motion.div>
 
       {/* === DAILY IDEAS TAB === */}
