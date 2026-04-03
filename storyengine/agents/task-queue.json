@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "current_tab": 22,
+  "current_tab": 23,
   "last_updated": "2026-04-03",
-  "last_updated_by": "qa-engineer",
+  "last_updated_by": "orchestrator",
   "tabs": [
     {
       "id": 1,
@@ -2055,6 +2055,48 @@
           "verified_at": "2026-04-03T05:56:00Z",
           "verified_by": "qa-engineer",
           "verification_notes": "PASS (Playwright). (1) /dashboard loads without console errors (0). (2) Stat cards show real numbers from API: Videos This Month=0, In Production=0, Avg Cost=/bin/bash.00, Avg CTR=-- (empty DB for test user, correct). (3) Pipeline Distribution renders with all 10 stage labels. (4) Recent Videos list present with links to /pipeline/[id] pattern. (5) Create Video button present. (6) Loading state handled via summaryLoading spinner. (7) tsc --noEmit: 0 errors. (8) npm run build: not explicitly run but tsc clean confirms no type errors. Screenshot: T22-001-dashboard.png."
+        }
+      ]
+    },
+    {
+      "id": 23,
+      "name": "Production Calendar",
+      "path": "/calendar",
+      "status": "in_progress",
+      "tasks": [
+        {
+          "id": "T23-001",
+          "title": "Add GET /api/calendar endpoint returning videos grouped by date",
+          "role": "backend",
+          "status": "pending",
+          "description": "Create GET /api/calendar?start=YYYY-MM-DD&end=YYYY-MM-DD in routes/dashboard.py (or a new routes/calendar.py). Returns videos in the date range with fields: id, video_title, status, thumbnail_url, accent_color, created_at, upload_date. Group by date (YYYY-MM-DD key). Register in main.py if new file. SQL: SELECT id, video_title, status, thumbnail_url, accent_color, DATE(COALESCE(upload_date, created_at)) as calendar_date FROM videos WHERE tenant_id=$1 AND DATE(COALESCE(upload_date, created_at)) BETWEEN $2 AND $3. Return as { '2026-04-01': [{id, title, status, ...}], ... }. Use tenant isolation via get_tenant_id.",
+          "files": [
+            "backend/routes/dashboard.py",
+            "backend/main.py",
+            "backend/models.py"
+          ]
+        },
+        {
+          "id": "T23-002",
+          "title": "Create /calendar page with monthly grid view",
+          "role": "frontend",
+          "status": "pending",
+          "depends_on": "T23-001",
+          "description": "Create frontend/src/app/calendar/page.tsx. Monthly calendar grid: 7-column grid (Sun-Sat), show current month, prev/next navigation. Each day cell renders video chips from GET /api/calendar?start=MONTH_START&end=MONTH_END. Video chip shows: status color dot + truncated title, click navigates to /pipeline/[id]. Status colors match STATUS_COLOR from pipeline page constants (idea_logged=gray, ready_for_scripting=amber, done=green, etc.). Empty day cells are plain. Loading skeleton while fetching. Add getCalendarVideos(start, end) to api.ts. Add Calendar to sidebar nav (CalendarDays icon, /calendar href) between Analytics and Settings. Also add to bottom-tabs.tsx More menu.",
+          "files": [
+            "frontend/src/app/calendar/page.tsx",
+            "frontend/src/lib/api.ts",
+            "frontend/src/components/nav/sidebar.tsx",
+            "frontend/src/components/nav/bottom-tabs.tsx"
+          ]
+        },
+        {
+          "id": "T23-003",
+          "title": "QA verify calendar: videos appear on dates, nav works, mobile clean",
+          "role": "qa",
+          "status": "pending",
+          "depends_on": "T23-002",
+          "description": "Verify: (1) GET /api/calendar?start=2026-04-01&end=2026-04-30 returns correct shape: dict of date-string keys with video arrays. (2) /calendar page loads without errors. (3) Current month renders as 5-6 row grid with day numbers. (4) Prev/next month buttons change displayed month and refetch data. (5) Video chips appear on their calendar_date with status color and title. (6) Clicking a chip navigates to /pipeline/[id]. (7) Calendar link appears in sidebar nav (CalendarDays icon). (8) tsc --noEmit passes clean. (9) No console errors. If all pass, mark Tab 23 complete."
         }
       ]
     }
