@@ -120,8 +120,49 @@ except: print(0)
   [ "$_PRD_PENDING" -gt 0 ] && HAS_PRD_WORK="true"
 fi
 
-if [ "$ALL_DONE" = "COMPLETE" ] && [ "$HAS_PRD_WORK" = "false" ]; then
-  notify_slack ":trophy: *ALL TASKS COMPLETE.* StoryEngine build phase is done. $AGENT_DISPLAY entering standby."
+# Check for handoffs addressed to this agent
+HAS_HANDOFFS="false"
+HANDOFFS_FILE="$PROJECT_ROOT/rubric/scaffold/data/handoffs.json"
+if [ -f "$HANDOFFS_FILE" ]; then
+  _HANDOFF_COUNT=$(python3 -c "
+import json
+try:
+    h = json.load(open('$HANDOFFS_FILE'))
+    recent = [x for x in h[-10:] if x.get('to') == '$AGENT']
+    print(len(recent))
+except: print(0)
+" 2>/dev/null || echo "0")
+  [ "$_HANDOFF_COUNT" -gt 0 ] && HAS_HANDOFFS="true"
+fi
+
+# Check for focus directive
+HAS_FOCUS="false"
+if [ -f "$CONTROLS_FILE" ]; then
+  _FOCUS=$(python3 -c "
+import json
+try:
+    c = json.load(open('$CONTROLS_FILE'))
+    f = c.get('focus', '')
+    print('yes' if f else 'no')
+except: print('no')
+" 2>/dev/null || echo "no")
+  [ "$_FOCUS" = "yes" ] && HAS_FOCUS="true"
+fi
+
+# Check for user-browser errors
+HAS_USER_ERRORS="false"
+if [ -f "$ACTIVITY_LOG" ]; then
+  _ERROR_COUNT=$(python3 -c "
+import json
+try:
+    logs = json.load(open('$ACTIVITY_LOG'))
+    print(len([e for e in logs[:20] if e.get('agent') == 'user-browser' and e.get('status') == 'error']))
+except: print(0)
+" 2>/dev/null || echo "0")
+  [ "$_ERROR_COUNT" -gt 0 ] && HAS_USER_ERRORS="true"
+fi
+
+if [ "$ALL_DONE" = "COMPLETE" ] && [ "$HAS_PRD_WORK" = "false" ] && [ "$HAS_HANDOFFS" = "false" ] && [ "$HAS_FOCUS" = "false" ] && [ "$HAS_USER_ERRORS" = "false" ]; then
   curl -s -X POST "$RUBRIC_URL/api/agent-status" \
     -H "Content-Type: application/json" \
     -d "{\"agent\": \"$AGENT\", \"status\": \"idle\", \"task\": \"All tasks complete — standby mode\"}" 2>/dev/null || true
