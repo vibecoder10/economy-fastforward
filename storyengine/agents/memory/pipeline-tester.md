@@ -1,7 +1,7 @@
 # Pipeline Tester Memory
 <!-- Lessons from past sessions. One line each. Max 50 entries. -->
 
-- Gen/Regen/Variants buttons in StoryboardVisualsTab are tiny (text-[9px]) inside overflow containers — Playwright standard click times out; use JS .click() or force=True.
+- Gen/Regen/Variants buttons in StoryboardVisualsTab are tiny (text-[9px]) — Playwright standard click times out; use JS .click() or force=True.
 - Approval/Reject buttons only appear in StoryboardVisualsTab when seg.status === 'done'; with all-pending assets, 0 buttons show (expected behavior, not a bug).
 - Tab name for images/storyboard is "Storyboard & Visuals" (not "Visuals" or "Images").
 - Auth requires a real JWT for frontend; use sub='dev-user' (maps to dev account 00000000-...) with iss=storyengine, tenant_id from /api/auth/me with dev-token.
@@ -48,3 +48,4 @@
 - T27-002 (2026-04-04): SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY missing from agent-workspace .env but exist in production .env. Must set env vars for storage tests: SUPABASE_URL=https://rcbobwaldrefnyllhjyo.supabase.co. Real grids from tempfile.aiquickdraw.com are 1376x768 (3x2, 6 panels of 458x384).
 - T27-003 storyboard-extract: extraction takes ~80s for 14 grids (6 scenes, 84 panels). UPSERT updates existing assets' image_url to supabase.co URLs. generation_method not set on existing rows — extraction updates image_url+status only. Verify by checking supabase.co in image_url, not generation_method.
 - REG9 (2026-04-04): 17/17 pages, 24/24 API, 6/6 tabs, auth PASS, mobile PASS, tsc 0 errors. Tab name is "Script" not "Script & Voice". Dashboard nav href is "/" not "/dashboard". Production .env still has DEV_MODE=true — config issue not code bug.
+- REG10 (2026-04-04): 22/22 pages (17 standalone + 5 tabs), 24/24 API, auth flow PASS, mobile PASS (375px, 0 overflow), perf <1s all pages, tsc 0 errors, 0 console errors. All 5 user-reported errors confirmed resolved. Production .env DEV_MODE=true persists — deployment config fix needed, not code.
