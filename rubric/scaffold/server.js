@@ -1261,6 +1261,14 @@ RULES:
     const body = JSON.parse(await readBody(req));
     const { role, system } = body; // system: 'team' | 'storyengine'
     if (!role) { sendJSON(res, { error: 'role required' }, 400); return; }
+    // Respect kill switch — don't spawn if team is OFF
+    try {
+      const controls = JSON.parse(readFileSync(join(DATA_DIR, 'controls.json'), 'utf8'));
+      if (controls.team_enabled === false) {
+        sendJSON(res, { success: false, message: `Team is OFF — ${role} not spawned` });
+        return;
+      }
+    } catch {}
     const projectRoot = path.resolve(__dirname, '../../');
     // Unified: always use run-agent.sh — it auto-detects PRD tasks
     exec(`cd "${projectRoot}/storyengine/agents" && CLAUDE_BIN="${CLAUDE_BIN}" bash run-agent.sh "${role}" > /tmp/prd-${role}.log 2>&1`,

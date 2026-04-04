@@ -785,6 +785,14 @@ if [ -f "$PROJECT_ROOT/agents/prd.json" ]; then
   python3 -c "
 import json, subprocess, os
 try:
+    # Respect kill switch — don't spawn if team is OFF
+    try:
+        controls = json.load(open('$CONTROLS_FILE'))
+        if controls.get('team_enabled', True) is False:
+            print('Team OFF — skipping auto-spawn')
+            exit(0)
+    except: pass
+
     prd = json.load(open('$PROJECT_ROOT/agents/prd.json'))
     tasks = prd.get('tasks', [])
     done_ids = {t['id'] for t in tasks if t.get('status') in ('done', 'verified')}
