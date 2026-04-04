@@ -2,7 +2,7 @@
   "version": 2,
   "current_tab": 27,
   "last_updated": "2026-04-04",
-  "last_updated_by": "orchestrator",
+  "last_updated_by": "frontend-dev",
   "tabs": [
     {
       "id": 1,
@@ -2939,6 +2939,21 @@
           "assigned_to": "qa-engineer",
           "description": "Full regression sweep. 28/28 API endpoints return correct status codes with valid JWT. 13/13 frontend pages load with content and 0 console errors. TypeScript 0 errors. 5 user-reported errors all NOT A BUG (session #9). Security code checks: GET reveal=405 (POST only), no-auth=403. Note: production .env has DEV_MODE=true which re-enables dev-token by design \u2014 operator deployment choice, not code bug.",
           "verification_notes": "API: all 28 endpoints 200 with fresh JWT. Pages: dashboard/pipeline/review/discovery/competitors/learnings/autopilot/analytics/calendar/settings/settings-keys/profile/onboarding all load. Security code: SEC-1 through SEC-8 code fixes all intact. DEV_MODE=true in prod .env is an operator config choice."
+        },
+        {
+          "id": "BUG-UX-AUTH-STALE",
+          "title": "FIX: Stop reporting auth errors to RUBRIC when user has no valid token",
+          "role": "frontend",
+          "status": "done",
+          "priority": "high",
+          "started_at": "2026-04-04T12:02:00Z",
+          "completed_at": "2026-04-04T12:06:00Z",
+          "assigned_to": "frontend-dev",
+          "description": "After SEC-1 invalidated dev-token, unauthenticated browsers using the dev-token fallback flood RUBRIC with 404/401 errors every session (reported 10+ times). Fix: (1) On 401, redirect to /login immediately WITHOUT reporting to RUBRIC. (2) Only report errors to RUBRIC when user has a real stored token (not the dev-token fallback). This eliminates the recurring false-alarm error reports.",
+          "files": [
+            "frontend/src/lib/api.ts"
+          ],
+          "verified": false
         }
       ]
     },
