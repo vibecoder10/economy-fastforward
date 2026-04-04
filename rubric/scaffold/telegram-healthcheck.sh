@@ -11,6 +11,11 @@ PROJECT_ROOT="${AGENT_PROJECT_ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
 TMUX_SESSION="telegram-channel"
 LOG_FILE="/tmp/storyengine-agents/telegram-channel.log"
 CLAUDE_BIN="${CLAUDE_BIN:-claude}"
+SYSTEM_PROMPT_FILE="$PROJECT_ROOT/rubric/scaffold/telegram-system-prompt.md"
+MODEL="${TELEGRAM_MODEL:-haiku}"
+# Restart every 4 hours to prevent context window overflow
+MAX_AGE_SECONDS=14400
+AGE_FILE="/tmp/storyengine-agents/telegram-channel-started"
 
 mkdir -p "$(dirname "$LOG_FILE")"
 
@@ -25,28 +30,54 @@ session_is_alive() {
   return 1
 }
 
-# Main check
-if session_is_alive; then
-  echo "[$(date)] Telegram channel is running"
-else
-  echo "[$(date)] Telegram channel is DOWN — restarting..."
-
+start_session() {
   # Kill any stale tmux session remnants
   tmux kill-session -t "$TMUX_SESSION" 2>/dev/null || true
+  sleep 2
 
-  # Restart the Telegram Claude session
+  # Start with system prompt + model for proper routing
   tmux new-session -d -s "$TMUX_SESSION" \
-    "cd $PROJECT_ROOT && $CLAUDE_BIN --channels plugin:telegram@claude-plugins-official --dangerously-skip-permissions 2>&1 | tee -a $LOG_FILE"
+    "cd $PROJECT_ROOT && $CLAUDE_BIN --channels plugin:telegram@claude-plugins-official --model $MODEL --append-system-prompt-file $SYSTEM_PROMPT_FILE --dangerously-skip-permissions 2>&1 | tee -a $LOG_FILE"
 
-  # Wait for startup
+  # Record start time for age checks
+  date +%s > "$AGE_FILE"
+
   sleep 5
+}
+
+# ─── Check 1: Is session alive? ──────────────────────────────────────────────
+if ! session_is_alive; then
+  echo "[$(date)] Telegram channel is DOWN — restarting..."
+  start_session
 
   if session_is_alive; then
-    echo "[$(date)] Telegram channel restarted successfully"
-    # Alert via direct Telegram API (session might not be ready yet for message relay)
-    notify_telegram "Telegram channel was down — auto-restarted at $(date +%H:%M)"
+    echo "[$(date)] Telegram channel restarted successfully (model=$MODEL)"
+    notify_telegram "Telegram channel was down — auto-restarted at $(date +%H:%M)" 2>/dev/null || true
   else
     echo "[$(date)] FAILED to restart Telegram channel"
-    notify_telegram "CRITICAL: Telegram channel failed to restart. Manual intervention needed."
+    notify_telegram "CRITICAL: Telegram channel failed to restart. Manual intervention needed." 2>/dev/null || true
+  fi
+  exit 0
+fi
+
+# ─── Check 2: Is session too old? (context overflow prevention) ──────────────
+if [ -f "$AGE_FILE" ]; then
+  STARTED_AT=$(cat "$AGE_FILE" 2>/dev/null || echo 0)
+  NOW=$(date +%s)
+  AGE=$((NOW - STARTED_AT))
+
+  if [ "$AGE" -gt "$MAX_AGE_SECONDS" ]; then
+    echo "[$(date)] Telegram channel is ${AGE}s old (max ${MAX_AGE_SECONDS}s) — recycling to clear context..."
+    start_session
+
+    if session_is_alive; then
+      echo "[$(date)] Telegram channel recycled successfully (model=$MODEL)"
+    else
+      echo "[$(date)] FAILED to recycle Telegram channel"
+      notify_telegram "CRITICAL: Telegram channel failed to recycle. Manual intervention needed." 2>/dev/null || true
+    fi
+    exit 0
   fi
 fi
+
+echo "[$(date)] Telegram channel is running (model=$MODEL)"

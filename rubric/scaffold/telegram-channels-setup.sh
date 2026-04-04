@@ -23,6 +23,8 @@
 PROJECT_ROOT="${AGENT_PROJECT_ROOT:-/home/clawd/projects/economy-fastforward}"
 TMUX_SESSION="telegram-channel"
 LOG_FILE="/tmp/storyengine-agents/telegram-channel.log"
+SYSTEM_PROMPT_FILE="$PROJECT_ROOT/rubric/scaffold/telegram-system-prompt.md"
+MODEL="${TELEGRAM_MODEL:-haiku}"
 
 mkdir -p /tmp/storyengine-agents
 
@@ -71,11 +73,21 @@ start)
     exit 1
   fi
 
+  # Verify system prompt exists
+  if [ ! -f "$SYSTEM_PROMPT_FILE" ]; then
+    echo "WARNING: System prompt not found at $SYSTEM_PROMPT_FILE"
+    echo "Bot will run without routing instructions."
+  fi
+
   # Start in tmux so it persists after SSH disconnect
+  # --append-system-prompt-file loads Telegram routing instructions from file
+  # --model haiku for fast, cheap message routing
   tmux new-session -d -s "$TMUX_SESSION" \
-    "cd $PROJECT_ROOT && claude --channels plugin:telegram@claude-plugins-official --dangerously-skip-permissions 2>&1 | tee -a $LOG_FILE"
+    "cd $PROJECT_ROOT && claude --channels plugin:telegram@claude-plugins-official --model $MODEL --append-system-prompt-file $SYSTEM_PROMPT_FILE --dangerously-skip-permissions 2>&1 | tee -a $LOG_FILE"
 
   echo "Telegram channel started in tmux session '$TMUX_SESSION'"
+  echo "  Model: $MODEL"
+  echo "  System prompt: $SYSTEM_PROMPT_FILE"
   echo "  Attach: tmux attach -t $TMUX_SESSION"
   echo "  Logs:   tail -f $LOG_FILE"
   ;;
