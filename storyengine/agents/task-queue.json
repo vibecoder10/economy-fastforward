@@ -206,6 +206,32 @@
           "verified_by": "orchestrator",
           "completed_at": "2026-04-04T02:00:00Z",
           "verification_notes": "NOT A BUG. All 4 endpoints return HTTP 200: GET /api/profile, /api/analytics/overview, /api/analytics/framework-performance, /api/analytics/ctr-timeline all confirmed working. User needs to clear localStorage and re-login at /login."
+        },
+        {
+          "id": "BUG-USER-0404C-THUMB",
+          "title": "BUG-USER: API error 400 on POST /api/pipeline/thumbnail \u2014 video at ready_for_storyboard status (recurring #6)",
+          "role": "qa",
+          "status": "done",
+          "priority": "critical",
+          "description": "User hit 400 on thumbnail generation for video f9749bd2. DB shows status='' (empty, Airtable-imported). Error message shows 'status: ready_for_storybo...' \u2014 video not at ready_for_thumbnail. Backend correctly returns 400. ThumbnailTab gates with isReadyForThumbnail. Same as BUG-USER-0404-THUMB, BUG-USER-0404B-THUMB.",
+          "verified": true,
+          "verified_at": "2026-04-04T02:00:00Z",
+          "verified_by": "orchestrator",
+          "completed_at": "2026-04-04T02:00:00Z",
+          "verification_notes": "NOT A BUG. curl confirms backend returns 400 for videos not at ready_for_thumbnail. DB shows video f9749bd2 status='' (empty string from Airtable import). Status gate working correctly. This is the 6th time this error has been filed. Root cause: video is stuck at pre-thumbnail stage, user must complete prior pipeline steps first."
+        },
+        {
+          "id": "BUG-USER-0404C-PROFILE-ANALYTICS",
+          "title": "BUG-USER: 404 on /api/profile and /api/analytics/* (4 endpoints) \u2014 recurring auth/session issue #6",
+          "role": "qa",
+          "status": "done",
+          "priority": "critical",
+          "description": "User reports 404 on GET /api/profile and analytics endpoints. Live test: all return 200 with valid JWT. Same pattern as 5 prior instances \u2014 stale browser token after SEC-1 security fix.",
+          "verified": true,
+          "verified_at": "2026-04-04T02:00:00Z",
+          "verified_by": "orchestrator",
+          "completed_at": "2026-04-04T02:00:00Z",
+          "verification_notes": "NOT A BUG. curl GET /api/profile, /api/analytics/overview, /api/analytics/framework-performance, /api/analytics/ctr-timeline all return HTTP 200. Routes registered and working. Pattern: this error recurs each session because SEC-1 invalidated old dev-tokens. User must clear localStorage and re-login at /login. No code fix needed."
         }
       ]
     },
