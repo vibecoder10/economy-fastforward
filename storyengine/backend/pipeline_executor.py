@@ -36,7 +36,7 @@ for bot_dir in ["script", "voice", "image_prompts", "images", "video_motion",
 from database import fetch_one, fetch_all, execute
 from status_map import to_supabase, to_pipeline, get_bot_name, STAGE_BOT_MAP, is_at_or_past_stage
 from vault import get_secret
-from extraction import extract_grid_ai, extract_grid_pil, detect_grid_layout_from_url
+from extraction import extract_grid
 from storage import upload_from_url
 
 import logging
@@ -1298,17 +1298,13 @@ class PipelineExecutor:
                 panel_offset = 0
                 for beat_num, grid_url in beat_urls:
                     try:
-                        # Use Nano Banana AI extraction if image client available, else PIL fallback
-                        # Storyboard grids are always 3x3 — don't auto-detect from aspect ratio
-                        # (16:9 grids look like 3x2 to the detector but contain 3 rows)
-                        if self._pipeline.image_client:
-                            panels = await extract_grid_ai(
-                                grid_url, video_id, scene_num, beat_num, panel_offset,
-                                image_client=self._pipeline.image_client,
-                                rows=3, cols=3,
-                            )
-                        else:
-                            panels = await extract_grid_pil(grid_url, video_id, scene_num, beat_num, panel_offset)
+                        # PIL crop (accurate) + optional AI upscale (quality)
+                        # Storyboard grids are always 3x3
+                        panels = await extract_grid(
+                            grid_url, video_id, scene_num, beat_num, panel_offset,
+                            image_client=self._pipeline.image_client,
+                            rows=3, cols=3,
+                        )
                         for p in panels:
                             existing = await fetch_one(
                                 """SELECT id FROM assets
