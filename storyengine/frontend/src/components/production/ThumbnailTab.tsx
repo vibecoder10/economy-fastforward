@@ -23,9 +23,10 @@ interface ThumbnailTabProps {
     title?: string;
     thumbnailUrl?: string | null;
   };
+  onAdvanced?: () => void;
 }
 
-export function ThumbnailTab({ video }: ThumbnailTabProps) {
+export function ThumbnailTab({ video, onAdvanced }: ThumbnailTabProps) {
   const queryClient = useQueryClient();
   const currentAccent = video.accent_color || "Cold Teal";
   const [selectedAccent, setSelectedAccent] = useState(currentAccent);
@@ -105,12 +106,13 @@ export function ThumbnailTab({ video }: ThumbnailTabProps) {
     try {
       await advanceVideo(video.id);
       queryClient.invalidateQueries({ queryKey: ["video", video.id] });
+      onAdvanced?.();
     } catch (err) {
       alert(`Failed to advance: ${(err as Error).message}`);
     } finally {
       setAdvancing(false);
     }
-  }, [video.id, queryClient]);
+  }, [video.id, queryClient, onAdvanced]);
 
   const handleRegenerate = useCallback(async () => {
     if (!isReadyForThumbnail) return;
@@ -145,12 +147,13 @@ export function ThumbnailTab({ video }: ThumbnailTabProps) {
     try {
       await advanceVideo(video.id);
       setIsApproved(true);
+      onAdvanced?.();
     } catch {
       // silent
     } finally {
       setIsApproving(false);
     }
-  }, [video.id]);
+  }, [video.id, onAdvanced]);
 
   const handleAccentChange = useCallback(async (colorName: string) => {
     setSelectedAccent(colorName);

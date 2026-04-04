@@ -522,13 +522,13 @@ export default function VideoDetailPage() {
       {/* Tab content */}
       <motion.div variants={item}>
         {currentTab === "research" && <ResearchTab video={videoForTabs} onApproved={() => setActiveTab("script-voice")} />}
-        {currentTab === "script-voice" && <ScriptVoiceTab video={videoForTabs} />}
-        {currentTab === "storyboard-visuals" && <StoryboardVisualsTab video={videoForTabs} onGoToScriptVoice={() => setActiveTab("script-voice")} />}
-        {currentTab === "clips" && <VideoClipsTab video={videoForTabs} />}
-        {currentTab === "sound" && <SoundTab video={videoForTabs} />}
-        {currentTab === "thumbnail" && <ThumbnailTab video={videoForTabs} />}
-        {currentTab === "render" && <RenderTab video={videoForTabs} />}
-        {currentTab === "upload" && <UploadTab video={videoForTabs} />}
+        {currentTab === "script-voice" && <ScriptVoiceTab video={videoForTabs} onAdvanced={() => setActiveTab("storyboard-visuals")} />}
+        {currentTab === "storyboard-visuals" && <StoryboardVisualsTab video={videoForTabs} onGoToScriptVoice={() => setActiveTab("script-voice")} onAdvanced={() => setActiveTab("clips")} />}
+        {currentTab === "clips" && <VideoClipsTab video={videoForTabs} onAdvanced={() => setActiveTab("sound")} />}
+        {currentTab === "sound" && <SoundTab video={videoForTabs} onAdvanced={() => setActiveTab("thumbnail")} />}
+        {currentTab === "thumbnail" && <ThumbnailTab video={videoForTabs} onAdvanced={() => setActiveTab("render")} />}
+        {currentTab === "render" && <RenderTab video={videoForTabs} onAdvanced={() => setActiveTab("upload")} />}
+        {currentTab === "upload" && <UploadTab video={videoForTabs} onAdvanced={() => setActiveTab("performance")} />}
         {currentTab === "performance" && <PerformanceTab video={videoForTabs} />}
       </motion.div>
     </motion.div>

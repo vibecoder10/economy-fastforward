@@ -49,6 +49,7 @@ function SecureAudioPlayer({ videoId, scene }: { videoId: string; scene: number 
 interface StoryboardVisualsTabProps {
   video: VideoDetail & { id: string };
   onGoToScriptVoice?: () => void;
+  onAdvanced?: () => void;
 }
 
 const STATUS_ICON: Record<string, { icon: React.ReactNode; color: string; label: string }> = {
@@ -103,7 +104,7 @@ function parseStoryboardPromptBlocks(promptText: string | null | undefined) {
   return [{ beatNumber: 1, prompt }];
 }
 
-export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVisualsTabProps) {
+export function StoryboardVisualsTab({ video, onGoToScriptVoice, onAdvanced }: StoryboardVisualsTabProps) {
   const queryClient = useQueryClient();
 
   // --- Voice guard rail check ---
@@ -563,12 +564,13 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
       queryClient.invalidateQueries({ queryKey: ["video", video.id] });
       queryClient.invalidateQueries({ queryKey: ["video-script", video.id] });
       queryClient.invalidateQueries({ queryKey: ["video-assets", video.id] });
+      onAdvanced?.();
     } catch (err) {
       alert(`Failed to advance: ${(err as Error).message}`);
     } finally {
       setAdvancing(false);
     }
-  }, [video.id, queryClient]);
+  }, [video.id, queryClient, onAdvanced]);
 
   const handleGenerateScenePrompts = useCallback(async (sceneNumber: number) => {
     setGeneratingScene(sceneNumber);

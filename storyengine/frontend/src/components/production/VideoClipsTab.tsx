@@ -28,9 +28,10 @@ const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
 
 interface VideoClipsTabProps {
   video: VideoDetail & { id: string };
+  onAdvanced?: () => void;
 }
 
-export function VideoClipsTab({ video }: VideoClipsTabProps) {
+export function VideoClipsTab({ video, onAdvanced }: VideoClipsTabProps) {
   const queryClient = useQueryClient();
   const [model, setModel] = useState(video.video_model || "grok-imagine");
   const [savingModel, setSavingModel] = useState(false);
@@ -160,12 +161,13 @@ export function VideoClipsTab({ video }: VideoClipsTabProps) {
       await advanceVideo(video.id);
       queryClient.invalidateQueries({ queryKey: ["video", video.id] });
       queryClient.invalidateQueries({ queryKey: ["video-assets", video.id] });
+      onAdvanced?.();
     } catch (err) {
       alert(`Advance failed: ${(err as Error).message}`);
     } finally {
       setAdvancing(false);
     }
-  }, [video.id, queryClient]);
+  }, [video.id, queryClient, onAdvanced]);
 
   if (totalCount === 0) {
     return (
