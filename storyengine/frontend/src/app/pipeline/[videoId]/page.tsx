@@ -418,8 +418,8 @@ export default function VideoDetailPage() {
         <ProgressStepper steps={6} currentStep={Math.min(currentStep, 6)} completedSteps={completedSteps} labels={STEP_LABELS} />
       </motion.div>
 
-      {/* Learnings applied indicator */}
-      {(() => {
+      {/* Learnings applied indicator — only on Script tab */}
+      {currentTab === "script-voice" && (() => {
         const injected = parseInjectedLearnings(video.writer_guidance);
         const total = injected.use.length + injected.avoid.length;
         if (total === 0) return null;
