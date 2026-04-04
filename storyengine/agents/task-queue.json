@@ -2756,7 +2756,7 @@
           "verified": true,
           "verified_at": "2026-04-04T05:15:00Z",
           "verified_by": "qa-engineer",
-          "verification_notes": "PASS. (1) storage.py: 135 lines, 3 public functions (upload_bytes, upload_from_url, download_bytes). (2) Bucket storyengine-assets auto-created with race-condition handling (409 conflict). (3) x-upsert:true prevents duplicate failures. (4) Env vars SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY present in .env and read correctly. (5) httpx==0.27.0 already in requirements.txt. (6) Import test: all 3 functions importable. (7) Config test: env vars load correctly (URL + key). (8) Diff clean: 2 files (storage.py new + task-queue.json), no bloat. (9) Not imported anywhere yet — expected, downstream tasks will use it. NOTE: Pillow NOT in requirements.txt — T27-002 will need it for PIL grid cropping."
+          "verification_notes": "PASS. (1) storage.py: 135 lines, 3 public functions (upload_bytes, upload_from_url, download_bytes). (2) Bucket storyengine-assets auto-created with race-condition handling (409 conflict). (3) x-upsert:true prevents duplicate failures. (4) CORRECTION: SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY are NOT in agent-workspace .env — they ARE in production .env (/home/clawd/projects/economy-fastforward/storyengine/backend/.env). Pipeline-tester verified upload works with production creds. (5) httpx==0.27.0 already in requirements.txt. (6) Import test: all 3 functions importable. (7) Diff clean: 2 files (storage.py new + task-queue.json), no bloat. (8) Pillow added by T27-002."
         },
         {
           "id": "T27-002",
@@ -2768,7 +2768,11 @@
           "completed_at": "2026-04-04T05:50:00Z",
           "assigned_to": "backend-dev",
           "description": "Created extraction.py with detect_grid_layout() (aspect ratio detection: 3x2 for wide grids, 3x3 for square), crop_panels() (PIL cropping in reading order), and extract_grid() (download → crop → upload to Supabase Storage). Added Pillow to requirements.txt. Added download_bytes() to storage.py. Tested end-to-end: real 1376x768 grid → 6 panels → permanent Supabase URLs.",
-          "files": ["backend/extraction.py", "backend/storage.py", "backend/requirements.txt"]
+          "files": ["backend/extraction.py", "backend/storage.py", "backend/requirements.txt"],
+          "verified": true,
+          "verified_at": "2026-04-04T06:15:00Z",
+          "verified_by": "pipeline-tester",
+          "verification_notes": "PASS. (1) Unit tests: 5/5 — detect_grid_layout correct for 3x3 (1024x1024), 3x2 (1376x768), 2x3 (512x768). crop_panels returns correct panel counts (9, 6, 6). Panel ordering verified (reading order L→R T→B). image_to_bytes produces valid PNG. (2) Integration tests: 4/4 — upload_bytes to Supabase returns permanent URL, download_bytes round-trip matches, synthetic 3x2 grid extracted to 6 colored panels with correct colors, full extract_grid with real production grid (1376x768 tempfile.aiquickdraw.com) → 6 panels (458x384 each) uploaded to Supabase. (3) Pillow>=10.0.0 in requirements.txt. (4) Imports clean: extraction.py imports from storage.py correctly. (5) tsc --noEmit: 0 errors. (6) Playwright: Storyboard & Visuals tab loads with 14 grid images, Extract button visible, 0 console errors, 0 failed API requests. NOTE: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY missing from agent-workspace .env (exist in production .env) — T27-001 QA verification note was incorrect about this."
         },
         {
           "id": "T27-003",
