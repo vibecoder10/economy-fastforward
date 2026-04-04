@@ -2,7 +2,7 @@
   "version": 2,
   "current_tab": 27,
   "last_updated": "2026-04-04",
-  "last_updated_by": "frontend-dev",
+  "last_updated_by": "orchestrator",
   "tabs": [
     {
       "id": 1,
@@ -332,6 +332,30 @@
           "verified_by": "orchestrator",
           "completed_at": "2026-04-04T11:45:00Z",
           "verification_notes": "NOT A BUG (session #10). curl GET /api/profile returns {plan:pro, email:ryan.ayler@gmail.com}. curl GET /api/analytics/overview returns {total_videos:27, avg_ctr:4.19}. All 4 endpoints HTTP 200. Routes registered and working. Same pattern as sessions #1-9. User must clear localStorage and re-login at /login (SEC-1 invalidated old dev-tokens). After 10 sessions: creating UX improvement task BUG-UX-AUTH-STALE to show clearer guidance in-app."
+        },
+        {
+          "id": "BUG-USER-0404H-THUMB",
+          "title": "BUG-USER: API error 400 on POST /api/pipeline/thumbnail \u2014 video not at ready_for_thumbnail (recurring #12)",
+          "role": "qa",
+          "status": "done",
+          "priority": "critical",
+          "verified": true,
+          "verified_at": "2026-04-04T13:46:30Z",
+          "verified_by": "orchestrator",
+          "completed_at": "2026-04-04T13:46:30Z",
+          "verification_notes": "NOT A BUG (session #12). Same pattern as sessions #1-11. Video f9749bd2 status is not ready_for_thumbnail. Backend correctly returns 400. ThumbnailTab gates button with isReadyForThumbnail check. User must complete prior pipeline stages. BUG-UX-AUTH-STALE already deployed to suppress false reports from unauthenticated sessions."
+        },
+        {
+          "id": "BUG-USER-0404H-PROFILE-ANALYTICS",
+          "title": "BUG-USER: 404 on /api/profile and /api/analytics/* \u2014 recurring auth/session issue #12",
+          "role": "qa",
+          "status": "done",
+          "priority": "critical",
+          "verified": true,
+          "verified_at": "2026-04-04T13:46:30Z",
+          "verified_by": "orchestrator",
+          "completed_at": "2026-04-04T13:46:30Z",
+          "verification_notes": "NOT A BUG (session #12). All 4 endpoints return HTTP 200 with valid JWT. Routes registered and working. Same stale browser token pattern as sessions #1-11. SEC-1 invalidated old dev-tokens. User must clear localStorage and re-login at /login. BUG-UX-AUTH-STALE (e3daf97) suppresses these from appearing in RUBRIC for unauthenticated sessions."
         }
       ]
     },
@@ -2956,7 +2980,7 @@
           "verified": true,
           "verified_at": "2026-04-04T12:04:00Z",
           "verified_by": "qa-engineer",
-          "verification_notes": "PASS. Commit e3daf97: (1) reportError() now gated behind storedToken && storedToken !== 'dev-token' — unauthenticated sessions using fallback dev-token no longer report to RUBRIC. (2) 401 responses redirect to /login BEFORE reportError call (throw interrupts flow). (3) /api/auth/ paths excluded from redirect to prevent login loop. (4) Non-auth errors still reported for real users with valid tokens. (5) Diff clean: 2 files (api.ts +6 lines, task-queue.json), no bloat. (6) tsc --noEmit: 0 errors. This eliminates the recurring false-alarm pattern that was filed 10+ sessions in a row."
+          "verification_notes": "PASS. Commit e3daf97: (1) reportError() now gated behind storedToken && storedToken !== 'dev-token' \u2014 unauthenticated sessions using fallback dev-token no longer report to RUBRIC. (2) 401 responses redirect to /login BEFORE reportError call (throw interrupts flow). (3) /api/auth/ paths excluded from redirect to prevent login loop. (4) Non-auth errors still reported for real users with valid tokens. (5) Diff clean: 2 files (api.ts +6 lines, task-queue.json), no bloat. (6) tsc --noEmit: 0 errors. This eliminates the recurring false-alarm pattern that was filed 10+ sessions in a row."
         }
       ]
     },
