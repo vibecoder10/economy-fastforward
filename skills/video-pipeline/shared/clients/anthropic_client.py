@@ -1036,6 +1036,7 @@ Start with style engine prefix, end with style engine suffix + lighting + text r
         scene_type: str = None,
         is_hero_shot: bool = False,
         prev_cameras: list[str] | None = None,
+        system_prompt_override: str = None,
     ) -> str:
         """Generate a motion prompt for image-to-video animation.
 
@@ -1071,7 +1072,17 @@ Start with style engine prefix, end with style engine suffix + lighting + text r
         hero_instruction = """
 For this HERO SHOT (10s), you may use 2 subject actions instead of 1, but still no more than 2 total animated elements.""" if is_hero_shot else ""
 
-        system_prompt = f"""You are a cinematographer writing motion instructions for AI video generation.
+        if system_prompt_override:
+            # Use the per-video override with variable substitution
+            system_prompt = system_prompt_override.format(
+                duration_note=duration_note,
+                word_limit=word_limit,
+                hero_instruction=hero_instruction,
+                camera_purpose=camera_purpose,
+                camera_motion=camera_motion,
+            )
+        if not system_prompt_override:
+            system_prompt = f"""You are a cinematographer writing motion instructions for AI video generation.
 Each prompt animates a single static image into a {duration_note}. The narrator will be speaking the Sentence Text over this clip.
 
 YOUR JOB: Write motion that LITERALLY ENACTS the verb in the narration. You are not decorating — you are directing a film.
