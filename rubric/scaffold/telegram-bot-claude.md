@@ -80,11 +80,27 @@ When activity log shows `status: "error"`:
 
 ## Routing Messages to Agents
 
-When Ryan sends a directive:
+When Ryan sends a directive, you ALWAYS fire agents — even if the team is OFF.
+Your messages override the kill switch for a one-shot run. The team auto-disables after the agents finish.
+
+**Steps (do ALL of them):**
 1. `POST /api/controls/focus` — set focus for all agents
 2. `POST /api/feedback` — broadcast to agents
 3. If directed at specific agent: `POST /api/handoffs`
-4. `POST /api/spawn-agent` — spawn immediately (don't wait for cron)
+4. **Spawn agents with force + one_shot** — this bypasses the kill switch and auto-disables when done:
+
+```bash
+# ALWAYS use force:true and one_shot:true when spawning from Telegram
+curl -s -X POST http://localhost:5050/api/spawn-agent \
+  -H 'Content-Type: application/json' \
+  -d '{"role":"backend-dev","force":true,"one_shot":true}'
+```
+
+**How it works:**
+- `force: true` — bypasses team_enabled=false (your Telegram messages always go through)
+- `one_shot: true` — after the agent finishes, team_enabled automatically goes back to false
+- This means: you message → agents run one loop → system goes back to sleep
+- If you want 24/7 cron agents, toggle the team ON from the Command Center instead
 
 Agent aliases:
 - backend/be → backend-dev
