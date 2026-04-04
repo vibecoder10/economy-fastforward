@@ -2883,10 +2883,11 @@
           "id": "T27-008",
           "title": "Add permanent storage to ALL image gen steps",
           "role": "backend",
-          "status": "in_progress",
+          "status": "done",
           "depends_on": [
             "T27-001"
           ],
+          "completed_at": "2026-04-04T10:10:00Z",
           "description": "After T27-001 storage helper is proven to work, add permanent storage to all other image generation steps so URLs don't expire.\n\nTarget steps:\n1. run_images() in pipeline_executor.py \u2014 after Kie.ai returns image URL, call upload_from_url(url, f'{video_id}/images/S{scene}-{index}.png') and save the Supabase URL instead of the temp Kie.ai URL to assets.image_url\n2. run_thumbnail() \u2014 save thumbnail to '{video_id}/thumbnails/thumb.png'\n\nThis prevents the 25x HTTP 410 errors on /render (BUG-T24-RENDER-THUMB-410) and ensures all image URLs are permanent. Note: run_storyboard_images() should ALSO persist grids (storyboard_*_url) \u2014 add this too.\n\nFiles: backend/pipeline_executor.py",
           "files": [
             "backend/pipeline_executor.py"
