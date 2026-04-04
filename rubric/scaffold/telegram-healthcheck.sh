@@ -33,7 +33,10 @@ session_is_alive() {
 start_session() {
   # Kill any stale tmux session remnants
   tmux kill-session -t "$TMUX_SESSION" 2>/dev/null || true
-  sleep 2
+
+  # Kill zombie telegram plugin processes (only ONE bot polling consumer allowed)
+  pkill -f 'bun.*telegram.*start' 2>/dev/null || true
+  sleep 3
 
   # Start with --channels + model. Uses 'script' to preserve PTY (Claude exits in print mode if no TTY)
   # --channels is REQUIRED for Telegram notification listener

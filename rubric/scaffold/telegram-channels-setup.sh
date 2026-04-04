@@ -73,14 +73,9 @@ start)
     exit 1
   fi
 
-  # Verify system prompt exists
-  if [ ! -f "$SYSTEM_PROMPT_FILE" ]; then
-    echo "WARNING: System prompt not found at $SYSTEM_PROMPT_FILE"
-    echo "Bot will run without routing instructions."
-  fi
-
-  # Read system prompt from file for --append-system-prompt
-  SYSPROMPT=$(cat "$SYSTEM_PROMPT_FILE" 2>/dev/null || echo "")
+  # Kill zombie telegram plugin processes (only ONE bot polling consumer allowed)
+  pkill -f 'bun.*telegram.*start' 2>/dev/null || true
+  sleep 2
 
   # Start in tmux so it persists after SSH disconnect
   # Uses 'script' to preserve PTY (Claude exits in print mode if no TTY)
