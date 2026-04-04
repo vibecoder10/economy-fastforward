@@ -23,17 +23,51 @@ logger = logging.getLogger(__name__)
 # PIL cropping (always correct)
 # ---------------------------------------------------------------------------
 
+def _find_label_bar_height(panel_arr) -> int:
+    """Detect the black label bar at the top of a panel.
+
+    Scans rows from the top — the bar has low mean brightness (<100),
+    and the image content starts where brightness jumps above 100.
+    Returns the number of rows to skip (the bar height).
+    """
+    import numpy as np
+    max_scan = min(40, panel_arr.shape[0] // 4)
+    for y in range(max_scan):
+        if panel_arr[y].mean() > 100:
+            return y
+    return 0  # No bar detected
+
+
 def crop_panels(img: Image.Image, rows: int = 3, cols: int = 3) -> list[Image.Image]:
-    """Crop a grid image into individual panels in reading order."""
+    """Crop a grid image into individual panels, trimming label bars and borders.
+
+    Removes:
+    - Black label bars at the top of each panel (e.g. "[KF1 | LS | 12s]")
+    - Black separator borders between panels (~3-5px)
+    """
+    import numpy as np
+    arr = np.array(img)
     panel_w = img.width // cols
     panel_h = img.height // rows
+    # Trim ~1% from edges to remove black separator borders
+    border_x = max(2, panel_w // 100)
+    border_y = max(2, panel_h // 100)
     panels = []
 
     for row in range(rows):
         for col in range(cols):
             x = col * panel_w
             y = row * panel_h
-            panel = img.crop((x, y, x + panel_w, y + panel_h))
+            # Get raw panel region
+            panel_arr = arr[y:y + panel_h, x:x + panel_w]
+            # Detect label bar height for this specific panel
+            bar_h = _find_label_bar_height(panel_arr)
+            # Crop: skip label bar at top, trim borders on all sides
+            crop_top = y + bar_h + border_y
+            crop_left = x + border_x
+            crop_bottom = y + panel_h - border_y
+            crop_right = x + panel_w - border_x
+            panel = img.crop((crop_left, crop_top, crop_right, crop_bottom))
             panels.append(panel)
 
     return panels
