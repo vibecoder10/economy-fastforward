@@ -84,10 +84,10 @@ start)
 
   # Start in tmux so it persists after SSH disconnect
   # Uses 'script' to preserve PTY (Claude exits in print mode if no TTY)
-  # --model haiku for fast, cheap message routing
-  # --append-system-prompt injects Telegram routing instructions
+  # --channels enables channel notification listener (REQUIRED for Telegram)
+  # --model for message routing
   tmux new-session -d -s "$TMUX_SESSION" \
-    "cd $PROJECT_ROOT && script -q -f $LOG_FILE -c 'claude --model $MODEL --dangerously-skip-permissions'"
+    "cd $PROJECT_ROOT && script -q -f $LOG_FILE -c 'claude --channels plugin:telegram@claude-plugins-official --model $MODEL --dangerously-skip-permissions'"
 
   echo "Telegram channel started in tmux session '$TMUX_SESSION'"
   echo "  Model: $MODEL"

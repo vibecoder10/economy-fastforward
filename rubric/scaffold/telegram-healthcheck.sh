@@ -35,9 +35,10 @@ start_session() {
   tmux kill-session -t "$TMUX_SESSION" 2>/dev/null || true
   sleep 2
 
-  # Start with model flag. Uses 'script' to preserve PTY (Claude exits in print mode if no TTY)
+  # Start with --channels + model. Uses 'script' to preserve PTY (Claude exits in print mode if no TTY)
+  # --channels is REQUIRED for Telegram notification listener
   tmux new-session -d -s "$TMUX_SESSION" \
-    "cd $PROJECT_ROOT && script -q -f $LOG_FILE -c '$CLAUDE_BIN --model $MODEL --dangerously-skip-permissions'"
+    "cd $PROJECT_ROOT && script -q -f $LOG_FILE -c '$CLAUDE_BIN --channels plugin:telegram@claude-plugins-official --model $MODEL --dangerously-skip-permissions'"
 
   # Record start time for age checks
   date +%s > "$AGE_FILE"
