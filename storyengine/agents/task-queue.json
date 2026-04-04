@@ -1,8 +1,8 @@
 {
   "version": 2,
   "current_tab": 27,
-  "last_updated": "2026-04-03",
-  "last_updated_by": "operator",
+  "last_updated": "2026-04-04",
+  "last_updated_by": "orchestrator",
   "tabs": [
     {
       "id": 1,
@@ -2752,11 +2752,13 @@
           "completed_at": "2026-04-04T05:10:00Z",
           "assigned_to": "backend-dev",
           "description": "Created storyengine/backend/storage.py with upload_bytes() and upload_from_url() using Supabase Storage REST API via httpx. Auto-creates public bucket storyengine-assets on first upload. Returns permanent public URLs. Tested: bucket created, upload returns 200, public URL accessible.",
-          "files": ["backend/storage.py"],
+          "files": [
+            "backend/storage.py"
+          ],
           "verified": true,
           "verified_at": "2026-04-04T05:15:00Z",
           "verified_by": "qa-engineer",
-          "verification_notes": "PASS. (1) storage.py: 135 lines, 3 public functions (upload_bytes, upload_from_url, download_bytes). (2) Bucket storyengine-assets auto-created with race-condition handling (409 conflict). (3) x-upsert:true prevents duplicate failures. (4) CORRECTION: SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY are NOT in agent-workspace .env — they ARE in production .env (/home/clawd/projects/economy-fastforward/storyengine/backend/.env). Pipeline-tester verified upload works with production creds. (5) httpx==0.27.0 already in requirements.txt. (6) Import test: all 3 functions importable. (7) Diff clean: 2 files (storage.py new + task-queue.json), no bloat. (8) Pillow added by T27-002."
+          "verification_notes": "PASS. (1) storage.py: 135 lines, 3 public functions (upload_bytes, upload_from_url, download_bytes). (2) Bucket storyengine-assets auto-created with race-condition handling (409 conflict). (3) x-upsert:true prevents duplicate failures. (4) CORRECTION: SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY are NOT in agent-workspace .env \u2014 they ARE in production .env (/home/clawd/projects/economy-fastforward/storyengine/backend/.env). Pipeline-tester verified upload works with production creds. (5) httpx==0.27.0 already in requirements.txt. (6) Import test: all 3 functions importable. (7) Diff clean: 2 files (storage.py new + task-queue.json), no bloat. (8) Pillow added by T27-002."
         },
         {
           "id": "T27-002",
@@ -2767,12 +2769,16 @@
           "started_at": "2026-04-04T05:30:00Z",
           "completed_at": "2026-04-04T05:50:00Z",
           "assigned_to": "backend-dev",
-          "description": "Created extraction.py with detect_grid_layout() (aspect ratio detection: 3x2 for wide grids, 3x3 for square), crop_panels() (PIL cropping in reading order), and extract_grid() (download → crop → upload to Supabase Storage). Added Pillow to requirements.txt. Added download_bytes() to storage.py. Tested end-to-end: real 1376x768 grid → 6 panels → permanent Supabase URLs.",
-          "files": ["backend/extraction.py", "backend/storage.py", "backend/requirements.txt"],
+          "description": "Created extraction.py with detect_grid_layout() (aspect ratio detection: 3x2 for wide grids, 3x3 for square), crop_panels() (PIL cropping in reading order), and extract_grid() (download \u2192 crop \u2192 upload to Supabase Storage). Added Pillow to requirements.txt. Added download_bytes() to storage.py. Tested end-to-end: real 1376x768 grid \u2192 6 panels \u2192 permanent Supabase URLs.",
+          "files": [
+            "backend/extraction.py",
+            "backend/storage.py",
+            "backend/requirements.txt"
+          ],
           "verified": true,
           "verified_at": "2026-04-04T06:15:00Z",
           "verified_by": "pipeline-tester",
-          "verification_notes": "PASS. (1) Unit tests: 5/5 — detect_grid_layout correct for 3x3 (1024x1024), 3x2 (1376x768), 2x3 (512x768). crop_panels returns correct panel counts (9, 6, 6). Panel ordering verified (reading order L→R T→B). image_to_bytes produces valid PNG. (2) Integration tests: 4/4 — upload_bytes to Supabase returns permanent URL, download_bytes round-trip matches, synthetic 3x2 grid extracted to 6 colored panels with correct colors, full extract_grid with real production grid (1376x768 tempfile.aiquickdraw.com) → 6 panels (458x384 each) uploaded to Supabase. (3) Pillow>=10.0.0 in requirements.txt. (4) Imports clean: extraction.py imports from storage.py correctly. (5) tsc --noEmit: 0 errors. (6) Playwright: Storyboard & Visuals tab loads with 14 grid images, Extract button visible, 0 console errors, 0 failed API requests. NOTE: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY missing from agent-workspace .env (exist in production .env) — T27-001 QA verification note was incorrect about this."
+          "verification_notes": "PASS. (1) Unit tests: 5/5 \u2014 detect_grid_layout correct for 3x3 (1024x1024), 3x2 (1376x768), 2x3 (512x768). crop_panels returns correct panel counts (9, 6, 6). Panel ordering verified (reading order L\u2192R T\u2192B). image_to_bytes produces valid PNG. (2) Integration tests: 4/4 \u2014 upload_bytes to Supabase returns permanent URL, download_bytes round-trip matches, synthetic 3x2 grid extracted to 6 colored panels with correct colors, full extract_grid with real production grid (1376x768 tempfile.aiquickdraw.com) \u2192 6 panels (458x384 each) uploaded to Supabase. (3) Pillow>=10.0.0 in requirements.txt. (4) Imports clean: extraction.py imports from storage.py correctly. (5) tsc --noEmit: 0 errors. (6) Playwright: Storyboard & Visuals tab loads with 14 grid images, Extract button visible, 0 console errors, 0 failed API requests. NOTE: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY missing from agent-workspace .env (exist in production .env) \u2014 T27-001 QA verification note was incorrect about this."
         },
         {
           "id": "T27-003",
@@ -2783,6 +2789,10 @@
           "depends_on": [
             "T27-001",
             "T27-002"
+          ],
+          "description": "Rewrite run_storyboard_extract() in pipeline_executor.py to use the new extraction.py module instead of the Airtable pipeline.\n\nCurrent flow (BAD): executor calls self._pipeline.run_storyboard_extract() which hits Airtable.\nNew flow: use extract_grid() from extraction.py to crop grid images and upload panels to Supabase Storage.\n\nSteps:\n1. In pipeline_executor.py run_storyboard_extract(video_id):\n   a. Fetch script scenes via: SELECT id, scene, storyboard_1_url, storyboard_2_url, storyboard_3_url, storyboard_beat_count FROM scripts WHERE video_id=$1 ORDER BY scene\n   b. For each scene that has at least one storyboard_*_url, loop over non-null URLs (beats 1-3).\n   c. For each grid URL, call: panels = await extract_grid(grid_url, video_id, scene_num, beat_num, panel_offset)\n      panel_offset increments by panels-per-grid so image_index is unique across beats.\n   d. For each panel returned ({image_index, panel_url}), UPSERT into assets table:\n      INSERT INTO assets (id, tenant_id, video_id, scene, image_index, image_url, status, video_title)\n      VALUES (...) ON CONFLICT (video_id, scene, image_index) DO UPDATE SET image_url=EXCLUDED.image_url, status='done'\n      (Check schema.sql \u2014 there may not be a unique constraint on video_id+scene+image_index. If not, use a SELECT first.)\n2. After all scenes processed, update video status to 'ready_for_images' via _update_video_status.\n3. Import extraction module: 'from extraction import extract_grid' at top of pipeline_executor.py.\n4. Handle errors per scene gracefully \u2014 log failure but continue with other scenes.\n\nKey data: video f9749bd2 has Scene 1 with storyboard_1_url and storyboard_2_url (tempfile.aiquickdraw.com URLs). Scene storyboard_beat_count tells you how many beats exist. Grids are 3x2 (wide) = 6 panels each. Scenes have 2 grids = 12 panels per scene.\n\nFiles to modify:\n- backend/pipeline_executor.py (replace run_storyboard_extract body)\n- No new files needed \u2014 extraction.py and storage.py already exist",
+          "files": [
+            "backend/pipeline_executor.py"
           ]
         },
         {
@@ -2790,18 +2800,24 @@
           "title": "Re-generate storyboard grids for Drones video",
           "role": "backend",
           "status": "pending",
-          "priority": "critical"
+          "priority": "critical",
+          "description": "The storyboard grids for the Drones/Strait of Hormuz video (f9749bd2) are stored at tempfile.aiquickdraw.com URLs which expire. These need to be saved to Supabase Storage for permanent access before extraction can run reliably.\n\nSteps:\n1. Fetch all script scenes for video f9749bd2 via SQL: SELECT id, scene, storyboard_1_url, storyboard_2_url, storyboard_3_url FROM scripts WHERE video_id='f9749bd2-5045-42a5-b90e-ecd253bd7c20'\n2. For each non-null storyboard_*_url, call upload_from_url(url, path) from storage.py where path = '{video_id}/grids/S{scene}-B{beat}.png'\n3. UPDATE the scripts row with the new permanent Supabase URL\n4. Verify by fetching the scripts again and confirming URLs point to supabase.co\n\nWrite this as a standalone migration script: backend/scripts/migrate_grids_to_supabase.py that can be run once via: python3 migrate_grids_to_supabase.py",
+          "files": [
+            "backend/scripts/migrate_grids_to_supabase.py"
+          ]
         },
         {
           "id": "T27-005",
           "title": "Persist grid URLs to Supabase Storage",
-          "role": "backend",
+          "role": "qa",
           "status": "pending",
           "priority": "critical",
           "depends_on": [
             "T27-001",
             "T27-004"
-          ]
+          ],
+          "description": "After T27-003 (extract endpoint) is working, validate that extracted panel URLs are correctly persisted to the assets table. Run: POST /api/pipeline/storyboard-extract/f9749bd2-5045-42a5-b90e-ecd253bd7c20\n\nVerify:\n1. Task status shows running then completed\n2. GET /api/videos/f9749bd2.../assets returns assets with image_url pointing to supabase.co (not tempfile.aiquickdraw.com)\n3. All panels from all grids are present (6 scenes x 2 grids x 6 panels = 72 panels)\n4. Video status advances to ready_for_images\n5. Assets have correct scene/image_index values",
+          "files": []
         },
         {
           "id": "T27-006",
@@ -2812,7 +2828,9 @@
           "depends_on": [
             "T27-003",
             "T27-005"
-          ]
+          ],
+          "description": "Full end-to-end Playwright test of the storyboard extraction flow in the browser.\n\nSteps:\n1. Navigate to /pipeline/f9749bd2-5045-42a5-b90e-ecd253bd7c20\n2. Click Storyboard & Visuals tab\n3. Confirm storyboard grids are visible (3x2 grid images)\n4. Click 'Extract Panels' button (or run POST /api/pipeline/storyboard-extract/{id})\n5. Verify task progress shows in UI\n6. After completion: verify panel images appear in the Visuals section\n7. Verify panel URLs are permanent supabase.co URLs (not tempfile.aiquickdraw.com)\n8. Verify video status advances to ready_for_images\n9. 0 console errors throughout\n10. tsc --noEmit passes",
+          "files": []
         },
         {
           "id": "T27-007",
@@ -2821,6 +2839,10 @@
           "status": "pending",
           "depends_on": [
             "T27-006"
+          ],
+          "description": "Verify the filmstrip UI in the Storyboard & Visuals tab shows extracted panels after T27-006 extraction completes. Also verify the Video Clips section (video_motion step) is correctly wired to receive the permanent Supabase panel URLs as input for video clip generation.\n\nCheck: StoryboardVisualsTab.tsx correctly displays extracted panels (image_url from assets table). Panels should appear as a filmstrip under each scene's storyboard grid section.",
+          "files": [
+            "frontend/src/components/production/StoryboardVisualsTab.tsx"
           ]
         },
         {
@@ -2830,6 +2852,10 @@
           "status": "pending",
           "depends_on": [
             "T27-001"
+          ],
+          "description": "After T27-001 storage helper is proven to work, add permanent storage to all other image generation steps so URLs don't expire.\n\nTarget steps:\n1. run_images() in pipeline_executor.py \u2014 after Kie.ai returns image URL, call upload_from_url(url, f'{video_id}/images/S{scene}-{index}.png') and save the Supabase URL instead of the temp Kie.ai URL to assets.image_url\n2. run_thumbnail() \u2014 save thumbnail to '{video_id}/thumbnails/thumb.png'\n\nThis prevents the 25x HTTP 410 errors on /render (BUG-T24-RENDER-THUMB-410) and ensures all image URLs are permanent. Note: run_storyboard_images() should ALSO persist grids (storyboard_*_url) \u2014 add this too.\n\nFiles: backend/pipeline_executor.py",
+          "files": [
+            "backend/pipeline_executor.py"
           ]
         }
       ]
