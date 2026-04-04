@@ -2762,8 +2762,13 @@
           "id": "T27-002",
           "title": "Build grid cropping + panel extraction (PIL)",
           "role": "backend",
-          "status": "pending",
-          "priority": "critical"
+          "status": "done",
+          "priority": "critical",
+          "started_at": "2026-04-04T05:30:00Z",
+          "completed_at": "2026-04-04T05:50:00Z",
+          "assigned_to": "backend-dev",
+          "description": "Created extraction.py with detect_grid_layout() (aspect ratio detection: 3x2 for wide grids, 3x3 for square), crop_panels() (PIL cropping in reading order), and extract_grid() (download → crop → upload to Supabase Storage). Added Pillow to requirements.txt. Added download_bytes() to storage.py. Tested end-to-end: real 1376x768 grid → 6 panels → permanent Supabase URLs.",
+          "files": ["backend/extraction.py", "backend/storage.py", "backend/requirements.txt"]
         },
         {
           "id": "T27-003",

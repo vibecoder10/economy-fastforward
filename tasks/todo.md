@@ -1,5 +1,32 @@
 # Task Tracking
 
+## Handoff — 2026-04-04 (backend-dev: Storyboard Extraction V2)
+
+### Completed
+- T27-001 (done by previous session): Supabase Storage bucket + upload helper (storage.py)
+- T27-002: Grid cropping + panel extraction (extraction.py) — PIL-based, tested on real grids
+
+### Next: T27-003 — Rewrite storyboard-extract endpoint for Supabase
+This task wires extraction.py into the pipeline:
+1. Read grid URLs from `scripts` table (storyboard_1_url, storyboard_2_url, storyboard_3_url)
+2. For each grid, call `extract_grid()` from extraction.py
+3. Clear existing `image_url` on assets before writing new panel URLs
+4. Update `assets.image_url` with extracted panel URLs
+5. Advance video status to `ready_for_images`
+
+Key context:
+- Current `run_storyboard_extract()` in pipeline_executor.py delegates to Airtable pipeline — silently does nothing for Supabase videos
+- Rewrite to call extraction.py directly with database reads/writes
+- Test video: f9749bd2 ("Drones"), has 6 scenes, tempfile URLs currently still alive (may expire)
+- Grid layout is 3x2 (6 panels per grid), NOT 3x3
+
+### Also pending
+- T27-004: Re-generate storyboard grids (old URLs expired — but currently still alive)
+- T27-005: Persist grid URLs to Supabase Storage after generation
+- T27-008: Add permanent storage to ALL image gen steps
+
+---
+
 ## Handoff — 2026-04-03 (Session 3)
 
 ### Next Session: Start Here

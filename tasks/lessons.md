@@ -85,6 +85,10 @@
 - **New validator checks need matching config flags.** When adding a new check to `validate_script_editorial()`, add a corresponding `*_check: bool = True` flag to `ScriptValidationConfig` or the "disable all checks" test will fail. Test fixtures must also be updated — cliffhangers in `_make_good_script()` must use keywords that actually appear in subsequent acts.
 - **System prompt ordering matters.** Voice/tone rules (like `_CINEMATIC_VOICE_RULES`) must come EARLY in the assembled system prompt — right after role identity, BEFORE structural rules. Claude prioritizes early instructions; rules appended at the end get deprioritized. Assembly order: (1) Role identity/preamble, (2) Voice/style rules, (3) Research brief, (4) Structural rules, (5) Act-specific rules, (6) Grounding rules.
 
+### Supabase Storage
+- **Kie.ai tempfile URLs (tempfile.aiquickdraw.com) expire.** Grid and image URLs must be re-uploaded to Supabase Storage immediately after generation. Use `storage.upload_from_url()` for download-and-persist. Public URL format: `{SUPABASE_URL}/storage/v1/object/public/{BUCKET}/{path}`.
+- **Grid layout detection by aspect ratio.** Kie.ai storyboard grids are 1376x768 (3x2 = 6 panels per grid, not 3x3 = 9). Use `extraction.detect_grid_layout()` which checks aspect ratio: >1.3 = 3x2, <0.7 = 2x3, else 3x3.
+
 ### StoryEngine Pipeline (Supabase)
 - **Database schema gaps are silent killers.** The pipeline writes to columns that may not exist in Supabase. PostgreSQL throws errors but `SupabaseAdapter.update_idea_fields()` catches them gracefully — the write "succeeds" but the field is dropped. Always run migration 013+ before testing pipeline steps.
 - **Missing columns discovered during E2E testing (2026-03-31):** `stage_transitions.cost`, `stage_transitions.error_message`, `videos.drive_folder_link`, `videos.drive_folder_id`, `videos.idea_reasoning`, `videos.script_validation`, `assets.video_title`, `assets.sentence_index`, `assets.aspect_ratio`. All added in migration 013.
