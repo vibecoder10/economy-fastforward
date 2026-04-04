@@ -279,6 +279,10 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
   const storyboardReadyScenes = scenes.filter((s) => !!s.storyboardStatus).length;
   const storyboardGridsDone = scenes.length > 0 && scenes.every((s) => s.storyboardGridCount >= (s.storyboardBeatCount || 1));
   const storyboardScenesWithData = scenes.filter((s) => s.hasStoryboardData).length;
+  const extractedSegments = scenes.reduce(
+    (sum, s) => sum + s.segments.filter((seg) => !!seg.imageUrl).length,
+    0,
+  );
   const pendingSegments = totalSegments - doneSegments;
   const missingPromptSegments = totalSegments - promptReadySegments;
   const hasStoryBible = !!(video.story_bible && video.story_bible.trim().length > 0);
@@ -691,13 +695,13 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
               // Derive step completion from downstream state — if grids exist, prompts must be done
               const sbPromptsDone = storyboardPromptScenes >= scenes.length && scenes.length > 0;
               const sbGridsComplete = storyboardGridsDone;
-              const extractionDone = doneSegments > 0 && scenes.some(s => s.segments.some(seg => seg.imageUrl));
+              const extractionDone = totalSegments > 0 && extractedSegments >= totalSegments;
               const promptsDone = (promptReadySegments >= totalSegments && totalSegments > 0) || sbPromptsDone;
               return [
                 { label: "Image Prompts", done: promptsDone, count: `${promptReadySegments}/${totalSegments}` },
                 { label: "Storyboard Prompts", done: sbPromptsDone, count: `${storyboardPromptScenes}/${scenes.length}` },
                 { label: "Storyboard Grids", done: sbGridsComplete, count: `${storyboardReadyScenes}/${scenes.length}` },
-                { label: "Extract Panels", done: extractionDone, count: "" },
+                { label: "Extract Panels", done: extractionDone, count: `${extractedSegments}/${totalSegments}` },
             ];
             })().map((step, i, arr) => {
               const isNext = !step.done && (i === 0 || arr[i - 1].done);
@@ -734,7 +738,7 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
             const sbPromptsDone = storyboardPromptScenes >= scenes.length && scenes.length > 0;
             const sbGridsAllDone = storyboardGridsDone;
             const promptsDone = (promptReadySegments >= totalSegments && totalSegments > 0) || sbPromptsDone;
-            const extractionDone = doneSegments > 0 && scenes.some(s => s.segments.some(seg => seg.imageUrl));
+            const extractionDone = totalSegments > 0 && extractedSegments >= totalSegments;
 
             if (!promptsDone) return (
               <button
@@ -783,7 +787,7 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
                   style={{ background: "var(--green)", color: "var(--bg-void)" }}
                 >
                   {(extracting || taskRunning) ? <Loader2 size={14} className="animate-spin" /> : <Scissors size={14} />}
-                  Step 4: Extract &amp; Upscale Panels
+                  Step 4: Extract &amp; Upscale Panels ({extractedSegments}/{totalSegments})
                 </button>
                 {extractError && (
                   <p className="text-[10px] text-center" style={{ color: "var(--orange)" }}>
