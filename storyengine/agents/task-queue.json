@@ -258,6 +258,32 @@
           "verified_by": "orchestrator",
           "completed_at": "2026-04-04T02:30:00Z",
           "verification_notes": "NOT A BUG (session #7). curl GET /api/analytics/overview returns {total_videos:27, avg_ctr:4.19}. curl GET /api/profile returns {id, email:ryan.ayler@gmail.com, plan:pro}. All 4 endpoints return HTTP 200. Routes registered and working. User must clear localStorage and re-login at /login (SEC-1 invalidated old dev-tokens). This error has now recurred 7 sessions in a row."
+        },
+        {
+          "id": "BUG-USER-0404E-THUMB",
+          "title": "BUG-USER: API error 400 on POST /api/pipeline/thumbnail \u2014 video at ready_for_storyboard status (recurring #8)",
+          "role": "qa",
+          "status": "done",
+          "priority": "critical",
+          "description": "User hit 400 on thumbnail generation for video f9749bd2. DB shows status=empty string (Airtable-imported). Backend correctly returns 400. ThumbnailTab gates with isReadyForThumbnail. Same as 7 prior instances.",
+          "verified": true,
+          "verified_at": "2026-04-04T10:46:59Z",
+          "verified_by": "orchestrator",
+          "completed_at": "2026-04-04T10:46:59Z",
+          "verification_notes": "NOT A BUG (session #8). curl confirms video f9749bd2 status=empty string (Airtable import). Backend correctly returns 400. This is the 8th filing. Root cause: video never completed pipeline stages. User must run pipeline steps on this video first."
+        },
+        {
+          "id": "BUG-USER-0404E-PROFILE-ANALYTICS",
+          "title": "BUG-USER: 404 on /api/profile and /api/analytics/* \u2014 recurring auth/session issue #8",
+          "role": "qa",
+          "status": "done",
+          "priority": "critical",
+          "description": "User reports 404 on GET /api/profile and analytics endpoints. Live test: all return 200 with valid JWT. Same pattern as 7 prior instances \u2014 stale browser token after SEC-1 security fix.",
+          "verified": true,
+          "verified_at": "2026-04-04T10:46:59Z",
+          "verified_by": "orchestrator",
+          "completed_at": "2026-04-04T10:46:59Z",
+          "verification_notes": "NOT A BUG (session #8). curl GET /api/profile returns {plan:pro, email:ryan.ayler@gmail.com}. curl GET /api/analytics/overview returns {total_videos:27, avg_ctr:4.19}. All 4 endpoints HTTP 200. User must clear localStorage and re-login at /login (SEC-1 invalidated old dev-tokens). This error has now recurred 8 sessions in a row."
         }
       ]
     },
