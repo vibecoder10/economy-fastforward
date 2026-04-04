@@ -4,3 +4,6 @@
 - Pattern: auth.py dev-token backdoor defaults to active. Any server without ENV=production is vulnerable. This is the #1 risk.
 - Pattern: HTML Audio elements can't set Authorization headers — audio proxy endpoints need query token auth with JWT validation.
 - Pattern: f-string SQL is used in 6+ route files for dynamic SET clauses. Currently safe via whitelists but fragile.
+- Full audit (2026-04-04): All 8 SEC issues (SEC-1 through SEC-8) verified FIXED. No critical vulnerabilities. Launch criterion #7 PASS.
+- Finding (2026-04-04): Login/register endpoints lack rate limiting — brute force risk. MEDIUM priority, non-blocking for launch.
+- Finding (2026-04-04): Vault stores API keys in plaintext in PostgreSQL secrets table. Should encrypt at rest for production SaaS.
