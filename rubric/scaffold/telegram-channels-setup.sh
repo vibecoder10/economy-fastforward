@@ -79,15 +79,18 @@ start)
     echo "Bot will run without routing instructions."
   fi
 
+  # Read system prompt from file for --append-system-prompt
+  SYSPROMPT=$(cat "$SYSTEM_PROMPT_FILE" 2>/dev/null || echo "")
+
   # Start in tmux so it persists after SSH disconnect
-  # --append-system-prompt-file loads Telegram routing instructions from file
+  # Uses 'script' to preserve PTY (Claude exits in print mode if no TTY)
   # --model haiku for fast, cheap message routing
+  # --append-system-prompt injects Telegram routing instructions
   tmux new-session -d -s "$TMUX_SESSION" \
-    "cd $PROJECT_ROOT && claude --channels plugin:telegram@claude-plugins-official --model $MODEL --append-system-prompt-file $SYSTEM_PROMPT_FILE --dangerously-skip-permissions 2>&1 | tee -a $LOG_FILE"
+    "cd $PROJECT_ROOT && script -q -f $LOG_FILE -c 'claude --model $MODEL --dangerously-skip-permissions'"
 
   echo "Telegram channel started in tmux session '$TMUX_SESSION'"
   echo "  Model: $MODEL"
-  echo "  System prompt: $SYSTEM_PROMPT_FILE"
   echo "  Attach: tmux attach -t $TMUX_SESSION"
   echo "  Logs:   tail -f $LOG_FILE"
   ;;

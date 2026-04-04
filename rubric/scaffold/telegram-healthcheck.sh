@@ -35,9 +35,9 @@ start_session() {
   tmux kill-session -t "$TMUX_SESSION" 2>/dev/null || true
   sleep 2
 
-  # Start with system prompt + model for proper routing
+  # Start with model flag. Uses 'script' to preserve PTY (Claude exits in print mode if no TTY)
   tmux new-session -d -s "$TMUX_SESSION" \
-    "cd $PROJECT_ROOT && $CLAUDE_BIN --channels plugin:telegram@claude-plugins-official --model $MODEL --append-system-prompt-file $SYSTEM_PROMPT_FILE --dangerously-skip-permissions 2>&1 | tee -a $LOG_FILE"
+    "cd $PROJECT_ROOT && script -q -f $LOG_FILE -c '$CLAUDE_BIN --model $MODEL --dangerously-skip-permissions'"
 
   # Record start time for age checks
   date +%s > "$AGE_FILE"
