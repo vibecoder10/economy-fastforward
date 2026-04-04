@@ -92,8 +92,11 @@ async def extract_grid_ai(
     async def _extract_one(row: int, col: int, index: int) -> Optional[dict]:
         prompt = (
             f"Attached you'll find a {rows}x{cols} grid, with {rows} rows "
-            f"and {cols} columns. I want you to extract just the still from "
-            f"ROW {row} COLUMN {col}"
+            f"and {cols} columns. Extract ONLY the exact panel from "
+            f"ROW {row} COLUMN {col}. Do NOT alter, reinterpret, or modify "
+            f"the image in any way. Reproduce the panel exactly as it appears "
+            f"in the grid — same pose, same angle, same expression, same "
+            f"composition. Pixel-perfect extraction, no creative changes."
         )
         try:
             result = await image_client.generate_scene_image(
