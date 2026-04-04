@@ -337,28 +337,6 @@ export default function VideoDetailPage() {
             </p>
           </div>
 
-          {/* Run Next Step button */}
-          <button
-            onClick={handleRunNext}
-            disabled={runningNext || taskRunning}
-            className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all hover:brightness-110 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
-            style={{ background: "var(--turquoise)", color: "var(--bg-void)", border: "1px solid var(--turquoise)" }}
-          >
-            {(runningNext || taskRunning) ? <Loader2 size={14} className="animate-spin inline mr-1" /> : null}
-            {taskRunning ? (taskMessage || "Running...") : runningNext ? "Starting..." : "Run Next Step"}
-          </button>
-
-          {/* Skip Stage button */}
-          <button
-            onClick={handleSkipStage}
-            disabled={skipping}
-            className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all hover:brightness-110 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
-            style={{ background: "rgba(255, 120, 73, 0.15)", color: "var(--orange)", border: "1px solid var(--orange)" }}
-          >
-            {skipping ? <Loader2 size={14} className="animate-spin inline mr-1" /> : null}
-            {skipping ? "Skipping..." : "Skip Stage"}
-          </button>
-
           {/* Reset button */}
           <div className="relative">
             <button
@@ -413,13 +391,36 @@ export default function VideoDetailPage() {
         </div>
       </motion.div>
 
-      {/* Progress stepper */}
+      {/* Progress stepper + pipeline controls */}
       <motion.div variants={item}>
-        <ProgressStepper steps={6} currentStep={Math.min(currentStep, 6)} completedSteps={completedSteps} labels={STEP_LABELS} />
+        <div className="flex items-center justify-between gap-6">
+          <ProgressStepper steps={6} currentStep={Math.min(currentStep, 6)} completedSteps={completedSteps} labels={STEP_LABELS} />
+          <div className="flex items-center gap-3 shrink-0">
+            <StatusPill label={pill.label} color={pill.color} pulse size="md" />
+            <button
+              onClick={handleRunNext}
+              disabled={runningNext || taskRunning}
+              className="px-4 py-2 rounded-lg text-xs font-semibold transition-all hover:brightness-110 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
+              style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}
+            >
+              {(runningNext || taskRunning) ? <Loader2 size={14} className="animate-spin inline mr-1" /> : null}
+              {taskRunning ? (taskMessage || "Running...") : runningNext ? "Starting..." : "Run Next Step"}
+            </button>
+            <button
+              onClick={handleSkipStage}
+              disabled={skipping}
+              className="px-4 py-2 rounded-lg text-xs font-semibold transition-all hover:brightness-110 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
+              style={{ background: "rgba(255, 120, 73, 0.15)", color: "var(--orange)", border: "1px solid var(--orange)" }}
+            >
+              {skipping ? <Loader2 size={14} className="animate-spin inline mr-1" /> : null}
+              {skipping ? "Skipping..." : "Skip Stage"}
+            </button>
+          </div>
+        </div>
       </motion.div>
 
-      {/* Learnings applied indicator */}
-      {(() => {
+      {/* Learnings applied indicator — only on Script tab */}
+      {currentTab === "script-voice" && (() => {
         const injected = parseInjectedLearnings(video.writer_guidance);
         const total = injected.use.length + injected.avoid.length;
         if (total === 0) return null;
@@ -522,13 +523,13 @@ export default function VideoDetailPage() {
       {/* Tab content */}
       <motion.div variants={item}>
         {currentTab === "research" && <ResearchTab video={videoForTabs} onApproved={() => setActiveTab("script-voice")} />}
-        {currentTab === "script-voice" && <ScriptVoiceTab video={videoForTabs} />}
-        {currentTab === "storyboard-visuals" && <StoryboardVisualsTab video={videoForTabs} onGoToScriptVoice={() => setActiveTab("script-voice")} />}
-        {currentTab === "clips" && <VideoClipsTab video={videoForTabs} />}
-        {currentTab === "sound" && <SoundTab video={videoForTabs} />}
-        {currentTab === "thumbnail" && <ThumbnailTab video={videoForTabs} />}
-        {currentTab === "render" && <RenderTab video={videoForTabs} />}
-        {currentTab === "upload" && <UploadTab video={videoForTabs} />}
+        {currentTab === "script-voice" && <ScriptVoiceTab video={videoForTabs} onAdvanced={() => setActiveTab("storyboard-visuals")} />}
+        {currentTab === "storyboard-visuals" && <StoryboardVisualsTab video={videoForTabs} onGoToScriptVoice={() => setActiveTab("script-voice")} onAdvanced={() => setActiveTab("clips")} />}
+        {currentTab === "clips" && <VideoClipsTab video={videoForTabs} onAdvanced={() => setActiveTab("sound")} />}
+        {currentTab === "sound" && <SoundTab video={videoForTabs} onAdvanced={() => setActiveTab("thumbnail")} />}
+        {currentTab === "thumbnail" && <ThumbnailTab video={videoForTabs} onAdvanced={() => setActiveTab("render")} />}
+        {currentTab === "render" && <RenderTab video={videoForTabs} onAdvanced={() => setActiveTab("upload")} />}
+        {currentTab === "upload" && <UploadTab video={videoForTabs} onAdvanced={() => setActiveTab("performance")} />}
         {currentTab === "performance" && <PerformanceTab video={videoForTabs} />}
       </motion.div>
     </motion.div>

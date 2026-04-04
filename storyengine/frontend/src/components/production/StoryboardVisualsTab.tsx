@@ -49,6 +49,7 @@ function SecureAudioPlayer({ videoId, scene }: { videoId: string; scene: number 
 interface StoryboardVisualsTabProps {
   video: VideoDetail & { id: string };
   onGoToScriptVoice?: () => void;
+  onAdvanced?: () => void;
 }
 
 const STATUS_ICON: Record<string, { icon: React.ReactNode; color: string; label: string }> = {
@@ -103,7 +104,7 @@ function parseStoryboardPromptBlocks(promptText: string | null | undefined) {
   return [{ beatNumber: 1, prompt }];
 }
 
-export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVisualsTabProps) {
+export function StoryboardVisualsTab({ video, onGoToScriptVoice, onAdvanced }: StoryboardVisualsTabProps) {
   const queryClient = useQueryClient();
 
   // --- Voice guard rail check ---
@@ -563,12 +564,13 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
       queryClient.invalidateQueries({ queryKey: ["video", video.id] });
       queryClient.invalidateQueries({ queryKey: ["video-script", video.id] });
       queryClient.invalidateQueries({ queryKey: ["video-assets", video.id] });
+      onAdvanced?.();
     } catch (err) {
       alert(`Failed to advance: ${(err as Error).message}`);
     } finally {
       setAdvancing(false);
     }
-  }, [video.id, queryClient]);
+  }, [video.id, queryClient, onAdvanced]);
 
   const handleGenerateScenePrompts = useCallback(async (sceneNumber: number) => {
     setGeneratingScene(sceneNumber);
@@ -735,6 +737,20 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
               )}
             </>}
             <span>Cost <strong style={{ color: "var(--gold)" }}>${estimatedCostDone.toFixed(2)}</strong></span>
+            <span>Bible <strong style={{ color: hasStoryBible ? "var(--green)" : "var(--orange)" }}>{hasStoryBible ? "Ready" : "Missing"}</strong></span>
+            <span>Style <strong style={{ color: "var(--text-secondary)" }}>{video.visual_style || "default"}</strong></span>
+            <span>
+              <select
+                value={model}
+                onChange={(e) => handleModelChange(e.target.value)}
+                disabled={savingModel}
+                className="bg-transparent text-[10px] font-mono border rounded px-1 py-0.5 cursor-pointer"
+                style={{ color: "var(--text-secondary)", borderColor: "rgba(255,255,255,0.1)" }}
+              >
+                <option value="nano-banana-2">Nano Banana 2</option>
+                <option value="z-image">Z Image</option>
+              </select>
+            </span>
           </div>
           {/* Action buttons row */}
           <div className="flex items-center gap-2 flex-wrap">
@@ -1049,7 +1065,7 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
         );
       })()}
 
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_260px] gap-6">
+      <div className="grid grid-cols-1 gap-6">
         {/* Main content */}
         <div className="space-y-6">
           {Object.entries(actGroups).map(([actNum, actScenes]) => (
@@ -1437,198 +1453,7 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
           ))}
         </div>
 
-        {/* Right sidebar */}
-        <div className="space-y-4">
-          <GlassCard className="p-5">
-            <h3
-              className="text-xs font-semibold uppercase tracking-wider mb-4"
-              style={{ color: "var(--text-secondary)" }}
-            >
-              Generation Stats
-            </h3>
-            <div className="flex justify-center mb-4">
-              <ProgressRing
-                value={totalSegments > 0 ? (doneSegments / totalSegments) * 100 : 0}
-                size={90}
-                color="var(--purple)"
-                strokeWidth={7}
-              >
-                <span className="text-lg font-bold" style={{ color: "var(--text-primary)" }}>
-                  {doneSegments}
-                </span>
-                <span className="text-[8px] uppercase" style={{ color: "var(--text-secondary)" }}>
-                  / {totalSegments}
-                </span>
-              </ProgressRing>
-            </div>
-
-            <FilterSelect
-              label="Model"
-              options={[
-                { value: "nano-banana-2", label: "Nano Banana 2" },
-                { value: "z-image", label: "Z Image" },
-              ]}
-              value={model}
-              onChange={handleModelChange}
-              className="mb-3"
-              disabled={savingModel}
-              title={savingModel ? "Saving image model override..." : "Choose the image generation model for this video."}
-            />
-            <p className="text-[10px] mb-3" style={{ color: "var(--text-tertiary)" }}>
-              {savingModel ? "Saving model override..." : "This override is saved on the video and used by image generation."}
-            </p>
-
-            <div className="space-y-2 mb-3 pt-3" style={{ borderTop: "1px solid var(--border-subtle)" }}>
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
-                  Story Bible
-                </span>
-                <span className="text-xs font-mono" style={{ color: hasStoryBible ? "var(--green)" : "var(--orange)" }}>
-                  {hasStoryBible ? "Ready" : "Missing"}
-                </span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
-                  Image Prompts
-                </span>
-                <span className="text-xs font-mono" style={{ color: missingPromptSegments === 0 ? "var(--green)" : "var(--orange)" }}>
-                  {promptReadySegments}/{totalSegments}
-                </span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
-                  Storyboard Prompts
-                </span>
-                <span className="text-xs font-mono" style={{ color: "var(--text-secondary)" }}>
-                  {storyboardPromptScenes}/{scenes.length}
-                </span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
-                  Storyboard Status
-                </span>
-                <span className="text-xs font-mono" style={{ color: "var(--text-secondary)" }}>
-                  {storyboardReadyScenes}/{scenes.length}
-                </span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
-                  Style Profile
-                </span>
-                <span className="text-xs font-mono" style={{ color: "var(--text-secondary)" }}>
-                  {video.visual_style || "default"}
-                </span>
-              </div>
-            </div>
-
-            {storyboardMode && !hasStoryBible && (
-              <div
-                className="rounded-lg px-3 py-2 mb-3"
-                style={{
-                  background: "rgba(255, 165, 0, 0.08)",
-                  border: "1px solid rgba(255, 165, 0, 0.18)",
-                }}
-              >
-                <p className="text-[11px]" style={{ color: "var(--text-secondary)" }}>
-                  Storyboard generation requires a Story Bible first. Generate it here so the storyboard stage has consistent characters, locations, and beat context.
-                </p>
-              </div>
-            )}
-
-            {storyboardMode && hasStoryBible && !storyboardPrereqsMet && (
-              <div
-                className="rounded-lg px-3 py-2 mb-3"
-                style={{
-                  background: "rgba(255, 165, 0, 0.08)",
-                  border: "1px solid rgba(255, 165, 0, 0.18)",
-                }}
-              >
-                <p className="text-[11px]" style={{ color: "var(--text-secondary)" }}>
-                  Storyboard prompts require sentence image prompts first. {missingPromptSegments} segment{missingPromptSegments === 1 ? "" : "s"} still need image prompts.
-                </p>
-              </div>
-            )}
-
-            <div className="pt-3" style={{ borderTop: "1px solid var(--border-subtle)" }}>
-              <p className="text-xs font-semibold mb-1" style={{ color: "var(--text-secondary)" }}>
-                Cost Tracker
-              </p>
-              <p className="text-lg font-mono" style={{ color: "var(--gold)" }}>
-                ${estimatedCostDone.toFixed(3)}{" "}
-                <span className="text-xs" style={{ color: "var(--text-tertiary)" }}>
-                  / ${estimatedCostTotal.toFixed(2)}
-                </span>
-              </p>
-            </div>
-          </GlassCard>
-
-          <GlassCard
-            className="p-4"
-            style={{
-              background: "linear-gradient(180deg, rgba(255,138,101,0.10) 0%, rgba(255,138,101,0.04) 100%)",
-              border: "1px solid rgba(255, 138, 101, 0.22)",
-            }}
-          >
-            <div className="flex items-start gap-3 mb-3">
-              <div
-                className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
-                style={{
-                  background: "rgba(255, 138, 101, 0.14)",
-                  color: "#FF8A65",
-                  border: "1px solid rgba(255, 138, 101, 0.22)",
-                }}
-              >
-                <AlertTriangle size={16} />
-              </div>
-              <div>
-                <h4 className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
-                  Reset Storyboards
-                </h4>
-                <p className="text-[11px] mt-1" style={{ color: "var(--text-secondary)" }}>
-                  Clear saved storyboard prompts and storyboard grids without touching your sentence image prompts.
-                </p>
-              </div>
-            </div>
-
-            <div
-              className="rounded-lg px-3 py-2 mb-3"
-              style={{
-                background: "rgba(0,0,0,0.16)",
-                border: "1px solid rgba(255,255,255,0.05)",
-              }}
-            >
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
-                  Scenes With Storyboards
-                </span>
-                <span className="text-sm font-mono" style={{ color: "#FFD9CF" }}>
-                  {storyboardScenesWithData}/{scenes.length}
-                </span>
-              </div>
-            </div>
-
-            <button
-              onClick={handleClearAllStoryboards}
-              disabled={taskRunning || generatingAll || generatingPrompts || clearingAllStoryboards || storyboardScenesWithData === 0}
-              className="w-full inline-flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold transition-all disabled:opacity-40"
-              style={{
-                color: "#FFF3EE",
-                background: "linear-gradient(135deg, rgba(255, 107, 71, 0.95) 0%, rgba(255, 138, 101, 0.82) 100%)",
-                boxShadow: "0 12px 30px rgba(255, 107, 71, 0.18)",
-              }}
-              title="Clear storyboard prompts, status, and generated storyboard grids for every scene in this video"
-            >
-              {clearingAllStoryboards ? (
-                <Loader2 size={16} className="animate-spin" />
-              ) : (
-                <Trash2 size={16} />
-              )}
-              Clear All Storyboards
-            </button>
-          </GlassCard>
-
-          {/* Action buttons moved to top bar */}
-        </div>
+        {/* Sidebar removed — all controls moved to top bar */}
       </div>
     </div>
   );

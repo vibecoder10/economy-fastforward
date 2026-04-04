@@ -13,6 +13,7 @@ import type { ScriptScene, Asset } from "@/lib/api";
 
 interface SoundTabProps {
   video: any;
+  onAdvanced?: () => void;
 }
 
 interface SoundScene {
@@ -51,7 +52,7 @@ function buildSoundScenes(scripts: ScriptScene[], assets: Asset[]): SoundScene[]
   });
 }
 
-export function SoundTab({ video }: SoundTabProps) {
+export function SoundTab({ video, onAdvanced }: SoundTabProps) {
   const queryClient = useQueryClient();
   const [taskRunning, setTaskRunning] = useState(false);
   const [generating, setGenerating] = useState(false);
@@ -126,21 +127,23 @@ export function SoundTab({ video }: SoundTabProps) {
     try {
       await advanceVideo(video.id);
       queryClient.invalidateQueries({ queryKey: ["video", video.id] });
+      onAdvanced?.();
     } catch (err) {
       alert(`Failed to advance: ${(err as Error).message}`);
     } finally {
       setAdvancing(false);
     }
-  }, [video.id, queryClient]);
+  }, [video.id, queryClient, onAdvanced]);
 
   const handleApproveAndContinue = useCallback(async () => {
     try {
       await advanceVideo(video.id);
       queryClient.invalidateQueries({ queryKey: ["video", video.id] });
+      onAdvanced?.();
     } catch (err) {
       alert(`Failed to advance: ${(err as Error).message}`);
     }
-  }, [video.id, queryClient]);
+  }, [video.id, queryClient, onAdvanced]);
 
   const isLoading = loadingScripts || loadingAssets;
 

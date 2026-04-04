@@ -18,6 +18,7 @@ interface RenderTabProps {
     status?: string;
     videoLengthMin?: number | null;
   };
+  onAdvanced?: () => void;
 }
 
 function formatDuration(minutes: number | null | undefined): string {
@@ -35,7 +36,7 @@ interface TimelineSegment {
   duration: string;
 }
 
-export function RenderTab({ video }: RenderTabProps) {
+export function RenderTab({ video, onAdvanced }: RenderTabProps) {
   const queryClient = useQueryClient();
   const [isRendering, setIsRendering] = useState(false);
   const [confirmRender, setConfirmRender] = useState(false);
@@ -121,12 +122,13 @@ export function RenderTab({ video }: RenderTabProps) {
     try {
       await advanceVideo(video.id);
       queryClient.invalidateQueries({ queryKey: ["video", video.id] });
+      onAdvanced?.();
     } catch (err) {
       alert(`Failed to advance: ${(err as Error).message}`);
     } finally {
       setAdvancing(false);
     }
-  }, [video.id, queryClient]);
+  }, [video.id, queryClient, onAdvanced]);
 
   return (
     <>

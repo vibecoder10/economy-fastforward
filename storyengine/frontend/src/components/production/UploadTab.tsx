@@ -43,6 +43,7 @@ interface UploadTabProps {
     thumbnailUrl?: string | null;
     uploadDate?: string | null;
   };
+  onAdvanced?: () => void;
 }
 
 function buildDescription(
@@ -78,7 +79,7 @@ function extractTags(title: string): string[] {
     .slice(0, 8);
 }
 
-export function UploadTab({ video }: UploadTabProps) {
+export function UploadTab({ video, onAdvanced }: UploadTabProps) {
   const queryClient = useQueryClient();
   const youtubeUrl = video.youtube_url;
   const videoIdYt = extractVideoId(youtubeUrl);
@@ -109,12 +110,13 @@ export function UploadTab({ video }: UploadTabProps) {
     try {
       await advanceVideo(video.id);
       queryClient.invalidateQueries({ queryKey: ["video", video.id] });
+      onAdvanced?.();
     } catch (err) {
       alert(`Failed to advance: ${(err as Error).message}`);
     } finally {
       setAdvancing(false);
     }
-  }, [video.id, queryClient]);
+  }, [video.id, queryClient, onAdvanced]);
 
   const handleCopy = useCallback(() => {
     if (!youtubeUrl) return;

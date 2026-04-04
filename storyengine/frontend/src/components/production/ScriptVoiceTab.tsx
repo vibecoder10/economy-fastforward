@@ -28,6 +28,7 @@ import { ProgressRing } from "@/components/ui/ProgressRing";
 
 interface ScriptVoiceTabProps {
   video: any;
+  onAdvanced?: () => void;
 }
 
 interface SentenceState {
@@ -357,7 +358,7 @@ function SegmentEditor({ videoId, sceneNumber }: { videoId: string; sceneNumber:
 // Main component
 // ---------------------------------------------------------------------------
 
-export function ScriptVoiceTab({ video }: ScriptVoiceTabProps) {
+export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
   const queryClient = useQueryClient();
 
   // ---- Data fetching ----
@@ -1025,12 +1026,13 @@ export function ScriptVoiceTab({ video }: ScriptVoiceTabProps) {
     try {
       await advanceVideo(video.id);
       invalidateAll();
+      onAdvanced?.();
     } catch (err) {
       alert(`Advance failed: ${(err as Error).message}`);
     } finally {
       setAdvancing(false);
     }
-  }, [video.id, invalidateAll]);
+  }, [video.id, invalidateAll, onAdvanced]);
 
   // ---- Script pipeline stepper ----
   const scriptDone = scenesWithScript === totalScenes && totalScenes > 0;

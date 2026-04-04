@@ -28,9 +28,10 @@ const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
 
 interface VideoClipsTabProps {
   video: VideoDetail & { id: string };
+  onAdvanced?: () => void;
 }
 
-export function VideoClipsTab({ video }: VideoClipsTabProps) {
+export function VideoClipsTab({ video, onAdvanced }: VideoClipsTabProps) {
   const queryClient = useQueryClient();
   const [model, setModel] = useState(video.video_model || "grok-imagine");
   const [savingModel, setSavingModel] = useState(false);
@@ -76,11 +77,11 @@ export function VideoClipsTab({ video }: VideoClipsTabProps) {
 
   const selectedModelLabel = modelLabels[model] || model;
 
-  // Hero shots first; fallback to all assets with video content or prompts
+  // Hero shots first; fallback to all assets with video content, prompts, or images
   const heroShots = assets.filter((a) => a.hero_shot);
   const clips = heroShots.length > 0
     ? heroShots
-    : assets.filter((a) => a.video_clip_url || a.image_prompt);
+    : assets.filter((a) => a.video_clip_url || a.image_prompt || a.image_url);
 
   const doneCount = clips.filter((a) => getClipStatus(a) === "done").length;
   const generatingCount = clips.filter((a) => getClipStatus(a) === "generating").length;
@@ -160,12 +161,13 @@ export function VideoClipsTab({ video }: VideoClipsTabProps) {
       await advanceVideo(video.id);
       queryClient.invalidateQueries({ queryKey: ["video", video.id] });
       queryClient.invalidateQueries({ queryKey: ["video-assets", video.id] });
+      onAdvanced?.();
     } catch (err) {
       alert(`Advance failed: ${(err as Error).message}`);
     } finally {
       setAdvancing(false);
     }
-  }, [video.id, queryClient]);
+  }, [video.id, queryClient, onAdvanced]);
 
   if (totalCount === 0) {
     return (
@@ -193,11 +195,59 @@ export function VideoClipsTab({ video }: VideoClipsTabProps) {
     <div className="space-y-4">
       {/* Top action bar */}
       <div className="rounded-xl px-4 py-3" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)" }}>
-        <div className="flex items-center justify-between gap-3 flex-wrap">
-          <div className="flex items-center gap-4 text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>
-            <span>Clips {doneCount}/{totalCount}</span>
-            <span>Prompts {clips.filter(a => a.image_prompt).length}/{totalCount}</span>
-          </div>
+        {/* Status row */}
+        <div className="flex items-center gap-4 text-[10px] font-mono mb-3" style={{ color: "var(--text-tertiary)" }}>
+          <span>Clips <strong style={{ color: doneCount === totalCount && totalCount > 0 ? "var(--green)" : "var(--text-secondary)" }}>{doneCount}/{totalCount}</strong></span>
+          <span>Prompts <strong style={{ color: "var(--text-secondary)" }}>{clips.filter(a => a.image_prompt).length}/{totalCount}</strong></span>
+          <span>Pending <strong style={{ color: pendingCount > 0 ? "var(--orange)" : "var(--green)" }}>{pendingCount}</strong></span>
+          <span>Cost <strong style={{ color: "var(--gold)" }}>${estimatedCost.toFixed(2)}</strong></span>
+          <span>
+            <select
+              value={model}
+              onChange={(e) => handleModelChange(e.target.value)}
+              disabled={savingModel}
+              className="bg-transparent text-[10px] font-mono border rounded px-1 py-0.5 cursor-pointer"
+              style={{ color: "var(--text-secondary)", borderColor: "rgba(255,255,255,0.1)" }}
+            >
+              <option value="grok-imagine">Grok Imagine</option>
+              <option value="veo-3.1-fast">Veo 3.1 Fast</option>
+              <option value="veo-3.1-quality">Veo 3.1 Quality</option>
+              <option value="kling-3.0-pro">Kling 3.0 Pro</option>
+              <option value="runway-gen4-turbo">Runway Gen-4 Turbo</option>
+              <option value="hailuo-2.3-standard">Hailuo 2.3 Standard</option>
+            </select>
+          </span>
+        </div>
+        {/* Action buttons row */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={handleGeneratePrompts}
+            disabled={isGeneratingPrompts || taskRunning}
+            className="px-3 py-1.5 rounded-lg text-[10px] font-semibold disabled:opacity-40 transition-all hover:brightness-110"
+            style={{ background: "var(--purple)", color: "var(--bg-void)" }}
+          >
+            {(isGeneratingPrompts || (taskRunning && taskStage === "prompts")) ? <Loader2 size={12} className="animate-spin inline mr-1" /> : <Sparkles size={12} className="inline mr-1" />}
+            Generate Prompts
+          </button>
+          <button
+            onClick={confirmGenerate ? handleGenerateClips : () => setConfirmGenerate(true)}
+            disabled={isGeneratingClips || taskRunning}
+            className="px-3 py-1.5 rounded-lg text-[10px] font-semibold disabled:opacity-40 transition-all hover:brightness-110"
+            style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}
+          >
+            {(isGeneratingClips || (taskRunning && taskStage === "clips")) ? <Loader2 size={12} className="animate-spin inline mr-1" /> : <Film size={12} className="inline mr-1" />}
+            {confirmGenerate ? `Confirm — $${estimatedCost.toFixed(2)}` : "Generate All Clips"}
+          </button>
+          {confirmGenerate && (
+            <button
+              onClick={() => setConfirmGenerate(false)}
+              className="px-3 py-1.5 rounded-lg text-[10px] font-semibold transition-all hover:brightness-110"
+              style={{ color: "var(--text-tertiary)" }}
+            >
+              Cancel
+            </button>
+          )}
+          <div className="flex-1" />
           <button onClick={handleAdvanceStage} disabled={advancing}
             className="px-3 py-1.5 rounded-lg text-[10px] font-semibold inline-flex items-center gap-1 disabled:opacity-50 transition-all hover:brightness-110"
             style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}>
@@ -207,7 +257,7 @@ export function VideoClipsTab({ video }: VideoClipsTabProps) {
         </div>
       </div>
 
-    <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-6">
+    <div className="grid grid-cols-1 gap-6">
       {/* Clip grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
         {clips.map((asset, idx) => {
@@ -327,121 +377,7 @@ export function VideoClipsTab({ video }: VideoClipsTabProps) {
         })}
       </div>
 
-      {/* Sidebar */}
-      <div className="space-y-4">
-        {/* Stats */}
-        <GlassCard className="p-5">
-          <h3
-            className="text-xs font-semibold uppercase tracking-wider mb-4"
-            style={{ color: "var(--text-secondary)" }}
-          >
-            Clip Stats
-          </h3>
-          <div className="flex justify-center mb-4">
-            <ProgressRing value={progressPct} size={90} color="var(--purple)" strokeWidth={7}>
-              <span className="text-lg font-bold" style={{ color: "var(--text-primary)" }}>
-                {doneCount}
-              </span>
-              <span className="text-[8px] uppercase" style={{ color: "var(--text-secondary)" }}>
-                / {totalCount}
-              </span>
-            </ProgressRing>
-          </div>
-          <div className="space-y-3">
-            {[
-              { label: "Total Clips", value: String(totalCount) },
-              { label: "Generated", value: String(doneCount), color: "var(--green)" },
-              { label: "Generating", value: String(generatingCount), color: "var(--purple)" },
-              { label: "Pending", value: String(pendingCount), color: "var(--orange)" },
-            ].map((row) => (
-              <div key={row.label} className="flex items-center justify-between">
-                <span className="text-xs" style={{ color: "var(--text-secondary)" }}>
-                  {row.label}
-                </span>
-                <span
-                  className="text-sm font-mono font-medium"
-                  style={{ color: row.color || "var(--text-primary)" }}
-                >
-                  {row.value}
-                </span>
-              </div>
-            ))}
-          </div>
-        </GlassCard>
-
-        {/* Model selector */}
-        <GlassCard className="p-5">
-          <FilterSelect
-            label="Video Model"
-            options={[
-              { value: "grok-imagine", label: "Grok Imagine" },
-              { value: "veo-3.1-fast", label: "Veo 3.1 Fast" },
-              { value: "veo-3.1-quality", label: "Veo 3.1 Quality" },
-              { value: "kling-3.0-pro", label: "Kling 3.0 Pro" },
-              { value: "runway-gen4-turbo", label: "Runway Gen-4 Turbo" },
-              { value: "hailuo-2.3-standard", label: "Hailuo 2.3 Standard" },
-            ]}
-            value={model}
-            onChange={handleModelChange}
-            disabled={savingModel}
-            title={savingModel ? "Saving video model override..." : "Choose the clip generation model for this video."}
-          />
-          <p className="text-[10px] mt-3" style={{ color: "var(--text-tertiary)" }}>
-            {savingModel ? "Saving video model override..." : `Saved model: ${selectedModelLabel}`}
-          </p>
-          <div className="pt-3 mt-3" style={{ borderTop: "1px solid var(--border-subtle)" }}>
-            <p className="text-xs font-semibold mb-1" style={{ color: "var(--text-secondary)" }}>
-              Estimated Cost
-            </p>
-            <p className="text-lg font-mono" style={{ color: "var(--gold)" }}>
-              ${estimatedCost.toFixed(2)}
-            </p>
-          </div>
-        </GlassCard>
-
-        {/* Cost warning */}
-        <GlassCard className="p-4" style={{ borderColor: "var(--orange)", borderWidth: 1 }}>
-          <div className="flex items-start gap-2">
-            <AlertTriangle size={14} className="flex-shrink-0 mt-0.5" style={{ color: "var(--orange)" }} />
-            <p className="text-[11px] leading-relaxed" style={{ color: "var(--orange)" }}>
-              Video generation costs ~$0.30 per clip. Review prompts carefully before generating.
-            </p>
-          </div>
-        </GlassCard>
-
-        {/* Actions */}
-        <div className="space-y-2">
-          <ActionButton
-            variant="outline"
-            icon={(isGeneratingPrompts || (taskRunning && taskStage === "prompts")) ? Loader2 : Sparkles}
-            className="w-full"
-            onClick={handleGeneratePrompts}
-            disabled={isGeneratingPrompts || taskRunning}
-          >
-            {(taskRunning && taskStage === "prompts") ? (taskMessage || "Generating...") : isGeneratingPrompts ? "Starting..." : "Generate Prompts"}
-          </ActionButton>
-          {confirmGenerate ? (
-            <ActionButton
-              variant="filled"
-              icon={(isGeneratingClips || (taskRunning && taskStage === "clips")) ? Loader2 : Film}
-              className="w-full"
-              onClick={handleGenerateClips}
-              disabled={isGeneratingClips || taskRunning}
-            >
-              {(taskRunning && taskStage === "clips") ? (taskMessage || "Generating...") : isGeneratingClips ? "Starting..." : `Confirm — $${estimatedCost.toFixed(2)}`}
-            </ActionButton>
-          ) : (
-            <ActionButton
-              variant="filled"
-              icon={Film}
-              className="w-full"
-              onClick={() => setConfirmGenerate(true)}
-            >
-              Generate All Clips
-            </ActionButton>
-          )}
-        </div>
-      </div>
+      {/* Sidebar removed — all controls in top bar */}
     </div>
     </div>
   );
