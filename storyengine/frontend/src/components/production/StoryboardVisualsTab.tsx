@@ -220,6 +220,10 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
     videoId: video.id,
     enabled: taskRunning,
     interval: 3000,
+    onProgress: () => {
+      // Refresh assets on every poll tick so extracted panels appear live
+      queryClient.invalidateQueries({ queryKey: ["video-assets", video.id] });
+    },
     onComplete: () => {
       setTaskRunning(false);
       setGeneratingAll(false);

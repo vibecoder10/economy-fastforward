@@ -9,6 +9,7 @@ interface UseTaskPollerOptions {
   interval?: number;
   onComplete?: (message?: string | null) => void;
   onFailed?: (error: string) => void;
+  onProgress?: (message: string | null) => void;
 }
 
 interface TaskPollerState {
@@ -23,6 +24,7 @@ export function useTaskPoller({
   interval = 3000,
   onComplete,
   onFailed,
+  onProgress,
 }: UseTaskPollerOptions) {
   const [state, setState] = useState<TaskPollerState>({
     status: "idle",
@@ -32,8 +34,10 @@ export function useTaskPoller({
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const onCompleteRef = useRef(onComplete);
   const onFailedRef = useRef(onFailed);
+  const onProgressRef = useRef(onProgress);
   onCompleteRef.current = onComplete;
   onFailedRef.current = onFailed;
+  onProgressRef.current = onProgress;
 
   const stopPolling = useCallback(() => {
     if (intervalRef.current) {
@@ -54,7 +58,9 @@ export function useTaskPoller({
           error: task.error || null,
         });
 
-        if (task.status === "completed") {
+        if (task.status === "running") {
+          onProgressRef.current?.(task.message);
+        } else if (task.status === "completed") {
           stopPolling();
           onCompleteRef.current?.(task.message);
         } else if (task.status === "failed") {
