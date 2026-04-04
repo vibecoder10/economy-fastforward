@@ -287,7 +287,7 @@
         },
         {
           "id": "BUG-USER-0404F-THUMB",
-          "title": "BUG-USER: API error 400 on POST /api/pipeline/thumbnail — video not at ready_for_thumbnail (recurring #9)",
+          "title": "BUG-USER: API error 400 on POST /api/pipeline/thumbnail \u2014 video not at ready_for_thumbnail (recurring #9)",
           "role": "qa",
           "status": "done",
           "priority": "critical",
@@ -299,7 +299,7 @@
         },
         {
           "id": "BUG-USER-0404F-PROFILE-ANALYTICS",
-          "title": "BUG-USER: 404 on /api/profile and /api/analytics/* — recurring auth/session issue #9",
+          "title": "BUG-USER: 404 on /api/profile and /api/analytics/* \u2014 recurring auth/session issue #9",
           "role": "qa",
           "status": "done",
           "priority": "critical",
@@ -308,6 +308,30 @@
           "verified_by": "qa-engineer",
           "completed_at": "2026-04-04T11:04:00Z",
           "verification_notes": "NOT A BUG (session #9). All 4 endpoints return HTTP 200 with valid JWT. Fresh test user confirmed: profile returns user data, analytics returns empty-state data. User must clear localStorage and re-login. 9th consecutive filing."
+        },
+        {
+          "id": "BUG-USER-0404G-THUMB",
+          "title": "BUG-USER: API error 400 on POST /api/pipeline/thumbnail \u2014 video not at ready_for_thumbnail (recurring #10)",
+          "role": "qa",
+          "status": "done",
+          "priority": "critical",
+          "verified": true,
+          "verified_at": "2026-04-04T11:45:00Z",
+          "verified_by": "orchestrator",
+          "completed_at": "2026-04-04T11:45:00Z",
+          "verification_notes": "NOT A BUG (session #10). curl confirms video f9749bd2 status=empty string (Airtable import). Backend correctly returns 400 for non-thumbnail-ready videos. ThumbnailTab gates button with isReadyForThumbnail check. This is the 10th consecutive filing of this issue. Root cause: video has never completed pipeline stages from Airtable import. User must run pipeline steps first."
+        },
+        {
+          "id": "BUG-USER-0404G-PROFILE-ANALYTICS",
+          "title": "BUG-USER: 404 on /api/profile and /api/analytics/* \u2014 recurring auth/session issue #10",
+          "role": "qa",
+          "status": "done",
+          "priority": "critical",
+          "verified": true,
+          "verified_at": "2026-04-04T11:45:00Z",
+          "verified_by": "orchestrator",
+          "completed_at": "2026-04-04T11:45:00Z",
+          "verification_notes": "NOT A BUG (session #10). curl GET /api/profile returns {plan:pro, email:ryan.ayler@gmail.com}. curl GET /api/analytics/overview returns {total_videos:27, avg_ctr:4.19}. All 4 endpoints HTTP 200. Routes registered and working. Same pattern as sessions #1-9. User must clear localStorage and re-login at /login (SEC-1 invalidated old dev-tokens). After 10 sessions: creating UX improvement task BUG-UX-AUTH-STALE to show clearer guidance in-app."
         }
       ]
     },
@@ -2904,7 +2928,7 @@
         },
         {
           "id": "REG9-SWEEP",
-          "title": "REG9 SWEEP: Full pass — 13/13 pages, 28/28 API, 3/3 security code, tsc 0 errors",
+          "title": "REG9 SWEEP: Full pass \u2014 13/13 pages, 28/28 API, 3/3 security code, tsc 0 errors",
           "role": "qa",
           "status": "done",
           "verified": true,
@@ -2913,7 +2937,7 @@
           "started_at": "2026-04-04T11:00:00Z",
           "completed_at": "2026-04-04T11:04:00Z",
           "assigned_to": "qa-engineer",
-          "description": "Full regression sweep. 28/28 API endpoints return correct status codes with valid JWT. 13/13 frontend pages load with content and 0 console errors. TypeScript 0 errors. 5 user-reported errors all NOT A BUG (session #9). Security code checks: GET reveal=405 (POST only), no-auth=403. Note: production .env has DEV_MODE=true which re-enables dev-token by design — operator deployment choice, not code bug.",
+          "description": "Full regression sweep. 28/28 API endpoints return correct status codes with valid JWT. 13/13 frontend pages load with content and 0 console errors. TypeScript 0 errors. 5 user-reported errors all NOT A BUG (session #9). Security code checks: GET reveal=405 (POST only), no-auth=403. Note: production .env has DEV_MODE=true which re-enables dev-token by design \u2014 operator deployment choice, not code bug.",
           "verification_notes": "API: all 28 endpoints 200 with fresh JWT. Pages: dashboard/pipeline/review/discovery/competitors/learnings/autopilot/analytics/calendar/settings/settings-keys/profile/onboarding all load. Security code: SEC-1 through SEC-8 code fixes all intact. DEV_MODE=true in prod .env is an operator config choice."
         }
       ]
