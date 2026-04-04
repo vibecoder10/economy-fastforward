@@ -2784,8 +2784,11 @@
           "id": "T27-003",
           "title": "Rewrite storyboard-extract endpoint for Supabase",
           "role": "backend",
-          "status": "pending",
+          "status": "done",
           "priority": "critical",
+          "started_at": "2026-04-04T07:00:01Z",
+          "completed_at": "2026-04-04T07:10:00Z",
+          "assigned_to": "backend-dev",
           "depends_on": [
             "T27-001",
             "T27-002"

@@ -36,6 +36,7 @@ for bot_dir in ["script", "voice", "image_prompts", "images", "video_motion",
 from database import fetch_one, fetch_all, execute
 from status_map import to_supabase, to_pipeline, get_bot_name, STAGE_BOT_MAP, is_at_or_past_stage
 from vault import get_secret
+from extraction import extract_grid
 
 
 class PipelineExecutor:
@@ -1174,7 +1175,7 @@ class PipelineExecutor:
             return {"status": "failed", "error": error_msg}
 
     async def run_storyboard_extract(self, video_id: str) -> dict:
-        """Extract storyboard frames for a video."""
+        """Extract storyboard grid images into individual panels via Supabase Storage."""
         await self._ensure_initialized()
         bot_name = "Storyboard Extract Bot"
 
@@ -1184,22 +1185,81 @@ class PipelineExecutor:
                 return {"status": "failed", "error": "Video not found"}
 
             current_status = video.get("status")
+            video_title = video.get("video_title", "")
             await self._log_activity(bot_name, video_id, "started", "Extracting storyboard frames")
 
-            self._load_idea_from_video(video_id)
+            scenes = await fetch_all(
+                """SELECT id, scene, storyboard_1_url, storyboard_2_url,
+                          storyboard_3_url, storyboard_4_url, storyboard_5_url,
+                          storyboard_beat_count
+                   FROM scripts WHERE video_id = $1 AND tenant_id = $2
+                   ORDER BY scene""",
+                video_id, self.tenant_id,
+            )
 
-            result = await self._pipeline.run_storyboard_extract()
+            if not scenes:
+                raise Exception("No script scenes found for video")
 
-            if result.get("error"):
-                raise Exception(result["error"])
+            total_panels = 0
+            scene_errors = []
 
-            new_status = result.get("new_status", "ready_for_images")
+            for sc in scenes:
+                scene_num = sc["scene"]
+                beat_urls = []
+                for i in range(1, 6):
+                    url = sc.get(f"storyboard_{i}_url")
+                    if url:
+                        beat_urls.append((i, url))
 
+                if not beat_urls:
+                    continue
+
+                panel_offset = 0
+                for beat_num, grid_url in beat_urls:
+                    try:
+                        panels = await extract_grid(grid_url, video_id, scene_num, beat_num, panel_offset)
+                        for p in panels:
+                            existing = await fetch_one(
+                                """SELECT id FROM assets
+                                   WHERE video_id = $1 AND scene = $2 AND image_index = $3
+                                   AND tenant_id = $4""",
+                                video_id, scene_num, p["image_index"], self.tenant_id,
+                            )
+                            if existing:
+                                await execute(
+                                    """UPDATE assets SET image_url = $1, status = 'done',
+                                              generation_method = 'storyboard_extract', updated_at = now()
+                                       WHERE id = $2""",
+                                    p["panel_url"], existing["id"],
+                                )
+                            else:
+                                await execute(
+                                    """INSERT INTO assets
+                                       (id, tenant_id, video_id, video_title, scene, image_index,
+                                        image_url, status, generation_method, created_at, updated_at)
+                                       VALUES ($1, $2, $3, $4, $5, $6, $7, 'done',
+                                               'storyboard_extract', now(), now())""",
+                                    str(uuid.uuid4()), self.tenant_id, video_id, video_title,
+                                    scene_num, p["image_index"], p["panel_url"],
+                                )
+                            total_panels += 1
+                        panel_offset += len(panels)
+                    except Exception as e:
+                        scene_errors.append(f"Scene {scene_num} beat {beat_num}: {e}")
+
+            if total_panels == 0 and scene_errors:
+                raise Exception(f"All extractions failed: {'; '.join(scene_errors)}")
+
+            msg = f"Extracted {total_panels} panels"
+            if scene_errors:
+                msg += f" ({len(scene_errors)} beat errors skipped)"
+
+            new_status = "ready_for_images"
             await self._update_video_status(video_id, to_supabase(new_status))
             await self._log_transition(video_id, current_status, to_supabase(new_status), "api")
-            await self._log_activity(bot_name, video_id, "completed", "Storyboard frames extracted")
+            await self._log_activity(bot_name, video_id, "completed", msg)
 
-            return {"status": to_supabase(new_status), "video_id": video_id}
+            return {"status": to_supabase(new_status), "video_id": video_id, "panels_extracted": total_panels}
 
         except Exception as e:
             error_msg = str(e) or e.__class__.__name__
