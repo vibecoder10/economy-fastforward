@@ -92,6 +92,7 @@ Agent aliases:
 - qa → qa-engineer
 - tester/pt → pipeline-tester
 - orch → orchestrator
+- marketing/mktg → marketing-strategist
 
 ## Safety Rules
 

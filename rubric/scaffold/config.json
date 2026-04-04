@@ -36,6 +36,12 @@
       "name": "Security Auditor",
       "color": "#f59e0b",
       "icon": "Shield"
+    },
+    {
+      "id": "marketing-strategist",
+      "name": "Marketing Strategist",
+      "color": "#ec4899",
+      "icon": "Spark"
     }
   ]
 }
