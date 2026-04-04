@@ -833,3 +833,44 @@ async def clear_scene_storyboard(
         tenant_id,
     )
     return {"status": "cleared", "scope": "scene", "video_id": video_id, "scene": scene}
+
+
+@router.delete("/{video_id}/extracted-panels")
+async def clear_all_extracted_panels(
+    video_id: str,
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """Clear all extracted panel images, preserving segment rows."""
+    result = await execute(
+        """UPDATE assets
+           SET image_url = NULL, status = 'pending',
+               generation_method = NULL, updated_at = now()
+           WHERE video_id = $1 AND tenant_id = $2
+             AND generation_method = 'storyboard_extract'
+             AND image_url IS NOT NULL""",
+        video_id,
+        tenant_id,
+    )
+    cleared = int(result.split()[-1]) if result else 0
+    return {"status": "cleared", "cleared_count": cleared, "video_id": video_id}
+
+
+@router.delete("/{video_id}/extracted-panels/{asset_id}")
+async def clear_extracted_panel(
+    video_id: str,
+    asset_id: str,
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """Clear a single extracted panel image, preserving the segment row."""
+    result = await execute(
+        """UPDATE assets
+           SET image_url = NULL, status = 'pending',
+               generation_method = NULL, updated_at = now()
+           WHERE id = $1 AND video_id = $2 AND tenant_id = $3""",
+        asset_id,
+        video_id,
+        tenant_id,
+    )
+    if not result or "UPDATE 0" in result:
+        raise HTTPException(status_code=404, detail="Asset not found")
+    return {"status": "cleared", "asset_id": asset_id}

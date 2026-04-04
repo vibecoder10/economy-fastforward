@@ -5,7 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import {
   Play, Pause, Check, Loader2, Pencil, Image as ImageIcon, RefreshCw, Trash2, AlertTriangle,
-  Lock, ArrowLeft, ToggleLeft, ToggleRight, Layers, Scissors,
+  Lock, ArrowLeft, ToggleLeft, ToggleRight, Layers, Scissors, X,
 } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { SegmentBadge } from "@/components/ui/SegmentBadge";
@@ -18,6 +18,7 @@ import { PromptExpander } from "@/components/video-detail/prompt-expander";
 import { VoicePlayer } from "@/components/video-detail/voice-player";
 import {
   getVideoScript, getVideoAssets, updateStoryboardMode, clearSceneStoryboard, clearAllStoryboards,
+  clearAllExtractedPanels, clearExtractedPanel,
   runPipelineStage, updateSceneSegments, runImageForSegment, runImageVariants, clearStaleTask, updateVideoStyles,
   getAudioToken,
 } from "@/lib/api";
@@ -211,6 +212,7 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
   const [generatingScene, setGeneratingScene] = useState<number | null>(null);
   const [clearingScene, setClearingScene] = useState<number | null>(null);
   const [clearingAllStoryboards, setClearingAllStoryboards] = useState(false);
+  const [clearingExtracted, setClearingExtracted] = useState(false);
 
   const { message: taskMessage } = useTaskPoller({
     videoId: video.id,
@@ -383,6 +385,44 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
       ]);
     } finally {
       setClearingAllStoryboards(false);
+    }
+  }, [video.id, queryClient]);
+
+  const handleClearAllExtracted = useCallback(async () => {
+    const confirmed = window.confirm("Clear all extracted panel images? The segment rows and prompts will be preserved.");
+    if (!confirmed) return;
+
+    setClearingExtracted(true);
+    try {
+      await clearAllExtractedPanels(video.id);
+      setScenes((prev) =>
+        prev.map((scene) => ({
+          ...scene,
+          segments: scene.segments.map((seg) =>
+            seg.status === "done" ? { ...seg, imageUrl: undefined, status: "pending" } : seg,
+          ),
+        })),
+      );
+      await queryClient.invalidateQueries({ queryKey: ["video-assets", video.id] });
+    } finally {
+      setClearingExtracted(false);
+    }
+  }, [video.id, queryClient]);
+
+  const handleClearExtractedPanel = useCallback(async (assetId: string) => {
+    try {
+      await clearExtractedPanel(video.id, assetId);
+      setScenes((prev) =>
+        prev.map((scene) => ({
+          ...scene,
+          segments: scene.segments.map((seg) =>
+            seg.id === assetId ? { ...seg, imageUrl: undefined, status: "pending" } : seg,
+          ),
+        })),
+      );
+      await queryClient.invalidateQueries({ queryKey: ["video-assets", video.id] });
+    } catch {
+      // silent
     }
   }, [video.id, queryClient]);
 
@@ -746,13 +786,33 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
               <span className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>
                 {allExtracted.length} images
               </span>
+              <button
+                className="ml-auto flex items-center gap-1 px-2 py-0.5 rounded text-[9px] font-medium transition-colors"
+                style={{
+                  background: "rgba(239, 68, 68, 0.1)",
+                  color: "rgba(239, 68, 68, 0.8)",
+                  border: "1px solid rgba(239, 68, 68, 0.2)",
+                }}
+                disabled={clearingExtracted}
+                onClick={handleClearAllExtracted}
+              >
+                {clearingExtracted ? <Loader2 size={10} className="animate-spin" /> : <Trash2 size={10} />}
+                Clear All
+              </button>
             </div>
             <div className="flex gap-2.5 overflow-x-auto pb-2" style={{ scrollbarWidth: "thin" }}>
               {allExtracted.map((seg) => (
-                <div key={seg.id} className="flex-shrink-0 group cursor-pointer" onClick={() => { const el = document.getElementById(`scene-${seg.sceneNumber}`); if (el) el.scrollIntoView({ behavior: "smooth", block: "start" }); }}>
+                <div key={seg.id} className="flex-shrink-0 group cursor-pointer relative" onClick={() => { const el = document.getElementById(`scene-${seg.sceneNumber}`); if (el) el.scrollIntoView({ behavior: "smooth", block: "start" }); }}>
                   <div className="w-[220px] h-[124px] rounded-lg overflow-hidden" style={{ border: "1px solid rgba(255,255,255,0.08)" }}>
-                    <img src={seg.imageUrl} alt={seg.segmentId} className="w-full h-full object-cover group-hover:scale-105 transition-transform" loading="lazy" />
+                    <img src={seg.imageUrl!} alt={seg.segmentId} className="w-full h-full object-cover group-hover:scale-105 transition-transform" loading="lazy" />
                   </div>
+                  <button
+                    className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity rounded-full p-0.5"
+                    style={{ background: "rgba(0,0,0,0.7)", color: "rgba(239, 68, 68, 0.9)" }}
+                    onClick={(e) => { e.stopPropagation(); handleClearExtractedPanel(seg.id); }}
+                  >
+                    <X size={12} />
+                  </button>
                   <span className="text-[9px] font-mono block text-center mt-1" style={{ color: "var(--text-tertiary)" }}>{seg.segmentId}</span>
                 </div>
               ))}

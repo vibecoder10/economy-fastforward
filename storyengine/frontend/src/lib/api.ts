@@ -680,6 +680,16 @@ export const clearAllStoryboards = (videoId: string) =>
     method: "DELETE",
   });
 
+export const clearAllExtractedPanels = (videoId: string) =>
+  fetchApi<{ status: string; cleared_count: number }>(`/api/videos/${videoId}/extracted-panels`, {
+    method: "DELETE",
+  });
+
+export const clearExtractedPanel = (videoId: string, assetId: string) =>
+  fetchApi<{ status: string }>(`/api/videos/${videoId}/extracted-panels/${assetId}`, {
+    method: "DELETE",
+  });
+
 // Targeted regeneration (single scene/image, bypasses status gate)
 export const runVoiceForScene = (videoId: string, scene: number) =>
   fetchApi<PipelineResponse>(`/api/pipeline/voice/${videoId}?scene=${scene}`, {
