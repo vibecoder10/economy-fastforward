@@ -1299,11 +1299,10 @@ class PipelineExecutor:
                 for beat_num, grid_url in beat_urls:
                     try:
                         # PIL crop (accurate) + optional AI upscale (quality)
-                        # Storyboard grids are always 3x3
+                        # Grid layout auto-detected from image (1x2, 2x3, 3x3, etc.)
                         panels = await extract_grid(
                             grid_url, video_id, scene_num, beat_num, panel_offset,
                             image_client=self._pipeline.image_client,
-                            rows=3, cols=3,
                         )
                         for p in panels:
                             existing = await fetch_one(
