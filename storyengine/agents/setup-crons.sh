@@ -1,11 +1,15 @@
 #!/bin/bash
-# StoryEngine Agent Cron Setup — OPS MODE
-# Pipeline tester is the priority agent (every hour). Dev agents run every 2h.
-# Orchestrator pushes health reports twice daily. Telegram healthcheck every 15 min.
+# StoryEngine Agent Cron Setup
+# Every agent cron checks team_enabled BEFORE launching Claude.
 # Run: bash storyengine/agents/setup-crons.sh
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 LOG_DIR="/tmp/storyengine-agents"
+CONTROLS="$PROJECT_ROOT/rubric/scaffold/data/controls.json"
+
+# Guard command — exits if team is OFF. Prepended to every agent cron.
+GUARD="python3 -c \"import json; exit(0 if json.load(open('$CONTROLS')).get('team_enabled',True) else 1)\" 2>/dev/null &&"
 
 mkdir -p "$LOG_DIR"
 
@@ -13,55 +17,61 @@ mkdir -p "$LOG_DIR"
 crontab -l 2>/dev/null | grep -v "storyengine-agents" | grep -v "run-agent.sh" > /tmp/cron-clean.txt || true
 
 cat >> /tmp/cron-clean.txt << EOF
-# === StoryEngine Agents — Ops Mode (launch-readiness focus) ===
+# === StoryEngine Agents ===
+# Every agent cron checks team_enabled before launching.
 
-# Pipeline Tester — every hour at :10 (THE priority agent — finds bugs for everyone else)
-10 * * * * cd $SCRIPT_DIR && bash run-agent.sh pipeline-tester >> $LOG_DIR/pipeline-tester.log 2>&1 # storyengine-agents
+# Orchestrator — grand audit at 5 AM
+0 5 * * * $GUARD cd $SCRIPT_DIR && ORCHESTRATOR_MODE=grand bash run-agent.sh orchestrator >> $LOG_DIR/orchestrator.log 2>&1 # storyengine-agents
 
-# Backend Dev — every 2 hours at :00 (fixes backend bugs filed by tester/QA)
-0 */2 * * * cd $SCRIPT_DIR && bash run-agent.sh backend-dev >> $LOG_DIR/backend-dev.log 2>&1 # storyengine-agents
+# Backend Dev — every 4 hours at :00
+0 0,4,8,12,16,20 * * * $GUARD cd $SCRIPT_DIR && bash run-agent.sh backend-dev >> $LOG_DIR/backend-dev.log 2>&1 # storyengine-agents
 
-# Frontend Dev — every 2 hours at :02 (fixes frontend bugs filed by tester/QA)
-2 */2 * * * cd $SCRIPT_DIR && bash run-agent.sh frontend-dev >> $LOG_DIR/frontend-dev.log 2>&1 # storyengine-agents
+# Frontend Dev — every 4 hours at :02
+2 0,4,8,12,16,20 * * * $GUARD cd $SCRIPT_DIR && bash run-agent.sh frontend-dev >> $LOG_DIR/frontend-dev.log 2>&1 # storyengine-agents
 
-# QA Engineer — every 2 hours at :04 (verifies bug fixes)
-4 */2 * * * cd $SCRIPT_DIR && bash run-agent.sh qa-engineer >> $LOG_DIR/qa-engineer.log 2>&1 # storyengine-agents
+# QA Engineer — every 4 hours at :04
+4 0,4,8,12,16,20 * * * $GUARD cd $SCRIPT_DIR && bash run-agent.sh qa-engineer >> $LOG_DIR/qa-engineer.log 2>&1 # storyengine-agents
 
-# Orchestrator — health report at 8 AM + 8 PM (push to Telegram)
-0 8,20 * * * cd $SCRIPT_DIR && ORCHESTRATOR_MODE=grand bash run-agent.sh orchestrator >> $LOG_DIR/orchestrator.log 2>&1 # storyengine-agents
+# Orchestrator micro — every 4 hours at :25
+25 0,4,8,12,16,20 * * * $GUARD cd $SCRIPT_DIR && ORCHESTRATOR_MODE=micro bash run-agent.sh orchestrator >> $LOG_DIR/orchestrator-micro.log 2>&1 # storyengine-agents
 
-# Security Auditor — every 6 hours (4 sessions/day)
-0 */6 * * * cd $SCRIPT_DIR && bash run-agent.sh security-auditor >> $LOG_DIR/security-auditor.log 2>&1 # storyengine-agents
+# Pipeline Tester — every 4 hours at :20
+20 0,4,8,12,16,20 * * * $GUARD cd $SCRIPT_DIR && bash run-agent.sh pipeline-tester >> $LOG_DIR/pipeline-tester.log 2>&1 # storyengine-agents
 
-# Telegram Healthcheck — every 15 minutes (auto-restart if dead)
+# Planning session — 6 AM
+0 6 * * * $GUARD cd $SCRIPT_DIR && bash planning-session.sh >> $LOG_DIR/planning-session.log 2>&1 # storyengine-agents
+
+# Morning briefing — 7 AM
+0 7 * * * $GUARD cd $SCRIPT_DIR && bash morning-briefing.sh >> $LOG_DIR/morning-briefing.log 2>&1 # storyengine-agents
+
+# Daily report — 11 PM
+0 23 * * * $GUARD cd $SCRIPT_DIR && bash daily-report.sh >> $LOG_DIR/daily-report.log 2>&1 # storyengine-agents
+
+# Calculate skills — 11:05 PM
+5 23 * * * $GUARD cd $SCRIPT_DIR && bash calculate-skills.sh >> $LOG_DIR/calculate-skills.log 2>&1 # storyengine-agents
+
+# Retro — 11:10 PM
+10 23 * * * $GUARD cd $SCRIPT_DIR && bash retro.sh >> $LOG_DIR/retro.log 2>&1 # storyengine-agents
+
+# RUBRIC server healthcheck — every 5 min (always runs, not guarded by team toggle)
+*/5 * * * * pgrep -f 'rubric.*server' > /dev/null || (cd $PROJECT_ROOT/rubric/scaffold && nohup node server.js > $LOG_DIR/rubric.log 2>&1 &) # storyengine-agents
+
+# Telegram healthcheck — every 15 min (always runs, not guarded by team toggle)
 */15 * * * * bash $SCRIPT_DIR/../../rubric/scaffold/telegram-healthcheck.sh >> $LOG_DIR/telegram-healthcheck.log 2>&1 # storyengine-agents
-
-# PRD Watcher — every minute, spawns agents when PRD tasks become unblocked
-* * * * * bash $SCRIPT_DIR/../../agents/prd-watcher.sh >> $LOG_DIR/prd-watcher.log 2>&1 # storyengine-agents
-
-# Daily Report — 11:00 PM (plain-English summary for Ryan + Telegram push)
-0 23 * * * cd $SCRIPT_DIR && bash daily-report.sh >> $LOG_DIR/daily-report.log 2>&1 # storyengine-agents
 EOF
 
 crontab /tmp/cron-clean.txt
 rm /tmp/cron-clean.txt
 
-echo "Agent crons installed (OPS MODE)."
+echo "Agent crons installed."
 echo ""
-echo "Schedule:"
-echo "  :10      — Pipeline Tester (24 sessions/day — THE priority)"
-echo "  :00      — Backend Dev     (12 sessions/day)"
-echo "  :02      — Frontend Dev    (12 sessions/day)"
-echo "  :04      — QA Engineer     (12 sessions/day)"
-echo "  8AM+8PM  — Orchestrator    (health report to Telegram)"
-echo "  Every 6h — Security Auditor"
-echo "  Every 15m— Telegram Healthcheck"
-echo "  Every 1m — PRD Watcher"
-echo "  11 PM    — Daily Report"
+echo "Kill switch: All agent crons check $CONTROLS"
+echo "  team_enabled=true  → agents run"
+echo "  team_enabled=false → crons exit immediately (zero cost)"
 echo ""
-echo "  = ~42 agent sessions/day (tester-first, focused on launch readiness)"
+echo "Always-on (not guarded):"
+echo "  RUBRIC server healthcheck (every 5m)"
+echo "  Telegram healthcheck (every 15m)"
 echo ""
-echo "Logs: $LOG_DIR/"
-echo ""
-echo "Current agent crons:"
+echo "Current crons:"
 crontab -l | grep "storyengine-agents"
