@@ -1,12 +1,8 @@
 # Pipeline Tester Memory
 <!-- Lessons from past sessions. One line each. Max 50 entries. -->
 
-- Gen/Regen/Variants buttons in StoryboardVisualsTab are tiny (text-[9px]) — Playwright standard click times out; use JS .click() or force=True.
-- Approval/Reject buttons only appear in StoryboardVisualsTab when seg.status === 'done'; with all-pending assets, 0 buttons show (expected behavior, not a bug).
 - Tab name for images/storyboard is "Storyboard & Visuals" (not "Visuals" or "Images").
-- Auth requires a real JWT for frontend; use sub='dev-user' (maps to dev account 00000000-...) with iss=storyengine, tenant_id from /api/auth/me with dev-token.
 - storyboard_status values replace underscore with space in UI: 'grids_generated' shows as 'grids generated', search page_text with spaces not underscores.
-- Supabase pooler gets circuit breaker after bad auth attempts — use direct DB URL (db.PROJECT.supabase.co:5432) not pooler (pooler.supabase.com) to avoid this.
 - REG6 sweep pattern: context.add_init_script for localStorage token + context.route("**/api/**") for auth/me intercept + route.fetch() proxy. Dashboard stat labels are UPPERCASE ("TOTAL VIDEOS" not "Videos This Month") due to CSS transforms — always check with .lower() matching.
 - Mobile viewport (375x812) has horizontal overflow on /dashboard (428px) and /pipeline (477px) — filed as BUG-PT-MOBILE-OVERFLOW. Bottom tabs render correctly.
 - Auth in Playwright (port 3001/3002 pre-built): add_init_script sets localStorage reliably before page loads. storage_state also works. For port 3003 Turbopack dev server: NEITHER works — must navigate to /login first, then page.evaluate('localStorage.setItem(...)'), then navigate to target URL.
@@ -49,3 +45,4 @@
 - T27-003 storyboard-extract: extraction takes ~80s for 14 grids (6 scenes, 84 panels). UPSERT updates existing assets' image_url to supabase.co URLs. generation_method not set on existing rows — extraction updates image_url+status only. Verify by checking supabase.co in image_url, not generation_method.
 - REG9 (2026-04-04): 17/17 pages, 24/24 API, 6/6 tabs, auth PASS, mobile PASS, tsc 0 errors. Tab name is "Script" not "Script & Voice". Dashboard nav href is "/" not "/dashboard". Production .env still has DEV_MODE=true — config issue not code bug.
 - REG12 (2026-04-04): 22/22 pages (17 standalone + 5 tabs), 28/28 API, 2/3 security, 4/4 mobile, tsc 0 errors, 0 console errors. All 5 user-reported errors resolved. SEC-1 dev-token accepted because production .env has DEV_MODE=true+DEV_TOKEN=dev-token (config not code). Auth register+login+billing all work. Page load <5ms server-side.
+- REG13 (2026-04-04): context.route() API interception BLOCKS Next.js 16 RSC streaming on port 3001 (pre-built). Page renders 0 content with route intercept. Fix: use localStorage token directly (navigate to /login first, page.evaluate to set token, then navigate to target). No route intercept needed when backend accepts the JWT.
