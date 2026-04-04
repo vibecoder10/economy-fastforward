@@ -690,6 +690,26 @@ export const clearExtractedPanel = (videoId: string, assetId: string) =>
     method: "DELETE",
   });
 
+export const uploadStoryboardGrid = async (
+  videoId: string,
+  scene: number,
+  beat: number,
+  file: File,
+): Promise<{ status: string; url: string; all_grids_complete: boolean }> => {
+  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  const formData = new FormData();
+  formData.append("scene", String(scene));
+  formData.append("beat", String(beat));
+  formData.append("file", file);
+  const res = await fetch(`${API_URL}/api/videos/${videoId}/storyboard-grid-upload`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token || "dev-token"}` },
+    body: formData,
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+};
+
 // Targeted regeneration (single scene/image, bypasses status gate)
 export const runVoiceForScene = (videoId: string, scene: number) =>
   fetchApi<PipelineResponse>(`/api/pipeline/voice/${videoId}?scene=${scene}`, {

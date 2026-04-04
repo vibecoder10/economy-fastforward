@@ -18,7 +18,7 @@ import { PromptExpander } from "@/components/video-detail/prompt-expander";
 import { VoicePlayer } from "@/components/video-detail/voice-player";
 import {
   getVideoScript, getVideoAssets, updateStoryboardMode, clearSceneStoryboard, clearAllStoryboards,
-  clearAllExtractedPanels, clearExtractedPanel,
+  clearAllExtractedPanels, clearExtractedPanel, uploadStoryboardGrid,
   runPipelineStage, updateSceneSegments, runImageForSegment, runImageVariants, clearStaleTask, updateVideoStyles,
   getAudioToken,
 } from "@/lib/api";
@@ -213,6 +213,8 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
   const [clearingScene, setClearingScene] = useState<number | null>(null);
   const [clearingAllStoryboards, setClearingAllStoryboards] = useState(false);
   const [clearingExtracted, setClearingExtracted] = useState(false);
+  const [uploadingGrid, setUploadingGrid] = useState<string | null>(null); // "scene-beat"
+  const [dragOver, setDragOver] = useState<string | null>(null);
 
   const { message: taskMessage } = useTaskPoller({
     videoId: video.id,
@@ -406,6 +408,35 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
       await queryClient.invalidateQueries({ queryKey: ["video-assets", video.id] });
     } finally {
       setClearingExtracted(false);
+    }
+  }, [video.id, queryClient]);
+
+  const handleGridDrop = useCallback(async (sceneNumber: number, beatNumber: number, file: File) => {
+    const key = `${sceneNumber}-${beatNumber}`;
+    setUploadingGrid(key);
+    try {
+      const result = await uploadStoryboardGrid(video.id, sceneNumber, beatNumber, file);
+      // Update local state with new grid URL
+      setScenes((prev) =>
+        prev.map((scene) => {
+          if (scene.sceneNumber !== sceneNumber) return scene;
+          return {
+            ...scene,
+            storyboardGridCount: scene.storyboardGridCount + 1,
+            hasStoryboardData: true,
+            storyboardStatus: result.all_grids_complete ? "grids_generated" : scene.storyboardStatus,
+            storyboardBeats: scene.storyboardBeats.map((b) =>
+              b.beatNumber === beatNumber ? { ...b, gridUrl: result.url } : b,
+            ),
+          };
+        }),
+      );
+      await queryClient.invalidateQueries({ queryKey: ["video-script", video.id] });
+    } catch {
+      // silent
+    } finally {
+      setUploadingGrid(null);
+      setDragOver(null);
     }
   }, [video.id, queryClient]);
 
@@ -906,9 +937,11 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
                                   width: 340,
                                   height: 200,
                                   background: "var(--bg-elevated)",
-                                  border: beat.gridUrl
-                                    ? "1px solid rgba(0, 230, 138, 0.25)"
-                                    : "1px dashed rgba(255,255,255,0.1)",
+                                  border: dragOver === `${scene.sceneNumber}-${beat.beatNumber}`
+                                    ? "2px solid var(--green)"
+                                    : beat.gridUrl
+                                      ? "1px solid rgba(0, 230, 138, 0.25)"
+                                      : "1px dashed rgba(255,255,255,0.1)",
                                 }}
                                 onClick={() => {
                                   if (beat.gridUrl) {
@@ -917,7 +950,17 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
                                     handleGenerateSceneGrids(scene.sceneNumber);
                                   }
                                 }}
-                                title={beat.gridUrl ? "Click to open full size" : `Click to generate Scene ${scene.sceneNumber} grids`}
+                                onDragOver={(e) => { e.preventDefault(); setDragOver(`${scene.sceneNumber}-${beat.beatNumber}`); }}
+                                onDragLeave={() => setDragOver(null)}
+                                onDrop={(e) => {
+                                  e.preventDefault();
+                                  setDragOver(null);
+                                  const file = e.dataTransfer.files[0];
+                                  if (file && file.type.startsWith("image/")) {
+                                    handleGridDrop(scene.sceneNumber, beat.beatNumber, file);
+                                  }
+                                }}
+                                title={beat.gridUrl ? "Click to open full size" : "Click to generate or drag & drop an image"}
                               >
                                 {beat.gridUrl ? (
                                   <img
@@ -927,7 +970,21 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
                                   />
                                 ) : (
                                   <div className="w-full h-full flex flex-col items-center justify-center gap-2 transition-colors hover:bg-[rgba(168,85,247,0.08)]">
-                                    {(generatingAll || generatingScene === scene.sceneNumber) ? (
+                                    {uploadingGrid === `${scene.sceneNumber}-${beat.beatNumber}` ? (
+                                      <>
+                                        <Loader2 size={20} className="animate-spin" style={{ color: "var(--green)" }} />
+                                        <span className="text-[11px] font-medium" style={{ color: "var(--green)" }}>
+                                          Uploading...
+                                        </span>
+                                      </>
+                                    ) : dragOver === `${scene.sceneNumber}-${beat.beatNumber}` ? (
+                                      <>
+                                        <ImageIcon size={20} style={{ color: "var(--green)" }} />
+                                        <span className="text-[11px] font-medium" style={{ color: "var(--green)" }}>
+                                          Drop to Upload
+                                        </span>
+                                      </>
+                                    ) : (generatingAll || generatingScene === scene.sceneNumber) ? (
                                       <>
                                         <Loader2 size={20} className="animate-spin" style={{ color: "var(--purple)" }} />
                                         <span className="text-[11px] font-medium" style={{ color: "var(--purple)" }}>
@@ -938,7 +995,7 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
                                       <>
                                         <ImageIcon size={20} style={{ color: "var(--purple)", opacity: 0.6 }} />
                                         <span className="text-[11px] font-medium" style={{ color: "var(--purple)" }}>
-                                          Click to Generate
+                                          Click or Drop Image
                                         </span>
                                       </>
                                     )}

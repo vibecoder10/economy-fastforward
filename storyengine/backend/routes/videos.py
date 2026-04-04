@@ -3,7 +3,7 @@
 import json
 import re
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
 from fastapi.responses import StreamingResponse
 from auth import get_tenant_id
 from models import (
@@ -874,3 +874,64 @@ async def clear_extracted_panel(
     if not result or "UPDATE 0" in result:
         raise HTTPException(status_code=404, detail="Asset not found")
     return {"status": "cleared", "asset_id": asset_id}
+
+
+@router.post("/{video_id}/storyboard-grid-upload")
+async def upload_storyboard_grid(
+    video_id: str,
+    scene: int = Form(...),
+    beat: int = Form(...),
+    file: UploadFile = File(...),
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """Upload a manually-created storyboard grid image.
+
+    Saves to Supabase Storage and updates the scripts table.
+    Used when API generation fails (e.g. content policy blocks).
+    """
+    from storage import upload_bytes
+
+    # Verify scene exists
+    script = await fetch_one(
+        "SELECT id FROM scripts WHERE video_id = $1 AND scene = $2 AND tenant_id = $3",
+        video_id, scene, tenant_id,
+    )
+    if not script:
+        raise HTTPException(status_code=404, detail=f"Scene {scene} not found")
+
+    if beat < 1 or beat > 5:
+        raise HTTPException(status_code=400, detail="Beat must be 1-5")
+
+    # Read file and upload to storage
+    data = await file.read()
+    ext = file.filename.rsplit(".", 1)[-1] if file.filename and "." in file.filename else "png"
+    path = f"{video_id}/grids/S{scene}-B{beat}.{ext}"
+    perm_url = await upload_bytes(data, path)
+
+    # Update scripts table
+    col = f"storyboard_{beat}_url"
+    await execute(
+        f"UPDATE scripts SET {col} = $1, updated_at = now() WHERE id = $2",
+        perm_url, script["id"],
+    )
+
+    # Check if all beats now have grids → set status to grids_generated
+    updated = await fetch_one(
+        """SELECT storyboard_beat_count,
+                  storyboard_1_url, storyboard_2_url, storyboard_3_url,
+                  storyboard_4_url, storyboard_5_url
+           FROM scripts WHERE id = $1""",
+        script["id"],
+    )
+    beat_count = updated.get("storyboard_beat_count") or 1
+    all_present = all(
+        updated.get(f"storyboard_{i}_url")
+        for i in range(1, beat_count + 1)
+    )
+    if all_present:
+        await execute(
+            "UPDATE scripts SET storyboard_status = 'grids_generated', updated_at = now() WHERE id = $1",
+            script["id"],
+        )
+
+    return {"status": "uploaded", "url": perm_url, "scene": scene, "beat": beat, "all_grids_complete": all_present}
