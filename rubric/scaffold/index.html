@@ -1036,7 +1036,9 @@ window.__onTabShow = {};
 
   // Controls
   let currentControls = { paused_agents: [], skipped_tasks: [], priority_overrides: {} };
+  let _controlsLocked = false; // Prevents poll from overwriting during toggle
   async function loadControls() {
+    if (_controlsLocked) return; // Skip poll while toggle is in flight
     try {
       const resp = await fetch('/api/controls');
       if (!resp.ok) return;
@@ -1739,11 +1741,13 @@ window.__onTabShow = {};
   };
 
   window.toggleTeam = async function() {
+    _controlsLocked = true; // Block polling from reverting the toggle
     const resp = await fetch('/api/controls/team-toggle', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
     const data = await resp.json();
     updateTeamToggle(data.team_enabled);
+    currentControls.team_enabled = data.team_enabled; // Update local state immediately
     pollTeamMode();
-    loadControls();
+    setTimeout(() => { _controlsLocked = false; loadControls(); }, 2000); // Unlock after 2s
   };
 
   function updateTeamToggle(enabled) {
