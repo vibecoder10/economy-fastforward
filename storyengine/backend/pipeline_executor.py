@@ -1410,6 +1410,84 @@ class PipelineExecutor:
             await self._log_activity(bot_name, video_id, "failed", error_msg)
             return {"status": "failed", "error": error_msg}
 
+    async def run_upscale_panels(self, video_id: str, progress_callback=None) -> dict:
+        """Upscale extracted panels that haven't been upscaled yet (no _hd in URL).
+
+        Resumes from where a previous upscale was interrupted.
+        """
+        await self._ensure_initialized()
+        bot_name = "Panel Upscaler"
+
+        async def _report(msg: str):
+            if progress_callback:
+                try:
+                    await progress_callback(msg)
+                except Exception:
+                    pass
+
+        try:
+            image_client = getattr(self._pipeline, "image_client", None)
+            if not image_client:
+                return {"status": "failed", "error": "No image client available for upscaling"}
+
+            # Find all extracted panels that haven't been upscaled
+            raw_panels = await fetch_all(
+                """SELECT id, scene, image_index, image_url
+                   FROM assets
+                   WHERE video_id = $1 AND tenant_id = $2
+                   AND generation_method = 'storyboard_extract'
+                   AND image_url NOT LIKE '%%_hd.png%%'
+                   ORDER BY scene, image_index""",
+                video_id, self.tenant_id,
+            )
+
+            if not raw_panels:
+                return {"status": "completed", "message": "All panels already upscaled"}
+
+            await self._log_activity(bot_name, video_id, "started",
+                                     f"Upscaling {len(raw_panels)} panels")
+            await _report(f"Upscaling {len(raw_panels)} images — removing KF labels...")
+
+            upscaled = 0
+            for idx, panel in enumerate(raw_panels):
+                try:
+                    await _report(
+                        f"Upscaling Scene {panel['scene']} Image {panel['image_index']} "
+                        f"({idx + 1}/{len(raw_panels)})"
+                    )
+                    prompt = (
+                        "Upscale this image to high resolution. "
+                        "Remove any text labels like [KF1 | LS | 12s], [KF7 | MS | 9s], "
+                        "or similar keyframe/shot/duration overlays — cleanly paint over "
+                        "them with the surrounding image content. "
+                        "Otherwise do NOT alter the image in any way. "
+                        "Keep the exact same composition, pose, expression, colors, "
+                        "and details. Only increase resolution, clarity, and remove labels."
+                    )
+                    result = await image_client.generate_scene_image(
+                        prompt=prompt,
+                        reference_image_url=panel["image_url"],
+                    )
+                    if result and result.get("url"):
+                        path = f"{video_id}/extracted/S{panel['scene']}-I{panel['image_index']}_hd.png"
+                        upscaled_url = await upload_from_url(result["url"], path)
+                        await execute(
+                            "UPDATE assets SET image_url = $1, updated_at = now() WHERE id = $2",
+                            upscaled_url, panel["id"],
+                        )
+                        upscaled += 1
+                except Exception as e:
+                    _logger.warning("Upscale failed S%d I%d: %s", panel["scene"], panel["image_index"], e)
+
+            msg = f"Upscaled {upscaled}/{len(raw_panels)} panels"
+            await self._log_activity(bot_name, video_id, "completed", msg)
+            return {"status": "completed", "message": msg, "upscaled": upscaled}
+
+        except Exception as e:
+            error_msg = str(e) or e.__class__.__name__
+            await self._log_activity(bot_name, video_id, "failed", error_msg)
+            return {"status": "failed", "error": error_msg}
+
     async def run_images(self, video_id: str, scene: int = None, index: int = None) -> dict:
         """Generate images for a video.
 

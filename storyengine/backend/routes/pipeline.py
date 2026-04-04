@@ -579,6 +579,50 @@ async def run_storyboard_extract(
     return PipelineResponse(video_id=video_id, status="running", message="Storyboard extraction started")
 
 
+@router.post("/upscale-panels/{video_id}", response_model=PipelineResponse)
+async def run_upscale_panels(
+    video_id: str,
+    background_tasks: BackgroundTasks,
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """Upscale extracted panels that haven't been upscaled yet. Removes KF labels."""
+    video = await fetch_one(
+        "SELECT id, status FROM videos WHERE id = $1 AND tenant_id = $2",
+        video_id, tenant_id,
+    )
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+
+    if _get_task_status(video_id):
+        raise HTTPException(status_code=409, detail="Task already running")
+
+    _set_task_status(video_id, "running", "Panel upscaling in progress")
+
+    async def _run():
+        try:
+            executor = PipelineExecutor(tenant_id)
+
+            async def _progress(msg: str):
+                _set_task_status(video_id, "running", msg)
+
+            result = await executor.run_upscale_panels(video_id, progress_callback=_progress)
+            _set_task_status(
+                video_id,
+                result.get("status", "unknown"),
+                result.get("message") or result.get("error"),
+                result.get("error"),
+            )
+        except Exception as e:
+            _set_task_status(video_id, "failed", str(e), str(e))
+        finally:
+            await asyncio.sleep(30)
+            _clear_task_status(video_id)
+
+    background_tasks.add_task(_run)
+
+    return PipelineResponse(video_id=video_id, status="running", message="Panel upscaling started")
+
+
 @router.post("/images/{video_id}", response_model=PipelineResponse)
 async def run_images(
     video_id: str,

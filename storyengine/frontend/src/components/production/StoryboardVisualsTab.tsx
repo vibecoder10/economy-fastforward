@@ -287,6 +287,11 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
     (sum, s) => sum + s.segments.filter((seg) => !!seg.imageUrl).length,
     0,
   );
+  const upscaledSegments = scenes.reduce(
+    (sum, s) => sum + s.segments.filter((seg) => seg.imageUrl?.includes("_hd")).length,
+    0,
+  );
+  const needsUpscale = extractedSegments > 0 && upscaledSegments < extractedSegments;
   const pendingSegments = totalSegments - doneSegments;
   const missingPromptSegments = totalSegments - promptReadySegments;
   const hasStoryBible = !!(video.story_bible && video.story_bible.trim().length > 0);
@@ -535,6 +540,21 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
     }
   }, [video.id]);
 
+  const handleUpscalePanels = useCallback(async () => {
+    setExtracting(true);
+    setExtractError(null);
+    try {
+      try { await clearStaleTask(video.id); } catch { /* ok */ }
+      await runPipelineStage(video.id, "upscale-panels");
+      setTaskRunning(true);
+    } catch (err: unknown) {
+      const msg = (err as Error).message || "Unknown error";
+      console.error("Upscale panels failed:", msg);
+      setExtractError(msg);
+      setExtracting(false);
+    }
+  }, [video.id]);
+
   const handleGenerateScenePrompts = useCallback(async (sceneNumber: number) => {
     setGeneratingScene(sceneNumber);
     try {
@@ -777,9 +797,25 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
                 Step 3: Generate Storyboard Grids
               </button>
             );
+            if (extractionDone && needsUpscale) return (
+              <div className="mt-3 space-y-2">
+                <button
+                  onClick={handleUpscalePanels}
+                  disabled={extracting || taskRunning}
+                  className="w-full inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-xs font-semibold transition-all disabled:opacity-50"
+                  style={{ background: "var(--amber, #D4A844)", color: "var(--bg-void)" }}
+                >
+                  {(extracting || taskRunning) ? <Loader2 size={14} className="animate-spin" /> : <Scissors size={14} />}
+                  Upscale &amp; Remove KF Labels ({upscaledSegments}/{extractedSegments})
+                </button>
+                {extractError && (
+                  <p className="text-[10px] text-center" style={{ color: "var(--orange)" }}>{extractError}</p>
+                )}
+              </div>
+            );
             if (extractionDone) return (
               <p className="mt-3 text-[10px] text-center" style={{ color: "var(--green)" }}>
-                ✓ All storyboard steps complete — panels extracted
+                ✓ All storyboard steps complete — panels extracted &amp; upscaled
               </p>
             );
             return (
