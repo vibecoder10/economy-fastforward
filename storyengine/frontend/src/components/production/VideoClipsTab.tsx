@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { Check, Loader2, Play, AlertTriangle, Sparkles, Film } from "lucide-react";
+import { Check, Loader2, Play, AlertTriangle, Sparkles, Film, ChevronRight } from "lucide-react";
 import { motion } from "framer-motion";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { GlassCard } from "@/components/ui/GlassCard";
@@ -10,7 +10,7 @@ import { SegmentBadge } from "@/components/ui/SegmentBadge";
 import { ProgressRing } from "@/components/ui/ProgressRing";
 import { FilterSelect } from "@/components/ui/FilterSelect";
 import { ActionButton } from "@/components/ui/ActionButton";
-import { getVideoAssets, runPipelineStage, clearStaleTask, updateVideoStyles } from "@/lib/api";
+import { getVideoAssets, runPipelineStage, clearStaleTask, updateVideoStyles, advanceVideo } from "@/lib/api";
 import { useTaskPoller } from "@/hooks/use-task-poller";
 import type { VideoDetail, Asset } from "@/lib/api";
 
@@ -39,6 +39,7 @@ export function VideoClipsTab({ video }: VideoClipsTabProps) {
   const [isGeneratingClips, setIsGeneratingClips] = useState(false);
   const [taskRunning, setTaskRunning] = useState(false);
   const [taskStage, setTaskStage] = useState<"prompts" | "clips">("prompts");
+  const [advancing, setAdvancing] = useState(false);
 
   const { message: taskMessage } = useTaskPoller({
     videoId: video.id,
@@ -153,6 +154,19 @@ export function VideoClipsTab({ video }: VideoClipsTabProps) {
     }
   }, [video.id]);
 
+  const handleAdvanceStage = useCallback(async () => {
+    setAdvancing(true);
+    try {
+      await advanceVideo(video.id);
+      queryClient.invalidateQueries({ queryKey: ["video", video.id] });
+      queryClient.invalidateQueries({ queryKey: ["video-assets", video.id] });
+    } catch (err) {
+      alert(`Advance failed: ${(err as Error).message}`);
+    } finally {
+      setAdvancing(false);
+    }
+  }, [video.id, queryClient]);
+
   if (totalCount === 0) {
     return (
       <GlassCard className="p-12 text-center">
@@ -176,6 +190,23 @@ export function VideoClipsTab({ video }: VideoClipsTabProps) {
   }
 
   return (
+    <div className="space-y-4">
+      {/* Top action bar */}
+      <div className="rounded-xl px-4 py-3" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)" }}>
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-4 text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>
+            <span>Clips {doneCount}/{totalCount}</span>
+            <span>Prompts {clips.filter(a => a.image_prompt).length}/{totalCount}</span>
+          </div>
+          <button onClick={handleAdvanceStage} disabled={advancing}
+            className="px-3 py-1.5 rounded-lg text-[10px] font-semibold inline-flex items-center gap-1 disabled:opacity-50 transition-all hover:brightness-110"
+            style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}>
+            {advancing ? <Loader2 size={12} className="animate-spin" /> : null}
+            Advance Stage <ChevronRight size={12} />
+          </button>
+        </div>
+      </div>
+
     <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-6">
       {/* Clip grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
@@ -411,6 +442,7 @@ export function VideoClipsTab({ video }: VideoClipsTabProps) {
           )}
         </div>
       </div>
+    </div>
     </div>
   );
 }

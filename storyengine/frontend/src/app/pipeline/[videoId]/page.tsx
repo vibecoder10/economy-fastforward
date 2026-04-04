@@ -61,7 +61,7 @@ const STATUS_PILL: Record<string, { label: string; color: string }> = {
 const PIPELINE_ORDER = [
   "idea_logged", "approved", "researching", "ready_for_scripting", "scripting",
   "ready_for_voice", "voice", "ready_for_image_prompts", "ready_for_images",
-  "ready_for_storyboards", "ready_for_storyboard_images",
+  "ready_for_storyboards", "ready_for_storyboard_images", "ready_for_storyboard_extraction",
   "ready_for_sound_design", "ready_for_sound_effects",
   "ready_for_video_scripts", "ready_for_video_generation",
   "ready_for_thumbnail", "ready_to_render", "rendering", "rendered",

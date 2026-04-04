@@ -1018,12 +1018,42 @@ export function ScriptVoiceTab({ video }: ScriptVoiceTabProps) {
   const isVoiceBusy = generatingVoiceAll || generatingVoiceScene !== null || voiceTaskRunning;
   const isPromptBusy = generatingPromptsAll || generatingPromptsScene !== null || generatingPromptsSegment !== null || promptTaskRunning;
 
+  // ---- Advance stage ----
+  const [advancing, setAdvancing] = useState(false);
+  const handleAdvanceStage = useCallback(async () => {
+    setAdvancing(true);
+    try {
+      await advanceVideo(video.id);
+      invalidateAll();
+    } catch (err) {
+      alert(`Advance failed: ${(err as Error).message}`);
+    } finally {
+      setAdvancing(false);
+    }
+  }, [video.id, invalidateAll]);
+
   // ---- Script pipeline stepper ----
   const scriptDone = scenesWithScript === totalScenes && totalScenes > 0;
   const voiceDone = scenesWithVoice === totalScenes && totalScenes > 0;
 
   return (
     <div className="space-y-6 pb-24">
+      {/* Top action bar */}
+      <div className="rounded-xl px-4 py-3 mb-4" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)" }}>
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-4 text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>
+            <span>Script {scenesWithScript}/{totalScenes}</span>
+            <span>Voice {scenesWithVoice}/{totalScenes}</span>
+          </div>
+          <button onClick={handleAdvanceStage} disabled={advancing}
+            className="px-3 py-1.5 rounded-lg text-[10px] font-semibold inline-flex items-center gap-1 disabled:opacity-50 transition-all hover:brightness-110"
+            style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}>
+            {advancing ? <Loader2 size={12} className="animate-spin" /> : null}
+            Advance Stage <ChevronRight size={12} />
+          </button>
+        </div>
+      </div>
+
       {/* Script Pipeline Steps */}
       <div
         className="rounded-xl p-4"
