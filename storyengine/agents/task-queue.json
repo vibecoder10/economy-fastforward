@@ -2752,7 +2752,11 @@
           "completed_at": "2026-04-04T05:10:00Z",
           "assigned_to": "backend-dev",
           "description": "Created storyengine/backend/storage.py with upload_bytes() and upload_from_url() using Supabase Storage REST API via httpx. Auto-creates public bucket storyengine-assets on first upload. Returns permanent public URLs. Tested: bucket created, upload returns 200, public URL accessible.",
-          "files": ["backend/storage.py"]
+          "files": ["backend/storage.py"],
+          "verified": true,
+          "verified_at": "2026-04-04T05:15:00Z",
+          "verified_by": "qa-engineer",
+          "verification_notes": "PASS. (1) storage.py: 135 lines, 3 public functions (upload_bytes, upload_from_url, download_bytes). (2) Bucket storyengine-assets auto-created with race-condition handling (409 conflict). (3) x-upsert:true prevents duplicate failures. (4) Env vars SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY present in .env and read correctly. (5) httpx==0.27.0 already in requirements.txt. (6) Import test: all 3 functions importable. (7) Config test: env vars load correctly (URL + key). (8) Diff clean: 2 files (storage.py new + task-queue.json), no bloat. (9) Not imported anywhere yet — expected, downstream tasks will use it. NOTE: Pillow NOT in requirements.txt — T27-002 will need it for PIL grid cropping."
         },
         {
           "id": "T27-002",
