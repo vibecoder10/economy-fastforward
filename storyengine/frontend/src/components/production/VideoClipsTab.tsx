@@ -77,11 +77,11 @@ export function VideoClipsTab({ video, onAdvanced }: VideoClipsTabProps) {
 
   const selectedModelLabel = modelLabels[model] || model;
 
-  // Hero shots first; fallback to all assets with video content or prompts
+  // Hero shots first; fallback to all assets with video content, prompts, or images
   const heroShots = assets.filter((a) => a.hero_shot);
   const clips = heroShots.length > 0
     ? heroShots
-    : assets.filter((a) => a.video_clip_url || a.image_prompt);
+    : assets.filter((a) => a.video_clip_url || a.image_prompt || a.image_url);
 
   const doneCount = clips.filter((a) => getClipStatus(a) === "done").length;
   const generatingCount = clips.filter((a) => getClipStatus(a) === "generating").length;
