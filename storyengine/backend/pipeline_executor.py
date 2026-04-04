@@ -1299,12 +1299,13 @@ class PipelineExecutor:
                 for beat_num, grid_url in beat_urls:
                     try:
                         # Use Nano Banana AI extraction if image client available, else PIL fallback
+                        # Storyboard grids are always 3x3 — don't auto-detect from aspect ratio
+                        # (16:9 grids look like 3x2 to the detector but contain 3 rows)
                         if self._pipeline.image_client:
-                            cols, rows = await detect_grid_layout_from_url(grid_url)
                             panels = await extract_grid_ai(
                                 grid_url, video_id, scene_num, beat_num, panel_offset,
                                 image_client=self._pipeline.image_client,
-                                rows=rows, cols=cols,
+                                rows=3, cols=3,
                             )
                         else:
                             panels = await extract_grid_pil(grid_url, video_id, scene_num, beat_num, panel_offset)
