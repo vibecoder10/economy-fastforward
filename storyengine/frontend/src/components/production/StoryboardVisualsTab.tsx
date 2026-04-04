@@ -277,6 +277,7 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
   );
   const storyboardPromptScenes = scenes.filter((s) => s.hasStoryboardPrompt).length;
   const storyboardReadyScenes = scenes.filter((s) => !!s.storyboardStatus).length;
+  const storyboardGridsDone = scenes.length > 0 && scenes.every((s) => s.storyboardGridCount >= (s.storyboardBeatCount || 1));
   const storyboardScenesWithData = scenes.filter((s) => s.hasStoryboardData).length;
   const pendingSegments = totalSegments - doneSegments;
   const missingPromptSegments = totalSegments - promptReadySegments;
@@ -686,12 +687,19 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
             </span>
           </div>
           <div className="flex items-center gap-0">
-            {[
-              { label: "Image Prompts", done: promptReadySegments >= totalSegments && totalSegments > 0, count: `${promptReadySegments}/${totalSegments}` },
-              { label: "Storyboard Prompts", done: storyboardPromptScenes >= scenes.length && scenes.length > 0, count: `${storyboardPromptScenes}/${scenes.length}` },
-              { label: "Storyboard Grids", done: storyboardReadyScenes >= scenes.length && scenes.length > 0, count: `${storyboardReadyScenes}/${scenes.length}` },
-              { label: "Extract Panels", done: video.status === "ready_for_video_scripts" || video.status === "ready_for_video_generation" || video.status === "ready_for_thumbnail" || video.status === "ready_to_render" || video.status === "rendered" || video.status === "uploaded_draft" || video.status === "done", count: "" },
-            ].map((step, i, arr) => {
+            {(() => {
+              // Derive step completion from downstream state — if grids exist, prompts must be done
+              const sbPromptsDone = storyboardPromptScenes >= scenes.length && scenes.length > 0;
+              const sbGridsComplete = storyboardGridsDone;
+              const extractionDone = doneSegments > 0 && scenes.some(s => s.segments.some(seg => seg.imageUrl));
+              const promptsDone = (promptReadySegments >= totalSegments && totalSegments > 0) || sbPromptsDone;
+              return [
+                { label: "Image Prompts", done: promptsDone, count: `${promptReadySegments}/${totalSegments}` },
+                { label: "Storyboard Prompts", done: sbPromptsDone, count: `${storyboardPromptScenes}/${scenes.length}` },
+                { label: "Storyboard Grids", done: sbGridsComplete, count: `${storyboardReadyScenes}/${scenes.length}` },
+                { label: "Extract Panels", done: extractionDone, count: "" },
+            ];
+            })().map((step, i, arr) => {
               const isNext = !step.done && (i === 0 || arr[i - 1].done);
               return (
                 <div key={step.label} className="flex items-center gap-0 flex-1">
@@ -722,9 +730,11 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
           </div>
           {/* Next action CTA */}
           {(() => {
-            const promptsDone = promptReadySegments >= totalSegments && totalSegments > 0;
+            // Derive from storyboard state — if grids exist, earlier steps are done
             const sbPromptsDone = storyboardPromptScenes >= scenes.length && scenes.length > 0;
-            const sbGridsDone = storyboardReadyScenes >= scenes.length && scenes.length > 0;
+            const sbGridsAllDone = storyboardGridsDone;
+            const promptsDone = (promptReadySegments >= totalSegments && totalSegments > 0) || sbPromptsDone;
+            const extractionDone = doneSegments > 0 && scenes.some(s => s.segments.some(seg => seg.imageUrl));
 
             if (!promptsDone) return (
               <button
@@ -748,7 +758,7 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
                 Step 2: Generate Storyboard Prompts
               </button>
             );
-            if (!sbGridsDone) return (
+            if (!sbGridsAllDone) return (
               <button
                 onClick={handleGenerateAllImages}
                 disabled={generatingAll || taskRunning}
@@ -759,8 +769,6 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
                 Step 3: Generate Storyboard Grids
               </button>
             );
-            // Check if extraction is already done (video has advanced past storyboard extraction)
-            const extractionDone = video.status === "ready_for_video_scripts" || video.status === "ready_for_video_generation" || video.status === "ready_for_thumbnail" || video.status === "ready_to_render" || video.status === "rendered" || video.status === "uploaded_draft" || video.status === "done";
             if (extractionDone) return (
               <p className="mt-3 text-[10px] text-center" style={{ color: "var(--green)" }}>
                 ✓ All storyboard steps complete — panels extracted
