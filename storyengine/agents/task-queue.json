@@ -180,6 +180,32 @@
           "verified_by": "orchestrator",
           "completed_at": "2026-04-04T01:56:20Z",
           "verification_notes": "NOT A BUG. All 3 analytics endpoints return HTTP 200 with data. Routes registered in main.py, analytics.py. Errors were from stale server or unauthenticated request (SEC-1 invalidated old dev tokens \u2014 users should re-login)."
+        },
+        {
+          "id": "BUG-USER-0404B-THUMB",
+          "title": "BUG-USER: API error 400 on POST /api/pipeline/thumbnail \u2014 video at ready_for_storyboard_extraction",
+          "role": "qa",
+          "status": "done",
+          "priority": "critical",
+          "description": "User hit 400 on thumbnail generation for video f9749bd2. Video status is ready_for_storyboard_extraction \u2014 must complete storyboard extraction, images before thumbnail. Backend correctly returns 400. ThumbnailTab gates with isReadyForThumbnail check.",
+          "verified": true,
+          "verified_at": "2026-04-04T02:00:00Z",
+          "verified_by": "orchestrator",
+          "completed_at": "2026-04-04T02:00:00Z",
+          "verification_notes": "NOT A BUG. curl confirms video status=ready_for_storyboard_extraction. Must complete storyboard extraction and image generation first. Recurring error \u2014 same root cause as BUG-USER-0404-THUMB. Backend correctly returns 400."
+        },
+        {
+          "id": "BUG-USER-0404B-PROFILE-ANALYTICS",
+          "title": "BUG-USER: 404 on /api/profile and /api/analytics/* (4 endpoints) \u2014 recurring auth/session issue",
+          "role": "qa",
+          "status": "done",
+          "priority": "critical",
+          "description": "User reports 404 on profile and all analytics endpoints. Live test: all return 200 with valid JWT. Same pattern as BUG-USER-0404-PROFILE and BUG-USER-0404-ANALYTICS. Stale browser session (SEC-1 invalidated old dev-tokens).",
+          "verified": true,
+          "verified_at": "2026-04-04T02:00:00Z",
+          "verified_by": "orchestrator",
+          "completed_at": "2026-04-04T02:00:00Z",
+          "verification_notes": "NOT A BUG. All 4 endpoints return HTTP 200: GET /api/profile, /api/analytics/overview, /api/analytics/framework-performance, /api/analytics/ctr-timeline all confirmed working. User needs to clear localStorage and re-login at /login."
         }
       ]
     },
