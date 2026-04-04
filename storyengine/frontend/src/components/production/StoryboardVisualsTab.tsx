@@ -5,7 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import {
   Play, Pause, Check, Loader2, Pencil, Image as ImageIcon, RefreshCw, Trash2, AlertTriangle,
-  Lock, ArrowLeft, ToggleLeft, ToggleRight, Layers, Scissors, X,
+  Lock, ArrowLeft, ToggleLeft, ToggleRight, Layers, Scissors, X, ChevronRight,
 } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { SegmentBadge } from "@/components/ui/SegmentBadge";
@@ -20,7 +20,7 @@ import {
   getVideoScript, getVideoAssets, updateStoryboardMode, clearSceneStoryboard, clearAllStoryboards,
   clearAllExtractedPanels, clearExtractedPanel, uploadStoryboardGrid,
   runPipelineStage, updateSceneSegments, runImageForSegment, runImageVariants, clearStaleTask, updateVideoStyles,
-  getAudioToken,
+  getAudioToken, advanceVideo,
 } from "@/lib/api";
 import { useTaskPoller } from "@/hooks/use-task-poller";
 import type { VideoDetail, ScriptScene as ApiScriptScene, Asset } from "@/lib/api";
@@ -291,7 +291,7 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
     (sum, s) => sum + s.segments.filter((seg) => seg.imageUrl?.includes("_hd")).length,
     0,
   );
-  const needsUpscale = extractedSegments > 0 && upscaledSegments < extractedSegments;
+  const needsUpscale = extractedSegments > 0 && (extractedSegments - upscaledSegments) > 2;
   const pendingSegments = totalSegments - doneSegments;
   const missingPromptSegments = totalSegments - promptReadySegments;
   const hasStoryBible = !!(video.story_bible && video.story_bible.trim().length > 0);
@@ -555,6 +555,21 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
     }
   }, [video.id]);
 
+  const [advancing, setAdvancing] = useState(false);
+  const handleAdvanceStage = useCallback(async () => {
+    setAdvancing(true);
+    try {
+      await advanceVideo(video.id);
+      queryClient.invalidateQueries({ queryKey: ["video", video.id] });
+      queryClient.invalidateQueries({ queryKey: ["video-script", video.id] });
+      queryClient.invalidateQueries({ queryKey: ["video-assets", video.id] });
+    } catch (err) {
+      alert(`Failed to advance: ${(err as Error).message}`);
+    } finally {
+      setAdvancing(false);
+    }
+  }, [video.id, queryClient]);
+
   const handleGenerateScenePrompts = useCallback(async (sceneNumber: number) => {
     setGeneratingScene(sceneNumber);
     try {
@@ -703,6 +718,75 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
         onToggle={handleToggleStoryboard}
       />
 
+      {/* Top action bar — always visible, never buried */}
+      {storyboardMode && scenes.length > 0 && (
+        <div
+          className="rounded-xl px-4 py-3"
+          style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)" }}
+        >
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div className="flex items-center gap-4 text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>
+              <span>Prompts <strong style={{ color: promptReadySegments >= totalSegments ? "var(--green)" : "var(--text-secondary)" }}>{promptReadySegments}/{totalSegments}</strong></span>
+              <span>Grids <strong style={{ color: storyboardGridsDone ? "var(--green)" : "var(--text-secondary)" }}>{storyboardReadyScenes}/{scenes.length}</strong></span>
+              <span>Extracted <strong style={{ color: extractedSegments >= totalSegments ? "var(--green)" : "var(--text-secondary)" }}>{extractedSegments}/{totalSegments}</strong></span>
+              {upscaledSegments > 0 && (
+                <span>Upscaled <strong style={{ color: "var(--text-secondary)" }}>{upscaledSegments}/{extractedSegments}</strong></span>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              {(() => {
+                const sbPromptsDone = storyboardPromptScenes >= scenes.length && scenes.length > 0;
+                const sbGridsAllDone = storyboardGridsDone;
+                const promptsDone = (promptReadySegments >= totalSegments && totalSegments > 0) || sbPromptsDone;
+                const extractionDone = totalSegments > 0 && extractedSegments >= totalSegments;
+                if (!promptsDone) return (
+                  <button onClick={handleGenerateAllPrompts} disabled={generatingPrompts || taskRunning}
+                    className="px-3 py-1.5 rounded-lg text-[10px] font-semibold disabled:opacity-50"
+                    style={{ background: "var(--purple)", color: "var(--bg-void)" }}>
+                    {(generatingPrompts || taskRunning) ? <Loader2 size={12} className="animate-spin inline mr-1" /> : null}
+                    Generate Prompts
+                  </button>
+                );
+                if (!sbGridsAllDone) return (
+                  <button onClick={handleGenerateAllImages} disabled={generatingAll || taskRunning}
+                    className="px-3 py-1.5 rounded-lg text-[10px] font-semibold disabled:opacity-50"
+                    style={{ background: "var(--purple)", color: "var(--bg-void)" }}>
+                    {(generatingAll || taskRunning) ? <Loader2 size={12} className="animate-spin inline mr-1" /> : null}
+                    Generate Grids
+                  </button>
+                );
+                if (!extractionDone) return (
+                  <button onClick={handleExtractPanels} disabled={extracting || taskRunning}
+                    className="px-3 py-1.5 rounded-lg text-[10px] font-semibold disabled:opacity-50"
+                    style={{ background: "var(--green)", color: "var(--bg-void)" }}>
+                    {(extracting || taskRunning) ? <Loader2 size={12} className="animate-spin inline mr-1" /> : null}
+                    Extract Panels
+                  </button>
+                );
+                if (needsUpscale) return (
+                  <button onClick={handleUpscalePanels} disabled={extracting || taskRunning}
+                    className="px-3 py-1.5 rounded-lg text-[10px] font-semibold disabled:opacity-50"
+                    style={{ background: "var(--amber, #D4A844)", color: "var(--bg-void)" }}>
+                    {(extracting || taskRunning) ? <Loader2 size={12} className="animate-spin inline mr-1" /> : null}
+                    Upscale ({upscaledSegments}/{extractedSegments})
+                  </button>
+                );
+                return null;
+              })()}
+              <button
+                onClick={handleAdvanceStage}
+                disabled={advancing}
+                className="px-3 py-1.5 rounded-lg text-[10px] font-semibold inline-flex items-center gap-1 disabled:opacity-50 transition-all hover:brightness-110"
+                style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}
+              >
+                {advancing ? <Loader2 size={12} className="animate-spin" /> : null}
+                Advance Stage <ChevronRight size={12} />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Storyboard pipeline steps */}
       {storyboardMode && (
         <div
@@ -808,15 +892,36 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
                   {(extracting || taskRunning) ? <Loader2 size={14} className="animate-spin" /> : <Scissors size={14} />}
                   Upscale &amp; Remove KF Labels ({upscaledSegments}/{extractedSegments})
                 </button>
+                <button
+                  onClick={handleAdvanceStage}
+                  disabled={advancing}
+                  className="w-full inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-xs font-medium transition-all disabled:opacity-50"
+                  style={{ background: "rgba(255,255,255,0.06)", color: "var(--text-secondary)", border: "1px solid rgba(255,255,255,0.1)" }}
+                >
+                  {advancing ? <Loader2 size={14} className="animate-spin" /> : <ChevronRight size={14} />}
+                  Skip Upscale — Advance Stage
+                </button>
                 {extractError && (
                   <p className="text-[10px] text-center" style={{ color: "var(--orange)" }}>{extractError}</p>
                 )}
               </div>
             );
             if (extractionDone) return (
-              <p className="mt-3 text-[10px] text-center" style={{ color: "var(--green)" }}>
-                ✓ All storyboard steps complete — panels extracted &amp; upscaled
-              </p>
+              <div className="mt-3 text-center space-y-2">
+                <p className="text-[10px]" style={{ color: "var(--green)" }}>
+                  ✓ Panels extracted{upscaledSegments > 0 ? ` &amp; ${upscaledSegments} upscaled` : ""}
+                  {upscaledSegments < extractedSegments && upscaledSegments > 0 ? ` (${extractedSegments - upscaledSegments} skipped)` : ""}
+                </p>
+                <button
+                  onClick={handleAdvanceStage}
+                  disabled={advancing}
+                  className="w-full inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-xs font-semibold transition-all disabled:opacity-50"
+                  style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}
+                >
+                  {advancing ? <Loader2 size={14} className="animate-spin" /> : <ChevronRight size={14} />}
+                  Advance Stage
+                </button>
+              </div>
             );
             return (
               <div className="mt-3 space-y-2">

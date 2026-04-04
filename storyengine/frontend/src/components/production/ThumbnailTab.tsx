@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useRef } from "react";
-import { Check, RefreshCw, Loader2, ChevronDown, ChevronUp, Sparkles, X, ImageIcon, Save } from "lucide-react";
+import { Check, RefreshCw, Loader2, ChevronDown, ChevronUp, ChevronRight, Sparkles, X, ImageIcon, Save } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { ActionButton } from "@/components/ui/ActionButton";
 import { useQueryClient } from "@tanstack/react-query";
@@ -99,6 +99,19 @@ export function ThumbnailTab({ video }: ThumbnailTabProps) {
     }
   }, [video.id]);
 
+  const [advancing, setAdvancing] = useState(false);
+  const handleAdvanceStage = useCallback(async () => {
+    setAdvancing(true);
+    try {
+      await advanceVideo(video.id);
+      queryClient.invalidateQueries({ queryKey: ["video", video.id] });
+    } catch (err) {
+      alert(`Failed to advance: ${(err as Error).message}`);
+    } finally {
+      setAdvancing(false);
+    }
+  }, [video.id, queryClient]);
+
   const handleRegenerate = useCallback(async () => {
     if (!isReadyForThumbnail) return;
     setIsRegenerating(true);
@@ -170,6 +183,20 @@ export function ThumbnailTab({ video }: ThumbnailTabProps) {
   const thumbnailUrl = video.thumbnail_url || vid.thumbnailUrl;
 
   return (
+    <>
+    <div className="rounded-xl px-4 py-3 mb-4" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)" }}>
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-4 text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>
+          <span>{thumbnailUrl ? "Thumbnail generated" : "No thumbnail yet"}</span>
+        </div>
+        <button onClick={handleAdvanceStage} disabled={advancing}
+          className="px-3 py-1.5 rounded-lg text-[10px] font-semibold inline-flex items-center gap-1 disabled:opacity-50 transition-all hover:brightness-110"
+          style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}>
+          {advancing ? <Loader2 size={12} className="animate-spin" /> : null}
+          Advance Stage <ChevronRight size={12} />
+        </button>
+      </div>
+    </div>
     <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-6">
       {/* Main content */}
       <div className="space-y-4">
@@ -454,5 +481,6 @@ export function ThumbnailTab({ video }: ThumbnailTabProps) {
         )}
       </div>
     </div>
+    </>
   );
 }

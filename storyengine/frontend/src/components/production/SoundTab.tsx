@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo, useCallback } from "react";
-import { Play, Pause, Volume2, Zap, SkipForward, Loader2 } from "lucide-react";
+import { Play, Pause, Volume2, Zap, SkipForward, Loader2, ChevronRight } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { SegmentBadge } from "@/components/ui/SegmentBadge";
@@ -120,6 +120,19 @@ export function SoundTab({ video }: SoundTabProps) {
     }
   }, [video.id]);
 
+  const [advancing, setAdvancing] = useState(false);
+  const handleAdvanceStage = useCallback(async () => {
+    setAdvancing(true);
+    try {
+      await advanceVideo(video.id);
+      queryClient.invalidateQueries({ queryKey: ["video", video.id] });
+    } catch (err) {
+      alert(`Failed to advance: ${(err as Error).message}`);
+    } finally {
+      setAdvancing(false);
+    }
+  }, [video.id, queryClient]);
+
   const handleApproveAndContinue = useCallback(async () => {
     try {
       await advanceVideo(video.id);
@@ -163,6 +176,21 @@ export function SoundTab({ video }: SoundTabProps) {
   const hasAnyPrompts = scenes.some((s) => s.sfxStatus !== "skipped" && s.soundPrompt !== "No prompt");
 
   return (
+    <>
+    <div className="rounded-xl px-4 py-3 mb-4" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)" }}>
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-4 text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>
+          <span>{generatedCount}/{scenes.length} prompts</span>
+          <span>{scenes.filter((s) => s.sfxStatus === "generated").length} effects</span>
+        </div>
+        <button onClick={handleAdvanceStage} disabled={advancing}
+          className="px-3 py-1.5 rounded-lg text-[10px] font-semibold inline-flex items-center gap-1 disabled:opacity-50 transition-all hover:brightness-110"
+          style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}>
+          {advancing ? <Loader2 size={12} className="animate-spin" /> : null}
+          Advance Stage <ChevronRight size={12} />
+        </button>
+      </div>
+    </div>
     <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-6">
       {/* Scene list */}
       <div className="space-y-3">
@@ -359,5 +387,6 @@ export function SoundTab({ video }: SoundTabProps) {
         </div>
       </div>
     </div>
+    </>
   );
 }

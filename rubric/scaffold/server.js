@@ -1257,23 +1257,49 @@ RULES:
   }
 
   // POST /api/spawn-agent — run an agent immediately (no cron wait)
+  // Pass force:true to bypass the kill switch (used by Telegram bot for one-shot runs)
+  // Pass one_shot:true to auto-disable team after the agent finishes
   if (pathname === '/api/spawn-agent' && req.method === 'POST') {
     const body = JSON.parse(await readBody(req));
-    const { role, system } = body; // system: 'team' | 'storyengine'
+    const { role, system, force, one_shot } = body;
     if (!role) { sendJSON(res, { error: 'role required' }, 400); return; }
-    // Respect kill switch — don't spawn if team is OFF
-    try {
-      const controls = JSON.parse(readFileSync(join(DATA_DIR, 'controls.json'), 'utf8'));
-      if (controls.team_enabled === false) {
-        sendJSON(res, { success: false, message: `Team is OFF — ${role} not spawned` });
-        return;
-      }
-    } catch {}
+    // Respect kill switch — unless force:true (Telegram operator override)
+    if (!force) {
+      try {
+        const controls = JSON.parse(readFileSync(join(DATA_DIR, 'controls.json'), 'utf8'));
+        if (controls.team_enabled === false) {
+          sendJSON(res, { success: false, message: `Team is OFF — ${role} not spawned. Use force:true to override.` });
+          return;
+        }
+      } catch {}
+    }
+    // If force-spawning while team is off, temporarily enable for this run
+    const controlsPath = join(DATA_DIR, 'controls.json');
+    let wasOff = false;
+    if (force) {
+      try {
+        const controls = JSON.parse(readFileSync(controlsPath, 'utf8'));
+        wasOff = controls.team_enabled === false;
+        if (wasOff) {
+          controls.team_enabled = true;
+          writeFileSync(controlsPath, JSON.stringify(controls, null, 2));
+        }
+      } catch {}
+    }
     const projectRoot = path.resolve(__dirname, '../../');
-    // Unified: always use run-agent.sh — it auto-detects PRD tasks
     exec(`cd "${projectRoot}/storyengine/agents" && CLAUDE_BIN="${CLAUDE_BIN}" bash run-agent.sh "${role}" > /tmp/prd-${role}.log 2>&1`,
-      (err) => { if (err) console.error(`Agent ${role} failed:`, err.message); });
-    sendJSON(res, { success: true, message: `Spawned ${role} (${system || 'storyengine'})` });
+      (err) => {
+        if (err) console.error(`Agent ${role} failed:`, err.message);
+        // One-shot mode: re-disable team after agent finishes
+        if (one_shot || (force && wasOff)) {
+          try {
+            const controls = JSON.parse(readFileSync(controlsPath, 'utf8'));
+            controls.team_enabled = false;
+            writeFileSync(controlsPath, JSON.stringify(controls, null, 2));
+          } catch {}
+        }
+      });
+    sendJSON(res, { success: true, message: `Spawned ${role}${force ? ' (forced)' : ''}${one_shot || (force && wasOff) ? ' — will auto-disable team when done' : ''}` });
     return;
   }
 
