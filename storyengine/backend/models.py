@@ -96,6 +96,8 @@ class VideoDetail(VideoSummary):
     suggestion_source: Optional[str] = None
     suggestion_scores: Optional[dict] = None
     suggestion_status: Optional[str] = None
+    # Editable system prompts
+    video_motion_system_prompt: Optional[str] = None
 
 
 class VideoAdvance(BaseModel):

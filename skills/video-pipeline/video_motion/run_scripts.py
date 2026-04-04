@@ -78,6 +78,7 @@ async def run(pipeline) -> dict:
             scene_type=shot_type,
             is_hero_shot=is_hero,
             prev_cameras=camera_history,
+            system_prompt_override=getattr(pipeline, "video_motion_system_prompt", None),
         )
 
         # Validate video prompt quality — regenerate if it fails

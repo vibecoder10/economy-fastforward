@@ -13,6 +13,7 @@ from models import (
 )
 from database import fetch_all, fetch_one, execute, safe_column
 from status_map import get_next_status_supabase
+from prompt_defaults import VIDEO_MOTION_SYSTEM_PROMPT
 from typing import Optional, Any
 
 
@@ -209,6 +210,7 @@ async def get_video(video_id: str, tenant_id: str = Depends(get_tenant_id)):
                   suggested_thumbnail_prompt, suggested_thumbnail_urls,
                   suggested_script, suggested_title, suggestion_source,
                   suggestion_scores, suggestion_status,
+                  video_motion_system_prompt,
                   created_at::text, updated_at::text
            FROM videos WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL""",
         video_id, tenant_id,
@@ -281,6 +283,7 @@ async def get_video(video_id: str, tenant_id: str = Depends(get_tenant_id)):
         suggestion_source=r.get("suggestion_source"),
         suggestion_scores=_parse_json_field(r.get("suggestion_scores")),
         suggestion_status=r.get("suggestion_status"),
+        video_motion_system_prompt=r.get("video_motion_system_prompt"),
         created_at=r.get("created_at"),
         updated_at=r.get("updated_at"),
     )
@@ -296,7 +299,7 @@ async def update_video(video_id: str, body: dict, tenant_id: str = Depends(get_t
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
 
-    allowed_fields = {"revision_notes", "video_title", "headline", "thumbnail_prompt", "thumbnail_style_override"}
+    allowed_fields = {"revision_notes", "video_title", "headline", "thumbnail_prompt", "thumbnail_style_override", "video_motion_system_prompt"}
     updates = []
     params = []
     idx = 1
@@ -935,3 +938,9 @@ async def upload_storyboard_grid(
         )
 
     return {"status": "uploaded", "url": perm_url, "scene": scene, "beat": beat, "all_grids_complete": all_present}
+
+
+@router.get("/defaults/video-motion-prompt")
+async def get_default_video_motion_prompt():
+    """Return the default video motion system prompt template."""
+    return {"prompt": VIDEO_MOTION_SYSTEM_PROMPT}

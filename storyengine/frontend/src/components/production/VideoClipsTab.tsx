@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { Check, Loader2, Play, AlertTriangle, Sparkles, Film, ChevronRight } from "lucide-react";
+import { Check, Loader2, Play, AlertTriangle, Sparkles, Film, ChevronRight, ChevronDown, Save, RotateCcw } from "lucide-react";
 import { motion } from "framer-motion";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { GlassCard } from "@/components/ui/GlassCard";
@@ -10,7 +10,7 @@ import { SegmentBadge } from "@/components/ui/SegmentBadge";
 import { ProgressRing } from "@/components/ui/ProgressRing";
 import { FilterSelect } from "@/components/ui/FilterSelect";
 import { ActionButton } from "@/components/ui/ActionButton";
-import { getVideoAssets, runPipelineStage, clearStaleTask, updateVideoStyles, advanceVideo } from "@/lib/api";
+import { getVideoAssets, runPipelineStage, clearStaleTask, updateVideoStyles, advanceVideo, getDefaultVideoMotionPrompt, updateVideo } from "@/lib/api";
 import { useTaskPoller } from "@/hooks/use-task-poller";
 import type { VideoDetail, Asset } from "@/lib/api";
 
@@ -41,6 +41,10 @@ export function VideoClipsTab({ video, onAdvanced }: VideoClipsTabProps) {
   const [taskRunning, setTaskRunning] = useState(false);
   const [taskStage, setTaskStage] = useState<"prompts" | "clips">("prompts");
   const [advancing, setAdvancing] = useState(false);
+  const [promptExpanded, setPromptExpanded] = useState(false);
+  const [promptText, setPromptText] = useState(video.video_motion_system_prompt || "");
+  const [promptLoaded, setPromptLoaded] = useState(!!video.video_motion_system_prompt);
+  const [savingPrompt, setSavingPrompt] = useState(false);
 
   const { message: taskMessage } = useTaskPoller({
     videoId: video.id,
@@ -255,6 +259,93 @@ export function VideoClipsTab({ video, onAdvanced }: VideoClipsTabProps) {
             Advance Stage <ChevronRight size={12} />
           </button>
         </div>
+      </div>
+
+      {/* Collapsible Video Motion Prompt Editor */}
+      <div
+        className="rounded-xl overflow-hidden"
+        style={{ border: "1px solid rgba(255,255,255,0.08)" }}
+      >
+        <button
+          onClick={async () => {
+            if (!promptExpanded && !promptLoaded && !video.video_motion_system_prompt) {
+              try {
+                const res = await getDefaultVideoMotionPrompt();
+                setPromptText(res.prompt);
+                setPromptLoaded(true);
+              } catch { /* keep empty */ }
+            }
+            setPromptExpanded(!promptExpanded);
+          }}
+          className="w-full flex items-center justify-between px-4 py-3 text-xs font-semibold transition-all hover:brightness-110"
+          style={{ background: "rgba(255,255,255,0.03)", color: "var(--text-secondary)" }}
+        >
+          <span className="flex items-center gap-2">
+            <ChevronDown size={14} className={`transition-transform ${promptExpanded ? "" : "-rotate-90"}`} />
+            Video Motion System Prompt
+          </span>
+          <span className="text-[10px] font-mono" style={{ color: video.video_motion_system_prompt ? "var(--green)" : "var(--text-tertiary)" }}>
+            {video.video_motion_system_prompt ? "Custom" : "Default"}
+          </span>
+        </button>
+        {promptExpanded && (
+          <div className="px-4 pb-4 pt-2" style={{ background: "rgba(0,0,0,0.2)" }}>
+            <textarea
+              value={promptText}
+              onChange={(e) => setPromptText(e.target.value)}
+              className="w-full rounded-lg p-3 text-[11px] font-mono leading-relaxed resize-y"
+              style={{
+                background: "rgba(0,0,0,0.3)",
+                color: "var(--text-primary)",
+                border: "1px solid rgba(255,255,255,0.08)",
+                minHeight: "200px",
+                maxHeight: "500px",
+              }}
+              rows={12}
+            />
+            <div className="flex items-center gap-2 mt-2">
+              <button
+                onClick={async () => {
+                  setSavingPrompt(true);
+                  try {
+                    await updateVideo(video.id, { video_motion_system_prompt: promptText || null });
+                    queryClient.invalidateQueries({ queryKey: ["video", video.id] });
+                  } catch (err) {
+                    alert(`Save failed: ${(err as Error).message}`);
+                  } finally {
+                    setSavingPrompt(false);
+                  }
+                }}
+                disabled={savingPrompt}
+                className="px-3 py-1.5 rounded-lg text-[10px] font-semibold inline-flex items-center gap-1 disabled:opacity-50 transition-all hover:brightness-110"
+                style={{ background: "var(--green)", color: "var(--bg-void)" }}
+              >
+                {savingPrompt ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
+                Save to Video
+              </button>
+              <button
+                onClick={async () => {
+                  try {
+                    const res = await getDefaultVideoMotionPrompt();
+                    setPromptText(res.prompt);
+                    await updateVideo(video.id, { video_motion_system_prompt: null });
+                    queryClient.invalidateQueries({ queryKey: ["video", video.id] });
+                  } catch (err) {
+                    alert(`Reset failed: ${(err as Error).message}`);
+                  }
+                }}
+                className="px-3 py-1.5 rounded-lg text-[10px] font-semibold inline-flex items-center gap-1 transition-all hover:brightness-110"
+                style={{ color: "var(--text-tertiary)", border: "1px solid rgba(255,255,255,0.1)" }}
+              >
+                <RotateCcw size={12} />
+                Reset to Default
+              </button>
+              <span className="text-[9px] font-mono ml-2" style={{ color: "var(--text-tertiary)" }}>
+                {promptText.length} chars
+              </span>
+            </div>
+          </div>
+        )}
       </div>
 
     <div className="grid grid-cols-1 gap-6">

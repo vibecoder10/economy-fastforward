@@ -117,6 +117,9 @@ export const getVideos = (status?: string) =>
 
 export const getVideo = (id: string) => fetchApi<VideoDetail>(`/api/videos/${id}`);
 
+export const getDefaultVideoMotionPrompt = () =>
+  fetchApi<{ prompt: string }>("/api/videos/defaults/video-motion-prompt");
+
 export const createVideo = (data: {
   title: string;
   source_url?: string;
@@ -821,6 +824,8 @@ export interface VideoDetail extends VideoSummary {
   suggested_title: string | null;
   suggested_thumbnail_prompt: string | null;
   suggested_thumbnail_urls: { url: string; approach: string }[] | null;
+  // Editable system prompts
+  video_motion_system_prompt: string | null;
   suggestion_source: string | null;
   suggestion_scores: { hook?: number; body?: number; reasoning?: string } | null;
   suggestion_status: string | null;

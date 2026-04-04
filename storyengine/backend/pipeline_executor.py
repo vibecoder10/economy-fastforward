@@ -1795,6 +1795,9 @@ class PipelineExecutor:
 
             self._load_idea_from_video(video_id)
 
+            # Pass video motion system prompt override if set
+            self._pipeline.video_motion_system_prompt = video.get("video_motion_system_prompt")
+
             result = await self._pipeline.run_video_script_bot()
 
             if result.get("error"):
