@@ -2953,7 +2953,10 @@
           "files": [
             "frontend/src/lib/api.ts"
           ],
-          "verified": false
+          "verified": true,
+          "verified_at": "2026-04-04T12:04:00Z",
+          "verified_by": "qa-engineer",
+          "verification_notes": "PASS. Commit e3daf97: (1) reportError() now gated behind storedToken && storedToken !== 'dev-token' — unauthenticated sessions using fallback dev-token no longer report to RUBRIC. (2) 401 responses redirect to /login BEFORE reportError call (throw interrupts flow). (3) /api/auth/ paths excluded from redirect to prevent login loop. (4) Non-auth errors still reported for real users with valid tokens. (5) Diff clean: 2 files (api.ts +6 lines, task-queue.json), no bloat. (6) tsc --noEmit: 0 errors. This eliminates the recurring false-alarm pattern that was filed 10+ sessions in a row."
         }
       ]
     },
