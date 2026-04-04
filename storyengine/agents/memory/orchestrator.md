@@ -12,4 +12,5 @@
 - Phase 1 (Tabs 1-17) + Phase 2 (Tabs 18-22) + Phase 3 (Tabs 23) all complete as of 2026-04-03. Tab 24 = Onboarding Wizard (redirect new users, 3-step channel+key+done flow). After 24: multi-channel.
 - SEC-1 (dev-token fix) invalidates all existing sessions — users see analytics/profile 404s that are really 401s. Root fix: user clears localStorage and re-logins at /login. Not a code bug.
 - Tab 27 extraction pipeline complete: T27-001 to T27-007 all done (84 panels extracted, in Supabase). T27-004 (grid migration) superseded by T27-005 success. T27-008 (permanent storage for all image gen) is the only remaining task.
-- Thumbnail 400 + profile/analytics 404 have now recurred 13 consecutive sessions — NOT code bugs. BUG-UX-AUTH-STALE deployed. User must clear localStorage + re-login. Stop filing these as bugs.
+- Thumbnail 400 + profile/analytics 404 have now recurred 14 consecutive sessions — NOT code bugs. BUG-UX-AUTH-STALE deployed. User must clear localStorage + re-login. Stop filing these as bugs.
+- Launch Score stuck at 6/8: last 2 criteria (Stripe billing live, Google OAuth live) require STRIPE_SECRET_KEY + GOOGLE_CLIENT_ID env vars configured in production — not code changes.
