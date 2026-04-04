@@ -393,27 +393,28 @@ export default function VideoDetailPage() {
 
       {/* Progress stepper + pipeline controls */}
       <motion.div variants={item}>
-        <div className="flex items-center justify-between gap-4">
+        <div className="flex items-center justify-between gap-6">
           <ProgressStepper steps={6} currentStep={Math.min(currentStep, 6)} completedSteps={completedSteps} labels={STEP_LABELS} />
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-3 shrink-0">
+            <StatusPill label={pill.label} color={pill.color} pulse size="md" />
             <button
               onClick={handleRunNext}
               disabled={runningNext || taskRunning}
-              className="px-3 py-1.5 rounded-lg text-[10px] font-semibold transition-all hover:brightness-110 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-4 py-2 rounded-lg text-xs font-semibold transition-all hover:brightness-110 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
               style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}
             >
-              {(runningNext || taskRunning) ? <Loader2 size={12} className="animate-spin inline mr-1" /> : null}
-              {taskRunning ? "Running..." : "Run Next Step"}
+              {(runningNext || taskRunning) ? <Loader2 size={14} className="animate-spin inline mr-1" /> : null}
+              {taskRunning ? (taskMessage || "Running...") : runningNext ? "Starting..." : "Run Next Step"}
             </button>
             <button
               onClick={handleSkipStage}
               disabled={skipping}
-              className="px-3 py-1.5 rounded-lg text-[10px] font-semibold transition-all hover:brightness-110 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
-              style={{ background: "rgba(255, 120, 73, 0.15)", color: "#FF8A65", border: "1px solid rgba(255,107,71,0.25)" }}
+              className="px-4 py-2 rounded-lg text-xs font-semibold transition-all hover:brightness-110 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
+              style={{ background: "rgba(255, 120, 73, 0.15)", color: "var(--orange)", border: "1px solid var(--orange)" }}
             >
+              {skipping ? <Loader2 size={14} className="animate-spin inline mr-1" /> : null}
               {skipping ? "Skipping..." : "Skip Stage"}
             </button>
-            <StatusPill label={pill.label} color={pill.color} pulse size="sm" />
           </div>
         </div>
       </motion.div>
