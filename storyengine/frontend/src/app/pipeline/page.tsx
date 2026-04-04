@@ -1,18 +1,27 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Search, Film, Loader2, Plus, Clock, Eye, BarChart3,
-  RefreshCw, Sparkles, X, ChevronRight, ExternalLink, TrendingUp, Brain,
+  RefreshCw, Sparkles, X, ChevronRight, ExternalLink, TrendingUp, Brain, Trash2, GripVertical,
 } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  getVideos, createVideo,
+  DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  arrayMove, SortableContext, sortableKeyboardCoordinates,
+  horizontalListSortingStrategy, useSortable,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import {
+  getVideos, createVideo, deleteVideo,
   getDiscoveryIdeas, getDiscoveryStatus, refreshDiscoveryIdeas,
-  launchIdea, dismissIdea,
+  launchIdea, dismissIdea, getUserPreferences, setUserPreference,
   type VideoSummary, type DiscoveryIdea, type TitleOption,
 } from "@/lib/api";
 import { GlassCard } from "@/components/ui/GlassCard";
@@ -125,11 +134,59 @@ function timeAgo(dateStr: string | null | undefined): string {
 
 type TabId = "ideas" | "active" | "published";
 
+const DEFAULT_TAB_ORDER: TabId[] = ["ideas", "active", "published"];
+
+function SortableTab({
+  id, label, count, icon: Icon, isActive, onClick,
+}: {
+  id: string;
+  label: string;
+  count: number;
+  icon?: React.ComponentType<{ size?: number }>;
+  isActive: boolean;
+  onClick: () => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    color: isActive ? "var(--turquoise)" : "var(--text-tertiary)",
+    background: isActive ? "var(--turquoise-bg)" : "transparent",
+    borderBottom: isActive ? "2px solid var(--turquoise)" : "2px solid transparent",
+  };
+
+  return (
+    <button
+      ref={setNodeRef}
+      style={style}
+      {...attributes}
+      onClick={onClick}
+      className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium font-body transition-all rounded-t-lg"
+    >
+      <span {...listeners} className="cursor-grab active:cursor-grabbing touch-none">
+        <GripVertical size={12} style={{ opacity: 0.4 }} />
+      </span>
+      {Icon && <Icon size={14} />}
+      {label}
+      <span
+        className="text-[10px] font-mono px-1.5 py-0.5 rounded-full"
+        style={{
+          background: isActive ? "var(--turquoise-dim)" : "rgba(255,255,255,0.05)",
+          color: isActive ? "var(--turquoise)" : "var(--text-tertiary)",
+        }}
+      >
+        {count}
+      </span>
+    </button>
+  );
+}
+
 export default function VideosPage() {
   const queryClient = useQueryClient();
   const router = useRouter();
   const [search, setSearch] = useState("");
-  const [tab, setTab] = useState<TabId>("ideas");
+  const [tab, setTab] = useState<TabId>("active");
   const [statusFilter, setStatusFilter] = useState("");
 
   // Create modal state
@@ -141,6 +198,49 @@ export default function VideosPage() {
   const [newGuidance, setNewGuidance] = useState("");
   const [newVisualStyle, setNewVisualStyle] = useState("");
   const [newAccentColor, setNewAccentColor] = useState("");
+
+  // Tab order (drag-to-reorder with persistence)
+  const [tabOrder, setTabOrder] = useState<TabId[]>(DEFAULT_TAB_ORDER);
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  // Load saved tab order from preferences
+  const { data: prefs } = useQuery({
+    queryKey: ["user-preferences"],
+    queryFn: getUserPreferences,
+    staleTime: 60000,
+    retry: false,
+  });
+
+  useEffect(() => {
+    const savedPref = prefs?.pipeline_tab_order as { order?: TabId[] } | TabId[] | undefined;
+    const savedOrder = savedPref && typeof savedPref === "object" && !Array.isArray(savedPref) ? savedPref.order : Array.isArray(savedPref) ? savedPref : undefined;
+    if (savedOrder && Array.isArray(savedOrder)) {
+      const saved = savedOrder;
+      if (saved.length === DEFAULT_TAB_ORDER.length && saved.every((t) => DEFAULT_TAB_ORDER.includes(t))) {
+        setTabOrder(saved);
+      }
+    }
+  }, [prefs]);
+
+  const handleDragEnd = useCallback((event: DragEndEvent) => {
+    const { active, over } = event;
+    if (over && active.id !== over.id) {
+      setTabOrder((prev) => {
+        const oldIndex = prev.indexOf(active.id as TabId);
+        const newIndex = prev.indexOf(over.id as TabId);
+        const newOrder = arrayMove(prev, oldIndex, newIndex);
+        // Persist to backend (fire-and-forget)
+        setUserPreference("pipeline_tab_order", { order: newOrder }).catch(() => {});
+        return newOrder;
+      });
+    }
+  }, []);
+
+  // Delete confirmation
+  const [deleteTarget, setDeleteTarget] = useState<VideoSummary | null>(null);
 
   // Edit-before-launch modal
   const [editIdea, setEditIdea] = useState<DiscoveryIdea | null>(null);
@@ -216,6 +316,14 @@ export default function VideosPage() {
     },
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: deleteVideo,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["videos"] });
+      setDeleteTarget(null);
+    },
+  });
+
   const handleCreate = () => {
     if (!newTitle.trim()) return;
     createMutation.mutate({
@@ -243,14 +351,14 @@ export default function VideosPage() {
   return (
     <motion.div className="space-y-6" variants={container} initial="hidden" animate="show">
       {/* Header */}
-      <motion.div variants={item} className="flex items-center justify-between gap-4 flex-wrap">
-        <h1 className="text-4xl font-display" style={{ color: "var(--text-primary)" }}>
+      <motion.div variants={item} className="flex items-center justify-between gap-3 flex-wrap">
+        <h1 className="text-3xl sm:text-4xl font-display" style={{ color: "var(--text-primary)" }}>
           Videos
         </h1>
-        <div className="flex items-center gap-3 flex-1 justify-end">
+        <div className="flex items-center gap-2 sm:gap-3 flex-1 justify-end min-w-0">
           {/* Search (active/published tabs) */}
           {tab !== "ideas" && (
-            <div className="relative max-w-xs flex-1">
+            <div className="relative sm:max-w-xs flex-1 min-w-0">
               <Search
                 size={16}
                 className="absolute left-3 top-1/2 -translate-y-1/2"
@@ -319,36 +427,31 @@ export default function VideosPage() {
         </div>
       </motion.div>
 
-      {/* Tabs */}
-      <motion.div variants={item} className="flex gap-1" style={{ borderBottom: "1px solid var(--border-subtle)" }}>
-        {([
-          { id: "ideas" as const, label: "Daily Ideas", count: ideas?.length || 0, icon: Sparkles },
-          { id: "active" as const, label: "In Production", count: activeVideos.length },
-          { id: "published" as const, label: "Published", count: publishedVideos.length },
-        ]).map((t) => (
-          <button
-            key={t.id}
-            onClick={() => setTab(t.id)}
-            className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium font-body transition-all rounded-t-lg"
-            style={{
-              color: tab === t.id ? "var(--turquoise)" : "var(--text-tertiary)",
-              background: tab === t.id ? "var(--turquoise-bg)" : "transparent",
-              borderBottom: tab === t.id ? "2px solid var(--turquoise)" : "2px solid transparent",
-            }}
-          >
-            {t.icon && <t.icon size={14} />}
-            {t.label}
-            <span
-              className="text-[10px] font-mono px-1.5 py-0.5 rounded-full"
-              style={{
-                background: tab === t.id ? "var(--turquoise-dim)" : "rgba(255,255,255,0.05)",
-                color: tab === t.id ? "var(--turquoise)" : "var(--text-tertiary)",
-              }}
-            >
-              {t.count}
-            </span>
-          </button>
-        ))}
+      {/* Tabs — drag-to-reorder */}
+      <motion.div variants={item} className="flex gap-1 overflow-x-auto" style={{ borderBottom: "1px solid var(--border-subtle)" }}>
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+          <SortableContext items={tabOrder} strategy={horizontalListSortingStrategy}>
+            {tabOrder.map((tabId) => {
+              const tabConfig: Record<TabId, { label: string; count: number; icon?: React.ComponentType<{ size?: number }> }> = {
+                ideas: { label: "Daily Ideas", count: ideas?.length || 0, icon: Sparkles },
+                active: { label: "In Production", count: activeVideos.length },
+                published: { label: "Published", count: publishedVideos.length },
+              };
+              const t = tabConfig[tabId];
+              return (
+                <SortableTab
+                  key={tabId}
+                  id={tabId}
+                  label={t.label}
+                  count={t.count}
+                  icon={t.icon}
+                  isActive={tab === tabId}
+                  onClick={() => setTab(tabId)}
+                />
+              );
+            })}
+          </SortableContext>
+        </DndContext>
       </motion.div>
 
       {/* === DAILY IDEAS TAB === */}
@@ -475,7 +578,7 @@ export default function VideosPage() {
                 const isPublished = COMPLETED_STATUSES.has(status);
 
                 return (
-                  <motion.div key={video.id} variants={item}>
+                  <motion.div key={video.id} variants={item} className="group relative">
                     <Link href={`/pipeline/${video.id}`}>
                       <GlassCard hover className="p-0 overflow-hidden cursor-pointer">
                         {/* Thumbnail */}
@@ -562,6 +665,18 @@ export default function VideosPage() {
                         </div>
                       </GlassCard>
                     </Link>
+                    <button
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setDeleteTarget(video);
+                      }}
+                      className="absolute top-2 right-2 p-1.5 rounded-md opacity-0 group-hover:opacity-100 transition-all z-10"
+                      style={{ background: "rgba(0,0,0,0.7)", color: "var(--red, #ef4444)" }}
+                      title="Delete video"
+                    >
+                      <Trash2 size={14} />
+                    </button>
                   </motion.div>
                 );
               })}
@@ -569,6 +684,53 @@ export default function VideosPage() {
           )}
         </>
       )}
+
+      {/* === DELETE CONFIRMATION MODAL === */}
+      <Modal
+        open={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        title="Delete Video"
+        size="sm"
+      >
+        {deleteTarget && (
+          <div className="space-y-4">
+            <p className="text-sm font-body" style={{ color: "var(--text-secondary)" }}>
+              Are you sure you want to delete{" "}
+              <strong style={{ color: "var(--text-primary)" }}>
+                {deleteTarget.video_title || "Untitled"}
+              </strong>
+              ? This action can be undone by an admin.
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setDeleteTarget(null)}
+                className="flex-1 py-2.5 rounded-lg text-sm font-medium transition-all"
+                style={{
+                  background: "var(--bg-elevated)",
+                  color: "var(--text-secondary)",
+                  border: "1px solid var(--border)",
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => deleteMutation.mutate(deleteTarget.id)}
+                disabled={deleteMutation.isPending}
+                className="flex-1 py-2.5 rounded-lg text-sm font-semibold transition-all hover:brightness-110 disabled:opacity-50"
+                style={{ background: "var(--red, #ef4444)", color: "white" }}
+              >
+                {deleteMutation.isPending ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <Loader2 size={14} className="animate-spin" /> Deleting...
+                  </span>
+                ) : (
+                  "Delete"
+                )}
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
 
       {/* === NEW VIDEO MODAL === */}
       <Modal open={showCreateModal} onClose={() => setShowCreateModal(false)} title="New Video" size="md">

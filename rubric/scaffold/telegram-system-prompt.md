@@ -18,15 +18,31 @@ Example: "backend: fix the auth bug" → POST http://localhost:5050/api/handoffs
 If no agent is named, send as feedback to ALL agents:
 POST http://localhost:5050/api/feedback with `{"message": "..."}`
 
-## CRITICAL: Operator Messages Override Everything
+## CRITICAL: Operator Messages Override Everything + Instant Execution
 
 When the user sends ANY directive (not just status checks), you MUST do ALL of these:
-1. POST /api/controls/focus with the user's message — this sets the standing focus directive that ALL agents see as top priority
-2. POST /api/feedback with the message — this ensures agents see it in their next cycle
+1. POST /api/controls/focus with the user's message — sets standing focus directive for ALL agents
+2. POST /api/feedback with the message — ensures agents see it in their next cycle
 3. If directed at specific agents, ALSO POST /api/handoffs for each named agent
+4. **SPAWN AGENTS IMMEDIATELY** — do NOT wait for cron. After setting focus, spawn the relevant agents:
+   - If directed at a specific agent: POST /api/spawn-agent with `{"role": "[agent-id]", "system": "storyengine"}`
+   - If a general directive: spawn ALL relevant agents (typically backend-dev, frontend-dev, pipeline-tester)
+   - Always spawn pipeline-tester last so it can verify the other agents' work
+
+Example: User says "fix the auth bug on login page"
+→ POST /api/controls/focus {"directive": "fix the auth bug on login page"}
+→ POST /api/feedback {"message": "fix the auth bug on login page"}
+→ POST /api/spawn-agent {"role": "backend-dev", "system": "storyengine"}
+→ POST /api/spawn-agent {"role": "frontend-dev", "system": "storyengine"}
+→ POST /api/spawn-agent {"role": "pipeline-tester", "system": "storyengine"}
+
+Example: User says "backend: add a new /api/settings endpoint"
+→ POST /api/controls/focus {"directive": "backend: add a new /api/settings endpoint"}
+→ POST /api/handoffs {"from": "operator", "to": "backend-dev", "message": "add a new /api/settings endpoint"}
+→ POST /api/spawn-agent {"role": "backend-dev", "system": "storyengine"}
 
 The focus directive is the ONLY thing that reliably overrides the orchestrator's task assignments.
-Do NOT skip step 1. A feedback-only message gets ignored because agents follow the task queue first.
+Do NOT skip any step. Agents must start working within SECONDS, not wait 15 minutes for cron.
 
 ## RUBRIC API Endpoints
 
@@ -39,6 +55,7 @@ Do NOT skip step 1. A feedback-only message gets ignored because agents follow t
 | Daily retro | GET | /api/retros |
 | Set focus directive | POST | /api/controls/focus |
 | Pause/unpause agent | POST | /api/controls/pause |
+| Spawn agent NOW | POST | /api/spawn-agent |
 | Task queue | GET | /api/task-queue |
 
 ## CRITICAL SAFETY RULES

@@ -1,11 +1,21 @@
 """Review/approval queue endpoint."""
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+from typing import Optional, List
 from auth import get_tenant_id
 from models import PendingReview
-from database import fetch_all
+from database import fetch_all, fetch_one, execute
 
 router = APIRouter(prefix="/api/review", tags=["review"])
+
+
+class RejectRequest(BaseModel):
+    reason: Optional[str] = None
+
+
+class BulkApproveRequest(BaseModel):
+    script_ids: List[str]
 
 
 @router.get("/pending", response_model=PendingReview)
@@ -43,6 +53,7 @@ async def get_pending(tenant_id: str = Depends(get_tenant_id)):
            WHERE s.tenant_id = $1
            AND s.storyboard_on_off = 'On'
            AND s.storyboard_status IS NOT NULL
+           AND s.storyboard_status NOT IN ('approved', 'rejected')
            AND s.storyboard_1_url IS NOT NULL
            ORDER BY s.created_at DESC""",
         tenant_id,
@@ -112,3 +123,70 @@ async def get_pending(tenant_id: str = Depends(get_tenant_id)):
         thumbnails=thumbnail_items,
         images=image_items,
     )
+
+
+@router.post("/storyboard/{script_id}/approve")
+async def approve_storyboard(script_id: str, tenant_id: str = Depends(get_tenant_id)):
+    """Approve a storyboard — sets storyboard_status to 'approved'."""
+    row = await fetch_one(
+        "SELECT id FROM scripts WHERE id = $1 AND tenant_id = $2",
+        script_id, tenant_id,
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Script not found")
+
+    await execute(
+        "UPDATE scripts SET storyboard_status = 'approved', updated_at = now() WHERE id = $1",
+        script_id,
+    )
+    return {"status": "approved", "script_id": script_id}
+
+
+@router.post("/storyboard/{script_id}/reject")
+async def reject_storyboard(
+    script_id: str,
+    body: RejectRequest = RejectRequest(),
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """Reject a storyboard — sets storyboard_status to 'rejected' and clears grids."""
+    row = await fetch_one(
+        "SELECT id FROM scripts WHERE id = $1 AND tenant_id = $2",
+        script_id, tenant_id,
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Script not found")
+
+    await execute(
+        """UPDATE scripts SET
+             storyboard_status = 'rejected',
+             storyboard_1_url = NULL,
+             storyboard_2_url = NULL,
+             storyboard_3_url = NULL,
+             storyboard_4_url = NULL,
+             storyboard_5_url = NULL,
+             updated_at = now()
+           WHERE id = $1""",
+        script_id,
+    )
+    return {"status": "rejected", "script_id": script_id}
+
+
+@router.post("/storyboard/approve-all")
+async def approve_all_storyboards(
+    body: BulkApproveRequest,
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """Bulk-approve multiple storyboards."""
+    approved = []
+    for script_id in body.script_ids:
+        row = await fetch_one(
+            "SELECT id FROM scripts WHERE id = $1 AND tenant_id = $2",
+            script_id, tenant_id,
+        )
+        if row:
+            await execute(
+                "UPDATE scripts SET storyboard_status = 'approved', updated_at = now() WHERE id = $1",
+                script_id,
+            )
+            approved.append(script_id)
+    return {"status": "approved", "approved_count": len(approved), "script_ids": approved}

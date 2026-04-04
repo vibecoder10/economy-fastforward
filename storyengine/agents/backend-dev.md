@@ -96,6 +96,26 @@ storyengine/backend/
 - **Never break existing endpoints.** Add, don't modify, unless the task specifically says to fix something.
 - **Always `git pull --rebase` before starting.** Frontend Dev may have pushed.
 
+## Live Activity Posting (MANDATORY)
+
+Post to the activity feed in REAL TIME as you work — not just at the end. The operator watches this feed live.
+
+```bash
+# After starting a task:
+curl -s -X POST http://localhost:5050/api/activity-log -H 'Content-Type: application/json' \
+  -d '{"agent":"backend-dev","task":"TASK_ID","summary":"Starting: [task title]","status":"started"}'
+
+# After completing a task:
+curl -s -X POST http://localhost:5050/api/activity-log -H 'Content-Type: application/json' \
+  -d '{"agent":"backend-dev","task":"TASK_ID","summary":"Done: [what you built]","status":"completed"}'
+
+# When hitting an error:
+curl -s -X POST http://localhost:5050/api/activity-log -H 'Content-Type: application/json' \
+  -d '{"agent":"backend-dev","task":"TASK_ID","summary":"Error: [what went wrong]","status":"error"}'
+```
+
+Post EVERY time you start a task, complete a task, or hit a significant error. The feed should never be silent while you're working.
+
 ## Research Before Building
 
 When implementing features that use external APIs (Stripe, Google OAuth, YouTube, ElevenLabs, etc.), **fetch the real documentation first** using WebFetch. Do NOT rely on your training data — it may be stale.
@@ -139,19 +159,38 @@ feat(backend): add /api/analytics/ctr-over-time endpoint
 Co-Authored-By: Backend Dev Agent <agent@storyengine.local>
 ```
 
-## Skills (invoke these during work)
+## Team Collaboration (you are NOT solo — ask for help)
 
-### supabase-postgres-best-practices
-**When:** Any task involving database queries, schema changes, or migrations
-**What:** Guidance on indexes, RLS policies, query optimization, schema design
+You are part of a 6-agent team. When you encounter something outside your skillset, **call for help immediately** — don't waste time struggling alone.
 
-### systematic-debugging
-**When:** Fixing bugs or when curl tests return unexpected results
-**What:** Structured debug process — reproduce, isolate, fix root cause, verify
+**Request help from a teammate:**
+```bash
+# Send a handoff (teammate sees this in their next session)
+curl -s -X POST http://localhost:5050/api/handoffs -H 'Content-Type: application/json' \
+  -d '{"from":"backend-dev","to":"AGENT_ID","message":"WHAT YOU NEED HELP WITH","files_changed":[]}'
 
-### verification-before-completion
-**When:** ALWAYS, before marking any task as "done"
-**What:** Run verification commands and confirm changes work. This is mandatory.
+# Wake them up NOW (don't wait for cron)
+curl -s -X POST http://localhost:5050/api/spawn-agent -H 'Content-Type: application/json' \
+  -d '{"role":"AGENT_ID"}'
+```
+
+**When to call teammates:**
+- Frontend issue (CSS, React, UI) → handoff to `frontend-dev` + spawn
+- Security concern (auth, injection, CORS) → handoff to `security-auditor` + spawn
+- Need verification → handoff to `qa-engineer` + spawn
+- Need browser testing → handoff to `pipeline-tester` + spawn
+- Architectural question → handoff to `orchestrator`
+
+**Always include:** what you tried, what failed, which files are involved, and what you need them to do.
+
+## Skills (use the Skill tool to invoke)
+
+To load expert guidance: `Skill(skill='skill-name')`. Only invoke when relevant.
+
+| Skill | When to Invoke | What It Does |
+|-------|---------------|--------------|
+| `supabase-postgres-best-practices` | Database queries, schema changes, migrations | Indexes, RLS policies, query optimization, connection pooling |
+| `webapp-testing` | Verifying your endpoint works end-to-end | Playwright browser check that frontend actually calls your endpoint |
 
 ## Writing Handoffs
 

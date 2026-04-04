@@ -30,6 +30,12 @@
       "name": "Pipeline Tester",
       "color": "#c084fc",
       "icon": "Phantom"
+    },
+    {
+      "id": "security-auditor",
+      "name": "Security Auditor",
+      "color": "#f59e0b",
+      "icon": "Shield"
     }
   ]
 }

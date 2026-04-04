@@ -109,7 +109,7 @@ export default function AnalyticsPage() {
   const [sortDir, setSortDir] = useState<SortDir>("desc");
 
   // Analytics endpoints
-  const { data: overview, isLoading: overviewLoading } = useQuery({
+  const { data: overview, isLoading: overviewLoading, error: overviewError } = useQuery({
     queryKey: ["analytics-overview"],
     queryFn: getAnalyticsOverview,
   });
@@ -236,6 +236,23 @@ export default function AnalyticsPage() {
     return (
       <div className="flex items-center justify-center h-64">
         <Spinner size="lg" />
+      </div>
+    );
+  }
+
+  if (overviewError && !overview) {
+    return (
+      <div className="p-8 text-center">
+        <p className="text-sm mb-2" style={{ color: "var(--red)" }}>
+          Unable to load analytics data. The server may need to be restarted.
+        </p>
+        <button
+          onClick={() => window.location.reload()}
+          className="text-xs px-4 py-2 rounded-lg"
+          style={{ background: "var(--bg-elevated)", color: "var(--text-secondary)", border: "1px solid var(--border)" }}
+        >
+          Retry
+        </button>
       </div>
     );
   }

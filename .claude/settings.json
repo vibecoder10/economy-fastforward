@@ -1,0 +1,10 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "",
+        "command": "bash agents/verify.sh 2>&1 || true"
+      }
+    ]
+  }
+}

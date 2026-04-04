@@ -5,7 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import {
   Play, Pause, Check, Loader2, Pencil, Image as ImageIcon, RefreshCw, Trash2, AlertTriangle,
-  Lock, ArrowLeft, ToggleLeft, ToggleRight, Layers,
+  Lock, ArrowLeft, ToggleLeft, ToggleRight, Layers, Scissors, X,
 } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { SegmentBadge } from "@/components/ui/SegmentBadge";
@@ -18,10 +18,33 @@ import { PromptExpander } from "@/components/video-detail/prompt-expander";
 import { VoicePlayer } from "@/components/video-detail/voice-player";
 import {
   getVideoScript, getVideoAssets, updateStoryboardMode, clearSceneStoryboard, clearAllStoryboards,
+  clearAllExtractedPanels, clearExtractedPanel, uploadStoryboardGrid,
   runPipelineStage, updateSceneSegments, runImageForSegment, runImageVariants, clearStaleTask, updateVideoStyles,
+  getAudioToken,
 } from "@/lib/api";
 import { useTaskPoller } from "@/hooks/use-task-poller";
 import type { VideoDetail, ScriptScene as ApiScriptScene, Asset } from "@/lib/api";
+
+/** Fetches a short-lived audio token, then renders VoicePlayer with scoped URL */
+function SecureAudioPlayer({ videoId, scene }: { videoId: string; scene: number }) {
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    const apiBase = typeof window !== "undefined"
+      ? (localStorage.getItem("storyengine_api_url") || `${window.location.protocol}//${window.location.hostname}:8001`)
+      : "";
+    getAudioToken(videoId).then(({ token }) => {
+      if (!cancelled) setAudioUrl(`${apiBase}/api/videos/${videoId}/audio/${scene}?token=${token}`);
+    }).catch(() => {
+      if (!cancelled) setFailed(true);
+    });
+    return () => { cancelled = true; };
+  }, [videoId, scene]);
+  if (failed) return null;
+  if (!audioUrl) return <p className="text-[10px] mb-3" style={{ color: "var(--text-tertiary)" }}>Loading audio...</p>;
+  return <div className="mb-3"><VoicePlayer audioUrl={audioUrl} /></div>;
+}
 
 interface StoryboardVisualsTabProps {
   video: VideoDetail & { id: string };
@@ -189,6 +212,9 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
   const [generatingScene, setGeneratingScene] = useState<number | null>(null);
   const [clearingScene, setClearingScene] = useState<number | null>(null);
   const [clearingAllStoryboards, setClearingAllStoryboards] = useState(false);
+  const [clearingExtracted, setClearingExtracted] = useState(false);
+  const [uploadingGrid, setUploadingGrid] = useState<string | null>(null); // "scene-beat"
+  const [dragOver, setDragOver] = useState<string | null>(null);
 
   const { message: taskMessage } = useTaskPoller({
     videoId: video.id,
@@ -251,6 +277,7 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
   );
   const storyboardPromptScenes = scenes.filter((s) => s.hasStoryboardPrompt).length;
   const storyboardReadyScenes = scenes.filter((s) => !!s.storyboardStatus).length;
+  const storyboardGridsDone = scenes.length > 0 && scenes.every((s) => s.storyboardGridCount >= (s.storyboardBeatCount || 1));
   const storyboardScenesWithData = scenes.filter((s) => s.hasStoryboardData).length;
   const pendingSegments = totalSegments - doneSegments;
   const missingPromptSegments = totalSegments - promptReadySegments;
@@ -364,6 +391,73 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
     }
   }, [video.id, queryClient]);
 
+  const handleClearAllExtracted = useCallback(async () => {
+    const confirmed = window.confirm("Clear all extracted panel images? The segment rows and prompts will be preserved.");
+    if (!confirmed) return;
+
+    setClearingExtracted(true);
+    try {
+      await clearAllExtractedPanels(video.id);
+      setScenes((prev) =>
+        prev.map((scene) => ({
+          ...scene,
+          segments: scene.segments.map((seg) =>
+            seg.status === "done" ? { ...seg, imageUrl: undefined, status: "pending" } : seg,
+          ),
+        })),
+      );
+      await queryClient.invalidateQueries({ queryKey: ["video-assets", video.id] });
+    } finally {
+      setClearingExtracted(false);
+    }
+  }, [video.id, queryClient]);
+
+  const handleGridDrop = useCallback(async (sceneNumber: number, beatNumber: number, file: File) => {
+    const key = `${sceneNumber}-${beatNumber}`;
+    setUploadingGrid(key);
+    try {
+      const result = await uploadStoryboardGrid(video.id, sceneNumber, beatNumber, file);
+      // Update local state with new grid URL
+      setScenes((prev) =>
+        prev.map((scene) => {
+          if (scene.sceneNumber !== sceneNumber) return scene;
+          return {
+            ...scene,
+            storyboardGridCount: scene.storyboardGridCount + 1,
+            hasStoryboardData: true,
+            storyboardStatus: result.all_grids_complete ? "grids_generated" : scene.storyboardStatus,
+            storyboardBeats: scene.storyboardBeats.map((b) =>
+              b.beatNumber === beatNumber ? { ...b, gridUrl: result.url } : b,
+            ),
+          };
+        }),
+      );
+      await queryClient.invalidateQueries({ queryKey: ["video-script", video.id] });
+    } catch {
+      // silent
+    } finally {
+      setUploadingGrid(null);
+      setDragOver(null);
+    }
+  }, [video.id, queryClient]);
+
+  const handleClearExtractedPanel = useCallback(async (assetId: string) => {
+    try {
+      await clearExtractedPanel(video.id, assetId);
+      setScenes((prev) =>
+        prev.map((scene) => ({
+          ...scene,
+          segments: scene.segments.map((seg) =>
+            seg.id === assetId ? { ...seg, imageUrl: undefined, status: "pending" } : seg,
+          ),
+        })),
+      );
+      await queryClient.invalidateQueries({ queryKey: ["video-assets", video.id] });
+    } catch {
+      // silent
+    }
+  }, [video.id, queryClient]);
+
   const runStageWith409Retry = useCallback(async (stage: string, params?: Record<string, string | number>) => {
     try {
       await runPipelineStage(video.id, stage, params);
@@ -414,6 +508,24 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
       setGeneratingAll(false);
     }
   }, [runStageWith409Retry, storyboardMode]);
+
+  const [extracting, setExtracting] = useState(false);
+  const [extractError, setExtractError] = useState<string | null>(null);
+  const handleExtractPanels = useCallback(async () => {
+    setExtracting(true);
+    setExtractError(null);
+    try {
+      // Clear any stale task first
+      try { await clearStaleTask(video.id); } catch { /* ok if no stale task */ }
+      await runPipelineStage(video.id, "storyboard-extract");
+      setTaskRunning(true);
+    } catch (err: unknown) {
+      const msg = (err as Error).message || "Unknown error";
+      console.error("Extract panels failed:", msg);
+      setExtractError(msg);
+      setExtracting(false);
+    }
+  }, [video.id]);
 
   const handleGenerateScenePrompts = useCallback(async (sceneNumber: number) => {
     setGeneratingScene(sceneNumber);
@@ -575,11 +687,19 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
             </span>
           </div>
           <div className="flex items-center gap-0">
-            {[
-              { label: "Image Prompts", done: promptReadySegments >= totalSegments && totalSegments > 0, count: `${promptReadySegments}/${totalSegments}` },
-              { label: "Storyboard Prompts", done: storyboardPromptScenes >= scenes.length && scenes.length > 0, count: `${storyboardPromptScenes}/${scenes.length}` },
-              { label: "Storyboard Grids", done: storyboardReadyScenes >= scenes.length && scenes.length > 0, count: `${storyboardReadyScenes}/${scenes.length}` },
-            ].map((step, i, arr) => {
+            {(() => {
+              // Derive step completion from downstream state — if grids exist, prompts must be done
+              const sbPromptsDone = storyboardPromptScenes >= scenes.length && scenes.length > 0;
+              const sbGridsComplete = storyboardGridsDone;
+              const extractionDone = doneSegments > 0 && scenes.some(s => s.segments.some(seg => seg.imageUrl));
+              const promptsDone = (promptReadySegments >= totalSegments && totalSegments > 0) || sbPromptsDone;
+              return [
+                { label: "Image Prompts", done: promptsDone, count: `${promptReadySegments}/${totalSegments}` },
+                { label: "Storyboard Prompts", done: sbPromptsDone, count: `${storyboardPromptScenes}/${scenes.length}` },
+                { label: "Storyboard Grids", done: sbGridsComplete, count: `${storyboardReadyScenes}/${scenes.length}` },
+                { label: "Extract Panels", done: extractionDone, count: "" },
+            ];
+            })().map((step, i, arr) => {
               const isNext = !step.done && (i === 0 || arr[i - 1].done);
               return (
                 <div key={step.label} className="flex items-center gap-0 flex-1">
@@ -610,9 +730,11 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
           </div>
           {/* Next action CTA */}
           {(() => {
-            const promptsDone = promptReadySegments >= totalSegments && totalSegments > 0;
+            // Derive from storyboard state — if grids exist, earlier steps are done
             const sbPromptsDone = storyboardPromptScenes >= scenes.length && scenes.length > 0;
-            const sbGridsDone = storyboardReadyScenes >= scenes.length && scenes.length > 0;
+            const sbGridsAllDone = storyboardGridsDone;
+            const promptsDone = (promptReadySegments >= totalSegments && totalSegments > 0) || sbPromptsDone;
+            const extractionDone = doneSegments > 0 && scenes.some(s => s.segments.some(seg => seg.imageUrl));
 
             if (!promptsDone) return (
               <button
@@ -636,7 +758,7 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
                 Step 2: Generate Storyboard Prompts
               </button>
             );
-            if (!sbGridsDone) return (
+            if (!sbGridsAllDone) return (
               <button
                 onClick={handleGenerateAllImages}
                 disabled={generatingAll || taskRunning}
@@ -647,10 +769,28 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
                 Step 3: Generate Storyboard Grids
               </button>
             );
-            return (
+            if (extractionDone) return (
               <p className="mt-3 text-[10px] text-center" style={{ color: "var(--green)" }}>
-                ✓ All storyboard steps complete
+                ✓ All storyboard steps complete — panels extracted
               </p>
+            );
+            return (
+              <div className="mt-3 space-y-2">
+                <button
+                  onClick={handleExtractPanels}
+                  disabled={extracting || taskRunning}
+                  className="w-full inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-xs font-semibold transition-all disabled:opacity-50"
+                  style={{ background: "var(--green)", color: "var(--bg-void)" }}
+                >
+                  {(extracting || taskRunning) ? <Loader2 size={14} className="animate-spin" /> : <Scissors size={14} />}
+                  Step 4: Extract &amp; Upscale Panels
+                </button>
+                {extractError && (
+                  <p className="text-[10px] text-center" style={{ color: "var(--orange)" }}>
+                    {extractError}
+                  </p>
+                )}
+              </div>
             );
           })()}
         </div>
@@ -705,6 +845,54 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
         </div>
       )}
 
+      {/* Filmstrip — horizontal scroll of all extracted images */}
+      {storyboardMode && (() => {
+        const allExtracted = scenes.flatMap(s => s.segments.filter(seg => seg.imageUrl)).sort((a, b) => a.sceneNumber === b.sceneNumber ? a.imageIndex - b.imageIndex : a.sceneNumber - b.sceneNumber);
+        if (allExtracted.length === 0) return null;
+        return (
+          <div className="rounded-xl p-3" style={{ background: "rgba(80, 227, 194, 0.04)", border: "1px solid rgba(80, 227, 194, 0.12)" }}>
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-[10px] uppercase tracking-wider font-semibold" style={{ color: "var(--green)" }}>
+                Extracted Panels
+              </span>
+              <span className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>
+                {allExtracted.length} images
+              </span>
+              <button
+                className="ml-auto flex items-center gap-1 px-2 py-0.5 rounded text-[9px] font-medium transition-colors"
+                style={{
+                  background: "rgba(239, 68, 68, 0.1)",
+                  color: "rgba(239, 68, 68, 0.8)",
+                  border: "1px solid rgba(239, 68, 68, 0.2)",
+                }}
+                disabled={clearingExtracted}
+                onClick={handleClearAllExtracted}
+              >
+                {clearingExtracted ? <Loader2 size={10} className="animate-spin" /> : <Trash2 size={10} />}
+                Clear All
+              </button>
+            </div>
+            <div className="flex gap-2.5 overflow-x-auto pb-2" style={{ scrollbarWidth: "thin" }}>
+              {allExtracted.map((seg) => (
+                <div key={seg.id} className="flex-shrink-0 group cursor-pointer relative" onClick={() => { const el = document.getElementById(`scene-${seg.sceneNumber}`); if (el) el.scrollIntoView({ behavior: "smooth", block: "start" }); }}>
+                  <div className="w-[220px] h-[124px] rounded-lg overflow-hidden" style={{ border: "1px solid rgba(255,255,255,0.08)" }}>
+                    <img src={seg.imageUrl!} alt={seg.segmentId} className="w-full h-full object-cover group-hover:scale-105 transition-transform" loading="lazy" />
+                  </div>
+                  <button
+                    className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity rounded-full p-0.5"
+                    style={{ background: "rgba(0,0,0,0.7)", color: "rgba(239, 68, 68, 0.9)" }}
+                    onClick={(e) => { e.stopPropagation(); handleClearExtractedPanel(seg.id); }}
+                  >
+                    <X size={12} />
+                  </button>
+                  <span className="text-[9px] font-mono block text-center mt-1" style={{ color: "var(--text-tertiary)" }}>{seg.segmentId}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
+
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_260px] gap-6">
         {/* Main content */}
         <div className="space-y-6">
@@ -723,7 +911,7 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
 
               <div className="space-y-4">
                 {actScenes.map((scene) => (
-                  <GlassCard key={scene.sceneNumber} className="p-5">
+                  <GlassCard key={scene.sceneNumber} id={`scene-${scene.sceneNumber}`} className="p-5">
                     {/* Scene badge + duration (compact header) */}
                     <div className="flex items-center gap-2 mb-3">
                       <SegmentBadge label={`Scene ${scene.sceneNumber}`} color="var(--purple)" />
@@ -790,9 +978,11 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
                                   width: 340,
                                   height: 200,
                                   background: "var(--bg-elevated)",
-                                  border: beat.gridUrl
-                                    ? "1px solid rgba(0, 230, 138, 0.25)"
-                                    : "1px dashed rgba(255,255,255,0.1)",
+                                  border: dragOver === `${scene.sceneNumber}-${beat.beatNumber}`
+                                    ? "2px solid var(--green)"
+                                    : beat.gridUrl
+                                      ? "1px solid rgba(0, 230, 138, 0.25)"
+                                      : "1px dashed rgba(255,255,255,0.1)",
                                 }}
                                 onClick={() => {
                                   if (beat.gridUrl) {
@@ -801,7 +991,17 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
                                     handleGenerateSceneGrids(scene.sceneNumber);
                                   }
                                 }}
-                                title={beat.gridUrl ? "Click to open full size" : `Click to generate Scene ${scene.sceneNumber} grids`}
+                                onDragOver={(e) => { e.preventDefault(); setDragOver(`${scene.sceneNumber}-${beat.beatNumber}`); }}
+                                onDragLeave={() => setDragOver(null)}
+                                onDrop={(e) => {
+                                  e.preventDefault();
+                                  setDragOver(null);
+                                  const file = e.dataTransfer.files[0];
+                                  if (file && file.type.startsWith("image/")) {
+                                    handleGridDrop(scene.sceneNumber, beat.beatNumber, file);
+                                  }
+                                }}
+                                title={beat.gridUrl ? "Click to open full size" : "Click to generate or drag & drop an image"}
                               >
                                 {beat.gridUrl ? (
                                   <img
@@ -811,7 +1011,21 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
                                   />
                                 ) : (
                                   <div className="w-full h-full flex flex-col items-center justify-center gap-2 transition-colors hover:bg-[rgba(168,85,247,0.08)]">
-                                    {(generatingAll || generatingScene === scene.sceneNumber) ? (
+                                    {uploadingGrid === `${scene.sceneNumber}-${beat.beatNumber}` ? (
+                                      <>
+                                        <Loader2 size={20} className="animate-spin" style={{ color: "var(--green)" }} />
+                                        <span className="text-[11px] font-medium" style={{ color: "var(--green)" }}>
+                                          Uploading...
+                                        </span>
+                                      </>
+                                    ) : dragOver === `${scene.sceneNumber}-${beat.beatNumber}` ? (
+                                      <>
+                                        <ImageIcon size={20} style={{ color: "var(--green)" }} />
+                                        <span className="text-[11px] font-medium" style={{ color: "var(--green)" }}>
+                                          Drop to Upload
+                                        </span>
+                                      </>
+                                    ) : (generatingAll || generatingScene === scene.sceneNumber) ? (
                                       <>
                                         <Loader2 size={20} className="animate-spin" style={{ color: "var(--purple)" }} />
                                         <span className="text-[11px] font-medium" style={{ color: "var(--purple)" }}>
@@ -822,7 +1036,7 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
                                       <>
                                         <ImageIcon size={20} style={{ color: "var(--purple)", opacity: 0.6 }} />
                                         <span className="text-[11px] font-medium" style={{ color: "var(--purple)" }}>
-                                          Click to Generate
+                                          Click or Drop Image
                                         </span>
                                       </>
                                     )}
@@ -838,19 +1052,9 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
                       </div>
                     )}
 
-                    {/* Voice player */}
+                    {/* Voice player — uses short-lived audio token instead of session JWT */}
                     {scene.voiceOverUrl && (
-                      <div className="mb-3">
-                        <VoicePlayer
-                          audioUrl={(() => {
-                            const apiBase = typeof window !== "undefined"
-                              ? (localStorage.getItem("storyengine_api_url") || `${window.location.protocol}//${window.location.hostname}:8001`)
-                              : "";
-                            const token = typeof window !== "undefined" ? (localStorage.getItem("storyengine_token") || "") : "";
-                            return `${apiBase}/api/videos/${video.id}/audio/${scene.sceneNumber}?token=${token}`;
-                          })()}
-                        />
-                      </div>
+                      <SecureAudioPlayer videoId={video.id} scene={scene.sceneNumber} />
                     )}
                     {!scene.voiceOverUrl && (
                       <p className="text-[10px] mb-3" style={{ color: "var(--text-tertiary)" }}>No voice generated yet</p>
@@ -1025,39 +1229,43 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice }: StoryboardVis
                                   {statusInfo.icon}
                                   {statusInfo.label}
                                 </span>
-                                <button
-                                  onClick={() => handleRegenerate(seg)}
-                                  disabled={isRegenerating}
-                                  className="text-[9px] px-2 py-0.5 rounded transition-all disabled:opacity-50"
-                                  style={{
-                                    color: "var(--orange)",
-                                    border: "1px solid var(--orange)",
-                                  }}
-                                >
-                                  {isRegenerating ? (
-                                    <Loader2 size={8} className="animate-spin inline" />
-                                  ) : (
-                                    <RefreshCw size={8} className="inline" />
-                                  )}{" "}
-                                  {seg.status === "done" ? "Regen" : "Gen"}
-                                </button>
-                                {seg.status === "done" && (
-                                  <button
-                                    onClick={() => handleGenerateVariants(seg)}
-                                    disabled={isGeneratingVariants}
-                                    className="text-[9px] px-2 py-0.5 rounded transition-all disabled:opacity-50"
-                                    style={{
-                                      color: "var(--purple)",
-                                      border: "1px solid var(--purple)",
-                                    }}
-                                  >
-                                    {isGeneratingVariants ? (
-                                      <Loader2 size={8} className="animate-spin inline" />
-                                    ) : (
-                                      <Layers size={8} className="inline" />
-                                    )}{" "}
-                                    Variants
-                                  </button>
+                                {!storyboardMode && (
+                                  <>
+                                    <button
+                                      onClick={() => handleRegenerate(seg)}
+                                      disabled={isRegenerating}
+                                      className="text-[9px] px-2 py-0.5 rounded transition-all disabled:opacity-50"
+                                      style={{
+                                        color: "var(--orange)",
+                                        border: "1px solid var(--orange)",
+                                      }}
+                                    >
+                                      {isRegenerating ? (
+                                        <Loader2 size={8} className="animate-spin inline" />
+                                      ) : (
+                                        <RefreshCw size={8} className="inline" />
+                                      )}{" "}
+                                      {seg.status === "done" ? "Regen" : "Gen"}
+                                    </button>
+                                    {seg.status === "done" && (
+                                      <button
+                                        onClick={() => handleGenerateVariants(seg)}
+                                        disabled={isGeneratingVariants}
+                                        className="text-[9px] px-2 py-0.5 rounded transition-all disabled:opacity-50"
+                                        style={{
+                                          color: "var(--purple)",
+                                          border: "1px solid var(--purple)",
+                                        }}
+                                      >
+                                        {isGeneratingVariants ? (
+                                          <Loader2 size={8} className="animate-spin inline" />
+                                        ) : (
+                                          <Layers size={8} className="inline" />
+                                        )}{" "}
+                                        Variants
+                                      </button>
+                                    )}
+                                  </>
                                 )}
                               </div>
                             </div>

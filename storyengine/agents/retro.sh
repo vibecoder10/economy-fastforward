@@ -3,7 +3,7 @@
 # Analyzes daily performance, identifies patterns, updates agent memory
 # Runs at 11:10 PM after daily-report.sh and calculate-skills.sh
 
-PROJECT_ROOT="${AGENT_PROJECT_ROOT:-/Users/ryanayler/economy-fastforward}"
+PROJECT_ROOT="${AGENT_PROJECT_ROOT:-$(cd "$(dirname "$0")/../.." && pwd)}"
 AGENTS_DIR="$PROJECT_ROOT/storyengine/agents"
 RUBRIC_DATA="$PROJECT_ROOT/rubric/scaffold/data"
 RUBRIC_URL="http://localhost:5050"

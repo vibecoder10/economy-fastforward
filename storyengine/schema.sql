@@ -207,6 +207,9 @@ CREATE TABLE videos (
   -- Learning loop tracking
   learnings_extracted_at TIMESTAMPTZ,
 
+  -- Soft delete
+  deleted_at TIMESTAMPTZ,
+
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );
@@ -296,6 +299,9 @@ CREATE TABLE assets (
 
   -- Flags
   hero_shot BOOLEAN DEFAULT false,
+
+  -- Video clip prompts
+  video_clip_prompt TEXT,
 
   -- Storyboard tracking
   drive_image_url TEXT,
@@ -585,6 +591,20 @@ CREATE TABLE projects (
 );
 
 -- =============================================
+-- USER PREFERENCES
+-- =============================================
+
+CREATE TABLE user_preferences (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  account_id UUID REFERENCES accounts(id) ON DELETE CASCADE NOT NULL,
+  preference_key TEXT NOT NULL,
+  preference_value JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE(account_id, preference_key)
+);
+
+-- =============================================
 -- PIPELINE TRACKING (StoryEngine internal)
 -- =============================================
 
@@ -618,6 +638,7 @@ CREATE TABLE bot_activity (
 
 CREATE INDEX idx_videos_tenant ON videos(tenant_id);
 CREATE INDEX idx_videos_status ON videos(tenant_id, status);
+CREATE INDEX idx_videos_deleted_at ON videos(tenant_id, deleted_at);
 CREATE INDEX idx_videos_airtable ON videos(airtable_record_id);
 CREATE INDEX idx_scripts_video ON scripts(video_id);
 CREATE INDEX idx_scripts_tenant ON scripts(tenant_id);
@@ -640,6 +661,7 @@ CREATE INDEX idx_channel_profiles_tenant ON channel_profiles(tenant_id);
 CREATE INDEX idx_accounts_email ON accounts(email);
 CREATE INDEX idx_projects_account ON projects(account_id);
 CREATE INDEX idx_projects_tenant ON projects(tenant_id);
+CREATE INDEX idx_user_preferences_account ON user_preferences(account_id);
 CREATE INDEX idx_videos_project ON videos(project_id);
 
 -- =============================================

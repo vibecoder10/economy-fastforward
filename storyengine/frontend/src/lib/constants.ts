@@ -14,6 +14,10 @@ export const PIPELINE_STAGES = [
 // Map sub-stages to their parent dot index and display label
 const SUB_STAGE_MAP: Record<string, { dotIndex: number; label: string }> = {
   approved: { dotIndex: 1, label: "Approved" },
+  researching: { dotIndex: 1, label: "Researching" },
+  scripting: { dotIndex: 1, label: "Scripting" },
+  needs_script_review: { dotIndex: 1, label: "Needs Review" },
+  voice: { dotIndex: 2, label: "Voice" },
   ready_for_image_prompts: { dotIndex: 3, label: "Image Prompts" },
   ready_for_storyboard_images: { dotIndex: 3, label: "Storyboard Images" },
   ready_for_storyboard_extraction: { dotIndex: 3, label: "Storyboard Extract" },
@@ -21,8 +25,9 @@ const SUB_STAGE_MAP: Record<string, { dotIndex: number; label: string }> = {
   ready_for_sound_effects: { dotIndex: 4, label: "Sound Effects" },
   ready_for_video_scripts: { dotIndex: 5, label: "Video Scripts" },
   ready_for_video_generation: { dotIndex: 5, label: "Video Generation" },
-  needs_script_review: { dotIndex: 1, label: "Needs Review" },
+  rendering: { dotIndex: 7, label: "Rendering" },
   uploaded: { dotIndex: 9, label: "Uploaded" },
+  published: { dotIndex: 9, label: "Published" },
 };
 
 export type StageKey = (typeof PIPELINE_STAGES)[number]["key"];

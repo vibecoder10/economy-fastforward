@@ -2,7 +2,7 @@
 # Morning Briefing — sends daily Telegram digest to the boss
 # Runs at 7:00 AM, after planning-session.sh (6:00 AM)
 
-PROJECT_ROOT="${AGENT_PROJECT_ROOT:-/home/clawd/projects/economy-fastforward}"
+PROJECT_ROOT="${AGENT_PROJECT_ROOT:-$(cd "$(dirname "$0")/../.." && pwd)}"
 AGENTS_DIR="$PROJECT_ROOT/storyengine/agents"
 RUBRIC_DATA="$PROJECT_ROOT/rubric/scaffold/data"
 

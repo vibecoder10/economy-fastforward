@@ -1,7 +1,7 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
-import { execSync } from 'node:child_process';
+import { exec, execSync, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -17,6 +17,19 @@ if (major < 18) {
 
 // Ensure data dir exists
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+
+// Resolve Claude CLI path (npm global bin may not be in non-interactive PATH)
+const CLAUDE_BIN = process.env.CLAUDE_BIN || (() => {
+  const candidates = [
+    path.join(process.env.HOME || require('os').homedir(), '.npm-global/bin/claude'),
+    '/usr/local/bin/claude',
+    'claude'
+  ];
+  for (const c of candidates) { try { if (fs.existsSync(c)) return c; } catch {} }
+  return 'claude';
+})();
+
+console.log('CLAUDE_BIN resolved to:', CLAUDE_BIN);
 
 // --- Template detection ---
 const TEMPLATE_CHECKS = {
@@ -714,6 +727,50 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // POST /api/controls/team-toggle — master ON/OFF for entire team
+  if (pathname === '/api/controls/team-toggle' && req.method === 'POST') {
+    const body = JSON.parse(await readBody(req));
+    const controlsFile = path.join(DATA_DIR, 'controls.json');
+    let controls = { team_enabled: true, paused_agents: [], skipped_tasks: [], priority_overrides: {} };
+    try { controls = JSON.parse(fs.readFileSync(controlsFile, 'utf8')); } catch {}
+    controls.team_enabled = body.enabled !== undefined ? !!body.enabled : !controls.team_enabled;
+    fs.writeFileSync(controlsFile, JSON.stringify(controls, null, 2));
+    sendJSON(res, { success: true, team_enabled: controls.team_enabled });
+    return;
+  }
+
+  // GET /api/team-mode — computed team mode (OFF, Ad-hoc, PRD, Background)
+  if (pathname === '/api/team-mode' && req.method === 'GET') {
+    const controlsFile = path.join(DATA_DIR, 'controls.json');
+    let controls = { team_enabled: true };
+    try { controls = JSON.parse(fs.readFileSync(controlsFile, 'utf8')); } catch {}
+    if (controls.team_enabled === false) {
+      sendJSON(res, { mode: 'off', label: 'OFF', description: 'All agents stopped' });
+      return;
+    }
+    // Check PRD
+    const prdPath = path.join(__dirname, '../../agents/prd.json');
+    let hasPRD = false;
+    try { hasPRD = fs.existsSync(prdPath) && JSON.parse(fs.readFileSync(prdPath, 'utf8')).tasks?.length > 0; } catch {}
+    if (hasPRD) {
+      sendJSON(res, { mode: 'prd', label: 'PRD Mode', description: 'Executing PRD tasks' });
+      return;
+    }
+    // Check task queue
+    const queueFile = path.join(__dirname, '../../storyengine/agents/task-queue.json');
+    let pendingTasks = 0;
+    try {
+      const q = JSON.parse(fs.readFileSync(queueFile, 'utf8'));
+      pendingTasks = (q.tabs || []).flatMap(t => t.tasks || []).filter(t => t.status !== 'done' && t.status !== 'blocked').length;
+    } catch {}
+    if (pendingTasks > 0) {
+      sendJSON(res, { mode: 'background', label: 'Background', description: pendingTasks + ' tasks in queue' });
+      return;
+    }
+    sendJSON(res, { mode: 'adhoc', label: 'Ad-hoc', description: 'Responding to messages & errors' });
+    return;
+  }
+
   // POST /api/controls/pause — toggle agent pause
   if (pathname === '/api/controls/pause' && req.method === 'POST') {
     const body = JSON.parse(await readBody(req));
@@ -827,6 +884,34 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // DELETE /api/task-queue — clear all tasks
+  if (pathname === '/api/task-queue' && req.method === 'DELETE') {
+    const queueFile = path.join(__dirname, '../../storyengine/agents/task-queue.json');
+    const emptyQueue = { version: 2, current_tab: 0, last_updated: new Date().toISOString().slice(0, 10), last_updated_by: 'operator', tabs: [] };
+    fs.writeFileSync(queueFile, JSON.stringify(emptyQueue, null, 2));
+    sendJSON(res, { success: true });
+    return;
+  }
+
+  // POST /api/task-queue/dismiss — dismiss a single task (mark as done)
+  if (pathname === '/api/task-queue/dismiss' && req.method === 'POST') {
+    const body = JSON.parse(await readBody(req));
+    const queueFile = path.join(__dirname, '../../storyengine/agents/task-queue.json');
+    try {
+      const queue = JSON.parse(fs.readFileSync(queueFile, 'utf8'));
+      const tab = queue.tabs?.[body.tab_index];
+      if (tab?.tasks?.[body.task_index]) {
+        tab.tasks[body.task_index].status = 'done';
+        tab.tasks[body.task_index].dismissed_by = 'operator';
+        queue.last_updated = new Date().toISOString().slice(0, 10);
+        queue.last_updated_by = 'operator';
+        fs.writeFileSync(queueFile, JSON.stringify(queue, null, 2));
+      }
+    } catch {}
+    sendJSON(res, { success: true });
+    return;
+  }
+
   // ===== PROPOSALS ROUTES =====
 
   // POST /api/proposals — create a proposal from an agent
@@ -906,22 +991,43 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // GET /api/agent-skills — read agent skill metrics
+  // GET /api/agent-skills — read agent skill metrics + Claude skills from .md files
   if (pathname === '/api/agent-skills' && req.method === 'GET') {
     const skillsFile = path.join(DATA_DIR, 'agent-skills.json');
-    try { sendJSON(res, JSON.parse(fs.readFileSync(skillsFile, 'utf8'))); }
-    catch { sendJSON(res, { agents: {} }); }
+    let data = {};
+    try { data = JSON.parse(fs.readFileSync(skillsFile, 'utf8')); } catch {}
+    // Parse Claude skills from agent .md files
+    const agentsDir = path.join(__dirname, '../../storyengine/agents');
+    const agentIds = ['orchestrator', 'backend-dev', 'frontend-dev', 'qa-engineer', 'pipeline-tester'];
+    for (const id of agentIds) {
+      try {
+        const md = fs.readFileSync(path.join(agentsDir, id + '.md'), 'utf8');
+        const skills = [];
+        const matches = md.matchAll(/\| `([^`]+)` \| (.+?) \| (.+?) \|/g);
+        for (const m of matches) { skills.push({ name: m[1], when: m[2].trim(), what: m[3].trim() }); }
+        if (!data.agents) data.agents = {};
+        if (!data.agents[id]) data.agents[id] = {};
+        data.agents[id].claude_skills = skills;
+      } catch {}
+    }
+    sendJSON(res, data);
     return;
   }
 
   // GET /api/agent-instructions/:id — read agent .md file
+  // Supports ?source=roles to read from agents/roles/ instead of storyengine/agents/
   if (pathname.startsWith('/api/agent-instructions/') && req.method === 'GET') {
     const agentId = decodeURIComponent(pathname.replace('/api/agent-instructions/', ''));
     if (agentId.includes('..') || agentId.includes('/')) { sendJSON(res, { error: 'Invalid agent ID' }, 400); return; }
-    const agentFile = path.join(__dirname, '../../storyengine/agents', agentId + '.md');
+    const url = new URL(req.url, `http://localhost:${PORT}`);
+    const source = url.searchParams.get('source');
+    const baseDir = source === 'roles'
+      ? path.join(__dirname, '../../agents/roles')
+      : path.join(__dirname, '../../storyengine/agents');
+    const agentFile = path.join(baseDir, agentId + '.md');
     const resolved = path.resolve(agentFile);
-    if (!resolved.startsWith(path.resolve(__dirname, '../../storyengine/agents'))) { sendJSON(res, { error: 'Invalid path' }, 400); return; }
-    try { sendJSON(res, { id: agentId, content: fs.readFileSync(resolved, 'utf8') }); }
+    if (!resolved.startsWith(path.resolve(baseDir))) { sendJSON(res, { error: 'Invalid path' }, 400); return; }
+    try { sendJSON(res, { id: agentId, source: source || 'storyengine', content: fs.readFileSync(resolved, 'utf8') }); }
     catch { sendJSON(res, { error: 'Agent file not found' }, 404); }
     return;
   }
@@ -930,9 +1036,14 @@ const server = http.createServer(async (req, res) => {
   if (pathname.startsWith('/api/agent-instructions/') && req.method === 'PUT') {
     const agentId = decodeURIComponent(pathname.replace('/api/agent-instructions/', ''));
     if (agentId.includes('..') || agentId.includes('/')) { sendJSON(res, { error: 'Invalid agent ID' }, 400); return; }
-    const agentFile = path.join(__dirname, '../../storyengine/agents', agentId + '.md');
+    const url = new URL(req.url, `http://localhost:${PORT}`);
+    const source = url.searchParams.get('source');
+    const baseDir = source === 'roles'
+      ? path.join(__dirname, '../../agents/roles')
+      : path.join(__dirname, '../../storyengine/agents');
+    const agentFile = path.join(baseDir, agentId + '.md');
     const resolved = path.resolve(agentFile);
-    if (!resolved.startsWith(path.resolve(__dirname, '../../storyengine/agents'))) { sendJSON(res, { error: 'Invalid path' }, 400); return; }
+    if (!resolved.startsWith(path.resolve(baseDir))) { sendJSON(res, { error: 'Invalid path' }, 400); return; }
     let body = '';
     req.on('data', chunk => { body += chunk; });
     req.on('end', () => {
@@ -943,6 +1054,226 @@ const server = http.createServer(async (req, res) => {
         sendJSON(res, { ok: true });
       } catch (e) { sendJSON(res, { error: e.message }, 500); }
     });
+    return;
+  }
+
+  // GET /api/team-roles — list all role .md files from agents/roles/
+  if (pathname === '/api/team-roles' && req.method === 'GET') {
+    const rolesDir = path.join(__dirname, '../../agents/roles');
+    try {
+      const files = fs.readdirSync(rolesDir).filter(f => f.endsWith('.md'));
+      const roles = files.map(f => {
+        const id = f.replace('.md', '');
+        const content = fs.readFileSync(path.join(rolesDir, f), 'utf8');
+        const titleMatch = content.match(/^#\s+(.+)/m);
+        return { id, name: titleMatch ? titleMatch[1] : id, file: f };
+      });
+      sendJSON(res, { roles, teamConfig: path.join(__dirname, '../../agents/TEAM.md') });
+    } catch { sendJSON(res, { roles: [] }); }
+    return;
+  }
+
+  // ===== COMMAND CENTER ROUTES =====
+
+  // POST /api/deploy-prd — write PRD, decompose, set focus, spawn agents
+  if (pathname === '/api/deploy-prd' && req.method === 'POST') {
+    const body = JSON.parse(await readBody(req));
+    const agentsDir = path.join(__dirname, '../../agents');
+    const prdPath = path.join(agentsDir, 'prd.md');
+    if (!body.content || typeof body.content !== 'string') { sendJSON(res, { error: 'content required' }, 400); return; }
+    fs.writeFileSync(prdPath, body.content);
+    const projectRoot = path.resolve(__dirname, '../../');
+    // Chain: decompose → set focus → spawn agents for each role
+    exec(`cd "${projectRoot}" && CLAUDE_BIN="${CLAUDE_BIN}" bash agents/decompose.sh agents/prd.md > /tmp/decompose.log 2>&1`, (err) => {
+      if (err) { console.error('Decompose failed:', err.message); return; }
+      console.log('PRD decomposition complete — setting focus and spawning agents');
+      try {
+        const prd = JSON.parse(fs.readFileSync(path.join(agentsDir, 'prd.json'), 'utf8'));
+        const title = prd.title || 'PRD Mission';
+        // Set focus directive so all agents prioritize PRD work
+        const controlsFile = path.join(projectRoot, 'storyengine/agents/controls.json');
+        let controls = {};
+        try { controls = JSON.parse(fs.readFileSync(controlsFile, 'utf8')); } catch {}
+        controls.focus = `PRD deployed: ${title}. Execute all PRD tasks from agents/prd.json.`;
+        fs.writeFileSync(controlsFile, JSON.stringify(controls, null, 2));
+        // Spawn unified agents (run-agent.sh) — they auto-detect PRD and work on it
+        const roleToAgent = { backend: 'backend-dev', frontend: 'frontend-dev', qa: 'qa-engineer', 'pipeline-tester': 'pipeline-tester' };
+        const roles = [...new Set((prd.tasks || []).map(t => t.role).filter(Boolean))];
+        for (const role of roles) {
+          const agent = roleToAgent[role] || role;
+          exec(`cd "${projectRoot}/storyengine/agents" && CLAUDE_BIN="${CLAUDE_BIN}" bash run-agent.sh "${agent}" > /tmp/prd-${agent}.log 2>&1`,
+            (e) => { if (e) console.error(`Spawn ${agent} failed:`, e.message); else console.log(`Agent ${agent} started`); });
+        }
+      } catch (e) { console.error('Post-decompose spawn failed:', e.message); }
+    });
+    sendJSON(res, { success: true, message: 'Decomposing PRD and preparing agents...' });
+    return;
+  }
+
+  // GET /api/mission-status — current mission state from prd.json + progress.md
+  if (pathname === '/api/mission-status' && req.method === 'GET') {
+    const agentsDir = path.join(__dirname, '../../agents');
+    const prdPath = path.join(agentsDir, 'prd.json');
+    const progressPath = path.join(agentsDir, 'progress.md');
+    const prdMdPath = path.join(agentsDir, 'prd.md');
+    let prd = null, progress = '', prdRaw = '';
+    try { prd = JSON.parse(fs.readFileSync(prdPath, 'utf8')); } catch {}
+    try { progress = fs.readFileSync(progressPath, 'utf8'); } catch {}
+    try { prdRaw = fs.readFileSync(prdMdPath, 'utf8'); } catch {}
+    if (!prd && !prdRaw) { sendJSON(res, { active: false }); return; }
+    if (!prd && prdRaw) { sendJSON(res, { active: true, decomposing: true, title: 'Decomposing...' }); return; }
+    const total = prd.tasks?.length || 0;
+    // Parse completion from progress.md (agents update this, not prd.json)
+    const doneFromProgress = (progress.match(/- \[x\]/gi) || []).length;
+    const blockedFromProgress = (progress.match(/BLOCKED/gi) || []).length;
+    const done = doneFromProgress || (prd.tasks || []).filter(t => t.status === 'done' || t.status === 'verified').length;
+    const blocked = blockedFromProgress || (prd.tasks || []).filter(t => t.status === 'blocked').length;
+    const inProgress = Math.max(0, total - done - blocked);
+    sendJSON(res, { active: true, decomposing: false, title: prd.title || 'Untitled', total, done, blocked, inProgress, progress });
+    return;
+  }
+
+  // DELETE /api/mission — clear current mission + focus directive + user-browser errors
+  if (pathname === '/api/mission' && req.method === 'DELETE') {
+    const agentsDir = path.join(__dirname, '../../agents');
+    for (const f of ['prd.json', 'prd.md', 'progress.md']) {
+      try { fs.unlinkSync(path.join(agentsDir, f)); } catch {}
+    }
+    // Also clear focus directive (PRD sets focus on deploy, so clear on mission clear)
+    const controlsFile = path.join(DATA_DIR, 'controls.json');
+    try {
+      const controls = JSON.parse(fs.readFileSync(controlsFile, 'utf8'));
+      delete controls.focus;
+      fs.writeFileSync(controlsFile, JSON.stringify(controls, null, 2));
+    } catch {}
+    // Clear user-browser errors from activity log
+    const activityFile = path.join(DATA_DIR, 'activity-log.json');
+    try {
+      const logs = JSON.parse(fs.readFileSync(activityFile, 'utf8'));
+      const filtered = logs.filter(e => !(e.agent === 'user-browser' && e.status === 'error'));
+      fs.writeFileSync(activityFile, JSON.stringify(filtered, null, 2));
+    } catch {}
+    // Clear error tracker
+    try { fs.unlinkSync('/tmp/prd-watcher-errors-seen.txt'); } catch {}
+    sendJSON(res, { success: true });
+    return;
+  }
+
+  // POST /api/generate-prd — Claude Opus generates structured PRD from rough notes
+  if (pathname === '/api/generate-prd' && req.method === 'POST') {
+    const body = JSON.parse(await readBody(req));
+    if (!body.content || typeof body.content !== 'string') { sendJSON(res, { error: 'content required' }, 400); return; }
+    const taskId = 'prd-' + Date.now();
+    const resultFile = path.join(DATA_DIR, taskId + '.json');
+    fs.writeFileSync(resultFile, JSON.stringify({ status: 'generating' }));
+    const promptFile = `/tmp/${taskId}-prompt.txt`;
+    const prompt = `You are a senior technical product manager writing a PRD for an autonomous dev team.
+
+The user typed rough notes about what they want built. Transform these into a structured, actionable PRD.
+
+## User's Notes
+${body.content}
+
+## Output Format — write ONLY this markdown, no preamble:
+
+# PRD: [Clear Title]
+
+## Summary
+[2-3 sentences: what we're building, why, and the expected outcome]
+
+## Requirements
+[Numbered list of specific, concrete requirements. Be PRECISE — "email/password auth with bcrypt, JWT tokens, httpOnly cookies" not just "auth system"]
+
+## Pages / UI
+[List each page/screen with what it shows and what actions are available]
+
+## API Endpoints
+[List each endpoint: METHOD /path — description, request body, response shape]
+
+## Database Changes
+[Any new tables, columns, or migrations needed]
+
+## Acceptance Criteria
+[Numbered list of machine-verifiable criteria. Each MUST be testable with: curl, tsc --noEmit, Playwright, test -f, or psql]
+
+## Execution Order
+[Which tasks must happen first (bottom-up: database → backend → frontend → QA)]
+
+## Agent Assignments
+IMPORTANT: You may ONLY assign tasks to these 4 roles. No other roles exist:
+- **backend** (role: "backend"): Python/FastAPI, database migrations, API endpoints
+- **frontend** (role: "frontend"): React/Next.js, TypeScript, UI components, pages
+- **qa** (role: "qa"): Playwright browser testing, acceptance criteria verification, bug filing
+- **pipeline-tester** (role: "pipeline-tester"): Opens every page, clicks every button, finds bugs
+
+Do NOT create tasks for "security", "lead", "devops", or any other role. Security checks should be part of the QA agent's verification tasks.
+
+## Testing Strategy
+The Pipeline Tester and QA agents MUST:
+- Open every affected page in a real browser (Playwright)
+- Click every button and verify the result
+- Check for console errors on every page
+- File specific bug reports with reproduction steps for any failures
+- Include security checks: auth validation, input sanitization, no data leaks
+
+RULES:
+- Be SPECIFIC and CONCRETE. Vague requirements create vague implementations.
+- Every acceptance criterion must be a shell command that exits 0 on success.
+- Think about error states, empty states, loading states, and edge cases.
+- Security checks go in QA tasks, NOT a separate security role.
+- Testing is NOT optional — QA and Pipeline Tester tasks are required in every PRD.
+- The "role" field in tasks MUST be one of: "backend", "frontend", "qa", "pipeline-tester".
+- Output ONLY the PRD markdown. No commentary before or after.`;
+    fs.writeFileSync(promptFile, prompt);
+    // Run wrapper script in background — handles Claude CLI + writes result JSON
+    const scriptPath = path.resolve(__dirname, '../../agents/generate-prd.sh');
+    exec(`CLAUDE_BIN="${CLAUDE_BIN}" bash "${scriptPath}" "${promptFile}" "${resultFile}"`, {
+      timeout: 600000, maxBuffer: 5 * 1024 * 1024,
+      env: { ...process.env, HOME: process.env.HOME || require('os').homedir(), PATH: `${process.env.PATH}:${path.join(process.env.HOME || require('os').homedir(), '.npm-global/bin')}` }
+    }, (err) => {
+      try { fs.unlinkSync(promptFile); } catch {}
+      if (err && !fs.existsSync(resultFile)) {
+        console.error('generate-prd script failed:', err.message);
+        fs.writeFileSync(resultFile, JSON.stringify({ status: 'error', error: err.message.substring(0, 300) }));
+      }
+    });
+    sendJSON(res, { taskId });
+    return;
+  }
+
+  // GET /api/generate-prd/:taskId — poll for PRD generation result
+  if (pathname.startsWith('/api/generate-prd/') && req.method === 'GET') {
+    const taskId = pathname.split('/').pop();
+    if (!taskId || !/^prd-\d+$/.test(taskId)) { sendJSON(res, { error: 'invalid taskId' }, 400); return; }
+    const resultFile = path.join(DATA_DIR, taskId + '.json');
+    try {
+      const data = JSON.parse(fs.readFileSync(resultFile, 'utf8'));
+      if (data.status === 'done' || data.status === 'error') {
+        try { fs.unlinkSync(resultFile); } catch {} // cleanup after read
+      }
+      sendJSON(res, data);
+    } catch { sendJSON(res, { status: 'not_found' }, 404); }
+    return;
+  }
+
+  // POST /api/spawn-agent — run an agent immediately (no cron wait)
+  if (pathname === '/api/spawn-agent' && req.method === 'POST') {
+    const body = JSON.parse(await readBody(req));
+    const { role, system } = body; // system: 'team' | 'storyengine'
+    if (!role) { sendJSON(res, { error: 'role required' }, 400); return; }
+    // Respect kill switch — don't spawn if team is OFF
+    try {
+      const controls = JSON.parse(readFileSync(join(DATA_DIR, 'controls.json'), 'utf8'));
+      if (controls.team_enabled === false) {
+        sendJSON(res, { success: false, message: `Team is OFF — ${role} not spawned` });
+        return;
+      }
+    } catch {}
+    const projectRoot = path.resolve(__dirname, '../../');
+    // Unified: always use run-agent.sh — it auto-detects PRD tasks
+    exec(`cd "${projectRoot}/storyengine/agents" && CLAUDE_BIN="${CLAUDE_BIN}" bash run-agent.sh "${role}" > /tmp/prd-${role}.log 2>&1`,
+      (err) => { if (err) console.error(`Agent ${role} failed:`, err.message); });
+    sendJSON(res, { success: true, message: `Spawned ${role} (${system || 'storyengine'})` });
     return;
   }
 

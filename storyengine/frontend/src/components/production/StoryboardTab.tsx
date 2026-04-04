@@ -5,7 +5,7 @@ import { Check, Loader2, Image as ImageIcon, RefreshCw } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { StatusPill } from "@/components/ui/StatusPill";
-import { getVideoScript, runPipelineStage, advanceVideo, clearStaleTask } from "@/lib/api";
+import { getVideoScript, runPipelineStage, advanceVideo, clearStaleTask, approveStoryboard, rejectStoryboard, bulkApproveStoryboards } from "@/lib/api";
 import { useTaskPoller } from "@/hooks/use-task-poller";
 import type { ScriptScene } from "@/lib/api";
 import { PromptExpander } from "@/components/video-detail/prompt-expander";
@@ -106,7 +106,19 @@ export function StoryboardTab({ video }: StoryboardTabProps) {
     );
   };
 
-  const approveScene = (sceneIdx: number) => {
+  const approveScene = async (sceneIdx: number) => {
+    const scene = scenes[sceneIdx];
+    if (!scene || !scriptScenes) return;
+    const scriptScene = scriptScenes.find((s) => s.scene === scene.sceneNumber);
+    if (scriptScene?.id) {
+      try {
+        await approveStoryboard(scriptScene.id);
+        queryClient.invalidateQueries({ queryKey: ["video-script", video.id] });
+      } catch (err) {
+        alert(`Failed to approve: ${(err as Error).message}`);
+        return;
+      }
+    }
     setScenes((prev) =>
       prev.map((s, i) => (i === sceneIdx ? { ...s, approved: true } : s))
     );
@@ -137,13 +149,21 @@ export function StoryboardTab({ video }: StoryboardTabProps) {
 
   const handleApproveAll = useCallback(async () => {
     try {
+      // Bulk-approve all storyboard scenes via API
+      if (scriptScenes && scriptScenes.length > 0) {
+        const scriptIds = scriptScenes.map((s) => s.id).filter(Boolean);
+        if (scriptIds.length > 0) {
+          await bulkApproveStoryboards(scriptIds);
+        }
+      }
       await advanceVideo(video.id);
       queryClient.invalidateQueries({ queryKey: ["video", video.id] });
+      queryClient.invalidateQueries({ queryKey: ["video-script", video.id] });
       setScenes((prev) => prev.map((s) => ({ ...s, approved: true })));
     } catch (err) {
       alert(`Failed to approve: ${(err as Error).message}`);
     }
-  }, [video.id, queryClient]);
+  }, [video.id, queryClient, scriptScenes]);
 
   const approvedCount = scenes.filter((s) => s.approved).length;
   const totalWithPanels = scenes.filter((s) => s.hasAnyPanels).length;

@@ -160,7 +160,7 @@ export default function DashboardPage() {
       </motion.div>
 
       {/* Stat Cards */}
-      <motion.div variants={item} className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <motion.div variants={item} className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         <StatCard
           label="Total Videos"
           value={summary?.total_videos ?? 0}
@@ -196,7 +196,7 @@ export default function DashboardPage() {
           >
             Pipeline Distribution
           </h2>
-          <div className="flex items-end gap-1 h-20">
+          <div className="flex items-end gap-1 h-20 overflow-x-auto">
             {stageDistribution.map((stage) => {
               const maxCount = Math.max(...stageDistribution.map((s) => s.count), 1);
               const height = stage.count > 0 ? Math.max(16, (stage.count / maxCount) * 100) : 4;
@@ -205,7 +205,7 @@ export default function DashboardPage() {
                 <button
                   key={stage.key}
                   onClick={() => router.push(`/pipeline?filter=${stage.key}`)}
-                  className="flex-1 flex flex-col items-center gap-1 group cursor-pointer"
+                  className="flex-1 min-w-0 flex flex-col items-center gap-1 group cursor-pointer"
                   title={`${stage.label}: ${stage.count} video${stage.count !== 1 ? "s" : ""}`}
                 >
                   {stage.count > 0 && (

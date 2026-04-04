@@ -399,10 +399,6 @@
     </div>
   </div>
   <div class="agent-status-panel" id="agent-status-panel"></div>
-  <div id="task-progress" style="padding:8px 12px;border-bottom:1px solid var(--border);margin-bottom:8px;">
-    <div style="height:4px;background:#1a1a1a;border-radius:2px;overflow:hidden;"><div id="progress-fill" style="height:100%;background:#50e3c2;border-radius:2px;transition:width 0.5s;width:0%;"></div></div>
-    <div id="progress-text" style="font-size:10px;color:#555;margin-top:4px;">Loading...</div>
-  </div>
   <nav class="nav-tabs" id="nav-tabs"></nav>
 </div>
 
@@ -421,10 +417,156 @@
 
   <!-- WELCOME -->
   <div id="tab-welcome" class="tab-panel active">
-    <div class="placeholder">
-      <h2>Welcome to Rubric Console</h2>
-      <p>This is your agent dashboard scaffold. It comes with a collapsible sidebar, tab navigation with drag-to-reorder, global search, and live agent status monitoring.</p>
-      <p>Use the tabs on the left to explore your installed Rubric templates. Double-click a tab to set it as your home page.</p>
+    <div style="max-width:800px;margin:0 auto;padding:20px;">
+
+      <!-- Team Controls Panel -->
+      <div style="margin-bottom:20px;padding:20px;background:#0a0a0a;border:1px solid #1a1a1a;border-radius:12px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <h2 style="font-size:18px;font-weight:700;color:#ccc;margin:0;">Team Controls</h2>
+            <span id="tc-mode-badge" style="font-size:10px;padding:3px 10px;border-radius:10px;font-weight:600;background:rgba(80,227,194,0.12);color:#50e3c2;">Ad-hoc</span>
+          </div>
+          <span id="tc-mode-desc" style="font-size:11px;color:#555;">Responding to messages & errors</span>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
+          <!-- Master ON/OFF Toggle -->
+          <button id="tc-toggle-btn" onclick="toggleTeam()" style="display:flex;flex-direction:column;align-items:center;gap:8px;padding:16px 12px;border-radius:10px;cursor:pointer;border:1px solid #222;background:#111;font-family:Outfit,sans-serif;transition:all 0.2s;">
+            <div id="tc-toggle-icon" style="width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:rgba(80,227,194,0.15);transition:all 0.2s;">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#50e3c2" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>
+            </div>
+            <div id="tc-toggle-label" style="font-size:13px;font-weight:700;color:#50e3c2;">ON</div>
+            <div style="font-size:10px;color:#555;">Master Switch</div>
+          </button>
+
+          <!-- Clear Task Queue -->
+          <button onclick="clearTaskQueue()" style="display:flex;flex-direction:column;align-items:center;gap:8px;padding:16px 12px;border-radius:10px;cursor:pointer;border:1px solid #222;background:#111;font-family:Outfit,sans-serif;transition:all 0.2s;" onmouseenter="this.style.borderColor='#333';this.style.background='#161616'" onmouseleave="this.style.borderColor='#222';this.style.background='#111'">
+            <div style="width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:rgba(212,168,68,0.12);">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#D4A844" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+            </div>
+            <div style="font-size:13px;font-weight:600;color:#ccc;">Clear Queue</div>
+            <div id="tc-queue-count" style="font-size:10px;color:#555;">0 tasks</div>
+          </button>
+
+          <!-- Clear PRD -->
+          <button onclick="clearMissionEnhanced()" style="display:flex;flex-direction:column;align-items:center;gap:8px;padding:16px 12px;border-radius:10px;cursor:pointer;border:1px solid #222;background:#111;font-family:Outfit,sans-serif;transition:all 0.2s;" onmouseenter="this.style.borderColor='#333';this.style.background='#161616'" onmouseleave="this.style.borderColor='#222';this.style.background='#111'">
+            <div style="width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:rgba(227,80,80,0.12);">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#e35050" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+            </div>
+            <div style="font-size:13px;font-weight:600;color:#ccc;">Clear PRD</div>
+            <div id="tc-prd-status" style="font-size:10px;color:#555;">No active PRD</div>
+          </button>
+        </div>
+      </div>
+
+      <!-- Work Board (always visible — pending queue + completed history) -->
+      <div id="tq-panel" style="margin-bottom:20px;">
+        <!-- Header with tab switcher -->
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;background:#0a0a0a;border:1px solid #1a1a1a;border-radius:12px 12px 0 0;">
+          <div style="display:flex;align-items:center;gap:6px;">
+            <button id="wb-tab-queue" onclick="switchWorkBoard('queue')" style="font-size:12px;padding:4px 12px;border-radius:6px;border:1px solid #D4A844;background:rgba(212,168,68,0.15);color:#D4A844;cursor:pointer;font-family:Outfit,sans-serif;font-weight:600;">Queue <span id="tq-pending-badge">0</span></button>
+            <button id="wb-tab-done" onclick="switchWorkBoard('done')" style="font-size:12px;padding:4px 12px;border-radius:6px;border:1px solid #222;background:transparent;color:#555;cursor:pointer;font-family:Outfit,sans-serif;font-weight:500;">Completed <span id="tq-done-badge">0</span></button>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span id="tq-summary" style="font-size:11px;color:#555;">Loading...</span>
+            <button onclick="clearTaskQueue()" style="background:none;border:1px solid #222;color:#e35050;padding:3px 10px;border-radius:6px;font-size:10px;cursor:pointer;font-family:Outfit,sans-serif;">Clear All</button>
+          </div>
+        </div>
+        <!-- Queue view (pending tasks — the bulletin board) -->
+        <div id="wb-queue" style="border:1px solid #1a1a1a;border-top:none;border-radius:0 0 12px 12px;background:#0a0a0a;max-height:500px;overflow-y:auto;">
+          <div id="tq-list" style="padding:8px;">
+            <div style="color:#555;font-size:12px;padding:12px;text-align:center;">Loading tasks...</div>
+          </div>
+        </div>
+        <!-- Completed view (all done tasks by tab — initially hidden) -->
+        <div id="wb-done" style="display:none;border:1px solid #1a1a1a;border-top:none;border-radius:0 0 12px 12px;background:#0a0a0a;max-height:500px;overflow-y:auto;">
+          <div id="tq-done-list" style="padding:8px;">
+            <div style="color:#555;font-size:12px;padding:12px;text-align:center;">Loading...</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Section 1: Mission Brief -->
+      <div style="margin-bottom:20px;">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+          <h2 style="font-size:18px;font-weight:700;color:#ccc;margin:0;">Command Center</h2>
+          <span style="font-size:10px;color:#555;">Deploy PRDs, review proposals, monitor the team</span>
+        </div>
+
+        <!-- PRD Input (hidden when mission active) -->
+        <div id="cc-prd-input" style="margin-bottom:16px;">
+          <div style="padding:20px;background:#0a0a0a;border:1px solid #1a1a1a;border-radius:12px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+              <h3 style="font-size:14px;font-weight:600;color:#888;margin:0;">Mission Brief</h3>
+              <span style="font-size:10px;color:#555;">Type rough notes → Generate PRD → Deploy to Team</span>
+            </div>
+            <textarea id="cc-prd-textarea" placeholder="Type what you want built in plain English — rough notes are fine.&#10;&#10;Example: I need a settings page where users can update their profile, change their password, and manage API keys. Should have tabs for each section. Backend needs validation. Test everything.&#10;&#10;Click 'Generate PRD' to turn this into a structured PRD, then review and click 'Deploy to Team' to start agents immediately." style="width:100%;min-height:200px;background:#111;color:#ccc;border:1px solid #222;border-radius:8px;padding:14px;font-family:'JetBrains Mono','SF Mono',Menlo,monospace;font-size:12px;line-height:1.6;resize:vertical;tab-size:2;box-sizing:border-box;" onfocus="this.style.borderColor='#444'" onblur="this.style.borderColor='#222'"></textarea>
+            <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px;">
+              <button id="cc-generate-btn" onclick="generatePRD()" style="background:#333;border:1px solid #555;color:#ccc;padding:10px 24px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;font-family:Outfit,sans-serif;">Generate PRD</button>
+              <button id="cc-deploy-btn" onclick="deployPRD()" style="background:#1A8A7A;border:none;color:white;padding:10px 24px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;font-family:Outfit,sans-serif;">Deploy to Team</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Active Mission (hidden when no mission) -->
+        <div id="cc-mission-active" style="display:none;margin-bottom:16px;">
+          <div style="padding:20px;background:#0a0a0a;border:1px solid #1a1a1a;border-left:3px solid #1A8A7A;border-radius:12px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+              <div>
+                <div style="display:flex;align-items:center;gap:8px;">
+                  <h3 id="cc-mission-title" style="font-size:16px;font-weight:700;color:#ccc;margin:0;">Loading...</h3>
+                  <span style="font-size:9px;padding:2px 6px;background:rgba(26,138,122,0.15);color:#50e3c2;border-radius:4px;font-weight:500;">ACTIVE</span>
+                </div>
+                <div id="cc-mission-stats" style="font-size:12px;color:#888;margin-top:4px;"></div>
+              </div>
+              <div style="display:flex;gap:8px;">
+                <button onclick="toggleProgress()" style="background:none;border:1px solid #333;color:#888;padding:6px 12px;border-radius:6px;font-size:11px;cursor:pointer;font-family:Outfit,sans-serif;">Progress</button>
+                <button onclick="clearMission()" style="background:none;border:1px solid #333;color:#e35050;padding:6px 12px;border-radius:6px;font-size:11px;cursor:pointer;font-family:Outfit,sans-serif;">Clear</button>
+              </div>
+            </div>
+            <!-- Progress bar -->
+            <div style="background:#1a1a1a;border-radius:4px;height:6px;overflow:hidden;">
+              <div id="cc-progress-bar" style="height:100%;background:#1A8A7A;border-radius:4px;transition:width 0.3s;width:0%;"></div>
+            </div>
+            <!-- Collapsible progress.md -->
+            <div id="cc-progress-detail" style="display:none;margin-top:12px;padding:12px;background:#111;border-radius:8px;max-height:300px;overflow-y:auto;">
+              <pre id="cc-progress-text" style="font-size:11px;color:#888;line-height:1.6;white-space:pre-wrap;margin:0;font-family:'JetBrains Mono','SF Mono',Menlo,monospace;"></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Section 2: Agent Proposals -->
+      <div style="margin-bottom:20px;padding:16px;background:#0a0a0a;border:1px solid #1a1a1a;border-radius:12px;">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+          <h3 style="font-size:14px;font-weight:600;color:#888;margin:0;">Agent Proposals</h3>
+          <span id="cc-proposals-badge" style="font-size:10px;padding:2px 8px;background:rgba(212,168,68,0.15);color:#D4A844;border-radius:10px;display:none;">0</span>
+        </div>
+        <div id="cc-proposals-list" style="display:flex;flex-direction:column;gap:8px;">
+          <div style="font-size:12px;color:#555;padding:8px;">No proposals yet. Agents will surface ideas as they work.</div>
+        </div>
+      </div>
+
+      <!-- Section 3: Mission Status -->
+      <div style="margin-bottom:20px;">
+        <!-- Focus Directive Banner -->
+        <div id="cc-focus-banner" style="display:none;margin-bottom:12px;padding:12px 16px;background:rgba(26,138,122,0.08);border:1px solid rgba(26,138,122,0.25);border-radius:8px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;">
+            <div style="display:flex;align-items:center;gap:8px;">
+              <span style="font-size:10px;padding:2px 6px;background:rgba(26,138,122,0.15);color:#50e3c2;border-radius:4px;font-weight:500;">FOCUS</span>
+              <span id="cc-focus-text" style="font-size:12px;color:#50e3c2;"></span>
+            </div>
+            <button onclick="clearFocus()" style="background:none;border:none;color:#555;cursor:pointer;font-size:14px;">&times;</button>
+          </div>
+        </div>
+
+        <!-- Agent Status Row -->
+        <div style="padding:16px;background:#0a0a0a;border:1px solid #1a1a1a;border-radius:12px;">
+          <h3 style="font-size:14px;font-weight:600;color:#888;margin:0 0 10px 0;">Team Status</h3>
+          <div id="cc-agent-status" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;"></div>
+        </div>
+      </div>
+
     </div>
   </div>
 
@@ -692,6 +834,22 @@
         <div class="connector-label" id="connector-label"></div>
       </div>
       <div class="team-agents-grid" id="team-grid"></div>
+
+      <!-- Autonomous Team Roles -->
+      <div class="team-connector">
+        <div class="connector-line"></div>
+        <div class="connector-label">Autonomous Roles (portable)</div>
+      </div>
+      <div id="team-roles-section" style="margin-top:0;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+          <div>
+            <div style="font-size:15px;font-weight:600;color:#ccc;">Agent Roles</div>
+            <div style="font-size:11px;color:#555;">Portable role definitions — edit these to customize agent behavior on any project</div>
+          </div>
+          <button onclick="openInstructionsEditor('TEAM','Team Config','roles')" class="edit-instructions-btn" style="font-size:11px;">Edit TEAM.md</button>
+        </div>
+        <div id="team-roles-grid" class="team-agents-grid"></div>
+      </div>
     </div>
   </div>
 
@@ -759,7 +917,7 @@ window.__onTabShow = {};
     icons: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
     activity: '<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>',
   };
-  const TAB_LABELS = { welcome:'Welcome', activity:'Activity', agents:'Agents', flows:'Flows', 'skill-trees':'Skill Trees', crons:'Crons', team:'Team', icons:'Icons' };
+  const TAB_LABELS = { welcome:'Command Center', activity:'Activity', agents:'Agents', flows:'Flows', 'skill-trees':'Skill Trees', crons:'Crons', team:'Team', icons:'Icons' };
 
   let configData = { agents: [] };
 
@@ -812,7 +970,7 @@ window.__onTabShow = {};
     setInterval(pollAgentStatus, 10000);
 
     loadActivityFeed();
-    setInterval(loadActivityFeed, 30000);
+    setInterval(loadActivityFeed, 8000);
     document.getElementById('activity-refresh-btn')?.addEventListener('click', () => { loadActivityFeed(); loadHandoffs(); loadTaskProgress(); });
 
     loadPullRequests();
@@ -824,7 +982,7 @@ window.__onTabShow = {};
     loadControls();
     setInterval(loadControls, 10000);
     loadHandoffs();
-    setInterval(loadHandoffs, 30000);
+    setInterval(loadHandoffs, 8000);
     loadFeedback();
     setInterval(loadFeedback, 30000);
     loadRetro();
@@ -872,16 +1030,7 @@ window.__onTabShow = {};
       const resp = await fetch('/api/task-queue');
       if (!resp.ok) return;
       const queue = await resp.json();
-      const allTasks = queue.tabs ? queue.tabs.flatMap(t => t.tasks) : [];
-      const done = allTasks.filter(t => t.status === 'done' || t.verified).length;
-      const total = allTasks.length;
-      const currentTab = queue.current_tab || 1;
-      const totalTabs = queue.tabs ? queue.tabs.length : 0;
-      const pct = total > 0 ? Math.round((done / total) * 100) : 0;
-      const fill = document.getElementById('progress-fill');
-      const text = document.getElementById('progress-text');
-      if (fill) fill.style.width = pct + '%';
-      if (text) text.textContent = 'Tab ' + currentTab + '/' + totalTabs + ' \u2014 ' + done + '/' + total + ' tasks (' + pct + '%)';
+      // Sidebar progress removed — Work Board on Command Center shows all tasks now
     } catch {}
   }
 
@@ -907,6 +1056,8 @@ window.__onTabShow = {};
       // Update controls grid + focus + cadence in activity tab
       renderControlsGrid();
       highlightCadence();
+      // Update team toggle
+      if (typeof updateTeamToggle === 'function') updateTeamToggle(currentControls.team_enabled !== false);
       const focusEl = document.getElementById('current-focus');
       if (focusEl) {
         if (currentControls.focus) {
@@ -1488,12 +1639,503 @@ window.__onTabShow = {};
   init();
 })();
 
+// ==================== COMMAND CENTER ====================
+(function() {
+  const agentColors = { orchestrator:'#D4A844', 'backend-dev':'#1A8A7A', 'frontend-dev':'#58abf5', 'qa-engineer':'#e35050', 'pipeline-tester':'#c084fc' };
+  const typeColors = { refactor:'#58abf5', optimization:'#50e3c2', bug_fix:'#e35050', new_feature:'#D4A844', improvement:'#888', process_improvement:'#888' };
+
+  function ccEsc(str) { const d = document.createElement('div'); d.textContent = str || ''; return d.innerHTML; }
+
+  // Generate PRD from rough notes using Claude Opus
+  window.generatePRD = async function() {
+    const textarea = document.getElementById('cc-prd-textarea');
+    const btn = document.getElementById('cc-generate-btn');
+    const content = textarea.value.trim();
+    if (!content) { alert('Type your requirements first — rough notes are fine.'); return; }
+    btn.textContent = 'Generating...';
+    btn.disabled = true;
+    btn.style.opacity = '0.6';
+    try {
+      const res = await fetch('/api/generate-prd', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content }) });
+      const { taskId } = await res.json();
+      if (!taskId) { throw new Error('No taskId returned'); }
+      // Poll for result
+      const poll = setInterval(async () => {
+        try {
+          const r = await fetch('/api/generate-prd/' + taskId);
+          const data = await r.json();
+          if (data.status === 'done') {
+            clearInterval(poll); clearInterval(ticker);
+            textarea.value = data.prd;
+            btn.textContent = 'Generate PRD';
+            btn.disabled = false;
+            btn.style.opacity = '1';
+          } else if (data.status === 'error') {
+            clearInterval(poll); clearInterval(ticker);
+            alert('PRD generation failed: ' + data.error);
+            btn.textContent = 'Generate PRD';
+            btn.disabled = false;
+            btn.style.opacity = '1';
+          }
+        } catch {}
+      }, 2000);
+      // Safety timeout after 10 minutes (Opus can take a while on long prompts)
+      let elapsed = 0;
+      const ticker = setInterval(() => { elapsed += 1; btn.textContent = 'Generating... (' + elapsed + 's)'; }, 1000);
+      setTimeout(() => { clearInterval(poll); clearInterval(ticker); btn.textContent = 'Generate PRD'; btn.disabled = false; btn.style.opacity = '1'; alert('Generation timed out after 10 minutes.'); }, 600000);
+    } catch (e) {
+      alert('Generate failed: ' + e.message);
+      btn.textContent = 'Generate PRD';
+      btn.disabled = false;
+      btn.style.opacity = '1';
+    }
+  };
+
+  // Deploy PRD — decompose + set focus + spawn agents immediately
+  window.deployPRD = async function() {
+    const textarea = document.getElementById('cc-prd-textarea');
+    const btn = document.getElementById('cc-deploy-btn');
+    const content = textarea.value.trim();
+    if (!content) { alert('Write or paste a PRD first.'); return; }
+    btn.textContent = 'Deploying...';
+    btn.disabled = true;
+    try {
+      const res = await fetch('/api/deploy-prd', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content }) });
+      if (res.ok) { textarea.value = ''; pollMission(); }
+    } catch (e) { alert('Deploy failed: ' + e.message); }
+    btn.textContent = 'Deploy to Team';
+    btn.disabled = false;
+  };
+
+  // Clear mission (delegates to enhanced version)
+  window.clearMission = async function() {
+    if (!confirm('Clear PRD + focus directive + error tracker?')) return;
+    await fetch('/api/mission', { method: 'DELETE' });
+    document.getElementById('cc-prd-input').style.display = 'block';
+    document.getElementById('cc-mission-active').style.display = 'none';
+    if (typeof pollTeamMode === 'function') pollTeamMode();
+    loadControls();
+  };
+
+  // Toggle progress detail
+  window.toggleProgress = function() {
+    const el = document.getElementById('cc-progress-detail');
+    el.style.display = el.style.display === 'none' ? 'block' : 'none';
+  };
+
+  // Clear focus
+  window.clearFocus = async function() {
+    await fetch('/api/controls/focus', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ focus: '' }) });
+    document.getElementById('cc-focus-banner').style.display = 'none';
+  };
+
+  // ===== TEAM CONTROLS =====
+
+  const MODE_STYLES = {
+    off:        { bg: 'rgba(227,80,80,0.12)',   color: '#e35050', label: 'OFF' },
+    adhoc:      { bg: 'rgba(80,227,194,0.12)',   color: '#50e3c2', label: 'Ad-hoc' },
+    prd:        { bg: 'rgba(26,138,122,0.15)',   color: '#1A8A7A', label: 'PRD Mode' },
+    background: { bg: 'rgba(212,168,68,0.12)',   color: '#D4A844', label: 'Background' },
+  };
+
+  window.toggleTeam = async function() {
+    const resp = await fetch('/api/controls/team-toggle', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+    const data = await resp.json();
+    updateTeamToggle(data.team_enabled);
+    pollTeamMode();
+    loadControls();
+  };
+
+  function updateTeamToggle(enabled) {
+    const btn = document.getElementById('tc-toggle-btn');
+    const icon = document.getElementById('tc-toggle-icon');
+    const label = document.getElementById('tc-toggle-label');
+    if (enabled) {
+      btn.style.borderColor = '#1A8A7A';
+      btn.style.background = 'rgba(26,138,122,0.08)';
+      icon.style.background = 'rgba(80,227,194,0.15)';
+      icon.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#50e3c2" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>';
+      label.textContent = 'ON';
+      label.style.color = '#50e3c2';
+    } else {
+      btn.style.borderColor = '#e35050';
+      btn.style.background = 'rgba(227,80,80,0.06)';
+      icon.style.background = 'rgba(227,80,80,0.15)';
+      icon.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#e35050" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>';
+      label.textContent = 'OFF';
+      label.style.color = '#e35050';
+    }
+  }
+
+  window.clearTaskQueue = async function() {
+    // Get current count for confirmation
+    try {
+      const qResp = await fetch('/api/task-queue');
+      const q = await qResp.json();
+      const total = (q.tabs || []).flatMap(t => t.tasks || []).length;
+      if (total > 0 && !confirm('Clear all ' + total + ' tasks from the queue?')) return;
+    } catch {}
+    await fetch('/api/task-queue', { method: 'DELETE' });
+    pollTeamMode();
+  };
+
+  window.clearMissionEnhanced = async function() {
+    if (!confirm('Clear PRD + focus directive + error tracker?')) return;
+    await fetch('/api/mission', { method: 'DELETE' });
+    document.getElementById('cc-prd-input').style.display = 'block';
+    document.getElementById('cc-mission-active').style.display = 'none';
+    pollTeamMode();
+    loadControls();
+  };
+
+  async function pollTeamMode() {
+    try {
+      const [modeResp, ctrlResp, qResp, missionResp] = await Promise.all([
+        fetch('/api/team-mode'),
+        fetch('/api/controls'),
+        fetch('/api/task-queue'),
+        fetch('/api/mission-status'),
+      ]);
+      const mode = await modeResp.json();
+      const ctrl = await ctrlResp.json();
+      const q = await qResp.json();
+      const mission = await missionResp.json();
+
+      // Mode badge
+      const badge = document.getElementById('tc-mode-badge');
+      const desc = document.getElementById('tc-mode-desc');
+      const s = MODE_STYLES[mode.mode] || MODE_STYLES.adhoc;
+      badge.textContent = s.label;
+      badge.style.background = s.bg;
+      badge.style.color = s.color;
+      desc.textContent = mode.description || '';
+
+      // Toggle state
+      const enabled = ctrl.team_enabled !== false;
+      updateTeamToggle(enabled);
+
+      // Queue count
+      const totalTasks = (q.tabs || []).flatMap(t => t.tasks || []).length;
+      const pendingTasks = (q.tabs || []).flatMap(t => t.tasks || []).filter(t => t.status !== 'done' && t.status !== 'blocked').length;
+      document.getElementById('tc-queue-count').textContent = pendingTasks + ' pending / ' + totalTasks + ' total';
+
+      // PRD status
+      const prdStatus = document.getElementById('tc-prd-status');
+      if (mission.active && !mission.decomposing) {
+        prdStatus.textContent = mission.done + '/' + mission.total + ' done';
+        prdStatus.style.color = '#1A8A7A';
+      } else if (mission.active && mission.decomposing) {
+        prdStatus.textContent = 'Decomposing...';
+        prdStatus.style.color = '#D4A844';
+      } else {
+        prdStatus.textContent = 'No active PRD';
+        prdStatus.style.color = '#555';
+      }
+    } catch {}
+  }
+
+  // ===== WORK BOARD (Queue + Completed) =====
+  function tqEsc(s) { var d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
+
+  let currentWbTab = 'queue';
+  const ROLE_COLORS = { backend: '#1A8A7A', frontend: '#58abf5', qa: '#e35050', 'pipeline-tester': '#c084fc', security: '#f59e0b', lead: '#D4A844' };
+
+  window.switchWorkBoard = function(tab) {
+    currentWbTab = tab;
+    document.getElementById('wb-queue').style.display = tab === 'queue' ? 'block' : 'none';
+    document.getElementById('wb-done').style.display = tab === 'done' ? 'block' : 'none';
+    // Style active tab
+    var qBtn = document.getElementById('wb-tab-queue');
+    var dBtn = document.getElementById('wb-tab-done');
+    if (tab === 'queue') {
+      qBtn.style.background = 'rgba(212,168,68,0.15)'; qBtn.style.borderColor = '#D4A844'; qBtn.style.color = '#D4A844';
+      dBtn.style.background = 'transparent'; dBtn.style.borderColor = '#222'; dBtn.style.color = '#555';
+    } else {
+      dBtn.style.background = 'rgba(80,227,194,0.12)'; dBtn.style.borderColor = '#50e3c2'; dBtn.style.color = '#50e3c2';
+      qBtn.style.background = 'transparent'; qBtn.style.borderColor = '#222'; qBtn.style.color = '#555';
+    }
+    if (tab === 'done') loadCompletedTasks();
+  };
+
+  window.dismissTask = async function(tabIdx, taskIdx) {
+    await fetch('/api/task-queue/dismiss', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tab_index: tabIdx, task_index: taskIdx }) });
+    loadTaskQueueDetail();
+    pollTeamMode();
+  };
+
+  function renderTaskCard(t, showDismiss) {
+    var roleColor = ROLE_COLORS[t.role] || '#888';
+    var source = (t.id || '').indexOf('BUG-USER') === 0 ? 'Bug (auto-detected)' : (t.id || '').indexOf('BUG-PT') === 0 ? 'Bug (tester)' : (t.id || '').indexOf('SEC') === 0 ? 'Security' : 'Task';
+    var statusDot = t.status === 'in_progress' ? '#50e3c2' : t.status === 'blocked' ? '#e35050' : t.status === 'done' ? '#50e3c2' : '#555';
+    var assignedTo = t.assigned_to ? '<span style="font-size:9px;color:#444;">&#8594; ' + tqEsc(t.assigned_to) + '</span>' : '';
+    var dismissBtn = showDismiss ? '<button onclick="event.stopPropagation();dismissTask(' + t._tabIdx + ',' + t._taskIdx + ')" style="background:none;border:none;color:#333;cursor:pointer;font-size:14px;padding:2px 6px;flex-shrink:0;" title="Dismiss">&times;</button>' : '';
+    var completedAt = t.completed_at ? '<span style="font-size:9px;color:#333;">' + new Date(t.completed_at).toLocaleDateString() + '</span>' : '';
+
+    return '<div style="display:flex;align-items:flex-start;gap:8px;padding:8px;margin:2px 0;background:#111;border-radius:8px;border-left:3px solid ' + roleColor + ';">' +
+      '<div style="width:8px;height:8px;border-radius:50%;background:' + statusDot + ';flex-shrink:0;margin-top:5px;"></div>' +
+      '<div style="flex:1;min-width:0;">' +
+        '<div style="font-size:12px;color:' + (t.status === 'done' ? '#666' : '#ccc') + ';line-height:1.4;">' + tqEsc(t.title || t.id || 'Untitled') + '</div>' +
+        '<div style="display:flex;gap:6px;margin-top:3px;flex-wrap:wrap;align-items:center;">' +
+          '<span style="font-size:9px;padding:1px 6px;border-radius:4px;background:rgba(128,128,128,0.1);color:' + roleColor + ';">' + tqEsc(t.role || '?') + '</span>' +
+          '<span style="font-size:9px;color:#444;">' + source + '</span>' +
+          assignedTo +
+          completedAt +
+        '</div>' +
+      '</div>' +
+      dismissBtn +
+    '</div>';
+  }
+
+  async function loadTaskQueueDetail() {
+    const list = document.getElementById('tq-list');
+    const pendingBadge = document.getElementById('tq-pending-badge');
+    const doneBadge = document.getElementById('tq-done-badge');
+    const summary = document.getElementById('tq-summary');
+    try {
+      const resp = await fetch('/api/task-queue');
+      if (!resp.ok) return;
+      const q = await resp.json();
+      const allTasks = (q.tabs || []).flatMap((tab, ti) => tab.tasks?.map((t, idx) => ({ ...t, _tab: tab.name, _tabIdx: ti, _taskIdx: idx })) || []);
+      const pending = allTasks.filter(t => t.status !== 'done' && t.status !== 'blocked');
+      const doneCount = allTasks.filter(t => t.status === 'done').length;
+
+      pendingBadge.textContent = pending.length;
+      doneBadge.textContent = doneCount;
+      summary.textContent = doneCount + '/' + allTasks.length + ' done';
+
+      if (pending.length === 0) {
+        list.innerHTML = '<div style="padding:16px;text-align:center;">' +
+          '<div style="font-size:24px;margin-bottom:8px;">&#10003;</div>' +
+          '<div style="color:#50e3c2;font-size:13px;font-weight:600;">Queue Clear</div>' +
+          '<div style="color:#444;font-size:11px;margin-top:4px;">Agents are in ops mode — testing product health and filing bugs as they find them.</div>' +
+        '</div>';
+        return;
+      }
+
+      // Group by tab
+      const groups = {};
+      pending.forEach(t => { if (!groups[t._tab]) groups[t._tab] = []; groups[t._tab].push(t); });
+
+      var html = '';
+      Object.entries(groups).forEach(function(entry) {
+        var tab = entry[0], tasks = entry[1];
+        html += '<div style="padding:4px 8px;">';
+        html += '<div style="font-size:11px;font-weight:600;color:#555;padding:6px 4px;text-transform:uppercase;letter-spacing:0.5px;">' + tqEsc(tab) + '</div>';
+        tasks.forEach(function(t) { html += renderTaskCard(t, true); });
+        html += '</div>';
+      });
+      list.innerHTML = html;
+    } catch (e) { list.innerHTML = '<div style="color:#e35050;font-size:11px;padding:12px;">Error: ' + e.message + '</div>'; }
+  }
+
+  async function loadCompletedTasks() {
+    const doneList = document.getElementById('tq-done-list');
+    try {
+      const resp = await fetch('/api/task-queue');
+      if (!resp.ok) return;
+      const q = await resp.json();
+
+      var html = '';
+      (q.tabs || []).forEach(function(tab, ti) {
+        var doneTasks = (tab.tasks || []).filter(function(t) { return t.status === 'done'; });
+        if (doneTasks.length === 0) return;
+
+        var totalInTab = (tab.tasks || []).length;
+        var verifiedCount = doneTasks.filter(function(t) { return t.verified; }).length;
+        var tabStatus = tab.status === 'complete' ? '#50e3c2' : '#D4A844';
+
+        html += '<div style="padding:4px 8px;">';
+        html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 4px;">' +
+          '<div style="display:flex;align-items:center;gap:8px;">' +
+            '<span style="font-size:11px;font-weight:600;color:#555;text-transform:uppercase;letter-spacing:0.5px;">' + tqEsc(tab.name || 'Tab ' + tab.id) + '</span>' +
+            '<span style="font-size:9px;padding:1px 6px;border-radius:4px;background:rgba(80,227,194,0.08);color:' + tabStatus + ';">' + doneTasks.length + '/' + totalInTab + ' done</span>' +
+          '</div>' +
+          (tab.path ? '<span style="font-size:9px;color:#333;">' + tqEsc(tab.path) + '</span>' : '') +
+        '</div>';
+
+        doneTasks.forEach(function(t, idx) {
+          html += renderTaskCard({ ...t, _tab: tab.name, _tabIdx: ti, _taskIdx: idx }, false);
+        });
+        html += '</div>';
+      });
+
+      if (!html) {
+        html = '<div style="color:#555;font-size:12px;padding:12px;text-align:center;">No completed tasks yet.</div>';
+      }
+
+      doneList.innerHTML = html;
+    } catch (e) { doneList.innerHTML = '<div style="color:#e35050;font-size:11px;padding:12px;">Error: ' + e.message + '</div>'; }
+  }
+
+  // Load work board on page load
+  loadTaskQueueDetail();
+
+  // Poll team mode on load and periodically
+  pollTeamMode();
+  setInterval(pollTeamMode, 15000);
+
+  // Poll mission status
+  async function pollMission() {
+    try {
+      const res = await fetch('/api/mission-status');
+      const data = await res.json();
+      if (!data.active) {
+        document.getElementById('cc-prd-input').style.display = 'block';
+        document.getElementById('cc-mission-active').style.display = 'none';
+        return;
+      }
+      document.getElementById('cc-prd-input').style.display = 'none';
+      document.getElementById('cc-mission-active').style.display = 'block';
+      document.getElementById('cc-mission-title').textContent = data.title || 'Untitled';
+      if (data.decomposing) {
+        if (!window._decomposeStart) window._decomposeStart = Date.now();
+        const secs = Math.floor((Date.now() - window._decomposeStart) / 1000);
+        const phases = ['Reading PRD', 'Identifying features', 'Creating tasks', 'Writing acceptance criteria', 'Ordering dependencies'];
+        const phase = phases[Math.min(Math.floor(secs / 40), phases.length - 1)];
+        document.getElementById('cc-mission-stats').textContent = phase + '... (' + secs + 's)';
+        // Show pulsing bar so it doesn't look dead
+        document.getElementById('cc-progress-bar').style.width = '100%';
+        document.getElementById('cc-progress-bar').style.opacity = '0.3';
+        document.getElementById('cc-progress-bar').style.animation = 'pulse 2s ease-in-out infinite';
+        // Poll faster during decomposition
+        if (!window._fastPoll) { window._fastPoll = setInterval(pollMission, 3000); }
+      } else {
+        window._decomposeStart = null;
+        if (window._fastPoll) { clearInterval(window._fastPoll); window._fastPoll = null; }
+        document.getElementById('cc-progress-bar').style.opacity = '1';
+        document.getElementById('cc-progress-bar').style.animation = 'none';
+        const pct = data.total > 0 ? Math.round((data.done / data.total) * 100) : 0;
+        document.getElementById('cc-mission-stats').textContent = data.done + '/' + data.total + ' tasks done' + (data.blocked > 0 ? ' \u00B7 ' + data.blocked + ' blocked' : '') + (data.inProgress > 0 ? ' \u00B7 ' + data.inProgress + ' in progress' : '');
+        document.getElementById('cc-progress-bar').style.width = pct + '%';
+        if (data.progress) document.getElementById('cc-progress-text').textContent = data.progress;
+      }
+    } catch {}
+  }
+
+  // Poll proposals for command center
+  async function pollProposals() {
+    const list = document.getElementById('cc-proposals-list');
+    const badge = document.getElementById('cc-proposals-badge');
+    try {
+      const res = await fetch('/api/proposals?status=pending');
+      if (!res.ok) return;
+      const proposals = await res.json();
+      if (!proposals.length) {
+        badge.style.display = 'none';
+        list.innerHTML = '<div style="font-size:12px;color:#555;padding:8px;">No proposals yet. Agents will surface ideas as they work.</div>';
+        return;
+      }
+      badge.style.display = 'inline';
+      badge.textContent = proposals.length;
+      list.innerHTML = proposals.map(function(p) {
+        const ago = Math.floor((Date.now() - p.created_at) / 60000);
+        const timeStr = ago < 1 ? 'Just now' : ago < 60 ? ago + 'm ago' : Math.floor(ago / 60) + 'h ago';
+        const agentColor = agentColors[p.agent] || '#888';
+        const typeColor = typeColors[p.type] || '#555';
+        return '<div style="padding:12px;background:#111;border:1px solid #1a1a1a;border-radius:8px;">' +
+          '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">' +
+            '<span style="font-size:11px;color:' + agentColor + ';font-weight:600;">' + ccEsc(p.agent) + '</span>' +
+            '<span style="font-size:10px;color:' + typeColor + ';background:' + typeColor + '15;padding:2px 6px;border-radius:4px;">' + ccEsc(p.type) + '</span>' +
+            '<span style="font-size:10px;color:#555;margin-left:auto;">' + timeStr + '</span>' +
+          '</div>' +
+          '<div style="font-size:13px;color:#ccc;font-weight:600;margin-bottom:4px;">' + ccEsc(p.title) + '</div>' +
+          '<div style="font-size:12px;color:#888;margin-bottom:8px;">' + ccEsc(p.description) + '</div>' +
+          '<div style="display:flex;gap:8px;align-items:center;">' +
+            '<button onclick="approveProposal(\'' + p.id + '\')" style="background:#1A8A7A;border:none;color:white;padding:6px 14px;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;font-family:Outfit,sans-serif;">Approve</button>' +
+            '<button onclick="rejectProposal(\'' + p.id + '\')" style="background:none;border:1px solid #333;color:#888;padding:6px 14px;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;font-family:Outfit,sans-serif;">Reject</button>' +
+            (p.cost ? '<span style="font-size:10px;color:#555;margin-left:auto;">Cost: ' + ccEsc(p.cost) + '</span>' : '') +
+          '</div>' +
+        '</div>';
+      }).join('');
+    } catch {}
+  }
+
+  // Poll agent status for command center
+  async function pollAgentStatus() {
+    const container = document.getElementById('cc-agent-status');
+    try {
+      const res = await fetch('/api/agent-status', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      if (!res.ok) return;
+      const data = await res.json();
+      const agents = data.agents || [];
+      container.innerHTML = agents.map(function(a) {
+        const color = agentColors[a.id] || '#888';
+        const dotColor = a.status === 'active' ? '#50e3c2' : a.status === 'waiting' ? '#e35050' : '#333';
+        const statusLabel = a.status === 'active' ? 'Running' : a.status === 'waiting' ? 'Deep Work' : 'Idle';
+        const task = a.lastTask || '';
+        return '<div style="padding:10px 12px;background:#111;border:1px solid #1a1a1a;border-radius:8px;">' +
+          '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">' +
+            '<span style="width:8px;height:8px;border-radius:50%;background:' + dotColor + ';flex-shrink:0;' + (a.status === 'active' ? 'box-shadow:0 0 6px rgba(80,227,194,0.5);' : '') + '"></span>' +
+            '<span style="font-size:12px;font-weight:600;color:' + color + ';">' + ccEsc(a.name || a.id) + '</span>' +
+            '<span style="font-size:10px;color:#555;margin-left:auto;">' + statusLabel + '</span>' +
+          '</div>' +
+          '<div style="font-size:10px;color:#555;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + ccEsc(task.slice(0, 60)) + '</div>' +
+        '</div>';
+      }).join('');
+    } catch {}
+  }
+
+  // Poll focus directive
+  async function pollFocus() {
+    try {
+      const res = await fetch('/api/controls');
+      if (!res.ok) return;
+      const data = await res.json();
+      const banner = document.getElementById('cc-focus-banner');
+      if (data.focus) {
+        banner.style.display = 'block';
+        document.getElementById('cc-focus-text').textContent = data.focus;
+      } else {
+        banner.style.display = 'none';
+      }
+    } catch {}
+  }
+
+  // Initialize on tab show
+  let ccInitialized = false;
+  window.__onTabShow = window.__onTabShow || {};
+  const origWelcome = window.__onTabShow['welcome'];
+  window.__onTabShow['welcome'] = function() {
+    if (origWelcome) origWelcome();
+    if (!ccInitialized) {
+      ccInitialized = true;
+      pollMission();
+      pollProposals();
+      pollAgentStatus();
+      pollFocus();
+      setInterval(pollMission, 15000);
+      setInterval(pollProposals, 30000);
+      setInterval(pollAgentStatus, 10000);
+      setInterval(pollFocus, 30000);
+    }
+  };
+
+  // Auto-init since welcome is the default active tab
+  setTimeout(function() {
+    if (!ccInitialized) {
+      ccInitialized = true;
+      pollMission();
+      pollProposals();
+      pollAgentStatus();
+      pollFocus();
+      setInterval(pollMission, 15000);
+      setInterval(pollProposals, 30000);
+      setInterval(pollAgentStatus, 10000);
+      setInterval(pollFocus, 30000);
+    }
+  }, 1000);
+})();
+
 // ==================== AGENT INSTRUCTIONS EDITOR ====================
-async function openInstructionsEditor(agentId, agentName) {
+// source: undefined = storyengine/agents/, 'roles' = agents/roles/
+let _instrSource = null;
+async function openInstructionsEditor(agentId, agentName, source) {
+  _instrSource = source || null;
+  const sourceParam = source ? '?source=' + source : '';
   const overlay = document.createElement('div');
   overlay.className = 'instr-modal-overlay';
   overlay.innerHTML = '<div class="instr-modal">' +
-    '<div class="instr-modal-header"><span class="instr-modal-title">' + agentName + ' — Instructions</span>' +
+    '<div class="instr-modal-header"><span class="instr-modal-title">' + agentName + ' — Instructions' + (source === 'roles' ? ' <span style="font-size:10px;color:#50e3c2;background:rgba(80,227,194,0.1);padding:2px 6px;border-radius:4px;">portable</span>' : '') + '</span>' +
     '<button onclick="this.closest(\'.instr-modal-overlay\').remove()" style="background:none;border:none;color:#555;cursor:pointer;font-size:20px;">&times;</button></div>' +
     '<textarea id="instr-editor" placeholder="Loading..."></textarea>' +
     '<div class="instr-modal-actions">' +
@@ -1504,7 +2146,7 @@ async function openInstructionsEditor(agentId, agentName) {
   overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
 
   try {
-    const res = await fetch('/api/agent-instructions/' + agentId);
+    const res = await fetch('/api/agent-instructions/' + agentId + sourceParam);
     const data = await res.json();
     document.getElementById('instr-editor').value = data.content || '';
   } catch (e) {
@@ -1515,10 +2157,11 @@ async function openInstructionsEditor(agentId, agentName) {
 async function saveInstructions(agentId) {
   const textarea = document.getElementById('instr-editor');
   const saveBtn = textarea.closest('.instr-modal').querySelector('.instr-save-btn');
+  const sourceParam = _instrSource ? '?source=' + _instrSource : '';
   saveBtn.textContent = 'Saving...';
   saveBtn.disabled = true;
   try {
-    const res = await fetch('/api/agent-instructions/' + agentId, {
+    const res = await fetch('/api/agent-instructions/' + agentId + sourceParam, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ content: textarea.value })
@@ -1606,13 +2249,17 @@ async function saveInstructions(agentId) {
       const pixels = a.pixels || [];
       const iconHtml = status === 'active' ? makeHopSvg(pixels, a.color, idx) : makeStaticSvg(pixels, a.color);
       const sk = agentSkills[a.id];
-      const skillsHtml = sk ? '<div style="display:flex;gap:10px;margin-top:8px;padding-top:8px;border-top:1px solid #1a1a1a;font-size:10px;color:#555;">' +
+      const perfHtml = sk ? '<div style="display:flex;gap:10px;margin-top:8px;padding-top:8px;border-top:1px solid #1a1a1a;font-size:10px;color:#555;">' +
         '<span style="color:' + a.color + ';">Lv.' + sk.level + ' ' + sk.title + '</span>' +
         '<span>' + sk.tasks_completed + ' done</span>' +
         '<span>' + Math.round(sk.qa_pass_rate * 100) + '% QA</span>' +
         '<span>' + sk.avg_completion_minutes + 'm avg</span>' +
         (sk.current_streak > 2 ? '<span style="color:#50e3c2;">' + sk.current_streak + ' streak</span>' : '') +
       '</div>' : '';
+      const claudeSkills = sk && sk.claude_skills ? sk.claude_skills : [];
+      const skillsHtml = perfHtml + (claudeSkills.length ? '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px;">' +
+        claudeSkills.map(function(s) { return '<span title="' + (s.when || '') + '" style="font-size:9px;padding:2px 6px;background:rgba(255,255,255,0.05);border:1px solid #222;border-radius:4px;color:#888;cursor:help;">' + s.name + '</span>'; }).join('') +
+      '</div>' : '');
       return '<div class="agent-card-big status-' + status + '" data-agent="' + a.id + '">' +
         '<div class="agent-card-glow" style="background:radial-gradient(circle at 50% 40%, ' + glowColor + '08 0%, transparent 70%);"></div>' +
         '<div class="agent-card-icon-wrap">' + iconHtml + '</div>' +
@@ -2555,6 +3202,24 @@ async function saveInstructions(agentId) {
       const btn = document.querySelector('#skills-' + id + '')?.previousElementSibling;
       if (btn && btn.classList.contains('role-card-btn') && skills.length > 0) btn.textContent = skills.length + ' skills';
     }
+
+    // Load portable team roles
+    try {
+      const rolesRes = await fetch('/api/team-roles');
+      const rolesData = await rolesRes.json();
+      const rolesGrid = document.getElementById('team-roles-grid');
+      const roleColors = { lead: '#D4A844', backend: '#1A8A7A', frontend: '#58abf5', qa: '#e35050', security: '#c084fc' };
+      const roleIcons = { lead: '&#9813;', backend: '&#9874;', frontend: '&#9889;', qa: '&#9878;', security: '&#9855;' };
+      if (rolesData.roles && rolesData.roles.length > 0) {
+        rolesGrid.innerHTML = rolesData.roles.map(role => {
+          const color = roleColors[role.id] || '#888';
+          const icon = roleIcons[role.id] || '&#9679;';
+          return '<div class="team-agent-card"><div class="agent-card-header"><div class="team-agent-icon" style="border-color:' + color + ';font-size:20px;color:' + color + ';">' + icon + '</div><div><div class="agent-card-name-team">' + esc(role.name) + '</div><div class="agent-card-role-team">' + role.file + '</div></div></div><button class="edit-instructions-btn" onclick="openInstructionsEditor(\'' + role.id + '\',\'' + esc(role.name) + '\',\'roles\')">Edit Instructions</button></div>';
+        }).join('');
+      } else {
+        rolesGrid.innerHTML = '<div style="color:#555;font-size:12px;padding:12px;">No portable roles found. Create .md files in agents/roles/</div>';
+      }
+    } catch (e) { console.log('No team roles found:', e); }
   }
 
   let teamInitialized = false;

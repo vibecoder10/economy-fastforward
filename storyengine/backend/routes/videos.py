@@ -3,7 +3,7 @@
 import json
 import re
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
 from fastapi.responses import StreamingResponse
 from auth import get_tenant_id
 from models import (
@@ -11,7 +11,8 @@ from models import (
     SceneTextUpdate, SceneToneUpdate, SegmentUpdate, StoryboardModeUpdate,
     CreateVideoRequest,
 )
-from database import fetch_all, fetch_one, execute
+from database import fetch_all, fetch_one, execute, safe_column
+from status_map import get_next_status_supabase
 from typing import Optional, Any
 
 
@@ -102,13 +103,14 @@ router = APIRouter(prefix="/api/videos", tags=["videos"])
 
 
 def _next_stage(current: str) -> Optional[str]:
-    """Get the next pipeline stage."""
-    keys = [s["key"] for s in PIPELINE_STAGES]
-    try:
-        idx = keys.index(current)
-        return keys[idx + 1] if idx + 1 < len(keys) else None
-    except ValueError:
-        return None
+    """Get the next pipeline stage.
+
+    Uses the full 18-stage pipeline order from status_map, not the
+    abbreviated 10-stage PIPELINE_STAGES used for UI display dots.
+    This ensures intermediate statuses (researching, scripting, etc.)
+    can still advance correctly.
+    """
+    return get_next_status_supabase(current)
 
 
 @router.get("", response_model=list[VideoSummary])
@@ -123,7 +125,7 @@ async def list_videos(
         rows = await fetch_all(
             """SELECT id, video_title, status, thumbnail_url, accent_color, total_cost, views, ctr,
                       created_at::text, updated_at::text
-               FROM videos WHERE tenant_id = $1 AND status = $2
+               FROM videos WHERE tenant_id = $1 AND status = $2 AND deleted_at IS NULL
                ORDER BY updated_at DESC LIMIT $3 OFFSET $4""",
             tenant_id, status, limit, offset,
         )
@@ -131,7 +133,7 @@ async def list_videos(
         rows = await fetch_all(
             """SELECT id, video_title, status, thumbnail_url, accent_color, total_cost, views, ctr,
                       created_at::text, updated_at::text
-               FROM videos WHERE tenant_id = $1
+               FROM videos WHERE tenant_id = $1 AND deleted_at IS NULL
                ORDER BY updated_at DESC LIMIT $2 OFFSET $3""",
             tenant_id, limit, offset,
         )
@@ -208,7 +210,7 @@ async def get_video(video_id: str, tenant_id: str = Depends(get_tenant_id)):
                   suggested_script, suggested_title, suggestion_source,
                   suggestion_scores, suggestion_status,
                   created_at::text, updated_at::text
-           FROM videos WHERE id = $1 AND tenant_id = $2""",
+           FROM videos WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL""",
         video_id, tenant_id,
     )
     if not r:
@@ -300,7 +302,7 @@ async def update_video(video_id: str, body: dict, tenant_id: str = Depends(get_t
     idx = 1
     for key, val in body.items():
         if key in allowed_fields:
-            updates.append(f"{key} = ${idx}")
+            updates.append(f"{safe_column(key)} = ${idx}")
             params.append(val)
             idx += 1
     if not updates:
@@ -362,6 +364,23 @@ async def reject_video(video_id: str, reason: Optional[str] = None, tenant_id: s
     return {"status": "rejected", "previous": video["status"]}
 
 
+@router.delete("/{video_id}")
+async def delete_video(video_id: str, tenant_id: str = Depends(get_tenant_id)):
+    """Soft-delete a video by setting deleted_at timestamp."""
+    video = await fetch_one(
+        "SELECT id FROM videos WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL",
+        video_id, tenant_id,
+    )
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+
+    await execute(
+        "UPDATE videos SET deleted_at = now(), updated_at = now() WHERE id = $1 AND tenant_id = $2",
+        video_id, tenant_id,
+    )
+    return {"status": "deleted", "video_id": video_id}
+
+
 @router.get("/{video_id}/assets")
 async def get_video_assets(video_id: str, tenant_id: str = Depends(get_tenant_id)):
     """Get all assets for a video."""
@@ -421,17 +440,75 @@ async def get_video_script(video_id: str, tenant_id: str = Depends(get_tenant_id
     return rows
 
 
+@router.post("/{video_id}/audio-token")
+async def create_audio_token(video_id: str, tenant_id=Depends(get_tenant_id)):
+    """Generate a short-lived token for audio playback.
+
+    Returns a 5-minute JWT scoped to this video_id + tenant_id.
+    Use this token in ?token= query param for audio endpoints instead
+    of exposing the full session JWT in URLs.
+    """
+    import os
+    import jwt as pyjwt
+    from datetime import datetime, timedelta, timezone
+
+    session_secret = os.getenv("SESSION_SECRET")
+    if not session_secret:
+        raise HTTPException(status_code=500, detail="SESSION_SECRET not configured")
+
+    audio_token = pyjwt.encode(
+        {
+            "purpose": "audio",
+            "video_id": video_id,
+            "tenant_id": str(tenant_id),
+            "exp": datetime.now(timezone.utc) + timedelta(minutes=5),
+            "iss": "storyengine",
+        },
+        session_secret,
+        algorithm="HS256",
+    )
+    return {"token": audio_token}
+
+
 @router.get("/{video_id}/audio/{scene}")
 async def get_scene_audio(video_id: str, scene: int, token: Optional[str] = None):
     """Proxy audio from Google Drive for browser playback.
 
     Google Drive download URLs use 303 redirects that some browsers
     block in Audio elements. This endpoint streams the audio directly.
-    Uses query token since HTML Audio elements can't set Authorization headers.
+    Accepts a short-lived audio token (from POST /audio-token) in ?token= param.
     """
     import os
-    # Simple auth: in dev mode accept dev-token; in prod would validate JWT
-    tenant_id = os.getenv("DEV_TENANT_ID", "test-tenant")
+    import jwt as pyjwt
+
+    # Validate token — required for tenant isolation
+    if not token:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    # Dev token: only when DEV_MODE=true and DEV_TOKEN env var is set
+    dev_token = os.getenv("DEV_TOKEN")
+    if dev_token and token == dev_token and os.getenv("DEV_MODE") == "true":
+        tenant_id = os.getenv("DEV_TENANT_ID", "test-tenant")
+    else:
+        # Validate JWT (short-lived audio token or session JWT)
+        session_secret = os.getenv("SESSION_SECRET")
+        if not session_secret:
+            raise HTTPException(status_code=401, detail="Invalid token")
+        try:
+            payload = pyjwt.decode(token, session_secret, algorithms=["HS256"])
+            # Short-lived audio token: verify purpose and video_id scope
+            if payload.get("purpose") == "audio":
+                if payload.get("video_id") != video_id:
+                    raise HTTPException(status_code=403, detail="Token not valid for this video")
+                tenant_id = payload.get("tenant_id")
+            else:
+                tenant_id = payload.get("tenant_id")
+            if not tenant_id:
+                raise HTTPException(status_code=401, detail="Invalid token: no tenant")
+        except pyjwt.ExpiredSignatureError:
+            raise HTTPException(status_code=401, detail="Token expired")
+        except pyjwt.InvalidTokenError:
+            raise HTTPException(status_code=401, detail="Invalid token")
 
     row = await fetch_one(
         "SELECT voice_over_url FROM scripts WHERE video_id = $1 AND tenant_id = $2 AND scene = $3 LIMIT 1",
@@ -756,3 +833,105 @@ async def clear_scene_storyboard(
         tenant_id,
     )
     return {"status": "cleared", "scope": "scene", "video_id": video_id, "scene": scene}
+
+
+@router.delete("/{video_id}/extracted-panels")
+async def clear_all_extracted_panels(
+    video_id: str,
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """Clear all extracted panel images, preserving segment rows."""
+    result = await execute(
+        """UPDATE assets
+           SET image_url = NULL, status = 'pending',
+               generation_method = NULL, updated_at = now()
+           WHERE video_id = $1 AND tenant_id = $2
+             AND generation_method = 'storyboard_extract'
+             AND image_url IS NOT NULL""",
+        video_id,
+        tenant_id,
+    )
+    cleared = int(result.split()[-1]) if result else 0
+    return {"status": "cleared", "cleared_count": cleared, "video_id": video_id}
+
+
+@router.delete("/{video_id}/extracted-panels/{asset_id}")
+async def clear_extracted_panel(
+    video_id: str,
+    asset_id: str,
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """Clear a single extracted panel image, preserving the segment row."""
+    result = await execute(
+        """UPDATE assets
+           SET image_url = NULL, status = 'pending',
+               generation_method = NULL, updated_at = now()
+           WHERE id = $1 AND video_id = $2 AND tenant_id = $3""",
+        asset_id,
+        video_id,
+        tenant_id,
+    )
+    if not result or "UPDATE 0" in result:
+        raise HTTPException(status_code=404, detail="Asset not found")
+    return {"status": "cleared", "asset_id": asset_id}
+
+
+@router.post("/{video_id}/storyboard-grid-upload")
+async def upload_storyboard_grid(
+    video_id: str,
+    scene: int = Form(...),
+    beat: int = Form(...),
+    file: UploadFile = File(...),
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """Upload a manually-created storyboard grid image.
+
+    Saves to Supabase Storage and updates the scripts table.
+    Used when API generation fails (e.g. content policy blocks).
+    """
+    from storage import upload_bytes
+
+    # Verify scene exists
+    script = await fetch_one(
+        "SELECT id FROM scripts WHERE video_id = $1 AND scene = $2 AND tenant_id = $3",
+        video_id, scene, tenant_id,
+    )
+    if not script:
+        raise HTTPException(status_code=404, detail=f"Scene {scene} not found")
+
+    if beat < 1 or beat > 5:
+        raise HTTPException(status_code=400, detail="Beat must be 1-5")
+
+    # Read file and upload to storage
+    data = await file.read()
+    ext = file.filename.rsplit(".", 1)[-1] if file.filename and "." in file.filename else "png"
+    path = f"{video_id}/grids/S{scene}-B{beat}.{ext}"
+    perm_url = await upload_bytes(data, path)
+
+    # Update scripts table
+    col = f"storyboard_{beat}_url"
+    await execute(
+        f"UPDATE scripts SET {col} = $1, updated_at = now() WHERE id = $2",
+        perm_url, script["id"],
+    )
+
+    # Check if all beats now have grids → set status to grids_generated
+    updated = await fetch_one(
+        """SELECT storyboard_beat_count,
+                  storyboard_1_url, storyboard_2_url, storyboard_3_url,
+                  storyboard_4_url, storyboard_5_url
+           FROM scripts WHERE id = $1""",
+        script["id"],
+    )
+    beat_count = int(updated.get("storyboard_beat_count") or 1)
+    all_present = all(
+        updated.get(f"storyboard_{i}_url")
+        for i in range(1, beat_count + 1)
+    )
+    if all_present:
+        await execute(
+            "UPDATE scripts SET storyboard_status = 'grids_generated', updated_at = now() WHERE id = $1",
+            script["id"],
+        )
+
+    return {"status": "uploaded", "url": perm_url, "scene": scene, "beat": beat, "all_grids_complete": all_present}

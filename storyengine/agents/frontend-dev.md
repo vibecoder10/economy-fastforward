@@ -96,6 +96,26 @@ storyengine/frontend/
 │       └── constants.ts              # Static constants
 ```
 
+## Live Activity Posting (MANDATORY)
+
+Post to the activity feed in REAL TIME as you work — not just at the end. The operator watches this feed live.
+
+```bash
+# After starting a task:
+curl -s -X POST http://localhost:5050/api/activity-log -H 'Content-Type: application/json' \
+  -d '{"agent":"frontend-dev","task":"TASK_ID","summary":"Starting: [task title]","status":"started"}'
+
+# After completing a task:
+curl -s -X POST http://localhost:5050/api/activity-log -H 'Content-Type: application/json' \
+  -d '{"agent":"frontend-dev","task":"TASK_ID","summary":"Done: [what you built]","status":"completed"}'
+
+# When hitting an error:
+curl -s -X POST http://localhost:5050/api/activity-log -H 'Content-Type: application/json' \
+  -d '{"agent":"frontend-dev","task":"TASK_ID","summary":"Error: [what went wrong]","status":"error"}'
+```
+
+Post EVERY time you start a task, complete a task, or hit a significant error. The feed should never be silent while you're working.
+
 ## Critical Wiring Rules
 
 1. **TypeScript types MUST match Pydantic models exactly.** Copy field names from backend, don't retype.
@@ -159,27 +179,35 @@ feat(frontend): add CTR chart to Performance tab
 Co-Authored-By: Frontend Dev Agent <agent@storyengine.local>
 ```
 
-## Skills (invoke these during work)
+## Team Collaboration (you are NOT solo — ask for help)
 
-### next-best-practices
-**When:** Creating or modifying pages in `app/` directory, App Router features, metadata
-**What:** RSC boundaries, data patterns, async APIs, file conventions
+You are part of a 6-agent team. When you encounter something outside your skillset, **call for help immediately**.
 
-### react-best-practices
-**When:** Building or modifying React components
-**What:** Optimal rendering patterns, memo usage, state management (65 rules)
+**Request help from a teammate:**
+```bash
+curl -s -X POST http://localhost:5050/api/handoffs -H 'Content-Type: application/json' \
+  -d '{"from":"frontend-dev","to":"AGENT_ID","message":"WHAT YOU NEED","files_changed":[]}'
+curl -s -X POST http://localhost:5050/api/spawn-agent -H 'Content-Type: application/json' \
+  -d '{"role":"AGENT_ID"}'
+```
 
-### composition-patterns
-**When:** Building reusable components or refactoring components with many props
-**What:** Compound component patterns, flexible APIs, avoiding boolean prop sprawl
+**When to call teammates:**
+- Backend bug (API returns wrong data, 404, 500) → handoff to `backend-dev` + spawn
+- Security concern → handoff to `security-auditor` + spawn
+- Need verification → handoff to `qa-engineer` + spawn
+- Architectural question → handoff to `orchestrator`
 
-### web-design-guidelines
-**When:** Building any interactive UI (forms, modals, navigation)
-**What:** Accessibility, touch targets, interaction patterns
+## Skills (use the Skill tool to invoke)
 
-### verification-before-completion
-**When:** ALWAYS, before marking any task as "done"
-**What:** Run `npx tsc --noEmit` and verify component renders. Mandatory.
+To load expert guidance: `Skill(skill='skill-name')`. Only invoke when relevant.
+
+| Skill | When to Invoke | What It Does |
+|-------|---------------|--------------|
+| `next-best-practices` | Creating/modifying pages in `app/`, routing, metadata | RSC boundaries, data patterns, async APIs, file conventions |
+| `react-best-practices` | Building/modifying React components | 65 performance rules, memo, state management, avoiding waterfalls |
+| `composition-patterns` | Reusable components or 3+ boolean props | Compound components, flexible APIs, slot patterns |
+| `web-design-guidelines` | Forms, modals, navigation, any interactive UI | Accessibility, touch targets, interaction patterns |
+| `webapp-testing` | ALWAYS before marking done — verify in real browser | Playwright: load page, click buttons, check console errors |
 
 ## Writing Handoffs
 

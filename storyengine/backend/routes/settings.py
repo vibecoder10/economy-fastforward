@@ -3,11 +3,19 @@
 Handles secure storage and retrieval of API keys via Supabase Vault.
 """
 
+import time
+from collections import defaultdict
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from auth import get_tenant_id
+from database import execute
+
+# Rate limiting for key reveal: max 5 per minute per tenant
+_reveal_timestamps: dict[str, list[float]] = defaultdict(list)
+REVEAL_RATE_LIMIT = 5
+REVEAL_WINDOW_SECONDS = 60
 from vault import (
     get_secret,
     set_secret,
@@ -113,6 +121,12 @@ async def set_api_key(
     if not success:
         raise HTTPException(status_code=500, detail="Failed to save key")
 
+    await execute(
+        """INSERT INTO bot_activity (tenant_id, bot_name, status, message)
+           VALUES ($1, $2, $3, $4)""",
+        tenant_id, "api_key_audit", "completed", f"Key set: {key_name}",
+    )
+
     return {"status": "ok", "message": f"Key {key_name} saved"}
 
 
@@ -133,6 +147,12 @@ async def delete_api_key(
 
     if not success:
         raise HTTPException(status_code=500, detail="Failed to delete key")
+
+    await execute(
+        """INSERT INTO bot_activity (tenant_id, bot_name, status, message)
+           VALUES ($1, $2, $3, $4)""",
+        tenant_id, "api_key_audit", "completed", f"Key deleted: {key_name}",
+    )
 
     return {"status": "ok", "message": f"Key {key_name} deleted from Vault"}
 
@@ -155,28 +175,51 @@ async def test_api_key_endpoint(
 
     result = await test_api_key(key_name, tenant_id)
 
+    test_status = "completed" if result.get("success") else "failed"
+    await execute(
+        """INSERT INTO bot_activity (tenant_id, bot_name, status, message)
+           VALUES ($1, $2, $3, $4)""",
+        tenant_id, "api_key_audit", test_status,
+        f"Key tested: {key_name} — {result.get('message', 'Unknown')}",
+    )
+
     return TestKeyResponse(
         success=result.get("success"),
         message=result.get("message", "Unknown result"),
     )
 
 
-@router.get("/keys/{key_name}/reveal")
+@router.post("/keys/{key_name}/reveal")
 async def reveal_api_key(
     key_name: str,
     tenant_id: str = Depends(get_tenant_id),
 ):
     """Reveal the full API key value.
 
-    WARNING: This returns the unmasked key. Use with caution.
-    Consider implementing additional security (e.g., require re-authentication).
+    Uses POST to prevent URL logging. Rate limited to 5 reveals per minute.
+    All reveals are audit-logged.
     """
     if key_name not in SECRET_ENV_MAP:
         raise HTTPException(status_code=404, detail=f"Unknown key: {key_name}")
+
+    # Rate limiting
+    now = time.time()
+    timestamps = _reveal_timestamps[tenant_id]
+    _reveal_timestamps[tenant_id] = [t for t in timestamps if now - t < REVEAL_WINDOW_SECONDS]
+    if len(_reveal_timestamps[tenant_id]) >= REVEAL_RATE_LIMIT:
+        raise HTTPException(status_code=429, detail="Rate limit exceeded. Max 5 reveals per minute.")
+    _reveal_timestamps[tenant_id].append(now)
 
     value = await get_secret(key_name, tenant_id)
 
     if not value:
         raise HTTPException(status_code=404, detail="Key not configured")
+
+    # Audit log
+    await execute(
+        """INSERT INTO bot_activity (tenant_id, bot_name, status, message)
+           VALUES ($1, $2, $3, $4)""",
+        tenant_id, "api_key_audit", "completed", f"Key revealed: {key_name}",
+    )
 
     return {"value": value}

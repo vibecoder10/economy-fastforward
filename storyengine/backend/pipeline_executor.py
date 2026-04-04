@@ -36,6 +36,11 @@ for bot_dir in ["script", "voice", "image_prompts", "images", "video_motion",
 from database import fetch_one, fetch_all, execute
 from status_map import to_supabase, to_pipeline, get_bot_name, STAGE_BOT_MAP, is_at_or_past_stage
 from vault import get_secret
+from extraction import extract_grid_ai, extract_grid_pil, detect_grid_layout_from_url
+from storage import upload_from_url
+
+import logging
+_logger = logging.getLogger(__name__)
 
 
 class PipelineExecutor:
@@ -101,7 +106,37 @@ class PipelineExecutor:
 
         class LightPipeline:
             """Minimal pipeline that only has the clients we need."""
-            pass
+
+            scene_filter = None
+            image_filter = None
+
+            @property
+            def _is_targeted_run(self):
+                """True if scene/image filters are set (partial run, don't advance status)."""
+                return self.scene_filter is not None or self.image_filter is not None
+
+            def _log_filters(self):
+                """Print active targeting filters."""
+                if self.scene_filter is not None and self.image_filter is not None:
+                    print(f"  🎯 TARGETED RUN: Scene {self.scene_filter}, Image {self.image_filter}")
+                elif self.scene_filter is not None:
+                    print(f"  🎯 TARGETED RUN: Scene {self.scene_filter} (all images)")
+
+            def _filter_by_scene(self, records, scene_key="Scene"):
+                """Filter records by scene_filter and image_filter if set."""
+                if self.scene_filter is not None:
+                    records = [r for r in records if r.get(scene_key) == self.scene_filter]
+                if self.image_filter is not None:
+                    from orchestrator.pipeline_constants import ImageFields
+                    records = [r for r in records if r.get(ImageFields.IMAGE_INDEX) == self.image_filter]
+                return records
+
+            def _update_status(self, new_status):
+                """Update idea status in the adapter and in-memory cache."""
+                from orchestrator.pipeline_constants import IdeaFields
+                if self.current_idea:
+                    self.airtable.update_idea_status(self.current_idea_id, new_status)
+                    self.current_idea[IdeaFields.STATUS] = new_status
 
         self._pipeline = LightPipeline()
         self._pipeline.airtable = SupabaseAdapter(tenant_id=self.tenant_id)
@@ -400,6 +435,78 @@ class PipelineExecutor:
                VALUES ($1, $2, $3, $4, $5, $6, $7)""",
             video_id, self.tenant_id, from_status, to_status, triggered_by, cost, error_message,
         )
+
+    async def _persist_url(self, source_url: str, storage_path: str) -> str:
+        """Re-upload a temporary URL to Supabase Storage for permanent access.
+
+        Returns the permanent URL, or the original URL if upload fails or URL is already permanent.
+        """
+        if not source_url:
+            return source_url
+        if "supabase.co/storage" in source_url:
+            return source_url
+        try:
+            return await upload_from_url(source_url, storage_path)
+        except Exception as e:
+            _logger.warning("Failed to persist %s: %s", storage_path, e)
+            return source_url
+
+    async def _persist_asset_urls(self, video_id: str) -> int:
+        """Re-upload all temp asset image_urls for a video to Supabase Storage.
+
+        Returns the number of URLs persisted.
+        """
+        assets = await fetch_all(
+            """SELECT id, scene, image_index, image_url FROM assets
+               WHERE video_id = $1 AND tenant_id = $2 AND image_url IS NOT NULL
+               AND image_url NOT LIKE '%supabase.co/storage%'""",
+            video_id, self.tenant_id,
+        )
+        count = 0
+        for a in assets:
+            path = f"{video_id}/images/S{a['scene']}-{a['image_index']}.png"
+            new_url = await self._persist_url(a["image_url"], path)
+            if new_url != a["image_url"]:
+                await execute(
+                    "UPDATE assets SET image_url = $1, updated_at = now() WHERE id = $2",
+                    new_url, a["id"],
+                )
+                count += 1
+        return count
+
+    async def _persist_storyboard_urls(self, video_id: str) -> int:
+        """Re-upload all temp storyboard grid URLs to Supabase Storage.
+
+        Returns the number of URLs persisted.
+        """
+        scenes = await fetch_all(
+            """SELECT id, scene, storyboard_1_url, storyboard_2_url,
+                      storyboard_3_url, storyboard_4_url, storyboard_5_url
+               FROM scripts WHERE video_id = $1 AND tenant_id = $2
+               ORDER BY scene""",
+            video_id, self.tenant_id,
+        )
+        count = 0
+        for sc in scenes:
+            updates = []
+            params = []
+            idx = 1
+            for beat in range(1, 6):
+                col = f"storyboard_{beat}_url"
+                url = sc.get(col)
+                if url and "supabase.co/storage" not in url:
+                    path = f"{video_id}/grids/S{sc['scene']}-B{beat}.png"
+                    new_url = await self._persist_url(url, path)
+                    if new_url != url:
+                        updates.append(f"{col} = ${idx}")
+                        params.append(new_url)
+                        idx += 1
+                        count += 1
+            if updates:
+                params.append(sc["id"])
+                sql = f"UPDATE scripts SET {', '.join(updates)}, updated_at = now() WHERE id = ${idx}"
+                await execute(sql, *params)
+        return count
 
     async def create_idea(
         self,
@@ -1125,6 +1232,11 @@ class PipelineExecutor:
             if result.get("error"):
                 raise Exception(result["error"])
 
+            # Persist temp storyboard grid URLs to Supabase Storage
+            persisted = await self._persist_storyboard_urls(video_id)
+            if persisted:
+                _logger.info("Persisted %d storyboard grid URL(s) to Supabase Storage", persisted)
+
             # For per-scene runs, don't advance video status
             if scene is not None:
                 await self._log_activity(bot_name, video_id, "completed", f"Scene {scene} images generated")
@@ -1134,7 +1246,7 @@ class PipelineExecutor:
 
             await self._update_video_status(video_id, to_supabase(new_status))
             await self._log_transition(video_id, current_status, to_supabase(new_status), "api")
-            await self._log_activity(bot_name, video_id, "completed", "Storyboard images generated")
+            await self._log_activity(bot_name, video_id, "completed", f"Storyboard images generated ({persisted} grids persisted)")
 
             return {"status": to_supabase(new_status), "video_id": video_id}
 
@@ -1144,7 +1256,7 @@ class PipelineExecutor:
             return {"status": "failed", "error": error_msg}
 
     async def run_storyboard_extract(self, video_id: str) -> dict:
-        """Extract storyboard frames for a video."""
+        """Extract storyboard grid images into individual panels via Supabase Storage."""
         await self._ensure_initialized()
         bot_name = "Storyboard Extract Bot"
 
@@ -1154,22 +1266,91 @@ class PipelineExecutor:
                 return {"status": "failed", "error": "Video not found"}
 
             current_status = video.get("status")
+            video_title = video.get("video_title", "")
             await self._log_activity(bot_name, video_id, "started", "Extracting storyboard frames")
 
-            self._load_idea_from_video(video_id)
+            scenes = await fetch_all(
+                """SELECT id, scene, storyboard_1_url, storyboard_2_url,
+                          storyboard_3_url, storyboard_4_url, storyboard_5_url,
+                          storyboard_beat_count
+                   FROM scripts WHERE video_id = $1 AND tenant_id = $2
+                   ORDER BY scene""",
+                video_id, self.tenant_id,
+            )
 
-            result = await self._pipeline.run_storyboard_extract()
+            if not scenes:
+                raise Exception("No script scenes found for video")
 
-            if result.get("error"):
-                raise Exception(result["error"])
+            total_panels = 0
+            scene_errors = []
 
-            new_status = result.get("new_status", "ready_for_images")
+            for sc in scenes:
+                scene_num = sc["scene"]
+                beat_urls = []
+                for i in range(1, 6):
+                    url = sc.get(f"storyboard_{i}_url")
+                    if url:
+                        beat_urls.append((i, url))
 
+                if not beat_urls:
+                    continue
+
+                panel_offset = 0
+                for beat_num, grid_url in beat_urls:
+                    try:
+                        # Use Nano Banana AI extraction if image client available, else PIL fallback
+                        # Storyboard grids are always 3x3 — don't auto-detect from aspect ratio
+                        # (16:9 grids look like 3x2 to the detector but contain 3 rows)
+                        if self._pipeline.image_client:
+                            panels = await extract_grid_ai(
+                                grid_url, video_id, scene_num, beat_num, panel_offset,
+                                image_client=self._pipeline.image_client,
+                                rows=3, cols=3,
+                            )
+                        else:
+                            panels = await extract_grid_pil(grid_url, video_id, scene_num, beat_num, panel_offset)
+                        for p in panels:
+                            existing = await fetch_one(
+                                """SELECT id FROM assets
+                                   WHERE video_id = $1 AND scene = $2 AND image_index = $3
+                                   AND tenant_id = $4""",
+                                video_id, scene_num, p["image_index"], self.tenant_id,
+                            )
+                            if existing:
+                                await execute(
+                                    """UPDATE assets SET image_url = $1, status = 'done',
+                                              generation_method = 'storyboard_extract', updated_at = now()
+                                       WHERE id = $2""",
+                                    p["panel_url"], existing["id"],
+                                )
+                            else:
+                                await execute(
+                                    """INSERT INTO assets
+                                       (id, tenant_id, video_id, video_title, scene, image_index,
+                                        image_url, status, generation_method, created_at, updated_at)
+                                       VALUES ($1, $2, $3, $4, $5, $6, $7, 'done',
+                                               'storyboard_extract', now(), now())""",
+                                    str(uuid.uuid4()), self.tenant_id, video_id, video_title,
+                                    scene_num, p["image_index"], p["panel_url"],
+                                )
+                            total_panels += 1
+                        panel_offset += len(panels)
+                    except Exception as e:
+                        scene_errors.append(f"Scene {scene_num} beat {beat_num}: {e}")
+
+            if total_panels == 0 and scene_errors:
+                raise Exception(f"All extractions failed: {'; '.join(scene_errors)}")
+
+            msg = f"Extracted {total_panels} panels"
+            if scene_errors:
+                msg += f" ({len(scene_errors)} beat errors skipped)"
+
+            new_status = "ready_for_images"
             await self._update_video_status(video_id, to_supabase(new_status))
             await self._log_transition(video_id, current_status, to_supabase(new_status), "api")
-            await self._log_activity(bot_name, video_id, "completed", "Storyboard frames extracted")
+            await self._log_activity(bot_name, video_id, "completed", msg)
 
-            return {"status": to_supabase(new_status), "video_id": video_id}
+            return {"status": to_supabase(new_status), "video_id": video_id, "panels_extracted": total_panels}
 
         except Exception as e:
             error_msg = str(e) or e.__class__.__name__
@@ -1223,6 +1404,16 @@ class PipelineExecutor:
             if index is not None:
                 self._pipeline.image_filter = index
 
+            # For targeted runs, reset matching assets to 'pending' so the image bot picks them up.
+            # Assets may be in 'approved' status (from storyboard approval) with no image_url.
+            if scene is not None:
+                reset_sql = "UPDATE assets SET status = 'pending' WHERE video_id = $1 AND scene = $2 AND image_url IS NULL"
+                reset_params = [video_id, scene]
+                if index is not None:
+                    reset_sql += " AND image_index = $3"
+                    reset_params.append(index)
+                await execute(reset_sql, *reset_params)
+
             result = await self._pipeline.run_image_bot()
 
             # Always reset filters after run
@@ -1231,6 +1422,11 @@ class PipelineExecutor:
 
             if result.get("error"):
                 raise Exception(result["error"])
+
+            # Persist temp image URLs to Supabase Storage
+            persisted = await self._persist_asset_urls(video_id)
+            if persisted:
+                _logger.info("Persisted %d image URL(s) to Supabase Storage", persisted)
 
             # For targeted runs, keep the current video status stable.
             if scene is not None:
@@ -1241,7 +1437,7 @@ class PipelineExecutor:
 
             await self._update_video_status(video_id, to_supabase(new_status))
             await self._log_transition(video_id, current_status, to_supabase(new_status), "api")
-            await self._log_activity(bot_name, video_id, "completed", "Images generated")
+            await self._log_activity(bot_name, video_id, "completed", f"Images generated ({persisted} persisted to storage)")
 
             return {"status": to_supabase(new_status), "video_id": video_id}
 
@@ -1323,6 +1519,10 @@ class PipelineExecutor:
                     continue
 
                 image_url = result["url"]
+                # Persist variant to Supabase Storage
+                variant_path = f"{video_id}/images/S{scene}-{index}-v{next_variant_position + offset}.png"
+                image_url = await self._persist_url(image_url, variant_path)
+
                 drive_download_url = None
                 try:
                     image_content = await self._pipeline.image_client.download_image(image_url)
@@ -1537,9 +1737,12 @@ class PipelineExecutor:
 
             new_status = result.get("new_status", "done")
 
-            # Save thumbnail URL back to videos table
+            # Save thumbnail URL back to videos table (persist to Supabase Storage)
             thumbnail_url = result.get("thumbnail_url")
             if thumbnail_url:
+                thumbnail_url = await self._persist_url(
+                    thumbnail_url, f"{video_id}/thumbnails/thumb.png"
+                )
                 await execute(
                     "UPDATE videos SET thumbnail_url = $1, updated_at = now() WHERE id = $2",
                     thumbnail_url, video_id,

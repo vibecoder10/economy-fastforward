@@ -2,7 +2,7 @@
 # Daily Planning Session — creates today's work plan
 # Runs at 6:00 AM, before the morning briefing at 7:00 AM
 
-PROJECT_ROOT="${AGENT_PROJECT_ROOT:-/home/clawd/projects/economy-fastforward}"
+PROJECT_ROOT="${AGENT_PROJECT_ROOT:-$(cd "$(dirname "$0")/../.." && pwd)}"
 AGENTS_DIR="$PROJECT_ROOT/storyengine/agents"
 RUBRIC_DATA="$PROJECT_ROOT/rubric/scaffold/data"
 RUBRIC_URL="http://localhost:5050"

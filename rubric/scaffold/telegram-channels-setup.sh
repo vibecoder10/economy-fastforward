@@ -23,6 +23,8 @@
 PROJECT_ROOT="${AGENT_PROJECT_ROOT:-/home/clawd/projects/economy-fastforward}"
 TMUX_SESSION="telegram-channel"
 LOG_FILE="/tmp/storyengine-agents/telegram-channel.log"
+SYSTEM_PROMPT_FILE="$PROJECT_ROOT/rubric/scaffold/telegram-system-prompt.md"
+MODEL="${TELEGRAM_MODEL:-haiku}"
 
 mkdir -p /tmp/storyengine-agents
 
@@ -71,11 +73,19 @@ start)
     exit 1
   fi
 
+  # Kill zombie telegram plugin processes (only ONE bot polling consumer allowed)
+  pkill -f 'bun.*telegram.*start' 2>/dev/null || true
+  sleep 2
+
   # Start in tmux so it persists after SSH disconnect
+  # Uses 'script' to preserve PTY (Claude exits in print mode if no TTY)
+  # --channels enables channel notification listener (REQUIRED for Telegram)
+  # --model for message routing
   tmux new-session -d -s "$TMUX_SESSION" \
-    "cd $PROJECT_ROOT && claude --channels plugin:telegram@claude-plugins-official --dangerously-skip-permissions 2>&1 | tee -a $LOG_FILE"
+    "cd $PROJECT_ROOT && script -q -f $LOG_FILE -c 'claude --channels plugin:telegram@claude-plugins-official --model $MODEL --dangerously-skip-permissions'"
 
   echo "Telegram channel started in tmux session '$TMUX_SESSION'"
+  echo "  Model: $MODEL"
   echo "  Attach: tmux attach -t $TMUX_SESSION"
   echo "  Logs:   tail -f $LOG_FILE"
   ;;

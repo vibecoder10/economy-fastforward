@@ -3,7 +3,8 @@
 # Runs at 11 PM, generates a plain-English summary + opens a PR for the day's work.
 # Output: storyengine/agents/reports/YYYY-MM-DD.md + GitHub PR
 
-PROJECT_ROOT="${AGENT_PROJECT_ROOT:-/Users/ryanayler/economy-fastforward}"
+SCRIPT_DIR_DR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_ROOT="${AGENT_PROJECT_ROOT:-${SCRIPT_DIR_DR}/../..}"
 AGENTS_DIR="$PROJECT_ROOT/storyengine/agents"
 REPORTS_DIR="$AGENTS_DIR/reports"
 RUBRIC_URL="http://localhost:5050"
@@ -115,6 +116,35 @@ $REPORT_BODY
 EOF
 )" 2>/dev/null && echo "PR #$EXISTING_PR updated" || echo "PR update failed"
   echo "Existing PR: #$EXISTING_PR"
+fi
+
+# ─── Push to Telegram ──────────────────────────────────────────────────────
+source "$AGENTS_DIR/notify-telegram.sh" 2>/dev/null || true
+
+# Get latest launch score from activity log
+RUBRIC_DATA="$PROJECT_ROOT/rubric/scaffold/data"
+LAUNCH_SCORE=$(python3 -c "
+import json
+try:
+    logs = json.load(open('$RUBRIC_DATA/activity-log.json'))
+    scores = [e for e in logs[:100] if e.get('task') == 'launch-readiness']
+    if scores:
+        print(scores[0].get('summary', 'No score yet'))
+    else:
+        print('No launch score yet')
+except: print('No launch score yet')
+" 2>/dev/null || echo "No launch score yet")
+
+# Send Telegram summary (first 500 chars of report + launch score)
+if [ -f "$REPORT_FILE" ]; then
+  TELEGRAM_SUMMARY=$(head -20 "$REPORT_FILE" | sed 's/#//g' | head -c 500)
+  notify_telegram "*Daily Report — $TODAY*
+
+$TELEGRAM_SUMMARY
+
+*Launch Readiness:* $LAUNCH_SCORE
+
+_Full report in PR on GitHub_"
 fi
 
 # Report idle status

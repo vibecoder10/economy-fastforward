@@ -28,8 +28,9 @@ def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)) 
     """
     token = credentials.credentials
 
-    # Dev mode: accept "dev-token" for local testing
-    if token == "dev-token" and os.getenv("ENV", "development") == "development":
+    # Dev mode: accept dev token for local testing (requires explicit opt-in)
+    dev_token = os.getenv("DEV_TOKEN")
+    if dev_token and token == dev_token and os.getenv("DEV_MODE") == "true":
         return AuthUser(id="dev-user", email="dev@local", tenant_id=os.getenv("DEV_TENANT_ID"))
 
     # Try StoryEngine session JWT first (from Google OAuth login)

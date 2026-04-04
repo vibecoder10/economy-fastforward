@@ -16,7 +16,7 @@ import asyncio
 from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from auth import get_tenant_id
-from database import fetch_all, fetch_one, execute
+from database import fetch_all, fetch_one, execute, safe_column
 
 router = APIRouter(prefix="/api/youtube", tags=["youtube-sync"])
 
@@ -154,7 +154,7 @@ async def _run_sync(tenant_id: str):
                     set_parts = []
                     values = []
                     for i, (key, val) in enumerate(update_fields.items(), start=1):
-                        set_parts.append(f"{key} = ${i}")
+                        set_parts.append(f"{safe_column(key)} = ${i}")
                         values.append(val)
 
                     values.append(str(video["id"]))

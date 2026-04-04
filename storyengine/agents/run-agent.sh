@@ -6,7 +6,9 @@
 set -e
 
 AGENT=$1
-PROJECT_ROOT="${AGENT_PROJECT_ROOT:-/Users/ryanayler/economy-fastforward}"
+# Auto-detect PROJECT_ROOT from script location (works on both Mac and VPS)
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_ROOT="${AGENT_PROJECT_ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
 AGENTS_DIR="$PROJECT_ROOT/storyengine/agents"
 REPORTS_DIR="$AGENTS_DIR/reports"
 RUBRIC_URL="${RUBRIC_URL:-http://localhost:5050}"
@@ -52,8 +54,26 @@ AGENT_DISPLAY=$(echo "$AGENT" | sed 's/-/ /g' | sed 's/\b./\U&/g' 2>/dev/null ||
 
 cd "$PROJECT_ROOT"
 
-# ─── Pause Check ────────────────────────────────────────────────────────────
+# ─── Master Kill Switch ────────────────────────────────────────────────────
 CONTROLS_FILE="$PROJECT_ROOT/rubric/scaffold/data/controls.json"
+if [ -f "$CONTROLS_FILE" ]; then
+  TEAM_ENABLED=$(python3 -c "
+import json
+try:
+    data = json.load(open('$CONTROLS_FILE'))
+    print('true' if data.get('team_enabled', True) else 'false')
+except: print('true')
+" 2>/dev/null || echo "true")
+
+  if [ "$TEAM_ENABLED" = "false" ]; then
+    curl -s -X POST "$RUBRIC_URL/api/agent-status" \
+      -H "Content-Type: application/json" \
+      -d "{\"agent\": \"$AGENT\", \"status\": \"idle\", \"task\": \"Team OFF — standing by\"}" 2>/dev/null || true
+    exit 0
+  fi
+fi
+
+# ─── Pause Check ────────────────────────────────────────────────────────────
 if [ -f "$CONTROLS_FILE" ]; then
   IS_PAUSED=$(python3 -c "
 import json
@@ -92,12 +112,94 @@ try:
 except: print('WORKING')
 " 2>/dev/null || echo "WORKING")
 
-if [ "$ALL_DONE" = "COMPLETE" ]; then
-  notify_slack ":trophy: *ALL TASKS COMPLETE.* StoryEngine build phase is done. $AGENT_DISPLAY entering standby."
+# Check for active PRD before declaring complete — PRD work overrides task queue
+HAS_PRD_WORK="false"
+if [ -f "$PROJECT_ROOT/agents/prd.json" ]; then
+  _PRD_ROLE=""
+  case "$AGENT" in
+    backend-dev) _PRD_ROLE="backend" ;; frontend-dev) _PRD_ROLE="frontend" ;;
+    qa-engineer) _PRD_ROLE="qa" ;; pipeline-tester) _PRD_ROLE="pipeline-tester" ;;
+    security-auditor) _PRD_ROLE="security" ;; orchestrator) _PRD_ROLE="lead" ;;
+  esac
+  _PRD_PENDING=$(python3 -c "
+import json, re
+try:
+    prd = json.load(open('$PROJECT_ROOT/agents/prd.json'))
+    done_in_progress = set()
+    try:
+        with open('$PROJECT_ROOT/agents/progress.md') as f:
+            for line in f:
+                m = re.search(r'T(\d+):.*✅', line)
+                if m: done_in_progress.add(int(m.group(1)))
+    except: pass
+    print(len([t for t in prd.get('tasks', []) if t.get('role') == '$_PRD_ROLE' and t.get('id') not in done_in_progress and t.get('status') in ('pending', 'in_progress')]))
+except: print(0)
+" 2>/dev/null || echo "0")
+  [ "$_PRD_PENDING" -gt 0 ] && HAS_PRD_WORK="true"
+fi
+
+# Check for recent handoffs addressed to this agent (unread OR recent operator directives)
+HAS_HANDOFFS="false"
+HANDOFFS_FILE="$PROJECT_ROOT/rubric/scaffold/data/handoffs.json"
+if [ -f "$HANDOFFS_FILE" ]; then
+  _HANDOFF_COUNT=$(python3 -c "
+import json, time
+try:
+    h = json.load(open('$HANDOFFS_FILE'))
+    now = time.time() * 1000
+    # Count: unread handoffs OR recent operator directives (last 2h)
+    recent = [x for x in h[-10:] if x.get('to') == '$AGENT' and (
+        (not x.get('read', False)) or
+        (x.get('from') == 'operator' and (now - x.get('timestamp', 0)) < 7200000)
+    )]
+    print(len(recent))
+except: print(0)
+" 2>/dev/null || echo "0")
+  [ "$_HANDOFF_COUNT" -gt 0 ] && HAS_HANDOFFS="true"
+fi
+
+# Check for focus directive
+HAS_FOCUS="false"
+if [ -f "$CONTROLS_FILE" ]; then
+  _FOCUS=$(python3 -c "
+import json
+try:
+    c = json.load(open('$CONTROLS_FILE'))
+    f = c.get('focus', '')
+    print('yes' if f else 'no')
+except: print('no')
+" 2>/dev/null || echo "no")
+  [ "$_FOCUS" = "yes" ] && HAS_FOCUS="true"
+fi
+
+# Check for user-browser errors
+HAS_USER_ERRORS="false"
+if [ -f "$ACTIVITY_LOG" ]; then
+  _ERROR_COUNT=$(python3 -c "
+import json
+try:
+    logs = json.load(open('$ACTIVITY_LOG'))
+    print(len([e for e in logs[:20] if e.get('agent') == 'user-browser' and e.get('status') == 'error']))
+except: print(0)
+" 2>/dev/null || echo "0")
+  [ "$_ERROR_COUNT" -gt 0 ] && HAS_USER_ERRORS="true"
+fi
+
+# ─── Ops Mode (standing orders when task queue is complete) ─────────────────
+OPS_MODE="false"
+if [ "$ALL_DONE" = "COMPLETE" ] && [ "$HAS_PRD_WORK" = "false" ] && [ "$HAS_HANDOFFS" = "false" ] && [ "$HAS_FOCUS" = "false" ] && [ "$HAS_USER_ERRORS" = "false" ]; then
+  OPS_MODE="true"
+  STANDING_ORDERS_FILE="$AGENTS_DIR/standing-orders/$AGENT.md"
+  if [ ! -f "$STANDING_ORDERS_FILE" ]; then
+    # No standing orders for this agent — exit idle as before
+    curl -s -X POST "$RUBRIC_URL/api/agent-status" \
+      -H "Content-Type: application/json" \
+      -d "{\"agent\": \"$AGENT\", \"status\": \"idle\", \"task\": \"All tasks complete — no standing orders\"}" 2>/dev/null || true
+    exit 0
+  fi
   curl -s -X POST "$RUBRIC_URL/api/agent-status" \
     -H "Content-Type: application/json" \
-    -d "{\"agent\": \"$AGENT\", \"status\": \"idle\", \"task\": \"All tasks complete — standby mode\"}" 2>/dev/null || true
-  exit 0
+    -d "{\"agent\": \"$AGENT\", \"status\": \"active\", \"task\": \"Ops mode — standing orders\"}" 2>/dev/null || true
 fi
 
 # ─── Report Active ──────────────────────────────────────────────────────────
@@ -108,6 +210,75 @@ curl -s -X POST "$RUBRIC_URL/api/agent-status" \
 # ─── Read Inputs ────────────────────────────────────────────────────────────
 AGENT_PROMPT=$(cat "$AGENT_FILE")
 TASK_QUEUE=$(cat "$AGENTS_DIR/task-queue.json")
+
+# ─── PRD Check (unified system — PRD tasks take priority over task queue) ──
+PRD_SECTION=""
+PRD_JSON_FILE="$PROJECT_ROOT/agents/prd.json"
+if [ -f "$PRD_JSON_FILE" ]; then
+  # Map agent name to PRD role
+  PRD_ROLE=""
+  case "$AGENT" in
+    backend-dev)       PRD_ROLE="backend" ;;
+    frontend-dev)      PRD_ROLE="frontend" ;;
+    qa-engineer)       PRD_ROLE="qa" ;;
+    pipeline-tester)   PRD_ROLE="pipeline-tester" ;;
+    security-auditor)  PRD_ROLE="security" ;;
+    orchestrator)      PRD_ROLE="lead" ;;
+  esac
+
+  # Check both prd.json status AND progress.md (agents update progress.md, not prd.json)
+  PENDING_PRD=$(python3 -c "
+import json, re
+try:
+    prd = json.load(open('$PRD_JSON_FILE'))
+    # Read progress.md to find actually-done tasks (agents mark [x] there)
+    done_in_progress = set()
+    try:
+        with open('$PROJECT_ROOT/agents/progress.md') as f:
+            for line in f:
+                m = re.search(r'T(\d+):.*✅', line)
+                if m: done_in_progress.add(int(m.group(1)))
+    except: pass
+    tasks = [t for t in prd.get('tasks', [])
+             if t.get('role') == '$PRD_ROLE'
+             and t.get('id') not in done_in_progress
+             and t.get('status') in ('pending', 'in_progress')]
+    print(len(tasks))
+except: print(0)
+" 2>/dev/null || echo "0")
+
+  if [ "$PENDING_PRD" -gt 0 ]; then
+    PRD_CONTENT=$(cat "$PRD_JSON_FILE")
+    PRD_PROGRESS=$(cat "$PROJECT_ROOT/agents/progress.md" 2>/dev/null || echo "No progress yet.")
+    PRD_SECTION="
+## 🎯 ACTIVE PRD — THIS TAKES PRIORITY OVER TASK QUEUE
+
+A PRD has been deployed via Command Center. You have **$PENDING_PRD pending tasks** assigned to your role ($PRD_ROLE).
+**Work on PRD tasks FIRST before any task queue work.**
+
+### PRD Tasks
+\`\`\`json
+$PRD_CONTENT
+\`\`\`
+
+### Current Progress
+$PRD_PROGRESS
+
+### How to work on PRD tasks
+1. Find the next pending task for role '$PRD_ROLE' where all depends_on tasks are done/verified
+2. Implement it fully
+3. Run its acceptance criteria commands to verify
+4. If pass: git commit, then update \`$PROJECT_ROOT/agents/progress.md\` (mark task [x], update summary counts)
+5. If fail after 3 attempts: mark as blocked in progress.md with reason
+6. Move to next task — do NOT stop after one task
+7. When all your role's tasks are done or blocked, fall through to the regular task queue below
+"
+    # Update status to show PRD work
+    curl -s -X POST "$RUBRIC_URL/api/agent-status" \
+      -H "Content-Type: application/json" \
+      -d "{\"agent\": \"$AGENT\", \"status\": \"active\", \"task\": \"PRD: $PENDING_PRD tasks pending ($PRD_ROLE)\"}" 2>/dev/null || true
+  fi
+fi
 
 # Blueprint
 BLUEPRINT=""
@@ -127,8 +298,9 @@ MODEL_FLAG=""
 case "$AGENT" in
   backend-dev)      MODEL_FLAG="--model opus" ;;
   frontend-dev)     MODEL_FLAG="--model opus" ;;
-  qa-engineer)      MODEL_FLAG="--model sonnet" ;;
-  pipeline-tester)  MODEL_FLAG="--model sonnet" ;;
+  qa-engineer)      MODEL_FLAG="--model opus" ;;
+  pipeline-tester)    MODEL_FLAG="--model opus" ;;
+  security-auditor)   MODEL_FLAG="--model opus" ;;
   orchestrator)
     if [ "$ORCHESTRATOR_MODE" = "grand" ]; then
       MODEL_FLAG="--model opus"
@@ -155,14 +327,30 @@ if [ -f "$MEMORY_FILE" ]; then
   MEMORY=$(cat "$MEMORY_FILE")
 fi
 
-# Handoffs
-HANDOFF_NOTES=""
+# Handoffs — split into OPERATOR (highest priority) and AGENT (collaboration)
+OPERATOR_HANDOFFS=""
+AGENT_HANDOFFS=""
 if [ -f "$PROJECT_ROOT/rubric/scaffold/data/handoffs.json" ]; then
-  HANDOFF_NOTES=$(python3 -c "
-import json
+  OPERATOR_HANDOFFS=$(python3 -c "
+import json, time
 try:
     h = json.load(open('$PROJECT_ROOT/rubric/scaffold/data/handoffs.json'))
-    mine = [x for x in h if x.get('to') == '$AGENT' and not x.get('read')]
+    now = time.time() * 1000
+    # Show recent operator handoffs (last 2 hours) even if marked read by watcher
+    mine = [x for x in h if x.get('to') == '$AGENT' and x.get('from') == 'operator' and (now - x.get('timestamp', 0)) < 7200000]
+    for m in mine[-3:]:
+        print('### OPERATOR DIRECTIVE')
+        print(m.get('message',''))
+        print()
+except: pass
+" 2>/dev/null || echo "")
+
+  AGENT_HANDOFFS=$(python3 -c "
+import json, time
+try:
+    h = json.load(open('$PROJECT_ROOT/rubric/scaffold/data/handoffs.json'))
+    now = time.time() * 1000
+    mine = [x for x in h if x.get('to') == '$AGENT' and x.get('from','') != 'operator' and (now - x.get('timestamp', 0)) < 7200000]
     for m in mine[-3:]:
         print('### From ' + m.get('from','?') + ' (task ' + m.get('task_id','') + ')')
         print(m.get('message',''))
@@ -205,6 +393,66 @@ except: pass
 " 2>/dev/null || echo "")
 fi
 
+# ─── User-Browser Errors (HIGHEST PRIORITY — fix what the user sees broken) ─
+ACTIVITY_LOG="$PROJECT_ROOT/rubric/scaffold/data/activity-log.json"
+USER_ERRORS=""
+if [ -f "$ACTIVITY_LOG" ]; then
+  USER_ERRORS=$(python3 -c "
+import json
+try:
+    logs = json.load(open('$ACTIVITY_LOG'))
+    # Activity log is newest-first (unshift). Read from start for recent errors.
+    errors = [e for e in logs[:50] if e.get('agent') == 'user-browser' and e.get('status') == 'error']
+    seen = set()
+    for e in errors[-20:]:
+        key = e.get('task', '')
+        if key not in seen:
+            seen.add(key)
+            print('- ' + e.get('summary', '')[:200])
+except: pass
+" 2>/dev/null || echo "")
+
+  # Auto-create bug tasks from user-browser errors (only for backend/frontend agents)
+  if [ -n "$USER_ERRORS" ] && { [ "$AGENT" = "backend-dev" ] || [ "$AGENT" = "frontend-dev" ]; }; then
+    python3 -c "
+import json, time
+try:
+    logs = json.load(open('$ACTIVITY_LOG'))
+    tq_path = '$AGENTS_DIR/task-queue.json'
+    tq = json.load(open(tq_path))
+    # Activity log is newest-first (unshift). Read from start for recent errors.
+    errors = [e for e in logs[:50] if e.get('agent') == 'user-browser' and e.get('status') == 'error']
+    # Deduplicate
+    seen_tasks = {t.get('title','') for tab in tq.get('tabs',[]) for t in tab.get('tasks',[])}
+    seen_keys = set()
+    new_tasks = []
+    for e in errors[-10:]:
+        key = e.get('task','')
+        summary = e.get('summary','')
+        if key in seen_keys: continue
+        seen_keys.add(key)
+        title = 'BUG-USER: ' + summary[:100]
+        if any(title[:60] in existing for existing in seen_tasks): continue
+        role = 'backend' if '/api/' in key else 'frontend'
+        if ('$AGENT' == 'backend-dev' and role != 'backend') or ('$AGENT' == 'frontend-dev' and role != 'frontend'): continue
+        new_tasks.append({
+            'id': 'BUG-USER-' + str(int(time.time()))[-6:],
+            'title': title,
+            'role': '$AGENT'.replace('-dev',''),
+            'status': 'pending',
+            'priority': 'critical',
+            'description': 'User hit this error while clicking through the website. Fix immediately.\nEndpoint: ' + key + '\nError: ' + summary
+        })
+    if new_tasks and tq.get('tabs'):
+        tq['tabs'][0].setdefault('tasks', []).extend(new_tasks[:3])  # max 3 auto-created
+        json.dump(tq, open(tq_path, 'w'), indent=2)
+        print(f'Auto-created {len(new_tasks[:3])} bug tasks from user-browser errors')
+except Exception as ex:
+    print(f'Auto-task creation failed: {ex}')
+" 2>/dev/null || true
+  fi
+fi
+
 # ─── Build Prompt ───────────────────────────────────────────────────────────
 # Inject orchestrator mode if applicable
 ORCH_SECTION=""
@@ -219,7 +467,51 @@ $RECENT_COMMITS
 "
 fi
 
-PROMPT="You are running as the $AGENT agent for StoryEngine.
+PROMPT="You are running as the $AGENT agent for StoryEngine."
+
+# Operator handoffs go FIRST — direct orders from the human
+if [ -n "$OPERATOR_HANDOFFS" ]; then
+  PROMPT="$PROMPT
+
+## 🔴 OPERATOR HANDOFF — DO THIS FIRST (before ANYTHING else)
+The operator sent these directives via Telegram. This is the HIGHEST priority. Drop everything else and work on this.
+
+$OPERATOR_HANDOFFS
+
+Only after completing the operator's request, continue with other work below."
+fi
+
+# Operator focus directive — SECOND priority (before task queue)
+if [ -n "$OPERATOR_CONTROLS" ]; then
+  PROMPT="$PROMPT
+
+## ⚠️ OPERATOR FOCUS DIRECTIVE — OBEY THIS (overrides task queue)
+$OPERATOR_CONTROLS
+You MUST work on what the operator says. If the focus directive conflicts with ANY task in the queue below, IGNORE the task queue and FOLLOW THIS DIRECTIVE. The operator is your boss."
+fi
+
+# Operator messages — THIRD priority (before task queue)
+if [ -n "$OPERATOR_FEEDBACK" ]; then
+  PROMPT="$PROMPT
+
+## 🔴 OPERATOR MESSAGES — ADDRESS BEFORE ANY TASK QUEUE WORK
+These are direct messages from the human operator. The operator outranks the task queue. Read these and act on them BEFORE picking any task from the queue:
+$OPERATOR_FEEDBACK"
+fi
+
+# User errors go next — highest auto-detected priority
+if [ -n "$USER_ERRORS" ]; then
+  PROMPT="$PROMPT
+
+## 🚨 LIVE USER ERRORS — FIX THESE NEXT (before any task queue or PRD work)
+The operator just clicked through the website and hit these errors. These are REAL bugs the user is experiencing RIGHT NOW. Fix them before doing anything else.
+
+$USER_ERRORS
+
+After fixing user errors, continue with your normal task queue / PRD work below."
+fi
+
+PROMPT="$PROMPT
 
 ## Product Vision (THE NORTH STAR — every task must push toward this)
 $PRODUCT_VISION
@@ -246,33 +538,49 @@ if [ -n "$MEMORY" ]; then
 $MEMORY"
 fi
 
-if [ -n "$HANDOFF_NOTES" ]; then
+if [ -n "$AGENT_HANDOFFS" ]; then
   PROMPT="$PROMPT
 
 ## Handoff Notes (from other agents)
-$HANDOFF_NOTES"
+$AGENT_HANDOFFS"
 fi
 
-PROMPT="$PROMPT
+if [ -n "$PRD_SECTION" ]; then
+  PROMPT="$PROMPT
+$PRD_SECTION"
+fi
+
+# ─── Inject Task Queue OR Standing Orders ──────────────────────────────────
+if [ "$OPS_MODE" = "true" ]; then
+  STANDING_ORDERS=$(cat "$AGENTS_DIR/standing-orders/$AGENT.md" 2>/dev/null || echo "No standing orders found.")
+  PROMPT="$PROMPT
+
+## OPS MODE — STANDING ORDERS (task queue is complete)
+All build tasks are done. You are now in **Operations Mode**. There is no task to pick from the queue. Instead, follow your standing orders below.
+
+$STANDING_ORDERS
+
+## Launch Checklist (the team goal)
+Every agent contributes to getting this score to 8/8. Evaluate what you can and report:
+1. All pages render without console errors
+2. Auth flow works end-to-end (login, signup, session persistence, logout)
+3. Billing/subscription flow works end-to-end
+4. Pipeline runs a video end-to-end through StoryEngine UI
+5. Mobile responsive on 375x667 viewport
+6. Performance: pages load under 3 seconds
+7. No critical security vulnerabilities
+8. All API endpoints return correct data shapes
+
+At the VERY END of your output, include this line:
+LAUNCH_SCORE: X/8 (list which criteria pass and which fail)
+
+## Current Task Queue (for reference — check for pending bugs filed by other agents)
+$TASK_QUEUE"
+else
+  PROMPT="$PROMPT
 
 ## Current Task Queue
 $TASK_QUEUE"
-
-# Operator directives go LAST so they override task queue decisions
-if [ -n "$OPERATOR_CONTROLS" ]; then
-  PROMPT="$PROMPT
-
-## ⚠️ OPERATOR OVERRIDE (this overrides the task queue above)
-$OPERATOR_CONTROLS
-If the focus directive conflicts with the task queue, FOLLOW THE FOCUS DIRECTIVE. Drop whatever task you were going to pick and work on what the operator says instead."
-fi
-
-if [ -n "$OPERATOR_FEEDBACK" ]; then
-  PROMPT="$PROMPT
-
-## 🔴 OPERATOR MESSAGES (read these BEFORE picking a task)
-These are direct messages from the human operator. Address them FIRST, before any task queue work:
-$OPERATOR_FEEDBACK"
 fi
 
 PROMPT="$PROMPT
@@ -298,7 +606,14 @@ DETAIL:
 - [What changed for the user]
 - [What the next agent should work on]
 
-Begin work now. Pick your next task and execute it."
+## Chain of Command (MANDATORY)
+1. OPERATOR HANDOFFS (Telegram) — absolute highest priority
+2. OPERATOR FOCUS DIRECTIVE — overrides task queue
+3. OPERATOR MESSAGES — address before task queue
+4. USER ERRORS — fix live bugs
+5. Task Queue — only if nothing above applies
+
+Begin work now. Follow the chain of command above — operator orders FIRST, then task queue."
 
 # ─── Invoke Claude ──────────────────────────────────────────────────────────
 # Write prompt to temp file then pipe via stdin to avoid "Argument list too long" (ARG_MAX)
@@ -355,6 +670,17 @@ curl -s -X POST "$RUBRIC_URL/api/activity-log" \
   -H "Content-Type: application/json" \
   -d "{\"agent\": \"$AGENT\", \"task\": \"$TASK_LINE\", \"summary\": $SUMMARY_JSON, \"detail\": $DETAIL_JSON, \"detail_file\": \"$RUN_ID.md\", \"status\": \"completed\"}" 2>/dev/null || true
 
+# ─── Extract Launch Score (Ops Mode) ──────────────────────────────────────
+if [ "$OPS_MODE" = "true" ]; then
+  LAUNCH_SCORE=$(echo "$OUTPUT" | grep "^LAUNCH_SCORE:" | head -1 | sed 's/^LAUNCH_SCORE: *//' || echo "")
+  if [ -n "$LAUNCH_SCORE" ]; then
+    LAUNCH_SCORE_JSON=$(echo "$LAUNCH_SCORE" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().strip()))' 2>/dev/null || echo "\"$LAUNCH_SCORE\"")
+    curl -s -X POST "$RUBRIC_URL/api/activity-log" \
+      -H "Content-Type: application/json" \
+      -d "{\"agent\": \"$AGENT\", \"task\": \"launch-readiness\", \"summary\": $LAUNCH_SCORE_JSON, \"status\": \"completed\"}" 2>/dev/null || true
+  fi
+fi
+
 # ─── Mark Feedback as Read ─────────────────────────────────────────────────
 if [ -f "$CONTROLS_FILE" ]; then
   python3 -c "
@@ -407,6 +733,128 @@ ${PROP_TITLE}
 
 _Reply /approve ${PROP_ID} or /reject ${PROP_ID}_"
 fi
+
+# ─── Restart Servers After Code Changes ────────────────────────────────────
+# Agents commit code but running servers serve old code. Restart so testers see changes.
+if [ -n "$TASK_LINE" ] || [ -n "$SUMMARY_LINE" ]; then
+  CHANGED_FILES=$(git diff --name-only HEAD~1 2>/dev/null || echo "")
+  if echo "$CHANGED_FILES" | grep -q "storyengine/backend/"; then
+    echo "Backend files changed — restarting uvicorn..."
+    pkill -f "uvicorn main:app.*8001" 2>/dev/null || true
+    sleep 1
+    cd "$PROJECT_ROOT/storyengine/backend" && nohup ./venv/bin/python3 -m uvicorn main:app --host 0.0.0.0 --port 8001 > /tmp/storyengine-backend.log 2>&1 &
+    echo "Backend restarted on port 8001"
+    cd "$PROJECT_ROOT"
+  fi
+  if echo "$CHANGED_FILES" | grep -q "storyengine/frontend/"; then
+    echo "Frontend files changed — rebuilding and restarting..."
+    cd "$PROJECT_ROOT/storyengine/frontend"
+    npm run build > /tmp/storyengine-frontend-build.log 2>&1 || echo "Frontend build failed"
+    # Kill old next server and start fresh
+    pkill -f "next.*3001" 2>/dev/null || true
+    sleep 2
+    fuser -k 3001/tcp 2>/dev/null || true
+    nohup npx next start -p 3001 > /tmp/storyengine-frontend.log 2>&1 &
+    echo "Frontend rebuilt and restarted on port 3001"
+    cd "$PROJECT_ROOT"
+  fi
+fi
+
+# ─── Regression Check (run Playwright tests if they exist) ─────────────────
+PLAYWRIGHT_DIR="$PROJECT_ROOT/storyengine/frontend/tests"
+if [ -d "$PLAYWRIGHT_DIR" ] && ls "$PLAYWRIGHT_DIR"/*.spec.ts 1>/dev/null 2>&1; then
+  echo "Running regression tests..."
+  cd "$PROJECT_ROOT/storyengine/frontend"
+  REGRESSION_RESULT=$(npx playwright test --reporter=line 2>&1 | tail -5)
+  REGRESSION_EXIT=$?
+  cd "$PROJECT_ROOT"
+  if [ $REGRESSION_EXIT -ne 0 ]; then
+    echo "⚠️  REGRESSION DETECTED:"
+    echo "$REGRESSION_RESULT"
+    curl -s -X POST "$RUBRIC_URL/api/activity-log" \
+      -H "Content-Type: application/json" \
+      -d "{\"agent\": \"$AGENT\", \"task\": \"regression\", \"summary\": \"REGRESSION: Playwright tests failed after $AGENT commit\", \"status\": \"error\"}" 2>/dev/null || true
+  else
+    echo "✅ Regression tests passed"
+  fi
+fi
+
+# ─── PRD: Auto-Spawn Unblocked Agents ──────────────────────────────────────
+# After completing PRD work, check if other roles became unblocked and spawn them
+if [ -f "$PROJECT_ROOT/agents/prd.json" ]; then
+  python3 -c "
+import json, subprocess, os
+try:
+    # Respect kill switch — don't spawn if team is OFF
+    try:
+        controls = json.load(open('$CONTROLS_FILE'))
+        if controls.get('team_enabled', True) is False:
+            print('Team OFF — skipping auto-spawn')
+            exit(0)
+    except: pass
+
+    prd = json.load(open('$PROJECT_ROOT/agents/prd.json'))
+    tasks = prd.get('tasks', [])
+    done_ids = {t['id'] for t in tasks if t.get('status') in ('done', 'verified')}
+    role_to_agent = {'backend': 'backend-dev', 'frontend': 'frontend-dev', 'qa': 'qa-engineer', 'pipeline-tester': 'pipeline-tester'}
+    spawned = set()
+    for t in tasks:
+        if t.get('status') != 'pending': continue
+        deps = set(t.get('depends_on', []))
+        if deps and not deps.issubset(done_ids): continue
+        role = t.get('role', '')
+        agent = role_to_agent.get(role, '')
+        if agent and agent != '$AGENT' and agent not in spawned:
+            spawned.add(agent)
+            print(f'Spawning {agent} (unblocked)')
+            subprocess.Popen(
+                ['bash', 'run-agent.sh', agent],
+                cwd='$AGENTS_DIR',
+                env={**os.environ, 'CLAUDE_BIN': '$CLAUDE_BIN'},
+                stdout=open(f'/tmp/prd-{agent}.log', 'w'),
+                stderr=subprocess.STDOUT
+            )
+except Exception as e:
+    print(f'Auto-spawn check failed: {e}')
+" 2>/dev/null || true
+fi
+
+# ─── Health Check (MANDATORY — no agent leaves the site broken) ────────────
+echo "Running health check..."
+FRONTEND_OK=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:3001/ 2>/dev/null || echo "000")
+BACKEND_OK=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8001/api/videos 2>/dev/null || echo "000")
+
+if [ "$FRONTEND_OK" != "200" ]; then
+  echo "⚠️  FRONTEND DOWN (HTTP $FRONTEND_OK) — restarting..."
+  pkill -f 'next.*3001' 2>/dev/null || true
+  sleep 2
+  fuser -k 3001/tcp 2>/dev/null || true
+  sleep 1
+  cd "$PROJECT_ROOT/storyengine/frontend"
+  npm run build > /tmp/storyengine-frontend-build.log 2>&1 || echo "Build failed"
+  nohup npx next start -p 3001 > /tmp/storyengine-frontend.log 2>&1 &
+  echo "Frontend restarted"
+  cd "$PROJECT_ROOT"
+  # Notify
+  curl -s -X POST "$RUBRIC_URL/api/activity-log" \
+    -H "Content-Type: application/json" \
+    -d "{\"agent\": \"$AGENT\", \"task\": \"health-check\", \"summary\": \"Frontend was DOWN — auto-restarted\", \"status\": \"completed\"}" 2>/dev/null || true
+fi
+
+if [ "$BACKEND_OK" = "000" ]; then
+  echo "⚠️  BACKEND DOWN — restarting..."
+  pkill -f 'uvicorn.*8001' 2>/dev/null || true
+  sleep 1
+  cd "$PROJECT_ROOT/storyengine/backend"
+  nohup ./venv/bin/python3 -m uvicorn main:app --host 0.0.0.0 --port 8001 > /tmp/storyengine-backend.log 2>&1 &
+  echo "Backend restarted"
+  cd "$PROJECT_ROOT"
+  curl -s -X POST "$RUBRIC_URL/api/activity-log" \
+    -H "Content-Type: application/json" \
+    -d "{\"agent\": \"$AGENT\", \"task\": \"health-check\", \"summary\": \"Backend was DOWN — auto-restarted\", \"status\": \"completed\"}" 2>/dev/null || true
+fi
+
+echo "Health check: frontend=$FRONTEND_OK backend=$BACKEND_OK"
 
 # ─── Report Idle ────────────────────────────────────────────────────────────
 curl -s -X POST "$RUBRIC_URL/api/agent-status" \

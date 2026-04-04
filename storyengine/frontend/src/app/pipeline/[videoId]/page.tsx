@@ -5,7 +5,7 @@ import { useParams } from "next/navigation";
 import { motion } from "framer-motion";
 import {
   ArrowLeft, FileText, Image as ImageIcon, Film,
-  BarChart3, Search, Video, Upload, Loader2, RotateCcw, Brain,
+  BarChart3, Search, Video, Upload, Loader2, RotateCcw, Brain, Volume2,
 } from "lucide-react";
 import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -21,6 +21,7 @@ import { ThumbnailTab } from "@/components/production/ThumbnailTab";
 import { RenderTab } from "@/components/production/RenderTab";
 import { UploadTab } from "@/components/production/UploadTab";
 import { PerformanceTab } from "@/components/production/PerformanceTab";
+import { SoundTab } from "@/components/production/SoundTab";
 
 const container = {
   hidden: { opacity: 0 },
@@ -72,6 +73,7 @@ const TABS = [
   { id: "script-voice", label: "Script", icon: FileText },
   { id: "storyboard-visuals", label: "Storyboard & Visuals", icon: ImageIcon },
   { id: "clips", label: "Video Clips", icon: Video },
+  { id: "sound", label: "Sound", icon: Volume2 },
   { id: "thumbnail", label: "Thumbnail", icon: Film },
   { id: "render", label: "Render", icon: Film },
   { id: "upload", label: "Upload", icon: Upload },
@@ -307,10 +309,10 @@ export default function VideoDetailPage() {
           </h1>
           <div className="flex items-center gap-3 flex-wrap">
             <StatusPill label={pill.label} color={pill.color} pulse size="md" />
-            {!TERMINAL_STATUSES.has(status) && status !== "idea_logged" && (
+            {(taskRunning || runningNext) && (
               <span className="flex items-center gap-1.5 text-[11px] font-mono" style={{ color: "var(--turquoise)" }}>
                 <Loader2 size={10} className="animate-spin" />
-                Pipeline running
+                {taskMessage || "Pipeline running"}
               </span>
             )}
             {video.framework_angle && (
@@ -523,6 +525,7 @@ export default function VideoDetailPage() {
         {currentTab === "script-voice" && <ScriptVoiceTab video={videoForTabs} />}
         {currentTab === "storyboard-visuals" && <StoryboardVisualsTab video={videoForTabs} onGoToScriptVoice={() => setActiveTab("script-voice")} />}
         {currentTab === "clips" && <VideoClipsTab video={videoForTabs} />}
+        {currentTab === "sound" && <SoundTab video={videoForTabs} />}
         {currentTab === "thumbnail" && <ThumbnailTab video={videoForTabs} />}
         {currentTab === "render" && <RenderTab video={videoForTabs} />}
         {currentTab === "upload" && <UploadTab video={videoForTabs} />}

@@ -11,7 +11,7 @@ load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from database import get_pool, close_pool, fetch_all, fetch_one, execute
-from routes import dashboard, videos, assets, activity, review, pipeline, settings, autopilot, skills, agents, niche, channel_profile, projects, visual_styles, discovery, learning_extraction, youtube_sync, analytics, profile, google_auth, billing
+from routes import dashboard, videos, assets, activity, review, pipeline, settings, autopilot, skills, agents, niche, channel_profile, projects, visual_styles, discovery, learning_extraction, youtube_sync, analytics, profile, google_auth, billing, preferences
 from routes.autopilot import _bg_task_status
 
 
@@ -279,15 +279,16 @@ app = FastAPI(
 )
 
 # CORS — allow frontend origins
+_extra_origins = [
+    o.strip() for o in os.getenv("ALLOWED_ORIGINS", "").split(",") if o.strip()
+]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:3001",
         "http://localhost:3000",
-        "http://76.13.119.181:3000",
-        "http://76.13.119.181:3001",
         os.getenv("FRONTEND_URL", "http://localhost:3001"),
-    ],
+    ] + _extra_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -315,6 +316,7 @@ app.include_router(analytics.router)
 app.include_router(profile.router)
 app.include_router(google_auth.router)
 app.include_router(billing.router)
+app.include_router(preferences.router)
 
 
 @app.get("/api/health")

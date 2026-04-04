@@ -1,54 +1,373 @@
 # Task Tracking
 
-## Handoff — 2026-04-02
+## Handoff — 2026-04-04 (backend-dev: Storyboard Extraction V2)
+
+### Completed
+- T27-001 (done by previous session): Supabase Storage bucket + upload helper (storage.py)
+- T27-002: Grid cropping + panel extraction (extraction.py) — PIL-based, tested on real grids
+
+### Next: T27-003 — Rewrite storyboard-extract endpoint for Supabase
+This task wires extraction.py into the pipeline:
+1. Read grid URLs from `scripts` table (storyboard_1_url, storyboard_2_url, storyboard_3_url)
+2. For each grid, call `extract_grid()` from extraction.py
+3. Clear existing `image_url` on assets before writing new panel URLs
+4. Update `assets.image_url` with extracted panel URLs
+5. Advance video status to `ready_for_images`
+
+Key context:
+- Current `run_storyboard_extract()` in pipeline_executor.py delegates to Airtable pipeline — silently does nothing for Supabase videos
+- Rewrite to call extraction.py directly with database reads/writes
+- Test video: f9749bd2 ("Drones"), has 6 scenes, tempfile URLs currently still alive (may expire)
+- Grid layout is 3x2 (6 panels per grid), NOT 3x3
+
+### Also pending
+- T27-004: Re-generate storyboard grids (old URLs expired — but currently still alive)
+- T27-005: Persist grid URLs to Supabase Storage after generation
+- T27-008: Add permanent storage to ALL image gen steps
+
+---
+
+## Handoff — 2026-04-03 (Session 3)
+
+### Next Session: Start Here
+
+Read this handoff. The autonomous dev team is LIVE and operational. 6 agents, all on Opus, all on cron. The system works end-to-end: PRD → decompose → agents execute → test → learn.
+
+### Immediate Priorities (build these first)
+
+#### 1. Command Center Controls (UI)
+Ryan needs full control over the team from the dashboard:
+
+- **Master ON/OFF toggle** — one button to pause/resume ALL agents. When OFF, no agent runs (watcher stops, crons skip). When ON, everything resumes. Implementation: add `team_enabled: true/false` to controls.json. Watcher and run-agent.sh check this flag before proceeding.
+
+- **Clear Task Queue button** — resets `storyengine/agents/task-queue.json` to empty. Shows confirmation modal "Are you sure? This clears all 128 tasks." Endpoint: `DELETE /api/task-queue`.
+
+- **Clear PRD button** — already exists but should ALSO clear the focus directive in controls.json and reset the error tracker files. Currently only deletes prd.json/prd.md/progress.md.
+
+- **Task counter reset** — The "128/128 tasks" in the sidebar should reflect the cleared state. Currently reads from task-queue.json.
+
+#### 2. PRD → Task Queue Flow
+When a PRD completes, its tasks should optionally flow into the permanent task queue for ongoing maintenance. Currently they're separate systems. Decision needed: should completed PRD work create follow-up maintenance tasks in the queue?
+
+#### 3. Security Issues Follow-Up
+6 security issues documented in the last PRD (SEC-1 through SEC-6). These need to become a new PRD or be added to the task queue:
+- SEC-1 (CRITICAL): dev-token bypasses all auth in development mode
+- SEC-2 (HIGH): get_scene_audio skips tenant check
+- SEC-3 (HIGH): API keys revealed without rate limiting
+- SEC-4 (HIGH): Hardcoded IP in CORS allowlist
+- SEC-5 (MEDIUM): Dynamic SQL via f-strings
+- SEC-6 (MEDIUM): No audit logging for key management
+
+#### 4. Activity Feed Improvements
+- Entries older than 24h should be grayed out or collapsed
+- Add a "Clear feed" button
+- The feed should auto-scroll to show newest entries (currently requires manual Refresh)
+- Add WebSocket for real-time updates instead of polling
+
+#### 5. Playwright Auth Fix
+13 of 20 QA tests skip because they don't authenticate. The tests need the auth intercept pattern that QA already knows (intercept /api/auth/me). This should be a shared test fixture.
+
+### What Was Built This Session (massive)
+
+**PRD System (full pipeline):**
+- Generate PRD button (Claude Opus from rough notes)
+- Deploy to Team (decompose → focus → spawn immediately)
+- Live decomposition UI (phase labels, pulsing bar, seconds counter)
+- PRD watcher cron (every 60s, 3 jobs: PRD tasks, user errors, handoffs)
+- Mission status reads from progress.md (not stale prd.json)
+
+**Unified Agent System:**
+- ONE runner (run-agent.sh) handles PRD + task queue + handoffs + errors
+- Auto-detect PROJECT_ROOT (no more hardcoded paths)
+- Completion check requires: queue empty + no PRD + no handoffs + no focus + no user errors
+- Auto-restart servers after code commits
+- Mandatory health check (frontend + backend) before exit
+- Regression tests (Playwright) after commits
+- Auto-spawn unblocked agents after PRD work
+
+**6 Agents (all Opus):**
+- Orchestrator, Backend Dev, Frontend Dev, QA Engineer, Pipeline Tester, Security Auditor
+- All have: live activity posting, team collaboration (handoffs + spawn), cross-agent learning, real skills
+
+**Autonomous Operations:**
+- User clicks broken thing → error in activity log → watcher spawns agent within 60s
+- Agent finds bug outside its role → handoffs to teammate + spawns them
+- QA/Tester finds pattern → writes to responsible agent's memory
+- Telegram message → handoff → agent spawns immediately
+
+**First PRD Execution:**
+- 14 tasks decomposed from rough voice notes
+- All 14 completed (6 backend, 6 frontend, 1 QA, 1 security)
+- Pipeline Tester caught 1 real bug
+- 20 Playwright tests created
+- 6 security issues documented
+
+### Architecture (for next session's reference)
+
+```
+Command Center (RUBRIC :5050)
+  → Generate PRD (Claude Opus)
+  → Deploy to Team (decompose → spawn)
+  → Mission progress (poll progress.md)
+  → Team Status (agent-status.json)
+  → Activity Feed (activity-log.json)
+
+Watcher (cron every 60s — agents/prd-watcher.sh)
+  → Job 1: PRD unblocked tasks → spawn agents
+  → Job 2: User-browser errors → spawn backend/frontend
+  → Job 3: Unaddressed handoffs → spawn receiving agent
+
+Agent Runner (storyengine/agents/run-agent.sh)
+  → Check: handoffs? focus? user errors? PRD tasks? task queue?
+  → Work on highest priority source
+  → Post to activity feed during work
+  → Cross-agent learning on bug patterns
+  → Restart servers if code changed
+  → Run regression tests
+  → Health check before exit
+  → Auto-spawn newly-unblocked agents
+
+Cron Schedule:
+  Every hour :00  — Backend Dev
+  Every hour :02  — Frontend Dev
+  Every hour :04  — QA Engineer
+  Every 3 hours   — Pipeline Tester
+  Every 6 hours   — Security Auditor
+  Daily 5 AM      — Orchestrator (grand audit)
+  Every minute    — PRD Watcher
+```
+
+### VPS State
+- RUBRIC: http://76.13.119.181:5050
+- StoryEngine: http://76.13.119.181:3001
+- Backend: port 8001
+- Telegram: tmux session `telegram-channel` (Haiku)
+- All crons installed
+- Branch: agent-dev
+
+---
+
+## Previous Handoff — 2026-04-03 (Session 2)
 
 ### What Was Built This Session
 
-**Agent Team V4 (shipped + merged to main):**
-- Feedback box on RUBRIC dashboard (POST/GET/dismiss + injected into agent prompts)
-- Skill leveling (calculate-skills.sh, XP/levels on agent cards)
-- Daily retrospective (retro.sh, dashboard retro card, updates agent memory)
-- Telegram Channels integration (bot paired, running in tmux on VPS as Haiku)
+**PRD Auto-Generation + Deploy Pipeline:**
+1. ✅ "Generate PRD" button — type rough notes → Claude Opus generates structured PRD
+2. ✅ "Deploy to Team" — decomposes → sets focus → spawns agents immediately (no cron wait)
+3. ✅ POST /api/spawn-agent — run any agent instantly via HTTP
+4. ✅ POST /api/generate-prd — async with polling, seconds counter, 10min timeout
+5. ✅ Wrapper script (`agents/generate-prd.sh`) avoids exec/spawn Node.js issues
 
-**Agent Team V5 (on agent-dev, needs PR to main):**
-- Planning session script (planning-session.sh, 6 AM daily)
-- Morning briefing script (morning-briefing.sh, 7 AM Telegram digest)
-- Real-time Telegram notifications (completions, crashes in run-agent.sh)
-- Boss messaging (MESSAGE_BOSS in agent output → Telegram)
-- Proposals system (API + dashboard card + agent instructions)
-- notify-telegram.sh shared helper
+**Unified Agent System (one system, not two):**
+6. ✅ `run-agent.sh` now handles BOTH PRD tasks and task-queue work (checks agents/prd.json at startup)
+7. ✅ `dispatch.sh` simplified to thin wrapper
+8. ✅ `run-team.sh` still works but deploy-prd and spawn-agent both call run-agent.sh now
+9. ✅ PRD tasks count toward agent XP/leveling (calculate-skills.sh updated)
+10. ✅ Fixed PROJECT_ROOT hardcoded Mac path → auto-detects from script location
 
-**Email/Password Auth (on agent-dev, needs PR to main):**
-- Register + login endpoints (PBKDF2 hashing, no external deps)
-- Frontend login page with register/sign-in toggle
-- Logout button in sidebar
-- Ryan's account: ryan.ayler@gmail.com / testtest1
-- Data migrated to Ryan's tenant (33 videos, 569 assets, etc.)
-- Agent auth token saved at `storyengine/agents/memory/auth-token.md`
+**Agent Upgrades:**
+11. ✅ Pipeline Tester upgraded to Opus with aggressive browser-first testing
+12. ✅ QA Engineer upgraded to Opus
+13. ✅ Security Auditor — NEW agent (Opus, every 6h) for auth, injection, data exposure, CORS
+14. ✅ All agents: skills fixed — only real skills referenced, Skill tool invocation instructions
+15. ✅ All agents: skills visible on Team tab UI (parsed from .md files)
 
-### What Needs to Be Done Next
+**Autonomous Operations:**
+16. ✅ PRD watcher cron (every 60s) — auto-spawns agents when PRD tasks become unblocked
+17. ✅ Error watcher — user-browser 404/405 errors auto-spawn backend/frontend agents within 60s
+18. ✅ Error-driven task creation — user-browser errors auto-create BUG-USER tasks in queue
+19. ✅ Auto-restart servers after agent commits (backend uvicorn, frontend next build+start)
+20. ✅ Mandatory health check — every agent checks frontend+backend before exiting, auto-restarts if down
+21. ✅ Regression prevention — Playwright tests run after every agent commit
 
-**Immediate (design work — humans design, agents execute):**
-1. Wire agent skills on Team page — read from actual project skills (superpowers, web-design-system, backend skills, etc.) not hardcoded placeholders
-2. Make agent .md files editable from RUBRIC dashboard — each agent card should have an "Edit Instructions" button that opens their .md file in a text editor
-3. Wire the Skill Trees tab to show real skills from the project
-4. Clean up Focus Directive vs Operator Feedback — either merge them or make the distinction clearer in the UI
+**Team Collaboration:**
+22. ✅ All agents can POST handoffs + spawn teammates when stuck
+23. ✅ Cross-agent learning — QA/Tester write bug patterns into responsible agent's memory
+24. ✅ Live activity posting — agents POST to activity feed during work (start, complete, error)
+25. ✅ User-browser errors shown at TOP of every agent's prompt as #1 priority
 
-**VPS State:**
-- RUBRIC: http://76.13.119.181:5050 (serving from main, but index.html cherry-picked from agent-dev)
+**Live Decomposition UI:**
+26. ✅ Pulsing progress bar during PRD decomposition
+27. ✅ Phase labels ("Reading PRD... (45s)" → "Creating tasks... (120s)")
+28. ✅ Mission status reads from progress.md (not stale prd.json)
+
+**PRD Execution Results (first real test):**
+- 14 tasks decomposed from user's rough notes
+- 13/14 completed (6 backend, 6 frontend, 1 QA)
+- T14 (security) remaining — now has dedicated Security Auditor agent
+- 1 bug found by Pipeline Tester (Profile API 404)
+- 20 Playwright tests created by QA
+
+### Current Agent Team (6 agents)
+
+| Agent | Model | Schedule | Role |
+|-------|-------|----------|------|
+| Orchestrator | Opus/Sonnet | Daily 5 AM | Plans work, audits progress |
+| Backend Dev | Opus | Hourly :00 | FastAPI, DB, business logic |
+| Frontend Dev | Opus | Hourly :02 | React, TypeScript, UI |
+| QA Engineer | Opus | Hourly :04 | Verification, Playwright |
+| Pipeline Tester | Opus | Every 3h | Click-through testing, bug filing |
+| Security Auditor | Opus | Every 6h | Auth, injection, CORS, secrets |
+
+### What Needs Attention Next
+
+1. ~~**User-browser errors still live**~~ — FIXED. Both 404 on `/api/user/preferences` and 405 on DELETE were stale server issues (already resolved by server restart).
+
+2. ~~**Image generation broken**~~ — FIXED (commit 013963a). Three bugs: (a) LightPipeline missing `_filter_by_scene`, `_is_targeted_run`, `_log_filters`, `_update_status` methods. (b) Status case mismatch: DB stores lowercase but pipeline bots expect capitalized. (c) Targeted runs (single image) triggered retry loop that generated ALL images. All three fixed.
+
+3. **Activity feed needs verification** — live posting instructions added to all agents but not yet tested in a real agent run. Next agent session should produce real-time activity entries.
+
+4. **Security audit T14** — the Security Auditor agent exists but hasn't run yet. Will run on next 6h cron or can be manually spawned.
+
+5. ~~**Delete button broken**~~ — FIXED. Was stale server issue, now works correctly.
+
+5. **Tier 2 product ideas not yet built:**
+   - Cost dashboard (track Claude API cost per agent)
+   - Agent reputation scores (beyond levels)
+   - Visual diff reviews (before/after screenshots in Activity)
+   - Telegram command expansion
+   - SLA tracking (mean time to resolution)
+
+### VPS State
+- RUBRIC: http://76.13.119.181:5050 (Command Center is landing page)
+- StoryEngine: http://76.13.119.181:3001
+- Backend: port 8001
+- Telegram: tmux session `telegram-channel` (Haiku)
+- All crons installed including PRD watcher + security auditor + pipeline tester
+- Branch: agent-dev
+
+---
+
+## Previous Handoff — 2026-04-03 (Session 1)
+
+### The Vision (Ryan's words — do not lose this)
+
+"I need a fully autonomous dev team that helps me build whatever I want. I want to be able to speak into Telegram or text into Telegram, detail out what I'm seeing, what's not working, and then that goes to the teams. They know exactly where to target, where to build, and they execute to fix everything in real time. They don't need to wait for the cron job. If I make a directive, they just get after it."
+
+"The tester is the most important agent next to the orchestrator. If Claude is just building blindly, no wonder why I don't have a complete system. The tester must be the most expert. His eyes flow the problems down to the dev team to fix."
+
+"I want one line of communication — I send from Telegram, the bot messages the team with instructions that take top priority, all other work gets queued until the problem gets fixed."
+
+### What Was Built This Session (2026-04-02 → 2026-04-03)
+
+**Completed:**
+1. ✅ Real skills wired to Team page + Skill Trees (7 skills from `.claude/skills/`)
+2. ✅ Edit Instructions button on agent cards (reads/writes agent .md files via modal editor)
+3. ✅ Focus Directive vs Messages clarified (PERSISTENT vs ONE-TIME badges, visual distinction)
+4. ✅ V5 → main PR created (#337, 113 commits, ~10K lines)
+5. ✅ Fixed agent crashes (exit code 126) — prompt piped via stdin to avoid ARG_MAX
+6. ✅ Added turbo (96x/day) and ultra (180x/day) cadence levels
+7. ✅ Fixed cron Next Up showing wrong countdown for high-freq schedules
+8. ✅ Operator messages now override task queue (focus directive moved AFTER task queue in prompt)
+9. ✅ Telegram system prompt updated to ALWAYS set focus directive on operator messages
+10. ✅ VPS main branch synced to origin/main
+11. ✅ **Portable autonomous dev team template** (`agents/` directory):
+    - 5 roles: lead, backend, frontend, qa, security (`agents/roles/*.md`)
+    - `decompose.sh`: PRD → prd.json with machine-verifiable acceptance criteria
+    - `run-team.sh`: iterative agent loop (implement → test → commit → next)
+    - `verify.sh`: quality gates (tsc, tests, lint) as Claude Code Stop hook
+    - `TEAM.md`: project-level config (stack, commands, rules)
+    - PRD template + acceptance criteria writing guide
+12. ✅ **Command Center** (replaced Welcome tab):
+    - Mission Brief: textarea to paste PRD + "Deploy to Team" button
+    - Agent Proposals: approve/reject feature requests inline
+    - Team Status: agent dots + focus directive banner
+    - APIs: POST /api/deploy-prd, GET /api/mission-status, DELETE /api/mission
+13. ✅ Agent role .md files editable from RUBRIC Team tab (portable section with "Edit Instructions")
+
+### What Needs to Be Done Next (PRIORITY ORDER)
+
+#### Priority 1: Wire "Deploy to Team" End-to-End
+The Command Center UI exists but clicking "Deploy to Team" does NOT spawn agents. It only writes files and waits for cron.
+
+**What needs to happen:**
+1. After `decompose.sh` finishes → set focus directive automatically ("PRD deployed: [title]")
+2. After focus directive set → immediately spawn agents via `run-team.sh` in background (not wait for cron)
+3. Stream agent status back to Command Center (poll `/api/mission-status`)
+4. When all tasks done → orchestrator clears focus directive, Command Center shows "Mission Complete"
+
+**Files:**
+- `rubric/scaffold/server.js` — `POST /api/deploy-prd` endpoint needs to chain: decompose → set focus → spawn agents
+- `agents/run-team.sh` — needs to work on VPS (currently `CLAUDE_BIN` may not be in PATH)
+- Need a new `POST /api/spawn-agent` endpoint that runs `run-team.sh <role>` in background
+
+#### Priority 2: Telegram Instant Execution (no cron wait)
+Ryan's single line of communication: text Telegram → agents execute immediately.
+
+**Current flow (broken):**
+1. Ryan texts Telegram → bot sets focus directive + sends feedback
+2. Agents only see it on next cron cycle (every 15 min)
+3. Agents may ignore it if orchestrator already assigned other tasks
+
+**Desired flow:**
+1. Ryan texts Telegram → bot sets focus directive
+2. Bot ALSO spawns agents immediately via `POST /api/spawn-agent` (or SSH to run `run-team.sh`)
+3. Agents start working within seconds, not 15 minutes
+4. Progress streams back to Telegram ("Backend Dev started... fixed endpoint... committed")
+
+**Implementation:**
+- Update `rubric/scaffold/telegram-system-prompt.md` — after setting focus, bot should call `/api/spawn-agent` for each relevant role
+- Add `POST /api/spawn-agent` to `rubric/scaffold/server.js` — runs `run-team.sh <role>` or `run-agent.sh <agent>` in background via `exec()`
+- The Telegram bot (running as Haiku in tmux `telegram-channel`) needs its system prompt updated
+- Consider: should Telegram bot use `run-team.sh` (new PRD system) or `run-agent.sh` (existing StoryEngine system)? Answer: depends on context. If it's a PRD → `run-team.sh`. If it's a bug fix on StoryEngine → `run-agent.sh` with focus override.
+
+#### Priority 3: Pipeline Tester / QA Agent Upgrade
+The Pipeline Tester is Level 1 Novice with 0 tasks done. Ryan says: "That guy must be the most expert person. His eyes flow the problems down to the dev team to fix."
+
+**Current problems:**
+- `pipeline-tester.md` runs quick Playwright scripts but doesn't do real click-throughs
+- QA Engineer (`qa-engineer.md`) does tsc checks but not browser testing
+- Neither agent actually opens the app and navigates like a user
+- Both are passive (wait for task queue) instead of proactive (find bugs autonomously)
+
+**What needs to change:**
+- Pipeline Tester should be the **primary bug-finder**: opens every page, clicks every button, files bugs
+- QA Engineer should be the **verifier**: after devs fix a bug, QA confirms the fix works
+- Both need aggressive Playwright instructions: start servers, navigate to every route, test forms, check console errors
+- Pipeline Tester's cron should run AFTER frontend-dev and backend-dev (currently at :10/:25/:40/:55 — good timing)
+- The tester needs to POST bugs as handoffs to the responsible agent with specific reproduction steps
+- Tester should be upgraded from Sonnet to Opus model (it's doing the hardest job)
+
+**Files to update:**
+- `storyengine/agents/pipeline-tester.md` — rewrite to be aggressive browser-first tester
+- `storyengine/agents/qa-engineer.md` — rewrite as verification-focused, not just tsc
+- `storyengine/agents/run-agent.sh` — pipeline-tester should use Opus (line 131: currently Sonnet)
+
+#### Priority 4: Bridge Old System ↔ New System
+Two agent systems exist now:
+1. `storyengine/agents/run-agent.sh` + `task-queue.json` (StoryEngine-specific, 95 tasks, cron-driven)
+2. `agents/run-team.sh` + `prd.json` (portable, PRD-driven, iterative loop)
+
+They need to coexist. When:
+- **No PRD deployed + no focus directive** → agents use `run-agent.sh` (current behavior, StoryEngine tasks)
+- **PRD deployed via Command Center** → agents use `run-team.sh` (new system)
+- **Focus directive from Telegram** → agents use `run-agent.sh` but in focus mode (override task queue)
+
+**Implementation:** The cron entries currently call `run-agent.sh`. Add a wrapper script `agents/dispatch.sh` that checks:
+1. Is there a `prd.json`? → run `run-team.sh <role>`
+2. Is there a focus directive? → run `run-agent.sh <agent>` (which already has focus override)
+3. Neither? → run `run-agent.sh <agent>` (normal task queue)
+
+### VPS State (2026-04-03)
+- RUBRIC: http://76.13.119.181:5050 (agent-dev, Command Center is landing page)
 - StoryEngine: http://76.13.119.181:3001 (frontend on agent-dev)
-- Backend: port 8001 (agent-dev, DATABASE_URL uses port 5432 direct connection)
-- Telegram: tmux session `telegram-channel` (Haiku, system prompt at `rubric/scaffold/telegram-system-prompt.md`)
-- Cadence: 48x/day (max), crons installed
-- VPS main branch was reset to origin/main — agents work on agent-dev only
+- Backend: port 8001 (agent-dev)
+- Telegram: tmux session `telegram-channel` (Haiku)
+- Cadence: **turbo 96x/day** (every 15 min), crons installed
+- Branch: agent-dev (VPS tracks origin/agent-dev)
 
 **Config locations (THE source of truth):**
-- `storyengine/.env` — DATABASE_URL, DEV_TENANT_ID, SESSION_SECRET, GOOGLE_CLIENT_ID (this is what backend loads, NOT backend/.env)
+- `storyengine/.env` — DATABASE_URL, DEV_TENANT_ID, SESSION_SECRET
 - `storyengine/frontend/.env.local` — NEXT_PUBLIC_GOOGLE_CLIENT_ID
 - `~/.claude/channels/telegram/.env` — TELEGRAM_BOT_TOKEN
-- Ryan's tenant ID: `f6839de2-368c-440d-8559-0292026179fa`
+- Ryan's tenant: `f6839de2-368c-440d-8559-0292026179fa`
+- Auth: ryan.ayler@gmail.com / testtest1
 
-**Key principle from Ryan:** "The bots are not going to design themselves. We design the agents, and they work according to our design." Agent improvements (skills, instructions, proposals) are human design work, not agent self-modification.
+**Key principles from Ryan:**
+- "The bots are not going to design themselves. We design the agents, and they work according to our design."
+- "One line of communication — Telegram to the team, top priority, no waiting."
+- "The tester is the eyes. Without it, agents build blind."
+- "I want to pick up this dev team and plop it wherever. Give it a PRD, it ships."
 
 ---
 

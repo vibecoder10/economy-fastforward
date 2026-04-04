@@ -1,5 +1,5 @@
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
-const RUBRIC_URL = process.env.NEXT_PUBLIC_RUBRIC_URL || "http://76.13.119.181:5050";
+const RUBRIC_URL = process.env.NEXT_PUBLIC_RUBRIC_URL || "http://localhost:5050";
 
 // Auto-report failed API calls to RUBRIC dashboard (silent, non-blocking)
 function reportError(path: string, status: number, body: string, method: string) {
@@ -35,7 +35,16 @@ async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
 
   if (!res.ok) {
     const body = await res.text();
-    reportError(path, res.status, body, options?.method || "GET");
+    // On 401 (invalid/expired token), clear auth and redirect to login
+    if (res.status === 401 && typeof window !== "undefined" && !path.includes("/api/auth/")) {
+      localStorage.removeItem("token");
+      window.location.href = "/login";
+      throw new Error("Session expired — redirecting to login");
+    }
+    // Only report non-auth errors to RUBRIC (skip when using fallback dev-token)
+    if (storedToken && storedToken !== "dev-token") {
+      reportError(path, res.status, body, options?.method || "GET");
+    }
     throw new Error(`API error ${res.status}: ${body}`);
   }
 
@@ -146,6 +155,9 @@ export const getImageVariants = (videoId: string, scene: number, index: number) 
 
 export const getVideoScript = (id: string) => fetchApi<ScriptScene[]>(`/api/videos/${id}/script`);
 
+export const getAudioToken = (videoId: string) =>
+  fetchApi<{ token: string }>(`/api/videos/${videoId}/audio-token`, { method: "POST" });
+
 // Assets
 export const approveAsset = (id: string) =>
   fetchApi<{ status: string }>(`/api/assets/${id}/approve`, { method: "PATCH" });
@@ -161,6 +173,39 @@ export const batchApproveAssets = (assetIds: string[], status: "approved" | "rej
 
 // Review
 export const getPendingReview = () => fetchApi<PendingReview>("/api/review/pending");
+
+export const approveStoryboard = (scriptId: string) =>
+  fetchApi<{ status: string; script_id: string }>(`/api/review/storyboard/${scriptId}/approve`, {
+    method: "POST",
+  });
+
+export const rejectStoryboard = (scriptId: string, reason?: string) =>
+  fetchApi<{ status: string; script_id: string }>(`/api/review/storyboard/${scriptId}/reject`, {
+    method: "POST",
+    body: JSON.stringify({ reason }),
+  });
+
+export const bulkApproveStoryboards = (scriptIds: string[]) =>
+  fetchApi<{ status: string; approved_count: number; script_ids: string[] }>(
+    "/api/review/storyboard/approve-all",
+    { method: "POST", body: JSON.stringify({ script_ids: scriptIds }) }
+  );
+
+export const deleteVideo = (id: string) =>
+  fetchApi<{ status: string; video_id: string }>(`/api/videos/${id}`, { method: "DELETE" });
+
+export const generateVideoPrompts = (videoId: string) =>
+  fetchApi<PipelineResponse>(`/api/pipeline/generate-video-prompts/${videoId}`, { method: "POST" });
+
+// User Preferences
+export const getUserPreferences = () =>
+  fetchApi<Record<string, unknown>>("/api/user/preferences");
+
+export const setUserPreference = (key: string, value: unknown) =>
+  fetchApi<{ status: string; key: string }>(`/api/user/preferences/${key}`, {
+    method: "PUT",
+    body: JSON.stringify({ value }),
+  });
 
 // Activity
 export const getActivity = (status?: string) =>
@@ -189,7 +234,7 @@ export const testApiKey = (name: string) =>
   fetchApi<TestKeyResponse>(`/api/settings/keys/${name}/test`, { method: "POST" });
 
 export const revealApiKey = (name: string) =>
-  fetchApi<{ value: string }>(`/api/settings/keys/${name}/reveal`);
+  fetchApi<{ value: string }>(`/api/settings/keys/${name}/reveal`, { method: "POST" });
 
 // Channel Profile (legacy — redirects to projects)
 export const getChannelProfile = () =>
@@ -638,6 +683,36 @@ export const clearAllStoryboards = (videoId: string) =>
   fetchApi<{ status: string }>(`/api/videos/${videoId}/storyboards`, {
     method: "DELETE",
   });
+
+export const clearAllExtractedPanels = (videoId: string) =>
+  fetchApi<{ status: string; cleared_count: number }>(`/api/videos/${videoId}/extracted-panels`, {
+    method: "DELETE",
+  });
+
+export const clearExtractedPanel = (videoId: string, assetId: string) =>
+  fetchApi<{ status: string }>(`/api/videos/${videoId}/extracted-panels/${assetId}`, {
+    method: "DELETE",
+  });
+
+export const uploadStoryboardGrid = async (
+  videoId: string,
+  scene: number,
+  beat: number,
+  file: File,
+): Promise<{ status: string; url: string; all_grids_complete: boolean }> => {
+  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  const formData = new FormData();
+  formData.append("scene", String(scene));
+  formData.append("beat", String(beat));
+  formData.append("file", file);
+  const res = await fetch(`${API_URL}/api/videos/${videoId}/storyboard-grid-upload`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token || "dev-token"}` },
+    body: formData,
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+};
 
 // Targeted regeneration (single scene/image, bypasses status gate)
 export const runVoiceForScene = (videoId: string, scene: number) =>
