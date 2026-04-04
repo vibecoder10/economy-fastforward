@@ -923,7 +923,7 @@ async def upload_storyboard_grid(
            FROM scripts WHERE id = $1""",
         script["id"],
     )
-    beat_count = updated.get("storyboard_beat_count") or 1
+    beat_count = int(updated.get("storyboard_beat_count") or 1)
     all_present = all(
         updated.get(f"storyboard_{i}_url")
         for i in range(1, beat_count + 1)
