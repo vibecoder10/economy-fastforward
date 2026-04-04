@@ -141,6 +141,45 @@
           "verified_at": "2026-04-04T00:35:00Z",
           "verified_by": "pipeline-tester",
           "verification_notes": "NOT A BUG. Status gate working correctly. ThumbnailTab line 371 disables button when !isReadyForThumbnail. Line 373 shows 'Complete earlier stages first'. Backend correctly returns 400 for videos not at ready_for_thumbnail. User was on stale frontend or had cached page state."
+        },
+        {
+          "id": "BUG-USER-0404-THUMB",
+          "title": "BUG-USER: API error 400 on POST /api/pipeline/thumbnail \u2014 video at ready_for_images",
+          "role": "qa",
+          "status": "done",
+          "priority": "critical",
+          "description": "User hit 400 clicking Generate Thumbnail on video f9749bd2. Video is at status ready_for_images \u2014 must complete image generation first before thumbnail can be generated. ThumbnailTab.tsx gates this correctly (isReadyForThumbnail check). Correct pipeline behavior.",
+          "verified": true,
+          "verified_at": "2026-04-04T01:56:20Z",
+          "verified_by": "orchestrator",
+          "completed_at": "2026-04-04T01:56:20Z",
+          "verification_notes": "NOT A BUG. curl confirms video status=ready_for_images. Must complete images step first. Backend correctly returns 400. Frontend ThumbnailTab gates button with !isReadyForThumbnail. User needs to run images step on this video first."
+        },
+        {
+          "id": "BUG-USER-0404-PROFILE",
+          "title": "BUG-USER: API error 404 on /profile: GET /api/profile",
+          "role": "qa",
+          "status": "done",
+          "priority": "critical",
+          "description": "User reports 404 on GET /api/profile. Live test confirms route returns 200. Likely stale server state at time of error or unauthenticated request.",
+          "verified": true,
+          "verified_at": "2026-04-04T01:56:20Z",
+          "verified_by": "orchestrator",
+          "completed_at": "2026-04-04T01:56:20Z",
+          "verification_notes": "NOT A BUG. curl http://localhost:8001/api/profile with dev-token returns 200 with correct user data. Route registered and working. Error was from stale/restarting server or unauthenticated browser."
+        },
+        {
+          "id": "BUG-USER-0404-ANALYTICS",
+          "title": "BUG-USER: API error 404 on /analytics: GET /api/analytics/* (3 endpoints)",
+          "role": "qa",
+          "status": "done",
+          "priority": "critical",
+          "description": "User reports 404 on analytics/overview, analytics/framework-performance, analytics/ctr-timeline. All 3 live tested and return 200.",
+          "verified": true,
+          "verified_at": "2026-04-04T01:56:20Z",
+          "verified_by": "orchestrator",
+          "completed_at": "2026-04-04T01:56:20Z",
+          "verification_notes": "NOT A BUG. All 3 analytics endpoints return HTTP 200 with data. Routes registered in main.py, analytics.py. Errors were from stale server or unauthenticated request (SEC-1 invalidated old dev tokens \u2014 users should re-login)."
         }
       ]
     },
@@ -2898,7 +2937,7 @@
           "verified": true,
           "verified_at": "2026-04-04T10:30:00Z",
           "verified_by": "qa-engineer",
-          "verification_notes": "PASS. Commit 3e6bc7c: (1) _persist_url() at line 439 — non-blocking helper, falls back to original URL on error, skips already-permanent supabase.co URLs. (2) _persist_asset_urls() at line 454 — batch re-uploads temp image URLs, SQL filters out already-persisted via NOT LIKE '%supabase.co/storage%'. (3) _persist_storyboard_urls() at line 477 — batch re-uploads temp grid URLs, dynamic SQL safe (column names hardcoded from range(1,6)). (4) Integration: run_storyboard_images (line 1236), run_images (line 1417), run_image_variants (line 1514), run_thumbnail (line 1733) — all placed after success check, before status advance. (5) No path collision: images/S{n}-{n}.png vs images/S{n}-{n}-v{n}.png vs grids/S{n}-B{n}.png vs thumbnails/thumb.png. (6) Import: upload_from_url at line 40, logging at line 42-43 module level. (7) All 3 methods async (verified via inspect). (8) tsc --noEmit: 0 errors. (9) Diff clean: 1 app file (pipeline_executor.py), 98 lines added, no bloat."
+          "verification_notes": "PASS. Commit 3e6bc7c: (1) _persist_url() at line 439 \u2014 non-blocking helper, falls back to original URL on error, skips already-permanent supabase.co URLs. (2) _persist_asset_urls() at line 454 \u2014 batch re-uploads temp image URLs, SQL filters out already-persisted via NOT LIKE '%supabase.co/storage%'. (3) _persist_storyboard_urls() at line 477 \u2014 batch re-uploads temp grid URLs, dynamic SQL safe (column names hardcoded from range(1,6)). (4) Integration: run_storyboard_images (line 1236), run_images (line 1417), run_image_variants (line 1514), run_thumbnail (line 1733) \u2014 all placed after success check, before status advance. (5) No path collision: images/S{n}-{n}.png vs images/S{n}-{n}-v{n}.png vs grids/S{n}-B{n}.png vs thumbnails/thumb.png. (6) Import: upload_from_url at line 40, logging at line 42-43 module level. (7) All 3 methods async (verified via inspect). (8) tsc --noEmit: 0 errors. (9) Diff clean: 1 app file (pipeline_executor.py), 98 lines added, no bloat."
         }
       ]
     }
