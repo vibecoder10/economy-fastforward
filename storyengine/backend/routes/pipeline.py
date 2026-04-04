@@ -557,7 +557,11 @@ async def run_storyboard_extract(
     async def _run():
         try:
             executor = PipelineExecutor(tenant_id)
-            result = await executor.run_storyboard_extract(video_id)
+
+            async def _progress(msg: str):
+                _set_task_status(video_id, "running", msg)
+
+            result = await executor.run_storyboard_extract(video_id, progress_callback=_progress)
             _set_task_status(
                 video_id,
                 result.get("status", "unknown"),

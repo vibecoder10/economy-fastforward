@@ -1255,10 +1255,22 @@ class PipelineExecutor:
             await self._log_activity(bot_name, video_id, "failed", error_msg)
             return {"status": "failed", "error": error_msg}
 
-    async def run_storyboard_extract(self, video_id: str) -> dict:
-        """Extract storyboard grid images into individual panels via Supabase Storage."""
+    async def run_storyboard_extract(self, video_id: str, progress_callback=None) -> dict:
+        """Extract storyboard grid images into individual panels via Supabase Storage.
+
+        Two-pass approach for instant feedback:
+        Pass 1 (fast): PIL crop + upload → write to DB immediately (panels appear in UI)
+        Pass 2 (slow): AI upscale each panel → update DB with better URL
+        """
         await self._ensure_initialized()
         bot_name = "Storyboard Extract Bot"
+
+        async def _report(msg: str):
+            if progress_callback:
+                try:
+                    await progress_callback(msg)
+                except Exception:
+                    pass
 
         try:
             video = await self._get_video(video_id)
@@ -1281,9 +1293,14 @@ class PipelineExecutor:
             if not scenes:
                 raise Exception("No script scenes found for video")
 
+            total_scenes = len([s for s in scenes if any(s.get(f"storyboard_{i}_url") for i in range(1, 6))])
             total_panels = 0
             scene_errors = []
+            # Collect panel DB records for upscale pass
+            all_panel_records = []  # (asset_id, panel_url, scene, beat, seq)
 
+            # ── Pass 1: Fast crop + upload + write to DB ──
+            scenes_done = 0
             for sc in scenes:
                 scene_num = sc["scene"]
                 beat_urls = []
@@ -1295,14 +1312,14 @@ class PipelineExecutor:
                 if not beat_urls:
                     continue
 
+                scenes_done += 1
                 panel_offset = 0
                 for beat_num, grid_url in beat_urls:
                     try:
-                        # PIL crop (accurate) + optional AI upscale (quality)
-                        # Grid layout auto-detected from image (1x2, 2x3, 3x3, etc.)
+                        await _report(f"Extracting Scene {scenes_done}/{total_scenes}, Beat {beat_num}...")
+                        # Fast: PIL crop only (no image_client = no upscale)
                         panels = await extract_grid(
                             grid_url, video_id, scene_num, beat_num, panel_offset,
-                            image_client=self._pipeline.image_client,
                         )
                         for p in panels:
                             existing = await fetch_one(
@@ -1312,23 +1329,29 @@ class PipelineExecutor:
                                 video_id, scene_num, p["image_index"], self.tenant_id,
                             )
                             if existing:
+                                asset_id = existing["id"]
                                 await execute(
                                     """UPDATE assets SET image_url = $1, status = 'done',
                                               generation_method = 'storyboard_extract', updated_at = now()
                                        WHERE id = $2""",
-                                    p["panel_url"], existing["id"],
+                                    p["panel_url"], asset_id,
                                 )
                             else:
+                                asset_id = str(uuid.uuid4())
                                 await execute(
                                     """INSERT INTO assets
                                        (id, tenant_id, video_id, video_title, scene, image_index,
                                         image_url, status, generation_method, created_at, updated_at)
                                        VALUES ($1, $2, $3, $4, $5, $6, $7, 'done',
                                                'storyboard_extract', now(), now())""",
-                                    str(uuid.uuid4()), self.tenant_id, video_id, video_title,
+                                    asset_id, self.tenant_id, video_id, video_title,
                                     scene_num, p["image_index"], p["panel_url"],
                                 )
                             total_panels += 1
+                            all_panel_records.append((
+                                asset_id, p["panel_url"], scene_num, beat_num,
+                                p["image_index"],
+                            ))
                         panel_offset += len(panels)
                     except Exception as e:
                         scene_errors.append(f"Scene {scene_num} beat {beat_num}: {e}")
@@ -1336,15 +1359,50 @@ class PipelineExecutor:
             if total_panels == 0 and scene_errors:
                 raise Exception(f"All extractions failed: {'; '.join(scene_errors)}")
 
+            # Advance status immediately — panels are visible in UI now
+            new_status = "ready_for_images"
+            await self._update_video_status(video_id, to_supabase(new_status))
+            await self._log_transition(video_id, current_status, to_supabase(new_status), "api")
+
             msg = f"Extracted {total_panels} panels"
             if scene_errors:
                 msg += f" ({len(scene_errors)} beat errors skipped)"
 
-            new_status = "ready_for_images"
-            await self._update_video_status(video_id, to_supabase(new_status))
-            await self._log_transition(video_id, current_status, to_supabase(new_status), "api")
-            await self._log_activity(bot_name, video_id, "completed", msg)
+            # ── Pass 2: AI upscale (slow, but panels already visible) ──
+            image_client = getattr(self._pipeline, "image_client", None)
+            upscaled = 0
+            if image_client and all_panel_records:
+                await _report(f"Panels visible! Upscaling {len(all_panel_records)} panels...")
+                for idx, (asset_id, panel_url, sc_num, bt_num, img_idx) in enumerate(all_panel_records):
+                    try:
+                        await _report(f"Upscaling panel {idx + 1}/{len(all_panel_records)}...")
+                        prompt = (
+                            "Upscale this image to high resolution. "
+                            "Remove any text labels like [KF1 | LS | 12s], [KF7 | MS | 9s], "
+                            "or similar keyframe/shot/duration overlays — cleanly paint over "
+                            "them with the surrounding image content. "
+                            "Otherwise do NOT alter the image in any way. "
+                            "Keep the exact same composition, pose, expression, colors, "
+                            "and details. Only increase resolution, clarity, and remove labels."
+                        )
+                        result = await image_client.generate_scene_image(
+                            prompt=prompt,
+                            reference_image_url=panel_url,
+                        )
+                        if result and result.get("url"):
+                            path = f"{video_id}/extracted/S{sc_num}-B{bt_num}-P{img_idx}_hd.png"
+                            upscaled_url = await upload_from_url(result["url"], path)
+                            await execute(
+                                "UPDATE assets SET image_url = $1, updated_at = now() WHERE id = $2",
+                                upscaled_url, asset_id,
+                            )
+                            upscaled += 1
+                    except Exception as e:
+                        _logger.warning("Upscale failed for panel %d: %s — keeping original", idx, e)
 
+                msg += f", {upscaled}/{len(all_panel_records)} upscaled"
+
+            await self._log_activity(bot_name, video_id, "completed", msg)
             return {"status": to_supabase(new_status), "video_id": video_id, "panels_extracted": total_panels}
 
         except Exception as e:
