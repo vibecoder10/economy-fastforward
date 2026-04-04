@@ -1372,10 +1372,10 @@ class PipelineExecutor:
             image_client = getattr(self._pipeline, "image_client", None)
             upscaled = 0
             if image_client and all_panel_records:
-                await _report(f"Panels visible! Upscaling {len(all_panel_records)} panels...")
+                await _report(f"Panels extracted! Upscaling {len(all_panel_records)} images...")
                 for idx, (asset_id, panel_url, sc_num, bt_num, img_idx) in enumerate(all_panel_records):
                     try:
-                        await _report(f"Upscaling panel {idx + 1}/{len(all_panel_records)}...")
+                        await _report(f"Upscaling Scene {sc_num} Image {img_idx} ({idx + 1}/{len(all_panel_records)})")
                         prompt = (
                             "Upscale this image to high resolution. "
                             "Remove any text labels like [KF1 | LS | 12s], [KF7 | MS | 9s], "
