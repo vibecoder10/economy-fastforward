@@ -139,4 +139,11 @@ if [ -f "$AGE_FILE" ]; then
   fi
 fi
 
-echo "[$(date)] Telegram channel is running (model=$MODEL)"
+# ─── Check 3: Keepalive — prevent Claude idle timeout ────────────────────────
+# Claude Code sessions can go idle and stop processing channel messages
+# even though the process is technically alive. Sending an empty Enter
+# keystroke to the tmux pane resets the idle timer.
+# This runs every 15 min (via cron), which is well within typical idle timeouts.
+tmux send-keys -t "$TMUX_SESSION" "" Enter 2>/dev/null || true
+
+echo "[$(date)] Telegram channel is running (model=$MODEL, keepalive sent)"
