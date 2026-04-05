@@ -204,9 +204,18 @@ class TestDispatchClient:
             mock_create.return_value = "task-456"
             mock_poll.return_value = ["https://example.com/video.mp4"]
 
-            result = await client.generate_bridge(br, "https://example.com/kf.png")
+            result = await client.generate_bridge(
+                br, "https://example.com/kf1.png", "https://example.com/kf2.png"
+            )
             assert result.status == TaskStatus.COMPLETED
             assert result.video_url == "https://example.com/video.mp4"
+
+            # Verify both image URLs were sent in the payload
+            call_payload = mock_create.call_args[0][0]
+            assert call_payload["input"]["image_urls"] == [
+                "https://example.com/kf1.png",
+                "https://example.com/kf2.png",
+            ]
 
     @pytest.mark.asyncio
     async def test_generate_bridge_retries(self):
@@ -224,7 +233,9 @@ class TestDispatchClient:
             mock_create.side_effect = ["t1", "t2", "t3"]
             mock_poll.side_effect = [None, None, ["https://example.com/v.mp4"]]
 
-            result = await client.generate_bridge(br, "https://img.com/kf.png")
+            result = await client.generate_bridge(
+                br, "https://img.com/kf1.png", "https://img.com/kf2.png"
+            )
             assert result.status == TaskStatus.COMPLETED
             assert mock_create.call_count == 3
 
@@ -244,7 +255,9 @@ class TestDispatchClient:
             mock_create.return_value = "t1"
             mock_poll.return_value = ["https://example.com/v.mp4"]
 
-            await client.generate_bridge(br, "https://img.com/kf.png")
+            await client.generate_bridge(
+                br, "https://img.com/kf1.png", "https://img.com/kf2.png"
+            )
             # Check the payload had duration clamped to 30
             call_payload = mock_create.call_args[0][0]
             assert call_payload["input"]["duration"] == 30
@@ -276,7 +289,7 @@ class TestOrchestration:
             assert all(kf.status == TaskStatus.COMPLETED for kf in results)
 
     @pytest.mark.asyncio
-    async def test_dispatch_bridges_skips_missing_source(self, sample_sheet):
+    async def test_dispatch_bridges_skips_missing_start_keyframe(self, sample_sheet):
         # Mark first keyframe as failed (no image)
         sample_sheet.keyframes[0].status = TaskStatus.FAILED
 
@@ -290,7 +303,26 @@ class TestOrchestration:
             results = await dispatch_bridges(client, sample_sheet)
             # BR-001 should be skipped (KF-001 has no image)
             assert results[0].status == TaskStatus.FAILED
-            assert "has no image" in results[0].error.lower()
+            assert "start keyframe" in results[0].error.lower()
+
+    @pytest.mark.asyncio
+    async def test_dispatch_bridges_skips_missing_end_keyframe(self, sample_sheet):
+        # Give start keyframe an image but mark end keyframe as failed
+        sample_sheet.keyframes[0].image_url = "https://img.com/kf1.png"
+        sample_sheet.keyframes[0].status = TaskStatus.COMPLETED
+        sample_sheet.keyframes[1].status = TaskStatus.FAILED
+
+        client = DispatchClient(api_key="test-key")
+
+        with patch.object(client, "_create_task", new_callable=AsyncMock) as mock_create, \
+             patch.object(client, "_poll", new_callable=AsyncMock) as mock_poll:
+            mock_create.return_value = "t1"
+            mock_poll.return_value = ["https://v.com/v.mp4"]
+
+            results = await dispatch_bridges(client, sample_sheet)
+            # BR-001 should be skipped (KF-002 has no image)
+            assert results[0].status == TaskStatus.FAILED
+            assert "end keyframe" in results[0].error.lower()
 
     @pytest.mark.asyncio
     async def test_dry_run(self, sample_sheet):
