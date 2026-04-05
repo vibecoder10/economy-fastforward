@@ -1,0 +1,102 @@
+{
+  "title": "The Last Signal",
+  "total_duration_s": 30,
+  "visual_style": "cinematic noir",
+  "aspect_ratio": "16:9",
+  "bible": {
+    "characters": [
+      {
+        "name": "Dr. Elena Voss",
+        "appearance": "early 50s, silver-streaked dark hair pulled back, sharp cheekbones",
+        "wardrobe": "navy lab coat over black turtleneck, round titanium glasses",
+        "signature": "always carries a worn leather notebook"
+      }
+    ],
+    "locations": [
+      {
+        "name": "Deep Space Listening Station",
+        "description": "remote concrete bunker surrounded by massive radio telescopes, desert landscape at twilight",
+        "palette": "deep indigo, burnt orange horizon, cool steel gray"
+      },
+      {
+        "name": "Control Room",
+        "description": "banks of vintage oscilloscopes mixed with modern flat screens, green phosphor glow",
+        "palette": "dark green, amber, charcoal"
+      }
+    ],
+    "lighting": "high-contrast chiaroscuro, single harsh overhead light mixing with monitor glow",
+    "camera": "Arri Alexa Mini LF, Cooke S4/i lenses, shallow depth of field",
+    "color_grade": "desaturated teal shadows, warm amber highlights, crushed blacks",
+    "aspect_ratio": "16:9"
+  },
+  "keyframes": [
+    {
+      "keyframe_id": "KF-001",
+      "shot_type": "wide establishing",
+      "prompt": "A remote desert listening station at twilight, massive radio telescopes silhouetted against a burnt orange and indigo sky. A single figure in a navy lab coat walks toward a concrete bunker entrance. Chiaroscuro lighting, crushed blacks, cinematic noir. Wide establishing shot, Arri Alexa, deep depth of field.",
+      "notes": "Opening shot — establish isolation and scale"
+    },
+    {
+      "keyframe_id": "KF-002",
+      "shot_type": "medium",
+      "prompt": "Dr. Elena Voss, early 50s with silver-streaked dark hair and round titanium glasses, sits before banks of oscilloscopes in a dimly lit control room. Green phosphor glow illuminates her focused expression. She holds a worn leather notebook. Medium shot, shallow depth of field, amber and teal color grade.",
+      "notes": "Introduce character at her workstation"
+    },
+    {
+      "keyframe_id": "KF-003",
+      "shot_type": "close-up",
+      "prompt": "Extreme close-up of an oscilloscope screen showing a rhythmic waveform pattern unlike anything natural. Green phosphor lines pulse with an alien cadence. Reflection of Dr. Voss's glasses visible in the screen. Shallow depth of field, cinematic noir lighting.",
+      "notes": "The signal — the inciting incident"
+    },
+    {
+      "keyframe_id": "KF-004",
+      "shot_type": "over-shoulder",
+      "prompt": "Over-the-shoulder shot of Dr. Voss frantically writing in her leather notebook, the oscilloscope signal reflecting in her titanium glasses. Control room monitors cast blue-green light across her navy lab coat. Urgent, tense atmosphere. Arri Alexa, shallow focus on the notebook.",
+      "notes": "Reaction — urgency and discovery"
+    },
+    {
+      "keyframe_id": "KF-005",
+      "shot_type": "wide",
+      "prompt": "Wide shot of the desert listening station at night, all radio telescopes now pointed toward a single point in the sky. Stars blazing overhead. A faint, otherworldly glow emanates from the horizon. Deep indigo and silver palette. Cinematic noir, epic scale.",
+      "notes": "Final shot — the world has changed"
+    }
+  ],
+  "bridges": [
+    {
+      "bridge_id": "BR-001",
+      "from_keyframe": "KF-001",
+      "to_keyframe": "KF-002",
+      "prompt": "Camera slowly pushes forward through the bunker entrance, fluorescent lights flickering on one by one overhead, revealing rows of vintage equipment. The ambient hum of electronics grows louder. A figure comes into focus at the far end of the room.",
+      "duration": 6,
+      "mode": "normal",
+      "resolution": "720p"
+    },
+    {
+      "bridge_id": "BR-002",
+      "from_keyframe": "KF-002",
+      "to_keyframe": "KF-003",
+      "prompt": "Camera racks focus from Dr. Voss's concentrated face to the oscilloscope screen in front of her. The waveform suddenly spikes, a new pattern emerging. Green light intensifies, casting dancing shadows across the control room walls.",
+      "duration": 6,
+      "mode": "normal",
+      "resolution": "720p"
+    },
+    {
+      "bridge_id": "BR-003",
+      "from_keyframe": "KF-003",
+      "to_keyframe": "KF-004",
+      "prompt": "Camera pulls back from the oscilloscope screen, sweeping around to reveal Dr. Voss reaching for her notebook with trembling hands. Monitors around her begin flickering with the same pattern. The room fills with a low resonant hum.",
+      "duration": 6,
+      "mode": "normal",
+      "resolution": "720p"
+    },
+    {
+      "bridge_id": "BR-004",
+      "from_keyframe": "KF-004",
+      "to_keyframe": "KF-005",
+      "prompt": "Camera cranes up and out through the bunker ceiling, rising above the desert landscape. Radio telescopes slowly rotate in unison, all pointing toward the same patch of sky. Stars emerge as twilight fades to night. A faint glow appears on the horizon.",
+      "duration": 8,
+      "mode": "normal",
+      "resolution": "720p"
+    }
+  ]
+}
