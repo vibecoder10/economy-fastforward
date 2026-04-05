@@ -175,8 +175,14 @@ class DispatchClient:
         self,
         bridge: Bridge,
         from_image_url: str,
+        to_image_url: str,
     ) -> Bridge:
-        """Generate a video bridge from a keyframe image."""
+        """Generate a video bridge between two keyframe images.
+
+        The Kie.ai API interpolates motion between the start and end frames.
+        Both image URLs are required — the prompt describes only the motion
+        directions between them.
+        """
         bridge.status = TaskStatus.IN_PROGRESS
         print(
             f"  [bridge] {bridge.bridge_id}: {bridge.from_keyframe} -> "
@@ -189,7 +195,7 @@ class DispatchClient:
         payload = {
             "model": VIDEO_MODEL,
             "input": {
-                "image_urls": [from_image_url],
+                "image_urls": [from_image_url, to_image_url],
                 "prompt": bridge.prompt,
                 "mode": bridge.mode,
                 "duration": duration,
@@ -256,21 +262,27 @@ async def dispatch_bridges(
 ) -> list[Bridge]:
     """Generate all video bridges with bounded concurrency.
 
-    Each bridge uses the image_url from its source keyframe.
-    Bridges whose source keyframe failed are skipped.
+    Each bridge uses image_urls from BOTH its start and end keyframes.
+    Bridges where either keyframe failed are skipped.
     """
     kf_map = {kf.keyframe_id: kf for kf in sheet.keyframes}
     semaphore = asyncio.Semaphore(MAX_CONCURRENT_VIDEOS)
 
     async def _gen(br: Bridge) -> Bridge:
-        source_kf = kf_map.get(br.from_keyframe)
-        if not source_kf or not source_kf.image_url:
+        from_kf = kf_map.get(br.from_keyframe)
+        to_kf = kf_map.get(br.to_keyframe)
+        if not from_kf or not from_kf.image_url:
             br.status = TaskStatus.FAILED
-            br.error = f"Source keyframe {br.from_keyframe} has no image"
-            print(f"  [bridge] {br.bridge_id}: SKIPPED (no source image)")
+            br.error = f"Start keyframe {br.from_keyframe} has no image"
+            print(f"  [bridge] {br.bridge_id}: SKIPPED (no start image)")
+            return br
+        if not to_kf or not to_kf.image_url:
+            br.status = TaskStatus.FAILED
+            br.error = f"End keyframe {br.to_keyframe} has no image"
+            print(f"  [bridge] {br.bridge_id}: SKIPPED (no end image)")
             return br
         async with semaphore:
-            return await client.generate_bridge(br, source_kf.image_url)
+            return await client.generate_bridge(br, from_kf.image_url, to_kf.image_url)
 
     return await asyncio.gather(*[_gen(br) for br in sheet.bridges])
 
