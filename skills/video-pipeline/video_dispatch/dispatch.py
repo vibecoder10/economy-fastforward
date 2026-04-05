@@ -6,7 +6,7 @@ Usage:
 
 Flow:
     1. Parse production sheet JSON
-    2. Generate all keyframe images (Nano Banana Pro / Grok text-to-image)
+    2. Generate all keyframe images (Nano Banana 2 via Kie.ai)
     3. Generate video bridges between keyframes (Grok image-to-video)
     4. Write manifest with all URLs for assembly
 """
@@ -33,7 +33,7 @@ from orchestrator.pipeline_constants import Endpoints
 # Constants
 # ---------------------------------------------------------------------------
 
-IMAGE_MODEL = "grok-imagine/text-to-image"
+IMAGE_MODEL = "nano-banana-2"
 VIDEO_MODEL = "grok-imagine/image-to-video"
 
 # Polling tuning
@@ -145,6 +145,7 @@ class DispatchClient:
             "input": {
                 "prompt": kf.prompt,
                 "aspect_ratio": kf.aspect_ratio,
+                "output_format": "png",
             },
         }
 
