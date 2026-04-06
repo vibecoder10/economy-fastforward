@@ -1,6 +1,6 @@
 # System State — Economy FastForward
 
-> Last updated: 2026-03-24
+> Last updated: 2026-04-06
 
 ---
 
@@ -87,6 +87,20 @@ Settings in `remotion.config.ts` and `render_video.py` CLI flags:
 
 Captions are loaded dynamically from `render_config.json` via `getInputProps()` at render time. The old static `captions/Scene [1-20].json` files are gitignored and deleted — they caused stale caption bugs when Remotion's `.remotion/` webpack cache served old data.
 
+### Documentation Structure
+
+| Path | Purpose |
+|------|---------|
+| `tasks/todo.md` | Current tasks + session handoffs |
+| `tasks/lessons.md` | Hard-won patterns (read every session) |
+| `tasks/roadmap.md` | Product roadmap + SaaS journal |
+| `docs/` | Core reference docs (airtable-schema, api-patterns, etc.) |
+| `docs/reports/` | Completion reports, wiring status, migration reports |
+| `docs/reviews/` | System reviews (animation, architecture) |
+| `docs/reference/` | Outdated but preserved docs (MANUAL_STEP.md) |
+| `docs/superpowers/plans/` | Feature implementation plans |
+| `docs/superpowers/specs/` | Detailed feature specs |
+
 ### Config & Env
 
 | Path | Purpose |
@@ -94,6 +108,20 @@ Captions are loaded dynamically from `render_config.json` via `getInputProps()` 
 | `.env` | All secrets (gitignored, never committed) |
 | `.env.example` | Template with descriptions for all required env vars |
 | `CLAUDE.md` | AI assistant instructions and codebase reference |
+
+### Claude Code Skills
+
+| Skill | Purpose |
+|-------|---------|
+| `thinking-partner` | Co-creation mode — insights, challenges, alternatives before code |
+| `structured-workflow` | GSD-inspired Discuss → Plan → Execute → Verify for multi-step tasks |
+| `webapp-testing` | Playwright verification for frontend work |
+| `react-best-practices` | React/Next.js performance patterns |
+| `next-best-practices` | Next.js routing, RSC, data patterns |
+| `composition-patterns` | Component architecture patterns |
+| `supabase-postgres-best-practices` | DB schema, queries, RLS |
+| `remotion-best-practices` | Remotion video rendering patterns |
+| `web-design-guidelines` | UI/UX audit against design guidelines |
 
 ---
 
@@ -401,14 +429,14 @@ When the task queue is complete (all tasks done + verified), agents enter **Ops 
 - **No cost tracking** — No per-image or per-video cost logging. Budget alerts exist only for animation pipeline (80% threshold).
 - **No audit trail** — No `CreatedBy`, `ProcessedBy`, or modification timestamps on records.
 - **No soft deletes** — Old/failed records clutter tables. No archive mechanism.
-- **MANUAL_STEP.md is outdated** — Superseded by `setup_cron.sh` but still exists.
+- **MANUAL_STEP.md is outdated** — Superseded by `setup_cron.sh`. Moved to `docs/reference/MANUAL_STEP.md`.
 
 ### Low
 
 - **No pagination for large batches** — Works for single-video processing; would need pagination for bulk operations.
 - **Attachment format inconsistency** — Some fields use `[{"url": ...}]`, others use plain URLs.
 
-### Proposed Improvements (from ANIMATION_SYSTEM_REVIEW.md)
+### Proposed Improvements (from docs/reviews/ANIMATION_SYSTEM_REVIEW.md)
 
 1. Character Consistency Engine (BYOC) — HIGH priority
 2. One-Shot `!create` Pipeline (Product Mode) — HIGH priority

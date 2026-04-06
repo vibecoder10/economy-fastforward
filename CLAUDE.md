@@ -27,14 +27,11 @@
 | Scenario | Skill to Invoke FIRST | Why |
 |----------|----------------------|-----|
 | **ANY website/UI work** | `web-design-system` | Design foundations FIRST. No exceptions. |
+| **Product idea / feature direction / "how should we..."** | `thinking-partner` | Co-create, don't just execute. Insights before code. |
+| **New feature (3+ steps or multi-layer)** | `structured-workflow` | Discuss → Plan → Execute → Verify. No improvising. |
+| **User shares rough notes / brainstorming** | `thinking-partner` then `structured-workflow` | Think first, then structure. |
 | **Bug report / test failure** | `systematic-debugging` | Diagnose before fixing. No guessing. |
-| **New feature request** | `brainstorming` | Clarify intent and requirements before coding |
-| **Multi-step task (3+ steps)** | `writing-plans` | Plan THEN implement. No improvising. |
-| **Implementing a plan** | `subagent-driven-development` | Parallel execution with checkpoints |
 | **About to say "done" or "fixed"** | `verification-before-completion` | Prove it works. Run commands. Show output. |
-| **Major feature complete** | `requesting-code-review` | Validate against requirements |
-| **Received code review feedback** | `receiving-code-review` | Don't blindly agree. Verify technically. |
-| **Ready to merge/PR** | `finishing-a-development-branch` | Structured completion options |
 | **2+ independent tasks** | `dispatching-parallel-agents` | Parallelize for speed |
 | **Need feature isolation** | `using-git-worktrees` | Safe experimentation |
 | **Next.js code (pages, routes, API, RSC)** | `next-best-practices` | Correct patterns for routing, data fetching, caching |
@@ -137,7 +134,14 @@ storyengine/                     # Production dashboard (Next.js 16 + FastAPI + 
 │   └── pipeline_executor.py     # Background task orchestrator
 └── schema.sql                   # Canonical DB schema (9 tables, 51+ columns)
 tasks/                           # Task tracking, lessons learned
+├── todo.md                      # Current tasks + handoffs
+├── lessons.md                   # Hard-won patterns (read EVERY session)
+└── roadmap.md                   # Product roadmap + SaaS journal
 docs/                            # Reference documentation
+├── reports/                     # Completion reports, wiring status, migrations
+├── reviews/                     # System reviews (animation, architecture)
+├── reference/                   # Outdated but preserved docs
+└── superpowers/                 # Feature plans + specs
 ```
 
 ## Architecture
@@ -211,19 +215,28 @@ Claude Code has NO memory between sessions. Before ending ANY session:
 ---
 
 ## Execution Protocol
-1. UNDERSTAND: Read relevant files. If requirements are ambiguous, ASK.
-2. SEARCH: grep/glob for similar existing functionality before creating anything new.
-3. PLAN: Before writing code, outline files to modify and why.
-4. Wait for approval on changes touching >3 files.
-5. IMPLEMENT: One logical change at a time.
-6. VERIFY: Run tests after every change.
+
+**For non-trivial features (3+ steps or multi-layer), invoke `structured-workflow` skill.** It enforces: Discuss → Plan → Execute → Verify.
+
+**For any product/feature decision, invoke `thinking-partner` skill.** Lead with insight, not agreement.
+
+For all tasks:
+1. THINK: What's the most interesting observation about this task? Share it first.
+2. UNDERSTAND: Read relevant files. If requirements are ambiguous, ASK — don't guess.
+3. SEARCH: grep/glob for similar existing functionality before creating anything new.
+4. PLAN: Before writing code, outline files to modify and why.
+5. Wait for approval on changes touching >3 files.
+6. IMPLEMENT: One logical change at a time.
+7. VERIFY: Run tests after every change.
 
 ## Anti-Bandaid Rules
 * If a fix requires modifying >3 files, STOP. Question the architecture first.
 * Never patch around a design flaw — propose refactoring the design instead.
 * Remove dead code. No commented-out blocks. No unused imports.
-* Challenge my approach if it adds unnecessary complexity. I expect pushback.
-* Do not affirm my statements blindly. Question assumptions, offer counterpoints.
+* **Challenge my approach if it adds unnecessary complexity. I expect pushback.**
+* **Do not affirm my statements blindly. Question assumptions, offer counterpoints.**
+* **Proactively surface insights** — if you see a simpler path, a reuse opportunity, or a risk I haven't mentioned, say so before I ask. Use the `thinking-partner` skill.
+* **For any non-trivial feature**: run the structured-workflow (discuss → plan → execute → verify). Don't jump to code.
 
 ## Commands
 ```bash
@@ -255,8 +268,12 @@ cd storyengine/backend && python -m uvicorn main:app --reload --port 8001  # Bac
 * Cost breakdown → @docs/cost-awareness.md
 * Environment variables → @docs/env-vars.md
 * Infrastructure & deployment → @docs/infrastructure.md
+* Product roadmap → @tasks/roadmap.md
+* Completion reports → @docs/reports/
+* System reviews → @docs/reviews/
 
 ## Core Principles
+- **Thinking Partner First**: You are a co-creator, not a code executor. Before building, offer insights, challenge weak ideas, propose alternatives. Lead with the most interesting observation you have — never open with "Sure, I can do that."
 - **Simplicity First**: Make every change as simple as possible.
 - **No Laziness**: Find root causes. No temporary fixes. Senior developer standards.
 - Minimal impact — change only what needs changing
