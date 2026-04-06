@@ -5,10 +5,11 @@ Usage:
     python -m video_dispatch.dispatch production_sheet.json --dry-run
 
 Flow:
-    1. Parse production sheet JSON
-    2. Generate all keyframe images (Nano Banana 2 via Kie.ai)
-    3. Generate video bridges between keyframes (Grok image-to-video)
-    4. Write manifest with all URLs for assembly
+    0. Generate character reference images (anchors for visual consistency)
+    1. Generate all keyframe images (Nano Banana 2 via Kie.ai)
+       - Each keyframe receives character refs + previous frame as image_input
+    2. Generate video bridges between keyframes (Grok image-to-video)
+    3. Write manifest with all URLs for assembly
 """
 
 import asyncio
@@ -39,7 +40,7 @@ VIDEO_MODEL = "grok-imagine/image-to-video"
 # Polling tuning
 IMAGE_INITIAL_WAIT = 5.0
 IMAGE_POLL_INTERVAL = 2.0
-IMAGE_POLL_MAX = 60
+IMAGE_POLL_MAX = 90
 
 VIDEO_INITIAL_WAIT = 10.0
 VIDEO_POLL_INTERVAL = 5.0
@@ -135,18 +136,75 @@ class DispatchClient:
 
     # -- high-level operations -----------------------------------------------
 
-    async def generate_keyframe(self, kf: Keyframe) -> Keyframe:
-        """Generate a single keyframe image via text-to-image."""
-        kf.status = TaskStatus.IN_PROGRESS
-        print(f"  [keyframe] {kf.keyframe_id}: generating ({kf.shot_type})...")
+    async def generate_character_ref(
+        self, name: str, prompt: str, aspect_ratio: str = "16:9",
+    ) -> Optional[str]:
+        """Generate a character reference image. Returns the image URL."""
+        print(f"  [char-ref] {name}: generating...")
 
         payload = {
             "model": IMAGE_MODEL,
             "input": {
-                "prompt": kf.prompt,
-                "aspect_ratio": kf.aspect_ratio,
+                "prompt": prompt,
+                "aspect_ratio": aspect_ratio,
                 "output_format": "png",
             },
+        }
+
+        task_id = await self._create_task(payload)
+        if not task_id:
+            print(f"  [char-ref] {name}: FAILED to create task")
+            return None
+
+        print(f"  [char-ref] {name}: task {task_id}")
+        await asyncio.sleep(IMAGE_INITIAL_WAIT)
+        urls = await self._poll(task_id, IMAGE_POLL_MAX, IMAGE_POLL_INTERVAL)
+
+        if urls:
+            print(f"  [char-ref] {name}: DONE -> {urls[0][:80]}...")
+            return urls[0]
+
+        print(f"  [char-ref] {name}: FAILED (poll timeout)")
+        return None
+
+    async def generate_keyframe(
+        self,
+        kf: Keyframe,
+        reference_url: Optional[str] = None,
+        character_ref_urls: Optional[list] = None,
+    ) -> Keyframe:
+        """Generate a single keyframe image via text-to-image.
+
+        Args:
+            kf: The keyframe to generate.
+            reference_url: URL of the previous keyframe (scene continuity).
+            character_ref_urls: URLs of character reference images (identity anchor).
+
+        image_input is assembled as: [char_refs..., previous_frame] so the
+        model locks character identity first, then maintains scene flow.
+        """
+        kf.status = TaskStatus.IN_PROGRESS
+        refs = character_ref_urls or []
+        ref_count = len(refs) + (1 if reference_url else 0)
+        ref_tag = f" ({ref_count} refs)" if ref_count else ""
+        print(f"  [keyframe] {kf.keyframe_id}: generating ({kf.shot_type}){ref_tag}...")
+
+        input_params = {
+            "prompt": kf.prompt,
+            "aspect_ratio": kf.aspect_ratio,
+            "output_format": "png",
+        }
+
+        # Build image_input: character refs first (anchor), previous frame last (continuity)
+        image_input = list(refs)
+        if reference_url:
+            image_input.append(reference_url)
+        if image_input:
+            input_params["image_input"] = image_input
+
+        payload = {
+            "model": IMAGE_MODEL,
+            "input": input_params,
         }
 
         task_id = await self._create_task(payload)
@@ -243,18 +301,121 @@ class DispatchClient:
 # Dispatch orchestration
 # ---------------------------------------------------------------------------
 
+async def _download_and_upload(
+    image_url: str,
+    keyframe_id: str,
+    drive_folder: Optional[str] = None,
+    local_dir: Optional[Path] = None,
+    filename: Optional[str] = None,
+) -> Optional[str]:
+    """Download an image and optionally upload to Google Drive.
+
+    Returns the local file path, or None on failure.
+    """
+    if local_dir is None:
+        local_dir = Path("/tmp/dispatch_assets/images")
+    local_dir.mkdir(parents=True, exist_ok=True)
+    fname = filename or f"{keyframe_id}.png"
+    local_path = local_dir / fname
+
+    try:
+        async with httpx.AsyncClient(follow_redirects=True) as http:
+            resp = await http.get(image_url, timeout=120)
+            resp.raise_for_status()
+            local_path.write_bytes(resp.content)
+            size_kb = len(resp.content) / 1024
+            print(f"  [download] {fname} ({size_kb:.0f} KB)")
+    except Exception as e:
+        print(f"  [download] {fname} FAILED: {e}")
+        return None
+
+    if drive_folder:
+        proc = await asyncio.create_subprocess_exec(
+            "rclone", "copy", str(local_path), f"gdrive:{drive_folder}",
+            "--drive-root-folder-id=1zqsSvdyLWTRIt-Ri8VQELbYHhJihn6YD",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        _, stderr = await proc.communicate()
+        if proc.returncode == 0:
+            print(f"  [upload] {fname} -> Drive:/{drive_folder}/")
+        else:
+            print(f"  [upload] {fname} FAILED: {stderr.decode()[:200]}")
+
+    return str(local_path)
+
+
+async def dispatch_character_refs(
+    client: DispatchClient,
+    sheet: ProductionSheet,
+    drive_folder: Optional[str] = None,
+) -> list[str]:
+    """Generate character reference images from bible entries.
+
+    Characters with a 'ref_prompt' field get a reference image generated.
+    Returns a list of image URLs for use as anchors in keyframe generation.
+    """
+    ref_urls = []
+    characters_with_prompts = [
+        c for c in sheet.bible.characters if c.get("ref_prompt")
+    ]
+
+    if not characters_with_prompts:
+        return ref_urls
+
+    for char in characters_with_prompts:
+        name = char["name"]
+        url = await client.generate_character_ref(
+            name=name,
+            prompt=char["ref_prompt"],
+            aspect_ratio=sheet.aspect_ratio,
+        )
+        if url:
+            ref_urls.append(url)
+            # Save the URL back to the character dict for the manifest
+            char["ref_image_url"] = url
+            if drive_folder:
+                safe_name = name.replace(" ", "_")
+                await _download_and_upload(
+                    url, safe_name, drive_folder,
+                    filename=f"{safe_name}_ref.png",
+                )
+        else:
+            print(f"  [char-ref] WARNING: {name} ref failed, continuing without")
+
+    return ref_urls
+
+
 async def dispatch_keyframes(
     client: DispatchClient,
     keyframes: list[Keyframe],
+    drive_folder: Optional[str] = None,
+    character_ref_urls: Optional[list] = None,
 ) -> list[Keyframe]:
-    """Generate all keyframe images with bounded concurrency."""
-    semaphore = asyncio.Semaphore(MAX_CONCURRENT_IMAGES)
+    """Generate keyframe images sequentially, chaining each as a reference.
 
-    async def _gen(kf: Keyframe) -> Keyframe:
-        async with semaphore:
-            return await client.generate_keyframe(kf)
+    Each keyframe receives:
+      - character_ref_urls: character identity anchors (same for every frame)
+      - reference_url: previous frame's URL (scene continuity, changes each frame)
 
-    return await asyncio.gather(*[_gen(kf) for kf in keyframes])
+    image_input = [char_refs..., previous_frame] — identity first, continuity last.
+
+    When drive_folder is set, each image is downloaded and uploaded to
+    Google Drive immediately after generation (generate → upload → next).
+    """
+    reference_url = None
+    for kf in keyframes:
+        await client.generate_keyframe(
+            kf,
+            reference_url=reference_url,
+            character_ref_urls=character_ref_urls,
+        )
+        if kf.status == TaskStatus.COMPLETED and kf.image_url:
+            reference_url = kf.image_url
+            if drive_folder:
+                await _download_and_upload(kf.image_url, kf.keyframe_id, drive_folder)
+        # If a keyframe fails, keep the last successful reference
+    return keyframes
 
 
 async def dispatch_bridges(
@@ -292,6 +453,8 @@ async def run_dispatch(
     sheet: ProductionSheet,
     api_key: Optional[str] = None,
     dry_run: bool = False,
+    images_only: bool = False,
+    drive_folder: Optional[str] = None,
 ) -> dict:
     """Run the full dispatch pipeline.
 
@@ -304,8 +467,14 @@ async def run_dispatch(
     print(f"Target duration: {sheet.total_duration_s}s | Style: {sheet.visual_style}")
     print(f"{'='*60}\n")
 
+    # Check for character refs
+    chars_with_refs = [c for c in sheet.bible.characters if c.get("ref_prompt")]
+
     if dry_run:
         print("[DRY RUN] Would generate:")
+        if chars_with_refs:
+            for c in chars_with_refs:
+                print(f"  Char Ref: {c['name']} — {c['ref_prompt'][:60]}...")
         for kf in sheet.keyframes:
             print(f"  Image: {kf.keyframe_id} ({kf.shot_type}) — {kf.prompt[:60]}...")
         for br in sheet.bridges:
@@ -317,21 +486,38 @@ async def run_dispatch(
 
     client = DispatchClient(api_key=api_key)
 
+    # Phase 0: Generate character reference images
+    character_ref_urls = []
+    if chars_with_refs:
+        print(f"--- PHASE 0: Character References ({len(chars_with_refs)}) ---")
+        character_ref_urls = await dispatch_character_refs(client, sheet, drive_folder)
+        print(f"\nCharacter refs: {len(character_ref_urls)}/{len(chars_with_refs)} generated\n")
+    else:
+        print("--- PHASE 0: No character refs defined, skipping ---\n")
+
     # Phase 1: Generate all keyframe images
     print("--- PHASE 1: Keyframe Images ---")
-    await dispatch_keyframes(client, sheet.keyframes)
+    await dispatch_keyframes(
+        client, sheet.keyframes,
+        drive_folder=drive_folder,
+        character_ref_urls=character_ref_urls if character_ref_urls else None,
+    )
 
     succeeded_kf = sum(1 for kf in sheet.keyframes if kf.status == TaskStatus.COMPLETED)
     failed_kf = sum(1 for kf in sheet.keyframes if kf.status == TaskStatus.FAILED)
     print(f"\nKeyframes: {succeeded_kf} succeeded, {failed_kf} failed\n")
 
     # Phase 2: Generate video bridges (needs keyframe images)
-    print("--- PHASE 2: Video Bridges ---")
-    await dispatch_bridges(client, sheet)
-
-    succeeded_br = sum(1 for br in sheet.bridges if br.status == TaskStatus.COMPLETED)
-    failed_br = sum(1 for br in sheet.bridges if br.status == TaskStatus.FAILED)
-    print(f"\nBridges: {succeeded_br} succeeded, {failed_br} failed\n")
+    if images_only:
+        print("--- PHASE 2: Skipped (--images-only) ---\n")
+        succeeded_br = 0
+        failed_br = 0
+    else:
+        print("--- PHASE 2: Video Bridges ---")
+        await dispatch_bridges(client, sheet)
+        succeeded_br = sum(1 for br in sheet.bridges if br.status == TaskStatus.COMPLETED)
+        failed_br = sum(1 for br in sheet.bridges if br.status == TaskStatus.FAILED)
+        print(f"\nBridges: {succeeded_br} succeeded, {failed_br} failed\n")
 
     elapsed = time.time() - start
 
@@ -342,6 +528,14 @@ async def run_dispatch(
         "visual_style": sheet.visual_style,
         "aspect_ratio": sheet.aspect_ratio,
         "elapsed_s": round(elapsed, 1),
+        "character_refs": [
+            {
+                "name": c["name"],
+                "ref_image_url": c.get("ref_image_url"),
+            }
+            for c in sheet.bible.characters
+            if c.get("ref_image_url")
+        ],
         "keyframes": [
             {
                 "id": kf.keyframe_id,
@@ -487,6 +681,16 @@ def main():
         action="store_true",
         help="Print what would be generated without calling APIs",
     )
+    parser.add_argument(
+        "--images-only",
+        action="store_true",
+        help="Generate keyframe images only, skip video bridges",
+    )
+    parser.add_argument(
+        "--drive-folder",
+        default=None,
+        help="Upload each image to this Google Drive folder via rclone as it's generated",
+    )
     args = parser.parse_args()
 
     # Load production sheet
@@ -504,17 +708,27 @@ def main():
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    manifest = asyncio.run(run_dispatch(sheet, dry_run=args.dry_run))
+    manifest = asyncio.run(run_dispatch(
+        sheet,
+        dry_run=args.dry_run,
+        images_only=args.images_only,
+        drive_folder=args.drive_folder,
+    ))
 
-    # Upload to Google Drive
-    if not args.dry_run and manifest.get("summary", {}).get("keyframes_completed", 0) > 0:
-        print("\n--- PHASE 3: Upload to Google Drive ---")
-        manifest = upload_to_drive(manifest, sheet.title)
-
-    # Write manifest
+    # Write manifest BEFORE Drive upload (so it's saved even if upload fails)
     manifest_path = out_dir / f"{sheet.title.replace(' ', '_')}_manifest.json"
     with open(manifest_path, "w") as f:
         json.dump(manifest, f, indent=2)
+
+    # Upload to Google Drive (only if not already uploaded via --drive-folder rclone)
+    if (not args.dry_run
+            and not args.drive_folder
+            and manifest.get("summary", {}).get("keyframes_completed", 0) > 0):
+        print("\n--- PHASE 3: Upload to Google Drive ---")
+        manifest = upload_to_drive(manifest, sheet.title)
+        # Re-write manifest with drive URLs
+        with open(manifest_path, "w") as f:
+            json.dump(manifest, f, indent=2)
 
     print(f"\nManifest written to: {manifest_path}")
     if manifest.get("drive_folder"):

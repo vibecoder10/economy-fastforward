@@ -1,0 +1,367 @@
+{
+  "title": "The Midnight Builder",
+  "total_duration_s": 150,
+  "visual_style": "3d pixar animation",
+  "aspect_ratio": "16:9",
+  "bible": {
+    "characters": [
+      {
+        "name": "Marcus",
+        "appearance": "Black man in his early 40s, strong build, kind brown eyes, short fade haircut with hints of gray at the temples, subtle worry lines",
+        "wardrobe": "SC-001/002: charcoal business suit with loosened tie, white dress shirt. SC-003/004: worn gray hoodie, joggers, bare feet for late-night coding. SC-005/006: clean fitted henley, looking refreshed and confident",
+        "signature": "warm determined expression; wedding ring always visible on left hand; broad shoulders that carry weight then gradually straighten with confidence",
+        "ref_prompt": "3D Pixar-style animation character reference sheet. Marcus, a Black man in his early 40s with dark brown skin, strong athletic build, kind warm brown eyes, short fade haircut with subtle hints of gray at the temples, subtle worry lines around his eyes, clean-shaven, broad shoulders. Three-quarter view and front view on a clean neutral gray background. He wears a charcoal business suit with a white dress shirt and loosened navy tie. A gold wedding ring is clearly visible on his left hand. His expression is warm but determined — a father who carries responsibility with dignity. Studio lighting, clean white background, full character turnaround reference sheet style. 16:9 aspect ratio."
+      },
+      {
+        "name": "Aisha",
+        "appearance": "Black woman in her late 30s, natural hair in protective twists, gentle almond-shaped eyes, warm smile, high cheekbones",
+        "wardrobe": "cozy oversized cardigan over a simple dress, small gold hoop earrings, delicate gold necklace",
+        "signature": "reassuring hand on Marcus's shoulder; radiates quiet strength and patience",
+        "ref_prompt": "3D Pixar-style animation character reference sheet. Aisha, a Black woman in her late 30s with rich dark brown skin, natural hair styled in long protective twists pulled back, gentle almond-shaped dark brown eyes, warm radiant smile, high elegant cheekbones, graceful neck. Three-quarter view and front view on a clean neutral gray background. She wears a cozy oversized cream cardigan over a simple olive dress, small gold hoop earrings, and a delicate gold chain necklace. Her expression radiates quiet strength, patience, and deep love. Studio lighting, clean white background, full character turnaround reference sheet style. 16:9 aspect ratio."
+      },
+      {
+        "name": "Zara",
+        "appearance": "6-year-old Black girl, big curious brown eyes, hair in two puff balls with colorful beads, gap-toothed smile, round cheeks",
+        "wardrobe": "bright yellow t-shirt with a star on it, denim overalls, mismatched socks",
+        "signature": "carries a stuffed robot toy everywhere; always close to her parents; infectious giggle energy",
+        "ref_prompt": "3D Pixar-style animation character reference sheet. Zara, a 6-year-old Black girl with warm brown skin, big curious sparkling brown eyes, hair styled in two adorable puff balls with colorful pink and blue beads, an infectious gap-toothed smile, round soft cheeks. Three-quarter view and front view on a clean neutral gray background. She wears a bright yellow t-shirt with a white star on the front and denim overalls with mismatched colorful socks. She holds a small stuffed robot toy in one hand. Her expression is pure joy and childhood wonder. Studio lighting, clean white background, full character turnaround reference sheet style. 16:9 aspect ratio."
+      }
+    ],
+    "locations": [
+      {
+        "name": "Corporate Office",
+        "description": "sterile modern open-plan office with glass walls, fluorescent lighting, rows of desks, corporate motivational posters that feel hollow",
+        "palette": "cold gray, sterile white, harsh blue fluorescent, no warmth"
+      },
+      {
+        "name": "Office Exterior",
+        "description": "tall glass corporate building, concrete plaza, overcast sky, other workers streaming past",
+        "palette": "slate gray, cold blue, muted concrete"
+      },
+      {
+        "name": "Family Apartment",
+        "description": "modest but warm two-bedroom apartment, lived-in furniture, kids drawings taped to the fridge, family photos on shelves, warm lamplight",
+        "palette": "warm amber, muted brown, soft yellow lamplight, honey wood tones"
+      },
+      {
+        "name": "Kitchen Table",
+        "description": "small kitchen table covered in mail and bills, laptop open, coffee mug, dim overhead light",
+        "palette": "dim warm yellow, paper white, muted stress tones"
+      },
+      {
+        "name": "Late-Night Desk",
+        "description": "small desk wedged in the corner of the living room, single laptop glowing in darkness, coffee mug, scattered sticky notes, blanket draped on chair",
+        "palette": "deep blue night, cool monitor glow, warm desk lamp accent"
+      },
+      {
+        "name": "Home Office (Victory)",
+        "description": "beautiful sunlit home office with dual ultrawide monitors, standing desk, lush green plants on shelves, family photos in clean frames, city skyline through large window",
+        "palette": "golden sunlight, warm wood tones, vibrant green plants, hopeful blue sky"
+      },
+      {
+        "name": "Rooftop",
+        "description": "apartment building rooftop at golden hour, city skyline panorama, warm light bathing everything in gold and amber",
+        "palette": "golden hour orange, deep purple sky gradient, warm amber rim lights"
+      }
+    ],
+    "lighting": "Pixar-style volumetric lighting with strong rim lights and soft ambient fill. Emotionally driven: cold harsh fluorescent for corporate, dim warm amber for home struggle, cool blue monitor glow for discovery, increasingly warm golden light for triumph",
+    "camera": "virtual Pixar camera, smooth dolly moves, expressive close-ups with shallow depth of field, dramatic wide shots for emotional beats, gentle handheld energy for intimate moments",
+    "color_grade": "Cool desaturated grays for corporate (SC-001). Dim warm amber for struggle (SC-002). Cool blue-white for discovery (SC-003). Mixed cool/warm for grind (SC-004). Warm golden for breakthrough and victory (SC-005/006). Progressive warming throughout the film.",
+    "aspect_ratio": "16:9"
+  },
+  "keyframes": [
+    {
+      "keyframe_id": "KF-001",
+      "shot_type": "medium",
+      "prompt": "3D Pixar-style animation frame. Marcus, a Black man in his early 40s with a short fade haircut and hints of gray at the temples, sits across from a manager in a sterile glass-walled office. The manager slides a folder across the desk without making eye contact. Marcus wears a charcoal business suit with a loosened tie, his wedding ring catching the harsh fluorescent light. His jaw tightens but his eyes betray shock. Cold corporate lighting, shallow depth of field, blurred motivational poster on the wall behind them. 16:9 aspect ratio.",
+      "notes": "SC-001 The Layoff — the moment he's told"
+    },
+    {
+      "keyframe_id": "KF-002",
+      "shot_type": "close-up",
+      "prompt": "3D Pixar-style animation frame. Close-up of Marcus's hands carefully placing a framed family photo into a cardboard box on his desk. The photo shows Marcus, Aisha, and Zara smiling at a park. His wedding ring is prominent. Around the box: a coffee mug, a small potted plant, a pen holder. The desk surface is now bare and impersonal. Cold fluorescent overhead light, shallow depth of field with blurred empty office chairs in the background. Quiet dignity in the composition. 16:9 aspect ratio.",
+      "notes": "SC-001 The Layoff — packing up his desk, intimate detail"
+    },
+    {
+      "keyframe_id": "KF-003",
+      "shot_type": "wide",
+      "prompt": "3D Pixar-style animation frame. Wide shot of Marcus walking away from a tall modern glass office building carrying a cardboard box of personal items. He is small against the massive building. Other workers stream past on the sidewalk, oblivious. Overcast gray sky. His charcoal suit jacket is draped over the box. His posture is heavy, shoulders curved inward, but his jaw is set. Cold slate gray and muted blue color palette, volumetric fog, Pixar cinematic wide composition. 16:9 aspect ratio.",
+      "notes": "SC-001 The Layoff — walking out, feeling small"
+    },
+    {
+      "keyframe_id": "KF-004",
+      "shot_type": "medium",
+      "prompt": "3D Pixar-style animation frame. Marcus sits at the kitchen table in his apartment, laptop open showing job listing websites. Rejection emails visible on screen. His tie is off, sleeves rolled up, looking exhausted. A stack of unopened bills sits to his left. A cold coffee mug pushed aside. The overhead kitchen light casts a flat, unflattering glow. Through the kitchen doorway, the warm living room glows softly where Aisha reads to Zara on the couch, unaware. Two different light temperatures split the frame. 16:9 aspect ratio.",
+      "notes": "SC-002 The Struggle — job hunting, rejections piling up"
+    },
+    {
+      "keyframe_id": "KF-005",
+      "shot_type": "close-up",
+      "prompt": "3D Pixar-style animation frame. Close-up of the kitchen table surface covered in overdue bills stamped PAST DUE in red, a bank statement showing a dwindling balance, and Marcus's phone displaying a text from Aisha: 'Zara's school fees are due Friday.' His hands press flat against the table, wedding ring prominent, knuckles tense. Dim overhead light creates harsh shadows across the paper. A single warm amber reflection from the living room lamplight catches the edge of frame. Emotional Pixar detail shot. 16:9 aspect ratio.",
+      "notes": "SC-002 The Struggle — the weight of bills, tangible pressure"
+    },
+    {
+      "keyframe_id": "KF-006",
+      "shot_type": "medium",
+      "prompt": "3D Pixar-style animation frame. Marcus and Aisha sit together on a worn couch in their modest apartment at night. Aisha, a Black woman with natural hair in protective twists and small gold hoop earrings, holds Marcus's hand tightly with both of hers. Zara sleeps between them, curled up clutching her stuffed robot toy, her hair in two puff balls with colorful beads. The TV casts a faint blue glow. Marcus stares at the ceiling with worry etched on his face. Aisha leans her head against his shoulder, eyes closed, radiating quiet strength. Warm but dim lamplight, intimate Pixar lighting. 16:9 aspect ratio.",
+      "notes": "SC-002 The Struggle — family together at the low point, love amid hardship"
+    },
+    {
+      "keyframe_id": "KF-007",
+      "shot_type": "medium",
+      "prompt": "3D Pixar-style animation frame. Marcus lies awake in bed at 1:45 AM, eyes open, staring at the ceiling. Moonlight filters through the curtains casting blue-white stripes across the room. Aisha sleeps peacefully beside him. The digital clock on the nightstand glows red: 1:47. His expression is restless, mind racing. He slowly turns his head toward the bedroom door, a thought forming. Deep blue night tones, soft moonlight as key light, intimate quiet composition. 16:9 aspect ratio.",
+      "notes": "SC-003 The Discovery — can't sleep, the restless moment before change"
+    },
+    {
+      "keyframe_id": "KF-008",
+      "shot_type": "wide",
+      "prompt": "3D Pixar-style animation frame. Wide shot of the dark apartment living room. Marcus sits at the small corner desk in his gray hoodie and joggers, laptop open, the screen the only light source. He types into a search bar: 'how to build apps with AI no coding experience.' The blue-white monitor glow illuminates his face and creates a cone of light in the otherwise dark room. Sleeping apartment around him — Zara's toys on the floor, family photos on the wall barely visible. Deep blue night atmosphere with a single warm accent from a distant hallway nightlight. 16:9 aspect ratio.",
+      "notes": "SC-003 The Discovery — 2AM, searching for a way out"
+    },
+    {
+      "keyframe_id": "KF-009",
+      "shot_type": "over-shoulder",
+      "prompt": "3D Pixar-style animation frame. Over-the-shoulder shot of Marcus at his desk, leaning forward with interest. The laptop screen shows a YouTube tutorial titled 'Vibe Coding: Build a Real App in One Night with AI.' The presenter on screen demonstrates colorful code being generated. Marcus's face is illuminated by the cool blue screen light, his eyes wide with discovery and cautious hope. A coffee mug steams beside the laptop — he made a fresh cup for this. Sticky notes and a pen appear next to the laptop. The room is dark except for the screen glow. 16:9 aspect ratio.",
+      "notes": "SC-003 The Discovery — finding vibe coding, the spark"
+    },
+    {
+      "keyframe_id": "KF-010",
+      "shot_type": "close-up",
+      "prompt": "3D Pixar-style animation frame. Extreme close-up of Marcus's face bathed in laptop screen light. His brown eyes reflect colorful lines of code scrolling on the monitor. A slow, cautious smile breaks across his face — the first genuine smile since the layoff. The blue-white screen glow creates a halo effect around his short fade haircut. Background is pure darkness with soft bokeh from a distant streetlight through the window. One tear track glistens on his cheek — not sadness, but the relief of finding hope. Emotional Pixar close-up, shallow depth of field. 16:9 aspect ratio.",
+      "notes": "SC-003 The Discovery — the moment hope returns, reflected in his eyes"
+    },
+    {
+      "keyframe_id": "KF-011",
+      "shot_type": "medium",
+      "prompt": "3D Pixar-style animation frame. Marcus at his desk on the first night of building, hunched forward with intense focus. The laptop shows a split screen: AI chat on the left, code editor on the right with a simple app taking shape. Three sticky notes are on the wall. One empty coffee mug. His hoodie sleeves are pushed up, bare forearms resting on the desk. The desk lamp is on now, adding warm amber light to the cool monitor glow — two light sources representing the transition from despair to purpose. Clock on wall: 3:15 AM. 16:9 aspect ratio.",
+      "notes": "SC-004 The Grind — first real building session, focused energy"
+    },
+    {
+      "keyframe_id": "KF-012",
+      "shot_type": "wide",
+      "prompt": "3D Pixar-style animation frame. Wide shot of the apartment living room transformed into a dedicated workspace over weeks. Marcus sits at his desk surrounded by a growing constellation of sticky notes covering the wall behind him — a product roadmap taking shape. Two monitors now (he bought a second one). Notebooks stacked. Coffee mugs lined up three deep. Zara's crayon drawings are pinned next to his project plans. A blanket draped over his chair — Aisha left it. Clock reads 2:00 AM. The warm desk lamp battles the cool monitor glow. Pixar volumetric lighting. 16:9 aspect ratio.",
+      "notes": "SC-004 The Grind — weeks in, the workspace has grown organically"
+    },
+    {
+      "keyframe_id": "KF-013",
+      "shot_type": "medium",
+      "prompt": "3D Pixar-style animation frame. Medium shot of Marcus at his desk, now sitting upright with confidence instead of hunching. His monitors show a polished, beautiful app interface with five-star reviews floating in as notifications. A calendar on the wall shows weeks of X'd-out days — visible passage of time. His expression has shifted from desperation to determined focus. The desk is more organized now. Morning golden light starts creeping through the window on the left, mixing with the monitor glow — dawn breaking on his new life. Pixar transitional lighting. 16:9 aspect ratio.",
+      "notes": "SC-004 The Grind — progress visible, confidence building, dawn light entering"
+    },
+    {
+      "keyframe_id": "KF-014",
+      "shot_type": "close-up",
+      "prompt": "3D Pixar-style animation frame. Close-up of Marcus's laptop screen showing a payment notification email: 'Payment Received: $10,000.00 — First Client Milestone.' The email is from a real company name. Marcus's hands grip the edges of the laptop, trembling slightly. His reflection is visible in the screen — mouth open, eyes glistening with disbelief. The warm glow of the morning sun through the window bathes the screen in golden light for the first time. His wedding ring catches a sunbeam. Emotional Pixar lighting, warm golden tones fully replacing the cold blues. 16:9 aspect ratio.",
+      "notes": "SC-005 The Breakthrough — $10K payment, the moment everything changes"
+    },
+    {
+      "keyframe_id": "KF-015",
+      "shot_type": "medium",
+      "prompt": "3D Pixar-style animation frame. Marcus pushes back from his desk, hands covering his face, shoulders shaking with silent tears of relief and joy. The laptop screen glows behind him showing the $10K notification. Morning sunlight streams through the window, casting warm golden rectangles across the floor and his gray hoodie. His body language shifts from tension to release — weeks of pressure finally breaking. The apartment around him is quiet and golden. Warm volumetric sun rays, emotional Pixar lighting. 16:9 aspect ratio.",
+      "notes": "SC-005 The Breakthrough — emotional release, happy tears"
+    },
+    {
+      "keyframe_id": "KF-016",
+      "shot_type": "medium",
+      "prompt": "3D Pixar-style animation frame. Aisha appears in the bedroom doorway in her cardigan, sleepy and concerned, asking what's wrong. Marcus turns to her from his desk chair, face wet with tears but smiling wide — the biggest smile we've seen. He opens his arms toward her. Morning golden light fills the hallway behind Aisha, silhouetting her with a warm glow. The contrast between her worried expression and his joyful one tells the whole story. Warm intimate Pixar lighting, shallow depth of field. 16:9 aspect ratio.",
+      "notes": "SC-005 The Breakthrough — Aisha finds him, worry meets joy"
+    },
+    {
+      "keyframe_id": "KF-017",
+      "shot_type": "wide",
+      "prompt": "3D Pixar-style animation frame. Wide shot of the family embrace. Marcus lifts Aisha slightly off the ground in a tight hug, both laughing and crying. Zara runs in from the hallway in her star t-shirt and overalls, stuffed robot raised overhead, gap-toothed smile beaming, jumping up to join the hug. Marcus scoops her up with one arm. The laptop glows behind them. The modest apartment is flooded with warm golden morning light streaming through every window. Pure joy radiates from the scene. Volumetric warm light, lens flare from the window, emotional Pixar peak moment. 16:9 aspect ratio.",
+      "notes": "SC-005 The Breakthrough — family celebration, peak emotion"
+    },
+    {
+      "keyframe_id": "KF-018",
+      "shot_type": "wide",
+      "prompt": "3D Pixar-style animation frame. Wide establishing shot of Marcus's beautiful new home office. Dual ultrawide monitors on a sleek standing desk, lush green plants on floating shelves, family photos in clean modern frames on the wall, a large whiteboard covered in project plans and client logos. Golden sunlight pours through a large window revealing a city skyline. The room is warm, organized, professional. Marcus sits in a premium ergonomic chair, confident and relaxed, smiling as he works. He wears a clean fitted henley — looking healthy and rested for the first time. Warm saturated hopeful Pixar lighting — the visual opposite of the cold office in KF-001. 16:9 aspect ratio.",
+      "notes": "SC-006 The Victory — the new office, a man transformed"
+    },
+    {
+      "keyframe_id": "KF-019",
+      "shot_type": "medium",
+      "prompt": "3D Pixar-style animation frame. Medium shot of the home office doorway. Zara sits cross-legged on a colorful bean bag in the corner of Marcus's office, drawing on a kids tablet, her stuffed robot beside her. Aisha leans in the doorway holding two mugs of coffee, smiling at Marcus. Marcus turns from his monitors to smile back at them, pure contentment on his face. Family photos on the wall behind him show their journey. The afternoon sunlight creates a warm golden atmosphere. Domestic bliss, earned through struggle. Pixar warmth and intimacy. 16:9 aspect ratio.",
+      "notes": "SC-006 The Victory — family thriving together in the new space"
+    },
+    {
+      "keyframe_id": "KF-020",
+      "shot_type": "wide establishing",
+      "prompt": "3D Pixar-style animation frame. Epic wide shot from behind Marcus standing on his apartment building rooftop at golden hour, looking out over the city skyline. He holds Zara on his hip with his right arm — she points excitedly at the horizon with wonder. Aisha stands beside him, arm around his waist, head resting against his shoulder. The setting sun paints everything in deep gold, amber, and warm purple. Marcus's silhouette is heroic — shoulders back, head high, a man who rebuilt his life with his own hands. Lens flare from the setting sun catches his wedding ring. The city stretches endlessly before them, full of possibility. Cinematic Pixar hero shot, volumetric golden hour light, epic scale, 16:9 aspect ratio.",
+      "notes": "SC-006 The Victory — final hero shot, the future is theirs"
+    }
+  ],
+  "bridges": [
+    {
+      "bridge_id": "BR-001",
+      "from_keyframe": "KF-001",
+      "to_keyframe": "KF-002",
+      "prompt": "Marcus slowly stands from the chair across from the manager, maintains composure, turns and walks to his desk. Camera follows him as he reaches his workspace and begins to gather his things. The fluorescent lights hum overhead.",
+      "duration": 6,
+      "mode": "normal",
+      "resolution": "720p"
+    },
+    {
+      "bridge_id": "BR-002",
+      "from_keyframe": "KF-002",
+      "to_keyframe": "KF-003",
+      "prompt": "Marcus picks up the cardboard box from his desk, tucks it under one arm, and walks toward the glass office doors. Coworkers glance away. He pushes through the exit into the gray daylight outside the building.",
+      "duration": 6,
+      "mode": "normal",
+      "resolution": "720p"
+    },
+    {
+      "bridge_id": "BR-003",
+      "from_keyframe": "KF-003",
+      "to_keyframe": "KF-004",
+      "prompt": "Slow dissolve from Marcus walking away from the office building to him sitting at the kitchen table. The cardboard box sits unopened in the corner of the apartment. The lighting shifts from cold outdoor gray to dim warm interior kitchen light. Time has passed — his tie is off, sleeves rolled up.",
+      "duration": 8,
+      "mode": "normal",
+      "resolution": "720p"
+    },
+    {
+      "bridge_id": "BR-004",
+      "from_keyframe": "KF-004",
+      "to_keyframe": "KF-005",
+      "prompt": "Camera slowly pushes in from the medium shot of Marcus at the table toward the table surface. His hands come into frame, pressing down on the bills. The laptop screen blurs out of focus as the overdue notices sharpen into view.",
+      "duration": 6,
+      "mode": "normal",
+      "resolution": "720p"
+    },
+    {
+      "bridge_id": "BR-005",
+      "from_keyframe": "KF-005",
+      "to_keyframe": "KF-006",
+      "prompt": "Camera slowly pulls back from the bills on the table, rising and drifting toward the living room. Marcus walks heavily from the kitchen to the couch where Aisha waits with open arms. He sinks down beside her. Zara crawls between them with her stuffed robot, settling in to sleep.",
+      "duration": 8,
+      "mode": "normal",
+      "resolution": "720p"
+    },
+    {
+      "bridge_id": "BR-006",
+      "from_keyframe": "KF-006",
+      "to_keyframe": "KF-007",
+      "prompt": "The living room fades to darkness as night deepens. Time skip — the apartment is now completely dark and silent. Camera slowly moves from the couch toward the bedroom. Marcus lies in bed, eyes open, moonlight striping across him through the curtains.",
+      "duration": 8,
+      "mode": "normal",
+      "resolution": "720p"
+    },
+    {
+      "bridge_id": "BR-007",
+      "from_keyframe": "KF-007",
+      "to_keyframe": "KF-008",
+      "prompt": "Marcus carefully slides out of bed, trying not to wake Aisha. He pads barefoot through the dark hallway to the living room. Sits at the corner desk and opens his laptop. The screen flickers to life, illuminating his face with blue-white light in the dark room.",
+      "duration": 8,
+      "mode": "normal",
+      "resolution": "720p"
+    },
+    {
+      "bridge_id": "BR-008",
+      "from_keyframe": "KF-008",
+      "to_keyframe": "KF-009",
+      "prompt": "Camera moves from the wide room shot closer to Marcus at the desk. He scrolls through search results, clicks on a video tutorial. The YouTube player fills the screen. He leans forward with growing interest, grabbing a pen and sticky note.",
+      "duration": 6,
+      "mode": "normal",
+      "resolution": "720p"
+    },
+    {
+      "bridge_id": "BR-009",
+      "from_keyframe": "KF-009",
+      "to_keyframe": "KF-010",
+      "prompt": "Camera pushes slowly from over Marcus's shoulder toward his face. The tutorial reflects in his eyes as understanding dawns. His lips part slightly. The pen drops from his hand. A smile begins to form — small at first, then genuine and warm.",
+      "duration": 6,
+      "mode": "normal",
+      "resolution": "720p"
+    },
+    {
+      "bridge_id": "BR-010",
+      "from_keyframe": "KF-010",
+      "to_keyframe": "KF-011",
+      "prompt": "Time skip — same desk but the energy has changed. Marcus wipes his eyes, pulls the laptop closer, and starts typing with purpose. The AI chat window opens. Code begins appearing on screen. He leans forward with intensity. The desk lamp clicks on, adding warm light to the blue glow.",
+      "duration": 8,
+      "mode": "normal",
+      "resolution": "720p"
+    },
+    {
+      "bridge_id": "BR-011",
+      "from_keyframe": "KF-011",
+      "to_keyframe": "KF-012",
+      "prompt": "Gentle time-lapse montage. Days pass — the desk evolves. More sticky notes appear on the wall. A second monitor arrives. Notebooks stack up. Coffee mugs multiply. The wall behind Marcus fills with plans and ideas. Night after night he codes in the same spot.",
+      "duration": 8,
+      "mode": "normal",
+      "resolution": "720p"
+    },
+    {
+      "bridge_id": "BR-012",
+      "from_keyframe": "KF-012",
+      "to_keyframe": "KF-013",
+      "prompt": "Camera orbits slowly around Marcus at his desk as his posture shifts from hunching to sitting upright. The monitors show increasingly polished app interfaces. Dawn light begins creeping through the window, warming the blue monitor glow. The calendar days X themselves out.",
+      "duration": 6,
+      "mode": "normal",
+      "resolution": "720p"
+    },
+    {
+      "bridge_id": "BR-013",
+      "from_keyframe": "KF-013",
+      "to_keyframe": "KF-014",
+      "prompt": "Morning light fills the room. A notification chimes on Marcus's laptop. He glances at the screen casually, then freezes. Camera pushes in as his hands slowly move to grip the laptop edges. His eyes widen reading the payment notification.",
+      "duration": 6,
+      "mode": "normal",
+      "resolution": "720p"
+    },
+    {
+      "bridge_id": "BR-014",
+      "from_keyframe": "KF-014",
+      "to_keyframe": "KF-015",
+      "prompt": "Camera pulls back from the laptop screen to reveal Marcus's full reaction. He pushes his chair back from the desk, his hands rising to cover his face. His shoulders begin to shake. The golden morning sunlight intensifies around him.",
+      "duration": 6,
+      "mode": "normal",
+      "resolution": "720p"
+    },
+    {
+      "bridge_id": "BR-015",
+      "from_keyframe": "KF-015",
+      "to_keyframe": "KF-016",
+      "prompt": "Marcus lowers his hands from his face, tears visible, and turns toward the hallway. Aisha appears in the bedroom doorway, concern on her face. He shakes his head slowly, smiling through tears, and opens his arms wide toward her.",
+      "duration": 6,
+      "mode": "normal",
+      "resolution": "720p"
+    },
+    {
+      "bridge_id": "BR-016",
+      "from_keyframe": "KF-016",
+      "to_keyframe": "KF-017",
+      "prompt": "Aisha rushes forward into Marcus's arms. He lifts her, spinning slightly. They laugh and cry together. The sound of small running feet — Zara appears from the hallway, stuffed robot raised high, sprinting toward them with a huge smile. Marcus bends to scoop her up.",
+      "duration": 8,
+      "mode": "normal",
+      "resolution": "720p"
+    },
+    {
+      "bridge_id": "BR-017",
+      "from_keyframe": "KF-017",
+      "to_keyframe": "KF-018",
+      "prompt": "Joyful time-lapse transformation. The modest apartment evolves — new furniture arrives, walls get painted, the corner desk is replaced by a proper home office setup. Plants appear, art goes up, everything gets brighter and warmer. Golden light grows with each change.",
+      "duration": 8,
+      "mode": "normal",
+      "resolution": "720p"
+    },
+    {
+      "bridge_id": "BR-018",
+      "from_keyframe": "KF-018",
+      "to_keyframe": "KF-019",
+      "prompt": "Camera gently pans from Marcus working at his standing desk toward the office doorway. Zara settles into the bean bag in the corner with her tablet. Aisha appears in the doorway with two coffee mugs, smiling. Marcus turns from his screens to greet them.",
+      "duration": 6,
+      "mode": "normal",
+      "resolution": "720p"
+    },
+    {
+      "bridge_id": "BR-019",
+      "from_keyframe": "KF-019",
+      "to_keyframe": "KF-020",
+      "prompt": "Marcus closes his laptop with a satisfied smile, takes Zara's hand. The family walks together through the apartment to the stairwell. They climb upward, sunlight growing brighter and warmer with each step, emerging onto the rooftop bathed in golden hour light. Camera pulls wide to reveal the city skyline.",
+      "duration": 10,
+      "mode": "normal",
+      "resolution": "720p"
+    }
+  ]
+}
