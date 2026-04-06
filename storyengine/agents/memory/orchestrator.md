@@ -15,4 +15,5 @@
 - Thumbnail 400 + profile/analytics 404 have now recurred 15 consecutive sessions — NOT code bugs. BUG-UX-AUTH-STALE deployed. User must clear localStorage + re-login. Stop filing these as bugs.
 - Launch Score stuck at 6/8: last 2 criteria (Stripe billing live, Google OAuth live) require STRIPE_SECRET_KEY + GOOGLE_CLIENT_ID env vars configured in production — not code changes.
 - [retro 2026-04-05] Before dispatching pipeline-tester to QA a task, check git log for a commit confirming the fix is merged. The BUG-T11-006-QA re-verify task was avoidable with a one-line git check.
-- Recurring user errors (thumb 400 + profile/analytics 404) now at session #16+ — confirmed NOT code bugs every time. Skip triage after first check; go straight to OPS report.
+- Recurring user errors (thumb 400 + profile/analytics 404) now at session #17+ — confirmed NOT code bugs every time. Skip triage after first check; go straight to OPS report.
+- Launch Score reached 8/8 on 2026-04-06 (REG18 sweep). Product is launch-ready. Awaiting operator go/no-go. No new build tasks needed.
