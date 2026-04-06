@@ -248,8 +248,11 @@ class DispatchClient:
             f"{bridge.to_keyframe} ({bridge.duration}s)..."
         )
 
-        # Clamp duration to API limits (6-30s)
+        # Clamp duration: API allows 6-30s but 6-10s produces best results.
+        # Longer bridges create internal cuts and detail drift.
         duration = max(6, min(30, bridge.duration))
+        if duration > 10:
+            print(f"  [bridge] WARNING: {bridge.bridge_id} duration {duration}s > 10s — may have internal cuts")
 
         payload = {
             "model": VIDEO_MODEL,
