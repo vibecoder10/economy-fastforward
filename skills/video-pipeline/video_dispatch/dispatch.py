@@ -254,11 +254,17 @@ class DispatchClient:
         if duration > 10:
             print(f"  [bridge] WARNING: {bridge.bridge_id} duration {duration}s > 10s — may have internal cuts")
 
+        # Tag images in prompt if not already tagged.
+        # @image1 = start frame, @image2 = end frame.
+        prompt = bridge.prompt
+        if "@image" not in prompt.lower():
+            prompt = f"@image1 {prompt} Transition smoothly to the composition shown in @image2"
+
         payload = {
             "model": VIDEO_MODEL,
             "input": {
                 "image_urls": [from_image_url, to_image_url],
-                "prompt": bridge.prompt,
+                "prompt": prompt,
                 "mode": bridge.mode,
                 "duration": duration,
                 "resolution": bridge.resolution,
