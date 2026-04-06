@@ -1,6 +1,6 @@
 # Story-to-Video Generator
 
-Transform narrative concepts into complete video production packages combining keyframe images (Nano Banana Pro) and video bridges (Grok Imagine / Kie.ai API).
+Transform narrative concepts into complete video production packages combining keyframe images (Nano Banana 2) and video bridges (Grok Imagine / Kie.ai API).
 
 ## Core Concept
 
@@ -188,7 +188,7 @@ The production sheet output is consumed by the video dispatch system at:
 
 ### Dispatch Pipeline Execution Order
 
-**Phase 1 (parallel):** Generate ALL keyframe images via Nano Banana API
+**Phase 1 (parallel):** Generate ALL keyframe images via Nano Banana 2 API
 **Phase 2 (parallel):** Once all image URLs are available, generate ALL bridges via Kie.ai API — each bridge sends both its start and end keyframe URLs
 **Phase 3:** Download all video clips and stitch sequentially with 0.3s crossfade transitions
 

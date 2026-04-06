@@ -1,10 +1,10 @@
 # Generate Image Prompt
 
-Skill for crafting optimized image and video generation prompts for Nano Banana Pro, Grok Imagine, and Kie.ai API.
+Skill for crafting optimized image and video generation prompts for Nano Banana 2, Grok Imagine, and Kie.ai API.
 
 ## Platform-Specific Formats
 
-### Nano Banana Pro (JSON structured)
+### Nano Banana 2 (JSON structured)
 Used for keyframe images. Structured JSON with nested objects.
 
 ```json
@@ -73,6 +73,6 @@ For video production, generate a series of keyframe prompts that:
 - Lock a "Continuity Bible" before generating any prompts
 
 ## Cross-Platform Workflow
-1. Generate keyframe images with Nano Banana Pro (text-to-image)
+1. Generate keyframe images with Nano Banana 2 (text-to-image)
 2. Generate video bridges with Grok Imagine (image-to-video)
 3. Assemble clips in sequence order
