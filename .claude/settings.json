@@ -3,7 +3,12 @@
     "Stop": [
       {
         "matcher": "",
-        "command": "bash agents/verify.sh 2>&1 || true"
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash agents/verify.sh 2>&1 || true"
+          }
+        ]
       }
     ]
   }
