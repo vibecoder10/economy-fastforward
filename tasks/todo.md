@@ -495,7 +495,7 @@ Full codebase reorganization of `skills/video-pipeline/`. Each tool is now a sta
 3. Test image generation step (Kie.ai, $3 cost)
 4. Test remaining pipeline steps (video scripts → render)
 5. Add Google OAuth + Slack credentials for full pipeline
-6. Fix frontend wiring: 4 mock pages, 7 dead buttons, 17 orphan API functions (see WIRING_STATUS.md)
+6. Fix frontend wiring: 4 mock pages, 7 dead buttons, 17 orphan API functions (see docs/reports/WIRING_STATUS.md)
 
 ---
 
@@ -532,7 +532,7 @@ Full codebase reorganization of `skills/video-pipeline/`. Each tool is now a sta
 
 ## SaaS Transformation Roadmap (2026-04-02)
 
-**Master plan:** `dailyjournal.md` (root of repo)
+**Master plan:** `tasks/roadmap.md`
 
 ### Phase 0: Foundation (Auth + Onboarding) — NEXT
 - [ ] Supabase Auth integration (login/signup/password reset)
@@ -551,7 +551,7 @@ Full codebase reorganization of `skills/video-pipeline/`. Each tool is now a sta
 - [ ] Settings page completion
 - [ ] Empty states + error states
 
-### Phase 2-5: See dailyjournal.md for full roadmap
+### Phase 2-5: See tasks/roadmap.md for full roadmap
 
 ---
 
@@ -574,7 +574,7 @@ Restructured storyboard directive system prompt to produce structured contact sh
 ## Completed: Page-by-Page UI/UX Overhaul (2026-03-26)
 
 **Branch:** `claude/page-fixes-round1` (pushed, not merged)
-**Completion Report:** `COMPLETION_REPORT_D.md`
+**Completion Report:** `docs/reports/COMPLETION_REPORT_D.md`
 
 All 6 sections done:
 1. Tab restructure (9→8 tabs, 6-step labeled stepper)
