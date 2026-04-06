@@ -530,6 +530,31 @@ Full codebase reorganization of `skills/video-pipeline/`. Each tool is now a sta
 
 ---
 
+## SaaS Transformation Roadmap (2026-04-02)
+
+**Master plan:** `dailyjournal.md` (root of repo)
+
+### Phase 0: Foundation (Auth + Onboarding) — NEXT
+- [ ] Supabase Auth integration (login/signup/password reset)
+- [ ] Auth middleware on all backend routes
+- [ ] Login/Signup pages (frontend)
+- [ ] Onboarding wizard (4 steps: channel → YouTube → competitors → style)
+- [ ] Protected routes (redirect unauthenticated → login)
+- [ ] Plan selection page
+
+### Phase 1: Core Product Polish — AFTER Phase 0
+- [ ] Dashboard redesign (action-first)
+- [ ] Simplified create video flow (3 clicks)
+- [ ] Real-time pipeline progress UX
+- [ ] Video preview player
+- [ ] In-app notifications
+- [ ] Settings page completion
+- [ ] Empty states + error states
+
+### Phase 2-5: See dailyjournal.md for full roadmap
+
+---
+
 ## Completed: Cinematic Continuity Contact Sheets (2026-04-01)
 
 Restructured storyboard directive system prompt to produce structured contact sheet prompts that generate visually continuous 3×3 grids. Tested with Gemini — father character consistent across panels, strait geography consistent across 5 panels, data screens share visual language.
