@@ -162,7 +162,7 @@ Setup:
 
 The analyzer can be run via Slack with `analyze titles` or manually with `python -m osiris.title_analyzer`.
 
-## Known Schema Issues (See ANIMATION_SYSTEM_REVIEW.md Feature 4)
+## Known Schema Issues (See docs/reviews/ANIMATION_SYSTEM_REVIEW.md Feature 4)
 
 - **CRITICAL**: Tables joined by string matching (`Title` = `Video Title`), NOT linked records. Typos break relationships.
 - Images table has 3 overlapping status fields (`Status`, `Video Status`, `Animation Status`). Update ALL relevant ones.
