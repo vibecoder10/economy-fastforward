@@ -66,6 +66,7 @@ class Bridge:
     mode: str = "normal"
     resolution: str = "720p"
     aspect_ratio: str = "16:9"
+    characters: list = field(default_factory=list)  # Character names in this scene
 
     # Filled after generation
     status: TaskStatus = TaskStatus.PENDING
@@ -113,6 +114,7 @@ class ProductionSheet:
                 mode=br.get("mode", "normal"),
                 resolution=br.get("resolution", "720p"),
                 aspect_ratio=br.get("aspect_ratio", aspect),
+                characters=br.get("characters", []),
             )
             for br in data.get("bridges", [])
         ]

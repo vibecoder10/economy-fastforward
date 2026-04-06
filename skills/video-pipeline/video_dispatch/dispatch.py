@@ -235,17 +235,35 @@ class DispatchClient:
         bridge: Bridge,
         from_image_url: str,
         to_image_url: str,
+        character_refs: Optional[dict] = None,
     ) -> Bridge:
         """Generate a video bridge between two keyframe images.
 
-        The Kie.ai API interpolates motion between the start and end frames.
-        Both image URLs are required — the prompt describes only the motion
-        directions between them.
+        Args:
+            bridge: Bridge definition with prompt, duration, mode.
+            from_image_url: Start keyframe image URL.
+            to_image_url: End keyframe image URL.
+            character_refs: Dict of {name: url} for character references.
+                Only characters listed in bridge.characters are included.
+
+        image_urls ordering: [char_ref_1, ..., char_ref_N, start_frame, end_frame]
+        Prompt is auto-tagged: @image1-N describe character refs,
+        @imageN+1 is the starting composition, @imageN+2 is the ending composition.
         """
         bridge.status = TaskStatus.IN_PROGRESS
+
+        # Filter character refs to only those in this bridge's scene
+        scene_char_refs = {}
+        if character_refs and hasattr(bridge, "characters") and bridge.characters:
+            for name in bridge.characters:
+                if name in character_refs:
+                    scene_char_refs[name] = character_refs[name]
+
+        ref_count = len(scene_char_refs)
+        ref_tag = f" ({ref_count} char refs)" if ref_count else ""
         print(
             f"  [bridge] {bridge.bridge_id}: {bridge.from_keyframe} -> "
-            f"{bridge.to_keyframe} ({bridge.duration}s)..."
+            f"{bridge.to_keyframe} ({bridge.duration}s){ref_tag}..."
         )
 
         # Clamp duration: API allows 6-30s but 6-10s produces best results.
@@ -254,16 +272,32 @@ class DispatchClient:
         if duration > 10:
             print(f"  [bridge] WARNING: {bridge.bridge_id} duration {duration}s > 10s — may have internal cuts")
 
-        # Tag images in prompt if not already tagged.
-        # @image1 = start frame, @image2 = end frame.
+        # Build image_urls: [char_refs..., start_frame, end_frame]
+        image_urls = list(scene_char_refs.values()) + [from_image_url, to_image_url]
+
+        # Build prompt with @image tags describing each reference's role
         prompt = bridge.prompt
         if "@image" not in prompt.lower():
-            prompt = f"@image1 {prompt} Transition smoothly to the composition shown in @image2"
+            tag_parts = []
+            idx = 1
+            for name in scene_char_refs:
+                tag_parts.append(f"@image{idx} is the character reference for {name}.")
+                idx += 1
+            start_idx = idx
+            end_idx = idx + 1
+            tag_prefix = " ".join(tag_parts)
+            if tag_prefix:
+                tag_prefix += " "
+            prompt = (
+                f"{tag_prefix}"
+                f"@image{start_idx} {prompt} "
+                f"Transition smoothly to the composition shown in @image{end_idx}"
+            )
 
         payload = {
             "model": VIDEO_MODEL,
             "input": {
-                "image_urls": [from_image_url, to_image_url],
+                "image_urls": image_urls,
                 "prompt": prompt,
                 "mode": bridge.mode,
                 "duration": duration,
@@ -430,11 +464,15 @@ async def dispatch_keyframes(
 async def dispatch_bridges(
     client: DispatchClient,
     sheet: ProductionSheet,
+    character_refs: Optional[dict] = None,
 ) -> list[Bridge]:
     """Generate all video bridges with bounded concurrency.
 
     Each bridge uses image_urls from BOTH its start and end keyframes.
     Bridges where either keyframe failed are skipped.
+
+    When character_refs is provided (dict of {name: url}), each bridge
+    receives only the character refs listed in its 'characters' field.
     """
     kf_map = {kf.keyframe_id: kf for kf in sheet.keyframes}
     semaphore = asyncio.Semaphore(MAX_CONCURRENT_VIDEOS)
@@ -453,7 +491,10 @@ async def dispatch_bridges(
             print(f"  [bridge] {br.bridge_id}: SKIPPED (no end image)")
             return br
         async with semaphore:
-            return await client.generate_bridge(br, from_kf.image_url, to_kf.image_url)
+            return await client.generate_bridge(
+                br, from_kf.image_url, to_kf.image_url,
+                character_refs=character_refs,
+            )
 
     return await asyncio.gather(*[_gen(br) for br in sheet.bridges])
 
@@ -516,6 +557,13 @@ async def run_dispatch(
     failed_kf = sum(1 for kf in sheet.keyframes if kf.status == TaskStatus.FAILED)
     print(f"\nKeyframes: {succeeded_kf} succeeded, {failed_kf} failed\n")
 
+    # Build character ref dict {name: url} for bridge generation
+    char_ref_dict = {
+        c["name"]: c["ref_image_url"]
+        for c in sheet.bible.characters
+        if c.get("ref_image_url")
+    } if chars_with_refs else None
+
     # Phase 2: Generate video bridges (needs keyframe images)
     if images_only:
         print("--- PHASE 2: Skipped (--images-only) ---\n")
@@ -523,7 +571,7 @@ async def run_dispatch(
         failed_br = 0
     else:
         print("--- PHASE 2: Video Bridges ---")
-        await dispatch_bridges(client, sheet)
+        await dispatch_bridges(client, sheet, character_refs=char_ref_dict)
         succeeded_br = sum(1 for br in sheet.bridges if br.status == TaskStatus.COMPLETED)
         failed_br = sum(1 for br in sheet.bridges if br.status == TaskStatus.FAILED)
         print(f"\nBridges: {succeeded_br} succeeded, {failed_br} failed\n")
