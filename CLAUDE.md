@@ -202,15 +202,17 @@ from analytics.osiris.learnings_engine import inject_learnings
 ### Session Start (EVERY session, no exceptions)
 1. Check current branch and recent commits: `git log --oneline -5`
 2. Read `tasks/lessons.md` — hard-won patterns that prevent repeat mistakes
-3. Read `tasks/todo.md` — pick up where the last session left off
-4. Understand what bot folder we're working on before touching code
+3. Read `tasks/decisions.md` — settled architectural choices (don't re-litigate these)
+4. Read `tasks/todo.md` — pick up where the last session left off
+5. Understand what bot folder we're working on before touching code
 
 ### Session End (EVERY session, no exceptions)
 Claude Code has NO memory between sessions. Before ending ANY session:
 1. Update `tasks/todo.md` with current progress and what's next
 2. Update `tasks/lessons.md` if ANY corrections were made
-3. Commit all changes with a descriptive message
-4. If work is incomplete, leave a clear `## Handoff` section in `tasks/todo.md`
+3. Update `tasks/decisions.md` if ANY architectural choices were made (append-only)
+4. Commit all changes with a descriptive message
+5. If work is incomplete, leave a clear `## Handoff` section in `tasks/todo.md`
 
 ---
 
