@@ -388,6 +388,82 @@ async def run_dispatch(
 
 
 # ---------------------------------------------------------------------------
+# Upload assets to Google Drive
+# ---------------------------------------------------------------------------
+
+def upload_to_drive(manifest: dict, title: str) -> dict:
+    """Upload all generated images and videos to a Google Drive folder.
+
+    Creates a project folder named after the title, with subfolders:
+        {title}/images/  — keyframe PNGs
+        {title}/videos/  — bridge MP4s
+
+    Updates manifest entries with 'drive_url' field.
+    Returns the updated manifest.
+    """
+    from shared.clients.google_client import GoogleClient
+
+    google = GoogleClient()
+
+    # Create project folder
+    project_folder = google.get_or_create_folder(title)
+    project_id = project_folder["id"]
+    print(f"  [drive] Project folder: {title} ({project_id})")
+
+    images_folder = google.get_or_create_folder("images", parent_id=project_id)
+    videos_folder = google.get_or_create_folder("videos", parent_id=project_id)
+
+    uploaded = 0
+
+    # Upload keyframe images
+    for kf in manifest.get("keyframes", []):
+        url = kf.get("image_url")
+        if not url or kf.get("status") != "completed":
+            continue
+        filename = f"{kf['id']}.png"
+        try:
+            result = google.upload_file_from_url(
+                url=url,
+                name=filename,
+                parent_id=images_folder["id"],
+                mime_type="image/png",
+            )
+            drive_url = result.get("webViewLink", "")
+            kf["drive_url"] = drive_url
+            uploaded += 1
+            print(f"  [drive] {filename} -> {drive_url}")
+        except Exception as e:
+            print(f"  [drive] FAILED {filename}: {e}")
+
+    # Upload video bridges
+    for br in manifest.get("bridges", []):
+        url = br.get("video_url")
+        if not url or br.get("status") != "completed":
+            continue
+        filename = f"{br['id']}.mp4"
+        try:
+            result = google.upload_file_from_url(
+                url=url,
+                name=filename,
+                parent_id=videos_folder["id"],
+                mime_type="video/mp4",
+            )
+            drive_url = result.get("webViewLink", "")
+            br["drive_url"] = drive_url
+            uploaded += 1
+            print(f"  [drive] {filename} -> {drive_url}")
+        except Exception as e:
+            print(f"  [drive] FAILED {filename}: {e}")
+
+    folder_link = f"https://drive.google.com/drive/folders/{project_id}"
+    manifest["drive_folder"] = folder_link
+    print(f"\n  [drive] {uploaded} files uploaded")
+    print(f"  [drive] Folder: {folder_link}")
+
+    return manifest
+
+
+# ---------------------------------------------------------------------------
 # CLI entry point
 # ---------------------------------------------------------------------------
 
@@ -425,17 +501,24 @@ def main():
     sheet = ProductionSheet.from_dict(data)
 
     # Run dispatch
-    manifest = asyncio.run(run_dispatch(sheet, dry_run=args.dry_run))
-
-    # Write manifest
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    manifest_path = out_dir / f"{sheet.title.replace(' ', '_')}_manifest.json"
 
+    manifest = asyncio.run(run_dispatch(sheet, dry_run=args.dry_run))
+
+    # Upload to Google Drive
+    if not args.dry_run and manifest.get("summary", {}).get("keyframes_completed", 0) > 0:
+        print("\n--- PHASE 3: Upload to Google Drive ---")
+        manifest = upload_to_drive(manifest, sheet.title)
+
+    # Write manifest
+    manifest_path = out_dir / f"{sheet.title.replace(' ', '_')}_manifest.json"
     with open(manifest_path, "w") as f:
         json.dump(manifest, f, indent=2)
 
     print(f"\nManifest written to: {manifest_path}")
+    if manifest.get("drive_folder"):
+        print(f"Google Drive: {manifest['drive_folder']}")
 
 
 if __name__ == "__main__":
