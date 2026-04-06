@@ -236,6 +236,7 @@ class DispatchClient:
         from_image_url: str,
         to_image_url: str,
         character_refs: Optional[dict] = None,
+        location_refs: Optional[dict] = None,
     ) -> Bridge:
         """Generate a video bridge between two keyframe images.
 
@@ -245,22 +246,29 @@ class DispatchClient:
             to_image_url: End keyframe image URL.
             character_refs: Dict of {name: url} for character references.
                 Only characters listed in bridge.characters are included.
+            location_refs: Dict of {location_name: url} for location references.
+                Only the location matching bridge.location is included.
 
-        image_urls ordering: [char_ref_1, ..., char_ref_N, start_frame, end_frame]
-        Prompt is auto-tagged: @image1-N describe character refs,
-        @imageN+1 is the starting composition, @imageN+2 is the ending composition.
+        image_urls ordering: [char_refs..., location_ref, start_frame, end_frame]
+        Prompt is auto-tagged with @image labels describing each reference's role.
+        Max 7 images total (API limit).
         """
         bridge.status = TaskStatus.IN_PROGRESS
 
         # Filter character refs to only those in this bridge's scene
         scene_char_refs = {}
-        if character_refs and hasattr(bridge, "characters") and bridge.characters:
+        if character_refs and bridge.characters:
             for name in bridge.characters:
                 if name in character_refs:
                     scene_char_refs[name] = character_refs[name]
 
-        ref_count = len(scene_char_refs)
-        ref_tag = f" ({ref_count} char refs)" if ref_count else ""
+        # Get location ref for this bridge's scene
+        scene_loc_url = None
+        if location_refs and bridge.location and bridge.location in location_refs:
+            scene_loc_url = location_refs[bridge.location]
+
+        ref_count = len(scene_char_refs) + (1 if scene_loc_url else 0)
+        ref_tag = f" ({ref_count} refs)" if ref_count else ""
         print(
             f"  [bridge] {bridge.bridge_id}: {bridge.from_keyframe} -> "
             f"{bridge.to_keyframe} ({bridge.duration}s){ref_tag}..."
@@ -272,8 +280,19 @@ class DispatchClient:
         if duration > 10:
             print(f"  [bridge] WARNING: {bridge.bridge_id} duration {duration}s > 10s — may have internal cuts")
 
-        # Build image_urls: [char_refs..., start_frame, end_frame]
-        image_urls = list(scene_char_refs.values()) + [from_image_url, to_image_url]
+        # Build image_urls: [char_refs..., location_ref, start_frame, end_frame]
+        # Max 7 total. If we'd exceed 7, drop character refs (scene frames already contain them).
+        ref_images = list(scene_char_refs.values())
+        if scene_loc_url:
+            ref_images.append(scene_loc_url)
+        scene_frames = [from_image_url, to_image_url]
+
+        if len(ref_images) + len(scene_frames) > 7:
+            max_refs = 7 - len(scene_frames)
+            print(f"  [bridge] NOTE: trimming refs to {max_refs} (7-slot limit)")
+            ref_images = ref_images[:max_refs]
+
+        image_urls = ref_images + scene_frames
 
         # Build prompt with @image tags describing each reference's role
         prompt = bridge.prompt
@@ -281,7 +300,11 @@ class DispatchClient:
             tag_parts = []
             idx = 1
             for name in scene_char_refs:
-                tag_parts.append(f"@image{idx} is the character reference for {name}.")
+                if idx <= len(ref_images):  # Only tag refs that weren't trimmed
+                    tag_parts.append(f"@image{idx} is the character reference for {name}.")
+                    idx += 1
+            if scene_loc_url and idx <= len(ref_images):
+                tag_parts.append(f"@image{idx} is the location reference for the {bridge.location} environment.")
                 idx += 1
             start_idx = idx
             end_idx = idx + 1
@@ -429,29 +452,77 @@ async def dispatch_character_refs(
     return ref_urls
 
 
+async def dispatch_location_refs(
+    client: DispatchClient,
+    sheet: ProductionSheet,
+    drive_folder: Optional[str] = None,
+) -> dict:
+    """Generate location reference images from bible entries.
+
+    Locations with a 'ref_prompt' field get a reference image generated.
+    Returns a dict of {location_name: image_url} for injection into
+    keyframes and bridges.
+    """
+    ref_dict = {}
+    locations_with_prompts = [
+        loc for loc in sheet.bible.locations if loc.get("ref_prompt")
+    ]
+
+    if not locations_with_prompts:
+        return ref_dict
+
+    for loc in locations_with_prompts:
+        name = loc["name"]
+        url = await client.generate_character_ref(
+            name=f"Location: {name}",
+            prompt=loc["ref_prompt"],
+            aspect_ratio=sheet.aspect_ratio,
+        )
+        if url:
+            ref_dict[name] = url
+            loc["ref_image_url"] = url
+            if drive_folder:
+                safe_name = name.replace(" ", "_")
+                await _download_and_upload(
+                    url, safe_name, drive_folder,
+                    filename=f"LOC_{safe_name}_ref.png",
+                )
+        else:
+            print(f"  [loc-ref] WARNING: {name} ref failed, continuing without")
+
+    return ref_dict
+
+
 async def dispatch_keyframes(
     client: DispatchClient,
     keyframes: list[Keyframe],
     drive_folder: Optional[str] = None,
     character_ref_urls: Optional[list] = None,
+    location_refs: Optional[dict] = None,
 ) -> list[Keyframe]:
     """Generate keyframe images sequentially, chaining each as a reference.
 
     Each keyframe receives:
       - character_ref_urls: character identity anchors (same for every frame)
+      - location_ref: environment anchor for this keyframe's location
       - reference_url: previous frame's URL (scene continuity, changes each frame)
 
-    image_input = [char_refs..., previous_frame] — identity first, continuity last.
+    image_input = [char_refs..., location_ref, previous_frame]
 
     When drive_folder is set, each image is downloaded and uploaded to
     Google Drive immediately after generation (generate → upload → next).
     """
     reference_url = None
     for kf in keyframes:
+        # Build combined refs: character refs + location ref for this scene
+        combined_refs = list(character_ref_urls or [])
+        if location_refs and kf.location and kf.location in location_refs:
+            combined_refs.append(location_refs[kf.location])
+
         await client.generate_keyframe(
             kf,
             reference_url=reference_url,
-            character_ref_urls=character_ref_urls,
+            character_ref_urls=combined_refs if combined_refs else None,
         )
         if kf.status == TaskStatus.COMPLETED and kf.image_url:
             reference_url = kf.image_url
@@ -465,14 +536,15 @@ async def dispatch_bridges(
     client: DispatchClient,
     sheet: ProductionSheet,
     character_refs: Optional[dict] = None,
+    location_refs: Optional[dict] = None,
 ) -> list[Bridge]:
     """Generate all video bridges with bounded concurrency.
 
     Each bridge uses image_urls from BOTH its start and end keyframes.
     Bridges where either keyframe failed are skipped.
 
-    When character_refs is provided (dict of {name: url}), each bridge
-    receives only the character refs listed in its 'characters' field.
+    character_refs: dict of {name: url} — filtered per-bridge by bridge.characters
+    location_refs: dict of {location_name: url} — filtered per-bridge by bridge.location
     """
     kf_map = {kf.keyframe_id: kf for kf in sheet.keyframes}
     semaphore = asyncio.Semaphore(MAX_CONCURRENT_VIDEOS)
@@ -494,6 +566,7 @@ async def dispatch_bridges(
             return await client.generate_bridge(
                 br, from_kf.image_url, to_kf.image_url,
                 character_refs=character_refs,
+                location_refs=location_refs,
             )
 
     return await asyncio.gather(*[_gen(br) for br in sheet.bridges])
@@ -525,6 +598,10 @@ async def run_dispatch(
         if chars_with_refs:
             for c in chars_with_refs:
                 print(f"  Char Ref: {c['name']} — {c['ref_prompt'][:60]}...")
+        locs_with_refs_dry = [loc for loc in sheet.bible.locations if loc.get("ref_prompt")]
+        if locs_with_refs_dry:
+            for loc in locs_with_refs_dry:
+                print(f"  Loc Ref: {loc['name']} — {loc['ref_prompt'][:60]}...")
         for kf in sheet.keyframes:
             print(f"  Image: {kf.keyframe_id} ({kf.shot_type}) — {kf.prompt[:60]}...")
         for br in sheet.bridges:
@@ -536,14 +613,24 @@ async def run_dispatch(
 
     client = DispatchClient(api_key=api_key)
 
-    # Phase 0: Generate character reference images
+    # Phase 0a: Generate character reference images
     character_ref_urls = []
     if chars_with_refs:
-        print(f"--- PHASE 0: Character References ({len(chars_with_refs)}) ---")
+        print(f"--- PHASE 0a: Character References ({len(chars_with_refs)}) ---")
         character_ref_urls = await dispatch_character_refs(client, sheet, drive_folder)
         print(f"\nCharacter refs: {len(character_ref_urls)}/{len(chars_with_refs)} generated\n")
     else:
-        print("--- PHASE 0: No character refs defined, skipping ---\n")
+        print("--- PHASE 0a: No character refs defined, skipping ---\n")
+
+    # Phase 0b: Generate location reference images
+    locs_with_refs = [loc for loc in sheet.bible.locations if loc.get("ref_prompt")]
+    location_ref_dict = {}
+    if locs_with_refs:
+        print(f"--- PHASE 0b: Location References ({len(locs_with_refs)}) ---")
+        location_ref_dict = await dispatch_location_refs(client, sheet, drive_folder)
+        print(f"\nLocation refs: {len(location_ref_dict)}/{len(locs_with_refs)} generated\n")
+    else:
+        print("--- PHASE 0b: No location refs defined, skipping ---\n")
 
     # Phase 1: Generate all keyframe images
     print("--- PHASE 1: Keyframe Images ---")
@@ -551,6 +638,7 @@ async def run_dispatch(
         client, sheet.keyframes,
         drive_folder=drive_folder,
         character_ref_urls=character_ref_urls if character_ref_urls else None,
+        location_refs=location_ref_dict if location_ref_dict else None,
     )
 
     succeeded_kf = sum(1 for kf in sheet.keyframes if kf.status == TaskStatus.COMPLETED)
@@ -571,7 +659,11 @@ async def run_dispatch(
         failed_br = 0
     else:
         print("--- PHASE 2: Video Bridges ---")
-        await dispatch_bridges(client, sheet, character_refs=char_ref_dict)
+        await dispatch_bridges(
+            client, sheet,
+            character_refs=char_ref_dict,
+            location_refs=location_ref_dict if location_ref_dict else None,
+        )
         succeeded_br = sum(1 for br in sheet.bridges if br.status == TaskStatus.COMPLETED)
         failed_br = sum(1 for br in sheet.bridges if br.status == TaskStatus.FAILED)
         print(f"\nBridges: {succeeded_br} succeeded, {failed_br} failed\n")
@@ -592,6 +684,14 @@ async def run_dispatch(
             }
             for c in sheet.bible.characters
             if c.get("ref_image_url")
+        ],
+        "location_refs": [
+            {
+                "name": loc["name"],
+                "ref_image_url": loc.get("ref_image_url"),
+            }
+            for loc in sheet.bible.locations
+            if loc.get("ref_image_url")
         ],
         "keyframes": [
             {

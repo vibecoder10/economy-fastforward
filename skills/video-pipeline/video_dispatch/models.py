@@ -46,6 +46,7 @@ class Keyframe:
     prompt: str
     aspect_ratio: str = "16:9"
     notes: str = ""
+    location: str = ""  # Location name from bible (for location ref injection)
 
     # Filled after generation
     status: TaskStatus = TaskStatus.PENDING
@@ -67,6 +68,7 @@ class Bridge:
     resolution: str = "720p"
     aspect_ratio: str = "16:9"
     characters: list = field(default_factory=list)  # Character names in this scene
+    location: str = ""  # Location name from bible (for location ref injection)
 
     # Filled after generation
     status: TaskStatus = TaskStatus.PENDING
@@ -100,6 +102,7 @@ class ProductionSheet:
                 prompt=kf["prompt"],
                 aspect_ratio=kf.get("aspect_ratio", aspect),
                 notes=kf.get("notes", ""),
+                location=kf.get("location", ""),
             )
             for kf in data.get("keyframes", [])
         ]
@@ -115,6 +118,7 @@ class ProductionSheet:
                 resolution=br.get("resolution", "720p"),
                 aspect_ratio=br.get("aspect_ratio", aspect),
                 characters=br.get("characters", []),
+                location=br.get("location", ""),
             )
             for br in data.get("bridges", [])
         ]
