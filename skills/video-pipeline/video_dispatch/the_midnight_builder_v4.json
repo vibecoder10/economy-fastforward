@@ -1,0 +1,157 @@
+{
+  "title": "The Midnight Builder v4",
+  "total_duration_s": 210,
+  "visual_style": "3d pixar animation",
+  "aspect_ratio": "16:9",
+  "bible": {
+    "characters": [
+      {
+        "name": "Marcus",
+        "appearance": "Black man in his early 40s, strong build, kind brown eyes, short fade haircut with hints of gray at the temples, subtle worry lines",
+        "wardrobe": "charcoal business suit with loosened navy tie, white dress shirt, gold wedding ring on left hand",
+        "ref_prompt": "3D Pixar-style animation character reference sheet. Marcus, a Black man in his early 40s with dark brown skin, strong athletic build, kind warm brown eyes, short fade haircut with subtle hints of gray at the temples, subtle worry lines around his eyes, clean-shaven, broad shoulders. Three-quarter view and front view on a clean neutral gray background. He wears a charcoal business suit with a white dress shirt and loosened navy tie. A gold wedding ring is clearly visible on his left hand. His expression is warm but determined. Studio lighting, clean white background, full character turnaround reference sheet style. 16:9 aspect ratio."
+      },
+      {
+        "name": "Aisha",
+        "appearance": "Black woman in her late 30s, natural hair in protective twists, gentle almond-shaped eyes, warm smile, high cheekbones",
+        "wardrobe": "cozy oversized cream cardigan over olive dress, small gold hoop earrings, delicate gold chain necklace",
+        "ref_prompt": "3D Pixar-style animation character reference sheet. Aisha, a Black woman in her late 30s with rich dark brown skin, natural hair styled in long protective twists pulled back, gentle almond-shaped dark brown eyes, warm radiant smile, high elegant cheekbones. Three-quarter view and front view on a clean neutral gray background. She wears a cozy oversized cream cardigan over a simple olive dress, small gold hoop earrings, and a delicate gold chain necklace. Studio lighting, clean white background, full character turnaround reference sheet style. 16:9 aspect ratio."
+      },
+      {
+        "name": "Zara",
+        "appearance": "6-year-old Black girl, big curious brown eyes, hair in two puff balls with colorful beads, gap-toothed smile, round cheeks",
+        "wardrobe": "bright yellow t-shirt with white star, denim overalls, mismatched socks, stuffed robot toy",
+        "ref_prompt": "3D Pixar-style animation character reference sheet. Zara, a 6-year-old Black girl with warm brown skin, big curious sparkling brown eyes, hair styled in two adorable puff balls with colorful pink and blue beads, an infectious gap-toothed smile, round soft cheeks. Three-quarter view and front view on a clean neutral gray background. She wears a bright yellow t-shirt with a white star on the front and denim overalls with mismatched colorful socks. She holds a small stuffed robot toy. Studio lighting, clean white background, full character turnaround reference sheet style. 16:9 aspect ratio."
+      }
+    ],
+    "locations": [
+      {
+        "name": "Corporate Office",
+        "description": "Sterile modern open-plan office: glass partition walls dividing workstations, harsh fluorescent ceiling panel lights in rows, gray workstation desks with dual monitors, an 'ACHIEVE' motivational poster in a black frame on the far wall, polished light gray floor reflecting the fluorescent lights, ergonomic mesh office chairs, a glass-walled manager's office in the back corner with a dark wood desk.",
+        "palette": "cold gray, sterile white, harsh blue fluorescent, no warm tones",
+        "ref_prompt": "3D Pixar-style animation establishing shot. Empty sterile corporate office interior — wide view showing the full space. Glass partition walls divide gray workstation desks with dual monitors. Harsh fluorescent ceiling panel lights in even rows cast cold blue-white light. An 'ACHIEVE' motivational poster in a black frame hangs on the far wall. Polished light gray floor reflects the overhead lights. Ergonomic mesh office chairs at each desk. A glass-walled manager's office visible in the back corner with a dark wood desk inside. No people. Cold gray, sterile white, harsh blue fluorescent palette. Clean establishing reference shot. 16:9 aspect ratio."
+      },
+      {
+        "name": "Office Exterior",
+        "description": "Tall modern glass corporate building with a concrete entrance plaza, revolving glass doors at ground level, overcast gray sky, pedestrians on the sidewalk beyond the plaza.",
+        "palette": "slate gray, cold blue glass reflections, muted concrete",
+        "ref_prompt": "3D Pixar-style animation establishing shot. Tall modern glass corporate building exterior — the full facade visible from across the street. Concrete entrance plaza with a revolving glass door at ground level. The building is 15+ stories of blue-tinted glass panels reflecting an overcast gray sky. A few pedestrians walk on the sidewalk. No main characters. Slate gray sky, cold blue glass reflections, muted concrete tones. Clean establishing reference shot. 16:9 aspect ratio."
+      },
+      {
+        "name": "Family Apartment",
+        "description": "Modest warm two-bedroom apartment living room: worn beige fabric couch against the left wall, small wooden coffee table, warm yellow floor lamp in the corner, kids drawings taped to the fridge visible through the kitchen doorway on the right, family photos in mismatched frames on the wall above the couch, Zara's colorful building blocks scattered on the hardwood floor.",
+        "palette": "warm amber, muted brown, soft yellow lamplight, honey wood tones"
+      },
+      {
+        "name": "Late-Night Desk",
+        "description": "Small wooden desk wedged in the corner of the apartment living room, single laptop on the desk surface, white coffee mug, sticky notes on the wall above the desk, worn beige couch visible in the background, family photos on the wall, Zara's toys on the hardwood floor nearby, hallway nightlight casting a faint warm glow.",
+        "palette": "deep blue night, cool monitor glow, warm desk lamp accent"
+      },
+      {
+        "name": "Home Office Victory",
+        "description": "Beautiful sunlit home office: dual ultrawide monitors on a sleek standing desk, lush green plants on floating white shelves, family photos in clean modern black frames on the wall, large whiteboard with project plans, premium ergonomic chair, large window with city skyline view, warm wood floor.",
+        "palette": "golden sunlight, warm wood tones, vibrant green plants, hopeful blue sky"
+      },
+      {
+        "name": "Rooftop",
+        "description": "Apartment building rooftop at golden hour: flat concrete surface, low metal railing at the edge, city skyline panorama stretching to the horizon, setting sun painting everything gold and amber.",
+        "palette": "golden hour orange, deep purple sky gradient, warm amber"
+      }
+    ],
+    "lighting": "Pixar-style volumetric lighting. Cold fluorescent for corporate, dim warm amber for home, cool blue monitor glow for discovery, warm golden for triumph.",
+    "camera": "virtual Pixar camera, smooth dolly moves, expressive close-ups, dramatic wides",
+    "color_grade": "Progressive warming: cold gray (SC-001) → dim amber (SC-002) → cool blue (SC-003) → warm gold (SC-005/006)",
+    "aspect_ratio": "16:9"
+  },
+  "keyframes": [
+    {
+      "keyframe_id": "KF-001",
+      "shot_type": "medium",
+      "location": "Corporate Office",
+      "prompt": "3D Pixar-style animation frame. ENVIRONMENT: sterile corporate office with glass partition walls, harsh fluorescent ceiling panels, gray workstation desks with monitors, 'ACHIEVE' poster in black frame on far wall, polished light gray floor, ergonomic mesh chairs. Glass-walled manager's office with dark wood desk. Cold gray, sterile white, harsh blue fluorescent palette. SCENE: Marcus, a Black man in his early 40s with a short fade haircut, sits across from a manager at the dark wood desk inside the glass-walled manager's office. The manager holds a folder, making eye contact. Marcus wears a charcoal business suit with a loosened navy tie, hands resting on the armrests of his mesh chair. His expression is attentive, not yet knowing what's coming. Cold fluorescent overhead light. 16:9 aspect ratio.",
+      "notes": "SC-001 Shot 1/6 — seated, about to hear the news"
+    },
+    {
+      "keyframe_id": "KF-002",
+      "shot_type": "close-up",
+      "location": "Corporate Office",
+      "prompt": "3D Pixar-style animation frame. ENVIRONMENT: inside the glass-walled manager's office, dark wood desk surface, harsh fluorescent ceiling panels visible above, 'ACHIEVE' poster blurred on the wall behind. Cold gray, sterile white palette. SCENE: Close-up of Marcus's face. His jaw tightens, eyes widen slightly with shock. The manager's hand is visible in the foreground, sliding a termination letter across the dark wood desk. Harsh fluorescent light from the ceiling panels casts shadows under his brow. His gold wedding ring catches the light as his hand grips the mesh chair armrest. Shallow depth of field. 16:9 aspect ratio.",
+      "notes": "SC-001 Shot 2/6 — reaction, the moment he hears it"
+    },
+    {
+      "keyframe_id": "KF-003",
+      "shot_type": "medium",
+      "location": "Corporate Office",
+      "prompt": "3D Pixar-style animation frame. ENVIRONMENT: inside the glass-walled manager's office, dark wood desk, harsh fluorescent ceiling panels, glass walls reflecting light, polished light gray floor. Cold gray palette. SCENE: Marcus stands up from the mesh chair, pushing himself up slowly with one hand on the dark wood desk. His posture shifts from seated to standing, back straight, maintaining dignity. The manager remains seated behind the desk, looking away. Marcus's charcoal suit jacket pulls slightly as he rises. 16:9 aspect ratio.",
+      "notes": "SC-001 Shot 3/6 — standing up with composure"
+    },
+    {
+      "keyframe_id": "KF-004",
+      "shot_type": "medium",
+      "location": "Corporate Office",
+      "prompt": "3D Pixar-style animation frame. ENVIRONMENT: open-plan corporate office, rows of gray workstation desks with dual monitors, harsh fluorescent ceiling panel lights, ergonomic mesh chairs, polished light gray floor, 'ACHIEVE' poster visible on the far wall. Cold gray, sterile white palette. SCENE: Marcus stands at his own workstation desk, carefully placing a framed family photo into a cardboard box. The photo shows Marcus, Aisha, and Zara smiling. A blue coffee mug and small potted plant are already in the box. His navy tie hangs loose. The desk surface is nearly bare. Coworkers at distant desks pretend not to notice. 16:9 aspect ratio.",
+      "notes": "SC-001 Shot 4/6 — packing desk, intimate detail"
+    },
+    {
+      "keyframe_id": "KF-005",
+      "shot_type": "medium",
+      "location": "Corporate Office",
+      "prompt": "3D Pixar-style animation frame. ENVIRONMENT: open-plan corporate office aisle between rows of gray workstation desks, harsh fluorescent ceiling panels stretching into the distance, polished light gray floor, ergonomic mesh chairs. Cold gray palette. SCENE: Marcus walks through the office aisle carrying the cardboard box against his chest. His charcoal suit jacket is draped over the box. He passes rows of desks where coworkers avoid eye contact, looking down at their monitors. One coworker in the background glances up with sympathy. His stride is steady but heavy. 16:9 aspect ratio.",
+      "notes": "SC-001 Shot 5/6 — walking the gauntlet"
+    },
+    {
+      "keyframe_id": "KF-006",
+      "shot_type": "wide",
+      "location": "Office Exterior",
+      "prompt": "3D Pixar-style animation frame. ENVIRONMENT: tall modern glass corporate building exterior, concrete entrance plaza, revolving glass door at ground level, overcast gray sky, blue-tinted glass panels reflecting the sky. Slate gray, cold blue, muted concrete palette. SCENE: Wide shot of Marcus pushing through the revolving glass door, stepping outside onto the concrete plaza. He carries the cardboard box. The tall glass building towers behind him. Other workers stream past on the sidewalk, oblivious. He is small against the massive building. Cold slate gray sky, volumetric fog. His shoulders curve slightly inward under the weight of the moment. 16:9 aspect ratio.",
+      "notes": "SC-001 Shot 6/6 — outside, alone, the weight of it"
+    }
+  ],
+  "bridges": [
+    {
+      "bridge_id": "BR-001",
+      "from_keyframe": "KF-001",
+      "to_keyframe": "KF-002",
+      "characters": ["Marcus"],
+      "location": "Corporate Office",
+      "prompt": "Inside the glass-walled manager's office with dark wood desk and harsh fluorescent ceiling panels. The manager slides the folder across the desk and says firmly: \"I'm sorry Marcus, but your position has been eliminated.\" Marcus's expression shifts from attentive to shock. His jaw tightens, eyes widen. The camera pushes in slightly toward his face as he processes the news.",
+      "duration": 6, "mode": "fun", "resolution": "720p"
+    },
+    {
+      "bridge_id": "BR-002",
+      "from_keyframe": "KF-002",
+      "to_keyframe": "KF-003",
+      "characters": ["Marcus"],
+      "location": "Corporate Office",
+      "prompt": "Inside the glass-walled manager's office. Marcus takes a slow breath, nods once, and says quietly: \"I understand.\" He pushes himself up from the mesh chair with dignity, straightening his charcoal suit jacket. The manager remains seated behind the dark wood desk, looking away. Marcus turns toward the glass door.",
+      "duration": 6, "mode": "fun", "resolution": "720p"
+    },
+    {
+      "bridge_id": "BR-003",
+      "from_keyframe": "KF-003",
+      "to_keyframe": "KF-004",
+      "characters": ["Marcus"],
+      "location": "Corporate Office",
+      "prompt": "Marcus walks from the glass-walled manager's office into the open-plan office with rows of gray desks and fluorescent ceiling panels. He passes a few coworkers who glance up then quickly look away. He reaches his own workstation desk and begins placing personal items into a cardboard box.",
+      "duration": 6, "mode": "fun", "resolution": "720p"
+    },
+    {
+      "bridge_id": "BR-004",
+      "from_keyframe": "KF-004",
+      "to_keyframe": "KF-005",
+      "characters": ["Marcus"],
+      "location": "Corporate Office",
+      "prompt": "At his workstation desk in the open-plan office under fluorescent ceiling panels. Marcus picks up the packed cardboard box, tucks it against his chest. A coworker at a nearby desk says softly: \"Hey man... I'm sorry.\" Marcus nods without looking up and turns to walk down the aisle between the rows of gray desks.",
+      "duration": 6, "mode": "fun", "resolution": "720p"
+    },
+    {
+      "bridge_id": "BR-005",
+      "from_keyframe": "KF-005",
+      "to_keyframe": "KF-006",
+      "characters": ["Marcus"],
+      "location": "Corporate Office",
+      "prompt": "Marcus walks through the office aisle between rows of gray desks toward the glass exit. He pushes through the revolving glass door with his shoulder, stepping from the harsh fluorescent interior into the gray overcast daylight outside onto the concrete plaza. The light shifts from cold indoor fluorescent to cold outdoor overcast.",
+      "duration": 6, "mode": "fun", "resolution": "720p"
+    }
+  ]
+}
