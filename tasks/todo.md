@@ -1,5 +1,12 @@
 # Task Tracking
 
+## Active: SaaS Transformation (2026-04-06)
+
+**Master Plan:** `tasks/dailyjournal.md` — 20-day execution plan
+**Next Action:** Day 1 — Build `/billing` and `/pricing` pages, wire to Stripe
+
+---
+
 ## Handoff — 2026-04-04 (backend-dev: Storyboard Extraction V2)
 
 ### Completed
