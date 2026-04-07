@@ -238,6 +238,7 @@ class DispatchClient:
         character_refs: Optional[dict] = None,
         location_refs: Optional[dict] = None,
         waypoint_urls: Optional[list] = None,
+        bible_characters: Optional[list] = None,
     ) -> Bridge:
         """Generate a video bridge between two keyframe images.
 
@@ -305,8 +306,12 @@ class DispatchClient:
         # Assemble: [char_refs..., start_frame, waypoints..., end_frame]
         image_urls = char_ref_urls_to_use + [from_image_url] + waypoints_to_use + [to_image_url]
 
+        # Inject character wardrobe descriptions into prompt
+        wardrobe_block = _build_wardrobe_block(bridge.characters, bible_characters or [])
+        if wardrobe_block:
+            prompt = prompt + wardrobe_block
+
         # Build prompt with @image tags
-        prompt = bridge.prompt
         if "@image" not in prompt.lower():
             idx = 1
             tag_parts = []
@@ -524,12 +529,41 @@ async def dispatch_location_refs(
     return ref_dict
 
 
+def _build_wardrobe_block(characters: list, bible_characters: list) -> str:
+    """Build a wardrobe description block for characters in a scene.
+
+    Looks up each character's appearance and wardrobe from the bible
+    and returns a string to inject into the prompt.
+    """
+    if not characters or not bible_characters:
+        return ""
+
+    bible_map = {c["name"]: c for c in bible_characters}
+    parts = []
+    for name in characters:
+        char = bible_map.get(name)
+        if not char:
+            continue
+        appearance = char.get("appearance", "")
+        wardrobe = char.get("wardrobe", "")
+        if appearance or wardrobe:
+            desc = f"{name}: {appearance}"
+            if wardrobe:
+                desc += f", wearing {wardrobe}"
+            parts.append(desc)
+
+    if not parts:
+        return ""
+    return " CHARACTERS: " + ". ".join(parts) + "."
+
+
 async def dispatch_keyframes(
     client: DispatchClient,
     keyframes: list[Keyframe],
     drive_folder: Optional[str] = None,
     character_refs: Optional[dict] = None,
     location_refs: Optional[dict] = None,
+    bible_characters: Optional[list] = None,
 ) -> list[Keyframe]:
     """Generate keyframe images sequentially, chaining each as a reference.
 
@@ -537,6 +571,7 @@ async def dispatch_keyframes(
       - character_refs filtered by kf.characters (or all if kf.characters is empty)
       - location_ref matched by kf.location
       - reference_url: previous frame's URL (scene continuity)
+      - wardrobe descriptions auto-injected from bible into prompt
 
     image_input = [scene_char_refs..., location_ref, previous_frame]
 
@@ -560,17 +595,25 @@ async def dispatch_keyframes(
 
         # Drop previous frame reference on location change to prevent
         # environment bleed (e.g., ACHIEVE poster leaking into open-plan).
-        # The location ref + character refs are enough to anchor the new scene.
         effective_ref = reference_url
         if kf.location and prev_location and kf.location != prev_location:
             print(f"  [keyframe] {kf.keyframe_id}: location change ({prev_location} -> {kf.location}), dropping prev frame ref")
             effective_ref = None
+
+        # Inject character wardrobe descriptions into prompt so the model
+        # never has to guess what characters are wearing.
+        wardrobe_block = _build_wardrobe_block(kf.characters, bible_characters or [])
+        original_prompt = kf.prompt
+        if wardrobe_block:
+            kf.prompt = kf.prompt + wardrobe_block
 
         await client.generate_keyframe(
             kf,
             reference_url=effective_ref,
             character_ref_urls=scene_refs if scene_refs else None,
         )
+        kf.prompt = original_prompt  # Restore (don't persist injection into manifest)
+
         if kf.status == TaskStatus.COMPLETED and kf.image_url:
             reference_url = kf.image_url
             prev_location = kf.location
@@ -585,6 +628,7 @@ async def dispatch_bridges(
     sheet: ProductionSheet,
     character_refs: Optional[dict] = None,
     location_refs: Optional[dict] = None,
+    bible_characters: Optional[list] = None,
 ) -> list[Bridge]:
     """Generate all video bridges with bounded concurrency.
 
@@ -627,6 +671,7 @@ async def dispatch_bridges(
                 character_refs=character_refs,
                 location_refs=location_refs,
                 waypoint_urls=waypoint_urls if waypoint_urls else None,
+                bible_characters=bible_characters,
             )
 
     return await asyncio.gather(*[_gen(br) for br in sheet.bridges])
@@ -706,6 +751,7 @@ async def run_dispatch(
         drive_folder=drive_folder,
         character_refs=char_ref_dict,
         location_refs=location_ref_dict if location_ref_dict else None,
+        bible_characters=sheet.bible.characters,
     )
 
     succeeded_kf = sum(1 for kf in sheet.keyframes if kf.status == TaskStatus.COMPLETED)
@@ -723,6 +769,7 @@ async def run_dispatch(
             client, sheet,
             character_refs=char_ref_dict,
             location_refs=location_ref_dict if location_ref_dict else None,
+            bible_characters=sheet.bible.characters,
         )
         succeeded_br = sum(1 for br in sheet.bridges if br.status == TaskStatus.COMPLETED)
         failed_br = sum(1 for br in sheet.bridges if br.status == TaskStatus.FAILED)
