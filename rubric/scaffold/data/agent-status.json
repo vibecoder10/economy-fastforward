@@ -16,17 +16,17 @@
   },
   "qa-engineer": {
     "status": "idle",
-    "task": "verify(qa): BUG-T11-006-QA — Discovery nav link verified PASS",
+    "task": "verify(qa): BUG-T11-006-QA \u2014 Discovery nav link verified PASS",
     "updatedAt": 1775160663903
   },
   "pipeline-tester": {
     "status": "active",
-    "task": "T6-004: QA verify Visuals tab — COMPLETE",
+    "task": "T6-004: QA verify Visuals tab \u2014 COMPLETE",
     "updatedAt": 1775162760227
   },
   "orchestrator": {
-    "status": "active",
-    "task": "Starting session",
-    "updatedAt": 1775162702215
+    "status": "idle",
+    "task": "OPS report complete. 8/8 launch score. No new tasks. User errors = session auth issue (recurring #19). Telegram notified.",
+    "updated_at": "2026-04-07T00:00:00Z"
   }
 }
