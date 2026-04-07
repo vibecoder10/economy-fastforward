@@ -683,6 +683,7 @@ async def run_dispatch(
     dry_run: bool = False,
     images_only: bool = False,
     drive_folder: Optional[str] = None,
+    bridges_only: bool = False,
 ) -> dict:
     """Run the full dispatch pipeline.
 
@@ -718,24 +719,29 @@ async def run_dispatch(
 
     client = DispatchClient(api_key=api_key)
 
-    # Phase 0a: Generate character reference images
-    character_ref_urls = []
-    if chars_with_refs:
-        print(f"--- PHASE 0a: Character References ({len(chars_with_refs)}) ---")
-        character_ref_urls = await dispatch_character_refs(client, sheet, drive_folder)
-        print(f"\nCharacter refs: {len(character_ref_urls)}/{len(chars_with_refs)} generated\n")
+    if bridges_only:
+        print("--- PHASE 0/1: Skipped (--bridges-only, using existing manifest) ---\n")
+        character_ref_urls = []
+        location_ref_dict = {}
     else:
-        print("--- PHASE 0a: No character refs defined, skipping ---\n")
+        # Phase 0a: Generate character reference images
+        character_ref_urls = []
+        if chars_with_refs:
+            print(f"--- PHASE 0a: Character References ({len(chars_with_refs)}) ---")
+            character_ref_urls = await dispatch_character_refs(client, sheet, drive_folder)
+            print(f"\nCharacter refs: {len(character_ref_urls)}/{len(chars_with_refs)} generated\n")
+        else:
+            print("--- PHASE 0a: No character refs defined, skipping ---\n")
 
-    # Phase 0b: Generate location reference images
-    locs_with_refs = [loc for loc in sheet.bible.locations if loc.get("ref_prompt")]
-    location_ref_dict = {}
-    if locs_with_refs:
-        print(f"--- PHASE 0b: Location References ({len(locs_with_refs)}) ---")
-        location_ref_dict = await dispatch_location_refs(client, sheet, drive_folder)
-        print(f"\nLocation refs: {len(location_ref_dict)}/{len(locs_with_refs)} generated\n")
-    else:
-        print("--- PHASE 0b: No location refs defined, skipping ---\n")
+        # Phase 0b: Generate location reference images
+        locs_with_refs = [loc for loc in sheet.bible.locations if loc.get("ref_prompt")]
+        location_ref_dict = {}
+        if locs_with_refs:
+            print(f"--- PHASE 0b: Location References ({len(locs_with_refs)}) ---")
+            location_ref_dict = await dispatch_location_refs(client, sheet, drive_folder)
+            print(f"\nLocation refs: {len(location_ref_dict)}/{len(locs_with_refs)} generated\n")
+        else:
+            print("--- PHASE 0b: No location refs defined, skipping ---\n")
 
     # Build character ref dict {name: url} for keyframe and bridge generation
     char_ref_dict = {
@@ -744,19 +750,24 @@ async def run_dispatch(
         if c.get("ref_image_url")
     } if chars_with_refs else None
 
-    # Phase 1: Generate all keyframe images
-    print("--- PHASE 1: Keyframe Images ---")
-    await dispatch_keyframes(
-        client, sheet.keyframes,
-        drive_folder=drive_folder,
-        character_refs=char_ref_dict,
-        location_refs=location_ref_dict if location_ref_dict else None,
-        bible_characters=sheet.bible.characters,
-    )
+    if bridges_only:
+        succeeded_kf = sum(1 for kf in sheet.keyframes if kf.status == TaskStatus.COMPLETED)
+        failed_kf = len(sheet.keyframes) - succeeded_kf
+        print(f"Keyframes: {succeeded_kf} loaded from manifest, {failed_kf} missing\n")
+    else:
+        # Phase 1: Generate all keyframe images
+        print("--- PHASE 1: Keyframe Images ---")
+        await dispatch_keyframes(
+            client, sheet.keyframes,
+            drive_folder=drive_folder,
+            character_refs=char_ref_dict,
+            location_refs=location_ref_dict if location_ref_dict else None,
+            bible_characters=sheet.bible.characters,
+        )
 
-    succeeded_kf = sum(1 for kf in sheet.keyframes if kf.status == TaskStatus.COMPLETED)
-    failed_kf = sum(1 for kf in sheet.keyframes if kf.status == TaskStatus.FAILED)
-    print(f"\nKeyframes: {succeeded_kf} succeeded, {failed_kf} failed\n")
+        succeeded_kf = sum(1 for kf in sheet.keyframes if kf.status == TaskStatus.COMPLETED)
+        failed_kf = sum(1 for kf in sheet.keyframes if kf.status == TaskStatus.FAILED)
+        print(f"\nKeyframes: {succeeded_kf} succeeded, {failed_kf} failed\n")
 
     # Phase 2: Generate video bridges (needs keyframe images)
     if images_only:
@@ -955,6 +966,11 @@ def main():
         default=None,
         help="Upload each image to this Google Drive folder via rclone as it's generated",
     )
+    parser.add_argument(
+        "--bridges-only",
+        action="store_true",
+        help="Skip image generation, load existing manifest, run only video bridges",
+    )
     args = parser.parse_args()
 
     # Load production sheet
@@ -972,11 +988,42 @@ def main():
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    # --bridges-only: load existing manifest to get image URLs, skip to Phase 2
+    if args.bridges_only:
+        manifest_path = out_dir / f"{sheet.title.replace(' ', '_')}_manifest.json"
+        if not manifest_path.exists():
+            print(f"Error: --bridges-only requires existing manifest at {manifest_path}")
+            print("Run without --bridges-only first to generate images.")
+            return
+        with open(manifest_path) as f:
+            existing = json.load(f)
+        # Inject image URLs from manifest into sheet keyframes
+        url_map = {kf["id"]: kf["image_url"] for kf in existing.get("keyframes", []) if kf.get("image_url")}
+        for kf in sheet.keyframes:
+            if kf.keyframe_id in url_map:
+                kf.image_url = url_map[kf.keyframe_id]
+                kf.status = TaskStatus.COMPLETED
+        # Inject character ref URLs into bible
+        for cref in existing.get("character_refs", []):
+            for c in sheet.bible.characters:
+                if c["name"] == cref["name"] and cref.get("ref_image_url"):
+                    c["ref_image_url"] = cref["ref_image_url"]
+        # Inject location ref URLs into bible
+        for lref in existing.get("location_refs", []):
+            for loc in sheet.bible.locations:
+                if loc["name"] == lref["name"] and lref.get("ref_image_url"):
+                    loc["ref_image_url"] = lref["ref_image_url"]
+        loaded = sum(1 for kf in sheet.keyframes if kf.image_url)
+        print(f"Loaded {loaded}/{len(sheet.keyframes)} keyframe URLs from existing manifest")
+        print(f"Loaded {len([c for c in sheet.bible.characters if c.get('ref_image_url')])} char refs, "
+              f"{len([l for l in sheet.bible.locations if l.get('ref_image_url')])} loc refs")
+
     manifest = asyncio.run(run_dispatch(
         sheet,
         dry_run=args.dry_run,
-        images_only=args.images_only,
+        images_only=args.images_only if not args.bridges_only else False,
         drive_folder=args.drive_folder,
+        bridges_only=args.bridges_only,
     ))
 
     # Write manifest BEFORE Drive upload (so it's saved even if upload fails)

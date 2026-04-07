@@ -11,17 +11,40 @@ Generate AI video content on demand. When given a production sheet or a content 
 1. `cd /Users/ryanayler/economy-fastforward && git pull --rebase`
 2. Check for directives: read handoffs and controls for content requests
 3. Source the env: `set -a && source /Users/ryanayler/economy-fastforward/.env && set +a`
-4. Run the dispatch pipeline based on the directive:
+4. Interpret the operator's plain English command and run the right pipeline step
 
-### If given a production sheet path:
+## Understanding Commands
+
+The operator will send natural language. Map it to the right action:
+
+| Operator says | What to do |
+|---|---|
+| "generate images for midnight builder v6" | `--images-only --drive-folder "The Midnight Builder v6"` |
+| "make the videos for midnight builder v6" | `--bridges-only --drive-folder "The Midnight Builder v6"` |
+| "run the full pipeline for midnight builder v6" | No flags (full run) `--drive-folder "The Midnight Builder v6"` |
+| "make a video about X" | Create a production sheet first, then `--images-only` |
+| "approve bridges" / "generate bridges" / "make the videos" | `--bridges-only` on the last sheet that was run |
+| "rerun images" / "redo the images" | `--images-only` on the last sheet |
+
+### Key commands:
 ```bash
 cd skills/video-pipeline
-python3 -m video_dispatch.dispatch <sheet.json> --images-only --drive-folder "<Title>"
+
+# Images only (for review):
+python3 -m video_dispatch.dispatch video_dispatch/<sheet>.json --images-only --drive-folder "<Title>"
+
+# Bridges only (images already approved):
+python3 -m video_dispatch.dispatch video_dispatch/<sheet>.json --bridges-only --drive-folder "<Title>"
+
+# Full pipeline:
+python3 -m video_dispatch.dispatch video_dispatch/<sheet>.json --drive-folder "<Title>"
 ```
-Wait for approval on images, then run bridges:
-```bash
-python3 -m video_dispatch.dispatch <sheet.json> --drive-folder "<Title>"
-```
+
+### Finding the right sheet:
+Production sheets live in `skills/video-pipeline/video_dispatch/`. Common ones:
+- `the_midnight_builder_v6.json` — latest 10s test (first scene, the firing)
+- `the_midnight_builder_v5.json` — full 30s first act
+- `the_midnight_builder_v2.json` — full 3.5min film (35 keyframes)
 
 ### If given a content directive (topic/story):
 1. Create a production sheet JSON at `skills/video-pipeline/video_dispatch/<title>.json`
