@@ -80,6 +80,19 @@ class Bridge:
 
 
 @dataclass
+class Scene:
+    """A scene groups keyframes and bridges into a logical unit."""
+
+    scene_id: str
+    name: str
+    location: str = ""
+    characters: list = field(default_factory=list)
+    keyframes: list = field(default_factory=list)  # Keyframe IDs
+    bridges: list = field(default_factory=list)  # Bridge IDs
+    notes: str = ""
+
+
+@dataclass
 class ProductionSheet:
     """Complete production sheet from the story-to-video skill."""
 
@@ -90,7 +103,36 @@ class ProductionSheet:
     bible: ContinuityBible
     keyframes: list[Keyframe]
     bridges: list[Bridge]
+    scenes: list[Scene] = field(default_factory=list)
     assembly_order: list[dict] = field(default_factory=list)
+
+    def get_scene(self, scene_id: str) -> Optional[Scene]:
+        """Get a scene by ID or name (fuzzy)."""
+        for sc in self.scenes:
+            if sc.scene_id == scene_id or sc.name.lower() == scene_id.lower():
+                return sc
+        # Fuzzy: check if query is in the name
+        query = scene_id.lower()
+        for sc in self.scenes:
+            if query in sc.scene_id.lower() or query in sc.name.lower():
+                return sc
+        return None
+
+    def get_scene_keyframes(self, scene_id: str) -> list[Keyframe]:
+        """Get all keyframe objects for a scene."""
+        sc = self.get_scene(scene_id)
+        if not sc:
+            return []
+        kf_map = {kf.keyframe_id: kf for kf in self.keyframes}
+        return [kf_map[kid] for kid in sc.keyframes if kid in kf_map]
+
+    def get_scene_bridges(self, scene_id: str) -> list[Bridge]:
+        """Get all bridge objects for a scene."""
+        sc = self.get_scene(scene_id)
+        if not sc:
+            return []
+        br_map = {br.bridge_id: br for br in self.bridges}
+        return [br_map[bid] for bid in sc.bridges if bid in br_map]
 
     @classmethod
     def from_dict(cls, data: dict) -> ProductionSheet:
@@ -127,6 +169,19 @@ class ProductionSheet:
             for br in data.get("bridges", [])
         ]
 
+        scenes = [
+            Scene(
+                scene_id=sc["scene_id"],
+                name=sc.get("name", ""),
+                location=sc.get("location", ""),
+                characters=sc.get("characters", []),
+                keyframes=sc.get("keyframes", []),
+                bridges=sc.get("bridges", []),
+                notes=sc.get("notes", ""),
+            )
+            for sc in data.get("scenes", [])
+        ]
+
         assembly_order = data.get("assembly_order", [])
         if not assembly_order:
             # Auto-generate: interleave keyframes and bridges
@@ -143,5 +198,6 @@ class ProductionSheet:
             bible=bible,
             keyframes=keyframes,
             bridges=bridges,
+            scenes=scenes,
             assembly_order=assembly_order,
         )

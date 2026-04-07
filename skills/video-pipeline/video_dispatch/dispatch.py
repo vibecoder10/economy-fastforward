@@ -972,6 +972,11 @@ def main():
         action="store_true",
         help="Skip image generation, load existing manifest, run only video bridges",
     )
+    parser.add_argument(
+        "--scene",
+        default=None,
+        help="Only process keyframes and bridges for this scene (by ID or name)",
+    )
     args = parser.parse_args()
 
     # Load production sheet
@@ -984,6 +989,26 @@ def main():
         data = json.load(f)
 
     sheet = ProductionSheet.from_dict(data)
+
+    # Filter to a single scene if --scene is specified
+    if args.scene:
+        scene = sheet.get_scene(args.scene)
+        if not scene:
+            print(f"Error: scene '{args.scene}' not found")
+            if sheet.scenes:
+                print("Available scenes:")
+                for sc in sheet.scenes:
+                    print(f"  {sc.scene_id}: {sc.name} ({len(sc.keyframes)} KFs, {len(sc.bridges)} bridges)")
+            else:
+                print("No scenes defined in this production sheet")
+            return
+        # Filter keyframes and bridges to just this scene
+        scene_kf_ids = set(scene.keyframes)
+        scene_br_ids = set(scene.bridges)
+        sheet.keyframes = [kf for kf in sheet.keyframes if kf.keyframe_id in scene_kf_ids]
+        sheet.bridges = [br for br in sheet.bridges if br.bridge_id in scene_br_ids]
+        print(f"Scene: {scene.scene_id} — {scene.name}")
+        print(f"  Keyframes: {len(sheet.keyframes)} | Bridges: {len(sheet.bridges)}\n")
 
     # Run dispatch
     out_dir = Path(args.output_dir)

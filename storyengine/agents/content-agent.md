@@ -25,6 +25,10 @@ The operator will send natural language. Map it to the right action:
 | "make a video about X" | Create a production sheet first, then `--images-only` |
 | "approve bridges" / "generate bridges" / "make the videos" | `--bridges-only` on the last sheet that was run |
 | "rerun images" / "redo the images" | `--images-only` on the last sheet |
+| "make scene 1" / "generate The Firing" | `--scene "SC-001"` or `--scene "The Firing"` (fuzzy match) |
+| "redo images for scene 2" | `--scene "SC-002" --images-only` |
+| "make the video for The Firing" | `--scene "The Firing" --bridges-only` |
+| "what scenes are there" | Use lookup or read the production sheet |
 
 ### Key commands:
 ```bash
