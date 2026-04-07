@@ -9,6 +9,7 @@ When the user addresses a specific agent, route the message via the handoffs API
 - **QA Engineer** (aliases: qa) → agent id: `qa-engineer`
 - **Pipeline Tester** (aliases: tester, pt) → agent id: `pipeline-tester`
 - **Orchestrator** (aliases: orch) → agent id: `orchestrator`
+- **Content Agent** (aliases: content, ca) → agent id: `content-agent`
 
 Example: "backend: fix the auth bug" → POST http://localhost:5050/api/handoffs with:
 ```json
