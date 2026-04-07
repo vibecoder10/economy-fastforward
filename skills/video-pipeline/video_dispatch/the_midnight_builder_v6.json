@@ -73,7 +73,7 @@
       "waypoints": ["KF-002", "KF-003"],
       "characters": ["Marcus", "The Boss"],
       "location": "Manager's Office",
-      "prompt": "Inside the glass-walled manager's office with dark wood desk, 'ACHIEVE' poster, and fluorescent lighting. The Boss slides the folder across the desk and says firmly: \"I'm sorry Marcus, but your position has been eliminated.\" Marcus reacts with shock, jaw tightening. He takes a breath, nods once, says quietly: \"I understand.\" He stands from the chair with dignity, turns, walks to the glass door, and pushes through the doorway. Smooth continuous camera follow, no cuts.",
+      "prompt": "@image1 is the character reference for Marcus. @image2 is the character reference for The Boss. In @image3 Marcus sits across from The Boss at the dark wood desk in the glass-walled manager's office with the ACHIEVE poster on the wall. The Boss slides a folder across the desk and says firmly: \"I'm sorry Marcus, but your position has been eliminated.\" Marcus reacts with shock as shown in @image4, his jaw tightening, eyes widening. He takes a slow breath, nods once, and says quietly: \"I understand.\" He stands from the chair with dignity as shown in @image5. He turns, walks to the glass door, grabs the door handle, pulls it open, and steps through into the open-plan office as shown in @image6. Smooth continuous 10-second shot, no cuts.",
       "duration": 10, "mode": "fun", "resolution": "720p"
     }
   ]
