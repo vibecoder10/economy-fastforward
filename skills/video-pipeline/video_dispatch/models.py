@@ -71,6 +71,7 @@ class Bridge:
     characters: list = field(default_factory=list)  # Character names in this scene
     location: str = ""  # Location name from bible (for location ref injection)
     waypoints: list = field(default_factory=list)  # Intermediate keyframe IDs as visual guides
+    waypoint_descriptions: list = field(default_factory=list)  # What happens at each waypoint
 
     # Filled after generation
     status: TaskStatus = TaskStatus.PENDING
@@ -165,6 +166,7 @@ class ProductionSheet:
                 characters=br.get("characters", []),
                 location=br.get("location", ""),
                 waypoints=br.get("waypoints", []),
+                waypoint_descriptions=br.get("waypoint_descriptions", []),
             )
             for br in data.get("bridges", [])
         ]
