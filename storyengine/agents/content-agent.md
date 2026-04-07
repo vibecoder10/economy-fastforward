@@ -41,10 +41,15 @@ python3 -m video_dispatch.dispatch video_dispatch/<sheet>.json --drive-folder "<
 ```
 
 ### Finding the right sheet:
-Production sheets live in `skills/video-pipeline/video_dispatch/`. Common ones:
-- `the_midnight_builder_v6.json` — latest 10s test (first scene, the firing)
-- `the_midnight_builder_v5.json` — full 30s first act
-- `the_midnight_builder_v2.json` — full 3.5min film (35 keyframes)
+Use the lookup tool to find sheets by name:
+```bash
+cd skills/video-pipeline
+python3 -m video_dispatch.lookup "midnight builder v6"   # fuzzy search
+python3 -m video_dispatch.lookup --list                   # show all sheets
+```
+The lookup tells you if images are ready, how many bridges exist, and what action to take next.
+
+When the operator says a folder name like "The Midnight Builder v6b", search for the matching production sheet. The folder name usually matches the sheet title. The lookup handles fuzzy matching — "midnight builder v6" finds "The Midnight Builder v6".
 
 ### If given a content directive (topic/story):
 1. Create a production sheet JSON at `skills/video-pipeline/video_dispatch/<title>.json`
