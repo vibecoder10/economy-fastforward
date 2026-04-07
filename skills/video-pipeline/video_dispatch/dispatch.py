@@ -306,53 +306,72 @@ class DispatchClient:
         # Assemble: [char_refs..., start_frame, waypoints..., end_frame]
         image_urls = char_ref_urls_to_use + [from_image_url] + waypoints_to_use + [to_image_url]
 
-        # Inject character wardrobe descriptions into prompt
-        prompt = bridge.prompt
-        wardrobe_block = _build_wardrobe_block(bridge.characters, bible_characters or [])
-        if wardrobe_block:
-            prompt = prompt + wardrobe_block
+        # ---------------------------------------------------------------
+        # Build bridge prompt using the PROVEN pattern (A/B tested):
+        #
+        # WINNING FORMAT:
+        #   "@image1 is the character reference for Marcus. This is a
+        #    continuous 10-second shot. @image3 Marcus stands in the
+        #    office. He walks to the door as shown in @image4. He pushes
+        #    through as shown in @image5. Smooth continuous camera follow,
+        #    no cuts."
+        #
+        # RULES:
+        # - Describe POSITIONS between waypoints, not emotions or dialogue
+        # - Simple spatial verbs: stands, walks, turns, reaches, pushes
+        # - Each waypoint gets "as shown in @imageN" at its narrative beat
+        # - NO dialogue (video model handles motion, not speech)
+        # - NO micro-actions (no "grabs handle, takes breath, nods")
+        # - NO wardrobe injection (images already show what they wear)
+        # - Max 4-5 beats for 10s, 2-3 for 6s
+        # - Always end with "Smooth continuous camera follow, no cuts."
+        # ---------------------------------------------------------------
 
-        # Build prompt with @image tags
+        prompt = bridge.prompt
+
         if "@image" not in prompt.lower():
             idx = 1
-            tag_parts = []
 
-            # Character ref tags — all that were included
+            # Character ref labels
+            char_labels = []
             for name in char_ref_names:
-                tag_parts.append(f"@image{idx} is the character reference for {name}.")
+                char_labels.append(f"@image{idx} is the character reference for {name}.")
                 idx += 1
 
-            # Start frame tag
             start_idx = idx
             idx += 1
 
-            # Waypoint tags
-            waypoint_indices = []
+            wp_indices = []
             for _ in waypoints_to_use:
-                waypoint_indices.append(idx)
+                wp_indices.append(idx)
                 idx += 1
 
-            # End frame tag
             end_idx = idx
 
-            prefix = " ".join(tag_parts)
-            if prefix:
-                prefix += " "
+            # Build prompt with waypoint descriptions woven in
+            parts = []
 
-            # For bridges with waypoints: describe the journey through each waypoint
-            if waypoint_indices:
-                prompt = (
-                    f"{prefix}This is a continuous {duration}-second shot. "
-                    f"@image{start_idx} {prompt} "
-                    f"Transition smoothly to the composition shown in @image{end_idx}. "
-                    f"Smooth continuous camera follow, no cuts."
-                )
-            else:
-                prompt = (
-                    f"{prefix}"
-                    f"@image{start_idx} {prompt} "
-                    f"Transition smoothly to the composition shown in @image{end_idx}"
-                )
+            if char_labels:
+                parts.append(" ".join(char_labels))
+
+            parts.append(f"This is a continuous {duration}-second shot.")
+
+            # Start frame: use the bridge prompt as the opening beat
+            parts.append(f"@image{start_idx} {prompt}")
+
+            # Waypoint + end frame beats: use waypoint_descriptions if provided.
+            # Descriptions cover waypoints AND end frame (N waypoints + 1 end = N+1 total).
+            wp_descs = bridge.waypoint_descriptions if hasattr(bridge, 'waypoint_descriptions') else []
+            all_indices = wp_indices + [end_idx]
+            for i, img_idx in enumerate(all_indices):
+                if i < len(wp_descs) and wp_descs[i]:
+                    parts.append(f"{wp_descs[i]} as shown in @image{img_idx}.")
+                else:
+                    parts.append(f"as shown in @image{img_idx}.")
+
+            parts.append("Smooth continuous camera follow, no cuts.")
+
+            prompt = " ".join(parts)
 
         payload = {
             "model": VIDEO_MODEL,
