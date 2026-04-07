@@ -278,39 +278,32 @@ class DispatchClient:
         if duration > 10 and not has_waypoints:
             print(f"  [bridge] WARNING: {bridge.bridge_id} duration {duration}s > 10s without waypoints")
 
-        # Build image_urls — priority order:
-        # 1. Character ref (1 max for slot efficiency — scene frames already contain characters)
-        # 2. Start frame
-        # 3. Waypoint images (visual journey guides)
-        # 4. End frame
-        # Max 7 total.
-        image_urls = []
+        # Build image_urls — dynamic allocation within 7-slot limit.
+        # Fixed slots: start_frame (1) + end_frame (1) = 2
+        # Remaining slots: fill with char refs first, then waypoints.
+        # Priority: char refs > waypoints (chars need identity lock,
+        # waypoints are nice-to-have visual guides).
+        MAX_SLOTS = 7
+        fixed_slots = 2  # start + end frames
+        available = MAX_SLOTS - fixed_slots  # 5 slots for refs + waypoints
 
-        # Add one character ref (most important character first)
+        # Fit as many character refs as possible, then fill rest with waypoints
         char_ref_names = []
-        if scene_char_refs:
-            first_char = list(scene_char_refs.keys())[0]
-            image_urls.append(scene_char_refs[first_char])
-            char_ref_names.append(first_char)
+        char_ref_urls_to_use = []
+        for name, url in scene_char_refs.items():
+            if len(char_ref_urls_to_use) < available:
+                char_ref_urls_to_use.append(url)
+                char_ref_names.append(name)
 
-        # Add start frame
-        image_urls.append(from_image_url)
+        remaining = available - len(char_ref_urls_to_use)
+        waypoints_to_use = waypoints[:remaining] if remaining > 0 else []
 
-        # Add waypoints
-        image_urls.extend(waypoints)
+        if len(waypoints_to_use) < len(waypoints):
+            dropped = len(waypoints) - len(waypoints_to_use)
+            print(f"  [bridge] NOTE: trimmed {dropped} waypoints to fit {len(char_ref_names)} char refs (7-slot limit)")
 
-        # Add end frame
-        image_urls.append(to_image_url)
-
-        # Trim if over 7
-        if len(image_urls) > 7:
-            # Drop waypoints from the middle to fit
-            excess = len(image_urls) - 7
-            print(f"  [bridge] NOTE: trimming {excess} waypoints (7-slot limit)")
-            # Keep: char_ref (1) + start (1) + end (1) = 3 fixed, trim waypoints
-            max_waypoints = 7 - 3
-            trimmed_waypoints = waypoints[:max_waypoints]
-            image_urls = [image_urls[0], from_image_url] + trimmed_waypoints + [to_image_url]
+        # Assemble: [char_refs..., start_frame, waypoints..., end_frame]
+        image_urls = char_ref_urls_to_use + [from_image_url] + waypoints_to_use + [to_image_url]
 
         # Build prompt with @image tags
         prompt = bridge.prompt
@@ -318,9 +311,9 @@ class DispatchClient:
             idx = 1
             tag_parts = []
 
-            # Character ref tag
-            if char_ref_names:
-                tag_parts.append(f"@image{idx} is the character reference for {char_ref_names[0]}.")
+            # Character ref tags — all that were included
+            for name in char_ref_names:
+                tag_parts.append(f"@image{idx} is the character reference for {name}.")
                 idx += 1
 
             # Start frame tag
@@ -329,7 +322,7 @@ class DispatchClient:
 
             # Waypoint tags
             waypoint_indices = []
-            for _ in waypoints:
+            for _ in waypoints_to_use:
                 waypoint_indices.append(idx)
                 idx += 1
 
