@@ -146,8 +146,16 @@ cd "$REPO_DIR" || {
 
 # Pull latest code — non-fatal if it fails (stale code is better than no run)
 # Timeout prevents hangs from git prompts or network issues
+# If pull fails due to local changes, auto-stash and retry (this is the #1 cause
+# of the VPS running stale code — manual edits on VPS block git pull forever)
 if ! timeout 30 git pull origin main --ff-only >> "$LOG_FILE" 2>&1; then
-    echo "[$(date)] WARNING: git pull failed or timed out — running with existing code" >> "$LOG_FILE"
+    echo "[$(date)] WARNING: git pull failed — attempting auto-stash and retry" >> "$LOG_FILE"
+    git stash --include-untracked >> "$LOG_FILE" 2>&1 || true
+    if ! timeout 30 git pull origin main --ff-only >> "$LOG_FILE" 2>&1; then
+        echo "[$(date)] WARNING: git pull still failed after stash — running with existing code" >> "$LOG_FILE"
+    else
+        echo "[$(date)] git pull succeeded after auto-stash" >> "$LOG_FILE"
+    fi
 fi
 
 # ── Run the command ──────────────────────────────────────────────────
