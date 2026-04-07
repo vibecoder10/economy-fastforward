@@ -1,0 +1,160 @@
+{
+  "title": "The Midnight Builder v5",
+  "total_duration_s": 30,
+  "visual_style": "3d pixar animation",
+  "aspect_ratio": "16:9",
+  "bible": {
+    "characters": [
+      {
+        "name": "Marcus",
+        "appearance": "Black man in his early 40s, strong build, kind brown eyes, short fade haircut with hints of gray at the temples, subtle worry lines",
+        "wardrobe": "charcoal business suit with loosened navy tie, white dress shirt, gold wedding ring on left hand",
+        "ref_prompt": "3D Pixar-style animation character reference sheet. Marcus, a Black man in his early 40s with dark brown skin, strong athletic build, kind warm brown eyes, short fade haircut with subtle hints of gray at the temples, subtle worry lines around his eyes, clean-shaven, broad shoulders. Three-quarter view and front view on a clean neutral gray background. He wears a charcoal business suit with a white dress shirt and loosened navy tie. A gold wedding ring is clearly visible on his left hand. His expression is warm but determined. Studio lighting, clean white background, full character turnaround reference sheet style. 16:9 aspect ratio."
+      },
+      {
+        "name": "The Boss",
+        "appearance": "White man in his mid-50s, receding brown hair combed back neatly, thin-framed rectangular glasses, clean-shaven, narrow face, thin lips, neutral corporate expression",
+        "wardrobe": "navy blue suit with a light blue dress shirt and burgundy tie, silver watch on left wrist",
+        "ref_prompt": "3D Pixar-style animation character reference sheet. The Boss, a white man in his mid-50s with fair skin, receding brown hair combed back neatly, thin-framed rectangular glasses, clean-shaven, narrow face with thin lips, neutral corporate expression. Three-quarter view and front view on a clean neutral gray background. He wears a navy blue suit with a light blue dress shirt and a burgundy tie. A silver watch is visible on his left wrist. His expression is detached and professional. Studio lighting, clean white background, full character turnaround reference sheet style. 16:9 aspect ratio."
+      }
+    ],
+    "locations": [
+      {
+        "name": "Manager's Office",
+        "description": "Small glass-walled private office: dark wood executive desk with black leather desk pad, two ergonomic mesh visitor chairs, manager's high-back leather chair, glass walls on three sides looking onto open-plan, 'ACHIEVE' poster in black frame on solid wall, harsh fluorescent ceiling panel, polished light gray floor.",
+        "palette": "cold gray, dark wood tones, harsh blue fluorescent, glass reflections",
+        "ref_prompt": "3D Pixar-style animation establishing shot. Empty glass-walled manager's private office — interior view. Dark wood executive desk with black leather desk pad in center. Two ergonomic mesh visitor chairs face the desk. High-back leather chair behind it. Glass walls on three sides look out onto blurred open-plan office. One solid wall with 'ACHIEVE' poster in black frame. Harsh fluorescent ceiling panel. Polished light gray floor. No people. Cold gray, dark wood palette. Clean reference. 16:9 aspect ratio."
+      },
+      {
+        "name": "Open-Plan Office",
+        "description": "Sterile open-plan office floor: long rows of gray workstation desks with dual monitors, harsh fluorescent ceiling panels in even rows, ergonomic mesh chairs, polished light gray floor, central aisle between desk rows, glass exit doors at far end.",
+        "palette": "cold gray, sterile white, harsh blue fluorescent",
+        "ref_prompt": "3D Pixar-style animation establishing shot. Empty sterile open-plan corporate office — wide view down the central aisle. Long rows of gray workstation desks with dual monitors on either side. Harsh fluorescent ceiling panels in even rows. Ergonomic mesh chairs. Polished light gray floor. Glass exit doors at the far end. No people. Cold gray, sterile white palette. Clean reference. 16:9 aspect ratio."
+      },
+      {
+        "name": "Office Exterior",
+        "description": "Tall modern glass corporate building, concrete entrance plaza, revolving glass doors, overcast gray sky, pedestrians on sidewalk.",
+        "palette": "slate gray, cold blue glass reflections, muted concrete",
+        "ref_prompt": "3D Pixar-style animation establishing shot. Tall modern glass corporate building exterior — full facade. Concrete entrance plaza with revolving glass door. 15+ stories of blue-tinted glass reflecting overcast gray sky. Pedestrians on sidewalk. No main characters. Slate gray, cold blue, muted concrete. Clean reference. 16:9 aspect ratio."
+      }
+    ],
+    "lighting": "Pixar-style volumetric lighting. Cold harsh fluorescent throughout — this is the corporate world, no warmth.",
+    "camera": "virtual Pixar camera, smooth continuous follows, expressive close-ups",
+    "color_grade": "Cold desaturated: gray, steel blue, harsh white. No warm tones until he's outside.",
+    "aspect_ratio": "16:9"
+  },
+  "keyframes": [
+    {
+      "keyframe_id": "KF-001",
+      "shot_type": "medium",
+      "location": "Manager's Office",
+      "characters": ["Marcus", "The Boss"],
+      "prompt": "3D Pixar-style animation frame. ENVIRONMENT: glass-walled manager's private office — dark wood executive desk with black leather desk pad, two mesh visitor chairs, high-back leather chair behind desk, glass walls on three sides, 'ACHIEVE' poster in black frame on solid wall, harsh fluorescent ceiling panel, polished light gray floor. SCENE: Marcus sits in a mesh visitor chair. The Boss sits in the high-back leather chair behind the dark wood desk, holding a folder, making eye contact. The Boss wears a navy blue suit with light blue shirt and burgundy tie, thin-framed rectangular glasses. Marcus wears a charcoal suit with loosened navy tie, hands on armrests. His expression is attentive. 16:9 aspect ratio.",
+      "notes": "Bridge 1 start — seated, about to hear the news"
+    },
+    {
+      "keyframe_id": "KF-002",
+      "shot_type": "close-up",
+      "location": "Manager's Office",
+      "characters": ["Marcus", "The Boss"],
+      "prompt": "3D Pixar-style animation frame. ENVIRONMENT: inside glass-walled manager's office — dark wood desk surface with black leather desk pad, harsh fluorescent ceiling panel above, 'ACHIEVE' poster blurred on solid wall behind. SCENE: Close-up of Marcus's face. His jaw tightens, eyes widen with shock. The Boss's hand in navy suit sleeve slides a termination letter across the dark wood desk. Harsh fluorescent light casts shadows under Marcus's brow. Gold wedding ring catches light as his hand grips the mesh chair armrest. 16:9 aspect ratio.",
+      "notes": "Bridge 1 waypoint — reaction"
+    },
+    {
+      "keyframe_id": "KF-003",
+      "shot_type": "medium",
+      "location": "Manager's Office",
+      "characters": ["Marcus", "The Boss"],
+      "prompt": "3D Pixar-style animation frame. ENVIRONMENT: glass-walled manager's office — dark wood desk, high-back leather chair, mesh visitor chairs, 'ACHIEVE' poster in black frame on solid wall, glass walls, fluorescent ceiling panel, polished light gray floor. SCENE: Marcus stands up from the mesh visitor chair, one hand on the dark wood desk for support. Back straight, maintaining dignity. The Boss remains in his high-back leather chair, thin-framed glasses glinting, looking away uncomfortably. Marcus's charcoal suit jacket pulls slightly as he rises. 16:9 aspect ratio.",
+      "notes": "Bridge 1 waypoint — standing up"
+    },
+    {
+      "keyframe_id": "KF-004",
+      "shot_type": "medium",
+      "location": "Manager's Office",
+      "characters": ["Marcus"],
+      "prompt": "3D Pixar-style animation frame. ENVIRONMENT: glass doorway threshold between manager's office and open-plan floor. Camera positioned in the open-plan office looking back toward the glass door. SCENE: Marcus seen from behind, mid-step through the glass doorway. His right hand pushes the glass door open. His left foot is already on the open-plan floor. Through the glass door behind him, the dark wood desk and 'ACHIEVE' poster are visible in the manager's office he is leaving. Ahead of him (toward camera) the open-plan office stretches with rows of gray desks under fluorescent panels. He is literally between two worlds. 16:9 aspect ratio.",
+      "notes": "Bridge 1 end / Bridge 2 start — the doorway threshold, between two worlds"
+    },
+    {
+      "keyframe_id": "KF-005",
+      "shot_type": "medium",
+      "location": "Open-Plan Office",
+      "characters": ["Marcus"],
+      "prompt": "3D Pixar-style animation frame. ENVIRONMENT: open-plan corporate office — long rows of gray workstation desks with dual monitors stretching into the distance, harsh fluorescent ceiling panels in even rows, ergonomic mesh chairs, polished light gray floor, central aisle. No posters on walls. No glass-walled offices visible. SCENE: Marcus walks through the central aisle, seen from a medium angle ahead of him. The manager's office is no longer visible — he has walked deep into the open-plan floor. He passes gray desks where a coworker glances up then looks away. His charcoal suit is slightly rumpled, navy tie loose. His own workstation desk is a few rows ahead. 16:9 aspect ratio.",
+      "notes": "Bridge 2 waypoint — deep in the open-plan, manager's office behind him"
+    },
+    {
+      "keyframe_id": "KF-006",
+      "shot_type": "medium",
+      "location": "Open-Plan Office",
+      "characters": ["Marcus"],
+      "prompt": "3D Pixar-style animation frame. ENVIRONMENT: open-plan office — gray workstation desk with dual monitors, fluorescent ceiling panels, mesh chair, polished floor. SCENE: Marcus stands at his own workstation desk, carefully placing a framed family photo into a cardboard box. The photo shows Marcus, Aisha, and Zara smiling. A blue coffee mug and small potted plant are already in the box. His desk surface is nearly bare. A coworker at a distant desk pretends not to notice. 16:9 aspect ratio.",
+      "notes": "Bridge 2 waypoint — packing his desk"
+    },
+    {
+      "keyframe_id": "KF-007",
+      "shot_type": "medium",
+      "location": "Open-Plan Office",
+      "characters": ["Marcus"],
+      "prompt": "3D Pixar-style animation frame. ENVIRONMENT: open-plan office — central aisle between rows of gray workstation desks, fluorescent ceiling panels, polished light gray floor, glass exit doors visible at the far end. SCENE: Marcus holds the packed cardboard box against his chest, charcoal suit jacket draped over the top. He stands at the start of the central aisle, about to begin the long walk to the exit. One coworker nearby says something sympathetic. Marcus nods without looking up. His jaw is set. 16:9 aspect ratio.",
+      "notes": "Bridge 2 end / Bridge 3 start — box in hand, about to walk out"
+    },
+    {
+      "keyframe_id": "KF-008",
+      "shot_type": "medium",
+      "location": "Open-Plan Office",
+      "characters": ["Marcus"],
+      "prompt": "3D Pixar-style animation frame. ENVIRONMENT: open-plan office — central aisle, rows of gray desks on both sides, fluorescent ceiling panels. The glass exit doors are NOW CLOSE, only a few steps ahead, gray daylight clearly visible through them. SCENE: Marcus is near the end of the aisle, almost at the glass exit doors. He carries the box against his chest. The desks are mostly behind him now. A few final coworkers sit at the last row of desks, not looking up. The exit is right there. His reflection is faintly visible in the glass doors ahead. 16:9 aspect ratio.",
+      "notes": "Bridge 3 waypoint — almost at the exit, doors close"
+    },
+    {
+      "keyframe_id": "KF-009",
+      "shot_type": "medium",
+      "location": "Office Exterior",
+      "characters": ["Marcus"],
+      "prompt": "3D Pixar-style animation frame. ENVIRONMENT: the revolving glass exit door of the corporate building, seen from outside on the concrete plaza looking back at the building entrance. Gray overcast sky above. SCENE: Close medium shot of Marcus mid-push through the revolving glass door. The box is pressed against his chest, his shoulder drives the glass panel forward. His body is halfway out — his back half still inside the fluorescent-lit lobby, his front half exposed to the cold gray daylight. The light on his face splits: harsh fluorescent on one side, cold gray daylight on the other. This is the literal threshold between his old life and whatever comes next. 16:9 aspect ratio.",
+      "notes": "Bridge 3 waypoint — the threshold, half in half out, camera outside looking in"
+    },
+    {
+      "keyframe_id": "KF-010",
+      "shot_type": "wide",
+      "location": "Office Exterior",
+      "characters": ["Marcus"],
+      "prompt": "3D Pixar-style animation frame. ENVIRONMENT: tall modern glass corporate building exterior — concrete entrance plaza, revolving glass door behind Marcus, 15+ stories of blue-tinted glass reflecting overcast gray sky, pedestrians on sidewalk. Slate gray, cold blue, muted concrete palette. SCENE: Wide shot. Marcus stands on the concrete plaza, the tall glass building towering behind him. He holds the cardboard box. Other workers stream past on the sidewalk, oblivious. He is small against the massive building. Cold slate gray sky, volumetric fog. His shoulders curve slightly inward. A man alone with a box. 16:9 aspect ratio.",
+      "notes": "Bridge 3 end — outside, alone, the weight of it all"
+    }
+  ],
+  "bridges": [
+    {
+      "bridge_id": "BR-001",
+      "from_keyframe": "KF-001",
+      "to_keyframe": "KF-004",
+      "waypoints": ["KF-002", "KF-003"],
+      "characters": ["Marcus", "The Boss"],
+      "location": "Manager's Office",
+      "prompt": "Inside the glass-walled manager's office. The Boss slides the folder across the dark wood desk and says firmly: \"I'm sorry Marcus, but your position has been eliminated.\" Marcus's expression shifts from attentive to shock. He takes a slow breath, nods once, says quietly: \"I understand.\" He pushes himself up from the chair with dignity and walks toward the glass door, pushing it open.",
+      "duration": 10, "mode": "fun", "resolution": "720p"
+    },
+    {
+      "bridge_id": "BR-002",
+      "from_keyframe": "KF-004",
+      "to_keyframe": "KF-007",
+      "waypoints": ["KF-005", "KF-006"],
+      "characters": ["Marcus"],
+      "location": "Open-Plan Office",
+      "prompt": "Marcus steps through the glass door into the open-plan office. He walks down the central aisle between rows of gray desks under fluorescent ceiling panels. Coworkers glance up then look away. He reaches his workstation desk, places the family photo carefully into a cardboard box, adds his coffee mug and plant. He picks up the packed box, tucks it against his chest. A coworker says softly: \"Hey man... I'm sorry.\" Marcus nods without looking up.",
+      "duration": 10, "mode": "fun", "resolution": "720p"
+    },
+    {
+      "bridge_id": "BR-003",
+      "from_keyframe": "KF-007",
+      "to_keyframe": "KF-010",
+      "waypoints": ["KF-008", "KF-009"],
+      "characters": ["Marcus"],
+      "location": "Office Exterior",
+      "prompt": "Marcus walks down the central aisle carrying the cardboard box, coworkers avoiding eye contact on both sides. He reaches the glass exit doors, pushes through the revolving door with his shoulder. The light shifts from harsh fluorescent to cold gray daylight as he steps outside onto the concrete plaza. The massive glass building towers behind him. He stands alone. Other workers stream past, oblivious. His shoulders curve inward under the weight.",
+      "duration": 10, "mode": "fun", "resolution": "720p"
+    }
+  ]
+}

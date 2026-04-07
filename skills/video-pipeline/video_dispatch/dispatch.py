@@ -551,28 +551,36 @@ async def dispatch_keyframes(
     Google Drive immediately after generation (generate → upload → next).
     """
     reference_url = None
+    prev_location = None
     for kf in keyframes:
         # Filter character refs to only those in this keyframe's scene
         scene_refs = []
         if character_refs:
             if kf.characters:
-                # Only include characters listed for this keyframe
                 scene_refs = [character_refs[name] for name in kf.characters if name in character_refs]
             else:
-                # No characters specified — include all (backward compat)
                 scene_refs = list(character_refs.values())
 
         # Add location ref for this keyframe's scene
         if location_refs and kf.location and kf.location in location_refs:
             scene_refs.append(location_refs[kf.location])
 
+        # Drop previous frame reference on location change to prevent
+        # environment bleed (e.g., ACHIEVE poster leaking into open-plan).
+        # The location ref + character refs are enough to anchor the new scene.
+        effective_ref = reference_url
+        if kf.location and prev_location and kf.location != prev_location:
+            print(f"  [keyframe] {kf.keyframe_id}: location change ({prev_location} -> {kf.location}), dropping prev frame ref")
+            effective_ref = None
+
         await client.generate_keyframe(
             kf,
-            reference_url=reference_url,
+            reference_url=effective_ref,
             character_ref_urls=scene_refs if scene_refs else None,
         )
         if kf.status == TaskStatus.COMPLETED and kf.image_url:
             reference_url = kf.image_url
+            prev_location = kf.location
             if drive_folder:
                 await _download_and_upload(kf.image_url, kf.keyframe_id, drive_folder)
         # If a keyframe fails, keep the last successful reference
