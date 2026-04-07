@@ -307,6 +307,7 @@ class DispatchClient:
         image_urls = char_ref_urls_to_use + [from_image_url] + waypoints_to_use + [to_image_url]
 
         # Inject character wardrobe descriptions into prompt
+        prompt = bridge.prompt
         wardrobe_block = _build_wardrobe_block(bridge.characters, bible_characters or [])
         if wardrobe_block:
             prompt = prompt + wardrobe_block
@@ -1027,9 +1028,13 @@ def main():
     ))
 
     # Write manifest BEFORE Drive upload (so it's saved even if upload fails)
+    # Never overwrite a real manifest with a dry-run stub
     manifest_path = out_dir / f"{sheet.title.replace(' ', '_')}_manifest.json"
-    with open(manifest_path, "w") as f:
-        json.dump(manifest, f, indent=2)
+    if not args.dry_run:
+        with open(manifest_path, "w") as f:
+            json.dump(manifest, f, indent=2)
+    else:
+        print(f"\n[DRY RUN] Manifest NOT written (preserving existing)")
 
     # Upload to Google Drive (only if not already uploaded via --drive-folder rclone)
     if (not args.dry_run
