@@ -54,10 +54,12 @@ cat >> /tmp/cron-clean.txt << EOF
 10 23 * * * $GUARD cd $SCRIPT_DIR && bash retro.sh >> $LOG_DIR/retro.log 2>&1 # storyengine-agents
 
 # RUBRIC server healthcheck — every 5 min (always runs, not guarded by team toggle)
-*/5 * * * * pgrep -f 'rubric.*server' > /dev/null || (cd $PROJECT_ROOT/rubric/scaffold && nohup node server.js > $LOG_DIR/rubric.log 2>&1 &) # storyengine-agents
+# Uses node (not 'rubric.*server') to match the actual process name reliably
+*/5 * * * * pgrep -f 'node.*server.js' > /dev/null || (cd $PROJECT_ROOT/rubric/scaffold && nohup node server.js > $LOG_DIR/rubric.log 2>&1 &) # storyengine-agents
 
-# Telegram healthcheck — every 15 min (always runs, not guarded by team toggle)
-*/15 * * * * bash $SCRIPT_DIR/../../rubric/scaffold/telegram-healthcheck.sh >> $LOG_DIR/telegram-healthcheck.log 2>&1 # storyengine-agents
+# Telegram healthcheck — every 10 min (always runs, not guarded by team toggle)
+# Reduced from 15min to 10min to minimize downtime gap after crashes
+*/10 * * * * bash $PROJECT_ROOT/rubric/scaffold/telegram-healthcheck.sh >> $LOG_DIR/telegram-healthcheck.log 2>&1 # storyengine-agents
 EOF
 
 crontab /tmp/cron-clean.txt
