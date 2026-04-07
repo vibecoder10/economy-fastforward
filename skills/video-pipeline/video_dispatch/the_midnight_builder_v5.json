@@ -65,48 +65,48 @@
       "shot_type": "medium",
       "location": "Manager's Office",
       "characters": ["Marcus", "The Boss"],
-      "prompt": "3D Pixar-style animation frame. ENVIRONMENT: glass-walled manager's office — dark wood desk, high-back leather chair, mesh visitor chairs, 'ACHIEVE' poster in black frame on solid wall, glass walls, fluorescent ceiling panel, polished light gray floor. SCENE: Marcus stands up from the mesh visitor chair, one hand on the dark wood desk for support. Back straight, maintaining dignity. The Boss remains in his high-back leather chair, thin-framed glasses glinting, looking away uncomfortably. Marcus's charcoal suit jacket pulls slightly as he rises. 16:9 aspect ratio.",
-      "notes": "Bridge 1 waypoint — standing up"
+      "prompt": "3D Pixar-style animation frame. ENVIRONMENT: glass-walled manager's office — dark wood desk, high-back leather chair, mesh visitor chairs, 'ACHIEVE' poster in black frame on solid wall, glass walls, fluorescent ceiling panel, polished light gray floor. CAMERA: medium shot, camera facing the desk. The Boss is on the LEFT behind the desk. Marcus is on the RIGHT, now standing. The glass exit door is visible on the LEFT side of frame behind The Boss. SCENE: Marcus has just stood up from the mesh visitor chair. One hand still on the dark wood desk. Back straight, maintaining dignity. His body angles slightly LEFT toward the glass door exit. The Boss remains in his high-back leather chair, looking away. 16:9 aspect ratio.",
+      "notes": "Bridge 1 waypoint — standing, body angling left toward exit door"
     },
     {
       "keyframe_id": "KF-004",
       "shot_type": "medium",
       "location": "Manager's Office",
       "characters": ["Marcus"],
-      "prompt": "3D Pixar-style animation frame. ENVIRONMENT: glass doorway threshold between manager's office and open-plan floor. Camera positioned in the open-plan office looking back toward the glass door. SCENE: Marcus seen from behind, mid-step through the glass doorway. His right hand pushes the glass door open. His left foot is already on the open-plan floor. Through the glass door behind him, the dark wood desk and 'ACHIEVE' poster are visible in the manager's office he is leaving. Ahead of him (toward camera) the open-plan office stretches with rows of gray desks under fluorescent panels. He is literally between two worlds. 16:9 aspect ratio.",
-      "notes": "Bridge 1 end / Bridge 2 start — the doorway threshold, between two worlds"
+      "prompt": "3D Pixar-style animation frame. ENVIRONMENT: glass-walled manager's office threshold. CAMERA: positioned INSIDE the open-plan office, looking BACK through the glass door toward the manager's office. SCENE: Marcus seen from behind, moving LEFT to RIGHT through the glass doorway. His right hand pushes the glass door open. His left foot steps onto the open-plan floor. Through the glass behind him, the dark wood desk and 'ACHIEVE' poster are visible in the manager's office he is leaving. The open-plan office with rows of gray desks stretches out to the RIGHT of frame ahead of him. He moves from LEFT to RIGHT through the doorway. 16:9 aspect ratio.",
+      "notes": "Bridge 1 end / Bridge 2 start — moving through doorway, camera in open-plan looking back"
     },
     {
       "keyframe_id": "KF-005",
       "shot_type": "medium",
       "location": "Open-Plan Office",
       "characters": ["Marcus"],
-      "prompt": "3D Pixar-style animation frame. ENVIRONMENT: open-plan corporate office — long rows of gray workstation desks with dual monitors stretching into the distance, harsh fluorescent ceiling panels in even rows, ergonomic mesh chairs, polished light gray floor, central aisle. No posters on walls. No glass-walled offices visible. SCENE: Marcus walks through the central aisle, seen from a medium angle ahead of him. The manager's office is no longer visible — he has walked deep into the open-plan floor. He passes gray desks where a coworker glances up then looks away. His charcoal suit is slightly rumpled, navy tie loose. His own workstation desk is a few rows ahead. 16:9 aspect ratio.",
-      "notes": "Bridge 2 waypoint — deep in the open-plan, manager's office behind him"
+      "prompt": "3D Pixar-style animation frame. ENVIRONMENT: open-plan corporate office — long rows of gray workstation desks with dual monitors, harsh fluorescent ceiling panels, ergonomic mesh chairs, polished light gray floor, central aisle. No posters. No glass offices visible. CAMERA: behind and slightly above Marcus, tracking shot. Marcus is in the CENTER of frame, walking AWAY from camera down the central aisle. SCENE: Marcus walks away from camera down the aisle between rows of gray desks. His charcoal suit jacket is slightly rumpled, navy tie loose. Coworkers at desks on both sides glance up then look away. His workstation desk with a cardboard box on it is visible several rows ahead in the distance. The glass exit doors are at the FAR end of the aisle, very distant. 16:9 aspect ratio.",
+      "notes": "Bridge 2 waypoint — behind Marcus, walking away toward his desk, exit doors far away"
     },
     {
       "keyframe_id": "KF-006",
       "shot_type": "medium",
       "location": "Open-Plan Office",
       "characters": ["Marcus"],
-      "prompt": "3D Pixar-style animation frame. ENVIRONMENT: open-plan office — gray workstation desk with dual monitors, fluorescent ceiling panels, mesh chair, polished floor. SCENE: Marcus stands at his own workstation desk, carefully placing a framed family photo into a cardboard box. The photo shows Marcus, Aisha, and Zara smiling. A blue coffee mug and small potted plant are already in the box. His desk surface is nearly bare. A coworker at a distant desk pretends not to notice. 16:9 aspect ratio.",
-      "notes": "Bridge 2 waypoint — packing his desk"
+      "prompt": "3D Pixar-style animation frame. ENVIRONMENT: open-plan office — gray workstation desk with dual monitors, fluorescent ceiling panels, mesh chair, polished floor. CAMERA: medium shot from beside Marcus, slightly to his RIGHT. He faces LEFT toward his desk. SCENE: Marcus stands at his own workstation desk. He has turned to face the desk and is carefully placing a framed family photo into a cardboard box on the desk surface. The photo shows Marcus, Aisha, and Zara smiling. A blue coffee mug and small potted plant are already in the box. The desk is nearly bare — being stripped of his identity. The central aisle stretches behind him to the RIGHT. 16:9 aspect ratio.",
+      "notes": "Bridge 2 waypoint — at his desk facing left, packing the box, aisle behind him right"
     },
     {
       "keyframe_id": "KF-007",
       "shot_type": "medium",
       "location": "Open-Plan Office",
       "characters": ["Marcus"],
-      "prompt": "3D Pixar-style animation frame. ENVIRONMENT: open-plan office — central aisle between rows of gray workstation desks, fluorescent ceiling panels, polished light gray floor, glass exit doors visible at the far end. SCENE: Marcus holds the packed cardboard box against his chest, charcoal suit jacket draped over the top. He stands at the start of the central aisle, about to begin the long walk to the exit. One coworker nearby says something sympathetic. Marcus nods without looking up. His jaw is set. 16:9 aspect ratio.",
-      "notes": "Bridge 2 end / Bridge 3 start — box in hand, about to walk out"
+      "prompt": "3D Pixar-style animation frame. ENVIRONMENT: open-plan office — central aisle between rows of gray workstation desks, fluorescent ceiling panels, polished light gray floor. Glass exit doors visible at the far RIGHT end of the aisle. CAMERA: medium shot from slightly ahead and to the LEFT of Marcus. He faces RIGHT, toward the glass exit doors. SCENE: Marcus holds the packed cardboard box against his chest, charcoal suit jacket draped over the top. He has turned to face the central aisle and the glass exit doors in the distance to the RIGHT. A coworker at the nearest desk says something. Marcus nods without looking up. His jaw is set. He is about to walk RIGHT, toward the exit. 16:9 aspect ratio.",
+      "notes": "Bridge 2 end / Bridge 3 start — facing right toward exit, about to walk the gauntlet"
     },
     {
       "keyframe_id": "KF-008",
       "shot_type": "medium",
       "location": "Open-Plan Office",
       "characters": ["Marcus"],
-      "prompt": "3D Pixar-style animation frame. ENVIRONMENT: open-plan office — central aisle, rows of gray desks on both sides, fluorescent ceiling panels. The glass exit doors are NOW CLOSE, only a few steps ahead, gray daylight clearly visible through them. SCENE: Marcus is near the end of the aisle, almost at the glass exit doors. He carries the box against his chest. The desks are mostly behind him now. A few final coworkers sit at the last row of desks, not looking up. The exit is right there. His reflection is faintly visible in the glass doors ahead. 16:9 aspect ratio.",
-      "notes": "Bridge 3 waypoint — almost at the exit, doors close"
+      "prompt": "3D Pixar-style animation frame. ENVIRONMENT: open-plan office — central aisle, rows of gray desks on both sides, fluorescent ceiling panels. Glass exit doors are NOW CLOSE on the RIGHT side of frame, gray daylight clearly visible through them. CAMERA: medium shot from slightly ahead of Marcus, angled back toward him. He walks toward camera and toward the RIGHT, approaching the glass exit doors. SCENE: Marcus is near the end of the aisle, almost at the glass exit doors. He carries the box against his chest, moving RIGHT. The rows of desks are mostly behind him now to the LEFT. A few final coworkers sit at the last desks. The glass exit doors are only steps away to his RIGHT. His reflection is faintly visible in the glass. 16:9 aspect ratio.",
+      "notes": "Bridge 3 waypoint — near the exit, doors close on right, walking right toward them"
     },
     {
       "keyframe_id": "KF-009",
