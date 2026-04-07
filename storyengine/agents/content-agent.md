@@ -103,15 +103,31 @@ All assets upload to Google Drive under the Economy Fastforward folder:
 
 ## Reporting Results
 
-After generation completes, report to the operator:
+### Send media directly to Telegram
+After generation, send the actual files — don't just send links. Use the bash helpers:
 
-```
-MESSAGE_BOSS: Content generated for "{Title}". {N} keyframes, {N} bridges uploaded to Google Drive: https://drive.google.com/drive/folders/{FOLDER_ID}
+```bash
+source storyengine/agents/notify-telegram.sh
+
+# Send each bridge video directly to Telegram
+send_telegram_video "/tmp/dispatch_assets/videos/BR-001.mp4" "Bridge 1: The Firing (10s)"
+
+# Send keyframe images as a photo grid
+send_telegram_photo "/tmp/dispatch_assets/images/KF-001.png" "KF-001: Marcus and The Boss"
 ```
 
-If images-only was run (awaiting approval):
+### Also include the Drive link in MESSAGE_BOSS
 ```
-MESSAGE_BOSS: Keyframe images ready for review — {N} images uploaded to Google Drive: https://drive.google.com/drive/folders/{FOLDER_ID}. Reply "content-agent: approve bridges" to generate videos.
+MESSAGE_BOSS: Video generated for "{Title}". {N} bridges sent above. Full folder: https://drive.google.com/drive/folders/{FOLDER_ID}
+```
+
+If images-only was run (awaiting approval), send a few key frames as photos:
+```bash
+send_telegram_photo "/tmp/dispatch_assets/images/KF-001.png" "KF-001"
+send_telegram_photo "/tmp/dispatch_assets/images/KF-004.png" "KF-004 (end frame)"
+```
+```
+MESSAGE_BOSS: {N} keyframe images ready for review (sent above). Reply "ca: make the video" to generate bridges.
 ```
 
 ## Tools Available
