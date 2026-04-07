@@ -1,0 +1,96 @@
+{
+  "title": "The Midnight Builder v8 — The Departure",
+  "total_duration_s": 10,
+  "visual_style": "3d pixar animation",
+  "aspect_ratio": "16:9",
+  "scenes": [
+    {
+      "scene_id": "SC-002",
+      "name": "The Departure",
+      "location": "Open-Plan Office + Office Exterior",
+      "characters": ["Marcus"],
+      "keyframes": ["KF-001", "KF-002", "KF-003", "KF-004"],
+      "bridges": ["BR-001"],
+      "notes": "Marcus packs up his desk with quiet dignity, walks through the office floor past colleagues who avoid eye contact, and exits the building. Emotional through restraint — no crying, just the quiet weight of a man carrying his whole life in a box."
+    }
+  ],
+  "bible": {
+    "characters": [
+      {
+        "name": "Marcus",
+        "appearance": "Black man in his early 40s, strong build, kind brown eyes, short fade haircut with hints of gray at the temples, subtle worry lines",
+        "wardrobe": "charcoal business suit with loosened navy tie, white dress shirt, gold wedding ring on left hand",
+        "ref_prompt": "3D Pixar-style animation character reference sheet. Marcus, a Black man in his early 40s with dark brown skin, strong athletic build, kind warm brown eyes, short fade haircut with subtle hints of gray at the temples, subtle worry lines around his eyes, clean-shaven, broad shoulders. Three-quarter view and front view on a clean neutral gray background. He wears a charcoal business suit with a white dress shirt and loosened navy tie. A gold wedding ring is clearly visible on his left hand. His expression is warm but determined — a father who carries responsibility with dignity. Studio lighting, clean white background, full character turnaround reference sheet style. 16:9 aspect ratio."
+      }
+    ],
+    "locations": [
+      {
+        "name": "Open-Plan Office",
+        "description": "Rows of gray workstation desks under harsh fluorescent ceiling panels. Other employees seated at computers, heads down, deliberately not looking. Marcus's cleared desk in the foreground — only a cardboard box remains. Corporate motivational posters on the wall. Cold sterile environment.",
+        "palette": "cold gray, sterile white, harsh blue fluorescent",
+        "ref_prompt": "3D Pixar-style animation establishing shot. Open-plan corporate office interior. Rows of gray workstation desks with computers, task chairs, under harsh fluorescent ceiling panels. Employees seated at desks, heads down. One desk in the foreground is cleared — only a small cardboard box sitting on it. Motivational posters on far wall. Glass-walled manager's offices visible at the back. No people looking up. Cold sterile palette — gray, white, blue fluorescent. 16:9 aspect ratio."
+      },
+      {
+        "name": "Office Exterior",
+        "description": "Tall modern glass corporate building exterior. Concrete plaza. Overcast gray sky. Other workers streaming past, oblivious. Marcus is small against the massive building facade.",
+        "palette": "slate gray, cold blue, muted concrete, overcast sky",
+        "ref_prompt": "3D Pixar-style animation establishing shot. Exterior of a tall modern glass corporate office building. Concrete plaza in front. Overcast gray sky. Business workers walking past on the sidewalk. Wide shot showing the full height of the building making a single figure feel small. Cold slate gray and muted blue palette. No warmth. 16:9 aspect ratio."
+      }
+    ],
+    "lighting": "Cold harsh fluorescent inside — corporate world has no warmth. Overcast flat gray light outside — the world feels indifferent.",
+    "camera": "virtual Pixar camera, smooth continuous follows, tracking behind Marcus",
+    "color_grade": "Cold desaturated — gray, steel blue, harsh white throughout. No warm tones until SC-003.",
+    "aspect_ratio": "16:9"
+  },
+  "keyframes": [
+    {
+      "keyframe_id": "KF-001",
+      "shot_type": "medium",
+      "location": "Open-Plan Office",
+      "characters": ["Marcus"],
+      "prompt": "3D Pixar-style animation frame. ENVIRONMENT: open-plan corporate office — rows of gray workstation desks under harsh fluorescent ceiling panels, employees seated at computers with heads down deliberately avoiding eye contact, motivational posters on far wall, glass-walled manager's offices visible at the back. SCENE: Marcus stands at his now-cleared workstation desk, placing a framed family photo into a small cardboard box. His charcoal suit jacket is draped over his arm. The wedding ring on his left hand is clearly visible as he handles the photo carefully. The desk surface behind him is bare and impersonal. Colleagues nearby keep their heads down. Cold fluorescent light from above. 16:9 aspect ratio.",
+      "notes": "BR-001 start — packing up the last item, the family photo"
+    },
+    {
+      "keyframe_id": "KF-002",
+      "shot_type": "close-up",
+      "location": "Open-Plan Office",
+      "characters": ["Marcus"],
+      "prompt": "3D Pixar-style animation frame. ENVIRONMENT: open-plan corporate office — cleared workstation desk surface, harsh fluorescent ceiling panel above, blurred rows of coworkers in background keeping heads down. SCENE: Close-up of Marcus's hands holding the cardboard box against his chest. The family photo is visible inside the box — Marcus, a woman, and a young girl smiling at a park. His gold wedding ring catches the fluorescent light. His suit jacket is draped over the box. The box is small against his broad chest. Colleagues are blurred out of focus behind him. Cold fluorescent light. 16:9 aspect ratio.",
+      "notes": "Close-up of the box — the weight of what he's carrying is visible"
+    },
+    {
+      "keyframe_id": "KF-003",
+      "shot_type": "medium",
+      "location": "Open-Plan Office",
+      "characters": ["Marcus"],
+      "prompt": "3D Pixar-style animation frame. ENVIRONMENT: open-plan corporate office floor — long central aisle between rows of gray workstation desks, employees seated at computers with heads turned away or staring at screens, fluorescent ceiling panels stretching to the far end, glass exit doors visible at the far end of the aisle. SCENE: Marcus walks down the central aisle carrying the cardboard box against his chest, seen from behind. His broad shoulders are set straight — dignified, not defeated. The aisle ahead is clear. Colleagues on both sides keep their eyes down. The glass exit doors are visible at the far end. Cold fluorescent light throughout. 16:9 aspect ratio.",
+      "notes": "BR-001 end — the walk of dignity through the office floor, exit in sight"
+    },
+    {
+      "keyframe_id": "KF-004",
+      "shot_type": "wide",
+      "location": "Office Exterior",
+      "characters": ["Marcus"],
+      "prompt": "3D Pixar-style animation frame. ENVIRONMENT: exterior of a tall modern glass corporate office building, concrete plaza, overcast gray sky, business workers walking past on the sidewalk, city street. SCENE: Marcus stands on the concrete plaza outside the building, facing away from it. He holds the cardboard box. The massive glass building towers behind him. Other workers stream past on both sides, not noticing him. He is small against the scale of the building. His back is straight but his shoulders carry a heavy quiet weight. Overcast flat gray light. Cold slate palette. 16:9 aspect ratio.",
+      "notes": "Final frame — small man, big building, the world moves on indifferent"
+    }
+  ],
+  "bridges": [
+    {
+      "bridge_id": "BR-001",
+      "from_keyframe": "KF-001",
+      "to_keyframe": "KF-003",
+      "waypoints": ["KF-002"],
+      "characters": ["Marcus"],
+      "location": "Open-Plan Office",
+      "camera_position": "Tracking behind Marcus at shoulder height, centered on his back. Box visible against his chest from behind.",
+      "camera_movement": "Follows Marcus from behind at steady pace. Starts at his desk as he picks up the box. Follows him as he turns and walks down the central aisle toward the exit.",
+      "prompt": "@image1 is the character reference for Marcus. This is a continuous 10-second shot. @image2 shows Marcus standing at his cleared workstation desk in the open-plan office, carefully placing a family photo into a small cardboard box — colleagues nearby keep their heads down. He lifts the box and holds it against his chest as shown in @image3, the family photo visible inside. He turns from the desk and walks down the central aisle between rows of gray desks, seen from behind as shown in @image4, colleagues on both sides keeping their eyes down as he passes. He walks toward the exit doors at the far end of the aisle, back straight, carrying his whole professional life in a small box. Smooth continuous camera follows from behind at shoulder height. Cold fluorescent light throughout. No cuts.",
+      "duration": 10,
+      "mode": "fun",
+      "resolution": "720p",
+      "notes": "Single continuous take. The walk of dignity — back straight, box against chest, world moves on indifferent."
+    }
+  ]
+}

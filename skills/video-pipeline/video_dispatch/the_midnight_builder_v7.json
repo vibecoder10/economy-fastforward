@@ -1,0 +1,126 @@
+{
+  "title": "The Midnight Builder v7",
+  "total_duration_s": 13,
+  "visual_style": "3d pixar animation",
+  "aspect_ratio": "16:9",
+  "scenes": [
+    {
+      "scene_id": "SC-001",
+      "name": "The Firing",
+      "location": "Manager's Office",
+      "characters": ["Marcus", "The Boss"],
+      "keyframes": ["KF-001", "KF-002", "KF-003", "KF-004"],
+      "bridges": ["BR-001", "BR-002", "BR-003"],
+      "notes": "3 focused bridges, 1-2 actions each. KF-001→KF-002→KF-003→KF-004."
+    }
+  ],
+  "bible": {
+    "characters": [
+      {
+        "name": "Marcus",
+        "appearance": "Black man in his early 40s, strong build, kind brown eyes, short fade haircut with hints of gray at the temples, subtle worry lines",
+        "wardrobe": "charcoal business suit with loosened navy tie, white dress shirt, gold wedding ring on left hand",
+        "ref_prompt": "3D Pixar-style animation character reference sheet. Marcus, a Black man in his early 40s with dark brown skin, strong athletic build, kind warm brown eyes, short fade haircut with subtle hints of gray at the temples, subtle worry lines around his eyes, clean-shaven, broad shoulders. Three-quarter view and front view on a clean neutral gray background. He wears a charcoal business suit with a white dress shirt and loosened navy tie. A gold wedding ring is clearly visible on his left hand. His expression is warm but determined. Studio lighting, clean white background, full character turnaround reference sheet style. 16:9 aspect ratio."
+      },
+      {
+        "name": "The Boss",
+        "appearance": "White man in his mid-50s, receding brown hair combed back neatly, thin-framed rectangular glasses, clean-shaven, narrow face, thin lips, neutral corporate expression",
+        "wardrobe": "navy blue suit with a light blue dress shirt and burgundy tie, silver watch on left wrist",
+        "ref_prompt": "3D Pixar-style animation character reference sheet. The Boss, a white man in his mid-50s with fair skin, receding brown hair combed back neatly, thin-framed rectangular glasses, clean-shaven, narrow face with thin lips, neutral corporate expression. Three-quarter view and front view on a clean neutral gray background. He wears a navy blue suit with a light blue dress shirt and a burgundy tie. A silver watch is visible on his left wrist. His expression is detached and professional. Studio lighting, clean white background, full character turnaround reference sheet style. 16:9 aspect ratio."
+      }
+    ],
+    "locations": [
+      {
+        "name": "Manager's Office",
+        "description": "Small glass-walled private office: dark wood executive desk with black leather desk pad, two ergonomic mesh visitor chairs, manager's high-back leather chair, glass walls on three sides looking onto open-plan, 'ACHIEVE' poster in black frame on solid wall, harsh fluorescent ceiling panel, polished light gray floor.",
+        "palette": "cold gray, dark wood tones, harsh blue fluorescent, glass reflections",
+        "ref_prompt": "3D Pixar-style animation establishing shot. Empty glass-walled manager's private office — interior view. Dark wood executive desk with black leather desk pad in center. Two ergonomic mesh visitor chairs face the desk. High-back leather chair behind it. Glass walls on three sides look out onto blurred open-plan office. One solid wall with 'ACHIEVE' poster in black frame. Harsh fluorescent ceiling panel. Polished light gray floor. No people. Cold gray, dark wood palette. Clean reference. 16:9 aspect ratio."
+      }
+    ],
+    "lighting": "Pixar-style volumetric lighting. Cold harsh fluorescent — corporate world, no warmth.",
+    "camera": "virtual Pixar camera, smooth continuous follows",
+    "color_grade": "Cold desaturated: gray, steel blue, harsh white.",
+    "aspect_ratio": "16:9"
+  },
+  "keyframes": [
+    {
+      "keyframe_id": "KF-001",
+      "shot_type": "medium",
+      "location": "Manager's Office",
+      "characters": ["Marcus", "The Boss"],
+      "prompt": "3D Pixar-style animation frame. ENVIRONMENT: glass-walled manager's private office — dark wood executive desk with black leather desk pad, two mesh visitor chairs facing the desk, high-back leather chair behind desk, glass walls on three sides looking onto open-plan office, 'ACHIEVE' poster in black frame on solid wall behind the manager, harsh fluorescent ceiling panel, polished light gray floor. SCENE: Marcus sits in a mesh visitor chair across from The Boss. The Boss sits in the high-back leather chair behind the dark wood desk, holding a folder, making eye contact across the desk. Marcus's hands rest on the armrests, his expression is attentive. The desk is between them. 16:9 aspect ratio.",
+      "notes": "BR-001 start — two men at the desk, face to face"
+    },
+    {
+      "keyframe_id": "KF-002",
+      "shot_type": "close-up",
+      "location": "Manager's Office",
+      "characters": ["Marcus", "The Boss"],
+      "prompt": "3D Pixar-style animation frame. ENVIRONMENT: inside glass-walled manager's office — dark wood desk surface with black leather desk pad, harsh fluorescent ceiling panel above, 'ACHIEVE' poster blurred on solid wall behind. SCENE: Close-up of Marcus's face across the desk. His jaw tightens, eyes widen with shock. The Boss's hand slides a termination letter across the dark wood desk toward Marcus. Harsh fluorescent light casts shadows under Marcus's brow. His gold wedding ring catches light as his hand grips the mesh chair armrest. The 'ACHIEVE' poster is blurred behind The Boss. 16:9 aspect ratio.",
+      "notes": "BR-001 end / BR-002 start — close-up reaction to the news"
+    },
+    {
+      "keyframe_id": "KF-003",
+      "shot_type": "medium",
+      "location": "Manager's Office",
+      "characters": ["Marcus", "The Boss"],
+      "prompt": "3D Pixar-style animation frame. ENVIRONMENT: glass-walled manager's office — dark wood desk, high-back leather chair, mesh visitor chairs, 'ACHIEVE' poster in black frame on solid wall, glass walls, fluorescent ceiling panel, polished light gray floor. SCENE: Marcus has just stood up from the mesh visitor chair. One hand rests on the dark wood desk for support. His back is straight, maintaining dignity. The Boss remains seated in his high-back leather chair behind the desk, looking away uncomfortably. Marcus's charcoal suit jacket pulls slightly as he rises. The glass door leading out to the open-plan office is visible in the background through the glass walls. 16:9 aspect ratio.",
+      "notes": "BR-002 end / BR-003 start — standing with dignity, door visible"
+    },
+    {
+      "keyframe_id": "KF-004",
+      "shot_type": "medium",
+      "location": "Manager's Office",
+      "characters": ["Marcus"],
+      "prompt": "3D Pixar-style animation frame. ENVIRONMENT: glass-walled manager's office doorway. The dark wood desk, 'ACHIEVE' poster, and The Boss's empty high-back leather chair are visible behind Marcus inside the office. Through the open glass door ahead, the open-plan office stretches with rows of gray workstation desks under fluorescent ceiling panels. SCENE: Marcus walks through the open glass doorway, stepping out of the manager's office. He is seen from behind, mid-stride through the door. One hand holds the glass door open. The manager's office is behind him. The open-plan office is ahead. He is leaving one world and entering another. 16:9 aspect ratio.",
+      "notes": "BR-003 end — walking through the doorway, seen from behind"
+    }
+  ],
+  "bridges": [
+    {
+      "bridge_id": "BR-001",
+      "from_keyframe": "KF-001",
+      "to_keyframe": "KF-002",
+      "waypoints": [],
+      "characters": ["Marcus", "The Boss"],
+      "location": "Manager's Office",
+      "camera_position": "Over-the-shoulder of Marcus (OTS) — camera is behind Marcus's right shoulder, slightly above. Marcus's shoulder and ear fill the left foreground. The Boss faces the camera across the desk.",
+      "camera_movement": "Static. Camera does not move. The Boss's hand and the sliding document are the only motion.",
+      "prompt": "Over-the-shoulder shot behind Marcus's right shoulder. Marcus's charcoal suit jacket and ear are in the left foreground. The Boss sits across the dark wood desk facing the camera, detached expression. His hand slides a termination letter slowly across the desk toward Marcus. The letter moves toward the camera. Camera is static. Cold fluorescent light from above. Glass walls and open-plan office blurred in background.",
+      "duration": 3,
+      "mode": "fun",
+      "resolution": "720p",
+      "notes": "1 action: letter slides across desk. Static camera — stillness creates dread. OTS puts us in Marcus's perspective."
+    },
+    {
+      "bridge_id": "BR-002",
+      "from_keyframe": "KF-002",
+      "to_keyframe": "KF-003",
+      "waypoints": [],
+      "characters": ["Marcus"],
+      "location": "Manager's Office",
+      "camera_position": "Low angle — camera is slightly below desk height, looking up at Marcus. The desk edge is in the lower foreground. The 'ACHIEVE' poster is visible on the wall above him.",
+      "camera_movement": "Very slow tilt up — camera tilts upward as Marcus rises, following his head from desk level to standing height. Ends on Marcus standing tall, 'ACHIEVE' poster behind him.",
+      "prompt": "Low angle shot, camera below desk height looking up at Marcus. The dark wood desk edge is in the lower foreground. Marcus presses both palms flat on the desk and rises to standing slowly and deliberately. Camera tilts upward slowly to follow him as he rises. When he is fully standing, the 'ACHIEVE' poster is visible in the wall behind him. His expression is controlled, jaw set. Cold fluorescent light from above. The Boss is out of frame.",
+      "duration": 4,
+      "mode": "fun",
+      "resolution": "720p",
+      "notes": "2 actions: palms on desk + rise. Low angle makes Marcus look powerful. Slow tilt follows his motion."
+    },
+    {
+      "bridge_id": "BR-003",
+      "from_keyframe": "KF-003",
+      "to_keyframe": "KF-004",
+      "waypoints": [],
+      "characters": ["Marcus"],
+      "location": "Manager's Office",
+      "camera_position": "Tracking shot behind Marcus — camera is at shoulder height, roughly 2 meters behind him, centered on his back.",
+      "camera_movement": "Camera follows Marcus from behind at a slow, steady pace as he walks toward the glass door. Holds still as he pushes the door open. The open-plan office comes into view through the glass as the door swings.",
+      "prompt": "Tracking shot behind Marcus at shoulder height, centered on his back. Marcus turns from the desk and walks deliberately toward the glass door in the background. Camera follows him from behind at a slow, steady pace — his charcoal suit jacket, broad shoulders, and the back of his fade haircut fill the center of frame. He reaches the glass door and pushes it open. The open-plan office with rows of gray desks comes into view through the opening door. Camera holds as the door swings. Cold fluorescent light from above.",
+      "duration": 6,
+      "mode": "fun",
+      "resolution": "720p",
+      "notes": "2 actions: walk to door + push it open. 6s for the walk to breathe. Tracking behind = we follow his journey."
+    }
+  ]
+}

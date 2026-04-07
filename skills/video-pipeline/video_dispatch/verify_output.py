@@ -58,18 +58,16 @@ async def _analyze_image_vision(
 
     Returns the analysis text or None on failure.
     """
-    if not api_key:
-        from shared.clients.anthropic_client import AnthropicClient
-        client = AnthropicClient()
-    else:
-        from anthropic import Anthropic
-        client = Anthropic(api_key=api_key)
+    import os
+    from anthropic import Anthropic
+    key = api_key or os.getenv("ANTHROPIC_API_KEY")
+    client = Anthropic(api_key=key)
 
     try:
         image_b64 = base64.standard_b64encode(image_bytes).decode()
 
         msg = client.messages.create(
-            model="claude-3-5-sonnet-20241022",
+            model="claude-sonnet-4-6",
             max_tokens=500,
             messages=[
                 {
