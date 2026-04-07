@@ -42,6 +42,12 @@
       "name": "Marketing Strategist",
       "color": "#ec4899",
       "icon": "Spark"
+    },
+    {
+      "id": "content-agent",
+      "name": "Content Agent",
+      "color": "#FF6B35",
+      "icon": "Spark"
     }
   ]
 }
