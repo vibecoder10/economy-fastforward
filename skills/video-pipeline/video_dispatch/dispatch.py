@@ -237,20 +237,21 @@ class DispatchClient:
         to_image_url: str,
         character_refs: Optional[dict] = None,
         location_refs: Optional[dict] = None,
+        waypoint_urls: Optional[list] = None,
     ) -> Bridge:
         """Generate a video bridge between two keyframe images.
 
         Args:
-            bridge: Bridge definition with prompt, duration, mode.
+            bridge: Bridge definition with prompt, duration, mode, waypoints.
             from_image_url: Start keyframe image URL.
             to_image_url: End keyframe image URL.
-            character_refs: Dict of {name: url} for character references.
-                Only characters listed in bridge.characters are included.
-            location_refs: Dict of {location_name: url} for location references.
-                Only the location matching bridge.location is included.
+            character_refs: Dict of {name: url} — filtered by bridge.characters.
+            location_refs: Dict of {location_name: url} — filtered by bridge.location.
+            waypoint_urls: List of intermediate keyframe image URLs (visual guides).
 
-        image_urls ordering: [char_refs..., location_ref, start_frame, end_frame]
-        Prompt is auto-tagged with @image labels describing each reference's role.
+        image_urls ordering: [char_ref, start_frame, waypoints..., end_frame]
+        For scene transitions (10s with waypoints), the model gets the full
+        visual journey and animates it in one continuous pass.
         Max 7 images total (API limit).
         """
         bridge.status = TaskStatus.IN_PROGRESS
@@ -262,60 +263,97 @@ class DispatchClient:
                 if name in character_refs:
                     scene_char_refs[name] = character_refs[name]
 
-        # Get location ref for this bridge's scene
-        scene_loc_url = None
-        if location_refs and bridge.location and bridge.location in location_refs:
-            scene_loc_url = location_refs[bridge.location]
+        waypoints = waypoint_urls or []
+        has_waypoints = len(waypoints) > 0
 
-        ref_count = len(scene_char_refs) + (1 if scene_loc_url else 0)
-        ref_tag = f" ({ref_count} refs)" if ref_count else ""
+        ref_count = len(scene_char_refs) + len(waypoints)
+        ref_tag = f" ({len(scene_char_refs)} chars, {len(waypoints)} waypoints)" if ref_count else ""
         print(
             f"  [bridge] {bridge.bridge_id}: {bridge.from_keyframe} -> "
             f"{bridge.to_keyframe} ({bridge.duration}s){ref_tag}..."
         )
 
-        # Clamp duration: API allows 6-30s but 6-10s produces best results.
-        # Longer bridges create internal cuts and detail drift.
+        # Clamp duration
         duration = max(6, min(30, bridge.duration))
-        if duration > 10:
-            print(f"  [bridge] WARNING: {bridge.bridge_id} duration {duration}s > 10s — may have internal cuts")
+        if duration > 10 and not has_waypoints:
+            print(f"  [bridge] WARNING: {bridge.bridge_id} duration {duration}s > 10s without waypoints")
 
-        # Build image_urls: [char_refs..., location_ref, start_frame, end_frame]
-        # Max 7 total. If we'd exceed 7, drop character refs (scene frames already contain them).
-        ref_images = list(scene_char_refs.values())
-        if scene_loc_url:
-            ref_images.append(scene_loc_url)
-        scene_frames = [from_image_url, to_image_url]
+        # Build image_urls — priority order:
+        # 1. Character ref (1 max for slot efficiency — scene frames already contain characters)
+        # 2. Start frame
+        # 3. Waypoint images (visual journey guides)
+        # 4. End frame
+        # Max 7 total.
+        image_urls = []
 
-        if len(ref_images) + len(scene_frames) > 7:
-            max_refs = 7 - len(scene_frames)
-            print(f"  [bridge] NOTE: trimming refs to {max_refs} (7-slot limit)")
-            ref_images = ref_images[:max_refs]
+        # Add one character ref (most important character first)
+        char_ref_names = []
+        if scene_char_refs:
+            first_char = list(scene_char_refs.keys())[0]
+            image_urls.append(scene_char_refs[first_char])
+            char_ref_names.append(first_char)
 
-        image_urls = ref_images + scene_frames
+        # Add start frame
+        image_urls.append(from_image_url)
 
-        # Build prompt with @image tags describing each reference's role
+        # Add waypoints
+        image_urls.extend(waypoints)
+
+        # Add end frame
+        image_urls.append(to_image_url)
+
+        # Trim if over 7
+        if len(image_urls) > 7:
+            # Drop waypoints from the middle to fit
+            excess = len(image_urls) - 7
+            print(f"  [bridge] NOTE: trimming {excess} waypoints (7-slot limit)")
+            # Keep: char_ref (1) + start (1) + end (1) = 3 fixed, trim waypoints
+            max_waypoints = 7 - 3
+            trimmed_waypoints = waypoints[:max_waypoints]
+            image_urls = [image_urls[0], from_image_url] + trimmed_waypoints + [to_image_url]
+
+        # Build prompt with @image tags
         prompt = bridge.prompt
         if "@image" not in prompt.lower():
-            tag_parts = []
             idx = 1
-            for name in scene_char_refs:
-                if idx <= len(ref_images):  # Only tag refs that weren't trimmed
-                    tag_parts.append(f"@image{idx} is the character reference for {name}.")
-                    idx += 1
-            if scene_loc_url and idx <= len(ref_images):
-                tag_parts.append(f"@image{idx} is the location reference for the {bridge.location} environment.")
+            tag_parts = []
+
+            # Character ref tag
+            if char_ref_names:
+                tag_parts.append(f"@image{idx} is the character reference for {char_ref_names[0]}.")
                 idx += 1
+
+            # Start frame tag
             start_idx = idx
-            end_idx = idx + 1
-            tag_prefix = " ".join(tag_parts)
-            if tag_prefix:
-                tag_prefix += " "
-            prompt = (
-                f"{tag_prefix}"
-                f"@image{start_idx} {prompt} "
-                f"Transition smoothly to the composition shown in @image{end_idx}"
-            )
+            idx += 1
+
+            # Waypoint tags
+            waypoint_indices = []
+            for _ in waypoints:
+                waypoint_indices.append(idx)
+                idx += 1
+
+            # End frame tag
+            end_idx = idx
+
+            prefix = " ".join(tag_parts)
+            if prefix:
+                prefix += " "
+
+            # For bridges with waypoints: describe the journey through each waypoint
+            if waypoint_indices:
+                prompt = (
+                    f"{prefix}This is a continuous {duration}-second shot. "
+                    f"@image{start_idx} {prompt} "
+                    f"Transition smoothly to the composition shown in @image{end_idx}. "
+                    f"Smooth continuous camera follow, no cuts."
+                )
+            else:
+                prompt = (
+                    f"{prefix}"
+                    f"@image{start_idx} {prompt} "
+                    f"Transition smoothly to the composition shown in @image{end_idx}"
+                )
 
         payload = {
             "model": VIDEO_MODEL,
@@ -497,32 +535,41 @@ async def dispatch_keyframes(
     client: DispatchClient,
     keyframes: list[Keyframe],
     drive_folder: Optional[str] = None,
-    character_ref_urls: Optional[list] = None,
+    character_refs: Optional[dict] = None,
     location_refs: Optional[dict] = None,
 ) -> list[Keyframe]:
     """Generate keyframe images sequentially, chaining each as a reference.
 
-    Each keyframe receives:
-      - character_ref_urls: character identity anchors (same for every frame)
-      - location_ref: environment anchor for this keyframe's location
-      - reference_url: previous frame's URL (scene continuity, changes each frame)
+    Each keyframe receives only the refs relevant to its scene:
+      - character_refs filtered by kf.characters (or all if kf.characters is empty)
+      - location_ref matched by kf.location
+      - reference_url: previous frame's URL (scene continuity)
 
-    image_input = [char_refs..., location_ref, previous_frame]
+    image_input = [scene_char_refs..., location_ref, previous_frame]
 
     When drive_folder is set, each image is downloaded and uploaded to
     Google Drive immediately after generation (generate → upload → next).
     """
     reference_url = None
     for kf in keyframes:
-        # Build combined refs: character refs + location ref for this scene
-        combined_refs = list(character_ref_urls or [])
+        # Filter character refs to only those in this keyframe's scene
+        scene_refs = []
+        if character_refs:
+            if kf.characters:
+                # Only include characters listed for this keyframe
+                scene_refs = [character_refs[name] for name in kf.characters if name in character_refs]
+            else:
+                # No characters specified — include all (backward compat)
+                scene_refs = list(character_refs.values())
+
+        # Add location ref for this keyframe's scene
         if location_refs and kf.location and kf.location in location_refs:
-            combined_refs.append(location_refs[kf.location])
+            scene_refs.append(location_refs[kf.location])
 
         await client.generate_keyframe(
             kf,
             reference_url=reference_url,
-            character_ref_urls=combined_refs if combined_refs else None,
+            character_ref_urls=scene_refs if scene_refs else None,
         )
         if kf.status == TaskStatus.COMPLETED and kf.image_url:
             reference_url = kf.image_url
@@ -541,7 +588,8 @@ async def dispatch_bridges(
     """Generate all video bridges with bounded concurrency.
 
     Each bridge uses image_urls from BOTH its start and end keyframes.
-    Bridges where either keyframe failed are skipped.
+    Bridges with waypoints pack intermediate keyframe images as visual
+    guides for scene transitions (tested: 10s + waypoints > 3×6s).
 
     character_refs: dict of {name: url} — filtered per-bridge by bridge.characters
     location_refs: dict of {location_name: url} — filtered per-bridge by bridge.location
@@ -562,11 +610,22 @@ async def dispatch_bridges(
             br.error = f"End keyframe {br.to_keyframe} has no image"
             print(f"  [bridge] {br.bridge_id}: SKIPPED (no end image)")
             return br
+
+        # Resolve waypoint keyframe IDs to image URLs
+        waypoint_urls = []
+        for wp_id in br.waypoints:
+            wp_kf = kf_map.get(wp_id)
+            if wp_kf and wp_kf.image_url:
+                waypoint_urls.append(wp_kf.image_url)
+            else:
+                print(f"  [bridge] {br.bridge_id}: waypoint {wp_id} has no image, skipping")
+
         async with semaphore:
             return await client.generate_bridge(
                 br, from_kf.image_url, to_kf.image_url,
                 character_refs=character_refs,
                 location_refs=location_refs,
+                waypoint_urls=waypoint_urls if waypoint_urls else None,
             )
 
     return await asyncio.gather(*[_gen(br) for br in sheet.bridges])
@@ -632,25 +691,25 @@ async def run_dispatch(
     else:
         print("--- PHASE 0b: No location refs defined, skipping ---\n")
 
+    # Build character ref dict {name: url} for keyframe and bridge generation
+    char_ref_dict = {
+        c["name"]: c["ref_image_url"]
+        for c in sheet.bible.characters
+        if c.get("ref_image_url")
+    } if chars_with_refs else None
+
     # Phase 1: Generate all keyframe images
     print("--- PHASE 1: Keyframe Images ---")
     await dispatch_keyframes(
         client, sheet.keyframes,
         drive_folder=drive_folder,
-        character_ref_urls=character_ref_urls if character_ref_urls else None,
+        character_refs=char_ref_dict,
         location_refs=location_ref_dict if location_ref_dict else None,
     )
 
     succeeded_kf = sum(1 for kf in sheet.keyframes if kf.status == TaskStatus.COMPLETED)
     failed_kf = sum(1 for kf in sheet.keyframes if kf.status == TaskStatus.FAILED)
     print(f"\nKeyframes: {succeeded_kf} succeeded, {failed_kf} failed\n")
-
-    # Build character ref dict {name: url} for bridge generation
-    char_ref_dict = {
-        c["name"]: c["ref_image_url"]
-        for c in sheet.bible.characters
-        if c.get("ref_image_url")
-    } if chars_with_refs else None
 
     # Phase 2: Generate video bridges (needs keyframe images)
     if images_only:
