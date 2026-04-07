@@ -24,7 +24,7 @@ PROJECT_ROOT="${AGENT_PROJECT_ROOT:-/home/clawd/projects/economy-fastforward}"
 TMUX_SESSION="telegram-channel"
 LOG_FILE="/tmp/storyengine-agents/telegram-channel.log"
 SYSTEM_PROMPT_FILE="$PROJECT_ROOT/rubric/scaffold/telegram-system-prompt.md"
-MODEL="${TELEGRAM_MODEL:-haiku}"
+MODEL="${TELEGRAM_MODEL:-sonnet}"
 
 mkdir -p /tmp/storyengine-agents
 
@@ -82,7 +82,7 @@ start)
   # --channels enables channel notification listener (REQUIRED for Telegram)
   # --model for message routing
   tmux new-session -d -s "$TMUX_SESSION" \
-    "cd $PROJECT_ROOT && script -q -f $LOG_FILE -c 'claude --channels plugin:telegram@claude-plugins-official --model $MODEL --dangerously-skip-permissions'"
+    "export PATH=/home/clawd/.bun/bin:/home/clawd/.npm-global/bin:/home/clawd/bin:\$PATH && cd $PROJECT_ROOT && script -q -f $LOG_FILE -c 'claude --channels plugin:telegram@claude-plugins-official --model $MODEL --dangerously-skip-permissions'"
 
   echo "Telegram channel started in tmux session '$TMUX_SESSION'"
   echo "  Model: $MODEL"

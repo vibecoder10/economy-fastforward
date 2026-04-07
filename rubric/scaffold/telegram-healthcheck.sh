@@ -12,7 +12,7 @@ TMUX_SESSION="telegram-channel"
 LOG_FILE="/tmp/storyengine-agents/telegram-channel.log"
 CLAUDE_BIN="${CLAUDE_BIN:-claude}"
 SYSTEM_PROMPT_FILE="$PROJECT_ROOT/rubric/scaffold/telegram-system-prompt.md"
-MODEL="${TELEGRAM_MODEL:-haiku}"
+MODEL="${TELEGRAM_MODEL:-sonnet}"
 # Restart every 2 hours to prevent context window overflow and idle timeouts
 # Was 4 hours (14400s) but Claude Code sessions go unresponsive before that
 MAX_AGE_SECONDS=7200
@@ -87,8 +87,9 @@ start_session() {
 
   # Start with --channels + model. Uses 'script' to preserve PTY (Claude exits in print mode if no TTY)
   # --channels is REQUIRED for Telegram notification listener
+  # PATH must include bun (Telegram MCP server requires it) and npm-global (for claude CLI)
   tmux new-session -d -s "$TMUX_SESSION" \
-    "cd $PROJECT_ROOT && script -q -f $LOG_FILE -c '$CLAUDE_BIN --channels plugin:telegram@claude-plugins-official --model $MODEL --dangerously-skip-permissions'"
+    "export PATH=/home/clawd/.bun/bin:/home/clawd/.npm-global/bin:/home/clawd/bin:\$PATH && cd $PROJECT_ROOT && script -q -f $LOG_FILE -c '$CLAUDE_BIN --channels plugin:telegram@claude-plugins-official --model $MODEL --dangerously-skip-permissions'"
 
   # Record start time for age checks
   date +%s > "$AGE_FILE"
@@ -112,6 +113,12 @@ if ! session_is_alive; then
   if session_exists; then
     echo "[$(date)] Telegram channel restarted successfully (model=$MODEL, reason=$RESTART_REASON)"
     notify_telegram "Telegram bot restarted: $RESTART_REASON ($(date +%H:%M))" 2>/dev/null || true
+    # Check if the new session hit an auth error (OAuth token expired)
+    sleep 8
+    if tmux capture-pane -t "$TMUX_SESSION" -p 2>/dev/null | grep -qE 'Please run /login|authentication_error|token has expired'; then
+      echo "[$(date)] AUTH ERROR: OAuth token expired — bot is stuck at login prompt"
+      notify_telegram "🔑 Telegram bot OAuth token EXPIRED. Bot is up but can't respond. SSH in and run /login to fix." 2>/dev/null || true
+    fi
   else
     echo "[$(date)] FAILED to restart Telegram channel"
     notify_telegram "CRITICAL: Telegram channel failed to restart. Manual intervention needed." 2>/dev/null || true
@@ -131,6 +138,12 @@ if [ -f "$AGE_FILE" ]; then
 
     if session_is_alive; then
       echo "[$(date)] Telegram channel recycled successfully (model=$MODEL)"
+      # Check if recycled session hit an auth error
+      sleep 8
+      if tmux capture-pane -t "$TMUX_SESSION" -p 2>/dev/null | grep -qE 'Please run /login|authentication_error|token has expired'; then
+        echo "[$(date)] AUTH ERROR: OAuth token expired after recycle"
+        notify_telegram "🔑 Telegram bot OAuth token EXPIRED. Bot is up but can't respond. SSH in and run /login to fix." 2>/dev/null || true
+      fi
     else
       echo "[$(date)] FAILED to recycle Telegram channel"
       notify_telegram "CRITICAL: Telegram channel failed to recycle. Manual intervention needed." 2>/dev/null || true
@@ -139,7 +152,16 @@ if [ -f "$AGE_FILE" ]; then
   fi
 fi
 
-# ─── Check 3: Keepalive — prevent Claude idle timeout ────────────────────────
+# ─── Check 3: Auth error detection — catch expired OAuth mid-session ─────────
+# If the token expires while the session is running, Claude will print an auth
+# error but the process stays alive. Detect this and alert immediately.
+if tmux capture-pane -t "$TMUX_SESSION" -p 2>/dev/null | grep -qE 'Please run /login|authentication_error|token has expired'; then
+  echo "[$(date)] AUTH ERROR: OAuth token expired in running session"
+  notify_telegram "🔑 Telegram bot OAuth token EXPIRED. Bot is up but can't respond. SSH in and run /login to fix." 2>/dev/null || true
+  exit 0
+fi
+
+# ─── Check 4: Keepalive — prevent Claude idle timeout ────────────────────────
 # Claude Code sessions can go idle and stop processing channel messages
 # even though the process is technically alive. Sending an empty Enter
 # keystroke to the tmux pane resets the idle timer.
