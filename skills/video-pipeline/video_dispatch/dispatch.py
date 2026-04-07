@@ -790,19 +790,34 @@ async def run_dispatch(
         failed_kf = sum(1 for kf in sheet.keyframes if kf.status == TaskStatus.FAILED)
         print(f"\nKeyframes: {succeeded_kf} succeeded, {failed_kf} failed\n")
 
-        # PHASE 1.5: Verify keyframe output quality BEFORE proceeding
-        print("--- PHASE 1.5: Output Verification ---")
+        # PHASE 1.5: Verify keyframe output quality BEFORE proceeding (BLOCKING)
+        print("--- PHASE 1.5: Output Verification (MANDATORY) ---")
         completed_kfs = [kf for kf in sheet.keyframes if kf.status == TaskStatus.COMPLETED]
         verify_results = await verify_keyframes(sheet, completed_kfs, api_key=api_key)
 
         if not verify_results["passed"]:
-            print(f"\n⚠️  WARNING: {len(verify_results['issues'])} keyframe(s) failed verification.")
+            print(f"\n❌ VERIFICATION FAILED: {len(verify_results['issues'])} keyframe(s) have critical issues.")
             print("Issues found:")
             for issue in verify_results["issues"]:
                 print(f"  - {issue['keyframe_id']}: {issue['reason']}")
-            print("\nProceed with caution — these images may need regeneration.\n")
+            print("\n⚠️  PIPELINE HALTED — Keyframes must be regenerated with correct appearance.")
+            print("Do NOT proceed with bridges or rendering.\n")
+
+            # Mark all completed keyframes as needing regeneration
+            for kf in completed_kfs:
+                kf.status = TaskStatus.FAILED
+                kf.error = "Verification failed — character appearance mismatch"
+
+            failed_kf = len(verify_results["issues"])
+            return {
+                "status": "verification_failed",
+                "keyframes": len(sheet.keyframes),
+                "verified": len(completed_kfs) - failed_kf,
+                "failed_verification": failed_kf,
+                "issues": verify_results["issues"],
+            }
         else:
-            print("All completed keyframes verified successfully.\n")
+            print("✅ All completed keyframes verified successfully.\n")
 
     # Phase 2: Generate video bridges (needs keyframe images)
     if images_only:
