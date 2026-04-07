@@ -3,6 +3,17 @@
   "total_duration_s": 10,
   "visual_style": "3d pixar animation",
   "aspect_ratio": "16:9",
+  "scenes": [
+    {
+      "scene_id": "SC-001",
+      "name": "The Firing",
+      "location": "Manager's Office",
+      "characters": ["Marcus", "The Boss"],
+      "keyframes": ["KF-001", "KF-002", "KF-003", "KF-004"],
+      "bridges": ["BR-001"],
+      "notes": "Marcus gets fired, stands up with dignity, walks out through the glass door"
+    }
+  ],
   "bible": {
     "characters": [
       {
