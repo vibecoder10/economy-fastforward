@@ -47,6 +47,19 @@ ensure_cron_exists() {
 }
 ensure_cron_exists
 
+# ─── Auto-pull latest code ──────────────────────────────────────────────────
+# The healthcheck runs every 10min even when everything else is broken.
+# Make it pull latest code so VPS fixes itself when we push changes.
+# Auto-stash prevents local edits from blocking pull permanently.
+auto_pull() {
+  cd "$PROJECT_ROOT" 2>/dev/null || return
+  if ! timeout 30 git pull origin main --ff-only 2>/dev/null; then
+    git stash --include-untracked 2>/dev/null || true
+    timeout 30 git pull origin main --ff-only 2>/dev/null || true
+  fi
+}
+auto_pull
+
 # ─── Crash backoff ──────────────────────────────────────────────────────────
 # If we've crashed N times in a row, wait before retrying (prevents tight restart loops
 # that burn CPU/logs and never succeed because the underlying issue isn't transient)
