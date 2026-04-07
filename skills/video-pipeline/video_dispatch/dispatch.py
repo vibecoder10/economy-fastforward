@@ -27,6 +27,7 @@ from video_dispatch.models import (
     ProductionSheet,
     TaskStatus,
 )
+from video_dispatch.verify_output import verify_keyframes
 from orchestrator.pipeline_constants import Endpoints
 
 
@@ -788,6 +789,20 @@ async def run_dispatch(
         succeeded_kf = sum(1 for kf in sheet.keyframes if kf.status == TaskStatus.COMPLETED)
         failed_kf = sum(1 for kf in sheet.keyframes if kf.status == TaskStatus.FAILED)
         print(f"\nKeyframes: {succeeded_kf} succeeded, {failed_kf} failed\n")
+
+        # PHASE 1.5: Verify keyframe output quality BEFORE proceeding
+        print("--- PHASE 1.5: Output Verification ---")
+        completed_kfs = [kf for kf in sheet.keyframes if kf.status == TaskStatus.COMPLETED]
+        verify_results = await verify_keyframes(sheet, completed_kfs, api_key=api_key)
+
+        if not verify_results["passed"]:
+            print(f"\n⚠️  WARNING: {len(verify_results['issues'])} keyframe(s) failed verification.")
+            print("Issues found:")
+            for issue in verify_results["issues"]:
+                print(f"  - {issue['keyframe_id']}: {issue['reason']}")
+            print("\nProceed with caution — these images may need regeneration.\n")
+        else:
+            print("All completed keyframes verified successfully.\n")
 
     # Phase 2: Generate video bridges (needs keyframe images)
     if images_only:
