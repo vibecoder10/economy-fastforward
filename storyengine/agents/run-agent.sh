@@ -96,6 +96,9 @@ CURRENT_BRANCH=$(git branch --show-current)
 if [ "$CURRENT_BRANCH" != "$BRANCH" ]; then
   git checkout "$BRANCH" 2>/dev/null || git checkout -b "$BRANCH"
 fi
+# Auto-stash local changes before pull (prevents VPS from getting stuck on stale code
+# when someone edits files directly — the #1 cause of "git pull failed" on the VPS)
+git stash --include-untracked 2>/dev/null || true
 git pull --rebase origin "$BRANCH" 2>/dev/null || true
 
 # ─── Completion Check ───────────────────────────────────────────────────────
