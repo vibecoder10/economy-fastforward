@@ -47,6 +47,7 @@ class Keyframe:
     aspect_ratio: str = "16:9"
     notes: str = ""
     location: str = ""  # Location name from bible (for location ref injection)
+    characters: list = field(default_factory=list)  # Character names in this scene
 
     # Filled after generation
     status: TaskStatus = TaskStatus.PENDING
@@ -69,6 +70,7 @@ class Bridge:
     aspect_ratio: str = "16:9"
     characters: list = field(default_factory=list)  # Character names in this scene
     location: str = ""  # Location name from bible (for location ref injection)
+    waypoints: list = field(default_factory=list)  # Intermediate keyframe IDs as visual guides
 
     # Filled after generation
     status: TaskStatus = TaskStatus.PENDING
@@ -103,6 +105,7 @@ class ProductionSheet:
                 aspect_ratio=kf.get("aspect_ratio", aspect),
                 notes=kf.get("notes", ""),
                 location=kf.get("location", ""),
+                characters=kf.get("characters", []),
             )
             for kf in data.get("keyframes", [])
         ]
@@ -119,6 +122,7 @@ class ProductionSheet:
                 aspect_ratio=br.get("aspect_ratio", aspect),
                 characters=br.get("characters", []),
                 location=br.get("location", ""),
+                waypoints=br.get("waypoints", []),
             )
             for br in data.get("bridges", [])
         ]
