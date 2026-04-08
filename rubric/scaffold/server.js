@@ -621,6 +621,14 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // DELETE /api/activity-log — clear the activity feed
+  if (pathname === '/api/activity-log' && req.method === 'DELETE') {
+    const logFile = path.join(DATA_DIR, 'activity-log.json');
+    fs.writeFileSync(logFile, '[]');
+    sendJSON(res, { success: true, message: 'Activity log cleared' });
+    return;
+  }
+
   // POST /api/controls/cadence — update agent cron frequency
   if (pathname === '/api/controls/cadence' && req.method === 'POST') {
     const body = JSON.parse(await readBody(req));
@@ -1121,6 +1129,10 @@ const server = http.createServer(async (req, res) => {
     const agentsDir = path.join(__dirname, '../../agents');
     const prdPath = path.join(agentsDir, 'prd.md');
     if (!body.content || typeof body.content !== 'string') { sendJSON(res, { error: 'content required' }, 400); return; }
+    // Clear stale PRD files BEFORE deploying (prevents false completion detection from old progress.md)
+    for (const f of ['prd.json', 'progress.md']) {
+      try { fs.unlinkSync(path.join(agentsDir, f)); } catch {}
+    }
     fs.writeFileSync(prdPath, body.content);
     const projectRoot = path.resolve(__dirname, '../../');
     // Chain: decompose → set focus → spawn agents for each role
