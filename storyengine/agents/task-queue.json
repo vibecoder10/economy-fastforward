@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "current_tab": 32,
+  "current_tab": 33,
   "last_updated": "2026-04-08",
-  "last_updated_by": "frontend-dev",
+  "last_updated_by": "orchestrator",
   "tabs": [
     {
       "id": 1,
@@ -3433,7 +3433,45 @@
             "frontend/src/app/review/page.tsx",
             "frontend/src/app/autopilot/page.tsx"
           ],
-          "verified": false
+          "verified": true,
+          "verified_at": "2026-04-08T15:53:45Z",
+          "verified_by": "orchestrator",
+          "verification_notes": "PASS (code review). Calendar: CalendarDays icon + empty month text. Review: per-tab messages (Scripts/Storyboards/Thumbnails/Images). Autopilot: Rocket icon + \"No candidates available\" + CTA to set up competitors. Diff: 3 app files, 60 lines added, no bloat. tsc --noEmit: 0 errors."
+        }
+      ]
+    },
+    {
+      "id": 33,
+      "name": "System Prompts Feature QA",
+      "path": "/system-prompts + pipeline tabs",
+      "status": "in_progress",
+      "tasks": [
+        {
+          "id": "T33-001",
+          "title": "QA verify /system-prompts page and migration 027 columns",
+          "role": "qa",
+          "status": "pending",
+          "description": "Commit 5cc7070 added /system-prompts page + migration 027 with system prompt columns. Verify: (1) Migration 027 has all 4 columns: script_system_prompt, thumbnail_system_prompt, sound_system_prompt, video_motion_system_prompt (BUG-MIGRATION-027 fix in b358a6b added video_motion). (2) GET /api/system-prompts returns 6 prompt types (script, thumbnail, sound, video_motion, research, image_prompts). (3) Each card shows name/description/current override. (4) Edit + save calls PUT /api/system-prompts/{type}. (5) Reset calls DELETE /api/system-prompts/{type}. (6) tenant_prompt_defaults table exists. (7) /system-prompts in sidebar nav. (8) tsc --noEmit passes. (9) No console errors.",
+          "files": [
+            "frontend/src/app/system-prompts/page.tsx",
+            "backend/routes/system_prompts.py",
+            "backend/migrations/027_system_prompt_columns.sql",
+            "frontend/src/components/ui/SystemPromptEditor.tsx"
+          ]
+        },
+        {
+          "id": "T33-002",
+          "title": "QA verify SystemPromptEditor in Script, Thumbnail, Sound, Video Clips tabs",
+          "role": "qa",
+          "status": "pending",
+          "depends_on": "T33-001",
+          "description": "Verify SystemPromptEditor is wired into each pipeline tab: (1) Script tab (ScriptVoiceTab.tsx) shows expandable editor. (2) Thumbnail tab (ThumbnailTab.tsx) shows editor. (3) Sound tab (SoundTab.tsx) shows editor. (4) Video Clips tab (VideoClipsTab.tsx) shows editor. (5) Per-video save calls PATCH /api/videos/{id} with correct column name (script_system_prompt/thumbnail_system_prompt/sound_system_prompt/video_motion_system_prompt). (6) Editor shows tenant default when no per-video override. (7) tsc --noEmit passes. (8) No console errors.",
+          "files": [
+            "frontend/src/components/production/ScriptVoiceTab.tsx",
+            "frontend/src/components/production/ThumbnailTab.tsx",
+            "frontend/src/components/production/SoundTab.tsx",
+            "frontend/src/components/production/VideoClipsTab.tsx"
+          ]
         }
       ]
     }

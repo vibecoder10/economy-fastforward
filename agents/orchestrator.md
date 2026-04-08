@@ -1,0 +1,24 @@
+# Orchestrator Memory
+<!-- Lessons from past sessions. One line each. Max 50 entries. -->
+- Operator focus directives override tab-order rule. Advance current_tab to match focus.
+- VideoDetail model/SQL often lag behind schema.sql — always check all 3 when auditing a tab.
+- ThumbnailTab component reads suggested_thumbnail_urls from types but backend never sends them — pattern: check Pydantic model not just TS types.
+- Frontend-dev marks tasks done by updating task-queue.json only, without writing the code — always grep the actual file to verify implementation before trusting done status.
+- Tab status can drift out of sync (Tab 6 stayed "pending" after all tasks were verified) — always reconcile tab.status against actual task statuses before advancing current_tab.
+- Frontend-dev sometimes already updates task-queue.json (verified + current_tab) in their commit — grep the committed file before making duplicate edits in MICRO sweep.
+- All 17 original tabs complete as of 2026-04-03. Phase 2 starts at Tab 18 (Review nav, Create enhancement, Mobile UX). Product vision gaps: no calendar page, no onboarding wizard, no multi-channel yet.
+- Task queue context provided at session start can be stale — always re-read the actual file before editing, as agents may have updated it between prompt generation and execution.
+- QA agent sometimes verifies via code review and commits verification_notes to T20-001 but forgets to update T20-002 status — always check if the verified sibling task was also updated.
+- Phase 1 (Tabs 1-17) + Phase 2 (Tabs 18-22) + Phase 3 (Tabs 23) all complete as of 2026-04-03. Tab 24 = Onboarding Wizard (redirect new users, 3-step channel+key+done flow). After 24: multi-channel.
+- SEC-1 (dev-token fix) invalidates all existing sessions — users see analytics/profile 404s that are really 401s. Root fix: user clears localStorage and re-logins at /login. Not a code bug.
+- Tab 27 extraction pipeline complete: T27-001 to T27-007 all done (84 panels extracted, in Supabase). T27-004 (grid migration) superseded by T27-005 success. T27-008 (permanent storage for all image gen) is the only remaining task.
+- Thumbnail 400 + profile/analytics 404 have now recurred 15 consecutive sessions — NOT code bugs. BUG-UX-AUTH-STALE deployed. User must clear localStorage + re-login. Stop filing these as bugs.
+- Launch Score stuck at 6/8: last 2 criteria (Stripe billing live, Google OAuth live) require STRIPE_SECRET_KEY + GOOGLE_CLIENT_ID env vars configured in production — not code changes.
+- [retro 2026-04-05] Before dispatching pipeline-tester to QA a task, check git log for a commit confirming the fix is merged. The BUG-T11-006-QA re-verify task was avoidable with a one-line git check.
+- Recurring user errors (thumb 400 + profile/analytics 404) now at session #17+ — confirmed NOT code bugs every time. Skip triage after first check; go straight to OPS report.
+- Launch Score reached 8/8 on 2026-04-06 (REG18 sweep). Product is launch-ready. Awaiting operator go/no-go. No new build tasks needed.
+- Session #18: video f9749bd2 status changed to ready_to_render (thumbnail done) — thumb endpoint now returns "running" not 400. Pipeline is progressing on its own.
+- Phase 1 backend fully shipped (plan enforcement T29-001, password reset T30-001, free trial T31-001) as of 2026-04-08. Frontend is the sole bottleneck — 3 tasks (T29-003, T30-002, T31-002) + 3 QA tasks pending.
+- Session #20+: thumbnail 400 + analytics/profile 404 still recurring — skip direct triage, go straight to MICRO sweep. These are confirmed NOT code bugs every session.
+- task-queue.json lives at /home/clawd/agent-workspace/storyengine/agents/task-queue.json — NOT in storyengine/frontend subdir or cwd-relative path.
+- Operator shipped system prompts feature (5cc7070) outside task queue — always check git log for untracked operator features and add QA tab when found.
