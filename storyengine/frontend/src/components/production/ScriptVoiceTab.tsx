@@ -12,7 +12,7 @@ import {
   getVideoScript, getVideoAssets, advanceVideo, rejectVideo,
   runPipelineStage, updateSceneText, updateVideo, clearStaleTask,
   runVoiceForScene, runSplit, getSceneSegments, updateSceneSegments,
-  runPromptsForScene, runPromptsForSegment,
+  runPromptsForScene, runPromptsForSegment, getDefaultScriptPrompt,
 } from "@/lib/api";
 import type { ScriptScene as ApiScriptScene, Asset, Segment } from "@/lib/api";
 import { useTaskPoller } from "@/hooks/use-task-poller";
@@ -21,6 +21,7 @@ import { SegmentBadge } from "@/components/ui/SegmentBadge";
 import { ActionButton } from "@/components/ui/ActionButton";
 import { MiniWaveform } from "@/components/ui/MiniWaveform";
 import { ProgressRing } from "@/components/ui/ProgressRing";
+import { SystemPromptEditor } from "@/components/ui/SystemPromptEditor";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -1055,6 +1056,22 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
           </button>
         </div>
       </div>
+
+      {/* Script System Prompt */}
+      <SystemPromptEditor
+        label="Script System Prompt"
+        currentValue={video.script_system_prompt}
+        onSave={async (text) => {
+          await updateVideo(video.id, { script_system_prompt: text || null });
+          queryClient.invalidateQueries({ queryKey: ["video", video.id] });
+        }}
+        onReset={async () => {
+          const res = await getDefaultScriptPrompt();
+          await updateVideo(video.id, { script_system_prompt: null });
+          queryClient.invalidateQueries({ queryKey: ["video", video.id] });
+          return res.prompt;
+        }}
+      />
 
       {/* Script Pipeline Steps */}
       <div

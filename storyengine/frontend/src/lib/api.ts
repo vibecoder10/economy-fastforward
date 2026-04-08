@@ -149,6 +149,45 @@ export const getVideo = (id: string) => fetchApi<VideoDetail>(`/api/videos/${id}
 export const getDefaultVideoMotionPrompt = () =>
   fetchApi<{ prompt: string }>("/api/videos/defaults/video-motion-prompt");
 
+export const getDefaultScriptPrompt = () =>
+  fetchApi<{ prompt: string }>("/api/videos/defaults/script-prompt");
+
+export const getDefaultThumbnailPrompt = () =>
+  fetchApi<{ prompt: string }>("/api/videos/defaults/thumbnail-prompt");
+
+export const getDefaultSoundCurationPrompt = () =>
+  fetchApi<{ prompt: string }>("/api/videos/defaults/sound-curation-prompt");
+
+export const getDefaultSoundGenerationPrompt = () =>
+  fetchApi<{ prompt: string }>("/api/videos/defaults/sound-generation-prompt");
+
+export const getDefaultResearchPrompt = () =>
+  fetchApi<{ prompt: string }>("/api/videos/defaults/research-prompt");
+
+// System Prompts (tenant-level defaults)
+export interface SystemPromptItem {
+  key: string;
+  label: string;
+  description: string;
+  prompt: string;
+  is_custom: boolean;
+}
+
+export const getSystemPrompts = () =>
+  fetchApi<SystemPromptItem[]>("/api/system-prompts");
+
+export const updateSystemPrompt = (key: string, promptText: string) =>
+  fetchApi<{ status: string; key: string }>(`/api/system-prompts/${key}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ prompt_text: promptText }),
+  });
+
+export const resetSystemPrompt = (key: string) =>
+  fetchApi<{ status: string; key: string; prompt: string }>(`/api/system-prompts/${key}`, {
+    method: "DELETE",
+  });
+
 export const createVideo = (data: {
   title: string;
   source_url?: string;
@@ -875,6 +914,9 @@ export interface VideoDetail extends VideoSummary {
   suggested_thumbnail_urls: { url: string; approach: string }[] | null;
   // Editable system prompts
   video_motion_system_prompt: string | null;
+  script_system_prompt: string | null;
+  thumbnail_system_prompt: string | null;
+  sound_system_prompt: string | null;
   suggestion_source: string | null;
   suggestion_scores: { hook?: number; body?: number; reasoning?: string } | null;
   suggestion_status: string | null;

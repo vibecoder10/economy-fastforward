@@ -19,6 +19,7 @@ import {
   Brain,
   CheckSquare,
   CalendarDays,
+  ScrollText,
   PanelLeftClose,
   PanelLeft,
   Menu,
@@ -39,6 +40,7 @@ const navItems = [
   { href: "/profile", icon: Palette, label: "Visual Profile" },
   { href: "/analytics", icon: BarChart3, label: "Analytics" },
   { href: "/calendar", icon: CalendarDays, label: "Calendar" },
+  { href: "/system-prompts", icon: ScrollText, label: "System Prompts" },
   { href: "/settings", icon: Settings, label: "Settings" },
   { href: "/settings/keys", icon: Key, label: "API Keys" },
 ];
