@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { ChevronDown, Save, RotateCcw, Loader2 } from "lucide-react";
+import { useToast } from "@/components/ui/toast";
 
 interface SystemPromptEditorProps {
   label: string;
@@ -16,6 +17,7 @@ export function SystemPromptEditor({ label, currentValue, onSave, onReset, saveL
   const [text, setText] = useState(currentValue || "");
   const [loaded, setLoaded] = useState(!!currentValue);
   const [saving, setSaving] = useState(false);
+  const toast = useToast();
 
   return (
     <div
@@ -66,7 +68,7 @@ export function SystemPromptEditor({ label, currentValue, onSave, onReset, saveL
                 try {
                   await onSave(text);
                 } catch (err) {
-                  alert(`Save failed: ${(err as Error).message}`);
+                  toast.error(`Save failed: ${(err as Error).message}`);
                 } finally {
                   setSaving(false);
                 }
@@ -84,7 +86,7 @@ export function SystemPromptEditor({ label, currentValue, onSave, onReset, saveL
                   const defaultText = await onReset();
                   setText(defaultText);
                 } catch (err) {
-                  alert(`Reset failed: ${(err as Error).message}`);
+                  toast.error(`Reset failed: ${(err as Error).message}`);
                 }
               }}
               className="px-3 py-1.5 rounded-lg text-[10px] font-semibold inline-flex items-center gap-1 transition-all hover:brightness-110"

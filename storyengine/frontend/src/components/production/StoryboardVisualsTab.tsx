@@ -23,6 +23,7 @@ import {
   getAudioToken, advanceVideo,
 } from "@/lib/api";
 import { useTaskPoller } from "@/hooks/use-task-poller";
+import { useToast } from "@/components/ui/toast";
 import type { VideoDetail, ScriptScene as ApiScriptScene, Asset } from "@/lib/api";
 
 /** Fetches a short-lived audio token, then renders VoicePlayer with scoped URL */
@@ -106,6 +107,7 @@ function parseStoryboardPromptBlocks(promptText: string | null | undefined) {
 
 export function StoryboardVisualsTab({ video, onGoToScriptVoice, onAdvanced }: StoryboardVisualsTabProps) {
   const queryClient = useQueryClient();
+  const toast = useToast();
 
   // --- Voice guard rail check ---
   const { data: scriptScenes, isLoading: loadingScripts } = useQuery({
@@ -239,7 +241,7 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice, onAdvanced }: S
       setGeneratingAll(false);
       setGeneratingPrompts(false);
       setGeneratingScene(null);
-      alert(`Generation failed: ${error}`);
+      toast.error(`Generation failed: ${error}`);
     },
   });
 
@@ -506,7 +508,7 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice, onAdvanced }: S
     try {
       await runStageWith409Retry(stage);
     } catch (err: unknown) {
-      alert(`${label} failed: ${(err as Error).message}`);
+      toast.error(`${label} failed: ${(err as Error).message}`);
       setGeneratingPrompts(false);
     }
   }, [runStageWith409Retry, storyboardMode, storyboardPrereqsMet, hasStoryBible]);
@@ -518,7 +520,7 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice, onAdvanced }: S
     try {
       await runStageWith409Retry(stage);
     } catch (err: unknown) {
-      alert(`${label} failed: ${(err as Error).message}`);
+      toast.error(`${label} failed: ${(err as Error).message}`);
       setGeneratingAll(false);
     }
   }, [runStageWith409Retry, storyboardMode]);
@@ -566,7 +568,7 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice, onAdvanced }: S
       queryClient.invalidateQueries({ queryKey: ["video-assets", video.id] });
       onAdvanced?.();
     } catch (err) {
-      alert(`Failed to advance: ${(err as Error).message}`);
+      toast.error(`Failed to advance: ${(err as Error).message}`);
     } finally {
       setAdvancing(false);
     }
@@ -578,7 +580,7 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice, onAdvanced }: S
       await runStageWith409Retry("storyboards", { scene: sceneNumber });
     } catch (err: unknown) {
       setGeneratingScene(null);
-      alert(`Scene ${sceneNumber} prompt generation failed: ${(err as Error).message}`);
+      toast.error(`Scene ${sceneNumber} prompt generation failed: ${(err as Error).message}`);
     }
   }, [runStageWith409Retry]);
 
@@ -588,7 +590,7 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice, onAdvanced }: S
       await runStageWith409Retry("storyboard-images", { scene: sceneNumber });
     } catch (err: unknown) {
       setGeneratingScene(null);
-      alert(`Scene ${sceneNumber} grid generation failed: ${(err as Error).message}`);
+      toast.error(`Scene ${sceneNumber} grid generation failed: ${(err as Error).message}`);
     }
   }, [runStageWith409Retry]);
 
@@ -599,7 +601,7 @@ export function StoryboardVisualsTab({ video, onGoToScriptVoice, onAdvanced }: S
       await updateVideoStyles(video.id, { image_model_override: nextModel });
       queryClient.invalidateQueries({ queryKey: ["video", video.id] });
     } catch (err) {
-      alert(`Failed to update image model: ${(err as Error).message}`);
+      toast.error(`Failed to update image model: ${(err as Error).message}`);
       setModel(video.image_model_override || "nano-banana-2");
     } finally {
       setSavingModel(false);

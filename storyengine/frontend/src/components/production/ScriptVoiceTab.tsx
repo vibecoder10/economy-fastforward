@@ -16,6 +16,7 @@ import {
 } from "@/lib/api";
 import type { ScriptScene as ApiScriptScene, Asset, Segment } from "@/lib/api";
 import { useTaskPoller } from "@/hooks/use-task-poller";
+import { useToast } from "@/components/ui/toast";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { SegmentBadge } from "@/components/ui/SegmentBadge";
 import { ActionButton } from "@/components/ui/ActionButton";
@@ -361,6 +362,7 @@ function SegmentEditor({ videoId, sceneNumber }: { videoId: string; sceneNumber:
 
 export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
   const queryClient = useQueryClient();
+  const toast = useToast();
 
   // ---- Data fetching ----
   const { data: apiScenes, isLoading } = useQuery({
@@ -432,7 +434,7 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
     onFailed: (error) => {
       setScriptTaskRunning(false);
       setRegeneratingScript(false);
-      alert(`Script generation failed: ${error}`);
+      toast.error(`Script generation failed: ${error}`);
     },
   });
 
@@ -452,7 +454,7 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
       setVoiceTaskRunning(false);
       setGeneratingVoiceAll(false);
       setGeneratingVoiceScene(null);
-      alert(`Voice generation failed: ${error}`);
+      toast.error(`Voice generation failed: ${error}`);
     },
   });
 
@@ -511,7 +513,7 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
       setGeneratingPromptsAll(false);
       setGeneratingPromptsScene(null);
       setGeneratingPromptsSegment(null);
-      alert(`Image prompt generation failed: ${error}`);
+      toast.error(`Image prompt generation failed: ${error}`);
     },
   });
 
@@ -588,7 +590,7 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
       invalidateAll();
       setApproved(true);
     } catch (err) {
-      alert(`Failed to approve: ${(err as Error).message}`);
+      toast.error(`Failed to approve: ${(err as Error).message}`);
       setApproving(false);
     }
   }, [video.id, invalidateAll]);
@@ -608,7 +610,7 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
       setRevisionNotes("");
       setRevisionScope("Minor tweaks");
     } catch (err) {
-      alert(`Failed to request revision: ${(err as Error).message}`);
+      toast.error(`Failed to request revision: ${(err as Error).message}`);
     } finally {
       setRejecting(false);
     }
@@ -628,10 +630,10 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
           setScriptTaskRunning(true);
           return;
         } catch (retryErr) {
-          alert(`Failed to regenerate: ${(retryErr as Error).message}`);
+          toast.error(`Failed to regenerate: ${(retryErr as Error).message}`);
         }
       } else {
-        alert(`Failed to regenerate: ${message}`);
+        toast.error(`Failed to regenerate: ${message}`);
       }
       setRegeneratingScript(false);
     }
@@ -649,7 +651,7 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
       const sceneNums = scenes.map((s) => s.sceneNumber);
       await Promise.allSettled(sceneNums.map((n) => fetchAndExpandScene(n)));
     } catch (err) {
-      alert(`Split failed: ${(err as Error).message}`);
+      toast.error(`Split failed: ${(err as Error).message}`);
     } finally {
       setSplitting(false);
     }
@@ -663,7 +665,7 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
         invalidateAll();
         setScenes((prev) => prev.filter((s) => s.sceneNumber !== sceneNum));
       } catch (err) {
-        alert(`Failed to delete scene: ${(err as Error).message}`);
+        toast.error(`Failed to delete scene: ${(err as Error).message}`);
       } finally {
         setDeletingScene(null);
       }
@@ -705,10 +707,10 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
           setVoiceTaskRunning(true);
           return;
         } catch (retryErr) {
-          alert(`Voice generation failed: ${(retryErr as Error).message}`);
+          toast.error(`Voice generation failed: ${(retryErr as Error).message}`);
         }
       } else {
-        alert(`Voice generation failed: ${message}`);
+        toast.error(`Voice generation failed: ${message}`);
       }
       setGeneratingVoiceAll(false);
     }
@@ -729,10 +731,10 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
             setVoiceTaskRunning(true);
             return;
           } catch (retryErr) {
-            alert(`Voice generation failed: ${(retryErr as Error).message}`);
+            toast.error(`Voice generation failed: ${(retryErr as Error).message}`);
           }
         } else {
-          alert(`Voice generation failed: ${message}`);
+          toast.error(`Voice generation failed: ${message}`);
         }
         setGeneratingVoiceScene(null);
       }
@@ -758,10 +760,10 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
           setPromptTaskRunning(true);
           return;
         } catch (retryErr) {
-          alert(`Failed: ${(retryErr as Error).message}`);
+          toast.error(`Failed: ${(retryErr as Error).message}`);
         }
       } else {
-        alert(`Failed: ${message}`);
+        toast.error(`Failed: ${message}`);
       }
       setGeneratingPromptsAll(false);
     }
@@ -773,7 +775,7 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
       await runPromptsForScene(video.id, sceneNum);
       setPromptTaskRunning(true);
     } catch (err) {
-      alert(`Failed: ${(err as Error).message}`);
+      toast.error(`Failed: ${(err as Error).message}`);
       setGeneratingPromptsScene(null);
     }
   }, [video.id]);
@@ -785,7 +787,7 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
       await runPromptsForSegment(video.id, sceneNum, imageIndex);
       setPromptTaskRunning(true);
     } catch (err) {
-      alert(`Failed: ${(err as Error).message}`);
+      toast.error(`Failed: ${(err as Error).message}`);
       setGeneratingPromptsSegment(null);
     }
   }, [video.id]);
@@ -1029,7 +1031,7 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
       invalidateAll();
       onAdvanced?.();
     } catch (err) {
-      alert(`Advance failed: ${(err as Error).message}`);
+      toast.error(`Advance failed: ${(err as Error).message}`);
     } finally {
       setAdvancing(false);
     }

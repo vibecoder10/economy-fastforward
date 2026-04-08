@@ -28,6 +28,7 @@ import {
 } from "@/lib/api";
 import { getStageLabel } from "@/lib/constants";
 import { useTaskPoller } from "@/hooks/use-task-poller";
+import { useToast } from "@/components/ui/toast";
 import { timeAgo } from "@/lib/utils";
 
 const container = {
@@ -53,6 +54,7 @@ interface RenderCardProps {
 
 function RenderCard({ video }: RenderCardProps) {
   const router = useRouter();
+  const toast = useToast();
   const queryClient = useQueryClient();
   const [isRendering, setIsRendering] = useState(false);
   const [taskRunning, setTaskRunning] = useState(false);
@@ -70,7 +72,7 @@ function RenderCard({ video }: RenderCardProps) {
     onFailed: (error) => {
       setTaskRunning(false);
       setIsRendering(false);
-      alert(`Render failed: ${error}`);
+      toast.error(`Render failed: ${error}`);
     },
   });
 
@@ -104,10 +106,10 @@ function RenderCard({ video }: RenderCardProps) {
           setTaskRunning(true);
           return;
         } catch (retryErr) {
-          alert(`Render failed: ${(retryErr as Error).message}`);
+          toast.error(`Render failed: ${(retryErr as Error).message}`);
         }
       } else {
-        alert(`Render failed: ${message}`);
+        toast.error(`Render failed: ${message}`);
       }
       setIsRendering(false);
     }

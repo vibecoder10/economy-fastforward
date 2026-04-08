@@ -10,6 +10,7 @@ import { FilterSelect } from "@/components/ui/FilterSelect";
 import { SegmentBadge } from "@/components/ui/SegmentBadge";
 import { getVideoAssets, getVideoScript, runPipelineStage, clearStaleTask, advanceVideo } from "@/lib/api";
 import { useTaskPoller } from "@/hooks/use-task-poller";
+import { useToast } from "@/components/ui/toast";
 import type { VideoDetail, Asset } from "@/lib/api";
 
 interface RenderTabProps {
@@ -38,6 +39,7 @@ interface TimelineSegment {
 
 export function RenderTab({ video, onAdvanced }: RenderTabProps) {
   const queryClient = useQueryClient();
+  const toast = useToast();
   const [isRendering, setIsRendering] = useState(false);
   const [confirmRender, setConfirmRender] = useState(false);
   const [musicTrack, setMusicTrack] = useState("tension");
@@ -57,7 +59,7 @@ export function RenderTab({ video, onAdvanced }: RenderTabProps) {
     onFailed: (error) => {
       setTaskRunning(false);
       setIsRendering(false);
-      alert(`Render failed: ${error}`);
+      toast.error(`Render failed: ${error}`);
     },
   });
 
@@ -105,10 +107,10 @@ export function RenderTab({ video, onAdvanced }: RenderTabProps) {
           setTaskRunning(true);
           return;
         } catch (retryErr) {
-          alert(`Render failed: ${(retryErr as Error).message}`);
+          toast.error(`Render failed: ${(retryErr as Error).message}`);
         }
       } else {
-        alert(`Render failed: ${message}`);
+        toast.error(`Render failed: ${message}`);
       }
       setIsRendering(false);
     }
@@ -124,7 +126,7 @@ export function RenderTab({ video, onAdvanced }: RenderTabProps) {
       queryClient.invalidateQueries({ queryKey: ["video", video.id] });
       onAdvanced?.();
     } catch (err) {
-      alert(`Failed to advance: ${(err as Error).message}`);
+      toast.error(`Failed to advance: ${(err as Error).message}`);
     } finally {
       setAdvancing(false);
     }

@@ -10,6 +10,7 @@ import { ActionButton } from "@/components/ui/ActionButton";
 import { SystemPromptEditor } from "@/components/ui/SystemPromptEditor";
 import { getVideoScript, getVideoAssets, runPipelineStage, advanceVideo, clearStaleTask, getDefaultSoundCurationPrompt, updateVideo } from "@/lib/api";
 import { useTaskPoller } from "@/hooks/use-task-poller";
+import { useToast } from "@/components/ui/toast";
 import type { ScriptScene, Asset } from "@/lib/api";
 
 interface SoundTabProps {
@@ -55,6 +56,7 @@ function buildSoundScenes(scripts: ScriptScene[], assets: Asset[]): SoundScene[]
 
 export function SoundTab({ video, onAdvanced }: SoundTabProps) {
   const queryClient = useQueryClient();
+  const toast = useToast();
   const [taskRunning, setTaskRunning] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [playingScene, setPlayingScene] = useState<number | null>(null);
@@ -82,7 +84,7 @@ export function SoundTab({ video, onAdvanced }: SoundTabProps) {
     onFailed: (error) => {
       setTaskRunning(false);
       setGenerating(false);
-      alert(`Sound generation failed: ${error}`);
+      toast.error(`Sound generation failed: ${error}`);
     },
   });
 
@@ -113,10 +115,10 @@ export function SoundTab({ video, onAdvanced }: SoundTabProps) {
           setTaskRunning(true);
           return;
         } catch (retryErr) {
-          alert(`Failed: ${(retryErr as Error).message}`);
+          toast.error(`Failed: ${(retryErr as Error).message}`);
         }
       } else {
-        alert(`Failed: ${message}`);
+        toast.error(`Failed: ${message}`);
       }
       setGenerating(false);
     }
@@ -130,7 +132,7 @@ export function SoundTab({ video, onAdvanced }: SoundTabProps) {
       queryClient.invalidateQueries({ queryKey: ["video", video.id] });
       onAdvanced?.();
     } catch (err) {
-      alert(`Failed to advance: ${(err as Error).message}`);
+      toast.error(`Failed to advance: ${(err as Error).message}`);
     } finally {
       setAdvancing(false);
     }
@@ -142,7 +144,7 @@ export function SoundTab({ video, onAdvanced }: SoundTabProps) {
       queryClient.invalidateQueries({ queryKey: ["video", video.id] });
       onAdvanced?.();
     } catch (err) {
-      alert(`Failed to advance: ${(err as Error).message}`);
+      toast.error(`Failed to advance: ${(err as Error).message}`);
     }
   }, [video.id, queryClient, onAdvanced]);
 

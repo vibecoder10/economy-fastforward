@@ -22,6 +22,7 @@ import {
   type ScriptScene,
 } from "@/lib/api";
 import { useTaskPoller } from "@/hooks/use-task-poller";
+import { useToast } from "@/components/ui/toast";
 
 /**
  * Transform script scenes into storyboard scene data.
@@ -73,6 +74,7 @@ function buildSceneData(scripts: ScriptScene[]): SceneData[] {
 
 export default function StoryboardsPage() {
   const params = useParams();
+  const toast = useToast();
   const router = useRouter();
   const queryClient = useQueryClient();
   const videoId = params.videoId as string;
@@ -94,7 +96,7 @@ export default function StoryboardsPage() {
     },
     onFailed: (error) => {
       setTaskRunning(false);
-      alert(`${taskAction === "extract" ? "Extraction" : "Regeneration"} failed: ${error}`);
+      toast.error(`${taskAction === "extract" ? "Extraction" : "Regeneration"} failed: ${error}`);
     },
   });
 
@@ -130,7 +132,7 @@ export default function StoryboardsPage() {
       queryClient.invalidateQueries({ queryKey: ["video", videoId, "script"] });
     },
     onError: (err) => {
-      alert(`Advance failed: ${(err as Error).message}`);
+      toast.error(`Advance failed: ${(err as Error).message}`);
     },
   });
 
@@ -149,10 +151,10 @@ export default function StoryboardsPage() {
           setTaskRunning(true);
           return;
         } catch (retryErr) {
-          alert(`Extraction failed: ${(retryErr as Error).message}`);
+          toast.error(`Extraction failed: ${(retryErr as Error).message}`);
         }
       } else {
-        alert(`Extraction failed: ${message}`);
+        toast.error(`Extraction failed: ${message}`);
       }
     }
   }, [videoId]);
@@ -174,10 +176,10 @@ export default function StoryboardsPage() {
             setTaskRunning(true);
             return;
           } catch (retryErr) {
-            alert(`Regeneration failed: ${(retryErr as Error).message}`);
+            toast.error(`Regeneration failed: ${(retryErr as Error).message}`);
           }
         } else {
-          alert(`Regeneration failed: ${message}`);
+          toast.error(`Regeneration failed: ${message}`);
         }
       }
     },

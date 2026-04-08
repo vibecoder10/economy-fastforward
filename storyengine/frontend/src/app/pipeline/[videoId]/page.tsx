@@ -11,6 +11,7 @@ import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getVideo, resetPipeline, runNextStep, advanceVideo, clearStaleTask } from "@/lib/api";
 import { useTaskPoller } from "@/hooks/use-task-poller";
+import { useToast } from "@/components/ui/toast";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { ProgressStepper } from "@/components/ui/ProgressStepper";
 import { ResearchTab } from "@/components/production/ResearchTab";
@@ -139,6 +140,7 @@ export default function VideoDetailPage() {
   const params = useParams();
   const videoId = params.videoId as string;
   const queryClient = useQueryClient();
+  const toast = useToast();
 
   const TERMINAL_STATUSES = new Set(["rendered", "uploaded", "uploaded_draft", "done", "published"]);
 
@@ -182,7 +184,7 @@ export default function VideoDetailPage() {
     onFailed: (error) => {
       setTaskRunning(false);
       setRunningNext(false);
-      alert(`Pipeline step failed: ${error}`);
+      toast.error(`Pipeline step failed: ${error}`);
     },
   });
 
@@ -202,10 +204,10 @@ export default function VideoDetailPage() {
           setTaskRunning(true);
           return;
         } catch (retryErr) {
-          alert(`Run next step failed: ${(retryErr as Error).message}`);
+          toast.error(`Run next step failed: ${(retryErr as Error).message}`);
         }
       } else {
-        alert(`Run next step failed: ${message}`);
+        toast.error(`Run next step failed: ${message}`);
       }
       setRunningNext(false);
     }
@@ -219,7 +221,7 @@ export default function VideoDetailPage() {
       queryClient.invalidateQueries({ queryKey: ["video-script", videoId] });
       queryClient.invalidateQueries({ queryKey: ["video-assets", videoId] });
     } catch (err) {
-      alert(`Skip stage failed: ${(err as Error).message}`);
+      toast.error(`Skip stage failed: ${(err as Error).message}`);
     } finally {
       setSkipping(false);
     }
@@ -236,7 +238,7 @@ export default function VideoDetailPage() {
       setShowResetConfirm(false);
       setActiveTab("research");
     } catch (err) {
-      alert(`Reset failed: ${(err as Error).message}`);
+      toast.error(`Reset failed: ${(err as Error).message}`);
     } finally {
       setResetting(false);
     }

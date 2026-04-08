@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { createCheckout } from "@/lib/api";
+import { useToast } from "@/components/ui/toast";
 
 const container = {
   hidden: { opacity: 0 },
@@ -104,6 +105,7 @@ function isStripeUrl(url: string): boolean {
 
 export default function PricingPage() {
   const { user } = useAuth();
+  const toast = useToast();
   const router = useRouter();
   const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null);
 
@@ -116,7 +118,7 @@ export default function PricingPage() {
     try {
       const res = await createCheckout(planKey, `${window.location.origin}/settings`, `${window.location.origin}/pricing`);
       if (!isStripeUrl(res.checkout_url)) {
-        alert("Invalid checkout URL. Please contact support.");
+        toast.error("Invalid checkout URL — redirect blocked");
         setCheckoutLoading(null);
         return;
       }

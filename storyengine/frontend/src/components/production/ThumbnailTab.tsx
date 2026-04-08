@@ -7,6 +7,7 @@ import { ActionButton } from "@/components/ui/ActionButton";
 import { useQueryClient } from "@tanstack/react-query";
 import { runPipelineStage, advanceVideo, updateVideoStyles, updateVideo, clearStaleTask, acceptSuggestion, rejectSuggestion, getDefaultThumbnailPrompt } from "@/lib/api";
 import { useTaskPoller } from "@/hooks/use-task-poller";
+import { useToast } from "@/components/ui/toast";
 import { SystemPromptEditor } from "@/components/ui/SystemPromptEditor";
 import type { VideoDetail } from "@/lib/api";
 import { getStageIndex } from "@/lib/constants";
@@ -29,6 +30,7 @@ interface ThumbnailTabProps {
 
 export function ThumbnailTab({ video, onAdvanced }: ThumbnailTabProps) {
   const queryClient = useQueryClient();
+  const toast = useToast();
   const currentAccent = video.accent_color || "Cold Teal";
   const [selectedAccent, setSelectedAccent] = useState(currentAccent);
   const [isRegenerating, setIsRegenerating] = useState(false);
@@ -60,7 +62,7 @@ export function ThumbnailTab({ video, onAdvanced }: ThumbnailTabProps) {
     onFailed: (error) => {
       setTaskRunning(false);
       setIsRegenerating(false);
-      alert(`Thumbnail generation failed: ${error}`);
+      toast.error(`Thumbnail generation failed: ${error}`);
     },
   });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -83,7 +85,7 @@ export function ThumbnailTab({ video, onAdvanced }: ThumbnailTabProps) {
       await acceptSuggestion(video.id, ["thumbnail_prompt"]);
       queryClient.invalidateQueries({ queryKey: ["video", video.id] });
     } catch (err) {
-      alert(`Failed to accept suggestion: ${(err as Error).message}`);
+      toast.error(`Failed to accept suggestion: ${(err as Error).message}`);
     } finally {
       setIsAccepting(false);
     }
@@ -95,7 +97,7 @@ export function ThumbnailTab({ video, onAdvanced }: ThumbnailTabProps) {
       await rejectSuggestion(video.id);
       setSuggestionDismissed(true);
     } catch (err) {
-      alert(`Failed to reject suggestion: ${(err as Error).message}`);
+      toast.error(`Failed to reject suggestion: ${(err as Error).message}`);
     } finally {
       setIsRejecting(false);
     }
@@ -109,7 +111,7 @@ export function ThumbnailTab({ video, onAdvanced }: ThumbnailTabProps) {
       queryClient.invalidateQueries({ queryKey: ["video", video.id] });
       onAdvanced?.();
     } catch (err) {
-      alert(`Failed to advance: ${(err as Error).message}`);
+      toast.error(`Failed to advance: ${(err as Error).message}`);
     } finally {
       setAdvancing(false);
     }
@@ -131,13 +133,13 @@ export function ThumbnailTab({ video, onAdvanced }: ThumbnailTabProps) {
           setTaskRunning(true);
           return;
         } catch (retryErr) {
-          alert(`Thumbnail generation failed: ${(retryErr as Error).message}`);
+          toast.error(`Thumbnail generation failed: ${(retryErr as Error).message}`);
         }
       } else if (message.includes("400") && message.includes("not ready")) {
         // Video stage changed since page loaded — refetch to show correct state
         queryClient.invalidateQueries({ queryKey: ["video", video.id] });
       } else {
-        alert(`Thumbnail generation failed: ${message}`);
+        toast.error(`Thumbnail generation failed: ${message}`);
       }
       setIsRegenerating(false);
     }
@@ -178,7 +180,7 @@ export function ThumbnailTab({ video, onAdvanced }: ThumbnailTabProps) {
       setPromptSaved(true);
       setTimeout(() => setPromptSaved(false), 2000);
     } catch (err) {
-      alert(`Failed to save prompt: ${(err as Error).message}`);
+      toast.error(`Failed to save prompt: ${(err as Error).message}`);
     } finally {
       setIsSavingPrompt(false);
     }

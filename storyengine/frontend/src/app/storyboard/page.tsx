@@ -16,6 +16,7 @@ import {
   type ScriptScene,
 } from "@/lib/api";
 import { getStageLabel } from "@/lib/constants";
+import { useToast } from "@/components/ui/toast";
 import { timeAgo } from "@/lib/utils";
 
 const container = {
@@ -39,6 +40,7 @@ interface StoryboardVideoCardProps {
 
 function StoryboardVideoCard({ video }: StoryboardVideoCardProps) {
   const router = useRouter();
+  const toast = useToast();
   const queryClient = useQueryClient();
 
   const { data: scripts = [] } = useQuery({
@@ -52,7 +54,7 @@ function StoryboardVideoCard({ video }: StoryboardVideoCardProps) {
       queryClient.invalidateQueries({ queryKey: ["videos"] });
     },
     onError: (err) => {
-      alert(`Advance failed: ${(err as Error).message}`);
+      toast.error(`Advance failed: ${(err as Error).message}`);
     },
   });
 

@@ -18,6 +18,7 @@ import {
   type Project,
   type ProjectUpdate,
 } from "@/lib/api";
+import { useToast } from "@/components/ui/toast";
 
 const TRUSTED_STRIPE_DOMAINS = [
   "https://checkout.stripe.com",
@@ -64,6 +65,7 @@ const INTEGRATION_KEY_MAP: Record<string, string[]> = {
 
 export default function SettingsPage() {
   const router = useRouter();
+  const toast = useToast();
   const queryClient = useQueryClient();
 
   // Saved indicator state
@@ -419,7 +421,7 @@ export default function SettingsPage() {
                     try {
                       const res = await createBillingPortal();
                       if (!isStripeUrl(res.portal_url)) {
-                        alert("Invalid billing portal URL. Please contact support.");
+                        toast.error("Invalid billing portal URL. Please contact support.");
                         setPortalLoading(false);
                         return;
                       }
@@ -505,7 +507,7 @@ export default function SettingsPage() {
                       try {
                         const res = await createCheckout(plan.key);
                         if (!isStripeUrl(res.checkout_url)) {
-                          alert("Invalid checkout URL. Please contact support.");
+                          toast.error("Invalid checkout URL. Please contact support.");
                           setCheckoutLoading(null);
                           return;
                         }

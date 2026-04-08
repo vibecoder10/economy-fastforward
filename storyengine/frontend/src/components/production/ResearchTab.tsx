@@ -7,6 +7,7 @@ import { GlassCard } from "@/components/ui/GlassCard";
 import { ActionButton } from "@/components/ui/ActionButton";
 import { runPipelineStage, advanceVideo, updateVideo, resetPipeline, clearStaleTask } from "@/lib/api";
 import { useTaskPoller } from "@/hooks/use-task-poller";
+import { useToast } from "@/components/ui/toast";
 
 interface ResearchTabProps {
   video: any;
@@ -123,6 +124,7 @@ function EditableText({ text, mono }: { text: string; mono?: boolean }) {
 
 export function ResearchTab({ video, onApproved }: ResearchTabProps) {
   const queryClient = useQueryClient();
+  const toast = useToast();
   const [isResearching, setIsResearching] = useState(false);
   const [isApproving, setIsApproving] = useState(false);
   const [approved, setApproved] = useState(false);
@@ -147,7 +149,7 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
     onFailed: (error) => {
       setTaskRunning(false);
       setIsResearching(false);
-      alert(`Research failed: ${error}`);
+      toast.error(`Research failed: ${error}`);
     },
   });
 
@@ -165,10 +167,10 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
           setTaskRunning(true);
           return;
         } catch (retryErr) {
-          alert(`Research failed: ${(retryErr as Error).message}`);
+          toast.error(`Research failed: ${(retryErr as Error).message}`);
         }
       } else {
-        alert(`Research failed: ${message}`);
+        toast.error(`Research failed: ${message}`);
       }
       setIsResearching(false);
     }
@@ -420,7 +422,7 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
                     setFeedbackSaved(true);
                     setTimeout(() => setFeedbackSaved(false), 3000);
                   } catch (err) {
-                    alert(`Failed to save: ${(err as Error).message}`);
+                    toast.error(`Failed to save: ${(err as Error).message}`);
                   } finally {
                     setFeedbackSaving(false);
                   }

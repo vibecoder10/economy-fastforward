@@ -37,6 +37,7 @@ import {
   type VisualStyle,
   type StyleCharacter,
 } from "@/lib/api";
+import { useToast } from "@/components/ui/toast";
 
 const container = {
   hidden: { opacity: 0 },
@@ -49,6 +50,7 @@ const item = {
 
 export default function ProfilePage() {
   const queryClient = useQueryClient();
+  const toast = useToast();
 
   // --- User Profile ---
   const { data: profile, isLoading: profileLoading, error: profileError } = useQuery({
@@ -127,7 +129,7 @@ export default function ProfilePage() {
     },
     onError: (_err, _styleId, context) => {
       if (context?.previous) queryClient.setQueryData(["visualStyles"], context.previous);
-      alert("Failed to delete style. It has been restored.");
+      toast.error("Failed to delete style. It has been restored.");
     },
     onSettled: () => invalidate(),
   });
@@ -153,7 +155,7 @@ export default function ProfilePage() {
     },
     onError: (_err, _vars, context) => {
       if (context?.previous) queryClient.setQueryData(["visualStyles"], context.previous);
-      alert("Failed to delete character. It has been restored.");
+      toast.error("Failed to delete character. It has been restored.");
     },
     onSettled: () => invalidate(),
   });
@@ -279,7 +281,7 @@ export default function ProfilePage() {
     } catch (err) {
       setCharSaveStatus("idle");
       const msg = err instanceof Error ? err.message : "Failed to save character";
-      alert(`Character save failed: ${msg}`);
+      toast.error(`Character save failed: ${msg}`);
     }
   };
 
@@ -321,7 +323,7 @@ export default function ProfilePage() {
     } catch (err) {
       setCharSaveStatus("idle");
       const msg = err instanceof Error ? err.message : "Failed to save character";
-      alert(`Character save failed: ${msg}`);
+      toast.error(`Character save failed: ${msg}`);
     }
   };
 

@@ -28,6 +28,7 @@ import {
 } from "@/lib/api";
 import { getStageLabel } from "@/lib/constants";
 import { useTaskPoller } from "@/hooks/use-task-poller";
+import { useToast } from "@/components/ui/toast";
 import { formatCost } from "@/lib/utils";
 
 const container = {
@@ -53,6 +54,7 @@ interface VideoImageSectionProps {
 
 function VideoImageSection({ video }: VideoImageSectionProps) {
   const router = useRouter();
+  const toast = useToast();
   const queryClient = useQueryClient();
   const [isGenerating, setIsGenerating] = useState(false);
   const [taskRunning, setTaskRunning] = useState(false);
@@ -70,7 +72,7 @@ function VideoImageSection({ video }: VideoImageSectionProps) {
     onFailed: (error) => {
       setTaskRunning(false);
       setIsGenerating(false);
-      alert(`Image generation failed: ${error}`);
+      toast.error(`Image generation failed: ${error}`);
     },
   });
 
@@ -105,10 +107,10 @@ function VideoImageSection({ video }: VideoImageSectionProps) {
           setTaskRunning(true);
           return;
         } catch (retryErr) {
-          alert(`Generation failed: ${(retryErr as Error).message}`);
+          toast.error(`Generation failed: ${(retryErr as Error).message}`);
         }
       } else {
-        alert(`Generation failed: ${message}`);
+        toast.error(`Generation failed: ${message}`);
       }
       setIsGenerating(false);
     }

@@ -13,6 +13,7 @@ import { SystemPromptEditor } from "@/components/ui/SystemPromptEditor";
 import { ActionButton } from "@/components/ui/ActionButton";
 import { getVideoAssets, runPipelineStage, clearStaleTask, updateVideoStyles, advanceVideo, getDefaultVideoMotionPrompt, updateVideo } from "@/lib/api";
 import { useTaskPoller } from "@/hooks/use-task-poller";
+import { useToast } from "@/components/ui/toast";
 import type { VideoDetail, Asset } from "@/lib/api";
 
 function getClipStatus(asset: Asset): "pending" | "generating" | "done" {
@@ -34,6 +35,7 @@ interface VideoClipsTabProps {
 
 export function VideoClipsTab({ video, onAdvanced }: VideoClipsTabProps) {
   const queryClient = useQueryClient();
+  const toast = useToast();
   const [model, setModel] = useState(video.video_model || "grok-imagine");
   const [savingModel, setSavingModel] = useState(false);
   const [confirmGenerate, setConfirmGenerate] = useState(false);
@@ -58,7 +60,7 @@ export function VideoClipsTab({ video, onAdvanced }: VideoClipsTabProps) {
       setTaskRunning(false);
       if (taskStage === "prompts") setIsGeneratingPrompts(false);
       else { setIsGeneratingClips(false); setConfirmGenerate(false); }
-      alert(`${taskStage === "prompts" ? "Prompt generation" : "Clip generation"} failed: ${error}`);
+      toast.error(`${taskStage === "prompts" ? "Prompt generation" : "Clip generation"} failed: ${error}`);
     },
   });
 
@@ -98,7 +100,7 @@ export function VideoClipsTab({ video, onAdvanced }: VideoClipsTabProps) {
       await updateVideoStyles(video.id, { video_model: nextModel });
       queryClient.invalidateQueries({ queryKey: ["video", video.id] });
     } catch (err) {
-      alert(`Failed to update video model: ${(err as Error).message}`);
+      toast.error(`Failed to update video model: ${(err as Error).message}`);
       setModel(video.video_model || "grok-imagine");
     } finally {
       setSavingModel(false);
@@ -121,10 +123,10 @@ export function VideoClipsTab({ video, onAdvanced }: VideoClipsTabProps) {
           setTaskRunning(true);
           return;
         } catch (retryErr) {
-          alert(`Prompt generation failed: ${(retryErr as Error).message}`);
+          toast.error(`Prompt generation failed: ${(retryErr as Error).message}`);
         }
       } else {
-        alert(`Prompt generation failed: ${message}`);
+        toast.error(`Prompt generation failed: ${message}`);
       }
       setIsGeneratingPrompts(false);
     }
@@ -146,10 +148,10 @@ export function VideoClipsTab({ video, onAdvanced }: VideoClipsTabProps) {
           setTaskRunning(true);
           return;
         } catch (retryErr) {
-          alert(`Clip generation failed: ${(retryErr as Error).message}`);
+          toast.error(`Clip generation failed: ${(retryErr as Error).message}`);
         }
       } else {
-        alert(`Clip generation failed: ${message}`);
+        toast.error(`Clip generation failed: ${message}`);
       }
       setIsGeneratingClips(false);
       setConfirmGenerate(false);
@@ -164,7 +166,7 @@ export function VideoClipsTab({ video, onAdvanced }: VideoClipsTabProps) {
       queryClient.invalidateQueries({ queryKey: ["video-assets", video.id] });
       onAdvanced?.();
     } catch (err) {
-      alert(`Advance failed: ${(err as Error).message}`);
+      toast.error(`Advance failed: ${(err as Error).message}`);
     } finally {
       setAdvancing(false);
     }

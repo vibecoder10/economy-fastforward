@@ -8,6 +8,7 @@ import { ActionButton } from "@/components/ui/ActionButton";
 import { runPipelineStage, advanceVideo } from "@/lib/api";
 import type { VideoDetail } from "@/lib/api";
 import { useQueryClient } from "@tanstack/react-query";
+import { useToast } from "@/components/ui/toast";
 
 const PIPELINE_ORDER = [
   "idea_logged", "approved", "researching", "ready_for_scripting", "scripting",
@@ -81,6 +82,7 @@ function extractTags(title: string): string[] {
 
 export function UploadTab({ video, onAdvanced }: UploadTabProps) {
   const queryClient = useQueryClient();
+  const toast = useToast();
   const youtubeUrl = video.youtube_url;
   const videoIdYt = extractVideoId(youtubeUrl);
   const uploadStatus = getUploadStatus(video.status || "", youtubeUrl);
@@ -112,7 +114,7 @@ export function UploadTab({ video, onAdvanced }: UploadTabProps) {
       queryClient.invalidateQueries({ queryKey: ["video", video.id] });
       onAdvanced?.();
     } catch (err) {
-      alert(`Failed to advance: ${(err as Error).message}`);
+      toast.error(`Failed to advance: ${(err as Error).message}`);
     } finally {
       setAdvancing(false);
     }
@@ -131,7 +133,7 @@ export function UploadTab({ video, onAdvanced }: UploadTabProps) {
       await runPipelineStage(video.id, "upload");
       setUploadComplete(true);
     } catch {
-      alert("Upload failed. Try using the Slack `upload` command instead.");
+      toast.error("Upload failed. Try using the Slack `upload` command instead.");
     } finally {
       setIsUploading(false);
       setConfirmUpload(false);
