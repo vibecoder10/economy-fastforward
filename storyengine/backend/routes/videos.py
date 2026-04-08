@@ -13,7 +13,7 @@ from models import (
 )
 from database import fetch_all, fetch_one, execute, safe_column
 from status_map import get_next_status_supabase
-from prompt_defaults import VIDEO_MOTION_SYSTEM_PROMPT
+from prompt_defaults import VIDEO_MOTION_SYSTEM_PROMPT, SCRIPT_SYSTEM_PROMPT, THUMBNAIL_SYSTEM_PROMPT, SOUND_CURATION_SYSTEM_PROMPT, SOUND_GENERATION_SYSTEM_PROMPT, RESEARCH_SYSTEM_PROMPT
 from typing import Optional, Any
 
 
@@ -216,6 +216,7 @@ async def get_video(video_id: str, tenant_id: str = Depends(get_tenant_id)):
                   suggested_script, suggested_title, suggestion_source,
                   suggestion_scores, suggestion_status,
                   video_motion_system_prompt,
+                  script_system_prompt, thumbnail_system_prompt, sound_system_prompt,
                   created_at::text, updated_at::text
            FROM videos WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL""",
         video_id, tenant_id,
@@ -289,6 +290,9 @@ async def get_video(video_id: str, tenant_id: str = Depends(get_tenant_id)):
         suggestion_scores=_parse_json_field(r.get("suggestion_scores")),
         suggestion_status=r.get("suggestion_status"),
         video_motion_system_prompt=r.get("video_motion_system_prompt"),
+        script_system_prompt=r.get("script_system_prompt"),
+        thumbnail_system_prompt=r.get("thumbnail_system_prompt"),
+        sound_system_prompt=r.get("sound_system_prompt"),
         created_at=r.get("created_at"),
         updated_at=r.get("updated_at"),
     )
@@ -304,7 +308,7 @@ async def update_video(video_id: str, body: dict, tenant_id: str = Depends(get_t
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
 
-    allowed_fields = {"revision_notes", "video_title", "headline", "thumbnail_prompt", "thumbnail_style_override", "video_motion_system_prompt"}
+    allowed_fields = {"revision_notes", "video_title", "headline", "thumbnail_prompt", "thumbnail_style_override", "video_motion_system_prompt", "script_system_prompt", "thumbnail_system_prompt", "sound_system_prompt"}
     updates = []
     params = []
     idx = 1
@@ -949,3 +953,33 @@ async def upload_storyboard_grid(
 async def get_default_video_motion_prompt():
     """Return the default video motion system prompt template."""
     return {"prompt": VIDEO_MOTION_SYSTEM_PROMPT}
+
+
+@router.get("/defaults/script-prompt")
+async def get_default_script_prompt():
+    """Return the default script system prompt template."""
+    return {"prompt": SCRIPT_SYSTEM_PROMPT}
+
+
+@router.get("/defaults/thumbnail-prompt")
+async def get_default_thumbnail_prompt():
+    """Return the default thumbnail system prompt template."""
+    return {"prompt": THUMBNAIL_SYSTEM_PROMPT}
+
+
+@router.get("/defaults/sound-curation-prompt")
+async def get_default_sound_curation_prompt():
+    """Return the default sound curation system prompt."""
+    return {"prompt": SOUND_CURATION_SYSTEM_PROMPT}
+
+
+@router.get("/defaults/sound-generation-prompt")
+async def get_default_sound_generation_prompt():
+    """Return the default sound generation system prompt."""
+    return {"prompt": SOUND_GENERATION_SYSTEM_PROMPT}
+
+
+@router.get("/defaults/research-prompt")
+async def get_default_research_prompt():
+    """Return the default research system prompt."""
+    return {"prompt": RESEARCH_SYSTEM_PROMPT}

@@ -201,6 +201,12 @@ CREATE TABLE videos (
   suggestion_scores JSONB,
   suggestion_status TEXT,
 
+  -- System prompt overrides (per-video)
+  video_motion_system_prompt TEXT,
+  script_system_prompt TEXT,
+  thumbnail_system_prompt TEXT,
+  sound_system_prompt TEXT,
+
   -- Costs
   total_cost NUMERIC DEFAULT 0,
 
@@ -604,6 +610,21 @@ CREATE TABLE user_preferences (
   updated_at TIMESTAMPTZ DEFAULT now(),
   UNIQUE(account_id, preference_key)
 );
+
+-- =============================================
+-- TENANT PROMPT DEFAULTS
+-- =============================================
+
+CREATE TABLE tenant_prompt_defaults (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  prompt_key TEXT NOT NULL,
+  prompt_text TEXT NOT NULL,
+  updated_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE(tenant_id, prompt_key)
+);
+
+CREATE INDEX idx_tenant_prompt_defaults_tenant ON tenant_prompt_defaults(tenant_id);
 
 -- =============================================
 -- PIPELINE TRACKING (StoryEngine internal)

@@ -5,8 +5,9 @@ import { Check, RefreshCw, Loader2, ChevronDown, ChevronUp, ChevronRight, Sparkl
 import { GlassCard } from "@/components/ui/GlassCard";
 import { ActionButton } from "@/components/ui/ActionButton";
 import { useQueryClient } from "@tanstack/react-query";
-import { runPipelineStage, advanceVideo, updateVideoStyles, updateVideo, clearStaleTask, acceptSuggestion, rejectSuggestion } from "@/lib/api";
+import { runPipelineStage, advanceVideo, updateVideoStyles, updateVideo, clearStaleTask, acceptSuggestion, rejectSuggestion, getDefaultThumbnailPrompt } from "@/lib/api";
 import { useTaskPoller } from "@/hooks/use-task-poller";
+import { SystemPromptEditor } from "@/components/ui/SystemPromptEditor";
 import type { VideoDetail } from "@/lib/api";
 import { getStageIndex } from "@/lib/constants";
 
@@ -200,6 +201,22 @@ export function ThumbnailTab({ video, onAdvanced }: ThumbnailTabProps) {
         </button>
       </div>
     </div>
+    {/* Thumbnail System Prompt */}
+    <SystemPromptEditor
+      label="Thumbnail System Prompt"
+      currentValue={video.thumbnail_system_prompt}
+      onSave={async (text) => {
+        await updateVideo(video.id, { thumbnail_system_prompt: text || null });
+        queryClient.invalidateQueries({ queryKey: ["video", video.id] });
+      }}
+      onReset={async () => {
+        const res = await getDefaultThumbnailPrompt();
+        await updateVideo(video.id, { thumbnail_system_prompt: null });
+        queryClient.invalidateQueries({ queryKey: ["video", video.id] });
+        return res.prompt;
+      }}
+    />
+
     <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-6">
       {/* Main content */}
       <div className="space-y-4">
