@@ -7,3 +7,6 @@
 - Full audit (2026-04-04): All 8 SEC issues (SEC-1 through SEC-8) verified FIXED. No critical vulnerabilities. Launch criterion #7 PASS.
 - Finding (2026-04-04): Login/register endpoints lack rate limiting — brute force risk. MEDIUM priority, non-blocking for launch.
 - Finding (2026-04-04): Vault stores API keys in plaintext in PostgreSQL secrets table. Should encrypt at rest for production SaaS.
+- Audit (2026-04-08): PRD task 10 XSS audit PASS. EmptyState/ErrorCard/page.tsx/pipeline clean. No critical issues in recent commits.
+- Finding (2026-04-08): email_service.py interpolates display_name into HTML without html.escape() — HTML injection risk in emails. MEDIUM.
+- Pattern: SSE endpoints reintroduce token-in-URL (SEC-7 variant). EventSource can't set headers — inherent tradeoff. Mitigate with short-lived tokens.

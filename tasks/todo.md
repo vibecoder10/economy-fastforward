@@ -3,8 +3,19 @@
 ## Active Work
 
 **Execution Plan:** `tasks/roadmap.md` — 18-day SaaS transformation
-**Current:** Day 2 of 18 (2026-04-08). PRD 2 backend tasks complete (7/7).
+**Current:** Day 2 of 18 (2026-04-08). PRD 2 backend tasks ALL complete (7/7, committed).
 **Agent Team:** 6 agents on Opus, PRD 2 in progress. Backend done, frontend next.
+
+## Handoff
+All 7 PRD 2 backend tasks are committed and passing acceptance criteria:
+- Task 1: Migration 029 (trial_warning_sent column)
+- Task 2: Query-param token auth in auth.py for SSE connections
+- Task 3: SSE stage_change events (already existed)
+- Task 4: POST /keys/validate bulk API key testing with timeout
+- Task 5: email_service.py shared email module + email.py stub
+- Task 6: Billing receipt email on checkout (already wired)
+- Task 7: email_tasks.py trial warning system (already created)
+Frontend tasks 8-12 are now unblocked. Task queue is empty.
 
 ### What Shipped Today (2026-04-08)
 - Billing page (`/billing`) with plan comparison, usage bars, Stripe integration
