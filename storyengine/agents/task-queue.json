@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "current_tab": 29,
+  "current_tab": 31,
   "last_updated": "2026-04-08",
   "last_updated_by": "backend-dev",
   "tabs": [
@@ -3269,6 +3269,38 @@
           "status": "pending",
           "depends_on": "T30-002",
           "description": "Verify: (1) forgot-password returns 200 for valid and invalid emails (no enumeration). (2) Reset token is created in DB. (3) reset-password with valid token updates password_hash. (4) Used token cannot be reused. (5) Expired token is rejected. (6) Frontend pages render and wire correctly."
+        }
+      ]
+    },
+    {
+      "id": 31,
+      "name": "Free Trial (14-day)",
+      "path": "cross-cutting",
+      "status": "in_progress",
+      "tasks": [
+        {
+          "id": "T31-001",
+          "title": "Backend: trial_ends_at column + trial logic in plan enforcement + subscription endpoint",
+          "role": "backend",
+          "status": "done",
+          "started_at": "2026-04-08T05:30:00Z",
+          "completed_at": "2026-04-08T06:00:00Z",
+          "assigned_to": "backend-dev",
+          "description": "Migration 026 adds trial_ends_at to accounts (backfills existing free users). Registration sets 14-day trial. _get_tenant_plan() returns 'pro' during active trial. GET /api/billing/subscription now includes trial_active + trial_days_remaining.",
+          "files": [
+            "backend/migrations/026_trial_ends_at.sql",
+            "backend/routes/google_auth.py",
+            "backend/routes/billing.py",
+            "schema.sql"
+          ]
+        },
+        {
+          "id": "T31-002",
+          "title": "Frontend: show trial countdown badge in nav/sidebar + trial expiring banner",
+          "role": "frontend",
+          "status": "pending",
+          "depends_on": "T31-001",
+          "description": "GET /api/billing/subscription returns trial_active and trial_days_remaining. If trial_active: show 'Pro Trial — X days left' badge in sidebar. If trial_days_remaining <= 3: show upgrade banner. After trial expires: show 'Trial ended — upgrade to keep Pro features' prompt."
         }
       ]
     }

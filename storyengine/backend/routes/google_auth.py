@@ -169,10 +169,11 @@ async def register(body: RegisterRequest):
     display_name = body.display_name.strip() or email.split("@")[0]
     password_hash = _hash_password(body.password)
 
+    trial_ends_at = datetime.now(timezone.utc) + timedelta(days=14)
     await execute(
-        """INSERT INTO accounts (id, email, display_name, password_hash, plan)
-           VALUES ($1, $2, $3, $4, 'free')""",
-        account_id, email, display_name, password_hash,
+        """INSERT INTO accounts (id, email, display_name, password_hash, plan, trial_ends_at)
+           VALUES ($1, $2, $3, $4, 'free', $5)""",
+        account_id, email, display_name, password_hash, trial_ends_at,
     )
 
     # Create tenant + membership
@@ -313,10 +314,11 @@ async def google_login(body: GoogleAuthRequest):
 
     # Brand new user — create account + tenant + membership
     account_id = str(uuid.uuid4())
+    trial_ends_at = datetime.now(timezone.utc) + timedelta(days=14)
     await execute(
-        """INSERT INTO accounts (id, email, display_name, google_id, avatar_url, plan)
-           VALUES ($1, $2, $3, $4, $5, 'free')""",
-        account_id, email, name, google_id, picture,
+        """INSERT INTO accounts (id, email, display_name, google_id, avatar_url, plan, trial_ends_at)
+           VALUES ($1, $2, $3, $4, $5, 'free', $6)""",
+        account_id, email, name, google_id, picture, trial_ends_at,
     )
     tenant_id = await _create_tenant_for_account(account_id, name)
 

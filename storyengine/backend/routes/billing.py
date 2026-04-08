@@ -222,18 +222,30 @@ async def get_subscription(
 
     account = await fetch_one(
         """SELECT plan, stripe_customer_id, stripe_subscription_id,
-                  stripe_plan, stripe_status
+                  stripe_plan, stripe_status, trial_ends_at
            FROM accounts WHERE id = $1""",
         account_id,
     )
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
 
+    from datetime import datetime, timezone
+    trial_ends_at = account.get("trial_ends_at")
+    trial_active = False
+    trial_days_remaining = 0
+    if trial_ends_at and (account.get("plan") or "free") == "free":
+        now = datetime.now(timezone.utc)
+        if trial_ends_at > now:
+            trial_active = True
+            trial_days_remaining = max(0, (trial_ends_at - now).days)
+
     return {
         "plan": account.get("plan") or "free",
         "stripe_plan": account.get("stripe_plan"),
         "stripe_status": account.get("stripe_status"),
         "has_subscription": bool(account.get("stripe_subscription_id")),
+        "trial_active": trial_active,
+        "trial_days_remaining": trial_days_remaining,
     }
 
 
@@ -304,14 +316,24 @@ async def _get_or_create_usage(tenant_id: _uuid.UUID) -> dict:
 
 
 async def _get_tenant_plan(tenant_id: _uuid.UUID) -> str:
-    """Get plan for a tenant via membership -> account lookup."""
+    """Get plan for a tenant via membership -> account lookup.
+
+    During active trial, free users get 'pro' limits.
+    """
     row = await fetch_one(
-        """SELECT a.plan FROM accounts a
+        """SELECT a.plan, a.trial_ends_at FROM accounts a
            JOIN memberships m ON m.user_id = a.id
            WHERE m.tenant_id = $1 LIMIT 1""",
         tenant_id,
     )
-    return (row.get("plan") if row else None) or "free"
+    if not row:
+        return "free"
+    plan = row.get("plan") or "free"
+    if plan == "free" and row.get("trial_ends_at"):
+        from datetime import datetime, timezone
+        if row["trial_ends_at"] > datetime.now(timezone.utc):
+            return "pro"  # Active trial gets pro limits
+    return plan
 
 
 async def increment_usage(tenant_id, field: str, amount: int = 1):

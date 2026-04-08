@@ -556,6 +556,7 @@ CREATE TABLE accounts (
   stripe_subscription_id TEXT,
   stripe_plan TEXT,
   stripe_status TEXT,
+  trial_ends_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );
