@@ -3,24 +3,23 @@
 ## Active: SaaS Transformation (2026-04-08)
 
 **Master Plan:** `tasks/dailyjournal.md` — 18-day execution plan (revised from 20)
-**Current:** Day 2 — Billing page shipped. Critical Bug Fixes PRD frontend tasks in progress.
+**Current:** Day 2 — Billing page shipped. Critical Bug Fixes PRD frontend tasks COMPLETE. Awaiting QA/Security verification.
 
 ---
 
 ## Handoff — 2026-04-08 (frontend-dev: Critical Bug Fixes PRD)
 
-### Completed (T7, T9, T10, T11)
-- **T7**: getNicheVideos() types + API wrapper in api.ts (NicheVideo, NicheVideosResponse, pagination/filter/sort params)
+### Completed (T7, T8, T9, T10, T11, T12)
+- **T7**: getNicheVideos() types + API wrapper in api.ts (commit 736b8c3)
+- **T8**: Refactor competitors page — server-side pagination/filter/sort, scrape progress bar, cancel button, inline video cards (commit 86c3e85)
 - **T9**: getCompletedSteps fix (commit 589b736, prior session)
-- **T10**: Pipeline stage button error messages — friendlyError() parser in stage-advancer.tsx + 409 stale task auto-retry
-- **T11**: Analytics sync error display — error_type badges, per-video failure counts, re-auth link for auth errors
+- **T10**: Pipeline stage button error messages — friendlyError() parser + 409 auto-retry (commit 736b8c3)
+- **T11**: Analytics sync error display — error_type badges, per-video failures, re-auth link (commit 736b8c3)
+- **T12**: TypeScript compilation check — tsc --noEmit passes with 0 errors
 
-### In Progress
-- **T8**: Refactor competitors page — pagination, filters, sort, per-channel scrape progress, cancel. All deps met (T2,T3,T4,T7 done).
-
-### Blocked
-- **T12**: TypeScript compilation check — waiting on T8
-- **T13/T14**: QA + security verification — waiting on T12
+### Ready for QA/Security
+- **T13**: QA verification — all frontend tasks complete, ready for QA
+- **T14**: Security validation — depends on backend T2,T4,T6 (all done)
 
 ---
 
