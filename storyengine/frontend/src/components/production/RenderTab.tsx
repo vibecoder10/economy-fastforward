@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { Image as ImageIcon, Video, Mic, Volume2, Loader2, Play, Download, CheckCircle2, ChevronRight } from "lucide-react";
+import { Image as ImageIcon, Video, Mic, Volume2, Loader2, Play, Download, CheckCircle2, ChevronRight, ExternalLink } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { ProgressRing } from "@/components/ui/ProgressRing";
@@ -29,6 +29,13 @@ function formatDuration(minutes: number | null | undefined): string {
   return `${mins}:${String(secs).padStart(2, "0")}`;
 }
 
+/** Convert Google Drive share URLs to direct-playable format */
+function toDrivePlayableUrl(url: string): string {
+  const match = url.match(/drive\.google\.com\/file\/d\/([^/]+)/);
+  if (match) return `https://drive.google.com/uc?export=download&id=${match[1]}`;
+  return url;
+}
+
 interface TimelineSegment {
   sceneNumber: number;
   hasImage: boolean;
@@ -45,6 +52,7 @@ export function RenderTab({ video, onAdvanced }: RenderTabProps) {
   const [musicTrack, setMusicTrack] = useState("tension");
   const [exportFormat, setExportFormat] = useState("mp4");
   const [taskRunning, setTaskRunning] = useState(false);
+  const [videoError, setVideoError] = useState(false);
 
   const { message: taskMessage } = useTaskPoller({
     videoId: video.id,
@@ -158,13 +166,32 @@ export function RenderTab({ video, onAdvanced }: RenderTabProps) {
             className="aspect-video relative flex items-center justify-center"
             style={{ background: "var(--bg-elevated)" }}
           >
-            {video.final_video_url && !renderActive ? (
+            {video.final_video_url && !renderActive && !videoError ? (
               <video
-                src={video.final_video_url}
+                src={toDrivePlayableUrl(video.final_video_url)}
+                poster={video.thumbnail_url || undefined}
                 controls
                 className="absolute inset-0 w-full h-full object-contain"
                 style={{ background: "black" }}
+                onError={() => setVideoError(true)}
               />
+            ) : video.final_video_url && !renderActive && videoError ? (
+              <div className="flex flex-col items-center gap-3">
+                <Video size={32} style={{ color: "var(--text-tertiary)" }} />
+                <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+                  Video available on Google Drive
+                </p>
+                <a
+                  href={video.final_video_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg"
+                  style={{ color: "var(--turquoise)", background: "rgba(0,212,170,0.1)", border: "1px solid rgba(0,212,170,0.25)" }}
+                >
+                  <ExternalLink size={13} />
+                  Open in Drive
+                </a>
+              </div>
             ) : video.youtube_url && !renderActive ? (
               <div className="absolute inset-0 flex items-center justify-center">
                 <button
@@ -193,6 +220,53 @@ export function RenderTab({ video, onAdvanced }: RenderTabProps) {
             )}
           </div>
         </GlassCard>
+
+        {/* Video metadata bar */}
+        {video.final_video_url && !renderActive && (
+          <div
+            className="flex items-center justify-between px-4 py-2.5 rounded-lg"
+            style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}
+          >
+            <div className="flex items-center gap-3 text-xs font-mono">
+              <span style={{ color: "var(--text-secondary)" }}>
+                Duration: <span style={{ color: "var(--text-primary)" }}>{duration}</span>
+              </span>
+              <span
+                className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider"
+                style={{
+                  background: video.status === "uploaded_draft" || video.status === "uploaded" || video.status === "done"
+                    ? "rgba(96,165,250,0.15)" : "rgba(0,230,138,0.15)",
+                  color: video.status === "uploaded_draft" || video.status === "uploaded" || video.status === "done"
+                    ? "#60A5FA" : "var(--green)",
+                }}
+              >
+                {video.status === "uploaded_draft" || video.status === "uploaded" || video.status === "done" ? "Uploaded" : "Rendered"}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              {vid.drive_folder_link && (
+                <a
+                  href={vid.drive_folder_link as string}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded-lg transition-opacity hover:opacity-80"
+                  style={{ color: "var(--text-secondary)", border: "1px solid var(--border)" }}
+                >
+                  <ExternalLink size={11} /> Drive
+                </a>
+              )}
+              <a
+                href={video.final_video_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded-lg transition-opacity hover:opacity-80"
+                style={{ color: "var(--turquoise)", border: "1px solid rgba(0,212,170,0.25)" }}
+              >
+                <Download size={11} /> Download
+              </a>
+            </div>
+          </div>
+        )}
 
         {/* Render output */}
         {video.final_video_url && !renderActive && (
