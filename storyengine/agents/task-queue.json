@@ -3398,9 +3398,11 @@
           "id": "BUG-MIGRATION-027",
           "title": "BUG: Migration 027 missing video_motion_system_prompt column on videos table",
           "role": "backend",
-          "status": "pending",
+          "status": "done",
           "priority": "medium",
           "assigned_to": "backend-dev",
+          "started_at": "2026-04-08T16:30:00Z",
+          "completed_at": "2026-04-08T16:32:00Z",
           "description": "Migration 027_system_prompt_columns.sql adds script_system_prompt, thumbnail_system_prompt, and sound_system_prompt to the videos table, but is MISSING video_motion_system_prompt. This column is referenced in models.py (VideoDetail) and videos.py SELECT queries. schema.sql has it at line ~85. Fresh database deployments will fail when video detail is fetched. Fix: Add 'ALTER TABLE videos ADD COLUMN IF NOT EXISTS video_motion_system_prompt TEXT;' to migration 027.",
           "files": [
             "backend/migrations/027_system_prompt_columns.sql",

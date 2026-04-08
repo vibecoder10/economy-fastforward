@@ -2,6 +2,7 @@
 ALTER TABLE videos ADD COLUMN IF NOT EXISTS script_system_prompt TEXT;
 ALTER TABLE videos ADD COLUMN IF NOT EXISTS thumbnail_system_prompt TEXT;
 ALTER TABLE videos ADD COLUMN IF NOT EXISTS sound_system_prompt TEXT;
+ALTER TABLE videos ADD COLUMN IF NOT EXISTS video_motion_system_prompt TEXT;
 
 -- Tenant-level prompt defaults (profile-level overrides)
 CREATE TABLE IF NOT EXISTS tenant_prompt_defaults (
