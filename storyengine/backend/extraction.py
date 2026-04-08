@@ -156,7 +156,7 @@ async def extract_grid(
 
     Step 1: Download grid → auto-detect layout → PIL crop into panels
     Step 2: Filter out black padding panels
-    Step 3: Upload each cropped panel to Supabase Storage
+    Step 3: Upload each cropped panel to Google Drive
     Step 4: If image_client available, upscale each panel via Nano Banana
 
     Args:

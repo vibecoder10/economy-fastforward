@@ -898,7 +898,7 @@ async def upload_storyboard_grid(
 ):
     """Upload a manually-created storyboard grid image.
 
-    Saves to Supabase Storage and updates the scripts table.
+    Saves to Google Drive and updates the scripts table.
     Used when API generation fails (e.g. content policy blocks).
     """
     from storage import upload_bytes

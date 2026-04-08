@@ -437,13 +437,13 @@ class PipelineExecutor:
         )
 
     async def _persist_url(self, source_url: str, storage_path: str) -> str:
-        """Re-upload a temporary URL to Supabase Storage for permanent access.
+        """Re-upload a temporary URL to Google Drive for permanent access.
 
         Returns the permanent URL, or the original URL if upload fails or URL is already permanent.
         """
         if not source_url:
             return source_url
-        if "supabase.co/storage" in source_url:
+        if "drive.google.com" in source_url or "supabase.co/storage" in source_url:
             return source_url
         try:
             return await upload_from_url(source_url, storage_path)
@@ -452,13 +452,14 @@ class PipelineExecutor:
             return source_url
 
     async def _persist_asset_urls(self, video_id: str) -> int:
-        """Re-upload all temp asset image_urls for a video to Supabase Storage.
+        """Re-upload all temp asset image_urls for a video to Google Drive.
 
         Returns the number of URLs persisted.
         """
         assets = await fetch_all(
             """SELECT id, scene, image_index, image_url FROM assets
                WHERE video_id = $1 AND tenant_id = $2 AND image_url IS NOT NULL
+               AND image_url NOT LIKE '%drive.google.com%'
                AND image_url NOT LIKE '%supabase.co/storage%'""",
             video_id, self.tenant_id,
         )
@@ -475,7 +476,7 @@ class PipelineExecutor:
         return count
 
     async def _persist_storyboard_urls(self, video_id: str) -> int:
-        """Re-upload all temp storyboard grid URLs to Supabase Storage.
+        """Re-upload all temp storyboard grid URLs to Google Drive.
 
         Returns the number of URLs persisted.
         """
@@ -494,7 +495,7 @@ class PipelineExecutor:
             for beat in range(1, 6):
                 col = f"storyboard_{beat}_url"
                 url = sc.get(col)
-                if url and "supabase.co/storage" not in url:
+                if url and "drive.google.com" not in url and "supabase.co/storage" not in url:
                     path = f"{video_id}/grids/S{sc['scene']}-B{beat}.png"
                     new_url = await self._persist_url(url, path)
                     if new_url != url:
