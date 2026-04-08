@@ -665,6 +665,25 @@ CREATE INDEX idx_user_preferences_account ON user_preferences(account_id);
 CREATE INDEX idx_videos_project ON videos(project_id);
 
 -- =============================================
+-- USAGE TRACKING
+-- =============================================
+
+CREATE TABLE tenant_usage (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  period_start DATE NOT NULL DEFAULT date_trunc('month', now())::date,
+  videos_created INT DEFAULT 0,
+  api_calls INT DEFAULT 0,
+  render_minutes NUMERIC(10,2) DEFAULT 0,
+  storage_bytes BIGINT DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE(tenant_id, period_start)
+);
+
+CREATE INDEX idx_tenant_usage_tenant_period ON tenant_usage(tenant_id, period_start);
+
+-- =============================================
 -- ROW LEVEL SECURITY
 -- =============================================
 

@@ -232,6 +232,9 @@ async def launch_idea(
     tenant_id: str = Depends(get_tenant_id),
 ):
     """One-click launch: create video from idea and start pipeline."""
+    from routes.billing import check_plan_limits, increment_usage
+    await check_plan_limits(tenant_id, "video")
+
     # Fetch the idea
     idea = await fetch_one(
         "SELECT * FROM discovery_ideas WHERE id = $1 AND tenant_id = $2",
@@ -284,6 +287,7 @@ async def launch_idea(
         idea.get("competitor_url"),
     )
     video_id = str(result["id"])
+    await increment_usage(tenant_id, "videos_created")
 
     # Update idea status
     await execute(

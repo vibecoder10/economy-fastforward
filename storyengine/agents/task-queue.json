@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "current_tab": 28,
+  "current_tab": 29,
   "last_updated": "2026-04-08",
-  "last_updated_by": "qa-engineer",
+  "last_updated_by": "backend-dev",
   "tabs": [
     {
       "id": 1,
@@ -3172,7 +3172,7 @@
           "verified": true,
           "verified_at": "2026-04-08T04:04:00Z",
           "verified_by": "qa-engineer",
-          "verification_notes": "PASS. Commit f9e9a66: (1) pricing/page.tsx 361 lines — 3 plan cards (Starter $25/Pro $40/Agency $75) with feature checklists (included=CheckCircle2 teal, excluded=X). (2) /pricing in PUBLIC_PATHS (AuthenticatedShell:12) — no auth required. (3) isStripeUrl() validation (SEC-8 pattern) at line 101-103 + line 118. (4) Unauthenticated: handleSubscribe routes to /login. Authenticated: calls createCheckout(planKey, successUrl, cancelUrl). (5) UpgradePrompt href=/pricing (AuthenticatedShell:89). (6) VALUE_PROPS section with 4 cards (Film, Brain, BarChart3, Shield). (7) Nav bar: authenticated shows Dashboard link, unauthenticated shows Sign in + Get Started. (8) Diff clean: 3 files, 1 new (pricing page), AuthenticatedShell 4-line delta, task-queue. No bloat. (9) tsc --noEmit: 0 errors. (10) T28-002 Playwright verification by pipeline-tester: 14/14 checks pass including mobile responsive (375px, 0 overflow)."
+          "verification_notes": "PASS. Commit f9e9a66: (1) pricing/page.tsx 361 lines \u2014 3 plan cards (Starter $25/Pro $40/Agency $75) with feature checklists (included=CheckCircle2 teal, excluded=X). (2) /pricing in PUBLIC_PATHS (AuthenticatedShell:12) \u2014 no auth required. (3) isStripeUrl() validation (SEC-8 pattern) at line 101-103 + line 118. (4) Unauthenticated: handleSubscribe routes to /login. Authenticated: calls createCheckout(planKey, successUrl, cancelUrl). (5) UpgradePrompt href=/pricing (AuthenticatedShell:89). (6) VALUE_PROPS section with 4 cards (Film, Brain, BarChart3, Shield). (7) Nav bar: authenticated shows Dashboard link, unauthenticated shows Sign in + Get Started. (8) Diff clean: 3 files, 1 new (pricing page), AuthenticatedShell 4-line delta, task-queue. No bloat. (9) tsc --noEmit: 0 errors. (10) T28-002 Playwright verification by pipeline-tester: 14/14 checks pass including mobile responsive (375px, 0 overflow)."
         },
         {
           "id": "T28-002",
@@ -3187,7 +3187,49 @@
           "verified_by": "pipeline-tester",
           "description": "Verify: (1) /pricing loads without auth (PUBLIC_PATHS). (2) 3 plan cards render with correct prices and features. (3) Subscribe button for unauthenticated user redirects to /login. (4) Subscribe button for authenticated user calls createCheckout. (5) UpgradePrompt now links to /pricing. (6) Mobile responsive (no overflow). (7) tsc --noEmit passes. (8) No console errors.",
           "depends_on": "T28-001",
-          "verification_notes": "PASS (14/14). (1) /pricing loads without auth — stays on /pricing, no redirect to /login (PUBLIC_PATHS includes /pricing at AuthenticatedShell:12). (2) 3 plan cards: Starter $25, Pro $40, Agency $75 — all render with feature checklists (included=teal check, excluded=X). (3) 'Most Popular' badge on Pro card (absolute positioned, visible in innerHTML). (4) BYOK note present. (5) Value props section 'Why creators choose StoryEngine' with 4 cards. (6) 14-day free trial text at bottom. (7) Unauthenticated: 3 'Get Started' buttons, click → router.push('/login') works. Nav shows Sign in + Get Started links. (8) Authenticated (real JWT): 3 'Subscribe' buttons, nav shows 'Dashboard' link, no 'Sign in'. (9) Subscribe calls createCheckout with plan key + isStripeUrl validation (SEC-8 pattern). (10) UpgradePrompt href=/pricing at AuthenticatedShell.tsx:89 (was /settings). (11) Mobile (375x812): scrollWidth=375, 0 overflow, cards stack vertically. (12) No sidebar (aside count=0) on public page. (13) tsc --noEmit: 0 errors. (14) 0 console errors, 0 failed requests. Screenshots: T28-002-pricing-desktop.png, T28-002-pricing-mobile.png, T28-002-pricing-auth-jwt.png."
+          "verification_notes": "PASS (14/14). (1) /pricing loads without auth \u2014 stays on /pricing, no redirect to /login (PUBLIC_PATHS includes /pricing at AuthenticatedShell:12). (2) 3 plan cards: Starter $25, Pro $40, Agency $75 \u2014 all render with feature checklists (included=teal check, excluded=X). (3) 'Most Popular' badge on Pro card (absolute positioned, visible in innerHTML). (4) BYOK note present. (5) Value props section 'Why creators choose StoryEngine' with 4 cards. (6) 14-day free trial text at bottom. (7) Unauthenticated: 3 'Get Started' buttons, click \u2192 router.push('/login') works. Nav shows Sign in + Get Started links. (8) Authenticated (real JWT): 3 'Subscribe' buttons, nav shows 'Dashboard' link, no 'Sign in'. (9) Subscribe calls createCheckout with plan key + isStripeUrl validation (SEC-8 pattern). (10) UpgradePrompt href=/pricing at AuthenticatedShell.tsx:89 (was /settings). (11) Mobile (375x812): scrollWidth=375, 0 overflow, cards stack vertically. (12) No sidebar (aside count=0) on public page. (13) tsc --noEmit: 0 errors. (14) 0 console errors, 0 failed requests. Screenshots: T28-002-pricing-desktop.png, T28-002-pricing-mobile.png, T28-002-pricing-auth-jwt.png."
+        }
+      ]
+    },
+    {
+      "id": 29,
+      "name": "Plan Enforcement & Usage Tracking",
+      "path": "cross-cutting",
+      "status": "in_progress",
+      "tasks": [
+        {
+          "id": "T29-001",
+          "title": "Create tenant_usage table + plan enforcement middleware + GET /api/billing/usage",
+          "role": "backend",
+          "status": "done",
+          "started_at": "2026-04-08T04:00:00Z",
+          "completed_at": "2026-04-08T04:30:00Z",
+          "assigned_to": "backend-dev",
+          "description": "Migration 024 creates tenant_usage table. billing.py adds check_plan_limits() and increment_usage() helpers plus GET /api/billing/usage endpoint. Plan checks wired into: videos.create_video, pipeline.create_idea, pipeline.run_render, discovery.launch_idea. Usage incremented on video creation in all 3 paths.",
+          "files": [
+            "backend/migrations/024_tenant_usage.sql",
+            "backend/routes/billing.py",
+            "backend/routes/videos.py",
+            "backend/routes/pipeline.py",
+            "backend/routes/discovery.py",
+            "schema.sql"
+          ]
+        },
+        {
+          "id": "T29-002",
+          "title": "QA verify: plan limits block video creation when over limit, usage increments correctly",
+          "role": "qa",
+          "status": "pending",
+          "depends_on": "T29-001",
+          "description": "Verify: (1) GET /api/billing/usage returns correct shape. (2) POST /api/videos with free plan and 2+ videos returns 402 with upgrade_url. (3) Video creation increments videos_created. (4) Render with exhausted render_minutes returns 402. (5) tenant_usage table created by migration. (6) tsc --noEmit passes."
+        },
+        {
+          "id": "T29-003",
+          "title": "Frontend: show usage bar + upgrade prompt when 402 returned",
+          "role": "frontend",
+          "status": "pending",
+          "depends_on": "T29-001",
+          "description": "Wire GET /api/billing/usage into dashboard or settings. Show progress bar (X/Y videos used). Handle 402 response from create_video/render by showing upgrade modal linking to /pricing."
         }
       ]
     }

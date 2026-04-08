@@ -162,6 +162,9 @@ async def create_video(
     tenant_id: str = Depends(get_tenant_id),
 ):
     """Create a new video idea."""
+    from routes.billing import check_plan_limits, increment_usage
+    await check_plan_limits(tenant_id, "video")
+
     from routes.projects import _get_or_create_project
 
     project = await _get_or_create_project(tenant_id)
@@ -175,6 +178,8 @@ async def create_video(
         tenant_id, project_id, body.title.strip(), body.source_url, body.framework_angle,
         body.video_length_minutes, body.writer_guidance, body.visual_style, body.accent_color,
     )
+
+    await increment_usage(tenant_id, "videos_created")
 
     return VideoSummary(
         id=str(row["id"]),

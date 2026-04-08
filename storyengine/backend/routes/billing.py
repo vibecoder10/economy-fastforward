@@ -1,6 +1,7 @@
-"""Stripe billing routes: checkout, webhooks, subscription management, portal."""
+"""Stripe billing routes: checkout, webhooks, subscription management, portal, usage tracking."""
 
 import os
+import uuid as _uuid
 
 import stripe
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -8,7 +9,7 @@ from pydantic import BaseModel
 from typing import Optional
 
 from auth import get_tenant_id, verify_token, AuthUser
-from database import fetch_one, execute
+from database import fetch_one, fetch_all, execute
 
 router = APIRouter(prefix="/api/billing", tags=["billing"])
 
@@ -265,3 +266,114 @@ async def create_portal(
     )
 
     return {"portal_url": portal_session.url}
+
+
+# =============================================
+# Plan Limits & Usage Tracking
+# =============================================
+
+PLAN_LIMITS = {
+    "free": {"videos_per_month": 2, "render_minutes": 10, "concurrent_jobs": 1},
+    "starter": {"videos_per_month": 4, "render_minutes": 30, "concurrent_jobs": 1},
+    "pro": {"videos_per_month": 15, "render_minutes": 120, "concurrent_jobs": 3},
+    "agency": {"videos_per_month": 50, "render_minutes": 500, "concurrent_jobs": 5},
+}
+
+
+async def _get_or_create_usage(tenant_id: _uuid.UUID) -> dict:
+    """Get current month's usage row, creating if needed."""
+    row = await fetch_one(
+        """SELECT * FROM tenant_usage
+           WHERE tenant_id = $1 AND period_start = date_trunc('month', now())::date""",
+        tenant_id,
+    )
+    if row:
+        return dict(row)
+    await execute(
+        """INSERT INTO tenant_usage (tenant_id, period_start)
+           VALUES ($1, date_trunc('month', now())::date)
+           ON CONFLICT (tenant_id, period_start) DO NOTHING""",
+        tenant_id,
+    )
+    row = await fetch_one(
+        """SELECT * FROM tenant_usage
+           WHERE tenant_id = $1 AND period_start = date_trunc('month', now())::date""",
+        tenant_id,
+    )
+    return dict(row) if row else {"videos_created": 0, "api_calls": 0, "render_minutes": 0, "storage_bytes": 0}
+
+
+async def _get_tenant_plan(tenant_id: _uuid.UUID) -> str:
+    """Get plan for a tenant via membership -> account lookup."""
+    row = await fetch_one(
+        """SELECT a.plan FROM accounts a
+           JOIN memberships m ON m.user_id = a.id
+           WHERE m.tenant_id = $1 LIMIT 1""",
+        tenant_id,
+    )
+    return (row.get("plan") if row else None) or "free"
+
+
+async def increment_usage(tenant_id, field: str, amount: int = 1):
+    """Increment a usage counter for the current month."""
+    valid_fields = {"videos_created", "api_calls", "render_minutes", "storage_bytes"}
+    if field not in valid_fields:
+        return
+    await _get_or_create_usage(tenant_id)
+    await execute(
+        f"""UPDATE tenant_usage SET {field} = {field} + $1, updated_at = now()
+            WHERE tenant_id = $2 AND period_start = date_trunc('month', now())::date""",
+        amount, tenant_id,
+    )
+
+
+async def check_plan_limits(tenant_id, action: str = "video"):
+    """Check if tenant is within plan limits. Raises 402 if over limit."""
+    plan = await _get_tenant_plan(tenant_id)
+    limits = PLAN_LIMITS.get(plan, PLAN_LIMITS["free"])
+    usage = await _get_or_create_usage(tenant_id)
+
+    if action == "video" and usage.get("videos_created", 0) >= limits["videos_per_month"]:
+        raise HTTPException(
+            status_code=402,
+            detail={
+                "error": "plan_limit_reached",
+                "message": f"You've used {usage['videos_created']}/{limits['videos_per_month']} videos this month. Upgrade your plan for more.",
+                "plan": plan,
+                "limit": limits["videos_per_month"],
+                "used": usage["videos_created"],
+                "upgrade_url": "/pricing",
+            },
+        )
+    elif action == "render" and float(usage.get("render_minutes", 0)) >= limits["render_minutes"]:
+        raise HTTPException(
+            status_code=402,
+            detail={
+                "error": "plan_limit_reached",
+                "message": f"You've used {usage['render_minutes']}/{limits['render_minutes']} render minutes this month. Upgrade your plan for more.",
+                "plan": plan,
+                "limit": limits["render_minutes"],
+                "used": float(usage["render_minutes"]),
+                "upgrade_url": "/pricing",
+            },
+        )
+
+
+@router.get("/usage")
+async def get_usage(tenant_id=Depends(get_tenant_id)):
+    """Get current month's usage and plan limits."""
+    plan = await _get_tenant_plan(tenant_id)
+    limits = PLAN_LIMITS.get(plan, PLAN_LIMITS["free"])
+    usage = await _get_or_create_usage(tenant_id)
+
+    return {
+        "plan": plan,
+        "limits": limits,
+        "usage": {
+            "videos_created": usage.get("videos_created", 0),
+            "api_calls": usage.get("api_calls", 0),
+            "render_minutes": float(usage.get("render_minutes", 0)),
+            "storage_bytes": usage.get("storage_bytes", 0),
+        },
+        "period_start": str(usage.get("period_start", "")),
+    }
