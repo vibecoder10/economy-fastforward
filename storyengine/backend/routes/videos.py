@@ -1086,3 +1086,57 @@ async def suggest_titles(
         raise HTTPException(
             status_code=504, detail="AI request timed out. Try again."
         )
+
+
+@router.get("/{video_id}/export-manifest")
+async def get_export_manifest(video_id: str, tenant_id: str = Depends(get_tenant_id)):
+    """Return all downloadable assets for a video as a manifest."""
+    try:
+        video = await fetch_one(
+            """SELECT id, video_title, status, final_video_url, thumbnail_url,
+                      drive_folder_link, youtube_url
+               FROM videos WHERE id = $1 AND tenant_id = $2""",
+            video_id, tenant_id,
+        )
+    except Exception:
+        raise HTTPException(status_code=404, detail="Video not found")
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+
+    assets_rows = await fetch_all(
+        """SELECT scene, image_index, image_url, video_clip_url, sound_effect_url
+           FROM assets WHERE video_id = $1 AND tenant_id = $2
+           ORDER BY scene, image_index""",
+        video_id, tenant_id,
+    )
+
+    scripts_rows = await fetch_all(
+        """SELECT scene, voice_over_url
+           FROM scripts WHERE video_id = $1 AND tenant_id = $2
+           ORDER BY scene""",
+        video_id, tenant_id,
+    )
+
+    return {
+        "video_id": str(video["id"]),
+        "video_title": video["video_title"],
+        "status": video["status"],
+        "final_video_url": video["final_video_url"],
+        "thumbnail_url": video["thumbnail_url"],
+        "drive_folder_link": video["drive_folder_link"],
+        "youtube_url": video["youtube_url"],
+        "assets": [
+            {
+                "scene": a["scene"],
+                "image_index": a["image_index"],
+                "image_url": a["image_url"],
+                "video_clip_url": a["video_clip_url"],
+                "sound_effect_url": a["sound_effect_url"],
+            }
+            for a in assets_rows
+        ],
+        "voice_tracks": [
+            {"scene": s["scene"], "voice_over_url": s["voice_over_url"]}
+            for s in scripts_rows
+        ],
+    }
