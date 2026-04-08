@@ -18,3 +18,5 @@
 - Recurring user errors (thumb 400 + profile/analytics 404) now at session #17+ — confirmed NOT code bugs every time. Skip triage after first check; go straight to OPS report.
 - Launch Score reached 8/8 on 2026-04-06 (REG18 sweep). Product is launch-ready. Awaiting operator go/no-go. No new build tasks needed.
 - Session #18: video f9749bd2 status changed to ready_to_render (thumbnail done) — thumb endpoint now returns "running" not 400. Pipeline is progressing on its own.
+- Phase 1 backend fully shipped (plan enforcement T29-001, password reset T30-001, free trial T31-001) as of 2026-04-08. Frontend is the sole bottleneck — 3 tasks (T29-003, T30-002, T31-002) + 3 QA tasks pending.
+- Session #20+: thumbnail 400 + analytics/profile 404 still recurring — skip direct triage, go straight to MICRO sweep. These are confirmed NOT code bugs every session.

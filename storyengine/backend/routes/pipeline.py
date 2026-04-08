@@ -108,10 +108,16 @@ async def create_idea(
 
     Creates the video record and optionally triggers research in the background.
     """
+    from routes.billing import check_plan_limits, increment_usage
+    await check_plan_limits(tenant_id, "video")
+
     executor = PipelineExecutor(tenant_id)
 
     # Create synchronously so we can return the video_id
     result = await executor.create_idea(request.topic, request.source)
+
+    if result.get("video_id"):
+        await increment_usage(tenant_id, "videos_created")
 
     return PipelineResponse(
         video_id=result.get("video_id"),
@@ -908,6 +914,9 @@ async def run_render(
     tenant_id: str = Depends(get_tenant_id),
 ):
     """Render final video."""
+    from routes.billing import check_plan_limits
+    await check_plan_limits(tenant_id, "render")
+
     video = await fetch_one(
         "SELECT id, status FROM videos WHERE id = $1 AND tenant_id = $2",
         video_id, tenant_id,

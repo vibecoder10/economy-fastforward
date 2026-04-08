@@ -12,3 +12,4 @@
 - Profile (/api/profile) and analytics (/api/analytics/*) 404s are backend runtime issues (routes registered correctly) — likely need backend restart, not frontend fixes.
 - Plan gating lives in AuthenticatedShell.tsx — PRO_PATHS array and isPlanAtLeast() are exported for sidebar/bottom-tabs reuse. user.plan comes from AuthProvider (AuthUser.plan field).
 - Always destructure `error` from useQuery and add error states — React Query silently swallows API failures, leaving users with empty/broken cards if not handled.
+- PUBLIC_PATHS in AuthenticatedShell.tsx controls which routes render without auth shell (no sidebar). /pricing is public. Add new marketing pages there.

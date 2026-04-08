@@ -125,6 +125,16 @@ export default function LoginPage() {
             }}
           />
 
+          {!isRegister && (
+            <a
+              href="/forgot-password"
+              className="text-xs self-end -mt-2"
+              style={{ color: "var(--text-secondary)" }}
+            >
+              Forgot password?
+            </a>
+          )}
+
           <button
             type="submit"
             disabled={submitting}

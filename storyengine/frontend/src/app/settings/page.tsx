@@ -14,6 +14,7 @@ import {
   getSubscription,
   createCheckout,
   createBillingPortal,
+  getUsage,
   type Project,
   type ProjectUpdate,
 } from "@/lib/api";
@@ -86,6 +87,11 @@ export default function SettingsPage() {
   const { data: subscription, isLoading: subLoading } = useQuery({
     queryKey: ["subscription"],
     queryFn: getSubscription,
+  });
+
+  const { data: usage } = useQuery({
+    queryKey: ["usage"],
+    queryFn: getUsage,
   });
 
   const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null);
@@ -429,6 +435,36 @@ export default function SettingsPage() {
                 </button>
               )}
             </div>
+          </GlassCard>
+        )}
+
+        {/* Usage stats */}
+        {usage && (
+          <GlassCard className="p-5 mb-4">
+            <h3
+              className="text-[11px] font-semibold uppercase tracking-wider mb-3"
+              style={{ color: "var(--text-secondary)" }}
+            >
+              This Month&apos;s Usage
+            </h3>
+            {[
+              { label: "Videos", used: usage.usage.videos_created, limit: usage.limits.videos_per_month },
+              { label: "Render Minutes", used: Math.round(usage.usage.render_minutes), limit: usage.limits.render_minutes },
+            ].map(({ label, used, limit }) => {
+              const pct = limit > 0 ? Math.min((used / limit) * 100, 100) : 0;
+              const barColor = pct >= 90 ? "var(--red)" : pct >= 70 ? "var(--gold)" : "var(--turquoise)";
+              return (
+                <div key={label} className="mb-3 last:mb-0">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs" style={{ color: "var(--text-secondary)" }}>{label}</span>
+                    <span className="text-xs font-mono" style={{ color: barColor }}>{used}/{limit}</span>
+                  </div>
+                  <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.06)" }}>
+                    <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: barColor }} />
+                  </div>
+                </div>
+              );
+            })}
           </GlassCard>
         )}
 
