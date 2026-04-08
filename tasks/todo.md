@@ -1,10 +1,30 @@
 # Task Tracking
 
-## Active: SaaS Transformation (2026-04-07)
+## Active: SaaS Transformation (2026-04-08)
 
 **Master Plan:** `tasks/dailyjournal.md` — 18-day execution plan (revised from 20)
-**Current:** Day 1 — Public `/pricing` page + plan enforcement middleware
-**Key Correction:** Day 0 roadmap overestimated gaps. All 3 "broken" endpoints work. Billing UI exists in /settings. All 17 pages are real. Plan revised accordingly.
+**Current:** Day 2 — Billing page shipped. Next: `/pricing` public page + plan enforcement.
+
+---
+
+## Handoff — 2026-04-08 (frontend-dev: Billing Page)
+
+### Completed
+- `/billing` page created (`storyengine/frontend/src/app/billing/page.tsx`, ~370 lines)
+  - Current plan card with trial countdown
+  - Animated usage bars (videos + render minutes) via Framer Motion
+  - 3-tier plan comparison (Starter $25 / Pro $40 / Agency $75)
+  - Stripe checkout + portal integration with SEC-8 URL validation
+  - BYOK explainer card linking to /settings/keys
+- Nav wiring: billing added to sidebar.tsx + bottom-tabs.tsx (CreditCard icon)
+- TypeScript clean (`npx tsc --noEmit` passes)
+
+### Next Priority (Roadmap Phase 1)
+1. **`/pricing` public page** — Marketing page viewable without auth. Add to PUBLIC_PATHS in AuthenticatedShell.tsx. Feature grid + CTA → Stripe checkout.
+2. **Plan enforcement middleware** — `check_plan_limits()` FastAPI dependency. Block pipeline when over limit (402).
+3. **Remove duplicate billing section from /settings** — Now that /billing exists, the inline billing cards in settings/page.tsx (lines ~388-532) should be replaced with a link to /billing.
+
+---
 
 ---
 

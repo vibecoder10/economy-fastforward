@@ -85,6 +85,10 @@
 - **New validator checks need matching config flags.** When adding a new check to `validate_script_editorial()`, add a corresponding `*_check: bool = True` flag to `ScriptValidationConfig` or the "disable all checks" test will fail. Test fixtures must also be updated — cliffhangers in `_make_good_script()` must use keywords that actually appear in subsequent acts.
 - **System prompt ordering matters.** Voice/tone rules (like `_CINEMATIC_VOICE_RULES`) must come EARLY in the assembled system prompt — right after role identity, BEFORE structural rules. Claude prioritizes early instructions; rules appended at the end get deprioritized. Assembly order: (1) Role identity/preamble, (2) Voice/style rules, (3) Research brief, (4) Structural rules, (5) Act-specific rules, (6) Grounding rules.
 
+### StoryEngine Frontend
+- **Spinner component is lowercase**: Import from `@/components/ui/spinner` (not `Spinner`). File is `spinner.tsx`.
+- **`as const` on plan arrays breaks optional properties**: If only one plan object has `popular: true`, TypeScript narrows the tuple type and the property doesn't exist on other entries. Remove `as const` or add `popular?: boolean` to all entries.
+
 ### Supabase Storage
 - **Kie.ai tempfile URLs (tempfile.aiquickdraw.com) expire.** Grid and image URLs must be re-uploaded to Supabase Storage immediately after generation. Use `storage.upload_from_url()` for download-and-persist. Public URL format: `{SUPABASE_URL}/storage/v1/object/public/{BUCKET}/{path}`.
 - **Grid layout detection by aspect ratio.** Kie.ai storyboard grids are 1376x768 (3x2 = 6 panels per grid, not 3x3 = 9). Use `extraction.detect_grid_layout()` which checks aspect ratio: >1.3 = 3x2, <0.7 = 2x3, else 3x3.
