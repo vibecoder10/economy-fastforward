@@ -983,3 +983,104 @@ async def get_default_sound_generation_prompt():
 async def get_default_research_prompt():
     """Return the default research system prompt."""
     return {"prompt": RESEARCH_SYSTEM_PROMPT}
+
+
+from pydantic import BaseModel as _BaseModel
+
+
+class SuggestTitlesRequest(_BaseModel):
+    topic: str
+    context: Optional[str] = None
+    count: int = 5
+
+
+@router.post("/suggest-titles")
+async def suggest_titles(
+    body: SuggestTitlesRequest,
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """Generate AI title suggestions for a given topic using Claude."""
+    from routes.billing import increment_usage
+    from vault import get_secret
+
+    topic = body.topic.strip()
+    if not topic:
+        raise HTTPException(status_code=400, detail="Topic is required")
+
+    api_key = await get_secret("anthropic_api_key", tenant_id)
+    if not api_key:
+        raise HTTPException(
+            status_code=400,
+            detail="Anthropic API key not configured. Add it in Settings.",
+        )
+
+    channel_name, channel_niche = "", ""
+    try:
+        profile = await fetch_one(
+            "SELECT channel_name, niche FROM channel_profiles WHERE tenant_id = $1",
+            tenant_id,
+        )
+        if profile:
+            channel_name = profile.get("channel_name", "")
+            channel_niche = profile.get("niche", "")
+    except Exception:
+        pass
+
+    channel_ctx = ""
+    if channel_name or channel_niche:
+        channel_ctx = f"\nChannel: {channel_name}. Niche: {channel_niche}."
+
+    prompt = (
+        f"Generate {body.count} compelling YouTube video title options for this topic."
+        f"{channel_ctx}\n\nTopic: {topic}\n"
+        + (f"Additional context: {body.context}\n" if body.context else "")
+        + "\nRules:\n"
+        "- Each title should use a different angle or hook structure\n"
+        "- Titles should be 8-12 words, curiosity-driven\n"
+        "- Include power words, numbers, or tension where natural\n"
+        "- No clickbait that cannot be delivered on\n\n"
+        'Return ONLY a JSON array of strings. Example: ["Title One", "Title Two"]'
+    )
+
+    import httpx as _httpx
+
+    try:
+        async with _httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "x-api-key": api_key,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
+                },
+                json={
+                    "model": "claude-sonnet-4-20250514",
+                    "max_tokens": 1024,
+                    "messages": [{"role": "user", "content": prompt}],
+                },
+            )
+
+        if resp.status_code != 200:
+            raise HTTPException(
+                status_code=502, detail=f"Claude API error: {resp.status_code}"
+            )
+
+        data = resp.json()
+        text = data.get("content", [{}])[0].get("text", "[]")
+
+        titles = json.loads(text)
+        if not isinstance(titles, list):
+            titles = [text]
+
+        await increment_usage(tenant_id, "api_calls")
+
+        return {"titles": titles[: body.count], "topic": topic}
+
+    except json.JSONDecodeError:
+        raise HTTPException(
+            status_code=502, detail="Failed to parse title suggestions"
+        )
+    except _httpx.TimeoutException:
+        raise HTTPException(
+            status_code=504, detail="AI request timed out. Try again."
+        )

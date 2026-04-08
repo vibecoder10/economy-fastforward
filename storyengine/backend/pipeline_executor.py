@@ -1928,6 +1928,12 @@ class PipelineExecutor:
             await self._log_transition(video_id, current_status, to_supabase(new_status), "api")
             await self._log_activity(bot_name, video_id, "completed", "Video rendered")
 
+            try:
+                from routes.billing import increment_usage
+                await increment_usage(self.tenant_id, "render_minutes")
+            except Exception:
+                pass
+
             return {"status": to_supabase(new_status), "video_id": video_id}
 
         except Exception as e:

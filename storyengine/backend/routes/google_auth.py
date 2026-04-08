@@ -127,6 +127,37 @@ async def _create_tenant_for_account(account_id: str, name: str, email: str = ""
     return tenant_id
 
 
+async def _send_welcome_email(email: str, display_name: str):
+    """Send welcome email to new users via Resend API."""
+    api_key = os.getenv("RESEND_API_KEY")
+    if not api_key:
+        print(f"[DEV] Welcome email for {email} (name: {display_name})")
+        return
+
+    frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3001")
+
+    try:
+        async with httpx.AsyncClient() as client:
+            await client.post(
+                "https://api.resend.com/emails",
+                headers={"Authorization": f"Bearer {api_key}"},
+                json={
+                    "from": os.getenv("EMAIL_FROM", "StoryEngine <noreply@storyengine.ai>"),
+                    "to": [email],
+                    "subject": "Welcome to StoryEngine",
+                    "html": (
+                        f"<h2>Welcome to StoryEngine, {display_name}!</h2>"
+                        f"<p>Your AI video production pipeline is ready.</p>"
+                        f"<p>Get started: add API keys, set up your channel, create your first video.</p>"
+                        f'<p><a href="{frontend_url}">Go to your dashboard</a></p>'
+                    ),
+                },
+                timeout=10.0,
+            )
+    except Exception as e:
+        print(f"[WARN] Failed to send welcome email to {email}: {e}")
+
+
 def _hash_password(password: str) -> str:
     """Hash password with PBKDF2-SHA256 (no external deps needed)."""
     salt = os.urandom(32)
@@ -178,6 +209,8 @@ async def register(body: RegisterRequest):
 
     # Create tenant + membership
     tenant_id = await _create_tenant_for_account(account_id, display_name, email)
+
+    await _send_welcome_email(email, display_name)
 
     token = _create_session_jwt(account_id, email, tenant_id)
     return AuthResponse(
@@ -321,6 +354,7 @@ async def google_login(body: GoogleAuthRequest):
         account_id, email, name, google_id, picture, trial_ends_at,
     )
     tenant_id = await _create_tenant_for_account(account_id, name)
+    await _send_welcome_email(email, name)
 
     token = _create_session_jwt(account_id, email, tenant_id)
     return AuthResponse(
