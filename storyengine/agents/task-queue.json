@@ -2,7 +2,7 @@
   "version": 2,
   "current_tab": 31,
   "last_updated": "2026-04-08",
-  "last_updated_by": "orchestrator",
+  "last_updated_by": "qa-engineer",
   "tabs": [
     {
       "id": 1,
@@ -3337,7 +3337,7 @@
       "id": 31,
       "name": "Free Trial (14-day)",
       "path": "cross-cutting",
-      "status": "in_progress",
+      "status": "complete",
       "tasks": [
         {
           "id": "T31-001",
@@ -3373,15 +3373,40 @@
             "frontend/src/lib/api.ts",
             "frontend/src/components/nav/sidebar.tsx",
             "frontend/src/components/auth/AuthenticatedShell.tsx"
-          ]
+          ],
+          "verified": true,
+          "verified_at": "2026-04-08T16:10:00Z",
+          "verified_by": "qa-engineer",
+          "verification_notes": "Verified as part of T31-003. See T31-003 notes for full 6/6 checklist."
         },
         {
           "id": "T31-003",
           "title": "QA verify: trial badge shows correct countdown, banner appears when expiring",
           "role": "qa",
-          "status": "pending",
+          "status": "done",
           "depends_on": "T31-002",
-          "description": "Verify: (1) GET /api/billing/subscription returns trial_active and trial_days_remaining. (2) Sidebar shows trial badge for free users with active trial. (3) Banner appears when trial_days_remaining <= 3. (4) After trial expires: plan gating re-activates for Pro routes. (5) tsc --noEmit passes. (6) No console errors."
+          "description": "Verify: (1) GET /api/billing/subscription returns trial_active and trial_days_remaining. (2) Sidebar shows trial badge for free users with active trial. (3) Banner appears when trial_days_remaining <= 3. (4) After trial expires: plan gating re-activates for Pro routes. (5) tsc --noEmit passes. (6) No console errors.",
+          "assigned_to": "qa-engineer",
+          "started_at": "2026-04-08T16:00:00Z",
+          "completed_at": "2026-04-08T16:10:00Z",
+          "verified": true,
+          "verified_at": "2026-04-08T16:10:00Z",
+          "verified_by": "qa-engineer",
+          "verification_notes": "PASS (6/6). (1) GET /api/billing/subscription returns trial_active:true, trial_days_remaining:13 for new user. (2) Sidebar badge: turquoise 'Pro Trial \u2014 Xd left' when >3d, amber when <=3d (sidebar.tsx:146-163). (3) Banner: amber dismissible banner in AuthenticatedShell when <=3d (line 118-149), CTA to /pricing. (4) Trial expired: red persistent banner (line 91-116), red 'Trial ended' badge in sidebar (line 165-179), plan gating reactivates via billing.py:332-335. (5) tsc --noEmit: 0 errors. (6) No console errors \u2014 null guards on subscription data, shared queryKey prevents duplicate fetches."
+        },
+        {
+          "id": "BUG-MIGRATION-027",
+          "title": "BUG: Migration 027 missing video_motion_system_prompt column on videos table",
+          "role": "backend",
+          "status": "pending",
+          "priority": "medium",
+          "assigned_to": "backend-dev",
+          "description": "Migration 027_system_prompt_columns.sql adds script_system_prompt, thumbnail_system_prompt, and sound_system_prompt to the videos table, but is MISSING video_motion_system_prompt. This column is referenced in models.py (VideoDetail) and videos.py SELECT queries. schema.sql has it at line ~85. Fresh database deployments will fail when video detail is fetched. Fix: Add 'ALTER TABLE videos ADD COLUMN IF NOT EXISTS video_motion_system_prompt TEXT;' to migration 027.",
+          "files": [
+            "backend/migrations/027_system_prompt_columns.sql",
+            "backend/models.py",
+            "backend/routes/videos.py"
+          ]
         }
       ]
     }
