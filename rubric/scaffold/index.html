@@ -1855,7 +1855,10 @@ window.__onTabShow = {};
 
       // PRD status
       const prdStatus = document.getElementById('tc-prd-status');
-      if (mission.active && !mission.decomposing) {
+      if (mission.active && mission.error) {
+        prdStatus.textContent = 'Deploy failed';
+        prdStatus.style.color = '#e35050';
+      } else if (mission.active && !mission.decomposing) {
         prdStatus.textContent = mission.done + '/' + mission.total + ' done';
         prdStatus.style.color = '#1A8A7A';
       } else if (mission.active && mission.decomposing) {
@@ -1926,18 +1929,49 @@ window.__onTabShow = {};
     const doneBadge = document.getElementById('tq-done-badge');
     const summary = document.getElementById('tq-summary');
     try {
-      const resp = await fetch('/api/task-queue');
+      const [resp, missionResp] = await Promise.all([fetch('/api/task-queue'), fetch('/api/mission-status')]);
       if (!resp.ok) return;
       const q = await resp.json();
+      const mission = missionResp.ok ? await missionResp.json() : {};
       const allTasks = (q.tabs || []).flatMap((tab, ti) => tab.tasks?.map((t, idx) => ({ ...t, _tab: tab.name, _tabIdx: ti, _taskIdx: idx })) || []);
       const pending = allTasks.filter(t => t.status !== 'done' && t.status !== 'blocked');
       const doneCount = allTasks.filter(t => t.status === 'done').length;
 
-      pendingBadge.textContent = pending.length;
-      doneBadge.textContent = doneCount;
-      summary.textContent = doneCount + '/' + allTasks.length + ' done';
+      // Include PRD tasks in counts
+      const prdPending = mission.active && !mission.decomposing && !mission.error ? (mission.total - mission.done - (mission.blocked || 0)) : 0;
+      const prdDone = mission.active && !mission.decomposing && !mission.error ? mission.done : 0;
+      const totalPending = pending.length + prdPending;
+      const totalDone = doneCount + prdDone;
 
-      if (pending.length === 0) {
+      pendingBadge.textContent = totalPending;
+      doneBadge.textContent = totalDone;
+      summary.textContent = totalDone + '/' + (allTasks.length + (mission.active && !mission.error ? mission.total || 0 : 0)) + ' done';
+
+      var html = '';
+
+      // Show PRD tasks first when active
+      if (mission.active && !mission.decomposing && !mission.error && mission.progress) {
+        var prdTitle = mission.title || 'Active PRD';
+        var lines = mission.progress.split('\n').filter(function(l) { return l.match(/^- \[[ x]\]/); });
+        var prdTasks = lines.map(function(l) {
+          var done = l.indexOf('[x]') !== -1;
+          var blocked = l.indexOf('BLOCKED') !== -1;
+          var text = l.replace(/^- \[[ x]\] /, '');
+          var taskId = (text.match(/^T(\d+):/) || [])[1] || '';
+          var roleMatch = text.match(/\((backend|frontend|qa|pipeline-tester|security|lead)\)/);
+          var role = roleMatch ? roleMatch[1] : '';
+          return { title: text, status: done ? 'done' : blocked ? 'blocked' : 'pending', role: role, id: 'T' + taskId };
+        });
+        var prdPendingTasks = prdTasks.filter(function(t) { return t.status !== 'done'; });
+        if (prdPendingTasks.length > 0) {
+          html += '<div style="padding:4px 8px;">';
+          html += '<div style="display:flex;align-items:center;gap:8px;padding:6px 4px;"><div style="font-size:11px;font-weight:600;color:#1A8A7A;text-transform:uppercase;letter-spacing:0.5px;">PRD: ' + tqEsc(prdTitle) + '</div><span style="font-size:9px;padding:1px 6px;border-radius:4px;background:rgba(26,138,122,0.15);color:#1A8A7A;">' + mission.done + '/' + mission.total + '</span></div>';
+          prdPendingTasks.forEach(function(t) { html += renderTaskCard(t, false); });
+          html += '</div>';
+        }
+      }
+
+      if (pending.length === 0 && !html) {
         list.innerHTML = '<div style="padding:16px;text-align:center;">' +
           '<div style="font-size:24px;margin-bottom:8px;">&#10003;</div>' +
           '<div style="color:#50e3c2;font-size:13px;font-weight:600;">Queue Clear</div>' +
@@ -1946,11 +1980,9 @@ window.__onTabShow = {};
         return;
       }
 
-      // Group by tab
+      // Regular queue tasks
       const groups = {};
       pending.forEach(t => { if (!groups[t._tab]) groups[t._tab] = []; groups[t._tab].push(t); });
-
-      var html = '';
       Object.entries(groups).forEach(function(entry) {
         var tab = entry[0], tasks = entry[1];
         html += '<div style="padding:4px 8px;">';
