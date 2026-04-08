@@ -5,6 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Loader2, CheckCircle, AlertCircle, ChevronRight } from "lucide-react";
 import { runPipelineStage, advanceVideo, clearStaleTask } from "@/lib/api";
 import { useTaskPoller } from "@/hooks/use-task-poller";
+import { useToast } from "@/components/ui/toast";
 
 /** Parse backend 400 errors into user-friendly messages with guidance */
 function friendlyError(raw: string): string {
@@ -25,6 +26,21 @@ function friendlyError(raw: string): string {
     const target = statusMatch[1].trim();
     const current = statusMatch[2].replace(/_/g, " ");
     return `Complete the "${current}" stage first before running ${target}.`;
+  }
+
+  // API key not configured or invalid
+  if (/api.key|not configured|missing.*key|invalid.*key|authentication|unauthorized/i.test(detail)) {
+    return "An API key is not configured or invalid. Check Settings → API Keys.";
+  }
+
+  // Rate limit
+  if (/rate.limit|Rate.limit|too many requests|429/i.test(detail)) {
+    return "Rate limit hit — wait a minute and try again.";
+  }
+
+  // Timeout
+  if (/timeout|Timeout|timed out|ETIMEDOUT/i.test(detail)) {
+    return "Request timed out — the service may be slow. Try again.";
   }
 
   // Task already running
@@ -66,6 +82,7 @@ export function StageAdvancer({
   videoId, stage, label, nextLabel, disabled, disabledReason, cost, showAdvance,
 }: StageAdvancerProps) {
   const queryClient = useQueryClient();
+  const toast = useToast();
   const [taskRunning, setTaskRunning] = useState(false);
   const [result, setResult] = useState<"success" | "error" | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -83,8 +100,10 @@ export function StageAdvancer({
     },
     onFailed: (err) => {
       setTaskRunning(false);
+      const friendly = err ? friendlyError(err) : "Task failed";
       setResult("error");
-      setErrorMsg(err);
+      setErrorMsg(friendly);
+      toast.error(friendly);
     },
   });
 
@@ -105,10 +124,12 @@ export function StageAdvancer({
           return;
         } catch { /* fall through to error display */ }
       }
+      const friendly = friendlyError(msg);
       setResult("error");
-      setErrorMsg(friendlyError(msg));
+      setErrorMsg(friendly);
+      toast.error(friendly);
     }
-  }, [videoId, stage]);
+  }, [videoId, stage, toast]);
 
   const handleRetry = () => {
     setResult(null);
