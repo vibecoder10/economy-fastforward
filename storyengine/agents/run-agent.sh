@@ -12,7 +12,42 @@ PROJECT_ROOT="${AGENT_PROJECT_ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
 AGENTS_DIR="$PROJECT_ROOT/storyengine/agents"
 REPORTS_DIR="$AGENTS_DIR/reports"
 RUBRIC_URL="${RUBRIC_URL:-http://localhost:5050}"
+ACTIVITY_LOG_FILE="$PROJECT_ROOT/rubric/scaffold/data/activity-log.json"
 CLAUDE_BIN="${CLAUDE_BIN:-claude}"
+
+# Post to activity log with file fallback when RUBRIC server is unreachable
+post_activity_log() {
+  local json_payload="$1"
+  local http_code
+  http_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 -X POST "$RUBRIC_URL/api/activity-log" \
+    -H "Content-Type: application/json" \
+    -d "$json_payload" 2>/dev/null) || http_code="000"
+  if [ "$http_code" != "200" ]; then
+    # Fallback: write directly to activity-log.json file
+    python3 -c "
+import json, sys, os, fcntl
+payload = json.loads(sys.argv[1])
+payload['timestamp'] = int(__import__('time').time() * 1000)
+log_file = '$ACTIVITY_LOG_FILE'
+try:
+    os.makedirs(os.path.dirname(log_file), exist_ok=True)
+    fd = open(log_file, 'r+' if os.path.exists(log_file) else 'w+')
+    fcntl.flock(fd, fcntl.LOCK_EX)
+    fd.seek(0)
+    try: log = json.load(fd)
+    except: log = []
+    log.insert(0, payload)
+    if len(log) > 200: log = log[:200]
+    fd.seek(0)
+    fd.truncate()
+    json.dump(log, fd, indent=2)
+    fcntl.flock(fd, fcntl.LOCK_UN)
+    fd.close()
+except Exception as e:
+    print(f'Activity log fallback failed: {e}', file=sys.stderr)
+" "$json_payload" 2>/dev/null || true
+  fi
+}
 SLACK_WEBHOOK="${SLACK_WEBHOOK:-}"
 BRANCH="agent-dev"
 TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
@@ -645,9 +680,7 @@ echo "Report saved: $REPORT_FILE"
 # ─── Handle Failure ─────────────────────────────────────────────────────────
 if [ $CLAUDE_EXIT -ne 0 ]; then
   ERROR_MSG="Agent crashed (exit code $CLAUDE_EXIT)"
-  curl -s -X POST "$RUBRIC_URL/api/activity-log" \
-    -H "Content-Type: application/json" \
-    -d "{\"agent\": \"$AGENT\", \"task\": \"\", \"summary\": $(echo "$ERROR_MSG" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().strip()))' 2>/dev/null || echo "\"$ERROR_MSG\""), \"status\": \"error\", \"detail_file\": \"$RUN_ID.md\"}" 2>/dev/null || true
+  post_activity_log "{\"agent\": \"$AGENT\", \"task\": \"\", \"summary\": $(echo "$ERROR_MSG" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().strip()))' 2>/dev/null || echo "\"$ERROR_MSG\""), \"status\": \"error\", \"detail_file\": \"$RUN_ID.md\"}"
   curl -s -X POST "$RUBRIC_URL/api/agent-status" \
     -H "Content-Type: application/json" \
     -d "{\"agent\": \"$AGENT\", \"status\": \"idle\", \"task\": \"$ERROR_MSG\"}" 2>/dev/null || true
@@ -669,18 +702,14 @@ fi
 DETAIL_JSON=$(echo "$DETAIL_LINES" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().strip()))' 2>/dev/null || echo "\"\"")
 SUMMARY_JSON=$(echo "$SUMMARY_LINE" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().strip()))' 2>/dev/null || echo "\"$SUMMARY_LINE\"")
 
-curl -s -X POST "$RUBRIC_URL/api/activity-log" \
-  -H "Content-Type: application/json" \
-  -d "{\"agent\": \"$AGENT\", \"task\": \"$TASK_LINE\", \"summary\": $SUMMARY_JSON, \"detail\": $DETAIL_JSON, \"detail_file\": \"$RUN_ID.md\", \"status\": \"completed\"}" 2>/dev/null || true
+post_activity_log "{\"agent\": \"$AGENT\", \"task\": \"$TASK_LINE\", \"summary\": $SUMMARY_JSON, \"detail\": $DETAIL_JSON, \"detail_file\": \"$RUN_ID.md\", \"status\": \"completed\"}"
 
 # ─── Extract Launch Score (Ops Mode) ──────────────────────────────────────
 if [ "$OPS_MODE" = "true" ]; then
   LAUNCH_SCORE=$(echo "$OUTPUT" | grep "^LAUNCH_SCORE:" | head -1 | sed 's/^LAUNCH_SCORE: *//' || echo "")
   if [ -n "$LAUNCH_SCORE" ]; then
     LAUNCH_SCORE_JSON=$(echo "$LAUNCH_SCORE" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().strip()))' 2>/dev/null || echo "\"$LAUNCH_SCORE\"")
-    curl -s -X POST "$RUBRIC_URL/api/activity-log" \
-      -H "Content-Type: application/json" \
-      -d "{\"agent\": \"$AGENT\", \"task\": \"launch-readiness\", \"summary\": $LAUNCH_SCORE_JSON, \"status\": \"completed\"}" 2>/dev/null || true
+    post_activity_log "{\"agent\": \"$AGENT\", \"task\": \"launch-readiness\", \"summary\": $LAUNCH_SCORE_JSON, \"status\": \"completed\"}"
   fi
 fi
 
@@ -774,9 +803,7 @@ if [ -d "$PLAYWRIGHT_DIR" ] && ls "$PLAYWRIGHT_DIR"/*.spec.ts 1>/dev/null 2>&1; 
   if [ $REGRESSION_EXIT -ne 0 ]; then
     echo "⚠️  REGRESSION DETECTED:"
     echo "$REGRESSION_RESULT"
-    curl -s -X POST "$RUBRIC_URL/api/activity-log" \
-      -H "Content-Type: application/json" \
-      -d "{\"agent\": \"$AGENT\", \"task\": \"regression\", \"summary\": \"REGRESSION: Playwright tests failed after $AGENT commit\", \"status\": \"error\"}" 2>/dev/null || true
+    post_activity_log "{\"agent\": \"$AGENT\", \"task\": \"regression\", \"summary\": \"REGRESSION: Playwright tests failed after $AGENT commit\", \"status\": \"error\"}"
   else
     echo "✅ Regression tests passed"
   fi
@@ -839,9 +866,7 @@ if [ "$FRONTEND_OK" != "200" ]; then
   echo "Frontend restarted"
   cd "$PROJECT_ROOT"
   # Notify
-  curl -s -X POST "$RUBRIC_URL/api/activity-log" \
-    -H "Content-Type: application/json" \
-    -d "{\"agent\": \"$AGENT\", \"task\": \"health-check\", \"summary\": \"Frontend was DOWN — auto-restarted\", \"status\": \"completed\"}" 2>/dev/null || true
+  post_activity_log "{\"agent\": \"$AGENT\", \"task\": \"health-check\", \"summary\": \"Frontend was DOWN — auto-restarted\", \"status\": \"completed\"}"
 fi
 
 if [ "$BACKEND_OK" = "000" ]; then
@@ -852,9 +877,7 @@ if [ "$BACKEND_OK" = "000" ]; then
   nohup ./venv/bin/python3 -m uvicorn main:app --host 0.0.0.0 --port 8001 > /tmp/storyengine-backend.log 2>&1 &
   echo "Backend restarted"
   cd "$PROJECT_ROOT"
-  curl -s -X POST "$RUBRIC_URL/api/activity-log" \
-    -H "Content-Type: application/json" \
-    -d "{\"agent\": \"$AGENT\", \"task\": \"health-check\", \"summary\": \"Backend was DOWN — auto-restarted\", \"status\": \"completed\"}" 2>/dev/null || true
+  post_activity_log "{\"agent\": \"$AGENT\", \"task\": \"health-check\", \"summary\": \"Backend was DOWN — auto-restarted\", \"status\": \"completed\"}"
 fi
 
 echo "Health check: frontend=$FRONTEND_OK backend=$BACKEND_OK"

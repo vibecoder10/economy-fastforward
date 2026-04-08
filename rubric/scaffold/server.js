@@ -1084,8 +1084,17 @@ const server = http.createServer(async (req, res) => {
     fs.writeFileSync(prdPath, body.content);
     const projectRoot = path.resolve(__dirname, '../../');
     // Chain: decompose → set focus → spawn agents for each role
-    exec(`cd "${projectRoot}" && CLAUDE_BIN="${CLAUDE_BIN}" bash agents/decompose.sh agents/prd.md > /tmp/decompose.log 2>&1`, (err) => {
-      if (err) { console.error('Decompose failed:', err.message); return; }
+    exec(`cd "${projectRoot}" && CLAUDE_BIN="${CLAUDE_BIN}" bash agents/decompose.sh agents/prd.md > /tmp/decompose.log 2>&1`, {
+      timeout: 1200000, maxBuffer: 10 * 1024 * 1024,
+      env: { ...process.env, HOME: process.env.HOME || require('os').homedir(), PATH: `${process.env.PATH}:${path.join(process.env.HOME || require('os').homedir(), '.npm-global/bin')}` }
+    }, (err) => {
+      if (err) {
+        const msg = err.killed ? 'Decomposition timed out after 20 minutes' : `Decompose failed: ${err.message.substring(0, 200)}`;
+        console.error(msg);
+        // Write error state so frontend can detect failure and offer retry
+        try { fs.writeFileSync(path.join(agentsDir, 'prd.json'), JSON.stringify({ error: true, message: msg, timestamp: Date.now() })); } catch {}
+        return;
+      }
       console.log('PRD decomposition complete — setting focus and spawning agents');
       try {
         const prd = JSON.parse(fs.readFileSync(path.join(agentsDir, 'prd.json'), 'utf8'));
@@ -1122,6 +1131,8 @@ const server = http.createServer(async (req, res) => {
     try { prdRaw = fs.readFileSync(prdMdPath, 'utf8'); } catch {}
     if (!prd && !prdRaw) { sendJSON(res, { active: false }); return; }
     if (!prd && prdRaw) { sendJSON(res, { active: true, decomposing: true, title: 'Decomposing...' }); return; }
+    // Detect decompose failure (error prd.json written by timeout/crash handler)
+    if (prd && prd.error) { sendJSON(res, { active: true, error: true, errorMessage: prd.message || 'Decomposition failed', hasPrdMd: !!prdRaw }); return; }
     const total = prd.tasks?.length || 0;
     // Parse completion from progress.md (agents update this, not prd.json)
     const doneFromProgress = (progress.match(/- \[x\]/gi) || []).length;
@@ -1130,6 +1141,16 @@ const server = http.createServer(async (req, res) => {
     const blocked = blockedFromProgress || (prd.tasks || []).filter(t => t.status === 'blocked').length;
     const inProgress = Math.max(0, total - done - blocked);
     sendJSON(res, { active: true, decomposing: false, title: prd.title || 'Untitled', total, done, blocked, inProgress, progress });
+    return;
+  }
+
+  // GET /api/recover-prd — read prd.md from disk so frontend can recover after failure
+  if (pathname === '/api/recover-prd' && req.method === 'GET') {
+    const prdMdPath = path.join(__dirname, '../../agents/prd.md');
+    try {
+      const content = fs.readFileSync(prdMdPath, 'utf8');
+      sendJSON(res, { content });
+    } catch { sendJSON(res, { content: '' }); }
     return;
   }
 

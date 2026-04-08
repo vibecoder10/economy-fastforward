@@ -1709,6 +1709,35 @@ window.__onTabShow = {};
     btn.disabled = false;
   };
 
+  // Retry decompose — re-deploy the same prd.md that's already on disk
+  window.retryDecompose = async function() {
+    try {
+      const resp = await fetch('/api/recover-prd');
+      const { content } = await resp.json();
+      if (!content) { alert('No PRD found on disk to retry.'); return; }
+      // Clear the error state first
+      await fetch('/api/mission', { method: 'DELETE' });
+      // Re-deploy with the same content
+      const res = await fetch('/api/deploy-prd', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content }) });
+      if (res.ok) { pollMission(); }
+    } catch (e) { alert('Retry failed: ' + e.message); }
+  };
+
+  // Recover PRD — load prd.md back into the editor textarea
+  window.recoverPRD = async function() {
+    try {
+      const resp = await fetch('/api/recover-prd');
+      const { content } = await resp.json();
+      await fetch('/api/mission', { method: 'DELETE' });
+      document.getElementById('cc-prd-input').style.display = 'block';
+      document.getElementById('cc-mission-active').style.display = 'none';
+      const textarea = document.getElementById('cc-prd-textarea');
+      if (textarea && content) textarea.value = content;
+      if (typeof pollTeamMode === 'function') pollTeamMode();
+      loadControls();
+    } catch (e) { alert('Recovery failed: ' + e.message); }
+  };
+
   // Clear mission (delegates to enhanced version)
   window.clearMission = async function() {
     if (!confirm('Clear PRD + focus directive + error tracker?')) return;
@@ -1991,7 +2020,22 @@ window.__onTabShow = {};
       document.getElementById('cc-prd-input').style.display = 'none';
       document.getElementById('cc-mission-active').style.display = 'block';
       document.getElementById('cc-mission-title').textContent = data.title || 'Untitled';
-      if (data.decomposing) {
+      if (data.error) {
+        // Decomposition failed or timed out — show error with recovery options
+        window._decomposeStart = null;
+        if (window._fastPoll) { clearInterval(window._fastPoll); window._fastPoll = null; }
+        document.getElementById('cc-progress-bar').style.width = '100%';
+        document.getElementById('cc-progress-bar').style.opacity = '1';
+        document.getElementById('cc-progress-bar').style.background = '#e35050';
+        document.getElementById('cc-progress-bar').style.animation = 'none';
+        document.getElementById('cc-mission-title').textContent = 'Decomposition Failed';
+        document.getElementById('cc-mission-stats').innerHTML =
+          '<div style="color:#e35050;margin-bottom:12px;">' + esc(data.errorMessage || 'Unknown error') + '</div>' +
+          (data.hasPrdMd ? '<div style="display:flex;gap:8px;">' +
+            '<button onclick="retryDecompose()" style="background:#1A8A7A;border:none;color:white;padding:8px 16px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;font-family:Outfit,sans-serif;">Retry Deploy</button>' +
+            '<button onclick="recoverPRD()" style="background:#333;border:1px solid #444;color:#ccc;padding:8px 16px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;font-family:Outfit,sans-serif;">Recover PRD to Editor</button>' +
+          '</div>' : '');
+      } else if (data.decomposing) {
         if (!window._decomposeStart) window._decomposeStart = Date.now();
         const secs = Math.floor((Date.now() - window._decomposeStart) / 1000);
         const phases = ['Reading PRD', 'Identifying features', 'Creating tasks', 'Writing acceptance criteria', 'Ordering dependencies'];
