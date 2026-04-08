@@ -10,6 +10,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   getLearnings, extractLearnings, analyzeCompetitorTitles,
   analyzeTranscripts, toggleLearning, getAutopilotLearnings,
+  getTopicPerformance,
   type LearningRecord, type ExtractionResult, type Learning,
 } from "@/lib/api";
 import { GlassCard } from "@/components/ui/GlassCard";
@@ -77,7 +78,17 @@ export default function LearningsPage() {
     queryFn: () => getAutopilotLearnings(undefined, 50),
   });
 
+  const { data: topics } = useQuery({
+    queryKey: ["analytics-topic-performance"],
+    queryFn: getTopicPerformance,
+  });
+
   const anyRunning = extractMutation.isPending || titlesMutation.isPending || transcriptsMutation.isPending;
+
+  // Derive insight stats
+  const provenCount = learnings?.filter((l) => l.confidence >= 60 && l.active).length ?? 0;
+  const avoidCount = learnings?.filter((l) => l.confidence <= 30 && l.active).length ?? 0;
+  const topTopic = topics?.filter((t) => t.avg_ctr !== null).sort((a, b) => (b.avg_ctr ?? 0) - (a.avg_ctr ?? 0))[0];
 
   return (
     <div className="p-4 md:p-8 max-w-[1200px] mx-auto space-y-6">
@@ -96,6 +107,42 @@ export default function LearningsPage() {
           {learnings?.length ?? 0} patterns
         </div>
       </div>
+
+      {/* Insight Summary Cards */}
+      {(provenCount > 0 || avoidCount > 0 || topTopic) && (
+        <motion.div variants={item} className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <GlassCard className="!p-4">
+            <div className="flex items-center gap-2 mb-1">
+              <TrendingUp size={14} style={{ color: "var(--green)" }} />
+              <span className="text-[10px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>Proven</span>
+            </div>
+            <p className="text-2xl font-mono font-bold" style={{ color: "var(--green)" }}>{provenCount}</p>
+            <p className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>High-confidence patterns</p>
+          </GlassCard>
+          <GlassCard className="!p-4">
+            <div className="flex items-center gap-2 mb-1">
+              <ChevronDown size={14} style={{ color: "var(--red)" }} />
+              <span className="text-[10px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>Avoid</span>
+            </div>
+            <p className="text-2xl font-mono font-bold" style={{ color: "var(--red)" }}>{avoidCount}</p>
+            <p className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>Anti-patterns detected</p>
+          </GlassCard>
+          <GlassCard className="!p-4">
+            <div className="flex items-center gap-2 mb-1">
+              <Sparkles size={14} style={{ color: "var(--gold)" }} />
+              <span className="text-[10px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>Top Topic</span>
+            </div>
+            {topTopic ? (
+              <>
+                <p className="text-sm font-semibold truncate" style={{ color: "var(--text-primary)" }}>{topTopic.topic}</p>
+                <p className="text-[10px] font-mono" style={{ color: "var(--gold)" }}>{topTopic.avg_ctr?.toFixed(1)}% CTR · {topTopic.video_count} videos</p>
+              </>
+            ) : (
+              <p className="text-sm" style={{ color: "var(--text-tertiary)" }}>No data yet</p>
+            )}
+          </GlassCard>
+        </motion.div>
+      )}
 
       {/* Action Bar */}
       <GlassCard className="p-4">
