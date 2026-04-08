@@ -1662,18 +1662,19 @@ window.__onTabShow = {};
       const { taskId } = await res.json();
       if (!taskId) { throw new Error('No taskId returned'); }
       // Poll for result
+      let safetyTimeout = null;
       const poll = setInterval(async () => {
         try {
           const r = await fetch('/api/generate-prd/' + taskId);
           const data = await r.json();
           if (data.status === 'done') {
-            clearInterval(poll); clearInterval(ticker);
+            clearInterval(poll); clearInterval(ticker); clearTimeout(safetyTimeout);
             textarea.value = data.prd;
             btn.textContent = 'Generate PRD';
             btn.disabled = false;
             btn.style.opacity = '1';
           } else if (data.status === 'error') {
-            clearInterval(poll); clearInterval(ticker);
+            clearInterval(poll); clearInterval(ticker); clearTimeout(safetyTimeout);
             alert('PRD generation failed: ' + data.error);
             btn.textContent = 'Generate PRD';
             btn.disabled = false;
@@ -1684,7 +1685,7 @@ window.__onTabShow = {};
       // Safety timeout after 10 minutes (Opus can take a while on long prompts)
       let elapsed = 0;
       const ticker = setInterval(() => { elapsed += 1; btn.textContent = 'Generating... (' + elapsed + 's)'; }, 1000);
-      setTimeout(() => { clearInterval(poll); clearInterval(ticker); btn.textContent = 'Generate PRD'; btn.disabled = false; btn.style.opacity = '1'; alert('Generation timed out after 10 minutes.'); }, 600000);
+      safetyTimeout = setTimeout(() => { clearInterval(poll); clearInterval(ticker); btn.textContent = 'Generate PRD'; btn.disabled = false; btn.style.opacity = '1'; alert('Generation timed out after 10 minutes.'); }, 600000);
     } catch (e) {
       alert('Generate failed: ' + e.message);
       btn.textContent = 'Generate PRD';
