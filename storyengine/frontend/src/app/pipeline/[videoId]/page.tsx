@@ -119,7 +119,7 @@ function getStepFromStatus(status: string): number {
 
 function getCompletedSteps(status: string): number[] {
   const current = getStepFromStatus(status);
-  if (["uploaded", "uploaded_draft", "done", "published", "rendered"].includes(status)) {
+  if (["uploaded", "uploaded_draft", "done", "published"].includes(status)) {
     return [1, 2, 3, 4, 5, 6];
   }
   return Array.from({ length: Math.max(current - 1, 0) }, (_, i) => i + 1);
@@ -142,7 +142,7 @@ export default function VideoDetailPage() {
   const queryClient = useQueryClient();
   const toast = useToast();
 
-  const TERMINAL_STATUSES = new Set(["rendered", "uploaded", "uploaded_draft", "done", "published"]);
+  const TERMINAL_STATUSES = new Set(["uploaded", "uploaded_draft", "done", "published"]);
 
   const { data: video, isLoading, error } = useQuery({
     queryKey: ["video", videoId],

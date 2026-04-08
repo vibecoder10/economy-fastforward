@@ -71,5 +71,5 @@ export const FILTER_OPTIONS = [
 
 // Statuses that mean "done/uploaded" — used to separate from active production
 export const COMPLETED_STATUSES = new Set([
-  "uploaded_draft", "uploaded", "done", "rendered",
+  "uploaded_draft", "uploaded", "done",
 ]);
