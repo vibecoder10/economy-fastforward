@@ -22,6 +22,8 @@ class ChannelProfile(BaseModel):
     niche: str = ""
     target_audience: str = ""
     frameworks: list[str] = []
+    accent_color: str = ""
+    logo_url: str = ""
 
 
 class ChannelProfileUpdate(BaseModel):
@@ -30,6 +32,8 @@ class ChannelProfileUpdate(BaseModel):
     niche: Optional[str] = None
     target_audience: Optional[str] = None
     frameworks: Optional[list[str]] = None
+    accent_color: Optional[str] = None
+    logo_url: Optional[str] = None
 
 
 class IntegrationStatus(BaseModel):
@@ -70,7 +74,7 @@ async def get_channel_profile(tenant_id: str = Depends(get_tenant_id)):
     await _ensure_table()
 
     row = await fetch_one(
-        """SELECT channel_name, niche, target_audience, frameworks
+        """SELECT channel_name, niche, target_audience, frameworks, accent_color, logo_url
            FROM channel_profiles WHERE tenant_id = $1""",
         tenant_id,
     )
@@ -90,6 +94,8 @@ async def get_channel_profile(tenant_id: str = Depends(get_tenant_id)):
         niche=row.get("niche") or "",
         target_audience=row.get("target_audience") or "",
         frameworks=frameworks,
+        accent_color=row.get("accent_color") or "",
+        logo_url=row.get("logo_url") or "",
     )
 
 
@@ -115,13 +121,15 @@ async def update_channel_profile(
         # Create new profile with provided values
         frameworks_json = json.dumps(update.frameworks or [])
         await execute(
-            """INSERT INTO channel_profiles (tenant_id, channel_name, niche, target_audience, frameworks)
-               VALUES ($1, $2, $3, $4, $5::jsonb)""",
+            """INSERT INTO channel_profiles (tenant_id, channel_name, niche, target_audience, frameworks, accent_color, logo_url)
+               VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7)""",
             tenant_id,
             update.channel_name or "",
             update.niche or "",
             update.target_audience or "",
             frameworks_json,
+            update.accent_color or "",
+            update.logo_url or "",
         )
     else:
         # Build dynamic update
@@ -149,6 +157,16 @@ async def update_channel_profile(
             sets.append(f"frameworks = ${param_idx}::jsonb")
             params.append(json.dumps(update.frameworks))
 
+        if update.accent_color is not None:
+            param_idx += 1
+            sets.append(f"accent_color = ${param_idx}")
+            params.append(update.accent_color)
+
+        if update.logo_url is not None:
+            param_idx += 1
+            sets.append(f"logo_url = ${param_idx}")
+            params.append(update.logo_url)
+
         if sets:
             sets.append("updated_at = now()")
             query = f"UPDATE channel_profiles SET {', '.join(sets)} WHERE tenant_id = $1"
@@ -156,6 +174,15 @@ async def update_channel_profile(
 
     # Return updated profile
     return await get_channel_profile(tenant_id)
+
+
+@router.patch("", response_model=ChannelProfile)
+async def patch_channel_profile(
+    update: ChannelProfileUpdate,
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """Partial update channel profile (same logic as PUT)."""
+    return await update_channel_profile(update, tenant_id)
 
 
 @router.get("/integrations", response_model=list[IntegrationStatus])
