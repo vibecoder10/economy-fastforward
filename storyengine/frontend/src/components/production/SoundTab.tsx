@@ -7,7 +7,8 @@ import { GlassCard } from "@/components/ui/GlassCard";
 import { SegmentBadge } from "@/components/ui/SegmentBadge";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { ActionButton } from "@/components/ui/ActionButton";
-import { getVideoScript, getVideoAssets, runPipelineStage, advanceVideo, clearStaleTask } from "@/lib/api";
+import { SystemPromptEditor } from "@/components/ui/SystemPromptEditor";
+import { getVideoScript, getVideoAssets, runPipelineStage, advanceVideo, clearStaleTask, getDefaultSoundCurationPrompt, updateVideo } from "@/lib/api";
 import { useTaskPoller } from "@/hooks/use-task-poller";
 import type { ScriptScene, Asset } from "@/lib/api";
 
@@ -194,6 +195,22 @@ export function SoundTab({ video, onAdvanced }: SoundTabProps) {
         </button>
       </div>
     </div>
+    {/* Sound System Prompt */}
+    <SystemPromptEditor
+      label="Sound System Prompt"
+      currentValue={video.sound_system_prompt}
+      onSave={async (text) => {
+        await updateVideo(video.id, { sound_system_prompt: text || null });
+        queryClient.invalidateQueries({ queryKey: ["video", video.id] });
+      }}
+      onReset={async () => {
+        const res = await getDefaultSoundCurationPrompt();
+        await updateVideo(video.id, { sound_system_prompt: null });
+        queryClient.invalidateQueries({ queryKey: ["video", video.id] });
+        return res.prompt;
+      }}
+    />
+
     <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-6">
       {/* Scene list */}
       <div className="space-y-3">

@@ -19,6 +19,7 @@ import {
   Palette,
   BarChart3,
   CalendarDays,
+  ScrollText,
   Settings,
   Key,
 } from "lucide-react";
@@ -37,6 +38,7 @@ const moreTabs = [
   { href: "/profile", icon: Palette, label: "Visual Profile" },
   { href: "/analytics", icon: BarChart3, label: "Analytics" },
   { href: "/calendar", icon: CalendarDays, label: "Calendar" },
+  { href: "/system-prompts", icon: ScrollText, label: "System Prompts" },
   { href: "/settings", icon: Settings, label: "Settings" },
   { href: "/settings/keys", icon: Key, label: "API Keys" },
 ];
