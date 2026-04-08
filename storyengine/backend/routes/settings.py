@@ -13,9 +13,11 @@ from pydantic import BaseModel
 from auth import get_tenant_id
 from database import execute
 
-# Rate limiting for key reveal: max 5 per minute per tenant
+# Rate limiting: max N requests per minute per tenant
 _reveal_timestamps: dict[str, list[float]] = defaultdict(list)
+_list_timestamps: dict[str, list[float]] = defaultdict(list)
 REVEAL_RATE_LIMIT = 5
+LIST_RATE_LIMIT = 10
 REVEAL_WINDOW_SECONDS = 60
 from vault import (
     get_secret,
@@ -64,6 +66,13 @@ async def list_api_keys(tenant_id: str = Depends(get_tenant_id)):
 
     Returns masked values for configured keys.
     """
+    now = time.time()
+    ts = _list_timestamps[str(tenant_id)]
+    _list_timestamps[str(tenant_id)] = [t for t in ts if now - t < REVEAL_WINDOW_SECONDS]
+    if len(_list_timestamps[str(tenant_id)]) >= LIST_RATE_LIMIT:
+        raise HTTPException(status_code=429, detail="Rate limit exceeded. Try again later.")
+    _list_timestamps[str(tenant_id)].append(now)
+
     # Get status for all known keys
     keys = []
     for key_name in SECRET_ENV_MAP.keys():
@@ -84,6 +93,13 @@ async def get_api_key_status(
     tenant_id: str = Depends(get_tenant_id),
 ):
     """Get status of a specific API key."""
+    now = time.time()
+    ts = _list_timestamps[str(tenant_id)]
+    _list_timestamps[str(tenant_id)] = [t for t in ts if now - t < REVEAL_WINDOW_SECONDS]
+    if len(_list_timestamps[str(tenant_id)]) >= LIST_RATE_LIMIT:
+        raise HTTPException(status_code=429, detail="Rate limit exceeded. Try again later.")
+    _list_timestamps[str(tenant_id)].append(now)
+
     if key_name not in SECRET_ENV_MAP:
         raise HTTPException(status_code=404, detail=f"Unknown key: {key_name}")
 
