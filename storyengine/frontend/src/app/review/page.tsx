@@ -115,8 +115,20 @@ export default function ReviewPage() {
 
       {/* Empty state */}
       {!isLoading && currentItems.length === 0 && (
-        <div className="flex h-40 items-center justify-center rounded-xl border border-[var(--border)] bg-[var(--surface)]">
-          <p className="text-sm text-[var(--text-secondary)]">Nothing to review</p>
+        <div className="flex h-48 flex-col items-center justify-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface)]">
+          {activeTab === "scripts" && <FileText size={28} className="text-[var(--text-tertiary)]" />}
+          {activeTab === "storyboards" && <LayoutGrid size={28} className="text-[var(--text-tertiary)]" />}
+          {activeTab === "thumbnails" && <Palette size={28} className="text-[var(--text-tertiary)]" />}
+          {activeTab === "images" && <Image size={28} className="text-[var(--text-tertiary)]" />}
+          <p className="text-sm text-[var(--text-secondary)]">
+            {activeTab === "scripts" && "No scripts pending review"}
+            {activeTab === "storyboards" && "No storyboards pending review"}
+            {activeTab === "thumbnails" && "No thumbnails pending review"}
+            {activeTab === "images" && "No images pending review"}
+          </p>
+          <p className="text-xs text-[var(--text-tertiary)]">
+            Items appear here when pipeline stages complete
+          </p>
         </div>
       )}
 

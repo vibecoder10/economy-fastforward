@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "current_tab": 31,
+  "current_tab": 32,
   "last_updated": "2026-04-08",
-  "last_updated_by": "qa-engineer",
+  "last_updated_by": "frontend-dev",
   "tabs": [
     {
       "id": 1,
@@ -3409,6 +3409,31 @@
             "backend/models.py",
             "backend/routes/videos.py"
           ]
+        }
+      ]
+    },
+    {
+      "id": 32,
+      "name": "Empty States Polish (Phase 2.5)",
+      "path": "cross-cutting",
+      "status": "complete",
+      "completed_at": "2026-04-08T17:00:00Z",
+      "tasks": [
+        {
+          "id": "T32-001",
+          "title": "Add empty state improvements to Calendar, Review, and Autopilot pages",
+          "role": "frontend",
+          "status": "done",
+          "started_at": "2026-04-08T16:45:00Z",
+          "completed_at": "2026-04-08T17:00:00Z",
+          "assigned_to": "frontend-dev",
+          "description": "Calendar: added empty month indicator with CalendarDays icon when no videos exist. Review: per-tab specific empty states with matching icons and contextual messages. Autopilot: added candidates empty state with Rocket icon and CTA to set up competitors.",
+          "files": [
+            "frontend/src/app/calendar/page.tsx",
+            "frontend/src/app/review/page.tsx",
+            "frontend/src/app/autopilot/page.tsx"
+          ],
+          "verified": false
         }
       ]
     }

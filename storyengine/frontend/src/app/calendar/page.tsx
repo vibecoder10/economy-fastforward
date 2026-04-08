@@ -6,7 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { getCalendarVideos, CalendarVideo } from "@/lib/api";
 import { getStageLabel, getStageColor } from "@/lib/constants";
 import { Spinner } from "@/components/ui/spinner";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, CalendarDays } from "lucide-react";
 import { motion } from "framer-motion";
 
 function formatMonth(date: Date): string {
@@ -80,6 +80,13 @@ export default function CalendarPage() {
 
   const days = useMemo(() => getCalendarDays(year, month), [year, month]);
   const todayStr = toDateStr(today);
+  const totalVideos = useMemo(() => {
+    if (!data) return 0;
+    return Object.values(data).reduce(
+      (sum, vids) => sum + (vids as CalendarVideo[]).length,
+      0
+    );
+  }, [data]);
 
   function goPrev() {
     if (month === 0) {
@@ -234,6 +241,19 @@ export default function CalendarPage() {
             );
           })}
         </motion.div>
+      )}
+
+      {/* Empty month indicator */}
+      {!isLoading && totalVideos === 0 && (
+        <div className="flex flex-col items-center justify-center py-8 gap-2 mt-2">
+          <CalendarDays size={28} style={{ color: "var(--text-tertiary)" }} />
+          <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+            No videos scheduled this month
+          </p>
+          <p className="text-xs" style={{ color: "var(--text-tertiary)" }}>
+            Videos appear on their creation or upload date
+          </p>
+        </div>
       )}
     </div>
   );
