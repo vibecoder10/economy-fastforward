@@ -2,7 +2,7 @@
   "version": 2,
   "current_tab": 31,
   "last_updated": "2026-04-08",
-  "last_updated_by": "qa-engineer",
+  "last_updated_by": "frontend-dev",
   "tabs": [
     {
       "id": 1,
@@ -3298,7 +3298,7 @@
           "id": "T30-002",
           "title": "Frontend: /reset-password page + forgot password link on /login",
           "role": "frontend",
-          "status": "pending",
+          "status": "done",
           "depends_on": "T30-001",
           "description": "Three things to build:\n\n1. Add 'Forgot password?' link to /login page (login/page.tsx). Place it below the password field, small text, links to /forgot-password.\n\n2. Create /forgot-password page (frontend/src/app/forgot-password/page.tsx). Single email input + 'Send Reset Link' button. Calls POST /api/auth/forgot-password with { email }. On success: show 'Check your email for a reset link' (always, even for unknown emails \u2014 prevents enumeration). Add forgotPassword(email) to api.ts. Add /forgot-password to PUBLIC_PATHS in AuthenticatedShell.tsx.\n\n3. Create /reset-password page (frontend/src/app/reset-password/page.tsx). Reads ?token= from URL query params (useSearchParams). Shows new password + confirm password form. Calls POST /api/auth/reset-password with { token, new_password }. On success: show 'Password updated' + 'Back to login' link. On error (invalid/expired token): show error with link to /forgot-password. Add resetPassword(token, new_password) to api.ts. Add /reset-password to PUBLIC_PATHS.\n\nDesign: Match existing login page dark theme. No sidebar (public pages).",
           "files": [
@@ -3307,7 +3307,10 @@
             "frontend/src/app/reset-password/page.tsx",
             "frontend/src/lib/api.ts",
             "frontend/src/components/auth/AuthenticatedShell.tsx"
-          ]
+          ],
+          "started_at": "2026-04-08T12:02:00Z",
+          "completed_at": "2026-04-08T12:12:00Z",
+          "assigned_to": "frontend-dev"
         },
         {
           "id": "T30-003",

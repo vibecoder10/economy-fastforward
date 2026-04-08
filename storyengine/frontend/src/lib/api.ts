@@ -99,6 +99,18 @@ export const loginUser = (email: string, password: string) =>
 
 export const getMe = () => fetchApi<AuthUser>("/api/auth/me");
 
+export const forgotPassword = (email: string) =>
+  fetchApi<{ status: string; message: string }>("/api/auth/forgot-password", {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+
+export const resetPassword = (token: string, new_password: string) =>
+  fetchApi<{ status: string; message: string }>("/api/auth/reset-password", {
+    method: "POST",
+    body: JSON.stringify({ token, new_password }),
+  });
+
 // Dashboard
 export const getDashboardSummary = () => fetchApi<DashboardSummary>("/api/dashboard/summary");
 

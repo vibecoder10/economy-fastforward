@@ -9,7 +9,7 @@ import { Sidebar } from "@/components/nav/sidebar";
 import { BottomTabs } from "@/components/nav/bottom-tabs";
 import { Spinner } from "@/components/ui/spinner";
 
-const PUBLIC_PATHS = ["/login", "/onboarding", "/pricing"];
+const PUBLIC_PATHS = ["/login", "/onboarding", "/pricing", "/forgot-password", "/reset-password"];
 
 // Routes that require Pro plan or above
 const PRO_PATHS = ["/autopilot", "/analytics", "/learnings", "/competitors", "/discovery"];
