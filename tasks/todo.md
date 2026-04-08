@@ -15,13 +15,15 @@
 - System prompt editors on pipeline tabs
 - Trial countdown badge + banner
 - REG24 regression sweep: 24/24 pages, 33/33 API, 9/9 tabs — 0 bugs
+- UX Polish PRD backend tasks: render_minutes tracking, suggest-titles endpoint, welcome email
 
 ### Next Up (from roadmap Day 3-5)
 - [ ] Plan enforcement: `tenant_usage` table, `check_plan_limits()` middleware, usage hooks
 - [ ] Free trial logic: 14-day Creator trial on signup, countdown, downgrade-on-expiry
 - [ ] Password reset flow: token table, email (Resend), `/reset-password` page
 - [ ] Disable dev-token in production mode
-- [ ] Create video simplification: URL/topic → 3 title suggestions → pick → go
+- [x] Create video simplification: POST /api/videos/suggest-titles endpoint built
+- [ ] Frontend: wire suggest-titles into create video flow (PRD Task 8)
 
 ---
 

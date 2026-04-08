@@ -15,6 +15,7 @@ import {
 import { GlassCard } from "@/components/ui/GlassCard";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { Spinner } from "@/components/ui/spinner";
+import { EmptyState } from "@/components/ui/EmptyState";
 
 const container = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.08 } } };
 const item = { hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0, transition: { duration: 0.5 } } };
@@ -177,12 +178,13 @@ export default function LearningsPage() {
       {isLoading ? (
         <div className="flex justify-center py-16"><Spinner size="lg" /></div>
       ) : !learnings?.length ? (
-        <GlassCard className="p-12 text-center">
-          <Brain size={32} style={{ color: "var(--text-tertiary)", margin: "0 auto 12px" }} />
-          <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
-            No patterns found. Run &quot;Extract Learnings&quot; after publishing videos with performance data.
-          </p>
-        </GlassCard>
+        <EmptyState
+          icon={Brain}
+          title="No patterns found"
+          description='Run "Extract Learnings" after publishing videos with performance data.'
+          actionLabel="Extract Learnings"
+          onAction={() => extractMutation.mutate()}
+        />
       ) : (
         <motion.div
           className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
@@ -213,12 +215,13 @@ export default function LearningsPage() {
         {insightsLoading ? (
           <div className="flex justify-center py-8"><Spinner size="md" /></div>
         ) : !titleInsights?.length ? (
-          <GlassCard className="p-8 text-center">
-            <TrendingUp size={24} style={{ color: "var(--text-tertiary)", margin: "0 auto 8px" }} />
-            <p className="text-xs" style={{ color: "var(--text-secondary)" }}>
-              No title insights yet. Run &quot;Analyze Titles&quot; to discover patterns.
-            </p>
-          </GlassCard>
+          <EmptyState
+            icon={TrendingUp}
+            title="No title insights yet"
+            description='Run "Analyze Titles" to discover patterns.'
+            actionLabel="Analyze Titles"
+            onAction={() => titlesMutation.mutate()}
+          />
         ) : (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {titleInsights.map((insight) => (

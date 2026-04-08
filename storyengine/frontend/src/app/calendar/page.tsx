@@ -6,6 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { getCalendarVideos, CalendarVideo } from "@/lib/api";
 import { getStageLabel, getStageColor } from "@/lib/constants";
 import { Spinner } from "@/components/ui/spinner";
+import { EmptyState } from "@/components/ui/EmptyState";
 import { ChevronLeft, ChevronRight, CalendarDays } from "lucide-react";
 import { motion } from "framer-motion";
 
@@ -245,15 +246,11 @@ export default function CalendarPage() {
 
       {/* Empty month indicator */}
       {!isLoading && totalVideos === 0 && (
-        <div className="flex flex-col items-center justify-center py-8 gap-2 mt-2">
-          <CalendarDays size={28} style={{ color: "var(--text-tertiary)" }} />
-          <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
-            No videos scheduled this month
-          </p>
-          <p className="text-xs" style={{ color: "var(--text-tertiary)" }}>
-            Videos appear on their creation or upload date
-          </p>
-        </div>
+        <EmptyState
+          icon={CalendarDays}
+          title="No videos scheduled this month"
+          description="Videos appear on their creation or upload date"
+        />
       )}
     </div>
   );

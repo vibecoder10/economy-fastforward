@@ -12,6 +12,7 @@ import { ActionButton } from "@/components/ui/ActionButton";
 import { Spinner } from "@/components/ui/spinner";
 import { Modal } from "@/components/ui/modal";
 import { NicheSetup } from "@/components/autopilot/niche-setup";
+import { EmptyState } from "@/components/ui/EmptyState";
 import {
   getNicheConfig,
   getNicheChannels,
@@ -596,13 +597,11 @@ export default function CompetitorsPage() {
         </motion.div>
       ) : (
         <motion.div variants={item}>
-          <GlassCard className="!p-12 text-center">
-            <p className="font-body" style={{ color: "var(--text-tertiary)" }}>
-              {channelFilter !== "all"
-                ? `No videos from ${channelFilter}`
-                : "No competitor videos found. Add channels and scrape to start."}
-            </p>
-          </GlassCard>
+          <EmptyState
+            icon={Filter}
+            title={channelFilter !== "all" ? `No videos from ${channelFilter}` : "No competitor videos found"}
+            description={channelFilter !== "all" ? "Try a different channel filter." : "Add channels and scrape to start."}
+          />
         </motion.div>
       )}
 

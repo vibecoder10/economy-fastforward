@@ -24,6 +24,7 @@ import { VerdictBadge } from "@/components/ui/VerdictBadge";
 import { FilterSelect } from "@/components/ui/FilterSelect";
 import { ActionButton } from "@/components/ui/ActionButton";
 import { Spinner } from "@/components/ui/spinner";
+import { EmptyState } from "@/components/ui/EmptyState";
 import {
   getVideos,
   getLearnings,
@@ -382,14 +383,11 @@ export default function AnalyticsPage() {
               <Spinner />
             </div>
           ) : chartData.length === 0 ? (
-            <div
-              className="h-72 flex items-center justify-center rounded-xl"
-              style={{ background: "rgba(255,255,255,0.02)" }}
-            >
-              <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
-                No published videos with performance data yet.
-              </p>
-            </div>
+            <EmptyState
+              icon={TrendingUp}
+              title="No performance data yet"
+              description="Publish videos to see CTR and views charts here."
+            />
           ) : (
             <div className="h-72">
               <ResponsiveContainer width="100%" height="100%">
@@ -650,14 +648,11 @@ export default function AnalyticsPage() {
             Video Performance
           </h2>
           {sortedVideos.length === 0 ? (
-            <div
-              className="rounded-xl p-8 text-center"
-              style={{ background: "rgba(255,255,255,0.02)" }}
-            >
-              <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
-                No published videos to analyze.
-              </p>
-            </div>
+            <EmptyState
+              icon={BarChart3}
+              title="No published videos to analyze"
+              description="Performance data appears after you upload videos to YouTube."
+            />
           ) : (
             <table className="w-full text-left">
               <thead>

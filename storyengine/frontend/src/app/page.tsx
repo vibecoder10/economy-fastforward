@@ -34,6 +34,7 @@ import { GlassCard } from "@/components/ui/GlassCard";
 import { StatCard } from "@/components/ui/StatCard";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { ActionButton } from "@/components/ui/ActionButton";
+import { EmptyState } from "@/components/ui/EmptyState";
 import { Spinner } from "@/components/ui/spinner";
 import {
   getDashboardSummary,
@@ -813,14 +814,13 @@ function Dashboard() {
           </div>
 
           {recentActivity.length === 0 ? (
-            <div
-              className="rounded-xl p-8 text-center"
-              style={{ background: "rgba(255,255,255,0.02)" }}
-            >
-              <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
-                No activity yet. Create your first video to get started.
-              </p>
-            </div>
+            <EmptyState
+              icon={Sparkles}
+              title="No activity yet"
+              description="Create your first video to get started."
+              actionLabel="Create Video"
+              actionHref="/pipeline"
+            />
           ) : (
             <div className="space-y-3">
               {recentActivity.map((a) => (
@@ -879,14 +879,13 @@ function Dashboard() {
           </div>
 
           {recentVideos.length === 0 ? (
-            <div
-              className="rounded-xl p-8 text-center"
-              style={{ background: "rgba(255,255,255,0.02)" }}
-            >
-              <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
-                No videos yet. Create your first video to get started.
-              </p>
-            </div>
+            <EmptyState
+              icon={Film}
+              title="No videos yet"
+              description="Create your first video to get started."
+              actionLabel="Create Video"
+              actionHref="/pipeline"
+            />
           ) : (
             <div className="space-y-2">
               {recentVideos.map((v) => {

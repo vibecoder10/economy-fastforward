@@ -18,6 +18,7 @@ import {
   horizontalListSortingStrategy, useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import { EmptyState } from "@/components/ui/EmptyState";
 import {
   getVideos, createVideo, deleteVideo,
   getDiscoveryIdeas, getDiscoveryStatus, refreshDiscoveryIdeas,
@@ -543,27 +544,19 @@ export default function VideosPage() {
           )}
 
           {!videosLoading && (tab === "active" ? activeVideos : publishedVideos).length === 0 && (
-            <GlassCard className="p-12 text-center">
-              <Film size={32} className="mx-auto mb-3" style={{ color: "var(--text-tertiary)", opacity: 0.4 }} />
-              <p className="text-sm mb-4" style={{ color: "var(--text-secondary)" }}>
-                {search
-                  ? "No videos match your search"
-                  : statusFilter
-                  ? "No videos at this stage"
-                  : tab === "active"
-                  ? "No videos in production"
-                  : "No published videos"}
-              </p>
-              {tab === "active" && !search && !statusFilter && (
-                <button
-                  onClick={() => setTab("ideas")}
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all hover:brightness-110"
-                  style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}
-                >
-                  <Sparkles size={16} /> Browse Ideas
-                </button>
-              )}
-            </GlassCard>
+            <EmptyState
+              icon={Film}
+              title={search
+                ? "No videos match your search"
+                : statusFilter
+                ? "No videos at this stage"
+                : tab === "active"
+                ? "No videos in production"
+                : "No published videos"}
+              description={tab === "active" && !search && !statusFilter ? "Start by creating a new video or browsing discovery ideas." : undefined}
+              actionLabel={tab === "active" && !search && !statusFilter ? "Browse Ideas" : undefined}
+              onAction={tab === "active" && !search && !statusFilter ? () => setTab("ideas") : undefined}
+            />
           )}
 
           {!videosLoading && (tab === "active" ? activeVideos : publishedVideos).length > 0 && (

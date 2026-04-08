@@ -16,6 +16,7 @@ import {
 import { GlassCard } from "@/components/ui/GlassCard";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { Modal } from "@/components/ui/modal";
+import { EmptyState } from "@/components/ui/EmptyState";
 import { timeAgo } from "@/lib/utils";
 
 const container = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.08 } } };
@@ -172,15 +173,13 @@ export default function DiscoveryPage() {
       )}
 
       {!isLoading && (!ideas || ideas.length === 0) && (
-        <GlassCard className="p-12 text-center">
-          <Sparkles size={32} className="mx-auto mb-3" style={{ color: "var(--text-tertiary)", opacity: 0.4 }} />
-          <p className="text-sm mb-2 font-body" style={{ color: "var(--text-secondary)" }}>
-            {statusFilter === "fresh" ? "No fresh ideas" : `No ${statusFilter || ""} ideas`}
-          </p>
-          <p className="text-xs mb-4 font-body" style={{ color: "var(--text-tertiary)" }}>
-            Click &quot;Refresh Ideas&quot; to generate ideas from your competitor data.
-          </p>
-        </GlassCard>
+        <EmptyState
+          icon={Sparkles}
+          title={statusFilter === "fresh" ? "No fresh ideas" : `No ${statusFilter || ""} ideas`}
+          description='Click "Refresh Ideas" to generate ideas from your competitor data.'
+          actionLabel="Refresh Ideas"
+          onAction={() => refreshMutation.mutate()}
+        />
       )}
 
       {!isLoading && ideas && ideas.length > 0 && (
