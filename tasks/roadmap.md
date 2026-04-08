@@ -1,152 +1,332 @@
-# StoryEngine SaaS — Daily Journal & Roadmap
+# Daily Journal — Economy FastForward SaaS Transformation
 
-> "Topic in, video out" — but for every creator, not just us.
-
----
-
-## Product Vision
-
-**StoryEngine** transforms an internal AI video production pipeline into a multi-tenant SaaS platform where YouTube creators input a topic and receive a fully produced video draft — script, voice, visuals, sound, thumbnail, and render — with AI learning from their channel's performance to improve over time.
-
-**Target Users:** YouTube creators (solo or small teams) producing educational, explainer, or documentary-style content who want to 10x their output without hiring a production team.
-
-**Moat:** The learning loop. Every video a creator publishes feeds performance data back into the system, making future videos better. Competitors can copy features but not accumulated channel-specific intelligence.
+> "Topic in, video out" — for every creator, not just us.
 
 ---
 
-## Current State Assessment (Revised 2026-04-04)
+## Current State Snapshot (2026-04-06)
 
 ### What EXISTS and WORKS
 
-| Layer | Status | Details |
-|-------|--------|---------|
-| **Video Pipeline** | 95% functional | 13-stage pipeline: idea → research → script → voice → image prompts → images → sound → video clips → thumbnail → render → upload. All stages tested end-to-end through image prompts. Voice/images/render need API keys. |
-| **Backend API** | 150+ endpoints | **22 route modules** (FastAPI + asyncpg). Dashboard, videos, assets, pipeline (25+ endpoints), review, activity, settings, autopilot, billing, google_auth, profile, projects, preferences, channel_profile, niche, learning_extraction, youtube_sync, analytics, discovery, agents, skills, visual_styles. |
-| **Database** | Multi-tenant + RLS | 19+ tables with tenant_id, **24 RLS policies**, 24+ indexes, 13+ migrations. Supabase PostgreSQL. Tables: tenants, users, memberships, accounts, videos, scripts, assets, competitor_channels, competitor_videos, learnings, title_insights, title_tests, stage_transitions, bot_activity, projects, user_preferences, autopilot_config, discovery_ideas, visual_styles. |
-| **Frontend** | **23 pages** | Dashboard, pipeline, video detail (7 tabs), competitors, autopilot, analytics, settings, settings/keys, create, activity, review, calendar, discovery, learnings, render, storyboard, visuals, profile, **login**, **onboarding**. Next.js 16 + React 19 + TailwindCSS 4 + Framer Motion. |
-| **Authentication** | ✅ Working | Email/password (PBKDF2-SHA256) + Google OAuth. JWT sessions (30-day). Auth middleware on all routes via `Depends(get_tenant_id)`. Login + signup pages exist. |
-| **Onboarding** | ✅ Working | 3-step wizard: Channel setup → API keys → Ready. Skip options. Status tracking endpoint. |
-| **Billing Backend** | ✅ Wired (no UI) | Stripe checkout, webhooks (subscription created/updated/deleted), customer portal, plan tracking in accounts table. 3 tiers (Starter/Pro/Agency). |
-| **Multi-tenancy** | ✅ Strong | Tenant model + memberships (owner/admin/member roles). RLS on all user-facing tables. Query enforcement via `WHERE tenant_id = $1`. |
-| **Autopilot** | Partial | Toggle + config exist. Launch endpoint is a stub. Learning loop memory system built but not wired to SaaS. |
-| **Agent Team** | ✅ Live | 6 autonomous agents (all Opus): Orchestrator, Backend Dev, Frontend Dev, QA, Pipeline Tester, Security Auditor. PRD decomposition + auto-execution. RUBRIC command center at :5050. |
-| **Background Tasks** | 4 auto-tasks | YouTube sync, learning extraction, title analysis, competitor scraping. Run in-process (asyncio). |
+| Layer | Status | Evidence |
+|-------|--------|----------|
+| **Video Pipeline** | 100% implemented | All 13 stages (script → upload) have real `run.py` entry points. 60+ test files. |
+| **Autopilot** | Real implementation | 431-line `autopilot.py` with scoring, cadence, state persistence. 102 tests. |
+| **Backend API** | 23 routers, 150+ endpoints | Dashboard, pipeline (25+ endpoints), billing, auth, autopilot, discovery, analytics, agents, skills. All registered in main.py. |
+| **Database** | 14+ tables, multi-tenant | UUIDs, tenant_id scoping, 24 RLS policies, 24+ indexes. Supabase PostgreSQL. |
+| **Frontend** | 24 pages | Dashboard, pipeline, video detail, competitors, autopilot, analytics, settings, login, onboarding, calendar, discovery, learnings, review, profile. |
+| **Auth** | Working | Email/password (PBKDF2-SHA256) + Google OAuth. JWT 30-day sessions. AuthProvider on frontend. |
+| **Onboarding** | Working | 3-step wizard (channel → API keys → ready). |
+| **Billing Backend** | Stripe wired | Checkout, webhooks (subscription lifecycle), portal. 3 tiers in env vars. |
+| **Agent Team** | 6 autonomous agents | Orchestrator, Backend Dev, Frontend Dev, QA, Pipeline Tester, Security Auditor. RUBRIC command center. |
 
-### What's MISSING for SaaS (Revised — many gaps now CLOSED)
+### What's MISSING for Production SaaS
 
-| Gap | Severity | Status |
-|-----|----------|--------|
-| ~~Authentication~~ | ~~CRITICAL~~ | **✅ DONE** — Email/password + Google OAuth + JWT |
-| ~~Onboarding~~ | ~~CRITICAL~~ | **✅ DONE** — 3-step wizard works |
-| ~~Billing Backend~~ | ~~CRITICAL~~ | **✅ DONE** — Stripe checkout + webhooks + portal |
-| **Billing UI (frontend)** | CRITICAL | No `/billing` page. Can't purchase. Stripe is wired but invisible to users. |
-| **Plan Enforcement** | CRITICAL | No feature gating. Free users can do everything paid users can. |
-| **Password Reset** | HIGH | No recovery flow. Users locked out if they forget password. |
-| **3 Broken Endpoints** | HIGH | `create-idea` (undefined fn), `upload` (missing endpoint), `skills/pipeline/*` (route ordering bug). |
-| **Job Queue** | HIGH | In-process asyncio. Server restart = lost jobs. No retry/priority/dead-letter. |
-| **Asset Storage** | HIGH | Single Google Drive. No per-tenant isolation. Kie.ai temp URLs expire. Supabase Storage partially wired. |
-| **Error Monitoring** | HIGH | Console only. No Sentry. No structured error tracking. |
-| **Email Notifications** | MEDIUM | Slack-only. No transactional email (welcome, password reset, billing). |
-| **Team Invitations** | MEDIUM | Multi-tenant schema supports teams, but no invite flow, no role enforcement in app layer. |
-| **Landing Page** | MEDIUM | No marketing site. No pricing page. No demo. |
-| **Documentation** | MEDIUM | No help docs, no API reference, no tooltips. |
-| **Rate Limiting** | MEDIUM | No per-tenant API rate limits or concurrent job limits. |
-| **Video Preview** | LOW | No in-app video player for final output. |
-| **Audit Logging** | LOW | No `audit_logs` table. `stage_transitions` + `bot_activity` partial. |
-| **Data Export** | LOW | No GDPR export. No bulk download. |
+#### Tier 1: BLOCKING (can't charge money without these)
+
+| # | Gap | Why It Blocks | Effort |
+|---|-----|---------------|--------|
+| 1 | **Billing UI** | Stripe is wired but invisible. No `/billing` or `/pricing` page. Users can't purchase. | 1 day |
+| 2 | **Plan Enforcement** | No feature gating. Free users can do everything. `check_plan_limits()` doesn't exist. | 1 day |
+| 3 | **Free Trial Logic** | No trial period. No grace period. No downgrade flow. | 0.5 day |
+| 4 | **3 Broken Endpoints** | `create-idea` (undefined fn), `upload` (missing), `skills/pipeline/*` (route ordering). | 0.5 day |
+| 5 | **Password Reset** | No recovery flow. Users locked out permanently if they forget password. | 0.5 day |
+| 6 | **Disable dev-token** | `dev-token` bypasses all auth. Must be removed for production. | 0.5 day |
+
+#### Tier 2: HIGH (users will churn without these)
+
+| # | Gap | Why It Matters | Effort |
+|---|-----|----------------|--------|
+| 7 | **Empty States** | 24 pages, most show blank when no data. New users see nothing helpful. | 1 day |
+| 8 | **Error Handling** | No global error boundary. No toast notifications. Pipeline failures are silent. | 1 day |
+| 9 | **Create Video Simplification** | Current form requires power-user knowledge. Need: paste URL → pick title → go. | 1 day |
+| 10 | **Pipeline Progress UX** | No real-time stage tracking visible to users. SSE exists but unused. | 1 day |
+| 11 | **Landing Page** | No marketing site. No way to discover the product. | 1 day |
+| 12 | **Transactional Email** | No welcome email, no password reset email, no billing receipts. | 1 day |
+
+#### Tier 3: MEDIUM (needed for retention & growth)
+
+| # | Gap | Why It Matters | Effort |
+|---|-----|----------------|--------|
+| 13 | **Job Queue** | In-process asyncio. Server restart = lost jobs. No retry/priority. | 2 days |
+| 14 | **Per-tenant Storage** | Single Google Drive. No isolation. Kie.ai URLs expire. | 2 days |
+| 15 | **Learning Insights Dashboard** | The moat feature — show users what AI learned about their audience. | 1 day |
+| 16 | **Team Collaboration** | Multi-tenant schema supports it, but no invite flow or role enforcement. | 1 day |
+| 17 | **Analytics 2.0** | CTR trends, best posting times, topic heatmap. Current analytics is basic. | 1 day |
+| 18 | **Video Preview Player** | No in-app player for rendered output. | 0.5 day |
+| 19 | **Rate Limiting** | No per-tenant API limits or concurrent job limits. | 0.5 day |
+| 20 | **Error Monitoring (Sentry)** | Console only. No structured error tracking. | 0.5 day |
+
+#### Tier 4: POLISH (launch quality)
+
+| # | Gap | Why It Matters | Effort |
+|---|-----|----------------|--------|
+| 21 | **Documentation** | No help docs, no API reference, no tooltips. | 2 days |
+| 22 | **Demo Mode** | No public demo. Can't show product without signup. | 1 day |
+| 23 | **Voice Clone** | ElevenLabs voice clone per channel. Premium add-on. | 1 day |
+| 24 | **Brand Kit** | Logo, colors, intro/outro, watermark per channel. | 1 day |
+| 25 | **Webhook API** | External integrations (Zapier, Make.com). | 1 day |
+| 26 | **Data Export / GDPR** | No bulk download. No GDPR compliance. | 0.5 day |
+| 27 | **Load Testing** | No k6 or equivalent. Don't know breaking point. | 0.5 day |
 
 ---
 
-## SaaS Pricing Model (Proposed)
+## Sequential Execution Plan
 
-| Plan | Price | Videos/mo | Features |
-|------|-------|-----------|----------|
-| **Starter** | $49/mo | 4 | Pipeline, 1 visual style, basic analytics |
-| **Creator** | $149/mo | 15 | + Autopilot, learning loop, 3 visual styles, priority render |
-| **Studio** | $399/mo | 50 | + Team (3 seats), all styles, API access, white-label render |
-| **Enterprise** | Custom | Unlimited | + SSO, dedicated infra, custom integrations |
+> 20 working days to production-ready SaaS. Each day has a clear deliverable.
 
-**Usage-based add-ons:** Extra videos ($8/each), premium voice clones ($20/mo), 4K render ($3/video).
+### Week 1: "Make it Payable" (Revenue Path)
 
-**API cost pass-through:** Platform absorbs Claude/ElevenLabs/image gen costs within plan limits. Overages billed at 1.5x cost.
+| Day | Focus | Deliverables | Success Criteria |
+|-----|-------|-------------|------------------|
+| **1** | Billing UI | `/billing` page (current plan, usage, upgrade CTA, portal link) + `/pricing` page (3 tiers, feature grid) | User can see their plan and click "Upgrade" |
+| **2** | Plan Enforcement | `tenant_usage` table, `check_plan_limits()` middleware, usage increment hooks | Free user blocked at video limit with upgrade prompt |
+| **3** | Trial + Password Reset | 14-day trial logic, password reset flow (token table + email + page), disable dev-token | New signup gets 14-day Creator trial. Forgot password works. |
+| **4** | Fix Broken Endpoints + Empty States | Fix `create-idea`, `upload`, `skills/pipeline/*`. Add empty states to top 8 pages. | No 500 errors on core flows. New users see helpful CTAs. |
+| **5** | Create Video Simplification | New create flow: URL/topic → AI suggests 3 titles → pick → pipeline starts | 3-click video creation from topic input |
+
+### Week 2: "Make it Good" (Core UX)
+
+| Day | Focus | Deliverables | Success Criteria |
+|-----|-------|-------------|------------------|
+| **6** | Pipeline Progress UX | Real-time stage tracker with SSE. Current stage highlighted, ETA. | User sees "Generating Script... 2/6 scenes" live |
+| **7** | Error Handling + Toasts | Global error boundary, toast notification system, pipeline event toasts | Errors surface visually. Successes celebrated. |
+| **8** | Landing Page | Marketing site at `/`. Hero, feature grid, pricing, demo video embed. | Public page that sells the product |
+| **9** | Transactional Email | Resend integration: welcome, password reset, trial ending (3-day warning), billing receipts | Users get email on signup, reset, and billing events |
+| **10** | Dashboard Redesign | Action-first dashboard: active video cards, pending approvals, quick-start CTA, usage meter | Dashboard answers "What should I do next?" |
+
+### Week 3: "Make it Reliable" (Infrastructure)
+
+| Day | Focus | Deliverables | Success Criteria |
+|-----|-------|-------------|------------------|
+| **11** | Job Queue | Redis + arq/dramatiq. Pipeline stages as persistent jobs. Retry, priority, dead letter. | Server restart doesn't kill running pipelines |
+| **12** | Job Queue (cont.) + Rate Limiting | Finish job queue wiring. Add per-tenant rate limits and concurrent job limits. | Tenant can't overwhelm system. Jobs survive restarts. |
+| **13** | Per-tenant Storage | Supabase Storage for SaaS users. Per-tenant folders. Signed URLs. | Each tenant's assets isolated. URLs don't expire. |
+| **14** | Error Monitoring | Sentry integration (backend + frontend). Structured logging with tenant_id context. | Errors captured with full context. Alert on spikes. |
+| **15** | Security Hardening | CORS lockdown, SQL injection audit, rate limiting on auth endpoints, CSRF tokens | No OWASP top 10 vulnerabilities |
+
+### Week 4: "Make it Sticky" (Growth & Launch)
+
+| Day | Focus | Deliverables | Success Criteria |
+|-----|-------|-------------|------------------|
+| **16** | Learning Insights Dashboard | Show users what AI learned: patterns, CTR formulas, topic performance | Users say "wow, it knows my audience" |
+| **17** | Analytics 2.0 | CTR trends over time, topic heatmap, competitor benchmarking | Data-driven decisions visible |
+| **18** | Video Preview + Brand Kit | In-app video player, logo/colors/watermark settings per channel | Users can preview and brand their videos |
+| **19** | Documentation + Demo | Help docs (getting started, FAQ), public demo with pre-loaded data | New users can self-serve. Demo sells without signup. |
+| **20** | Beta Launch Prep | Load test (k6), backup strategy, ToS/privacy policy, invite 10 beta creators | Ready to accept paying users |
 
 ---
 
-## Implementation Roadmap (Revised 2026-04-04)
+## Feature Set Blueprint
 
-> Many Phase 0 items are now DONE. Roadmap restructured to reflect actual state.
+### Core Product (what makes this a SaaS)
 
-### Phase 0: Foundation — ~~"Make it Real"~~ ✅ MOSTLY COMPLETE
-> Auth, onboarding, billing backend already exist.
+```
+USER JOURNEY:
+  Sign Up (email/Google) → Onboarding (channel + niche) → Free Trial (14-day Creator)
+       ↓
+  Create Video: paste URL or type topic → AI suggests 3 titles → pick one → go
+       ↓
+  Pipeline runs: research → script → voice → images → sound → video → thumbnail → render
+       ↓
+  Review: script editing, image regeneration, thumbnail workshop, voice tweaks
+       ↓
+  Publish: download MP4 or auto-upload as YouTube draft
+       ↓
+  Learn: AI monitors CTR/retention → extracts patterns → next video is better
+       ↓
+  Autopilot: system picks topics, generates videos, learns autonomously
+```
 
-- [x] **0.1 Auth integration** — ✅ Email/password (PBKDF2-SHA256) + Google OAuth + JWT sessions (30-day)
-- [x] **0.2 Auth middleware** — ✅ All 22 route modules use `Depends(get_tenant_id)`
-- [x] **0.3 Login/Signup pages** — ✅ `/login` page with email + Google OAuth
-- [x] **0.4 Onboarding wizard** — ✅ 3-step wizard (channel → API keys → ready)
-- [x] **0.5 Protected routes** — ✅ JWT required on all API routes
-- [x] **0.6 Stripe backend** — ✅ Checkout, webhooks, portal, subscription tracking
-- [ ] **0.7 Password reset flow** — Email-based recovery. Needs: `password_reset_tokens` table, send-email endpoint, reset page.
-- [ ] **0.8 Disable dev-token** — Remove `dev-token` bypass in production mode. Add `ENV=production` to deploy.
+### Pricing Tiers
 
-### Phase 1: Billing & Plan Enforcement (Week 1) — "Make it Payable"
-> Stripe backend exists but users can't see or buy plans. This is the #1 blocker.
+| | Starter ($49/mo) | Creator ($149/mo) | Studio ($399/mo) |
+|---|---|---|---|
+| Videos/month | 4 | 15 | 50 |
+| Visual styles | 1 | 3 | All |
+| Autopilot | - | Yes | Yes |
+| Learning loop | Basic | Full | Full |
+| Team seats | 1 | 1 | 3 |
+| Render priority | Standard | Priority | Dedicated |
+| API access | - | - | Yes |
+| Voice clone | - | - | Yes |
 
-- [ ] **1.1 `/billing` page** — Current plan, usage stats, upgrade/downgrade buttons, invoice history. Stripe portal link for card management.
-- [ ] **1.2 `/pricing` page** — Public pricing grid (Starter $49 / Pro $149 / Agency $399). Feature comparison table. CTA → checkout.
-- [ ] **1.3 Plan enforcement middleware** — `check_plan_limits()` dependency. Before pipeline: check video count vs plan limit. Before render: check render minutes. Return 402 with upgrade prompt.
-- [ ] **1.4 `tenant_usage` table** — Track: videos_created, api_calls, render_minutes, storage_bytes. Increment on each action. Reset monthly.
-- [ ] **1.5 Upgrade prompts** — When user hits limit: modal with "You've used 4/4 videos this month. Upgrade to Pro for 15/month." Not blocking — informative.
-- [ ] **1.6 Free trial** — 14-day Creator trial on signup. No CC required. After 14 days: downgrade to Starter limits. Show countdown in dashboard.
-- [ ] **1.7 Plan badges** — Show current plan in sidebar/nav. "Pro" badge. Subtle, not annoying.
+### UI/UX Design Principles
 
-### Phase 2: Core Product Polish (Week 2-3) — "Make it Good"
-> Fix UX gaps that would make a new user bounce.
+1. **Answer "What should I do next?"** — Dashboard is action-first, not data-first
+2. **3-click creation** — Topic in, title picked, pipeline running. Power users get expandable "Advanced"
+3. **Progress is visible** — Every pipeline stage shows real-time status with ETA
+4. **AI insights surface** — Don't hide the learning loop. Show users what the system discovered
+5. **Empty states sell** — Every empty page has a compelling CTA, not a blank div
+6. **Errors are helpful** — Toast notifications with actionable text, not silent failures
+7. **Mobile-aware** — 6-tab bottom bar on mobile, collapsible sidebar on desktop
 
-- [ ] **2.1 Fix 3 broken endpoints** — `create-idea` (undefined `run_idea_bot`), `upload` (missing endpoint), `skills/pipeline/*` (route ordering).
-- [ ] **2.2 Dashboard redesign** — Answer "What should I do next?" Active video progress cards, pending approvals, recent completions, quick-start CTA.
-- [ ] **2.3 Create video simplification** — Current form is power-user. New: paste URL or type topic → AI suggests 3 titles → pick one → pipeline starts. 3 clicks.
-- [ ] **2.4 Pipeline progress UX** — Real-time stage tracking. SSE stream (`/api/activity/stream` exists). Current stage highlighted, ETA, "View Live" per stage.
-- [ ] **2.5 Empty states (all 23 pages)** — Competitors empty → "Add your first competitor". Analytics empty → "Publish a video to see insights." Each page has a compelling CTA.
-- [ ] **2.6 Error states** — Global error boundary. Per-component error cards with retry. Toast notifications for pipeline events (success/failure/approval needed).
-- [ ] **2.7 Settings page completion** — Key validation feedback, setup guides, "required vs optional" labeling. Integration status indicators.
-- [ ] **2.8 In-app notifications** — Toast system for: stage completions, errors, approvals needed. Replace Slack dependency for user-facing alerts.
+---
 
-### Phase 3: Infrastructure for Scale (Week 4-5) — "Make it Reliable"
-> The invisible stuff that prevents outages at multi-tenant scale.
+## Daily Log
 
-- [ ] **3.1 Redis + job queue** — Replace in-process asyncio with `arq` or `dramatiq`. Each pipeline stage = a job. Enables: retries, priority, concurrency limits, dead letter queue, survive server restarts.
-- [ ] **3.2 Per-tenant asset storage** — Supabase Storage (already partially wired) or Cloudflare R2. Per-tenant folders. Signed URLs. Replace Google Drive for SaaS users.
-- [ ] **3.3 Error monitoring (Sentry)** — Capture exceptions with tenant_id + video_id context. Alert on error rate spikes. Source maps for frontend.
-- [ ] **3.4 Structured logging** — JSON logs: tenant_id, video_id, stage, duration_ms, cost. Ship to Axiom or Datadog.
-- [ ] **3.5 Rate limiting** — Per-tenant: API rate limits (100 req/min Starter, 500 Pro), concurrent pipeline jobs (1/3/5 by plan).
-- [ ] **3.6 Background task persistence** — Store task state in DB (not in-memory). Survive server restarts. Show task history.
-- [ ] **3.7 Health checks** — Expand `/api/health`: DB connectivity, queue depth, active tasks, storage availability. Uptime monitoring (BetterUptime or similar).
-- [ ] **3.8 Transactional email** — Welcome email, password reset, billing receipts, weekly digest. Resend or Postmark.
+### Day 0 — 2026-04-06 (Planning)
 
-### Phase 4: Growth Features (Week 6-9) — "Make it Sticky"
-> Features that increase retention and reduce churn.
+**Focus:** Full SaaS analysis and sequential execution plan.
 
-- [ ] **4.1 Learning insights dashboard** — Show users WHAT the AI learned. "Your audience responds to X", "Best CTR formula: Z". Makes the moat visible. **Pull this EARLY — it's the wow feature.**
-- [ ] **4.2 Template library** — Pre-built styles + script structures. "Geopolitics Explainer", "Tech Review", "Finance Deep-Dive". Customizable.
-- [ ] **4.3 Voice clone** — ElevenLabs voice clone per channel. Upload 5min sample → custom voice on all videos. Premium add-on ($20/mo).
-- [ ] **4.4 Brand kit** — Logo, colors, intro/outro, watermark. Applied to all renders. Stored in projects table.
-- [ ] **4.5 Team collaboration** — Invite members (email). Roles: Admin/Editor/Viewer. `invitations` table. Shared video library.
-- [ ] **4.6 Analytics 2.0** — CTR trends over time, best posting times, topic performance heatmap. Competitor benchmarking. AI-generated weekly digest email.
-- [ ] **4.7 Batch operations** — Multi-select competitor videos → "Queue All". Multi-select ideas → "Produce All". Progress dashboard.
-- [ ] **4.8 Export & download** — Video (MP4), script (PDF), thumbnail (PNG), all assets (ZIP). Supabase Storage signed URLs.
-- [ ] **4.9 Calendar view** — Production calendar: scheduled, in-progress, published. Drag to reschedule. Autopilot cadence overlay.
-- [ ] **4.10 Webhook API** — Notify external systems: video complete, approval needed, published. Zapier/Make.com integration.
-- [ ] **4.11 Video preview player** — In-app player for rendered output. Thumbnail preview. Script overlay toggle.
+**Completed:**
+- Comprehensive audit: 24 frontend pages, 23 backend routers, 14+ DB tables, full pipeline
+- Identified 27 gaps across 4 severity tiers
+- Created 20-day sequential execution plan
+- Defined feature set blueprint and pricing tiers
+- Established UI/UX design principles
 
-### Phase 5: Launch (Week 10-12) — "Make it Public"
-> Marketing, documentation, go-to-market.
+**Key Insights:**
+1. **The pipeline is 100% done.** All 13 stages have real implementations. This is the hard part, and it's finished.
+2. **Auth + billing backend exist but billing has no UI.** Revenue is one page away.
+3. **The learning loop is the moat.** It should be visible to users early (Day 16), not hidden behind the dashboard.
+4. **Agent team is operational** but focused on internal dev, not user-facing quality. Should pivot to UX bugs post-launch.
+5. **Biggest risk is not features — it's wiring.** The CLAUDE.md warns that unwired features are the #1 bug source. Every feature needs end-to-end verification.
 
-- [ ] **5.1 Landing page** — Hero with demo video, feature grid, pricing, testimonials. Separate Next.js marketing site or `/` route.
-- [ ] **5.2 Documentation** — Getting started guide, API reference, FAQ, troubleshooting. Mintlify or Nextra.
-- [ ] **5.3 Demo mode** — Public demo with pre-loaded data. Browse pipeline without signup. "Try it free" CTA.
-- [ ] **5.4 Beta program** — Invite 10-20 creators. Structured feedback. Fix critical issues. Testimonial collection.
-- [ ] **5.5 Launch checklist** — Security audit, load test (k6), backup strategy, incident response, legal (ToS, privacy policy, DPA).
-- [ ] **5.6 Product Hunt / launch campaign** — Scheduled launch with demo video, social assets, email sequence.
+**Tomorrow's Plan (Day 1):**
+- Build `/billing` page: current plan display, usage stats, upgrade/downgrade buttons, invoice link
+- Build `/pricing` page: public pricing grid with 3 tiers, feature comparison, CTA → Stripe checkout
+- Wire both to existing Stripe checkout/portal endpoints
+- Verify end-to-end: signup → see free plan → click upgrade → Stripe checkout → plan updated
+
+---
+
+### Day 1 — 2026-04-07 (Corrected Assessment + Revised Plan)
+
+**Focus:** Morning audit revealed the state is significantly better than the Day 0 roadmap assumed. Revised the entire plan.
+
+#### Audit Corrections (what the roadmap got wrong)
+
+| Roadmap Claim | Actual State | Impact |
+|---------------|-------------|--------|
+| "3 broken endpoints" (create-idea, upload, skills/pipeline) | **All 3 work.** `create-idea` calls `executor.create_idea()`, `upload` exists at `/upload/{video_id}`, skills catch-all is correctly last. | **Day 4 eliminated.** No fixes needed. |
+| "No billing UI" | **Billing UI exists in `/settings`.** Stripe checkout, portal link, plan display with 3 tiers ($25/$40/$75). | Day 1 scope shrinks — need `/pricing` public page, not rebuild billing from scratch. |
+| "Most pages are stubs" | **All 17 pages are real implementations** with API integration, state management, and styled components. | Empty states still needed but the pages themselves are production-grade. |
+| "No auth guard" | **`AuthenticatedShell.tsx` exists** with plan gating. Pro features locked. Route protection works. | Auth layer is done. Focus shifts to enforcement depth. |
+| Pricing: "$49 / $149 / $399" | **Settings page shows $25 / $40 / $75.** Stripe price IDs in env vars. | Need to decide: are these the real prices or placeholders? |
+
+#### What ACTUALLY Still Needs Building
+
+**Tier 1 — Revenue Blockers (can't charge without these):**
+
+| # | Gap | What Exists | What's Missing | Effort |
+|---|-----|-------------|----------------|--------|
+| 1 | **Public `/pricing` page** | Billing in /settings (auth required) | Public page for non-logged-in visitors to see plans and click "Start Free Trial" | 0.5 day |
+| 2 | **Plan enforcement** | Auth guard blocks Pro routes | No video count limit, no render limit, no `tenant_usage` table, no `check_plan_limits()` | 1 day |
+| 3 | **Free trial logic** | Accounts table has `plan` field | No `trial_ends_at`, no 14-day countdown, no downgrade-on-expiry | 0.5 day |
+| 4 | **Password reset** | Email/password auth works | No recovery flow, no token table, no reset page, no email sending | 0.5 day |
+| 5 | **Transactional email** | None | No welcome, reset, trial-ending, or billing emails. Need Resend or similar. | 0.5 day |
+| 6 | **Disable dev-token** | Dev bypass exists for development | Must be environment-gated for production | 0.25 day |
+
+**Tier 2 — User Retention (users churn without these):**
+
+| # | Gap | What Exists | What's Missing | Effort |
+|---|-----|-------------|----------------|--------|
+| 7 | **Empty states** | All pages render real data | No helpful CTAs when data is empty. New user sees blank grids. | 1 day |
+| 8 | **Error handling / toasts** | Some inline error display | No global error boundary, no toast system, pipeline failures silent | 1 day |
+| 9 | **Create video simplification** | `/create` or pipeline create exists | Current flow requires domain knowledge. Need: paste URL → pick title → go | 1 day |
+| 10 | **Pipeline progress UX** | SSE endpoint exists | No real-time stage visualization. User doesn't know what's happening. | 1 day |
+| 11 | **Landing page** | No public marketing site | Need hero, feature showcase, pricing, demo video embed | 1 day |
+| 12 | **Dashboard redesign** | Dashboard shows stats + recent videos | Not action-first. Should answer "what do I do next?" | 0.5 day |
+
+**Tier 3 — Scale & Reliability:**
+
+| # | Gap | Effort |
+|---|-----|--------|
+| 13 | Job queue (Redis + persistent jobs) | 2 days |
+| 14 | Per-tenant storage (Supabase Storage) | 1.5 days |
+| 15 | Error monitoring (Sentry) | 0.5 day |
+| 16 | Security hardening (CORS, SQL audit, CSRF) | 1 day |
+| 17 | Rate limiting per plan | 0.5 day |
+
+**Tier 4 — Growth & Polish:**
+
+| # | Gap | Effort |
+|---|-----|--------|
+| 18 | Learning insights dashboard (THE moat feature) | 1 day |
+| 19 | Analytics 2.0 (CTR trends, heatmaps) | 1 day |
+| 20 | Video preview player + brand kit | 1 day |
+| 21 | Documentation + help | 1.5 days |
+| 22 | Demo mode (public, pre-loaded) | 1 day |
+| 23 | Beta launch prep (load test, legal, invites) | 1 day |
+
+---
+
+## Revised Sequential Execution Plan (18 Days)
+
+> Shortened from 20 to 18 days. Day 4 eliminated (endpoints not broken). Some days consolidated.
+
+### Week 1: "Make it Payable" (Revenue Path)
+
+| Day | Date | Focus | Deliverables | Success Criteria |
+|-----|------|-------|-------------|------------------|
+| **1** | Apr 7 | Public Pricing + Plan Enforcement | `/pricing` public page (3 tiers, feature grid, CTA → checkout). `tenant_usage` table. `check_plan_limits()` middleware. | Non-logged-in user sees pricing. Logged-in user blocked at video limit. |
+| **2** | Apr 8 | Trial + Password Reset + Email | 14-day trial on signup. Password reset flow (token → email → page). Resend integration for 3 emails (welcome, reset, trial-ending). Disable dev-token in prod. | New signup gets trial. Forgot password works. Dev-token off in production. |
+| **3** | Apr 9 | Create Video Simplification | Simplified create: URL or topic → AI suggests 3 titles → pick → pipeline starts. Expandable "Advanced" for power users. | 3-click video creation. |
+| **4** | Apr 10 | Empty States + Error Handling | Empty states on all key pages (dashboard, pipeline, competitors, analytics, learnings, discovery). Global error boundary. Toast notification system. | New user sees helpful CTAs. Errors surface visually. |
+| **5** | Apr 11 | Pipeline Progress UX | Real-time stage tracker (SSE). Current stage highlighted with ETA. Per-stage "View Details" expansion. | User sees "Generating Script... 2/6 scenes" live. |
+
+### Week 2: "Make it Good" (Core UX + Marketing)
+
+| Day | Date | Focus | Deliverables | Success Criteria |
+|-----|------|-------|-------------|------------------|
+| **6** | Apr 14 | Landing Page | Marketing page at `/`. Hero section, feature showcase, pricing embed, demo video, social proof area. | Public page that sells the product. |
+| **7** | Apr 15 | Dashboard Redesign | Action-first dashboard: active video progress cards, pending approvals, quick-start CTA, usage meter (videos used / plan limit). | Dashboard answers "What should I do next?" |
+| **8** | Apr 16 | Learning Insights Dashboard | Surface AI learnings: proven patterns, CTR formulas, topic performance, anti-patterns. Pull from memory files + Osiris tables. | Users say "wow, it knows my audience." |
+| **9** | Apr 17 | Analytics 2.0 | CTR trends over time, topic performance heatmap, competitor benchmarking, best-performing framework analysis. | Data-driven decisions visible and actionable. |
+| **10** | Apr 18 | Settings Completion + Brand Kit | API key validation feedback, integration status indicators, brand kit (logo, accent color, intro/outro), channel profile editor. | Settings page is complete. Brand elements persist to renders. |
+
+### Week 3: "Make it Reliable" (Infrastructure)
+
+| Day | Date | Focus | Deliverables | Success Criteria |
+|-----|------|-------|-------------|------------------|
+| **11** | Apr 21 | Job Queue (Part 1) | Redis + arq/dramatiq setup. Pipeline stages as persistent jobs. Basic retry + dead letter queue. | Jobs survive server restart. |
+| **12** | Apr 22 | Job Queue (Part 2) + Rate Limiting | Finish queue wiring. Per-tenant rate limits (by plan). Concurrent job limits (1 Starter / 3 Pro / 5 Studio). | No tenant can overwhelm system. |
+| **13** | Apr 23 | Per-tenant Storage | Supabase Storage for SaaS. Per-tenant folders. Signed URLs. Migrate asset references from Kie.ai temp URLs. | Assets isolated per tenant. URLs permanent. |
+| **14** | Apr 24 | Error Monitoring + Logging | Sentry (backend + frontend). Structured JSON logging with tenant_id + video_id context. Alert on error rate spikes. | Errors captured with context. Alerting works. |
+| **15** | Apr 25 | Security Hardening | CORS lockdown (remove hardcoded IPs). SQL injection audit (f-strings → parameterized). CSRF tokens. Auth rate limiting. Audit logging. | No OWASP top 10 vulnerabilities. |
+
+### Week 4: "Make it Launchable" (Polish + Go-Live)
+
+| Day | Date | Focus | Deliverables | Success Criteria |
+|-----|------|-------|-------------|------------------|
+| **16** | Apr 28 | Video Preview + Polish | In-app video player for rendered output. Thumbnail preview. Script overlay toggle. UI polish pass across all pages. | Users preview videos in-app. |
+| **17** | Apr 29 | Documentation + Demo | Getting started guide, FAQ, tooltips on complex features. Public demo with pre-loaded data (browse without signup). | New users self-serve. Demo converts without auth. |
+| **18** | Apr 30 | Beta Launch Prep | Load test (k6). Backup strategy. ToS + Privacy Policy. Invite 10 beta creators. Launch checklist verification. | Ready to accept paying users. |
+
+---
+
+## Pricing Decision Needed
+
+**Current state:** Settings page shows $25 / $40 / $75 per month.
+**Roadmap proposed:** $49 / $149 / $399 per month.
+
+These are very different price points. Need to decide:
+- Are current prices placeholders from early dev?
+- Does the value justify $149/mo for Creator tier?
+- Competitor analysis: Pictory ($25-$75), Synthesia ($29-$89), InVideo ($25-$60)
+
+**Recommendation:** Start with competitive pricing ($29 / $79 / $199) for beta. Increase after proving the learning loop moat. The autonomous CTR improvement is the premium justifier — but it needs proof first.
+
+---
+
+## Architecture Observations (from today's audit)
+
+1. **Billing types are scattered.** `Subscription` interface lives in `api.ts` inline, not in `types.ts`. Should consolidate.
+2. **Plan gating already works** in `AuthenticatedShell.tsx` for route-level blocking, but there's no per-action enforcement (e.g., "you've used 4/4 videos this month").
+3. **Settings page does double duty** — project settings + billing. Consider separating into dedicated tabs or pages as complexity grows.
+4. **The 6-agent team** is powerful but currently focused on internal dev velocity. Post-launch, these agents should shift to: monitoring user errors, auto-fixing pipeline failures, and A/B testing UI improvements.
+5. **SSE endpoint exists** (`/api/activity/stream`) but the frontend doesn't consume it for pipeline progress. This is the lowest-hanging UX improvement.
+
+---
+
+**Today's Execution (Day 1):**
+1. Build `/pricing` public page — visible without login, 3 tiers, feature comparison table, CTA → Stripe checkout
+2. Create `tenant_usage` table — videos_created, render_minutes, storage_bytes, api_calls, period_start/end
+3. Build `check_plan_limits()` FastAPI dependency — intercepts pipeline actions, checks against plan limits
+4. Wire usage increment hooks into pipeline stages — count videos, renders, API calls
+5. Add upgrade prompt modal — triggered when user hits limit, shows plan comparison + upgrade CTA
+6. Verify end-to-end: free user → create videos → hit limit → see upgrade prompt → checkout → upgraded
 
 ---
 
@@ -170,141 +350,15 @@
 
 ---
 
-## Daily Log
+## Competitive Landscape
 
-### Day 1 — 2026-04-02
-
-**Focus:** Strategic analysis and roadmap creation.
-
-**Completed:**
-- Full codebase audit: pipeline (13 stages, 95% functional), backend (90+ endpoints, 18 routers), frontend (~15 pages), database (19 tables, multi-tenant schema)
-- Identified 14 critical SaaS gaps
-- Created 5-phase implementation roadmap with ~40 discrete tasks
-- Proposed pricing model (Starter $49 → Enterprise custom)
-- Created this journal for daily tracking
-
-**Key Insights:**
-1. The hardest part is already done — the pipeline works. The gap is packaging it as a product.
-2. The learning loop is the competitive moat. Phase 4.1 (learning insights) should be pulled earlier — it's the "wow" feature.
-3. The existing Slack bot (`pipeline_control.py`) is a treasure trove of battle-tested logic. Many commands map 1:1 to dashboard features.
-
----
-
-### Day 2 — 2026-04-04
-
-**Focus:** Deep audit of what actually exists. Massive roadmap revision.
-
-**What Changed Since Day 1:**
-Between Day 1 and today, the autonomous agent team (6 agents on Opus) executed a full PRD cycle. This resulted in auth, billing backend, onboarding, Google OAuth, and agent infra being built. The original roadmap's Phase 0 is now ~80% complete — the biggest gaps shifted from "build auth" to "build billing UI + enforce plans."
-
-**Full Audit Results (23 pages, 22 route modules, 150+ endpoints):**
-
-| Category | Day 1 Assessment | Actual State (Day 2) |
-|----------|-----------------|---------------------|
-| Auth | ❌ Dev tokens only | ✅ Email/password + Google OAuth + JWT (30-day) |
-| Onboarding | ❌ No first-time flow | ✅ 3-step wizard (channel → keys → ready) |
-| Billing backend | ❌ No Stripe | ✅ Stripe checkout + webhooks + portal + 3 tiers |
-| Multi-tenancy | ~70% | ✅ Full RLS (24 policies), memberships, roles |
-| Frontend pages | ~15 | 23 pages (login, onboarding, calendar, discovery, learnings, review, profile added) |
-| Backend routes | 18 modules | 22 modules (billing, google_auth, profile, projects, preferences, visual_styles added) |
-| Agent team | Concept | ✅ 6 agents live on cron, PRD decomposition, RUBRIC command center |
-
-**Revised Priority Stack (what to build NOW):**
-
-1. **Billing UI** (CRITICAL) — Stripe is wired but invisible. `/billing` page + `/pricing` page. Without this, product can't make money.
-2. **Plan enforcement** (CRITICAL) — No feature gating exists. Free users get everything. Need `check_plan_limits()` middleware.
-3. **Fix 3 broken endpoints** (HIGH) — `create-idea`, `upload`, `skills/pipeline/*` are broken in production.
-4. **Password reset** (HIGH) — No recovery flow. Users locked out if they forget password.
-5. **Empty/error states** (HIGH) — 23 pages, most have no empty state. New users see blank pages.
-6. **Create video simplification** (MEDIUM) — Current form requires power-user knowledge. Need: paste URL → pick title → go.
-
-**Roadmap restructured to 5 phases (down from 6):**
-- Phase 0 (Foundation): ✅ Mostly done. 2 items remain (password reset, disable dev-token).
-- Phase 1 (Billing): NEW priority. `/billing` page, plan enforcement, usage tracking, trial.
-- Phase 2 (UX Polish): Fix broken endpoints, empty states, pipeline progress, notifications.
-- Phase 3 (Infrastructure): Redis queue, Sentry, storage, rate limiting.
-- Phase 4 (Growth): Learning insights, templates, voice clone, teams, analytics 2.0.
-- Phase 5 (Launch): Landing page, docs, demo, beta program.
-
-**Architecture Observations:**
-1. **TypeScript types are manually maintained** (`types.ts` = 142 lines). No OpenAPI/zod generation. Type drift is inevitable — consider generating from Pydantic models.
-2. **`api.ts` has 150+ lines of fetch wrappers** but no retry logic, no caching, no request dedup. React Query is used on the frontend but not consistently.
-3. **Background tasks are in-memory only.** `pipeline_executor.py` runs asyncio tasks. Server restart = all running jobs vanish. This WILL cause support tickets.
-4. **`accounts` table stores Stripe data** (customer_id, subscription_id, plan, status) but there's no usage metering table. Need `tenant_usage` before enforcement.
-5. **Route ordering bug** — `skills.py` has a catch-all pattern that prevents `/api/skills/pipeline/*` from matching. Fix: register specific routes before catch-all.
-
-**Tomorrow's Plan (Day 3):**
-- Phase 1.1: Build `/billing` page
-  - Read billing.py backend routes (checkout, portal, subscription status)
-  - Read accounts table schema (stripe fields)
-  - Build: current plan display, usage stats, upgrade button, portal link
-  - Wire to Stripe checkout for plan changes
-- Phase 1.2: Build `/pricing` public page
-  - Feature comparison grid
-  - 3 tiers with CTA buttons
-  - Can be viewed without auth (marketing page)
-
----
-
-## This Week's Sprint (2026-04-04 → 2026-04-10)
-
-> Phase 1: Billing & Plan Enforcement — "Make it payable"
-
-### Day 3 (Apr 5) — Billing UI
-- [ ] Build `/billing` page (current plan, usage, upgrade CTA, portal link)
-- [ ] Build `/pricing` page (public, 3 tiers, feature comparison, CTA → checkout)
-- [ ] Wire both to Stripe checkout endpoints that already exist
-
-### Day 4 (Apr 6) — Plan Enforcement
-- [ ] Create `tenant_usage` table (videos_created, render_minutes, storage_bytes, api_calls, period_start)
-- [ ] Build `check_plan_limits()` FastAPI dependency
-- [ ] Wire enforcement into pipeline execution (block when over limit, return 402)
-- [ ] Add usage increment hooks to pipeline stages
-
-### Day 5 (Apr 7) — Trial + Password Reset
-- [ ] Add 14-day trial logic (trial_ends_at on accounts, check on each request)
-- [ ] Build password reset flow (token table, send-email endpoint, /reset-password page)
-- [ ] Transactional email via Resend (welcome + reset + trial ending)
-
-### Day 6 (Apr 8) — Fix Broken Endpoints + Empty States
-- [ ] Fix `create-idea` (wire `run_idea_bot` or replace)
-- [ ] Fix `upload` (add missing endpoint)
-- [ ] Fix `skills/pipeline/*` (route ordering)
-- [ ] Add empty states to top 5 pages (dashboard, pipeline, competitors, analytics, learnings)
-
-### Day 7 (Apr 9) — Create Video Simplification
-- [ ] New create flow: URL/topic input → AI suggests 3 titles → pick → go
-- [ ] Simplify `/create` page to single input with expandable "Advanced" section
-- [ ] Wire to research → idea pipeline with sensible defaults
-
-### Day 8 (Apr 10) — Sprint Review + Next Week Planning
-- [ ] Test full signup → onboarding → billing → create video → pipeline flow
-- [ ] Fix any broken wiring discovered in E2E test
-- [ ] Write next week's sprint (Phase 2: UX Polish or Phase 3: Infrastructure)
-
----
-
-## Architecture Decisions Log
-
-### ADR-001: Custom JWT Auth (not Supabase Auth)
-**Decision:** ✅ IMPLEMENTED — Custom auth with PBKDF2-SHA256 + JWT, not Supabase Auth.
-**What was built:** `google_auth.py` handles registration, login, Google OAuth. JWT signed with SESSION_SECRET (30-day expiry). Accounts table stores credentials.
-**Trade-off:** Must implement password reset ourselves (Supabase Auth does it free). But: full control over auth flow, no Supabase Auth SDK dependency on frontend.
-
-### ADR-002: S3-compatible storage (not Google Drive)
-**Decision:** Migrate asset storage from Google Drive to Supabase Storage or Cloudflare R2.
-**Why:** Google Drive requires per-user OAuth, has rate limits, URLs need conversion for Airtable. S3 gives: signed URLs, per-tenant isolation, CDN, no OAuth dance.
-**Trade-off:** Migration effort. Existing pipeline writes to Drive everywhere. Need adapter layer.
-
-### ADR-003: Redis job queue (not in-process asyncio)
-**Decision:** Add Redis-backed job queue for pipeline execution.
-**Why:** Current in-process tasks die with the server. No retry. No priority. No concurrency control across tenants. Redis enables: persistent jobs, rate limiting per tenant, horizontal scaling.
-**Trade-off:** Operational complexity (Redis server). Worth it for reliability.
-
-### ADR-004: Pooled API keys (not BYOK for launch)
-**Decision:** Platform provides API keys for Claude, ElevenLabs, image gen. Users don't bring their own.
-**Why:** BYOK creates terrible onboarding ("go sign up for 5 services before you can use ours"). Pool keys, absorb cost, bill via subscription.
-**Trade-off:** Higher COGS. Offset by subscription pricing. BYOK available as Enterprise option.
+| Competitor | What They Do | Our Advantage |
+|-----------|-------------|---------------|
+| **Pictory** | Script → video (stock footage) | We generate custom images, not stock. Our pipeline is deeper (research → script → custom visuals). |
+| **Synthesia** | AI avatar videos | We target documentary/explainer, not talking heads. Our visual system is cinematic, not corporate. |
+| **InVideo** | Template-based video editor | We're AI-first (topic in, video out). No manual editing required. |
+| **Opus Clip** | Long → short clips | We CREATE content, they repurpose. Different market. |
+| **None (our moat)** | — | The learning loop. After 10 videos, the system knows your audience. CTR improves automatically. No competitor has this. |
 
 ---
 
@@ -322,27 +376,4 @@ Between Day 1 and today, the autonomous agent team (6 agents on Opus) executed a
 
 ---
 
-### ADR-005: Autonomous Agent Team (6 agents, all Opus)
-**Decision:** ✅ IMPLEMENTED — 6 AI agents run on cron, handle PRDs, fix bugs, test UI.
-**What was built:** Orchestrator, Backend Dev, Frontend Dev, QA, Pipeline Tester, Security Auditor. RUBRIC command center. PRD decomposition + auto-execution. Cross-agent handoffs. Telegram integration.
-**Trade-off:** High API cost (~$50-100/day at turbo cadence). Offset by velocity — the agent team built auth, billing, onboarding in 2 days. Can scale back cadence after initial build sprint.
-
-### ADR-006: Supabase Storage for SaaS (not Google Drive)
-**Decision:** PARTIALLY IMPLEMENTED — Supabase Storage wired for storyboard grids. Google Drive still used for voice/images/video by the VPS pipeline.
-**Migration plan:** SaaS users → Supabase Storage exclusively. Legacy VPS pipeline → Google Drive (existing). Adapter layer in `supabase_adapter.py` already abstracts storage.
-
----
-
-## Competitive Landscape
-
-| Competitor | What They Do | Our Advantage |
-|-----------|-------------|---------------|
-| **Pictory** | Script → video (stock footage) | We generate custom images, not stock. Our pipeline is deeper (research → script → custom visuals). |
-| **Synthesia** | AI avatar videos | We target documentary/explainer, not talking heads. Our visual system is cinematic, not corporate. |
-| **InVideo** | Template-based video editor | We're AI-first (topic in, video out). No manual editing required. |
-| **Opus Clip** | Long → short clips | We CREATE content, they repurpose. Different market. |
-| **None (our moat)** | — | The learning loop. After 10 videos, the system knows your audience. CTR improves automatically. No competitor has this. |
-
----
-
-*This journal is updated daily. Each session adds to the daily log and adjusts the roadmap as we learn.*
+*Updated daily. Each session adds to the log and adjusts the plan as we learn.*

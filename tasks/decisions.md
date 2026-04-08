@@ -67,6 +67,53 @@
 
 ---
 
+## 2026-04-02 — Custom JWT Auth (not Supabase Auth) [ADR-001]
+
+**Decision:** ✅ IMPLEMENTED — Custom auth with PBKDF2-SHA256 + JWT, not Supabase Auth.
+**What was built:** `google_auth.py` handles registration, login, Google OAuth. JWT signed with SESSION_SECRET (30-day expiry). Accounts table stores credentials.
+**Trade-off:** Must implement password reset ourselves (Supabase Auth does it free). But: full control over auth flow, no Supabase Auth SDK dependency on frontend.
+
+---
+
+## 2026-04-02 — S3-compatible storage, not Google Drive [ADR-002]
+
+**Decision:** Migrate asset storage from Google Drive to Supabase Storage or Cloudflare R2.
+**Why:** Google Drive requires per-user OAuth, has rate limits, URLs need conversion for Airtable. S3 gives: signed URLs, per-tenant isolation, CDN, no OAuth dance.
+**Trade-off:** Migration effort. Existing pipeline writes to Drive everywhere. Need adapter layer.
+
+---
+
+## 2026-04-02 — Redis job queue, not in-process asyncio [ADR-003]
+
+**Decision:** Add Redis-backed job queue for pipeline execution.
+**Why:** Current in-process tasks die with the server. No retry. No priority. No concurrency control across tenants. Redis enables: persistent jobs, rate limiting per tenant, horizontal scaling.
+**Trade-off:** Operational complexity (Redis server). Worth it for reliability.
+
+---
+
+## 2026-04-02 — Pooled API keys for launch, not BYOK [ADR-004]
+
+**Decision:** Platform provides API keys for Claude, ElevenLabs, image gen. Users don't bring their own.
+**Why:** BYOK creates terrible onboarding ("go sign up for 5 services before you can use ours"). Pool keys, absorb cost, bill via subscription.
+**Trade-off:** Higher COGS. Offset by subscription pricing. BYOK available as Enterprise option.
+
+---
+
+## 2026-04-03 — Autonomous Agent Team, 6 agents all Opus [ADR-005]
+
+**Decision:** ✅ IMPLEMENTED — 6 AI agents run on cron, handle PRDs, fix bugs, test UI.
+**What was built:** Orchestrator, Backend Dev, Frontend Dev, QA, Pipeline Tester, Security Auditor. RUBRIC command center. PRD decomposition + auto-execution. Cross-agent handoffs. Telegram integration.
+**Trade-off:** High API cost (~$50-100/day at turbo cadence). Offset by velocity — the agent team built auth, billing, onboarding in 2 days. Can scale back cadence after initial build sprint.
+
+---
+
+## 2026-04-04 — Supabase Storage for SaaS, Google Drive for VPS [ADR-006]
+
+**Decision:** PARTIALLY IMPLEMENTED — Supabase Storage wired for storyboard grids. Google Drive still used for voice/images/video by the VPS pipeline.
+**Migration plan:** SaaS users → Supabase Storage exclusively. Legacy VPS pipeline → Google Drive (existing). Adapter layer in `supabase_adapter.py` already abstracts storage.
+
+---
+
 ## 2026-04-03 — Single agent runner, not two parallel systems
 
 **Decision:** `run-agent.sh` is the ONE runner. It checks PRD tasks (priority) then falls through to task-queue. No separate `run-team.sh`.

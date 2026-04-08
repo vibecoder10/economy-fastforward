@@ -248,7 +248,20 @@ curl -s -X POST "$RUBRIC_URL/api/agent-status" \
 
 # ─── Read Inputs ────────────────────────────────────────────────────────────
 AGENT_PROMPT=$(cat "$AGENT_FILE")
-TASK_QUEUE=$(cat "$AGENTS_DIR/task-queue.json")
+# Filter task queue to only pending/in-progress tasks (prevent context bloat from done tasks)
+TASK_QUEUE=$(python3 -c "
+import json, sys
+q = json.load(open('$AGENTS_DIR/task-queue.json'))
+done_count = 0
+for tab in q.get('tabs', []):
+    before = len(tab.get('tasks', []))
+    tab['tasks'] = [t for t in tab.get('tasks', []) if t.get('status') != 'done']
+    done_count += before - len(tab['tasks'])
+q['tabs'] = [t for t in q['tabs'] if t.get('tasks')]
+if done_count > 0:
+    q['filtered_note'] = f'{done_count} completed tasks filtered out'
+json.dump(q, sys.stdout, indent=2)
+" 2>/dev/null || cat "$AGENTS_DIR/task-queue.json")
 
 # ─── PRD Check (unified system — PRD tasks take priority over task queue) ──
 PRD_SECTION=""
@@ -892,7 +905,14 @@ curl -s -X POST "$RUBRIC_URL/api/agent-status" \
 # If a task was completed, check if follow-up tasks should be auto-created
 if [ -n "$TASK_LINE" ]; then
   echo "Checking for follow-up tasks..."
-  TASK_QUEUE_FRESH=$(cat "$AGENTS_DIR/task-queue.json")
+  TASK_QUEUE_FRESH=$(python3 -c "
+import json, sys
+q = json.load(open('$AGENTS_DIR/task-queue.json'))
+for tab in q.get('tabs', []):
+    tab['tasks'] = [t for t in tab.get('tasks', []) if t.get('status') != 'done']
+q['tabs'] = [t for t in q['tabs'] if t.get('tasks')]
+json.dump(q, sys.stdout, indent=2)
+" 2>/dev/null || cat "$AGENTS_DIR/task-queue.json")
   TASK_GEN=$($CLAUDE_BIN -p "$(cat <<TASKEOF
 You just completed task $TASK_LINE for StoryEngine as the $AGENT agent.
 Summary: $SUMMARY_LINE

@@ -283,20 +283,22 @@ cd storyengine/frontend && npm run dev                        # Frontend dev (po
 cd storyengine/backend && python -m uvicorn main:app --reload --port 8001  # Backend dev
 ```
 
-## Key Reference Docs (read ONLY when relevant)
-* Autopilot Brain design spec → @docs/superpowers/specs/2026-03-18-autopilot-brain-design.md
-* Airtable schema & field maps → @docs/airtable-schema.md
-* API integration patterns → @docs/api-patterns.md
-* Image Prompt Engine → @docs/image-prompt-engine.md
-* Remotion rendering → @docs/remotion-rendering.md
+## Key Reference Docs (auto-loaded — keep small)
 * Common failure modes → @docs/failure-modes.md
-* Data architecture → @docs/data-architecture.md
 * Cost breakdown → @docs/cost-awareness.md
 * Environment variables → @docs/env-vars.md
+* Image Prompt Engine → @docs/image-prompt-engine.md
+* Remotion rendering → @docs/remotion-rendering.md
 * Infrastructure & deployment → @docs/infrastructure.md
-* Product roadmap → @tasks/roadmap.md
-* Completion reports → @docs/reports/
-* System reviews → @docs/reviews/
+
+## Extended Reference (read on demand — NOT auto-loaded)
+* Autopilot Brain design spec → docs/superpowers/specs/2026-03-18-autopilot-brain-design.md
+* Airtable schema & field maps → docs/airtable-schema.md
+* API integration patterns → docs/api-patterns.md
+* Data architecture → docs/data-architecture.md
+* Product roadmap → tasks/roadmap.md
+* Completion reports → docs/reports/
+* System reviews → docs/reviews/
 
 ## Core Principles
 - **Thinking Partner First**: You are a co-creator, not a code executor. Before building, offer insights, challenge weak ideas, propose alternatives. Lead with the most interesting observation you have — never open with "Sure, I can do that."
