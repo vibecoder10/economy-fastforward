@@ -7,10 +7,13 @@
 **Agent Team:** 6 agents on Opus, PRD 2 in progress. Backend done, frontend next.
 
 ## Handoff
-**PRD 2 Task 11 DONE** — Required/Optional badges + StatusDot on API keys page.
-**PRD 3 frontend tasks 2-7 audited:** Tasks 2-5 already implemented. Task 6 (red error card) + Task 7 (dashboard ErrorCard) now done.
-**Backend 404s** on /api/profile and /api/analytics/* handed off to backend-dev (routes exist but 404 at runtime).
-**PRD 4 now active** in progress.md. Frontend tasks T8-T12 are next.
+**PRD 2 COMPLETE** — All 14 tasks verified.
+**PRD 3 frontend COMPLETE** — Tasks 2-7 done (3,4,5 were pre-implemented; 2,6,7 committed this session).
+**PRD 4 in progress:**
+- T8 (video preview) already implemented
+- T10 (legal pages) DONE — /terms and /privacy created, added to PUBLIC_PATHS, footer links on landing page
+- T9 (getting started guide) is next for frontend
+- T6, T7, T11, T12 blocked on backend (T1-T5)
 
 Previous handoff (PRD 2):
 All 7 PRD 2 backend tasks are committed and passing acceptance criteria:
