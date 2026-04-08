@@ -317,6 +317,9 @@ export const testApiKey = (name: string) =>
 export const revealApiKey = (name: string) =>
   fetchApi<{ value: string }>(`/api/settings/keys/${name}/reveal`, { method: "POST" });
 
+export const validateAllApiKeys = () =>
+  fetchApi<{ results: { key: string; success: boolean; message: string }[] }>("/api/settings/keys/validate", { method: "POST" });
+
 // Channel Profile (legacy — redirects to projects)
 export const getChannelProfile = () =>
   fetchApi<ChannelProfile>("/api/channel-profile");

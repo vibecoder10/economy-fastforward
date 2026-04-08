@@ -17,6 +17,7 @@ import {
   getApiKeys,
   setApiKey,
   testApiKey,
+  validateAllApiKeys,
   type ApiKeyStatus,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -34,11 +35,11 @@ const INTEGRATION_ORDER = [
 ];
 
 // Human-readable key names and descriptions
-const KEY_LABELS: Record<string, { name: string; description: string; group?: string }> = {
-  anthropic_api_key: { name: "Anthropic (Claude)", description: "AI for scripts, prompts, and analysis" },
-  elevenlabs_api_key: { name: "ElevenLabs API Key", description: "Voice synthesis for narration", group: "ElevenLabs" },
+const KEY_LABELS: Record<string, { name: string; description: string; group?: string; required?: boolean }> = {
+  anthropic_api_key: { name: "Anthropic (Claude)", description: "AI for scripts, prompts, and analysis", required: true },
+  elevenlabs_api_key: { name: "ElevenLabs API Key", description: "Voice synthesis for narration", group: "ElevenLabs", required: true },
   elevenlabs_voice_id: { name: "ElevenLabs Voice ID", description: "Voice ID for narration", group: "ElevenLabs" },
-  kie_ai_api_key: { name: "Kie.ai", description: "Image and video generation" },
+  kie_ai_api_key: { name: "Kie.ai", description: "Image and video generation", required: true },
   openai_api_key: { name: "OpenAI", description: "Whisper transcription" },
   gemini_api_key: { name: "Gemini", description: "Vision analysis for thumbnails" },
   google_client_id: { name: "YouTube Data API", description: "Upload and analytics", group: "Google" },
@@ -118,6 +119,20 @@ export default function ApiKeysPage() {
     },
   });
 
+  // Validate all keys mutation
+  const validateAllMutation = useMutation({
+    mutationFn: validateAllApiKeys,
+    onSuccess: (data) => {
+      const results: Record<string, { success: boolean | null; message: string; timestamp: string }> = {};
+      const ts = new Date().toLocaleTimeString();
+      for (const r of data.results) {
+        results[r.key] = { success: r.success, message: r.message, timestamp: ts };
+      }
+      setTestResults((prev) => ({ ...prev, ...results }));
+      queryClient.invalidateQueries({ queryKey: ["apiKeys"] });
+    },
+  });
+
   const closeEditModal = () => {
     setEditingKey(null);
     setKeyValue("");
@@ -160,6 +175,7 @@ export default function ApiKeysPage() {
           apiKey={key}
           label={label.name}
           description={label.description}
+          required={label.required ?? false}
           onUpdate={() => {
             setEditingKey(key.name);
             setKeyValue("");
@@ -190,6 +206,27 @@ export default function ApiKeysPage() {
 
       <TabPanel active={activeTab === "keys"}>
         <div className="space-y-3">
+          {/* Validate All button */}
+          {!isLoading && !fetchError && (
+            <div className="flex justify-end">
+              <button
+                onClick={() => validateAllMutation.mutate()}
+                disabled={validateAllMutation.isPending}
+                className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors"
+                style={{
+                  border: "1px solid var(--border)",
+                  color: validateAllMutation.isPending ? "var(--text-tertiary)" : "var(--text-secondary)",
+                }}
+              >
+                {validateAllMutation.isPending ? (
+                  <Spinner size="sm" />
+                ) : (
+                  <RefreshCw size={14} />
+                )}
+                {validateAllMutation.isPending ? "Validating..." : "Validate All"}
+              </button>
+            </div>
+          )}
           {isLoading ? (
             <div className="flex items-center justify-center py-12">
               <Spinner size="lg" />
@@ -302,11 +339,28 @@ export default function ApiKeysPage() {
   );
 }
 
+// Integration status dot — shows connection state at a glance
+function StatusDot({ status }: { status: "connected" | "not_configured" | "failed" }) {
+  const colors = {
+    connected: "var(--green)",
+    not_configured: "var(--text-tertiary)",
+    failed: "var(--red)",
+  };
+  return (
+    <span
+      className="inline-block h-2.5 w-2.5 shrink-0 rounded-full"
+      style={{ backgroundColor: colors[status] }}
+      title={status === "connected" ? "Connected" : status === "failed" ? "Connection failed" : "Not configured"}
+    />
+  );
+}
+
 // Individual API Key Card component
 interface ApiKeyCardProps {
   apiKey: ApiKeyStatus;
   label: string;
   description: string;
+  required: boolean;
   onUpdate: () => void;
   onTest: () => void;
   isTesting: boolean;
@@ -317,11 +371,18 @@ function ApiKeyCard({
   apiKey,
   label,
   description,
+  required,
   onUpdate,
   onTest,
   isTesting,
   testResult,
 }: ApiKeyCardProps) {
+  // Derive integration status from configured state + test results
+  const integrationStatus: "connected" | "not_configured" | "failed" =
+    testResult?.success === false ? "failed" :
+    testResult?.success === true ? "connected" :
+    apiKey.configured ? "connected" : "not_configured";
+
   return (
     <Card>
       <div className="flex items-start justify-between p-4">
@@ -338,7 +399,19 @@ function ApiKeyCard({
             />
           </div>
           <div>
-            <h3 className="font-medium">{label}</h3>
+            <div className="flex items-center gap-2">
+              <h3 className="font-medium">{label}</h3>
+              <span
+                className="rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider"
+                style={{
+                  color: required ? "var(--orange)" : "var(--text-tertiary)",
+                  backgroundColor: required ? "var(--orange-dim)" : "rgba(255,255,255,0.05)",
+                }}
+              >
+                {required ? "Required" : "Optional"}
+              </span>
+              <StatusDot status={integrationStatus} />
+            </div>
             <p className="mt-0.5 text-xs text-[var(--text-secondary)]">{description}</p>
             {apiKey.configured && apiKey.masked_value && (
               <div className="mt-2">
