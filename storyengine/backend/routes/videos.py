@@ -920,7 +920,9 @@ async def upload_storyboard_grid(
     path = f"{video_id}/grids/S{scene}-B{beat}.{ext}"
     perm_url = await upload_bytes(data, path)
 
-    # Update scripts table
+    # SECURITY: column name built from validated integer (1-5 only, checked above).
+    # Values use parameterized $1/$2 — no injection risk.
+    assert 1 <= beat <= 5, "beat validated above"
     col = f"storyboard_{beat}_url"
     await execute(
         f"UPDATE scripts SET {col} = $1, updated_at = now() WHERE id = $2",

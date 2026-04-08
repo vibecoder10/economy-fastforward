@@ -152,7 +152,7 @@ async def remove_channel(channel_id: str, tenant_id: str = Depends(get_tenant_id
 
 # --- Competitor Videos (paginated) ---
 
-# Safe sort column mapping — no user input in SQL
+# SECURITY: whitelist-only sort mapping — user input mapped to hardcoded SQL, no injection risk
 _SORT_MAP = {
     "vph_desc": "vph DESC",
     "vph_asc": "vph ASC",
