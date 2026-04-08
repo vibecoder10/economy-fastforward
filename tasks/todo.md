@@ -3,8 +3,8 @@
 ## Active Work
 
 **Execution Plan:** `tasks/roadmap.md` — 18-day SaaS transformation
-**Current:** Day 2 of 18 (2026-04-08). Billing page shipped. Critical Bug Fixes PRD complete (14/14 tasks).
-**Agent Team:** 6 agents on Opus, task queue cleared (194/194 done). Ready for next PRD.
+**Current:** Day 2 of 18 (2026-04-08). PRD 2 backend tasks complete (7/7).
+**Agent Team:** 6 agents on Opus, PRD 2 in progress. Backend done, frontend next.
 
 ### What Shipped Today (2026-04-08)
 - Billing page (`/billing`) with plan comparison, usage bars, Stripe integration
@@ -54,16 +54,21 @@
 
 ## Latest Handoff (2026-04-08)
 
-**What completed:**
-- Backend-dev: Migration 028 (4 indexes), niche videos API, cascade delete, pipeline validation relaxed, YouTube sync error handling
-- Frontend-dev: Competitors page refactor, niche videos wiring, pipeline error messages, analytics sync errors, TypeScript clean
-- Billing page: 3-tier plan comparison, usage bars, Stripe checkout + portal, BYOK explainer
-- Settings page: removed duplicate billing UI (580→430 lines)
+**What completed (PRD 2 backend):**
+- Task 1: Migration 029 (trial_warning_sent column) — already existed
+- Task 2: Query-param token auth for SSE — already existed
+- Task 3: SSE stage_change events in /api/activity/stream — NEW: polls stage_transitions table, emits `event: stage_change` alongside `event: activity`
+- Task 4: POST /api/settings/keys/validate — already existed
+- Task 5: email_service.py extracted from google_auth.py — already existed (named email_service.py not email.py to avoid stdlib shadow)
+- Task 6: Billing receipt email on checkout.session.completed — NEW: sends receipt via email_service after Stripe checkout
+- Task 7: email_tasks.py with check_trial_warnings() — NEW: finds accounts with trial expiring in 3 days, sends warning, sets trial_warning_sent flag
+
+**Frontend tasks UNBLOCKED:** 8, 9, 12 (depend on task 3), 11 (depends on task 4)
+**QA task 14** depends on all other tasks
 
 **Key context for next session:**
 - `tasks/roadmap.md` has the full 18-day plan with daily deliverables
 - `tasks/decisions.md` has settled architectural choices (10 ADRs)
-- All Rubric agent task queue cleared — ready for new PRD or individual tasks
-- VPS branch was `agent-dev`, now merged to main. VPS may need `git pull`.
+- email_tasks.py needs to be wired into a background loop in main.py lifespan (not done yet — task 7 only creates the module)
 
 Previous handoffs archived in `tasks/archive/handoffs-2026-03-to-04.md`

@@ -10,6 +10,7 @@ import { getSubscription } from "@/lib/api";
 import { Sidebar } from "@/components/nav/sidebar";
 import { BottomTabs } from "@/components/nav/bottom-tabs";
 import { Spinner } from "@/components/ui/spinner";
+import { PipelineNotificationProvider } from "@/components/notifications/PipelineNotificationProvider";
 
 const PUBLIC_PATHS = ["/login", "/onboarding", "/pricing", "/forgot-password", "/reset-password"];
 
@@ -64,16 +65,18 @@ export function AuthenticatedShell({ children }: { children: ReactNode }) {
 
   // Authenticated — full app shell
   return (
-    <div className="flex min-h-screen relative z-10">
-      <Sidebar />
-      <main className="flex-1 pb-16 md:pb-0 md:ml-60 overflow-x-hidden">
-        <TrialBanner />
-        <div className="mx-auto max-w-[1400px] px-4 py-6 sm:px-6 md:px-12 md:py-10">
-          {hasAccess ? children : <UpgradePrompt />}
-        </div>
-      </main>
-      <BottomTabs />
-    </div>
+    <PipelineNotificationProvider>
+      <div className="flex min-h-screen relative z-10">
+        <Sidebar />
+        <main className="flex-1 pb-16 md:pb-0 md:ml-60 overflow-x-hidden">
+          <TrialBanner />
+          <div className="mx-auto max-w-[1400px] px-4 py-6 sm:px-6 md:px-12 md:py-10">
+            {hasAccess ? children : <UpgradePrompt />}
+          </div>
+        </main>
+        <BottomTabs />
+      </div>
+    </PipelineNotificationProvider>
   );
 }
 

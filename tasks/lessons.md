@@ -14,6 +14,7 @@
 
 ### Pipeline
 - **Pipeline status validation can be relaxed for parallel execution.** Thumbnail and video-scripts endpoints were gated too late (required their own stage). Relaxing to earlier stages (ready_for_images, ready_for_sound_design) allows running stages in parallel without requiring strict linear progression. The status check prevents running on truly incomplete data while allowing flexibility.
+- **Don't name files `email.py` in Python projects.** It shadows the stdlib `email` package. Use `email_service.py` instead. Linter will catch it but save yourself the trouble.
 - **NEVER** skip a status in the pipeline flow. Each status gates the next stage's data.
 - **ALWAYS** test changes on a single Airtable record before running against the full queue.
 - The pipeline runs on cron (8 AM Pacific). Code pushed to `main` auto-deploys via `git pull --ff-only`. Don't push broken code.
