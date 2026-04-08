@@ -54,7 +54,7 @@
 ### Next Priority (Roadmap Phase 1)
 1. **`/pricing` public page** — Marketing page viewable without auth. Add to PUBLIC_PATHS in AuthenticatedShell.tsx. Feature grid + CTA → Stripe checkout.
 2. **Plan enforcement middleware** — `check_plan_limits()` FastAPI dependency. Block pipeline when over limit (402).
-3. **Remove duplicate billing section from /settings** — Now that /billing exists, the inline billing cards in settings/page.tsx (lines ~388-532) should be replaced with a link to /billing.
+3. ~~**Remove duplicate billing section from /settings**~~ — ✅ DONE. Replaced 142-line inline billing UI with compact link card to /billing. Removed 7 unused imports + 5 unused state vars. (580→430 lines)
 
 ---
 

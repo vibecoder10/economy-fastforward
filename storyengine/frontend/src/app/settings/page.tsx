@@ -3,7 +3,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import { Youtube, HardDrive, CheckCircle2, ArrowRight, Loader2, Save, CreditCard, Crown, Zap, Building2 } from "lucide-react";
+import { Youtube, HardDrive, CheckCircle2, ArrowRight, Loader2, Save, CreditCard } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { FilterSelect } from "@/components/ui/FilterSelect";
@@ -12,22 +12,9 @@ import {
   updateProject,
   getApiKeys,
   getSubscription,
-  createCheckout,
-  createBillingPortal,
-  getUsage,
   type Project,
   type ProjectUpdate,
 } from "@/lib/api";
-import { useToast } from "@/components/ui/toast";
-
-const TRUSTED_STRIPE_DOMAINS = [
-  "https://checkout.stripe.com",
-  "https://billing.stripe.com",
-];
-
-function isStripeUrl(url: string): boolean {
-  return TRUSTED_STRIPE_DOMAINS.some((domain) => url.startsWith(domain));
-}
 
 const container = {
   hidden: { opacity: 0 },
@@ -65,7 +52,6 @@ const INTEGRATION_KEY_MAP: Record<string, string[]> = {
 
 export default function SettingsPage() {
   const router = useRouter();
-  const toast = useToast();
   const queryClient = useQueryClient();
 
   // Saved indicator state
@@ -85,19 +71,11 @@ export default function SettingsPage() {
     queryFn: getApiKeys,
   });
 
-  // Fetch subscription status
-  const { data: subscription, isLoading: subLoading } = useQuery({
+  // Fetch subscription status (used for billing link card)
+  const { data: subscription } = useQuery({
     queryKey: ["subscription"],
     queryFn: getSubscription,
   });
-
-  const { data: usage } = useQuery({
-    queryKey: ["usage"],
-    queryFn: getUsage,
-  });
-
-  const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null);
-  const [portalLoading, setPortalLoading] = useState(false);
 
   // Local form state
   const [channelName, setChannelName] = useState("");
@@ -387,148 +365,38 @@ export default function SettingsPage() {
         </div>
       </motion.div>
 
-      {/* Billing & Plan */}
+      {/* Billing & Plan — link to dedicated page */}
       <motion.div variants={item}>
         <div className="flex items-center gap-3 mb-4" style={{ borderLeft: "3px solid var(--gold)", paddingLeft: 16 }}>
           <h2 className="text-lg font-semibold font-body" style={{ color: "var(--text-primary)" }}>
             Billing & Plan
           </h2>
         </div>
-
-        {/* Current plan banner */}
-        {subscription && (
-          <GlassCard className="p-5 mb-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg flex items-center justify-center" style={{ background: "var(--gold-dim)" }}>
-                  <Crown size={20} style={{ color: "var(--gold)" }} />
-                </div>
-                <div>
-                  <p className="text-sm font-semibold capitalize" style={{ color: "var(--text-primary)" }}>
-                    {subscription.plan} Plan
-                  </p>
-                  {subscription.stripe_status && (
-                    <span className="text-[10px] font-mono" style={{ color: subscription.stripe_status === "active" ? "var(--green)" : "var(--gold)" }}>
-                      {subscription.stripe_status}
-                    </span>
-                  )}
-                </div>
+        <GlassCard className="p-5">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-lg flex items-center justify-center" style={{ background: "var(--gold-dim)" }}>
+                <CreditCard size={20} style={{ color: "var(--gold)" }} />
               </div>
-              {subscription.has_subscription && (
-                <button
-                  onClick={async () => {
-                    setPortalLoading(true);
-                    try {
-                      const res = await createBillingPortal();
-                      if (!isStripeUrl(res.portal_url)) {
-                        toast.error("Invalid billing portal URL. Please contact support.");
-                        setPortalLoading(false);
-                        return;
-                      }
-                      window.location.href = res.portal_url;
-                    } catch { setPortalLoading(false); }
-                  }}
-                  disabled={portalLoading}
-                  className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-medium transition-all hover:brightness-110"
-                  style={{ background: "var(--bg-elevated)", color: "var(--text-secondary)", border: "1px solid var(--border-subtle)" }}
-                >
-                  {portalLoading ? <Loader2 size={14} className="animate-spin" /> : <CreditCard size={14} />}
-                  Manage Subscription
-                </button>
-              )}
-            </div>
-          </GlassCard>
-        )}
-
-        {/* Usage stats */}
-        {usage && (
-          <GlassCard className="p-5 mb-4">
-            <h3
-              className="text-[11px] font-semibold uppercase tracking-wider mb-3"
-              style={{ color: "var(--text-secondary)" }}
-            >
-              This Month&apos;s Usage
-            </h3>
-            {[
-              { label: "Videos", used: usage.usage.videos_created, limit: usage.limits.videos_per_month },
-              { label: "Render Minutes", used: Math.round(usage.usage.render_minutes), limit: usage.limits.render_minutes },
-            ].map(({ label, used, limit }) => {
-              const pct = limit > 0 ? Math.min((used / limit) * 100, 100) : 0;
-              const barColor = pct >= 90 ? "var(--red)" : pct >= 70 ? "var(--gold)" : "var(--turquoise)";
-              return (
-                <div key={label} className="mb-3 last:mb-0">
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-xs" style={{ color: "var(--text-secondary)" }}>{label}</span>
-                    <span className="text-xs font-mono" style={{ color: barColor }}>{used}/{limit}</span>
-                  </div>
-                  <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.06)" }}>
-                    <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: barColor }} />
-                  </div>
-                </div>
-              );
-            })}
-          </GlassCard>
-        )}
-
-        {/* Plan selection cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          {([
-            { key: "starter", name: "Starter", price: "$25", icon: Zap, features: ["Pipeline access", "1 channel", "Manual mode"] },
-            { key: "pro", name: "Pro", price: "$40", icon: Crown, features: ["Autopilot", "Analytics", "Competitor scraping", "Learnings"] },
-            { key: "agency", name: "Agency", price: "$75", icon: Building2, features: ["Multi-channel", "Team management", "Priority rendering"] },
-          ] as const).map((plan) => {
-            const isCurrent = subscription?.plan === plan.key || (subscription?.stripe_plan === plan.key);
-            const Icon = plan.icon;
-            return (
-              <GlassCard key={plan.key} className="p-5" style={isCurrent ? { border: "1px solid var(--gold)" } : undefined}>
-                <div className="flex items-center gap-2 mb-3">
-                  <Icon size={18} style={{ color: isCurrent ? "var(--gold)" : "var(--text-secondary)" }} />
-                  <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>{plan.name}</span>
-                </div>
-                <p className="text-2xl font-display mb-1" style={{ color: "var(--text-primary)" }}>
-                  {plan.price}<span className="text-xs font-body" style={{ color: "var(--text-tertiary)" }}>/mo</span>
+              <div>
+                <p className="text-sm font-semibold capitalize" style={{ color: "var(--text-primary)" }}>
+                  {subscription ? `${subscription.plan} Plan` : "Loading..."}
                 </p>
-                <ul className="space-y-1.5 mt-3 mb-4">
-                  {plan.features.map((f) => (
-                    <li key={f} className="text-xs flex items-center gap-1.5" style={{ color: "var(--text-secondary)" }}>
-                      <CheckCircle2 size={12} style={{ color: "var(--turquoise)" }} />
-                      {f}
-                    </li>
-                  ))}
-                </ul>
-                {isCurrent ? (
-                  <div className="text-center text-xs font-medium py-2 rounded-lg" style={{ background: "var(--gold-dim)", color: "var(--gold)" }}>
-                    Current Plan
-                  </div>
-                ) : (
-                  <button
-                    onClick={async () => {
-                      setCheckoutLoading(plan.key);
-                      try {
-                        const res = await createCheckout(plan.key);
-                        if (!isStripeUrl(res.checkout_url)) {
-                          toast.error("Invalid checkout URL. Please contact support.");
-                          setCheckoutLoading(null);
-                          return;
-                        }
-                        window.location.href = res.checkout_url;
-                      } catch { setCheckoutLoading(null); }
-                    }}
-                    disabled={checkoutLoading !== null}
-                    className="w-full py-2 rounded-lg text-xs font-medium transition-all hover:brightness-110"
-                    style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}
-                  >
-                    {checkoutLoading === plan.key ? (
-                      <Loader2 size={14} className="animate-spin inline" />
-                    ) : (
-                      "Subscribe"
-                    )}
-                  </button>
-                )}
-              </GlassCard>
-            );
-          })}
-        </div>
+                <p className="text-xs" style={{ color: "var(--text-tertiary)" }}>
+                  Manage your plan, usage, and payment
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => router.push("/billing")}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-medium transition-all hover:brightness-110"
+              style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}
+            >
+              <ArrowRight size={14} />
+              Manage Billing
+            </button>
+          </div>
+        </GlassCard>
       </motion.div>
 
       {/* Save Button */}
