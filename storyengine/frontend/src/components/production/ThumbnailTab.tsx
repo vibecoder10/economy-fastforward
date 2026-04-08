@@ -142,7 +142,6 @@ export function ThumbnailTab({ video, onAdvanced }: ThumbnailTabProps) {
         toast.error(detail);
         // Refetch in case status changed
         queryClient.invalidateQueries({ queryKey: ["video", video.id] });
-        toast.error("Video isn't ready for thumbnail yet — complete earlier stages first.");
       } else {
         toast.error(`Thumbnail generation failed: ${message}`);
       }
