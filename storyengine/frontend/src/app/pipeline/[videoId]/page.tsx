@@ -13,7 +13,8 @@ import { getVideo, resetPipeline, runNextStep, advanceVideo, clearStaleTask } fr
 import { useTaskPoller } from "@/hooks/use-task-poller";
 import { useToast } from "@/components/ui/toast";
 import { StatusPill } from "@/components/ui/StatusPill";
-import { ProgressStepper } from "@/components/ui/ProgressStepper";
+import { PipelineStepper } from "@/components/production/PipelineStepper";
+import { usePipelineSSE } from "@/hooks/use-pipeline-sse";
 import { ResearchTab } from "@/components/production/ResearchTab";
 import { ScriptVoiceTab } from "@/components/production/ScriptVoiceTab";
 import { StoryboardVisualsTab } from "@/components/production/StoryboardVisualsTab";
@@ -81,15 +82,6 @@ const TABS = [
   { id: "performance", label: "Performance", icon: BarChart3 },
 ];
 
-const STEP_LABELS = [
-  "Research",
-  "Script & Voice",
-  "Storyboard & Visuals",
-  "Video Clips",
-  "Thumbnail",
-  "Render & Upload",
-];
-
 function parseInjectedLearnings(writerGuidance: string | null | undefined): { use: string[]; avoid: string[] } {
   if (!writerGuidance) return { use: [], avoid: [] };
   const match = writerGuidance.match(/--- PERFORMANCE LEARNINGS.*?---\n([\s\S]*?)--- END LEARNINGS ---/);
@@ -103,26 +95,6 @@ function parseInjectedLearnings(writerGuidance: string | null | undefined): { us
     else use.push(cleaned);
   }
   return { use, avoid };
-}
-
-function getStepFromStatus(status: string): number {
-  const idx = PIPELINE_ORDER.indexOf(status);
-  if (idx < 0) return 1;
-  // Map 22 statuses to 6 visual steps
-  if (idx <= 2) return 1;   // Research
-  if (idx <= 6) return 2;   // Script & Voice
-  if (idx <= 12) return 3;  // Storyboard & Visuals
-  if (idx <= 14) return 4;  // Video Clips
-  if (idx <= 15) return 5;  // Thumbnail
-  return 6;                  // Render & Upload
-}
-
-function getCompletedSteps(status: string): number[] {
-  const current = getStepFromStatus(status);
-  if (["uploaded", "uploaded_draft", "done", "published"].includes(status)) {
-    return [1, 2, 3, 4, 5, 6];
-  }
-  return Array.from({ length: Math.max(current - 1, 0) }, (_, i) => i + 1);
 }
 
 function getDefaultTab(status: string): string {
@@ -158,6 +130,18 @@ export default function VideoDetailPage() {
   const status = video?.status || "idea_logged";
   const defaultTab = useMemo(() => getDefaultTab(status), [status]);
   const [activeTab, setActiveTab] = useState<string | null>(null);
+  const [liveStatus, setLiveStatus] = useState<string | null>(null);
+
+  // SSE for live pipeline updates
+  usePipelineSSE({
+    enabled: !TERMINAL_STATUSES.has(status),
+    onStageChange: (event) => {
+      if (event.video_id === videoId) {
+        setLiveStatus(event.new_status);
+        queryClient.invalidateQueries({ queryKey: ["video", videoId] });
+      }
+    },
+  });
   const [resetting, setResetting] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [runningNext, setRunningNext] = useState(false);
@@ -266,8 +250,6 @@ export default function VideoDetailPage() {
   }
 
   const pill = STATUS_PILL[status] || { label: status.replace(/_/g, " "), color: "turquoise" };
-  const currentStep = getStepFromStatus(status);
-  const completedSteps = getCompletedSteps(status);
 
   // Build a normalized video object for tab components (they expect certain field names)
   // All field accesses use optional chaining to handle published videos that may lack pipeline fields
@@ -396,7 +378,7 @@ export default function VideoDetailPage() {
       {/* Progress stepper + pipeline controls */}
       <motion.div variants={item}>
         <div className="flex items-center justify-between gap-6">
-          <ProgressStepper steps={6} currentStep={Math.min(currentStep, 6)} completedSteps={completedSteps} labels={STEP_LABELS} />
+          <PipelineStepper status={status} liveStatus={liveStatus} />
           <div className="flex items-center gap-3 shrink-0">
             <StatusPill label={pill.label} color={pill.color} pulse size="md" />
             <button
