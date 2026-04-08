@@ -7,6 +7,44 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env.PORT || '5050', 10);
 const DATA_DIR = path.join(__dirname, 'data');
+const PRD_QUEUE_FILE = path.join(DATA_DIR, 'prd-queue.json');
+
+// ─── PRD Queue System ─────────────────────────────────────────────────────
+// Stores multiple PRDs. When current PRD completes, next one auto-deploys.
+function readPrdQueue() {
+  try { return JSON.parse(fs.readFileSync(PRD_QUEUE_FILE, 'utf8')); }
+  catch { return { queue: [], deployed: [], current_index: -1 }; }
+}
+function writePrdQueue(q) { fs.writeFileSync(PRD_QUEUE_FILE, JSON.stringify(q, null, 2)); }
+
+function deployNextPrd(server_url) {
+  const q = readPrdQueue();
+  const nextIndex = q.current_index + 1;
+  if (nextIndex >= q.queue.length) {
+    console.log('PRD Queue: all PRDs completed');
+    q.current_index = q.queue.length; // mark exhausted
+    writePrdQueue(q);
+    return false;
+  }
+  const nextPrd = q.queue[nextIndex];
+  q.current_index = nextIndex;
+  q.queue[nextIndex].started_at = new Date().toISOString();
+  writePrdQueue(q);
+  console.log(`PRD Queue: auto-deploying PRD ${nextIndex + 1}/${q.queue.length} — "${nextPrd.title}"`);
+  // Trigger deploy via internal HTTP call (reuses existing deploy-prd logic)
+  const postData = JSON.stringify({ content: nextPrd.content });
+  const req = http.request({ hostname: 'localhost', port: PORT, path: '/api/deploy-prd', method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(postData) }
+  }, (res) => {
+    let body = '';
+    res.on('data', d => body += d);
+    res.on('end', () => console.log(`PRD Queue: deploy response — ${body}`));
+  });
+  req.on('error', e => console.error(`PRD Queue: deploy failed — ${e.message}`));
+  req.write(postData);
+  req.end();
+  return true;
+}
 
 // Auto-cadence: boost to 'max' on PRD deploy, restore when PRD completes
 const PRD_BOOST_CADENCE = 'max';
@@ -1154,8 +1192,29 @@ const server = http.createServer(async (req, res) => {
     const done = doneFromProgress || (prd.tasks || []).filter(t => t.status === 'done' || t.status === 'verified').length;
     const blocked = blockedFromProgress || (prd.tasks || []).filter(t => t.status === 'blocked').length;
     const inProgress = Math.max(0, total - done - blocked);
-    // Auto-cadence: restore pre-PRD cadence when all tasks are done
+    // Auto-cascade: when PRD completes, check queue for next PRD
     if (total > 0 && done >= total) {
+      const q = readPrdQueue();
+      const hasNext = q.current_index >= 0 && q.current_index < q.queue.length - 1;
+      if (hasNext) {
+        // Mark current PRD as completed in queue
+        if (q.queue[q.current_index]) {
+          q.queue[q.current_index].completed_at = new Date().toISOString();
+          q.deployed.push({ title: prd.title, completed_at: new Date().toISOString() });
+          writePrdQueue(q);
+        }
+        // Clean current PRD files before deploying next
+        const agentsDirLocal = path.join(__dirname, '../../agents');
+        for (const f of ['prd.json', 'prd.md', 'progress.md']) {
+          try { fs.unlinkSync(path.join(agentsDirLocal, f)); } catch {}
+        }
+        console.log(`PRD Queue: "${prd.title}" complete — deploying next PRD...`);
+        // Small delay to let cleanup settle, then deploy next
+        setTimeout(() => deployNextPrd(), 5000);
+        sendJSON(res, { active: true, decomposing: false, title: prd.title || 'Untitled', total, done, blocked, inProgress, progress, queueNext: true });
+        return;
+      }
+      // No queue or queue exhausted — restore cadence as before
       try {
         const ctrlFile = path.join(DATA_DIR, 'controls.json');
         const ctrl = JSON.parse(fs.readFileSync(ctrlFile, 'utf8'));
@@ -1205,6 +1264,59 @@ const server = http.createServer(async (req, res) => {
     // Clear error tracker
     try { fs.unlinkSync('/tmp/prd-watcher-errors-seen.txt'); } catch {}
     sendJSON(res, { success: true });
+    return;
+  }
+
+  // ─── PRD Queue Endpoints ──────────────────────────────────────────────────
+
+  // POST /api/prd-queue — add PRDs to the queue (accepts array of {title, content})
+  if (pathname === '/api/prd-queue' && req.method === 'POST') {
+    const body = JSON.parse(await readBody(req));
+    const prds = body.prds || (body.content ? [{ title: body.title || 'Untitled', content: body.content }] : []);
+    if (!prds.length) { sendJSON(res, { error: 'prds array required (each with title + content)' }, 400); return; }
+    const q = readPrdQueue();
+    for (const p of prds) {
+      q.queue.push({ title: p.title, content: p.content, queued_at: new Date().toISOString() });
+    }
+    writePrdQueue(q);
+    sendJSON(res, { success: true, queued: prds.length, total: q.queue.length, message: `${prds.length} PRD(s) added to queue` });
+    return;
+  }
+
+  // GET /api/prd-queue — view queue status
+  if (pathname === '/api/prd-queue' && req.method === 'GET') {
+    const q = readPrdQueue();
+    const items = q.queue.map((p, i) => ({
+      index: i, title: p.title, queued_at: p.queued_at,
+      started_at: p.started_at || null, completed_at: p.completed_at || null,
+      status: p.completed_at ? 'completed' : p.started_at ? 'active' : 'queued'
+    }));
+    sendJSON(res, { total: q.queue.length, current_index: q.current_index, deployed: q.deployed.length, items });
+    return;
+  }
+
+  // POST /api/prd-queue/start — start executing the queue (deploys first PRD)
+  if (pathname === '/api/prd-queue/start' && req.method === 'POST') {
+    const q = readPrdQueue();
+    if (!q.queue.length) { sendJSON(res, { error: 'Queue is empty' }, 400); return; }
+    if (q.current_index >= 0 && q.current_index < q.queue.length) {
+      const current = q.queue[q.current_index];
+      if (current.started_at && !current.completed_at) {
+        sendJSON(res, { error: `PRD "${current.title}" is already running` }, 409); return;
+      }
+    }
+    // Reset index to -1 so deployNextPrd starts at 0
+    q.current_index = -1;
+    writePrdQueue(q);
+    deployNextPrd();
+    sendJSON(res, { success: true, message: `Starting queue — deploying "${q.queue[0].title}"` });
+    return;
+  }
+
+  // DELETE /api/prd-queue — clear the entire queue
+  if (pathname === '/api/prd-queue' && req.method === 'DELETE') {
+    writePrdQueue({ queue: [], deployed: [], current_index: -1 });
+    sendJSON(res, { success: true, message: 'Queue cleared' });
     return;
   }
 
