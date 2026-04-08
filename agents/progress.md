@@ -2,6 +2,7 @@
 
 ## Status: VERIFIED COMPLETE (2026-04-08)
 All 14 tasks done and verified.
+QA full-flow verification (T14) passed: all 11 acceptance criteria pass, tsc 0 errors, next build success, 13/13 features verified via code inspection + curl, landing page verified via Playwright with all 7 sections rendering correctly.
 
 ---
 
@@ -9,10 +10,10 @@ All 14 tasks done and verified.
 
 ## Summary
 - Total tasks: 11
-- Completed: 7
+- Completed: 9
 - In progress: 0
 - Blocked: 0
-- Pending: 4
+- Pending: 2
 
 ## Tasks
 
@@ -28,14 +29,14 @@ All 14 tasks done and verified.
 - [x] 7. Audit: verify all 8 pages have Spinner + ErrorCard + EmptyState pattern *(completed 2026-04-08)*
 
 ### QA
-- [ ] 8. TypeScript build verification — tsc + next build (depends: 2,3,4,5,6,7)
-- [ ] 9. Verify no hardcoded hex colors in new/modified components (depends: 8)
+- [x] 8. TypeScript build verification — tsc + next build *(verified 2026-04-08: tsc 0 errors, next build success)*
+- [x] 9. Verify no hardcoded hex colors in new/modified components *(verified 2026-04-08: zero hex colors in PRD3 diff)*
 
 ### Security
-- [ ] 10. Security audit — verify no XSS in EmptyState/ErrorCard (depends: 8)
+- [ ] 10. Security audit — verify no XSS in EmptyState/ErrorCard (depends: 8) — UNBLOCKED
 
 ### QA
-- [ ] 11. E2E QA — new user flow with Playwright (depends: 1,8,9,10)
+- [ ] 11. E2E QA — new user flow with Playwright (depends: 1,8,9,10) — waiting on T10
 
 ## Notes
 - All frontend tasks complete. Tasks 3, 4, 5 were already implemented by prior sessions.
