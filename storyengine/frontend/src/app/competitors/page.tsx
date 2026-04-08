@@ -38,10 +38,16 @@ const item = {
 type SortOption = "vph_desc" | "vph_asc" | "views_desc" | "published_desc" | "scrape_desc";
 const PAGE_SIZE = 24;
 
+const SORT_OPTIONS = [
+  { value: "vph_desc", label: "Sort: VPH (high)" },
+  { value: "vph_asc", label: "Sort: VPH (low)" },
+  { value: "views_desc", label: "Sort: Views" },
+  { value: "published_desc", label: "Sort: Newest" },
+  { value: "scrape_desc", label: "Sort: Recently Scraped" },
+];
+
 function ScrapeErrorLog({ error, lastRun }: { error: string; lastRun: string | null }) {
   const [expanded, setExpanded] = useState(false);
-
-  // Try to parse multi-line or structured error messages
   const errorLines = error.split(/\n|(?<=\.)(?=\s+[A-Z])/).filter(Boolean).map(l => l.trim());
   const hasDetails = errorLines.length > 1;
 
@@ -136,17 +142,27 @@ export default function CompetitorsPage() {
     queryFn: getNicheChannels,
   });
 
-  // Server-side paginated + sorted + filtered video list
+  // Server-side paginated + filtered + sorted videos
   const { data: videosData, isLoading } = useQuery({
-    queryKey: ["niche-videos", sortBy, channelFilter, page],
+    queryKey: ["niche-videos", channelFilter, sortBy, page],
     queryFn: () =>
       getNicheVideos({
         limit: PAGE_SIZE,
         offset: page * PAGE_SIZE,
+        channel: channelFilter !== "all" ? channelFilter : undefined,
         sort: sortBy,
-        channel: channelFilter === "all" ? undefined : channelFilter,
       }),
   });
+
+  const videos = videosData?.videos ?? [];
+  const totalVideos = videosData?.total ?? 0;
+  const serverChannels = videosData?.channels ?? [];
+  const totalPages = Math.ceil(totalVideos / PAGE_SIZE);
+
+  // Reset page when filter/sort changes
+  useEffect(() => {
+    setPage(0);
+  }, [channelFilter, sortBy]);
 
   const addChannelMutation = useMutation({
     mutationFn: async (url: string) => {
@@ -214,23 +230,33 @@ export default function CompetitorsPage() {
 
   const nicheConfigured = nicheConfig?.niche_category != null;
 
-  // Channel names from API response or channels table
-  const channelNames = videosData?.channels ?? [];
+  // Build channel filter options from server response + channels table
+  const channelNames = (() => {
+    const seen = new Map<string, string>();
+    for (const name of serverChannels) {
+      if (name && name !== "Unknown") {
+        const key = name.toLowerCase();
+        if (!seen.has(key)) seen.set(key, name);
+      }
+    }
+    if (channels) {
+      for (const ch of channels) {
+        const displayName = (ch.channel_name && ch.channel_name !== "None")
+          ? ch.channel_name
+          : ch.channel_url?.match(/@([^/]+)/)?.[1];
+        if (displayName) {
+          const key = displayName.toLowerCase();
+          if (!seen.has(key)) seen.set(key, displayName);
+        }
+      }
+    }
+    return Array.from(seen.values()).sort();
+  })();
 
-  const totalVideos = videosData?.total ?? 0;
-  const totalPages = Math.ceil(totalVideos / PAGE_SIZE);
-  const videos = videosData?.videos ?? [];
-
-  // Reset page when filter changes
-  const handleFilterChange = (value: string) => {
-    setChannelFilter(value);
-    setPage(0);
-  };
-
-  const handleSortChange = (value: string) => {
-    setSortBy(value as SortOption);
-    setPage(0);
-  };
+  const filterOptions = [
+    { value: "all", label: `All Channels (${totalVideos})` },
+    ...channelNames.map((name) => ({ value: name, label: name })),
+  ];
 
   // Open "Model This" modal
   const openModelModal = (video: NicheVideo) => {
@@ -246,14 +272,14 @@ export default function CompetitorsPage() {
     if (!modelVideo) return;
     setModelCreating(true);
     try {
-      const video = await createVideo({
+      const created = await createVideo({
         title: modelTitle,
         source_url: modelVideo.url || undefined,
         framework_angle: modelFramework || undefined,
         video_length_minutes: modelLength,
       });
       setModelVideo(null);
-      router.push(`/pipeline/${video.id}`);
+      router.push(`/pipeline/${created.id}`);
     } catch (err) {
       console.error("Failed to create video:", err);
       setModelCreating(false);
@@ -288,19 +314,13 @@ export default function CompetitorsPage() {
         </div>
         <div className="flex items-center gap-2">
           {scrapeRunning && (
-            <button
+            <ActionButton
+              icon={StopCircle}
               onClick={() => cancelMutation.mutate()}
               disabled={cancelMutation.isPending}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors"
-              style={{
-                color: "var(--red)",
-                border: "1px solid rgba(255, 77, 106, 0.3)",
-                background: "rgba(255, 77, 106, 0.08)",
-              }}
             >
-              <StopCircle size={14} />
               Cancel
-            </button>
+            </ActionButton>
           )}
           <ActionButton
             icon={scrapeRunning ? undefined : RefreshCw}
@@ -319,44 +339,44 @@ export default function CompetitorsPage() {
         </div>
       </motion.div>
 
-      {/* Scrape progress (running) */}
-      {scrapeRunning && scrapeStatus && (
+      {/* Per-channel scrape progress */}
+      {scrapeRunning && scrapeStatus && scrapeStatus.channels_total > 0 && (
         <motion.div variants={item}>
           <GlassCard className="!p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Loader2 size={14} className="animate-spin" style={{ color: "var(--turquoise)" }} />
-                <span className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
-                  Scraping{scrapeStatus.current_channel ? `: ${scrapeStatus.current_channel}` : "..."}
-                </span>
-              </div>
+            <div className="flex items-center justify-between text-sm">
+              <span style={{ color: "var(--text-secondary)" }}>
+                Scraping: {scrapeStatus.current_channel || "..."} ({scrapeStatus.channels_done}/{scrapeStatus.channels_total} channels)
+              </span>
               <span className="text-xs font-mono" style={{ color: "var(--text-tertiary)" }}>
-                {scrapeStatus.channels_done}/{scrapeStatus.channels_total} channels
+                {scrapeStatus.videos_found} found · {scrapeStatus.videos_saved} saved
               </span>
             </div>
-            {scrapeStatus.channels_total > 0 && (
-              <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "var(--bg-elevated)" }}>
-                <div
-                  className="h-full rounded-full transition-all duration-500"
-                  style={{
-                    width: `${(scrapeStatus.channels_done / scrapeStatus.channels_total) * 100}%`,
-                    background: "var(--turquoise)",
-                  }}
-                />
-              </div>
-            )}
-            {Object.keys(scrapeStatus.channel_progress).length > 0 && (
+            <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "var(--bg-elevated)" }}>
+              <div
+                className="h-full rounded-full transition-all duration-500"
+                style={{
+                  background: "var(--turquoise)",
+                  width: `${scrapeStatus.channels_total > 0 ? (scrapeStatus.channels_done / scrapeStatus.channels_total) * 100 : 0}%`,
+                }}
+              />
+            </div>
+            {scrapeStatus.channel_progress && Object.keys(scrapeStatus.channel_progress).length > 0 && (
               <div className="flex flex-wrap gap-2">
-                {Object.entries(scrapeStatus.channel_progress).map(([name, count]) => (
+                {Object.entries(scrapeStatus.channel_progress).map(([ch, count]) => (
                   <span
-                    key={name}
-                    className="text-[10px] px-2 py-0.5 rounded-md font-mono"
+                    key={ch}
+                    className="text-[10px] px-2 py-0.5 rounded-full font-mono"
                     style={{
-                      background: count === -1 ? "rgba(255, 77, 106, 0.1)" : "rgba(0, 212, 170, 0.08)",
-                      color: count === -1 ? "var(--red)" : "var(--text-secondary)",
+                      background: ch === scrapeStatus.current_channel
+                        ? "rgba(0, 212, 170, 0.15)"
+                        : "rgba(255,255,255,0.04)",
+                      color: ch === scrapeStatus.current_channel
+                        ? "var(--turquoise)"
+                        : "var(--text-tertiary)",
+                      border: `1px solid ${ch === scrapeStatus.current_channel ? "rgba(0, 212, 170, 0.3)" : "rgba(255,255,255,0.06)"}`,
                     }}
                   >
-                    {name}: {count === -1 ? "error" : `${count} videos`}
+                    {ch}: {count}
                   </span>
                 ))}
               </div>
@@ -365,8 +385,8 @@ export default function CompetitorsPage() {
         </motion.div>
       )}
 
-      {/* Scrape status banner (finished) */}
-      {scrapeFinished && !scrapeStatus?.error && scrapeStatus?.videos_found != null && (
+      {/* Scrape completed banner */}
+      {scrapeFinished && !scrapeStatus?.error && scrapeStatus?.videos_found != null && !scrapeRunning && (
         <motion.div variants={item}>
           <div
             className="rounded-xl px-4 py-2.5 text-sm flex items-center justify-between"
@@ -387,7 +407,7 @@ export default function CompetitorsPage() {
           </div>
         </motion.div>
       )}
-      {scrapeStatus?.error && !scrapeRunning && (
+      {scrapeStatus?.error && (
         <motion.div variants={item}>
           <ScrapeErrorLog error={scrapeStatus.error} lastRun={scrapeStatus.last_run} />
         </motion.div>
@@ -443,29 +463,17 @@ export default function CompetitorsPage() {
       <motion.div variants={item} className="flex items-center gap-3 flex-wrap">
         <div className="flex items-center gap-2">
           <Filter size={14} style={{ color: "var(--text-tertiary)" }} />
-          <FilterSelect
-            options={[
-              { value: "all", label: `All Channels (${totalVideos})` },
-              ...channelNames.map((name) => ({ value: name, label: name })),
-            ]}
-            value={channelFilter}
-            onChange={handleFilterChange}
-          />
+          <FilterSelect options={filterOptions} value={channelFilter} onChange={setChannelFilter} />
         </div>
         <FilterSelect
-          options={[
-            { value: "vph_desc", label: "Sort: VPH (high)" },
-            { value: "vph_asc", label: "Sort: VPH (low)" },
-            { value: "views_desc", label: "Sort: Views" },
-            { value: "published_desc", label: "Sort: Newest" },
-            { value: "scrape_desc", label: "Sort: Recently scraped" },
-          ]}
+          options={SORT_OPTIONS}
           value={sortBy}
-          onChange={handleSortChange}
+          onChange={(v) => setSortBy(v as SortOption)}
         />
         <div className="flex-1" />
         <span className="text-xs font-body" style={{ color: "var(--text-tertiary)" }}>
           {totalVideos} video{totalVideos !== 1 ? "s" : ""}
+          {totalPages > 1 && ` · Page ${page + 1}/${totalPages}`}
         </span>
       </motion.div>
 
@@ -500,7 +508,7 @@ export default function CompetitorsPage() {
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
-                    if (confirm(`Remove "${displayName}" from competitors?`)) {
+                    if (confirm(`Remove "${displayName}" and all its videos?`)) {
                       deleteChannelMutation.mutate(ch.id);
                       if (isActive) setChannelFilter("all");
                     }
@@ -523,65 +531,66 @@ export default function CompetitorsPage() {
           className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"
         >
           {videos.map((video) => {
-            const videoId = video.video_id || video.url?.match(/(?:v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/)?.[1];
-            const thumbUrl = video.thumbnail_url || (videoId ? `https://img.youtube.com/vi/${videoId}/hqdefault.jpg` : null);
+            const thumbUrl = video.thumbnail_url
+              || (video.video_id ? `https://img.youtube.com/vi/${video.video_id}/mqdefault.jpg` : null);
             return (
-              <motion.div
-                key={video.id}
-                whileHover={{ scale: 1.02, y: -4 }}
-                transition={{ type: "spring", stiffness: 300, damping: 25 }}
-                className="rounded-xl overflow-hidden cursor-pointer"
-                style={{ background: "var(--bg-card)", border: "1px solid var(--border)" }}
-                onClick={() => openModelModal(video)}
-              >
-                {thumbUrl ? (
-                  <img src={thumbUrl} alt={video.title} className="w-full aspect-video object-cover" />
-                ) : (
-                  <div
-                    className="w-full aspect-video flex items-center justify-center"
-                    style={{ background: "var(--bg-card-hover)" }}
-                  >
-                    <span className="text-3xl font-bold" style={{ color: "var(--text-muted)" }}>
-                      {video.title?.[0] || "?"}
-                    </span>
-                  </div>
-                )}
-                <div className="p-4 space-y-3">
-                  <h3 className="text-sm font-semibold leading-tight line-clamp-2" style={{ color: "var(--text-primary)" }}>
-                    {video.title}
-                  </h3>
-                  <div className="flex gap-2 flex-wrap">
-                    <div className="px-2.5 py-1 rounded-md text-xs font-bold" style={{ background: "rgba(212, 168, 68, 0.15)", color: "var(--amber)" }}>
+              <GlassCard key={video.id} className="!p-0 overflow-hidden group">
+                {thumbUrl && (
+                  <div className="relative aspect-video overflow-hidden">
+                    <img
+                      src={thumbUrl}
+                      alt=""
+                      className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                    />
+                    <div
+                      className="absolute bottom-2 right-2 text-[10px] font-mono px-1.5 py-0.5 rounded"
+                      style={{ background: "rgba(0,0,0,0.7)", color: "#fff" }}
+                    >
                       {formatNumber(video.vph)} VPH
                     </div>
-                    <div className="px-2.5 py-1 rounded-md text-xs font-medium" style={{ background: "rgba(26, 138, 122, 0.15)", color: "var(--teal)" }}>
-                      {formatNumber(video.views)} views
-                    </div>
-                    {video.hours_old > 0 && (
-                      <div className="px-2.5 py-1 rounded-md text-xs font-medium" style={{ background: "rgba(255,255,255,0.04)", color: "var(--text-secondary)" }}>
-                        {Math.round(video.hours_old)}h old
-                      </div>
-                    )}
                   </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs truncate" style={{ color: "var(--text-muted)" }}>
-                      {video.channel}
-                    </span>
-                    {video.duration_seconds != null && (
-                      <span className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>
-                        {Math.floor(video.duration_seconds / 60)}:{String(Math.floor(video.duration_seconds % 60)).padStart(2, "0")}
-                      </span>
-                    )}
-                  </div>
-                  <button
-                    className="w-full py-2 rounded-lg text-sm font-medium transition-colors"
-                    style={{ background: "rgba(212, 168, 68, 0.1)", color: "var(--amber)", border: "1px solid rgba(212, 168, 68, 0.3)" }}
-                    onClick={(e) => { e.stopPropagation(); openModelModal(video); }}
+                )}
+                <div className="p-3 space-y-2">
+                  <p
+                    className="text-sm font-medium leading-tight line-clamp-2"
+                    style={{ color: "var(--text-primary)" }}
                   >
-                    Model This &rarr;
-                  </button>
+                    {video.title}
+                  </p>
+                  <div className="flex items-center gap-2 text-[11px]" style={{ color: "var(--text-secondary)" }}>
+                    <span>{video.channel}</span>
+                    <span style={{ color: "var(--text-tertiary)" }}>&middot;</span>
+                    <span>{formatNumber(video.views)} views</span>
+                    {video.hours_old != null && (
+                      <>
+                        <span style={{ color: "var(--text-tertiary)" }}>&middot;</span>
+                        <span>{video.hours_old < 24 ? `${Math.round(video.hours_old)}h` : `${Math.round(video.hours_old / 24)}d`} old</span>
+                      </>
+                    )}
+                  </div>
+                  <div className="flex items-center justify-between pt-1">
+                    <div className="flex items-center gap-2">
+                      <StatusPill
+                        label={`${formatNumber(video.vph)} VPH`}
+                        color={video.vph >= 100 ? "turquoise" : video.vph >= 30 ? "gold" : "slate"}
+                        size="sm"
+                      />
+                      {video.likes != null && video.likes > 0 && (
+                        <span className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>
+                          {formatNumber(video.likes)} likes
+                        </span>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => openModelModal(video)}
+                      className="text-[11px] px-3 py-1.5 rounded-lg font-medium transition-opacity hover:opacity-80"
+                      style={{ background: "var(--amber)", color: "var(--bg-primary)" }}
+                    >
+                      Model This
+                    </button>
+                  </div>
                 </div>
-              </motion.div>
+              </GlassCard>
             );
           })}
         </motion.div>
@@ -603,21 +612,21 @@ export default function CompetitorsPage() {
           <button
             onClick={() => setPage((p) => Math.max(0, p - 1))}
             disabled={page === 0}
-            className="p-2 rounded-lg transition-colors disabled:opacity-30"
-            style={{ border: "1px solid var(--border)", color: "var(--text-secondary)" }}
+            className="flex items-center gap-1 text-sm px-3 py-2 rounded-lg font-medium transition-opacity disabled:opacity-30"
+            style={{ background: "var(--bg-elevated)", color: "var(--text-secondary)", border: "1px solid var(--border)" }}
           >
-            <ChevronLeft size={16} />
+            <ChevronLeft size={14} /> Prev
           </button>
-          <span className="text-sm font-mono" style={{ color: "var(--text-secondary)" }}>
+          <span className="text-sm font-mono" style={{ color: "var(--text-tertiary)" }}>
             {page + 1} / {totalPages}
           </span>
           <button
             onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
             disabled={page >= totalPages - 1}
-            className="p-2 rounded-lg transition-colors disabled:opacity-30"
-            style={{ border: "1px solid var(--border)", color: "var(--text-secondary)" }}
+            className="flex items-center gap-1 text-sm px-3 py-2 rounded-lg font-medium transition-opacity disabled:opacity-30"
+            style={{ background: "var(--bg-elevated)", color: "var(--text-secondary)", border: "1px solid var(--border)" }}
           >
-            <ChevronRight size={16} />
+            Next <ChevronRight size={14} />
           </button>
         </motion.div>
       )}
@@ -631,18 +640,19 @@ export default function CompetitorsPage() {
       >
         {modelVideo && (
           <div className="space-y-4">
-            {/* Source info */}
             <div
               className="rounded-xl p-3 flex items-center gap-3"
               style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}
             >
               {(() => {
-                const vid = modelVideo.video_id || modelVideo.url?.match(
-                  /(?:v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/
-                )?.[1];
-                const thumb = modelVideo.thumbnail_url || (vid ? `https://img.youtube.com/vi/${vid}/mqdefault.jpg` : null);
-                return thumb ? (
-                  <img src={thumb} alt="" className="w-24 h-14 rounded-lg object-cover shrink-0" />
+                const thumbUrl = modelVideo.thumbnail_url
+                  || (modelVideo.video_id ? `https://img.youtube.com/vi/${modelVideo.video_id}/mqdefault.jpg` : null);
+                return thumbUrl ? (
+                  <img
+                    src={thumbUrl}
+                    alt=""
+                    className="w-24 h-14 rounded-lg object-cover shrink-0"
+                  />
                 ) : null;
               })()}
               <div className="min-w-0">
@@ -656,22 +666,6 @@ export default function CompetitorsPage() {
               </div>
             </div>
 
-            {/* Description preview */}
-            {modelVideo.description && (
-              <div
-                className="rounded-lg p-3 text-xs leading-relaxed font-body max-h-32 overflow-y-auto"
-                style={{
-                  background: "rgba(255,255,255,0.03)",
-                  border: "1px solid rgba(255,255,255,0.06)",
-                  color: "var(--text-secondary)",
-                }}
-              >
-                {modelVideo.description.slice(0, 500)}
-                {modelVideo.description.length > 500 && "..."}
-              </div>
-            )}
-
-            {/* Form fields */}
             <div>
               <label
                 className="block text-[11px] font-medium uppercase tracking-wider mb-1"
@@ -735,7 +729,6 @@ export default function CompetitorsPage() {
               />
             </div>
 
-            {/* Source URL (read-only) */}
             {modelVideo.url && (
               <div>
                 <label
@@ -750,7 +743,6 @@ export default function CompetitorsPage() {
               </div>
             )}
 
-            {/* Actions */}
             <div className="flex gap-3 pt-2">
               <button
                 onClick={() => setModelVideo(null)}
