@@ -201,6 +201,7 @@ export default function VideosPage() {
   const [newGuidance, setNewGuidance] = useState("");
   const [newVisualStyle, setNewVisualStyle] = useState("");
   const [newAccentColor, setNewAccentColor] = useState("");
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   // Tab order (drag-to-reorder with persistence)
   const [tabOrder, setTabOrder] = useState<TabId[]>(DEFAULT_TAB_ORDER);
@@ -734,16 +735,17 @@ export default function VideosPage() {
       {/* === NEW VIDEO MODAL === */}
       <Modal open={showCreateModal} onClose={() => setShowCreateModal(false)} title="New Video" size="md">
         <div className="space-y-4">
+          {/* Primary: Topic / Title */}
           <div>
             <label className="block text-xs font-medium mb-1.5" style={{ color: "var(--text-secondary)" }}>
-              Title <span style={{ color: "var(--red)" }}>*</span>
+              What&apos;s your video about? <span style={{ color: "var(--red)" }}>*</span>
             </label>
             <input
               type="text"
               value={newTitle}
               onChange={(e) => setNewTitle(e.target.value)}
               placeholder="e.g. Why China's Dollar Trap Changes Everything"
-              className="w-full px-3 py-2.5 rounded-lg text-sm font-body outline-none"
+              className="w-full px-3 py-3 rounded-lg text-sm font-body outline-none"
               style={{ background: "var(--bg-elevated)", color: "var(--text-primary)", border: "1px solid var(--border)" }}
               onFocus={(e) => (e.target.style.borderColor = "var(--turquoise)")}
               onBlur={(e) => (e.target.style.borderColor = "var(--border)")}
@@ -751,130 +753,149 @@ export default function VideosPage() {
             />
           </div>
 
-          <div>
-            <label className="block text-xs font-medium mb-1.5" style={{ color: "var(--text-secondary)" }}>
-              Source URL <span style={{ color: "var(--text-tertiary)" }}>(optional)</span>
-            </label>
-            <input
-              type="text"
-              value={newSourceUrl}
-              onChange={(e) => setNewSourceUrl(e.target.value)}
-              placeholder="https://..."
-              className="w-full px-3 py-2.5 rounded-lg text-sm font-body outline-none"
-              style={{ background: "var(--bg-elevated)", color: "var(--text-primary)", border: "1px solid var(--border)" }}
+          {/* Advanced Options Toggle */}
+          <button
+            type="button"
+            onClick={() => setShowAdvanced(!showAdvanced)}
+            className="flex items-center gap-1.5 text-xs font-medium transition-colors"
+            style={{ color: "var(--text-tertiary)" }}
+          >
+            <ChevronRight
+              size={12}
+              style={{ transform: showAdvanced ? "rotate(90deg)" : "rotate(0)", transition: "transform 0.2s" }}
             />
-          </div>
+            Advanced options
+          </button>
 
-          <div>
-            <label className="block text-xs font-medium mb-1.5" style={{ color: "var(--text-secondary)" }}>
-              Angle / Thesis <span style={{ color: "var(--text-tertiary)" }}>(optional)</span>
-            </label>
-            <textarea
-              value={newGuidance}
-              onChange={(e) => setNewGuidance(e.target.value)}
-              placeholder="What angle should the script take? e.g. Focus on the economic consequences, use a contrarian tone..."
-              rows={3}
-              className="w-full px-3 py-2.5 rounded-lg text-sm font-body outline-none resize-none"
-              style={{ background: "var(--bg-elevated)", color: "var(--text-primary)", border: "1px solid var(--border)" }}
-            />
-          </div>
+          {/* Advanced Options (collapsed by default) */}
+          {showAdvanced && (
+            <div className="space-y-4 pt-1" style={{ borderTop: "1px solid var(--border-subtle)" }}>
+              <div>
+                <label className="block text-xs font-medium mb-1.5" style={{ color: "var(--text-secondary)" }}>
+                  Source URL <span style={{ color: "var(--text-tertiary)" }}>(optional)</span>
+                </label>
+                <input
+                  type="text"
+                  value={newSourceUrl}
+                  onChange={(e) => setNewSourceUrl(e.target.value)}
+                  placeholder="https://..."
+                  className="w-full px-3 py-2.5 rounded-lg text-sm font-body outline-none"
+                  style={{ background: "var(--bg-elevated)", color: "var(--text-primary)", border: "1px solid var(--border)" }}
+                />
+              </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-medium mb-1.5" style={{ color: "var(--text-secondary)" }}>
-                Framework
-              </label>
-              <select
-                value={newFramework}
-                onChange={(e) => setNewFramework(e.target.value)}
-                className="w-full px-3 py-2.5 rounded-lg text-sm font-body outline-none"
-                style={{ background: "var(--bg-elevated)", color: "var(--text-primary)", border: "1px solid var(--border)" }}
-              >
-                <option value="">None</option>
-                <option value="Machiavellian Power Analysis">Machiavellian Power</option>
-                <option value="Systems Thinking">Systems Thinking</option>
-                <option value="Game Theory">Game Theory</option>
-                <option value="Historical Parallel">Historical Parallel</option>
-                <option value="Economic Analysis">Economic Analysis</option>
-              </select>
+              <div>
+                <label className="block text-xs font-medium mb-1.5" style={{ color: "var(--text-secondary)" }}>
+                  Angle / Thesis
+                </label>
+                <textarea
+                  value={newGuidance}
+                  onChange={(e) => setNewGuidance(e.target.value)}
+                  placeholder="What angle should the script take?"
+                  rows={2}
+                  className="w-full px-3 py-2.5 rounded-lg text-sm font-body outline-none resize-none"
+                  style={{ background: "var(--bg-elevated)", color: "var(--text-primary)", border: "1px solid var(--border)" }}
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-medium mb-1.5" style={{ color: "var(--text-secondary)" }}>
+                    Framework
+                  </label>
+                  <select
+                    value={newFramework}
+                    onChange={(e) => setNewFramework(e.target.value)}
+                    className="w-full px-3 py-2.5 rounded-lg text-sm font-body outline-none"
+                    style={{ background: "var(--bg-elevated)", color: "var(--text-primary)", border: "1px solid var(--border)" }}
+                  >
+                    <option value="">None</option>
+                    <option value="Machiavellian Power Analysis">Machiavellian Power</option>
+                    <option value="Systems Thinking">Systems Thinking</option>
+                    <option value="Game Theory">Game Theory</option>
+                    <option value="Historical Parallel">Historical Parallel</option>
+                    <option value="Economic Analysis">Economic Analysis</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium mb-1.5" style={{ color: "var(--text-secondary)" }}>
+                    Video Length
+                  </label>
+                  <select
+                    value={newLength}
+                    onChange={(e) => setNewLength(Number(e.target.value))}
+                    className="w-full px-3 py-2.5 rounded-lg text-sm font-body outline-none"
+                    style={{ background: "var(--bg-elevated)", color: "var(--text-primary)", border: "1px solid var(--border)" }}
+                  >
+                    {[5, 8, 10, 12, 15, 20].map((n) => (
+                      <option key={n} value={n}>{n} minutes</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Visual Style */}
+              <div>
+                <label className="block text-xs font-medium mb-2" style={{ color: "var(--text-secondary)" }}>
+                  Visual Style
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { id: "cinematic_illustration", label: "Cinematic Illustration", desc: "Editorial, warm tones" },
+                    { id: "holographic_hud", label: "Holographic HUD", desc: "Data overlays, neon" },
+                    { id: "cinematic_dossier", label: "Cinematic Dossier", desc: "Photorealistic, dramatic" },
+                    { id: "clay_mannequin", label: "Clay Mannequin", desc: "3D clay, faceless figures" },
+                  ].map((style) => (
+                    <button
+                      key={style.id}
+                      type="button"
+                      onClick={() => setNewVisualStyle(newVisualStyle === style.id ? "" : style.id)}
+                      className="text-left px-3 py-2.5 rounded-lg transition-all text-xs"
+                      style={{
+                        background: newVisualStyle === style.id ? "rgba(0,212,170,0.1)" : "var(--bg-elevated)",
+                        border: `1px solid ${newVisualStyle === style.id ? "var(--turquoise)" : "var(--border)"}`,
+                        color: "var(--text-primary)",
+                      }}
+                    >
+                      <div className="font-medium">{style.label}</div>
+                      <div style={{ color: "var(--text-tertiary)", fontSize: "10px" }}>{style.desc}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Accent Color */}
+              <div>
+                <label className="block text-xs font-medium mb-2" style={{ color: "var(--text-secondary)" }}>
+                  Accent Color
+                </label>
+                <div className="flex gap-2">
+                  {[
+                    { id: "cold teal", hex: "#1A8A7A", label: "Teal" },
+                    { id: "muted crimson", hex: "#8B2252", label: "Crimson" },
+                    { id: "warm amber", hex: "#D4A844", label: "Amber" },
+                    { id: "muted green", hex: "#4A7A5A", label: "Green" },
+                  ].map((c) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => setNewAccentColor(newAccentColor === c.id ? "" : c.id)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all text-xs"
+                      style={{
+                        background: newAccentColor === c.id ? "rgba(255,255,255,0.08)" : "var(--bg-elevated)",
+                        border: `1px solid ${newAccentColor === c.id ? c.hex : "var(--border)"}`,
+                        color: "var(--text-primary)",
+                      }}
+                    >
+                      <span className="inline-block w-3 h-3 rounded-full" style={{ background: c.hex }} />
+                      {c.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
-
-            <div>
-              <label className="block text-xs font-medium mb-1.5" style={{ color: "var(--text-secondary)" }}>
-                Video Length
-              </label>
-              <select
-                value={newLength}
-                onChange={(e) => setNewLength(Number(e.target.value))}
-                className="w-full px-3 py-2.5 rounded-lg text-sm font-body outline-none"
-                style={{ background: "var(--bg-elevated)", color: "var(--text-primary)", border: "1px solid var(--border)" }}
-              >
-                {[5, 8, 10, 12, 15, 20].map((n) => (
-                  <option key={n} value={n}>{n} minutes</option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          {/* Visual Style */}
-          <div>
-            <label className="block text-xs font-medium mb-2" style={{ color: "var(--text-secondary)" }}>
-              Visual Style
-            </label>
-            <div className="grid grid-cols-2 gap-2">
-              {[
-                { id: "cinematic_illustration", label: "Cinematic Illustration", desc: "Editorial, warm tones" },
-                { id: "holographic_hud", label: "Holographic HUD", desc: "Data overlays, neon" },
-                { id: "cinematic_dossier", label: "Cinematic Dossier", desc: "Photorealistic, dramatic" },
-                { id: "clay_mannequin", label: "Clay Mannequin", desc: "3D clay, faceless figures" },
-              ].map((style) => (
-                <button
-                  key={style.id}
-                  type="button"
-                  onClick={() => setNewVisualStyle(newVisualStyle === style.id ? "" : style.id)}
-                  className="text-left px-3 py-2.5 rounded-lg transition-all text-xs"
-                  style={{
-                    background: newVisualStyle === style.id ? "rgba(0,212,170,0.1)" : "var(--bg-elevated)",
-                    border: `1px solid ${newVisualStyle === style.id ? "var(--turquoise)" : "var(--border)"}`,
-                    color: "var(--text-primary)",
-                  }}
-                >
-                  <div className="font-medium">{style.label}</div>
-                  <div style={{ color: "var(--text-tertiary)", fontSize: "10px" }}>{style.desc}</div>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Accent Color */}
-          <div>
-            <label className="block text-xs font-medium mb-2" style={{ color: "var(--text-secondary)" }}>
-              Accent Color
-            </label>
-            <div className="flex gap-2">
-              {[
-                { id: "cold teal", hex: "#1A8A7A", label: "Teal" },
-                { id: "muted crimson", hex: "#8B2252", label: "Crimson" },
-                { id: "warm amber", hex: "#D4A844", label: "Amber" },
-                { id: "muted green", hex: "#4A7A5A", label: "Green" },
-              ].map((c) => (
-                <button
-                  key={c.id}
-                  type="button"
-                  onClick={() => setNewAccentColor(newAccentColor === c.id ? "" : c.id)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all text-xs"
-                  style={{
-                    background: newAccentColor === c.id ? "rgba(255,255,255,0.08)" : "var(--bg-elevated)",
-                    border: `1px solid ${newAccentColor === c.id ? c.hex : "var(--border)"}`,
-                    color: "var(--text-primary)",
-                  }}
-                >
-                  <span className="inline-block w-3 h-3 rounded-full" style={{ background: c.hex }} />
-                  {c.label}
-                </button>
-              ))}
-            </div>
-          </div>
+          )}
 
           <button
             onClick={handleCreate}
