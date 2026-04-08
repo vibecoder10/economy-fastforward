@@ -44,6 +44,8 @@ import {
   type VideoSummary,
   type DashboardSummary,
   type ActivityEntry,
+  getUsage,
+  type UsageLimits,
 } from "@/lib/api";
 import { PIPELINE_STAGES, COMPLETED_STATUSES, getStageLabel } from "@/lib/constants";
 import { formatCost, timeAgo } from "@/lib/utils";
@@ -620,6 +622,11 @@ function Dashboard() {
     queryFn: getPendingReview,
   });
 
+  const { data: usage } = useQuery({
+    queryKey: ["billing-usage"],
+    queryFn: getUsage,
+  });
+
   const isLoading = summaryLoading || videosLoading;
 
   // Derived stats
@@ -739,6 +746,78 @@ function Dashboard() {
           icon={TrendingUp}
         />
       </motion.div>
+
+      {/* Usage Meter + Quick Actions */}
+      {usage && (
+        <motion.div variants={item} className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* Videos this month */}
+          <GlassCard className="!p-4">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[11px] uppercase tracking-wider font-semibold" style={{ color: "var(--text-secondary)" }}>
+                Videos
+              </span>
+              <span className="text-xs font-mono" style={{ color: "var(--text-tertiary)" }}>
+                {usage.usage.videos_created} / {usage.limits.videos_per_month}
+              </span>
+            </div>
+            <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.06)" }}>
+              <div
+                className="h-full rounded-full transition-all"
+                style={{
+                  width: `${Math.min(100, (usage.usage.videos_created / Math.max(1, usage.limits.videos_per_month)) * 100)}%`,
+                  background: usage.usage.videos_created >= usage.limits.videos_per_month ? "var(--red)" : "var(--turquoise)",
+                }}
+              />
+            </div>
+          </GlassCard>
+
+          {/* Render minutes */}
+          <GlassCard className="!p-4">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[11px] uppercase tracking-wider font-semibold" style={{ color: "var(--text-secondary)" }}>
+                Render Minutes
+              </span>
+              <span className="text-xs font-mono" style={{ color: "var(--text-tertiary)" }}>
+                {usage.usage.render_minutes} / {usage.limits.render_minutes}
+              </span>
+            </div>
+            <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.06)" }}>
+              <div
+                className="h-full rounded-full transition-all"
+                style={{
+                  width: `${Math.min(100, (usage.usage.render_minutes / Math.max(1, usage.limits.render_minutes)) * 100)}%`,
+                  background: usage.usage.render_minutes >= usage.limits.render_minutes ? "var(--red)" : "var(--turquoise)",
+                }}
+              />
+            </div>
+          </GlassCard>
+
+          {/* Quick actions */}
+          <GlassCard className="!p-4">
+            <span className="text-[11px] uppercase tracking-wider font-semibold block mb-2" style={{ color: "var(--text-secondary)" }}>
+              Quick Actions
+            </span>
+            <div className="flex gap-2">
+              {pendingCount > 0 && (
+                <button
+                  onClick={() => router.push("/review")}
+                  className="flex-1 py-2 rounded-lg text-xs font-medium transition-colors hover:brightness-110"
+                  style={{ background: "rgba(255,120,73,0.15)", color: "var(--orange)" }}
+                >
+                  Review ({pendingCount})
+                </button>
+              )}
+              <button
+                onClick={() => router.push("/pipeline")}
+                className="flex-1 py-2 rounded-lg text-xs font-medium transition-colors hover:brightness-110"
+                style={{ background: "rgba(0,212,170,0.15)", color: "var(--turquoise)" }}
+              >
+                + New Video
+              </button>
+            </div>
+          </GlassCard>
+        </motion.div>
+      )}
 
       {/* Pipeline Stage Tracker */}
       {stageDistribution.length > 0 && (
