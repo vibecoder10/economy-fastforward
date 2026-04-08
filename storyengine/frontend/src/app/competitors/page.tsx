@@ -13,6 +13,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Modal } from "@/components/ui/modal";
 import { NicheSetup } from "@/components/autopilot/niche-setup";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { ErrorCard } from "@/components/ui/ErrorCard";
 import {
   getNicheConfig,
   getNicheChannels,

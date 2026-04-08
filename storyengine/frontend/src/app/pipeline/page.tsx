@@ -1,4 +1,5 @@
 "use client";
+import { Spinner } from "@/components/ui/spinner";
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
@@ -19,6 +20,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { ErrorCard } from "@/components/ui/ErrorCard";
 import {
   getVideos, createVideo, deleteVideo,
   getDiscoveryIdeas, getDiscoveryStatus, refreshDiscoveryIdeas,
@@ -249,7 +251,7 @@ export default function VideosPage() {
   const [editLength, setEditLength] = useState(15);
 
   // Data
-  const { data: videos, isLoading: videosLoading } = useQuery({
+  const { data: videos, isLoading: videosLoading, error: videosError } = useQuery({
     queryKey: ["videos"],
     queryFn: () => getVideos(),
   });
@@ -539,8 +541,12 @@ export default function VideosPage() {
         <>
           {videosLoading && (
             <div className="flex items-center justify-center py-20">
-              <Loader2 size={24} className="animate-spin" style={{ color: "var(--turquoise)" }} />
+              <Spinner size="lg" />
             </div>
+          )}
+
+          {videosError && !videosLoading && (
+            <ErrorCard message={(videosError as Error).message} onRetry={() => window.location.reload()} />
           )}
 
           {!videosLoading && (tab === "active" ? activeVideos : publishedVideos).length === 0 && (

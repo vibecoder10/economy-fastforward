@@ -1,4 +1,5 @@
 "use client";
+import { Spinner } from "@/components/ui/spinner";
 
 import { useState } from "react";
 import { motion } from "framer-motion";
@@ -17,6 +18,7 @@ import { GlassCard } from "@/components/ui/GlassCard";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { Modal } from "@/components/ui/modal";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { ErrorCard } from "@/components/ui/ErrorCard";
 import { timeAgo } from "@/lib/utils";
 
 const container = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.08 } } };
@@ -46,7 +48,7 @@ export default function DiscoveryPage() {
   const [editTitleIndex, setEditTitleIndex] = useState(0);
   const [editLength, setEditLength] = useState(15);
 
-  const { data: ideas, isLoading } = useQuery({
+  const { data: ideas, isLoading, error: ideasError } = useQuery({
     queryKey: ["discoveryIdeas", statusFilter],
     queryFn: () => getDiscoveryIdeas(statusFilter || undefined),
   });
@@ -168,8 +170,12 @@ export default function DiscoveryPage() {
       {/* Idea Grid */}
       {isLoading && (
         <div className="flex items-center justify-center py-20">
-          <Loader2 size={24} className="animate-spin" style={{ color: "var(--turquoise)" }} />
+          <Spinner size="lg" />
         </div>
+      )}
+
+      {ideasError && !isLoading && (
+        <ErrorCard message={(ideasError as Error).message} onRetry={() => window.location.reload()} />
       )}
 
       {!isLoading && (!ideas || ideas.length === 0) && (

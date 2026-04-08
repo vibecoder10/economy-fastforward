@@ -1,10 +1,12 @@
 "use client";
+import { Spinner } from "@/components/ui/spinner";
 
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getPendingReview, approveAsset, rejectAsset, advanceVideo, approveStoryboard, rejectStoryboard, type ReviewItem } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { ErrorCard } from "@/components/ui/ErrorCard";
 import { FileText, Image, Palette, LayoutGrid, ChevronRight, Check, X } from "lucide-react";
 
 type ReviewTab = "scripts" | "storyboards" | "thumbnails" | "images";
@@ -16,7 +18,7 @@ export default function ReviewPage() {
   const [pendingId, setPendingId] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error: reviewError } = useQuery({
     queryKey: ["pending-review"],
     queryFn: getPendingReview,
   });
@@ -107,11 +109,13 @@ export default function ReviewPage() {
 
       {/* Loading */}
       {isLoading && (
-        <div className="space-y-2">
-          {[...Array(3)].map((_, i) => (
-            <div key={i} className="h-20 animate-pulse rounded-xl bg-[var(--surface)]" />
-          ))}
+        <div className="flex items-center justify-center py-16">
+          <Spinner size="lg" />
         </div>
+      )}
+
+      {reviewError && !isLoading && (
+        <ErrorCard message={(reviewError as Error).message} onRetry={() => window.location.reload()} />
       )}
 
       {/* Empty state */}

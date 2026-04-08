@@ -7,6 +7,7 @@ import { getCalendarVideos, CalendarVideo } from "@/lib/api";
 import { getStageLabel, getStageColor } from "@/lib/constants";
 import { Spinner } from "@/components/ui/spinner";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { ErrorCard } from "@/components/ui/ErrorCard";
 import { ChevronLeft, ChevronRight, CalendarDays } from "lucide-react";
 import { motion } from "framer-motion";
 
