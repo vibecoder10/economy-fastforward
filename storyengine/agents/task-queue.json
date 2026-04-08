@@ -3219,9 +3219,16 @@
           "id": "T29-002",
           "title": "QA verify: plan limits block video creation when over limit, usage increments correctly",
           "role": "qa",
-          "status": "pending",
+          "status": "done",
           "depends_on": "T29-001",
-          "description": "Verify: (1) GET /api/billing/usage returns correct shape. (2) POST /api/videos with free plan and 2+ videos returns 402 with upgrade_url. (3) Video creation increments videos_created. (4) Render with exhausted render_minutes returns 402. (5) tenant_usage table created by migration. (6) tsc --noEmit passes."
+          "description": "Verify: (1) GET /api/billing/usage returns correct shape. (2) POST /api/videos with free plan and 2+ videos returns 402 with upgrade_url. (3) Video creation increments videos_created. (4) Render with exhausted render_minutes returns 402. (5) tenant_usage table created by migration. (6) tsc --noEmit passes.",
+          "started_at": "2026-04-08T04:15:00Z",
+          "completed_at": "2026-04-08T04:30:00Z",
+          "assigned_to": "pipeline-tester",
+          "verified": true,
+          "verified_at": "2026-04-08T04:30:00Z",
+          "verified_by": "pipeline-tester",
+          "verification_notes": "PASS (13/13). GET /api/billing/usage returns correct shape. 402 on video limit (15/15) and render limit (120/120). Usage increments on creation (0→1). Trial gives free users pro limits. All 4 enforcement points work. Migrations 024-026 applied. tsc 0 errors."
         },
         {
           "id": "T29-003",
