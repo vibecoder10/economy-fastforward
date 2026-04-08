@@ -17,3 +17,6 @@
 - PipelineStepper replaced ProgressStepper in video detail page — 13 stages vs old 6 steps. Remove old getStepFromStatus/getCompletedSteps/STEP_LABELS when cleaning up.
 - Multiple Claude agents run concurrently — files can be overwritten mid-session. Use bash cat > file for atomic writes and commit immediately. The Edit/Write tools are vulnerable to concurrent overwrites.
 - EmptyState and ErrorCard live in components/ui/. EmptyState uses GlassCard+ActionButton (PRD requirement). Use them for all empty/error states instead of inline JSX.
+- Linter strips unused imports between sequential Edit calls. Add import AND usage in a single edit to avoid the race condition.
+- PRD 3 tasks 2-5 (usage thresholds, advanced options, toast, ErrorCard wiring) were all already implemented before the PRD was created — always check existing code before building.
+- Google Drive video URLs need conversion for inline playback: extract file ID from /file/d/ID/view, use /uc?export=download&id=ID. Add onError fallback for CORS/expired URLs.
